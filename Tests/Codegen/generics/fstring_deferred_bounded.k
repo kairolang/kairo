@@ -1,7 +1,7 @@
 // An f-string hole on a bounded parameter's value whose bounds grant no
 // string (`<T impl Sized>`, Sized with no `repr` / `op as`) is formatted per
 // instance: the body is one C++ template, and the put is picked at each
-// instance from the value's type (LowerTargets::fmt_dyn). It used to be
+// instance from the value's type (LowerTargets::fmt_dyn). It is not
 // R051E "formatting a 'T' needs a bound that declares ...". A bound that
 // DOES grant `repr` still goes through its witness.
 

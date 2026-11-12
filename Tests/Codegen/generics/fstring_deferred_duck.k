@@ -2,8 +2,8 @@
 // of type T, and a member result reached through T (the CRTP mixin's
 // `self.dyn()->tu.str(...)`, whose type only the instance knows). The body
 // is emitted once, as a C++ template, and the put is picked at each
-// instance from the value's C++ type (LowerTargets::fmt_dyn). Both used to
-// be SC080E "an interpolation in a generic body needs a concrete type".
+// instance from the value's C++ type (LowerTargets::fmt_dyn). Neither is
+// SC080E "an interpolation in a generic body needs a concrete type".
 
 import std::io::println
 

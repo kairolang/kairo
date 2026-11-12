@@ -3,7 +3,7 @@
 // cannot see that the instance's user operator panics. Before only
 // member calls were wrapped: `a + b` on a type whose `op +` panics
 // compiled and dropped the error. Binary, unary and compound operators on a
-// duck operand now go out as `(::__kairo_nopanic(), a + b)` (a compound one
+// duck operand go out as `(::__kairo_nopanic(), a + b)` (a compound one
 // on T inside the dependent form's lambda), and the instance with a
 // panicking operator is an error naming the site (Inputs/duck_op_boom.k).
 // Non-panicking operators -- a user one, an integer's, nested so that the

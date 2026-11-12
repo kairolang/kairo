@@ -6050,8 +6050,14 @@ pub class InterfaceEmitter {
         var is_conv   = m->is_operator && m->op_token[0].kind == TokenKind::KwAs
         var is_method = m->is_method()
 
+        // Standard attributes before every decl-specifier, as _free_fn_text:
+        // `virtual [[noreturn]]` appertains to the type and clang rejects it.
         if m->panic_result != &null { // Compiler/Spec/Panic.md#the-c-view, as _free_fn_text.
             s += "[[nodiscard]] "
+        }
+
+        if m->is_noreturn {
+            s += "[[noreturn]] "
         }
 
         if !is_method && !is_ctor && !is_dtor {
@@ -6062,10 +6068,6 @@ pub class InterfaceEmitter {
             || m->abi == Declarations::AbiKind::Override
             || m->body_kind == Declarations::FnBodyKind::Virtual {
             s += "virtual "
-        }
-
-        if m->is_noreturn {
-            s += "[[noreturn]] "
         }
 
         s += CXXSpell::fn_attrs(m)
@@ -6153,18 +6155,21 @@ pub class InterfaceEmitter {
             s += CXXSpell::c_linkage(f)
         }
 
-        // The attribute leads the decl-specifiers; between `static` and the
-        // type it is ill-formed.
+        // The standard attributes lead the decl-specifiers: after `static`,
+        // or after a GNU `__attribute__((noinline))` from fn_attrs, clang
+        // reads one as appertaining to the type and rejects it ("'nodiscard'
+        // attribute cannot be applied to types", P320).
         if f->is_noreturn {
             s += "[[noreturn]] "
         }
 
-        s += CXXSpell::fn_attrs(f)
         // A panic result is the error (Compiler/Spec/Panic.md#the-c-view): a C++ caller that drops
         // it drops the error with it.
         if f->panic_result != &null {
             s += "[[nodiscard]] "
         }
+
+        s += CXXSpell::fn_attrs(f)
 
         if ext != &null {
             s += "static "

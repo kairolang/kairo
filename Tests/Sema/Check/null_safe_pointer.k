@@ -2,8 +2,8 @@
 // and nullability), so initializing or assigning one with `&null` is an
 // error; a pointer that may be absent is `*T?`.
 //
-// Was XFAIL on the ticket "[Sema] `&null` into a safe pointer `*T` is not
-// diagnosed". The error is a
+//
+// The error is a
 // placeholder code (SC001E) until the monthly sweep; every position, the
 // note and the fix-it are in null_into_safe_pointer.k.
 

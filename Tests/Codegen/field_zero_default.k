@@ -3,7 +3,7 @@
 // zero-initialized when declared without an initializer"). C++ leaves a
 // scalar member default-initialized, i.e. indeterminate, in any constructor
 // that does not name it: a user constructor with an empty body read stack
-// garbage. Each such field now carries a `{}` default member initializer,
+// garbage. Each such field carries a `{}` default member initializer,
 // so a user constructor, the implicit one, a split one (a const field) and
 // a generic class's all read 0; a nested record without a constructor is
 // zeroed through its own fields; a union's first member is zeroed. The

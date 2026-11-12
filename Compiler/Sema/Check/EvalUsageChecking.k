@@ -863,6 +863,21 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     /// The signature of an eval fn: no `where`, no pointer parameter.
     priv fn _check_eval_fn(self, n: unsafe *Declarations::FunctionDecl) {
         var nm = self.tu.decl_name(unsafe (n as unsafe *Decl))
+        // eval.mdx: a compile-time object is never destroyed, so an eval
+        // destructor never runs. C++ rejects a `consteval` destructor, and
+        // that clang error on the emitted text was all the user saw (P298).
+        if n->is_operator && n->op_token.size() > 0 && n->op_token[0].kind == TokenKind::KwFinally {
+            var b = self.sc->diag->report(
+                DiagID::SC290E,
+                n->range.start,
+                "a destructor cannot be 'eval': a compile-time object is never destroyed",
+            )
+
+            b.first(n->op_token[0].range, "declared 'eval' here")
+            b.emit()
+            return
+        }
+
         if n->where_clause != &null {
             var b = self.sc->diag->report(
                 DiagID::SC187E,

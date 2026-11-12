@@ -2,7 +2,7 @@
 // "underscores are ignored, use freely as separators", `0o77` octal). They
 // were borrowed verbatim: clang read `1_000_000` as 1 with a user-defined
 // literal suffix `_000_000`, and has no `0o` prefix at all. They are spelled
-// from their value now, and keep taking the type they are used at. Plain
+// from their value, and keep taking the type they are used at. Plain
 // decimal, hex and binary bytes are still borrowed as written.
 
 import std::io::println

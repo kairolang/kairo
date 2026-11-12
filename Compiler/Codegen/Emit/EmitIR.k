@@ -2280,6 +2280,35 @@ pub class EmitIR {
         return SourceRange::from_bounds(n->range.start, len)
     }
 
+    /// The function being emitted is the program's `main` with no result,
+    /// which the head spells `int main()`.
+    priv fn _in_void_main(self) -> bool {
+        if self._cur_fn == &null || self._closure != &null {
+            return false
+        }
+
+        if !self._spell.is_main(unsafe (self._cur_fn as unsafe *Decl)) {
+            return false
+        }
+
+        var unsafe *rt = self._cur_fn->return_type
+        if rt == &null || rt->canonical == &null {
+            return true
+        }
+
+        var unsafe *c = canon_unqual(rt->canonical)
+        return c != &null && isa<BuiltinType>(c) && cast<BuiltinType>(c)->builtin == BuiltinKind::Void
+    }
+
+    /// A valueless return from the function being emitted, as C++ text.
+    priv fn _bare_return(self) -> string {
+        if self._in_void_main() {
+            return "return 0;"
+        }
+
+        return "return;"
+    }
+
     priv fn _return(self, n: unsafe *ReturnStmt) {
         // In a closure: the lambda's own return, to the closure's type.
         if self._closure != &null {
@@ -2340,6 +2369,15 @@ pub class EmitIR {
             }
 
             self._cg->sink->spell(n->range, "co_return")
+            self._cg->sink->synth_at_end(n->range, clang::tok::semi)
+            return
+        }
+
+        // `fn main()` with no result is `int main()` (the head above), where
+        // a bare `return;` is ill-formed: C++'s implicit 0 is only for
+        // falling off the end (P475).
+        if n->value == &null && self._in_void_main() {
+            self._cg->sink->spell(n->range, "return 0")
             self._cg->sink->synth_at_end(n->range, clang::tok::semi)
             return
         }
@@ -2705,7 +2743,7 @@ pub class EmitIR {
                     "if (" + flag + ") { return " + LowerTargets::eval_for_ret_val() + "." + LowerTargets::ctor_slot_take() + "(); }",
                 )
             } else {
-                self._cg->sink->spell(at, "if (" + flag + ") { return; }")
+                self._cg->sink->spell(at, "if (" + flag + ") { " + self._bare_return() + " }")
             }
         } else {
             self._cg->sink->spell(at, "if (" + flag + ") { return false; }")
@@ -2853,7 +2891,7 @@ pub class EmitIR {
                     "if (" + flag + ") { return " + LowerTargets::eval_for_ret_val() + "." + LowerTargets::ctor_slot_take() + "(); }",
                 )
             } else {
-                self._cg->sink->spell(at, "if (" + flag + ") { return; }")
+                self._cg->sink->spell(at, "if (" + flag + ") { " + self._bare_return() + " }")
             }
         } else {
             self._cg->sink->spell(at, "if (" + flag + ") { return false; }")

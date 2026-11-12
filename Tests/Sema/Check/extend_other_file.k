@@ -5,8 +5,8 @@
 // show.k's Show (line 4).
 //
 // XFAIL: *
-// Ticket "[Sema] The same-file rule for `extend` is not checked"
-//.
+// Waits on checking the same-file rule for `extend`.
+//
 // Today both blocks are accepted without a word. The code is not decided;
 // the checks ask for an error at each `extend`. When it XPASSes, delete the
 // XFAIL and pin the code and message.

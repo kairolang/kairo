@@ -1,7 +1,7 @@
 // The suffix spellings outside `iN` / `uN` / `fN`: upper case (`42U8`,
 // `2.5F32`), `bf16` (which has no C++ literal suffix and is spelled through
-// an f32 literal), and `usize` / `isize`. Each used to fall through to a
-// default the lexer guessed: `1.5bf16` was an f64 and `1usize` an i8.
+// an f32 literal), and `usize` / `isize`. Each keeps its own type, not a
+// default the lexer guessed: `1.5bf16` is not an f64 and `1usize` not an i8.
 
 import std::io::println
 

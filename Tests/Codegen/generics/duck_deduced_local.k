@@ -4,10 +4,10 @@
 //
 // A local deduced from a member read through a `: type` parameter's pointer
 // (`var head = prev->first`) has no type until the instance; it is emitted
-// `auto`. A member step through it (`tail->next`) used to be the EmitIR ICE
-// "unbound member step reached codegen; gate failure", plus an I011W "no
-// inferred type" for the local. Found compiling the migrated
-// AST/Mixin/Redeclarable.k to an object (self-host phase 5.3).
+// `auto`. A member step through it (`tail->next`) is not the EmitIR ICE
+// "unbound member step reached codegen; gate failure", nor an I011W "no
+// inferred type" for the local.
+//
 
 // DIAG-NOT: I011W
 // DIAG-NOT: I003E

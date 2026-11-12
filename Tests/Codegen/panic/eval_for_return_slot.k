@@ -4,7 +4,7 @@
 // `R slot{}`, so a panicking function (R is its Panic result, which has no
 // default constructor) and a function returning a record with none failed
 // in clang ("no matching constructor"), whether or not a copy returned. The
-// slot is now empty storage a returning copy builds the value in.
+// slot is empty storage a returning copy builds the value in.
 struct A { var v: i32 }
 // No default constructor: built only from an i32.
 class Cell {

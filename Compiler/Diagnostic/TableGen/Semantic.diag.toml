@@ -5820,3 +5820,26 @@ group = "generics"
 
     [SC292.N]
     explain = "Points at the kind bound the argument does not meet."
+
+[SC290]
+brief = "'eval' destructor"
+group = "eval"
+
+    [SC290.E]
+    explain = """
+    # 'eval' destructor
+
+    a compile-time object is never destroyed, so a destructor declared
+    'eval' would never run. C++ has no consteval destructor either.
+
+        class S {
+            pub var v: i32 = 1
+            eval fn op finally(self) { }    // error
+        }
+
+    ## how to fix
+
+    remove 'eval' from the destructor. A class with a non-trivial
+    destructor cannot be an 'eval' value at all; give it a trivial one
+    (no 'op finally') to use it at compile time.
+    """

@@ -2,7 +2,7 @@
 // (`self.dyn()->host.type_of(e, &null)`, the self-host mixins' shape) has
 // no parameter to take a pointer type from: only the instance resolves the
 // call. It goes out as `nullptr`, which converts to whatever pointer the
-// parameter clang picks takes. It used to be SC076E "cannot infer the
+// parameter clang picks takes. It is not SC076E "cannot infer the
 // pointer type of '&null' here".
 
 class Ty { pub var a: i32 = 0 }

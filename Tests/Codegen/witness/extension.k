@@ -1,5 +1,5 @@
 // witness/extension.k -- exit 6
-// The 2026-10-24 ticket: a `<T impl I>` body's call into the bound, where
+// A `<T impl I>` body's call into the bound, where
 // the conformance is an EXTENSION member. An extension member is a static
 // of `__kairo_ext_Metric`, never a C++ member, so the call goes through the
 // interface's witness and Metric's row is a specialization (CODEGEN.md §7b).

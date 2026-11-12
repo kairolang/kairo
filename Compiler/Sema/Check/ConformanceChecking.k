@@ -113,6 +113,7 @@ import AST::Node::Program::TopLevelKind
 import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
+    ChainType,
     FixedArrayType,
     GenericParamType,
     NullableType,
@@ -344,6 +345,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         if e->kind != ExprKind::CallExpr {
+            self._check_fn_value(e)
             return true
         }
 
@@ -1238,6 +1240,83 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// are checked here, once for the build -- a non-conforming instance is
     /// reported at its first use, however many times it is named -- and
     /// what its body reaches is walked by discover.
+    /// `pick<i32>` read as a value (ExprTyper::generic_fn_value_type typed
+    /// it as the instance's fn pointer, by substitution only): the instance
+    /// is named here, as a call's is by CallTyping, so its `impl` bounds are
+    /// checked at the use and EmitPlan homes it. Unchecked, a bound the
+    /// argument does not meet failed only in clang, as an "address of
+    /// overloaded function" error (P270). A callee is never typed (CallTyping
+    /// binds it untyped), so a node with a fn type here is a value use.
+    priv fn _check_fn_value(self, e: unsafe *Expr) {
+        if e->type_ == &null || e->type_->canonical == &null
+            || canon_unqual(e->type_->canonical)->kind != TypeKind::FunctionPointerType {
+            return
+        }
+
+        var d:  unsafe *Decl                              = &null
+        var gl: unsafe *FrozenList<ChainType::GenericArg> = &null
+        if e->kind == ExprKind::NamedIdentExpr {
+            var unsafe *name = cast<NamedIdentExpr>(e)
+            d  = name->resolved_decl
+            gl = unsafe &name->generic_args
+            if d == &null && name->candidate_cell != &null && name->candidate_cell->size() == 1 {
+                d = name->candidate_cell->get(0)
+            }
+        } else if e->kind == ExprKind::ChainExpr {
+            // `m::pick<i32>`: ChainBinding binds the last step, as one decl
+            // or as a one-candidate cell.
+            var unsafe *ch = cast<ChainExpr>(e)
+            if ch->steps.size() == 0 {
+                return
+            }
+
+            var unsafe *st = ch->steps.get(ch->steps.size() - 1)
+            d  = st->resolved_decl
+            gl = unsafe &st->generic_args
+            if d == &null && st->candidate_cell != &null && st->candidate_cell->size() == 1 {
+                d = st->candidate_cell->get(0)
+            }
+
+            if d == &null && st->name != &null {
+                d = st->name->resolved_decl
+            }
+        }
+
+        if d == &null || gl == &null || gl->size() == 0 || !isa<Declarations::FunctionDecl>(d) {
+            return
+        }
+
+        var unsafe *f = cast<Declarations::FunctionDecl>(d)
+        if f->is_method() || f->generic_params.size() != gl->size() {
+            return
+        }
+
+        var args = cxx::std::vector<unsafe *Type>()
+        for var i: usize = 0; i < gl->size(); ++i {
+            var unsafe *ga = gl->get(i)
+            if ga->ty == &null || ga->ty->canonical == &null {
+                return
+            }
+
+            var unsafe *t = ga->ty->canonical
+            if t->is_dependent() || t->is_instantiation_dependent() {
+                return // a generic body's `pick<T>`: its own instances bind T.
+            }
+
+            args.push_back(t)
+        }
+
+        var unsafe *rep = NameLookup::representative(unsafe (f as unsafe *Decl))
+        var unsafe *ie  = self.sc->instances->instance_for(
+            rep,
+            unsafe &args,
+            self.sc->ctx->fid,
+            NameLookup::ctx_of(rep),
+        )
+
+        self._check_instance(ie, e->range)
+    }
+
     priv fn _check_instance(self, e: unsafe *InstanceEntry, site: SourceRange) {
         if e == &null {
             return

@@ -47,7 +47,7 @@ fn loops() -> i32 {
     }
     var k = 4
     // Not `while true`: ControlFlowAnalysis does not see an arm's `break`
-    // and calls the code after the loop unreachable (ticketed).
+    // and calls the code after the loop unreachable.
     while k > -5 {
         var v = try p(k) catch => break
         sum += v

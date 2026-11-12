@@ -6,9 +6,9 @@
 // (`!(self == other)` in `Q<T>::op !=`): both operands are `Q<T>`, so
 // OperatorTyping defers the operator to the instance and binds nothing, and
 // EmitIR's "user operator; OperatorLowering must rewrite it into a call"
-// guard ICEd on it. clang picks the operator member per instantiation, as it
-// does for a duck operand. Found compiling the migrated AST/Mixin/TypeQual.k
-// to an object (self-host phase 5.3).
+// guard does not ICE on it. clang picks the operator member per instantiation, as it
+// does for a duck operand.
+//
 
 // DIAG-NOT: I003E
 

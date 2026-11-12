@@ -4,8 +4,8 @@
 // call on a Box<i32> goes through its one witness.
 //
 // XFAIL: *
-// Ticket "[Sema][Codegen] Declared-witness edges left by d51202fb /
-// 21e61694", item 1: the two
+// Declared-witness edges:
+// the two
 // declarations give two equivalent partial specializations of the witness
 // keyed by different parameter names (`Box<T>` vs `Box<E>`), EmitPlan's key
 // dedupe misses, and clang reports CL001E "redefinition of

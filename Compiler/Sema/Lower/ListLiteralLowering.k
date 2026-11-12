@@ -28,8 +28,16 @@
 ///     The only case that mints a declaration, and always in front of a
 ///     DeclStmt: ExprTyper marks a slice literal Extended only where it
 ///     directly initializes a `var`. Inner backings splice first. A for-init
-///     variable and a namespace-scope variable have no statement list to
-///     splice into and ICE by name.
+///     variable has no statement list to splice into and ICEs by name.
+///
+///     A namespace-scope variable's backing is a namespace-scope variable
+///     too, in the owner's scope and spliced ahead of it there (a TU's item
+///     list, a module's decl list): C++ initializes namespace-scope
+///     variables in definition order within a TU, so it is set before the
+///     owner reads it, and it lives as long as the owner. It is named after
+///     the owner (`__kairo_slice_s_0`): the owner's name is unique in its
+///     namespace, which several files of one module share, and a bare
+///     per-file counter there would be a duplicate symbol at link time.
 ///
 ///   \par Postcondition
 ///     No ListLiteralExpr, SetLiteralExpr or MapLiteralExpr reaches codegen,
@@ -57,12 +65,14 @@ import AST::LangItems::{
     WellKnownType,
     to_string,
 }
+import AST::Context::DeclContext::DeclContextKind
 import AST::Node::Base::{
     Decl,
     Expr,
     Stmt,
     Type,
 }
+import AST::Node::Declarations::VariableDecl
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
     canon_unqual,
@@ -76,6 +86,7 @@ import AST::Node::Expressions::{
     NamedInitializerExpr, SetLiteralExpr, TypeCastExpr,
 }
 import AST::Node::PrimaryExpressions::NullLiteralExpr
+import AST::Node::Statements
 import AST::Node::Statements::{
     CompoundStmt,
     DeclStmt,
@@ -109,6 +120,22 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     /// True while a for-init is being rewritten: a scalar slot, nothing splices.
     priv var _scalar_slot: bool = false
 
+    /// The namespace-scope variable whose initializer is being rewritten, or
+    /// null inside any statement (a lambda body in that initializer is a
+    /// statement list of its own again).
+    priv var _ns_owner: unsafe *VariableDecl = &null
+
+    /// Namespace-scope backings minted under _ns_owner, in run order.
+    priv var _ns_pending: cxx::std::vector<unsafe *Decl>
+
+    /// What _open_window saved.
+    struct Window {
+        var mark:   usize
+        var window: bool
+        var scalar: bool
+        var owner:  unsafe *VariableDecl
+    }
+
     priv var synth: LowerSynth
 
     fn ListLiteralLowering(self, sc: unsafe *SemaContext) {
@@ -128,22 +155,53 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         ASTWriter<ListLiteralLowering>::run(self, self.sc->tu)
     }
 
-    /// # the one statement a backing array can precede
+    /// # the statements a backing array can precede
 
     fn transform_decl_stmt(self, n: unsafe *DeclStmt) -> cxx::std::vector<unsafe *Stmt> {
-        var mark         = self._pending.size()
-        var saved_window = self._window
-        var saved_scalar = self._scalar_slot
-        self._window      = !saved_scalar
-        self._scalar_slot = false         // statements nested in the initializer are lists again.
-
+        var w    = self._open_window()
         var body = ASTWriter<ListLiteralLowering>::transform_decl_stmt(self, n)
+        return self._close_window(w, body)
+    }
 
-        self._window      = saved_window
-        self._scalar_slot = saved_scalar
+    /// A script's deferred binding (ScriptMode.md#desugaring): its
+    /// initializer moved into the synthesized `main` as `g = <init>`, at
+    /// main's top level, and the Extended mark it had as a `var`'s
+    /// initializer came along. Its backing is a local of main, spliced
+    /// ahead of the assignment: main's locals outlive every read of g, and
+    /// main's first statement (the teardown `finally`) nulls g on the way
+    /// out. Nothing else puts an Extended literal under an expression
+    /// statement.
+    fn transform_expression_stmt(self,
+                                 n: unsafe *Statements::ExpressionStmt) -> cxx::std::vector<unsafe *Stmt> {
+        var w    = self._open_window()
+        var body = ASTWriter<ListLiteralLowering>::transform_expression_stmt(self, n)
+        return self._close_window(w, body)
+    }
+
+    /// Enter a statement that sits in a statement list (unless the slot is
+    /// a for-init): its Extended backings splice in front of it.
+    priv fn _open_window(self) -> Self::Window {
+        var w = Self::Window{}
+        w.mark   = self._pending.size()
+        w.window = self._window
+        w.scalar = self._scalar_slot
+        w.owner  = self._ns_owner
+        self._window      = !w.scalar
+        self._scalar_slot = false         // statements nested in the initializer are lists again.
+        self._ns_owner    = &null
+        return w
+    }
+
+    /// The backings minted under \p w, then \p body.
+    priv fn _close_window(self,
+                          w:    Self::Window,
+                          body: cxx::std::vector<unsafe *Stmt>) -> cxx::std::vector<unsafe *Stmt> {
+        self._window      = w.window
+        self._scalar_slot = w.scalar
+        self._ns_owner    = w.owner
 
         var out = cxx::std::vector<unsafe *Stmt>()
-        for var i: usize = mark; i < self._pending.size(); ++i {
+        for var i: usize = w.mark; i < self._pending.size(); ++i {
             out.push_back(self._pending[i])
         }
 
@@ -151,8 +209,41 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             out.push_back(body[i])
         }
 
-        while self._pending.size() > mark {
+        while self._pending.size() > w.mark {
             self._pending.pop_back()
+        }
+
+        return out
+    }
+
+    /// A namespace-scope variable: its backings, then itself. A TU-level
+    /// `var` is a DeclStmt item, whose base rewrite fans the list out into
+    /// one DeclStmt each; a module's is a decl in its decl list.
+    fn transform_variable_decl(self, n: unsafe *VariableDecl) -> cxx::std::vector<unsafe *Decl> {
+        var unsafe *dc = n->semantic_dc
+        if dc == &null
+            || (dc->dc_kind != DeclContextKind::TranslationUnit
+                && dc->dc_kind != DeclContextKind::Module) {
+            return ASTWriter<ListLiteralLowering>::transform_variable_decl(self, n)
+        }
+
+        var mark        = self._ns_pending.size()
+        var saved_owner = self._ns_owner
+        self._ns_owner = n
+        var body = ASTWriter<ListLiteralLowering>::transform_variable_decl(self, n)
+        self._ns_owner = saved_owner
+
+        var out = cxx::std::vector<unsafe *Decl>()
+        for var i: usize = mark; i < self._ns_pending.size(); ++i {
+            out.push_back(self._ns_pending[i])
+        }
+
+        for var i: usize = 0; i < body.size(); ++i {
+            out.push_back(body[i])
+        }
+
+        while self._ns_pending.size() > mark {
+            self._ns_pending.pop_back()
         }
 
         return out
@@ -453,9 +544,24 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
                            at:     SourceRange,
                            arr_ty: unsafe *Type,
                            il:     unsafe *InitListExpr) -> unsafe *Expr {
+        if self._ns_owner != &null {
+            var unsafe *gv = self.synth.local(
+                at,
+                "slice_" + self.tu.decl_name(unsafe (self._ns_owner as unsafe *Decl)) + "_",
+                arr_ty,
+                unsafe (il as unsafe *Expr),
+            )
+
+            gv->adopt_sema(unsafe (self._ns_owner as unsafe *Decl))
+            gv->is_implicit = true
+
+            self._ns_pending.push_back(unsafe (gv as unsafe *Decl))
+            return self.synth.use_of(gv, at, Expr::ValueCategory::LValue)
+        }
+
         if !self._window {
             kairo::std::ice_fail(
-                "ListLiteralLowering: an Extended slice literal outside a statement list (a for-init or a namespace-scope variable); its backing array needs a home this pass cannot give it",
+                "ListLiteralLowering: an Extended slice literal in a for-init; its backing array needs a home this pass cannot give it",
             )
         }
 

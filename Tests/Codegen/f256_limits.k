@@ -1,4 +1,4 @@
-// f256 / f512 associated constants (P724) and the methods of an f256 / f512
+// f256 / f512 associated constants and the methods of an f256 / f512
 // value (the generated `extend f256` / `extend f512` in num/f256_t.k,
 // f512_t.k). The float-valued limits are the classes' statics, printed here
 // as their encodings: the expected bits are IEEE's (binary256: 1/19/236,

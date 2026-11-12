@@ -2,7 +2,7 @@
 // C++ instantiates the body, so Sema cannot see that the
 // callee panics. Before, `drop_it(Boom())` compiled and ran: the
 // discarded `Panic<int, int>` raised only clang's nodiscard warning, and
-// the panic was dropped. Every such call now goes out as
+// the panic was dropped. Every such call goes out as
 // `(::__kairo_nopanic(), t.value())`, whose `operator,` static_asserts that
 // the value is no panic result: the instance with Boom is an error naming
 // the call (Inputs/duck_boom.k), while a non-panicking callee -- a value,

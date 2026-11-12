@@ -47,10 +47,10 @@ fn main() -> i32 {
 // static const unsigned char __kairo_abi_alloc[] = {...};` ABI blob. Its
 // attribute tokens (152-165: `[[`, `gnu::used`, `gnu::section(...)`, `]]`)
 // are synthesized, so they are unanchored like the preamble (divergent, fid
-// printed as the invalid sentinel, wildcarded). They used to borrow file
-// bytes 1-19, which is what made the divergent count 150; 13 more are now
-// unanchored (163). The declaration proper (166 on) still borrows, and its
-// offsets moved down to 1-24 because the attribute no longer claims 20 bytes
+// printed as the invalid sentinel, wildcarded). They borrow no file
+// bytes, so the divergent count is 163. The declaration proper (166 on)
+// still borrows, and its
+// offsets start at 1-24 because the attribute claims no 20 bytes
 // ahead of it.
 
 // CHECK: CODEGEN TOKEN STREAM: {{.*}}m1_hello.k

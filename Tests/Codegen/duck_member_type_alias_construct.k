@@ -1,7 +1,7 @@
 // A nested type of a duck `<T: type>` parameter (`T::Guard`) has no type
 // until an instance names T. As a local's type, an alias body, and through the
 // alias as a construction (`G(x)`) it is spelled `typename T::Guard` and clang
-// resolves it per instance, instead of an "unresolved type reached codegen" ICE.
+// resolves it per instance.
 
 class Host derives Mixin<Host> {
     pub var pos: i32 = 0;

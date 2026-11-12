@@ -5,8 +5,8 @@
 // imports neither ea.k nor anything that does, and calls the same
 // `twice<Metric>`. The c1-c3 chain only orders the TUs so that blind.k is
 // checked AFTER sees.k: the row and the live instance already exist when
-// blind.k meets them. Before the fix blind.k reused both and was silently
-// accepted; now it is checked against what it can see, and the note names
+// blind.k meets them. blind.k does not reuse both and pass silently
+// unchecked: it is checked against what it can see, and the note names
 // the extension it does not import.
 //
 // ea.k / ec.k extend Metric impl Scalable in a file that is neither
