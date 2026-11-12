@@ -140,6 +140,14 @@ pub class RetractStats {
     /// The dropped entries (they stay allocated: a list of re-armed ones
     /// from an earlier retraction may hold one).
     pub var dropped_list: cxx::std::vector<unsafe *InstanceEntry>
+    /// Whose each retracted Kairo instance's first use was, before: the
+    /// primary's address (what a file's dependency log names when it asks
+    /// for any instance of it), the file of the use, and the entry when it
+    /// was re-armed (null: dropped). A re-check that leaves Sema's order
+    /// (LiveCheck::drain's prefer) reads it to keep first uses first.
+    pub var first_prim:  cxx::std::vector<u64>
+    pub var first_fid:   cxx::std::vector<u32>
+    pub var first_entry: cxx::std::vector<unsafe *InstanceEntry>
 
     pub fn RetractStats(self) = default
 }
@@ -247,6 +255,12 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
     var drop = cxx::std::vector<unsafe *InstanceEntry>()
     for var i: usize = 0; i < all.size(); ++i {
         var unsafe *e = all[i]
+        if e->use_at.is_valid() && e->primary != &null && !decl_is_imported(e->primary) {
+            st.first_prim.push_back(e->primary as usize as u64)
+            st.first_fid.push_back(sm->resolve(e->use_at.start).fid as u32)
+            st.first_entry.push_back(if (dead[i] != 0) => (unsafe (&null as unsafe *InstanceEntry)) else => e)
+        }
+
         if dead[i] != 0 {
             drop.push_back(e)
             continue
@@ -282,6 +296,25 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
             st.rearmed_was.push_back(
                 f"depth {e->depth}" + (if (e->via != &null) => (", reached") else => "") + (if (e->failed) => (", failed") else => "") + (if (e->checked) => (", walked") else => ""),
             )
+            // What the first use decided goes with it; what any use
+            // would have found the same stays (P886):
+            //  - `failed` is the verdict of the bounds check where the
+            //    entry became live. The re-check makes it live again and
+            //    asks again (ConformanceChecking::_check_bounds), which
+            //    sets it if a bound still fails; left set over a fixed
+            //    cause it would silence every later file's own check of
+            //    the instance (_recheck returns on it), which a fresh run
+            //    makes.
+            //  - `rows` / `rows_done` are the union of what EVERY file
+            //    that checked the instance found: the kept files' part
+            //    stands, the set's is added again by its re-check (the
+            //    same rows, by identity), and a row that named the set is
+            //    out already (FrontendAction::_retract_rows).
+            //  - `panic_done`, `panic_result`, `panic_types` are computed
+            //    from the primary and the arguments alone (PanicInstances,
+            //    by substitution, no report): both are kept declarations,
+            //    or the entry would have been dropped.
+            e->failed             = false
             e->depth              = 0
             e->use_at             = SourceRange::invalid()
             e->via                = &null

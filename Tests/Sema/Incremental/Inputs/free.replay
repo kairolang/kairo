@@ -1,0 +1,41 @@
+# Tests/Sema/Incremental/replay_free.k: edits whose replaced trees leave
+# something in a build-wide store that is keyed by an address of theirs, or
+# holds one. A live check frees a replaced tree once the queue is empty, so
+# each step's new trees land on the last step's addresses.
+#   rec.k    a record others name as Box<Point>, Point?, [Point] (canonical
+#            types keyed by Point's declaration; an instance of Box dropped),
+#            and a default argument
+#   num.k    `extend i32 impl Named`: a conformance row whose conformer is
+#            no file's, with witnesses in this file's tree
+step record_body
+replace s/rec.k:::Point{x: shift, y: shift}:::Point{x: shift, y: shift + 1}
+step record_body_again
+replace s/rec.k:::Point{x: shift, y: shift + 1}:::Point{x: shift + 2, y: shift}
+step witness_body
+replace s/num.k:::= 4:::= 5
+step record_grows
+replace s/rec.k:::    pub var y: i32\n}:::    pub var y: i32\n    pub var z: i32\n}
+step record_shrinks
+replace s/rec.k:::    pub var y: i32\n    pub var z: i32\n}:::    pub var y: i32\n}
+step witness_renamed
+replace s/num.k:::pub fn name_len(const self):::pub fn name_len2(const self)
+step client_body_while_broken
+replace s/client.k:::var n: i32 = 7:::var n: i32 = 8
+step witness_back
+replace s/num.k:::pub fn name_len2(const self):::pub fn name_len(const self)
+step requirement_added
+replace s/iface.k:::    fn name_len(const self) -> i32\n}:::    fn name_len(const self) -> i32\n    fn other(const self) -> i32\n}
+step requirement_removed
+replace s/iface.k:::    fn name_len(const self) -> i32\n    fn other(const self) -> i32\n}:::    fn name_len(const self) -> i32\n}
+step default_argument
+replace s/rec.k:::shift: i32 = 0:::shift: i32 = 3
+step generic_body
+replace s/gen.k:::        return self.v:::        var w = self.v\n        return w
+step record_and_witness
+replace s/rec.k:::shift: i32 = 3:::shift: i32 = 1
+drain 1
+replace s/num.k:::= 5:::= 6
+step client_names_another_instance
+replace s/client.k:::var n: i32 = 8:::var q = Box<i32>{v: 1}\n    var n: i32 = q.get()
+step record_body_last
+replace s/rec.k:::Point{x: shift + 2, y: shift}:::Point{x: shift, y: shift}

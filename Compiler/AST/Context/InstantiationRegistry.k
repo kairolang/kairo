@@ -68,6 +68,8 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/DenseMap.h"
+ffi "c++" import "llvm/ADT/DenseSet.h"
+ffi "c++" import "Native/AddrRanges.hh"
 ffi "c++" import "llvm/Support/Allocator.h"
 ffi "c++" import "Native/KPlacement.hh" // construct_at
 ffi "c++" import "Native/Types.hh"
@@ -443,6 +445,12 @@ pub class InstantiationRegistry {
     /// it. collect() reads this, never the hash table: anything that
     /// iterates the registry gets the same order on every run.
     priv var _order: cxx::std::vector<unsafe *InstanceEntry>
+    /// The entries drop_entries took out and sweep_dead has not cleared
+    /// yet: a live check's, between a retraction and the moment the
+    /// replaced trees are freed.
+    priv var _dropped: cxx::std::vector<unsafe *InstanceEntry>
+    /// The rows sweep_dead took out of the tables and has not cleared yet.
+    priv var _dead_rows: cxx::std::vector<unsafe *ConformanceRow>
     /// When set (FrontendAction::refresh), every mark_live of an entry
     /// that is already live is recorded here with the use that asked: in a
     /// fresh run the FIRST use in the one-thread order owns the entry's
@@ -1599,6 +1607,248 @@ pub class InstantiationRegistry {
         e->failed = true
     }
 
+    /// ## a live check's sweep (Tooling/LiveCheck.k, before it frees trees)
+
+    /// The nodes minted for the entries drop_entries took out since the
+    /// last sweep_dead: dead with them, and still in this arena.
+    pub fn dead_shells(self, out: unsafe *llvm::DenseSet<u64>) {
+        var lock = kairo::std::LockGuard(self._mu)
+        for var i: usize = 0; i < self._dropped.size(); ++i {
+            var unsafe *e = self._dropped[i]
+            if e->decl != &null && e->decl != e->primary && !e->is_explicit {
+                out->insert(e->decl as usize as u64)
+            }
+        }
+    }
+
+    priv fn _decl_dead(self, d: unsafe *Decl, dead: unsafe *kairo::AddrRanges, shells: unsafe *llvm::DenseSet<u64>) -> bool {
+        return d != &null && (dead->has(unsafe (d as unsafe *const void)) || shells->contains(d as usize as u64))
+    }
+
+    priv fn _row_dead(self,
+                      r:      unsafe *ConformanceRow,
+                      dead:   unsafe *kairo::AddrRanges,
+                      types:  unsafe *llvm::DenseSet<u64>,
+                      shells: unsafe *llvm::DenseSet<u64>,
+                      rows:   unsafe *llvm::DenseSet<u64>) -> bool {
+        if types->contains(r->conformer as usize as u64) || types->contains(r->iface as usize as u64) {
+            return true
+        }
+
+        if self._decl_dead(r->iface_decl, dead, shells) || self._decl_dead(r->declared, dead, shells) || self._decl_dead(r->hidden, dead, shells) {
+            return true
+        }
+
+        for var i: usize = 0; i < r->witnesses.size(); ++i {
+            if self._decl_dead(r->witnesses[i], dead, shells) {
+                return true
+            }
+        }
+
+        for var i: usize = 0; i < r->reqs.size(); ++i {
+            if self._decl_dead(r->reqs[i], dead, shells) {
+                return true
+            }
+        }
+
+        for var i: usize = 0; i < r->ext_args.size(); ++i {
+            if types->contains(r->ext_args[i] as usize as u64) {
+                return true
+            }
+        }
+
+        for var i: usize = 0; i < r->sources.size(); ++i {
+            if types->contains(r->sources[i] as usize as u64) {
+                return true
+            }
+        }
+
+        for var i: usize = 0; i < r->assoc_types.size(); ++i {
+            if types->contains(r->assoc_types[i] as usize as u64) {
+                return true
+            }
+        }
+
+        for var i: usize = 0; i < r->assoc_rows.size(); ++i {
+            if rows->contains(r->assoc_rows[i] as usize as u64) {
+                return true
+            }
+        }
+
+        return (r->covered_by != &null && rows->contains(r->covered_by as usize as u64)) || (r->clash != &null && rows->contains(r->clash as usize as u64))
+    }
+
+    priv fn _rows_filter(self, l: unsafe *cxx::std::vector<unsafe *ConformanceRow>, rows: unsafe *llvm::DenseSet<u64>) {
+        var b = cxx::std::vector<unsafe *ConformanceRow>()
+        for var k: usize = 0; k < l->size(); ++k {
+            if !rows->contains((*l)[k] as usize as u64) {
+                b.push_back((*l)[k])
+            }
+        }
+
+        if b.size() != l->size() {
+            *l = b
+        }
+    }
+
+    /// \brief takes out of the conformance tables every row that names
+    ///        something of a dead tree (\p dead: its address ranges; \p
+    ///        types: the canonicals CanonicalTypeStore::sweep took out; the
+    ///        dropped entries' nodes) or another such row, and clears what
+    ///        the dropped entries and their nodes still point at. Returns
+    ///        how many rows went.
+    ///
+    /// \details A row holds the declarations that implement a conformance;
+    ///          the declared rows are keyed by the declaring declaration's
+    ///          address. A file whose `impl` is re-read declares its rows
+    ///          again; a freed tree's row would be read at a freed address,
+    ///          and its key met by a new declaration.
+    ///
+    /// \param rows_only  a retraction's call (\p dead: the trees about to be
+    ///                   re-read, still allocated): the rows leave the
+    ///                   tables, so the re-check builds them from the new
+    ///                   text, and nothing is cleared yet (a queued file's
+    ///                   old tree may hold one until its turn).
+    pub fn sweep_dead(self, dead: unsafe *kairo::AddrRanges, types: unsafe *llvm::DenseSet<u64>, rows_only: bool) -> usize {
+        var lock   = kairo::std::LockGuard(self._mu)
+        var shells = llvm::DenseSet<u64>()
+        for var i: usize = 0; i < self._dropped.size(); ++i {
+            var unsafe *e = self._dropped[i]
+            if e->decl != &null && e->decl != e->primary && !e->is_explicit {
+                shells.insert(e->decl as usize as u64)
+            }
+        }
+
+        // Every row any list holds, once.
+        var all  = cxx::std::vector<unsafe *ConformanceRow>()
+        var seen = llvm::DenseSet<u64>()
+        for var it = self._rows.begin(); it != self._rows.end(); ++it {
+            for var k: usize = 0; k < it->second.size(); ++k {
+                if seen.insert(it->second[k] as usize as u64).second {
+                    all.push_back(it->second[k])
+                }
+            }
+        }
+
+        for var it = self._declared.begin(); it != self._declared.end(); ++it {
+            for var k: usize = 0; k < it->second.size(); ++k {
+                if seen.insert(it->second[k] as usize as u64).second {
+                    all.push_back(it->second[k])
+                }
+            }
+        }
+
+        for var i: usize = 0; i < self._order.size(); ++i {
+            for var k: usize = 0; k < self._order[i]->rows.size(); ++k {
+                if seen.insert(self._order[i]->rows[k] as usize as u64).second {
+                    all.push_back(self._order[i]->rows[k])
+                }
+            }
+        }
+
+        var rows = llvm::DenseSet<u64>()
+        var grew = true
+        while grew {
+            grew = false
+            for var i: usize = 0; i < all.size(); ++i {
+                if rows.contains(all[i] as usize as u64) {
+                    continue
+                }
+
+                if self._row_dead(all[i], dead, types, unsafe &shells, unsafe &rows) {
+                    rows.insert(all[i] as usize as u64)
+                    grew = true
+                }
+            }
+        }
+
+        if !rows.empty() {
+            for var it = self._rows.begin(); it != self._rows.end(); ++it {
+                self._rows_filter(unsafe &it->second, unsafe &rows)
+            }
+
+            for var it = self._rows_by_conformer.begin(); it != self._rows_by_conformer.end(); ++it {
+                self._rows_filter(unsafe &it->second, unsafe &rows)
+            }
+
+            for var it = self._declared.begin(); it != self._declared.end(); ++it {
+                self._rows_filter(unsafe &it->second, unsafe &rows)
+            }
+
+            for var i: usize = 0; i < self._order.size(); ++i {
+                self._rows_filter(unsafe &self._order[i]->rows, unsafe &rows)
+            }
+        }
+
+        // A declared list is keyed by the declaring declaration's address.
+        var keys = cxx::std::vector<u64>()
+        for var it = self._declared.begin(); it != self._declared.end(); ++it {
+            if dead->has(unsafe ((it->first as usize) as unsafe *const void)) || shells.contains(it->first) {
+                keys.push_back(it->first)
+            }
+        }
+
+        for var i: usize = 0; i < keys.size(); ++i {
+            self._declared.erase(keys[i])
+        }
+
+        for var i: usize = 0; i < all.size(); ++i {
+            if rows.contains(all[i] as usize as u64) {
+                self._dead_rows.push_back(all[i])
+            }
+        }
+
+        if rows_only {
+            return rows.size() as usize
+        }
+
+        var nrows = self._dead_rows.size()
+        for var i: usize = 0; i < self._dead_rows.size(); ++i {
+            var unsafe *r = self._dead_rows[i]
+            r->iface_decl = &null
+            r->declared   = &null
+            r->hidden     = &null
+            r->covered_by = &null
+            r->clash      = &null
+            r->witnesses.clear()
+            r->reqs.clear()
+            r->assoc_rows.clear()
+            r->ok = false
+        }
+
+        // The dropped entries and their nodes: unreachable, and what they
+        // name is about to be freed.
+        for var i: usize = 0; i < self._dropped.size(); ++i {
+            var unsafe *e = self._dropped[i]
+            if e->decl != &null && e->decl != e->primary && !e->is_explicit {
+                e->decl->lexical_dc  = &null
+                e->decl->semantic_dc = &null
+            }
+
+            e->primary     = &null
+            e->pattern     = &null
+            e->ambiguous_a = &null
+            e->ambiguous_b = &null
+            e->undecided   = &null
+            e->via         = &null
+            e->reached_by  = &null
+            e->rows.clear()
+            e->reached.clear()
+            e->fill_reqs.clear()
+            e->fill_req_fids.clear()
+        }
+
+        self._dropped.clear()
+        self._dead_rows.clear()
+        return nrows
+    }
+
+    /// The arena's blocks, into \p out under \p label.
+    pub fn ranges_into(self, out: unsafe *kairo::AddrRanges, label: u32) {
+        var lock = kairo::std::LockGuard(self._arena_mu)
+        self._arena.ranges_into(out, label)
+    }
+
     /// \brief removes \p dead from the registry: the table, the node map,
     ///        the worklist, and every surviving entry's links to them.
     ///
@@ -1614,6 +1864,7 @@ pub class InstantiationRegistry {
         var lock = kairo::std::LockGuard(self._mu)
         var gone = llvm::DenseSet<u64>()
         for var i: usize = 0; i < dead->size(); ++i {
+            self._dropped.push_back((*dead)[i])
             gone.insert((*dead)[i] as usize as u64)
             // Only its own node: a function template's entries share the
             // template's declaration, which may map to a kept entry.
@@ -1650,6 +1901,24 @@ pub class InstantiationRegistry {
 
             if r.size() != e->reached.size() {
                 e->reached = r
+            }
+
+            // What a kept shell's fill asked for: a dropped request is not
+            // asked for again (rerequest would put it back on the worklist).
+            var fq = cxx::std::vector<unsafe *InstanceEntry>()
+            var ff = cxx::std::vector<u32>()
+            for var k: usize = 0; k < e->fill_reqs.size(); ++k {
+                if !gone.contains(e->fill_reqs[k] as usize as u64) {
+                    fq.push_back(e->fill_reqs[k])
+                    if k < e->fill_req_fids.size() {
+                        ff.push_back(e->fill_req_fids[k])
+                    }
+                }
+            }
+
+            if fq.size() != e->fill_reqs.size() {
+                e->fill_reqs     = fq
+                e->fill_req_fids = ff
             }
         }
 

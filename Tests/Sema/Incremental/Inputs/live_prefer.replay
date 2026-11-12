@@ -1,0 +1,24 @@
+# Tests/Sema/Incremental/replay_prefer.k: the second tier re-checked towards
+# a preferred file (`prefer`, LiveCheck::drain: a tool's open buffers) and
+# not in Sema's order. a.k and b.k do not import each other and name the
+# same instances of g.k's generics; a.k comes first in Sema's order, so the
+# instances' once-only reports are its.
+step record_body_prefer_the_later_file
+replace s/s.k:::    pub var s: i32\n}:::    pub var s: i32\n    pub var t: i32 = 0\n}
+prefer s/b.k
+step conformance_fixed_prefer_the_later_file
+replace s/s.k:::    pub var t: i32 = 0\n}:::    pub var t: i32 = 0\n\n    pub fn area(self) -> i32 {\n        return self.s\n    }\n}
+prefer s/b.k
+step generic_body_prefer_main
+replace s/g.k:::        var y = 1 as i32:::        var y = 2 as i32
+prefer s/main.k
+step conformance_broken_prefer_the_later_file
+replace s/s.k:::    pub fn area(self) -> i32 {:::    pub fn area2(self) -> i32 {
+prefer s/b.k
+step a_body_prefer_b
+replace s/a.k:::total(Sq{s: 2}):::total(Sq{s: 4})
+prefer s/b.k
+step record_then_drain_one_then_prefer
+replace s/s.k:::    pub var t: i32 = 0:::    pub var t: i32 = 1
+drain 1
+prefer s/b.k

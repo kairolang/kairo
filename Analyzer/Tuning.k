@@ -147,9 +147,13 @@ pub const BRIDGE_INCLUDE_MAX_READS: usize = 4000
 pub const LIVE_MAX_CHILDREN: usize = 2
 
 /// A live worker is restarted, between requests, once its resident size
-/// passes its size after the first check by this factor plus this slack: a
-/// re-check keeps the replaced files' old trees (Compiler/Spec/
-/// IncrementalSema.md, "What grows"), so it grows with every edit. A
+/// passes its size after the first check by this factor plus this slack.
+/// A re-check frees the trees it replaced once its queue is empty, so
+/// what still grows is small per edit of a leaf (under 1 MB) and about
+/// 170 MB per edit of a core file, whose dropped C++ template instances
+/// are filled again into the header files' trees (Compiler/Spec/
+/// IncrementalSema.md, "Memory"); a whole check inside the worker leaves
+/// about 0.57 GB. A
 /// restart costs one whole check of the graph, in the background of the
 /// next edit. Higher: fewer restarts, more memory. Relative, not absolute:
 /// a large graph is large from its first check on.
@@ -189,10 +193,11 @@ pub const LIVE_IDLE_RECYCLE_MS: i64 = 4000
 
 /// Whether the live worker re-checks the editor's open buffers (and what
 /// they import) before the rest of the queue. Off: the queue is drained in
-/// the order Sema runs files. A file re-checked ahead of that order can use
-/// a generic instance before the file that a fresh run would have use it
-/// first, which the live check catches and answers with a WHOLE check
-/// (seconds, and the worker grows by one check): measured once in three
-/// out-of-order steps on the compiler's graph. On: an open importer deep in
-/// the graph gets its results sooner, at that risk.
-pub const LIVE_PREFER_OPEN: bool = false
+/// the order Sema runs files. On, an open importer deep in the graph gets
+/// its results sooner. A generic instance's once-only reports belong to
+/// its first use in Sema's order, so the queued files that were first to
+/// use an instance the buffer names go before it, and when that cannot be
+/// arranged the queue's order stands for that step
+/// (FrontendAction::prefer_first_users; IncrementalSema.md, "Preferred
+/// order"): no whole check is taken for the preference.
+pub const LIVE_PREFER_OPEN: bool = true

@@ -1,0 +1,20 @@
+# Tests/Sema/Incremental/replay_rearm.k: Tagged<i32> is made live by client.k,
+# which sees `extend i32 impl Named` (num.k); other.k names it too and does
+# not. gen.k, where Tagged is, is never edited: the instance's entry is kept
+# and RE-ARMED by every retraction that holds client.k.
+step witness_renamed
+replace s/num.k:::pub fn name_len(const self):::pub fn name_len2(const self)
+step witness_back
+replace s/num.k:::pub fn name_len2(const self):::pub fn name_len(const self)
+step other_body
+replace s/other.k:::return 2:::return 3
+step client_body
+replace s/client.k:::v: 1:::v: 5
+step witness_renamed_again
+replace s/num.k:::pub fn name_len(const self):::pub fn name_len2(const self)
+step other_body_while_broken
+replace s/other.k:::return 3:::return 4
+step witness_back_again
+replace s/num.k:::pub fn name_len2(const self):::pub fn name_len(const self)
+step other_body_last
+replace s/other.k:::return 4:::return 5

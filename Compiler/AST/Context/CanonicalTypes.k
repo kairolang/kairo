@@ -65,6 +65,8 @@
 ffi "c++" import "atomic"
 ffi "c++" import "Native/KThread.hh" // sema_mint_rank
 ffi "c++" import "llvm/ADT/DenseMap.h"
+ffi "c++" import "llvm/ADT/DenseSet.h"
+ffi "c++" import "Native/AddrRanges.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 ffi "c++" import "cstring"
@@ -1770,6 +1772,233 @@ pub class CanonicalTypeStore {
     pub fn has_unlowered_nullables(self) -> bool {
         var lock = kairo::std::LockGuard(self._mu)
         return self._unlowered_nullables > 0
+    }
+
+    /// ## a live check's sweep (Tooling/LiveCheck.k, before it frees trees)
+
+    /// Does \p c itself name something of a dead tree: a declaration (or an
+    /// expression) whose address is in \p dead, or a dropped instance's node
+    /// (\p shells)? These are the kinds whose KEY holds such an address.
+    priv fn _names_dead(self, c: unsafe *Type, dead: unsafe *kairo::AddrRanges, shells: unsafe *llvm::DenseSet<u64>) -> bool {
+        match c->kind {
+            case TypeKind::RecordType {
+                var unsafe *d = cast<RecordType>(c)->decl
+                return d != &null && (dead->has(unsafe (d as unsafe *const void)) || shells->contains(d as usize as u64))
+            } case TypeKind::GenericParamType {
+                var unsafe *g = cast<GenericParamType>(c)
+                if g->owner != &null && (dead->has(unsafe (g->owner as unsafe *const void)) || shells->contains(g->owner as usize as u64)) {
+                    return true
+                }
+
+                return g->param_name != &null && dead->has(unsafe (g->param_name as unsafe *const void))
+            } case TypeKind::AssocType {
+                var unsafe *a = cast<AssocType>(c)->assoc
+                return a != &null && dead->has(unsafe (a as unsafe *const void))
+            } case TypeKind::TypeExpr {
+                var unsafe *t = cast<TypeExpr>(c)
+                if t->vdecl != &null && dead->has(unsafe (t->vdecl as unsafe *const void)) {
+                    return true
+                }
+
+                return t->expr != &null && dead->has(unsafe (t->expr as unsafe *const void))
+            } case TypeKind::FixedArrayType {
+                var unsafe *f = cast<FixedArrayType>(c)
+                return f->size_expr != &null && dead->has(unsafe (f->size_expr as unsafe *const void))
+            } default {
+                return false
+            }
+        }
+    }
+
+    /// The canonical nodes \p c is built from.
+    priv fn _parts(self, c: unsafe *Type, out: unsafe *cxx::std::vector<unsafe *Type>) {
+        match c->kind {
+            case TypeKind::RecordType {
+                var unsafe *r = cast<RecordType>(c)
+                for var i: usize = 0; i < r->args.size(); ++i {
+                    out->push_back(r->args[i])
+                }
+
+                out->push_back(r->outer)
+            } case TypeKind::QualifiedType {
+                out->push_back(cast<QualifiedType>(c)->inner)
+            } case TypeKind::PointerType {
+                out->push_back(cast<PointerType>(c)->pointee)
+            } case TypeKind::NullableType {
+                out->push_back(cast<NullableType>(c)->inner)
+            } case TypeKind::FixedArrayType {
+                var unsafe *f = cast<FixedArrayType>(c)
+                out->push_back(f->element)
+                out->push_back(f->extent_param)
+            } case TypeKind::VectorType {
+                out->push_back(cast<VectorType>(c)->element)
+            } case TypeKind::SetType {
+                out->push_back(cast<SetType>(c)->element)
+            } case TypeKind::MapType {
+                var unsafe *m = cast<MapType>(c)
+                out->push_back(m->key)
+                out->push_back(m->value)
+            } case TypeKind::CXXLValueRefType {
+                out->push_back(cast<CXXLValueRefType>(c)->referee)
+            } case TypeKind::CXXRValueRefType {
+                out->push_back(cast<CXXRValueRefType>(c)->referee)
+            } case TypeKind::FunctionPointerType {
+                var unsafe *f = cast<FunctionPointerType>(c)
+                for var i: usize = 0; i < f->params.size(); ++i {
+                    out->push_back(f->params[i])
+                }
+
+                for var i: usize = 0; i < f->panic_set.size(); ++i {
+                    out->push_back(f->panic_set[i])
+                }
+
+                out->push_back(f->return_type)
+                out->push_back(f->panic_result)
+            } case TypeKind::AssocType {
+                var unsafe *a = cast<AssocType>(c)
+                out->push_back(a->base)
+                out->push_back(a->iface)
+                for var i: usize = 0; i < a->args.size(); ++i {
+                    out->push_back(a->args[i])
+                }
+
+                for var i: usize = 0; i < a->bounds.size(); ++i {
+                    out->push_back(a->bounds[i])
+                }
+            } case TypeKind::TypeExpr {
+                var unsafe *t = cast<TypeExpr>(c)
+                out->push_back(t->vty)
+                for var i: usize = 0; i < t->vops.size(); ++i {
+                    out->push_back(t->vops[i])
+                }
+            } default {
+                return
+            }
+        }
+    }
+
+    /// \brief takes out of the table every canonical that names something
+    ///        of a dead tree, and every canonical built from one; their
+    ///        addresses go into \p gone. Returns how many.
+    ///
+    /// \details A record type is keyed by its declaration's ADDRESS (so are
+    ///          a generic parameter, an associated type and a value
+    ///          argument). While the tree is allocated the entry is merely
+    ///          unreachable; once it is freed a new declaration lands on
+    ///          the address and would be handed the old canonical. The
+    ///          nodes stay in the arena (nothing kept names them: a file
+    ///          that could is re-read with the tree), with what pointed
+    ///          into the tree cleared.
+    ///
+    /// \param mark_only  only say which (\p gone); the table is not touched.
+    ///                   A retraction's: the trees are still read (a queued
+    ///                   file's, until its turn), the rows that name them
+    ///                   must go now.
+    pub fn sweep(self,
+                 dead:      unsafe *kairo::AddrRanges,
+                 shells:    unsafe *llvm::DenseSet<u64>,
+                 gone:      unsafe *llvm::DenseSet<u64>,
+                 mark_only: bool) -> usize {
+        var lock = kairo::std::LockGuard(self._mu)
+        var all  = cxx::std::vector<unsafe *Type>()
+        for var it = self._table.begin(); it != self._table.end(); ++it {
+            for var k: usize = 0; k < it->second.size(); ++k {
+                all.push_back(it->second[k])
+            }
+        }
+
+        for var i: usize = 0; i < all.size(); ++i {
+            if self._names_dead(all[i], dead, shells) {
+                gone->insert(all[i] as usize as u64)
+            }
+        }
+
+        if gone->empty() {
+            return 0
+        }
+
+        var grew = true
+        while grew {
+            grew = false
+            for var i: usize = 0; i < all.size(); ++i {
+                if gone->contains(all[i] as usize as u64) {
+                    continue
+                }
+
+                var parts = cxx::std::vector<unsafe *Type>()
+                self._parts(all[i], unsafe &parts)
+                for var k: usize = 0; k < parts.size(); ++k {
+                    if parts[k] != &null && gone->contains(parts[k] as usize as u64) {
+                        gone->insert(all[i] as usize as u64)
+                        grew = true
+                        break
+                    }
+                }
+            }
+        }
+
+        if mark_only {
+            return gone->size() as usize
+        }
+
+        for var it = self._table.begin(); it != self._table.end(); ++it {
+            var b = cxx::std::vector<unsafe *Type>()
+            for var k: usize = 0; k < it->second.size(); ++k {
+                if !gone->contains(it->second[k] as usize as u64) {
+                    b.push_back(it->second[k])
+                }
+            }
+
+            if b.size() != it->second.size() {
+                it->second = b
+            }
+        }
+
+        var keep = cxx::std::vector<unsafe *NullableType>()
+        for var i: usize = 0; i < self._pending_nullables.size(); ++i {
+            if !gone->contains(self._pending_nullables[i] as usize as u64) {
+                keep.push_back(self._pending_nullables[i])
+            }
+        }
+
+        self._pending_nullables = keep
+        for var i: usize = 0; i < all.size(); ++i {
+            var unsafe *c = all[i]
+            if !gone->contains(c as usize as u64) {
+                continue
+            }
+
+            match c->kind {
+                case TypeKind::RecordType {
+                    cast<RecordType>(c)->decl = &null
+                } case TypeKind::GenericParamType {
+                    cast<GenericParamType>(c)->owner      = &null
+                    cast<GenericParamType>(c)->param_name = &null
+                } case TypeKind::AssocType {
+                    cast<AssocType>(c)->assoc = &null
+                } case TypeKind::TypeExpr {
+                    cast<TypeExpr>(c)->vdecl = &null
+                    cast<TypeExpr>(c)->expr  = &null
+                } case TypeKind::FixedArrayType {
+                    cast<FixedArrayType>(c)->size_expr = &null
+                } case TypeKind::NullableType {
+                    // One fewer `T?` waits for its record.
+                    if cast<NullableType>(c)->lowered == &null && self._unlowered_nullables > 0 {
+                        self._unlowered_nullables -= 1
+                    }
+                } default {
+                    continue
+                }
+            }
+        }
+
+        return gone->size() as usize
+    }
+
+    /// The arena's blocks, into \p out under \p label.
+    pub fn ranges_into(self, out: unsafe *kairo::AddrRanges, label: u32) {
+        var lock = kairo::std::LockGuard(self._arena_mu)
+        self._arena.ranges_into(out, label)
     }
 
     /// ## stats (dumps only)

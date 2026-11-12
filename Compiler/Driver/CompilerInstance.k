@@ -278,7 +278,7 @@ pub class CompilerInstance {
     /// The FrontendAction adds its modules, object keys and header files.
     pub var incr: ModuleRecords
     /// Contexts a live check took out of the table when it re-checked their
-    /// files (detach_for_refresh): kept allocated, never read again.
+    /// files (detach_for_refresh): kept until release_retired.
     pub var retired: cxx::std::vector<unsafe *void>
     prot var _obj_dir:       string                   = "" ///< where objects go; always set by _plan_outputs
     prot var _obj_tmp:       bool                     = false ///< _obj_dir is a temp dir this run owns and removes

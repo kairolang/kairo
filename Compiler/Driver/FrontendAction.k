@@ -238,6 +238,10 @@ pub class FrontendAction {
     priv var _tt_old_i:  llvm::StringMap<u32>
     priv var _tt_old_v:  cxx::std::vector<string>
     priv var _tt_old_f:  llvm::DenseSet<u64>   ///< files whose old hashes are in _tt_old_i
+    /// RetractStats::first_* of every retraction since the last tier_finish.
+    priv var _tt_first_prim:  cxx::std::vector<u64>
+    priv var _tt_first_fid:   cxx::std::vector<u32>
+    priv var _tt_first_entry: cxx::std::vector<unsafe *InstanceEntry>
     priv var _graph:        cxx::std::vector<u32> ///< every fid of the graph, an earlier input's too
     pub var  result:        TUResult
     priv var _stage:        TUStage
@@ -1787,6 +1791,9 @@ pub class FrontendAction {
         self._tt_old_i.clear()
         self._tt_old_v.clear()
         self._tt_old_f.clear()
+        self._tt_first_prim.clear()
+        self._tt_first_fid.clear()
+        self._tt_first_entry.clear()
         if !why.empty() {
             return why
         }
@@ -1797,6 +1804,94 @@ pub class FrontendAction {
         }
 
         return ""
+    }
+
+    /// The primaries whose instances \p fid's Sema asked for, from its
+    /// dependency log (DepLog::bodies), into \p out.
+    priv fn _bodies_of(self, fid: u32, out: unsafe *llvm::DenseSet<u64>) {
+        var unsafe *c = self._global_scope->get_context(fid)
+        if c == &null || c->tu == &null || c->tu->dep_log == &null {
+            return
+        }
+
+        for var i: usize = 0; i < c->tu->dep_log->bodies.size(); ++i {
+            out->insert(c->tu->dep_log->bodies[i])
+        }
+    }
+
+    /// \brief may the queued files \p ahead be re-checked before the files
+    ///        that precede them in Sema's order (a tool's open buffer and
+    ///        what it imports)? An instance's once-only reports belong to
+    ///        its first use in that order, so a file that was the first
+    ///        user of an instance \p ahead also names must go before it:
+    ///        those still queued are appended to \p first (the caller adds
+    ///        them and asks again). False when the order cannot be kept:
+    ///        such an instance has no first user any more (an edited file
+    ///        stopped naming it), and which file is next is not known
+    ///        before the files between are re-checked.
+    ///
+    /// \details Read from what the retractions recorded (the instance's
+    ///          primary and the file of its first use) and from the
+    ///          dependency logs of \p ahead's OLD trees, which name the
+    ///          primaries they instantiate; their text has not changed, so
+    ///          they will ask for the same. By primary, not by instance:
+    ///          too many files go first, never too few, except that an
+    ///          edited file is taken to name an instance still when it
+    ///          names another of the same primary. refresh() / tier_finish
+    ///          still judge every first use afterwards; a miss here is a
+    ///          full check there, not a wrong result.
+    pub fn prefer_first_users(self,
+                              ahead:  cxx::std::vector<u32>,
+                              queued: cxx::std::vector<u32>,
+                              edited: cxx::std::vector<u32>,
+                              first:  *cxx::std::vector<u32>) -> bool {
+        var bodies = llvm::DenseSet<u64>()
+        for var f: u32 in ahead {
+            self._bodies_of(f, unsafe &bodies)
+        }
+
+        for var i: usize = 0; i < self._tt_first_prim.size(); ++i {
+            if !bodies.contains(self._tt_first_prim[i]) {
+                continue
+            }
+
+            var fid = self._tt_first_fid[i]
+            if _fid_in(&ahead, fid) {
+                continue
+            }
+
+            if _fid_in(&queued, fid) {
+                if !_fid_in(first, fid) {
+                    first->push_back(fid)
+                }
+
+                continue
+            }
+
+            // Its first user is re-checked. Re-armed: it is live again, or
+            // nobody has named it since.
+            var unsafe *e = self._tt_first_entry[i]
+            if e != &null {
+                if e->depth == 0 {
+                    return false
+                }
+
+                continue
+            }
+
+            // Dropped: an importer re-read with its text unchanged names it
+            // again; an edited file does when its new tree still asks for
+            // the primary.
+            if _fid_in(&edited, fid) {
+                var now = llvm::DenseSet<u64>()
+                self._bodies_of(fid, unsafe &now)
+                if !now.contains(self._tt_first_prim[i]) {
+                    return false
+                }
+            }
+        }
+
+        return true
     }
 
     /// \p fids group by group, as the sema loop runs them: each import
@@ -1816,6 +1911,55 @@ pub class FrontendAction {
     /// many they do hold.
     pub fn verify_retired(self) -> usize {
         return verify_retired(self._global_scope, self._ci->foreign_registry(), self._ci->retired)
+    }
+
+    /// \brief every address of the replaced trees (\p dead: their arena
+    ///        blocks) leaves the build-wide stores that are keyed by one or
+    ///        hold one: the canonical type table, the conformance rows,
+    ///        the dropped instances. After it CompilerInstance::
+    ///        release_retired may free them. Says what went, for a log.
+    ///
+    /// \pre every file of every retraction has been re-checked (no queued
+    ///      file holds an old tree) and tier_finish / refresh accepted the
+    ///      result.
+    pub fn sweep_retired(self, dead: unsafe *kairo::AddrRanges) -> string {
+        var shells = llvm::DenseSet<u64>()
+        var types  = llvm::DenseSet<u64>()
+        var unsafe *reg = self._global_scope->instances()
+        reg->dead_shells(unsafe &shells)
+        var nt = self._global_scope->types()->sweep(dead, unsafe &shells, unsafe &types, false)
+        var nr = reg->sweep_dead(dead, unsafe &types, false)
+        return f"{nt} canonical types, {nr} conformance rows, {shells.size()} instance nodes"
+    }
+
+    /// \brief a retraction's part of the same: the conformance rows that
+    ///        name a declaration of \p set (a witness, the declaring
+    ///        `impl`, a conformer that is one of its records) leave the
+    ///        tables NOW, while the files are still to be re-read.
+    ///
+    /// \details A row is found by (conformer, interface), and `extend i32
+    ///          impl I` in a file of the set is found by every later
+    ///          question about i32: left in, the re-check is answered from
+    ///          the old text (a witness that was renamed away still
+    ///          conforms), and the file's own re-check adds nothing, the
+    ///          row being there.
+    priv fn _retract_rows(self, const set: cxx::std::vector<u32>) {
+        var dead = kairo::AddrRanges()
+        dead.label(kairo::std::to_std_string("a file being re-read"))
+        for var f: u32 in set {
+            var unsafe *c = self._global_scope->get_context(f)
+            if c != &null {
+                c->ranges_into(unsafe &dead, 0)
+            }
+        }
+
+        dead.seal()
+        var shells = llvm::DenseSet<u64>()
+        var types  = llvm::DenseSet<u64>()
+        var unsafe *reg = self._global_scope->instances()
+        reg->dead_shells(unsafe &shells)
+        self._global_scope->types()->sweep(unsafe &dead, unsafe &shells, unsafe &types, true)
+        reg->sweep_dead(unsafe &dead, unsafe &types, true)
     }
 
     /// \p fids in the order their Sema runs (import order over the graph).
@@ -1921,6 +2065,7 @@ pub class FrontendAction {
         }
 
         var st = retract_instances(self._global_scope, self._ci->sm(), self._ci->foreign_registry(), set)
+        self._retract_rows(set)
         if !self.tiered {
             self._rearmed = st.rearmed_list
             self._rearmed_was.clear()
@@ -1942,6 +2087,12 @@ pub class FrontendAction {
             if gone.contains(self._rearmed[i] as usize as u64) {
                 self._rearm_ok[i] = (1 as u8)
             }
+        }
+
+        for var i: usize = 0; i < st.first_prim.size(); ++i {
+            self._tt_first_prim.push_back(st.first_prim[i])
+            self._tt_first_fid.push_back(st.first_fid[i])
+            self._tt_first_entry.push_back(st.first_entry[i])
         }
 
         self._tt_sets.push_back(set)

@@ -82,8 +82,8 @@ def parse_script(text):
             steps[-1][1].append(("append", f[0], unescape(f[1]), ""))
         elif line.startswith("remove "):
             steps[-1][1].append(("remove", line[7:], "", ""))
-        elif line.startswith("drain "):
-            continue  # the live side's: how far the queue gets before the next edit
+        elif line.startswith("drain ") or line.startswith("prefer "):
+            continue  # the live side's: how far the queue gets before the next edit, and towards what
         else:
             die(f"unknown command: {line}")
     return steps

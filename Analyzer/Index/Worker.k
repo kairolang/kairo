@@ -915,7 +915,12 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
         held.push_back(text)
         var unsafe *bytes = unsafe ((held[held.size() - 1].raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
-        ci->sm()->load_overlay(Path(real[k]), bytes, held[held.size() - 1].size())
+        // Staged, not loaded: the file gets its id where the graph first
+        // loads it, as a fresh `kairo` run numbers it. Loaded here it was
+        // minted ahead of every file of the graph, and whatever is ordered
+        // by file id came out in another order than the compiler's
+        // (Tooling::LiveCheck does the same; IncrementalSema.md, "Buffers").
+        ci->sm()->stage_overlay(Path(real[k]), bytes, held[held.size() - 1].size())
     }
 
     var t_run = worker_us()

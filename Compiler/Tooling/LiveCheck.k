@@ -31,6 +31,7 @@ ffi "c++" import "vector"
 
 ffi "c++" import "cstdio"
 ffi "c++" import "cstdlib"
+ffi "c++" import "csignal"
 ffi "c++" import "chrono"
 ffi "c++" import "Native/KShims.hh"
 ffi "c++" import "Native/GlobalRecycler.hh"
@@ -41,6 +42,7 @@ ffi "c++" import "llvm/ADT/StringMap.h"
 import Diagnostic::Diagnostic::Diagnostic
 import Diagnostic::FileDiagnostics::FileDiagConsumer
 import Diagnostic::Severity::DiagSeverity
+import AST::Context::ASTContext::ASTContext
 import Driver::CompilerInstance::CompilerInstance
 import Driver::FrontendAction::FrontendAction
 import Driver::TUStage::TUStage
@@ -52,6 +54,11 @@ import Tooling::ParseAPI::{
     release_all,
 }
 import std::io
+
+/// Freed arena bytes from which a live check asks the allocator to give
+/// its free pages back at once (kairo::heap_trim, a walk of the heap: a
+/// few ms). Below it the pages are reused by the next edit anyway.
+const LIVE_TRIM_BYTES: usize = 64 * 1024 * 1024
 
 fn _live_us() -> i64 {
     var t = cxx::std::chrono::steady_clock::now()
@@ -110,6 +117,7 @@ pub class LiveCheck {
     priv var _action:  unsafe *FrontendAction   = &null
     priv var _pre:     usize                    = 0 ///< console diagnostics from before the check
     priv var _q:       cxx::std::vector<u32>        ///< two_tier: files queued, in Sema's order
+    priv var _edited:  cxx::std::vector<u32>        ///< two_tier: files edited since the queue was last empty
     /// The files the last refresh re-checked, by name (empty after a full
     /// check: every file was).
     pub var rechecked: cxx::std::vector<string>
@@ -537,6 +545,7 @@ pub class LiveCheck {
         self.why = f"{set.size()} of {self.files} files"
         self.rechecked = names
         self._self_check()
+        self._release_retired()
         return ""
     }
 
@@ -549,6 +558,110 @@ pub class LiveCheck {
 
         var bad = self._action->verify_retired()
         io::eprintln(f"[live] self-check: {bad} of the purged stores' entries name a replaced tree ({self._ci->retired.size()} replaced trees held, {self._ci->retired_bytes() / 1048576} MB)")
+        self._mem_report("re-check done")
+    }
+
+    /// \brief every file of every retraction is re-checked and the result
+    ///        stands: the trees the re-checks replaced are freed, once
+    ///        their addresses are out of the build-wide stores.
+    ///
+    /// \details KAIRO_LIVE_KEEP_RETIRED keeps them (what a live check did
+    ///          before this was built: a way to rule the free out).
+    ///          KAIRO_LIVE_POISON overwrites and keeps them instead, and
+    ///          then searches the heap for a word that still points into
+    ///          one: the use-after-free check, which the oracle runs under
+    ///          (a stale read then reads 0xDD.., not a new tree's node).
+    priv fn _release_retired(self) {
+        if self._ci->retired.empty() || cxx::std::getenv(r"KAIRO_LIVE_KEEP_RETIRED") != &null {
+            return
+        }
+
+        var dbg    = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
+        var poison = cxx::std::getenv(r"KAIRO_LIVE_POISON") != &null
+        var dead   = kairo::AddrRanges()
+        var own    = kairo::AddrRanges()
+        own.label(kairo::std::to_std_string("a replaced tree's own"))
+        self._ci->retired_ranges(unsafe &dead, unsafe &own, dbg || poison)
+        var swept = self._action->sweep_retired(unsafe &dead)
+        var n     = self._ci->retired.size()
+        var bytes = self._ci->release_retired(poison)
+        self.freed_files += n
+        self.freed_bytes += bytes
+        // A core file's set is a quarter of the process: back to the
+        // system at once, not as later allocations happen to pass by (a
+        // host reads the resident size; Analyzer/Tuning.k, LIVE_RSS_*).
+        if bytes >= LIVE_TRIM_BYTES {
+            kairo::heap_trim()
+        }
+
+        if dbg {
+            io::eprintln(f"[live] {n} replaced trees freed ({bytes / 1048576} MB of arena blocks); swept {swept}")
+            self._mem_report("replaced trees freed")
+        }
+
+        if (!poison) || (!dbg) {
+            return
+        }
+
+        // Who points where: the kept trees and the two stores with an
+        // arena of their own are named, the rest is "the heap".
+        var where_ = kairo::AddrRanges()
+        for var f: u32 in self._ci->global_scope()->all_fids() {
+            var unsafe *c = self._ci->global_scope()->get_context(f)
+            if c != &null {
+                var nm = "the tree of " + self._ci->sm()->get_filename(f)
+                c->ranges_into(unsafe &where_, where_.label(kairo::std::to_std_string(nm)))
+            }
+        }
+
+        self._ci->global_scope()->types()->ranges_into(unsafe &where_, where_.label(kairo::std::to_std_string("the canonical types")))
+        self._ci->global_scope()->instances()->ranges_into(unsafe &where_, where_.label(kairo::std::to_std_string("the instantiation registry")))
+        where_.add(unsafe (self._ci as unsafe *const void), sizeof(CompilerInstance), where_.label(kairo::std::to_std_string("the CompilerInstance")))
+        where_.add(unsafe (self._action as unsafe *const void), sizeof(FrontendAction), where_.label(kairo::std::to_std_string("the FrontendAction")))
+        where_.add(unsafe (self._fd as unsafe *const void), sizeof(FileDiagConsumer), where_.label(kairo::std::to_std_string("the FileDiagConsumer")))
+        where_.add(unsafe (self._ci->sm() as unsafe *const void), 256, where_.label(kairo::std::to_std_string("the SourceManager")))
+        where_.add(unsafe (self._ci->diag() as unsafe *const void), 256, where_.label(kairo::std::to_std_string("the DiagEngine")))
+        where_.add(unsafe (self._ci->pp() as unsafe *const void), 256, where_.label(kairo::std::to_std_string("the Preprocessor")))
+        where_.add(unsafe (self._ci->global_scope() as unsafe *const void), 256, where_.label(kairo::std::to_std_string("the GlobalDisambigTable")))
+        where_.seal()
+        var total: usize = 0
+        var rep = kairo::std::from_std_string<string>(kairo::heap_scan_report(dead, own, where_, 60, &total))
+        self.dangling += total
+        io::eprint(f"[live] heap scan: {rep}")
+
+        // For a debugger: stop where the holders can still be read.
+        if total > 0 && cxx::std::getenv(r"KAIRO_LIVE_SCAN_TRAP") != &null {
+            cxx::std::fflush(kairo::std_err())
+            cxx::std::raise(5) // SIGTRAP: a debugger stops here and goes on
+        }
+    }
+
+    /// What _release_retired has freed since the last full check, and (under
+    /// KAIRO_LIVE_POISON) how many words of the heap still pointed into a
+    /// freed tree.
+    pub var freed_files: usize = 0
+    pub var freed_bytes: usize = 0
+    pub var dangling:    usize = 0
+
+    priv var _census: kairo::HeapCensus
+    priv var _rss_kib: u64 = 0
+
+    /// KAIRO_LIVE_DEBUG: where the process's memory is, and what moved
+    /// since the last line.
+    priv fn _mem_report(self, const what: string) {
+        var now = kairo::HeapCensus()
+        kairo::heap_census(&now)
+        var rss = kairo::resident_kib() as u64
+        var rb: usize = 0
+        var rn: usize = 0
+        kairo::GlobalRecycler::instance().stats(&rn, &rb)
+        var d_use = ((now.in_use as i64) - (self._census.in_use as i64)) / 1024
+        var d_rss = (rss as i64) - (self._rss_kib as i64)
+        io::eprintln(f"[live] memory, {what}: resident {rss / 1024} MB ({d_rss} KB since), heap in use {now.in_use / 1048576} MB ({d_use} KB since) of {now.committed / 1048576} MB in pages, arena blocks recycled {rb / 1048576} MB; replaced trees: {if (self._ci != &null) => (self._ci->retired_profile()) else => "none"}")
+        var delta = kairo::std::from_std_string<string>(kairo::heap_census_delta(self._census, now, 14))
+        io::eprint(f"{delta}")
+        self._census  = now
+        self._rss_kib = rss
     }
 
     /// --- two tiers ---------------------------------------------------
@@ -762,6 +875,7 @@ pub class LiveCheck {
         }
 
         self._q = self._action->group_order_of(set)
+        self._edited.push_back(fid)
         var t3  = _live_us()
         var out = self._tier_redo(fid, fid)
         if dbg {
@@ -779,11 +893,16 @@ pub class LiveCheck {
         }
 
         var why = self._action->tier_finish()
+        self._edited.clear()
         if !why.empty() {
             self.detail = self._action->refresh_detail
         }
 
         self._self_check()
+        if why.empty() {
+            self._release_retired()
+        }
+
         return why
     }
 
@@ -816,8 +935,48 @@ pub class LiveCheck {
             for var i: usize = 0; i < prefer.size(); ++i {
                 var pf = self._ci->sm()->find_fid(Path(prefer[i]))
                 if pf != u32::MAX && self._queued(pf) {
+                    // With the queued files that were first to use an
+                    // instance it names: they keep their place before it
+                    // (FrontendAction::prefer_first_users). When that
+                    // cannot be arranged the queue's own order stands.
+                    // KAIRO_LIVE_PREFER_UNORDERED: without that, as the
+                    // control of the proof (the same scripts then take a
+                    // full check where a first use moved).
                     var want = self._closure(pf)
-                    var hit  = false
+                    var ok   = true
+                    while ok && cxx::std::getenv(r"KAIRO_LIVE_PREFER_UNORDERED") == &null {
+                        var first = cxx::std::vector<u32>()
+                        ok = self._action->prefer_first_users(want, self._q, self._edited, &first)
+                        if first.empty() {
+                            break
+                        }
+
+                        for var x: u32 in first {
+                            for var c: u32 in self._closure(x) {
+                                var have = false
+                                for var w: u32 in want {
+                                    if w == c {
+                                        have = true
+                                    }
+                                }
+
+                                if !have {
+                                    want.push_back(c)
+                                }
+                            }
+                        }
+                    }
+
+                    if cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null {
+                        var how = if (ok) => (f"{want.size()} queued files are its") else => "an instance it names has no first user yet, the queue's order stands"
+                        io::eprintln(f"[live] prefer {Path(prefer[i]).filename()}: {how}; next in order is {Path(self._ci->sm()->get_filename(self._q[0])).filename()}")
+                    }
+
+                    if !ok {
+                        break
+                    }
+
+                    var hit = false
                     for var q: u32 in self._q {
                         for var w: u32 in want {
                             if w == q {
@@ -989,11 +1148,11 @@ pub class LiveCheck {
         return out
     }
 
-    /// What the re-checks since the last full check replaced and still
-    /// hold: the old trees of every re-checked file (their AST arenas'
-    /// bytes, and how many trees). Nothing frees them before the next full
-    /// check: the build-wide stores are keyed by their addresses. A host
-    /// that stays up watches this and starts over when it is too much.
+    /// What the re-checks have replaced and still hold: the old trees of
+    /// the files re-checked since the queue was last empty (their AST
+    /// arenas' bytes, and how many trees). They are freed when the queue
+    /// empties (_release_retired); until then a queued file's old tree may
+    /// point into one.
     pub fn retired_bytes(self) -> usize {
         if self._ci == &null {
             return 0
@@ -1079,6 +1238,9 @@ pub class LiveCheck {
         // Every tree, token run and buffer the check made: nothing else
         // reclaims them before the instance dies, and its end leaves some.
         release_all(self._ci, TUStage::Lexing)
+        // The trees re-checks replaced and kept (a re-check that turned
+        // into this full check): nothing of the instance outlives it.
+        self._ci->release_retired(false)
         self._ci->diag()->clear_retained()
         kairo::std::destroy(self._ci)
         self._ci = &null
@@ -1090,6 +1252,11 @@ pub class LiveCheck {
 
     priv fn _full(self, const why: string) -> bool {
         var dbg = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
+        if cxx::std::getenv(r"KAIRO_LIVE_POISON") != &null {
+            // Before the first arena: see GlobalRecycler::scrub.
+            kairo::GlobalRecycler::scrub.store(true)
+        }
+
         // Where a destroyed instance's memory is: handed back to the
         // arena recycler (and taken again by the next check), still in use
         // in the C heap, or neither (Compiler/Spec/IncrementalSema.md,
@@ -1107,9 +1274,12 @@ pub class LiveCheck {
             var rn: usize = 0
             kairo::GlobalRecycler::instance().stats(&rn, &rb)
             io::eprintln(f"[live] after it went: resident {kairo::resident_kib() / 1024} MB, heap in use {kairo::heap_in_use_kib() / 1024} MB, arena blocks recycled {rb / 1048576} MB")
+            self._ci = &null
+            self._mem_report("the old instance destroyed")
         }
 
         self._q.clear()
+        self._edited.clear()
         self.pending  = 0
         self.mode     = "full"
         self.why      = why

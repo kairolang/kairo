@@ -1,0 +1,17 @@
+# Tests/Sema/Incremental/replay_prefer.k, over Inputs/plan: `prefer` where
+# the preferred file is the entry (everything queued is its), a late
+# importer, and a file that is not queued at all.
+step leaf_prefer_entry
+replace s/util.k:::return y * 3:::return 3 * y
+prefer s/main.k
+step two_leaves_prefer_the_later_importer
+replace s/util.k:::return 3 * y:::return y * 3
+replace s/counter.k:::priv var n: i32 = 0:::priv var n: i64 = 0
+prefer s/use_counter.k
+step generic_prefer_its_user
+replace s/gen.k:::    return v:::    var w = v; return w
+prefer s/use_gen.k
+prefer s/main.k
+step leaf_prefer_a_kept_file
+replace s/counter.k:::priv var n: i64 = 0:::priv var n: i32 = 0
+prefer s/geo.k

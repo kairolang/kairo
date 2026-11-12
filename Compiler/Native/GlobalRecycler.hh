@@ -118,6 +118,12 @@ class GlobalRecycler {
     GlobalRecycler(GlobalRecycler &&)                 = delete;
     GlobalRecycler &operator=(GlobalRecycler &&)      = delete;
 
+    /// Zero every block on its way out of an arena. A live check's heap
+    /// scan (KAIRO_LIVE_POISON, Native/KShims.hh) takes any word for a
+    /// pointer; a block handed out again still holds what its last owner
+    /// wrote, in whatever the new one has not written yet.
+    static inline ::std::atomic<bool> scrub{false};
+
     void stats(usize &out_blocks, usize &out_bytes) noexcept {
         std::LockGuard<std::Mutex> lock(_mu);
         out_blocks = 0; out_bytes = 0;
@@ -135,6 +141,10 @@ class GlobalRecycler {
     void push(std::Byte *block, size_t capacity) noexcept {
         if (block == nullptr)
             return;
+
+        if (scrub.load(::std::memory_order_relaxed)) {
+            ::memset(block, 0, capacity);
+        }
 
         if (capacity >= MIN_RECYCLABLE) {
             size_t idx = bin_index(capacity);

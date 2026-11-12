@@ -171,14 +171,10 @@ extend CompilerInstance {
     /// \brief _inputs, with every Kairo input another one imports moved
     ///        after the rest (stable otherwise).
     ///
-    /// \details Written when an input was an ENTRY with no module path, and
-    ///          a file's identity was set by its first walk: run first, the
-    ///          importer walked it as module `foo` and claimed it
-    ///          (claim_fid). An input now takes the path an import gives it
-    ///          (_input_module_path), so the order no longer decides identity,
-    ///          and this can go. Left in place for now: it is harmless, the
-    ///          importer still claims the file it reaches first. The fid-0
-    ///          placeholder below is still needed either way.
+    /// \details An input takes the path an import gives it
+    ///          (_input_module_path), so this order does not decide a file's
+    ///          identity; the importer claims the file it reaches first
+    ///          (claim_fid). The fid-0 placeholder below is needed either way.
     prot fn _kairo_order(self) -> cxx::std::vector<InputKind> {
         var nk: usize = 0
         for *k in self._inputs {
@@ -443,9 +439,11 @@ extend CompilerInstance {
     ///
     /// \details The caller has already done this for every file that
     ///          imports \p fid (the refresh set), or \p fid has none: no kept
-    ///          tree may point into a file that is re-read. Not destroyed,
-    ///          because address-keyed stores would meet its addresses again
-    ///          (GlobalDisambigTable::detach).
+    ///          tree may point into a file that is re-read. Not destroyed
+    ///          here: a queued file's old tree may still point into it, and
+    ///          address-keyed stores would meet its addresses again
+    ///          (GlobalDisambigTable::detach). release_retired ends it,
+    ///          once the queue is empty and those stores are swept.
     ///
     /// \param bytes  with \p given, the file's new text: a tool's buffer
     ///               (kept alive by the caller, not copied; null when it
@@ -500,6 +498,89 @@ extend CompilerInstance {
         }
 
         return total
+    }
+
+    /// The arena blocks of the kept contexts, into \p out: one label per
+    /// file when \p named (a debug line's), else all under label 0.
+    pub fn retired_ranges(self, out: unsafe *kairo::AddrRanges, own: unsafe *kairo::AddrRanges, named: bool) {
+        var all = out->label(kairo::std::to_std_string("a replaced tree"))
+        for var i: usize = 0; i < self.retired.size(); ++i {
+            var unsafe *c = unsafe (self.retired[i] as unsafe *ASTContext)
+            if c == &null {
+                continue
+            }
+
+            var l = all
+            if named && self._sm != &null {
+                l = out->label(kairo::std::to_std_string(self._sm->get_filename(c->fid)))
+            }
+
+            c->ranges_into(out, l)
+            if own != &null {
+                c->records_into(own, 0)
+            }
+        }
+
+        out->seal()
+        if own != &null {
+            own->seal()
+        }
+    }
+
+    /// \brief ends the contexts detach_for_refresh kept. The caller has
+    ///        taken every address of theirs out of the build-wide stores
+    ///        (FrontendAction::sweep_retired) and no file still to be
+    ///        re-checked holds a tree that points into one.
+    ///
+    /// \param quarantine  overwrite and keep them instead of freeing
+    ///                    (ASTContext::quarantine): the use-after-free
+    ///                    check's mode.
+    /// \return the bytes of their arena blocks.
+    pub fn release_retired(self, quarantine: bool) -> usize {
+        var total: usize = 0
+        for var i: usize = 0; i < self.retired.size(); ++i {
+            var unsafe *c = unsafe (self.retired[i] as unsafe *ASTContext)
+            if c == &null {
+                continue
+            }
+
+            total += c->arena_capacity()
+            if quarantine {
+                c->quarantine()
+            } else {
+                kairo::std::destroy(c)
+            }
+        }
+
+        self.retired.clear()
+        return total
+    }
+
+    /// The same, arena by arena, as text (KAIRO_LIVE_DEBUG).
+    pub fn retired_profile(self) -> string {
+        var pp:  usize = 0
+        var ix:  usize = 0
+        var ast: usize = 0
+        var sem: usize = 0
+        var scr: usize = 0
+        var st:  usize = 0
+        var cg:  usize = 0
+        for var i: usize = 0; i < self.retired.size(); ++i {
+            var unsafe *c = unsafe (self.retired[i] as unsafe *ASTContext)
+            if c == &null {
+                continue
+            }
+
+            pp  += c->pp_alloc.profile().bytes_allocated
+            ix  += c->index_alloc.profile().bytes_allocated
+            ast += c->ast_alloc.profile().bytes_allocated
+            sem += c->sema_alloc.profile().bytes_allocated
+            scr += c->scratch_alloc.profile().bytes_allocated
+            st  += c->string_alloc.profile().bytes_allocated
+            cg  += c->codegen_alloc.profile().bytes_allocated
+        }
+
+        return f"ast {ast / 1024} KB, sema {sem / 1024} KB, pp {pp / 1024} KB, index {ix / 1024} KB, strings {st / 1024} KB, scratch {scr / 1024} KB, codegen {cg / 1024} KB"
     }
 
     /// \brief fids whose TU holds a resolved import edge directly into \p fid.

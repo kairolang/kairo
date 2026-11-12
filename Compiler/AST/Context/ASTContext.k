@@ -358,6 +358,61 @@ pub class ASTContext {
     /// index_alloc is deliberately NOT released at Parsing: the disambig
     /// table is read cross-fid while DEPENDENT files parse. It is dropped
     /// with the context.
+    /// Every arena block of this context, into \p out under \p label.
+    pub fn ranges_into(self, out: unsafe *kairo::AddrRanges, label: u32) {
+        self.string_alloc.ranges_into(out, label)
+        self.pp_alloc.ranges_into(out, label)
+        self.index_alloc.ranges_into(out, label)
+        self.ast_alloc.ranges_into(out, label)
+        self.sema_alloc.ranges_into(out, label)
+        self.codegen_alloc.ranges_into(out, label)
+        self.scratch_alloc.ranges_into(out, label)
+    }
+
+    /// The heap objects that are this context's and name its blocks (the
+    /// context, each arena block's record), into \p out.
+    pub fn records_into(self, out: unsafe *kairo::AddrRanges, label: u32) {
+        self.string_alloc.records_into(out, label)
+        self.pp_alloc.records_into(out, label)
+        self.index_alloc.records_into(out, label)
+        self.ast_alloc.records_into(out, label)
+        self.sema_alloc.records_into(out, label)
+        self.codegen_alloc.records_into(out, label)
+        self.scratch_alloc.records_into(out, label)
+        out->add(unsafe (&self as unsafe *const void), sizeof(Self), label)
+    }
+
+    /// \brief ends this context without giving its memory back: every
+    ///        registered destructor runs, as at its end, and every arena
+    ///        block is overwritten with 0xDD and kept.
+    ///
+    /// \details A live check's use-after-free check (KAIRO_LIVE_POISON):
+    ///          the addresses are never handed out again, so a pointer
+    ///          that still names this tree reads 0xDD.. (not an address)
+    ///          instead of a new tree's node, and the heap scan finds it.
+    pub fn quarantine(self) {
+        self.release_from(TUStage::Preprocessing)
+        // The lists' buffers too: this object stays, and a cleared vector
+        // keeps what it held in its spare capacity, which the heap scan
+        // would report.
+        self._cleanup_sema.shrink_to_fit()
+        self._cleanup_ast.shrink_to_fit()
+        self._cleanup_index.shrink_to_fit()
+        self._cleanup_pp.shrink_to_fit()
+        self.string_alloc.poison(0xDD as u8)
+        self.pp_alloc.poison(0xDD as u8)
+        self.index_alloc.poison(0xDD as u8)
+        self.ast_alloc.poison(0xDD as u8)
+        self.sema_alloc.poison(0xDD as u8)
+        self.codegen_alloc.poison(0xDD as u8)
+        self.scratch_alloc.poison(0xDD as u8)
+    }
+
+    /// The bytes of its arenas' blocks, used or not.
+    pub fn arena_capacity(self) -> usize {
+        return self.string_alloc.capacity() + self.pp_alloc.capacity() + self.index_alloc.capacity() + self.ast_alloc.capacity() + self.sema_alloc.capacity() + self.codegen_alloc.capacity() + self.scratch_alloc.capacity()
+    }
+
     fn release_from(self, from: TUStage) {
         if (from as u8) <= (TUStage::Codegen as u8) {
             self.codegen_alloc.reset_fast()

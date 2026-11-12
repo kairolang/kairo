@@ -15,8 +15,8 @@ root="$(cd "$here/../../.." && pwd)"
 mode=debug
 if [[ -n "$1" ]]; then mode="$1"; fi
 
-# Do NOT hardcode a triple: this used to say arm64-apple-macosx and silently
-# reported "no binary" on every other host. KAIRO_BIN wins if set, as in lit.
+# Do NOT hardcode a triple: a fixed arm64-apple-macosx silently reports
+# "no binary" on every other host. KAIRO_BIN wins if set, as in lit.
 kcc="$KAIRO_BIN"
 if [[ -z "$kcc" ]]; then
     for cand in "$root"/build/*/"$mode"/bin/kairo; do

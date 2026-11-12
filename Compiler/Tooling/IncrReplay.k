@@ -12,6 +12,9 @@
 ///     write <file>:::<text>             create or overwrite
 ///     append <file>:::<text>            add at the end
 ///     remove <file>
+///     prefer <file>                     with --incr-replay-two-tier: the
+///                                       queue is re-checked towards this
+///                                       file first, to the step's end
 ///     drain <n>                         with --incr-replay-two-tier: n of
 ///                                       the queued files are re-checked
 ///                                       before the step's next edit
@@ -401,6 +404,7 @@ pub fn incr_replay_main(argc:         i32,
     var open_   = false
     var touched = cxx::std::vector<string>()
     var at: usize = 0
+    var pref = cxx::std::vector<string>() ///< `prefer` lines of the open step
     while at <= text.size() {
         var e = at
         while e < text.size() && text[e] != ('\n' as u8) {
@@ -412,7 +416,7 @@ pub fn incr_replay_main(argc:         i32,
         at = e + 1
         var is_step = line.starts_with("step ")
         if (is_step || last) && open_ {
-            if last && (!line.empty()) && (!is_step) && line[0] != ('#' as u8) && !line.starts_with("drain ") {
+            if last && (!line.empty()) && (!is_step) && line[0] != ('#' as u8) && (!line.starts_with("drain ")) && !line.starts_with("prefer ") {
                 var why = replay_apply(line, &touched, &bufs)
                 if !why.empty() {
                     io::eprintln(f"error [U001E]: --incr-replay step '{name}': {why}")
@@ -440,10 +444,11 @@ pub fn incr_replay_main(argc:         i32,
                     live.replace_file(first)
                 }
 
-                var none = cxx::std::vector<string>()
-                while live.drain(1000000, none) {
+                while live.drain(1000000, pref) {
                     0
                 }
+
+                pref.clear()
             } else if bufs.on {
                 // Every buffer the step changed, then one step per file:
                 // a refresh re-reads only the files of its set.
@@ -491,6 +496,14 @@ pub fn incr_replay_main(argc:         i32,
             return 1
         }
 
+        // `prefer <file>`: from here to the step's end the queue is
+        // re-checked towards that file first (LiveCheck::drain's prefer: a
+        // tool's open buffers), then in Sema's order.
+        if line.starts_with("prefer ") {
+            pref.push_back(Path(line.subslice(7, line.size() - 7)).full_path())
+            continue
+        }
+
         // `drain <n>`: n queued files are re-checked before the step's next
         // edit (which then pre-empts the rest). Nothing, without two tiers.
         if line.starts_with("drain ") {
@@ -502,8 +515,7 @@ pub fn incr_replay_main(argc:         i32,
                     }
                 }
 
-                var none = cxx::std::vector<string>()
-                live.drain(k, none)
+                live.drain(k, pref)
                 io::println(f"incr-replay:   drain {k}: {live.mode} ({live.why})")
                 cxx::std::fflush(kairo::std_out())
             }
