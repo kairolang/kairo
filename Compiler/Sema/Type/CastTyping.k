@@ -108,6 +108,10 @@ import AST::Node::Types::{
     GenericParamType,
 }
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::{
+    declared_here,
+    named_declared_here,
+}
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstEval::ConstEval
 import Sema::Resolve::NameLookup::NameLookup
@@ -121,6 +125,7 @@ import Sema::Type::OverloadResolution::{
 }
 import Sema::Type::Substitution::Substitution
 import Token::TokenKind::TokenKind
+import Support::Ascii::is_blank
 
 // TODO(DUCK-GENERIC): T uses arg_info, conv, defer_enum_cast, fail, finish_call_args, fn_return_type, in_unsafe, mark_unknown, ml, needs_bound, note_panic_site, ovl, ... (17). Stage 0 was duck-typed; bound it or keep `: type`.
 pub class <T: type> CastTyping {
@@ -418,7 +423,7 @@ pub class <T: type> CastTyping {
                         DiagID::SC025E,
                         n->range.start,
                         f"cannot downcast from '{self.dyn()->tu.str(src)}': '{self.dyn()->tu.decl_name(sd)}' has no virtual methods, so there is no runtime type to check",
-                    ).first(n->range)->note(sd->range.start, "declared here")->first(
+                    ).first(n->range)->note(sd->range.start, declared_here())->first(
                         sd->range,
                     )->emit()
                     n->poison()
@@ -1127,7 +1132,7 @@ pub class <T: type> CastTyping {
         )
 
         b.first(n->range, "asserting downcast")
-        b.note(td->range.start, f"'{dn}' is declared here")
+        b.note(td->range.start, named_declared_here(dn))
         b.insert(n->range.end, "?", "make it the checked downcast, null on a miss")
         b.emit()
     }
@@ -1211,13 +1216,13 @@ pub class <T: type> CastTyping {
             )
 
             var e = head.length()
-            while e > 0 && self._is_blank(head[e - 1]) {
+            while e > 0 && is_blank(head[e - 1]) {
                 e -= 1
             }
 
-            if e >= 3 && head[e - 1] == 115 && head[e - 2] == 97 && self._is_blank(head[e - 3]) {
+            if e >= 3 && head[e - 1] == ('s' as u8) && head[e - 2] == ('a' as u8) && is_blank(head[e - 3]) {
                 e -= 2
-                while e > 0 && self._is_blank(head[e - 1]) {
+                while e > 0 && is_blank(head[e - 1]) {
                     e -= 1
                 }
 
@@ -1229,9 +1234,5 @@ pub class <T: type> CastTyping {
         }
 
         b.emit()
-    }
-
-    priv fn _is_blank(self, c: u8) -> bool {
-        return c == 32 || c == 9 || c == 10 || c == 13
     }
 }

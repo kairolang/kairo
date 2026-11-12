@@ -343,7 +343,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var q1: usize = msg.size()
         var q2: usize = msg.size()
         for var i: usize = 0; i < msg.size(); ++i {
-            if msg[i] != (39 as u8) {
+            if msg[i] != ('\'' as u8) {
                 continue
             }
 

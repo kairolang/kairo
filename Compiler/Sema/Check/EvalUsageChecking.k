@@ -118,6 +118,10 @@ import AST::Node::Types::{
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::{
+    declared_here,
+    named_declared_here,
+}
 import Location::SourceRange::SourceRange
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
@@ -540,7 +544,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
         b.first(n->value_type->range)
         if at != &null {
-            b.note(DiagCode(DiagID::SC183N), at->range.start, "declared here")->first(at->range)
+            b.note(DiagCode(DiagID::SC183N), at->range.start, declared_here())->first(at->range)
         }
 
         b.emit()
@@ -1057,7 +1061,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         )
 
         b.first(n->range)
-        b.note(DiagCode(DiagID::SC189N), f->range.start, f"'{nm}' is declared here")->first(
+        b.note(DiagCode(DiagID::SC189N), f->range.start, named_declared_here(nm))->first(
             f->range,
         )
 
@@ -1093,7 +1097,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             )
 
             pb.first(e->range)
-            pb.note(DiagCode(DiagID::SC189N), d->range.start, f"'{pn}' is declared here")->first(
+            pb.note(DiagCode(DiagID::SC189N), d->range.start, named_declared_here(pn))->first(
                 d->range,
             )
 
@@ -1130,7 +1134,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         )
 
         b.first(e->range)
-        b.note(DiagCode(DiagID::SC189N), d->range.start, f"'{nm}' is declared here")->first(
+        b.note(DiagCode(DiagID::SC189N), d->range.start, named_declared_here(nm))->first(
             d->range,
         )
 
@@ -1462,7 +1466,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                     b.note(
                         DiagCode(DiagID::SC190N),
                         f->range.start,
-                        f"'{nm}' is declared here",
+                        named_declared_here(nm),
                     )->first(f->name.range)
                     if !self._foreign(f) {
                         b.insert(f->range.start, "eval ", f"make '{nm}' an 'eval fn'")
@@ -1593,7 +1597,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         )
 
         b.first(n->range)
-        b.note(DiagCode(DiagID::SC190N), f->range.start, f"'{nm}' is declared here")->first(
+        b.note(DiagCode(DiagID::SC190N), f->range.start, named_declared_here(nm))->first(
             f->name.range,
         )
 
@@ -2477,7 +2481,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                 f"'{inn}' needs '{nn}' complete here",
             )->first(need_at)
         } else {
-            b.note(DiagCode(DiagID::SC195N), item->range.start, f"'{inn}' is declared here")->first(
+            b.note(DiagCode(DiagID::SC195N), item->range.start, named_declared_here(inn))->first(
                 item->range,
             )
         }

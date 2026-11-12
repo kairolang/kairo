@@ -54,7 +54,10 @@ import Sysroot::Names::{
     SysTarget,
     glibc_default_version,
 }
-import Sysroot::Outcome::SysOutcome
+import Sysroot::Outcome::{
+    SYS_STATUS_FAILED,
+    SysOutcome,
+}
 import Sysroot::Provider::{
     StageCtx,
     SysrootProvider,
@@ -1039,7 +1042,7 @@ pub class SysGen {
             }
 
             if !ok {
-                if out.status == 3 {
+                if out.status == SYS_STATUS_FAILED {
                     var log = st.fail(out.message)
                     out.message = f"stage {name} failed: {out.message} (log: {log})"
                     out.note    = SysGen::_moved(out.note, st.tmp(), st.dir + ".failed")

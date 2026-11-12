@@ -8,7 +8,7 @@
 ///   byte stream is fixed: every regular file under the dir as
 ///   `rel\n<sha256 hex>\n`, sorted by the UTF-8 bytes of rel. Registry
 ///   schema 1 follows symlinks; schema 2 inputs hold none, and one there is
-///   an error (P612: a Windows unzip turns a link into a file holding its
+///   an error (a Windows unzip turns a link into a file holding its
 ///   text, so a followed link hashes differently per host).
 ///   build/sysroot-share/FORMAT.md has the reference implementation.
 ///

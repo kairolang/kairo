@@ -415,7 +415,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         // No decoded text: the spelling, less its quotes.
         var sp = self.sc->ctx->get_spelling(sl->token)
         var n  = sp.size()
-        if n >= 2 && sp[0] == (34 as u8) && sp[n - 1] == (34 as u8) {
+        if n >= 2 && sp[0] == ('"' as u8) && sp[n - 1] == ('"' as u8) {
             var t: string = sp.subslice(1, n - 2)
             return t
         }

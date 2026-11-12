@@ -148,7 +148,7 @@ extend IndexWalker {
         var space = false
         for var i: usize = so; i < so + n; ++i {
             var ch = self.files[fi].text[i]
-            if (ch == 32) || (ch == 9) || (ch == 10) || (ch == 13) {
+            if (ch == (' ' as u8)) || (ch == ('\t' as u8)) || (ch == ('\n' as u8)) || (ch == ('\r' as u8)) {
                 space = true
                 continue
             }
@@ -184,7 +184,7 @@ extend IndexWalker {
                 }
 
                 var t = self.source_text_(e->range)
-                if t.empty() || (t[0] != 64) {
+                if t.empty() || (t[0] != ('@' as u8)) {
                     continue // not an `@` the text shows: a range a macro made
                 }
 
@@ -212,7 +212,7 @@ extend IndexWalker {
         }
 
         for var i: usize = 0; (i + needle.size()) <= hay.size(); ++i {
-            if (i > 0) && (hay[i - 1] != 32) {
+            if (i > 0) && (hay[i - 1] != (' ' as u8)) {
                 continue
             }
 
@@ -246,12 +246,12 @@ extend IndexWalker {
         var steps: usize = 0
         while (i < n) && (steps < TYPE_HEAD_SCAN_BYTES) {
             var ch = self.files[fi].text[i]
-            if ch == 123 {
+            if ch == ('{' as u8) {
                 closed = true
                 break
             }
 
-            if (ch == 32) || (ch == 9) || (ch == 10) || (ch == 13) {
+            if (ch == (' ' as u8)) || (ch == ('\t' as u8)) || (ch == ('\n' as u8)) || (ch == ('\r' as u8)) {
                 space = true
             } else {
                 if space && (!raw.empty()) {
@@ -286,7 +286,7 @@ extend IndexWalker {
             head = head.subslice(0, cut)
         }
 
-        while (!head.empty()) && (head[head.size() - 1] == 32) {
+        while (!head.empty()) && (head[head.size() - 1] == (' ' as u8)) {
             head = head.subslice(0, head.size() - 1)
         }
 
@@ -429,7 +429,7 @@ extend IndexWalker {
                         pt = pt.subslice(0, pt.size() - 1)
                     }
 
-                    while (!pt.empty()) && (pt[pt.size() - 1] == 32) {
+                    while (!pt.empty()) && (pt[pt.size() - 1] == (' ' as u8)) {
                         pt = pt.subslice(0, pt.size() - 1)
                     }
                 }
@@ -676,14 +676,14 @@ extend IndexWalker {
             var ls = self.files[fi].lines.starts[first - 1]
             var le = self.files[fi].lines.line_end(self.files[fi].text, first - 1)
             var p  = ls
-            while (p < le) && ((self.files[fi].text[p] == 32) || (self.files[fi].text[p] == 9)) {
+            while (p < le) && ((self.files[fi].text[p] == (' ' as u8)) || (self.files[fi].text[p] == ('\t' as u8))) {
                 p += 1
             }
 
-            if ((p + 2) < le) && (self.files[fi].text[p] == 47) && (self.files[fi].text[p + 1] == 47)
-                && (self.files[fi].text[p + 2] == 47) {
+            if ((p + 2) < le) && (self.files[fi].text[p] == ('/' as u8)) && (self.files[fi].text[p + 1] == ('/' as u8))
+                && (self.files[fi].text[p + 2] == ('/' as u8)) {
                 p += 3
-                if (p < le) && (self.files[fi].text[p] == 32) {
+                if (p < le) && (self.files[fi].text[p] == (' ' as u8)) {
                     p += 1
                 }
 
@@ -692,11 +692,11 @@ extend IndexWalker {
                 continue
             }
 
-            if ((p + 2) == le) && (self.files[fi].text[p] == 47) && (self.files[fi].text[p + 1] == 47) {
+            if ((p + 2) == le) && (self.files[fi].text[p] == ('/' as u8)) && (self.files[fi].text[p + 1] == ('/' as u8)) {
                 break // a bare `//` ends a doc block
             }
 
-            if (p < le) && (self.files[fi].text[p] == 64) && lines.empty() {
+            if (p < le) && (self.files[fi].text[p] == ('@' as u8)) && lines.empty() {
                 first -= 1 // an attribute line above the declaration
                 continue
             }
@@ -1020,7 +1020,7 @@ extend IndexWalker {
         // Past the code block's closing fence, where hover_ puts the line.
         var at = base.size()
         for var k: usize = 9; (k + 4) <= base.size(); ++k {
-            if (base[k] == 10) && (base[k + 1] == 96) && (base[k + 2] == 96) && (base[k + 3] == 96) {
+            if (base[k] == ('\n' as u8)) && (base[k + 1] == ('`' as u8)) && (base[k + 2] == ('`' as u8)) && (base[k + 3] == ('`' as u8)) {
                 at = k + 4
                 break
             }

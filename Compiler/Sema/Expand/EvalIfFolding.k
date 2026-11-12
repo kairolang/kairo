@@ -151,6 +151,7 @@ import AST::Visitor::ASTWriter::ASTWriter
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::named_declared_here
 import Interop::Clang::HeaderSet::HeaderSet
 import Memory::ArenaList::ArenaList
 import Sema::Check::ClassLifecycle::{
@@ -741,7 +742,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             b.note(
                 DiagCode(DiagID::SC230N),
                 vd->name.range.start,
-                f"'{nm}' is declared here",
+                named_declared_here(nm),
             )->first(vd->name.range)
             // A `const` that folds is one keyword from usable (Compiler/Spec/Eval.md#generic-value-parameters).
             if vd->storage == Declarations::StorageClass::Const

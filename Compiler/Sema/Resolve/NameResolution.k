@@ -156,6 +156,7 @@ import AST::VisibilityFacts::{
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::named_declared_here
 import Location::SourceRange::SourceRange
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::{
@@ -176,6 +177,7 @@ import Token::Token::Token
 import Token::TokenKind::{
     TokenKind,
     is_annotation,
+    token_kind_to_readable_string,
 }
 
 ///
@@ -512,7 +514,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         self._assert_entry(tu)
 
-        self._self_imm = self.sc->imm_table()->intern_ident_copy("self")
+        self._self_imm = self.sc->imm_table()->intern_ident_copy(token_kind_to_readable_string(TokenKind::KwSelf))
 
         self._validate_decls(tu) // N(a)
         self._bind(tu)           // N(b)
@@ -1516,7 +1518,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     /// name, not a local. Error home for "outside a type body" in EXPRESSION
     /// position is here; type position is T's.
     priv fn _bind_self_type(self, n: unsafe *NamedIdentExpr) -> bool {
-        var imm = self.sc->imm_table()->intern_ident_copy("Self") // trace label only; never a lookup key.
+        var imm = self.sc->imm_table()->intern_ident_copy(token_kind_to_readable_string(TokenKind::BiSelf)) // trace label only; never a lookup key.
 
         var unsafe *dc = self.cur_dc
         while dc != &null && !(dc->is_type_scope() && dc->owner_decl() != &null) {
@@ -3442,7 +3444,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         b.first(n->range)
         if d != &null {
-            b.note(DiagCode(DiagID::R049N), d->range.start, f"'{nm}' is declared here")->first(
+            b.note(DiagCode(DiagID::R049N), d->range.start, named_declared_here(nm))->first(
                 d->range,
             )
         }
@@ -3559,7 +3561,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         b.first(n->range)
         if d != &null && d->range.is_valid() {
             var nt = decl_name_tok(d).range
-            b.note(DiagCode(DiagID::R047N), nt.start, f"'{nm}' is declared here")->child_first(nt)
+            b.note(DiagCode(DiagID::R047N), nt.start, named_declared_here(nm))->child_first(nt)
             var wr = d->visibility_range()
             if wr.is_valid() {
                 b.fix(wr, "pub", f"make '{nm}' public")

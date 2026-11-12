@@ -343,14 +343,13 @@ pub class TokenCacheManager {
             return false
         }
 
-        // Report whether there was ACTUALLY anything to drop. This used to
-        // return true for any non-Streaming slot, including one already at
-        // NotLexed holding nothing   which breaks the documented contract and
-        // silently breaks callers that drive a "repeat until a pass frees
-        // nothing" loop, since such a loop never sees a pass free nothing.
-        // release_all() survived it only because its worklist (all_fids())
-        // shrinks as contexts are erased; a caller iterating a fixed list
-        // spins forever.
+        // Report whether there was ACTUALLY anything to drop, not merely a
+        // non-Streaming slot: a slot already at NotLexed holds nothing, and
+        // returning true for it breaks callers that drive a "repeat until a
+        // pass frees nothing" loop, which would never see a pass free
+        // nothing. release_all() is safe either way because its worklist
+        // (all_fids()) shrinks as contexts are erased; a caller iterating a
+        // fixed list would spin forever.
         var had = slot->state != Self::SlotState::NotLexed
             || slot->lexer != &null
             || slot->tokens != &null

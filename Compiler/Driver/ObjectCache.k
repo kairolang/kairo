@@ -57,6 +57,10 @@ import API::FS::*
 import Interop::Clang::ClangBackend::ClangBackend
 import Interop::Clang::HeaderSet::HeaderSet
 import Interop::Clang::HeaderSetCache::HeaderSetCache
+import Support::Tuning::{
+    CACHE_ENTRY_MAX_AGE_NS,
+    CACHE_PARTIAL_MAX_AGE_NS,
+}
 import std::env
 
 /// Bumped by any change to the record or to how a key is computed, and by
@@ -588,13 +592,12 @@ pub class ObjectCache {
         var now = (cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
             cxx::std::chrono::system_clock::now().time_since_epoch(),
         ).count() as u64)
-        var day: u64 = (86400 as u64) * (1000000000 as u64) // ns
-        var objs     = self.dir + "/objects"
+        var objs = self.dir + "/objects"
         for var name: string in LinkFS::list_dir(objs) {
             var p       = objs + "/" + name
             var partial = name.ends_with(".tmp")
             var last    = LinkFS::mtime(p)
-            var limit   = if (partial) => (day) else => 30 * day
+            var limit   = if (partial) => (CACHE_PARTIAL_MAX_AGE_NS) else => CACHE_ENTRY_MAX_AGE_NS
             if last != 0 && now > last && now - last > limit {
                 LinkFS::remove(p)
             }

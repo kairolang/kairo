@@ -101,6 +101,7 @@ import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::named_declared_here
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstEval::ConstEval
 import Sema::Lower::LowerSynth::LowerSynth
@@ -1212,7 +1213,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 if ce.bad_decl != &null {
                     b.note(
                         ce.bad_decl->range.start,
-                        f"'{self.dyn()->tu.decl_name(ce.bad_decl)}' is declared here",
+                        named_declared_here(self.dyn()->tu.decl_name(ce.bad_decl)),
                     )
                 }
 
@@ -1289,7 +1290,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             )
 
             b.first(n->name.range)
-            b.note(DiagCode(DiagID::SC130N), a->name.range.start, f"'{an}' is declared here")
+            b.note(DiagCode(DiagID::SC130N), a->name.range.start, named_declared_here(an))
             b.emit()
             return
         }

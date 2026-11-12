@@ -113,6 +113,10 @@ import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::named_call_arg_value
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::{
+    named_declared_here,
+    type_declared_here,
+}
 import Location::SourceRange::SourceRange
 import Sema::Check::ClassLifecycle::moves_on_pass
 import Sema::Resolve::MemberLookup::MemberLookup
@@ -1920,7 +1924,7 @@ pub class <T: type> CallTyping {
                 )
 
                 d.first(n->range)
-                d.note(qd->range.start, f"'{iname}' is declared here")->first(qd->range)
+                d.note(qd->range.start, named_declared_here(iname))->first(qd->range)
                 d.emit()
                 self.dyn()->poison_only(n)
                 return &null
@@ -2440,7 +2444,7 @@ pub class <T: type> CallTyping {
                 DiagID::SC038E,
                 n->range.start,
                 f"'{self.dyn()->tu.decl_name(d)}' declares no constructor taking arguments",
-            ).first(n->range)->note(d->range.start, "type declared here")->first(d->range)->emit()
+            ).first(n->range)->note(d->range.start, type_declared_here())->first(d->range)->emit()
             n->poison()
             return &null
         }

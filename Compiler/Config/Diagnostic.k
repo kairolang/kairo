@@ -14,6 +14,14 @@
 ffi "c++" import "Native/KShims.hh"
 ffi "c++" import "vector"
 
+import Command::FlagRegistry::{
+    DEFAULT_MAX_DIAG_CONTEXT_LINES,
+    DEFAULT_MAX_ERRORS,
+    DEFAULT_MAX_NOTES,
+    DEFAULT_MAX_SUGGESTION_COUNT,
+    DEFAULT_MAX_WARNINGS,
+    DEFAULT_TAB_WIDTH,
+}
 import Command::ParsedArgs::ParsedArgs
 
 ///
@@ -33,12 +41,12 @@ pub class DiagnosticOptions {
     pub var format: string = "pretty" ///< pretty|basic|json|msvc
     /// # budget limits (from --c* config flags)
 
-    pub var max_errors:        i32 = 20 ///< 0 = unlimited
-    pub var max_warnings:      i32 = 0  ///< 0 = unlimited
-    pub var max_notes:         i32 = 0  ///< 0 = unlimited
-    pub var max_context_lines: i32 = 3
-    pub var max_suggestions:   i32 = 5
-    pub var tab_width:         i32 = 4
+    pub var max_errors:        i32 = DEFAULT_MAX_ERRORS ///< 0 = unlimited
+    pub var max_warnings:      i32 = DEFAULT_MAX_WARNINGS ///< 0 = unlimited
+    pub var max_notes:         i32 = DEFAULT_MAX_NOTES ///< 0 = unlimited
+    pub var max_context_lines: i32 = DEFAULT_MAX_DIAG_CONTEXT_LINES
+    pub var max_suggestions:   i32 = DEFAULT_MAX_SUGGESTION_COUNT
+    pub var tab_width:         i32 = DEFAULT_TAB_WIDTH
     /// # formatting
 
     pub var no_color:       bool = false

@@ -36,6 +36,10 @@ import Driver::FrontendAction::FrontendAction
 import Location::SourceManager::FileID
 import Resolution::ModulePath::ModulePath
 import Support::FileIO::Path::Path
+import Support::Tuning::{
+    CACHE_ENTRY_MAX_AGE_NS,
+    CACHE_PARTIAL_MAX_AGE_NS,
+}
 import std::env
 
 extend CompilerInstance {
@@ -228,7 +232,6 @@ extend CompilerInstance {
         var now = (cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
             cxx::std::chrono::system_clock::now().time_since_epoch(),
         ).count() as u64)
-        var day: u64 = (86400 as u64) * (1000000000 as u64) // ns
         for var name: string in LinkFS::list_dir(dir) {
             var p = dir + "/" + name
             if !LinkFS::is_file(p) {
@@ -240,7 +243,7 @@ extend CompilerInstance {
             ))
 
             var last  = LinkFS::mtime(p)
-            var limit = if (partial) => (day) else => 30 * day
+            var limit = if (partial) => (CACHE_PARTIAL_MAX_AGE_NS) else => CACHE_ENTRY_MAX_AGE_NS
             if last != 0 && now > last && now - last > limit {
                 LinkFS::remove(p)
             }
@@ -630,7 +633,6 @@ extend CompilerInstance {
         var now = (cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
             cxx::std::chrono::system_clock::now().time_since_epoch(),
         ).count() as u64)
-        var day: u64 = (86400 as u64) * (1000000000 as u64) // ns
         for var name: string in LinkFS::list_dir(root) {
             var p = root + "/" + name
             if p == keep || !LinkFS::is_dir(p) {
@@ -650,7 +652,7 @@ extend CompilerInstance {
                 last = LinkFS::mtime(p)
             }
 
-            var limit = if (partial) => (day) else => 30 * day
+            var limit = if (partial) => (CACHE_PARTIAL_MAX_AGE_NS) else => CACHE_ENTRY_MAX_AGE_NS
             if last != 0 && now > last && now - last > limit {
                 LinkFS::remove_tree(p)
             }

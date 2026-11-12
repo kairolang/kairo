@@ -109,10 +109,10 @@ pub class <eval CHUNK_SIZE: usize> TokenBuffer {
 
     /// \brief makes one more chunk available to append.
     ///
-    /// \details The table grows by DOUBLING. It used to re-allocate one entry
-    ///          larger per chunk and copy the old contents across, which is
-    ///          O(n^2) bytes against an allocator that never reclaims: every
-    ///          superseded table stayed resident until destroy(). Lexing this
+    /// \details The table grows by DOUBLING. Re-allocating one entry larger
+    ///          per chunk and copying the old contents across is O(n^2) bytes
+    ///          against an allocator that never reclaims: every superseded
+    ///          table would stay resident until destroy(). Lexing this
     ///          repo's Lexer.k (~50k tokens, 98 chunks at CHUNK_SIZE 512) meant
     ///          98 allocations and ~115 KB copied and abandoned to track 98
     ///          descriptors. Doubling makes that 5 allocations and ~7 KB.
@@ -147,9 +147,9 @@ pub class <eval CHUNK_SIZE: usize> TokenBuffer {
             self._chunk_capacity = new_cap
         }
 
-        // Fill the descriptor in place. The old code allocated a Chunk in the
-        // arena, filled it, copied it into the table and abandoned the
-        // original - 24 bytes leaked per chunk for nothing.
+        // Fill the descriptor in place: allocating a Chunk in the arena,
+        // filling it, copying it into the table and abandoning the original
+        // would leak 24 bytes per chunk for nothing.
         var *new_chunk = &self._chunks[self._chunk_alloced]
 
         new_chunk->capacity = CHUNK_SIZE
@@ -203,8 +203,7 @@ pub class <eval CHUNK_SIZE: usize> TokenBuffer {
         // correct while every chunk below the last in-use one is exactly full.
         // Leaving _chunk_count pinned would let the next append write into a
         // trailing empty chunk and desync that mapping. The retired chunk is
-        // no longer leaked - _chunk_alloced remembers its base and grow()
-        // hands it straight back.
+        // not leaked: _chunk_alloced remembers its base and grow() reuses it.
         while chunk->length == 0 && self._chunk_count > 1 {
             --self._chunk_count
             chunk = &self._chunks[self._chunk_count - 1]

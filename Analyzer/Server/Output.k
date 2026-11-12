@@ -279,7 +279,7 @@ extend Server {
 
             var n: i64 = 0
             for var c: usize = 0; c < text.size(); ++c {
-                if (text[c] >= 48) && (text[c] <= 57) {
+                if (text[c] >= ('0' as u8)) && (text[c] <= ('9' as u8)) {
                     n = (n * 10) + ((text[c] - 48) as i64)
                 }
             }

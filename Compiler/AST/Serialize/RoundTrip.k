@@ -70,12 +70,12 @@ fn first_difference(const a: string, const b: string) -> string {
     var ib: usize   = 0
     while ia < a.size() || ib < b.size() {
         var ea = ia
-        while ea < a.size() && a[ea] != 10 {
+        while ea < a.size() && a[ea] != ('\n' as u8) {
             ea += 1
         }
 
         var eb = ib
-        while eb < b.size() && b[eb] != 10 {
+        while eb < b.size() && b[eb] != ('\n' as u8) {
             eb += 1
         }
 

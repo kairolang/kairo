@@ -141,7 +141,7 @@ pub class Transport {
     priv fn body_start_(const self) -> usize {
         var i = self.head_
         while (i + 3) < self.buf_.size() {
-            if (self.buf_[i] == 13) && (self.buf_[i + 1] == 10) && (self.buf_[i + 2] == 13) && (self.buf_[i + 3] == 10) {
+            if (self.buf_[i] == ('\r' as u8)) && (self.buf_[i + 1] == ('\n' as u8)) && (self.buf_[i + 2] == ('\r' as u8)) && (self.buf_[i + 3] == ('\n' as u8)) {
                 return i + 4
             }
 
@@ -168,7 +168,7 @@ pub class Transport {
             var m: usize = 0
             while (m < name.size()) && ((i + m) < start) {
                 var c = self.buf_[i + m]
-                if (c >= 65) && (c <= 90) {
+                if (c >= ('A' as u8)) && (c <= ('Z' as u8)) {
                     c = c + 32
                 }
 
@@ -181,12 +181,12 @@ pub class Transport {
 
             if m == name.size() {
                 var j = i + m
-                while (j < start) && (self.buf_[j] == 32) {
+                while (j < start) && (self.buf_[j] == (' ' as u8)) {
                     j += 1
                 }
 
                 var v: usize = 0
-                while (j < start) && (self.buf_[j] >= 48) && (self.buf_[j] <= 57) {
+                while (j < start) && (self.buf_[j] >= ('0' as u8)) && (self.buf_[j] <= ('9' as u8)) {
                     v = (v * 10) + ((self.buf_[j] - 48) as usize)
                     j += 1
                 }
@@ -196,7 +196,7 @@ pub class Transport {
             }
 
             // next header line
-            while (i < start) && (self.buf_[i] != 10) {
+            while (i < start) && (self.buf_[i] != ('\n' as u8)) {
                 i += 1
             }
 

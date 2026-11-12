@@ -25,6 +25,103 @@ import Diagnostic::Engine::DiagEngine
 import Support::Assert::Assert
 import std::io
 
+/// Defaults of the --c* limit flags (and the few other numeric ones a
+/// Config/*.k field mirrors). One definition each: define_cfg below takes
+/// them, so --help prints them, and the Config fields start from them, so
+/// a hand-built invocation (tests, the language server) agrees with a
+/// parsed one. `eval`, so an importing unit sees the value itself.
+pub
+eval DEFAULT_MAX_INLINE_DEPTH: i32 = 256 ///< --cmax-inline-depth
+pub
+eval DEFAULT_INLINE_COST_THRESHOLD: f64 = 225.0 ///< --cinline-cost-threshold
+pub
+eval DEFAULT_MAX_UNROLL_COUNT: i32 = 0 ///< --cmax-unroll-count
+pub
+eval DEFAULT_MAX_FOR_UNROLL_COUNT: i32 = 1024 ///< --cmax-for-unroll-count
+pub
+eval DEFAULT_MAX_LAMBDA_CAPTURE_SIZE: i32 = 1024 ///< --cmax-lambda-capture-size
+pub
+eval DEFAULT_MAX_CODEGEN_PASSES: i32 = 0 ///< --cmax-codegen-passes
+pub
+eval DEFAULT_MAX_OBJECT_SIZE_MB: i32 = 512 ///< --cmax-object-size-mb
+pub
+eval DEFAULT_MAX_ERRORS: i32 = 20 ///< --cmax-errors
+pub
+eval DEFAULT_MAX_WARNINGS: i32 = 0 ///< --cmax-warnings
+pub
+eval DEFAULT_MAX_NOTES: i32 = 0 ///< --cmax-notes
+pub
+eval DEFAULT_MAX_DIAG_CONTEXT_LINES: i32 = 3 ///< --cmax-diag-context-lines
+pub
+eval DEFAULT_MAX_SUGGESTION_COUNT: i32 = 5 ///< --cmax-suggestion-count
+pub
+eval DEFAULT_TAB_WIDTH: i32 = 4 ///< --ctab-width
+pub
+eval DEFAULT_MAX_EXPR_DEPTH: i32 = 512 ///< --cmax-expr-depth
+pub
+eval DEFAULT_MAX_SCOPE_DEPTH: i32 = 256 ///< --cmax-scope-depth
+pub
+eval DEFAULT_MAX_THREADS: i32 = 0 ///< --cmax-threads
+pub
+eval DEFAULT_MAX_GENERIC_INSTANTIATIONS: i32 = 16384 ///< --cmax-generic-instantiations
+pub
+eval DEFAULT_MAX_TUPLE_ARITY: i32 = 128 ///< --cmax-tuple-arity
+pub
+eval DEFAULT_MAX_BORROW_DEPTH: i32 = 512 ///< --cmax-borrow-depth
+pub
+eval DEFAULT_MAX_AMT_SMARTPTR_REWRITES: i32 = 8192 ///< --cmax-amt-smartptr-rewrites
+pub
+eval DEFAULT_MAX_GENERIC_DEPTH: i32 = 128 ///< --cmax-generic-depth
+pub
+eval DEFAULT_MAX_GENERIC_BACKTRACE: i32 = 5 ///< --cmax-generic-backtrace
+pub
+eval DEFAULT_MAX_CONST_EVAL_STEPS: i32 = 1000000 ///< --cmax-const-eval-steps
+pub
+eval DEFAULT_MAX_CONST_EVAL_DEPTH: i32 = 512 ///< --cmax-const-eval-depth
+pub
+eval DEFAULT_MAX_CONST_BACKTRACE: i32 = 8 ///< --cmax-const-backtrace
+pub
+eval DEFAULT_MAX_STRUCT_FIELDS: i32 = 0 ///< --cmax-struct-fields
+pub
+eval DEFAULT_MAX_FUNCTION_PARAMS: i32 = 255 ///< --cmax-function-params
+pub
+eval DEFAULT_MAX_ENUM_VARIANTS: i32 = 0 ///< --cmax-enum-variants
+pub
+eval DEFAULT_MAX_MATCH_ARMS: i32 = 0 ///< --cmax-match-arms
+pub
+eval DEFAULT_MAX_UNION_WIDTH: i32 = 64 ///< --cmax-union-width
+pub
+eval DEFAULT_MAX_TYPE_ALIAS_DEPTH: i32 = 64 ///< --cmax-type-alias-depth
+pub
+eval DEFAULT_MAX_INTERFACE_IMPLS: i32 = 0 ///< --cmax-interface-impls
+pub
+eval DEFAULT_MAX_EXTEND_CHAIN: i32 = 64 ///< --cmax-extend-chain
+pub
+eval DEFAULT_MAX_MACRO_DEPTH: i32 = 128 ///< --cmax-macro-depth
+pub
+eval DEFAULT_MAX_MACRO_EXPANSIONS: i32 = 65536 ///< --cmax-macro-expansions
+pub
+eval DEFAULT_MAX_MACRO_BACKTRACE: i32 = 8 ///< --cmax-macro-backtrace
+pub
+eval DEFAULT_MACRO_TRACE_DEPTH: i32 = 0 ///< --cmacro-trace-depth
+pub
+eval DEFAULT_MAX_IMPORT_DEPTH: i32 = 512 ///< --cmax-import-depth
+pub
+eval DEFAULT_MAX_FILE_SIZE_MB: i32 = 256 ///< --cmax-file-size-mb
+pub
+eval DEFAULT_MAX_TOKEN_COUNT: i32 = 0 ///< --cmax-token-count
+pub
+eval DEFAULT_DWARF_VERSION: i32 = 5 ///< --dwarf-version
+pub
+eval DEFAULT_PIC_LEVEL: i32 = 0 ///< --pic-level
+pub
+eval DEFAULT_WASM_INITIAL_MEMORY: i32 = 65536 ///< --wasm-initial-memory
+pub
+eval DEFAULT_WASM_STACK_SIZE: i32 = 65536 ///< --wasm-stack-size
+pub
+eval DEFAULT_TEST_EXIT_CODE: i32 = 1 ///< --test-exit-code
+
+
 /// The values -O accepts after the `O`. `g` is clang's -Og, which it treats
 /// as -O1; CodeGenOptions::from_args does the mapping.
 pub fn _opt_level_choices() -> cxx::std::vector<string> {
@@ -899,8 +996,8 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "dwarf-version",
         "",
         "dwarf-version",
-        "DWARF version to emit: 2|3|4|5 (default: 5); needs -g",
-        5i32,
+        f"DWARF version to emit: 2|3|4|5 (default: {DEFAULT_DWARF_VERSION}); needs -g",
+        DEFAULT_DWARF_VERSION,
         2i32,
         5i32,
     )
@@ -1908,8 +2005,8 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "wasm-initial-memory",
         "",
         "wasm-initial-memory",
-        "initial WASM linear memory in bytes, multiple of 65536 (--initial-memory; only passed when given) (default: 65536)",
-        65536i32,
+        f"initial WASM linear memory in bytes, multiple of 65536 (--initial-memory; only passed when given) (default: {DEFAULT_WASM_INITIAL_MEMORY})",
+        DEFAULT_WASM_INITIAL_MEMORY,
         65536i32,
         2147483647i32,
     )
@@ -1918,8 +2015,8 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "wasm-stack-size",
         "",
         "wasm-stack-size",
-        "WASM shadow stack size in bytes, 16-aligned (-z stack-size=; only passed when given) (default: 65536)",
-        65536i32,
+        f"WASM shadow stack size in bytes, 16-aligned (-z stack-size=; only passed when given) (default: {DEFAULT_WASM_STACK_SIZE})",
+        DEFAULT_WASM_STACK_SIZE,
         4096i32,
         2147483647i32,
     )
@@ -1946,8 +2043,8 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "pic-level",
         "",
         "pic-level",
-        "PIC level on any target: 0|1|2 (default: 0 = none forced); overrides -fpic/-fno-pic",
-        0i32,
+        f"PIC level on any target: 0|1|2 (default: {DEFAULT_PIC_LEVEL} = none forced); overrides -fpic/-fno-pic",
+        DEFAULT_PIC_LEVEL,
         0i32,
         2i32,
     )
@@ -2036,8 +2133,8 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "test-exit-code",
         "",
         "test-exit-code",
-        "override exit code on test failure (default: 1)",
-        1i32,
+        f"override exit code on test failure (default: {DEFAULT_TEST_EXIT_CODE})",
+        DEFAULT_TEST_EXIT_CODE,
         0i32,
         255i32,
     )
@@ -2482,7 +2579,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-macro-depth",
         "maximum macro recursion depth",
-        128i32,
+        DEFAULT_MAX_MACRO_DEPTH,
         1i32,
         65536i32,
     )
@@ -2490,7 +2587,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-macro-expansions",
         "maximum total macro expansion nodes across compilation",
-        65536i32,
+        DEFAULT_MAX_MACRO_EXPANSIONS,
         1i32,
         16777216i32,
     )
@@ -2498,7 +2595,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-macro-backtrace",
         "maximum frames shown in macro expansion error backtraces",
-        8i32,
+        DEFAULT_MAX_MACRO_BACKTRACE,
         0i32,
         64i32,
     )
@@ -2506,7 +2603,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "macro-trace-depth",
         "needs --macro-debug; maximum depth of the expansion trace (0 = unlimited)",
-        0i32,
+        DEFAULT_MACRO_TRACE_DEPTH,
         0i32,
         65536i32,
     )
@@ -2515,7 +2612,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-generic-depth",
         "maximum generic instantiation chain length; a longer chain is an error",
-        128i32,
+        DEFAULT_MAX_GENERIC_DEPTH,
         1i32,
         65536i32,
     )
@@ -2523,7 +2620,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-generic-backtrace",
         "maximum instantiation-chain notes shown per error (0 = all)",
-        5i32,
+        DEFAULT_MAX_GENERIC_BACKTRACE,
         0i32,
         65536i32,
     )
@@ -2531,7 +2628,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-generic-instantiations",
         "maximum total generic instantiations across compilation (0 = unlimited)",
-        16384i32,
+        DEFAULT_MAX_GENERIC_INSTANTIATIONS,
         0i32,
         16777216i32,
     )
@@ -2540,7 +2637,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-const-eval-steps",
         "maximum steps in a single const/eval expression evaluation",
-        1000000i32,
+        DEFAULT_MAX_CONST_EVAL_STEPS,
         1i32,
         2147483647i32,
     )
@@ -2548,7 +2645,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-const-eval-depth",
         "maximum call depth during const/eval evaluation",
-        512i32,
+        DEFAULT_MAX_CONST_EVAL_DEPTH,
         1i32,
         65536i32,
     )
@@ -2556,7 +2653,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-const-backtrace",
         "maximum frames shown in const eval error backtraces",
-        8i32,
+        DEFAULT_MAX_CONST_BACKTRACE,
         0i32,
         64i32,
     )
@@ -2564,7 +2661,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-for-unroll-count",
         "maximum iterations for eval for{} compile-time loop unrolling",
-        1024i32,
+        DEFAULT_MAX_FOR_UNROLL_COUNT,
         1i32,
         16777216i32,
     )
@@ -2573,7 +2670,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-inline-depth",
         "maximum inlining depth (passed to LLVM inliner)",
-        256i32,
+        DEFAULT_MAX_INLINE_DEPTH,
         1i32,
         65536i32,
     )
@@ -2581,7 +2678,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::F64>(
         "inline-cost-threshold",
         "base inliner cost threshold (higher = inline more aggressively)",
-        225.0,
+        DEFAULT_INLINE_COST_THRESHOLD,
         0.0,
         100000.0,
     )
@@ -2589,7 +2686,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-lambda-capture-size",
         "maximum bytes a lambda may capture by value",
-        1024i32,
+        DEFAULT_MAX_LAMBDA_CAPTURE_SIZE,
         0i32,
         67108864i32,
     )
@@ -2597,7 +2694,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-unroll-count",
         "maximum loop unroll count (0 = backend default)",
-        0i32,
+        DEFAULT_MAX_UNROLL_COUNT,
         0i32,
         4096i32,
     )
@@ -2606,7 +2703,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-import-depth",
         "maximum import resolution depth (guards circular import chains)",
-        512i32,
+        DEFAULT_MAX_IMPORT_DEPTH,
         1i32,
         65536i32,
     )
@@ -2615,7 +2712,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-expr-depth",
         "maximum expression nesting depth (guards parser stack overflow)",
-        512i32,
+        DEFAULT_MAX_EXPR_DEPTH,
         1i32,
         65536i32,
     )
@@ -2623,7 +2720,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-scope-depth",
         "maximum nested scope depth",
-        256i32,
+        DEFAULT_MAX_SCOPE_DEPTH,
         1i32,
         65536i32,
     )
@@ -2631,7 +2728,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "tab-width",
         "tab stop width for column numbers in diagnostics",
-        4i32,
+        DEFAULT_TAB_WIDTH,
         1i32,
         16i32,
     )
@@ -2640,7 +2737,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-struct-fields",
         "error when a struct or class declares more fields than this (0 = unlimited)",
-        0i32,
+        DEFAULT_MAX_STRUCT_FIELDS,
         0i32,
         65536i32,
     )
@@ -2648,7 +2745,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-function-params",
         "error when a function declares more parameters than this (0 = unlimited)",
-        255i32,
+        DEFAULT_MAX_FUNCTION_PARAMS,
         0i32,
         65536i32,
     )
@@ -2656,7 +2753,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-tuple-arity",
         "maximum elements in a tuple type, at most 128 (0 = no cap below 128)",
-        128i32,
+        DEFAULT_MAX_TUPLE_ARITY,
         0i32,
         65536i32,
     )
@@ -2664,7 +2761,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-enum-variants",
         "error when an enum declares more variants than this (0 = unlimited)",
-        0i32,
+        DEFAULT_MAX_ENUM_VARIANTS,
         0i32,
         65536i32,
     )
@@ -2672,7 +2769,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-match-arms",
         "error when a match has more arms than this (0 = unlimited)",
-        0i32,
+        DEFAULT_MAX_MATCH_ARMS,
         0i32,
         65536i32,
     )
@@ -2680,7 +2777,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-union-width",
         "error when a union declares more members than this (0 = unlimited)",
-        64i32,
+        DEFAULT_MAX_UNION_WIDTH,
         0i32,
         65536i32,
     )
@@ -2688,7 +2785,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-type-alias-depth",
         "maximum type alias chain depth before hard error",
-        64i32,
+        DEFAULT_MAX_TYPE_ALIAS_DEPTH,
         1i32,
         65536i32,
     )
@@ -2696,7 +2793,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-interface-impls",
         "error when a struct or class lists more impl interfaces than this (0 = unlimited)",
-        0i32,
+        DEFAULT_MAX_INTERFACE_IMPLS,
         0i32,
         65536i32,
     )
@@ -2704,7 +2801,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-extend-chain",
         "error when a type has more extend{} blocks than this in one file",
-        64i32,
+        DEFAULT_MAX_EXTEND_CHAIN,
         1i32,
         65536i32,
     )
@@ -2713,7 +2810,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-errors",
         "stop after N errors (0 = unlimited)",
-        20i32,
+        DEFAULT_MAX_ERRORS,
         0i32,
         100000i32,
     )
@@ -2721,7 +2818,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-warnings",
         "suppress warnings after N (0 = unlimited)",
-        0i32,
+        DEFAULT_MAX_WARNINGS,
         0i32,
         100000i32,
     )
@@ -2729,7 +2826,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-notes",
         "suppress notes after N per diagnostic (0 = unlimited)",
-        0i32,
+        DEFAULT_MAX_NOTES,
         0i32,
         100000i32,
     )
@@ -2737,7 +2834,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-diag-context-lines",
         "maximum source lines shown per diagnostic caret (0 = no limit)",
-        3i32,
+        DEFAULT_MAX_DIAG_CONTEXT_LINES,
         0i32,
         32i32,
     )
@@ -2745,7 +2842,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-suggestion-count",
         "maximum fix-it suggestions kept per diagnostic (0 = none)",
-        5i32,
+        DEFAULT_MAX_SUGGESTION_COUNT,
         0i32,
         64i32,
     )
@@ -2754,7 +2851,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-file-size-mb",
         "reject source files larger than this size in MB (0 = unlimited)",
-        256i32,
+        DEFAULT_MAX_FILE_SIZE_MB,
         0i32,
         65536i32,
     )
@@ -2762,7 +2859,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-token-count",
         "reject files longer than this many tokens, per file including builtin/std (0 = unlimited)",
-        0i32,
+        DEFAULT_MAX_TOKEN_COUNT,
         0i32,
         2147483647i32,
     )
@@ -2771,7 +2868,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-codegen-passes",
         "maximum LLVM optimization passes to run (0 = pipeline default)",
-        0i32,
+        DEFAULT_MAX_CODEGEN_PASSES,
         0i32,
         1024i32,
     )
@@ -2779,7 +2876,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-object-size-mb",
         "reject object files larger than this size in MB (0 = unlimited)",
-        512i32,
+        DEFAULT_MAX_OBJECT_SIZE_MB,
         0i32,
         65536i32,
     )
@@ -2788,7 +2885,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-borrow-depth",
         "maximum simultaneous live borrows tracked per scope",
-        512i32,
+        DEFAULT_MAX_BORROW_DEPTH,
         1i32,
         65536i32,
     )
@@ -2796,7 +2893,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-amt-smartptr-rewrites",
         "maximum BCIR invalid-borrow -> smart-pointer rewrites per TU (0 = unlimited)",
-        8192i32,
+        DEFAULT_MAX_AMT_SMARTPTR_REWRITES,
         0i32,
         2147483647i32,
     )
@@ -2805,7 +2902,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->define_cfg<FlagKind::I32>(
         "max-threads",
         "hard cap on compilation threads regardless of --threads (0 = no cap)",
-        0i32,
+        DEFAULT_MAX_THREADS,
         0i32,
         1024i32,
     )

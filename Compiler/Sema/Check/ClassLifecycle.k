@@ -220,6 +220,7 @@ import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::type_declared_here
 import Location::SourceRange::SourceRange
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
@@ -2295,7 +2296,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         )
 
         b.first(n->range)
-        b.note(rd->range.start, "type declared here")->first(rd->range)
+        b.note(rd->range.start, type_declared_here())->first(rd->range)
         // `op =` cannot be written (rule 2), so there is no assignment to
         // suggest: the value has to be built anew.
         if f->poly_rebuild {

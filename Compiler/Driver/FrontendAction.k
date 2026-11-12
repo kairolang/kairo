@@ -178,6 +178,7 @@ import Sema::SemaContext::SemaPhase
 import Sema::SemaDump::SemaDump
 import Tooling::SemaObserver::SemaObserver
 import Support::FileIO::Path::Path
+import Support::Ascii::is_control
 import Support::TimeReport::{
     TimeRegion,
     time_mark_idle,
@@ -4514,7 +4515,7 @@ pub class FrontendAction {
             var s        = order[i]
             var n: usize = 0
             var at       = s.size()
-            while at > 0 && s[at - 1] != (9 as u8) {
+            while at > 0 && s[at - 1] != ('\t' as u8) {
                 at -= 1
             }
 
@@ -4593,7 +4594,7 @@ pub class FrontendAction {
             for var k: usize = 0; k < deps.overlay.size(); ++k {
                 var row      = deps.overlay[k]
                 var cut: usize = 0
-                while cut < row.size() && row[cut] != (9 as u8) {
+                while cut < row.size() && row[cut] != ('\t' as u8) {
                     cut += 1
                 }
 
@@ -4635,7 +4636,7 @@ pub class FrontendAction {
 
                 prev = rows[k]
                 var cut: usize = 0
-                while cut < prev.size() && prev[cut] != (9 as u8) {
+                while cut < prev.size() && prev[cut] != ('\t' as u8) {
                     cut += 1
                 }
 
@@ -5504,7 +5505,7 @@ fn _facts_hashes(f: unsafe *FileFacts, at: unsafe *llvm::StringMap<u32>, vals: u
         var l          = f->plain_decls[k]
         var cut        = cxx::std::vector<usize>()
         for var c: usize = 0; c < l.size() && cut.size() < 4; ++c {
-            if l[c] == (9 as u8) {
+            if l[c] == ('\t' as u8) {
                 cut.push_back(c)
             }
         }
@@ -5642,7 +5643,7 @@ fn _json_str(const s: string) -> string {
         if c == ('"' as u8) || c == ('\\' as u8) {
             o += "\\"
             o.push_back(c)
-        } else if (c as u32) < 32 {
+        } else if is_control(c) {
             o += " "
         } else {
             o.push_back(c)

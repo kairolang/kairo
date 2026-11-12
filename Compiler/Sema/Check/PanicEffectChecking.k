@@ -141,6 +141,7 @@ import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::named_declared_here
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Sema::Check::ClassLifecycle::{
@@ -434,7 +435,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 bld.note(
                     DiagCode(DiagID::SC208N),
                     q->range.start,
-                    f"'{qn}' is declared here",
+                    named_declared_here(qn),
                 )->first(qat)
                 ConformanceChecking(self.sc).chain_notes(unsafe &bld, e)
                 bld.emit()
@@ -914,7 +915,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
 
         b.first(at)
         if d != &null && d->range.is_valid() {
-            b.note(DiagCode(DiagID::SC212N), d->range.start, f"'{nm}' is declared here")->first(
+            b.note(DiagCode(DiagID::SC212N), d->range.start, named_declared_here(nm))->first(
                 d->range,
             )
         }
@@ -974,7 +975,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             )
 
             b.first(at)
-            b.note(DiagCode(DiagID::SC214N), f->range.start, f"'{nm}' is declared here")->first(
+            b.note(DiagCode(DiagID::SC214N), f->range.start, named_declared_here(nm))->first(
                 self._name_range(f),
             )
 
@@ -992,7 +993,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                       else => "an object is either built whole or not at all"
             var b = self.sc->diag->report(DiagID::SC215E, at.start, f"{life} cannot panic: " + why)
             b.first(at)
-            b.note(DiagCode(DiagID::SC215N), f->range.start, f"'{nm}' is declared here")->first(
+            b.note(DiagCode(DiagID::SC215N), f->range.start, named_declared_here(nm))->first(
                 self._name_range(f),
             )
 
@@ -1019,7 +1020,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             )
 
             b.first(at)
-            b.note(DiagCode(DiagID::SC215N), f->range.start, f"'{nm}' is declared here")->first(
+            b.note(DiagCode(DiagID::SC215N), f->range.start, named_declared_here(nm))->first(
                 self._name_range(f),
             )
 
@@ -1390,7 +1391,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         d.first(at)
         var sat = if (sup->panic_range.is_valid()) => (sup->panic_range)
                   else => self._name_range(sup)
-        d.note(DiagCode(DiagID::SC208N), sup->range.start, f"'{sn}' is declared here")->first(sat)
+        d.note(DiagCode(DiagID::SC208N), sup->range.start, named_declared_here(sn))->first(sat)
         // A set naming its own parameters, read at arguments, has no
         // spelling to add to: the base's or interface's list is written in
         // its parameters, not in these arguments.
@@ -1661,7 +1662,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         b.first(at)
         var pr  = if (h->panic_range.is_valid()) => (h->panic_range) else => f->panic_range
         var nat = if (pr.is_valid()) => (pr) else => self._name_range(f)
-        b.note(DiagCode(DiagID::SC219N), f->range.start, f"'{nm}' is declared here")->first(nat)
+        b.note(DiagCode(DiagID::SC219N), f->range.start, named_declared_here(nm))->first(nat)
         var unsafe *inf = self._fn_inferred(f)
         if inf != &null {
             self._write_set_fix(&b, pr, inf)

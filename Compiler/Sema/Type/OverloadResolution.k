@@ -118,6 +118,7 @@ import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
 import Diagnostic::Registry::DiagID
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::declared_here
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Sema::Lower::LowerSynth::LowerSynth
@@ -132,6 +133,7 @@ import Sema::Type::Conversion::{
 }
 import Sema::Type::Substitution::Substitution
 import Sema::Type::TypeUtil::TypeUtil
+import Support::Tuning::DERIVES_WALK_DEPTH_MAX
 import Token::TokenKind::TokenKind
 
 /// \enum LitKind
@@ -296,10 +298,20 @@ pub enum OvlOutcome derives u8 {
 pub const ARG_PACK_TAIL: usize = usize::MAX     ///< the Kairo pack parameter's tail.
 pub const ARG_C_VARARG:  usize = usize::MAX - 1 ///< a C `...` tail: no parameter at all.
 
+/// Candidate::rank: the candidate's worst argument binding, lower wins. Its
+/// own scale, not ImplicitRank's: a user conversion ranks below Converted,
+/// where ImplicitRank's third value means "no conversion".
+pub const CAND_EXACT:     u8 = 0
+pub const CAND_CONVERTED: u8 = 1
+pub const CAND_USER_CONV: u8 = 2
+/// Where the best-rank scan starts: above every rank, so a scan that ends
+/// on it found nothing viable.
+pub const CAND_NO_VIABLE: u8 = 255
+
 pub class Candidate {
     pub var f:       unsafe *FunctionDecl = &null
     pub var viable:  bool                 = true
-    pub var rank:    u8                   = 0 ///< 0 Exact, 1 Converted.
+    pub var rank:    u8                   = CAND_EXACT ///< CAND_EXACT / CAND_CONVERTED / CAND_USER_CONV.
     pub var generic: bool                 = false
     pub var free:    bool                 = false ///< from resolve_mixed's free list: judged with no receiver.
     /// Judged in defer mode: a dependent parameter or argument is viable and
@@ -686,14 +698,14 @@ pub class OverloadResolution {
         }
 
         // best rank among viable
-        var best: u8 = 255
+        var best: u8 = CAND_NO_VIABLE
         for var i: usize = 0; i < cs.size(); ++i {
             if cs[i].viable && cs[i].rank < best {
                 best = cs[i].rank
             }
         }
 
-        if best == 255 {
+        if best == CAND_NO_VIABLE {
             // An argument already diagnosed (poisoned) is no candidate's
             // fault: "no matching overload" for it only repeats that error.
             var any_poisoned = false
@@ -1461,7 +1473,7 @@ pub class OverloadResolution {
 
     priv fn _base_instance(self, t: unsafe *Type, want: unsafe *Decl, depth: u32) -> unsafe *Type {
         var unsafe *r = dyn_cast<RecordType>(canon_unqual(t))
-        if r == &null || r->decl == &null || depth > 64 {
+        if r == &null || r->decl == &null || depth > DERIVES_WALK_DEPTH_MAX {
             return &null
         }
 
@@ -1723,7 +1735,7 @@ pub class OverloadResolution {
                            base:  unsafe *Decl,
                            seen:  unsafe *cxx::std::vector<unsafe *Decl>,
                            depth: u32) -> bool {
-        if d == &null || depth > 64 || !isa<ClassDecl>(d) {
+        if d == &null || depth > DERIVES_WALK_DEPTH_MAX || !isa<ClassDecl>(d) {
             return false
         }
 
@@ -2630,8 +2642,8 @@ pub class OverloadResolution {
             var *a = &(*args)[i]
             var pi = c->arg_to_param[i]
             if pi == ARG_C_VARARG { // Converted, unchecked.
-                if c->rank < 1 {
-                    c->rank = 1
+                if c->rank < CAND_CONVERTED {
+                    c->rank = CAND_CONVERTED
                 }
 
                 continue
@@ -2689,8 +2701,8 @@ pub class OverloadResolution {
                 // decide here; accept at Converted and let M2 judge.
                 if p->type_ != &null
                     && (p->type_->is_dependent() || p->type_->is_instantiation_dependent()) {
-                    if c->rank < 1 {
-                        c->rank = 1
+                    if c->rank < CAND_CONVERTED {
+                        c->rank = CAND_CONVERTED
                     }
 
                     continue
@@ -2809,8 +2821,8 @@ pub class OverloadResolution {
                     || (a->ty != &null && self._is_cxx_record(canon_unqual(self.tu.as_value(a->ty))))) {
                 c->user_convs.push_back(i)
                 c->clang_convs.push_back(i)
-                if c->rank < 2 {
-                    c->rank = 2
+                if c->rank < CAND_USER_CONV {
+                    c->rank = CAND_USER_CONV
                 }
 
                 continue
@@ -2818,8 +2830,8 @@ pub class OverloadResolution {
 
             if uvia != "" && cxx_conv {
                 c->user_convs.push_back(i)
-                if c->rank < 2 {
-                    c->rank = 2
+                if c->rank < CAND_USER_CONV {
+                    c->rank = CAND_USER_CONV
                 }
 
                 continue
@@ -2903,8 +2915,8 @@ pub class OverloadResolution {
                 r = ImplicitRank::Converted
             }
 
-            if r == ImplicitRank::Converted && c->rank < 1 {
-                c->rank = 1
+            if r == ImplicitRank::Converted && c->rank < CAND_CONVERTED {
+                c->rank = CAND_CONVERTED
             }
 
             // An `@inout` binding IS a `T&` binding for the reference tiebreak.
@@ -3940,7 +3952,7 @@ pub class OverloadResolution {
             if only->reason_code != DiagID::SC001E {
                 var sb = self.sc->diag->report(only->reason_code, at.start, only->reason)
                 sb.first(at)
-                sb.note(only->f->range.start, "declared here")->first(only->f->range)
+                sb.note(only->f->range.start, declared_here())->first(only->f->range)
                 sb.emit()
                 return
             }

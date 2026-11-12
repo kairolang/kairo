@@ -224,6 +224,7 @@ import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::previously_declared_here
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -1165,7 +1166,7 @@ pub class RedeclMerge {
         ).first(cur->range)->note(
             DiagCode(DiagID::R061N),
             prev->range.start,
-            "previously declared here",
+            previously_declared_here(),
         )->first(prev->range)->emit()
         cur->poison()
     }
@@ -1686,7 +1687,7 @@ pub class RedeclMerge {
         ).first(cur->range)->note(
             DiagCode(DiagID::R038N),
             prev->range.start,
-            "previously declared here",
+            previously_declared_here(),
         )->first(prev->range)->emit()
         cur->poison()
     }
@@ -1746,7 +1747,7 @@ pub class RedeclMerge {
         ).first(cur->range)->note(
             DiagCode(DiagID::R039N),
             prev->range.start,
-            "previously declared here",
+            previously_declared_here(),
         )->first(prev->range)->emit()
         cur->poison()
     }

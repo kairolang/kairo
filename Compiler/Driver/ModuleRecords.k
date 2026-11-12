@@ -42,6 +42,7 @@ import Driver::ObjectCache::ObjectCache
 import Driver::ObjectCache::CACHE_SCHEMA
 import Sema::Incremental::Plan::PlanModule
 import Support::FileIO::Path::Path
+import Support::Tuning::MTIME_SLACK_NS
 import std::env
 
 /// Bumped by any change to the manifest or record format, or to what the
@@ -565,7 +566,7 @@ pub class ModuleRecords {
             h = ModuleRecords::_hash_file(p)
         }
 
-        var slack: u64 = 2000000000 // 2 s, in ns: a coarse filesystem clock
+        var slack: u64 = MTIME_SLACK_NS
         if mt + slack >= self._t_start {
             mt = 0
         }
@@ -848,7 +849,7 @@ pub class ModuleRecords {
         var out = "\x22"
         for var i: usize = 0; i < s.size(); ++i {
             var c = s[i]
-            if c == (34 as u8) || c == (92 as u8) {
+            if c == ('"' as u8) || c == ('\\' as u8) {
                 out += "\\"
             }
 

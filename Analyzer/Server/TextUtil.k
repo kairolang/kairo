@@ -91,8 +91,8 @@ pub fn find_from(const hay: string, const needle: string, from: usize) -> usize 
 
 /// A C or C++ source or header, by its extension.
 pub fn is_cxx_source(const path: string) -> bool {
-    var dot = path.rfind(46 as u8)
-    var sl  = path.rfind(47 as u8)
+    var dot = path.rfind('.' as u8)
+    var sl  = path.rfind('/' as u8)
     if (dot == usize::MAX) || ((sl != usize::MAX) && (dot < sl)) {
         return false
     }
@@ -124,30 +124,30 @@ pub fn quoted_includes(const text: string) -> [string] {
     var n = text.size()
     while i < n {
         var p = i
-        while (p < n) && ((text[p] == 32) || (text[p] == 9)) {
+        while (p < n) && ((text[p] == (' ' as u8)) || (text[p] == ('\t' as u8))) {
             p += 1
         }
 
         var le = p
-        while (le < n) && (text[le] != 10) {
+        while (le < n) && (text[le] != ('\n' as u8)) {
             le += 1
         }
 
-        if (p < le) && (text[p] == 35) {
+        if (p < le) && (text[p] == ('#' as u8)) {
             p += 1
-            while (p < le) && ((text[p] == 32) || (text[p] == 9)) {
+            while (p < le) && ((text[p] == (' ' as u8)) || (text[p] == ('\t' as u8))) {
                 p += 1
             }
 
             if ((p + 7) <= le) && (text.subslice(p, 7) == "include") {
                 p += 7
-                while (p < le) && ((text[p] == 32) || (text[p] == 9)) {
+                while (p < le) && ((text[p] == (' ' as u8)) || (text[p] == ('\t' as u8))) {
                     p += 1
                 }
 
-                if (p < le) && (text[p] == 34) {
+                if (p < le) && (text[p] == ('"' as u8)) {
                     var q = p + 1
-                    while (q < le) && (text[q] != 34) {
+                    while (q < le) && (text[q] != ('"' as u8)) {
                         q += 1
                     }
 
@@ -170,7 +170,7 @@ pub fn lower(const s: string) -> string {
     var out = string()
     for var i: usize = 0; i < s.size(); ++i {
         var c = s[i]
-        if (c >= 65) && (c <= 90) {
+        if (c >= ('A' as u8)) && (c <= ('Z' as u8)) {
             c = c + 32
         }
 
@@ -192,7 +192,7 @@ pub fn top_level_names(const src: string) -> [string] {
     while i < n {
         // one line, which must start in column 0 to be top level
         var le = i
-        while (le < n) && (src[le] != 10) {
+        while (le < n) && (src[le] != ('\n' as u8)) {
             le += 1
         }
 
@@ -200,7 +200,7 @@ pub fn top_level_names(const src: string) -> [string] {
         var line = src.subslice(i, le - i)
         var hidden = line.starts_with("priv ")
         if line.starts_with("pub ") || line.starts_with("prot ") || line.starts_with("priv ") {
-            while (p < le) && (src[p] != 32) {
+            while (p < le) && (src[p] != (' ' as u8)) {
                 p += 1
             }
 
@@ -212,7 +212,7 @@ pub fn top_level_names(const src: string) -> [string] {
             var rest = src.subslice(p, le - p)
             if rest.starts_with("inline ") || rest.starts_with("unsafe ") || rest.starts_with("async ")
                 || rest.starts_with("final ") || rest.starts_with("virtual ") {
-                while (p < le) && (src[p] != 32) {
+                while (p < le) && (src[p] != (' ' as u8)) {
                     p += 1
                 }
 
@@ -233,16 +233,16 @@ pub fn top_level_names(const src: string) -> [string] {
             }
         }
 
-        if declares && (!hidden) && (we < le) && (src[we] == 32) {
+        if declares && (!hidden) && (we < le) && (src[we] == (' ' as u8)) {
             var ns = we + 1
             // `fn <T> name(` : skip a generic list before the name
-            if (ns < le) && (src[ns] == 60) {
-                while (ns < le) && (src[ns] != 62) {
+            if (ns < le) && (src[ns] == ('<' as u8)) {
+                while (ns < le) && (src[ns] != ('>' as u8)) {
                     ns += 1
                 }
 
                 ns += 1
-                while (ns < le) && (src[ns] == 32) {
+                while (ns < le) && (src[ns] == (' ' as u8)) {
                     ns += 1
                 }
             }
@@ -277,7 +277,7 @@ pub fn keyword_list(const all: string) -> [string] {
     var k: [string]
     var cur = string()
     for var i: usize = 0; i < all.size(); ++i {
-        if all[i] == 32 {
+        if all[i] == (' ' as u8) {
             if !cur.empty() {
                 k.push_back(cur)
             }
@@ -296,7 +296,7 @@ pub fn keyword_list(const all: string) -> [string] {
 }
 
 pub fn is_ident_byte(c: u8) -> bool {
-    return ((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)) || ((c >= 48) && (c <= 57)) || (c == 95) || (c >= 128)
+    return ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || ((c >= ('0' as u8)) && (c <= ('9' as u8))) || (c == ('_' as u8)) || (c >= 128)
 }
 
 /// Offered wherever a bare name can start. The spellings are the language
@@ -310,7 +310,7 @@ pub fn keywords() -> [string] {
         "i8 i16 i32 i64 i128 isize u8 u16 u32 u64 u128 usize f32 f64 bool char byte void string"
     var cur = string()
     for var i: usize = 0; i < all.size(); ++i {
-        if all[i] == 32 {
+        if all[i] == (' ' as u8) {
             if !cur.empty() {
                 k.push_back(cur)
             }

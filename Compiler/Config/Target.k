@@ -13,6 +13,7 @@
 
 ffi "c++" import "vector"
 
+import Command::FlagRegistry::DEFAULT_PIC_LEVEL
 import Command::ParsedArgs::ParsedArgs
 
 ///
@@ -42,7 +43,7 @@ pub class TargetOptions {
     pub var cxx_abi:      string = "itanium"
     pub var sysroot:      string = ""
     pub var resource_dir: string = "" ///< clang resource dir: its include/ holds the builtin headers (stddef.h).
-    pub var pic_level:    i32    = 0
+    pub var pic_level:    i32    = DEFAULT_PIC_LEVEL
     pub var m32:          bool   = false
     pub var m64:          bool   = false
     pub var native:       bool   = false ///< --native: the host's own libc, headers and libraries

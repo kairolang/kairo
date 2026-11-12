@@ -6,7 +6,7 @@
 ///   a macOS host.
 ///
 ///   supports() is real: it is what tells a user which directory to pass.
-///   The stages are stubs until SysRoot.md section 11 step 8.
+///   The stages are stubs.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.

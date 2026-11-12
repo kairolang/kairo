@@ -120,14 +120,14 @@ extend Server {
         }
 
         var before = start
-        while (before > 0) && (((*text)[before - 1] == 32) || ((*text)[before - 1] == 9)) {
+        while (before > 0) && (((*text)[before - 1] == (' ' as u8)) || ((*text)[before - 1] == ('\t' as u8))) {
             before -= 1
         }
 
         var member = false
         if before > 0 {
             var c = (*text)[before - 1]
-            member = (c == 46) || (c == 58) || ((c == 62) && (before > 1) && ((*text)[before - 2] == 45))
+            member = (c == ('.' as u8)) || (c == (':' as u8)) || ((c == ('>' as u8)) && (before > 1) && ((*text)[before - 2] == ('-' as u8)))
         }
 
         // What an accepted item replaces: the identifier under the cursor.
@@ -210,7 +210,7 @@ extend Server {
         var guard: usize = 0
         while guard < 64 {
             var p = stmt
-            while (p < at) && (((*text)[p] == 32) || ((*text)[p] == 9)) {
+            while (p < at) && (((*text)[p] == (' ' as u8)) || ((*text)[p] == ('\t' as u8))) {
                 p += 1
             }
 
@@ -265,14 +265,14 @@ extend Server {
                 continue
             }
 
-            if (c == 58) && ((q + 1) < spec.size()) && (spec[q + 1] == 58) {
+            if (c == (':' as u8)) && ((q + 1) < spec.size()) && (spec[q + 1] == (':' as u8)) {
                 segs.push_back(cur)
                 cur = string()
                 q += 2
                 continue
             }
 
-            if c == 123 {
+            if c == ('{' as u8) {
                 in_items = true
             } else if is_ident_byte(c) {
                 cur.push_back(c)

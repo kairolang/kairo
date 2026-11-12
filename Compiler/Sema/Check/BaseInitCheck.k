@@ -84,6 +84,7 @@ import AST::Node::Statements::ExpressionStmt
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::named_declared_here
 import Location::SourceRange::SourceRange
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -91,6 +92,7 @@ import Sema::SemaContext::{
     SemaPhase,
 }
 import Sema::Type::TypeUtil::TypeUtil
+import Support::Tuning::DERIVES_WALK_DEPTH_MAX
 
 /// A method named after the record it is declared in.
 pub fn base_init_is_ctor(f: unsafe *FunctionDecl) -> bool {
@@ -500,7 +502,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
                 b.note(
                     DiagCode(DiagID::SC180N),
                     decl_name_tok(base).range.start,
-                    f"'{bname}' is declared here",
+                    named_declared_here(bname),
                 )->first(decl_name_tok(base).range)
                 b.emit()
                 self._ok.push_back(n)
@@ -593,7 +595,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
 
     /// \p base is a direct base of \p d, or (\p virt) a virtual base above.
     priv fn _is_base(self, d: unsafe *Decl, base: unsafe *Decl, virt: bool, depth: u32) -> bool {
-        if d == &null || depth > 64 || !isa<ClassDecl>(d) {
+        if d == &null || depth > DERIVES_WALK_DEPTH_MAX || !isa<ClassDecl>(d) {
             return false
         }
 

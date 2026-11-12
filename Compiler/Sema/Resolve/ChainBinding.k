@@ -116,6 +116,7 @@ import Token::Token::Token
 import Token::TokenKind::{
     TokenKind,
     is_annotation,
+    token_kind_to_readable_string,
 }
 
 /// \enum AnchorKind
@@ -173,7 +174,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// here. Idempotent: run() calls it too, and calling it twice costs an
     /// intern hit and a re-index, not correctness.
     fn prepare(self) {
-        self._self_imm = self.sc->imm_table()->intern_ident_copy("self")
+        self._self_imm = self.sc->imm_table()->intern_ident_copy(token_kind_to_readable_string(TokenKind::KwSelf))
         self.ml.index_extensions()
     }
 

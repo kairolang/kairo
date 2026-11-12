@@ -13,6 +13,21 @@
 
 ffi "c++" import "vector"
 
+import Command::FlagRegistry::{
+    DEFAULT_MAX_CONST_BACKTRACE,
+    DEFAULT_MAX_CONST_EVAL_DEPTH,
+    DEFAULT_MAX_CONST_EVAL_STEPS,
+    DEFAULT_MAX_ENUM_VARIANTS,
+    DEFAULT_MAX_EXTEND_CHAIN,
+    DEFAULT_MAX_FUNCTION_PARAMS,
+    DEFAULT_MAX_GENERIC_BACKTRACE,
+    DEFAULT_MAX_GENERIC_DEPTH,
+    DEFAULT_MAX_INTERFACE_IMPLS,
+    DEFAULT_MAX_MATCH_ARMS,
+    DEFAULT_MAX_STRUCT_FIELDS,
+    DEFAULT_MAX_TYPE_ALIAS_DEPTH,
+    DEFAULT_MAX_UNION_WIDTH,
+}
 import Command::ParsedArgs::ParsedArgs
 
 ///
@@ -103,19 +118,19 @@ pub class LangOptions {
 
     /// # sema / type system limits (from --c* config flags)
 
-    pub var max_generic_depth:     i32 = 128
-    pub var max_generic_backtrace: i32 = 5
-    pub var max_const_eval_steps:  i32 = 1000000
-    pub var max_const_eval_depth:  i32 = 512
-    pub var max_const_backtrace:   i32 = 8
-    pub var max_struct_fields:     i32 = 0       ///< 0 = unlimited
-    pub var max_function_params:   i32 = 255
-    pub var max_enum_variants:     i32 = 0       ///< 0 = unlimited
-    pub var max_match_arms:        i32 = 0       ///< 0 = unlimited
-    pub var max_union_width:       i32 = 64
-    pub var max_type_alias_depth:  i32 = 64
-    pub var max_interface_impls:   i32 = 0       ///< 0 = unlimited
-    pub var max_extend_chain:      i32 = 64
+    pub var max_generic_depth:     i32 = DEFAULT_MAX_GENERIC_DEPTH
+    pub var max_generic_backtrace: i32 = DEFAULT_MAX_GENERIC_BACKTRACE
+    pub var max_const_eval_steps:  i32 = DEFAULT_MAX_CONST_EVAL_STEPS
+    pub var max_const_eval_depth:  i32 = DEFAULT_MAX_CONST_EVAL_DEPTH
+    pub var max_const_backtrace:   i32 = DEFAULT_MAX_CONST_BACKTRACE
+    pub var max_struct_fields:     i32 = DEFAULT_MAX_STRUCT_FIELDS ///< 0 = unlimited
+    pub var max_function_params:   i32 = DEFAULT_MAX_FUNCTION_PARAMS
+    pub var max_enum_variants:     i32 = DEFAULT_MAX_ENUM_VARIANTS ///< 0 = unlimited
+    pub var max_match_arms:        i32 = DEFAULT_MAX_MATCH_ARMS ///< 0 = unlimited
+    pub var max_union_width:       i32 = DEFAULT_MAX_UNION_WIDTH
+    pub var max_type_alias_depth:  i32 = DEFAULT_MAX_TYPE_ALIAS_DEPTH
+    pub var max_interface_impls:   i32 = DEFAULT_MAX_INTERFACE_IMPLS ///< 0 = unlimited
+    pub var max_extend_chain:      i32 = DEFAULT_MAX_EXTEND_CHAIN
 
     /// Whether the C++ a build writes and compiles has exceptions: -fexceptions,
     /// or by default a hosted target (\p hosted: the triple names an OS, not

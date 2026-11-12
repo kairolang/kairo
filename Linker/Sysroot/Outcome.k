@@ -17,6 +17,13 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+/// The two failure statuses, which are also ksys's exit codes and the kairo
+/// driver's when its sysroot hook fails (SysRoot.md section 8).
+pub
+eval SYS_STATUS_REFUSED: i32 = 2 ///< refusal: one actionable line.
+pub
+eval SYS_STATUS_FAILED: i32 = 3 ///< build or validation failure: stage and log path.
+
 pub class SysOutcome {
     pub var status:  i32    = 0
     pub var message: string     ///< the one line
@@ -28,7 +35,7 @@ pub class SysOutcome {
 
     /// Exit 2. Returns false, so `return out.refuse(...)` ends a step.
     pub fn refuse(self, const message: string, const note: string) -> bool {
-        self.status  = 2
+        self.status  = SYS_STATUS_REFUSED
         self.message = message
         self.note    = note
         return false
@@ -36,7 +43,7 @@ pub class SysOutcome {
 
     /// Exit 3.
     pub fn fail(self, const message: string, const note: string) -> bool {
-        self.status  = 3
+        self.status  = SYS_STATUS_FAILED
         self.message = message
         self.note    = note
         return false

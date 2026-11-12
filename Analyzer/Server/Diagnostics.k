@@ -71,7 +71,7 @@ import Server::Workers::*
 /// True for an LSP Diagnostic code the parser (not Sema) reports: `S<n>`,
 /// and not the semantic category `SC<n>`.
 pub fn is_syntax_code(const code: string) -> bool {
-    return (code.size() > 1) && (code[0] == 83) && (code[1] != 67)
+    return (code.size() > 1) && (code[0] == ('S' as u8)) && (code[1] != ('C' as u8))
 }
 
 extend Server {

@@ -86,7 +86,7 @@ extend Server {
         var n: u32 = 0
         var in_n = false
         for var i: usize = 0; i <= spec.size(); ++i {
-            if (i == spec.size()) || (spec[i] == 44) { // ','
+            if (i == spec.size()) || (spec[i] == (',' as u8)) { // ','
                 if !name.empty() {
                     self.dbg_fail_kind.push_back(name)
                     self.dbg_fail_left.push_back(n)
@@ -95,10 +95,10 @@ extend Server {
                 name = ""
                 n    = 0
                 in_n = false
-            } else if spec[i] == 61 { // '='
+            } else if spec[i] == ('=' as u8) { // '='
                 in_n = true
             } else if in_n {
-                if (spec[i] >= 48) && (spec[i] <= 57) {
+                if (spec[i] >= ('0' as u8)) && (spec[i] <= ('9' as u8)) {
                     n = (n * 10) + ((spec[i] - 48) as u32)
                 }
             } else {

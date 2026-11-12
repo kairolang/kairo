@@ -88,13 +88,19 @@ import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
+import Support::EvalHash::{
+    FNV1A32_OFFSET,
+    FNV1A32_PRIME,
+    FNV1A64_OFFSET,
+    FNV1A64_PRIME,
+}
 
-/// FNV-1a, 32 bits, over \p s, continuing from \p h (start: 2166136261).
+/// FNV-1a, 32 bits, over \p s, continuing from \p h (start: FNV1A32_OFFSET).
 pub fn panic_fnv32(h_in: u32, const s: string) -> u32 {
     var h = h_in
     for var i: usize = 0; i < s.size(); ++i {
         h = h ^ ((s[i]) as u32)
-        h = h * (16777619 as u32)
+        h = h * FNV1A32_PRIME
     }
 
     return h
@@ -103,10 +109,10 @@ pub fn panic_fnv32(h_in: u32, const s: string) -> u32 {
 /// FNV-1a, 64 bits, over \p s (the key of a minted name: a guard, a site
 /// record). 64 bits so that two different spellings never share one.
 pub fn panic_fnv64(const s: string) -> u64 {
-    var h: u64 = (14695981039346656037)
+    var h: u64 = FNV1A64_OFFSET
     for var i: usize = 0; i < s.size(); ++i {
         h = h ^ ((s[i]) as u64)
-        h = h * (1099511628211 as u64)
+        h = h * FNV1A64_PRIME
     }
 
     return h
@@ -117,11 +123,11 @@ pub fn panic_fnv64(const s: string) -> u64 {
 /// never an id: it is Ok's tag, and "no id".
 pub fn panic_id_of(const s: string, bits: i32) -> u32 {
     var mask: u32 = if (bits >= 32) => (u32::MAX) else => ((1 as u32) << (bits as u32)) - (1 as u32)
-    var h         = panic_fnv32(2166136261, s)
+    var h         = panic_fnv32(FNV1A32_OFFSET, s)
     var r         = h & mask
     while r == (0 as u32) {
         h = h ^ (255 as u32)
-        h = h * (16777619 as u32)
+        h = h * FNV1A32_PRIME
         r = h & mask
     }
 
@@ -694,7 +700,7 @@ pub class PanicSets {
             }
         }
 
-        var h = panic_fnv32(2166136261, key_text)
+        var h = panic_fnv32(FNV1A32_OFFSET, key_text)
         while true {
             var taken = h == (0 as u32)
             for var i: usize = 0; !taken && i < t->panic_sites.size(); ++i {
@@ -708,7 +714,7 @@ pub class PanicSets {
             }
 
             h = h ^ (255 as u32)
-            h = h * (16777619 as u32)
+            h = h * FNV1A32_PRIME
         }
 
         var r = PanicSiteRec()

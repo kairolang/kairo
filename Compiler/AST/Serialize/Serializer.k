@@ -95,6 +95,7 @@ import Parser::ASTParse::ASTParse
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Token::Token::Token
 import std::c_char
+import Support::Ascii::hex_value
 
 //  the archive's hooks
 
@@ -292,29 +293,13 @@ fn io_tu(ar: unsafe *ASTArchive, tu: unsafe *TranslationUnit) {
 
 //  the container
 
-priv fn hex_nibble(c: u8) -> u8 {
-    if c >= 48 && c <= 57 {
-        return c - 48
-    }
-
-    if c >= 97 && c <= 102 {
-        return c - 97 + 10
-    }
-
-    if c >= 65 && c <= 70 {
-        return c - 65 + 10
-    }
-
-    return 0
-}
-
 /// A 128-bit hash, 32 hex digits, as its 16 bytes. An unreadable file has
 /// the empty string for a hash and is written as zeros.
 priv fn put_hash(@inout w: ByteWriter, const hex: string) {
     for var i: usize = 0; i < 16; ++i {
         var b: u8 = 0
         if hex.size() == 32 {
-            b = (hex_nibble(hex[i * 2]) << 4) | hex_nibble(hex[i * 2 + 1])
+            b = (hex_value(hex[i * 2]) << 4) | hex_value(hex[i * 2 + 1])
         }
 
         w.put_u8(b)

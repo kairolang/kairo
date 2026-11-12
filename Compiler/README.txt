@@ -100,7 +100,9 @@ Compiler/
 ├── Memory/         arena allocation, memory buffers, mmap regions
 ├── Threading/      thread pool, task queues, partitioning, cache-line consts
 ├── Support/        interning/hash helpers, assertions, limits, terminal
-│   │               rendering, shell quoting, timers (Timer, TimeReport)
+│   │               rendering, shell quoting, timers (Timer, TimeReport),
+│   │               byte classes (Ascii), internal caps (Tuning), exit
+│   │               statuses (ExitCodes)
 │   └── FileIO/     Path, FileSystem, VirtualFileManager
 ├── Tooling/        parse API for tools (ParseAPI, ToolDiagnostics), kparse
 │                   (ParseOnceTest.k), GenClangDiagIdentity.k
@@ -121,7 +123,7 @@ Compiler/
 
 The linker (KLD) is not under Compiler/: it is ../Linker (Linker::API).
 
-Modules and exports (2026-11-08). Every top-level directory above that holds
+Modules and exports. Every top-level directory above that holds
 .k files is one module: it has a comments-only module.k (no `module` pin, so
 module paths and C++ namespaces are unchanged), and its nested directories
 belong to it (Sema/Resolve is part of Sema). Compiler/ itself has no module.k.

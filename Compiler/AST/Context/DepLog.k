@@ -37,6 +37,12 @@ ffi "c++" import "Native/KThread.hh" // sema_dep_log
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import Support::EvalHash::{
+    GOLDEN_RATIO_MIX,
+    SPLITMIX64_MUL1,
+    SPLITMIX64_MUL2,
+}
+
 /// \class DepLog
 /// \brief One TU's raw reads of other files. See the file header.
 pub class DepLog {
@@ -80,9 +86,9 @@ pub class DepLog {
     /// the finalizer of splitmix64 over both words, far past the point where
     /// that is observable, and the alternative is a std::set on every lookup.
     priv static fn _mix(a: u64, b: u64) -> u64 {
-        var z = (a ^ (b * 0x9E3779B97F4A7C15)) + 0x9E3779B97F4A7C15
-        z = (z ^ z >> 30) * 0xBF58476D1CE4E5B9
-        z = (z ^ z >> 27) * 0x94D049BB133111EB
+        var z = (a ^ (b * GOLDEN_RATIO_MIX)) + GOLDEN_RATIO_MIX
+        z = (z ^ z >> 30) * SPLITMIX64_MUL1
+        z = (z ^ z >> 27) * SPLITMIX64_MUL2
         var x = z ^ z >> 31
         // DenseSet<u64> reserves ~0 and ~0 - 1.
         if x >= 0xFFFFFFFFFFFFFFFE {

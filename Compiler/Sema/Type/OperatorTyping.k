@@ -138,6 +138,7 @@ import AST::Node::Types::{
 }
 import AST::OperatorFacts::OperatorFacts
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::named_declared_here
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstEval::ConstEval
 import Sema::Type::Conversion::ImplicitRank
@@ -235,7 +236,7 @@ pub class <T: type> OperatorTyping {
                 && named->resolved_decl->range.is_valid() {
                 b.note(
                     named->resolved_decl->range.start,
-                    f"'{self.dyn()->tu.decl_name(named->resolved_decl)}' is declared here",
+                    named_declared_here(self.dyn()->tu.decl_name(named->resolved_decl)),
                 )
             }
 

@@ -55,6 +55,10 @@ import AST::Node::Types::{
 }
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::{
+    declared_here,
+    named_declared_here,
+}
 import Location::SourceRange::SourceRange
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
@@ -122,7 +126,7 @@ pub class GenericArgs {
                 ).first(site)->note(
                     DiagCode(DiagID::R032N),
                     d->range.start,
-                    "declared here",
+                    declared_here(),
                 )->first(d->range)->emit()
             }
 
@@ -138,7 +142,7 @@ pub class GenericArgs {
                 ).first(site)->note(
                     DiagCode(DiagID::R032N),
                     d->range.start,
-                    "declared here",
+                    declared_here(),
                 )->first(d->range)->emit()
             }
 
@@ -154,7 +158,7 @@ pub class GenericArgs {
                 ).first(site)->note(
                     DiagCode(DiagID::R032N),
                     d->range.start,
-                    "declared here",
+                    declared_here(),
                 )->first(d->range)->emit()
             }
 
@@ -206,7 +210,7 @@ pub class GenericArgs {
                       else => f"'{nm}' is a type parameter; it takes a type, not a value"
             var b = self.sc->diag->report(DiagID::R060E, at.start, msg)
             b.first(at)
-            b.note(DiagCode(DiagID::R060N), gp->range.start, f"'{nm}' is declared here")->first(
+            b.note(DiagCode(DiagID::R060N), gp->range.start, named_declared_here(nm))->first(
                 gp->range,
             )
 

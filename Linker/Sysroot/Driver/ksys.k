@@ -40,7 +40,10 @@ ffi "c++" import "vector"
 import API::Text::LinkText
 import Driver::Runtime::init_runtime
 import Sysroot::Generator::SysGen
-import Sysroot::Outcome::SysOutcome
+import Sysroot::Outcome::{
+    SYS_STATUS_FAILED,
+    SysOutcome,
+}
 import std::c_char
 import std::io
 
@@ -71,7 +74,7 @@ fn ksys_report(@inout o: SysOutcome) -> i32 {
         return 0
     }
 
-    var code = if (o.status == 3) => ("P010E") else => "P009E"
+    var code = if (o.status == SYS_STATUS_FAILED) => ("P010E") else => "P009E"
     io::eprintln(f"ksys: error [{code}]: {o.message}")
     if !o.note.empty() {
         io::eprintln(f"ksys: note [P009N]: {o.note}")

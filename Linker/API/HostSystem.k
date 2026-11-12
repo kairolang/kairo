@@ -312,7 +312,7 @@ pub class HostSystem {
             }
 
             var code = ((c) as u32)
-            if code == 34 || code == 39 { // a double or single quote
+            if code == ('"' as u32) || code == ('\'' as u32) {
                 quote    = c
                 in_quote = true
                 have     = true

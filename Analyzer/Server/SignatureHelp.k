@@ -100,7 +100,7 @@ extend Server {
         }
 
         var e = site.open
-        while (e > 0) && (((*text)[e - 1] == 32) || ((*text)[e - 1] == 9)) {
+        while (e > 0) && (((*text)[e - 1] == (' ' as u8)) || ((*text)[e - 1] == ('\t' as u8))) {
             e -= 1
         }
 
@@ -134,7 +134,7 @@ extend Server {
                     // head (attributes, visibility, modifiers): from `fn`.
                     var ls: usize = 9
                     var le = ls
-                    while (le < md.size()) && (md[le] != 10) {
+                    while (le < md.size()) && (md[le] != ('\n' as u8)) {
                         le += 1
                     }
 
@@ -144,7 +144,7 @@ extend Server {
                     }
 
                     // `fn` as a word: not the tail of a longer one.
-                    if (at != usize::MAX) && (at > 0) && (md[ls + at - 1] != 32) {
+                    if (at != usize::MAX) && (at > 0) && (md[ls + at - 1] != (' ' as u8)) {
                         at = usize::MAX
                     }
 
@@ -217,11 +217,11 @@ extend Server {
                         var depth: usize = 0
                         while e2 < src.size() {
                             var ch = src[e2]
-                            if ch == 40 {
+                            if ch == ('(' as u8) {
                                 depth += 1
-                            } else if (ch == 41) && (depth > 0) {
+                            } else if (ch == (')' as u8)) && (depth > 0) {
                                 depth -= 1
-                            } else if (depth == 0) && ((ch == 123) || (ch == 10) || (ch == 61)) {
+                            } else if (depth == 0) && ((ch == ('{' as u8)) || (ch == ('\n' as u8)) || (ch == ('=' as u8))) {
                                 break
                             }
 
@@ -238,7 +238,7 @@ extend Server {
                             label = label.subslice(0, cut)
                         }
 
-                        while (label.size() > 0) && (label[label.size() - 1] == 32) {
+                        while (label.size() > 0) && (label[label.size() - 1] == (' ' as u8)) {
                             label = label.subslice(0, label.size() - 1)
                         }
 
@@ -292,16 +292,16 @@ extend Server {
                 var start = lp + 1
                 for var c: usize = lp + 1; c < labels[q].size(); ++c {
                     var ch = labels[q][c]
-                    if (ch == 40) || (ch == 91) || (ch == 60) {
+                    if (ch == ('(' as u8)) || (ch == ('[' as u8)) || (ch == ('<' as u8)) {
                         depth += 1
-                    } else if ((ch == 41) || (ch == 93) || (ch == 62)) && (depth > 0) {
+                    } else if ((ch == (')' as u8)) || (ch == (']' as u8)) || (ch == ('>' as u8))) && (depth > 0) {
                         // `->` is not a closing angle bracket.
-                        if !((ch == 62) && (c > 0) && (labels[q][c - 1] == 45)) {
+                        if !((ch == ('>' as u8)) && (c > 0) && (labels[q][c - 1] == ('-' as u8))) {
                             depth -= 1
                         }
-                    } else if ((ch == 44) || (ch == 41)) && (depth == 0) {
+                    } else if ((ch == (',' as u8)) || (ch == (')' as u8))) && (depth == 0) {
                         var ps = start
-                        while (ps < c) && (labels[q][ps] == 32) {
+                        while (ps < c) && (labels[q][ps] == (' ' as u8)) {
                             ps += 1
                         }
 
@@ -318,7 +318,7 @@ extend Server {
                         }
 
                         start = c + 1
-                        if ch == 41 {
+                        if ch == (')' as u8) {
                             break
                         }
                     }

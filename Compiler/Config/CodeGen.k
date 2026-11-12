@@ -13,6 +13,16 @@
 
 ffi "c++" import "vector"
 
+import Command::FlagRegistry::{
+    DEFAULT_DWARF_VERSION,
+    DEFAULT_INLINE_COST_THRESHOLD,
+    DEFAULT_MAX_CODEGEN_PASSES,
+    DEFAULT_MAX_FOR_UNROLL_COUNT,
+    DEFAULT_MAX_INLINE_DEPTH,
+    DEFAULT_MAX_LAMBDA_CAPTURE_SIZE,
+    DEFAULT_MAX_OBJECT_SIZE_MB,
+    DEFAULT_MAX_UNROLL_COUNT,
+}
 import Command::ParsedArgs::ParsedArgs
 
 /// What an exhaustive match does with a value no arm declares: an
@@ -50,16 +60,16 @@ pub class CodeGenOptions {
     pub var profile: string = "debug"
     /// # inliner / loop limits (from --c* config flags)
 
-    pub var inline_cost: f64 = 225.0
+    pub var inline_cost: f64 = DEFAULT_INLINE_COST_THRESHOLD
     /// --cinline-cost-threshold given. LLVM's own threshold differs per level
     /// (225 at -O2, 75 at -Os), so the 225.0 default must not be forwarded.
     pub var inline_cost_set:    bool = false
-    pub var max_inline_depth:   i32  = 256
-    pub var max_unroll_count:   i32  = 0
-    pub var max_for_unroll:     i32  = 1024
-    pub var max_lambda_capture: i32  = 1024
-    pub var max_codegen_passes: i32  = 0
-    pub var max_object_size_mb: i32  = 512
+    pub var max_inline_depth:   i32  = DEFAULT_MAX_INLINE_DEPTH
+    pub var max_unroll_count:   i32  = DEFAULT_MAX_UNROLL_COUNT
+    pub var max_for_unroll:     i32  = DEFAULT_MAX_FOR_UNROLL_COUNT
+    pub var max_lambda_capture: i32  = DEFAULT_MAX_LAMBDA_CAPTURE_SIZE
+    pub var max_codegen_passes: i32  = DEFAULT_MAX_CODEGEN_PASSES
+    pub var max_object_size_mb: i32  = DEFAULT_MAX_OBJECT_SIZE_MB
     /// # optimization
 
     pub var opt_level:  i32  = 0
@@ -74,7 +84,7 @@ pub class CodeGenOptions {
     pub var harden_enum_tags: bool = false
     /// # debug info
 
-    pub var dwarf_version: i32  = 5
+    pub var dwarf_version: i32  = DEFAULT_DWARF_VERSION
     pub var debug_info:    bool = false
     pub var no_debug_info: bool = false
     pub var split_dwarf:   bool = false

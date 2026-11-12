@@ -10,9 +10,9 @@
 ///     JsonWriter  what leaves. Appends text; there is no tree to build first.
 ///
 ///   WHY NOT A RECURSIVE VALUE CLASS: `class Json { var items: [Json] }` does
-///   not compile today (P796: the vector's copy constraint is checked while
+///   not compile: the vector's copy constraint is checked while
 ///   the element type is still incomplete, so the class loses its copy
-///   constructor). The flat form is also what an LSP wants: a 2 MB index is
+///   constructor. The flat form is also what an LSP wants: a 2 MB index is
 ///   one allocation per string, not one per value.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
@@ -271,7 +271,7 @@ pub class JsonDoc {
     priv fn ws_(self) {
         while self.pos_ < self.src_.size() {
             var c = self.src_[self.pos_]
-            if (c != 32) && (c != 9) && (c != 10) && (c != 13) {
+            if (c != (' ' as u8)) && (c != ('\t' as u8)) && (c != ('\n' as u8)) && (c != ('\r' as u8)) {
                 return
             }
 
@@ -316,22 +316,22 @@ pub class JsonDoc {
         }
 
         var c = self.src_[self.pos_]
-        if c == 123 {
+        if c == ('{' as u8) {
             return self.object_(depth)
         }
 
-        if c == 91 {
+        if c == ('[' as u8) {
             return self.array_(depth)
         }
 
-        if c == 34 {
+        if c == ('"' as u8) {
             var n = self.new_(JsonKind::String)
             var s = self.string_()
             self.nodes[n as usize].text = s
             return n
         }
 
-        if c == 116 {
+        if c == ('t' as u8) {
             if !self.literal_("true") {
                 self.fail_("invalid literal")
                 return JSON_NONE()
@@ -342,7 +342,7 @@ pub class JsonDoc {
             return n
         }
 
-        if c == 102 {
+        if c == ('f' as u8) {
             if !self.literal_("false") {
                 self.fail_("invalid literal")
                 return JSON_NONE()
@@ -351,7 +351,7 @@ pub class JsonDoc {
             return self.new_(JsonKind::Bool)
         }
 
-        if c == 110 {
+        if c == ('n' as u8) {
             if !self.literal_("null") {
                 self.fail_("invalid literal")
                 return JSON_NONE()
@@ -360,7 +360,7 @@ pub class JsonDoc {
             return self.new_(JsonKind::Null)
         }
 
-        if (c == 45) || ((c >= 48) && (c <= 57)) {
+        if (c == ('-' as u8)) || ((c >= ('0' as u8)) && (c <= ('9' as u8))) {
             return self.number_()
         }
 
@@ -374,21 +374,21 @@ pub class JsonDoc {
         var last = JSON_NONE()
 
         self.ws_()
-        if (self.pos_ < self.src_.size()) && (self.src_[self.pos_] == 125) {
+        if (self.pos_ < self.src_.size()) && (self.src_[self.pos_] == ('}' as u8)) {
             self.pos_ += 1
             return obj
         }
 
         while self.error.empty() {
             self.ws_()
-            if (self.pos_ >= self.src_.size()) || (self.src_[self.pos_] != 34) {
+            if (self.pos_ >= self.src_.size()) || (self.src_[self.pos_] != ('"' as u8)) {
                 self.fail_("expected a member name")
                 break
             }
 
             var k = self.string_()
             self.ws_()
-            if (self.pos_ >= self.src_.size()) || (self.src_[self.pos_] != 58) {
+            if (self.pos_ >= self.src_.size()) || (self.src_[self.pos_] != (':' as u8)) {
                 self.fail_("expected ':'")
                 break
             }
@@ -417,11 +417,11 @@ pub class JsonDoc {
 
             var c = self.src_[self.pos_]
             self.pos_ += 1
-            if c == 125 {
+            if c == ('}' as u8) {
                 break
             }
 
-            if c != 44 {
+            if c != (',' as u8) {
                 self.fail_("expected ',' or '}'")
                 break
             }
@@ -436,7 +436,7 @@ pub class JsonDoc {
         var last = JSON_NONE()
 
         self.ws_()
-        if (self.pos_ < self.src_.size()) && (self.src_[self.pos_] == 93) {
+        if (self.pos_ < self.src_.size()) && (self.src_[self.pos_] == (']' as u8)) {
             self.pos_ += 1
             return arr
         }
@@ -464,11 +464,11 @@ pub class JsonDoc {
 
             var c = self.src_[self.pos_]
             self.pos_ += 1
-            if c == 93 {
+            if c == (']' as u8) {
                 break
             }
 
-            if c != 44 {
+            if c != (',' as u8) {
                 self.fail_("expected ',' or ']'")
                 break
             }
@@ -488,11 +488,11 @@ pub class JsonDoc {
             var c = self.src_[self.pos_] as u32
             self.pos_ += 1
             var d: u32 = 0
-            if (c >= 48) && (c <= 57) {
+            if (c >= ('0' as u8)) && (c <= ('9' as u8)) {
                 d = c - 48
-            } else if (c >= 97) && (c <= 102) {
+            } else if (c >= ('a' as u8)) && (c <= ('f' as u8)) {
                 d = c - 87
-            } else if (c >= 65) && (c <= 70) {
+            } else if (c >= ('A' as u8)) && (c <= ('F' as u8)) {
                 d = c - 55
             } else {
                 self.fail_("invalid \\u escape")
@@ -512,11 +512,11 @@ pub class JsonDoc {
         while self.pos_ < self.src_.size() {
             var c = self.src_[self.pos_]
             self.pos_ += 1
-            if c == 34 {
+            if c == ('"' as u8) {
                 return out
             }
 
-            if c != 92 {
+            if c != ('\\' as u8) {
                 out.push_back(c)
                 continue
             }
@@ -527,22 +527,22 @@ pub class JsonDoc {
 
             var e = self.src_[self.pos_]
             self.pos_ += 1
-            if e == 110 {
-                out.push_back(10)
-            } else if e == 116 {
-                out.push_back(9)
-            } else if e == 114 {
-                out.push_back(13)
-            } else if e == 98 {
-                out.push_back(8)
-            } else if e == 102 {
-                out.push_back(12)
-            } else if e == 117 {
+            if e == ('n' as u8) {
+                out.push_back('\n' as u8)
+            } else if e == ('t' as u8) {
+                out.push_back('\t' as u8)
+            } else if e == ('r' as u8) {
+                out.push_back('\r' as u8)
+            } else if e == ('b' as u8) {
+                out.push_back('\b' as u8)
+            } else if e == ('f' as u8) {
+                out.push_back('\f' as u8)
+            } else if e == ('u' as u8) {
                 var cp = self.hex4_()
                 // A high surrogate is half a character: its low half follows
                 // as a second \u escape, and the pair is ONE code point.
                 if (cp >= 0xD800) && (cp <= 0xDBFF) && ((self.pos_ + 1) < self.src_.size())
-                    && (self.src_[self.pos_] == 92) && (self.src_[self.pos_ + 1] == 117) {
+                    && (self.src_[self.pos_] == ('\\' as u8)) && (self.src_[self.pos_ + 1] == ('u' as u8)) {
                     self.pos_ += 2
                     var lo = self.hex4_()
                     cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)
@@ -566,40 +566,40 @@ pub class JsonDoc {
         var mant: f64 = 0.0
         var ival: i64 = 0
 
-        if self.src_[self.pos_] == 45 {
+        if self.src_[self.pos_] == ('-' as u8) {
             neg = true
             self.pos_ += 1
         }
 
-        while (self.pos_ < self.src_.size()) && (self.src_[self.pos_] >= 48) && (self.src_[self.pos_] <= 57) {
+        while (self.pos_ < self.src_.size()) && (self.src_[self.pos_] >= ('0' as u8)) && (self.src_[self.pos_] <= ('9' as u8)) {
             var d = (self.src_[self.pos_] - 48) as i64
             ival = (ival * 10) + d
             mant = (mant * 10.0) + (d as f64)
             self.pos_ += 1
         }
 
-        if (self.pos_ < self.src_.size()) && (self.src_[self.pos_] == 46) {
+        if (self.pos_ < self.src_.size()) && (self.src_[self.pos_] == ('.' as u8)) {
             whole = false
             self.pos_ += 1
             var scale: f64 = 0.1
-            while (self.pos_ < self.src_.size()) && (self.src_[self.pos_] >= 48) && (self.src_[self.pos_] <= 57) {
+            while (self.pos_ < self.src_.size()) && (self.src_[self.pos_] >= ('0' as u8)) && (self.src_[self.pos_] <= ('9' as u8)) {
                 mant  = mant + (((self.src_[self.pos_] - 48) as f64) * scale)
                 scale = scale * 0.1
                 self.pos_ += 1
             }
         }
 
-        if (self.pos_ < self.src_.size()) && ((self.src_[self.pos_] == 101) || (self.src_[self.pos_] == 69)) {
+        if (self.pos_ < self.src_.size()) && ((self.src_[self.pos_] == ('e' as u8)) || (self.src_[self.pos_] == ('E' as u8))) {
             whole = false
             self.pos_ += 1
             var eneg = false
-            if (self.pos_ < self.src_.size()) && ((self.src_[self.pos_] == 45) || (self.src_[self.pos_] == 43)) {
-                eneg = self.src_[self.pos_] == 45
+            if (self.pos_ < self.src_.size()) && ((self.src_[self.pos_] == ('-' as u8)) || (self.src_[self.pos_] == ('+' as u8))) {
+                eneg = self.src_[self.pos_] == ('-' as u8)
                 self.pos_ += 1
             }
 
             var ex: i32 = 0
-            while (self.pos_ < self.src_.size()) && (self.src_[self.pos_] >= 48) && (self.src_[self.pos_] <= 57) {
+            while (self.pos_ < self.src_.size()) && (self.src_[self.pos_] >= ('0' as u8)) && (self.src_[self.pos_] <= ('9' as u8)) {
                 ex = (ex * 10) + ((self.src_[self.pos_] - 48) as i32)
                 self.pos_ += 1
             }
@@ -678,7 +678,7 @@ pub class JsonWriter {
 
         var top = self.has_.size() - 1
         if self.has_[top] {
-            self.out.push_back(44)
+            self.out.push_back(',' as u8)
         }
 
         self.has_[top] = true
@@ -686,30 +686,30 @@ pub class JsonWriter {
 
     fn begin_object(self) {
         self.sep_()
-        self.out.push_back(123)
+        self.out.push_back('{' as u8)
         self.has_.push_back(false)
     }
 
     fn end_object(self) {
-        self.out.push_back(125)
+        self.out.push_back('}' as u8)
         self.has_.pop_back()
     }
 
     fn begin_array(self) {
         self.sep_()
-        self.out.push_back(91)
+        self.out.push_back('[' as u8)
         self.has_.push_back(false)
     }
 
     fn end_array(self) {
-        self.out.push_back(93)
+        self.out.push_back(']' as u8)
         self.has_.pop_back()
     }
 
     fn key(self, const k: string) {
         self.sep_()
         self.quote_(k)
-        self.out.push_back(58)
+        self.out.push_back(':' as u8)
         self.after_key_ = true
     }
 
@@ -782,20 +782,20 @@ pub class JsonWriter {
 
     priv fn quote_(self, const s: string) {
         var hex = "0123456789abcdef"
-        self.out.push_back(34)
+        self.out.push_back('"' as u8)
         for var i: usize = 0; i < s.size(); ++i {
             var c = s[i]
-            if c == 34 {
+            if c == ('"' as u8) {
                 self.out += "\\\""
-            } else if c == 92 {
+            } else if c == ('\\' as u8) {
                 self.out += "\\\\"
-            } else if c == 10 {
+            } else if c == ('\n' as u8) {
                 self.out += "\\n"
-            } else if c == 13 {
+            } else if c == ('\r' as u8) {
                 self.out += "\\r"
-            } else if c == 9 {
+            } else if c == ('\t' as u8) {
                 self.out += "\\t"
-            } else if c < 32 {
+            } else if c < (' ' as u8) {
                 // Every other control character must be escaped; bytes >= 0x80
                 // are UTF-8 and pass through untouched.
                 self.out += "\\u00"
@@ -806,6 +806,6 @@ pub class JsonWriter {
             }
         }
 
-        self.out.push_back(34)
+        self.out.push_back('"' as u8)
     }
 }

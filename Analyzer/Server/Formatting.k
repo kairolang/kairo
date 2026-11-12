@@ -90,7 +90,7 @@ extend Server {
             false,
         )
 
-        if (at == 0) || ((*text)[at - 1] != 125) {
+        if (at == 0) || ((*text)[at - 1] != ('}' as u8)) {
             self.respond(id, "[]")
             return
         }
@@ -99,7 +99,7 @@ extend Server {
         var ls = self.docs.docs[i].lines.starts[self.docs.docs[i].lines.line_of(close)]
         // Only when the brace is the first thing on its line.
         for var p: usize = ls; p < close; ++p {
-            if ((*text)[p] != 32) && ((*text)[p] != 9) {
+            if ((*text)[p] != (' ' as u8)) && ((*text)[p] != ('\t' as u8)) {
                 self.respond(id, "[]")
                 return
             }
@@ -120,7 +120,7 @@ extend Server {
 
         var os = self.docs.docs[i].lines.starts[self.docs.docs[i].lines.line_of(open)]
         var oe = os
-        while (oe < text->size()) && (((*text)[oe] == 32) || ((*text)[oe] == 9)) {
+        while (oe < text->size()) && (((*text)[oe] == (' ' as u8)) || ((*text)[oe] == ('\t' as u8))) {
             oe += 1
         }
 
@@ -178,7 +178,7 @@ extend Server {
             // kfmt refuses a file that does not parse, and says where: its
             // first line is the reason, with the scratch name taken out.
             var why: string = ""
-            for var k: usize = 0; (k < text.size()) && (text[k] != 10) && (k < 300); ++k {
+            for var k: usize = 0; (k < text.size()) && (text[k] != ('\n' as u8)) && (k < 300); ++k {
                 why.push_back(text[k])
             }
 
@@ -205,7 +205,7 @@ extend Server {
             a += 1
         }
 
-        while (a > 0) && ((*old)[a - 1] != 10) {
+        while (a > 0) && ((*old)[a - 1] != ('\n' as u8)) {
             a -= 1
         }
 
@@ -216,7 +216,7 @@ extend Server {
             ne -= 1
         }
 
-        while (oe < old->size()) && ((*old)[oe - 1] != 10) && (oe > 0) {
+        while (oe < old->size()) && ((*old)[oe - 1] != ('\n' as u8)) && (oe > 0) {
             oe += 1
             ne += 1
         }

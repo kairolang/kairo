@@ -142,6 +142,11 @@ import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::{
+    declared_here,
+    named_declared_here,
+    previously_declared_here,
+}
 import Lexer::Immediate::Immediate
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
@@ -1563,7 +1568,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             )
 
             b.first(at)
-            b.note(DiagCode(DiagID::SC192N), f->range.start, f"'{nm}' is declared here")->first(
+            b.note(DiagCode(DiagID::SC192N), f->range.start, named_declared_here(nm))->first(
                 f->name.range,
             )
 
@@ -1666,7 +1671,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             vb.note(
                 DiagCode(DiagID::SC192N),
                 bvd->name.range.start,
-                f"'{vn}' is declared here",
+                named_declared_here(vn),
             )->first(bvd->name.range)
             vb.emit()
             return
@@ -1693,7 +1698,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             b.note(
                 DiagCode(DiagID::SC192N),
                 ce->bad_decl->range.start,
-                f"'{dn}' is declared here",
+                named_declared_here(dn),
             )->first(ce->bad_decl->range)
         }
 
@@ -2982,7 +2987,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             )
 
             b.first(seg->range)
-            b.note(td->range.start, "declared here")->first(td->range)
+            b.note(td->range.start, declared_here())->first(td->range)
             b.emit()
             ct->poison()
             return &null
@@ -3000,7 +3005,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             )
 
             b.first(seg->range)
-            b.note(td->range.start, f"'{nm}' is declared here")->first(td->range)
+            b.note(td->range.start, named_declared_here(nm))->first(td->range)
             b.emit()
             ct->poison()
             return &null
@@ -3114,7 +3119,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         )
 
         b.first(at)
-        b.note(DiagCode(DiagID::SC116N), td->range.start, "declared here")->first(td->range)
+        b.note(DiagCode(DiagID::SC116N), td->range.start, declared_here())->first(td->range)
         b.emit()
         ct->poison()
     }
@@ -4094,7 +4099,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 ).first(seg->range)->note(
                     DiagCode(DiagID::R032N),
                     td->range.start,
-                    "declared here",
+                    declared_here(),
                 )->first(td->range)->emit()
                 ct->poison()
                 return &null
@@ -5931,7 +5936,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             ).first(d->range)->note(
                 DiagCode(DiagID::R044N),
                 e->decl->range.start,
-                "previously declared here",
+                previously_declared_here(),
             )->first(e->decl->range)->emit()
             d->poison()
             return

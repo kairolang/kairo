@@ -14,6 +14,16 @@
 ffi "c++" import "cstdlib"
 ffi "c++" import "vector"
 
+import Command::FlagRegistry::{
+    DEFAULT_MAX_AMT_SMARTPTR_REWRITES,
+    DEFAULT_MAX_BORROW_DEPTH,
+    DEFAULT_MAX_EXPR_DEPTH,
+    DEFAULT_MAX_GENERIC_INSTANTIATIONS,
+    DEFAULT_MAX_SCOPE_DEPTH,
+    DEFAULT_MAX_THREADS,
+    DEFAULT_MAX_TUPLE_ARITY,
+    DEFAULT_TEST_EXIT_CODE,
+}
 import Command::ParsedArgs::ParsedArgs
 
 ///
@@ -40,11 +50,9 @@ pub enum FrontendActionKind derives u8 {
 /// The --emit set, split once and read by both the frontend (what codegen
 /// writes) and the linker options (whether the run links).
 ///
-/// \details One parser because two disagreed (P889): the linker's counted
-///          non-empty comma runs, so `obj,` was one item that was not "obj"
-///          and stopped the link, while `asm,asm` was two items and linked.
-///          A kind is a KIND: an empty item names none and a repeat names the
-///          same one again.
+/// \details One parser, so the frontend and the linker options agree on the
+///          set: an empty item names no kind (`obj,` is the item `obj`) and a
+///          repeat names its kind once (`asm,asm` is one item).
 pub class EmitKinds {
     pub var emit_obj:     bool = false
     pub var emit_asm:     bool = false
@@ -158,15 +166,15 @@ pub class FrontendOptions {
     pub var stats_file: string = ""
     // concurrency
     pub var thread_count:    i32 = 0 ///< 0 = hardware concurrency
-    pub var max_threads:     i32 = 0 ///< 0 = no cap
+    pub var max_threads:     i32 = DEFAULT_MAX_THREADS ///< 0 = no cap
     pub var sema_threads:    i32 = 0 ///< --sema-threads: 0 = thread_count
     pub var codegen_threads: i32 = 0 ///< --codegen-threads: 0 = thread_count
     /// --interface-pch: "auto" (by size), "on" or "off".
     pub var interface_pch: string = "auto"
     /// -fno-shared-header-set turns this off: one clang parse per header list.
     pub var shared_header_set: bool = true
-    pub var max_expr_depth:    i32  = 512
-    pub var max_scope_depth:   i32  = 256
+    pub var max_expr_depth:    i32  = DEFAULT_MAX_EXPR_DEPTH
+    pub var max_scope_depth:   i32  = DEFAULT_MAX_SCOPE_DEPTH
     // primary action
     pub var action: FrontendActionKind = FrontendActionKind::EmitObj
     // verbosity / timing
@@ -252,8 +260,8 @@ pub class FrontendOptions {
     // (Config/Linker.k); copies here were never read and could only drift.
 
     // parser / sema
-    pub var max_generic_instantiations: i32 = 16384 ///< matches the --cmax-generic-instantiations help; not read yet
-    pub var max_tuple_arity:            i32 = 128 ///< a tuple is its arity's record, minted up to LangItems::TUPLE_MAX_ARITY; the flag only lowers (0 = no flag cap)
+    pub var max_generic_instantiations: i32 = DEFAULT_MAX_GENERIC_INSTANTIATIONS ///< matches the --cmax-generic-instantiations help; not read yet
+    pub var max_tuple_arity:            i32 = DEFAULT_MAX_TUPLE_ARITY ///< a tuple is its arity's record, minted up to LangItems::TUPLE_MAX_ARITY; the flag only lowers (0 = no flag cap)
 
     // incremental compilation
     pub var incremental:     bool   = false
@@ -273,11 +281,11 @@ pub class FrontendOptions {
     pub var test_threads:    i32    = 0        ///< 0 = logical CPU count
     pub var test_no_capture: bool   = false
     pub var test_timeout:    i32    = 0        ///< 0 = no timeout (ms)
-    pub var test_exit_code:  i32    = 1
+    pub var test_exit_code:  i32    = DEFAULT_TEST_EXIT_CODE
 
     // BCIR / AMT limits
-    pub var max_borrow_depth:          i32 = 512
-    pub var max_amt_smartptr_rewrites: i32 = 8192 ///< 0 = unlimited
+    pub var max_borrow_depth:          i32 = DEFAULT_MAX_BORROW_DEPTH
+    pub var max_amt_smartptr_rewrites: i32 = DEFAULT_MAX_AMT_SMARTPTR_REWRITES ///< 0 = unlimited
 
     // helpers
 
@@ -361,7 +369,7 @@ pub class FrontendOptions {
         o.ast_roundtrip        = args.get_bool("ast-roundtrip")
         if !o.ast_roundtrip {
             var unsafe *env_rt = cxx::std::getenv(r"KAIRO_AST_ROUNDTRIP")
-            if env_rt != &null && (env_rt[0] as u8) == 49 { // "1"
+            if env_rt != &null && (env_rt[0] as u8) == ('1' as u8) {
                 o.ast_roundtrip = true
             }
         }

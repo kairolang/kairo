@@ -23,6 +23,11 @@ ffi "c++" import "utility"
 ffi "c++" import "chrono"
 ffi "c++" import "atomic"
 
+import Support::EvalHash::{
+    FNV1A64_OFFSET,
+    FNV1A64_PRIME,
+    GOLDEN_RATIO_MIX,
+}
 import Support::Timer::Timer
 import Threading::PartitionQueue::{
     DEFAULT_QUEUE_SIZE,
@@ -225,7 +230,7 @@ pub class ThreadPool {
     }
 
     inline static fn fnv1a64_bytes(const tid: kairo::std::Thread::id) -> u64 {
-        var h: u64 = 0xcbf29ce484222325
+        var h: u64 = FNV1A64_OFFSET
 
         eval TID_SIZE: usize = sizeof(cxx::std::#thread::id)
 
@@ -233,7 +238,7 @@ pub class ThreadPool {
         cxx::std::memcpy(unsafe &buf[0], unsafe &tid, TID_SIZE)
 
         for var i: usize = 0; i < TID_SIZE; ++i {
-            h = (h ^ buf[i]) * 0x100000001b3
+            h = (h ^ buf[i]) * FNV1A64_PRIME
         }
 
         return h
@@ -453,7 +458,7 @@ pub class ThreadPool {
     fn worker_loop(self, id: usize) {
         var        task:      Task
         var unsafe *q              = self._queues[id]
-        var        rng_state: u64  = (((id + 1) as u64)) * 0x9e3779b97f4a7c15
+        var        rng_state: u64  = (((id + 1) as u64)) * GOLDEN_RATIO_MIX
 
         inline fn next_rand(state: unsafe *u64) -> usize {
             *state = *state ^ *state >> 12

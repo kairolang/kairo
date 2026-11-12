@@ -23,10 +23,10 @@
 ///     Foo. The wrapper is one interned node per (quals, inner) pair, and it
 ///     is the ONLY place a qualifier lives on a canonical: `inner` is never
 ///     itself a QualifiedType (qualified() folds), and no other kind carries
-///     a cv bit. `const T&` is cxx_lref(qualified(CONST, T)); the old
-///     `is_const` on CXXLValueRefType is gone. Without this `pair<const K, T>`
-///     imported as `pair<K, T>`, `g(const int*)` and `g(int*)` were one
-///     overload, and `W<const int>` was `W<int>`.
+///     a cv bit. `const T&` is cxx_lref(qualified(CONST, T)). A canonical
+///     that dropped the cv bit would merge `pair<const K, T>` with
+///     `pair<K, T>`, `g(const int*)` with `g(int*)`, and `W<const int>` with
+///     `W<int>`.
 ///     FunctionPointerType::modes is in the key too: `fn(@inout i32)` and
 ///     `fn(i32)` are two canonicals (AST/ParamMode.k).
 ///
@@ -100,6 +100,11 @@ import AST::ParamMode::ParamMode
 import Location::SourceRange::SourceRange
 import Memory::ArenaAllocator::ArenaAllocator
 import Support::FlagSet::FlagSet
+import Support::EvalHash::{
+    GOLDEN_RATIO_MIX,
+    SPLITMIX64_MUL1,
+    SPLITMIX64_MUL2,
+}
 import Token::TokenKind::TokenKind
 
 /// \brief 64-bit mixer (splitmix64 finalizer). Used to fold component pointers
@@ -107,9 +112,9 @@ import Token::TokenKind::TokenKind
 ///        a structural compare, so a collision costs a comparison, never a
 ///        wrong answer.
 pub fn canon_mix(x: u64) -> u64 {
-    var z = x + 0x9E3779B97F4A7C15
-    z = (z ^ z >> 30) * 0xBF58476D1CE4E5B9
-    z = (z ^ z >> 27) * 0x94D049BB133111EB
+    var z = x + GOLDEN_RATIO_MIX
+    z = (z ^ z >> 30) * SPLITMIX64_MUL1
+    z = (z ^ z >> 27) * SPLITMIX64_MUL2
     return z ^ z >> 31
 }
 
@@ -159,9 +164,9 @@ pub class CanonicalTypeStore {
 
     /// Interned `T?`s with no record yet (lowered still null). Every TU's
     /// NullableTypeLowering asks for the unlowered ones, and nullables()
-    /// walks the whole table to find them: 322 walks of a table that only
-    /// grows were half a second of the serial self-build. At 0 there is
-    /// nothing to find, and the walk is skipped (has_unlowered_nullables).
+    /// walks the whole table to find them, and the table only grows. At 0
+    /// there is nothing to find, and the walk is skipped
+    /// (has_unlowered_nullables).
     priv var _unlowered_nullables: usize = 0
 
     /// Every interned `T?` that may still lack a record, in intern order;

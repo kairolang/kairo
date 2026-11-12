@@ -358,7 +358,7 @@ extend IndexWalker {
 
         var a = lit[0]
         var z = lit[lit.size() - 1]
-        if ((a == 34) && (z == 34)) || ((a == 60) && (z == 62)) {
+        if ((a == ('"' as u8)) && (z == ('"' as u8))) || ((a == ('<' as u8)) && (z == ('>' as u8))) {
             return lit.subslice(1, lit.size() - 2)
         }
 

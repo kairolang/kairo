@@ -138,6 +138,7 @@ import AST::Visitor::RecursiveASTVisitor::{
     named_call_arg_value,
 }
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::type_declared_here
 import Location::SourceRange::SourceRange
 import Sema::Check::ClassLifecycle::{
     LifecycleCategory,
@@ -1579,7 +1580,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
                     b.first(e->range)
                     if !is_tup { // a tuple is declared nowhere.
-                        b.note(rd->range.start, "type declared here")->first(rd->range)
+                        b.note(rd->range.start, type_declared_here())->first(rd->range)
                     }
 
                     b.emit()
@@ -1693,7 +1694,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         )
 
         b.first(e->range)
-        b.note(rd->range.start, "type declared here")->first(rd->range)
+        b.note(rd->range.start, type_declared_here())->first(rd->range)
         b.emit()
         e->poison()
         self.n_errored += 1

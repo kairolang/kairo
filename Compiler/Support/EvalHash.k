@@ -17,14 +17,36 @@ ffi "c++" import "array"
 
 pub
 const FNV_OFFSET_BASIS: u64 = 0x14650FB0739D0383
+/// `eval` (see FNV1A64_OFFSET below): also splitmix64's increment, used by
+/// the hash mixers in other modules.
 pub
-const GOLDEN_RATIO_MIX: u64 = 0x9e3779b97f4a7c15
+eval GOLDEN_RATIO_MIX: u64 = 0x9e3779b97f4a7c15
 pub
 const RESERVED_LOW: u64 = 0x00000000000000FF
 pub
 const FNV_PRIME: u64 = 0x00000100000001b3
 pub
 const HASH_MAX: u64 = u64::MAX
+
+/// Standard FNV-1a, for the hashes that are not the token/DiagID hash above
+/// (FNV_OFFSET_BASIS is Kairo's own basis, pinned by eval_hash.py; these are
+/// the published ones). `eval`, not `const`: an imported `const` reaches the
+/// importing C++ unit as an extern load, an `eval` as the literal itself,
+/// and these sit in per-byte loops.
+pub
+eval FNV1A64_OFFSET: u64 = 0xcbf29ce484222325
+pub
+eval FNV1A64_PRIME: u64 = 0x100000001b3
+pub
+eval FNV1A32_OFFSET: u32 = 0x811C9DC5
+pub
+eval FNV1A32_PRIME: u32 = 0x01000193
+
+/// splitmix64's finalizer multipliers; its increment is GOLDEN_RATIO_MIX.
+pub
+eval SPLITMIX64_MUL1: u64 = 0xBF58476D1CE4E5B9
+pub
+eval SPLITMIX64_MUL2: u64 = 0x94D049BB133111EB
 
 
 ///

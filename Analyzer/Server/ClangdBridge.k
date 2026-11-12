@@ -129,8 +129,8 @@ fn yaml_value_(const line: string, const key: string) -> string {
     var out: string = ""
     var i = at + key.size() + 5
     while i < line.size() {
-        if line[i] == 39 {
-            if ((i + 1) < line.size()) && (line[i + 1] == 39) {
+        if line[i] == ('\'' as u8) {
+            if ((i + 1) < line.size()) && (line[i + 1] == ('\'' as u8)) {
                 out += "\x27"
                 i += 2
                 continue
@@ -191,7 +191,7 @@ extend Server {
             var x = doc.first(doc.root)
             while x != JSON_NONE() {
                 var f = doc.get_str(x, "file")
-                if (!f.empty()) && (f[0] != 47) {
+                if (!f.empty()) && (f[0] != ('/' as u8)) {
                     f = Path::join_str(doc.get_str(x, "directory"), f)
                 }
 
@@ -208,7 +208,7 @@ extend Server {
         // A source the database does not list is still a source: clangd
         // opens it with an inferred command, and its `#include "x.k"` needs
         // the overlay as much (a scratch main.cc beside a 75,000-entry
-        // database, P858). The walk is bounded (Tuning.k) and lists a
+        // database). The walk is bounded (Tuning.k) and lists a
         // directory's files before its subdirectories, so the files nearest
         // the root are the ones the bound keeps.
         var walked: [string]
@@ -233,7 +233,7 @@ extend Server {
 
         var subs: [string]
         for var name: string in LinkFS::list_dir(dir) {
-            if name.empty() || (name[0] == 46) || (name == "build") || (name == "node_modules") {
+            if name.empty() || (name[0] == ('.' as u8)) || (name == "build") || (name == "node_modules") {
                 continue
             }
 
@@ -254,7 +254,7 @@ extend Server {
     /// else under the project root; real path, or "" when neither exists.
     fn bridge_resolve_(self, const from: string, const name: string) -> string {
         var p = name
-        if p[0] != 47 {
+        if p[0] != ('/' as u8) {
             var beside = Path::join_str(Path::parent_of(from), p)
             if LinkFS::is_file(beside) {
                 p = beside
@@ -271,7 +271,7 @@ extend Server {
     }
 
     /// The `.k` files \p src reaches through quoted includes, directly or
-    /// through the headers it includes (P861: a.cc includes b.h, b.h
+    /// through the headers it includes (a.cc includes b.h, b.h
     /// includes c.k), into \p ks, and the headers read on the way into
     /// \p seen (an edit to one of them re-reads \p src), both
     /// '\n'-terminated, in include order. Bounded: headers
@@ -479,7 +479,7 @@ extend Server {
         self.bridge_overlay_()
     }
 
-    /// The header job due next (usize::MAX: none), P863: a `.k` open in the
+    /// The header job due next (usize::MAX: none): a `.k` open in the
     /// editor first, then one included by the C/C++ source reported changed
     /// most recently (br_rank), then scan order. Jobs run one at a time and
     /// take about a second or two each, so on a project with tens of
@@ -514,7 +514,7 @@ extend Server {
     /// its header. `use-external-names: false`, at the top and on each
     /// entry, so clang names the file by its `.k` path.
     ///
-    /// Shared (P863): two kals on one root (two editors) each write it, so
+    /// Shared: two kals on one root (two editors) each write it, so
     /// it is a MERGE, not this process's view: the entries on disk whose
     /// `.k` and header both exist are kept beside this process's own, and
     /// for a `.k` both name, the newer header wins (whichever process ran
@@ -613,7 +613,7 @@ extend Server {
     }
 
     /// The C/C++ sources under the root that reach a `.k` (directly or
-    /// through a header, P861), relative to it (clangd matches a fragment's
+    /// through a header), relative to it (clangd matches a fragment's
     /// PathMatch against that spelling), and, in \p words, kcc's words for
     /// each ('\n'-terminated): the C set for a `.c` / `.m`, the C++ set
     /// otherwise, from the header job of the first `.k` it reaches, so
@@ -701,8 +701,8 @@ extend Server {
 
     /// The `.clangd` clangd needs for the bridge: the overlay and the cache
     /// root for every file, then, for the sources that reach a `.k`, the
-    /// driver words kcc compiles such a source with (P859), one fragment per
-    /// distinct set (P861: C and C++ sources, entries with other flags).
+    /// driver words kcc compiles such a source with, one fragment per
+    /// distinct set (C and C++ sources, entries with other flags).
     /// The generated header's prelude includes the runtime's headers
     /// (`rt/*.h`, found under kcc's runtime root) and standard headers that
     /// must be the sysroot's libc++: under the host's libstdc++,
@@ -765,7 +765,7 @@ extend Server {
     /// or kals wrote the one there (its first line), and only when its text
     /// changed, since clangd reloads its config on every write. A `.clangd`
     /// a person wrote is never touched: the lines to add are said once per
-    /// distinct text (a bridge pass runs after every header job, P857), and
+    /// distinct text (a bridge pass runs after every header job), and
     /// not at all when every flag word is already in the file.
     fn bridge_clangd_(self, const ov: string) {
         var marker = "# Written by kals, the Kairo language server: clangd reads Kairo headers through it. Remove this line to keep your own edits."
@@ -905,7 +905,7 @@ extend Server {
         }
 
         // kcc's words for a C++ and for a C source that includes this
-        // file: per file, since entries' flags differ (P861).
+        // file: per file, since entries' flags differ.
         var cxx: string = ""
         var a = doc.first(doc.get(doc.root, SK_CXX_FLAGS))
         while a != JSON_NONE() {

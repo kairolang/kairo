@@ -772,8 +772,8 @@ pub class Command {
 
         for var k: usize = 0; k < raw.length(); ++k {
             var c: i32 = (raw[k])
-            if c >= 65 && c <= 90 {
-                c += 32
+            if c >= ('A' as i32) && c <= ('Z' as i32) {
+                c += ('a' as i32) - ('A' as i32)
             }
 
             if c != (word[k] as i32) {
@@ -785,7 +785,8 @@ pub class Command {
     }
 
     /// an explicit `--flag=value` on a Bool flag. Anything outside the
-    /// accepted set used to be read as true, so `--shared=false` enabled it.
+    /// accepted set is an error (U003E), so `--shared=bogus` cannot read as
+    /// true.
     priv fn _apply_bool_value(self, def: unsafe *FlagDef, const raw: string, result: *ParsedArgs) {
         var *cell = result->_cell(def->key)
         if self._ieq_lower(raw, "true")
@@ -1040,7 +1041,7 @@ pub class Command {
 
             if gstate == Self::GlobalState::AwaitValue {
                 // A dash-led element is the next flag, not this one's value: taking it
-                // swallowed `-o` in `--xray -o out` and then parsed the old output as
+                // would swallow `-o` in `--xray -o out` and then parse the old output as
                 // a source file. Bare '-' stays a legal value (stdin); a value that
                 // really starts with '-' is spelled `--flag=-value`.
                 if elen > 1 && elem[0] == ('-' as u8) {

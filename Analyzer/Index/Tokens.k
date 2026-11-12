@@ -170,7 +170,7 @@ pub fn lexical_kind(t: Token, text: *const string, off: u32, len: u32, mods: *u3
         // client colours it as one without a rule of its own. `Self` keeps
         // its own type (and with it the colour it shares with `self`).
         var c = (*text)[off as usize]
-        if ((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)) || (c == 95) {
+        if ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || (c == ('_' as u8)) {
             *mods = TM_DEFAULT_LIB()
             if (len == 4) && (text->subslice(off as usize, 4) == "Self") {
                 return TT_BUILTIN()
@@ -465,7 +465,7 @@ extend IndexWalker {
         var seg = off as usize // start of the pending string piece
         var p   = off as usize
         while p < end {
-            if (*text)[p] != 123 {
+            if (*text)[p] != ('{' as u8) {
                 p += 1
                 continue
             }
@@ -474,9 +474,9 @@ extend IndexWalker {
             var depth: usize = 1
             var q = p + 1
             while (q < end) && (depth > 0) {
-                if (*text)[q] == 123 {
+                if (*text)[q] == ('{' as u8) {
                     depth += 1
-                } else if (*text)[q] == 125 {
+                } else if (*text)[q] == ('}' as u8) {
                     depth -= 1
                 }
 
@@ -508,10 +508,10 @@ extend IndexWalker {
                     continue
                 }
 
-                if (ch >= 48) && (ch <= 57) {
+                if (ch >= ('0' as u8)) && (ch <= ('9' as u8)) {
                     var ne = c
-                    while (ne < stop) && ((((*text)[ne] >= 48) && ((*text)[ne] <= 57)) || ((*text)[ne] == 46)
-                        || ((*text)[ne] == 95) || (((*text)[ne] >= 97) && ((*text)[ne] <= 122))) {
+                    while (ne < stop) && ((((*text)[ne] >= ('0' as u8)) && ((*text)[ne] <= ('9' as u8))) || ((*text)[ne] == ('.' as u8))
+                        || ((*text)[ne] == ('_' as u8)) || (((*text)[ne] >= ('a' as u8)) && ((*text)[ne] <= ('z' as u8)))) {
                         ne += 1
                     }
 
@@ -520,19 +520,19 @@ extend IndexWalker {
                     continue
                 }
 
-                if ((ch >= 97) && (ch <= 122)) || ((ch >= 65) && (ch <= 90)) || (ch == 95) {
+                if ((ch >= ('a' as u8)) && (ch <= ('z' as u8))) || ((ch >= ('A' as u8)) && (ch <= ('Z' as u8))) || (ch == ('_' as u8)) {
                     // A word the walk did not classify: a keyword (`as`,
                     // `if`) or an unresolved name. Left to the grammar.
-                    while (c < stop) && (((*text)[c] >= 48 && (*text)[c] <= 57) || ((*text)[c] >= 97 && (*text)[c] <= 122)
-                        || ((*text)[c] >= 65 && (*text)[c] <= 90) || ((*text)[c] == 95)) {
+                    while (c < stop) && (((*text)[c] >= ('0' as u8) && (*text)[c] <= ('9' as u8)) || ((*text)[c] >= ('a' as u8) && (*text)[c] <= ('z' as u8))
+                        || ((*text)[c] >= ('A' as u8) && (*text)[c] <= ('Z' as u8)) || ((*text)[c] == ('_' as u8))) {
                         c += 1
                     }
 
                     continue
                 }
 
-                if (ch == 43) || (ch == 45) || (ch == 42) || (ch == 47) || (ch == 37) || (ch == 60) || (ch == 62)
-                    || (ch == 61) || (ch == 33) || (ch == 38) || (ch == 124) || (ch == 94) || (ch == 63) {
+                if (ch == ('+' as u8)) || (ch == ('-' as u8)) || (ch == ('*' as u8)) || (ch == ('/' as u8)) || (ch == ('%' as u8)) || (ch == ('<' as u8)) || (ch == ('>' as u8))
+                    || (ch == ('=' as u8)) || (ch == ('!' as u8)) || (ch == ('&' as u8)) || (ch == ('|' as u8)) || (ch == ('^' as u8)) || (ch == ('?' as u8)) {
                     self.piece_(c, c + 1, TT_OPERATOR(), out)
                 }
 
@@ -547,7 +547,7 @@ extend IndexWalker {
         return true
     }
 
-    /// The segments chained after string token \p t (`"a" f"b{x}"`, P486):
+    /// The segments chained after string token \p t (`"a" f"b{x}"`):
     /// the lexer makes no token of them, so each is found from its
     /// StringData and emitted like a literal of its own, holes split out.
     /// \p from is where the token ends; each segment starts at the first
@@ -568,7 +568,7 @@ extend IndexWalker {
             }
 
             while (at < text->size())
-                && (((*text)[at] == 32) || ((*text)[at] == 9) || ((*text)[at] == 10) || ((*text)[at] == 13)) {
+                && (((*text)[at] == (' ' as u8)) || ((*text)[at] == ('\t' as u8)) || ((*text)[at] == ('\n' as u8)) || ((*text)[at] == ('\r' as u8))) {
                 at += 1
             }
 

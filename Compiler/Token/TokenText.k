@@ -43,7 +43,11 @@ import Location::SourceRange::SourceRange
 import Macro::Sentinel::MacroSentinel
 import Token::Token::Token
 import Token::TokenCacheManager::TokenCacheManager
-import Token::TokenKind::TokenKind
+import Token::TokenKind::{
+    TokenKind,
+    is_valid_token_kind,
+    token_kind_to_readable_string,
+}
 
 /// \struct UnwrappedToken
 /// \brief result of walking a macro-expansion chain to its origin.
@@ -229,328 +233,6 @@ pub class TokenText {
                 return create("$macro_expand$")
             } case TokenKind::TkCodeComplete {
                 return create("$IDE_COMPL$")
-            } case TokenKind::LitNull {
-                return create("null")
-            } case TokenKind::OpLBrace {
-                return create("{")
-            } case TokenKind::OpRBrace {
-                return create("}")
-            } case TokenKind::OpLParen {
-                return create("(")
-            } case TokenKind::OpRParen {
-                return create(")")
-            } case TokenKind::OpLSquare {
-                return create("[")
-            } case TokenKind::OpRSquare {
-                return create("]")
-            } case TokenKind::OpBackslash {
-                return create("\\")
-            } case TokenKind::OpLess {
-                return create("<")
-            } case TokenKind::OpGreater {
-                return create(">")
-            } case TokenKind::OpPlus {
-                return create("+")
-            } case TokenKind::OpMinus {
-                return create("-")
-            } case TokenKind::OpStar {
-                return create("*")
-            } case TokenKind::OpSlash {
-                return create("/")
-            } case TokenKind::OpPercent {
-                return create("%")
-            } case TokenKind::OpCaret {
-                return create("^")
-            } case TokenKind::OpPipe {
-                return create("|")
-            } case TokenKind::OpAmp {
-                return create("&")
-            } case TokenKind::OpCaretCaret {
-                return create("^^")
-            } case TokenKind::OpRange {
-                return create("..")
-            } case TokenKind::OpRangeEqual {
-                return create("..=")
-            } case TokenKind::OpTilde {
-                return create("~")
-            } case TokenKind::OpQuestion {
-                return create("?")
-            } case TokenKind::OpQuestionQuestion {
-                return create("??")
-            } case TokenKind::OpExclaim {
-                return create("!")
-            } case TokenKind::OpAt {
-                return create("@")
-            } case TokenKind::OpEqual {
-                return create("=")
-            } case TokenKind::OpPlusPlus {
-                return create("++")
-            } case TokenKind::OpMinusMinus {
-                return create("--")
-            } case TokenKind::OpSemicolon {
-                return create(";")
-            } case TokenKind::OpColon {
-                return create(":")
-            } case TokenKind::OpArrow {
-                return create("->")
-            } case TokenKind::OpArrowStar {
-                return create("->*")
-            } case TokenKind::OpFatArrow {
-                return create("=>")
-            } case TokenKind::OpQuestionArrow {
-                return create("?->")
-            } case TokenKind::OpQuestionArrowStar {
-                return create("?->*")
-            } case TokenKind::OpComma {
-                return create(",")
-            } case TokenKind::OpDot {
-                return create(".")
-            } case TokenKind::OpDotStar {
-                return create(".*")
-            } case TokenKind::OpColonColon {
-                return create("::")
-            } case TokenKind::OpQuestionDot {
-                return create("?.")
-            } case TokenKind::OpQuestionDotStar {
-                return create("?.*")
-            } case TokenKind::OpEllipsis {
-                return create("...")
-            } case TokenKind::OpPlusEqual {
-                return create("+=")
-            } case TokenKind::OpMinusEqual {
-                return create("-=")
-            } case TokenKind::OpStarEqual {
-                return create("*=")
-            } case TokenKind::OpSlashEqual {
-                return create("/=")
-            } case TokenKind::OpPercentEqual {
-                return create("%=")
-            } case TokenKind::OpAmpEqual {
-                return create("&=")
-            } case TokenKind::OpPipeEqual {
-                return create("|=")
-            } case TokenKind::OpCaretEqual {
-                return create("^=")
-            } case TokenKind::OpLessLessEqual {
-                return create("<<=")
-            } case TokenKind::OpGreaterGreaterEqual {
-                return create(">>=")
-            } case TokenKind::OpAtEqual {
-                return create("@=")
-            } case TokenKind::OpLessEqualGreater {
-                return create("<=>")
-            } case TokenKind::OpEqualEqualEqual {
-                return create("===")
-            } case TokenKind::OpEqualEqual {
-                return create("==")
-            } case TokenKind::OpExclaimEqual {
-                return create("!=")
-            } case TokenKind::OpLessLess {
-                return create("<<")
-            } case TokenKind::OpGreaterGreater {
-                return create(">>")
-            } case TokenKind::OpLessEqual {
-                return create("<=")
-            } case TokenKind::OpGreaterEqual {
-                return create(">=")
-            } case TokenKind::OpAmpAmp {
-                return create("&&")
-            } case TokenKind::OpPipePipe {
-                return create("||")
-            } case TokenKind::KwReturn {
-                return create("return")
-            } case TokenKind::KwBreak {
-                return create("break")
-            } case TokenKind::KwContinue {
-                return create("continue")
-            } case TokenKind::KwPanic {
-                return create("panic")
-            } case TokenKind::KwMatch {
-                return create("match")
-            } case TokenKind::KwCase {
-                return create("case")
-            } case TokenKind::KwDefault {
-                return create("default")
-            } case TokenKind::KwCatch {
-                return create("catch")
-            } case TokenKind::KwTry {
-                return create("try")
-            } case TokenKind::KwFinally {
-                return create("finally")
-            } case TokenKind::KwIf {
-                return create("if")
-            } case TokenKind::KwElse {
-                return create("else")
-            } case TokenKind::KwWhile {
-                return create("while")
-            } case TokenKind::KwFor {
-                return create("for")
-            } case TokenKind::KwAssert {
-                return create("assert")
-            } case TokenKind::KwLoop {
-                return create("loop")
-            } case TokenKind::KwVar {
-                return create("var")
-            } case TokenKind::KwConst {
-                return create("const")
-            } case TokenKind::KwFn {
-                return create("fn")
-            } case TokenKind::KwOp {
-                return create("op")
-            } case TokenKind::KwClass {
-                return create("class")
-            } case TokenKind::KwUnion {
-                return create("union")
-            } case TokenKind::KwEnum {
-                return create("enum")
-            } case TokenKind::KwType {
-                return create("type")
-            } case TokenKind::KwStruct {
-                return create("struct")
-            } case TokenKind::KwInterface {
-                return create("interface")
-            } case TokenKind::KwExtend {
-                return create("extend")
-            } case TokenKind::KwModule {
-                return create("module")
-            } case TokenKind::KwTest {
-                return create("test")
-            } case TokenKind::KwMacro {
-                return create("macro")
-            } case TokenKind::KwImport {
-                return create("import")
-            } case TokenKind::KwOverride {
-                return create("override")
-            } case TokenKind::KwFinal {
-                return create("final")
-            } case TokenKind::KwFfi {
-                return create("ffi")
-            } case TokenKind::KwImpl {
-                return create("impl")
-            } case TokenKind::KwDerives {
-                return create("derives")
-            } case TokenKind::KwWhere {
-                return create("where")
-            } case TokenKind::KwRequires {
-                return create("requires")
-            } case TokenKind::KwPub {
-                return create("pub")
-            } case TokenKind::KwPriv {
-                return create("priv")
-            } case TokenKind::KwProt {
-                return create("prot")
-            } case TokenKind::KwEval {
-                return create("eval")
-            } case TokenKind::KwUnsafe {
-                return create("unsafe")
-            } case TokenKind::KwStatic {
-                return create("static")
-            } case TokenKind::KwAsync {
-                return create("async")
-            } case TokenKind::KwInline {
-                return create("inline")
-            } case TokenKind::KwAtomic {
-                return create("atomic")
-            } case TokenKind::KwVolatile {
-                return create("volatile")
-            } case TokenKind::KwVirtual {
-                return create("virtual")
-            } case TokenKind::KwSelf {
-                return create("self")
-            } case TokenKind::KwTrue {
-                return create("true")
-            } case TokenKind::KwFalse {
-                return create("false")
-            } case TokenKind::KwIn {
-                return create("in")
-            } case TokenKind::KwAs {
-                return create("as")
-            } case TokenKind::KwAnd {
-                return create("and")
-            } case TokenKind::KwAndEq {
-                return create("and_eq")
-            } case TokenKind::KwBitand {
-                return create("bitand")
-            } case TokenKind::KwBitor {
-                return create("bitor")
-            } case TokenKind::KwCompl {
-                return create("compl")
-            } case TokenKind::KwNot {
-                return create("not")
-            } case TokenKind::KwNotEq {
-                return create("not_eq")
-            } case TokenKind::KwOr {
-                return create("or")
-            } case TokenKind::KwOrEq {
-                return create("or_eq")
-            } case TokenKind::KwXor {
-                return create("xor")
-            } case TokenKind::KwXorEq {
-                return create("xor_eq")
-            } case TokenKind::AtVoid {
-                return create("void")
-            } case TokenKind::AtBool {
-                return create("bool")
-            } case TokenKind::AtUsize {
-                return create("usize")
-            } case TokenKind::AtIsize {
-                return create("isize")
-            } case TokenKind::AtF16 {
-                return create("f16")
-            } case TokenKind::AtF32 {
-                return create("f32")
-            } case TokenKind::AtF64 {
-                return create("f64")
-            } case TokenKind::AtF80 {
-                return create("f80")
-            } case TokenKind::AtF128 {
-                return create("f128")
-            } case TokenKind::AtF256 {
-                return create("f256")
-            } case TokenKind::AtU8 {
-                return create("u8")
-            } case TokenKind::AtU16 {
-                return create("u16")
-            } case TokenKind::AtU32 {
-                return create("u32")
-            } case TokenKind::AtU64 {
-                return create("u64")
-            } case TokenKind::AtU128 {
-                return create("u128")
-            } case TokenKind::AtU256 {
-                return create("u256")
-            } case TokenKind::AtU512 {
-                return create("u512")
-            } case TokenKind::AtI8 {
-                return create("i8")
-            } case TokenKind::AtI16 {
-                return create("i16")
-            } case TokenKind::AtI32 {
-                return create("i32")
-            } case TokenKind::AtI64 {
-                return create("i64")
-            } case TokenKind::AtI128 {
-                return create("i128")
-            } case TokenKind::AtI256 {
-                return create("i256")
-            } case TokenKind::AtI512 {
-                return create("i512")
-            } case TokenKind::KwAwait {
-                return create("await")
-            } case TokenKind::KwThread {
-                return create("thread")
-            } case TokenKind::KwSpawn {
-                return create("spawn")
-            } case TokenKind::KwDelete {
-                return create("delete")
-            } case TokenKind::KwYield {
-                return create("yield")
-            } case TokenKind::KwSizeOf {
-                return create("sizeof")
-            } case TokenKind::KwAlignOf {
-                return create("alignof")
-            } case TokenKind::KwTypeOf {
-                return create("typeof")
             } case TokenKind::BiFile {
                 return create("__file__")
             } case TokenKind::BiLine {
@@ -561,8 +243,6 @@ pub class TokenText {
                 return create("__function__")
             } case TokenKind::BiModule {
                 return create("__module__")
-            } case TokenKind::BiSelf {
-                return create("Self")
             } case TokenKind::LitInt {
                 if tbl != &null {
                     var unsafe *int_data = tbl->get<Immediate::IntData>(imm)
@@ -595,8 +275,24 @@ pub class TokenText {
                 }
 
                 return create(f"$FALLBACK-MISSING-STRING-INTERN$ {sm->get_text(tok_range)}")
+            } case TokenKind::AtComment, TokenKind::LitChar,  TokenKind::KwMutable,
+                   TokenKind::AtByte,    TokenKind::AtChar,   TokenKind::AtF8,
+                   TokenKind::AtF8E4M3,  TokenKind::AtF8E5M2, TokenKind::AtBf16,
+                   TokenKind::AtF512 {
+                // the source bytes. A comment and a char literal have no fixed
+                // spelling; the eight words never had a row here, and for a lexed
+                // token their source bytes are the table's spelling anyway.
+                // Moving them to the table is its own change, not this one.
+                return TokenText(sm->get_text(tok_range), tok_range, is_expand, false)
             } default {
-                // everything else falls back to the source manager
+                // keywords, operators, primitive-type words, `null` and `Self`:
+                // TokenKind's spelling table, so a new keyword is spelled once.
+                // A value that is not a kind (the enum is @open) keeps the
+                // source bytes rather than the table's "UNKNOWN".
+                if is_valid_token_kind(kind as u32) {
+                    return create(token_kind_to_readable_string(kind))
+                }
+
                 return TokenText(sm->get_text(tok_range), tok_range, is_expand, false)
             }
 

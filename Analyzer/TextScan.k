@@ -33,8 +33,8 @@ pub fn classify(const text: string) -> [u8] {
     var n = text.size()
     while i < n {
         var c = text[i]
-        if (c == 47) && ((i + 1) < n) && (text[i + 1] == 47) {
-            while (i < n) && (text[i] != 10) {
+        if (c == ('/' as u8)) && ((i + 1) < n) && (text[i + 1] == ('/' as u8)) {
+            while (i < n) && (text[i] != ('\n' as u8)) {
                 cls[i] = 1
                 i += 1
             }
@@ -42,13 +42,13 @@ pub fn classify(const text: string) -> [u8] {
             continue
         }
 
-        if (c == 47) && ((i + 1) < n) && (text[i + 1] == 42) {
+        if (c == ('/' as u8)) && ((i + 1) < n) && (text[i + 1] == ('*' as u8)) {
             cls[i]     = 1
             cls[i + 1] = 1
             i += 2
             while i < n {
                 cls[i] = 1
-                if (text[i] == 47) && (text[i - 1] == 42) {
+                if (text[i] == ('/' as u8)) && (text[i - 1] == ('*' as u8)) {
                     i += 1
                     break
                 }
@@ -59,7 +59,7 @@ pub fn classify(const text: string) -> [u8] {
             continue
         }
 
-        if (c == 34) || (c == 39) {
+        if (c == ('"' as u8)) || (c == ('\'' as u8)) {
             // A quote opens a literal that ends at the same quote, a
             // backslash escaping whatever follows. A `'` that is a lifetime
             // or a digit separator does not open one: it is followed by no
@@ -68,8 +68,8 @@ pub fn classify(const text: string) -> [u8] {
             var q = c
             var j = i + 1
             var closed = false
-            while (j < n) && (text[j] != 10 || q == 34) {
-                if text[j] == 92 {
+            while (j < n) && (text[j] != ('\n' as u8) || q == ('"' as u8)) {
+                if text[j] == ('\\' as u8) {
                     j += 2
                     continue
                 }
@@ -81,7 +81,7 @@ pub fn classify(const text: string) -> [u8] {
 
                 // A plain "..." string does not span lines either; a
                 // triple-quoted one does, and is handled by its own quotes.
-                if (text[j] == 10) && (!((i + 2) < n && text[i + 1] == 34 && text[i + 2] == 34)) {
+                if (text[j] == ('\n' as u8)) && (!((i + 2) < n && text[i + 1] == ('"' as u8) && text[i + 2] == ('"' as u8))) {
                     break
                 }
 
@@ -125,14 +125,14 @@ pub fn spans(const text: string) -> [Span] {
 
                 e = i
                 var j = i
-                while (j < n) && ((text[j] == 32) || (text[j] == 9) || (text[j] == 10) || (text[j] == 13)) {
+                while (j < n) && ((text[j] == (' ' as u8)) || (text[j] == ('\t' as u8)) || (text[j] == ('\n' as u8)) || (text[j] == ('\r' as u8))) {
                     j += 1
                 }
 
                 // Only a single line break may separate the lines of a run.
                 var breaks: usize = 0
                 for var k: usize = i; k < j; ++k {
-                    if text[k] == 10 {
+                    if text[k] == ('\n' as u8) {
                         breaks += 1
                     }
                 }
@@ -155,15 +155,15 @@ pub fn spans(const text: string) -> [Span] {
 
         if cls[i] == 0 {
             var c = text[i]
-            if (c == 123) || (c == 40) || (c == 91) {
+            if (c == ('{' as u8)) || (c == ('(' as u8)) || (c == ('[' as u8)) {
                 var sp = Span{}
                 sp.open  = i
                 sp.close = usize::MAX
-                sp.kind  = if c == 123 => (0 as u8) else => (if c == 40 => (1 as u8) else => (2 as u8))
+                sp.kind  = if c == ('{' as u8) => (0 as u8) else => (if c == ('(' as u8) => (1 as u8) else => (2 as u8))
                 out.push_back(sp)
                 stack.push_back(out.size() - 1)
-            } else if (c == 125) || (c == 41) || (c == 93) {
-                var want: u8 = if c == 125 => (0 as u8) else => (if c == 41 => (1 as u8) else => (2 as u8))
+            } else if (c == ('}' as u8)) || (c == (')' as u8)) || (c == (']' as u8)) {
+                var want: u8 = if c == ('}' as u8) => (0 as u8) else => (if c == (')' as u8) => (1 as u8) else => (2 as u8))
                 // Close the nearest opener of this kind; anything opened
                 // after it was never closed and is dropped, which keeps one
                 // missing bracket from unbalancing the rest of the file.
@@ -210,24 +210,24 @@ pub fn call_at(const text: string, at: usize) -> CallSite {
         }
 
         var c = text[i]
-        if (c == 41) || (c == 93) || (c == 125) {
+        if (c == (')' as u8)) || (c == (']' as u8)) || (c == ('}' as u8)) {
             depth += 1
-        } else if c == 40 {
+        } else if c == ('(' as u8) {
             if depth == 0 {
                 site.open = i
                 return site
             }
 
             depth -= 1
-        } else if (c == 91) || (c == 123) {
+        } else if (c == ('[' as u8)) || (c == ('{' as u8)) {
             if depth == 0 {
                 return site // inside an index or a block, not an argument list
             }
 
             depth -= 1
-        } else if (c == 44) && (depth == 0) {
+        } else if (c == (',' as u8)) && (depth == 0) {
             site.commas += 1
-        } else if (c == 59) && (depth == 0) {
+        } else if (c == (';' as u8)) && (depth == 0) {
             return site
         }
     }
@@ -250,11 +250,11 @@ pub struct InterfacePlan {
 }
 
 fn is_ident_byte(c: u8) -> bool {
-    return ((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)) || ((c >= 48) && (c <= 57)) || (c == 95)
+    return ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || ((c >= ('0' as u8)) && (c <= ('9' as u8))) || (c == ('_' as u8))
 }
 
 fn is_blank_byte(c: u8) -> bool {
-    return (c == 32) || (c == 9) || (c == 13)
+    return (c == (' ' as u8)) || (c == ('\t' as u8)) || (c == ('\r' as u8))
 }
 
 /// The word of code bytes starting at \p p, or "".
@@ -274,11 +274,11 @@ fn one_line(const s: string) -> string {
     var i: usize = 0
     while i < s.size() {
         var c = s[i]
-        if (c == 10) || is_blank_byte(c) {
+        if (c == ('\n' as u8)) || is_blank_byte(c) {
             var nl = false
             var j = i
-            while (j < s.size()) && ((s[j] == 10) || is_blank_byte(s[j])) {
-                if s[j] == 10 {
+            while (j < s.size()) && ((s[j] == ('\n' as u8)) || is_blank_byte(s[j])) {
+                if s[j] == ('\n' as u8) {
                     nl = true
                 }
 
@@ -300,7 +300,7 @@ fn one_line(const s: string) -> string {
     }
 
     var e = out.size()
-    while (e > 0) && (out[e - 1] == 32) {
+    while (e > 0) && (out[e - 1] == (' ' as u8)) {
         e -= 1
     }
 
@@ -349,21 +349,21 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
     }
 
     var generics: string = ""
-    if (p > 0) && (text[p - 1] == 62) {
+    if (p > 0) && (text[p - 1] == ('>' as u8)) {
         var depth: usize = 0
         var q = p
         var found = false
         while q > 0 {
             q -= 1
-            if text[q] == 62 {
+            if text[q] == ('>' as u8) {
                 depth += 1
-            } else if text[q] == 60 {
+            } else if text[q] == ('<' as u8) {
                 depth -= 1
                 if depth == 0 {
                     found = true
                     break
                 }
-            } else if (text[q] == 10) || (text[q] == 123) || (text[q] == 125) {
+            } else if (text[q] == ('\n' as u8)) || (text[q] == ('{' as u8)) || (text[q] == ('}' as u8)) {
                 break
             }
         }
@@ -393,7 +393,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
 
     // The body: the first `{` after the name, and its match.
     var open = b
-    while (open < n) && (!((cls[open] == 0) && (text[open] == 123))) {
+    while (open < n) && (!((cls[open] == 0) && (text[open] == ('{' as u8)))) {
         open += 1
     }
 
@@ -405,9 +405,9 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
     var bd: usize = 1
     while close < n {
         if cls[close] == 0 {
-            if text[close] == 123 {
+            if text[close] == ('{' as u8) {
                 bd += 1
-            } else if text[close] == 125 {
+            } else if text[close] == ('}' as u8) {
                 bd -= 1
                 if bd == 0 {
                     break
@@ -457,11 +457,11 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
             var depth: usize = 0
             while i < (generics.size() - 1) {
                 var c = generics[i]
-                if c == 60 {
+                if c == ('<' as u8) {
                     depth += 1
-                } else if (c == 62) && (depth > 0) {
+                } else if (c == ('>' as u8)) && (depth > 0) {
                     depth -= 1
-                } else if (c == 44) && (depth == 0) {
+                } else if (c == (',' as u8)) && (depth == 0) {
                     i += 1
                     break
                 }
@@ -476,7 +476,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
     // The header's end, where ` impl IName` (or `, IName` after an
     // existing clause) goes.
     var he = open
-    while (he > b) && (is_blank_byte(text[he - 1]) || (text[he - 1] == 10)) {
+    while (he > b) && (is_blank_byte(text[he - 1]) || (text[he - 1] == ('\n' as u8))) {
         he -= 1
     }
 
@@ -497,7 +497,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
     // The line the interface goes above: the class line, or the top of the
     // `///` and attribute lines over it, so its documentation stays its own.
     var ls = kw_at
-    while (ls > 0) && (text[ls - 1] != 10) {
+    while (ls > 0) && (text[ls - 1] != ('\n' as u8)) {
         ls -= 1
     }
 
@@ -510,7 +510,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
 
     while ls > 0 {
         var prev = ls - 1
-        while (prev > 0) && (text[prev - 1] != 10) {
+        while (prev > 0) && (text[prev - 1] != ('\n' as u8)) {
             prev -= 1
         }
 
@@ -519,8 +519,8 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
             fp += 1
         }
 
-        var doc  = ((fp + 2) < ls) && (text[fp] == 47) && (text[fp + 1] == 47) && (text[fp + 2] == 47)
-        var attr = (fp < ls) && (text[fp] == 64)
+        var doc  = ((fp + 2) < ls) && (text[fp] == ('/' as u8)) && (text[fp + 1] == ('/' as u8)) && (text[fp + 2] == ('/' as u8))
+        var attr = (fp < ls) && (text[fp] == ('@' as u8))
         if (!doc) && (!attr) {
             break
         }
@@ -545,12 +545,12 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
             }
 
             var le = q
-            while (le < close) && (text[le] != 10) {
+            while (le < close) && (text[le] != ('\n' as u8)) {
                 le += 1
             }
 
             if (q < le) && (cls[q] == 1) {
-                if ((q + 2) < le) && (text[q + 2] == 47) && (text[q + 1] == 47) {
+                if ((q + 2) < le) && (text[q + 2] == ('/' as u8)) && (text[q + 1] == ('/' as u8)) {
                     var e = le
                     while (e > q) && is_blank_byte(text[e - 1]) {
                         e -= 1
@@ -566,13 +566,13 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                 var is_pub = false
                 var is_static = false
                 var fn_at = usize::MAX
-                var attr_only = text[q] == 64
+                var attr_only = text[q] == ('@' as u8)
                 while w < le {
                     while (w < le) && is_blank_byte(text[w]) {
                         w += 1
                     }
 
-                    if (w < le) && (text[w] == 64) {
+                    if (w < le) && (text[w] == ('@' as u8)) {
                         w += 1
                         while (w < le) && is_ident_byte(text[w]) {
                             w += 1
@@ -611,15 +611,15 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                         while e < close {
                             if cls[e] == 0 {
                                 var ch = text[e]
-                                if (ch == 40) || (ch == 91) {
+                                if (ch == ('(' as u8)) || (ch == ('[' as u8)) {
                                     pd += 1
-                                } else if ((ch == 41) || (ch == 93)) && (pd > 0) {
+                                } else if ((ch == (')' as u8)) || (ch == (']' as u8))) && (pd > 0) {
                                     pd -= 1
-                                } else if (pd == 0) && (ch == 123) {
+                                } else if (pd == 0) && (ch == ('{' as u8)) {
                                     break
-                                } else if (pd == 0) && (ch == 61) && ((e + 1) < close) && (text[e + 1] != 61)
-                                    && (text[e - 1] != 61) && (text[e - 1] != 33) && (text[e - 1] != 60)
-                                    && (text[e - 1] != 62) {
+                                } else if (pd == 0) && (ch == ('=' as u8)) && ((e + 1) < close) && (text[e + 1] != ('=' as u8))
+                                    && (text[e - 1] != ('=' as u8)) && (text[e - 1] != ('!' as u8)) && (text[e - 1] != ('<' as u8))
+                                    && (text[e - 1] != ('>' as u8)) {
                                     break
                                 }
                             }
@@ -635,12 +635,12 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                             np += 1
                         }
 
-                        if (np < e) && (text[np] == 60) {
+                        if (np < e) && (text[np] == ('<' as u8)) {
                             var gd: usize = 0
                             while np < e {
-                                if text[np] == 60 {
+                                if text[np] == ('<' as u8) {
                                     gd += 1
-                                } else if text[np] == 62 {
+                                } else if text[np] == ('>' as u8) {
                                     gd -= 1
                                     if gd == 0 {
                                         np += 1
@@ -677,11 +677,11 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                             if (sig.subslice(sp, 5) == "panic") && ((sp == 0) || (!is_ident_byte(sig[sp - 1])))
                                 && (((sp + 5) == sig.size()) || (!is_ident_byte(sig[sp + 5]))) {
                                 var t = sp + 5
-                                while (t < sig.size()) && (sig[t] == 32) {
+                                while (t < sig.size()) && (sig[t] == (' ' as u8)) {
                                     t += 1
                                 }
 
-                                if (t >= sig.size()) || (sig[t] != 40) {
+                                if (t >= sig.size()) || (sig[t] != ('(' as u8)) {
                                     bare_panic = true
                                 }
                             }
@@ -715,14 +715,14 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
         }
 
         if cls[i] == 0 {
-            if c == 123 {
+            if c == ('{' as u8) {
                 depth += 1
-            } else if (c == 125) && (depth > 0) {
+            } else if (c == ('}' as u8)) && (depth > 0) {
                 depth -= 1
             }
         }
 
-        if c == 10 {
+        if c == ('\n' as u8) {
             at_line_start = true
         }
 

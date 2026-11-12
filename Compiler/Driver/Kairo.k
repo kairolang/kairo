@@ -53,6 +53,10 @@ import Diagnostic::Registry::DiagID
 import Driver::CompilerInstance::CompilerInstance
 import Driver::Progress::progress_configure
 import Driver::Runtime::init_runtime
+import Support::ExitCodes::{
+    EXIT_FAILURE,
+    EXIT_OK,
+}
 import Support::FileIO::Path::Path
 import Tooling::IncrReplay::incr_replay_main
 import Support::TimeReport::{
@@ -181,12 +185,12 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     ///   These exit before any compilation state is needed.
     if ci->wants_help() {
         ci->print_help()
-        return 0
+        return EXIT_OK
     }
 
     if ci->wants_version() {
         ci->print_version()
-        return 0
+        return EXIT_OK
     }
 
     if ci->wants_explain() {
@@ -210,7 +214,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     // Path::cwd() and every relative input path resolves against it.
     if !ci->apply_input_options() {
         ci->flush_errors()
-        return 1
+        return EXIT_FAILURE
     }
 
     // --incr-replay: the entry is checked by a live session of its own
@@ -251,7 +255,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             f"invalid --progress value '{ci->invocation()->args.get_string("progress")}'; expected one of: auto, always, never, lines",
         ).emit()
         ci->flush_errors()
-        return 1
+        return EXIT_FAILURE
     }
 
     var result = ci->execute()
@@ -293,5 +297,5 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         io::eprintln(f"compilation: {result.summary()}")
     }
 
-    return if (result.ok() && !out_failed) => 0 else => 1
+    return if (result.ok() && !out_failed) => EXIT_OK else => EXIT_FAILURE
 }

@@ -50,6 +50,10 @@ import Driver::InputKinds::{
 }
 import Interop::Clang::ClangBackend::ClangBackend
 import Interop::Clang::ClangJobs::ClangJobs
+import Support::ExitCodes::{
+    EXIT_FAILURE,
+    EXIT_OK,
+}
 import Support::FileIO::Path::Path
 import Support::ShellQuote::shell_quote
 import Support::TermRenderer::TermRenderer
@@ -146,12 +150,12 @@ extend CompilerInstance {
         var explain = diag_explain(diag_id)
         if explain.empty() {
             io::eprintln(f"error: unknown diagnostic code '{code}'")
-            return 1
+            return EXIT_FAILURE
         }
 
         var r = TermRenderer(true, 80)
         io::println(f"{r.render(explain)}")
-        return 0
+        return EXIT_OK
     }
 
     //  --print-targets
@@ -187,7 +191,7 @@ extend CompilerInstance {
             io::println(f"{out}")
         }
 
-        return 0
+        return EXIT_OK
     }
 
     //  --print-cpus
@@ -215,7 +219,7 @@ extend CompilerInstance {
             // Info queries exit before execute(), so nothing else drains the
             // engine; without this the error is built and never printed.
             self.flush_errors()
-            return 1
+            return EXIT_FAILURE
         }
 
         var TM:   unsafe *llvm::TargetMachine = &null
@@ -238,7 +242,7 @@ extend CompilerInstance {
                 DiagID::P005F,
                 f"failed to create TargetMachine for '{string(triple.raw())}'",
             ).emit()
-            return 1
+            return EXIT_FAILURE
         }
 
         var STI: unsafe *llvm::MCSubtargetInfo = unsafe (TM->getMCSubtargetInfo() as unsafe *llvm::MCSubtargetInfo)
@@ -247,7 +251,7 @@ extend CompilerInstance {
                 DiagID::P005F,
                 f"no subtarget info for '{string(triple.raw())}'",
             ).emit()
-            return 1
+            return EXIT_FAILURE
         }
 
         io::println(f"Available CPUs for target '{string(triple.raw())}':")
@@ -307,7 +311,7 @@ extend CompilerInstance {
             io::println(f"{out}")
         }
 
-        return 0
+        return EXIT_OK
     }
 
     //  --print-target-info
@@ -331,7 +335,7 @@ extend CompilerInstance {
             }
 
             self.flush_errors() // see print_cpus: info queries never reach execute()
-            return 1
+            return EXIT_FAILURE
         }
 
         var full_triple: string = kairo::std::from_std_string<string>(llvm_triple.getTriple())
@@ -434,7 +438,7 @@ extend CompilerInstance {
                 DiagID::P005F,
                 f"failed to create TargetMachine for '{string(triple.raw())}'",
             ).emit()
-            return 1
+            return EXIT_FAILURE
         }
 
         finally {
@@ -452,7 +456,7 @@ extend CompilerInstance {
             f"Default CPU:     {string(unsafe ((default_cpu.data() as unsafe *const u8) as *const u8), default_cpu.size())}",
         )
 
-        return 0
+        return EXIT_OK
     }
 
     /// Handles info-query flags. Currently implements \c --print-cfg;
@@ -495,7 +499,7 @@ extend CompilerInstance {
                 f"{string(unsafe ((kairo::runtimes_revision_string() as unsafe *const u8) as *const u8))}",
             )
 
-            return 0
+            return EXIT_OK
         }
 
         if self.invocation()->args.get_bool("print-cfg") {
@@ -503,10 +507,10 @@ extend CompilerInstance {
                 io::println(f"{(*s)}")
             }
 
-            return 0
+            return EXIT_OK
         }
 
-        return 0
+        return EXIT_OK
     }
 
     //  --print-dirs
@@ -525,7 +529,7 @@ extend CompilerInstance {
         // Info queries return before execute(), so nothing else drains the
         // engine; without this a failed resolve exits 1 silently.
         self.flush_errors()
-        return if (ok) => (0) else => 1
+        return if (ok) => (EXIT_OK) else => EXIT_FAILURE
     }
 
     //  --print-clang-args
@@ -555,7 +559,7 @@ extend CompilerInstance {
         if !FlagTranslator::from_driver(&clang_argv, &kw, &cw, &err) {
             self._diag->report(DiagID::U014E, err).emit()
             self.flush_errors()
-            return 1
+            return EXIT_FAILURE
         }
 
         var line = "kairo:"
@@ -585,7 +589,7 @@ extend CompilerInstance {
         check.push_back("<from-clang>")
         var parsed = cmd->parse_words(&check)
         self.flush_errors()
-        return if (parsed.ok) => (0) else => 1
+        return if (parsed.ok) => (EXIT_OK) else => EXIT_FAILURE
     }
 
     //  --print-clang-query
@@ -620,10 +624,10 @@ extend CompilerInstance {
             }
 
             self.flush_errors()
-            return 1
+            return EXIT_FAILURE
         }
 
-        return 0
+        return EXIT_OK
     }
 
     /// \p with_link: --print-jobs, which also prints the planned link.
@@ -632,7 +636,7 @@ extend CompilerInstance {
         // would show a target and level the user did not ask for.
         if !self.args_ok() {
             self.flush_errors()
-            return 1
+            return EXIT_FAILURE
         }
 
         var unsafe *be = kairo::std::create<ClangBackend>(self._sm, self._backend_config())
@@ -676,7 +680,7 @@ extend CompilerInstance {
                 }
 
                 self.flush_errors()
-                return 1
+                return EXIT_FAILURE
             }
 
             for *pl in jobs.planned {
@@ -737,6 +741,6 @@ extend CompilerInstance {
         }
 
         self.flush_errors()
-        return 0
+        return EXIT_OK
     }
 }

@@ -211,6 +211,7 @@ import Interop::Clang::HeaderSetCache::HeaderSetCache
 import Location::SourceManager::SourceManager
 import Preprocessor::Preprocessor::PreProcessor
 import Resolution::ImportProbe::ImportResolver
+import Support::ExitCodes::EXIT_FAILURE
 import std::io
 import Resolution::ModulePath::ModulePath
 import Sema::Foreign::BuiltinImport::BuiltinImport
@@ -762,7 +763,7 @@ pub class CompilerInstance {
     /// The exit status of a run args_ok() rejected: 1, or the sysroot
     /// generator's own 2 (refusal) / 3 (failure).
     pub fn failure_status(self) -> i32 {
-        return if (self._sysroot_status != 0) => (self._sysroot_status) else => 1
+        return if (self._sysroot_status != 0) => (self._sysroot_status) else => EXIT_FAILURE
     }
 
     /// True when any info flag is present whose subsystem is not yet live.

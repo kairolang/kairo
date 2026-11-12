@@ -63,7 +63,11 @@ import Sysroot::Names::{
     SysTarget,
     glibc_default_version,
 }
-import Sysroot::Outcome::SysOutcome
+import Sysroot::Outcome::{
+    SYS_STATUS_FAILED,
+    SYS_STATUS_REFUSED,
+    SysOutcome,
+}
 import Sysroot::Sdk::SysSdk
 import Sysroot::Share::ShareTree
 import std::env
@@ -359,7 +363,7 @@ extend CompilerInstance {
                 DiagID::P009N,
                 "pass --sysroot=<dir>, or drop --no-sysroot-build to let ksys build it",
             ).emit()
-            self._sysroot_status = 2
+            self._sysroot_status = SYS_STATUS_REFUSED
             return false
         }
 
@@ -388,7 +392,7 @@ extend CompilerInstance {
             return true
         }
 
-        var id = if (o.status == 3) => (DiagID::P010E) else => DiagID::P009E
+        var id = if (o.status == SYS_STATUS_FAILED) => (DiagID::P010E) else => DiagID::P009E
         self._diag->report(id, o.message).emit()
         if !o.note.empty() {
             self._diag->report(DiagID::P009N, o.note).emit()

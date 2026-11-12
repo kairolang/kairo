@@ -23,10 +23,16 @@ ffi "c++" import "llvm/TargetParser/Triple.h"
 ffi "c++" import "vector"
 ffi "c++" import "string"
 
+import Support::EvalHash::compute_hash
+import Token::TokenKind::{
+    TokenKind,
+    is_valid_token_kind,
+    token_kind_to_readable_string,
+}
+
 pub class TermRenderer {
-    priv var _color:    bool
-    priv var _width:    u32
-    priv var _keywords: cxx::std::vector<string>
+    priv var _color: bool
+    priv var _width: u32
 
     const RESET:     string = "\x1b[0m"
     const BOLD:      string = "\x1b[1m"
@@ -59,13 +65,11 @@ pub class TermRenderer {
         var width: u32  = 80
         self._color = color
         self._width = width
-        self.init_keywords()
     }
 
     pub fn TermRenderer(self, color: bool, width: u32 = 80) {
         self._color = color
         self._width = width
-        self.init_keywords()
     }
 
     fn style(self, code: string) -> string {
@@ -520,14 +524,52 @@ pub class TermRenderer {
         return self.is_alpha(c) || self.is_digit(c) || c == ('_' as u8) || c == ('#' as u8)
     }
 
-    priv fn is_keyword(self, const word: string) -> bool {
-        for *kw in self._keywords {
-            if word == *kw {
+    /// The kind `word` lexes as, or TkUnknown for a plain identifier. The
+    /// lexer's own test (a word token's kind is its spelling hash), so the
+    /// highlighter follows the token table instead of keeping a word list;
+    /// the spelling compare keeps a hash collision from reading as a keyword.
+    priv fn word_kind(self, const word: string) -> TokenKind {
+        var h = compute_hash(unsafe &word) as u32
+        if !is_valid_token_kind(h) {
+            return TokenKind::TkUnknown
+        }
+
+        var kind = h as TokenKind
+        if word != token_kind_to_readable_string(kind) {
+            return TokenKind::TkUnknown
+        }
+
+        return kind
+    }
+
+    /// Words coloured as values rather than keywords.
+    priv fn is_value_word(self, kind: TokenKind) -> bool {
+        match kind {
+            case TokenKind::KwTrue, TokenKind::KwFalse, TokenKind::LitNull, TokenKind::KwSelf,
+                 TokenKind::BiSelf {
+                return true
+            } default {
+                return false
+            }
+        }
+    }
+
+    priv fn is_keyword(self, const word: string, kind: TokenKind) -> bool {
+        // a library type, not a token, coloured with the primitive words.
+        if word == "string" {
+            return true
+        }
+
+        match kind {
+            // these word tokens were never in the highlighter's list; colouring
+            // them is a visible change of its own, so they stay plain here.
+            case TokenKind::TkUnknown, TokenKind::KwMutable, TokenKind::AtByte, TokenKind::AtF8,
+                 TokenKind::AtF8E4M3,  TokenKind::AtF8E5M2,  TokenKind::AtF512, TokenKind::AtBf16 {
+                return false
+            } default {
                 return true
             }
         }
-
-        return false
     }
 
     priv fn highlight(self, line: string, const lang: string) -> string {
@@ -692,13 +734,11 @@ pub class TermRenderer {
 
                 var is_call = k < n && line[k] == ('(' as u8)
 
-                if word == "true"
-                    || word == "false"
-                    || word == "null"
-                    || word == "self"
-                    || word == "Self" {
+                var kind = self.word_kind(word)
+
+                if self.is_value_word(kind) {
                     out += self.style(self.HL_NUMBER) + word + self.style(self.RESET)
-                } else if self.is_keyword(word) {
+                } else if self.is_keyword(word, kind) {
                     out += self.style(self.HL_KEYWORD) + word + self.style(self.RESET)
                 } else if is_call {
                     out += self.style(self.HL_FUNC) + word + self.style(self.RESET)
@@ -959,119 +999,6 @@ pub class TermRenderer {
         }
 
         return text
-    }
-
-    priv fn init_keywords(self) {
-        var kws = cxx::std::vector<string>()
-
-        // control flow
-        kws.push_back("return")
-        kws.push_back("break")
-        kws.push_back("continue")
-        kws.push_back("panic")
-        kws.push_back("match")
-        kws.push_back("case")
-        kws.push_back("default")
-        kws.push_back("catch")
-        kws.push_back("try")
-        kws.push_back("finally")
-        kws.push_back("if")
-        kws.push_back("else")
-        kws.push_back("while")
-        kws.push_back("for")
-        kws.push_back("assert")
-        kws.push_back("loop")
-
-        // declarations
-        kws.push_back("var")
-        kws.push_back("const")
-        kws.push_back("fn")
-        kws.push_back("op")
-        kws.push_back("class")
-        kws.push_back("union")
-        kws.push_back("enum")
-        kws.push_back("type")
-        kws.push_back("struct")
-        kws.push_back("interface")
-        kws.push_back("extend")
-        kws.push_back("module")
-        kws.push_back("test")
-        kws.push_back("macro")
-        kws.push_back("import")
-        kws.push_back("override")
-        kws.push_back("final")
-        kws.push_back("ffi")
-        kws.push_back("impl")
-        kws.push_back("derives")
-        kws.push_back("where")
-        kws.push_back("requires")
-
-        // access / qualifiers
-        kws.push_back("pub")
-        kws.push_back("priv")
-        kws.push_back("prot")
-        kws.push_back("eval")
-        kws.push_back("unsafe")
-        kws.push_back("static")
-        kws.push_back("async")
-        kws.push_back("inline")
-        kws.push_back("atomic")
-        kws.push_back("volatile")
-        kws.push_back("virtual")
-        kws.push_back("self")
-
-        // operators-as-words / unary
-        kws.push_back("in")
-        kws.push_back("as")
-        kws.push_back("and")
-        kws.push_back("or")
-        kws.push_back("not")
-        kws.push_back("xor")
-        kws.push_back("and_eq")
-        kws.push_back("or_eq")
-        kws.push_back("xor_eq")
-        kws.push_back("bitand")
-        kws.push_back("bitor")
-        kws.push_back("compl")
-        kws.push_back("not_eq")
-        kws.push_back("await")
-        kws.push_back("thread")
-        kws.push_back("spawn")
-        kws.push_back("delete")
-        kws.push_back("yield")
-        kws.push_back("sizeof")
-        kws.push_back("alignof")
-        kws.push_back("typeof")
-
-        // primitive types
-        kws.push_back("void")
-        kws.push_back("bool")
-        kws.push_back("string")
-        kws.push_back("char")
-        kws.push_back("usize")
-        kws.push_back("isize")
-        kws.push_back("f16")
-        kws.push_back("f32")
-        kws.push_back("f64")
-        kws.push_back("f80")
-        kws.push_back("f128")
-        kws.push_back("f256")
-        kws.push_back("u8")
-        kws.push_back("u16")
-        kws.push_back("u32")
-        kws.push_back("u64")
-        kws.push_back("u128")
-        kws.push_back("u256")
-        kws.push_back("u512")
-        kws.push_back("i8")
-        kws.push_back("i16")
-        kws.push_back("i32")
-        kws.push_back("i64")
-        kws.push_back("i128")
-        kws.push_back("i256")
-        kws.push_back("i512")
-
-        self._keywords = kws
     }
 
     /// # Helpers

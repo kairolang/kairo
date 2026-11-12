@@ -19,7 +19,7 @@ pub fn uri_to_path(const uri: string) -> string {
     var i   = prefix.size()
     while i < uri.size() {
         var c = uri[i]
-        if (c == 37) && ((i + 2) < uri.size()) {
+        if (c == ('%' as u8)) && ((i + 2) < uri.size()) {
             var hi = hex_val(uri[i + 1])
             var lo = hex_val(uri[i + 2])
             if (hi < 16) && (lo < 16) {
@@ -33,7 +33,7 @@ pub fn uri_to_path(const uri: string) -> string {
         i += 1
     }
 
-    if (out.size() >= 3) && (out[0] == 47) && (out[2] == 58) {
+    if (out.size() >= 3) && (out[0] == ('/' as u8)) && (out[2] == (':' as u8)) {
         out = out.subslice(1, out.size() - 1)
     }
 
@@ -44,24 +44,24 @@ pub fn uri_to_path(const uri: string) -> string {
 pub fn path_to_uri(const path: string) -> string {
     var hex = "0123456789ABCDEF"
     var out: string = "file://"
-    if (path.size() >= 2) && (path[1] == 58) {
-        out.push_back(47)
+    if (path.size() >= 2) && (path[1] == (':' as u8)) {
+        out.push_back('/' as u8)
     }
 
     for var i: usize = 0; i < path.size(); ++i {
         var c = path[i]
-        if c == 92 {
+        if c == ('\\' as u8) {
             // Windows separators are `/` inside a URI.
-            out.push_back(47)
+            out.push_back('/' as u8)
             continue
         }
 
-        var plain = ((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)) || ((c >= 48) && (c <= 57))
-            || (c == 47) || (c == 45) || (c == 46) || (c == 95) || (c == 126) || (c == 58)
+        var plain = ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || ((c >= ('0' as u8)) && (c <= ('9' as u8)))
+            || (c == ('/' as u8)) || (c == ('-' as u8)) || (c == ('.' as u8)) || (c == ('_' as u8)) || (c == ('~' as u8)) || (c == (':' as u8))
         if plain {
             out.push_back(c)
         } else {
-            out.push_back(37)
+            out.push_back('%' as u8)
             out.push_back(hex[(c >> 4) as usize])
             out.push_back(hex[(c & 15) as usize])
         }
@@ -71,15 +71,15 @@ pub fn path_to_uri(const path: string) -> string {
 }
 
 pub fn hex_val(c: u8) -> u32 {
-    if (c >= 48) && (c <= 57) {
+    if (c >= ('0' as u8)) && (c <= ('9' as u8)) {
         return c - 48
     }
 
-    if (c >= 97) && (c <= 102) {
+    if (c >= ('a' as u8)) && (c <= ('f' as u8)) {
         return c - 87
     }
 
-    if (c >= 65) && (c <= 70) {
+    if (c >= ('A' as u8)) && (c <= ('F' as u8)) {
         return c - 55
     }
 
@@ -104,7 +104,7 @@ pub class LineMap {
         self.starts.push_back(0)
         self.size = text.size()
         for var i: usize = 0; i < text.size(); ++i {
-            if text[i] == 10 {
+            if text[i] == ('\n' as u8) {
                 self.starts.push_back(i + 1)
             }
         }
@@ -119,7 +119,7 @@ pub class LineMap {
         var end = self.size
         if (line + 1) < self.starts.size() {
             end = self.starts[line + 1] - 1
-            if (end > self.starts[line]) && (text[end - 1] == 13) {
+            if (end > self.starts[line]) && (text[end - 1] == ('\r' as u8)) {
                 end -= 1
             }
         }
@@ -263,7 +263,7 @@ pub class GapText {
 
         var n: usize = 1
         for var i: usize = 0; i < text.size(); ++i {
-            if text[i] == 10 {
+            if text[i] == ('\n' as u8) {
                 n += 1
             }
         }
@@ -273,7 +273,7 @@ pub class GapText {
         self.ls[0] = 0
         var k: usize = 1
         for var i: usize = 0; i < text.size(); ++i {
-            if text[i] == 10 {
+            if text[i] == ('\n' as u8) {
                 self.ls[k] = i + 1
                 k += 1
             }
@@ -310,7 +310,7 @@ pub class GapText {
         }
 
         var end = self.start(line + 1) - 1
-        if (end > self.start(line)) && (self.at(end - 1) == 13) {
+        if (end > self.start(line)) && (self.at(end - 1) == ('\r' as u8)) {
             end -= 1
         }
 
@@ -502,7 +502,7 @@ pub class GapText {
 
         var nl: usize = 0
         for var i: usize = 0; i < insert.size(); ++i {
-            if insert[i] == 10 {
+            if insert[i] == ('\n' as u8) {
                 nl += 1
             }
         }
@@ -510,7 +510,7 @@ pub class GapText {
         if nl > 0 {
             self.grow_lines_(nl)
             for var i: usize = 0; i < insert.size(); ++i {
-                if insert[i] == 10 {
+                if insert[i] == ('\n' as u8) {
                     self.ls[self.lgs] = s + i + 1
                     self.lgs += 1
                 }

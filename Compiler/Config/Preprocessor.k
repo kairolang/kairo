@@ -13,6 +13,15 @@
 
 ffi "c++" import "vector"
 
+import Command::FlagRegistry::{
+    DEFAULT_MACRO_TRACE_DEPTH,
+    DEFAULT_MAX_FILE_SIZE_MB,
+    DEFAULT_MAX_IMPORT_DEPTH,
+    DEFAULT_MAX_MACRO_BACKTRACE,
+    DEFAULT_MAX_MACRO_DEPTH,
+    DEFAULT_MAX_MACRO_EXPANSIONS,
+    DEFAULT_MAX_TOKEN_COUNT,
+}
 import Command::ParsedArgs::ParsedArgs
 
 ///
@@ -40,22 +49,22 @@ pub class PreprocessorOptions {
     pub var global_allocator_set: bool = false
     /// # import / module limits
 
-    pub var max_import_depth: i32 = 512 ///< --cmax-import-depth
+    pub var max_import_depth: i32 = DEFAULT_MAX_IMPORT_DEPTH ///< --cmax-import-depth
     /// -fimport-cycles / -fno-import-cycles: -1 unset (= on), 0 off, 1 on.
     /// On, an import cycle compiles with a warning; off, it is an error.
     pub var import_cycles: i32 = -1
     /// # source limits
 
-    pub var max_file_size_mb: i32 = 256 ///< --cmax-file-size-mb
-    pub var max_token_count:  i32 = 0   ///< --cmax-token-count; 0 = unlimited
+    pub var max_file_size_mb: i32 = DEFAULT_MAX_FILE_SIZE_MB ///< --cmax-file-size-mb
+    pub var max_token_count:  i32 = DEFAULT_MAX_TOKEN_COUNT ///< --cmax-token-count; 0 = unlimited
     // max-string-length is a lexer concern (string literal length), not a PP one;
     // no LexerOptions plumbing exists yet, so there's no flag for it here.
     /// # macro system limits
 
-    pub var max_depth:      i32 = 128   ///< --cmax-macro-depth
-    pub var max_expansions: i32 = 65536 ///< --cmax-macro-expansions; 0 = unlimited
-    pub var max_backtrace:  i32 = 8     ///< --cmax-macro-backtrace
-    pub var trace_depth:    i32 = 0     ///< --cmacro-trace-depth; 0 = unlimited
+    pub var max_depth:      i32 = DEFAULT_MAX_MACRO_DEPTH ///< --cmax-macro-depth
+    pub var max_expansions: i32 = DEFAULT_MAX_MACRO_EXPANSIONS ///< --cmax-macro-expansions; 0 = unlimited
+    pub var max_backtrace:  i32 = DEFAULT_MAX_MACRO_BACKTRACE ///< --cmax-macro-backtrace
+    pub var trace_depth:    i32 = DEFAULT_MACRO_TRACE_DEPTH ///< --cmacro-trace-depth; 0 = unlimited
     /// # prelude
 
     pub var prelude_path: string = ""    ///< --prelude
@@ -96,7 +105,7 @@ pub class PreprocessorOptions {
     pub var preserve_comments: bool = false ///< --preserve-comments
     // macro origin tracking (TkMacroExpand + MacroExpansionInfo chain, so
     // diagnostics can point at the invocation site as well as the definition)
-    // is unconditional now, not a toggle: PPWalker::_wrap_origin always runs.
+    // is unconditional, not a toggle: PPWalker::_wrap_origin always runs.
 
     static fn from_args(@inout args: ParsedArgs) -> PreprocessorOptions {
         var o = PreprocessorOptions()

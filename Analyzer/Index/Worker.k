@@ -438,7 +438,7 @@ pub class DiagCollector derives DiagConsumer {
 
         if self.syntax_only {
             var code = diag->code as string
-            var syn = (code.size() > 1) && (code[0] == 83) && (code[1] != 67)
+            var syn = (code.size() > 1) && (code[0] == ('S' as u8)) && (code[1] != ('C' as u8))
             if (!syn) && (sev != DiagSeverity::Fatal) {
                 return
             }

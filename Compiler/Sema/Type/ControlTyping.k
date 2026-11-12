@@ -106,6 +106,7 @@ import AST::Node::Types::{
 import AST::ParamMode::ParamMode
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Diagnostic::NoteText::declared_here
 import Location::SourceRange::SourceRange
 import Sema::Check::CaptureAnalysis::FreeVarScan
 import Sema::Check::EffectPropagation::canonical_set
@@ -1647,7 +1648,7 @@ pub class <T: type> ControlTyping {
             ).first(n->range)->note(
                 DiagCode(DiagID::SC131N),
                 fd->range.start,
-                "declared here",
+                declared_here(),
             )->emit()
             ok = false
         }

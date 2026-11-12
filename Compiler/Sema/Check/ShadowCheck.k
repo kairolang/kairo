@@ -119,7 +119,10 @@ import Sema::SemaContext::{
 }
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
-import Token::TokenKind::TokenKind
+import Token::TokenKind::{
+    TokenKind,
+    token_kind_to_readable_string,
+}
 
 /// One executable-scope frame: the names declared so far in this
 /// block/function, in declaration order. Mirrors NameResolution::LocalScope;
@@ -182,7 +185,7 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             return
         }
 
-        self._self_imm = self.sc->imm_table()->intern_ident_copy("self")
+        self._self_imm = self.sc->imm_table()->intern_ident_copy(token_kind_to_readable_string(TokenKind::KwSelf))
 
         var *items = &tu->program->items
         for var i: usize = 0; i < items->size(); ++i {

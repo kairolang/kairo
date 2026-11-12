@@ -13,6 +13,10 @@
 
 ffi "c++" import "vector"
 
+import Command::FlagRegistry::{
+    DEFAULT_WASM_INITIAL_MEMORY,
+    DEFAULT_WASM_STACK_SIZE,
+}
 import Command::ParsedArgs::ParsedArgs
 import Config::Frontend::EmitKinds
 
@@ -113,8 +117,8 @@ pub class LinkerOptions {
     pub var wasm_import_memory:      bool                     = false
     pub var wasm_export_memory:      bool                     = false
     pub var wasm_max_memory:         i32                      = 0
-    pub var wasm_initial_memory:     i32                      = 65536
-    pub var wasm_stack_size:         i32                      = 65536
+    pub var wasm_initial_memory:     i32                      = DEFAULT_WASM_INITIAL_MEMORY
+    pub var wasm_stack_size:         i32                      = DEFAULT_WASM_STACK_SIZE
     pub var wasm_initial_memory_set: bool                     = false ///< given on the command line; the 65536 default is not a request
     pub var wasm_stack_size_set:     bool                     = false ///< same: wasm-ld sizes memory from the data when unasked
     pub var wasi:                    bool                     = false

@@ -55,6 +55,10 @@ ffi "c++" import "cstring"
 import Command::FlagTranslator::FlagTranslator
 import Driver::CompilerInstance::CompilerInstance
 import Driver::Runtime::init_runtime
+import Support::ExitCodes::{
+    EXIT_FAILURE,
+    EXIT_OK,
+}
 import Support::FileIO::Path::Path
 import std::c_char
 import std::env
@@ -269,7 +273,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     for var i: i32 = 1; i < argc; ++i {
         if cxx::std::strcmp(argv[i], r"--help") == 0 || cxx::std::strcmp(argv[i], r"-help") == 0 {
             _kcc_usage()
-            return 0
+            return EXIT_OK
         }
 
         if cxx::std::strcmp(argv[i], r"-Xkairo") == 0 {
@@ -292,7 +296,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var error = ""
     if !_kcc_words(argc, argv, &words, unsafe &error) {
         io::eprintln(f"kcc: error: {error}")
-        return 1
+        return EXIT_FAILURE
     }
 
     var unsafe *ci = kairo::std::create<CompilerInstance>(words)
@@ -302,12 +306,12 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
     if ci->wants_help() {
         ci->print_help()
-        return 0
+        return EXIT_OK
     }
 
     if ci->wants_version() {
         ci->print_version()
-        return 0
+        return EXIT_OK
     }
 
     if ci->wants_explain() {
@@ -320,12 +324,12 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
     if !ci->args_ok() {
         ci->flush_errors()
-        return 1
+        return EXIT_FAILURE
     }
 
     if !ci->apply_input_options() {
         ci->flush_errors()
-        return 1
+        return EXIT_FAILURE
     }
 
     ci->initialize(Path::cwd())
@@ -336,5 +340,5 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         io::eprintln(f"compilation: {result.summary()}")
     }
 
-    return if result.ok() => 0 else => 1
+    return if result.ok() => EXIT_OK else => EXIT_FAILURE
 }

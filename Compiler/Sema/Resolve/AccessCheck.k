@@ -127,6 +127,7 @@ import Sema::SemaContext::{
     SemaPhase,
 }
 import Sema::Type::TypeUtil::TypeUtil
+import Support::Tuning::DERIVES_WALK_DEPTH_MAX
 
 pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
     pub var  sc:  unsafe *SemaContext
@@ -795,7 +796,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                      base:  unsafe *Decl,
                      seen:  unsafe *cxx::std::vector<unsafe *Decl>,
                      depth: u32) -> bool {
-        if d == &null || depth > 64 || !isa<ClassDecl>(d) {
+        if d == &null || depth > DERIVES_WALK_DEPTH_MAX || !isa<ClassDecl>(d) {
             return false
         }
 
@@ -946,7 +947,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                   holders: unsafe *cxx::std::vector<unsafe *Decl>,
                   seen:    unsafe *cxx::std::vector<unsafe *Decl>,
                   depth:   u32) -> bool {
-        if d == &null || depth > 64 || !isa<ClassDecl>(d) {
+        if d == &null || depth > DERIVES_WALK_DEPTH_MAX || !isa<ClassDecl>(d) {
             return false
         }
 

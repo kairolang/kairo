@@ -112,8 +112,8 @@ extend IndexWalker {
         if (cur == "(") || (cur == "[") {
             // a call or an index: after a name or a closing bracket
             var c = prev[prev.size() - 1]
-            return ((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)) || ((c >= 48) && (c <= 57))
-                || (c == 95) || (c == 41) || (c == 93) || (c == 33)
+            return ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || ((c >= ('0' as u8)) && (c <= ('9' as u8)))
+                || (c == ('_' as u8)) || (c == (')' as u8)) || (c == (']' as u8)) || (c == ('!' as u8))
         }
 
         return false

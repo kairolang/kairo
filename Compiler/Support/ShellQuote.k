@@ -47,7 +47,7 @@ pub fn shell_quote(s: string) -> string {
 
     var out: string = "'"
     for var i: usize = 0; i < r.size(); ++i {
-        if r[i] == (39 as u8) {
+        if r[i] == ('\'' as u8) {
             out = out + "'\\''"
             continue
         }

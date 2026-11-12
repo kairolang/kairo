@@ -140,7 +140,7 @@ extend Server {
         // editor sends (a test suite run in live mode).
         self.live_on = d->get_bool(opts, OPT_LIVE_CHECK)
         var unsafe *lenv = cxx::std::getenv(r"KALS_LIVE_CHECK")
-        if (lenv != &null) && ((lenv[0] as u8) == (49 as u8)) {
+        if (lenv != &null) && ((lenv[0] as u8) == ('1' as u8)) {
             self.live_on = true
         }
 

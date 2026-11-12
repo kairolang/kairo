@@ -329,11 +329,11 @@ extend IndexWalker {
 
             var *text = &self.files[0].text
             var p = from as usize
-            while (p < text->size()) && ((*text)[p] != 123) && ((*text)[p] != 59) {
+            while (p < text->size()) && ((*text)[p] != ('{' as u8)) && ((*text)[p] != (';' as u8)) {
                 p += 1
             }
 
-            if (p >= text->size()) || ((*text)[p] != 123) {
+            if (p >= text->size()) || ((*text)[p] != ('{' as u8)) {
                 return
             }
 

@@ -481,7 +481,7 @@ extend Server {
         var n: usize = 0
         var last: usize = 0
         while (n < a.size()) && (n < b.size()) && (a[n] == b[n]) {
-            if a[n] == 47 {
+            if a[n] == ('/' as u8) {
                 last = n
             }
 
