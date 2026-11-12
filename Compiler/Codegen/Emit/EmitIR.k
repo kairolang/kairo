@@ -129,13 +129,7 @@ import AST::Kind::TypeKind::{
     to_string,
 }
 import AST::LangItems::{
-    ABORT_EXIT_CODE,
-    AllocNames,
-    GlobalAllocFn,
-    LangAttrs,
-    LangMembers,
-    LowerTargets,
-    WellKnownType,
+    ABORT_EXIT_CODE, AllocNames, GlobalAllocFn, LangAttrs, LangMembers, LowerTargets, WellKnownType,
     to_string,
 }
 import AST::Node::Base::{
@@ -4290,8 +4284,8 @@ pub class EmitIR {
         }
 
         var unsafe *hp = CXXSpell::rep(decl_pattern(have->decl))
-        var s   = LowerTargets::forward_param()
-        var acc = ""
+        var        s   = LowerTargets::forward_param()
+        var        acc = ""
         if hp == CXXSpell::rep(sd) {
             acc = s + "." + LangMembers::slice_data() + ", " + s + "." + LangMembers::slice_len()
         } else if vd != &null && hp == CXXSpell::rep(vd) {
@@ -4302,7 +4296,10 @@ pub class EmitIR {
 
         self._cg->sink->spell(
             e->range,
-            "([](auto const& " + s + ") noexcept { return " + self._spell._type(want, subst) + "(" + acc + "); }(",
+            "([](auto const& " + s + ") noexcept { return " + self._spell._type(
+                want,
+                subst,
+            ) + "(" + acc + "); }(",
         )
 
         self.emit(e)

@@ -701,15 +701,16 @@ pub class Conversion {
                    else => ImplicitRank::None
         }
 
-        // `[T;]` / `[T]` -> `[const T;]`: a read-only view of the same
-        // elements, the slice counterpart of `*T -> *const T`, ranked as it
-        // is. EmitIR builds the Slice over the source's storage.
-        if self.views_as_const_slice(fu, tq) {
-            return ImplicitRank::Converted
-        }
-
         if !user {
             return ImplicitRank::None
+        }
+
+        // `[T;]` / `[T]` -> `[const T;]`: a read-only view of the same
+        // elements, the slice counterpart of `*T -> *const T`, ranked as it
+        // is. Not under a `?` (like the array view): EmitIR builds the Slice
+        // only where the target is the slice itself.
+        if self.views_as_const_slice(fu, tq) {
+            return ImplicitRank::Converted
         }
 
         // `[T; N]` -> `[T;]`: a view of the array, nothing copied. The one
@@ -783,7 +784,9 @@ pub class Conversion {
     /// conversion), and the element is otherwise the same type.
     fn views_as_const_slice(self, from: unsafe *Type, to: unsafe *Type) -> bool {
         var unsafe *fu = canon_unqual(from)
-        if fu == &null || !self.tu.is_slice(to) || !(self.tu.is_slice(fu) || self.tu.is_vector_like(fu)) {
+        if fu == &null
+            || !self.tu.is_slice(to)
+            || !(self.tu.is_slice(fu) || self.tu.is_vector_like(fu)) {
             return false
         }
 

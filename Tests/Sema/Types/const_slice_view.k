@@ -19,13 +19,22 @@ fn first(const s: [const u8;]) -> u8 {
 }
 
 fn main() -> i32 {
-    var v: [u8]           = [1, 2, 3]
-    var s: [u8;]          = v
-    var c: [const u8;]    = s
-    var d: [const u8;]    = v
+    var   v:  [u8]        = [1, 2, 3]
+    var   s:  [u8;]       = v
+    var   c:  [const u8;] = s
+    var   d:  [const u8;] = v
     const cv: [u8]        = [4]
     if sum(v) + sum(s) + sum(c) + sum(d) + sum(cv) != 28 {
         return 1
+    }
+
+    var r = 0
+    for *x in c {
+        r += *x
+    }
+
+    if r != 6 {
+        return 3
     }
 
     v[0] = 9
@@ -38,6 +47,12 @@ fn main() -> i32 {
         var back: [u8;] = c
         // CHECK: const_slice_view.k:[[@LINE+1]]:34: error [SC028E]: cannot convert '[u8]' to '[const i8;]'
         var other: [const i8;] = v
+        // CHECK: const_slice_view.k:[[@LINE+1]]:33: error [SC028E]: cannot convert '[u8]' to '[const u8;]?'
+        var opt: [const u8;]? = v
+        for *y in c {
+            // CHECK: const_slice_view.k:[[@LINE+1]]:13: error [SC071E]: cannot assign to '*y': 'y' points to const
+            *y = 1
+        }
     }
 
     return 0

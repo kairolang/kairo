@@ -53,4 +53,5 @@ fn main() -> i32 {
 
     return t + cell
 }
+
 // CHECK-NOT: error

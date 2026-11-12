@@ -2878,7 +2878,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             n->iterable,
             self._cxx_yields_const(n)
                 || self._const_owner_iter(n, it)
-                || self._user_yields_readonly(n),
+                || self._user_yields_readonly(n)
+                || self._const_slice_iter(it),
         )
 
         // No condition refines it; it may run zero times, so after it is
@@ -2946,6 +2947,17 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return scan.any_readonly(f->body_block)
     }
 
+    /// A `[const T;]`: its elements are const whatever the slice binding is.
+    priv fn _const_slice_iter(self, it: unsafe *Type) -> bool {
+        var unsafe *o = canon_unqual(self.dyn()->tu.as_value(it))
+        if o == &null || !self.dyn()->tu.is_slice(o) {
+            return false
+        }
+
+        var args = self.dyn()->tu.record_args(o)
+        return args.size() == 1 && args[0] != &null && canon_has_const(args[0])
+    }
+
     /// The generator a `Yield<T>` iterable is a direct call of
     /// (`for *x in b.squares()`), or null.
     priv fn _generator_called(self, e: unsafe *Expr) -> unsafe *FunctionDecl {
@@ -2954,8 +2966,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return &null
         }
 
-        var unsafe *h = self.dyn()->tu.strip_parens(c->callee)
-        var d: unsafe *Decl = &null
+        var unsafe *h              = self.dyn()->tu.strip_parens(c->callee)
+        var        d: unsafe *Decl = &null
         if isa<NamedIdentExpr>(h) {
             d = cast<NamedIdentExpr>(h)->resolved_decl
         } else if isa<ChainExpr>(h) && cast<ChainExpr>(h)->steps.size() > 0 {
