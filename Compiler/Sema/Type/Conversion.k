@@ -237,8 +237,22 @@ pub class Conversion {
         self._ml = MemberLookup(sc)
     }
 
+    /// `-fno-implicit-conv` is the user's dialect choice for their own
+    /// files; Lib/builtin is written against the default lattice and is not
+    /// held to it, or a user flag would print the library's errors and spend
+    /// the error cap on them (P780). Std is held to the same fixed mode:
+    /// TranslationUnit::is_lib_tu (stamped before Sema) covers builtin and std.
     fn implicit_enabled(self) -> bool {
-        return self.sc->opts.on(self.sc->opts.implicit_conv, true)
+        var sc = self.sc
+        if sc->ctx != &null && sc->g != &null && sc->g->is_builtin_fid(sc->ctx->fid) {
+            return true
+        }
+
+        if sc->tu != &null && sc->tu->vis_stamped && sc->tu->is_lib_tu {
+            return true
+        }
+
+        return sc->opts.on(sc->opts.implicit_conv, true)
     }
 
     /// # primitive lattice

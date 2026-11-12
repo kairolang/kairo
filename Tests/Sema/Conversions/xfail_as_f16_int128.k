@@ -9,8 +9,8 @@
 // a call (one_S), so the casts are runtime conversions at -O0.
 //
 // XFAIL: *
-// Ticket "[Toolchain] f16 <-> i128/u128 casts link against compiler-rt
-// builtins the bundle lacks" (2026-10-28). The casts are E (R5) and clang
+// Waits on compiler-rt builtins the bundle lacks for f16 <-> i128/u128
+// casts. The casts are E (R5) and clang
 // lowers them to libcalls: L001E undefined symbol __fixhfti, __fixunshfti,
 // __floattihf, __floatuntihf. The staged compiler-rt builtins archive was
 // built without them. An XPASS on some host means its archive has them.

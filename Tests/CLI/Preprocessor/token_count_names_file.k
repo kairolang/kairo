@@ -1,6 +1,6 @@
-// --cmax-token-count is per file and its error used to carry no file name, so
-// a limit blown by a builtin/std file looked like the user's own file's fault.
-// The message now names the file that tripped it.
+// --cmax-token-count is per file and its error names the file, since
+// a limit blown by a builtin/std file would look like the user's own file's fault.
+// The message names the file that tripped it.
 
 fn main() -> i32 { return 0 }
 
