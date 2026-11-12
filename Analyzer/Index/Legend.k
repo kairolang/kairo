@@ -268,7 +268,7 @@ pub fn TM_EXTENSION()   -> u32 {
 }
 
 /// The `&` of `f(&x)` when the call may mutate `x`: an `@inout` marker, or
-/// the address of a mutable passed to a pointer parameter (style table).
+/// the address of a mutable place passed to a `*T` parameter (style table).
 pub fn TM_MUTATES()     -> u32 {
     return 1 << 17
 }
@@ -284,6 +284,18 @@ pub fn TM_PANICS()      -> u32 {
     return 1 << 19
 }
 
+/// The `&` of `f(&x)` bound to an `@inout` parameter (a C++ `T&` too).
+pub fn TM_INOUT()       -> u32 {
+    return 1 << 20
+}
+
+/// The `&` of `f(&x)` bound to a pointer parameter (`*T`, `unsafe *T`,
+/// `*const T`, and those behind `?`); `unsafe` and `readonly` beside it
+/// name the pointer's kind.
+pub fn TM_POINTER()     -> u32 {
+    return 1 << 21
+}
+
 pub fn token_modifier_names() -> string {
-    return "[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\"," + "\"modification\",\"documentation\",\"defaultLibrary\",\"overloaded\",\"dispatched\",\"unsafe\"," + "\"ffi\",\"constant\",\"constructor\",\"extension\",\"mutates\",\"mutable\",\"panics\"]"
+    return "[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\",\"abstract\",\"async\"," + "\"modification\",\"documentation\",\"defaultLibrary\",\"overloaded\",\"dispatched\",\"unsafe\"," + "\"ffi\",\"constant\",\"constructor\",\"extension\",\"mutates\",\"mutable\",\"panics\"," + "\"inout\",\"pointer\"]"
 }

@@ -154,7 +154,7 @@ TYPES = ["namespace", "type", "class", "enum", "interface", "struct", "typeParam
          "selfKeyword", "builtinType", "typeAlias", "union"]
 MODS = ["declaration", "definition", "readonly", "static", "deprecated", "abstract", "async", "modification",
         "documentation", "defaultLibrary", "overloaded", "dispatched", "unsafe", "ffi", "constant", "constructor",
-        "extension", "mutates", "mutable", "panics"]
+        "extension", "mutates", "mutable", "panics", "inout", "pointer"]
 
 KEYWORDS = {"fn", "var", "return", "import", "const", "if", "as", "pub", "class", "else", "while", "for", "macro"}
 
@@ -1295,6 +1295,7 @@ def prims(exe, root):
 REFS_H = '''struct RefThing { int v; };
 inline void by_ref(int& a, const RefThing& b, RefThing&& c, int d) {}
 inline int& ret_ref(int& a) { return a; }
+inline int ptrs(int* p, const int* q) { return *q; }
 '''
 
 REFS = '''ffi "c++" import "refs_smoke.h"
@@ -1304,6 +1305,7 @@ fn main() -> i32 {
     var t = RefThing()
     by_ref(&a, t, RefThing(), 2)
     var r = ret_ref(&a)
+    var z = ptrs(unsafe &a, unsafe &a)
     return a
 }
 '''
@@ -1332,6 +1334,14 @@ def cxx_refs(exe, root):
           got == "fn by_ref(@inout a: i32, const b: RefThing, @move c: RefThing, d: i32)", got)
     got = head("ret_ref")
     check("cxx refs: a reference return reads as ffi::ref (P872)", got == "fn ret_ref(@inout a: i32) -> ffi::ref<i32>", got)
+    by = {(l, col): (ty, m) for l, col, w, ty, m in tokens(c, F, REFS)}
+    amp = lambda needle, off, nth=0: by.get(pos(REFS, needle, off, nth), ("", set()))
+    t, m = amp("by_ref(&a", 7)
+    check("cxx refs: & to a C++ T& is an inout operator that mutates", t == "operator" and {"inout", "mutates"} <= m and "pointer" not in m, (t, m))
+    t, m = amp("ptrs(unsafe &a", 12)
+    check("cxx refs: unsafe & to a C++ T* is an unsafe pointer", t == "operator" and {"pointer", "unsafe"} <= m and "readonly" not in m, (t, m))
+    t, m = amp("ptrs(unsafe &a, unsafe &a)", 23)
+    check("cxx refs: unsafe & to a C++ const T* is an unsafe readonly pointer", t == "operator" and {"pointer", "unsafe", "readonly"} <= m and "mutates" not in m, (t, m))
     c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri(F)}})
     os.remove(os.path.join(root, F))
     os.remove(os.path.join(root, "refs_smoke.h"))
@@ -1491,6 +1501,28 @@ fn bump(@inout x: i32) { x = x + 1 }
 
 fn poke(p: *i32) -> i32 { return *p }
 
+fn peek(p: *const i32) -> i32 { return *p }
+
+fn raw(p: unsafe *i32) -> i32 { return 0 }
+
+fn rawc(p: unsafe *const i32) -> i32 { return 0 }
+
+fn maybe(p: *i32?) -> i32 { return 0 }
+
+fn two(p: *i32, q: *const i32) -> i32 { return *q }
+
+type CPtr = *const i32
+
+fn peek_alias(p: CPtr) -> i32 { return *p }
+
+struct Pair { var a: i32; var b: i32 }
+
+class Acc {
+    pub var t: i32
+    pub fn Acc(self) = default
+    pub fn add(self, @inout x: i32, p: *i32) { x = x + *p }
+}
+
 fn risky(v: i32) panic -> i32 {
     if v < 0 {
         panic "negative"
@@ -1506,7 +1538,21 @@ fn main() -> i32 {
     bump(&n)
     var a = poke(&n)
     var u: unsafe *i32 = unsafe &n
-    return stale() + fresh() + n + k + a
+    var b = peek(&n)
+    var r1 = raw(unsafe &n)
+    var r2 = rawc(unsafe &n)
+    var g = maybe(&n)
+    var pr = Pair { a: 1, b: 2 }
+    bump(&pr.a)
+    var h = poke(&pr.b)
+    var acc = Acc()
+    acc.add(&n, &pr.a)
+    var q = peek(&k)
+    var vs: [i32] = [1, 2]
+    bump(x: &n)
+    var w = two(q: &n, p: &vs[0])
+    var al = peek_alias(&n)
+    return stale() + fresh() + n + k + a + b + r1 + r2 + g + h + q + w + al
 }
 """
 
@@ -1920,6 +1966,40 @@ def styles(exe, root):
             check("styles: const binding is not mutable", "mutable" not in tok("k: i32")[2], tok("k: i32"))
             check("styles: the unsafe keyword is unsafe", "unsafe" in tok("unsafe &n")[2], tok("unsafe &n"))
             check("styles: the operator unsafe permits is unsafe", "unsafe" in tok("unsafe &n", 7)[2], tok("unsafe &n", 7))
+            # The `&` of a call argument carries its parameter's kind.
+            amp = lambda needle, off: (tok(needle, off)[1], tok(needle, off)[2])
+            t, m = amp("bump(&n)", 5)
+            check("styles: & to @inout is an inout operator that mutates", t == "operator" and {"inout", "mutates"} <= m and "pointer" not in m, (t, m))
+            t, m = amp("poke(&n)", 5)
+            check("styles: & of a mutable to *T is a pointer that mutates", t == "operator" and {"pointer", "mutates"} <= m and not ({"inout", "unsafe", "readonly"} & m), (t, m))
+            t, m = amp("peek(&n)", 5)
+            check("styles: & to *const T is a readonly pointer, never mutates", t == "operator" and {"pointer", "readonly"} <= m and not ({"mutates", "inout", "unsafe"} & m), (t, m))
+            t, m = amp("peek(&k)", 5)
+            check("styles: & of a const to *const T is a readonly pointer", t == "operator" and {"pointer", "readonly"} <= m and "mutates" not in m, (t, m))
+            t, m = amp("raw(unsafe &n)", 11)
+            check("styles: unsafe & to unsafe *T is an unsafe pointer", t == "operator" and {"pointer", "unsafe"} <= m and not ({"mutates", "inout", "readonly"} & m), (t, m))
+            t, m = amp("rawc(unsafe &n)", 12)
+            check("styles: unsafe & to unsafe *const T is an unsafe readonly pointer", t == "operator" and {"pointer", "unsafe", "readonly"} <= m and "mutates" not in m, (t, m))
+            t, m = amp("maybe(&n)", 6)
+            check("styles: & to *T? is a pointer that mutates", t == "operator" and {"pointer", "mutates"} <= m, (t, m))
+            t, m = amp("bump(&pr.a)", 5)
+            check("styles: & of a field to @inout is inout", t == "operator" and {"inout", "mutates"} <= m, (t, m))
+            t, m = amp("poke(&pr.b)", 5)
+            check("styles: & of a field to *T is a pointer that mutates", t == "operator" and {"pointer", "mutates"} <= m, (t, m))
+            t, m = amp("acc.add(&n", 8)
+            check("styles: & to a method's @inout parameter is inout (self is not an argument)", t == "operator" and {"inout", "mutates"} <= m and "pointer" not in m, (t, m))
+            t, m = amp("acc.add(&n, &pr.a)", 12)
+            check("styles: & to a method's *T parameter is a pointer", t == "operator" and {"pointer", "mutates"} <= m and "inout" not in m, (t, m))
+            t, m = amp("bump(x: &n)", 8)
+            check("styles: a named argument's & to @inout is inout", t == "operator" and {"inout", "mutates"} <= m, (t, m))
+            t, m = amp("two(q: &n", 7)
+            check("styles: a reordered named argument is tagged by its own parameter (*const T)", t == "operator" and {"pointer", "readonly"} <= m and "mutates" not in m, (t, m))
+            t, m = amp("p: &vs[0]", 3)
+            check("styles: & of an element to *T is a pointer that mutates", t == "operator" and {"pointer", "mutates"} <= m and "readonly" not in m, (t, m))
+            t, m = amp("peek_alias(&n)", 11)
+            check("styles: & to an alias of *const T is a readonly pointer (the canonical type is read)", t == "operator" and {"pointer", "readonly"} <= m and "mutates" not in m, (t, m))
+            t, m = amp("unsafe *i32 = unsafe &n", 21)
+            check("styles: an & that is not an argument carries no parameter kind", not ({"pointer", "inout"} & m), (t, m))
             check("styles: a call to a panic function panics (asked for)", "panics" in tok("risky(1)")[2], tok("risky(1)"))
         else:
             check("styles: panics not sent unless asked", "panics" not in tok("risky(1)")[2], tok("risky(1)"))

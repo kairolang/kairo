@@ -937,7 +937,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         }
 
         self.param_hints_(c, callee)
-        self.mark_mutates_(c, callee)
+        self.mark_amps_(c, callee)
 
         return true
     }

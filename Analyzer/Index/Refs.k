@@ -46,6 +46,7 @@ import AST::Node::Base::{
 }
 import AST::Node::CanonicalNodes::{
     RecordType,
+    canon_has_const,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -632,47 +633,192 @@ extend IndexWalker {
         self.tok_(off, tok.range.size() as u32, TT_OPERATOR(), 0)
     }
 
-    /// `mutates` on the `&` of each argument through which call \p c may
-    /// write: an `@inout` marker, or `&x` of a mutable `x` bound to a
-    /// pointer parameter (the pointee\x27s constness is not read).
-    fn mark_mutates_(self, c: unsafe *Expressions::CallExpr, d: unsafe *Decl) {
+    /// The `&` written for argument \p e_in: the address-of or `@inout`
+    /// marker beneath a named argument's label, parentheses and `unsafe`;
+    /// null when the argument is anything else.
+    fn arg_amp_(self, e_in: unsafe *Expr) -> unsafe *Expressions::UnaryOperatorExpr {
+        var unsafe *e = e_in
+        while e != &null {
+            if isa<Expressions::NamedArgExpr>(e) {
+                e = cast<Expressions::NamedArgExpr>(e)->value
+            } else if isa<Expressions::ParenExpr>(e) {
+                e = cast<Expressions::ParenExpr>(e)->inner
+            } else if isa<Expressions::UnsafeExpr>(e) {
+                e = cast<Expressions::UnsafeExpr>(e)->operand
+            } else {
+                break
+            }
+        }
+
+        if (e == &null) || (!isa<Expressions::UnaryOperatorExpr>(e)) {
+            return &null
+        }
+
+        var unsafe *u = cast<Expressions::UnaryOperatorExpr>(e)
+        if (u->op_token.kind as u32) != (TokenKind::OpAmp as u32) {
+            return &null
+        }
+
+        return u
+    }
+
+    /// \p t is a `const T` (a canonical's qualifier or a written `const`).
+    fn is_const_type_(self, t: unsafe *Type) -> bool {
+        return (t != &null) && (canon_has_const(t) || t->is_const())
+    }
+
+    /// What the `&` of an argument passed to a parameter of type \p t_in
+    /// tells the reader: `pointer` for a pointer (through a `?`), with
+    /// `unsafe` for `unsafe *T` and `readonly` for a const pointee;
+    /// `inout` + `mutates` for a C++ `T&`. 0 for any other type, which takes
+    /// no `&` (a C++ `const T&` is passed as `x: T`). The canonical type is
+    /// read first, so an alias of a pointer is a pointer; a dependent type
+    /// has none and is read as written.
+    fn amp_kind_(self, t_in: unsafe *Type) -> u32 {
+        if t_in == &null {
+            return 0
+        }
+
+        var unsafe *t = t_in
+        if t->canonical != &null {
+            t = t->canonical
+        }
+
+        t = canon_unqual(t)
+        if (t != &null) && isa<Types::NullableType>(t) {
+            t = canon_unqual(cast<Types::NullableType>(t)->inner)
+        }
+
+        if t == &null {
+            return 0
+        }
+
+        if isa<Types::CXXLValueRefType>(t) {
+            if self.is_const_type_(cast<Types::CXXLValueRefType>(t)->referee) {
+                return 0
+            }
+
+            return TM_INOUT() | TM_MUTATES()
+        }
+
+        if !isa<Types::PointerType>(t) {
+            return 0
+        }
+
+        var unsafe *pt     = cast<Types::PointerType>(t)
+        var        m:  u32 = TM_POINTER()
+        if pt->is_unsafe {
+            m = m | TM_UNSAFE()
+        }
+
+        if self.is_const_type_(pt->pointee) {
+            m = m | TM_READONLY()
+        }
+
+        return m
+    }
+
+    /// `&e` passed to a `*T` is the address of a place the call may write:
+    /// Sema accepted a `*T`, so only a `&e` typed `*const T` (a call that
+    /// did not check) or the address of a binding that is not mutable is
+    /// not one.
+    fn writable_place_(self, u: unsafe *Expressions::UnaryOperatorExpr) -> bool {
+        var unsafe *t = u->type_
+        if (t != &null) && (t->canonical != &null) {
+            t = t->canonical
+        }
+
+        t = canon_unqual(t)
+        if (t != &null)
+            && isa<Types::PointerType>(t)
+            && self.is_const_type_(cast<Types::PointerType>(t)->pointee) {
+            return false
+        }
+
+        var unsafe *e = u->operand
+        while (e != &null) && isa<Expressions::ParenExpr>(e) {
+            e = cast<Expressions::ParenExpr>(e)->inner
+        }
+
+        if (e != &null) && isa<NamedIdentExpr>(e) {
+            var unsafe *v = cast<NamedIdentExpr>(e)->resolved_decl
+            if (v == &null)
+                || (isa<Declarations::VariableDecl>(v)
+                    && ((self.mods_of_(v) & TM_MUTABLE()) == 0)) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// Tags the `&` of each argument of call \p c by the parameter of callee
+    /// \p d it binds to (style table): `inout` + `mutates` for an `@inout`
+    /// parameter or a C++ `T&`; `pointer` (+ `mutates` for a writable place)
+    /// for `*T`; `pointer` + `unsafe` for `unsafe *T`; `pointer` + `readonly`
+    /// for `*const T`, never `mutates`. The arguments are matched to the
+    /// parameters through the call's `arg_map`, so a named or reordered
+    /// argument is tagged by its own parameter; a call Sema did not map
+    /// falls back to position. A pack parameter's arguments, a C variadic's
+    /// extra arguments and a call with no selected callee are not tagged.
+    fn mark_amps_(self, c: unsafe *Expressions::CallExpr, d: unsafe *Decl) {
         if (d == &null) || (!isa<Declarations::FunctionDecl>(d)) {
             return
         }
 
-        var unsafe *f          = cast<Declarations::FunctionDecl>(d)
-        var        skip: usize = 0
-        if (f->params.size() > 0) && f->params[0]->is_self {
+        var unsafe *f           = cast<Declarations::FunctionDecl>(d)
+        var        n            = f->params.size()
+        var        mapped       = c->arg_map.size() == n
+        var        skip:  usize = 0
+        if (n > 0) && f->params[0]->is_self {
             skip = 1
         }
 
-        for var i: usize = 0; i < c->args.size(); ++i {
-            var unsafe *arg = c->args[i]
-            if (arg == &null) || (!isa<Expressions::UnaryOperatorExpr>(arg)) {
+        for var pi: usize = 0; pi < n; ++pi {
+            var unsafe *p = f->params[pi]
+            if (p == &null) || p->is_self {
                 continue
             }
 
-            var unsafe *u = cast<Expressions::UnaryOperatorExpr>(arg)
-            if (u->op_token.kind as u32) != (TokenKind::OpAmp as u32) {
+            if p->is_pack {
+                if mapped {
+                    continue
+                }
+
+                break
+            }
+
+            var ai: i64 = (pi as i64) - (skip as i64)
+            if mapped {
+                ai = c->arg_map[pi] as i64
+            }
+
+            if (ai < 0) || (ai >= (c->args.size() as i64)) {
                 continue
             }
 
-            var hit = u->is_mode_marker
-            var pi  = i + skip
-            if (!hit)
-                && (pi < f->params.size())
-                && (u->operand != &null)
-                && isa<NamedIdentExpr>(u->operand) {
-                var unsafe *pt = f->params[pi]->type_
-                var unsafe *v  = cast<NamedIdentExpr>(u->operand)->resolved_decl
-                hit = (pt != &null)
-                    && isa<Types::PointerType>(pt)
-                    && (v != &null)
-                    && ((self.mods_of_(v) & TM_MUTABLE()) != 0)
+            var unsafe *arg = c->args[ai as usize]
+            if (!mapped) && (arg != &null) && isa<Expressions::NamedArgExpr>(arg) {
+                continue
             }
 
-            if hit {
-                self.op_mod_(u->op_token, TM_MUTATES())
+            var unsafe *u = self.arg_amp_(arg)
+            if u == &null {
+                continue
+            }
+
+            var m: u32 = 0
+            if u->is_mode_marker || p->is_inout() {
+                m = TM_INOUT() | TM_MUTATES()
+            } else {
+                m = self.amp_kind_(p->type_)
+                if (m == TM_POINTER()) && self.writable_place_(u) {
+                    m = m | TM_MUTATES()
+                }
+            }
+
+            if m != 0 {
+                self.op_mod_(u->op_token, m)
             }
         }
     }
