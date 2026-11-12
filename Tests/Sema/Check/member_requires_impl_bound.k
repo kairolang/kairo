@@ -68,6 +68,8 @@ fn main() -> i32 {
         // CHECK: member_requires_impl_bound.k:[[@LINE+1]]:17: error [SC153E]: 'reset' cannot be called on 'Holder<NoDef>': its 'requires' clause does not hold
         var r = g.reset()
         // CHECK: note [SC153N]: 'NoDef' does not conform to 'Default'
+        // CHECK: member_requires_impl_bound.k:[[@LINE+1]]:9: error [SC153E]: 'op []=' cannot be called on 'Holder<NoDef>': its 'requires' clause does not hold
+        g[2] = NoDef()
     }
 
     return q->n - 1

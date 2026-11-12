@@ -976,7 +976,8 @@ pub class CallLowering derives ASTWriter<CallLowering> {
         var unsafe *ie  = n->instance
         var unsafe *pt  = canon_unqual(s->param->type_->canonical)
         var unsafe *ext = decl_extension_of(unsafe (th as unsafe *Decl))
-        var ext_generic = ext != &null && decl_generic_params(unsafe (ext as unsafe *Decl)).size() > 0
+        var ext_generic = ext != &null
+            && decl_generic_params(unsafe (ext as unsafe *Decl)).size() > 0
         if th->generic_params.size() > 0 || ext_generic {
             if ie == &null {
                 kairo::std::ice_fail(

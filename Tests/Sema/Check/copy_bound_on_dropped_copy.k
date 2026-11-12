@@ -20,21 +20,40 @@ class Mo {
     }
 }
 
+class <T> Box {
+    pub var n: i32
+
+    fn Box(self) {
+        self.n = 0
+    }
+
+    @copy fn Box(self, const other: Self) requires T impl Copyable {
+        self.n = other.n
+    }
+}
+
 fn <T impl Copyable> dup(const t: T) -> T {
     return t
 }
 
 fn main() -> i32 {
     var a: [i32] = [1]
-    var b = dup(a)
-    var v: [Mo] = []
+    var b        = dup(a)
+    var v: [Mo]  = []
     // CHECK: copy_bound_on_dropped_copy.k:[[@LINE+1]]:13: error [SC162E]: '[Mo]' does not conform to 'Copyable': '[Mo]' is not a COPY type
     var w = dup(v)
     // CHECK: note [I900N]: required by this bound
     // CHECK: note [I900N]: the constructor is required here
     // CHECK: vector.k:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: '[Mo]' declares a copy constructor, but its requirements do not hold here: 'Mo' cannot be copied
     var vv: [[i32]] = []
-    var ww = dup(vv)
+    var ww          = dup(vv)
+    var bi          = Box<i32>()
+    var bj          = dup(bi)
+    var bm          = Box<Mo>()
+    // CHECK: copy_bound_on_dropped_copy.k:[[@LINE+1]]:23: error [SC162E]: 'Box<Mo>' does not conform to 'Copyable': 'Box<Mo>' is not a COPY type
+    var bn          = dup(bm)
+    // CHECK: note [I900N]: 'Box<Mo>' declares a copy constructor, but its requirements do not hold here: 'Mo' cannot be copied
     return 0
 }
+
 // CHECK-NOT: error

@@ -4130,8 +4130,8 @@ pub class CXXSpell {
                 continue
             }
 
-            var unsafe *gp = CXXSpell::_bound_param(c)
-            var mine = false
+            var unsafe *gp  = CXXSpell::_bound_param(c)
+            var        mine = false
             for var k: usize = 0; gp != &null && k < tps.size(); ++k {
                 if tps[k] == gp {
                     mine = true

@@ -1652,7 +1652,11 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             self._narrow_from(n->requires_clause)
         }
 
-        var unsafe *out = RecursiveASTVisitor<ChainBinding>::traverse_function_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<ChainBinding>::traverse_function_decl(
+            self,
+            n,
+        )
+
         while self._narrow_params.size() > mark {
             self._narrow_params.pop_back()
             self._narrow_ifaces.pop_back()

@@ -100,8 +100,8 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    AlignOfExpr, BinaryOperatorExpr, CallExpr,      ConstraintExpr,    PackExpansionExpr, ParenExpr,
-    SizeOfExpr,  TypeTraitExpr,      TypeTraitKind, UnaryOperatorExpr,
+    AlignOfExpr, BinaryOperatorExpr, CallExpr,      ConstraintExpr, PackExpansionExpr, ParenExpr,
+    SizeOfExpr,  SubscriptExpr,      TypeTraitExpr, TypeTraitKind,  UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr,
@@ -198,6 +198,14 @@ pub struct PredFalse {
 pub struct DroppedCopy {
     pub var ctor:    unsafe *Declarations::FunctionDecl = &null
     pub var element: unsafe *Type                       = &null
+}
+
+/// A `P impl I` conjunct of a member's clause that an instance's argument
+/// for P does not meet (ConformanceChecking::_impl_blocker).
+struct ImplBlocker {
+    pub var bound: unsafe *ConstraintExpr = &null
+    pub var x:     unsafe *Type           = &null
+    pub var iface: unsafe *Type           = &null
 }
 
 pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
@@ -346,6 +354,18 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             self._check_type(e->type_, e->range, 0)
         }
 
+        if e->kind == ExprKind::SubscriptExpr {
+            // `r[i]` / `r[i] = v` through a record's `op []` / `op []=`.
+            var unsafe *sx = cast<SubscriptExpr>(e)
+            var unsafe *of = dyn_cast<Declarations::FunctionDecl>(
+                sx->resolved_op,
+            )
+
+            if of != &null && !sx->op_via_free && sx->base != &null {
+                self._check_member_requires_on(of, sx->base->type_, sx->range)
+            }
+        }
+
         if e->kind != ExprKind::CallExpr {
             self._check_fn_value(e)
             return true
@@ -376,18 +396,6 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return
         }
 
-        var unsafe *fr = dyn_cast<Declarations::FunctionDecl>(
-            NameLookup::representative(unsafe (f as unsafe *Decl)),
-        )
-
-        if fr != &null {
-            f = fr
-        }
-
-        if f->requires_clause == &null || f->generic_params.size() > 0 || !f->is_method() {
-            return
-        }
-
         var unsafe *ch = dyn_cast<ChainExpr>(self.tu.strip_parens(c->callee))
         if ch == &null || ch->steps.size() == 0 {
             return
@@ -398,6 +406,28 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             rt = ch->steps.get(ch->steps.size() - 2)->resolved_type
         } else if ch->base != &null {
             rt = ch->base->type_
+        }
+
+        self._check_member_requires_on(f, rt, c->range)
+    }
+
+    /// _check_member_requires for method \p f0 called on a receiver of type
+    /// \p rt, reported at \p at.
+    priv fn _check_member_requires_on(self,
+                                      f0: unsafe *Declarations::FunctionDecl,
+                                      rt: unsafe *Type,
+                                      at: SourceRange) {
+        var unsafe *f = f0
+        var unsafe *fr = dyn_cast<Declarations::FunctionDecl>(
+            NameLookup::representative(unsafe (f as unsafe *Decl)),
+        )
+
+        if fr != &null {
+            f = fr
+        }
+
+        if f->requires_clause == &null || f->generic_params.size() > 0 || !f->is_method() {
+            return
         }
 
         var unsafe *rec = self._receiver_record(rt)
@@ -416,14 +446,14 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
 
             var rs    = self.tu.str(rec)
-            var fname = self.tu.decl_name(unsafe (f as unsafe *Decl))
+            var fname = self._req_name(f)
             var b = self.sc->diag->report(
                 DiagID::SC153E,
-                c->range.start,
+                at.start,
                 f"'{fname}' cannot be called on '{rs}': its 'requires' clause does not hold",
             )
 
-            b.first(c->range)
+            b.first(at)
             b.note(
                 DiagCode(DiagID::SC153N),
                 vps[i]->range.start,
@@ -435,11 +465,42 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         // `P impl I` on a parameter of the record: the instance's argument
         // for P must conform. C++ drops the member where it does not.
+        var ib = self._impl_blocker(f, rec, unsafe &d)
+        if ib.bound == &null {
+            return
+        }
+
+        var rs    = self.tu.str(rec)
+        var fname = self._req_name(f)
+        var b = self.sc->diag->report(
+            DiagID::SC153E,
+            at.start,
+            f"'{fname}' cannot be called on '{rs}': its 'requires' clause does not hold",
+        )
+
+        b.first(at)
+        b.note(
+            DiagCode(DiagID::SC153N),
+            ib.bound->range.start,
+            f"'{self.tu.str(ib.x)}' does not conform to '{self.tu.str(ib.iface)}'",
+        )->child_first(ib.bound->range)
+        b.emit()
+    }
+
+    /// The first `P impl I` of method \p f's clause, P a parameter of the
+    /// record \p rec is an instance of (\p d bound from it), that \p rec's
+    /// argument for P does not meet. `bound` is null when every decidable
+    /// one holds.
+    priv fn _impl_blocker(self,
+                          f:   unsafe *Declarations::FunctionDecl,
+                          rec: unsafe *Type,
+                          d:   unsafe *Deduction) -> ImplBlocker {
+        var out    = ImplBlocker{}
         var bounds = cxx::std::vector<unsafe *ConstraintExpr>()
         self._impl_bounds(f->requires_clause, unsafe &bounds)
         var unsafe *rd = self.tu.record_decl(rec)
         if bounds.size() == 0 || rd == &null {
-            return
+            return out
         }
 
         var unsafe *pat  = NameLookup::representative(self.tu.pattern_of(rd))
@@ -458,7 +519,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             var unsafe *x     = canon_unqual(rargs[gp->index as usize])
             var unsafe *iface = canon_unqual(bd->rhs->canonical)
             if iface->is_dependent() {
-                iface = d.substitute(iface)
+                iface = d->substitute(iface)
             }
 
             if x == &null || iface == &null || x->is_dependent() || iface->is_dependent() {
@@ -470,23 +531,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 continue
             }
 
-            var rs    = self.tu.str(rec)
-            var fname = self.tu.decl_name(unsafe (f as unsafe *Decl))
-            var b = self.sc->diag->report(
-                DiagID::SC153E,
-                c->range.start,
-                f"'{fname}' cannot be called on '{rs}': its 'requires' clause does not hold",
-            )
-
-            b.first(c->range)
-            b.note(
-                DiagCode(DiagID::SC153N),
-                bd->range.start,
-                f"'{self.tu.str(x)}' does not conform to '{self.tu.str(iface)}'",
-            )->child_first(bd->range)
-            b.emit()
-            return
+            out.bound = bd
+            out.x     = x
+            out.iface = iface
+            return out
         }
+
+        return out
     }
 
     /// The concrete record a method is called on, through pointers,
@@ -1714,6 +1765,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             if why.known {
                 out.ctor    = m
                 out.element = why.blocker
+                return out
+            }
+
+            var ib = self._impl_blocker(m, c, unsafe &d)
+            if ib.bound != &null {
+                out.ctor    = m
+                out.element = ib.x
                 return out
             }
         }
@@ -4628,7 +4686,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         if req != &null {
             d.note(req->range.start, req_note)->child_first(req->range)
-            var dc = if (req->transfer != Declarations::TransferKind::NotTransfer) => (self.dropped_copy(x))
+            var dc = if (req->transfer != Declarations::TransferKind::NotTransfer) => (self.dropped_copy(
+                         x,
+                     ))
                      else => DroppedCopy{}
             if dc.ctor != &null {
                 var es = if (dc.element != &null) => (self.tu.str(dc.element)) else => "its element"
