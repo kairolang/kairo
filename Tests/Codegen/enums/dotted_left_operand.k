@@ -2,9 +2,9 @@
 // from the other operand, as it does on the right (enums-plain.mdx; pattern-
 // matching.mdx).
 //
-// Was SC123E "'.North' names an enum variant, but nothing here gives it an
-// enum type" (GitHub #83): the left operand was typed before the right one
-// could give it an expected type. Operator typing now types the right
+// Not SC123E "'.North' names an enum variant, but nothing here gives it an
+// enum type" (GitHub #83): the left operand is not typed before the right one
+// could give it an expected type. Operator typing types the right
 // operand first whenever the left has no type of its own
 // (ExprTyper::is_context_typed); context_typed_left_operand.k covers the
 // literal and list-literal halves of that rule.

@@ -3,8 +3,8 @@
 // declares no `op ==`, so it is the tag compare (enums-adt.mdx), which needs
 // nothing from the instance's arguments. The layout is the instance's, so
 // the variant is read through `__kairo_which()` (EnumLayoutQuery's Opaque
-// shape), which both of C++'s layouts answer. It used to reach EmitIR as a
-// record `==` and ICE ("user operator; OperatorLowering must rewrite it").
+// shape), which both of C++'s layouts answer. It does not reach EmitIR as a
+// record `==` ("user operator; OperatorLowering must rewrite it").
 enum <T> Opt {
     Some { v: T },
     None,

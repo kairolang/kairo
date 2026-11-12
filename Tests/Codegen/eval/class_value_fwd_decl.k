@@ -28,7 +28,7 @@ fn main() -> i32 {
 // through a pointer: it needed a declaration of Widget ahead of it, and
 // got none ("no template named 'Widget'"), and its argument `Pt(2, 3)`
 // needed Pt complete ("invalid use of incomplete type"). Widget's forward
-// declaration now follows Pt's definition, and Holder's definition follows
+// declaration follows Pt's definition, and Holder's definition follows
 // both.
 
 // --- lit wiring -----------------------------------------------------------

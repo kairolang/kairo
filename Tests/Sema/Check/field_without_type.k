@@ -2,20 +2,18 @@
 // never take a shorthand"), so `var a = 5` in a record body is an error at
 // the field, reported by Kairo -- not an internal error in codegen.
 //
-// XFAIL: *
-// Ticket "[Sema/Codegen] A field with an initializer and no type
-// type-checks, then ICEs in InterfaceEmitter" (2026-10-26).
-// Today --type-check-only accepts it, and a
-// build ICEs: "InterfaceEmitter: initializer of an eval or array-typed
-// field reached codegen; FeatureGateCheck rejects it". (The ticket's other
-// option, inferring the type like a VariableDecl, would contradict
-// variables.mdx; if the docs change instead, turn this into a run test.)
-// The code is not decided; the check asks for an error at the field. When
-// it XPASSes, delete the XFAIL and pin the code and message.
+// It is not left to type-check and fail in a build ("InterfaceEmitter:
+// initializer of an eval or array-typed field reached codegen;
+// FeatureGateCheck rejects it"): the parser refuses it as it refuses the
+// field shorthands (S058E). Inferring the type like a
+// VariableDecl would contradict variables.mdx; if the docs change instead,
+// turn this into a run test.
+//
+//
 
 struct S {
     var a = 5
-// CHECK: field_without_type.k:[[@LINE-1]]:{{[0-9]+}}: error [{{[A-Z]+[0-9]+}}E]:
+// CHECK: field_without_type.k:[[@LINE-1]]:9: error [S058E]: a field declares its type; write 'a: T'
 }
 
 // --- lit wiring -----------------------------------------------------------

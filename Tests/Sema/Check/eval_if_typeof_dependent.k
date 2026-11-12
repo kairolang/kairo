@@ -3,7 +3,7 @@
 // check reports nothing from any branch of it, here one per member set and a
 // final branch invalid for every T. Fallback scope: the branches are typed
 // with diagnostics dropped (ChainBinding and the typer), and nothing checks
-// the branch an instance takes; codegen of such a branch ICEs today (a
+// the branch an instance takes; codegen of such a branch fails today (a
 // poisoned expression reaches EmitIR), so this is a type-check-only test.
 
 class A { pub var x: u32 = 0 }

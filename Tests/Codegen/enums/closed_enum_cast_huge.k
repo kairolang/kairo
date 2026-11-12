@@ -2,7 +2,7 @@
 // `t != value` per variant, joined by `&&`. EmitIR parenthesises every
 // binary operator, so a left-leaning chain over a registry-sized enum
 // nested one bracket per variant and clang stopped at -fbracket-depth=2048
-// (the diagnostic registry's DiagID, ~5000 variants). The chain is now a
+// (the diagnostic registry's DiagID, ~5000 variants). The chain is a
 // balanced tree. RUN lines generate a 4000-variant enum (sparse values, so
 // it is not dense) and check it compiles, links and runs: a listed value
 // round-trips, an unlisted one crashes (134).

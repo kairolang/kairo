@@ -3,8 +3,8 @@
 // string its characters.
 //
 // XFAIL: *
-// Ticket "[Sema/Codegen] `for ... in` over Kairo vectors, sets, maps and
-// strings is SC116E". Today:
+// `for ... in` over Kairo vectors, sets, maps and
+// strings is SC116E. Today:
 // SC116E "iterating a string is not yet supported" (the vector loop works
 // since Vector declared `op in`, Codegen/vectors/api.k). (Sets and maps also need their literals,
 // Codegen/literals/.) When it XPASSes, delete the XFAIL -- the run below is

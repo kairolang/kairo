@@ -3137,9 +3137,13 @@ pub class EmitIR {
             } case ExprKind::StmtExpr {
                 // `({ ... })`: clang's statement expression. The block is
                 // emitted as any block; the parens make it a value.
-                self._cg->sink->spell(e->range, "(")
-                self.emit_block(cast<StmtExpr>(e)->body)
-                self._cg->sink->spell(e->range, ")")
+                if self._ns_init {
+                    self._ns_stmt_expr(cast<StmtExpr>(e))
+                } else {
+                    self._cg->sink->spell(e->range, "(")
+                    self.emit_block(cast<StmtExpr>(e)->body)
+                    self._cg->sink->spell(e->range, ")")
+                }
             } case ExprKind::SetLiteralExpr {
                 self._ice(e->range, "EmitIR: set literal; the container migration owns it")
             } case ExprKind::MapLiteralExpr {
@@ -6017,13 +6021,16 @@ pub class EmitIR {
         var unsafe *saved = self._closure
         var        sd     = self._ef_depth
         var        sl     = self._ef_loops
+        var        sn     = self._ns_init
         self._closure  = n
         self._ef_depth = 0 // a closure's statements are its own, not a copy's.
         self._ef_loops = 0
+        self._ns_init  = false // a closure in a global's initializer has a function body.
         self.emit_block(n->body_block)
         self._closure  = saved
         self._ef_depth = sd
         self._ef_loops = sl
+        self._ns_init  = sn
 
         if caps.size() == 0 {
             self._cg->sink->spell(n->range, ")")
@@ -7437,6 +7444,38 @@ pub class EmitIR {
         return "+="
     }
 
+    /// A statement expression in a namespace-scope initializer (`var c =
+    /// unwrap!(one())`, a checked `as` into a closed enum): C++ allows no
+    /// statement expression there (P142), so it is the body of a lambda
+    /// called on the spot, as a binding form is (_form_open), its last
+    /// expression statement returned. No capture: nothing at namespace
+    /// scope needs one. Inside the lambda is a function body again.
+    priv fn _ns_stmt_expr(self, se: unsafe *StmtExpr) {
+        var unsafe *e = unsafe (se as unsafe *Expr)
+        var unsafe *b = se->body
+        if b == &null {
+            self._ice(e->range, "EmitIR: statement expression with no block")
+        }
+
+        self._cg->sink->spell(e->range, "[]() { ")
+        var saved = self._ns_init
+        self._ns_init = false
+        var n = b->body.size()
+        for var i: usize = 0; i < n; ++i {
+            var unsafe *s = b->body[i]
+            if i + 1 == n && s != &null && s->kind == StmtKind::ExpressionStmt {
+                self._cg->sink->spell(s->range, "return ")
+                self.emit(cast<ExpressionStmt>(s)->expr)
+                self._cg->sink->spell(s->range, ";")
+            } else {
+                self.emit(s)
+            }
+        }
+
+        self._ns_init = saved
+        self._cg->sink->spell(e->range, " }()")
+    }
+
     /// A binding form's brackets: a statement expression, or at namespace
     /// scope (_ns_init) a lambda called on the spot, whose value is
     /// returned (_form_value).
@@ -8753,7 +8792,46 @@ pub class EmitIR {
             return
         }
 
+        // `v as E?` from an integer, `e as u8?` from a plain enum: the cast
+        // is to the inner type, which then converts to the nullable.
+        // Nullable<E> has no constructor from E's underlying integer (nor
+        // Nullable<u8> from an enum class), so the one-step static_cast
+        // into it was a C++ error (P143). A closed enum's check has already
+        // wrapped the operand (OperatorLowering), so it still runs first.
+        if kind == "static_cast" && n->target != &null && n->target->canonical != &null {
+            var unsafe *inner = self._nullable_inner(canon_unqual(n->target->canonical))
+            var into_enum = inner != &null && self._is_plain_enum(inner)
+                && self._type_is_builtin_int(n->operand->type_)
+            var from_enum = inner != &null && self._is_plain_enum(n->operand->type_)
+                && self._type_is_builtin_int(inner)
+            if into_enum || from_enum {
+                self._cg->sink->spell(
+                    n->operand->range,
+                    "static_cast<" + self._spell._type(n->target, &null) + ">(static_cast<" + self._spell._type(inner, &null) + ">(",
+                )
+
+                self.emit(n->operand)
+                self._cg->sink->spell(n->operand->range, "))")
+                return
+            }
+        }
+
         self._cast_to(n->target, n->operand, kind)
+    }
+
+    /// \p t is a plain (non-ADT) enum, Kairo's or a C/C++ one.
+    priv fn _is_plain_enum(self, t: unsafe *Type) -> bool {
+        if t == &null {
+            return false
+        }
+
+        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        if c == &null || c->kind != TypeKind::RecordType {
+            return false
+        }
+
+        var unsafe *en = dyn_cast<EnumDecl>(cast<RecordType>(c)->decl)
+        return en != &null && !en->is_adt
     }
 
     /// `p as (*D)?` (casting.md, the checked downcast): `dynamic_cast<D*>`,

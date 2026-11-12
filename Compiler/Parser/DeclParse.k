@@ -3461,12 +3461,30 @@ pub class <T: type> DeclParse {
         }
 
         var fty: unsafe *Type = &null
+        var has_colon = false
         if self.dyn()->check(TokenKind::OpColon) {
+            has_colon = true
             self.dyn()->advance(T::SkipNL::After) // consume `:`
             fty = self.dyn()->parse_type()
             if fty != &null && is_recovery(fty) {
                 fty = &null
             }
+        }
+
+        // `var a = 5` in a type body. Nothing infers a field's type (see
+        // `var f? = e` above), so a typeless field used to pass Sema with
+        // a null type and ICE in codegen (P46). The shorthand errors below
+        // already say the same thing; a `:` whose type failed to parse was
+        // reported by parse_type.
+        if !has_colon && !has_q && p_depth == 0 {
+            var b = self.dyn()->diag->report(
+                DiagID::S058E,
+                name.range.start,
+                f"a field declares its type; write '{self.dyn()->ctx->get_spelling(name)}: T'",
+            )
+
+            b.first(name.range)
+            b.emit()
         }
 
         if has_q {

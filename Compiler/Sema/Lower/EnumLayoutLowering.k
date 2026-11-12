@@ -191,10 +191,13 @@ import AST::Node::Expressions::{
     CastMode,
     PanicOp,
     PanicOpExpr,
+    UnaryOperatorExpr,
     VariantInitExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
+    FloatingLiteralExpr,
+    IntegerLiteralExpr,
     NamedIdentExpr,
     NullLiteralExpr,
 }
@@ -1309,8 +1312,8 @@ pub class EnumLayoutQuery {
     /// initializer the emitter writes (`{}` on every number), a constructor,
     /// a private field each make it non-POD, and a non-POD member keeps its
     /// own alignment (and on some targets clang packs it anyway). Only a
-    /// twin knows that, so the compiler's own size_of asks one here too
-    /// (P901): the plain rule packed every member, and an ADT over such a
+    /// twin knows that, so the compiler's own size_of asks one here too:
+    /// the plain rule packed every member, and an ADT over such a
     /// record failed the static_assert beside it.
     priv fn _packed_record_member(self, pat: unsafe *Decl) -> bool {
         if !AttrFacts::is_packed(pat) {
@@ -2003,7 +2006,7 @@ pub class EnumLayoutQuery {
             return
         }
 
-        // Only entries keyed at or before this group's rank (P850): a later
+        // Only entries keyed at or before this group's rank: a later
         // group's front may be minting and TYPING the records an entry it
         // minted names (size_of walks their fields) on another thread right
         // now. Its own sweep, after its front, sees them whole, and nothing
@@ -2748,7 +2751,58 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         }
 
         n->field_ctor = true
+        // Each field goes in at the instance's type. A builtin argument that
+        // C++ sees at another type (an unsuffixed literal Sema typed i64 is
+        // still an int to C++, and so is an i32 value) is an exact match
+        // only for the lambda constructor beside the field one (`template
+        // <class F> E(vt, F&&)`), which then won and C++ called the int.
+        // Written out, the conversion makes the field constructor
+        // the exact match.
+        for var i: usize = 0; i < v->payload.size() && i < n->fields.size(); ++i {
+            var unsafe *fe = n->fields[i]
+            var unsafe *ft = q.field_type_at(en, args, v->payload[i]->type_)
+            if fe == &null || fe->type_ == &null || ft == &null {
+                continue
+            }
+
+            var unsafe *fu = canon_unqual(ft)
+            var unsafe *au = canon_unqual(fe->type_)
+            if !isa<BuiltinType>(fu) || !isa<BuiltinType>(au) {
+                continue
+            }
+
+            if fu != au || self._literal_retyped(fe, cast<BuiltinType>(au)->builtin) {
+                (*n->fields.get(i)) = self.synth.cast_to(fe->range, fe, fu, CastMode::Default)
+            }
+        }
+
         return out
+    }
+
+    /// \p e is an unsuffixed numeric literal (or one negated) that C++
+    /// reads at another type than \p k, the one Sema gave it: an integer
+    /// literal is an `int` to C++ unless typed i32, a floating one a
+    /// `double` unless typed f64 (EmitIR::_int_lit spells them bare).
+    priv fn _literal_retyped(self, e: unsafe *Expr, k: BuiltinKind) -> bool {
+        var unsafe *x = self.tu.strip_parens(e)
+        var unsafe *u = if (x != &null) => (dyn_cast<UnaryOperatorExpr>(x)) else => &null
+        if u != &null && u->op_token.kind == TokenKind::OpMinus {
+            x = self.tu.strip_parens(u->operand)
+        }
+
+        if x == &null {
+            return false
+        }
+
+        if isa<IntegerLiteralExpr>(x) {
+            return k != BuiltinKind::I32
+        }
+
+        if isa<FloatingLiteralExpr>(x) {
+            return k != BuiltinKind::F64
+        }
+
+        return false
     }
 
     /// `__builtin_niche_of<T>()` -> the count, a `u64` literal (the lang
@@ -3070,7 +3124,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         // specialization's constraint and body are not dependent: clang
         // checks them where the template is written, so a field with no
         // niche made `__kairo_niche<int>::pattern` an error at the
-        // declaration (P867). Known to be no niche, it is a plain tagged
+        // declaration. Known to be no niche, it is a plain tagged
         // generic ADT; an unknown verdict keeps the specialization (shape_at
         // then predicts nothing).
         if shaped && generic {
@@ -3375,7 +3429,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         var        vs   = self.list_builder<unsafe *Declarations::EnumVariantDecl>()
         // The tag enum is nested in the record, which C++ writes inside
         // `template <class T>`: an enumerator named like a type parameter
-        // shadows it, which is ill-formed (P539). Such a one gets `_`
+        // shadows it, which is ill-formed. Such a one gets `_`
         // appended, repeated while the name is still a parameter's or a
         // variant's; the tag is positional (InterfaceEmitter::_tag_leaf
         // reads the enumerator by position), so the Kairo variant keeps its

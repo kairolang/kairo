@@ -2027,9 +2027,72 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             rest.push(d)
         }
 
+        self._fields_in_source_order(unsafe &fb, fields.size())
         fields.from_list(&fb, unsafe &self.ctx->ast_alloc)
         methods.from_list(&mb, unsafe &self.ctx->ast_alloc)
         dc->dc_decls = rest
+    }
+
+    /// The branch fields (\p fb past its first \p kept entries, which are
+    /// the class's own fields in order) moved to where they were written:
+    /// each goes before the first own field that starts after it, so
+    /// `class C { var a  eval if X { var b }  var c }` is laid out a, b, c
+    /// as C++ and an FFI mirror of it expect (P119), not a, c, b. The own
+    /// fields keep their relative order whatever their ranges say. Indices
+    /// are renumbered to the new positions.
+    priv fn _fields_in_source_order(self,
+                                    fb:   unsafe *ArenaList<unsafe *Declarations::FieldDecl>,
+                                    kept: usize) {
+        var n = fb->size()
+        if n == kept || kept == 0 {
+            return
+        }
+
+        // slot[j]: the own field branch field kept + j goes before (kept: after all).
+        var all  = cxx::std::vector<unsafe *Declarations::FieldDecl>()
+        var slot = cxx::std::vector<usize>()
+        for var i: usize = 0; i < n; ++i {
+            all.push_back(*((*fb)[i]))
+        }
+
+        for var j: usize = kept; j < n; ++j {
+            var unsafe *f = all[j]
+            var at = kept
+            if f != &null && f->range.start.is_valid() {
+                for var k: usize = 0; k < kept; ++k {
+                    var unsafe *o = all[k]
+                    if o != &null && o->range.start.is_valid() && f->range.start.raw() < o->range.start.raw() {
+                        at = k
+                        break
+                    }
+                }
+            }
+
+            slot.push_back(at)
+        }
+
+        fb->clear()
+        for var k: usize = 0; k <= kept; ++k {
+            for var j: usize = kept; j < n; ++j {
+                if slot[j - kept] == k {
+                    self._push_field(fb, all[j])
+                }
+            }
+
+            if k < kept {
+                self._push_field(fb, all[k])
+            }
+        }
+    }
+
+    priv fn _push_field(self,
+                        fb: unsafe *ArenaList<unsafe *Declarations::FieldDecl>,
+                        f:  unsafe *Declarations::FieldDecl) {
+        if f != &null {
+            f->index = (fb->size() as u32)
+        }
+
+        fb->push(f)
     }
 
     /// The FieldDecl a class branch's `var` / `eval` / `static` binding is.

@@ -1,6 +1,6 @@
 // An initializer on an `eval` field (eval.mdx, Eval in Classes): the field
 // is a static of the class, its value a compile-time constant (EVAL.md
-// 1.2). The array-typed half of the same ticket is
+// 1.2). The array-typed case is
 // Tests/Codegen/eval/array_field_initializer.k (still XFAIL).
 
 class C {

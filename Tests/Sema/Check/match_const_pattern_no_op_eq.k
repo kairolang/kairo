@@ -1,7 +1,7 @@
 // A literal or constant pattern on a record tests `==`; a record with no
 // `op ==` has none, and an ADT without one would compare variants only and
-// ignore the payload. Both are errors at the pattern (the arm used to
-// be dropped silently).
+// ignore the payload. Both are errors at the pattern (the arm is not
+// dropped silently).
 
 struct Q {
     var x: i32

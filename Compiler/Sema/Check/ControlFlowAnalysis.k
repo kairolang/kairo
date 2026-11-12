@@ -61,7 +61,11 @@ import AST::Node::Casting::{
     cast,
     isa,
 }
-import AST::Node::Expressions::CallExpr
+import AST::Node::Declarations::FunctionDecl
+import AST::Node::Expressions::{
+    CallExpr,
+    ClosureExpr,
+}
 import AST::Node::PrimaryExpressions::BooleanLiteralExpr
 import AST::Node::Program::{
     TopLevelItem,
@@ -79,6 +83,82 @@ import Sema::SemaContext::{
 }
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
+
+/// Does a statement contain a `break` that exits the loop under inspection
+/// (FallThrough::_loop_falls_through)? A visitor rather than a statement
+/// switch because a `break` can sit inside an expression: the arm of
+/// `var v = try p() catch => break` is a jump StmtExpr inside a TryCatchExpr
+/// inside a DeclStmt, and so is an `if`/`match` expression arm.
+/// Missing one is a false SC003W whose fix-it deletes live code.
+///
+/// \c depth counts loops entered below the one under inspection: an
+/// unlabeled break at depth 0 is ours, a labeled one is ours at any depth
+/// when it names us. `match` and `try` are not loops (a `break` in them
+/// targets the enclosing loop). A closure or a nested function is a
+/// barrier: no `break` in it can leave a loop outside it.
+class LoopExitFinder derives RecursiveASTVisitor<LoopExitFinder> {
+    var sc:    unsafe *SemaContext
+    var label: u32  ///< imm of the inspected loop's label, or u32::MAX.
+    var depth: u32  = 0
+    var found: bool = false
+
+    fn LoopExitFinder(self, sc: unsafe *SemaContext, label: u32) {
+        self.sc    = sc
+        self.label = label
+    }
+
+    fn visit_break_stmt(self, n: *Statements::BreakStmt) -> bool {
+        var ours = self.depth == 0
+        if n->has_label {
+            ours = self.label != u32::MAX && self.sc->ctx->get_ident_imm(n->label) == self.label
+        }
+
+        if ours {
+            self.found = true
+            self.stop  = true
+        }
+
+        return true
+    }
+
+    fn traverse_loop_stmt(self, n: *Statements::LoopStmt) -> *Statements::LoopStmt {
+        self.depth += 1
+        RecursiveASTVisitor<LoopExitFinder>::traverse_loop_stmt(self, n)
+        self.depth -= 1
+        return n
+    }
+
+    fn traverse_while_loop_stmt(self, n: *Statements::WhileLoopStmt) -> *Statements::WhileLoopStmt {
+        self.depth += 1
+        RecursiveASTVisitor<LoopExitFinder>::traverse_while_loop_stmt(self, n)
+        self.depth -= 1
+        return n
+    }
+
+    fn traverse_indexed_for_stmt(self,
+                                 n: *Statements::IndexedForStmt) -> *Statements::IndexedForStmt {
+        self.depth += 1
+        RecursiveASTVisitor<LoopExitFinder>::traverse_indexed_for_stmt(self, n)
+        self.depth -= 1
+        return n
+    }
+
+    fn traverse_ranged_for_stmt(self,
+                                n: unsafe *Statements::RangedForStmt) -> unsafe *Statements::RangedForStmt {
+        self.depth += 1
+        RecursiveASTVisitor<LoopExitFinder>::traverse_ranged_for_stmt(self, n)
+        self.depth -= 1
+        return n
+    }
+
+    fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {
+        return n
+    }
+
+    fn traverse_function_decl(self, n: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
+        return n
+    }
+}
 
 pub class FallThrough {
     priv var sc:            unsafe *SemaContext
@@ -257,101 +337,9 @@ pub class FallThrough {
         }
 
         // Infinite: the only way past it is a `break` that targets it.
-        return self._breaks_out(body, 0, label)
-    }
-
-    /// Does \p s contain a `break` that exits the loop under inspection?
-    /// \p depth counts loops entered below that one: an unlabeled break at
-    /// depth 0 is ours, a labeled one is ours at any depth when it names us.
-    priv fn _breaks_out(self, s: unsafe *Stmt, depth: u32, label: u32) -> bool {
-        if s == &null {
-            return false
-        }
-
-        match s->kind {
-            case StmtKind::BreakStmt {
-                var unsafe *b = cast<Statements::BreakStmt>(s)
-                if !b->has_label {
-                    return depth == 0
-                }
-
-                return label != u32::MAX && self._imm(b->label) == label
-            } case StmtKind::CompoundStmt {
-                var unsafe *c = cast<Statements::CompoundStmt>(s)
-                for var i: usize = 0; i < c->body.size(); ++i {
-                    if self._breaks_out(c->body[i], depth, label) {
-                        return true
-                    }
-                }
-
-                return false
-            } case StmtKind::UnsafeBlockStmt {
-                return self._breaks_out((cast<Statements::UnsafeBlockStmt>(s)->body), depth, label)
-            } case StmtKind::ContextBindingStmt {
-                return self._breaks_out(
-                    (cast<Statements::ContextBindingStmt>(s)->body),
-                    depth,
-                    label,
-                )
-            } case StmtKind::ConditionalStmt {
-                var unsafe *c = cast<Statements::ConditionalStmt>(s)
-                if self._breaks_out(c->then_, depth, label) {
-                    return true
-                }
-
-                return self._breaks_out(c->else_, depth, label)
-            } case StmtKind::MatchStmt {
-                // `break` inside a match targets the enclosing loop (StmtKind
-                // doc), so a match is not a depth step.
-                var unsafe *m = cast<Statements::MatchStmt>(s)
-                for var i: usize = 0; i < m->cases.size(); ++i {
-                    var unsafe *mc = m->cases.get(i)
-                    if self._breaks_out(mc->body, depth, label) {
-                        return true
-                    }
-                }
-
-                return false
-            } case StmtKind::TryCatchStmt {
-                var unsafe *t = cast<Statements::TryCatchStmt>(s)
-                if self._breaks_out(t->try_body, depth, label) {
-                    return true
-                }
-
-                for var i: usize = 0; i < t->arms.size(); ++i {
-                    var unsafe *arm = t->arms.get(i)
-                    if self._breaks_out(arm->body, depth, label) {
-                        return true
-                    }
-                }
-
-                return false
-            } case StmtKind::LabeledStmt {
-                return self._breaks_out(cast<Statements::LabeledStmt>(s)->inner, depth, label)
-            } case StmtKind::LoopStmt {
-                return self._breaks_out((cast<Statements::LoopStmt>(s)->body), depth + 1, label)
-            } case StmtKind::WhileLoopStmt {
-                return self._breaks_out(
-                    (cast<Statements::WhileLoopStmt>(s)->body),
-                    depth + 1,
-                    label,
-                )
-            } case StmtKind::IndexedForStmt {
-                return self._breaks_out(
-                    (cast<Statements::IndexedForStmt>(s)->body),
-                    depth + 1,
-                    label,
-                )
-            } case StmtKind::RangedForStmt {
-                return self._breaks_out(
-                    (cast<Statements::RangedForStmt>(s)->body),
-                    depth + 1,
-                    label,
-                )
-            } default {
-                return false
-            }
-        }
+        var finder = LoopExitFinder(self.sc, label)
+        finder.dispatch_stmt(body)
+        return finder.found
     }
 
     fn is_true_literal(self, e: unsafe *Expr) -> bool {

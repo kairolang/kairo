@@ -7,7 +7,7 @@
 // (`define<FlagKind::Bool>()`, generics.md "Value parameters": the argument
 // is evaluable at compile time, and a variant is). The path parses as a type,
 // as `Ring<CAP>` does, and its last segment was R023E "'Bool' does not name
-// a type". It is the variant's value now: a function's argument and a
+// a type". It is the variant's value: a function's argument and a
 // class's, and two uses of one variant are one instance.
 
 enum FlagKind derives u8 { Bool, String, Int }

@@ -2,7 +2,7 @@
 // (eval.mdx, Usage as generic arguments: "including array sizes"), at file
 // scope, in a module and in a function, and so is arithmetic over eval
 // constants: Sema folds the length (EVAL.md 0.1), so `[i32; N]` is the
-// type `[i32; 3]`. Was an ICE ("CXXSpell: type with no canonical").
+// type `[i32; 3]`. Not an ICE ("CXXSpell: type with no canonical").
 
 eval N = 3
 eval BUFFER_SIZE = 4

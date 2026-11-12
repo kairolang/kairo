@@ -3,8 +3,8 @@
 // make_list().gen()` reads a destroyed list); Tether reports it.
 //
 // XFAIL: *
-// Ticket "[Sema/Tether] A generator that outlives its object or `@inout`
-// argument is not diagnosed".
+// Waits on a diagnostic for a generator that outlives its object or `@inout`
+// argument.
 // Today it compiles and runs against a destroyed temporary (status.mdx, Not
 // Diagnosed; waits on Tether covering generators). The code is not decided;
 // the check asks for an error at the marked line. When it XPASSes, delete the

@@ -1,7 +1,7 @@
 // An instantiation chain that never ends: `f<T>` calls `f<Wrap<T>>`. The
 // discovery fixpoint follows it to --cmax-generic-depth (default 128) and
 // reports it at the use that started it, naming the chain's first three
-// and last three instances; it used to stop silently at depth 8 and leave
+// and last three instances; it does not stop silently and leave
 // the recursion to clang.
 
 pub struct <E> Wrap { pub var item: E }

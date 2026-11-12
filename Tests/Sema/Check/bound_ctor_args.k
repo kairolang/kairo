@@ -4,8 +4,8 @@
 // parameters, with Self as T, like any call: a `string` is not an `i32`.
 //
 // XFAIL: *
-// Ticket "[Sema] `T(args)` in a bounded body is not checked against the
-// bound's constructor requirement" (2026-10-24).
+// Waits on checking `T(args)` in a bounded body against the
+// bound's constructor requirement.
 // Today CallTyping::_param_ctor_call matches the ARITY only,
 // so `T("seven")` type-checks and clang decides it per instance. The error
 // code is not decided; the check below asks for an error at the call. When

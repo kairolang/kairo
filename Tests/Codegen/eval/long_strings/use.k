@@ -1,5 +1,5 @@
 // XFAIL: *
-// Waiting on a string API decision (2026-11-01): Lib/builtin/string.k made
+// Waiting on a string API decision: Lib/builtin/string.k made
 // string's fields private behind as_ptr()/length(), which are run-time fns:
 // an eval context cannot call them (SC001E), and C++ cannot read them in a
 // constant expression. Flip back when eval code can read a string's bytes
