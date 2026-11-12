@@ -3,7 +3,7 @@
 // called through the associated type's witness, as one on a bounded
 // parameter is (interfaces.md, Generic Bodies): `a == b` and `a != b`
 // (derived from `op ==`) on `T::Key` with `type Key impl Eq`, and `x + y`
-// on `T::Item` with `type Item impl Add`. It used to be left to C++.
+// on `T::Item` with `type Item impl Add`. It is not left to C++.
 
 interface Eq { fn op ==(const self, o: Self) -> bool }
 interface Add { fn op +(const self, o: Self) -> Self  fn get(const self) -> i32 }

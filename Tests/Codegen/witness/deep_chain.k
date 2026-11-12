@@ -3,8 +3,8 @@
 // wrapped once more: `hopl<Wrap^11<Metric>>` is reached only through eleven
 // bodies. Each instance on the way binds `(Wrap^k<Metric>, Scalable)`, and
 // every plan holding the outer instance follows the reach to the end, so
-// every row's witness specialization is written. The reach used to stop
-// silently at depth 8, leaving the rest to clang's concept, which rejected
+// every row's witness specialization is written. The reach does not stop
+// silently at depth 8, leaving the rest to clang's concept, which would reject
 // the call; the discovery fixpoint goes to --cmax-generic-depth (128).
 pub interface Scalable {
     fn scale(const self, factor: i32) -> i32

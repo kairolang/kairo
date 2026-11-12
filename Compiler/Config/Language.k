@@ -89,8 +89,9 @@ pub class LangOptions {
     /// -fdefault-visibility=spec|pub (hidden): `pub` keeps the rule from
     /// before 2026-11-08 for unmarked declarations (public, a class's
     /// variables private); `spec`, the default, makes them `priv`, or `prot`
-    /// under a module.k (AST/VisibilityFacts.k). build.py passes `pub` for
-    /// the compiler's own targets.
+    /// under a module.k (AST/VisibilityFacts.k). build.py passes `spec` for
+    /// the compiler's own targets (tree_visibility_args); `pub` stays for
+    /// users and tests.
     pub var default_vis_pub: bool = false
 
     /// # hard kill-switches

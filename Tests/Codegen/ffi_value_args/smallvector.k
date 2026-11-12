@@ -3,7 +3,7 @@
 // own arguments are values (`SmallVectorTemplateBase<T, bool>`, chosen by
 // partial specialization on `is_trivially_copyable<T>::value`): each base
 // is an instance reached through the import with an Integral argument,
-// which TypeImport now maps instead of making the whole base opaque.
+// which TypeImport maps instead of making the whole base opaque.
 //
 // Object only (-c): the out-of-line growth paths live in libLLVMSupport.
 

@@ -1675,6 +1675,15 @@ pub class CXXSpell {
             return s + "arr__" + CXXSpell::_path_ident(self._type(c))
         }
 
+        // `extend i32?`, `extend <T> [T]?` (P325-1): a nullable is its
+        // `::builtin::Nullable<T>` record to C++, but EmitPlan keys a
+        // non-record target's scope by the exact canonical (_same_scope), so
+        // each nullable gets its own struct, named from its C++ spelling as
+        // a fixed array's is: a function of the type and the target alone.
+        if isa<NullableType>(c) {
+            return s + "nul__" + CXXSpell::_path_ident(self._type(c))
+        }
+
         if !isa<RecordType>(c) {
             self._ice(
                 x->range,

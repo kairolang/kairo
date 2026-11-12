@@ -1243,7 +1243,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
 
     // Compiler/Spec/Generics.md#duck-regime: the transitional C++-checked regime. Off, `<T: type>` is an
     // error; on, its body is typed as written and clang checks each instance.
-    // INTERNAL (decided 2026-11-08): off by default, so user code gets real
+    // INTERNAL: off by default, so user code gets real
     // bounds; build.py passes -fduck-generics for the compiler's own targets,
     // whose source still has `: type` sites. Hidden from --help (below).
     cmd->define<FlagKind::Feature>(
@@ -1253,12 +1253,13 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
 
     cmd->mark_hidden("duck-generics")
     // What a declaration with no visibility keyword is (classes.mdx,
-    // modules.mdx; decided 2026-11-08): `spec` is the language's rule, `priv`
+    // modules.mdx): `spec` is the language's rule, `priv`
     // to its file or `prot` to its module when a module.k is above it;
     // `pub` is the rule before it (everything public but a class's
-    // variables). INTERNAL: build.py passes `pub` for the compiler's own
-    // targets, whose source was written under the old rule. The long name
-    // carries the `f` so `-fdefault-visibility=pub` matches it exactly.
+    // variables). INTERNAL: build.py passes `spec` for the compiler's own
+    // targets (tree_visibility_args); `pub` stays for
+    // users and tests. The long name carries the `f` so
+    // `-fdefault-visibility=pub` matches it exactly.
     cmd->define(
         FlagDef::str_c(
             "default-visibility",
@@ -3270,8 +3271,8 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->mark_unimplemented("bcir-stats")
     cmd->mark_unimplemented("suppress")
     // incremental compilation is --cache-dir (Compiler/Spec/Incremental.md,
-    // phase 1); these two older spellings of it are not wired. The module cache
-    // is phase 2's.
+    // phase 1); `--incremental` and `--incremental-dir` are not wired. The module
+    // cache is phase 2's.
     cmd->mark_unimplemented("incremental")
     cmd->mark_unimplemented("incremental-dir")
     cmd->mark_unimplemented("module-name")

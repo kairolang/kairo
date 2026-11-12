@@ -335,7 +335,8 @@ pub class <T: type> MemberTyping {
                 && cur != &null
                 && (st->access_kind == ChainExpr::AccessKind::Dot
                     || st->access_kind == ChainExpr::AccessKind::Arrow)
-                && self.dyn()->tu.nullable_inner(self.dyn()->ml.peel_ref(cur)) != &null {
+                && self.dyn()->tu.nullable_inner(self.dyn()->ml.peel_ref(cur)) != &null
+                && !self.dyn()->cb.nullable_member_step(n, st, cur) { // `extend T?`'s own member reads no value (P325-1).
                 var o = self.dyn()->flow.read_prefix(n, i)
                 if o == NULL_READ_REFUSED {
                     self.dyn()->poison_only(n)

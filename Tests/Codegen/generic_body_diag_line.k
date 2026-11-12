@@ -2,10 +2,10 @@
 // however much C++ the functions above it emitted. Each emitted token
 // borrows a byte of the Kairo source as its location, one per token; the
 // signatures and namespace wrappers of a1..a3, anchored on short names,
-// run on through the bytes after them, and the `.` below used to find its
+// run on through the bytes after them, so the `.` below must not find its
 // own byte taken by a token from the signature. Clang's "member reference base
-// type" error, placed on the `.`, then landed on the closing brace below it.
-// The token anchored on a byte now takes it back from one that walked there.
+// type" error, stays on the `.` and does not land on the closing brace below it.
+// The token anchored on a byte takes it back from one that walked there.
 
 fn a1(v: i32) -> i32 { return v * 2 }
 fn a2(v: i32) -> i32 { return v * 3 }

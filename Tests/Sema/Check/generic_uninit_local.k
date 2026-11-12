@@ -4,8 +4,8 @@
 // is fine.
 //
 // XFAIL: *
-// Ticket "[Sema] `var x: T` with no initializer in a generic body is not
-// diagnosed". Today the unbounded
+// Waits on a diagnostic for `var x: T` with no initializer in a generic
+// body. Today the unbounded
 // case is accepted (status.mdx, Not Diagnosed). The code is not decided; the
 // check asks for an error at the marked line. When it XPASSes, delete the
 // XFAIL and pin the code and message.

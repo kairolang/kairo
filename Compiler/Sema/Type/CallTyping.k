@@ -1884,7 +1884,10 @@ pub class <T: type> CallTyping {
         // `Self` is the receiver, and viability is judged against it.
         var recv: unsafe *Type = &null
         if receiver != &null {
-            recv = self.dyn()->tu.strip_nullable(receiver)
+            // A member of `extend T?` takes the nullable itself as `self`
+            // (P325-1), and its extension's parameters deduce from it.
+            recv = if (self.dyn()->cb.binds_nullable_member(step)) => (receiver)
+                   else => self.dyn()->tu.strip_nullable(receiver)
             var pt = self.dyn()->tu.pointee(recv)
             if pt != &null {
                 recv = pt

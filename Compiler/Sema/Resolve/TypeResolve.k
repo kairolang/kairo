@@ -5054,7 +5054,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         self._push_frame(NameLookup::representative(n), n->generic_params)
         if n->target != &null {
             self.dispatch_type(n->target)
-            self._reject_pointer_target(n)
+            self._reject_unextendable_target(n)
         }
 
         // Self is the target as WRITTEN, args and all, after it resolved:
@@ -5081,37 +5081,91 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return out
     }
 
-    /// `extend *T`, `extend *const T`, `extend unsafe *T` (P325, decided
-    /// 2026-11-11: an error, not a feature): the members a pointer has are
-    /// its pointee's, reached with `->`, and before this check such a block
-    /// passed Sema and reached codegen, which has no scope to put its
-    /// members in (an ICE in CXXSpell::ext_scope_name). A container OF
-    /// pointers (`extend <T> [*T]`) is an ordinary record target and stays
-    /// legal.
-    priv fn _reject_pointer_target(self, n: unsafe *Declarations::ExtensionDecl) {
+    /// The targets an `extend` cannot have (P325 decided 2026-11-11, P943
+    /// decided 2026-11-12), each its own code:
+    ///   - a pointer, `*T` / `*const T` / `unsafe *T` (SC282E): its members
+    ///     are its pointee's, reached with `->`. A container OF pointers
+    ///     (`extend <T> [*T]`) is an ordinary record target and stays legal.
+    ///   - a function type, `fn(A) -> R` / `unsafe fn(A) -> R` (SC283E):
+    ///     the type of a function pointer or closure, which has no scope to
+    ///     hold members (an ICE in CXXSpell::ext_scope_name before this).
+    ///   - a bare type parameter, `extend <T> T` with or without bounds, and
+    ///     `extend <T> T?` (SC284E): a target that matches every type (or
+    ///     every nullable one) would join the member lookup of all of them.
+    /// A nullable of anything else is an ordinary target (`extend i32?`,
+    /// `extend <T> [T]?`). A nullable POINTER is still a pointer.
+    priv fn _reject_unextendable_target(self, n: unsafe *Declarations::ExtensionDecl) {
         var unsafe *t = n->target
         if t == &null || t->canonical == &null || n->is_poisoned() {
             return
         }
 
-        var unsafe *c = canon_unqual(t->canonical)
-        if !isa<PointerType>(c) {
+        var unsafe *c       = canon_unqual(t->canonical)
+        var        nullable = false
+        if isa<NullableType>(c) && cast<NullableType>(c)->inner != &null {
+            var unsafe *inner = cast<NullableType>(c)->inner
+            c        = canon_unqual(if (inner->canonical != &null) => (inner->canonical) else => inner)
+            nullable = true
+        }
+
+        var id   = DiagID::SC282E
+        var msg  = ""
+        var what = ""
+        if isa<PointerType>(c) {
+            msg  = "a pointer type cannot be extended; extend the type it points to, and call those members through the pointer with '->'"
+            what = "pointer target"
+        } else if isa<FunctionPointerType>(c) {
+            id   = DiagID::SC283E
+            msg  = "a function type cannot be extended; write a free function that takes the function as a parameter, or wrap it in a struct or class and extend that"
+            what = "function type target"
+        } else if isa<GenericParamType>(c) || isa<SubstGenericParamType>(c) {
+            id = DiagID::SC284E
+            var sp    = self.sc->ctx->get_spelling(t->range)
+            var every = if (nullable) => ("every nullable type") else => "every type"
+            var whom  = if (nullable) => ("a nullable of a bare type parameter") else => "a bare type parameter"
+            msg = f"ambiguous extend: '{sp}' is {whom}, so this would add members to {every}; extend a named type or a generic type such as '[T]' or 'Box<T>', or write a free generic function"
+            what = f"matches {every}"
+        } else {
+            if nullable {
+                self._reject_nullable_operators(n)
+            }
+
             return
         }
 
-        var b = self.sc->diag->report(
-            DiagID::SC001E,
-            t->range.start,
-            "a pointer type cannot be extended; extend the type it points to, and call those members through the pointer with '->'",
-        )
-
-        b.first(t->range, "pointer target")
+        var b = self.sc->diag->report(id, t->range.start, msg)
+        b.first(t->range, what)
         b.emit()
         // The block is poisoned, not its target: a generic block is walked
         // again and would report twice, while the target keeps its type so
-        // `Self` and `self` in the body still mean the pointer and cascade
-        // nothing. The TU has an error, so nothing is emitted.
+        // `Self` and `self` in the body still mean what was written and
+        // cascade nothing. The TU has an error, so nothing is emitted.
         n->poison()
+    }
+
+    /// An operator in an `extend T?` block (P325-1): the nullable's
+    /// operands are read as values by operator typing (`a + 1` on a maybe-
+    /// null `a` is the nullness error, and the operator is looked up on T),
+    /// so such an operator could never be called. Refused at its
+    /// declaration until operator typing knows a nullable's own operators;
+    /// methods, statics and `impl` work.
+    priv fn _reject_nullable_operators(self, n: unsafe *Declarations::ExtensionDecl) {
+        for var i: usize = 0; i < n->methods.size(); ++i {
+            var unsafe *f = n->methods[i]
+            if f == &null || !f->is_operator || f->is_implicit {
+                continue
+            }
+
+            var b = self.sc->diag->report(
+                DiagID::SC001E,
+                f->range.start,
+                "an extension of a nullable type cannot declare an operator yet; write a method, or extend the non-nullable type",
+            )
+
+            b.first(f->range, "operator in an extension of a nullable type")
+            b.emit()
+            f->poison()
+        }
     }
 
     /// True when `d`'s names live in another TU. DAG order guarantees that

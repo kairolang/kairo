@@ -51,7 +51,10 @@
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
-import AST::Context::DeclContext::DeclContext
+import AST::Context::DeclContext::{
+    DeclContext,
+    DeclContextKind,
+}
 import AST::Context::SymbolTable::{
     DeclName,
     OverloadCell,
@@ -1055,6 +1058,17 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 || st->access_kind == ChainExpr::AccessKind::Arrow) {
             var unsafe *vc = canon_unqual(self.ml.peel_ref(a.ty))
             if vc != &null && isa<NullableType>(vc) {
+                // A member an `extend T?` declares is the NULLABLE's own
+                // (P325-1, decided 2026-11-12): `self` is the `T?`, so the
+                // call reads no value and is legal null or not. It binds
+                // here, on the nullable, before any narrowing could make it
+                // a lookup in T; MemberTyping leaves such a step alone
+                // (binds_nullable_member).
+                var ncands = cxx::std::vector<unsafe *Decl>()
+                if !vc->is_dependent() && self.ml.lookup(vc, name, unsafe &ncands) {
+                    return self._commit(st, loc, unsafe &ncands, &null, &null, vc)
+                }
+
                 self._record(loc, MemberOutcome::NeedsInference, &null, 0, a.decl)
                 self.n_inference += 1
                 var r = Anchor()
@@ -1169,6 +1183,62 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         return ty
+    }
+
+    /// \p st is bound to a member an `extend T?` declares: a member of the
+    /// nullable itself, so a `.` on it reads no value (P325-1). MemberTyping
+    /// asks before it narrows a nullable receiver or reports it unchecked.
+    fn binds_nullable_member(self, st: unsafe *ChainExpr::Step) -> bool {
+        if st == &null {
+            return false
+        }
+
+        var unsafe *d = st->resolved_decl
+        if d == &null && st->candidate_cell != &null && st->candidate_cell->size() > 0 {
+            d = st->candidate_cell->get(0)
+        }
+
+        if d == &null || d->semantic_dc == &null || d->semantic_dc->dc_kind != DeclContextKind::Extension {
+            return false
+        }
+
+        var unsafe *x = dyn_cast<Declarations::ExtensionDecl>(d->semantic_dc->owner_decl())
+        return x != &null
+            && x->target != &null
+            && x->target->canonical != &null
+            && isa<NullableType>(canon_unqual(x->target->canonical))
+    }
+
+    /// MemberTyping's question before it reads nullable receiver \p cur at
+    /// \p st: is the step a member of `extend T?`? A step this binder left
+    /// unbound (a field path, `h.n.f()`) is bound here first, on the
+    /// nullable, when such an extension declares the name.
+    fn nullable_member_step(self, chain: unsafe *ChainExpr, st: unsafe *ChainExpr::Step, cur: unsafe *Type) -> bool {
+        if st == &null || cur == &null {
+            return false
+        }
+
+        if st->resolved_decl != &null || st->candidate_cell != &null {
+            return self.binds_nullable_member(st)
+        }
+
+        if st->name == &null || st->name->is_poisoned() || st->is_operator() || st->is_tuple_index() {
+            return false
+        }
+
+        var unsafe *vc = canon_unqual(self.ml.peel_ref(cur))
+        var        imm = self._name_imm(st->name->name)
+        if vc == &null || !isa<NullableType>(vc) || vc->is_dependent() || imm == u32::MAX {
+            return false
+        }
+
+        var probe = cxx::std::vector<unsafe *Decl>()
+        if !self.ml.lookup(vc, DeclName::ident(imm), unsafe &probe) {
+            return false
+        }
+
+        self.bind_step(chain, st, self.anchor_for_value(&null, vc))
+        return self.binds_nullable_member(st)
     }
 
     /// `?.`/`?->` peel the nullable they guard. `T?` may have been lowered to

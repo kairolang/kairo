@@ -2,8 +2,8 @@
 // record's can (classes.mdx, field defaults).
 //
 // XFAIL: *
-// Ticket "[Sema] A generic record's field default cannot read another field
-// (SC116E)". Today: SC116E
+// A generic record's field default cannot read another field
+// (SC116E). Today: SC116E
 // "reading another field in the default of a generic record's field is not
 // yet supported" (GitHub #95). When it XPASSes, delete the XFAIL -- the run
 // below is already the real assertion.

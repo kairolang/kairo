@@ -1,7 +1,7 @@
-// A calling convention cannot cross the C/C++ boundary (SC136E): GCC has
-// no spelling for it. A function that is not `priv` is in the module's C++
-// header, and an `ffi` declaration is C or C++ by definition. `priv` and a
-// function local to another stay in their TU.
+// SC136E: GCC cannot spell a calling convention, so none may cross into C++.
+// A function not `priv`, written or by default, is in the C++ header:
+// with no module.k above, unmarked is `priv`, so lines 7 and 14 are fine and
+// only `pub` (10) and `ffi` (19) fail. Under a module: callconv_module.k.
 
 @preserve_most
 fn public_by_default(n: usize) -> usize { return n }
@@ -35,8 +35,6 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only --target=x86_64-linux-gnu 2>&1 || true; } | %FileCheck %s
-// CHECK-DAG: callconv_boundary.k:7:{{[0-9]+}}: error [SC136E]: '@preserve_most' cannot cross the C/C++ boundary: GCC cannot call it
 // CHECK-DAG: callconv_boundary.k:10:{{[0-9]+}}: error [SC136E]: '@preserve_all' cannot cross the C/C++ boundary: GCC cannot call it
-// CHECK-DAG: callconv_boundary.k:14:{{[0-9]+}}: error [SC136E]: '@preserve_most' cannot cross the C/C++ boundary
 // CHECK-DAG: callconv_boundary.k:19:{{[0-9]+}}: error [SC136E]: '@preserve_most' cannot cross the C/C++ boundary
-// CHECK-NOT: callconv_boundary.k:{{2[3-9]|3[0-9]}}:{{.*}}error
+// CHECK-NOT: callconv_boundary.k:{{7|14|2[3-9]|3[0-9]}}:{{.*}}error

@@ -5692,3 +5692,83 @@ group = "lint"
 
     [SC278.N]
     explain = "Points at the base's hook, or at a call of it through the dyn method."
+
+[SC282]
+brief = "a pointer type cannot be extended"
+group = "extend"
+
+    [SC282.E]
+    explain = """
+    # a pointer type cannot be extended
+
+    An `extend` block adds members to one type. A pointer has no members of
+    its own: `p->m` reads the member of what `p` points to. So the target of
+    an `extend` is never `*T`, `*const T` or `unsafe *T`, generic or not.
+    A container OF pointers is an ordinary type and can be extended.
+
+    ```kairo
+    extend *i32 { fn f(self) -> i32 { return 1 } }       // error
+    extend <T> [*T] { fn f(self) -> i32 { return 1 } }   // fine
+    ```
+
+    ## how to fix
+
+    extend the type the pointer points to, and call its members through the
+    pointer with `->`. SC283E (a function type) and SC284E (a bare type
+    parameter) are the other targets an `extend` cannot have.
+    """
+
+[SC283]
+brief = "a function type cannot be extended"
+group = "extend"
+
+    [SC283.E]
+    explain = """
+    # a function type cannot be extended
+
+    A function type (`fn(i32) -> i32`, `unsafe fn()`, one with a calling
+    convention) is the type of a function pointer or a closure value. It is
+    not a type an `extend` can add members to: a call `f.m()` on a value of
+    it would read like a call of the function itself, and every function
+    with that signature, in every module, would gain the member.
+
+    ```kairo
+    extend fn(i32) -> i32 { fn twice(self) -> i32 { return 2 } }   // error
+    ```
+
+    ## how to fix
+
+    write a free function that takes the function value as a parameter
+    (`fn twice(f: fn(i32) -> i32, x: i32) -> i32`), or wrap the function in
+    a struct or class and extend that.
+    """
+
+[SC284]
+brief = "an extend of a bare type parameter would add members to every type"
+group = "extend"
+
+    [SC284.E]
+    explain = """
+    # an extend of a bare type parameter would add members to every type
+
+    `extend <T> T` names no type: its target matches every type there is, so
+    its members would join the member lookup of every type in every file
+    that sees the block, `i32`, `string` and every class alike, bound or
+    not. That makes any member call ambiguous or silently redirected by a
+    block nobody at the call site wrote, which is why it is refused. A
+    bound (`extend <T impl Show> T`) does not change that: the set is every
+    type that has the bound, decided per type and changing as types gain
+    conformances. `extend <T> T?` is the same over every nullable type.
+
+    ```kairo
+    extend <T> T { fn describe(self) -> string { return "?" } }    // error
+    extend <T> [T] { fn describe(self) -> string { return "?" } }  // fine
+    ```
+
+    ## how to fix
+
+    extend a named type (`extend i32`, `extend Point`) or a generic type
+    constructor over the parameter (`extend <T> [T]`, `extend <T> Box<T>`,
+    `extend <T> [T]?`), or write a free generic function
+    (`fn <T impl Show> describe(x: T) -> string`).
+    """

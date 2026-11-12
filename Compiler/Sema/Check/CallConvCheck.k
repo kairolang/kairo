@@ -66,6 +66,7 @@ import AST::Node::Expressions::{
 }
 import AST::Node::Program::TopLevelKind
 import AST::OperatorFacts::OperatorFacts
+import AST::VisibilityFacts::default_visibility_of
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
@@ -413,9 +414,10 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
     }
 
     /// \p f is visible to C or C++: an `ffi` declaration, or a function no
-    /// enclosing scope makes private. `internal` still reaches the module's
-    /// header (another file of the module includes it), so only `priv`, or
-    /// a function local to another, keeps it in its TU.
+    /// enclosing scope makes private, written or by default. `internal`
+    /// still reaches the module's header (another file of the module
+    /// includes it), so only `priv`, or a function local to another, keeps
+    /// it in its TU.
     priv fn _crosses_boundary(self, f: unsafe *FunctionDecl) -> bool {
         if f->has_ffi_linkage() {
             return true
@@ -442,6 +444,14 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
                 if v == VisibilityKind::None && fd != &null && fd->first_decl() != &null {
                     v = fd->first_decl()->visibility
                 }
+            }
+
+            // Unmarked is the documented default, not `pub` (P771): `priv`
+            // outside a module, `prot` in one. Reading only the written word
+            // made every unmarked function in a module-less file "public"
+            // and rejected a calling convention that never reaches C++.
+            if v == VisibilityKind::None {
+                v = default_visibility_of(d)
             }
 
             if v == VisibilityKind::Private {

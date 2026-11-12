@@ -289,10 +289,11 @@ pub class MemberLookup {
                     self._hidden_by_decl[key].push_back(e)
                 }
             } else if seen {
-                // `extend i32 { }`, `extend [u8] { }`: one exact canonical.
-                self._ext_by_type[c as usize as u64].push_back(e)
+                // `extend i32 { }`, `extend [u8] { }`: one exact canonical
+                // (a nullable of a record: its primary, _type_key).
+                self._ext_by_type[MemberLookup::_type_key(c)].push_back(e)
             } else {
-                self._hidden_by_type[c as usize as u64].push_back(e)
+                self._hidden_by_type[MemberLookup::_type_key(c)].push_back(e)
             }
 
             return
@@ -334,10 +335,33 @@ pub class MemberLookup {
         return unsafe &it->second
     }
 
+    /// The _ext_by_type key of non-record canonical \p c: its address,
+    /// except a nullable of a record (`[T]?`, `Box<i32>?`), which keys on
+    /// the record's primary, tagged so it can meet no type's address (decls
+    /// and types are both 8-aligned): `extend <T> [T]?` then reaches every
+    /// `[X]?` at name level, as `extend <T> [T]` reaches every `[X]` through
+    /// _ext_by_decl, and which instance runs is overload resolution's.
+    static fn _type_key(c: unsafe *Type) -> u64 {
+        if c != &null && isa<NullableType>(c) && cast<NullableType>(c)->inner != &null {
+            var unsafe *inner = cast<NullableType>(c)->inner
+            var unsafe *ic    = canon_unqual(if (inner->canonical != &null) => (inner->canonical) else => inner)
+            if ic != &null && isa<RecordType>(ic) && cast<RecordType>(ic)->decl != &null {
+                var unsafe *d = cast<RecordType>(ic)->decl
+                if decl_is_instance(d) && decl_instantiated_from(d) != &null {
+                    d = decl_instantiated_from(d)
+                }
+
+                return (d as usize as u64) + 1
+            }
+        }
+
+        return c as usize as u64
+    }
+
     fn extensions_of_type(self,
                           c: unsafe *Type) -> unsafe *cxx::std::vector<unsafe *Declarations::ExtensionDecl> {
         self.index_extensions()
-        var it = self._ext_by_type.find(c as usize as u64)
+        var it = self._ext_by_type.find(MemberLookup::_type_key(c))
         if it == self._ext_by_type.end() {
             return &null
         }
@@ -354,7 +378,7 @@ pub class MemberLookup {
             return &null
         }
 
-        var key = c as usize as u64
+        var key = MemberLookup::_type_key(c)
         var hit = self._hidden_by_type.find(key)
         var end = self._hidden_by_type.end()
         if isa<RecordType>(c) {
