@@ -8,10 +8,10 @@
 // AST-NEXT:       `-VariableDecl var p
 // AST-NEXT:         `-NamedInitializerExpr
 // AST-NEXT:           `-NamedIdentExpr Point
-// AST: -- 0 error(s), 0 warning(s) --
+// AST: -- 1 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R020E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S052E]:
 // END-GENERATED-CHECKS(AST)
 
 fn Test() { var p = Point { x: }; }

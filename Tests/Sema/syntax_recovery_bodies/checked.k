@@ -7,7 +7,7 @@
 // on Sema runs: this file's own type error is reported (with the mode off
 // the parse error stops the action first), and nothing is reported about
 // the broken bodies or because of them -- not the parameter the dropped
-// body used, not the constructor that no longer sets its field, not the
+// body used, not the constructor that does not set its field, not the
 // interface method whose body is gone. Uses of the broken functions resolve
 // to them; healthy code in the broken file resolves as it would.
 //
@@ -18,19 +18,19 @@
 //
 // OFF: broken_lib.k:9:18: error [S052E]: expected expression, found ';'
 // OFF: broken_lib.k:13:26: error [S052E]: expected expression, found ';'
-// OFF: broken_lib.k:30:17: error [S054E]: expected ')' or ',' after expression
 // OFF: broken_lib.k:30:21: error [S052E]: expected expression, found ')'
-// OFF: broken_lib.k:39:19: error [S054E]
 // OFF: broken_lib.k:39:23: error [S052E]
-// OFF: broken_lib.k:39:26: error [S052E]
+// (The failed operand leaves the `)` and the `,` for the group and
+// the tuple, so 30:17 and 39:19 lose their "expected ')' or ','" and 39:26
+// its second "expected expression": one error per missing operand.)
 //
 // ON-DAG: broken_lib.k:9:18: error [S052E]: expected expression, found ';'
 // ON-DAG: broken_lib.k:13:26: error [S052E]: expected expression, found ';'
-// ON-DAG: broken_lib.k:30:17: error [S054E]: expected ')' or ',' after expression
 // ON-DAG: broken_lib.k:30:21: error [S052E]: expected expression, found ')'
-// ON-DAG: broken_lib.k:39:19: error [S054E]
 // ON-DAG: broken_lib.k:39:23: error [S052E]
-// ON-DAG: broken_lib.k:39:26: error [S052E]
+//
+//
+//
 // ON-DAG: checked.k:48:18: error [SC028E]: cannot convert 'string' to 'i32'
 //
 // SEMA-DAG: use     above       @ 44:12    -> fn above @ 34:5  [scope <tu>]

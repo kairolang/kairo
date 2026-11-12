@@ -266,17 +266,33 @@ pub class <T: type> ExprParse {
     /// Sync, then guarantee the cursor moved. For use inside recovery LOOPS:
     /// _sync_expr stops ON a boundary token without consuming it, which is
     /// correct positioning but spins a caller that retries from the same spot.
+    ///
+    /// Except on a closing bracket: that belongs to the list being parsed or
+    /// to something around it, and consuming it is what let `foo(1,` then the
+    /// body's `}` run the body on to the end of the file. A stray closer
+    /// (closer_is_owned false) is junk and is stepped over as before.
+    /// Returns true when the cursor is left on a closer (or EOF); the caller
+    /// then leaves its
+    /// loop and lets its own closer check, or the construct around it, deal
+    /// with the token. Retrying from a closer would only report the same
+    /// "expected expression" on it again.
     priv fn _sync_expr_progress(self,
                                 ctx:             Self::ExprSyncCtx,
                                 paren_depth:     i32  = 0,
                                 square_depth:    i32  = 0,
                                 brace_depth:     i32  = 0,
-                                stop_at_newline: bool = false) {
+                                stop_at_newline: bool = false) -> bool {
         var before = self.dyn()->c_idx
         self._sync_expr(ctx, paren_depth, square_depth, brace_depth, stop_at_newline)
+        if self.dyn()->is_eof() || self._at_owned_closer() {
+            return true
+        }
+
         if self.dyn()->c_idx == before {
             self.dyn()->advance()
         }
+
+        return false
     }
 
     //  Entry point
@@ -2575,7 +2591,11 @@ pub class <T: type> ExprParse {
         while !self.dyn()->is_eof() {
             self.dyn()->advance(T::SkipNL::Only)
 
-            if self.dyn()->check(TokenKind::OpRParen) {
+            // `)` ends the list; a `}` or `]` belongs to something around
+            // the call (`foo(1,` then the body's `}`), and the caller's one
+            // "expected ')'" says what is wrong. Parsing an argument from it
+            // would only add "expected expression" on the same token.
+            if self.dyn()->check(TokenKind::OpRParen) || self._at_owned_closer() {
                 return
             }
 
@@ -2616,7 +2636,9 @@ pub class <T: type> ExprParse {
                         return
                     }
 
-                    self._sync_expr_progress(Self::ExprSyncCtx::Comma, 1)
+                    if self._sync_expr_progress(Self::ExprSyncCtx::Comma) {
+                        return
+                    }
                 } else {
                     // A real node, not an AssignOperatorExpr wearing a `:`.
                     // The label was never an expression, and every reader of
@@ -2637,11 +2659,17 @@ pub class <T: type> ExprParse {
                 )
 
                 if arg == &null || is_recovery(arg) {
+                    if arg == &null {
+                        self._report_missing_element()
+                    }
+
                     if self._is_decl_keyword(self.dyn()->ig_kind()) {
                         return
                     }
 
-                    self._sync_expr_progress(Self::ExprSyncCtx::Comma, 1)
+                    if self._sync_expr_progress(Self::ExprSyncCtx::Comma) {
+                        return
+                    }
 
                     // sync guarantees progress; let the outer loop handle
                     // whatever we landed on
@@ -2667,8 +2695,9 @@ pub class <T: type> ExprParse {
 
             // no comma and not `)` missing separator
             if !self.dyn()->check(TokenKind::OpRParen) {
-                // check bail before reporting
-                if self._is_decl_keyword(self.dyn()->ig_kind()) {
+                // check bail before reporting; a `}` / `]` means the `)` is
+                // missing, which the caller reports on its own
+                if self._is_decl_keyword(self.dyn()->ig_kind()) || self._at_owned_closer() {
                     return
                 }
 
@@ -2678,7 +2707,17 @@ pub class <T: type> ExprParse {
                     "expected ',' or ')' after argument in function call",
                 )
 
-                self._sync_expr(Self::ExprSyncCtx::Paren, 1, 0, 0, true)
+                // Skip the junk up to the next argument or this list's own
+                // `)`, never through it: the `)` is the call's, and the
+                // tokens after it are the statement's, not more arguments.
+                self._sync_expr(Self::ExprSyncCtx::Paren, 0, 0, 0, true)
+                if self.dyn()->check(TokenKind::OpComma) {
+                    self.dyn()->advance(T::SkipNL::After)
+                } else if self.dyn()->is_eof() || self._at_owned_closer() {
+                    return
+                } else if self._at_closer() {
+                    self.dyn()->advance() // a stray closer: junk, as before
+                }
             }
         }
     }
@@ -3135,8 +3174,84 @@ pub class <T: type> ExprParse {
             f"expected expression, found '{token_kind_to_readable_string(resolved.kind)}'",
         ).first(cur_range)->emit()
 
-        self.dyn()->advance() // skip to prevent infinite loop
+        // A token that ends an enclosing construct stays where it is: `1 +`
+        // then the body's `}` is a missing operand, and eating the `}` made
+        // the body run on to the end of the file (one bogus S057E there, and
+        // every declaration below swallowed). The loop that owns the token
+        // makes the progress instead: parse_compound ends on `}`, a list loop
+        // on its own closer or takes the `,` as the separator it is, a match
+        // body starts its next arm on a `case` that starts a line, and a
+        // closer left at a statement start is skipped by the statement
+        // loops. A closer counts only when the text has its opener still
+        // open (closer_is_owned); a stray one, like anything else in operand
+        // position, is junk and is skipped here.
+        var is_closer = resolved.kind == TokenKind::OpRBrace
+            || resolved.kind == TokenKind::OpRParen
+            || resolved.kind == TokenKind::OpRSquare
+        var keep = false
+        if is_closer {
+            keep = self.dyn()->operand_closer_is_owned()
+        } else if resolved.kind == TokenKind::KwCase || resolved.kind == TokenKind::KwDefault {
+            keep = self.dyn()->starts_line()
+        } else if resolved.kind == TokenKind::OpComma {
+            keep = stop.has(Self::ExprStopKind::StopComma)
+        } else {
+            keep = Self::_ends_enclosing(resolved.kind)
+        }
+        if !keep {
+            self.dyn()->advance()
+        } else if is_closer && !self.dyn()->diag->is_suppressed() {
+            self.dyn()->_kept_closer = cur_ptr
+        }
+
         return self._error_expr(cur_range)
+    }
+
+    /// \brief true for a token that closes or terminates something the
+    ///        current expression sits in: a closing bracket of any kind, a
+    ///        statement terminator, the end of the file. Recovery never
+    ///        consumes one of these on a failed operand; see the no-match
+    ///        path of the primary parser.
+    priv inline static fn _ends_enclosing(k: TokenKind) -> bool {
+        return k == TokenKind::OpRBrace
+            || k == TokenKind::OpRParen
+            || k == TokenKind::OpRSquare
+            || k == TokenKind::OpSemicolon
+            || k == TokenKind::TkNewLine
+            || k == TokenKind::TkEof
+    }
+
+    /// \brief true on a closing bracket of any kind.
+    priv inline fn _at_closer(self) -> bool {
+        var k = self.dyn()->ig_kind()
+        return k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare
+    }
+
+    /// \brief true on a closer that closes a bracket still open before it
+    ///        (ASTParse::closer_is_owned): one some construct around the
+    ///        cursor is waiting for, not a stray one.
+    priv inline fn _at_owned_closer(self) -> bool {
+        return self._at_closer() && self.dyn()->closer_is_owned()
+    }
+
+    /// \brief S052E for a list element that is not there at all (`[1, , 3]`,
+    ///        `f(1, , 2)`): parse_expr returns null, unreported, when it
+    ///        starts on a stop token. While recovery ate the `,` and the list's
+    ///        own closer, some later error happened to fire; now that it keeps
+    ///        them, the hole would otherwise pass silently.
+    priv fn _report_missing_element(self) {
+        // after a depth abort S063E already said why; at the end of the file
+        // the unclosed list or block is what gets reported
+        if self.dyn()->_depth_aborted || self.dyn()->is_eof() {
+            return
+        }
+
+        var at = self.dyn()->current_range()
+        self.dyn()->diag->report(
+            DiagID::S052E,
+            at.start,
+            f"expected expression, found '{token_kind_to_readable_string(self.dyn()->ig_kind())}'",
+        ).first(at)->emit()
     }
 
     //  Identifier expression (with optional generic args)
@@ -3523,8 +3638,8 @@ pub class <T: type> ExprParse {
         while self.dyn()->check(TokenKind::OpComma) {
             self.dyn()->advance(T::SkipNL::After) // consume `,`
 
-            if self.dyn()->check(TokenKind::OpRParen) { // trailing comma
-                break
+            if self.dyn()->check(TokenKind::OpRParen) || self._at_owned_closer() {
+                break // trailing comma, or a closer of something around us
             }
 
             var unsafe *elem = self.parse_expr(
@@ -3532,7 +3647,14 @@ pub class <T: type> ExprParse {
             )
 
             if elem == &null || is_recovery(elem) {
-                self._sync_expr_progress(Self::ExprSyncCtx::Comma, 1)
+                if elem == &null {
+                    self._report_missing_element()
+                }
+
+                if self._sync_expr_progress(Self::ExprSyncCtx::Comma) {
+                    break
+                }
+
                 continue
             }
 
@@ -3595,8 +3717,8 @@ pub class <T: type> ExprParse {
         // stays the enclosing context's.
         self.dyn()->nl_push()
         while !self.dyn()->is_eof() {
-            if self.dyn()->check(TokenKind::OpRSquare) {
-                break
+            if self.dyn()->check(TokenKind::OpRSquare) || self._at_owned_closer() {
+                break // `]`, or a closer of something around the list
             }
 
             var unsafe *elem = self.parse_expr(
@@ -3604,7 +3726,14 @@ pub class <T: type> ExprParse {
             )
 
             if elem == &null || is_recovery(elem) {
-                self._sync_expr_progress(Self::ExprSyncCtx::Comma, 0, 1)
+                if elem == &null {
+                    self._report_missing_element()
+                }
+
+                if self._sync_expr_progress(Self::ExprSyncCtx::Comma) {
+                    break
+                }
+
                 continue
             }
 
@@ -3828,8 +3957,8 @@ pub class <T: type> ExprParse {
         while self.dyn()->check(TokenKind::OpComma) {
             self.dyn()->advance(T::SkipNL::After)
 
-            if self.dyn()->check(TokenKind::OpRBrace) {
-                break
+            if self.dyn()->check(TokenKind::OpRBrace) || self._at_owned_closer() {
+                break // trailing comma, or a closer of something around us
             }
 
             var unsafe *elem = self.parse_expr(
@@ -3837,7 +3966,14 @@ pub class <T: type> ExprParse {
             )
 
             if elem == &null || is_recovery(elem) {
-                self._sync_expr_progress(Self::ExprSyncCtx::Comma, 0, 0, 1)
+                if elem == &null {
+                    self._report_missing_element()
+                }
+
+                if self._sync_expr_progress(Self::ExprSyncCtx::Comma) {
+                    break
+                }
+
                 continue
             }
 
@@ -3899,8 +4035,8 @@ pub class <T: type> ExprParse {
         while self.dyn()->check(TokenKind::OpComma) {
             self.dyn()->advance(T::SkipNL::After)
 
-            if self.dyn()->check(TokenKind::OpRBrace) {
-                break
+            if self.dyn()->check(TokenKind::OpRBrace) || self._at_owned_closer() {
+                break // trailing comma, or a closer of something around us
             }
 
             var unsafe *key = self.parse_expr(
@@ -3908,7 +4044,11 @@ pub class <T: type> ExprParse {
             )
 
             if key == &null {
-                self._sync_expr_progress(Self::ExprSyncCtx::Comma, 0, 0, 1)
+                self._report_missing_element()
+                if self._sync_expr_progress(Self::ExprSyncCtx::Comma) {
+                    break
+                }
+
                 continue
             }
 
@@ -3918,7 +4058,10 @@ pub class <T: type> ExprParse {
                     key->range.start,
                     "expected ':' after key in map literal",
                 ).first(key->range)->emit()
-                self._sync_expr_progress(Self::ExprSyncCtx::Comma, 0, 0, 1)
+                if self._sync_expr_progress(Self::ExprSyncCtx::Comma) {
+                    break
+                }
+
                 continue
             }
 
@@ -3929,7 +4072,11 @@ pub class <T: type> ExprParse {
             )
 
             if val == &null {
-                self._sync_expr_progress(Self::ExprSyncCtx::Comma, 0, 0, 1)
+                self._report_missing_element()
+                if self._sync_expr_progress(Self::ExprSyncCtx::Comma) {
+                    break
+                }
+
                 continue
             }
 
@@ -3977,7 +4124,10 @@ pub class <T: type> ExprParse {
                     "expected '.field: value' in anonymous initializer",
                 )
 
-                self._sync_expr_progress(Self::ExprSyncCtx::Comma, 0, 0, 1)
+                if self._sync_expr_progress(Self::ExprSyncCtx::Comma) {
+                    break
+                }
+
                 if self.dyn()->check(TokenKind::OpComma) {
                     self.dyn()->advance(T::SkipNL::After)
                 }
@@ -3994,7 +4144,10 @@ pub class <T: type> ExprParse {
                     "expected field name after '.' in anonymous initializer",
                 )
 
-                self._sync_expr_progress(Self::ExprSyncCtx::Comma, 0, 0, 1)
+                if self._sync_expr_progress(Self::ExprSyncCtx::Comma) {
+                    break
+                }
+
                 if self.dyn()->check(TokenKind::OpComma) {
                     self.dyn()->advance(T::SkipNL::After)
                 }
@@ -4012,7 +4165,10 @@ pub class <T: type> ExprParse {
                     name_range.start,
                     "expected ':' after field name in anonymous initializer",
                 ).first(name_range)->emit()
-                self._sync_expr_progress(Self::ExprSyncCtx::Comma, 0, 0, 1)
+                if self._sync_expr_progress(Self::ExprSyncCtx::Comma) {
+                    break
+                }
+
                 if self.dyn()->check(TokenKind::OpComma) {
                     self.dyn()->advance(T::SkipNL::After)
                 }
@@ -4027,7 +4183,11 @@ pub class <T: type> ExprParse {
             )
 
             if value == &null {
-                self._sync_expr_progress(Self::ExprSyncCtx::Comma, 0, 0, 1)
+                self._report_missing_element()
+                if self._sync_expr_progress(Self::ExprSyncCtx::Comma) {
+                    break
+                }
+
                 if self.dyn()->check(TokenKind::OpComma) {
                     self.dyn()->advance(T::SkipNL::After)
                 }
@@ -4236,7 +4396,12 @@ pub class <T: type> ExprParse {
             self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopBrace),
         )
 
-        if value == &null || is_recovery(value) {
+        if value == &null { // `P { a: }`: nothing reported it
+            self._report_missing_element()
+            return result
+        }
+
+        if is_recovery(value) {
             return result // value stays null
         }
 

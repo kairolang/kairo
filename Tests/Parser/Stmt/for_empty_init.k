@@ -1,4 +1,4 @@
-// A C-style `for` may leave its init clause empty (decided 2026-11-08): it
+// A C-style `for` may leave its init clause empty: it
 // loops over a variable declared before it, and unlike the `while` it
 // replaces, `continue` still runs the step. The first loop skips 3 and
 // sums the rest of 0..9 (42); the second steps an iterator-like counter

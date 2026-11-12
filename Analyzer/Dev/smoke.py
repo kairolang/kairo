@@ -736,6 +736,35 @@ def broken_unchecked(exe, base):
     check("unchecked: clean shutdown", c.stop() == 0)
 
 
+
+def half_typed_line(exe, base):
+    """P899: `var w = v +` with the body's `}` on the next line, the most
+    common half-typed line. The failed operand leaves the `}` for the body,
+    so the body closes on its own brace and keeps its error: the file is
+    checked without that body (partial, not unchecked). Hover answers on the
+    healthy function below the half-typed line and in the importer."""
+    root = os.path.join(base, "half_typed")
+    os.makedirs(os.path.join(root, "src"))
+    bad = BROKEN_FILE.replace("var w = v + ;\n    return w\n", "var w = v +\n")
+    for name, text in (("util", BROKEN_UTIL), ("other", BROKEN_OTHER), ("broken", bad), ("main", BROKEN_MAIN)):
+        open(os.path.join(root, "src", name + ".k"), "w").write(text)
+    open(os.path.join(root, "kairo_compile.json"), "w").write(
+        '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src"] } ] }\n')
+    c = Client(exe, root)
+    c.start()
+    B, M = "src/broken.k", "src/main.k"
+    broken = c.open(B)
+    main = c.open(M)
+    c.settle()
+    errs = [x for x in c.diagnostics(B) or [] if x["severity"] == 1]
+    check("half-typed line: one syntax error, on the line after it", len(errs) == 1
+          and errs[0]["range"]["start"]["line"] == pos(bad, "var w = v +")[0] + 1, errs)
+    h = c.request("textDocument/hover", c.at(B, *pos(bad, "above(v) + 1")))
+    check("half-typed line: hover answers on the healthy function below it", h and "fn above" in h["contents"]["value"], h)
+    h = c.request("textDocument/hover", c.at(M, *pos(main, "below(2)")))
+    check("half-typed line: an importer of the file answers hover", h and "fn below" in h["contents"]["value"], h)
+    check("half-typed line: clean shutdown", c.stop() == 0)
+
 FFI_H = """#pragma once
 int p874_twice(int v);
 """
@@ -3176,6 +3205,8 @@ def main():
             broken_from_start(exe, base)
         if want("broken_unchecked"):
             broken_unchecked(exe, base)
+        if want("half_typed_line"):
+            half_typed_line(exe, base)
         if want("import_links"):
             import_links(exe, real)
         if want("syntax"):

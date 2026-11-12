@@ -211,6 +211,13 @@ pub class ASTParse
     pub var expr_depth:         u32                              = 0 ///< current expression recursion depth.
     pub var max_expr_depth:     u32                              = 512 ///< expression nesting cap (--cmax-expr-depth); separate from max_depth so each flag governs what it names.
     pub var _depth_aborted:     bool                             = false ///< a depth cap fired; is_eof() now reports true and later checks stay silent.
+    /// The closer a failed operand reported and left in place (ExprParse's
+    /// no-match path). A statement loop that then stands on it skips it
+    /// without parsing it again, which would only report the same
+    /// "expected expression" a second time. Recorded only when the report
+    /// was really emitted (not under a TentativeGuard's suppression), so
+    /// skipping the token can never hide the only report of it.
+    pub var _kept_closer:       unsafe *Token                    = &null
     pub var error_count_base:   u32                              = 0 ///< error count recorded at parse start.
     pub var nl_depth:           u32                              = 0 ///< if non-zero, the parser ignores newlines.
     pub var _no_comment_skip:   bool                             = false
@@ -420,6 +427,7 @@ pub class ASTParse
         // which died with ast_alloc. Its storage is the TU's (pp_alloc, GH
         // #71), so clearing it is safe, and this parse refills it.
         self.tu->dc_decls.clear()
+        self._kept_closer = &null // a token of an earlier parse's stream
         var unsafe *program = self.ctx->alloc_init<Program>(self.ctx->fid, self.ctx)
         self.tu->program = program
         self.scope.push(ScopeKind::Block, self.tu)
@@ -478,6 +486,13 @@ pub class ASTParse
                 break
             }
 
+            // a closer a failed operand already reported: nothing at the top
+            // level owns it, so it is skipped here, not parsed a second time
+            if self._current == self._kept_closer {
+                self.advance()
+                continue
+            }
+
             var k = self.resolve_kind_deep(self._current)
 
             // The bare `module a::b` pin is a FILE property, not a decl: it is
@@ -494,14 +509,23 @@ pub class ASTParse
                 continue
             }
 
-            var ok = if self._routes_to_decl(k) => (self._parse_top_decl(program, unsafe &annot, k))
-                     else => self._parse_top_stmt(program, unsafe &annot)
+            var before = self.c_idx
+            var ok     = if self._routes_to_decl(k) => (self._parse_top_decl(program, unsafe &annot, k))
+                         else => self._parse_top_stmt(program, unsafe &annot)
             if !ok {
                 break
             }
 
             while self._is_terminator_tok(self._current) {
                 self.advance_raw()
+            }
+
+            // A stray closer at the top level (`)`, `]`, `}`) is reported by
+            // the expression parser and left in place, since inside a
+            // construct it belongs to something around the failed operand;
+            // here nothing owns it, so the loop skips it.
+            if self.c_idx == before && !self.is_eof() {
+                self.advance()
             }
         }
 
@@ -3941,6 +3965,131 @@ pub class ASTParse
         if self.nl_depth > 0 {
             self._skip_nl_fwd()
         }
+    }
+
+    /// \brief whether the closer under the cursor closes a bracket the TEXT
+    ///        still has open before it. Walking back, every closer waits for
+    ///        an opener of its own kind, this one at the bottom. An opener
+    ///        pairs with the nearest waiting closer of its kind, and the
+    ///        closers waiting above that one are strays; an opener nothing
+    ///        waits for is unclosed and is stepped over. So in `{ foo(1,`
+    ///        then `}` the `(` is the error and the `}` is still the block's,
+    ///        and in `foo(1 + ]` then `}` the `]` is the stray.
+    ///
+    /// \details recovery keeps such a closer for the construct that owns it
+    ///          (`var x = 1 +` then the body's `}`) and skips any other one
+    ///          as junk (`n + ) = 1` inside a `{ }`: no `(` is open), which
+    ///          is what it did with every closer before. The walk is on
+    ///          the error path only; past CLOSER_SCAN_LIMIT tokens the closer
+    ///          is taken as owned, the reading that never runs a construct on
+    ///          past its brace.
+    pub fn closer_is_owned(self) -> bool {
+        const CLOSER_SCAN_LIMIT: usize = 1 << 16
+
+        if self._current == &null {
+            return false
+        }
+
+        var k    = self.resolve_kind_shallow(self._current)
+        var want = TokenKind::OpLBrace
+        if k == TokenKind::OpRParen {
+            want = TokenKind::OpLParen
+        } else if k == TokenKind::OpRSquare {
+            want = TokenKind::OpLSquare
+        } else if k != TokenKind::OpRBrace {
+            return false
+        }
+
+        // the openers the closers seen so far (walking back) are waiting for,
+        // this closer's at the bottom; `top` is the live depth, the buffer
+        // only ever grows
+        var waiting: kairo::std::StackBuf<TokenKind, 32>
+        waiting.push_back(want)
+        var top:     u32   = 1
+        var i:       usize = self.c_idx
+        var seen:    usize = 0
+        while i > 0 {
+            i -= 1
+            ++seen
+            if seen > CLOSER_SCAN_LIMIT {
+                return true
+            }
+
+            var tk     = self.resolve_kind_shallow(self.span.get(i))
+            var opener = TokenKind::TkEof
+            if tk == TokenKind::OpRBrace {
+                opener = TokenKind::OpLBrace
+            } else if tk == TokenKind::OpRParen {
+                opener = TokenKind::OpLParen
+            } else if tk == TokenKind::OpRSquare {
+                opener = TokenKind::OpLSquare
+            }
+
+            if opener != TokenKind::TkEof {
+                if top < waiting.size() {
+                    waiting[top] = opener
+                } else {
+                    waiting.push_back(opener)
+                }
+
+                ++top
+            } else if tk == TokenKind::OpLBrace || tk == TokenKind::OpLParen || tk == TokenKind::OpLSquare {
+                var j = top
+                while j > 0 && waiting[j - 1] != tk {
+                    --j
+                }
+
+                if j == 1 {
+                    return true // pairs with this closer: still open before it
+                }
+
+                if j > 1 {
+                    top = j - 1 // paired; the closers waiting above it were strays
+                }
+                // j == 0: nothing waits for it, an unclosed opener: stepped over
+            }
+        }
+
+        return false
+    }
+
+    /// \brief closer_is_owned, and for a `}` also that it can end a block
+    ///        here: it ends its line or is followed by what can follow a
+    ///        block (`else`, `catch`, `;`, `,`, a closer). For a failed
+    ///        OPERAND only: `var v = } 0` is junk in the middle of a line,
+    ///        not the body's end. A list's own `}` (`{1, 2,}.size()`) is
+    ///        never asked this.
+    pub fn operand_closer_is_owned(self) -> bool {
+        if !self.closer_is_owned() {
+            return false
+        }
+
+        if self.resolve_kind_shallow(self._current) != TokenKind::OpRBrace
+            || self.c_idx + 1 >= self.span.size() {
+            return true
+        }
+
+        var nk = self.resolve_kind_shallow(self.span.get(self.c_idx + 1))
+        return nk == TokenKind::TkNewLine
+            || nk == TokenKind::TkEof
+            || nk == TokenKind::OpSemicolon
+            || nk == TokenKind::OpComma
+            || nk == TokenKind::OpRBrace
+            || nk == TokenKind::OpRParen
+            || nk == TokenKind::OpRSquare
+            || nk == TokenKind::KwElse
+            || nk == TokenKind::KwCatch
+    }
+
+    /// \brief true when the token under the cursor is the first on its line
+    ///        (or of the stream): an arm lead `case` / `default` that starts
+    ///        a line is the next arm; one in the middle of a line is junk.
+    pub fn starts_line(self) -> bool {
+        if self.c_idx == 0 {
+            return true
+        }
+
+        return self.resolve_kind_shallow(self.span.get(self.c_idx - 1)) == TokenKind::TkNewLine
     }
 
     /// \brief whether the token just consumed is the one the TEXT pairs with

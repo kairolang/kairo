@@ -111,6 +111,11 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         }
     }
 
+    /// True inside a push_suppress region: what is reported now is dropped.
+    pub fn is_suppressed(self) -> bool {
+        return self._suppress_depth > 0
+    }
+
     /// Lets one diagnostic through a push_suppress region, returning the depth
     /// to hand restore_suppress. For an error that holds for EVERY instance of
     /// a region checked once on purpose (the branch of a generic `eval if

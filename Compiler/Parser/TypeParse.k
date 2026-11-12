@@ -299,17 +299,30 @@ pub class <T: type> TypeParse {
     /// Sync, then guarantee the cursor moved. For use inside recovery LOOPS:
     /// _sync_type stops ON a boundary token without consuming it, which is
     /// correct positioning but spins a caller that retries from the same spot.
+    ///
+    /// Except on a closing bracket, as _sync_expr_progress: it closes the
+    /// list or something around it. Returns true when the cursor is left on
+    /// a closer (or EOF), and the caller leaves its loop.
     priv fn _sync_type_progress(self,
                                 ctx:             Self::TypeSyncCtx,
                                 paren_depth:     i32  = 0,
                                 square_depth:    i32  = 0,
                                 brace_depth:     i32  = 0,
-                                stop_at_newline: bool = false) {
+                                stop_at_newline: bool = false) -> bool {
         var before = self.dyn()->c_idx
         self._sync_type(ctx, paren_depth, square_depth, brace_depth, stop_at_newline)
+        var k = self.dyn()->ig_kind()
+        if self.dyn()->is_eof()
+            || ((k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare)
+                && self.dyn()->closer_is_owned()) {
+            return true
+        }
+
         if self.dyn()->c_idx == before {
             self.dyn()->advance()
         }
+
+        return false
     }
 
     /// \brief performs a static downcast of `self` to the generic parser type
@@ -583,7 +596,20 @@ pub class <T: type> TypeParse {
             f"expected type, found '{token_kind_to_readable_string(resolved_kind)}'",
         )
 
-        self.dyn()->advance() // skip offending token to prevent infinite loops during recovery.
+        // as in the expression parser's no-match path: a terminator, or a
+        // closer whose opener is still open, ends something around the
+        // missing type (`var x:` then the body's `}`) and is left for the
+        // loop that owns it.
+        var k    = resolved_kind
+        var keep = k == TokenKind::OpSemicolon || k == TokenKind::TkNewLine || k == TokenKind::TkEof
+        if k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare {
+            keep = self.dyn()->operand_closer_is_owned()
+        }
+
+        if !keep {
+            self.dyn()->advance() // junk in type position (a stray closer included)
+        }
+
         return self._error_type(cur_range)
     }
 
@@ -747,7 +773,10 @@ pub class <T: type> TypeParse {
             var unsafe *elem = self.parse_type(false, true)
             if elem == &null || is_recovery(elem) {
                 // no stop_at_newline we're mid-tuple, newlines are legal
-                self._sync_type_progress(Self::TypeSyncCtx::Comma, 1)
+                if self._sync_type_progress(Self::TypeSyncCtx::Comma) {
+                    break
+                }
+
                 continue
             }
 
@@ -1744,7 +1773,10 @@ pub class <T: type> TypeParse {
                     "unexpected '=' in function pointer type parameter list, default values are not allowed here",
                 )
 
-                self._sync_type_progress(Self::TypeSyncCtx::Paren, 1, 0, 0, true)
+                if self._sync_type_progress(Self::TypeSyncCtx::Paren, 0, 0, 0, true) {
+                    return
+                }
+
                 continue
             }
 
@@ -1757,7 +1789,10 @@ pub class <T: type> TypeParse {
 
             var unsafe *param_ty = self.parse_type(false, true)
             if param_ty == &null || is_recovery(param_ty) {
-                self._sync_type_progress(Self::TypeSyncCtx::Paren, 1, 0, 0)
+                if self._sync_type_progress(Self::TypeSyncCtx::Paren) {
+                    return
+                }
+
                 continue
             }
 

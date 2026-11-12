@@ -192,6 +192,14 @@ pub class <T: type> StmtParse {
                 continue
             }
 
+            // a stray `)` / `]` a failed operand already reported (the
+            // block's own `}` ended the loop above): skipped, not re-parsed
+            if self.dyn()->current_ptr() == self.dyn()->_kept_closer {
+                self.dyn()->advance()
+                continue
+            }
+
+            var before = self.dyn()->c_idx
             var unsafe *s = self.parse_stmt()
             if s == &null {
                 break // EOF mid-statement
@@ -204,6 +212,16 @@ pub class <T: type> StmtParse {
             stmts.push_back(s)
             self.dyn()->_attach_trailing(s)
             self._consume_terminator()
+
+            // A failed operand leaves a closer where it is (the primary
+            // parser's no-match path), so a stray `)` or `]` here comes back
+            // unconsumed, already reported. `}` ends the loop; anything else
+            // that did not move is skipped, or the loop would retry it forever.
+            if self.dyn()->c_idx == before
+                && !self.dyn()->is_eof()
+                && !self.dyn()->check(TokenKind::OpRBrace) {
+                self.dyn()->advance()
+            }
         }
 
         self.dyn()->nl_depth = saved_nl
@@ -1427,7 +1445,7 @@ pub class <T: type> StmtParse {
     ///          by `in` is ranged; a `var`/`const` followed by an initializer and
     ///          `;` is C-style. We detect the C-style form by the presence of an
     ///          `=` initializer or a `;` before any `in` within the header. The
-    ///          simplest robust split: tentatively scan the header keyword shape
+    ///          split: tentatively scan the header keyword shape
     ///          ranged headers never contain `;`. We peek for that.
     priv fn _parse_for(self, is_eval: bool) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
@@ -1513,7 +1531,7 @@ pub class <T: type> StmtParse {
     /// \brief parses a C-style three-part for loop.
     ///  Grammar:  'for' decl_stmt? ';' expr ';' expr block
     ///
-    /// \details the init clause may be empty (decided 2026-11-08): `for ; c; s`
+    /// \details the init clause may be empty: `for ; c; s`
     ///          loops over a variable declared before it, and unlike the
     ///          `while` it would otherwise be, a `continue` still runs `s`.
     ///
@@ -1745,20 +1763,28 @@ pub class <T: type> StmtParse {
             var mc   = self._parse_match_case(&form)
             // an arm with neither a body nor a value failed to parse; recover.
             if mc.body == &null && mc.expression == &null {
-                self._sync_stmt_progress(Self::StmtSyncCtx::Block, 0)
-                if self.dyn()->check(TokenKind::OpRBrace) {
-                    break
+                if self._sync_stmt_progress(Self::StmtSyncCtx::Block, 0) {
+                    if self.dyn()->is_eof() || self.dyn()->check(TokenKind::OpRBrace) {
+                        break // the match's own `}`: the arm loop ends on it
+                    }
+
+                    self.dyn()->advance() // a stray `)` / `]` inside the braces
                 }
 
                 continue
             }
 
             if form == ArmForm::Value {
-                if !has_value {
-                    core.first_value = mc.range
-                }
+                // `case 1 =>` with no value is already reported; which form
+                // the arm meant is unknown, so it does not make the match
+                // "mixed" against the `{ }` arms around it.
+                if !is_recovery(mc.expression) {
+                    if !has_value {
+                        core.first_value = mc.range
+                    }
 
-                has_value = true
+                    has_value = true
+                }
             } else {
                 if !has_block {
                     core.first_block = mc.range
@@ -1849,15 +1875,23 @@ pub class <T: type> StmtParse {
 
             self.dyn()->advance(T::SkipNL::After) // consume `case`
 
+            var last_bad = false
             while !self.dyn()->is_eof() {
                 var *p = self._parse_pattern()
                 pats.push_back(p)
+                last_bad = p->is_error()
                 if self.dyn()->check(TokenKind::OpComma) {
                     self.dyn()->advance(T::SkipNL::After)
                     continue
                 }
 
                 break
+            }
+
+            // `case` then the match's `}`: the missing pattern is reported;
+            // an "expected '=>'" on the same `}` would say nothing more.
+            if last_bad && self.dyn()->check(TokenKind::OpRBrace) {
+                return result // body stays null
             }
 
             // optional `where` guard
@@ -2319,6 +2353,8 @@ pub class <T: type> StmtParse {
             if decl == &null {
                 self.dyn()->advance()
                 // decl parser stub / non-decl content: recover to a boundary.
+                // the advance above already moved; a `)` / `]` left by the
+                // sync is retried, and parse_decl's failure advances past it
                 self._sync_stmt_progress(Self::StmtSyncCtx::Block, 0)
                 if self.dyn()->check(TokenKind::OpRBrace) {
                     break
@@ -2753,11 +2789,26 @@ pub class <T: type> StmtParse {
     /// Sync, then guarantee the cursor moved. For use inside recovery LOOPS:
     /// _sync_stmt stops ON a boundary token without consuming it, which is
     /// correct positioning but spins a caller that retries from the same spot.
-    priv fn _sync_stmt_progress(self, ctx: Self::StmtSyncCtx, paren_depth: i32) {
+    ///
+    /// Except on a closing bracket, which closes the construct being parsed
+    /// or one around it: with `case 2 =>` then the match's `}`, consuming
+    /// that `}` would let the match run on through the rest of the function.
+    /// Returns true when the cursor is left on a closer (or EOF); the caller
+    /// leaves its loop and lets its own closer check deal with the token.
+    priv fn _sync_stmt_progress(self, ctx: Self::StmtSyncCtx, paren_depth: i32) -> bool {
         var before = self.dyn()->c_idx
         self._sync_stmt(ctx, paren_depth)
+        var k = self.dyn()->ig_kind()
+        if self.dyn()->is_eof()
+            || ((k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare)
+                && self.dyn()->closer_is_owned()) {
+            return true
+        }
+
         if self.dyn()->c_idx == before {
             self.dyn()->advance()
         }
+
+        return false
     }
 }

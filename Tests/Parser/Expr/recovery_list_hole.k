@@ -4,7 +4,8 @@
 // AST: `-ExpressionStmt
 // AST-NEXT:   `-AssignOperatorExpr =
 // AST-NEXT:     |-NamedIdentExpr x
-// AST-NEXT:     `-ListLiteralExpr (1)
-// AST-NEXT:       `-IntegerLiteralExpr 1
-// ERR: error   [S054E]: expected ']' to close array literal
+// AST-NEXT:     `-ListLiteralExpr (2)
+// AST-NEXT:       |-IntegerLiteralExpr 1
+// AST-NEXT:       `-IntegerLiteralExpr 3
+// ERR: error [S052E]: expected expression, found ','
 x = [1, , 3]

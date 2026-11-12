@@ -161,7 +161,19 @@ pub class <T: type> PatternParse {
             start.start,
             f"expected a pattern, found '{token_kind_to_readable_string(k)}'",
         ).first(start)->emit()
-        self.dyn()->advance() // forward progress
+        // a closer or terminator ends something around the missing pattern
+        // (`case` then the match's `}`) and is left for its owner, if its
+        // opener is still open (closer_is_owned); the pattern lists break
+        // on a failed element, so nothing retries it.
+        var keep = k == TokenKind::OpSemicolon || k == TokenKind::TkNewLine || k == TokenKind::TkEof
+        if k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare {
+            keep = self.dyn()->operand_closer_is_owned()
+        }
+
+        if !keep {
+            self.dyn()->advance() // forward progress
+        }
+
         return self._error_pattern(start)
     }
 
