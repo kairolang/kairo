@@ -97,6 +97,7 @@ import AST::Context::DeclContext::{
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
+    decl_extension_of,
     decl_generic_params,
     decl_is_imported,
     param_is_type_pack,
@@ -409,15 +410,6 @@ pub class CallLowering derives ASTWriter<CallLowering> {
         var lex: unsafe *DeclContext = carrier->lexical_dc
         if carrier->is_out_of_line() {
             lex = sem
-        }
-
-        var unsafe *ldc = lex
-        if ldc != &null && ldc->dc_kind == DeclContextKind::Extension {
-            if decl_generic_params(ldc->dc_owner).size() > 0 {
-                kairo::std::ice_fail(
-                    "CallLowering: a default on a member of a generic extension; its thunk would have no arguments to deduce the extension's parameters from",
-                )
-            }
         }
 
         var at = if (p->default_val != &null) => (p->default_val->range) else => p->range
@@ -977,9 +969,15 @@ pub class CallLowering derives ASTWriter<CallLowering> {
         call->value_category = Expr::ValueCategory::RValue
         call->qualifier      = self._qualifier(n, f)
 
-        var unsafe *ie = n->instance
-        var unsafe *pt = canon_unqual(s->param->type_->canonical)
-        if th->generic_params.size() > 0 {
+        // A thunk in a generic extension is a member of the same scope, so
+        // its C++ template parameters are the extension's, then its own:
+        // the member's instance arguments, in the same order. Nothing in a
+        // nullary call deduces them, so they are always spelled.
+        var unsafe *ie  = n->instance
+        var unsafe *pt  = canon_unqual(s->param->type_->canonical)
+        var unsafe *ext = decl_extension_of(unsafe (th as unsafe *Decl))
+        var ext_generic = ext != &null && decl_generic_params(unsafe (ext as unsafe *Decl)).size() > 0
+        if th->generic_params.size() > 0 || ext_generic {
             if ie == &null {
                 kairo::std::ice_fail(
                     "CallLowering: a generic callee's default on a call with no instance; CallTyping registers one at Selected",
