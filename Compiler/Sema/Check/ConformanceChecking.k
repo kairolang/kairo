@@ -3765,6 +3765,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             ok = ok || f.category == LifecycleCategory::Move
         }
 
+        // A declared `@copy` whose `requires` fails at this instance is
+        // dropped from it in C++ (`[Mv]`), and its one transfer constructor
+        // was that copy: the instance is neither COPY nor MOVE.
+        if ok && f.category == LifecycleCategory::Copy && self.dropped_copy(c).ctor != &null {
+            ok = false
+        }
+
         if !ok {
             return &null
         }
@@ -4566,6 +4573,15 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         if req != &null {
             d.note(req->range.start, req_note)->child_first(req->range)
+            var dc = if (req->transfer != Declarations::TransferKind::NotTransfer) => (self.dropped_copy(x))
+                     else => DroppedCopy{}
+            if dc.ctor != &null {
+                var es = if (dc.element != &null) => (self.tu.str(dc.element)) else => "its element"
+                d.note(
+                    dc.ctor->range.start,
+                    f"'{xs}' declares a copy constructor, but its requirements do not hold here: '{es}' cannot be copied",
+                )->child_first(dc.ctor->range)
+            }
         }
 
         if missing.size() > 0 && row->hidden != &null {
