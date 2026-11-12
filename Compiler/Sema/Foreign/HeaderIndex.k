@@ -132,7 +132,7 @@ pub class HeaderIndex {
 
     /// A DeclImport wired to \p hs and this index's targets. index() builds
     /// one per set; ForeignInstantiate builds one per fill and switches it to
-    /// fill mode (DeclImport::fill_target).
+    /// fill mode (DeclImport::in_fill).
     fn importer_for(self, hs: unsafe *HeaderSet) -> DeclImport {
         var di = DeclImport()
         di._set      = hs
@@ -162,7 +162,7 @@ pub class HeaderIndex {
             return true
         }
 
-        if !hs->built.load(kairo::std::MemoryOrder::acquire) {
+        if !hs->is_built() {
             return false
         }
 
@@ -395,7 +395,7 @@ pub class HeaderIndex {
             // graph's 115 sets re-walked the same LLVM/libc++ headers.
             // Namespaces and transparent containers still recurse: a header
             // they open may be one this set brings in first. Never in a fill.
-            if di->fill_target == &null
+            if (!di->in_fill())
                 && kind != clang::Decl::Namespace
                 && kind != clang::Decl::LinkageSpec
                 && kind != clang::Decl::Export {
@@ -489,7 +489,7 @@ pub class HeaderIndex {
             // ClassDecl::ffi_usings, and MemberLookup continues into B for
             // it; binding B's g in the derived table as well would hand
             // overload resolution the same candidate twice. Not at file
-            // scope either, for now: libc++'s <math.h> does `using
+            // scope either: libc++'s <math.h> does `using
             // std::__math::sqrt;` there, and its f32 / long double overloads
             // beside the C `sqrt` make a plain `sqrt(2.0)` SC064E (an untyped
             // float literal ranks every float parameter alike).

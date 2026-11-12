@@ -28,14 +28,32 @@
 ///
 ///   \par Fill mode
 ///     ForeignInstantiate reuses both passes on ONE ClassTemplateSpecialization-
-///     Decl clang just completed. `fill_target` pins every decl to the
-///     primary's header (instantiated members carry the PATTERN's locations,
-///     and that header is frozen); `fill_spec` -> `fill_scope` maps the
-///     specialization to its registry shell; the tables a fill creates go to
-///     `fill_scopes` for the fill to freeze, not to the target's `scopes`.
+///     Decl clang just completed, between begin_fill and end_fill (ImportMode).
+///     `_fill_target` pins every decl to the primary's header (instantiated
+///     members carry the PATTERN's locations, and that header is frozen);
+///     `_fill_spec` -> `_fill_scope` maps the specialization to its registry
+///     shell; the tables a fill creates go to `_fill_scopes`, which end_fill
+///     freezes, not to the target's `scopes`.
 ///     Only the decl moves: its name token is still minted in the header its
 ///     location is IN (_home_at), since a token's text is read back through
 ///     its range.
+///
+///   \par What a fill may write (P855)
+///     A fill runs on any Sema thread under ForeignInstantiate's `_mu` only,
+///     while other threads read the headers' scope tables with no lock
+///     (SymbolTable::lookup_foreign, MemberLookup). So a fill writes no
+///     table those readers can reach: only tables it creates itself, on the
+///     shell and on records it mints, which become reachable through the
+///     shell when ForeignFill publishes it. A published table is frozen, and
+///     appending to one ICEs in a debug build (SymbolTable::append); a fill
+///     never creates a namespace nor gives a published scope a table (both
+///     debug ICEs below). The one write into a published header scope is
+///     the dc_decls list of a namespace or TU that a decl the fill mints
+///     belongs to (a hidden friend: `operator==` of `__wrap_iter<T>`, in
+///     `std`). That list has no reader during Sema but other fills, which
+///     `_mu` serialises: every Sema walker of dc_decls walks its own Kairo
+///     TU, and MemberLookup's extension index skips header TUs. HeaderIndex
+///     writes those lists too, on the driver thread, before Sema starts.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -118,6 +136,37 @@ pub class HeaderTarget {
     fn HeaderTarget(self) { }
 }
 
+/// What a DeclImport is importing for. Set once per importer: a header
+/// walk (HeaderIndex) never becomes a fill, and a fill is begin_fill ..
+/// end_fill on its own importer (ForeignInstantiate, under `_mu`).
+///
+///   HeaderWalk   a header set's decls into their own headers' TUs.
+///   Fill         one completed specialization into its registry shell; every
+///                decl lands in `_fill_target`, frozen headers are writable
+///                for the tables the fill creates (see the file header).
+///   VariantFill  a Fill whose specialization another Kairo instance already
+///                owns: its own members go to `_fill_usr`, not the registry.
+enum ImportMode derives u8 {
+    HeaderWalk,
+    Fill,
+    VariantFill,
+}
+
+/// Where declare() binds the NAME of the decl it is minting, when that is
+/// not the decl's own scope. Set and restored around one declare.
+///
+///   None    the decl's own scope.
+///   Friend  declare_friend: the class (`_redirect_scope`) whose table the
+///           hidden friend's name goes in; also changes the C++ spelling
+///           _stamp gives it.
+///   Using   declare_using: the namespace (`_redirect_scope`) whose table
+///           the target's name also goes in.
+enum NameRedirect derives u8 {
+    None,
+    Friend,
+    Using,
+}
+
 pub class DeclImport {
     pub var _set:      unsafe *HeaderSet
     pub var reg:       unsafe *ForeignRegistry
@@ -130,42 +179,88 @@ pub class DeclImport {
     /// header fid -> target. Owned by HeaderIndex; borrowed here.
     pub var targets: unsafe *llvm::DenseMap<u32, unsafe *HeaderTarget>
 
-    /// ## fill mode (ForeignInstantiate; all null for a header walk)
+    /// ## fill mode (ForeignInstantiate; begin_fill .. end_fill own all of it)
 
-    pub var fill_target: unsafe *HeaderTarget                  = &null ///< when set: every decl lands here.
-    pub var fill_scope:  unsafe *DeclContext                   = &null ///< the instance shell.
-    pub var fill_spec:   unsafe *clang::Decl                   = &null ///< the ClassTemplateSpecializationDecl it stands for.
-    pub var fill_scopes: cxx::std::vector<unsafe *DeclContext> ///< every table the fill created; the fill freezes them.
-    /// A VARIANT fill only (else null): the USR -> decl table for the
+    priv var _mode:        ImportMode                            = ImportMode::HeaderWalk
+    priv var _fill_target: unsafe *HeaderTarget                  = &null ///< Fill: every decl lands here.
+    priv var _fill_scope:  unsafe *DeclContext                   = &null ///< Fill: the instance shell.
+    priv var _fill_spec:   unsafe *clang::Decl                   = &null ///< Fill: the ClassTemplateSpecializationDecl it stands for.
+    priv var _fill_scopes: cxx::std::vector<unsafe *DeclContext> ///< Fill: every table the fill created; end_fill freezes them.
+    /// VariantFill only (else null): the USR -> decl table for the
     /// members this fill mints. `vector<usize>` and `vector<u64>` are two
     /// Kairo instances of ONE clang specialization (`vector<unsigned long>`
     /// on LP64), so every member has one USR. Through the registry the
     /// second fill found the first's members and re-defined them with its
     /// own argument mapping: whichever instance filled LAST decided whether
     /// both `v[i]`s were usize or u64, and the whole-tree result depended on
-    /// input order. Members of `fill_spec` go here instead, so each
+    /// input order. Members of `_fill_spec` go here instead, so each
     /// instance has its own; anything outside the specialization is still
     /// the registry's. The fill owns the table and drops it after.
-    pub var fill_usr: unsafe *llvm::StringMap<unsafe *Decl> = &null
-    /// declare() is minting a member of a variant fill: _put goes to fill_usr.
+    priv var _fill_usr: unsafe *llvm::StringMap<unsafe *Decl> = &null
+    /// declare() is minting a member of a variant fill: _put goes to _fill_usr.
     priv var _own: bool = false
-    /// declare_friend only: the class whose table the friend's NAME goes in.
-    priv var _friend_scope: unsafe *clang::DeclContext = &null
-    /// declare_using only: the namespace whose table the target's NAME also
-    /// goes in. Kept apart from _friend_scope, which also changes the C++
-    /// spelling _stamp gives a freshly minted decl.
-    priv var _using_scope: unsafe *clang::DeclContext = &null
+    /// See NameRedirect; `_redirect_scope` is its clang scope, null for None.
+    priv var _redirect:       NameRedirect               = NameRedirect::None
+    priv var _redirect_scope: unsafe *clang::DeclContext = &null
 
     /// Index mode's diagnostics (_conflicting_definition); null in a fill.
     pub var diag: unsafe *DiagEngine = &null
     /// Entities already reported by _conflicting_definition.
     priv var _conflicts: cxx::std::vector<unsafe *DeclContext>
 
+    /// Debug: every decl this fill minted, so table_of can tell a scope the
+    /// fill made from a published one. Empty in a header walk and in a
+    /// release build.
+    priv var _fill_minted: cxx::std::vector<unsafe *Decl>
+
     pub var n_declared: usize = 0
     pub var n_defined:  usize = 0
     pub var n_skipped:  usize = 0
 
     fn DeclImport(self) { }
+
+    /// Enter fill mode for \p spec, which imports into \p shell's scope on
+    /// header \p target; \p own_usr non-null makes it a VariantFill (see
+    /// `_fill_usr`; the caller owns the table and outlives the fill). Once
+    /// per importer, before any declare.
+    fn begin_fill(self,
+                  target:  unsafe *HeaderTarget,
+                  shell:   unsafe *DeclContext,
+                  spec:    unsafe *clang::Decl,
+                  own_usr: unsafe *llvm::StringMap<unsafe *Decl>) {
+        if self._mode != ImportMode::HeaderWalk {
+            kairo::std::ice_fail("DeclImport::begin_fill on an importer already filling")
+        }
+
+        self._mode        = if (own_usr != &null) => (ImportMode::VariantFill) else => (ImportMode::Fill)
+        self._fill_target = target
+        self._fill_scope  = shell
+        self._fill_spec   = spec
+        self._fill_usr    = own_usr
+    }
+
+    /// Leave fill mode: freeze every table the fill created. The caller
+    /// publishes the shell (ForeignFill) only after this, so no reader
+    /// ever sees one of them growing.
+    fn end_fill(self) {
+        for var i: usize = 0; i < self._fill_scopes.size(); ++i {
+            if self._fill_scopes[i]->dc_symbols != &null {
+                self._fill_scopes[i]->dc_symbols->freeze()
+            }
+        }
+
+        self._fill_scopes.clear()
+        self._mode        = ImportMode::HeaderWalk
+        self._fill_target = &null
+        self._fill_scope  = &null
+        self._fill_spec   = &null
+        self._fill_usr    = &null
+    }
+
+    /// A Fill or a VariantFill: frozen headers take this importer's writes.
+    fn in_fill(self) -> bool {
+        return self._mode != ImportMode::HeaderWalk
+    }
 
     /// # locations
 
@@ -240,8 +335,8 @@ pub class DeclImport {
         // Fill mode: an instantiated member carries its PATTERN's location, so
         // the path below would answer with the pattern's header -- frozen
         // since HeaderIndex finished it -- and the member would be dropped.
-        if self.fill_target != &null {
-            return self.fill_target
+        if self.in_fill() {
+            return self._fill_target
         }
 
         var loc = self.csm->getDecomposedExpansionLoc(d->getLocation())
@@ -331,10 +426,10 @@ pub class DeclImport {
         // registered its USR (an implicit specialization is never walked), so
         // the registry probe below would miss it. Records nested in it were
         // declared by this fill and resolve through the registry as usual.
-        if self.fill_spec != &null
+        if self._fill_spec != &null
             && dc != &null
-            && clang::Decl::castFromDeclContext(dc) == self.fill_spec {
-            return self.fill_scope
+            && clang::Decl::castFromDeclContext(dc) == self._fill_spec {
+            return self._fill_scope
         }
 
         if dc == &null {
@@ -378,18 +473,35 @@ pub class DeclImport {
 
     fn table_of(self, t: unsafe *HeaderTarget, dc: unsafe *DeclContext) -> unsafe *SymbolTable {
         if dc->dc_symbols == &null {
+            eval if defined!(DEBUG) {
+                if self.in_fill() && dc != self._fill_scope && !self._minted_here(dc->dc_owner) {
+                    kairo::std::ice_fail("DeclImport: a fill would give a published scope its first table (P855)")
+                }
+            }
+
             var unsafe *tbl = t->ctx->alloc_init_cleanup<SymbolTable>(t->ctx)
             dc->set_symbols(tbl)
             // A fill's tables are the fill's to freeze: HeaderIndex froze
             // `t->scopes` once, when the set finished, and never reads it again.
-            if self.fill_target != &null {
-                self.fill_scopes.push_back(dc)
+            if self.in_fill() {
+                self._fill_scopes.push_back(dc)
             } else {
                 t->scopes.push_back(dc)
             }
         }
 
         return dc->dc_symbols
+    }
+
+    /// Debug: \p d was minted by this fill.
+    priv fn _minted_here(self, d: unsafe *Decl) -> bool {
+        for var i: usize = 0; i < self._fill_minted.size(); ++i {
+            if self._fill_minted[i] == d {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// Append \p d under \p name in \p dc's table unless already there.
@@ -400,7 +512,7 @@ pub class DeclImport {
             dc:   unsafe *DeclContext,
             name: DeclName,
             d:    unsafe *Decl) {
-        if t->frozen && self.fill_target == &null {
+        if t->frozen && (!self.in_fill()) {
             return
         }
 
@@ -423,7 +535,7 @@ pub class DeclImport {
         // onto the other header's record, accepted by Sema and rejected by
         // clang at codegen. An identical second definition binds members
         // already in the cell and never gets here.
-        if tbl->is_frozen() && self.fill_target == &null {
+        if tbl->is_frozen() && (!self.in_fill()) {
             self._conflicting_definition(t, dc, name, d)
             return
         }
@@ -503,6 +615,14 @@ pub class DeclImport {
             return it->second
         }
 
+        // A new namespace would go into its parent's published table and
+        // `t->namespaces`, both read unlocked (see the file header).
+        eval if defined!(DEBUG) {
+            if self.in_fill() {
+                kairo::std::ice_fail(f"DeclImport: a fill would create namespace '{q}' in a published header (P855)")
+            }
+        }
+
         var unsafe *parent = self.scope_for(t, ns->getParent())
         if parent == &null { // a namespace's parent is always a namespace or the TU.
             parent = unsafe (t->tu as unsafe *DeclContext)
@@ -528,9 +648,9 @@ pub class DeclImport {
 
     /// The Kairo decl registered for \p usr: this variant fill's own first.
     priv fn _find(self, usr: llvm::StringRef) -> unsafe *Decl {
-        if self.fill_usr != &null {
-            var it = self.fill_usr->find(usr)
-            if it != self.fill_usr->end() {
+        if self._mode == ImportMode::VariantFill {
+            var it = self._fill_usr->find(usr)
+            if it != self._fill_usr->end() {
                 return it->second
             }
         }
@@ -541,8 +661,8 @@ pub class DeclImport {
     /// Register \p d under \p usr (first one wins); a variant fill's member
     /// goes to the fill's own table.
     priv fn _put(self, usr: llvm::StringRef, d: unsafe *Decl) -> unsafe *Decl {
-        if self._own && self.fill_usr != &null {
-            var r = self.fill_usr->try_emplace(usr, d)
+        if self._own && self._mode == ImportMode::VariantFill {
+            var r = self._fill_usr->try_emplace(usr, d)
             return r.first->second
         }
 
@@ -551,11 +671,11 @@ pub class DeclImport {
 
     /// \p d is declared inside the specialization a fill is importing.
     priv fn _in_fill_spec(self, d: unsafe *clang::Decl) -> bool {
-        if self.fill_spec == &null {
+        if self._fill_spec == &null {
             return false
         }
 
-        var unsafe *spec = self.fill_spec->getCanonicalDecl()
+        var unsafe *spec = self._fill_spec->getCanonicalDecl()
         var unsafe *dc   = d->getDeclContext()
         while dc != &null {
             var unsafe *cd = clang::Decl::castFromDeclContext(dc)
@@ -633,12 +753,12 @@ pub class DeclImport {
 
         // A member of a variant fill's specialization is this instance's
         // own: the registry's entry under the same USR belongs to the other
-        // Kairo instance of that specialization (see fill_usr).
-        var own                    = self.fill_usr != &null && self._in_fill_spec(d)
+        // Kairo instance of that specialization (see _fill_usr).
+        var own                    = self._mode == ImportMode::VariantFill && self._in_fill_spec(d)
         var existing: unsafe *Decl = &null
         if own {
-            var oi = self.fill_usr->find((usr).str())
-            if oi != self.fill_usr->end() {
+            var oi = self._fill_usr->find((usr).str())
+            if oi != self._fill_usr->end() {
                 existing = oi->second
             }
         } else {
@@ -684,9 +804,13 @@ pub class DeclImport {
     fn declare_friend(self,
                       fn_: unsafe *clang::Decl,
                       cls: unsafe *clang::DeclContext) -> unsafe *Decl {
-        self._friend_scope = cls
+        var was    = self._redirect
+        var was_at = self._redirect_scope
+        self._redirect       = NameRedirect::Friend
+        self._redirect_scope = cls
         var unsafe *kd = self.declare(fn_)
-        self._friend_scope = &null
+        self._redirect       = was
+        self._redirect_scope = was_at
         return kd
     }
 
@@ -714,9 +838,13 @@ pub class DeclImport {
             return kd
         }
 
-        self._using_scope = sh->getDeclContext()
+        var was    = self._redirect
+        var was_at = self._redirect_scope
+        self._redirect       = NameRedirect::Using
+        self._redirect_scope = sh->getDeclContext()
         self._bind_named(t, tgt, kd)
-        self._using_scope = &null
+        self._redirect       = was
+        self._redirect_scope = was_at
         return kd
     }
 
@@ -900,6 +1028,15 @@ pub class DeclImport {
         out->lexical_dc  = parent
         out->semantic_dc = parent
         out->set_visibility(self._vis(nd), at)
+        eval if defined!(DEBUG) {
+            if self.in_fill() {
+                self._fill_minted.push_back(out)
+            }
+        }
+
+        // In a fill, \p parent can be a published namespace (a hidden
+        // friend's): safe only because nothing but fills reads a header
+        // scope's dc_decls during Sema (the file header).
         parent->add_decl(out)
         return out
     }
@@ -1021,7 +1158,7 @@ pub class DeclImport {
         var sp = self._qual(nd)
         // A hidden friend has no qualified spelling: qualified lookup never
         // finds it, only ADL does. Its bare name is what C++ calls it by.
-        if self._friend_scope != &null && !self._friend_redeclared(nd) {
+        if self._redirect == NameRedirect::Friend && !self._friend_redeclared(nd) {
             sp = self._display_name(nd)
         }
 
@@ -1048,10 +1185,8 @@ pub class DeclImport {
         }
 
         var dc: unsafe *DeclContext = &null
-        if self._friend_scope != &null {
-            dc = self.scope_for(t, self._friend_scope)
-        } else if self._using_scope != &null {
-            dc = self.scope_for(t, self._using_scope)
+        if self._redirect != NameRedirect::None {
+            dc = self.scope_for(t, self._redirect_scope)
         } else {
             dc = self.scope_for(t, nd->getDeclContext())
         }
@@ -1118,7 +1253,7 @@ pub class DeclImport {
         // (`ns::v1::F`), and with nothing in its own table that step was
         // R025E "no member named 'F' in module 'v1'". So the decl is bound
         // in each inline namespace it sits in as well; the entity is one.
-        if self._friend_scope == &null && self._using_scope == &null {
+        if self._redirect == NameRedirect::None {
             var unsafe *cur = nd->getDeclContext()
             while cur != &null && (cur->isTransparentContext() || cur->isInlineNamespace()) {
                 if llvm::isa<clang::EnumDecl>(cur) {
@@ -1139,7 +1274,7 @@ pub class DeclImport {
         // Not for a using-declared enumerator: `using E::A` names A alone,
         // and its enum's scope is not the using's to write into.
         var unsafe *ec = llvm::dyn_cast<clang::EnumConstantDecl>(nd)
-        if ec != &null && self._using_scope == &null {
+        if ec != &null && self._redirect != NameRedirect::Using {
             var unsafe *ed = llvm::dyn_cast<clang::EnumDecl>(ec->getDeclContext())
             if ed != &null && !ed->isScoped() {
                 var unsafe *outer = self.scope_for(t, ed->getDeclContext())
@@ -1353,7 +1488,7 @@ pub class DeclImport {
         }
 
         var unsafe *t = self.target_of(d)
-        if t == &null || t->frozen && self.fill_target == &null {
+        if t == &null || t->frozen && (!self.in_fill()) {
             return
         }
 
@@ -1509,12 +1644,12 @@ pub class DeclImport {
                        spec:  unsafe *clang::ClassTemplateSpecializationDecl,
                        shell: unsafe *Decl,
                        ti:    unsafe *TypeImport) {
-        if self.fill_target == &null || spec == &null || shell == &null {
+        if !self.in_fill() || spec == &null || shell == &null {
             return
         }
 
         ti->tpl_owners.clear() // concrete: no parameter list encloses a specialization.
-        self._define_record(self.fill_target, spec, shell, ti)
+        self._define_record(self._fill_target, spec, shell, ti)
     }
 
     priv fn _define_record_c(self,

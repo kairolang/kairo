@@ -13,12 +13,12 @@
 ///     it wrong. So the shell is filled by asking clang for the
 ///     ClassTemplateSpecializationDecl and running DeclImport over it exactly
 ///     as HeaderIndex runs it over a header. Afterwards the shell is an
-///     ordinary filled instance (`instantiated`) and nothing walks the
+///     ordinary filled instance (ForeignFill::Filled) and nothing walks the
 ///     pattern for it again.
 ///
 ///     Demand-driven: MemberLookup::_walk_record calls fill() the first time
 ///     anything looks into the shell. A failure is sticky
-///     (`foreign_fill_failed`) and leaves lookup on the pattern -- exactly
+///     (ForeignFill::FailedSticky) and leaves lookup on the pattern -- exactly
 ///     the behaviour before fills existed, so a fill can only add answers.
 ///
 ///   \par Threading
@@ -37,6 +37,14 @@
 ///     nested fill of the SAME shell (its own member naming it back) finds it
 ///     in `_active` and returns false at once -- the caller walks the
 ///     pattern, as for any unfilled shell, and the outer fill finishes it.
+///     Each fill's verdict and reason travel up its own call chain
+///     (FillResult, a local `why`), never through a member, so a nested
+///     fill cannot overwrite the outer one's.
+///
+///     The shell's ForeignFill (TemplateParams.k) is the state other threads
+///     read: written only here, under `_mu`, as a fill's last write
+///     (decl_publish_fill, a release store); read anywhere with no lock
+///     (decl_instantiated / decl_fill_failed, acquire loads).
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -74,10 +82,11 @@ import AST::Context::InstantiationRegistry::{
     InstantiationRegistry,
 }
 import AST::DeclFacts::{
-    decl_clang,             decl_cxx_spelling,     decl_fill_failed, decl_instantiated,
-    decl_instantiated_from, decl_origin_fid,       decl_origin_set,  decl_set_fill_failed,
-    decl_set_imported,      decl_set_instantiated,
+    decl_clang,             decl_cxx_spelling, decl_fill_failed,  decl_foreign_fill,
+    decl_instantiated_from, decl_origin_fid,   decl_origin_set,   decl_publish_fill,
+    decl_set_imported,
 }
+import AST::Mixin::TemplateParams::ForeignFill
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -102,22 +111,32 @@ import Sema::Foreign::TypeExport::TypeExport
 import Sema::Foreign::TypeImport::TypeImport
 import Sema::Resolve::NameLookup::NameLookup
 
+/// One fill attempt's verdict. Unspelled is not clang's verdict on the
+/// instance: no set tried could spell an argument (or the set only declares
+/// the template), so another demanding TU's set may still fill it.
+enum FillResult derives u8 {
+    Filled,
+    Failed,
+    Unspelled,
+}
+
+/// A shell whose fill came back Unspelled, beside the demanding set it was
+/// tried with (null: none).
+struct UnspelledRec {
+    var shell: unsafe *Decl      = &null
+    var set:   unsafe *HeaderSet = &null
+}
+
 pub class ForeignInstantiate {
     priv var _mu:        kairo::std::RecursiveMutex ///< ONE lock for all fills; see the file header.
     priv var _active:    cxx::std::vector<unsafe *Decl> ///< shells mid-fill, outermost first; guarded by `_mu`.
     priv var _hindex:    *HeaderIndex
     priv var _reg:       unsafe *ForeignRegistry
     priv var _instances: unsafe *InstantiationRegistry
-    priv var _why:       string                         = "" ///< the last failure's reason, for the log line.
-    /// The last failure was only that no set tried could spell an argument
-    /// (_fill_in's -1), not clang's verdict on the instance.
-    priv var _unspelled: bool = false
-    /// Shells whose fill failed that way, each beside the demanding set it
-    /// was tried with (null: none); parallel, guarded by `_mu`. Such a
-    /// failure is not sticky: another TU's set may see the argument's
-    /// header.
-    priv var _unspelled_shell: cxx::std::vector<unsafe *Decl>
-    priv var _unspelled_set:   cxx::std::vector<unsafe *HeaderSet>
+    /// Fills that came back Unspelled, guarded by `_mu`. Such a failure is
+    /// not sticky (the shell stays Shell): another TU's set may see the
+    /// argument's header, so only the same (shell, set) pair is not retried.
+    priv var _unspelled: cxx::std::vector<UnspelledRec>
     /// For TypeExport's stand-ins of Kairo records (`vector<S>`), which
     /// are named as EmitIR names them. Null until the driver has a
     /// preprocessor; a Kairo-record argument is refused until then.
@@ -153,29 +172,30 @@ pub class ForeignInstantiate {
             return false
         }
 
-        // Unlocked fast path. Both flags only ever go false -> true, each is
-        // written LAST by a fill holding `_mu` (after a release fence), and
-        // TUs that do not import each other run their typed checks on pool
-        // workers: the acquire fence makes everything the fill wrote
-        // visible to a reader that saw the flag. The re-check under the lock
-        // is what is load-bearing for the slow path.
-        if decl_instantiated(shell) {
-            cxx::std::atomic_thread_fence(cxx::std::memory_order_acquire)
+        // Unlocked fast path. ForeignFill leaves Shell once, for a terminal
+        // state, as the LAST write of a fill holding `_mu` (a release
+        // store), and TUs that do not import each other run their typed
+        // checks on pool workers: the acquire load makes everything the fill
+        // wrote visible to a reader that saw Filled. The re-read under the
+        // lock is what is load-bearing for the slow path.
+        var st = decl_foreign_fill(shell)
+        if st == ForeignFill::Filled {
             self._rerequest(shell, fid, alt)
             return true
         }
 
-        if decl_fill_failed(shell) {
+        if st == ForeignFill::FailedSticky || decl_fill_failed(shell) {
             return false
         }
 
         var lock = kairo::std::LockGuard(self._mu)
-        if decl_instantiated(shell) {
+        st = decl_foreign_fill(shell)
+        if st == ForeignFill::Filled {
             self._rerequest(shell, fid, alt)
             return true
         }
 
-        if decl_fill_failed(shell) {
+        if st == ForeignFill::FailedSticky {
             return false
         }
 
@@ -189,22 +209,22 @@ pub class ForeignInstantiate {
 
         // Already found unspellable with this same demanding set: nothing
         // has changed that a retry would see.
-        for var i: usize = 0; i < self._unspelled_shell.size(); ++i {
-            if self._unspelled_shell[i] == shell && self._unspelled_set[i] == alt {
+        for var i: usize = 0; i < self._unspelled.size(); ++i {
+            if self._unspelled[i].shell == shell && self._unspelled[i].set == alt {
                 return false
             }
         }
 
         self._active.push_back(shell)
-        self._unspelled = false
         // Every registry request the fill makes is recorded on the shell's
         // entry, for a TU earlier in import order that comes later.
         var unsafe *fe   = self._instances->entry_of(shell)
         var unsafe *prev = self._instances->begin_fill(fe, fid, unsafe (alt as unsafe *void))
-        var        ok    = self._fill_locked(shell, sink, fid, alt)
+        var        why   = string()
+        var        r     = self._fill_locked(shell, sink, fid, alt, unsafe &why)
         self._instances->end_fill(fe, prev)
         self._active.pop_back()
-        if ok {
+        if r == FillResult::Filled {
             self.n_filled += 1
             return true
         }
@@ -217,11 +237,13 @@ pub class ForeignInstantiate {
         // ClangJobs.k too, whose own set spells it, and its `pointer` stayed
         // '<ffi type>'. So only clang's own verdict is sticky; an
         // unspelled fill is retried for each other demanding set.
-        if self._unspelled {
-            self._unspelled_shell.push_back(shell)
-            self._unspelled_set.push_back(alt)
+        if r == FillResult::Unspelled {
+            var rec = UnspelledRec()
+            rec.shell = shell
+            rec.set   = alt
+            self._unspelled.push_back(rec)
         } else {
-            decl_set_fill_failed(shell)
+            decl_publish_fill(shell, ForeignFill::FailedSticky)
         }
 
         // clang's own errors for the fill already went to `sink`, with spans
@@ -236,7 +258,7 @@ pub class ForeignInstantiate {
 
         kairo::Logger::warn(
             kairo::Logger::Stage::Driver,
-            f"ForeignInstantiate: instance of {what} not filled: {self._why}",
+            f"ForeignInstantiate: instance of {what} not filled: {why}",
         )
 
         return false
@@ -264,18 +286,19 @@ pub class ForeignInstantiate {
                          shell: unsafe *Decl,
                          sink:  unsafe *BufferedDiagSink,
                          fid:   i64,
-                         alt:   unsafe *HeaderSet) -> bool {
+                         alt:   unsafe *HeaderSet,
+                         why:   unsafe *string) -> FillResult {
         // 1. who owns the pattern.
         var unsafe *prim = decl_instantiated_from(shell)
         if prim == &null {
-            self._why = "no pattern"
-            return false
+            (*why) = "no pattern"
+            return FillResult::Failed
         }
 
         var unsafe *hs = unsafe (decl_origin_set(prim) as unsafe *HeaderSet)
         if hs == &null {
-            self._why = "primary has no header set"
-            return false
+            (*why) = "primary has no header set"
+            return FillResult::Failed
         }
 
         // A set's clang instance lives until HeaderSetCache::release_all,
@@ -290,8 +313,8 @@ pub class ForeignInstantiate {
         var unsafe *cctx  = hs->ast()
         var unsafe *csema = hs->sema()
         if cctx == &null || csema == &null {
-            self._why = "header set has no AST / Sema"
-            return false
+            (*why) = "header set has no AST / Sema"
+            return FillResult::Failed
         }
 
         var unsafe *ct = TypeExport::class_template_of(
@@ -299,37 +322,32 @@ pub class ForeignInstantiate {
         )
 
         if ct == &null {
-            self._why = "primary is not a class template"
-            return false
+            (*why) = "primary is not a class template"
+            return FillResult::Failed
         }
 
         var unsafe *t = self._hindex->target_for_fid(decl_origin_fid(prim))
         if t == &null {
-            self._why = "primary's header has no import target"
-            return false
+            (*why) = "primary's header has no import target"
+            return FillResult::Failed
         }
 
         // The shell's own spec_args are empty by design; its args are the
         // registry entry's (canonical, parameter order, defaults filled).
         var unsafe *e = self._instances->entry_of(shell)
         if e == &null {
-            self._why = "not a registry instance"
-            return false
+            (*why) = "not a registry instance"
+            return FillResult::Failed
         }
 
         // Where a Kairo instance a stand-in names is homed (TypeExport::
         // home_fid): the demanding TU, else the TU that named the shell.
         var home = if (fid >= 0) => (fid) else => (e->home_fid)
 
-        var r = self._fill_in(shell, sink, home, hs, ct, t, e)
-        // A nested fill (an argument's own instance) may have left the flag
-        // set; this verdict is the outer one.
-        if r >= 0 {
-            self._unspelled = false
-            return r == 1
+        var r = self._fill_in(shell, sink, home, hs, ct, t, e, why)
+        if r != FillResult::Unspelled {
+            return r
         }
-
-        self._unspelled = true
 
         // The primary's set could not spell an argument. The primary is the
         // FIRST set to import its header, not the one that named the
@@ -342,34 +360,33 @@ pub class ForeignInstantiate {
         // there and fill through it. The shell then belongs to that set, as
         // one imported from it would.
         if alt == &null || alt == hs || !alt->alive() {
-            return false
+            return r
         }
 
         if alt->ast() == &null || alt->sema() == &null {
-            return false
+            return r
         }
 
-        var        why  = self._why
-        var        ax   = TypeExport(alt->ast(), alt->sema(), unsafe (alt as unsafe *void))
-        var unsafe *act = ax.refind_template(ct)
+        var        first = *why
+        var        ax    = TypeExport(alt->ast(), alt->sema(), unsafe (alt as unsafe *void))
+        var unsafe *act  = ax.refind_template(ct)
         if act == &null {
-            return false
+            return r
         }
 
         e->fill_used_alt = true // InstantiationRegistry::rerequest; under `_mu`.
-        r                = self._fill_in(shell, sink, home, alt, act, t, e)
-        if r == -1 {
-            self._why = f"{why}; also in the demanding TU's set"
-        } else {
-            self._unspelled = false
+        r                = self._fill_in(shell, sink, home, alt, act, t, e, why)
+        if r == FillResult::Unspelled {
+            (*why) = f"{first}; also in the demanding TU's set"
         }
 
-        return r == 1
+        return r
     }
 
-    /// Steps 2-6 of a fill, in \p hs's AST with \p ct its template: 1
-    /// filled, 0 failed, -1 an argument has no clang spelling in this set or
-    /// the set only declares the template (the caller may retry in another).
+    /// Steps 2-6 of a fill, in \p hs's AST with \p ct its template. Unspelled
+    /// when an argument has no clang spelling in this set or the set only
+    /// declares the template (the caller may retry in another). A failure's
+    /// reason goes to \p why, the caller's own.
     priv fn _fill_in(self,
                      shell: unsafe *Decl,
                      sink:  unsafe *BufferedDiagSink,
@@ -377,7 +394,8 @@ pub class ForeignInstantiate {
                      hs:    unsafe *HeaderSet,
                      ct:    unsafe *clang::ClassTemplateDecl,
                      t:     unsafe *HeaderTarget,
-                     e:     unsafe *InstanceEntry) -> i32 {
+                     e:     unsafe *InstanceEntry,
+                     why:   unsafe *string) -> FillResult {
         var unsafe *cctx  = hs->ast()
         var unsafe *csema = hs->sema()
 
@@ -424,8 +442,8 @@ pub class ForeignInstantiate {
             for var i: usize = 0; i < e->args.size(); ++i {
                 var a = tx.to_clang_arg(ct, i, e->args[i], &qs)
                 if a.isNull() {
-                    self._why = f"template argument {i} has no clang spelling in phase A"
-                    return -1
+                    (*why) = f"template argument {i} has no clang spelling in phase A"
+                    return FillResult::Unspelled
                 }
 
                 qs.push_back(a)
@@ -433,8 +451,8 @@ pub class ForeignInstantiate {
 
             ty = tx.template_id(ct, &qs)
             if ty.isNull() {
-                self._why = "clang rejected the template-id"
-                return 0
+                (*why) = "clang rejected the template-id"
+                return FillResult::Failed
             }
         }
 
@@ -493,13 +511,13 @@ pub class ForeignInstantiate {
             diags->setSuppressAllDiagnostics(was_quiet)
             var unsafe *qd = ty->getAsCXXRecordDecl()
             if qd != &null && qd->isInvalidDecl() {
-                self._why = "clang could not complete the specialization"
-                return 0
+                (*why) = "clang could not complete the specialization"
+                return FillResult::Failed
             }
         }
 
         if incomplete || diags->getNumErrors() > before {
-            self._why = "clang could not complete the specialization"
+            (*why) = "clang could not complete the specialization"
             // Incomplete with no error is this SET's gap, not the instance's:
             // the primary is the FIRST set to import its header, and there
             // the template may be only declared (a set that reaches
@@ -510,10 +528,10 @@ pub class ForeignInstantiate {
             // An error means the pattern itself rejected these arguments,
             // which no other set changes.
             if !(diags->getNumErrors() > before) {
-                return -1
+                return FillResult::Unspelled
             }
 
-            return 0
+            return FillResult::Failed
         }
 
         var unsafe *spec = llvm::dyn_cast_or_null<clang::ClassTemplateSpecializationDecl>(
@@ -521,16 +539,13 @@ pub class ForeignInstantiate {
         )
 
         if spec == &null {
-            self._why = "completed type is not a class template specialization"
-            return 0
+            (*why) = "completed type is not a class template specialization"
+            return FillResult::Failed
         }
 
         // 4. import, in fill mode: every decl lands in the primary's header,
         //    the specialization itself maps to the shell.
         var di = self._hindex->importer_for(hs)
-        di.fill_target = t
-        di.fill_scope  = NameLookup::context_of(shell)
-        di.fill_spec   = unsafe (spec as unsafe *clang::Decl)
         var ti = self._hindex->type_importer_for(hs, t->ctx, t->fid)
         // The instance's pointer arguments keep the flavour they were written
         // with (`vector<*Node>` hands out `*Node`, not `unsafe *Node`):
@@ -567,18 +582,21 @@ pub class ForeignInstantiate {
         // specialization (`vector<u64>` beside `vector<usize>`, both
         // `vector<unsigned long>` to clang). It shares the specialization
         // but not the members, whose types follow each instance's own
-        // arguments (DeclImport::fill_usr). The spec's own USR maps to
+        // arguments (DeclImport's VariantFill). The spec's own USR maps to
         // this shell inside the fill, so `const vector&` is this instance.
         var own_usr: llvm::StringMap<unsafe *Decl>
+        var variant: unsafe *llvm::StringMap<unsafe *Decl> = &null
         var spec_usr                               = TypeImport::usr_of(spec)
         if !spec_usr.empty() {
             var unsafe *owner = self._reg->find((spec_usr).str())
             if owner != &null && owner != shell {
                 own_usr.try_emplace((spec_usr).str(), shell)
-                di.fill_usr = unsafe &own_usr
-                ti.fill_usr = unsafe &own_usr
+                variant     = unsafe &own_usr
+                ti.fill_usr = variant
             }
         }
+
+        di.begin_fill(t, NameLookup::context_of(shell), unsafe (spec as unsafe *clang::Decl), variant)
 
         var pairs = cxx::std::vector<(unsafe *void, unsafe *Decl)>()
         self._hindex->walk_declare(spec, &di, &pairs)
@@ -610,22 +628,18 @@ pub class ForeignInstantiate {
             self._reg->put((usr).str(), shell)
         }
 
-        // 6. freeze what the fill created, THEN publish. `instantiated` is
-        //    the fast path's flag and must be the last write.
-        for var i: usize = 0; i < di.fill_scopes.size(); ++i {
-            if di.fill_scopes[i]->dc_symbols != &null {
-                di.fill_scopes[i]->dc_symbols->freeze()
-            }
-        }
-
-        cxx::std::atomic_thread_fence(cxx::std::memory_order_release) // pairs with fill()'s acquire.
-        decl_set_instantiated(shell)
+        // 6. freeze what the fill created, THEN publish. The shell's
+        //    ForeignFill is the fast path's state and must be the last write:
+        //    decl_publish_fill is the release store fill()'s acquire load
+        //    pairs with.
+        di.end_fill()
+        decl_publish_fill(shell, ForeignFill::Filled)
         kairo::Logger::info(
             kairo::Logger::Stage::Driver,
             f"ForeignInstantiate: filled {sp}: {di.n_declared} decl(s) declared, {di.n_defined} defined, {ti.n_opaque} opaque type(s)",
         )
 
-        return 1
+        return FillResult::Filled
     }
 
     /// Whether clang's own template argument deduction and substitution
@@ -970,7 +984,7 @@ pub class ForeignInstantiate {
         // The specialization's own parameter is now concrete; C++ takes the
         // argument iff an implicit conversion sequence exists, which clang
         // builds -- a consteval constructor is only checked at the emitted
-        // call, where the literal is a literal (P825).
+        // call, where the literal is a literal.
         if r == clang::TemplateDeductionResult::Success && spec != &null && conv_at != &null {
             for var ci: usize = 0; ci < conv_at->size(); ++ci {
                 var k = (*conv_at)[ci]
@@ -1085,7 +1099,7 @@ pub class ForeignInstantiate {
     /// chain is not immutable data: a fill on another pool thread runs
     /// clang::Sema in the same ASTContext (instantiating members, adding
     /// redeclarations, completing lazy chain links), so an unlocked walk
-    /// read a half-written link and called through null (P807). Only the
+    /// read a half-written link and called through null. Only the
     /// set lock, not `_mu`: nothing here allocates on the Kairo side, and
     /// taking the set lock alone keeps the `_mu`-then-set order intact.
     static fn decl_purity(f: unsafe *Decl) -> u8 {
@@ -1110,7 +1124,7 @@ pub class ForeignInstantiate {
     /// declared `auto` / `auto*` / `decltype(auto)`, imported; null when it
     /// is not such a function or clang cannot deduce it. Asked at a call,
     /// never at import: deducing instantiates the body, and a header full of
-    /// unused `auto` members (toml++'s node_view) must cost nothing (P827).
+    /// unused `auto` members (toml++'s node_view) must cost nothing.
     /// A template's specialization is deduce_call's (want_ret). The set's
     /// diagnostics are quiet: a body that does not compile for this
     /// instance is an error only where C++ would call it, and then the
@@ -1131,7 +1145,7 @@ pub class ForeignInstantiate {
         // and no `_mu`, so a call of a non-`auto` function costs one
         // uncontended lock): DeduceReturnType below, on another thread,
         // rewrites fd's type with setType, so even this read races it
-        // unlocked (P853). A non-null clang_decl means the set is live.
+        // unlocked. A non-null clang_decl means the set is live.
         {
             var pre = kairo::std::LockGuard(*hs->sema_lock())
             if fd->getDescribedFunctionTemplate() != &null || fd->isDependentContext() {
@@ -1181,7 +1195,7 @@ pub class ForeignInstantiate {
     /// view(const S&)`), take a defaulted trailing parameter (`basic_string(
     /// const CharT*, const Alloc& = Alloc())`), are consteval (`fstring`), or
     /// are not declared until the specialization is complete and clang
-    /// declares them (P825); a hand search saw none of those. Only a
+    /// declares them; a hand search saw none of those. Only a
     /// user-defined sequence answers true: a standard conversion is Kairo's
     /// own lattice to judge. Diagnostics are suppressed and any hard error
     /// is a no: the probe is a question, never the program's error.
@@ -1190,7 +1204,7 @@ pub class ForeignInstantiate {
     /// sees -- an lvalue `const char[lit_n]` -- not its decayed `const char*`
     /// (\p from is then ignored). A constructor template on `const char
     /// (&)[N]` (fmt's `format_string`) deduces N only from the array; the
-    /// pointer-taking constructors still see it through the decay (P835).
+    /// pointer-taking constructors still see it through the decay.
     fn cxx_converts(self,
                     f:     unsafe *Decl,
                     from:  unsafe *Type,

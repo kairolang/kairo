@@ -35,7 +35,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-/// FIXME: _BitInt(N) comes under clang::BitIntType, not a BuiltinType, add a dyn_cast<BitIntType> arm mapping 128/256/512 by getNumBits()
+/// FIXME: _BitInt(N) comes under clang::BitIntType, not a BuiltinType; add a
+/// dyn_cast<BitIntType> arm mapping 128/256/512 by getNumBits().
 
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "clang/AST/ASTContext.h"
@@ -114,7 +115,7 @@ pub class TypeImport {
     /// canonical type cannot say which, and the ordinary mapping answers.
     priv var _int_args: llvm::DenseMap<u64, unsafe *Type>
 
-    /// A variant fill's own members (DeclImport::fill_usr); null otherwise.
+    /// A variant fill's own members (DeclImport::_fill_usr, a VariantFill); null otherwise.
     pub var fill_usr: unsafe *llvm::StringMap<unsafe *Decl> = &null
 
     fn TypeImport(self,
@@ -846,7 +847,7 @@ pub class TypeImport {
             // specialization opaque, and an opaque is keyed by the SPELLING
             // it was reached through, so `nl::json`, `api::Json` (an alias of
             // it) and a return type printed three ways were three types that
-            // did not convert, and none could be looked into (P793-P795).
+            // did not convert, and none could be looked into.
             // The argument's identity is the template it names, so it is an
             // opaque keyed by that template's qualified name: no type is
             // spelled that way, so it can collide with nothing. The fill
@@ -1051,7 +1052,7 @@ pub class TypeImport {
             return &null
         }
 
-        // A variant fill's own members first (DeclImport::fill_usr).
+        // A variant fill's own members first (DeclImport::_fill_usr, a VariantFill).
         if self.fill_usr != &null {
             var it = self.fill_usr->find((usr).str())
             if it != self.fill_usr->end() {
@@ -1247,7 +1248,7 @@ pub class TypeImport {
 
             // i386 stores x87 extended in 12 bytes, x86_64 in 16: without the
             // 96 case `long double` imported opaque on i686 and every f80 call
-            // into C (fmt_buf.k's kairo_rt_fmt_f80) failed overload (P742).
+            // into C (fmt_buf.k's kairo_rt_fmt_f80) failed overload.
             if bits == 96 || bits == 128 {
                 // x86: 80-bit extended padded to 12 or 16 bytes. PPC double-double
                 // and true binary128 also report 128; ask the format.

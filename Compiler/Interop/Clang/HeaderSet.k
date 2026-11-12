@@ -106,6 +106,43 @@ const HEADER_BUILD_GROUP: u8 = 10
 pub
 const CODEGEN_PCH_GROUP: u8 = 12
 
+/// Where a HeaderSet's phase-A clang instance stands: one byte, `_state`,
+/// the only record of it. Changed only by the transitions below; every
+/// other lifecycle question (`is_built`, `alive`, a late use, "may be
+/// revived") is a predicate over it.
+///
+///   Minted    requested; no build has started. A view (`shared` set) stays
+///             here for good: its headers were parsed in the shared set.
+///   Building  the first build() is running, on a pool thread.
+///   Built     that build returned; `ok` is its verdict. `_ci` is not yet
+///             published: the first _ready() does that, under `_revive_mu`.
+///   Live      `_ci` is a finished instance, published for the lock-free
+///             path. A failed build that still made an instance is Live too
+///             (its accessors answer null where clang has no AST / Sema);
+///             callers gate on `ok`, as they always did.
+///   Unused    release_unused freed the instance; _revive may re-parse it.
+///   Reviving  _revive is re-parsing it, holding `_revive_mu`.
+///   Dead      no instance, and none to come: the build made none (the
+///             backend was not ready), or a revive made none. Not a late use.
+///   Final     release() ran (HeaderSetCache::release_all, or the set's own
+///             end): never revived; any later use is a late use, counted.
+///
+/// Writers: build() (Minted -> Building -> Built), on the one pool thread
+/// that builds the set; every other transition holds `_revive_mu`
+/// (_revive, release_unused, release). Readers: any thread, one acquire
+/// load, no lock; a reader that needs a transition (Built or Unused on the
+/// way to Live) takes `_revive_mu` and asks again.
+pub enum HeaderSetState derives u8 {
+    Minted,
+    Building,
+    Built,
+    Live,
+    Unused,
+    Reviving,
+    Dead,
+    Final,
+}
+
 /// One header clang ENTERED during the parse, in first-touch order. The
 /// FileID is the phase-A instance's and is only meaningful while it lives.
 pub struct HeaderFile {
@@ -181,7 +218,10 @@ pub class HeaderSet {
     pub var files:    cxx::std::vector<HeaderFile> ///< every header entered, first-touch order.
     pub var includes: cxx::std::vector<IncludeEdge>
     pub var pch:      cxx::std::shared_ptr<clang::PCHBuffer>
-    pub var built:    kairo::std::Atomic<bool>               = kairo::std::Atomic<bool>(false)
+    /// The first build's verdict: clang parsed every header with no error.
+    /// Written once, by build() before its Building -> Built store; read
+    /// after that (the build group joined, or an acquire of the state). A
+    /// revive's re-parse never rewrites it.
     pub var ok:       bool                                   = false
 
     // Filled by index() on the driver thread.
@@ -221,13 +261,15 @@ pub class HeaderSet {
     /// nest: importing one instance's members resolves a type path into
     /// another instance of the same set, and the outer fill still holds this.
     priv var _sema_mu: kairo::std::RecursiveMutex
-    /// Serializes _revive and release_unused, the only writers of `_ci`,
-    /// `revivable`, `files` and `includes` once Sema is parallel (P852).
-    /// A leaf: build() re-enters no accessor of this set and takes no Sema
-    /// lock, so a revive cannot publish `_live` early or deadlock.
+    /// Serializes _revive, release_unused and release, the writers of `_ci`,
+    /// `_state` (after the first build), `files` and `includes` once Sema is
+    /// parallel (P852). A leaf: build() re-enters no accessor of this set and
+    /// takes no Sema lock, so a revive cannot deadlock. Lock order: the
+    /// cache's `_mu` (release_all), then this.
     priv var _revive_mu: kairo::std::RecursiveMutex
-    /// `_ci` is a finished, usable instance; see _ready().
-    priv var _live: kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(false)
+    /// A HeaderSetState: the set's lifecycle (see the enum). An atomic byte,
+    /// because ast() / sema() / alive() read it on any Sema thread unlocked.
+    priv var _state: kairo::std::Atomic<u8> = kairo::std::Atomic<u8>(0)
 
     /// closure_of / kfid_of_path indexes, built on their first call (driver
     /// thread, after index(): `files` and `includes` are final by then).
@@ -252,6 +294,46 @@ pub class HeaderSet {
         self.release()
     }
 
+    /// # State
+
+    /// The set's lifecycle state: one acquire load, so a reader that sees
+    /// Live (or Unused) also sees everything written before that store.
+    pub fn state(self) -> HeaderSetState {
+        return (self._state.load(kairo::std::MemoryOrder::acquire) as HeaderSetState)
+    }
+
+    /// A build has finished (HeaderIndex::index waits for this): Built or
+    /// any state after it but Final, which no index asks about.
+    pub fn is_built(self) -> bool {
+        var s = self.state()
+        return s != HeaderSetState::Minted && s != HeaderSetState::Building && s != HeaderSetState::Final
+    }
+
+    /// release_unused has run at some point, so `_macros` / `_macros_kept`
+    /// are written: they are written before its Unused store, and every
+    /// state reachable after it is one of these. Reading `_macros_kept` only
+    /// behind this test orders the plain bool after that release store.
+    priv static fn _past_release(s: HeaderSetState) -> bool {
+        return s == HeaderSetState::Unused
+            || s == HeaderSetState::Reviving
+            || s == HeaderSetState::Dead
+            || s == HeaderSetState::Final
+    }
+
+    /// The one writer of `_state` but release(): \p from -> \p to, or an
+    /// ICE naming both. A CAS, so a transition from a state the set is not
+    /// in is caught, not overwritten; the writers are serialised (see
+    /// HeaderSetState), so it never loses a race it should have won. A
+    /// release store: the transition publishes what its writer did first.
+    priv fn _transition(self, from: HeaderSetState, to: HeaderSetState) {
+        var expected = from as u8
+        if !self._state.compare_exchange_strong(&expected, to as u8) {
+            kairo::std::ice_fail(
+                f"HeaderSet {self.id}: state {expected} cannot go {from as u8} -> {to as u8}",
+            )
+        }
+    }
+
     /// # Accessors (valid between build() and release())
 
     pub fn ast(self) -> unsafe *clang::ASTContext {
@@ -262,7 +344,7 @@ pub class HeaderSet {
         }
 
         if (!self._ready()) {
-            HeaderSet::_note_late(self.released)
+            HeaderSet::_note_late(self.state() == HeaderSetState::Final)
             return &null
         }
 
@@ -281,7 +363,7 @@ pub class HeaderSet {
         }
 
         if (!self._ready()) {
-            HeaderSet::_note_late(self.released)
+            HeaderSet::_note_late(self.state() == HeaderSetState::Final)
             return &null
         }
 
@@ -300,7 +382,7 @@ pub class HeaderSet {
         }
 
         if (!self._ready()) {
-            HeaderSet::_note_late(self.released)
+            HeaderSet::_note_late(self.state() == HeaderSetState::Final)
             return &null
         }
 
@@ -311,12 +393,12 @@ pub class HeaderSet {
         return self._ready()
     }
 
-    /// `_ci` is usable on this thread: `_live` (acquire) is stored only once
-    /// a build has FINISHED, under `_revive_mu`, so a reader never sees the
+    /// `_ci` is usable on this thread: Live (acquire) is stored only once a
+    /// build has FINISHED, under `_revive_mu`, so a reader never sees the
     /// half-built instance a concurrent revive assigns to `_ci` mid-build.
     /// One atomic load once live; the lock only on the first ask (P852).
     priv fn _ready(self) -> bool {
-        if self._live.load(kairo::std::MemoryOrder::acquire) {
+        if self.state() == HeaderSetState::Live {
             return true
         }
 
@@ -331,7 +413,6 @@ pub class HeaderSet {
     /// part of the build's one shared set; null for a set parsed itself.
     pub var  shared:       unsafe *HeaderSet     = &null
     pub var  contributed:  kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(true)
-    pub var  revivable:    bool                  = false
     priv var _be_saved:    unsafe *ClangBackend  = &null
     priv var _macros:      llvm::StringMap<bool> ///< release_unused's macro snapshot (names defined).
     priv var _macros_kept: bool                  = false
@@ -339,13 +420,14 @@ pub class HeaderSet {
     /// macro_defined() can answer: a live instance, or a released one's
     /// snapshot. EvalIfFolding asks this instead of alive(), which revives.
     pub fn macros_known(self) -> bool {
-        if self._live.load(kairo::std::MemoryOrder::acquire) || self._macros_kept {
+        var s = self.state()
+        if s == HeaderSetState::Live || (HeaderSet::_past_release(s) && self._macros_kept) {
             return true
         }
 
-        // `revivable` flips under `_revive_mu` (_revive); read it there too.
+        // An instance not yet published, or one _revive may re-parse.
         var rlock = kairo::std::LockGuard(self._revive_mu)
-        return self._ci != &null || self.revivable
+        return self._ci != &null || self.state() == HeaderSetState::Unused
     }
 
     /// --print-stats: the live instance's ASTContext bytes (AST + side tables),
@@ -385,6 +467,10 @@ pub class HeaderSet {
 
     /// Frees this set's clang instance after HeaderIndex took nothing from
     /// it; the include graph, file list and fid map stay. Driver thread.
+    /// Built or Live -> Unused. What makes this safe is ownership, not the
+    /// lock: the driver calls it once the last TU owning the set finished
+    /// its group, and only those TUs ask an unpinned set for its AST. A
+    /// reader that loaded Live before the store still uses `_ci` after it.
     pub fn release_unused(self) {
         // Driver thread, while other groups' Sema runs: the same lock as
         // _revive, so a release and a revive of one set never interleave.
@@ -408,9 +494,11 @@ pub class HeaderSet {
             self._macros_kept = true
         }
 
-        self.release()
-        self.released  = false // not a late use: _revive answers instead.
-        self.revivable = true
+        // Unused BEFORE the teardown, and after the snapshot it publishes: a
+        // reader that sees it takes `_revive_mu`, which this holds until the
+        // instance is gone; one that sees it reads `_macros` whole.
+        self._transition(self.state(), HeaderSetState::Unused)
+        self._teardown()
     }
 
     /// Re-parse a release_unused() set on demand (a fill retry in the
@@ -425,32 +513,46 @@ pub class HeaderSet {
         // ForeignInstantiate's `_mu`, so taking it under either cannot
         // deadlock (P852).
         var rlock = kairo::std::LockGuard(self._revive_mu)
-        if self._ci != &null {
-            // The first build ran before this set was shared (joined pool
-            // task); publish it for the lock-free fast path.
-            self._live.store(true, kairo::std::MemoryOrder::release)
+        var st    = self.state()
+        if st == HeaderSetState::Live {
             return true
         }
 
-        if !self.revivable || self._be_saved == &null {
+        if st == HeaderSetState::Built {
+            // The first build ran before this set was shared (joined pool
+            // task); publish it for the lock-free fast path. A build that
+            // made no instance (the backend was not ready) never will.
+            var made = self._ci != &null
+            self._transition(
+                HeaderSetState::Built,
+                if (made) => (HeaderSetState::Live) else => (HeaderSetState::Dead),
+            )
+
+            return made
+        }
+
+        // Minted / Building: no build has finished, so nothing to publish
+        // (an ask that early is a schedule bug: readers come after the
+        // build group joined). Dead / Final: nothing to revive.
+        if st != HeaderSetState::Unused || self._be_saved == &null {
             return false
         }
 
-        self.revivable = false
+        self._transition(HeaderSetState::Unused, HeaderSetState::Reviving)
         var keep_files = self.files
         var keep_inc   = self.includes
-        var keep_ok    = self.ok
         self.files.clear()
         self.includes.clear()
-        self.built.store(false)
         self.diag_buf.push_suppress()
-        self.build(self._be_saved)
+        self._parse(self._be_saved) // its verdict is the first build's (`ok`), not this one's.
         self.diag_buf.pop_suppress()
         self.files    = keep_files
         self.includes = keep_inc
-        self.ok       = keep_ok
         // Published only now, with the instance whole (see _ready).
-        self._live.store(self._ci != &null, kairo::std::MemoryOrder::release)
+        self._transition(
+            HeaderSetState::Reviving,
+            if (self._ci != &null) => (HeaderSetState::Live) else => (HeaderSetState::Dead),
+        )
         kairo::header_set_revivals().fetch_add(1)
         kairo::Logger::info(
             kairo::Logger::Stage::Driver,
@@ -463,7 +565,6 @@ pub class HeaderSet {
     /// A set released early (HeaderSetCache::release_all before codegen)
     /// that something still asks for its AST: counted, and reported
     /// once at exit (HeaderSetCache::report_late_uses), never silent.
-    pub var released: bool = false
     static fn _note_late(released: bool) {
         if released {
             kairo::header_set_late_uses().fetch_add(1)
@@ -480,7 +581,8 @@ pub class HeaderSet {
     /// source file, so the preprocessor still holds every definition.
     /// Kairo's `defined!` (Compiler/Spec/Eval.md#defined).
     pub fn macro_defined(self, const name: string) -> bool {
-        if (!self._live.load(kairo::std::MemoryOrder::acquire)) && self._macros_kept {
+        var s = self.state()
+        if s != HeaderSetState::Live && HeaderSet::_past_release(s) && self._macros_kept {
             return self._macros.find(kairo::sref(name)) != self._macros.end()
         }
 
@@ -821,15 +923,29 @@ pub class HeaderSet {
 
     /// # build (pool thread)
 
-    /// Parse the set and write the PCH. Keeps the instance alive.
+    /// The set's first build: Minted -> Building -> Built, on the one pool
+    /// thread HeaderSetCache gave it. Readers wait for the build group, so
+    /// nothing reads `ok`, `files` or `includes` before the Built store.
     fn build(self, be: unsafe *ClangBackend) {
+        self._transition(HeaderSetState::Minted, HeaderSetState::Building)
+        self.ok = self._parse(be)
+        self._transition(HeaderSetState::Building, HeaderSetState::Built)
+        kairo::Logger::info(
+            kairo::Logger::Stage::Driver,
+            f"HeaderSet: built key={self.headers.size()} header(s), {self.files.size()} file(s) entered, ok={self.ok}",
+        )
+    }
+
+    /// Parse the set and keep the instance alive: true when clang parsed
+    /// every header with no error. build() and _revive's re-parse; the
+    /// caller owns the state. An early false can leave `_ci` set to an
+    /// instance with no SourceManager / target / AST (_teardown frees it).
+    priv fn _parse(self, be: unsafe *ClangBackend) -> bool {
         var _t = TimeRegion("HeaderSetBuild")
         self._be_saved = be
         be->startup() // idempotent, mutex-guarded.
         if !be->ready() {
-            self.ok = false
-            self.built.store(true)
-            return
+            return false
         }
 
         // Own invocation: a COPY of the backend's, so LangOpts/target/header
@@ -940,9 +1056,7 @@ pub class HeaderSet {
         self._ci->setVirtualFileSystem(be->vfs())
         self._ci->createDiagnostics(self._printer, false)
         if !self._ci->hasDiagnostics() {
-            self.ok = false
-            self.built.store(true)
-            return
+            return false
         }
 
         // Every clang diagnostic of this set goes through the Kairo engine,
@@ -963,9 +1077,7 @@ pub class HeaderSet {
         )
 
         if !self._ci->hasTarget() {
-            self.ok = false
-            self.built.store(true)
-            return
+            return false
         }
 
         self._ci->getTarget().adjust(&self._ci->getDiagnostics(), &self._ci->getLangOpts(), &null)
@@ -977,9 +1089,7 @@ pub class HeaderSet {
         // destroy the ASTContext, and the whole point is that it lives on.
         var input = fe->Inputs[0]
         if !self._act->BeginSourceFile(&*self._ci, input) {
-            self.ok = false
-            self.built.store(true)
-            return
+            return false
         }
 
         self._began = true
@@ -991,13 +1101,7 @@ pub class HeaderSet {
             llvm::consumeError(cxx::std::move(err))
         }
 
-        self.ok = !failed && self._ci->getDiagnostics().getNumErrors() == 0
-        self.built.store(true, kairo::std::MemoryOrder::release)
-
-        kairo::Logger::info(
-            kairo::Logger::Stage::Driver,
-            f"HeaderSet: built key={self.headers.size()} header(s), {self.files.size()} file(s) entered, ok={self.ok}",
-        )
+        return !failed && self._ci->getDiagnostics().getNumErrors() == 0
     }
 
     /// # diagnostics
@@ -1059,12 +1163,21 @@ pub class HeaderSet {
 
     /// # release (driver thread)
 
+    /// Final, from any state, then the instance freed: HeaderSetCache::
+    /// release_all (driver thread, Sema done) and the set's own end. No
+    /// revival past this, and any later ask is a late use (_note_late). Under
+    /// `_revive_mu`, so a release and a revive of one set never interleave.
+    /// Not a _transition: every state may end here, and the end repeats it.
     fn release(self) {
-        self._live.store(false, kairo::std::MemoryOrder::release)
-        if self._ci != &null {
-            self.released = true
-        }
+        var rlock = kairo::std::LockGuard(self._revive_mu)
+        self._state.store(HeaderSetState::Final as u8, kairo::std::MemoryOrder::release)
+        self._teardown()
+    }
 
+    /// Free the clang instance and everything build() made for it; the
+    /// file list, include graph and fid map stay. Caller holds `_revive_mu`
+    /// and has already moved the state off Live.
+    priv fn _teardown(self) {
         if self._act != &null {
             // build() set DisableFree so the AST outlives the parse; left set,
             // EndSourceFile LEAKS Sema, ASTContext, Preprocessor and the

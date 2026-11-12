@@ -261,8 +261,7 @@ fn <N: type> io_template_params(ar: unsafe *ASTArchive, n: unsafe *N) {
     ar->type_list<Type>(n->spec_args)
     eval if defined!(DEBUG) {
         ar->sema_null<Decl>(n->instantiated_from, "TemplateParams::instantiated_from")
-        ar->sema_false(n->instantiated, "TemplateParams::instantiated")
-        ar->sema_false(n->foreign_fill_failed, "TemplateParams::foreign_fill_failed")
+        ar->sema_false(n->foreign_fill != 0, "TemplateParams::foreign_fill")
     }
 }
 

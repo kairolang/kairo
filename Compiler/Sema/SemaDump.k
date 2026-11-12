@@ -71,7 +71,10 @@ import AST::Context::DeclContext::DeclContext
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::SymbolTable
 import AST::Context::TranslationUnit::TranslationUnit
-import AST::DeclFacts::decl_instantiated_from
+import AST::DeclFacts::{
+    decl_instantiated,
+    decl_instantiated_from,
+}
 import AST::Kind::DeclKind::{
     DeclKind,
     to_string,
@@ -1201,21 +1204,21 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         var lay: unsafe *ForeignLayout = &null
         if isa<Declarations::ClassDecl>(d) {
             var unsafe *n = cast<Declarations::ClassDecl>(d)
-            if !n->instantiated {
+            if !decl_instantiated(d) {
                 return ""
             }
 
             lay = unsafe &n->layout
         } else if isa<Declarations::StructDecl>(d) {
             var unsafe *n = cast<Declarations::StructDecl>(d)
-            if !n->instantiated {
+            if !decl_instantiated(d) {
                 return ""
             }
 
             lay = unsafe &n->layout
         } else if isa<Declarations::UnionDecl>(d) {
             var unsafe *n = cast<Declarations::UnionDecl>(d)
-            if !n->instantiated {
+            if !decl_instantiated(d) {
                 return ""
             }
 

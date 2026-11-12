@@ -25,6 +25,32 @@ import AST::Node::Declarations::{
     SpecKind,
 }
 
+/// Where clang's fill of an instance of an imported class template stands
+/// (ForeignInstantiate::fill). One state, so "filled and failed" cannot be
+/// written down.
+///
+///   Shell         nothing filled: the node's tables and base list are EMPTY
+///                 and lookup walks `instantiated_from`. Also the state of a
+///                 fill that only could not SPELL an argument in the sets it
+///                 tried: that is the demanding TU's gap, retried per set
+///                 (ForeignInstantiate::_unspelled), never written here.
+///   Filled        clang's instantiation is imported into the node. Terminal.
+///   FailedSticky  clang rejected or could not complete the specialization.
+///                 Terminal, so a failed instance costs one attempt per build,
+///                 not one per member lookup; lookup keeps walking the pattern.
+///
+/// Threading: written only by ForeignInstantiate, holding its build-wide
+/// `_mu`, as the LAST write of a fill (a release store, after the tables it
+/// publishes are frozen); read by any Sema thread with no lock, as an
+/// acquire load, so a reader that sees Filled sees the whole fill.
+/// An instance of a Kairo template never leaves Shell: M2 does not write
+/// this, and its members are read through the pattern (SemaContext::body_of).
+pub enum ForeignFill derives u8 {
+    Shell        = 0,
+    Filled       = 1,
+    FailedSticky = 2,
+}
+
 /// CRTP mixin: a decl `T` derives TemplateParams::<T> to carry generic
 /// parameters. Non-generic decls leave `params` empty (count 0) and
 /// `requires_clause` null; is_generic() is the cheap gate.
@@ -49,16 +75,13 @@ pub class <T> TemplateParams {
     ///   Explicit/Partial  the primary. Written by T at registration.
     ///   None/Primary   null.
     pub var instantiated_from: unsafe *Decl = &null
-    /// Instantiated only: M2 has filled the body. Until then the node's tables
-    /// and base list are EMPTY and lookup walks `instantiated_from`. For an
-    /// instance of an IMPORTED template the filler is ForeignInstantiate
-    /// (clang's instantiation), not M2.
-    pub var instantiated: bool = false
-    /// Instantiated + imported primary only: ForeignInstantiate tried and
-    /// clang could not (or Kairo could not ask). Sticky, so a failed instance
-    /// costs one attempt per build, not one per member lookup; lookup keeps
-    /// walking the pattern.
-    pub var foreign_fill_failed: bool = false
+    /// A ForeignFill, held as its byte so it can be read and written with
+    /// the atomic builtins (a mixin field cannot be an Atomic<T>: the decl
+    /// is moved, and an atomic is not). Instance of an IMPORTED template
+    /// only; every other decl stays Shell. Never touch it directly: the
+    /// DeclFacts accessors (decl_instantiated, decl_fill_failed,
+    /// decl_publish_fill) are the atomic loads and the one store.
+    pub var foreign_fill: u8 = 0
 
     pub fn is_specialization(self) -> bool {
         return self.spec_kind == SpecKind::Explicit

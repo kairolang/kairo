@@ -2186,7 +2186,7 @@ pub class InstantiationRegistry {
     /// Everything a shell has in common, whatever its kind. The node's names
     /// are the PRIMARY's tokens: same TU, same imm space, so ctx_of() and every
     /// renderer land in the right interner.
-    // TODO(DUCK-GENERIC): T uses dc_decls, generic_params, init_annotations, init_dc, init_redecl, instantiated, instantiated_from, is_implicit, is_this_definition, kind, lexical_dc, name, ... (17). Stage 0 was duck-typed; bound it or keep `: type`.
+    // TODO(DUCK-GENERIC): T uses dc_decls, generic_params, init_annotations, init_dc, init_redecl, foreign_fill, instantiated_from, is_implicit, is_this_definition, kind, lexical_dc, name, ... (17). Stage 0 was duck-typed; bound it or keep `: type`.
     priv fn <T: type> _shell(self,
                              n:    unsafe *T,
                              p:    unsafe *T,
@@ -2209,7 +2209,7 @@ pub class InstantiationRegistry {
         n->requires_clause   = &null
         n->spec_kind         = SpecKind::Instantiated
         n->instantiated_from = p
-        n->instantiated      = false
+        n->foreign_fill      = 0 // ForeignFill::Shell: only ForeignInstantiate moves it.
     }
 
     /// The implicit node: the primary's DeclKind, empty body. Only the kinds

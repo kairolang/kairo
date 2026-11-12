@@ -417,10 +417,7 @@ pub class HeaderSetCache {
         self.wait_codegen_pch()
         var lock = kairo::std::LockGuard(self._mu)
         for var it = self._sets.begin(); it != self._sets.end(); ++it {
-            it->second->release()
-            // Final: no revival past here, and any later read is a late use.
-            it->second->revivable = false
-            it->second->released  = true
+            it->second->release() // Final: no revival past here, and any later read is a late use.
         }
     }
 }

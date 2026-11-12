@@ -33,9 +33,9 @@
 ///      SourceManager::clearIDTables() on the SM-reuse path, so any FileID
 ///      minted before ExecuteAction is dead by the time codegen runs.
 ///
-///      There is no preload step. The old one registered from a pool task
-///      after preprocess and never re-registered, which meant every FileID it
-///      handed out was stale from the first ExecuteAction onward. Registering
+///      There is no preload step: registering from a pool task after
+///      preprocess, without re-registering, would make every FileID handed
+///      out stale from the first ExecuteAction onward. Registering
 ///      per action also removes the need for tail-tracking: rebind() rebuilds
 ///      the whole block, so fids loaded since the last action are picked up
 ///      for free.
@@ -103,8 +103,8 @@ const NATIVE_GROUP: u8 = 13
 pub struct ClangBackendConfig {
     pub var triple: string ///< effective target triple
     /// SYSROOT.toml's clang_triple: what clang is handed for this sysroot,
-    /// so the driver no longer derives it. "" (an older root, no root)
-    /// keeps FlagTranslator::clang_triple.
+    /// so the driver does not derive it. "" (an older root, no root)
+    /// falls back to FlagTranslator::clang_triple.
     pub var clang_triple: string
     pub var resource_dir: string ///< clang resource dir ("" = skip)
     pub var sysroot:      string ///< sysroot dir ("" = host headers): -isysroot
@@ -149,6 +149,23 @@ pub struct ClangBackendConfig {
     pub var driver_words: cxx::std::vector<string>
 }
 
+/// Where CodegenMounts stands. Written only on the driver thread (freeze()
+/// before the fan-out, release() after its join) and read by the fan-out's
+/// workers in codegen_vfs; the pool's enqueue and join order those reads,
+/// so a plain byte is enough.
+///
+///   Open      add_* collect mounts; codegen_vfs builds a layer per call
+///             (the interface PCH builds run here).
+///   Frozen    freeze() built the one shared layer; add_* is an ICE.
+///   Released  release() dropped it, before the PCH buffers its views point
+///             into are freed: any further use is an ICE, not a fresh layer
+///             over those buffers.
+pub enum MountState derives u8 {
+    Open,
+    Frozen,
+    Released,
+}
+
 /// \class CodegenMounts
 /// \brief What every codegen TU's VFS holds on top of the real file system:
 ///        the PCH bytes phase B loads, and the wrapper headers that replay a
@@ -159,10 +176,10 @@ pub struct ClangBackendConfig {
 ///          fan-out, and every TU's VFS (codegen_vfs) shares it. Before the
 ///          freeze -- the interface PCH builds, each of which adds its own
 ///          PCH after it is built -- codegen_vfs builds a layer of its own per
-///          call, as every TU used to: InMemoryFileSystem::addFile hashes the
+///          call (a per-TU layer): InMemoryFileSystem::addFile hashes the
 ///          whole of each file's contents into its UniqueID, so per TU that
-///          was ~50 MB of PCH hashed and every wrapper text copied, ~2% of the
-///          fan-out's CPU (gdb samples).
+///          is ~50 MB of PCH hashed and every wrapper text copied, ~2% of the
+///          fan-out's CPU.
 ///
 ///          Sharing it is safe because nothing writes it after the freeze:
 ///          add_* refuses, and the reads clang makes through it (status,
@@ -177,13 +194,12 @@ pub class CodegenMounts {
     pub var pch_data:   cxx::std::vector<unsafe *llvm::SmallVector<c_char, 0>> ///< owned by the set / CodegenPCH
     pub var text_paths: cxx::std::vector<string>
     pub var texts:      cxx::std::vector<string>
-    /// The layer every TU shares once frozen; null before freeze() and after
-    /// release().
+    /// The layer every TU shares while Frozen; null otherwise.
     priv var _shared: llvm::IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem>
-    priv var _frozen: bool                                                    = false
+    priv var _state:  MountState                                              = MountState::Open
 
     pub fn add_pch(self, const path: string, data: unsafe *llvm::SmallVector<c_char, 0>) {
-        if self._frozen {
+        if self._state != MountState::Open {
             kairo::std::ice_fail("CodegenMounts::add_pch after freeze()")
         }
 
@@ -198,7 +214,7 @@ pub class CodegenMounts {
     }
 
     pub fn add_text(self, const path: string, const text: string) {
-        if self._frozen {
+        if self._state != MountState::Open {
             kairo::std::ice_fail("CodegenMounts::add_text after freeze()")
         }
 
@@ -215,23 +231,28 @@ pub class CodegenMounts {
     /// Driver thread, after the last add_* and before the fan-out: the one
     /// in-memory layer every TU's VFS then shares.
     pub fn freeze(self) {
-        if self._frozen {
+        if self._state == MountState::Frozen {
             return
+        }
+
+        if self._state == MountState::Released {
+            kairo::std::ice_fail("CodegenMounts::freeze after release()")
         }
 
         self._shared = self.layer()
         kairo::shared_layer_sync_cwd(self._shared, llvm::vfs::getRealFileSystem())
-        self._frozen = true
+        self._state = MountState::Frozen
     }
 
     /// Driver thread, after the fan-out's join: drops the shared layer, whose
-    /// PCH views point into buffers the driver frees next.
+    /// PCH views point into buffers the driver frees next. Idempotent.
     pub fn release(self) {
         self._shared.reset()
+        self._state = MountState::Released
     }
 
-    fn frozen(self) -> bool {
-        return self._frozen && self._shared.get() != &null
+    fn state(self) -> MountState {
+        return self._state
     }
 
     /// The shared layer (freeze()). Any thread; read-only.
@@ -601,7 +622,11 @@ pub class ClangBackend {
             llvm::vfs::getRealFileSystem(),
         )
 
-        if m->frozen() {
+        if m->state() == MountState::Released {
+            kairo::std::ice_fail("ClangBackend::codegen_vfs after CodegenMounts::release()")
+        }
+
+        if m->state() == MountState::Frozen {
             overlay->pushOverlay(kairo::shared_layer_view(m->shared_layer()))
         } else {
             var mem = m->layer()
@@ -1188,9 +1213,9 @@ pub class ClangBackend {
         self._ci->createSourceManager()
 
         // No locmap wiring here: ClangLocMap binds its SourceManager in
-        // rebind(), inside the action window. Binding at startup was only ever
-        // meaningful because registration also happened outside the window,
-        // and that is exactly what produced the stale-FileID bug.
+        // rebind(), inside the action window. Binding at startup would only
+        // be meaningful if registration also happened outside the window, and
+        // FileIDs registered there go stale.
         self._started = true
 
         // Failure is not fatal: every builtin then misses into R020E.

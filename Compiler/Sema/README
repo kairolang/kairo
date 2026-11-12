@@ -27,7 +27,7 @@ Layout:
 - Lower/    one pass per construct lowered away (match, nullable, panic,
             finally, operators, iteration, yield, ...)
 
-## Done (kept here so they are not re-filed)
+## Design notes
 
 - Import folding: imports become scoped forward declarations and callers
   are rewritten to the right target (`alloc(1024)` -> `mem::alloc(1024)`).

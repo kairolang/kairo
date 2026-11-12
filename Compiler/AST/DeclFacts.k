@@ -26,6 +26,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/Types.hh" // kairo::std::ice_fail
 ffi "c++" import "vector"
 
 import AST::ASTSupport::{
@@ -33,6 +34,7 @@ import AST::ASTSupport::{
     create_empty_frozen_list,
 }
 import AST::Context::DeclContext::DeclContextKind
+import AST::Mixin::TemplateParams::ForeignFill
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -407,63 +409,53 @@ pub fn decl_is_instance(d: unsafe *Decl) -> bool {
     return decl_spec_kind(d) == Declarations::SpecKind::Instantiated
 }
 
-pub fn decl_instantiated(d: unsafe *Decl) -> bool {
+/// The ForeignFill byte of \p d, or null for a kind that carries none a
+/// fill could set (only the record kinds and Interface/Enum do).
+fn _foreign_fill_slot(d: unsafe *Decl) -> unsafe *u8 {
     if d == &null {
-        return false
+        return &null
     }
 
     if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->instantiated
+        return unsafe &cast<Declarations::ClassDecl>(d)->foreign_fill
     }
 
     if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->instantiated
+        return unsafe &cast<Declarations::StructDecl>(d)->foreign_fill
     }
 
     if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->instantiated
+        return unsafe &cast<Declarations::UnionDecl>(d)->foreign_fill
     }
 
     if isa<Declarations::InterfaceDecl>(d) {
-        return cast<Declarations::InterfaceDecl>(d)->instantiated
+        return unsafe &cast<Declarations::InterfaceDecl>(d)->foreign_fill
     }
 
     if isa<Declarations::EnumDecl>(d) {
-        return cast<Declarations::EnumDecl>(d)->instantiated
+        return unsafe &cast<Declarations::EnumDecl>(d)->foreign_fill
     }
 
-    return false
+    return &null
 }
 
-pub fn decl_set_instantiated(d: unsafe *Decl) {
-    if d == &null {
-        return
+/// Where clang's fill of \p d stands. An ACQUIRE load: it is read on any
+/// Sema thread with no lock while ForeignInstantiate::fill may be
+/// publishing it, and a reader that sees Filled goes on to read the tables
+/// the fill wrote before its release store (ForeignFill's header).
+pub fn decl_foreign_fill(d: unsafe *Decl) -> ForeignFill {
+    var unsafe *s = _foreign_fill_slot(d)
+    if s == &null {
+        return ForeignFill::Shell
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        cast<Declarations::ClassDecl>(d)->instantiated = true
-        return
-    }
+    return (__builtin_atomic_load(unsafe (s as *const u8), MemoryOrder::Acquire) as ForeignFill)
+}
 
-    if isa<Declarations::StructDecl>(d) {
-        cast<Declarations::StructDecl>(d)->instantiated = true
-        return
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        cast<Declarations::UnionDecl>(d)->instantiated = true
-        return
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        cast<Declarations::InterfaceDecl>(d)->instantiated = true
-        return
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        cast<Declarations::EnumDecl>(d)->instantiated = true
-        return
-    }
+/// clang has filled \p d (ForeignFill::Filled): its own tables are the
+/// answer, not its pattern's.
+pub fn decl_instantiated(d: unsafe *Decl) -> bool {
+    return decl_foreign_fill(d) == ForeignFill::Filled
 }
 
 /// True for a kind ForeignInstantiate cannot fill at all, so a caller
@@ -473,40 +465,35 @@ pub fn decl_fill_failed(d: unsafe *Decl) -> bool {
         return true
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->foreign_fill_failed
+    if !isa<Declarations::ClassDecl>(d)
+        && !isa<Declarations::StructDecl>(d)
+        && !isa<Declarations::UnionDecl>(d) {
+        return true
     }
 
-    if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->foreign_fill_failed
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->foreign_fill_failed
-    }
-
-    return true
+    return decl_foreign_fill(d) == ForeignFill::FailedSticky
 }
 
-pub fn decl_set_fill_failed(d: unsafe *Decl) {
-    if d == &null {
+/// The one writer of a ForeignFill: \p d leaves Shell for \p f, Filled or
+/// FailedSticky, both terminal. ForeignInstantiate calls it holding its
+/// `_mu`, which serialises every writer, so a plain store would do for
+/// them; it is a RELEASE store for the unlocked readers, and the last
+/// write of the fill. Leaving a terminal state is a fill bug (two fills
+/// of one shell, or a verdict over a filled one): an ICE in a debug build.
+pub fn decl_publish_fill(d: unsafe *Decl, f: ForeignFill) {
+    var unsafe *s = _foreign_fill_slot(d)
+    if s == &null {
         return
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        cast<Declarations::ClassDecl>(d)->foreign_fill_failed = true
-        return
+    eval if defined!(DEBUG) {
+        var old = (__builtin_atomic_load(unsafe (s as *const u8), MemoryOrder::Relaxed) as ForeignFill)
+        if old != ForeignFill::Shell || f == ForeignFill::Shell {
+            kairo::std::ice_fail("decl_publish_fill: a ForeignFill leaves Shell once, for Filled or FailedSticky")
+        }
     }
 
-    if isa<Declarations::StructDecl>(d) {
-        cast<Declarations::StructDecl>(d)->foreign_fill_failed = true
-        return
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        cast<Declarations::UnionDecl>(d)->foreign_fill_failed = true
-        return
-    }
+    __builtin_atomic_store(unsafe (s as *u8), f as u8, MemoryOrder::Release)
 }
 
 /// # FFILinkage

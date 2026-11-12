@@ -49,7 +49,7 @@
 ///   That costs nothing. _sloc is a dense vec<u32> indexed by kairo fid
 ///   holding clang's raw SLoc base   4 bytes per file, L1-resident, and it
 ///   replaces BOTH the old vec<clang::FileID> AND the getComposedLoc call
-///   behind it. Forward translation is now one load and one add.
+///   behind it. Forward translation is one load and one add (no getComposedLoc call).
 ///
 /// \par ONE registration site
 ///   rebind() is the only place a Kairo fid enters the clang SM. It is called
@@ -59,14 +59,14 @@
 ///   LocalSLocEntryTable and resets NextLocalOffset, killing every FileID
 ///   minted earlier.
 ///
-///   The old design registered from a pool task after preprocess and never
-///   re-registered. Every FileID it stored was dead from the first
-///   ExecuteAction onward, and because clang restarts its ID counter after
+///   Registering from a pool task after preprocess, and never again, would
+///   leave every stored FileID dead from the first ExecuteAction onward, and
+///   because clang restarts its ID counter after
 ///   clearIDTables, a header's fresh FileID would COLLIDE with a stale entry
 ///   and map a diagnostic in <vector> onto a Kairo file at a bogus offset.
-///   Wrong caret, correct formatting, no assert. That is why registration
-///   moved inside the window and why the reverse direction is now a range
-///   check rather than a hash lookup that cannot tell stale from live.
+///   Wrong caret, correct formatting, no assert. Registration is therefore
+///   inside the window, and the reverse direction is a range check rather
+///   than a hash lookup that cannot tell stale from live.
 ///
 /// \par Mechanism, and why it is not the invariant
 ///   Real paths register through FileManager::getFileRef + createFileID:
@@ -639,9 +639,8 @@ pub class ClangLocMap {
     }
 
     /// True when \p cfid is Kairo fid \p kfid. The comparison every consumer
-    /// actually wants   holding a clang::FileID across a rebind is exactly the
-    /// staleness bug this class was rewritten to remove, so nothing outside
-    /// here caches one.
+    /// actually wants   holding a clang::FileID across a rebind goes stale,
+    /// so nothing outside here caches one.
     fn is_kairo_fid(self, cfid: clang::FileID, kfid: FileID) -> bool {
         return self.kairo_fid(cfid) == kfid
     }
