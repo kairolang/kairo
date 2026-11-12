@@ -4451,6 +4451,32 @@ pub class ASTParse
         return self.resolve_kind_shallow(self.span.get(self.c_idx - 1)) == TokenKind::TkNewLine
     }
 
+    /// \brief whether the token right after the closer matching the opener
+    ///        at the cursor is \p kind. Brackets of every kind count together.
+    pub fn closer_followed_by(self, kind: TokenKind) -> bool {
+        if self._current == &null {
+            return false
+        }
+
+        var depth: i64 = 0
+        for var i: usize = self.c_idx; i < self.span.size(); ++i {
+            var k = self.resolve_kind_shallow(self.span.get(i))
+            if k == TokenKind::OpLBrace || k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
+                depth += 1
+            } else if k == TokenKind::OpRBrace
+                || k == TokenKind::OpRParen
+                || k == TokenKind::OpRSquare {
+                depth -= 1
+                if depth == 0 {
+                    return i + 1 < self.span.size()
+                        && self.resolve_kind_shallow(self.span.get(i + 1)) == kind
+                }
+            }
+        }
+
+        return false
+    }
+
     /// \brief whether the token just consumed is the one the TEXT pairs with
     ///        the opener at \p open: brackets of every kind counted together
     ///        from it, the first that brings the count back to zero. A parse

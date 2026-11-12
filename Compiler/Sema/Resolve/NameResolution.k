@@ -103,6 +103,7 @@ import AST::Kind::PatternKind::{
     PatternKind,
     to_string,
 }
+import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::{
     WellKnownType,
     to_string,
@@ -3239,6 +3240,32 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         return true
     }
 
+    /// `[T]::make()`, `{K: V}::make()`, `{T}::make()`: the head names the
+    /// builtin record its type spells, as `[T]` in a type position does;
+    /// no lookup, so a user `Vector` cannot capture it.
+    priv fn _bind_container_head(self, n: unsafe *NamedIdentExpr) -> bool {
+        var k = WellKnownType::Vector
+        if n->container_head == TypeKind::MapType {
+            k = WellKnownType::HashMap
+        } else if n->container_head == TypeKind::SetType {
+            k = WellKnownType::HashSet
+        }
+
+        var unsafe *d = self.sc->well_known->get(k)
+        if d == &null {
+            self.sc->diag->report(
+                DiagID::R055E,
+                n->range.start,
+                f"lang item '{to_string(k)}' is not declared in the builtin root",
+            ).first(n->range)->emit()
+            n->poison()
+            return true
+        }
+
+        n->resolved_decl = d
+        return true
+    }
+
     /// The heart of N. Every unqualified name use lands here.
     fn visit_named_ident_expr(self, n: unsafe *NamedIdentExpr) -> bool {
         if n == &null {
@@ -3256,6 +3283,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         // the same unresolvable head is not reported twice.
         if n->is_poisoned() {
             return true
+        }
+
+        if n->container_head != TypeKind::RecoveryType {
+            return self._bind_container_head(n)
         }
 
         var imm = self._name_imm(n->name)

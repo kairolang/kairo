@@ -21,6 +21,7 @@ import AST::ASTSupport::{
 import AST::Context::ASTContext::ASTContext
 import AST::Context::SymbolTable::OverloadCell
 import AST::Kind::ExprKind::ExprKind
+import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::FormatKind
 import AST::Node::Base::{
     Decl,
@@ -96,6 +97,13 @@ pub class NamedIdentExpr derives Expr {
     /// is the place of the variable it points at (null_place_of, Compiler/Spec/Nullables.md
     /// 3.7). One writer: X (ExprTyper::_type_ident).
     pub var capture_ptr: bool = false
+
+    /// A head spelled as a container type (`[T]::make()`, `{K: V}::make()`,
+    /// `{T}::make()`): VectorType, MapType or SetType, the kind of the type
+    /// written, whose element types are `generic_args`. N binds the head to
+    /// the builtin record that type spells, not by name. RecoveryType for
+    /// every named head.
+    pub var container_head: TypeKind = TypeKind::RecoveryType
 
     pub fn is_bound(self) -> bool {
         return self.resolved_decl != &null

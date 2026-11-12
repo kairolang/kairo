@@ -61,7 +61,12 @@ import AST::Node::Statements::{
     MatchCase,
     ReturnStmt,
 }
-import AST::Node::Types::ChainType
+import AST::Node::Types::{
+    ChainType,
+    MapType,
+    SetType,
+    VectorType,
+}
 import AST::ParamMode::ParamMode
 import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
@@ -3166,6 +3171,12 @@ pub class <T: type> ExprParse {
             return self._parse_paren_expr()
         }
 
+        /// # container type heading a path: `[T]::make()`, `{K: V}::make()`
+        if (self.dyn()->check(TokenKind::OpLSquare) || self.dyn()->check(TokenKind::OpLBrace))
+            && self.dyn()->closer_followed_by(TokenKind::OpColonColon) {
+            return self._parse_container_type_head()
+        }
+
         /// # square bracket: array literal
         if self.dyn()->check(TokenKind::OpLSquare) {
             return self._parse_list_literal()
@@ -3869,6 +3880,53 @@ pub class <T: type> ExprParse {
         )
 
         return tuple
+    }
+
+    //  Container type head: [T]::name, {K: V}::name, {T}::name
+
+    /// \brief a container type before `::`, as the head of a path: the
+    ///        builtin record it spells, named with its element types, the
+    ///        head `Vector<T>::name` has. N binds the head to that record
+    ///        (NamedIdentExpr::container_head). No list, map or set literal
+    ///        is followed by `::`, so the literal forms keep their parse.
+    priv fn _parse_container_type_head(self) -> unsafe *Expr {
+        var open = self.dyn()->current()
+        var unsafe *ty = self.dyn()->parse_type()
+        if ty == &null {
+            return &null
+        }
+
+        var args: kairo::std::StackBuf<ChainType::GenericArg, 2>
+        var arg = ChainType::GenericArg{}
+        arg.name       = &null
+        arg.name_range = SourceRange::invalid()
+        if isa<VectorType>(ty) {
+            arg.ty = cast<VectorType>(ty)->element
+            args.push_back(arg)
+        } else if isa<SetType>(ty) {
+            arg.ty = cast<SetType>(ty)->element
+            args.push_back(arg)
+        } else if isa<MapType>(ty) {
+            arg.ty = cast<MapType>(ty)->key
+            args.push_back(arg)
+            arg.ty = cast<MapType>(ty)->value
+            args.push_back(arg)
+        } else {
+            // `[T; N]` and `[T;]` name no record a path can step into.
+            self.dyn()->diag->report(
+                DiagID::S001E,
+                ty->range.start,
+                "only a vector '[T]', map '{K: V}' or set '{T}' type can head a '::' path",
+            ).first(ty->range)->emit()
+            var unsafe *bad = NamedIdentExpr::create(self.dyn()->ctx, ty->range, open)
+            bad->poison()
+            return bad
+        }
+
+        var nte = NamedIdentExpr::create(self.dyn()->ctx, ty->range, open)
+        nte->generic_args.from_buf(args.data(), args.size(), self.dyn()->ctx)
+        nte->container_head = ty->kind
+        return nte
     }
 
     //  Array literal: [expr, expr, ...]

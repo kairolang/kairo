@@ -28,6 +28,7 @@ ffi "c++" import "Native/Types.hh"
 import AST::ASTSupport::FrozenList
 import AST::Context::ASTContext::ASTContext
 import AST::Kind::ExprKind::ExprKind
+import AST::Kind::TypeKind::TypeKind
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -353,6 +354,7 @@ fn io_null_literal_expr(ar: unsafe *ASTArchive, n: unsafe *NullLiteralExpr) {
 fn io_named_ident_expr(ar: unsafe *ASTArchive, n: unsafe *NamedIdentExpr) {
     ar->tok(&n->name)
     io_generic_args(ar, &n->generic_args)
+    ar->en<TypeKind>(&n->container_head)
     if ar->reading() {
         n->ctx = ar->ctx
     }
