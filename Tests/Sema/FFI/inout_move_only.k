@@ -8,8 +8,8 @@
 // turns a MOVE-type lvalue into the xvalue a by-value parameter needs, and
 // the `@inout` ranking then saw an xvalue and refused it -- "needs a mutable
 // lvalue of type 'MV'; got 'MV'". An `@inout` argument is borrowed, never
-// moved from, so it ranks as the lvalue it is. Found in the migrated
-// Support/TermRenderer.k (clang_word(ids, ...), self-host phase 5.2).
+// moved from, so it ranks as the lvalue it is, as in
+// `clang_word(ids, ...)`.
 
 // DIAG-NOT: error
 

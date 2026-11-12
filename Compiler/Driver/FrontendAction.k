@@ -1467,6 +1467,39 @@ pub class FrontendAction {
         // full codegen run would.
         // A sibling loop, not the plan loop: that one skips a pathless TU before
         // its header dump, and a pathless TU still has a preamble.
+        //
+        // First, which hidden decls another file's header names (P900,
+        // EmitPlan::note_borrowed): their home headers declare them, so every
+        // header plan has to see the whole set. Serial, before any header.
+        if !fe.emit_headers.empty() && !self._ci->diag()->has_errors() {
+            EmitPlan::clear_borrowed()
+            var grew   = true
+            var rounds = 0
+            while grew && rounds < 8 {
+                grew   = false
+                rounds = rounds + 1
+                for var i: usize = 0; i < n; ++i {
+                    var unsafe *bctx = self._global_scope->get_context(self._fids[i])
+                    if bctx == &null || bctx->tu == &null || CXXSpell::is_entry_tu(bctx->tu) {
+                        continue
+                    }
+
+                    var bcg = CodegenContext(
+                        bctx,
+                        &null,
+                        self._ci->pp()->get_symbol_table(),
+                        self._global_scope->instances(),
+                    )
+
+                    var bplan = EmitPlan(unsafe &bcg, PlanMode::Header)
+                    bplan.run()
+                    if bplan.note_borrowed() {
+                        grew = true
+                    }
+                }
+            }
+        }
+
         if fe.print_cxx || !fe.emit_headers.empty() {
             for var i: usize = 0; i < n; ++i {
                 var        fid  = self._fids[n - 1 - i]
@@ -1536,6 +1569,10 @@ pub class FrontendAction {
                 }
             }
         }
+
+        // The set names this compile's decls by address: a later compile in
+        // the same process must not read it.
+        EmitPlan::clear_borrowed()
 
         // TODO(sema): full pipeline once N/T/checks land: Sema(ctx, gs).run().
         return true

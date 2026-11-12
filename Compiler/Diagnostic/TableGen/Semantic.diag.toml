@@ -5586,3 +5586,109 @@ group = "lint"
 
     [SC275.N]
     explain = "Points at the loop variable that holds the copy."
+
+[SC276]
+brief = "a literal suffix on a joined string applies to the whole string"
+group = "literals"
+
+    [SC276.W]
+    explain = """
+    # a literal suffix on a joined string applies to the whole string
+
+    String literals written side by side are one string (`"12" "3"` is
+    `"123"`). A literal suffix on any of the segments belongs to that one
+    string, as in C++: `"12" "3"_km` is `"123"_km`, so `operator""_km`
+    receives all three bytes, not only the `"3"` it is written after. A
+    suffix on the first segment reads the same way the other way round: it
+    is not only `"12"`'s.
+
+    ```kairo
+    var d = "12" "3"_km      // warned: the whole "123" is passed to _km
+    ```
+
+    Two segments with different suffixes are an error (SC277E), and a
+    joined string with an f segment takes no suffix at all (SC074E).
+
+    ## how to fix
+
+    write the string as one literal with the suffix after its closing
+    quote. The fix-it does this when the segments can be joined by text:
+    every segment has the head's prefix (plain or raw), none is an f
+    segment or triple-quoted, and none was made by a macro (`stringify!`,
+    `file!`). Otherwise the warning names the edit and makes none. To keep
+    the segments, silence it with `@no_warn(SC276W)` on the declaration.
+    """
+
+[SC277]
+brief = "segments of a joined string have different literal suffixes"
+group = "literals"
+
+    [SC277.E]
+    explain = """
+    # segments of a joined string have different literal suffixes
+
+    Adjacent string literals are one string, and a literal suffix applies
+    to the whole of it (SC276W). Two segments that spell different
+    suffixes ask for two literal operators on one string, so neither can
+    be chosen; C++ rejects the same concatenation.
+
+    ```kairo
+    var d = "12"_km "3"_mi   // error: '_km' and '_mi'
+    ```
+
+    ## how to fix
+
+    keep one suffix (on any segment; after the last one reads best), or
+    split the string into two literals, one per operator.
+    """
+
+    [SC277.N]
+    explain = "Points at the first segment's suffix."
+
+[SC278]
+brief = "a derived method does not replace the CRTP hook its base calls through dyn()"
+group = "lint"
+
+    [SC278.W]
+    explain = """
+    # a derived method does not replace the CRTP hook its base calls
+
+    A generic base calls the class that derives it through a method like
+    `fn dyn(self) -> unsafe *D { return &self as *D }` (generics.mdx,
+    "Mixins"): `self.dyn()->hook(x)` is meant to run the derived class's
+    `hook`. A derived method with the hook's name and number of parameters
+    but other parameter types does not replace it: methods with different
+    parameters merge into one overload set (classes-inheritance.mdx), and
+    the base's call keeps choosing the base's own `hook`. Nothing fails;
+    the derived method just never runs from there.
+
+    ```kairo
+    class <D: type> Visitor {
+        fn dyn(self) -> unsafe *D { return unsafe ((&self) as *D) }
+        fn walk(self, n: unsafe *Node) { self.dyn()->hook(n) }
+        fn hook(self, n: unsafe *Node) { }
+    }
+    class Mine derives Visitor<Mine> {
+        fn hook(self, n: *Node?) { }   // warned: walk() still runs Visitor::hook
+    }
+    ```
+
+    The warning needs all of: a base method with no parameter but `self`
+    that returns a pointer to one of its class's type parameters (the dyn
+    method); a call through it of the hook's name with the same number of
+    arguments, in the class or any base; and a base method of that name and
+    arity, none of which takes this method's parameter types (as C++ sees
+    them: `*T` and `unsafe *T` are both `T*`, and do replace the hook;
+    `*T?` is not), modes and `self` constness. A base parameter that
+    depends on a type parameter is not compared.
+
+    ## how to fix
+
+    take exactly the base hook's parameter types. When they differ only in
+    pointer safety, nullability or `const` of the same pointee, the fix-it
+    rewrites them. If a second overload is what you meant, give it another
+    name, or keep it with `@no_warn(SC278W)` on the method.
+    """
+
+    [SC278.N]
+    explain = "Points at the base's hook, or at a call of it through the dyn method."

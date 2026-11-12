@@ -84,6 +84,7 @@ ffi "c++" import "vector"
 ffi "c++" import "memory"
 
 import AST::ASTSupport::FrozenList
+import AST::Context::DeclContext::DeclContextKind
 import AST::DeclFacts::{
     decl_builtin_id,
     decl_is_imported,
@@ -1027,8 +1028,9 @@ pub class ExprTyper
             return &null
         }
 
-        var at = d->range.start.id
-        var i  = self.frames.size()
+        var at  = d->range.start.id
+        var top = self._script_top_capture(d)
+        var i   = self.frames.size()
         while i > 0 {
             i = i - 1
             var unsafe *c = self.frames[i].closure
@@ -1054,9 +1056,13 @@ pub class ExprTyper
 
                 // A global is named, not captured; `self` keeps its own
                 // receiver type: every closure holds it as the pointer it
-                // already is (ClosureCaptures, CaptureMode::Receiver).
+                // already is (ClosureCaptures, CaptureMode::Receiver). The
+                // exception is a script's own top-level `var` seen from the
+                // top-level code (P561): there it is the script's local to
+                // the reader (closures.mdx `|*|`, ownership.mdx), so `|*|`
+                // views it as the pointer and EmitIR names its address.
                 if all
-                    && (null_flow_is_global(d)
+                    && (null_flow_is_global(d) && (!top)
                         || isa<ParamDecl>(d) && cast<ParamDecl>(d)->is_self) {
                     continue
                 }
@@ -1071,6 +1077,35 @@ pub class ExprTyper
         }
 
         return &null
+    }
+
+    /// \p d is a top-level `var` of the script this TU is, and the use sits
+    /// in the top-level code itself (no function frame under the closures):
+    /// the one place a global reads as a local, so `|*|` takes its address.
+    /// A function in the script names it as the global it is, captured or
+    /// not; `static`, `thread` and `eval` bindings stay globals everywhere.
+    priv fn _script_top_capture(self, d: unsafe *Decl) -> bool {
+        if self.sc == &null || !self.sc->script_root || (!isa<VariableDecl>(d)) {
+            return false
+        }
+
+        var unsafe *v = cast<VariableDecl>(d)
+        if v->is_static() || v->is_thread || v->is_eval() {
+            return false
+        }
+
+        var unsafe *dc = d->semantic_dc
+        if dc == &null || dc->dc_kind != DeclContextKind::TranslationUnit {
+            return false
+        }
+
+        for var k: usize = 0; k < self.frames.size(); ++k {
+            if self.frames[k].fn_decl != &null {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// A use of the nullable place \p d: the analysis remembers its state

@@ -3927,7 +3927,12 @@ pub class EmitIR {
         // the name as the `*T` pointer, but ClosureCaptures captures no
         // global (it is named in place), so the body would dereference the
         // global's own value. The pointer the body reads is its address.
-        if self._ptr_view_of_global(d) {
+        // `|*|` gives a script's top-level `var` the same view in the
+        // top-level code (P561). Read off the name the typer marked
+        // (capture_ptr), not off the closure's list: a deferred global's
+        // reads are rewritten by ScriptLowering into a checked place, whose
+        // inner name is the value and must stay so.
+        if n->capture_ptr {
             self._cg->sink->spell(n->range, "(&" + self._spell.qual_name(d) + ")")
             return
         }
@@ -3985,25 +3990,6 @@ pub class EmitIR {
 
     /// Params, body locals, binders, generic params, and statement-scope
     /// decls: everything with no symbol-table home.
-    /// The closure being emitted names the global \p d in a pointer capture
-    /// (`|*count|`, `|const *count|`): its name there is `&d`. `|*|` alone
-    /// leaves a global as itself (ExprTyper::_capture_view).
-    priv fn _ptr_view_of_global(self, d: unsafe *Decl) -> bool {
-        var unsafe *c = self._closure
-        if c == &null || (!isa<VariableDecl>(d)) {
-            return false
-        }
-
-        for var k: usize = 0; k < c->captures.size(); ++k {
-            var unsafe *cap = c->captures.get(k)
-            if cap->by_ptr && cap->name != &null && cap->name->resolved_decl == d {
-                return true
-            }
-        }
-
-        return false
-    }
-
     priv fn _is_local(self, d: unsafe *Decl) -> bool {
         if isa<ParamDecl>(d) || isa<GenericParamDecl>(d) {
             return true

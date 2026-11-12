@@ -5,12 +5,12 @@
 // REQUIRES: host-x86_64
 //
 // A GNU vector type imports as an opaque keyed by its
-// canonical spelling, and TypeExport had no clang type to spell it back as.
-// So `vector<__m128i>` never filled -- `v[0]` was SC063E against a
-// `size_type` no argument converts to, and `v.size()` had no integer type --
-// and `std::move(v)` of one never deduced, typing as
+// canonical spelling, and TypeExport has a clang type to spell it back as.
+// So `vector<__m128i>` fills -- `v[0]` is not SC063E against a
+// `size_type` no argument converts to, `v.size()` has an integer type --
+// and `std::move(v)` of one deduces, instead of typing as
 // `__libcpp_remove_reference_t<_Tp>&&` that no `__m128i&&` parameter takes.
-// The clang type the opaque came from is now what it exports as.
+// The clang type the opaque came from is what it exports as.
 
 ffi "c++" import "vector_type_template_arg.h"
 ffi "c++" import "vector"

@@ -328,6 +328,17 @@ pub enum GraphPhase derives u8 {
 
 var _G_PHASE: GraphPhase = GraphPhase::Unset
 
+/// Functions and globals a header leaves out by its root rule (_hidden) that
+/// a visible body in ANOTHER file's header names (P900: `prot inline fn
+/// scope_push`, called from AllocatorScope's template bodies in
+/// base/alloc.hh). The other header reaches them through an `#include` of
+/// their home's, so the HOME header declares them, as it declares a hidden
+/// helper its own inline body names: one copy, under the home's `#pragma
+/// once`, with the linkage the module's own object gives them. Filled by
+/// note_borrowed on the driver thread before any header is made, read-only
+/// after; cleared by clear_borrowed.
+var _BORROWED: cxx::std::vector<unsafe *Decl> = cxx::std::vector<unsafe *Decl>()
+
 pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     priv var _cg:    unsafe *CodegenContext
     priv var _spell: CXXSpell
@@ -1088,6 +1099,56 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
         // prot, written or by default: a module's, never a file-only one's.
         return !self.host_in_module || tu_module_dir(CXXSpell::tu_of(d)).empty()
+    }
+
+    /// # Hidden decls another header names (P900, _BORROWED)
+
+    pub static fn clear_borrowed() {
+        _BORROWED.clear()
+    }
+
+    /// After run() of a Header plan: every foreign function or global it
+    /// admitted that its home's header leaves out is recorded for that home
+    /// (_BORROWED). True when one was new: the home's plan then walks one
+    /// more body, which may name another file's hidden decl in turn, so the
+    /// driver repeats over every header until nothing is added.
+    pub fn note_borrowed(self) -> bool {
+        var added = false
+        if self._mode != PlanMode::Header {
+            return added
+        }
+
+        for var i: usize = 0; i < self.entries.size(); ++i {
+            var *e = &self.entries[i]
+            if e->own || e->decl == &null || e->scope != &null || e->witness != &null
+                || e->inst != &null || e->eval_item != &null {
+                continue
+            }
+
+            if (!isa<Declarations::FunctionDecl>(e->decl)) && (!isa<Declarations::VariableDecl>(e->decl)) {
+                continue
+            }
+
+            if !self._hidden(e->decl) || EmitPlan::_is_borrowed(e->decl) {
+                continue
+            }
+
+            _BORROWED.push_back(e->decl)
+            added = true
+        }
+
+        return added
+    }
+
+    static fn _is_borrowed(d: unsafe *Decl) -> bool {
+        var unsafe *r = CXXSpell::rep(d)
+        for var i: usize = 0; i < _BORROWED.size(); ++i {
+            if _BORROWED[i] == d || _BORROWED[i] == r {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// The TU has nothing to define: no entry of its own at any tier and no
@@ -1926,7 +1987,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return
         }
 
-        if self._mode != PlanMode::Preamble && self._hidden(d) {
+        // A hidden decl another file's header names is a root of its own
+        // header (_BORROWED); everything else hidden stays out.
+        if self._mode != PlanMode::Preamble && self._hidden(d)
+            && !(self._mode == PlanMode::Header && EmitPlan::_is_borrowed(d)) {
             return
         }
 

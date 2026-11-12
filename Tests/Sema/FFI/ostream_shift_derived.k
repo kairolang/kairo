@@ -8,8 +8,8 @@
 // `basic_ostream<C, T>& operator<<(basic_ostream<C, T>&, const
 // basic_string<C, T, A>&)`: C and T come from the derived-to-base
 // conversion, which only clang deduces, so the declared return type stayed
-// dependent and the expression finished untyped -- an ICE ("BinaryOperatorExpr
-// reached finish() in no terminal state"). The return type is now clang's
+// dependent and the expression finished untyped -- an internal error ("BinaryOperatorExpr
+// reached finish() in no terminal state"). The return type is clang's
 // specialization's, as for a return type that is its SFINAE.
 
 ffi "c++" import "sstream"

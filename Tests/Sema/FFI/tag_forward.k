@@ -8,7 +8,7 @@
 // A bodiless `ffi "c" struct T` (or `class`, `union`) in a file with ffi
 // imports is a forward declaration of the HEADER's tag, not a new Kairo
 // type. It is how source names a tag an ordinary name hides
-// (tag_hiding.k): in a TYPE position `timezone` is now the struct, while a
+// (tag_hiding.k): in a TYPE position `timezone` is the struct, while a
 // VALUE `timezone` is still the variable, as C keeps the two apart. A tag
 // nothing hides can be named the same way. With no such tag in the
 // closure, the declaration stays a Kairo forward declaration.

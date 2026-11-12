@@ -33,8 +33,8 @@ def diag(line, col, byte):
 # invalid byte costs exactly its S072E: no other error follows from it. Inside
 # an identifier it is an identifier character (the class every non-ASCII
 # character has), so `var a<bad> = 1` stays one declaration with its
-# initializer. That class used to come from an out-of-bounds read of the
-# 128-entry ASCII table, and so changed with the binary's layout.
+# initializer. That class must not come from an out-of-bounds read of the
+# 128-entry ASCII table, which changes with the binary's layout.
 ONLY = (
     b"// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=ONLY --allow-empty\n"
     b"// ONLY-NOT: error [{{(S0([^7].|7[^2])|[^S]|S[^0])}}\n"

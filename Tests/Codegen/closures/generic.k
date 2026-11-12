@@ -2,8 +2,8 @@
 // is called at more than one type.
 //
 // XFAIL: *
-// Ticket "[Sema] Generic closures are gated (SC116E)"
-//. Today: SC116E "a generic
+// Generic closures are gated (SC116E).
+// Today: SC116E "a generic
 // closure is not yet supported" (FeatureGateCheck). Needs TypeResolve for
 // closure generic parameters, a closure type that is not one `fn(...)`
 // canonical, call typing that deduces it, and a C++ generic lambda. When it

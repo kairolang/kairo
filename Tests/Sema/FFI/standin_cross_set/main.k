@@ -4,10 +4,10 @@
 // header set, which needs a stand-in for Node there. Node points at Ext,
 // and Ext holds a `cxx::std::set<string>` from ANOTHER set (ext.k's), which
 // this one cannot spell, so the stand-in, the fill and the map's members
-// all failed: `op []` came from the unfilled pattern, its result stayed
-// dependent, and `self.children[name]` was an ICE ("SubscriptExpr reached
-// finish() in no terminal state"; the self-host's DirEntry.k, ParsedArgs.k,
-// Engine.k). A pointer field only needs a pointer's layout.
+// all fail: `op []` would come from the unfilled pattern, its result stay
+// dependent, and `self.children[name]` be an internal error ("SubscriptExpr
+// reached finish() in no terminal state").
+// A pointer field only needs a pointer's layout.
 // CHECK-NOT: error
 // CHECK-NOT: Internal Compiler Error
 

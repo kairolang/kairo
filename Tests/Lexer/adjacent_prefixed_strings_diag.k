@@ -1,8 +1,8 @@
-// P486: a diagnostic inside a later segment of a chain points at that
+// A diagnostic inside a later segment of a chain points at that
 // segment's bytes: a name in a hole, a hole's format spec, an escape. A
-// suffix is read off the head segment only (as for an unprefixed chain): on
-// a chain with an f segment it is the f-string suffix error, and a later
-// segment's suffix is not consulted.
+// suffix on any segment is the whole chain's: on a chain with an f
+// segment it is the f-string suffix error, whichever segment spells it, so
+// a later segment's suffix is reported like the head's.
 //
 // A lexer error stops before Sema, and a resolution error before typing, so
 // each RUN blanks the other groups' lines (tagged at their ends; blanked,
@@ -26,7 +26,7 @@ fn esc() {
 // RUN: { %kairo %t.typing.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=TYPING
 // TYPING:     .k:14:27: error [SC036E]: invalid format spec 'Q'
 // TYPING:     .k:15:13: error [SC074E]: a format string cannot take the literal suffix 's'
-// TYPING-NOT: .k:16:
+// TYPING:     .k:16:13: error [SC074E]: a format string cannot take the literal suffix 's'
 //
 // RUN: sed -e '/\/\/ escape$/s/.*//' %s > %t.resolve.k
 // RUN: { %kairo %t.resolve.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=RESOLVE

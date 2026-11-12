@@ -354,6 +354,9 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
     priv var _in_main: bool  = false ///< walking a statement that moves into main.
     priv var _pos:     usize = 0     ///< that statement's ordinal.
     priv var _closure: u32   = 0     ///< closure bodies above the cursor.
+    /// Those closures, innermost last: a name in one's capture list
+    /// (`|*count|`) is the capture, not a read, and stays a name.
+    priv var _closures: cxx::std::vector<unsafe *ClosureExpr>
 
     fn ScriptLowering(self, sc: unsafe *SemaContext, root: bool) {
         self.sc    = sc
@@ -841,7 +844,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
             return out
         }
 
-        if n->is_poisoned() || n->type_ == &null {
+        if n->is_poisoned() || n->type_ == &null || self._capture_name(n) {
             return out
         }
 
@@ -855,6 +858,13 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
             return out
         }
 
+        // `|*|` / `|*count|` in the top-level code views the global as the
+        // pointer to it (ExprTyper::_capture_view, P561): the checked
+        // place's address, not its value.
+        if n->capture_ptr {
+            return self._guarded_addr(n, g)
+        }
+
         return self._guarded(n, g)
     }
 
@@ -862,9 +872,28 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
     /// order does not decide: its reads are guarded, even in main.
     fn transform_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *Expr {
         self._closure += 1
+        self._closures.push_back(n)
         var unsafe *out = ASTWriter<ScriptLowering>::transform_closure_expr(self, n)
+        self._closures.pop_back()
         self._closure -= 1
         return out
+    }
+
+    /// \p n names a capture of the closure being walked (ASTWriter keeps
+    /// a capture's name a NamedIdentExpr, and a guarded read is not one).
+    priv fn _capture_name(self, n: unsafe *NamedIdentExpr) -> bool {
+        if self._closures.empty() {
+            return false
+        }
+
+        var unsafe *c = self._closures[self._closures.size() - 1]
+        for var i: usize = 0; i < c->captures.size(); ++i {
+            if c->captures.get(i)->name == n {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// `g = e` as a statement writes the storage whole: `T -> T?` converts,
@@ -978,6 +1007,20 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         de->type_          = n->type_
         de->value_category = Expr::ValueCategory::LValue
         return de
+    }
+
+    /// `({ if !g? { unwrap_failed(...) }  &g })`: _guarded without the
+    /// dereference, for a name the typer views as `*T` (capture_ptr). The
+    /// name read inside is the `T` the pointer points at.
+    priv fn _guarded_addr(self, n: unsafe *NamedIdentExpr, g: usize) -> unsafe *Expr {
+        var at    = n->range
+        var stmts = self.list_builder<unsafe *Stmt>()
+        stmts.push(self._abort_unless(at, g, self._storage_use(g, at)))
+        var unsafe *m = self._marked(n, g)
+        m->type_ = self.tu.pointee(n->type_)
+        var unsafe *addr = self._addr(m)
+        stmts.push(Statements::ExpressionStmt::create(self.ctx, at, addr))
+        return self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, n->type_)
     }
 
     /// `&e`, typed `*T` with \p e's cv kept: a `const T` read is a

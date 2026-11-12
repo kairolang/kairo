@@ -5,9 +5,9 @@
 //
 // A C++ function template's defaulted type parameter that no argument
 // deduces takes its default, as in C++ ([temp.deduct]/5). Kairo's deduction
-// left it unbound: the return type stayed dependent, the call typed as
-// unknown without a diagnostic, and the callee reached codegen unbound
-// (I011W, then the I003E ICE "unbound callee reached codegen").
+// binds it: the return type is not left dependent, the call is not typed as
+// unknown without a diagnostic, and the callee does not reach codegen unbound
+// (I011W, then the I003E error "unbound callee reached codegen").
 
 ffi "c++" import "template_default_return.h"
 

@@ -75,6 +75,8 @@ import AST::Node::Types::{
 }
 import AST::OperatorFacts::OperatorFacts
 import Diagnostic::Registry::DiagID
+import Lexer::Immediate::Immediate
+import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::Type::Conversion::literal_fits_int
@@ -85,6 +87,7 @@ import Sema::Type::OverloadResolution::{
 }
 import Sema::Type::Substitution::Substitution
 import Support::UTF8View::UTF8View
+import Token::Token::Token
 import Token::TokenKind::TokenKind
 
 /// A declared slot a value is being typed into (pointers.mdx: `*T` is
@@ -740,8 +743,23 @@ pub class <T: type> LiteralTyping {
         // A suffix is never ignored: it names a literal operator or it is an
         // error (P798). Before this the lexer kept it and the type was
         // `string` regardless, so `"hi"_len` silently called nothing.
-        if n->imm != &null && n->get_suffix().range.is_valid() {
-            return self._type_string_udl(n)
+        // On a chain the suffix is the whole chain's, whichever segment
+        // spells it (P878, _chain_suffix).
+        if n->imm != &null {
+            var sfx  = n->get_suffix()
+            var good = true
+            if n->has_next() {
+                good = self._chain_suffix(n, &sfx)
+            }
+
+            if !good {
+                self.dyn()->poison_only(n)
+                return &null
+            }
+
+            if sfx.range.is_valid() {
+                return self._type_string_udl(n, sfx)
+            }
         }
 
         if !n->is_format() {
@@ -761,13 +779,187 @@ pub class <T: type> LiteralTyping {
         return s
     }
 
+    /// The suffix of the chain \p n heads, into \p out (an invalid token
+    /// when no segment has one); false after an error. C++'s rule (P878):
+    /// a suffix on any segment is the whole joined string's, so `"12"
+    /// "3"_km` is `"123"_km`, and segments that spell DIFFERENT suffixes
+    /// are an error (SC277E), since no one of them can be meant for all.
+    /// Every chain with a suffix warns (SC276W), the head's as much as a
+    /// later one's: read either way, a suffix that looks like a segment's is
+    /// the whole string's. A chain with an f segment is SC074E in
+    /// _type_string_udl whichever segment spells it, so it is not warned.
+    priv fn _chain_suffix(self, n: unsafe *StringLiteralExpr, out: *Token) -> bool {
+        var        first: unsafe *Immediate::StringData = &null
+        var unsafe *last                                = n->imm
+        var        segs:  usize                         = 0
+        var unsafe *seg                                 = n->imm
+        while seg != &null {
+            segs = segs + 1
+            last = seg
+            if seg->suffix.range.is_valid() {
+                if first == &null {
+                    first = seg
+                } else {
+                    var a = n->ctx->get_spelling(first->suffix.range)
+                    var b = n->ctx->get_spelling(seg->suffix.range)
+                    if a != b {
+                        var e = self.dyn()->sc->diag->report(
+                            DiagID::SC277E,
+                            seg->suffix.range.start,
+                            f"segments of one string literal have different suffixes '{a}' and '{b}'; a suffix applies to the whole joined string, so it can have only one",
+                        )
+
+                        e.first(seg->suffix.range, f"'{b}' here")
+                        e.second(first->suffix.range, f"'{a}' here")
+                        e.note(DiagID::SC277N, first->suffix.range.start, f"'{a}' is spelled here; keep one suffix, on any segment")
+                        e.emit()
+                        return false
+                    }
+                }
+            }
+
+            seg = n->next_segment(seg)
+        }
+
+        if first == &null {
+            return true
+        }
+
+        (*out) = first->suffix
+        if n->is_format() {
+            return true
+        }
+
+        var sfx  = n->ctx->get_spelling(first->suffix.range)
+        var w    = self.dyn()->sc->diag->report(
+            DiagID::SC276W,
+            first->suffix.range.start,
+            f"the literal suffix '{sfx}' applies to the whole string joined from these {segs} segments, not only to the segment it is written on",
+        )
+
+        w.first(first->suffix.range, f"suffix of all {segs} segments")
+        var joined = self._join_chain(n, last, sfx)
+        if !joined.empty() {
+            var at = SourceRange(self._segment_start(n->imm), self._segment_end(last))
+            w.fix(at, joined, "join the segments into one literal")
+        } else {
+            w.fix("write the string as one literal, with the suffix after its closing quote")
+        }
+
+        w.emit()
+        return true
+    }
+
+    /// The chain's text as ONE literal carrying \p sfx, or "" when the
+    /// segments cannot be joined by text alone: a segment the compiler made
+    /// (stringify!, file!: no source body), an f segment (its holes), one
+    /// whose prefix differs from the head's (`"a" r"\n"` decodes `\n` two
+    /// ways), or a triple-quoted one (its own line rules).
+    priv fn _join_chain(self,
+                        n:         unsafe *StringLiteralExpr,
+                        last:      unsafe *Immediate::StringData,
+                        const sfx: string) -> string {
+        var unsafe *head = n->imm
+        var        body = ""
+        var unsafe *seg  = head
+        while seg != &null {
+            if seg->has_owned_text() || (!seg->body.is_valid()) {
+                return ""
+            }
+
+            if seg->prefix_kind.has(Immediate::TextPrefixKind::Format)
+                || seg->prefix_kind.bits != head->prefix_kind.bits {
+                return ""
+            }
+
+            if !self._single_quoted(n, seg) {
+                return ""
+            }
+
+            // `"\1" "2"` is two bytes; joined, `"\12"` is one: an octal
+            // escape takes up to three digits (Lexing.md), so a segment that
+            // ends in a shorter one cannot be glued to a leading digit.
+            var text = n->ctx->get_spelling(seg->body)
+            if (!head->prefix_kind.has(Immediate::TextPrefixKind::Raw))
+                && self._open_octal(body)
+                && text.size() > 0 && text[0] >= ('0' as u8) && text[0] <= ('7' as u8) {
+                return ""
+            }
+
+            body = body + text
+            seg = n->next_segment(seg)
+        }
+
+        var pre = ""
+        if head->prefix.range.is_valid() {
+            pre = n->ctx->get_spelling(head->prefix.range)
+        }
+
+        return pre + "\"" + body + "\"" + sfx
+    }
+
+    /// \p seg is written `"..."`: one quote on each side of its body. Read
+    /// at the closing side, which a triple-quoted body ends in three of: the
+    /// byte before a head's opening quote may be the start of the file.
+    priv fn _single_quoted(self, n: unsafe *StringLiteralExpr, seg: unsafe *Immediate::StringData) -> bool {
+        var open  = n->ctx->get_spelling(SourceRange::from_bounds(seg->body.start.with_offset(-1), 1u32))
+        var close = n->ctx->get_spelling(SourceRange::from_bounds(seg->body.end, 2u32))
+        return open.size() == 1 && open[0] == ('"' as u8) && close.size() >= 1
+            && close[0] == ('"' as u8) && (close.size() == 1 || close[1] != ('"' as u8))
+    }
+
+    /// \p text ends in an octal escape of fewer than three digits: a
+    /// backslash an even run of backslashes does not escape, then one or two
+    /// of 0-7.
+    priv fn _open_octal(self, const text: string) -> bool {
+        var n      = text.size()
+        var digits: usize = 0
+        while digits < 3 && digits < n
+            && text[n - 1 - digits] >= ('0' as u8) && text[n - 1 - digits] <= ('7' as u8) {
+            digits = digits + 1
+        }
+
+        if digits == 0 || digits >= 3 || digits >= n {
+            return false
+        }
+
+        var k      = n - 1 - digits
+        var slashes: usize = 0
+        while slashes <= k && text[k - slashes] == ('\\' as u8) {
+            slashes = slashes + 1
+            if slashes > k {
+                break
+            }
+        }
+
+        return slashes % 2 == 1
+    }
+
+    /// Where \p seg's text starts: its prefix, else its opening quote.
+    priv fn _segment_start(self, seg: unsafe *Immediate::StringData) -> SourceLocation {
+        if seg->prefix.range.is_valid() {
+            return seg->prefix.range.start
+        }
+
+        return seg->body.start.with_offset(-1)
+    }
+
+    /// Where \p seg's text ends: after its suffix, else its closing quote.
+    priv fn _segment_end(self, seg: unsafe *Immediate::StringData) -> SourceLocation {
+        if seg->suffix.range.is_valid() {
+            return seg->suffix.range.end
+        }
+
+        return seg->body.end.with_offset(1)
+    }
+
     /// `"..."_x`: the imported C++ `operator""_x(const char *, size_t)`, found
     /// the way C++ finds it for a literal at file scope (unqualified, so the
     /// global namespace and what the file imported). The literal is typed as
     /// the operator's return type and StringLowering makes it the call. Kairo
     /// has no spelling for declaring one, so an unknown suffix is SC074E.
-    priv fn _type_string_udl(self, n: unsafe *StringLiteralExpr) -> unsafe *Type {
-        var sfx = n->ctx->get_spelling(n->get_suffix().range)
+    priv fn _type_string_udl(self, n: unsafe *StringLiteralExpr, sfx_tok: Token) -> unsafe *Type {
+        var sfx = n->ctx->get_spelling(sfx_tok.range)
         if n->is_format() {
             self.dyn()->fail(
                 n,

@@ -3,7 +3,7 @@
 // chose the floating-point template, but the name stayed bound to the
 // Kairo function (it was the only one ordinary lookup saw), so the C++
 // called it with `static_cast<bool>(d)` and returned 50. The winner from
-// argument-dependent lookup is now what the call is bound to.
+// argument-dependent lookup is what the call is bound to.
 
 ffi "c++" import "float_narrow.h"
 

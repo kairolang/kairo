@@ -50,6 +50,7 @@ import Sema::Check::EvalUsageChecking::EvalUsageChecking
 import Sema::Check::FeatureGateCheck::FeatureGateCheck
 import Sema::Check::FlagGates::FlagGates
 import Sema::Check::FnPurityCheck::FnPurityCheck
+import Sema::Check::CRTPHookCheck::CRTPHookCheck
 import Sema::Check::ForCopyLint::ForCopyLint
 import Sema::Check::InitCheck::InitCheck
 import Sema::Check::InterfaceComposition::InterfaceComposition
@@ -826,6 +827,15 @@ pub class Sema {
         {
             var _p = TimeRegion("ForCopyLint")
             ForCopyLint(unsafe &self.sc).run()
+        }
+
+        // A derived method with a CRTP hook's name and arity but other
+        // parameter types: the base's `self.dyn()->hook(x)` still runs the
+        // base's (SC278W, P537). REQUIRES TypeResolve's signatures only; the
+        // bodies are read for their dyn calls, not their types.
+        {
+            var _p = TimeRegion("CRTPHookCheck")
+            CRTPHookCheck(unsafe &self.sc).run()
         }
 
         // Exhaustiveness and dead arms; writes MatchStmt / MatchExpr facts.
