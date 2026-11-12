@@ -2,7 +2,7 @@
 // by SFINAE on an `enable_if_t<...> = 0` parameter (single object, array of
 // unknown bound, deleted array of known bound). Kairo's own deduction
 // cannot evaluate the condition, so all three were viable and tied
-// (SC064E); clang's deduction and substitution now remove the two whose
+// (SC064E); clang's deduction and substitution remove the two whose
 // condition fails (OverloadResolution::_clang_substitute), and the call
 // is emitted with its written `<int>` though no Kairo instance exists for
 // a template with a parameter only C++ fills. More shapes:

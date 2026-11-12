@@ -86,7 +86,7 @@ pub class <T> FFILinkage {
     pub var ffi_c_variadic:      bool                     = false ///< C `...` after the last declared parameter.
     pub var ffi_explicit:        bool                     = false ///< `explicit` ctor / conversion.
     pub var ffi_noexcept:        bool                     = false
-    pub var ffi_deleted:         bool                     = false
+    pub var ffi_deleted:         bool                     = false ///< `= delete` as written in the header; a member C++ deleted (a defaulted or implicit one it could not generate) is FnBodyKind::Delete without it.
     pub var ffi_constexpr:       bool                     = false
     pub var ffi_virtual:         bool                     = false
     pub var ffi_pure_virtual:    bool                     = false

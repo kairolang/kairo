@@ -72,6 +72,10 @@
 ///     one HOLDING a value that cannot be copied (a `value_type`, field or
 ///     base) cannot be copied either (_imported_elements, GH#87); one that
 ///     only points at its argument (`shared_ptr<Mv>`) keeps clang's COPY.
+///     Clang sees a Kairo argument through a stand-in that declares the
+///     record's own transfers (TypeExport::_mirror_transfers), so a copy
+///     C++ conditionally deletes (`optional<Mv>`, `tuple<Mv, i32>`,
+///     `variant`, `pair`) is deleted in clang's facts already.
 ///
 ///     The rules a generic class's declaration skipped on an Unknown --
 ///     rule 5, rule 6 and the virtual-destructor rule -- are asked again of
@@ -92,8 +96,8 @@
 ///     they allow, read off the folded facts exactly as an ADT's is
 ///     (_folded_category). So does an IMPORTED record that declares both
 ///     transfers `= default` (std::pair): C++ defines such a copy over a
-///     move-only member as deleted and keeps the move (P980). A class holding a move-only field is MOVE, and one
-///     holding a std::mutex is NON_TRANSFER.
+///     move-only member as deleted and keeps the move. A class holding a move-only field is MOVE, and
+///     one holding a std::mutex is NON_TRANSFER.
 ///
 ///     Facts are computed on demand and memoized per TU, keyed on the
 ///     representative, so a foreign or cross-TU record is asked once. A
@@ -552,6 +556,52 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         self._settle_non_transfer(f)
     }
 
+    /// The part that keeps imported record \p d's deleted copy from being
+    /// generated, or "": a by-value field of a Kairo type (worded as the
+    /// member fold words it), a type argument of the instance that cannot be copied
+    /// (`tuple<Mv, i32>` holds it in a base the import does not keep), else
+    /// what _held_uncopyable finds (an element type, a base).
+    priv fn _imported_copy_reason(self, d: unsafe *Decl) -> string {
+        var fs = self._fields(d)
+        for var i: usize = 0; i < fs.size(); ++i {
+            var unsafe *fd = fs[i]
+            if fd == &null || fd->is_static() || fd->type_ == &null || fd->type_->canonical == &null {
+                continue
+            }
+
+            if fd->type_->canonical->is_dependent() {
+                continue
+            }
+
+            // A library-internal member (`tuple::__base_`) names nothing
+            // the user wrote: those are left to the steps below.
+            var unsafe *fr = self._tu.record_decl(canon_unqual(fd->type_->canonical))
+            if fr != &null && decl_is_imported(fr) {
+                continue
+            }
+
+            if self.facts_of_type(fd->type_->canonical).copyable == LifecycleTri::No {
+                return f"its field '{self.sc->ctx->get_spelling(fd->name)}' is not copyable"
+            }
+        }
+
+        var unsafe *e = if (self.sc->instances != &null) => (self.sc->instances->entry_of(d)) else => &null
+        if e != &null {
+            for var i: usize = 0; i < e->args.size(); ++i {
+                var unsafe *a = e->args[i]
+                if a == &null || a->is_dependent() || a->is_instantiation_dependent() {
+                    continue
+                }
+
+                if self.facts_of_type(a).copyable == LifecycleTri::No {
+                    return f"its type argument '{self._tu.str(canon_unqual(a))}' is not copyable"
+                }
+            }
+        }
+
+        return self._held_uncopyable(d)
+    }
+
     /// Why imported instance \p d holds a value it cannot copy (see
     /// _imported_elements), or "" when it declares none.
     priv fn _held_uncopyable(self, d: unsafe *Decl) -> string {
@@ -864,6 +914,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         var user_copy     = false
         var user_move     = false
         var copy_deleted  = false
+        var copy_written  = false // deleted by `= delete` in a header, not by C++ (FFILinkage::ffi_deleted).
         var move_deleted  = false
         var copy_provided = false
         var move_provided = false
@@ -897,6 +948,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 user_copy = true
                 if m->body_kind == FnBodyKind::Delete {
                     copy_deleted = true
+                    copy_written = copy_written || m->ffi_deleted
                 }
 
                 if provided {
@@ -1109,6 +1161,20 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             f->why_not_movable = ""
         }
 
+        // An imported record whose copy C++ deleted because a part cannot
+        // be copied (a defaulted copy over a move-only Kairo class: pair,
+        // optional, tuple, since the stand-in carries the class's transfers,
+        // TypeExport::_mirror_transfers) says which part, not only that the
+        // copy is deleted. The verdict is clang's either way. A copy the
+        // header deletes itself (`unique_ptr(const unique_ptr&) = delete`)
+        // keeps "its copy constructor is deleted": no part is why.
+        if copy_deleted && (!copy_written) && decl_is_imported(d) {
+            var why = self._imported_copy_reason(d)
+            if !why.empty() {
+                f->why_not_copyable = why
+            }
+        }
+
         // Nothing declared: the weakest category the bases and fields allow
         // (file header), so the ones C++ would generate are what it reports.
         // Declared: it stands unless a dependent component left a defaulted
@@ -1116,7 +1182,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         // NON_TRANSFER stands regardless: no field brings a deleted transfer
         // back.
         // An imported record whose transfers are all `= default` is the
-        // same case as one that declares none (P980): C++ defines a
+        // same case as one that declares none: C++ defines a
         // defaulted copy that would copy a move-only member as DELETED and
         // keeps the defaulted move, so `std::pair<Mv, i32>` is MOVE. Both
         // must be declared: with the copy alone, C++ declares no move and an

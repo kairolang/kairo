@@ -38,7 +38,7 @@
 ///     location is IN (_home_at), since a token's text is read back through
 ///     its range.
 ///
-///   \par What a fill may write (P855)
+///   \par What a fill may write
 ///     A fill runs on any Sema thread under ForeignInstantiate's `_mu` only,
 ///     while other threads read the headers' scope tables with no lock
 ///     (SymbolTable::lookup_foreign, MemberLookup). So a fill writes no
@@ -530,7 +530,7 @@ pub class DeclImport {
         // with a NEW member only when two headers define one entity (one
         // USR) differently -- `struct Pt { int x; }` in ha.h and `struct Pt
         // { double y; }` in hb.h, each imported by its own module: the
-        // second definition's members land in the first's scope (P904). The
+        // second definition's members land in the first's scope. The
         // insert was a debug-build ICE and, in release, a member grafted
         // onto the other header's record, accepted by Sema and rejected by
         // clang at codegen. An identical second definition binds members
@@ -1887,6 +1887,31 @@ pub class DeclImport {
         var        ok   = true
         var        list = sp->getTemplateArgs().asArray()
         for var i: usize = 0; i < list.size(); ++i {
+            // A variadic primary's arguments arrive as one Pack: flattened,
+            // as the registry keys an instance (`tuple<i32, f32>` is [i32,
+            // f32]). Refused before, so libc++'s `template <> class tuple<>`
+            // (an EMPTY pack) never registered as a specialization: it stayed
+            // an ordinary record named `tuple` beside the template, the name
+            // found it, and every `cxx::std::tuple<A, B>` was R032E "'tuple'
+            // is not generic".
+            if list[i].getKind() == clang::TemplateArgument::Pack {
+                var pk = list[i].pack_elements()
+                for var j: usize = 0; j < pk.size(); ++j {
+                    if pk[j].getKind() != clang::TemplateArgument::Type {
+                        ok = false
+                        break
+                    }
+
+                    args.push_back(ti->_import(pk[j].getAsType()))
+                }
+
+                if !ok {
+                    break
+                }
+
+                continue
+            }
+
             if list[i].getKind() != clang::TemplateArgument::Type {
                 ok = false
                 break
@@ -2220,7 +2245,7 @@ pub class DeclImport {
         kf->body_kind = Declarations::FnBodyKind::None
         if fd->isDeleted() {
             kf->body_kind   = Declarations::FnBodyKind::Delete
-            kf->ffi_deleted = true
+            kf->ffi_deleted = fd->isDeletedAsWritten()
         } else if fd->isDefaulted() {
             kf->body_kind = Declarations::FnBodyKind::Default
         } else if m != &null && m->isPureVirtual() {

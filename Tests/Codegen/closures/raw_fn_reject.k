@@ -2,7 +2,7 @@
 // and a `fn` value, which may hold one. Both are SC001E where they are
 // converted -- an initializer, an argument, a C function pointer parameter
 // (an imported C pointer is raw), a field -- instead of the run-time trap
-// the `fn` value's conversion to `R(*)(A)` used to be.
+// the `fn` value's conversion to `R(*)(A)` would be.
 
 ffi "c" import "c_callback.h"
 

@@ -786,6 +786,16 @@ pub class PPWalker
         //   peek0 = ffi, peek1 = "lang", peek2 = import | { | decl-lead
         var p2 = self._src->peek(2).kind
 
+        // The language string belongs on the `ffi` line. A lone `ffi` used
+        // to take the NEWLINE as its language and the next line's `import
+        // "h"` as its own, silently (P993). Copied through instead, so the
+        // parser reports it (S064E, "expected a language string") and the
+        // next line is a statement of its own.
+        if self._src->peek(1).kind != TokenKind::LitString {
+            self._emit(self._src->next()) // ffi
+            return
+        }
+
         if p2 == TokenKind::KwImport {
             // ffi "lang" import "hdr" (as name)? ;  -> consume + drop the tokens
             //
@@ -807,6 +817,12 @@ pub class PPWalker
             var has_alias  = false
             var last       = lang_tok
             var saw_header = false
+            // One header per line, then an optional `as name` (imports.mdx,
+            // c-cpp-calling.mdx). Anything else was dropped unread, so
+            // `import {"a.h", "nope.h"}` imported only "a.h" and never looked
+            // for the second (P993): the first stray token is S064E and the
+            // line imports nothing.
+            var bad = false
             while !self._src->at_eof() {
                 if self._src->peek(0).kind == TokenKind::OpSemicolon {
                     last = self._src->next()
@@ -814,6 +830,10 @@ pub class PPWalker
                 }
 
                 var t = self._src->next()
+                if t.kind == TokenKind::TkNewLine {
+                    break
+                }
+
                 last = t
                 if !saw_header && t.kind == TokenKind::LitString {
                     header_tok = t
@@ -821,19 +841,69 @@ pub class PPWalker
                     continue
                 }
 
-                if t.kind == TokenKind::KwAs {
+                if saw_header && t.kind == TokenKind::KwAs && !has_alias {
                     if self._src->peek(0).kind == TokenKind::LitIdentifier {
                         alias_tok = self._src->next()
                         has_alias = true
                         last      = alias_tok
+                    } else if !bad {
+                        self.ig_err(t.range, "expected a name after 'as' in ffi import", DiagID::S064E)
+                        bad = true
                     }
 
                     continue
                 }
 
-                if t.kind == TokenKind::TkNewLine {
-                    break
+                if !bad {
+                    var msg = "unexpected token in an ffi import; the form is 'ffi \"c++\" import \"header\"', optionally followed by 'as name'"
+                    if t.kind == TokenKind::OpLBrace && !saw_header {
+                        msg = "an ffi import takes one header, not a list; write one 'ffi \"c++\" import \"header\"' line per header"
+                    }
+
+                    self.ig_err(t.range, msg, DiagID::S064E)
+                    bad = true
                 }
+
+                // A brace list may span lines: its `}` must not reach the
+                // scope tracker or the parser.
+                if t.kind == TokenKind::OpLBrace {
+                    var depth: usize = 1
+                    while !self._src->at_eof() && depth > 0 {
+                        var u = self._src->next()
+                        if u.kind == TokenKind::OpLBrace {
+                            depth += 1
+                        } else if u.kind == TokenKind::OpRBrace {
+                            depth -= 1
+                        }
+
+                        last = u
+                    }
+                }
+            }
+
+            // `import "a.h" "b.h"`: adjacent literals are ONE token (the
+            // lexer chains them), whose spelling is the first segment's, so
+            // "b.h" was never looked for.
+            if saw_header && !bad && self._chained_string(header_tok) {
+                self.ig_err(
+                    header_tok.range,
+                    "an ffi import takes one header, not a list; write one 'ffi \"c++\" import \"header\"' line per header",
+                    DiagID::S064E,
+                )
+                bad = true
+            }
+
+            if !saw_header && !bad {
+                self.ig_err(
+                    ffi_kw.range | last.range,
+                    "expected a header path string after 'ffi \"...\" import'",
+                    DiagID::S064E,
+                )
+                bad = true
+            }
+
+            if bad {
+                return
             }
 
             var        fr        = ffi_kw.range | last.range
@@ -1939,6 +2009,17 @@ pub class PPWalker
 
         var unsafe *d = tbl->get<Immediate::StringData>(tok.imm)
         return d != &null && !d->has_owned_text()
+    }
+
+    /// \p tok is a string literal with an adjacent one chained after it.
+    priv fn _chained_string(self, tok: Token) -> bool {
+        var unsafe *tbl = self._tcm->get_imm_table_for_token(tok)
+        if tbl == &null {
+            return false
+        }
+
+        var unsafe *d = tbl->get<Immediate::StringData>(tok.imm)
+        return d != &null && d->next != u32::MAX
     }
 
     /// The segment chained after \p seg in \p tbl, or null.

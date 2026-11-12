@@ -11,7 +11,7 @@
 ///     is not captured: the lambda names it directly, as any function does.
 ///     One exception: a script's top-level `var`, used by a closure written
 ///     in the top-level code with a list that copies it (no list, `|x|`),
-///     is captured by copy as a local is (P947); EmitIR spells the copy
+///     is captured by copy as a local is; EmitIR spells the copy
 ///     from the global (`x = ::ns::x`).
 ///
 ///         no list        every capture by copy (a MOVE type: moved in,
@@ -121,7 +121,7 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
     /// local function's scan sees them free too.
     priv var _reported: cxx::std::vector<unsafe *NamedIdentExpr>
     /// Functions around the walk: 0 is a script's top-level code, where its
-    /// top-level `var`s read as locals (P947).
+    /// top-level `var`s read as locals.
     priv var _fn_depth: usize = 0
 
     fn ClosureCaptures(self, sc: unsafe *SemaContext) {
@@ -322,11 +322,20 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
             var unsafe *at_use = scan.free_at[i]
             // A script's top-level `var` from its top-level code: a copy
             // when the list asks for one; any other form names the global
-            // in place, as before (P947).
+            // in place.
             var script_copy = self._fn_depth == 0
                 && script_top_var(self.sc->script_root, d)
                 && self._open_copy(n, d)
-            if (!self._automatic(d)) && (!script_copy) {
+            // Inside a closure that copied it, the name is that closure's
+            // copy, a local of the closure: an inner closure captures it as
+            // nested closures in a function capture a local, by its own list
+            // An inner `|*|` must write the outer closure's copy, not the
+            // script's variable.
+            var script_local = self._fn_depth == 0
+                && script_top_var(self.sc->script_root, d)
+                && self._open.size() > 0
+                && copies_script_var(self._open[0], d)
+            if (!self._automatic(d)) && (!script_copy) && (!script_local) {
                 continue
             }
 

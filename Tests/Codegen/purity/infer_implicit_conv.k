@@ -1,8 +1,8 @@
 // Purity inference (on by default) and an implicit conversion: the call of
 // `@implicit op as` has no node on the lowered tree (EmitIR spells it as a
-// cast), so before it was recorded (SemaContext::implicit_convs) `through`
-// was stamped const while its conversion writes a global, and clang at -O2
-// merged the two calls in main into one: `hits` came out 1. `clean`
+// cast), so unless it is recorded (SemaContext::implicit_convs) `through`
+// would be stamped const while its conversion writes a global, and clang at -O2
+// would merge the two calls in main into one: `hits` would come out 1. `clean`
 // converts through a @pure operator and is inferred pure.
 
 var hits: i32 = 0

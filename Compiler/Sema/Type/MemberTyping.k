@@ -104,7 +104,7 @@ import Sema::Type::OverloadResolution::{
 import Sema::Type::Substitution::Substitution
 import Token::TokenKind::TokenKind
 
-/// SubscriptExpr::place_ctx (P880): what the consumer of `x[i]` does with
+/// SubscriptExpr::place_ctx: what the consumer of `x[i]` does with
 /// the element, set by mark_subscript_use before the subscript is typed. A
 /// SPLIT subscript (its type declares `op []=`) selects by it; a type with
 /// no `op []=` ignores it (today's single `op []`, place or value by its
@@ -114,8 +114,8 @@ import Token::TokenKind::TokenKind
 ///          container): `=` / `op=` / `++` / `--`, a member written through,
 ///          the container of a written subscript.
 ///   SOFT   the place form on a mutable container, else the read form:
-///          `&x[i]` (P880-4: `*const T` on a const container), `for *e in`.
-///   BIND   `var t = a[i..j]` (P880-2): as SOFT.
+///          `&x[i]` (`*const T` on a const container), `for *e in`.
+///   BIND   `var t = a[i..j]`: as SOFT.
 ///   RECV   a method receiver: as SOFT, then settle_receiver_subscript moves
 ///          it to the read form unless the chosen method takes `self`.
 pub
@@ -268,6 +268,31 @@ pub class <T: type> MemberTyping {
         return r
     }
 
+    /// The category of a field step \p st, read off the object it is a field
+    /// of (\p obj_cat, \p cur_kind before the step): a member of a temporary
+    /// (`g().v`, `b[0].v` on a by-value `op []`, `S{v: 1}.v`) is an xvalue,
+    /// as in C++, so no write, `&` or `@inout` binds to it. Without
+    /// it the step was an lvalue, Sema accepted `g().v = 2`, and clang
+    /// rejected the emitted C++ ("expression is not assignable", CL001E).
+    /// Through `->` the object is the pointee, an lvalue whatever the
+    /// pointer was; a static field named through a type is one too.
+    priv static fn _field_category(cur_kind: ChainKind,
+                                   st:       unsafe *ChainExpr::Step,
+                                   obj_cat:  Expr::ValueCategory) -> Expr::ValueCategory {
+        if cur_kind != ChainKind::Value
+            || st->access_kind == ChainExpr::AccessKind::Arrow
+            || st->access_kind == ChainExpr::AccessKind::QuestionArrow
+            || st->access_kind == ChainExpr::AccessKind::ColonColon {
+            return Expr::ValueCategory::LValue
+        }
+
+        if obj_cat == Expr::ValueCategory::RValue || obj_cat == Expr::ValueCategory::XValue {
+            return Expr::ValueCategory::XValue
+        }
+
+        return Expr::ValueCategory::LValue
+    }
+
     fn type_chain(self, n: unsafe *ChainExpr, expected: unsafe *Type) -> unsafe *Type {
         var info = self.dyn()->new_chain_info(n)
 
@@ -364,7 +389,7 @@ pub class <T: type> MemberTyping {
                 && (st->access_kind == ChainExpr::AccessKind::Dot
                     || st->access_kind == ChainExpr::AccessKind::Arrow)
                 && self.dyn()->tu.nullable_inner(self.dyn()->ml.peel_ref(cur)) != &null
-                && !self.dyn()->cb.nullable_member_step(n, st, cur) { // `extend T?`'s own member reads no value (P325-1).
+                && !self.dyn()->cb.nullable_member_step(n, st, cur) { // `extend T?`'s own member reads no value.
                 var o = self.dyn()->flow.read_prefix(n, i)
                 if o == NULL_READ_REFUSED {
                     self.dyn()->poison_only(n)
@@ -561,8 +586,8 @@ pub class <T: type> MemberTyping {
                 cur               = elems[st->index as usize]
                 st->resolved_type = cur
                 st->resolved_decl = unsafe (self.dyn()->tu.tuple_field(val, st->index as usize) as unsafe *Decl)
+                n->value_category = MemberTyping::_field_category(cur_kind, st, obj_cat) // a field: `t.0 = x` assigns through.
                 cur_kind          = ChainKind::Value
-                n->value_category = Expr::ValueCategory::LValue // a field: `t.0 = x` assigns through.
                 continue
             }
 
@@ -659,11 +684,11 @@ pub class <T: type> MemberTyping {
                     // resolving the base record -- the field is not seen
                     // through Base's generic args, it is seen through T's.
                     var unsafe *seen = if (cur_kind == ChainKind::Value) => (val) else => cur_type
+                    n->value_category = MemberTyping::_field_category(cur_kind, st, obj_cat)
                     cur               = self.dyn()->ded_scratch()->member_through(seen, ft)
                     st->through       = self._instance_through(st, cur_kind, cur_type)
                     cur_kind          = ChainKind::Value
                     st->resolved_type = cur
-                    n->value_category = Expr::ValueCategory::LValue
                 } case DeclKind::VariableDecl {
                     var unsafe *v = cast<VariableDecl>(d)
                     cur = self.dyn()->var_type(v)
@@ -1025,7 +1050,7 @@ pub class <T: type> MemberTyping {
 
     /// The receiver a subscript's `op []` is chosen against: \p recv (the
     /// container, unqualified) carrying the object's const \p obj_q, so a
-    /// const container offers only its `const self` overload (P921; the
+    /// const container offers only its `const self` overload (the
     /// unqualified receiver let the `self` overload win in Sema and clang
     /// pick again from the real object, CL001E on every write). Today the
     /// object's constness is the whole decision; whatever else chooses the
@@ -1044,7 +1069,7 @@ pub class <T: type> MemberTyping {
         return self.dyn()->sc->types->qualified(t, QUAL_CONST)
     }
 
-    /// # the split subscript (P880)
+    /// # the split subscript
 
     /// \p e is used as \p ctx (a SUB_* value): marks every subscript it
     /// reaches before it is typed, so a split subscript selects its form
@@ -1111,7 +1136,7 @@ pub class <T: type> MemberTyping {
     /// \p sets its `op []=` (place) forms, \p obj the receiver with the
     /// container's const. The form is the use's (SubscriptExpr::place_ctx),
     /// never a fallback from the other: a read never calls `op []=` and a
-    /// write never calls `op []` (P880-1), so the type's const pair does
+    /// write never calls `op []`, so the type's const pair does
     /// not decide, and neither does the return type.
     priv fn _type_split_subscript(self,
                                   n:    *SubscriptExpr,
@@ -1126,7 +1151,7 @@ pub class <T: type> MemberTyping {
         // A softer use prefers the place form only where one takes this
         // index: the forms are per index type, so `var t = b[0..2]` with a
         // read range form and no place one is the read it can be. A write
-        // has no such fallback (P880-1).
+        // has no such fallback.
         if place && ctx != SUB_WRITE {
             var probe = cxx::std::vector<ArgInfo>()
             probe.push_back(self.dyn()->arg_info(n->index))
@@ -1173,7 +1198,7 @@ pub class <T: type> MemberTyping {
     }
 
     /// SC279E: a read of a split subscript whose type declares only the
-    /// place form. No fallback (P880-1): `op []=` may do what a read must
+    /// place form. No fallback: `op []=` may do what a read must
     /// not (insert a key, mark its owner changed).
     priv fn _missing_read_form(self,
                                n:    *SubscriptExpr,
@@ -1201,7 +1226,7 @@ pub class <T: type> MemberTyping {
     }
 
     /// A write through a split subscript of a const container: `op []=`
-    /// takes `self`, and the read form is no fallback for a write (P880-1).
+    /// takes `self`, and the read form is no fallback for a write.
     /// Named after the container when a const binding is what made it
     /// const, with the `var` fix-it on a local.
     priv fn _const_split_write(self, n: *SubscriptExpr) {

@@ -1,6 +1,6 @@
-// A .k parse error stops the run before Sema, which used to be the only
-// place a header set's buffered clang diagnostics drained. The undrained
-// BufferedDiagSink then ICEd ("dropped without drain") in ~CompilerInstance.
+// A .k parse error stops the run before Sema, which is where a header set's buffered clang
+// diagnostics drain. An undrained
+// BufferedDiagSink is an internal error ("dropped without drain") in ~CompilerInstance.
 // Every early-exit mode must report both errors and exit cleanly.
 
 ffi "c++" import "unknown_type.h"
@@ -22,7 +22,7 @@ fn main() -> i32 {
 // SYN-NOT:   unknown_type.h
 // SYN-NOT:   Internal Compiler Error
 
-// --preprocess never parses: only the header's error, still no ICE.
+// --preprocess never parses: only the header's error, no internal error.
 // RUN: { %kairo %s --preprocess 2>&1 || true; } | %FileCheck %s --check-prefix=PP
 // PP:        unknown_type.h:3:12: error [CL001E]: unknown type name 'bar'
 // PP-NOT:    Internal Compiler Error

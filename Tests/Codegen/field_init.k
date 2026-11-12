@@ -43,7 +43,7 @@ class R {
     pub var b: i32 = a + 1
 }
 
-// With its default, a const field no longer leaves the default constructor
+// With its default, a const field does not leave the default constructor
 // deleted.
 class K {
     pub const k: i32 = 3

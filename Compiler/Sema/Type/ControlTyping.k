@@ -204,7 +204,7 @@ pub class <T: type> ControlTyping {
 
         // A C++ class with `operator bool`: C++ converts it in a condition,
         // Kairo does not (control-flow: the condition must be bool), but the
-        // cast reaches it, explicit or not -- say so, with the edit (P813).
+        // cast reaches it, explicit or not -- say so, with the edit.
         var ts = self.dyn()->tu.str(t)
         if (!e->is_poisoned())
             && self.dyn()->conv.cxx_conversion_op(
@@ -1050,9 +1050,9 @@ pub class <T: type> ControlTyping {
                 continue
             }
 
-            // A script's top-level `var` the closure copies (P947): a
+            // A script's top-level `var` the closure copies: a
             // capture, as ClosureCaptures will record it.
-            if self.dyn()->script_copy_capture(n, d) {
+            if self.dyn()->script_copy_capture(n, d) || self.dyn()->script_local_capture(n, d) {
                 return false
             }
 

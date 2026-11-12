@@ -503,7 +503,7 @@ pub class ExprTyper
 
     /// The core. Idempotent per node; children walked by the mixins.
     /// \p e has been typed (or is being). OperatorTyping asks before walking a
-    /// left-leaning operator chain bottom-up (P804).
+    /// left-leaning operator chain bottom-up.
     fn is_memoized(self, e: unsafe *Expr) -> bool {
         return self._memo.find((e as usize as u64)) != self._memo.end()
     }
@@ -1061,7 +1061,7 @@ pub class ExprTyper
                 // receiver type: every closure holds it as the pointer it
                 // already is (ClosureCaptures, CaptureMode::Receiver). The
                 // exception is a script's own top-level `var` seen from the
-                // top-level code (P561): there it is the script's local to
+                // top-level code: there it is the script's local to
                 // the reader (closures.mdx `|*|`, ownership.mdx), so `|*|`
                 // views it as the pointer and EmitIR names its address.
                 if all
@@ -1101,7 +1101,7 @@ pub class ExprTyper
         return true
     }
 
-    /// Closure \p n captures the script variable \p d by copy (P947): \p d
+    /// Closure \p n captures the script variable \p d by copy: \p d
     /// reads as a local here (script_top_capture), and \p n and every
     /// closure around it ask for a copy. ClosureCaptures::_open_copy is the
     /// same rule over its own walk; the closure's type (raw or not) and its
@@ -1119,6 +1119,28 @@ pub class ExprTyper
         }
 
         return true
+    }
+
+    /// The script variable \p d is a closure's local inside \p n: the
+    /// outermost closure around \p n (the use in the top-level code) copied
+    /// it, so in there the name is that copy and \p n captures it as a
+    /// closure in a function captures a local.
+    /// ClosureCaptures::_resolve applies the same rule (script_local).
+    fn script_local_capture(self, n: unsafe *Expressions::ClosureExpr, d: unsafe *Decl) -> bool {
+        if !self.script_top_capture(d) {
+            return false
+        }
+
+        for var k: usize = 0; k < self.frames.size(); ++k {
+            var unsafe *c = self.frames[k].closure
+            if c == &null {
+                continue
+            }
+
+            return c != n && copies_script_var(c, d)
+        }
+
+        return false
     }
 
     /// A use of the nullable place \p d: the analysis remembers its state
@@ -1397,7 +1419,7 @@ pub class ExprTyper
         if it != self._typeexp.end() {
             t = it->second
         } else {
-            // A bare primitive (`x == u32`, P381): N leaves it unbound on
+            // A bare primitive (`x == u32`): N leaves it unbound on
             // purpose (denoted_type), so it never reaches the side table and
             // every value consumer saw "unknown" and passed it on silently.
             var unsafe *id = dyn_cast<NamedIdentExpr>(x)
@@ -1913,8 +1935,8 @@ pub class ExprTyper
         // C++ initialises a class from a value through ONE user-defined
         // conversion ([dcl.init]/17.6.3, [over.best.ics]); Kairo applies it
         // only under -fcxx-implicit-conv, exactly as at a call argument
-        // (P813), and initialisation, assignment and return reach the same
-        // C++ boundary (P834). -fimplicit-conv is the Kairo-side rules and
+        //, and initialisation, assignment and return reach the same
+        // C++ boundary. -fimplicit-conv is the Kairo-side rules and
         // has no say here. Without the flag the error says which conversion
         // C++ would have used and the fix-it writes the cast.
         var via = self._cxx_user_conv(e, from, to)
@@ -1963,7 +1985,7 @@ pub class ExprTyper
         }
 
         var hint = ""
-        // A C++ `u64&` reads as its referee (P376): kind_of sees a reference,
+        // A C++ `u64&` reads as its referee: kind_of sees a reference,
         // not a builtin, and the lossy-conversion hint was never chosen.
         var fk   = self.tu.kind_of(self.tu.as_value(from))
         var tk   = self.tu.kind_of(to)

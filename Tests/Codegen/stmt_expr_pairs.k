@@ -4,7 +4,7 @@
 // FileIDs. TokenSink gives each token a byte of the .k file, and an arena
 // token (a macro location with one expansion each) once the bytes run out;
 // the per-TU preamble alone takes about a hundred of them. So a valid program
-// smaller than its own token stream used to warn.
+// smaller than its own token stream must not warn.
 //
 // The sources are fixtures under Inputs/ because the case needs a tiny file:
 // these comments are bytes the sink can spend, and would hide it. Keep the

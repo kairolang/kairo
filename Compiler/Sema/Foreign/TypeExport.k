@@ -46,9 +46,14 @@
 ///     `G<int>&` back as the registry instance the user already has.
 ///
 ///     A stand-in carries layout, not behaviour: no methods, and implicit
-///     special members only (a Kairo destructor or deleted copy is not
-///     mirrored). That is enough for phase A, which declares members and
-///     never instantiates their bodies; phase B sees the real type.
+///     special members, except that the record's own `@copy` / `@move`
+///     constructors (deleted or not), the `op =` beside each and a default
+///     constructor are declared as the emitted class declares them
+///     (_mirror_transfers, P997), so a trait clang reads off them
+///     (`is_copy_constructible`, a defaulted copy that must be deleted) is the
+///     real type's. A Kairo destructor is not mirrored. That is enough for
+///     phase A, which declares members and never instantiates their bodies;
+///     phase B sees the real type.
 ///
 ///     Enums too. A plain enum's stand-in is a scoped enum of its word
 ///     (_standin_enum). An ADT's is a struct (_shape): its tag word, then
@@ -115,7 +120,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind, ClassDecl, EnumDecl, FieldDecl, FnBodyKind, GenericParamDecl, StructDecl, UnionDecl,
+    AbiKind,          ClassDecl,  EnumDecl,     FieldDecl, FnBodyKind, FunctionDecl, GenericParamDecl, StructDecl,
+    TransferKind,     UnionDecl,
 }
 import AST::Node::Types::{
     CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
@@ -127,6 +133,11 @@ import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Sema::Foreign::ForeignRegistry::ForeignRegistry
 import Sema::Foreign::TypeImport::TypeImport
 import Sema::Resolve::NameLookup::NameLookup
+
+/// How _mirror_add declares a stand-in's special member.
+const MIRROR_PROVIDED:  u8 = 0 ///< written with a body: user-provided, never trivial.
+const MIRROR_DEFAULTED: u8 = 1 ///< `= default`.
+const MIRROR_DELETED:   u8 = 2 ///< `= delete`.
 
 pub class TypeExport {
     pub var cctx: unsafe *clang::ASTContext
@@ -1326,7 +1337,8 @@ pub class TypeExport {
                     tag:           clang::QualType,
                     @inout fields: cxx::std::vector<unsafe *Type>,
                     bases:         unsafe *cxx::std::vector<clang::QualType> = &null,
-                    vptr:          bool = false) -> bool {
+                    vptr:          bool = false,
+                    owner:         unsafe *Decl = &null) -> bool {
         if !rd->isBeingDefined() {
             rd->startDefinition()
         }
@@ -1442,8 +1454,233 @@ pub class TypeExport {
             n += 1
         }
 
+        if owner != &null {
+            self._mirror_transfers(owner, rd)
+        }
+
         rd->completeDefinition()
         return true
+    }
+
+    /// Declare on stand-in \p rd the transfer constructors Kairo record \p d
+    /// writes (`@copy` / `@move`, deleted or not), each with the `op =`
+    /// InterfaceEmitter derives beside it and a default constructor, exactly
+    /// as the emitted class declares them (P997). Without them the stand-in
+    /// of a move-only `Mv` copied implicitly, so every question phase A asks
+    /// clang about a template over it came out as for a copyable type:
+    /// `std::optional<Mv>` read trivially copyable, its defaulted copy was not
+    /// deleted, `is_copy_constructible<Mv>` (libc++'s sfinae bases) was true,
+    /// and the instance read COPY until clang rejected the copy in phase B.
+    /// With them clang deletes the instance's defaulted copy itself (optional,
+    /// tuple, variant, pair), which DeclImport reads as any deleted member,
+    /// while a view (`span<Mv>`) keeps its trivial copy.
+    ///
+    /// Only what decides which special members exist and whether they are
+    /// deleted is mirrored; no body is attached (phase A instantiates none).
+    /// A record that writes no transfer keeps clang's implicit members, which
+    /// fold its fields' stand-ins as C++ will fold the real fields. A
+    /// defaulted (`= default`) or deleted transfer is declared so, trivial
+    /// when its implicit form would be. A defaulted default constructor is
+    /// declared too, so a transfer, which suppresses the implicit one, does
+    /// not change the default-constructibility (or its triviality) the
+    /// stand-in had.
+    /// PRE: \p rd is being defined; sema_lock() held.
+    priv fn _mirror_transfers(self, d: unsafe *Decl, rd: unsafe *clang::CXXRecordDecl) {
+        var unsafe *pat = NameLookup::representative(decl_pattern(d))
+        var lst: unsafe *FrozenList<unsafe *FunctionDecl> = &null
+        if pat != &null && isa<ClassDecl>(pat) {
+            lst = unsafe &cast<ClassDecl>(pat)->methods
+        } else if pat != &null && isa<StructDecl>(pat) {
+            lst = unsafe &cast<StructDecl>(pat)->methods
+        }
+
+        if lst == &null {
+            return
+        }
+
+        // What the fields and bases leave trivial, read before any member
+        // is declared (a declared copy stops the implicit move, and with it
+        // the move's bit): a defaulted or deleted member is trivial exactly
+        // when its implicit form would be, as Sema decides for one written
+        // in C++ (CheckCompletedCXXClass, SpecialMemberIsTrivial).
+        var t_copy = rd->hasTrivialCopyConstructor()
+        var t_move = rd->hasTrivialMoveConstructor()
+        var t_ca   = rd->hasTrivialCopyAssignment()
+        var t_ma   = rd->hasTrivialMoveAssignment()
+        var t_def  = rd->hasTrivialDefaultConstructor()
+
+        var any = false
+        for var i: usize = 0; i < lst->size(); ++i {
+            var unsafe *m = (*lst)[i]
+            if m == &null || m->transfer == TransferKind::NotTransfer {
+                continue
+            }
+
+            var body: u8 = MIRROR_PROVIDED
+            if m->body_kind == FnBodyKind::Delete {
+                body = MIRROR_DELETED
+            } else if m->body_kind == FnBodyKind::Default {
+                body = MIRROR_DEFAULTED
+            }
+
+            var st  = clang::QualType::getFromOpaquePtr((self.cctx->getCanonicalTagType(rd)).getAsOpaquePtr())
+            var ref = clang::QualType()
+            var mv  = m->transfer == TransferKind::Move
+            if mv {
+                ref = self.cctx->getRValueReferenceType(st)
+            } else if TypeExport::_const_source(m) {
+                ref = self.cctx->getLValueReferenceType(st.withConst())
+            } else {
+                ref = self.cctx->getLValueReferenceType(st)
+            }
+
+            self._mirror_ctor(rd, ref, body, if (mv) => (t_move) else => t_copy)
+            self._mirror_assign(rd, ref, body, if (mv) => (t_ma) else => t_ca)
+            any = true
+        }
+
+        if any {
+            var none = clang::QualType()
+            self._mirror_ctor(rd, none, MIRROR_DEFAULTED, t_def)
+        }
+    }
+
+    /// \p m's source parameter (the first after `self`) is `const`.
+    static fn _const_source(m: unsafe *FunctionDecl) -> bool {
+        for var j: usize = 0; j < m->params.size(); ++j {
+            var unsafe *q = m->params[j]
+            if q == &null || q->is_self {
+                continue
+            }
+
+            return q->is_const
+        }
+
+        return false
+    }
+
+    /// A `noexcept` function type of \p ret over \p param (none when null),
+    /// as EmitIR declares every special member.
+    priv fn _mirror_fn_type(self, ret: clang::QualType, param: clang::QualType) -> clang::QualType {
+        var ps: llvm::SmallVector<clang::QualType, 1>
+        if !param.isNull() {
+            ps.push_back(param)
+        }
+
+        var epi = clang::FunctionProtoType::ExtProtoInfo()
+        epi.ExceptionSpec.Type = clang::EST_BasicNoexcept
+        return self.cctx->getFunctionType(ret, llvm::ArrayRef<clang::QualType>(ps), epi)
+    }
+
+    /// The one parameter of a mirrored member, of type \p t, owned by \p f.
+    priv fn _mirror_param(self, f: unsafe *clang::FunctionDecl, t: clang::QualType) {
+        var loc = clang::SourceLocation()
+        var unsafe *p = clang::ParmVarDecl::Create(
+            &*self.cctx,
+            f,
+            loc,
+            loc,
+            &null,
+            t,
+            self.cctx->getTrivialTypeSourceInfo(t, loc),
+            clang::SC_None,
+            &null,
+        )
+
+        var ps: llvm::SmallVector<unsafe *clang::ParmVarDecl, 1>
+        ps.push_back(p)
+        f->setParams(llvm::ArrayRef<unsafe *clang::ParmVarDecl>(ps))
+    }
+
+    /// \p f declared as \p body says, then added to \p rd. Defaulted or
+    /// deleted is set before addDecl, which is where the record reads which
+    /// members are user-declared and user-provided; such a member is then
+    /// finished as Sema finishes one (triviality \p trivial,
+    /// finishedDefaultedOrDeletedMember), or the record's trivial bits for
+    /// it would stay unset.
+    priv fn _mirror_add(self,
+                        rd:      unsafe *clang::CXXRecordDecl,
+                        f:       unsafe *clang::CXXMethodDecl,
+                        body:    u8,
+                        trivial: bool) {
+        if body == MIRROR_DELETED {
+            f->setDeletedAsWritten(true, &null)
+        } else if body == MIRROR_DEFAULTED {
+            f->setDefaulted(true)
+            f->setExplicitlyDefaulted(true)
+        }
+
+        if body != MIRROR_PROVIDED {
+            f->setTrivial(trivial)
+            f->setTrivialForCall(trivial)
+        }
+
+        f->setAccess(clang::AS_public)
+        rd->addDecl(f)
+        if body != MIRROR_PROVIDED {
+            rd->finishedDefaultedOrDeletedMember(f)
+        }
+    }
+
+    /// A public `noexcept` constructor of \p rd taking \p param (the
+    /// default constructor when null), \p body as _mirror_add takes it.
+    priv fn _mirror_ctor(self,
+                         rd:      unsafe *clang::CXXRecordDecl,
+                         param:   clang::QualType,
+                         body:    u8,
+                         trivial: bool) {
+        var loc = clang::SourceLocation()
+        var vt  = clang::QualType::getFromOpaquePtr((self.cctx->VoidTy).getAsOpaquePtr())
+        var ft  = self._mirror_fn_type(vt, param)
+        var nm  = self.cctx->DeclarationNames.getCXXConstructorName(self.cctx->getCanonicalTagType(rd))
+        var unsafe *c = clang::CXXConstructorDecl::Create(
+            &*self.cctx,
+            rd,
+            loc,
+            clang::DeclarationNameInfo(nm, loc),
+            ft,
+            self.cctx->getTrivialTypeSourceInfo(ft, loc),
+            clang::ExplicitSpecifier(),
+            false,
+            true,
+            false,
+            clang::ConstexprSpecKind::Unspecified,
+        )
+
+        if !param.isNull() {
+            self._mirror_param(c, param)
+        }
+
+        self._mirror_add(rd, c, body, trivial)
+    }
+
+    /// `rd& operator=(param) noexcept`, \p body as _mirror_add takes it.
+    priv fn _mirror_assign(self,
+                           rd:      unsafe *clang::CXXRecordDecl,
+                           param:   clang::QualType,
+                           body:    u8,
+                           trivial: bool) {
+        var loc = clang::SourceLocation()
+        var rt  = self.cctx->getLValueReferenceType(
+            clang::QualType::getFromOpaquePtr((self.cctx->getCanonicalTagType(rd)).getAsOpaquePtr()),
+        )
+        var ft  = self._mirror_fn_type(rt, param)
+        var unsafe *m = clang::CXXMethodDecl::Create(
+            &*self.cctx,
+            rd,
+            loc,
+            clang::DeclarationNameInfo(self.cctx->DeclarationNames.getCXXOperatorName(clang::OO_Equal), loc),
+            ft,
+            self.cctx->getTrivialTypeSourceInfo(ft, loc),
+            clang::SC_None,
+            false,
+            true,
+            clang::ConstexprSpecKind::Unspecified,
+            loc,
+        )
+
+        self._mirror_param(m, param)
+        self._mirror_add(rd, m, body, trivial)
     }
 
     /// A stand-in given up on after its definition started: completed (as
@@ -1763,7 +2000,7 @@ pub class TypeExport {
             return clang::QualType()
         }
 
-        if !self._define(rd, tag, &fields, unsafe &bq, vptr) {
+        if !self._define(rd, tag, &fields, unsafe &bq, vptr, d) {
             dc->removeDecl(rd)
             return clang::QualType()
         }
@@ -2128,7 +2365,7 @@ pub class TypeExport {
         self._sub_args  = unsafe &qs
         var unsafe *saved_vals = self._sub_vals
         self._sub_vals = unsafe &vals
-        var ok = self._define(spec, tag, &fields)
+        var ok = self._define(spec, tag, &fields, &null, false, prim)
         self._sub_owner = saved_owner
         self._sub_args  = saved_args
         self._sub_vals  = saved_vals

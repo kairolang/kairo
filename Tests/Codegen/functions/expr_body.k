@@ -1,7 +1,7 @@
 // An expression-bodied function is the block it abbreviates
 // (Sema/Lower/ExprBodyDesugar.k): `-> T = e` returns `e`, and a body with no
 // written return type runs `e` for its effect. Free functions and methods in
-// an extend both reach codegen as blocks; before the pass, EmitIR ICEd on
+// an extend both reach codegen as blocks; EmitIR does not ICE on
 // the first one it met.
 
 struct Vec2 {

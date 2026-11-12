@@ -44,12 +44,11 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
     /// The live fid map. Asked per diagnostic, never snapshotted.
     ///
-    /// This used to be a cached `clang_kfid: clang::FileID`, which was dead
-    /// the moment FrontendAction::BeginSourceFile called clearIDTables   and
-    /// worse, clang restarts its ID counter after that, so the stale value
-    /// would start matching whatever header happened to land on the same ID.
-    /// Every diagnostic in that header then rendered against this TU's Kairo
-    /// file at a bogus offset. Ask the map; it knows when it was last rebound.
+    /// Not cached as a clang::FileID: FrontendAction::BeginSourceFile calls
+    /// clearIDTables and clang restarts its ID counter after that, so a
+    /// stored id would match whatever header happens to land on the same ID,
+    /// and every diagnostic in that header would render against this TU's
+    /// Kairo file at a bogus offset. The map knows when it was last rebound.
     pub var locmap: unsafe *ClangLocMap
 
     /// A header set's own clang instance maps its files through ITS table,
@@ -68,6 +67,10 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// builder open (heap-allocated, owned) until the next primary or flush.
     priv var _open:       unsafe *DiagBuilder = &null ///< owned; freed in _flush_open
     priv var _last_fwded: bool                = false
+    /// The open primary is clang's "redefinition of 'X'" in a C++ file:
+    /// the file it is in, and X (see _explain_redefinition). Empty otherwise.
+    priv var _redef_file: string = ""
+    priv var _redef_name: string = ""
 
     /// # clang::DiagnosticConsumer overrides
 
@@ -121,10 +124,29 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
         if is_note && self._last_fwded && self._open != &null {
             self._attach_child_note(kloc, msg)
+            self._explain_redefinition(kloc, msg)
             return
         }
 
         self._flush_open()
+        self._redef_file = ""
+        self._redef_name = ""
+        if lvl == clang::DiagnosticsEngine::Error
+            && kloc.is_valid()
+            && (!self._in_kairo_source(kloc))
+            && msg.starts_with("redefinition of \x27") {
+            // "redefinition of 'Base'" (or "... as different kind of
+            // symbol"): the quoted name, quotes kept.
+            var q2: usize = 17
+            while q2 < msg.size() && msg[q2] != ('\x27' as u8) {
+                q2 += 1
+            }
+
+            if q2 < msg.size() {
+                self._redef_file = self.ksm->get_filename(kloc)
+                self._redef_name = msg.subslice(16, q2 - 15)
+            }
+        }
 
         var code = self._map_code(lvl, info) // C0xxx{E,W,R} / CL001x
 
@@ -578,6 +600,44 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
         var cxx_v = string(unsafe ((data as unsafe *const u8) as *const u8), len as usize)
         return cxx_v == self.ksm->get_text(rr)
+    }
+
+    /// After clang's "previous definition is here" for an open
+    /// "redefinition of 'X'" whose two definitions are in two different C++
+    /// files: say why that is an error in Kairo at all. Every C++
+    /// header a Kairo file imports is parsed into ONE translation unit
+    /// (HeaderSet), so two headers that each define `struct Base` are C++'s
+    /// redefinition, though neither header includes the other and C++ users
+    /// would never see them together. Without this the user saw only clang's
+    /// error and, under it, every name of both headers unresolved.
+    priv fn _explain_redefinition(self, kloc: SourceRange, msg: string) {
+        if self._redef_file.empty() || (!kloc.is_valid()) || self._in_kairo_source(kloc) {
+            return
+        }
+
+        if msg != "previous definition is here" {
+            return
+        }
+
+        var prev = self.ksm->get_filename(kloc)
+        if prev == self._redef_file {
+            return
+        }
+
+        var a = Path(prev).filename()
+        var b = Path(self._redef_file).filename()
+        if a == b {
+            a = prev
+            b = self._redef_file
+        }
+
+        var name = self._redef_name
+        self._redef_file = ""
+        self._redef_name = ""
+        self._attach_child_note(
+            SourceRange::invalid(),
+            f"'{a}' and '{b}' both define {name}: every C++ header a Kairo file imports is parsed into one translation unit, so two headers cannot both define a type of the same name; import them from different Kairo files, or put one of the definitions in a namespace",
+        )
     }
 
     priv fn _attach_child_note(self, kloc: SourceRange, msg: string) {

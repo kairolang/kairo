@@ -3,8 +3,8 @@
 // std::alloc<u8>(1024)`).
 //
 // XFAIL: *
-// Ticket "[Lib] `std::alloc` / `std::free` do not exist"
-//. Today: R025E "no member named
+// `std::alloc` / `std::free` do not exist.
+// Today: R025E "no member named
 // 'alloc' in module 'std'" (and 'free'). When they land they must require an
 // unsafe context: the docs' Buffer example in classes-lifecycle.mdx calls
 // them without one, filed as a docs bug. When it XPASSes, delete the XFAIL --
