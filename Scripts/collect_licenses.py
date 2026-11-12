@@ -33,8 +33,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TEXTS = ROOT / "Scripts" / "license-texts"
-SYSROOTS_PROJECT = Path(os.environ.get("KAIRO_SYSROOTS_DIR",
-                                       Path.home() / "linux-dev" / "projects" / "kairo-sysroots"))
+# The kairo-sysroots checkout: $KAIRO_SYSROOTS_DIR, or the sibling of this repository.
+SYSROOTS_PROJECT = Path(os.environ.get("KAIRO_SYSROOTS_DIR", ROOT.parent / "kairo-sysroots"))
 LLVM = ROOT / "Lib" / "llvm-runtimes"
 # One Debian-packaged glibc sysroot extract carries the Debian copyright files the glibc
 # and Linux UAPI headers in our sysroots came from.

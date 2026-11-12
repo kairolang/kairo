@@ -3,7 +3,7 @@
 # usage: fish Tests/demo/build.fish [name]    (builds Tests/demo/<name>.k, default: Tests/demo)
 set -l D    (realpath (status dirname))
 set -l B    $D/build
-set -l ROOT /mnt/linux-dev/projects/kairo-lang
+set -l ROOT (realpath $D/../..)
 set -l K    $ROOT/build/x86_64-linux-gnu/debug/bin/kairo
 set -l MNT  /run/media/$USER/RPI-RP2
 

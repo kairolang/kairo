@@ -2354,7 +2354,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=ROOT / "build" / "sysroot-share")
     ap.add_argument("--scratch", type=Path, default=ROOT / "build" / "sysgen" / "a2")
     ap.add_argument("--curated", type=Path, default=ROOT / "build" / "x86_64-linux-gnu" / "release" / "sysroot")
-    ap.add_argument("--kairo-sysroots", type=Path, default=Path.home() / "linux-dev" / "projects" / "kairo-sysroots")
+    ap.add_argument("--kairo-sysroots", type=Path, default=Path(os.environ.get("KAIRO_SYSROOTS_DIR", ROOT.parent / "kairo-sysroots")))
     ap.add_argument("--bsd-trim", type=Path, default=ROOT / "build" / "sysgen" / "bsd-trim")
     ap.add_argument("--cc", type=Path, default=ROOT / "build" / "x86_64-linux-gnu" / "release" / "bin" / "kcc",
                     help="compiler driver for the glibc stub check (--report)")

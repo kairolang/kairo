@@ -1020,7 +1020,8 @@ def page_intro(files):
 def main():
     ap = argparse.ArgumentParser(description="Generate library reference MDX pages (interim extractor).")
     ap.add_argument("--lib", default="Lib")
-    ap.add_argument("--web", default=str(Path.home() / "linux-dev/projects/kairo-web"))
+    ap.add_argument("--web", default=str(Path(__file__).resolve().parent.parent.parent / "kairo-web"),
+                    help="the website checkout (default: the sibling of this repository)")
     ap.add_argument("--allow-undocumented", action="store_true")
     a = ap.parse_args()
     lib = Path(a.lib)
