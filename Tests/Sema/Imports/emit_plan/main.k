@@ -27,7 +27,7 @@ fn main() -> i32 {
     return foo::use_f(f);
 }
 
-// The dump covers EVERY TU in the graph now, own decls included, and each
+// The dump covers EVERY TU in the graph, own decls included, and each
 // non-entry TU gets a second (header) plan besides its preamble. So every
 // check below is ANCHORED on main's own preamble section: an unanchored
 // pattern would match foo's or bar's plan and assert nothing about THIS TU.

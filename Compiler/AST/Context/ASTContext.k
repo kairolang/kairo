@@ -80,6 +80,10 @@ pub class ASTContext {
     /// (transitively) one that has, so Sema leaves it unchecked and a tool
     /// gets nothing for it (Driver/SyntaxRecovery.k). Never set otherwise.
     pub var syntax_skipped: bool                     = false
+    /// --print-stats: the re-export fixpoint rounds an import cycle ran on
+    /// this TU (ImportResolution::refold_reexports). One per round of the
+    /// group's I; a group resumed past I runs none (P911).
+    pub var refold_rounds: u32                       = 0
     pub var sm:          unsafe *SourceManager      = &null
     pub var tcm:          unsafe *TokenCacheManager  = &null // we can get the imm table from the tcm
     pub var diags:        unsafe *DiagEngine         = &null

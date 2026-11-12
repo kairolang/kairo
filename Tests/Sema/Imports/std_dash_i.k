@@ -1,11 +1,11 @@
 // The driver registers std as `kairo::std` spelled `std`, and builtin as
 // `builtin`. Naming one of those directories again with -I is the same
 // directory twice, and the explicit registration wins whatever the order:
-// the duplicate -I is folded into it. Before, the user's -I came first,
-// took the directory's own pin, and the driver's registration was dropped
-// as a duplicate -- std lost its `std` spelling (`import std::io` was
+// the duplicate -I is folded into it. Otherwise the user's -I would come first,
+// take the directory's own pin, and the driver's registration be dropped
+// as a duplicate -- std would lose its `std` spelling (`import std::io` was
 // R011E) and builtin became a discovered library without the last-resort
-// probe (`Lib/std/io.k`'s bare `string` was R011E). Nothing said why.
+// probe (`Lib/std/io.k`'s bare `string` was R011E).
 
 import std::io
 

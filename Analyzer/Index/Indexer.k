@@ -18,7 +18,7 @@
 ///   server never converts a position on the way out; it only looks rows up.
 ///
 ///   RANGES COME FROM NAME TOKENS, never from node ranges: a node's range is
-///   not faithful to its text (P534), a name token's is.
+///   not faithful to its text, a name token's is.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -64,7 +64,9 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
+    BuiltinKind,
     RecordType,
+    builtin_for_token,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -322,7 +324,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         var size = self.sm->get_file_size(fid)
         if size > 0 {
             // The raw bytes. get_text() decodes UTF-8 and keeps one byte per
-            // code point (P800), which both corrupts the text and shifts
+            // code point, which both corrupts the text and shifts
             // every offset after the first non-ASCII character.
             var view = self.sm->get_view(self.sm->get_range(fid, 0, size))
             f.text = string(unsafe ((view.data() as unsafe *const u8) as *const u8), view.size())
@@ -704,7 +706,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             // local of a nested block is: either dropped the locals
             // mid-function.) Without this a marker in the field's
             // initialiser was judged inside it: its locals offered, its
-            // class's members listed and access checked from it (P1002).
+            // class's members listed and access checked from it.
             self.cur_fn_ = &null
             self.cur_dc_ = d->semantic_dc
             self.leave_locals_(true)
@@ -785,6 +787,19 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             if self.is_marker_(st->name) {
                 // What is to the left of the cursor: the previous step, or the
                 // chain's base when this is the first step.
+                // `usize::|`: a primitive named for its associated
+                // constants and its extensions' statics. Its name
+                // binds to nothing, so neither a type nor a declaration
+                // says what is to the left.
+                if (i == 0) && (st->access_kind == ChainExpr::AccessKind::ColonColon) && (c->base != &null)
+                    && isa<NamedIdentExpr>(c->base) {
+                    var pb = builtin_for_token(cast<NamedIdentExpr>(c->base)->name.kind)
+                    if pb != BuiltinKind::COUNT {
+                        self.complete_primitive_(pb)
+                        continue
+                    }
+                }
+
                 var rt: unsafe *Type = &null
                 var rd: unsafe *Decl = &null
                 if i > 0 {
@@ -897,7 +912,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     }
 
     /// `x[i]` through a user `op []` / `op []=`: the `[` reads as a call of
-    /// the form Sema selected (P880: a split subscript's read or place form
+    /// the form Sema selected (a split subscript's read or place form
     /// is the one that runs) and jumps to it; a place form marks the use
     /// `mutates`. SubscriptExpr keeps no bracket token: the `[` is the byte
     /// after the base, where OperatorLowering puts it too.

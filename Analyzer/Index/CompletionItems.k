@@ -51,9 +51,13 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
+    BuiltinKind,
     RecordType,
+    builtin_for_token,
     canon_unqual,
 }
+import Index::Primitives::primitive_consts
+import Protocol::CIK_CONSTANT
 import AST::Node::Casting::{
     cast,
     isa,
@@ -414,6 +418,45 @@ extend IndexWalker {
         self.ac_         = &null
         self.ac_through_ = &null
         self.ml_         = &null
+    }
+
+    /// The cursor is after `b::`, \p b a primitive (`usize::`): its
+    /// associated constants, the compiler's own list (Index/Primitives.k),
+    /// then the methods of the `extend` blocks of it this file sees, the
+    /// statics a `b::` names among them. The index path lists the
+    /// same from the tables.
+    fn complete_primitive_(self, b: BuiltinKind) {
+        self.completed = true
+        var cs = primitive_consts(b)
+        for var i: usize = 0; i < cs.size(); ++i {
+            var it = ItemRow{}
+            it.label  = cs[i].name
+            it.detail = cs[i].detail
+            it.kind   = CIK_CONSTANT as u32
+            it.sort   = 0
+            self.items.push_back(it)
+        }
+
+        if self.sc->types == &null {
+            return
+        }
+
+        var ac = AccessCheck(self.sc)
+        var ml = MemberLookup(self.sc)
+        self.ac_ = unsafe &ac
+        self.ml_ = unsafe &ml
+        var unsafe *exts = ml.extensions_of_type(self.sc->types->builtin(b))
+        if exts != &null {
+            for var i: usize = 0; i < exts->size(); ++i {
+                var unsafe *e = (*exts)[i]
+                for var m: usize = 0; m < e->methods.size(); ++m {
+                    self.item_(unsafe (e->methods[m] as unsafe *Decl), 0)
+                }
+            }
+        }
+
+        self.ac_ = &null
+        self.ml_ = &null
     }
 
     fn members_of_receiver_(self, recv_type: unsafe *Type, recv_decl: unsafe *Decl) {

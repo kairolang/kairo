@@ -193,14 +193,22 @@ pub class ImportResolution {
 
         var unsafe *overlay = tu->import_overlay
         var        before   = overlay->target_count()
-        // A TU whose I ran: the driver's lockstep calls this for every TU
-        // of the cycle after the group's I, and again when it resumes the
-        // group on the driver, past I, where a round finds nothing new.
+        // A TU whose I ran and nothing after it: the driver's lockstep
+        // calls this for every TU of the cycle right after the group's I,
+        // and only then (a group it resumes past I is not refolded:
+        // a round would find nothing new and take the overlay Frozen ->
+        // Refolding -> Frozen under readers in other groups).
         eval if defined!(DEBUG) {
             if (self.sc->phase as u8) < (SemaPhase::ImportsResolved as u8) {
                 kairo::std::ice_fail(r"ImportResolution::refold_reexports before phase I")
             }
+
+            if (self.sc->phase as u8) > (SemaPhase::ImportsResolved as u8) {
+                kairo::std::ice_fail(r"ImportResolution::refold_reexports on a TU past phase I")
+            }
         }
+
+        self.sc->ctx->refold_rounds += 1
 
         overlay->begin_refold()
         for var i: usize = 0; i < tu->imports.size(); ++i {
@@ -279,7 +287,7 @@ pub class ImportResolution {
         // `import foo::mac!`: a macro, which the preprocessor resolved and
         // bound (FileImportIndex::record, R011E on a miss). Macros are not
         // in the source's symbol table, so walking the path here reported
-        // the import's own macro as "not declared in module" (R015E, P1006).
+        // the import's own macro as "not declared in module" (R015E).
         // Nothing to fold: the expansion is already in the token stream.
         if id->last_seg_is_macro {
             return
@@ -321,7 +329,7 @@ pub class ImportResolution {
     /// cell/decl and src_fid: what is re-exported is the original thing, not
     /// a copy of it. A target whose origin import is private is never folded
     /// (wall 1), nor one whose origin is a `prot import` when this TU is not
-    /// in the source's module (P944, VisibilityFacts::reexports_to).
+    /// in the source's module (VisibilityFacts::reexports_to).
     priv fn _fold_reexports(self,
                             id:      unsafe *ImportDecl,
                             overlay: unsafe *ImportOverlay,
@@ -590,7 +598,7 @@ pub class ImportResolution {
             return &null
         }
 
-        // Not a race (P850): src_tu is an import, whose group finished all of
+        // Not a race: src_tu is an import, whose group finished all of
         // its Sema before this group's front was queued (_sema_parallel's
         // maxdep), or this group's own cycle member, run on this thread.
         self._flush_merged() // the source may be the overlay being built.
@@ -1420,7 +1428,7 @@ pub class ImportResolution {
     /// entity. The prelude is part of every TU, so a header that merely
     /// declares a builtin's name (zlib's `typedef unsigned char Byte`) is no
     /// import the user wrote wrong: reported eagerly, it killed the whole
-    /// header over a name nothing used (P817). Docs (c-cpp-calling, R016E)
+    /// header over a name nothing used. Docs (c-cpp-calling, R016E)
     /// put a foreign collision at the use, so it goes there.
     priv fn _collision_is_ffi_only(self, entry: unsafe *OverlayEntry) -> bool {
         var any_ffi = false

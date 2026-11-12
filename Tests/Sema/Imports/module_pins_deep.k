@@ -1,4 +1,4 @@
-// Decision E: one library name claimed from two places is an error, never a
+// One library name claimed from two places is an error, never a
 // merge. Inputs/module_pins_deep/geometry/module.k pins `module geo` and is
 // discovered (an immediate subdirectory of the cwd); vendor/g2/module.k pins
 // `module geo` too, two levels down, where discovery never looks. Its files

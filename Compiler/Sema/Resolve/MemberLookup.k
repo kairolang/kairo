@@ -105,7 +105,7 @@ import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Token::TokenKind::TokenKind
 
-/// The extension-visibility rule (RESOLUTION.md): TU \p sc sees `extend`
+/// The extension-visibility rule (Compiler/Spec/MemberLookup.md): TU \p sc sees `extend`
 /// block \p e, written in file \p efid, when that file is its own, a
 /// builtin file, one it imports or one those re-export (all three
 /// SemaContext::sees_extension_file), or the file that declares the
@@ -184,8 +184,8 @@ pub class MemberLookup {
     /// in_scope: a foreign scope's table cannot be probed with our imm.
     priv var _cur_spelling: string = ""
 
-    // No _ext_by_shape index: `extend <T> [T]` now targets
-    // record(Vector, [T]), so it keys on the Vector primary through
+    // No _ext_by_shape index: `extend <T> [T]` targets
+    // record(Vector, [T]) and keys on the Vector primary through
     // _ext_by_decl like any other generic extension on a record.
 
     fn MemberLookup(self) {
@@ -240,7 +240,7 @@ pub class MemberLookup {
         }
     }
 
-    // Not a race (P850): index_extensions reaches only TUs with
+    // Not a race: index_extensions reaches only TUs with
     // no_extensions false, i.e. serial (barrier) groups, which run alone
     // after every front in flight, and finished ones; a front's TU is
     // skipped above. This is the extension index only: a header TU's
@@ -360,7 +360,9 @@ pub class MemberLookup {
         return c as usize as u64
     }
 
-    fn extensions_of_type(self,
+    /// The `extend` blocks of non-record canonical \p c this TU sees (the
+    /// language server lists a primitive's statics from them), or null.
+    pub fn extensions_of_type(self,
                           c: unsafe *Type) -> unsafe *cxx::std::vector<unsafe *Declarations::ExtensionDecl> {
         self.index_extensions()
         var it = self._ext_by_type.find(MemberLookup::_type_key(c))
@@ -855,7 +857,7 @@ pub class MemberLookup {
     /// Nothing is imported from a set clang rejected (HeaderIndex::index), so
     /// every name the file takes from it is undeclared: two headers that
     /// define one `struct Base` left only "unknown type name 'Base'" under
-    /// clang's redefinition error (P986). The unresolved-name errors say why.
+    /// clang's redefinition error. The unresolved-name errors say why.
     static fn headers_failed(sc: unsafe *SemaContext) -> bool {
         if sc == &null || sc->tu == &null || sc->tu->header_set == &null {
             return false

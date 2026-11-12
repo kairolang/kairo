@@ -22,6 +22,8 @@ ffi "c++" import "string"
 ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "chrono"
 
+import AST::Node::CanonicalNodes::BuiltinKind
+
 import API::FS::LinkFS
 import DocumentStore::{
     DocumentStore,
@@ -30,6 +32,11 @@ import DocumentStore::{
     uri_to_path,
 }
 import Index::Legend::*
+import Index::Primitives::{
+    primitive_consts,
+    primitive_of,
+    primitive_spelling,
+}
 import Index::Snapshot::*
 import Protocol::*
 import Resolution::ModulePath::*
@@ -138,6 +145,13 @@ pub class CompReq {
     /// text (`var a = b.c()` with `var b = d()`): bounded.
     pub var depth: u32 = 0
 
+    /// The lookups type a receiver the text already names (`a.b_.`), not
+    /// a list to offer: a member that would not be OFFERED here (a name
+    /// with a leading or trailing underscore from another file, one the
+    /// cursor may not name) is still the step the text wrote, and the
+    /// compiler's walk types through it (P1002).
+    pub var typing: bool = false
+
     pub var out:  [Cand]
     var seen_: {u64: u32}
 
@@ -193,6 +207,118 @@ pub class CompReq {
         self.out.clear()
         self.seen_.clear()
     }
+}
+
+/// A number literal's type with no type expected (primitives.mdx,
+/// "Literal inference"): its suffix's (`42u8`, `1.5f32`), else `f64` for a
+/// float and `i32` for an integer that fits it; "" for an integer past
+/// `i32` (the smallest signed type holding it: not worth guessing here)
+/// and anything that is not one number.
+fn number_type_(const x: string) -> string {
+    var hex = (x.size() > 2) && (x[0] == ('0' as u8)) && ((x[1] == ('x' as u8)) || (x[1] == ('X' as u8)))
+    var bin = (x.size() > 2) && (x[0] == ('0' as u8)) && ((x[1] == ('b' as u8)) || (x[1] == ('B' as u8)))
+    var p: usize = if (hex || bin) => (2 as usize) else => (0 as usize)
+    var is_float = false
+    var value: u64 = 0
+    var big = false
+    var base: u64 = if (hex) => (16 as u64) else => (if (bin) => (2 as u64) else => (10 as u64))
+    while p < x.size() {
+        var c = x[p]
+        var d: u64 = 99
+        if (c >= ('0' as u8)) && (c <= ('9' as u8)) {
+            d = (c - ('0' as u8)) as u64
+        } else if hex && (c >= ('a' as u8)) && (c <= ('f' as u8)) {
+            d = ((c - ('a' as u8)) as u64) + 10
+        } else if hex && (c >= ('A' as u8)) && (c <= ('F' as u8)) {
+            d = ((c - ('A' as u8)) as u64) + 10
+        } else if c == ('_' as u8) {
+            p += 1
+            continue
+        } else if (c == ('.' as u8)) && (!hex) && (!bin) && ((p + 1) < x.size()) && (x[p + 1] >= ('0' as u8)) && (x[p + 1] <= ('9' as u8)) {
+            is_float = true
+            p += 1
+            continue
+        } else if ((c == ('e' as u8)) || (c == ('E' as u8))) && (!hex) && (!bin) {
+            is_float = true
+            p += 1
+            if (p < x.size()) && ((x[p] == ('+' as u8)) || (x[p] == ('-' as u8))) {
+                p += 1
+            }
+
+            continue
+        } else {
+            break
+        }
+
+        if d >= base {
+            break
+        }
+
+        if !is_float {
+            if value > 0x7FFFFFFF {
+                big = true
+            } else {
+                value = value * base + d
+            }
+        }
+
+        p += 1
+    }
+
+    if p < x.size() {
+        // A suffix: a primitive's name, and nothing after it.
+        var sfx = x.subslice(p, x.size() - p)
+        var q: usize = 1
+        var known = (sfx[0] == ('i' as u8)) || (sfx[0] == ('u' as u8)) || (sfx[0] == ('f' as u8))
+        while known && (q < sfx.size()) {
+            known = (sfx[q] >= ('0' as u8)) && (sfx[q] <= ('9' as u8))
+            q += 1
+        }
+
+        if (!known) || (sfx.size() < 2) || (primitive_of(sfx) == BuiltinKind::COUNT) {
+            return ""
+        }
+
+        return sfx
+    }
+
+    if is_float {
+        return "f64"
+    }
+
+    if big || (value > 0x7FFFFFFF) {
+        return ""
+    }
+
+    return "i32"
+}
+
+/// One past the quoted literal that opens at byte \p q of \p x (its quote
+/// is `x[q]`): escapes skipped, and an f-string's `{...}` too, which may
+/// hold quotes of its own. x.size() + 1 when it does not close.
+fn literal_end_(const x: string, q: usize) -> usize {
+    var quote = x[q]
+    var depth: i64 = 0
+    var k = q + 1
+    while k < x.size() {
+        var c = x[k]
+        if c == ('\\' as u8) {
+            k += 2
+            continue
+        }
+
+        if (quote == ('"' as u8)) && (q > 0) && (c == ('{' as u8)) {
+            depth += 1
+        } else if (depth > 0) && (c == ('}' as u8)) {
+            depth -= 1
+        } else if (depth == 0) && (c == quote) {
+            return k + 1
+        }
+
+        k += 1
+    }
+
+    return x.size() + 1
 }
 
 fn is_type_word(const w: string) -> bool {
@@ -635,6 +761,7 @@ extend Server {
             sub.users  = req->users
             sub.site   = req->site
             sub.depth  = req->depth + 1
+            sub.typing = true
             return self.chain_recv_(&sub, &steps)
         }
 
@@ -1061,11 +1188,11 @@ extend Server {
         // A leading underscore is reserved for interop and a trailing one
         // marks a file's private helper: neither is offered from another
         // file (CompletionItems.k, item_).
-        if (name.starts_with("_") || name.ends_with("_")) && (ti != req->ti) && ((fl & DF_ALIAS) == 0) {
+        if (!req->typing) && (name.starts_with("_") || name.ends_with("_")) && (ti != req->ti) && ((fl & DF_ALIAS) == 0) {
             return
         }
 
-        if ((fl & DF_ALIAS) == 0) && (!self.may_name_(req, ti, r, owner, through)) {
+        if (!req->typing) && ((fl & DF_ALIAS) == 0) && (!self.may_name_(req, ti, r, owner, through)) {
             return
         }
 
@@ -1203,8 +1330,9 @@ extend Server {
         var recv = self.cand_recv_(&tmp, tmp.out[at as usize], false)
         for var k: usize = 1; (k < segs.size()) && recv.ok; ++k {
             tmp.reset()
-            tmp.users = req->users
-            tmp.sees  = req->sees
+            tmp.users  = req->users
+            tmp.sees   = req->sees
+            tmp.typing = true
             self.members_into_(&tmp, recv, recv, 0, 0)
             var m = tmp.find(segs[k])
             if m < 0 {
@@ -1440,11 +1568,111 @@ extend Server {
             c.at    = decls[k].off
             if !c.type_.empty() {
                 c.detail = c.label + ":" + c.type_
+            } else {
+                // No type written: the one its initialiser plainly has, a
+                // construction's or a literal's (P1002).
+                var ty = self.init_type_(req, c.init)
+                if !ty.empty() {
+                    c.detail = c.label + ": " + ty
+                }
             }
 
             found->push_back(c)
             offs->push_back(decls[k].off)
         }
+    }
+
+    /// The type initialiser \p init plainly has, as text, "" when that is
+    /// not plain from the text alone: a construction of a class or struct
+    /// (`T(...)`, `T<U>(...)`, `T { ... }`, the head looked up as cand_recv_
+    /// looks it up, so `make(...)` is no construction) as written, or a
+    /// literal at its default type (primitives.mdx, "Literal inference":
+    /// an integer that fits `i32`, else nothing; a float `f64`; a suffix
+    /// names its type), `string`, `bool`, `char`.
+    fn init_type_(self, req: *CompReq, const init: string) -> string {
+        var p: usize = 0
+        while (p < init.size()) && ((init[p] == (' ' as u8)) || (init[p] == ('\t' as u8))) {
+            p += 1
+        }
+
+        var end = init.size()
+        while (end > p) && ((init[end - 1] == (' ' as u8)) || (init[end - 1] == ('\t' as u8)) || (init[end - 1] == ('\r' as u8))) {
+            end -= 1
+        }
+
+        if end <= p {
+            return ""
+        }
+
+        var x = init.subslice(p, end - p)
+        if (x == "true") || (x == "false") {
+            return "bool"
+        }
+
+        // One string or char literal, the whole of it (`"a" == "b"` is no
+        // string): its closing quote is the initialiser's last byte.
+        if (x[0] == ('"' as u8)) || ((x.size() > 1) && (x[0] == ('f' as u8)) && (x[1] == ('"' as u8))) {
+            return if (literal_end_(x, if (x[0] == ('f' as u8)) => (1 as usize) else => (0 as usize)) == x.size()) => ("string") else => ("")
+        }
+
+        if x[0] == ('\x27' as u8) {
+            return if (literal_end_(x, 0) == x.size()) => ("char") else => ("")
+        }
+
+        if (x[0] >= ('0' as u8)) && (x[0] <= ('9' as u8)) {
+            return number_type_(x)
+        }
+
+        // A construction: a name (a path), its generic arguments, then `(`
+        // or `{`.
+        var e: usize = 0
+        while (e < x.size()) && (is_ident_byte(x[e]) || (x[e] == (':' as u8))) {
+            e += 1
+        }
+
+        if e == 0 {
+            return ""
+        }
+
+        var head = x.subslice(0, e)
+        var after = e
+        if (after < x.size()) && (x[after] == ('<' as u8)) {
+            var depth: i64 = 0
+            while after < x.size() {
+                if x[after] == ('<' as u8) {
+                    depth += 1
+                } else if x[after] == ('>' as u8) {
+                    depth -= 1
+                    if depth == 0 {
+                        after += 1
+                        break
+                    }
+                }
+
+                after += 1
+            }
+        }
+
+        var written = x.subslice(0, after)
+        while (after < x.size()) && (x[after] == (' ' as u8)) {
+            after += 1
+        }
+
+        if (after >= x.size()) || ((x[after] != ('(' as u8)) && (x[after] != ('{' as u8))) {
+            return ""
+        }
+
+        var rec = self.type_name_recv_(req, head)
+        if (!rec.ok) || rec.file {
+            return ""
+        }
+
+        var k = self.entries[req->ei].tb.t[rec.t].kind[rec.r as usize]
+        if (k != CIK_CLASS) && (k != CIK_STRUCT) {
+            return ""
+        }
+
+        return written
     }
 
     /// The file's own declarations: its top level and what its `module`
@@ -1715,15 +1943,22 @@ extend Server {
     fn head_recv_(self, req: *CompReq, const st: RecvStep) -> Recv {
         var none = Recv{}
         if (st.name == "self") || (st.name == "Self") {
-            if st.index > 0 {
-                return none // the type's own `op []`: the compiler's
+            if st.call || ((st.name == "Self") && (st.index > 0)) {
+                return none // `Self(...)`, `Self[..]`: not a value of the type
             }
 
             var k = req->blocks.size()
             while k > 0 {
                 k -= 1
                 if (req->blocks[k].close == usize::MAX) && (is_type_word(req->blocks[k].word) || (req->blocks[k].word == "extend")) {
-                    return self.block_type_(req, k)
+                    // `self[i]`: the enclosing type's own `op []`, which
+                    // its row carries as for any record (P1002).
+                    var recv = self.block_type_(req, k)
+                    for var n: usize = 0; (n < st.index) && recv.ok; ++n {
+                        recv = self.op_index_recv_(req, recv)
+                    }
+
+                    return recv
                 }
             }
 
@@ -1742,6 +1977,7 @@ extend Server {
         tmp.users  = req->users
         tmp.site   = req->site
         tmp.depth  = req->depth
+        tmp.typing = true
         // In scope where the HEAD stands, not where the cursor is.
         tmp.site.start = st.off
         self.local_candidates_(&tmp)
@@ -1776,6 +2012,20 @@ extend Server {
             return false
         }
 
+        // `usize::`: a primitive's name before `::` is its type whatever
+        // the file declares (a primitive's name is no name lookup finds,
+        // ChainBinding reads it first). Typed here, as the compiler's own
+        // list, even when that list is empty: there is nothing more the
+        // compiler would offer (P1004).
+        if (steps.size() == 1) && (!steps[0].call) && (steps[0].index == 0)
+            && (text->subslice(req->site.recv_end, 2) == "::") {
+            var pb = primitive_of(steps[0].name)
+            if pb != BuiltinKind::COUNT {
+                self.primitive_members_(req, pb)
+                return true
+            }
+        }
+
         var recv = self.chain_recv_(req, &steps)
         if !recv.ok {
             return false
@@ -1783,6 +2033,47 @@ extend Server {
 
         self.members_into_(req, recv, recv, 0, 0)
         return !req->out.empty()
+    }
+
+    /// After `b::`, \p b a primitive: its associated constants (the
+    /// compiler's table, Index/Primitives.k), then the members of the
+    /// `extend` blocks of it this file sees, whose rows spell the
+    /// primitive (`DC_DETAIL` of a DF_EXT row, Tables.k). As the marker
+    /// path lists them (CompletionItems.k, complete_primitive_).
+    fn primitive_members_(self, req: *CompReq, b: BuiltinKind) {
+        var cs = primitive_consts(b)
+        for var i: usize = 0; i < cs.size(); ++i {
+            var c = Cand{}
+            c.label  = cs[i].name
+            c.kind   = CIK_CONSTANT
+            c.detail = cs[i].detail
+            req->add(c)
+        }
+
+        var sp = primitive_spelling(b)
+        var none = Recv{}
+        var *tb = &self.entries[req->ei].tb
+        var *exts = tb->extensions()
+        for var x: usize = 0; x < exts->size(); ++x {
+            var et = ((*exts)[x] >> 32) as usize
+            var er = ((*exts)[x] & 0xFFFFFFFF) as i64
+            if (tb->t[et].detail[er as usize] != sp) || (!self.sees_ext_(req, et, usize::MAX)) {
+                continue
+            }
+
+            var *xt = &tb->t[et]
+            for var r: usize = (er + 1) as usize; r < xt->rows(); ++r {
+                if xt->parent[r] != er {
+                    if xt->parent[r] < er {
+                        break
+                    }
+
+                    continue
+                }
+
+                self.member_row_(req, et, r as i64, none, none, 0)
+            }
+        }
     }
 
     /// What the chain \p steps is, as a receiver: its head, then each
@@ -1798,8 +2089,9 @@ extend Server {
             tmp.f     = req->f
             tmp.ti    = req->ti
             tmp.sees  = req->sees
-            tmp.users = req->users
-            tmp.depth = req->depth
+            tmp.users  = req->users
+            tmp.depth  = req->depth
+            tmp.typing = true
             self.members_into_(&tmp, recv, recv, 0, 0)
             var m = tmp.find((*steps)[k].name)
             if m < 0 {

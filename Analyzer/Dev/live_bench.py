@@ -17,11 +17,23 @@ only: nothing is written to disk), and for each edit the script reports
 
 --rss-edits N then edits the first --file N more times and prints the index
 worker's resident size before and after (Linux /proc).
+
+Each edit also prints where the foreground time went, read from the
+server's trace (its TMPDIR is a private directory, trace.log there): `run`
+the worker's step (LiveCheck's re-check, the index walk and the render),
+`walk` the walk alone, `write` the rows the walk wrote, `install` the
+server's reading and decoding of the snapshot; `rest` = fg - run - install
+is the snapshot's assembly and write, the pipe and the server's loop.
 """
 
 import argparse
+import glob
+import json
 import os
+import re
+import shutil
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -49,6 +61,39 @@ def children_rss_mb(pid, needle):
         except (OSError, ValueError, IndexError):
             pass
     return total
+
+
+def installs(tmp):
+    """The `install` lines of the server's trace, each (worker timing,
+    install total in us)."""
+    out = []
+    for log in glob.glob(os.path.join(tmp, "kals*", "trace.log"))[:1]:
+        for l in open(log, errors="replace"):
+            m = re.match(r"install .*total_us=(\d+) worker=(\{.*\})", l)
+            if m:
+                try:
+                    out.append((json.loads(m.group(2)), int(m.group(1))))
+                except ValueError:
+                    out.append(({}, int(m.group(1))))
+    return out
+
+
+def split(tmp, fg, seen):
+    """`run / walk / write / install / rest` ms of the edit's foreground
+    answer: the first install after the `seen` ones before the edit."""
+    rows = []
+    for _ in range(40):
+        rows = installs(tmp)
+        if len(rows) > seen:
+            break
+        time.sleep(0.05)
+    if len(rows) <= seen:
+        return "", len(rows)
+    w, inst = rows[seen]
+    n = len(rows)
+    run, walk, write = w.get("run_us", 0) / 1000, w.get("walk_us", 0) / 1000, w.get("write_us", 0) / 1000
+    return (f", split: run {run:.0f} (walk {walk:.0f}, write {write:.0f}) install {inst / 1000:.0f}"
+            f" rest {fg - run - inst / 1000:.0f} ms"), n
 
 
 def analysed_after(c, start):
@@ -124,7 +169,8 @@ def main():
     args = ap.parse_args()
 
     root = os.path.realpath(args.workspace)
-    c = Client(os.path.realpath(args.kals), root, env={"KALS_LIVE_CHECK": "1" if args.live else "0"})
+    tmp = tempfile.mkdtemp(prefix="live-bench-")
+    c = Client(os.path.realpath(args.kals), root, env={"KALS_LIVE_CHECK": "1" if args.live else "0", "TMPDIR": tmp})
     c.start({"liveCheck": args.live, "debounceMs": args.debounce, "syntaxDebounceMs": 0})
     t0 = time.time()
     c.open(args.entry)
@@ -135,6 +181,7 @@ def main():
           f"{a[-1] if a else None}, worker rss {children_rss_mb(c.p.pid, needle)} MB")
 
     version = {}
+    seen = 0
     for rel in args.file:
         text = c.open(rel)
         c.pump(1.0)
@@ -144,13 +191,15 @@ def main():
         c.pump(0.5)
         for k in range(args.edits):
             version[rel] = version.get(rel, 1) + 1
+            seen = len(installs(tmp))
             fg, drain, first, last = edit(c, rel, version[rel], text + f"\n// bench {k}\n", args.timeout)
             mode = first.get("mode", "run")
+            sp, seen = split(tmp, fg, seen)
             print(f"  {rel} edit {k}: fg {fg:.0f} ms, drained {drain:.0f} ms, mode {mode}"
                   f" ({first.get('why', '')}), rechecked {first.get('rechecked', '-')}"
                   f"{'' if last is first else ' then ' + str(last.get('rechecked', '-'))}"
                   f", pending after fg {first.get('pending', 0)}, {last.get('answers', 0)} answers"
-                  f", worker rss {children_rss_mb(c.p.pid, needle)} MB")
+                  f", worker rss {children_rss_mb(c.p.pid, needle)} MB{sp}")
             c.pump(0.3)
 
     if args.preempt and args.file:
@@ -172,6 +221,7 @@ def main():
         print(f"  {rel}: {args.rss_edits} edits, worker rss {before} -> {after} MB, modes {modes}")
 
     rc = c.stop()
+    shutil.rmtree(tmp, ignore_errors=True)
     print("shutdown", rc)
     return 0
 

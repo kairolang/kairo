@@ -1081,8 +1081,9 @@ pub struct RecvStep {
 
 /// The receiver that ends at \p end (exclusive), as its steps from the
 /// head: `a.b().c` is a, b (called), c; `a[i].b` is a (one subscript), b;
-/// a parenthesised chain (`(a.b).`) is the chain. Empty when it is not a
-/// chain of names: a literal, any other expression.
+/// a parenthesised chain (`(a.b).`, `(*p).`) is the chain; a `?` of a safe
+/// access (`x?.`) is passed over. Empty when it is not a chain of names: a
+/// literal, any other expression.
 pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvStep] {
     var rev: [RecvStep]
     var none: [RecvStep]
@@ -1096,9 +1097,18 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
             p -= 1
         }
 
+        // `x?.`: a nullable's safe access names the members of what it
+        // holds, which is the record the tables give a `T?` (through `?`).
+        if (p > 0) && (text[p - 1] == ('?' as u8)) && (cls[p - 1] == here) && (!((p > 1) && (text[p - 2] == ('?' as u8)))) {
+            p -= 1
+            while (p > 0) && blank(text[p - 1]) {
+                p -= 1
+            }
+        }
+
         var st = RecvStep{}
         // `v[i]`, `m[k][j]`: the subscripts after the step, back over
-        // their brackets (P1002: these went to the compiler).
+        // their brackets (these went to the compiler).
         while (p > 0) && (text[p - 1] == (']' as u8)) && (cls[p - 1] == here) {
             var close_at = p - 1
             var bd: i64 = 0
@@ -1203,6 +1213,16 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
             var first = open + 1
             while (first < paren_close) && (blank(text[first]) || (text[first] == ('\n' as u8))) {
                 first += 1
+            }
+
+            // `(*p).`: a dereferenced chain is the record the chain's
+            // pointer points at, which is what the tables give a pointer
+            // (through `*`).
+            if (first < paren_close) && (text[first] == ('*' as u8)) && (cls[first] == here) {
+                first += 1
+                while (first < paren_close) && blank(text[first]) {
+                    first += 1
+                }
             }
 
             if inner.empty() || (inner[0].off != first) {

@@ -309,9 +309,9 @@ pub class FrontendAction {
             self.result.file_id = self._file_id
 
             // Snapshot AFTER every stage this TU reached, whichever one halted
-            // it. `_preprocess()` used to be the only writer here, which meant
-            // errors from parse/sema/codegen never made it into `result` and a
-            // TU that failed there was silently reported as clean.
+            // it. Every stage writes here, not only `_preprocess()`: otherwise
+            // errors from parse/sema/codegen never reach `result` and a TU that
+            // failed there is reported as clean.
             self.result.error_count = self._ci->diag()->error_count()
             self.result.warn_count  = self._ci->diag()->warn_count()
         }
@@ -383,6 +383,7 @@ pub class FrontendAction {
         }
 
         self._dump_purity_stats() // --print-stats; before the stop, so --type-check-only has it
+        self._dump_refold_stats()
         if fe.stops_at_sema() {
             self._stage = TUStage::Done
             return
@@ -652,8 +653,8 @@ pub class FrontendAction {
         }
 
         // index phase: Index-mode ASTParse over each fid (same grammar as the
-        // full parse, shallow materialization). Replaces the old ASTIndex
-        // token-level pre-pass.
+        // full parse, shallow materialization), not a token-level
+        // pre-pass.
 
         {
             var _ti = TimeRegion("Index")
@@ -1059,8 +1060,8 @@ pub class FrontendAction {
                 // A startup that failed (a word --mllvm rejects, a target
                 // clang cannot make, as --march=bogus) leaves no clang at
                 // all: no builtin, no header, so every builtin file's use of
-                // `__builtin_*` was an R020E flood under the real error
-                // (P896). A missing sysroot or resource dir does NOT fail
+                // `__builtin_*` was an R020E flood under the real error.
+                // A missing sysroot or resource dir does NOT fail
                 // the startup (it is a P008W / header errors, and the
                 // backend runs), so those keep type-checking.
                 if !be->ready() {
@@ -1472,8 +1473,7 @@ pub class FrontendAction {
         // A sibling loop, not the plan loop: that one skips a pathless TU before
         // its header dump, and a pathless TU still has a preamble.
         //
-        // First, which hidden decls another file's header names (P900,
-        // EmitPlan::note_borrowed): their home headers declare them, so every
+        // First, which hidden decls another file's header names (EmitPlan::note_borrowed): their home headers declare them, so every
         // header plan has to see the whole set. Serial, before any header.
         if !fe.emit_headers.empty() && !self._ci->diag()->has_errors() {
             EmitPlan::clear_borrowed()
@@ -1564,7 +1564,8 @@ pub class FrontendAction {
                     } else if h.render().size() > 0 {
                         // write() is false both for a TU with no header (the entry
                         // TU) and for a failed write; only the second has text. An
-                        // unwritable --emit-headers dir used to exit 0 silently.
+                        // unwritable --emit-headers dir is an error, not a
+                        // silent exit 0.
                         self._ci->diag()->report(
                             DiagID::U022E,
                             f"cannot write C++ header '{h.path_under(fe.emit_headers)}'",
@@ -2355,7 +2356,7 @@ pub class FrontendAction {
     ///
     /// Reversing `_fids` is not that order: it is a tree walk, so reversed it
     /// puts a later SIBLING first. `module.k` imports `string` before `fmt`
-    /// (now fmt/fmt_buf.k), and reversed, `fmt` was typed before `string` had
+    /// (fmt/fmt_buf.k), and reversed, `fmt` would be typed before `string` had
     /// resolved -- every `s.len` on a `string` came out unknown, without an
     /// error, and reached codegen untyped. A fid is placed once each fid it imports (in this graph)
     /// is placed; imports are acyclic, but should a pass place nothing the rest
@@ -2446,7 +2447,7 @@ pub class FrontendAction {
     /// never move: Sema keeps `&self.sc` (and the context `&self.lifecycle`)
     /// from its constructor on, so a growing vector of them by value would
     /// break both. The arena runs their destructors when the group ends, which
-    /// for a group of one is where the loop's `sem` used to die.
+    /// for a group of one is where the loop's `sem` would otherwise die.
     priv fn _sema_group(self,
                         fids:          unsafe *cxx::std::vector<u32>,
                         effects:       unsafe *EffectTable,
@@ -3351,7 +3352,7 @@ pub class FrontendAction {
                 // root is. Serially the later TU overwrote the earlier and the
                 // link happened to keep the right one; side by side, which write
                 // lands last is a race. The later TU in graph order (the
-                // importer, the one that used to win) takes a fid-suffixed name.
+                // importer) takes a fid-suffixed name.
                 var taken = false
                 for *p in used_stems {
                     if *p == obj_stem {
@@ -3946,7 +3947,7 @@ pub class FrontendAction {
                 && job->written.size() == 1
                 // The key says whether the TU compiled under the interface
                 // PCH (iface_on); an object compiled without it, after a
-                // failed PCH build or clang's retry, is not that key's (P888).
+                // failed PCH build or clang's retry, is not that key's.
                 && job->iface_used == job->iface_on {
                 ocache.store(job->key, job->written[0])
             }
@@ -5057,6 +5058,28 @@ pub class FrontendAction {
         }
     }
 
+    /// --print-stats: the re-export fixpoint rounds the import cycles ran,
+    /// summed over their TUs (one per TU per round of the group's I). Only
+    /// when a cycle ran one: the count is what shows a group resumed past
+    /// I being refolded again, which no output of the check does.
+    priv fn _dump_refold_stats(self) {
+        if !self._ci->invocation()->frontend.print_stats {
+            return
+        }
+
+        var n: u64 = 0
+        for var fid: u32 in self._fids {
+            var unsafe *ctx = self._global_scope->get_context(fid)
+            if ctx != &null {
+                n += (ctx->refold_rounds as u64)
+            }
+        }
+
+        if n > 0 {
+            io::eprintln(f"[stats] import-cycle refolds: {n}")
+        }
+    }
+
     /// --print-stats: what -finfer-purity found over the whole build.
     priv fn _dump_purity_stats(self) {
         if !self._ci->invocation()->frontend.print_stats {
@@ -5148,6 +5171,13 @@ fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> b
     codes.push_back(5)
     codes.push_back(7)
     codes.push_back(8)
+    // Whether THIS call ran I on a TU of the group. Only then is there a
+    // re-export fixpoint to reach: a group resumed past I (the driver
+    // continuing a front a worker ran) finished it there, and a round now
+    // would find nothing new, yet still take every overlay Frozen ->
+    // Refolding -> Frozen while TUs of later groups, on workers, read
+    // them.
+    var ran_i = false
     for var p: usize = 0; p < phases.size(); ++p {
         if front && phases[p] == SemaPhase::Verified {
             for var i: usize = 0; i < n; ++i {
@@ -5190,7 +5220,7 @@ fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> b
             // errors goes on, as it would outside a cycle: run_to's result is
             // false for both, so it is not what this asks. Asking it stopped
             // a TU with an error in N before T, and its importers' calls into
-            // it failed on unresolved parameter types (P883).
+            // it failed on unresolved parameter types.
             if si->stopped() {
                 continue
             }
@@ -5201,6 +5231,9 @@ fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> b
 
             sema_sub(codes[p], i)
             si->run_to(phases[p])
+            if phases[p] == SemaPhase::ImportsResolved {
+                ran_i = true
+            }
         }
 
         // A front that met a once-per-build report in T stops after T: the
@@ -5218,7 +5251,7 @@ fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> b
         // the others had not built yet (ImportResolution::
         // refold_reexports). Bounded: each round that continues
         // added a target, and the targets are finite.
-        if phases[p] == SemaPhase::ImportsResolved {
+        if phases[p] == SemaPhase::ImportsResolved && ran_i {
             sema_sub(2, 0)
             var grew = true
             while grew {

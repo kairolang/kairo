@@ -368,10 +368,12 @@ pub const BASE_BASE_KIND: i64 = 10
 /// VIS_* word with the default applied. `DC_TFILE`/`DC_TOFF` name the
 /// record its TYPE is (a variable's, a field's, what a function returns;
 /// through pointers and `?`), as an index into the table's `files` and a
-/// name offset there, or -1; for a DF_EXT row the record it extends, and
-/// for a DF_ALIAS row the declaration itself (in another file).
+/// name offset there, or -1; for a DF_EXT row the record it extends (and
+/// `DC_DETAIL` the primitive's spelling when the target is one, `extend
+/// i32`), and for a DF_ALIAS row the declaration itself (in another
+/// file).
 /// `DC_EFILE`/`DC_EOFF` name, the same way, the record a SUBSCRIPT of the
-/// value is (`v[i]`, P1002): the element of a `[T]`, `[T; N]` or `[T;]`,
+/// value is (`v[i]`): the element of a `[T]`, `[T; N]` or `[T;]`,
 /// the value of a `{K: V}`, of the variable's or field's type or of what a
 /// function returns; on a TYPE's row, the record its `op []` overloads
 /// agree on (their own rows are not in the table); -1 for anything else (a

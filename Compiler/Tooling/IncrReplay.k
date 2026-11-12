@@ -42,6 +42,8 @@
 ///   them. That equality is what Scripts/incr_replay_check.py checks, with
 ///   --incr-replay-dump's interface dumps, against a fresh process per step.
 ///   The exit status is 1 only when the script cannot be applied.
+///   With --time-passes the timing report so far follows each step and
+///   each first tier on stderr, after `== incr-replay times <tag>`.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -61,6 +63,10 @@ ffi "c++" import "Native/KShims.hh"
 
 import API::FS::*
 import Support::FileIO::Path::Path
+import Support::TimeReport::{
+    time_enabled,
+    time_print,
+}
 import Sema::SemaContext::SemaContext
 import Tooling::LiveCheck::LiveCheck
 import Tooling::SemaObserver::SemaObserver
@@ -293,6 +299,7 @@ fn replay_fg(live: *LiveCheck, bufs: *ReplayBuffers, const file: string, n: usiz
     var t0 = replay_now_ms()
     live->replace_file(full)
     var ms = replay_now_ms() - t0
+    replay_times(f"{what} {n}")
     io::println(f"incr-replay:   {what} {file}: {live->mode} ({live->why}), {ms} ms")
     if !live->detail.empty() {
         io::println(f"incr-replay:   detail: {live->detail}")
@@ -357,8 +364,24 @@ fn replay_aside(live: *LiveCheck, bufs: *ReplayBuffers, const edit: string, n: u
     return ""
 }
 
+/// --time-passes: the regions so far, on stderr after `== incr-replay
+/// times <tag>`, after each step and each first tier. The report is
+/// cumulative; one step's (one tier's) cost per stage is the difference
+/// from the report before it (where an edit's time goes).
+fn replay_times(const tag: string) {
+    if !time_enabled() {
+        return
+    }
+
+    cxx::std::fflush(kairo::std_out())
+    io::eprintln(f"== incr-replay times {tag}")
+    time_print()
+    cxx::std::fflush(kairo::std_err())
+}
+
 fn replay_report(live: *LiveCheck, n: usize, const name: string, t0: u64) {
     var ms = replay_now_ms() - t0
+    replay_times(f"step {n}")
     io::println(
         f"incr-replay: step {n} {name}: {live->mode} ({live->why}), {live->files} files, {live->errors} errors, {ms} ms",
     )

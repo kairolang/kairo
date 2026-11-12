@@ -25,12 +25,19 @@ Kinds, N requests each (--count, default 200):
   attribute  `@` then letters
   import     `import ` and a path typed segment by segment
   header     `ffi "c++" import "` and a path typed letter by letter
-  fallback   a member after an indexed receiver (`a.b[i].`), which the
-             index does not type: the compiler answers (--fallback N,
-             default 20: each is a re-check of the file)
+  primitive  `<primitive>::` then letters (`usize::MA`), on a line inserted
+             at one of the file's name sites (--primitive N, default 20):
+             from the index
+  fallback   a member after an indexed receiver (`a.b[i].`, `self[i].`,
+             `(*p).`, `x?.`; the oracle's `indexed` sites): from the
+             index where the tables type it, else the compiler
+             (--fallback N, default 20; each such answer is a re-check of
+             the file)
 
 Prints per kind: requests, how they were answered, items per answer, and
-p50 / p95 / max of the server's microseconds, with the machine's load.
+p50 / p95 / max of the server's microseconds, with the machine's load; then
+the receiver of every member and indexed site the compiler answered (the
+shapes the index did not type).
 --no-index starts the server with `indexCompletion: false` (every list is
 the compiler's), for the same table before this path existed.
 """
@@ -44,12 +51,11 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lsp_client import Client
-from completion_oracle import MEMBER, code_part, in_string, sites_of
-
-INDEXED = re.compile(r"((?:[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*)*\[[^\]\[]*\])(\.|->)(?=[A-Za-z_])")
+from completion_oracle import indexed_sites_of, sites_of
 KEYWORDS = ["return", "while", "match", "continue", "break", "const", "unsafe", "false", "sizeof", "finally"]
 MACROS = ["stringify", "embed_str", "compile_error", "unreachable", "count", "paste", "unique_id", "todo"]
 ATTRS = ["deprecated", "no_warn", "align", "hot_path", "preserve_most", "likely", "pure", "inout"]
+PRIMS = [("usize", "MAX"), ("i32", "MIN"), ("u8", "BITS"), ("f64", "EPSILON"), ("i64", "MAX"), ("u32", "BITS")]
 HEADERS = ["vector", "cstdio", "llvm/ADT/StringRef.h", "llvm/Support/Program.h", "string", "optional", "chrono"]
 
 
@@ -68,6 +74,7 @@ def main():
     ap.add_argument("--file", action="append", required=True)
     ap.add_argument("--count", type=int, default=200)
     ap.add_argument("--fallback", type=int, default=20)
+    ap.add_argument("--primitive", type=int, default=20)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--no-index", action="store_true")
     a = ap.parse_args()
@@ -89,19 +96,15 @@ def main():
         members, names = sites_of(text)
         lines = text.split("\n")
         words = sorted({w for w in re.findall(r"[A-Za-z_]\w{3,}", text)})
-        indexed = []
-        for ln, line in enumerate(lines):
-            code = code_part(line)
-            if code is None:
-                continue
-            for m in INDEXED.finditer(code):
-                if not in_string(code, m.start()):
-                    indexed.append((ln, len(line) - len(line.lstrip(" ")), m.group(1) + m.group(2)))
+        # The oracle's indexed receivers (`a[i].`, `self[i].`, `(*p).`,
+        # `x?.`), each typed on a line of its own: (line, 0, the line).
+        indexed = [(ln, 0, ins) for (ln, col, ins) in indexed_sites_of(text)]
         files[rel] = (text, lines, members, names, words, indexed)
     c.settle(900)
 
     version = [100]
     stats = {}
+    fells = {}  # kind -> {receiver line: requests the compiler answered}
 
     def request(kind, rel, text, line, col, timeout=180):
         version[0] += 1
@@ -115,11 +118,14 @@ def main():
         d = done[-1] if done else {}
         items = r.get("items") if isinstance(r, dict) else (r or [])
         # A member is two rows: answered from the index, or by the compiler.
-        if kind == "member" and d.get("how") != "index":
-            fell = stats.setdefault("member", {"us": [], "wall": [], "how": {}, "items": []}).setdefault("fell", {})
+        # The receiver of every site the compiler answered is kept, for
+        # the lists after the table (which shapes the index cannot type).
+        if kind in ("member", "fallback", "primitive") and d.get("how") != "index":
+            fell = fells.setdefault(kind, {})
             key = text.split("\n")[line].strip()
             fell[key] = fell.get(key, 0) + 1
-            kind = "member (compiler)"
+            if kind == "member":
+                kind = "member (compiler)"
         st = stats.setdefault(kind, {"us": [], "wall": [], "how": {}, "items": []})
         st["us"].append(d.get("us", 0))
         st["wall"].append(wall)
@@ -200,6 +206,15 @@ def main():
         return typed("header", rel, 0, 'ffi "c++" import "', rnd.choice(HEADERS), left, backspace=False)
     run("header", a.count, header)
 
+    def primitive(rel, left):
+        s = some_site(rel, 3)
+        if not s:
+            return 0
+        prim, word = rnd.choice(PRIMS)
+        return typed("primitive", rel, s[0], " " * s[1] + prim + "::", word, left, backspace=False)
+    if a.primitive:
+        run("primitive", a.primitive, primitive)
+
     def fallback(rel, left):
         pool = files[rel][5]
         if not pool:
@@ -221,12 +236,14 @@ def main():
             continue
         print(f"{kind:18} {len(st['us']):4} {how:22} {pct(st['items'], 0.5):9} {pct(st['us'], 0.5):8} {pct(st['us'], 0.95):8} {max(st['us']):9}   "
               f"{pct(st['wall'], 0.5) / 1000:11.1f} {pct(st['wall'], 0.95) / 1000:6.1f}")
-    fell = stats.get("member", {}).get("fell", {})
-    if fell:
-        print()
-        print("member receivers the index did not type (the compiler answered):")
-        for key, n in sorted(fell.items(), key=lambda kv: -kv[1])[:25]:
-            print(f"  {n:3}  {key}")
+    for kind, title in (("member", "member receivers"), ("primitive", "primitive receivers (`usize::`)"),
+                        ("fallback", "indexed receivers (`a[i].`)")):
+        fell = fells.get(kind, {})
+        if fell:
+            print()
+            print(f"{title} the index did not type (the compiler answered):")
+            for key, n in sorted(fell.items(), key=lambda kv: -kv[1]):
+                print(f"  {n:3}  {key}")
     for rel in rels:
         version[0] += 1
         c.change(rel, version[0], files[rel][0])

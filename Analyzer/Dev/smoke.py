@@ -536,7 +536,7 @@ def features(exe, root, label):
 
 
 def stale_index(exe, root):
-    """P870: one syntax error must not blank hover and jump in the whole
+    """One syntax error must not blank hover and jump in the whole
     file. While it stays broken the last good index answers on the lines the
     edit did not touch, above it as they were and below it moved by the
     lines the edit added; on the broken line, and for a target in it, there
@@ -642,7 +642,7 @@ fn main() -> i32 {
 
 
 def broken_from_start(exe, base):
-    """P870 case B: a graph with a file that was broken before the server
+    """Case B: a graph with a file that was broken before the server
     ever indexed it. Its errors are all inside one function body that kept
     them (the body ends at its own `}`), so the file is checked without that
     body: hover, definition and full semantic tokens answer on the healthy
@@ -726,7 +726,7 @@ def broken_from_start(exe, base):
 
 
 def broken_unchecked(exe, base):
-    """P870 case B, a file whose error is NOT kept inside a body (the `(`
+    """Case B, a file whose error is NOT kept inside a body (the `(`
     left open runs the body past its own `}`): it and its importers are
     unchecked and answer nothing, the broken buffer keeps its syntax pass's
     colours, the rest of the graph answers, and rename refuses."""
@@ -759,7 +759,7 @@ def broken_unchecked(exe, base):
 
 
 def half_typed_line(exe, base):
-    """P899: `var w = v +` with the body's `}` on the next line, the most
+    """`var w = v +` with the body's `}` on the next line, the most
     common half-typed line. The failed operand leaves the `}` for the body,
     so the body closes on its own brace and keeps its error: the file is
     checked without that body (partial, not unchecked). Hover answers on the
@@ -800,7 +800,7 @@ fn main() -> i32 {
 
 
 def import_links(exe, root):
-    """P874: an ffi header string links to the header clang resolved, and
+    """An ffi header string links to the header clang resolved, and
     go-to-definition on it opens that file, like clangd on an `#include`;
     definition on an import's module path opens the module it names."""
     H, F, M = "src/p874.h", "src/p874.k", "src/main.k"
@@ -1061,8 +1061,8 @@ def waiting(exe, root):
 def first_pending(exe, base):
     """A request for a file whose candidate entry is still on its FIRST run
     (no entry holds the file yet) waits for that run, as a request on an
-    entry's first index does (P909, P937). It was answered NoEntry, and
-    after PARK_LIMIT_MS (3 s) from no snapshot: a null hover. Every run is
+    entry's first index does. Answering NoEntry, or a null hover after
+    PARK_LIMIT_MS (3 s) with no snapshot, is the failure this guards. Every run is
     held back 4 s (KALS_DEBUG_INDEX_DELAY_MS), so the 3 s limit falls
     inside the first run whatever the machine's load."""
     root = os.path.join(base, "first_pending")
@@ -1094,7 +1094,7 @@ def first_pending(exe, base):
 
 
 def reruns(exe, root):
-    """What starts a run of an entry, and what does not (P856). A run is a
+    """What starts a run of an entry, and what does not. A run is a
     whole compile of the entry's graph, so: saving a buffer, or opening or
     closing one whose text is what the last run read from the disk, starts
     none; and a change made during a slow run kills it, so the new text is
@@ -1155,7 +1155,7 @@ fn main() -> i32 {
 
 
 def fixits(exe, root):
-    """An insertion fix-it inserts (P860): its edit is zero-width, where the
+    """An insertion fix-it inserts: its edit is zero-width, where the
     diagnostic's own range is widened to be drawn. Widened, "make 'other'
     const" replaced the `o`: `const ther`."""
     F = "fixit.k"
@@ -1312,7 +1312,7 @@ fn main() -> i32 {
 def cxx_refs(exe, root):
     """A C++ signature in a hover is written the way Kairo passes it:
     `T&` is `@inout x: T`, `T&&` is `@move x: T`, `const T&` is `const x: T`.
-    A reference RETURN keeps its `&`: no Kairo spelling yet (P872)."""
+    A reference RETURN keeps its `&`: no Kairo spelling yet."""
     F = "refs_smoke.k"
     open(os.path.join(root, "refs_smoke.h"), "w").write(REFS_H)
     open(os.path.join(root, F), "w").write(REFS)
@@ -1399,7 +1399,7 @@ def syntax(exe, root):
         c.pump(0.05)
     check("syntax pass: errors for an unparseable buffer arrive before the run", early is True, [n["method"] for n in c.notes[mark:]])
     # The run of the valid text (older) is slow, so the broken edit killed it
-    # (reruns, P856); a fast one would land here. Either way the next result
+    # (reruns); a fast one would land here. Either way the next result
     # must not overwrite the syntax errors.
     end = time.time() + 30
     landed = None
@@ -1511,7 +1511,7 @@ fn main() -> i32 {
 """
 
 
-# Hover layouts and heads (P864, P865). The file is also a program: its main
+# Hover layouts and heads. The file is also a program: its main
 # prints each type's sizeof / alignof. LAYOUT_TRUTH is what it printed when
 # compiled with the release kairo (x86_64-linux-musl); with KALS_SMOKE_KAIRO
 # set to a kairo binary, hovers() compiles and runs it and checks against that
@@ -1577,7 +1577,7 @@ def layout_truth(root, text=None, truth=None, args=()):
     return {n: (int(a), int(b)) for n, a, b in (l.split() for l in out.splitlines() if l.strip())}
 
 
-# C++ layouts and generic instances on hover (P871): clang's numbers for an
+# C++ layouts and generic instances on hover: clang's numbers for an
 # imported record, enum and template instance, a Kairo record holding them,
 # a Kairo generic instance named at a use, a C++ alias. Its own header, so
 # the numbers are x86_64 ABI facts, not a standard library's. FOREIGN_TRUTH
@@ -1694,7 +1694,7 @@ def foreign_hovers(exe, root):
     c.stop()
 
 
-# Classes with bases and virtual methods on hover (P871): clang lays out a
+# Classes with bases and virtual methods on hover: clang lays out a
 # twin of the class the compiler emits (EnumLayoutQuery::_twin_record), so
 # tail padding a non-POD base lends, the vtable pointer, virtual bases, empty
 # bases and what a packed record packs are clang's numbers. No ffi import:
@@ -1860,9 +1860,9 @@ def base_hovers(exe, root):
 
 
 def hovers(exe, root):
-    """A type's size is the compiler's layout query (P865); attributes,
+    """A type's size is the compiler's layout query; attributes,
     visibility and written modes come through on the declaration and on
-    every member (P864)."""
+    every member."""
     X = "src/layouts.k"
     open(os.path.join(root, X), "w").write(LAYOUTS)
     truth = layout_truth(root)
@@ -1901,7 +1901,7 @@ def hovers(exe, root):
 
 
 def styles(exe, root):
-    """The style table's modifiers (section 5, P828): what the server sends."""
+    """The style table's modifiers (section 5): what the server sends."""
     X = "src/styles.k"
     open(os.path.join(root, X), "w").write(STYLES)
     for want in (True, False):
@@ -2021,7 +2021,7 @@ def bridge(exe, base):
     h = read(hdr)
     lines = h.split("\n")
     at = next((i for i, l in enumerate(lines) if "add(signed int a" in l), -1)
-    # P830: clangd reports physical lines, so each declaration sits on the
+    # clangd reports physical lines, so each declaration sits on the
     # physical line it has in a.k (add: line 2), and what the emitter invents
     # is in a.hh.prelude, included from line 1.
     check("bridge: add is on the header's physical line 2, its line in a.k", at == 1, lines[:3])
@@ -2077,14 +2077,14 @@ def bridge(exe, base):
     r = r if isinstance(r, list) else ([r] if r else [])
     check("bridge: clangd's definition of a::add is in a.k, not the header",
           bool(r) and r[0].get("uri", r[0].get("targetUri")) == "file://" + ak, r)
-    # clangd reports the header's physical line and ignores #line (P830):
+    # clangd reports the header's physical line and ignores #line:
     # the layout puts add on its a.k line (6, 0-based 5).
     line = (r[0].get("range") or r[0].get("targetSelectionRange"))["start"]["line"] if r else -1
     check("bridge: clangd's line for a::add is its a.k line (5)", line == 5, line)
     d.stop()
 
 
-# P859: a .k realistic enough that its header's prelude pulls in the runtime
+# A .k realistic enough that its header's prelude pulls in the runtime
 # (rt/*.h), a std module's C header and a standard C++ header: the case the
 # tiny a.k above never reached.
 BR_REAL_K = """import std::io::{
@@ -2146,12 +2146,12 @@ def clangd_add_words(text):
 
 
 def bridge_real(exe, base):
-    """The clangd bridge on a real file (P859): the header's prelude needs
+    """The clangd bridge on a real file: the header's prelude needs
     kcc's roots (the runtime's rt/*.h, the sysroot's libc++), which the
     .clangd gives the sources that include a .k and nothing else; bundled
     clang with exactly those words and, when present, clangd itself report
     what kcc does and jump into the .k file. Then the hint for a .clangd a
-    person wrote (P857): said once, and not at all when it has the flags."""
+    person wrote: said once, and not at all when it has the flags."""
     root = os.path.realpath(os.path.join(base, "bridge_real"))
     os.makedirs(root)
     files = {"test.k": BR_REAL_K, "main.cc": BR_REAL_MAIN, "bad.cc": BR_REAL_BAD, "plain.c": BR_REAL_C}
@@ -2239,7 +2239,7 @@ def bridge_real(exe, base):
         hints_with("# mine\n" + frag, "a .clangd a person wrote that has every flag gets no hint", 0)
 
 
-# P876: doc comments reach the generated header. box.k's class doc opens the
+# Doc comments reach the generated header. box.k's class doc opens the
 # file (lines 1-4), where the header's prelude include and pragma sit, so it
 # goes on the forward declaration in the prelude; the method's and the
 # function's fit on their own lines. pair.k's class doc sits lower and fits.
@@ -2289,7 +2289,7 @@ int main() { box::Box a; a.v = 1; box::Box c = a + a; pair::Pair p; p.a = 0; kin
 
 
 def bridge_docs(exe, base):
-    """P876: a `///` doc above an exported declaration is above it in the
+    """A `///` doc above an exported declaration is above it in the
     overlay header, on its .k lines (never shifting a declaration), or on
     the class's forward declaration in the prelude when those lines are
     taken; clangd's hover from C++ shows it."""
@@ -2352,8 +2352,8 @@ def bridge_docs(exe, base):
     d.stop()
 
 
-# P882: an enum's variants each on their own .k line (the enum's `};` is
-# anchored at the enum, which used to pull them all onto its line), and a
+# An enum's variants each on their own .k line (the enum's `};` is
+# anchored at the enum, so each variant needs its own line), and a
 # function above the types it names moved up past the enum's niche
 # specialization (which used to bar every prototype above it).
 BR_LAY_K = """// layout probe: enum variants, functions on either side of the types.
@@ -2383,7 +2383,7 @@ int main() { lay::Color k = lay::Color::Green; lay::Holder h; return lay::pick(k
 
 
 def bridge_layout(exe, base):
-    """P882: clangd's definition of an enum variant, of a function declared
+    """Clangd's definition of an enum variant, of a function declared
     above the enum it names and of one declared after a class is its own
     .k line; hover on a variant shows the variant's doc."""
     root = os.path.realpath(os.path.join(base, "bridge_layout"))
@@ -2460,7 +2460,7 @@ int main() { bod::Counter c; int v = 2; return c.count() + bod::first(1, 2) + bo
 
 
 def bridge_bodies(exe, base):
-    """P882: clangd's definition of an inline method, a function template and
+    """Clangd's definition of an inline method, a function template and
     an extend block's function is its own .k line (the header leaves out the
     bodies the emitter writes after every class), its hover keeps the doc,
     and a consteval function C++ evaluates keeps its body."""
@@ -2516,7 +2516,7 @@ def overlay_entries(text):
 
 
 def bridge_shared(exe, base):
-    """P863: overlay.yaml is shared by every kals on a root (two editors).
+    """overlay.yaml is shared by every kals on a root (two editors).
     A rewrite keeps the entries another process (or an earlier session)
     wrote while their .k and header exist, drops the ones that are gone,
     puts back its own when another process's write lost them, and two
@@ -2579,7 +2579,7 @@ def bridge_shared(exe, base):
 
 
 def bridge_order(exe, base):
-    """P863: header jobs run one at a time; the .k open in the editor goes
+    """Header jobs run one at a time; the .k open in the editor goes
     first, then those included by the C/C++ source reported changed most
     recently, then scan order."""
     root = os.path.realpath(os.path.join(base, "bridge_order"))
@@ -2607,7 +2607,7 @@ def bridge_order(exe, base):
 
 
 def bridge_through(exe, base):
-    """P861: a source that reaches a .k only through a header it includes
+    """A source that reaches a .k only through a header it includes
     gets kcc's words (it failed with 'rt/crash.h' file not found); a C
     source gets kcc's C set, not the C++ one (`-std=c++..` is an error for
     C); and sources whose .k files belong to entries with different flags
@@ -3237,7 +3237,7 @@ def broken_buffer(exe, base, live_mode):
 
 def unsure_syntax(exe, base):
     """A text the one-file syntax pass accepts only because it cannot see
-    another file's macros (P977): `two!()` from an import expands to `* /`,
+    another file's macros: `two!()` from an import expands to `* /`,
     which is S052E in the graph. The pass says it parses, but `unsure`; the
     live worker's COPY tries it first. Before, the worker kept it: a whole
     check for the broken text and another for its fix. A text whose
@@ -3436,6 +3436,7 @@ priv fn file_private() -> i32 {
 
 pub class Shelf {
     pub var rows: [Vault]
+    pub var spare_: Vault
 
     pub fn op [] (self, i: usize) -> Vault {
         return self.rows[i]
@@ -3453,6 +3454,12 @@ COMP_EXT = """import vault::Vault
 extend Vault {
     pub fn extra_power(const self) -> i32 {
         return self.name
+    }
+}
+
+extend i32 {
+    pub static fn from_vault(const v: Vault) -> i32 {
+        return v.name
     }
 }
 """
@@ -3514,7 +3521,7 @@ pub fn other() -> i32 {
 
 
 def completion_index(exe, base):
-    """Completion answered from the index (P933): the declaration tables,
+    """Completion answered from the index: the declaration tables,
     the file's scope rows and the buffer's text, with no compile and no
     worker; the compiler is asked only for a receiver the tables do not
     type. Run in both modes: the index path is the same, the fallback is the
@@ -3662,7 +3669,7 @@ def completion_index(exe, base):
     it, d = ask(M, with_line("    var twice_of = fn (seed: i32) -> i32 {\n        return seed\n    }\n    co"), "    co")
     check("index completion: and not after the closure has closed", d.get("how") == "index" and "seed" not in names(it) and "twice_of" in names(it), (d, names(it)[:8]))
 
-    # --- subscripted and parenthesised receivers, from the tables (P1002)
+    # --- subscripted and parenthesised receivers, from the tables
     it, d = ask(M, with_line("    boxes[0]."), "    boxes[0].")
     check("index completion: a `[T]` local's element, from the index",
           d.get("how") == "index" and {"name", "open"} <= set(names(it)) and "code" not in names(it), (d, names(it)))
@@ -3683,6 +3690,20 @@ def completion_index(exe, base):
     it, d = ask(M, with_line("    var shelf = vault::Shelf {}\n    shelf[0]."), "    shelf[0].")
     check("index completion: a type's own `op []`, from its row", d.get("how") == "index" and {"name", "open"} <= set(names(it)), (d, names(it)))
 
+    in_shelf = COMP_VAULT.replace("        return self.rows[i]\n", "        self[0].\n        return self.rows[i]\n")
+    it, d = ask(V, in_shelf, "        self[0].")
+    check("index completion: `self[i]`, the enclosing type's own `op []` (P1002)",
+          d.get("how") == "index" and {"name", "open", "code"} <= set(names(it)), (d, names(it)))
+    it, d = ask(M, with_line("    var maybe: Vault? = make_vault()\n    maybe?."), "    maybe?.")
+    check("index completion: a nullable's safe access `x?.` (P1002)", d.get("how") == "index" and {"name", "open"} <= set(names(it)), (d, names(it)))
+    it, d = ask(M, with_line("    var shelf = vault::Shelf {}\n    shelf.spare_."), "    shelf.spare_.")
+    check("index completion: a step named with a trailing underscore is typed through, from another file (P1002)",
+          d.get("how") == "index" and {"name", "open"} <= set(names(it)), (d, names(it)))
+    it, d = ask(M, with_line("    var shelf = vault::Shelf {}\n    shelf."), "    shelf.")
+    check("index completion: (though it is not offered there)", d.get("how") == "index" and "rows" in names(it) and "spare_" not in names(it), (d, names(it)))
+    it, d = ask(M, with_line("    var at = &box\n    (*at)."), "    (*at).")
+    check("index completion: a dereferenced pointer `(*p).` (P1002)", d.get("how") == "index" and {"name", "open"} <= set(names(it)), (d, names(it)))
+
     # --- a receiver the tables do not type: the compiler answers
     it, d = ask(M, with_line("    boxes[0..1]."), "    boxes[0..1].")
     check("index completion: a range subscript (a slice, not an element) falls back to the compiler" + (" (the live worker's copy)" if live_on else " (a run)"),
@@ -3690,13 +3711,40 @@ def completion_index(exe, base):
     it, d = ask(M, with_line("    (box as Vault)."), "    (box as Vault).")
     check("index completion: a parenthesised expression that is not a chain falls back", d.get("how") != "index", d)
 
-    # --- a `case` pattern's bindings typed since the last index (P1002)
+    # --- a primitive's name before `::`: its associated constants,
+    # the compiler's own list, and the statics of the `extend` blocks of it
+    # the file sees; from the index, where it went to the compiler
+    it, d = ask(M, with_line("    usize::"), "    usize::")
+    n = set(names(it))
+    check("index completion: `usize::` from the index: its limits", d.get("how") == "index" and {"MAX", "MIN", "BITS"} <= n and "EPSILON" not in n, (d, n))
+    mx = next((i for i in it if i["label"] == "MAX"), None)
+    check("index completion: a limit says its type", mx and mx.get("detail") == "const MAX: usize", mx)
+    it, d = ask(M, with_line("    f64::"), "    f64::")
+    n = set(names(it))
+    check("index completion: `f64::` offers a float's limits", d.get("how") == "index" and {"EPSILON", "NAN", "INFINITY", "MAX", "DIGITS"} <= n, (d, n))
+    it, d = ask(M, with_line("    i32::"), "    i32::")
+    n = set(names(it))
+    check("index completion: `i32::` offers an `extend i32` static where its file is imported", d.get("how") == "index" and {"MAX", "from_vault"} <= n, (d, n))
+    it, d = ask(O, COMP_OTHER.replace("    return box.name", "    i32::\n    return box.name"), "    i32::")
+    n = set(names(it))
+    check("index completion: and not where it is not", d.get("how") == "index" and "MAX" in n and "from_vault" not in n, (d, n))
+
+    # --- the type a local typed since the last index plainly has
+    it, d = ask(M, with_line("    var fresh = Vault {}\n    var seven = 7\n    var half = 0.5\n    var word = \"w\"\n    var made = make_vault()\n    var same = \"a\" == \"b\"\n    fre"), "    fre")
+    det = {i["label"]: i.get("detail", "") for i in it}
+    check("index completion: a local typed since shows a construction's type", det.get("fresh") == "fresh: Vault", det.get("fresh"))
+    check("index completion: and a literal's default type",
+          det.get("seven") == "seven: i32" and det.get("half") == "half: f64" and det.get("word") == "word: string", (det.get("seven"), det.get("half"), det.get("word")))
+    check("index completion: but not a call's (the function's to say), nor a comparison of literals",
+          not det.get("made", "").startswith("made:") and not det.get("same", "").startswith("same:"), (det.get("made"), det.get("same")))
+
+    # --- a `case` pattern's bindings typed since the last index
     it, d = ask(M, with_line("    match count {\n        case var bound where bound > 1 {\n            bo\n        }\n        default { }\n    }"), "            bo")
     check("index completion: a `case` binding typed since, inside its arm", d.get("how") == "index" and "bound" in names(it), (d, names(it)[:8]))
     it, d = ask(M, with_line("    match count {\n        case var bound where bound > 1 {\n            count = bound\n        }\n        default { }\n    }\n    bo"), "    bo")
     check("index completion: and not after the arm", d.get("how") == "index" and "bound" not in names(it) and "boxes" in names(it), (d, names(it)[:8]))
 
-    # --- a macro's name typed before its `!` (P1002): the item replaces the `!` too
+    # --- a macro's name typed before its `!`: the item replaces the `!` too
     text = with_line("    var tw_ = tw!(1)")
     line = next(i for i, l in enumerate(text.split("\n")) if "var tw_" in l)
     col = text.split("\n")[line].index("tw!(") + 2
@@ -3840,6 +3888,10 @@ def completion_index(exe, base):
     check("index completion off: a module's names, without its file-private ones", {"Vault", "make_vault"} <= n and "file_private" not in n, (d, n))
     it, d = ask(M, COMP_MAIN.replace("        count = count + inner\n", "        st\n        count = count + inner\n"), "        st")
     check("index completion off: a `for .. in` variable inside its loop", {"step", "inner"} <= set(names(it)), (d, names(it)[:8]))
+    it, d = ask(M, with_line("    i32::"), "    i32::")
+    n = set(names(it))
+    check("index completion off: `i32::` lists the limits and the `extend i32` statics (P1004)",
+          d.get("how") != "index" and {"MAX", "MIN", "BITS", "from_vault"} <= n and "EPSILON" not in n, (d, n))
     it, d = ask(M, with_line("    co"), "    co")
     n = names(it)
     check("index completion off: and the function's locals", d.get("how") != "index" and {"count", "box", "strong", "helper"} <= set(n), n[:12])
@@ -3853,7 +3905,7 @@ def completion_index(exe, base):
 
 
 def launch_failures(exe, base):
-    """A worker that cannot be started (K3, P892) leaves its work due: it is
+    """A worker that cannot be started leaves its work due: it is
     tried again, with a backoff, instead of the first refusal dropping that
     work until the next edit. KALS_DEBUG_LAUNCH_FAIL refuses the first n
     launches of a kind. Process mode (KALS_LIVE_CHECK=0): a live worker is
@@ -3903,7 +3955,7 @@ def launch_failures(exe, base):
 
 
 def entry_identity(exe, base):
-    """Entries are named by id, not by their place in the list (K1, P891).
+    """Entries are named by id, not by their place in the list.
     A run in flight when the project file is reloaded belongs to no entry of
     the new list: it lands nowhere, even where the new list puts another
     entry at its old index. A retired ad-hoc entry's run in flight is
@@ -3969,7 +4021,8 @@ def entry_identity(exe, base):
 def reload_republish(exe, base):
     """A project reload clears every published diagnostic; the open
     buffers' entries are analysed again at once, so their errors come back
-    with no request or edit (P910). They stayed cleared until one came."""
+    with no request or edit. Without the republish they would stay cleared
+    until a request or edit arrived."""
     root = os.path.join(base, "reload")
     os.makedirs(os.path.join(root, "src"))
     text = "fn main() -> i32 {\n    return nope\n}\n"
@@ -3996,7 +4049,7 @@ def reload_republish(exe, base):
 def stale_syntax(exe, base):
     """The process-per-pass syntax path (no persistent worker: forced with
     KALS_DEBUG_LAUNCH_FAIL) drops an answer for a text the buffer no longer
-    holds, as the persistent path does (K4, P893): its positions are the
+    holds, as the persistent path does: its positions are the
     old text's. Each pass is held back 1.5 s (KALS_DEBUG_SYNTAX_DELAY_MS);
     the Sema run's debounce (5 s) keeps it out of the way."""
     root = os.path.join(base, "stsyn")
@@ -4022,7 +4075,7 @@ def stale_syntax(exe, base):
 
 
 def lifecycle(exe, base):
-    """The protocol's lifecycle (K6, P894; LSP 3.17 "Lifecycle Messages"):
+    """The protocol's lifecycle (LSP 3.17 "Lifecycle Messages"):
     a request before `initialize` is answered ServerNotInitialized (-32002)
     and a notification dropped; a second `initialize` is InvalidRequest
     (-32600); `shutdown` ends the work in flight (the worker is killed, its
@@ -4084,7 +4137,7 @@ def main():
     # kals adopts the nearest kairo_compile.json above a workspace (as clangd
     # does compile_commands.json) and keeps its cache beside it. A temp root
     # under such a project would have the tests write into that project's
-    # .kairo/ (P868): refuse to run there.
+    # .kairo/: refuse to run there.
     up = os.path.dirname(os.path.realpath(base))
     while True:
         if os.path.exists(os.path.join(up, "kairo_compile.json")):

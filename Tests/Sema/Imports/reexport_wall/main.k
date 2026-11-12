@@ -3,10 +3,10 @@
 // Wall 1 (IMPORTS.md 4.4) holds transitively. mid reaches deep's names
 // through surface's `pub import deep::*`, but mid's own import of surface
 // is private, so an importer of mid sees mid's names and nothing else.
-// A re-exported target used to keep the origin of the edge it crossed in
-// the SOURCE (surface's pub import), so mid handed deep_value on as if it
-// were mid's surface -- and every overlay gained one duplicate target per
-// import path, which on a large import DAG made phase I run for minutes.
+// A re-exported target does not keep the origin of the edge it crossed in
+// the SOURCE (surface's pub import), or mid would hand deep_value on as if it
+// were mid's surface -- and every overlay would gain one duplicate target per
+// import path, which on a large import DAG makes phase I run for minutes.
 
 import mid::*
 

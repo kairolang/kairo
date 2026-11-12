@@ -14,8 +14,9 @@ compiler's own answer, the oracle. --entry is opened first in both, then per
            names, each possibly called (`a.b(x).`), in a function body
   name     the cursor at the start of a name used in a body: not a keyword,
            not a member, not a name being declared or a field's label
-  indexed  a member site whose receiver is subscripted or parenthesised
-           (`a.b[i].`, `f()[k].`, `(a.b).`)
+  indexed  a member site whose receiver is subscripted, parenthesised or a
+           safe access (`a.b[i].`, `f()[k].`, `self[i].`, `(a.b).`, `(*p).`,
+           `x?.`)
 
 Each site is asked twice. "fresh": the buffer as it is on disk, so the index
 is of this text. "stale" (unless --no-stale): a new line is inserted above
@@ -28,14 +29,21 @@ text is put back after each.
 What is compared is the set of item labels that are declarations: keywords
 (kind 14) and macros (a label ending in `!`) are left out, since the index
 path offers the keywords of the position and the oracle all of them, and the
-oracle offers no macros. A site the index path did not answer (`how` is not
-`index`) is counted as a fallback and not compared. A site the ORACLE did
+oracle offers no macros. At a name site in a TYPE position (after the `:` of
+a `var` / `const` / `eval`, after `as` `is` `derives` `impl` `extend`: the
+server's rule, LanguageServer.md section 8, read here off the text on its
+own) the index path offers only types by design and the compiler's walk
+everything: there the index list is compared with the TYPES of the oracle's
+(the kinds the server takes for a type), so the position is still checked;
+the table counts those sites (`type pos`). A site the index path did not
+answer (`how` is not `index`) is counted as a fallback and not compared;
+its receiver is listed at the end. A site the ORACLE did
 not answer (no item, or the file's outline: its marked copy was not checked,
 or the compiler's walk does not visit the place as a name) is listed at the
 end with what the index path offered there, for reading.
 
 Both paths decide which locals are in scope by one test of the text
-(CompletionSite::declared_in_scope, P1002): a local of a block that has
+(CompletionSite::declared_in_scope): a local of a block that has
 closed before the site is offered by neither, and is not set aside here.
 
 Prints, per kind and variant: sites, fallbacks, sites the oracle could not
@@ -110,9 +118,10 @@ def sites_of(text):
     return members, names
 
 
-# A receiver with a subscript in it, or a parenthesised chain (P1002: both
-# typed from the tables since): `a.b[i].`, `f()[k].`, `(a.b).`.
-INDEXED = re.compile(r"((?:[A-Za-z_]\w*(?:\([^()\n]*\))?(?:\[[^\[\]\n]*\])*)(?:(?:\.|->)[A-Za-z_]\w*(?:\([^()\n]*\))?(?:\[[^\[\]\n]*\])*)*|\([A-Za-z_][\w.]*\))(\.|->)(?=[A-Za-z_])")
+# A receiver with a subscript in it, or a parenthesised chain (both
+# typed from the tables since): `a.b[i].`, `f()[k].`, `self[i].`, `(a.b).`,
+# `(*p).`, and a safe access `x?.`.
+INDEXED = re.compile(r"((?:[A-Za-z_]\w*(?:\([^()\n]*\))?(?:\[[^\[\]\n]*\])*)(?:(?:\.|->)[A-Za-z_]\w*(?:\([^()\n]*\))?(?:\[[^\[\]\n]*\])*)*|\(\*?[A-Za-z_][\w.]*\))(\??)(\.|->)(?=[A-Za-z_])")
 
 
 def indexed_sites_of(text):
@@ -128,12 +137,71 @@ def indexed_sites_of(text):
         indent = len(line) - len(line.lstrip(" "))
         for m in INDEXED.finditer(code):
             g = m.group(1)
-            if ("[" not in g and not g.startswith("(")) or in_string(code, m.start()) or ".." in g:
+            if ("[" not in g and not g.startswith("(") and not m.group(2)) or in_string(code, m.start()) or ".." in g:
                 continue
             if m.start() > 0 and (code[m.start() - 1].isalnum() or code[m.start() - 1] in "_.>:"):
                 continue
-            out.append((ln, m.end(), " " * indent + g + m.group(2)))
+            out.append((ln, m.end(), " " * indent + g + m.group(2) + m.group(3)))
     return out
+
+
+# The kinds is_type_kind (Server/IndexCompletion.k) takes for a type.
+TYPE_KINDS = {"class", "struct", "enum", "interface", "module", "typeParam", "text"}
+TYPE_WORD = re.compile(r"\b(as|is|derives|impl|extend)$")
+TYPE_DECL = re.compile(r"^\s*((pub|priv|prot|static|unsafe|inline)\s+)*(var|const|eval)\b")
+
+
+HEADER_OPEN = re.compile(r"\bfn\b\s*[\w:]*\s*(<[^<>{}]*>)?\s*$")
+
+
+def in_param_type(text, at):
+    """Whether byte `at` of `text` is in a function header's parameter list,
+    after a parameter's `:`, in a header with no body yet: the parameter
+    rule of CompletionSite::site_at, read backwards from the site."""
+    depth = 0
+    colon = False
+    k = at - 1
+    while k >= 0:
+        c = text[k]
+        if c in ")]>":
+            depth += 1
+        elif c in "([<":
+            if depth == 0:
+                if c == "(" and HEADER_OPEN.search(text[max(0, k - 200):k]):
+                    return colon
+                if c != "<":
+                    return False
+            else:
+                depth -= 1
+        elif c in "{};":
+            return False
+        elif depth == 0 and c == ",":
+            if not colon:
+                return False
+            colon = False
+            k -= 1
+            continue
+        elif depth == 0 and c == ":" and not (k > 0 and text[k - 1] == ":") and text[k + 1:k + 2] != ":":
+            colon = True
+        k -= 1
+    return False
+
+
+def type_position(text, line, col):
+    """Whether the name at `col` of `line` of `text` stands where the server
+    reads a type (CompletionSite::site_at): right after the `:` of a `var` /
+    `const` / `eval` (not `::`), after `as` `is` `derives` `impl` `extend`,
+    or after a parameter's `:` in a header with no body yet. A mirror of the
+    rule written apart from it; a site it misses shows as a difference,
+    never as a pass."""
+    src = text.split("\n")[line]
+    pre = src[:col].rstrip()
+    if TYPE_WORD.search(pre):
+        return True
+    if pre.endswith(":") and not pre.endswith("::") and TYPE_DECL.match(src):
+        return True
+    at = sum(len(l) + 1 for l in text.split("\n")[:line]) + col
+    return in_param_type(text, at)
 
 
 def degraded(items):
@@ -189,26 +257,34 @@ def main():
     print(f"first check of both servers: {time.time() - t0:.0f} s", flush=True)
 
     unanswered = []
+    fell = []   # the sites the index path left to the compiler
     stats = {}   # (kind, variant) -> {"sites", "fallback", "exact", "diff": {class: count}}
     examples = {}
     rows = []
     version = 10
 
     def record(kind, variant, rel, text, line, col, a_items, a_done, b_items, b_done):
-        st = stats.setdefault((kind, variant), {"sites": 0, "fallback": 0, "exact": 0, "empty_oracle": 0, "us": []})
+        st = stats.setdefault((kind, variant), {"sites": 0, "fallback": 0, "exact": 0, "empty_oracle": 0, "us": [],
+                                                "typepos": 0})
         st["sites"] += 1
+        src = text.split("\n")[line]
         if a_done.get("how") != "index":
             st["fallback"] += 1
+            fell.append(f"{kind:7} {variant:5} {rel}:{line + 1}:{col + 1}  {(src[:col] + '|').strip()[-90:]}")
             return
         st["us"].append(a_done.get("us", 0))
         la, lb = labels(a_items), labels(b_items)
+        if kind == "name" and type_position(text, line, col) and not degraded(b_items):
+            # The index path offers only types here, the compiler's walk
+            # every name: the two must agree on the types.
+            st["typepos"] += 1
+            lb = {k: v for k, v in lb.items() if v[0] in TYPE_KINDS}
         if degraded(b_items):
             # The oracle found nothing at the marker (its copy was not
             # checked, or its walk does not visit the place as a name):
             # nothing to compare with. Listed at the end, with what the
             # index path offered there.
             st["empty_oracle"] += 1
-            src = text.split("\n")[line]
             unanswered.append({"kind": kind, "variant": variant, "file": rel, "line": line, "col": col,
                                "text": src[:col] + "|" + src[col:], "index": sorted(la)[:12], "count": len(la),
                                "oracle_how": b_done.get("how")})
@@ -264,11 +340,11 @@ def main():
 
     missing = 0
     print()
-    print(f"{'kind':8} {'variant':6} {'sites':>5} {'fallback':>8} {'no oracle':>9} {'compared':>8} {'exact':>6} {'p50 us':>7} {'max us':>7}")
+    print(f"{'kind':8} {'variant':6} {'sites':>5} {'fallback':>8} {'no oracle':>9} {'compared':>8} {'type pos':>8} {'exact':>6} {'p50 us':>7} {'max us':>7}")
     for (kind, variant), st in sorted(stats.items()):
         us = sorted(st["us"])
         compared = st["sites"] - st["fallback"] - st["empty_oracle"]
-        print(f"{kind:8} {variant:6} {st['sites']:5} {st['fallback']:8} {st['empty_oracle']:9} {compared:8} {st['exact']:6} "
+        print(f"{kind:8} {variant:6} {st['sites']:5} {st['fallback']:8} {st['empty_oracle']:9} {compared:8} {st['typepos']:8} {st['exact']:6} "
               f"{(us[len(us) // 2] if us else 0):7} {(us[-1] if us else 0):7}")
     print()
     print("differences (labels, summed over sites):")
@@ -278,6 +354,11 @@ def main():
                 missing += n
             ex = examples[(kind, variant) + k][:a.show]
             print(f"  {kind:7} {variant:6} {k[0]:8} {k[1]:10} {k[2]:15} {n:6}   e.g. " + "; ".join(ex))
+    if fell:
+        print()
+        print("sites the index path left to the compiler (the receiver, up to the cursor):")
+        for f in fell:
+            print(f"  {f}")
     if unanswered:
         print()
         print("sites the oracle did not answer (what the index path offered there):")
@@ -286,7 +367,7 @@ def main():
     if a.json:
         json.dump({"stats": {f"{k[0]}/{k[1]}": {kk: (vv if kk != "diff" else {"/".join(d): n for d, n in vv.items()})
                                              for kk, vv in v.items() if kk != "us"} for k, v in stats.items()},
-                   "rows": rows, "unanswered": unanswered}, open(a.json, "w"), indent=1)
+                   "rows": rows, "unanswered": unanswered, "fallback": fell}, open(a.json, "w"), indent=1)
     for c in (idx, ora):
         c.stop()
     sys.exit(1 if missing else 0)

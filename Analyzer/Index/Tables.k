@@ -49,9 +49,11 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
+    BuiltinType,
     RecordType,
     canon_unqual,
 }
+import Index::Primitives::primitive_spelling
 import AST::Node::Casting::{
     cast,
     isa,
@@ -212,6 +214,26 @@ extend IndexWalker {
         return self.t_count_ - 1
     }
 
+    /// The spelling of the primitive an `extend` block's target is
+    /// (`i32`), "" for anything else (a record, `[T]`, `T?`, a pointer).
+    fn ext_primitive_(self, t_in: unsafe *Type) -> string {
+        if t_in == &null {
+            return ""
+        }
+
+        var unsafe *t = t_in
+        if t->canonical != &null {
+            t = t->canonical
+        }
+
+        t = canon_unqual(t)
+        if (t == &null) || (!isa<BuiltinType>(t)) {
+            return ""
+        }
+
+        return primitive_spelling(cast<BuiltinType>(t)->builtin)
+    }
+
     /// One declaration's row, and under it what it declares. -1: no row.
     fn t_decl_(self, w: *JsonWriter, d: unsafe *Decl, parent: i64, depth: u32) -> i64 {
         if (d == &null) || (depth > 6) || (!self.t_once_(d)) {
@@ -223,7 +245,10 @@ extend IndexWalker {
             var tfi:  i64 = -1
             var toff: i64 = -1
             self.t_key_(self.type_decl_(e->target, 0), &tfi, &toff)
-            var row = self.t_put_(w, "", 0, parent, -1, VIS_PUB, DF_EXT, "", tfi, toff, -1, -1)
+            // A primitive has no record to point at (`extend i32`): the
+            // row's detail spells it, which is how `i32::` finds the
+            // block's statics (P1004).
+            var row = self.t_put_(w, "", 0, parent, -1, VIS_PUB, DF_EXT, self.ext_primitive_(e->target), tfi, toff, -1, -1)
             for var i: usize = 0; i < e->methods.size(); ++i {
                 self.t_decl_(w, unsafe (e->methods[i] as unsafe *Decl), row, depth + 1)
             }

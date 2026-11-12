@@ -30,7 +30,7 @@
 // RUN: %FileCheck %s --check-prefix=CLEAN --allow-empty --input-file=%t.mod
 
 // A plain import reaches the library, never the same-named file beside the
-// importer (which used to make it R017E, ambiguous).
+// importer (which would make it R017E, ambiguous).
 // RUN: %kairo %S/Inputs/import_anchors/app/use_lib.k -I %S/Inputs/import_anchors/libdir --type-check-only > %t.lib 2>&1
 // RUN: %FileCheck %s --check-prefix=CLEAN --allow-empty --input-file=%t.lib
 
