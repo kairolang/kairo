@@ -1681,3 +1681,37 @@ group = "import"
 
     [R069.N]
     explain = "Says where `module::` starts and what is missing."
+
+[R070]
+brief = "a C or C++ header imported from Kairo includes a Kairo source file"
+group = "import"
+
+    [R070.E]
+    explain = """
+    # a C or C++ header imported from Kairo includes a Kairo source file
+
+    `ffi "c++" import "x.h"` hands `x.h` to clang, which reads it, and everything it includes, as
+    C or C++. a Kairo source file is not C++, so an `#include "file.k"` in that header (or in any
+    header it includes) cannot be read there. the include is skipped and the rest of the header is
+    still imported. the same holds for an `ffi import` that names a `.k` file itself.
+
+    `#include "file.k"` is a feature of the `kcc` driver: a C++ source file compiled by `kcc` can
+    include a Kairo file and use its declarations. it does not apply to headers that Kairo itself
+    imports, and least of all to the file doing the importing, which is already being compiled.
+
+    ```kairo
+    // buf.h:  #include "buf.k"            // error: skipped
+    //         void buf_reserve(size_t n);  // still imported
+    ffi "c++" import "buf.h"
+    ```
+
+    ## how to fix
+
+    remove the include from the header and have the header declare what it needs itself. to use
+    Kairo declarations from C++, compile the C++ with `kcc` and `#include` the `.k` file from a C++
+    source file, or include the C++ headers that `kairo --emit-headers <dir>` writes. a Kairo file
+    is imported from Kairo with `import`, never with `ffi import`.
+    """
+
+    [R070.N]
+    explain = "Says what to do instead: a header declares what it needs; C++ reaches Kairo declarations through kcc's `#include \"file.k\"` or the headers `--emit-headers` writes; Kairo reaches a Kairo file with `import`."

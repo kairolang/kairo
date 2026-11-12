@@ -106,6 +106,12 @@ pub class KairoIncludeSource {
 ///        ArrayRef until the include pops.
 pub class KairoIncludeHook {
     pub var  source:   unsafe *KairoIncludeSource                               = &null
+    /// Serve no .k at all: every one entered is the sentinel, with no error
+    /// here. For a header set's parse (Interop/Clang/HeaderSet.k), where a
+    /// header that includes a .k is a Kairo error the set reports itself
+    /// (R070): clang must not read the Kairo text as C++, and an error in
+    /// clang's own engine would fail the set and lose the rest of the header.
+    pub var  refuse:   bool                                                     = false
     priv var _ci:      unsafe *clang::CompilerInstance                          = &null
     priv var _streams: cxx::std::vector<unsafe *cxx::std::vector<clang::Token>>         ///< owned
     /// Streams made on a file's first entry and held for its second, from
@@ -148,6 +154,18 @@ pub class KairoIncludeHook {
         var name = fe->getName()
         if !name.ends_with(kairo::sref(r".k")) {
             return cxx::std::optional<llvm::ArrayRef<clang::Token>>()
+        }
+
+        if self.refuse {
+            // Once per TU, as below: a header without a guard that includes
+            // it twice needs no second stand-in.
+            self._ci->getPreprocessor().getHeaderSearchInfo().MarkFileIncludeOnce(*fe)
+            var unsafe *skip = kairo::std::create<cxx::std::vector<clang::Token>>()
+            self._streams.push_back(skip)
+            self._sentinel(skip, fid)
+            return cxx::std::optional<llvm::ArrayRef<clang::Token>>(
+                llvm::ArrayRef<clang::Token>(skip->data(), skip->size()),
+            )
         }
 
         var path = string(unsafe ((name.data() as unsafe *const u8) as *const u8), name.size())

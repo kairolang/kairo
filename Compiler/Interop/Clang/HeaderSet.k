@@ -93,10 +93,14 @@ ffi "c++" import "cstdlib"
 
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
 import Diagnostic::ClangDiagAdapter::ClangDiagAdapter
+import Diagnostic::Code::DiagCode
 import Diagnostic::Engine::DiagEngine
+import Diagnostic::Registry::DiagID
 import Interop::Clang::ClangBackend::ClangBackend
+import Interop::Clang::KairoInclude::KairoIncludeHook
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Support::FileIO::Path::Path
 import Support::TimeReport::TimeRegion
 
 /// ThreadPool group for phase-A builds. 9 is CLANG_STARTUP_GROUP.
@@ -119,7 +123,7 @@ const CODEGEN_PCH_GROUP: u8 = 12
 ///   Live      `_ci` is a finished instance, published for the lock-free
 ///             path. A failed build that still made an instance is Live too
 ///             (its accessors answer null where clang has no AST / Sema);
-///             callers gate on `ok`, as they always did.
+///             callers gate on `ok`.
 ///   Unused    release_unused freed the instance; _revive may re-parse it.
 ///   Reviving  _revive is re-parsing it, holding `_revive_mu`.
 ///   Dead      no instance, and none to come: the build made none (the
@@ -159,6 +163,24 @@ pub struct IncludeEdge {
     pub var c_linkage: bool   = false ///< a direct import written `ffi "c"`: phase B re-wraps it in extern "C".
 }
 
+/// One `#include` of a Kairo source file that the set's first build met
+/// (HeaderSet::record_kairo_include). Clang never reads the file (the
+/// action's hook stands it down), and the set reports it at drain as R070,
+/// where the driver knows which Kairo files the compilation holds.
+pub struct KairoIncludeHit {
+    pub var spelled:   string ///< as written in the include: "buf.k".
+    pub var path:      string ///< clang's name for the .k (FileEntry name).
+    pub var real:      string ///< its real path, for identity checks.
+    /// The header whose line it is, "" when the import itself names the .k
+    /// (the set's main buffer includes it): then there is no header line,
+    /// and the error is at the import.
+    pub var header:    string
+    pub var offset:    u32    = 0 ///< the file name's byte offset in `header`.
+    pub var length:    u32    = 1
+    pub var nested:    bool   = false ///< `header` is not the one the import names, but reached from it.
+    pub var import_at: SourceRange ///< the `ffi import` string that reached it; invalid when unknown.
+}
+
 /// Records what clang touched. Fires on the parse thread; writes only into
 /// the owning set's vectors, which nothing reads until wait_group returns.
 pub class HeaderSetPPCallbacks derives clang::PPCallbacks {
@@ -190,6 +212,9 @@ pub class HeaderSetPPCallbacks derives clang::PPCallbacks {
 /// called by HeaderSet::build; EndSourceFile by HeaderSet::release.
 pub class HeaderSetAction derives clang::ASTFrontendAction {
     pub var _set: *HeaderSet
+    /// Stands down every .k a header includes (BeginSourceFileAction). Lives
+    /// as long as the action, which outlives every lexer of the parse.
+    pub var hook: KairoIncludeHook
 
     override fn CreateASTConsumer(self, @inout ci: clang::CompilerInstance, in_file: llvm::StringRef)
             -> cxx::std::unique_ptr<clang::ASTConsumer>
@@ -257,13 +282,17 @@ pub class HeaderSet {
     /// the extern "C" brace lines. The adapter's only way back from the
     /// buffer to Kairo source: without it every bad include is <injected>:1:10.
     priv var _main_locs: cxx::std::vector<SourceRange>
+    /// The Kairo files the headers include, in include order; reported and
+    /// emptied by drain_diags. Written by the first build only (pool thread,
+    /// before the build group joins), so it needs no lock.
+    pub var kairo_includes: cxx::std::vector<KairoIncludeHit>
     /// clang::Sema is single-threaded. Recursive because a foreign fill can
     /// nest: importing one instance's members resolves a type path into
     /// another instance of the same set, and the outer fill still holds this.
     priv var _sema_mu: kairo::std::RecursiveMutex
     /// Serializes _revive, release_unused and release, the writers of `_ci`,
     /// `_state` (after the first build), `files` and `includes` once Sema is
-    /// parallel (P852). A leaf: build() re-enters no accessor of this set and
+    /// parallel. A leaf: build() re-enters no accessor of this set and
     /// takes no Sema lock, so a revive cannot deadlock. Lock order: the
     /// cache's `_mu` (release_all), then this.
     priv var _revive_mu: kairo::std::RecursiveMutex
@@ -340,7 +369,7 @@ pub class HeaderSet {
         // Any use after indexing (a fill or a deduction retry through this
         // set, TypeExport stand-ins) may leave pointers into this AST: pin it.
         if self.indexed && (!self.contributed.load(kairo::std::MemoryOrder::relaxed)) {
-            self.contributed.store(true, kairo::std::MemoryOrder::relaxed) // atomic: parallel Sema threads pin, the driver's release_unused reads (P852).
+            self.contributed.store(true, kairo::std::MemoryOrder::relaxed) // atomic: parallel Sema threads pin, the driver's release_unused reads.
         }
 
         if (!self._ready()) {
@@ -359,7 +388,7 @@ pub class HeaderSet {
         // Any use after indexing (a fill or a deduction retry through this
         // set, TypeExport stand-ins) may leave pointers into this AST: pin it.
         if self.indexed && (!self.contributed.load(kairo::std::MemoryOrder::relaxed)) {
-            self.contributed.store(true, kairo::std::MemoryOrder::relaxed) // atomic: parallel Sema threads pin, the driver's release_unused reads (P852).
+            self.contributed.store(true, kairo::std::MemoryOrder::relaxed) // atomic: parallel Sema threads pin, the driver's release_unused reads.
         }
 
         if (!self._ready()) {
@@ -378,7 +407,7 @@ pub class HeaderSet {
         // Any use after indexing (a fill or a deduction retry through this
         // set, TypeExport stand-ins) may leave pointers into this AST: pin it.
         if self.indexed && (!self.contributed.load(kairo::std::MemoryOrder::relaxed)) {
-            self.contributed.store(true, kairo::std::MemoryOrder::relaxed) // atomic: parallel Sema threads pin, the driver's release_unused reads (P852).
+            self.contributed.store(true, kairo::std::MemoryOrder::relaxed) // atomic: parallel Sema threads pin, the driver's release_unused reads.
         }
 
         if (!self._ready()) {
@@ -396,7 +425,7 @@ pub class HeaderSet {
     /// `_ci` is usable on this thread: Live (acquire) is stored only once a
     /// build has FINISHED, under `_revive_mu`, so a reader never sees the
     /// half-built instance a concurrent revive assigns to `_ci` mid-build.
-    /// One atomic load once live; the lock only on the first ask (P852).
+    /// One atomic load once live; the lock only on the first ask.
     priv fn _ready(self) -> bool {
         if self.state() == HeaderSetState::Live {
             return true
@@ -511,7 +540,7 @@ pub class HeaderSet {
         // `_mu`, deduced_return, cxx_converts): one revives, the others wait
         // and find `_ci` set. A leaf lock: build() takes no sema_lock() nor
         // ForeignInstantiate's `_mu`, so taking it under either cannot
-        // deadlock (P852).
+        // deadlock.
         var rlock = kairo::std::LockGuard(self._revive_mu)
         var st    = self.state()
         if st == HeaderSetState::Live {
@@ -1146,7 +1175,178 @@ pub class HeaderSet {
     /// build()'s buffered diagnostics into the driver's engine. Driver
     /// thread, after the build joined. Idempotent: the buffer drains empty.
     pub fn drain_diags(self, engine: unsafe *DiagEngine, sm: unsafe *SourceManager) {
+        self._report_kairo_includes(engine, sm)
         self.diag_buf.drain_into(engine, sm)
+    }
+
+    /// Drops what the first build would have reported: a union set that
+    /// failed hands its headers to the views, whose own builds report them.
+    pub fn discard_diags(self) {
+        self.diag_buf.discard()
+        self.kairo_includes.clear()
+    }
+
+    /// \brief records the `#include` of the Kairo file \p file, written at
+    ///        \p hash_loc as \p file_name: HeaderSetPPCallbacks, on the
+    ///        build's thread, before clang enters the file.
+    ///
+    /// \details Where it is, and which `ffi import` reached it, are clang
+    ///          facts that die with the instance, so they are taken now; the
+    ///          words are drain's (_report_kairo_includes). Only the first
+    ///          build records: a revive re-parses the same text, and its
+    ///          diagnostics were already reported.
+    pub fn record_kairo_include(self,
+                                csm:            unsafe *clang::SourceManager,
+                                hash_loc:       clang::SourceLocation,
+                                filename_range: clang::CharSourceRange,
+                                file_name:      llvm::StringRef,
+                                file:           clang::FileEntryRef) {
+        if self.state() != HeaderSetState::Building {
+            return
+        }
+
+        var hit = KairoIncludeHit{}
+        hit.spelled = string(unsafe ((file_name.data() as unsafe *const u8) as *const u8), file_name.size())
+        var name = file.getName()
+        hit.path = string(unsafe ((name.data() as unsafe *const u8) as *const u8), name.size())
+        hit.real = Path::real_path_of(hit.path)
+
+        // Up the include stack to the set's main buffer, whose line names
+        // the import (_main_locs). Each step is one level out, so it ends.
+        var main  = csm->getMainFileID()
+        var from  = csm->getFileID(hash_loc)
+        var cur   = from
+        var at    = hash_loc
+        var depth = 0
+        while cur != main && cur.isValid() {
+            at = csm->getIncludeLoc(cur)
+            if at.isInvalid() {
+                break
+            }
+
+            cur = csm->getFileID(at)
+            ++depth
+        }
+
+        hit.import_at = SourceRange::invalid()
+        if cur == main {
+            var dec  = csm->getDecomposedExpansionLoc(at)
+            var line = (csm->getLineNumber(dec.first, dec.second) as usize)
+            if line > 0 && line <= self._main_locs.size() {
+                hit.import_at = self._main_locs[line - 1]
+            }
+        }
+
+        if from != main {
+            var fe = csm->getFileEntryRefForID(from)
+            if fe.has_value() {
+                var hn = fe->getName()
+                hit.header = string(unsafe ((hn.data() as unsafe *const u8) as *const u8), hn.size())
+            }
+
+            hit.nested = depth > 1
+            var b = csm->getDecomposedExpansionLoc(filename_range.getBegin())
+            var e = csm->getDecomposedExpansionLoc(filename_range.getEnd())
+            hit.offset = b.second
+            if e.first == b.first && e.second > b.second {
+                hit.length = e.second - b.second
+            }
+        }
+
+        // One report per include line: a header with no guard, included
+        // twice, meets the same line twice.
+        for *k in self.kairo_includes {
+            if k->header == hit.header && k->offset == hit.offset && k->spelled == hit.spelled {
+                return
+            }
+        }
+
+        self.kairo_includes.push_back(hit)
+    }
+
+    /// R070 for each kairo_includes entry, then the list emptied. Driver
+    /// thread: the Kairo SourceManager now holds every file of the build, so
+    /// "already part of this compilation" is the same answer on every run.
+    priv fn _report_kairo_includes(self, engine: unsafe *DiagEngine, sm: unsafe *SourceManager) {
+        var none: u32 = u32::MAX
+        for *hit in self.kairo_includes {
+            var imported = ""
+            var importer = ""
+            if hit->import_at.is_valid() {
+                imported = HeaderSet::unquote(sm->get_text(hit->import_at))
+                importer = Path::real_path_of(sm->get_filename(hit->import_at))
+            }
+
+            if hit->header.empty() {
+                // The import names the .k itself. Quoted as the import
+                // spells it: the set's buffer includes the resolved path.
+                var named = if (imported.empty()) => (hit->spelled) else => imported
+                var b = engine->report(
+                    DiagCode(DiagID::R070E),
+                    hit->import_at.start,
+                    f"'{named}' is a Kairo source file, which `ffi import` cannot read as a C or C++ header",
+                )
+
+                if hit->import_at.is_valid() {
+                    b.first(hit->import_at)
+                }
+
+                // `self::stem` is only right for a file beside the importer.
+                var how = "a Kairo file is imported with `import`, not `ffi import`"
+                if Path::parent_of(named).empty() {
+                    how += f"; this one is `import self::{Path::stem_of(named)}`"
+                }
+
+                b.note(DiagCode(DiagID::R070N), how)
+
+                b.emit()
+                continue
+            }
+
+            var why = ""
+            if !importer.empty() && importer == hit->real {
+                why = " (it is the file that imports this header)"
+            } else if sm->find_fid(Path(hit->path)) != none || sm->find_fid(Path(hit->real)) != none {
+                why = " (it is already part of this compilation)"
+            }
+
+            var at_line = SourceRange::invalid()
+            var kf      = sm->load_file(Path(hit->header))
+            if kf != none {
+                // load_file builds the line index on the pool: a diagnostic
+                // rendered before it is done reads line 0, column 0.
+                sm->wait_for_line_index(kf)
+                at_line = sm->get_range(kf, hit->offset as usize, hit->length as usize)
+            }
+
+            var b = engine->report(
+                DiagCode(DiagID::R070E),
+                at_line.start,
+                f"a C or C++ header imported from Kairo cannot include the Kairo source file '{hit->spelled}'{why}",
+            )
+
+            if at_line.is_valid() {
+                b.first(at_line, "skipped: clang would read it as C++; the rest of the header is still imported")
+            }
+
+            if hit->import_at.is_valid() {
+                var msg = f"'{imported}' is imported here"
+                if hit->nested {
+                    msg = f"'{imported}' is imported here, and its includes reach '{Path::filename_of(hit->header)}'"
+                }
+
+                b.note(hit->import_at.start, msg)
+            }
+
+            b.note(
+                DiagCode(DiagID::R070N),
+                "the header has to declare what it uses itself; C++ reaches Kairo declarations through kcc, where a C++ source file can #include a .k file, or through the headers `kairo --emit-headers <dir>` writes",
+            )
+
+            b.emit()
+        }
+
+        self.kairo_includes.clear()
     }
 
     /// Root of the in-memory VFS mount. Must be absolute on the HOST: on
@@ -1225,7 +1425,9 @@ override fn HeaderSetPPCallbacks::FileChanged(self,
 
     var name = fe->getName()
     var p    = string(unsafe ((name.data() as unsafe *const u8) as *const u8), name.size())
-    if p == "<injected>" {
+    // A .k the hook stood down: nothing of it is in the AST, and as a
+    // "header" it would get a Kairo fid and a place in every closure.
+    if p == "<injected>" || name.ends_with(kairo::sref(r".k")) {
         return
     }
 
@@ -1260,8 +1462,13 @@ override fn HeaderSetPPCallbacks::InclusionDirective(
         return
     }
 
-    var e  = IncludeEdge{}
     var to = file->getName()
+    if to.ends_with(kairo::sref(r".k")) {
+        self._set->record_kairo_include(self.csm, hash_loc, filename_range, file_name, *file)
+        return
+    }
+
+    var e  = IncludeEdge{}
     e.to_path = string(unsafe ((to.data() as unsafe *const u8) as *const u8), to.size())
     var from_fid = self.csm->getFileID(hash_loc)
     var from_fe  = self.csm->getFileEntryRefForID(from_fid)
@@ -1302,6 +1509,13 @@ override fn HeaderSetAction::BeginSourceFileAction(self,
     if !clang::ASTFrontendAction::BeginSourceFileAction(self, &ci) {
         return false
     }
+
+    // A header's `#include "x.k"`: clang reads the .k as C++, its
+    // errors point into Kairo text, the declarations after it are lost and
+    // Sema cascades. The hook hands clang an empty declaration instead, and
+    // InclusionDirective records the include for the set to report.
+    self.hook.refuse = true
+    self.hook.install(&ci)
 
     var cb = cxx::std::make_unique<HeaderSetPPCallbacks>()
     cb->_set = self._set

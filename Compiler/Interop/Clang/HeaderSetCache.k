@@ -288,7 +288,7 @@ pub class HeaderSetCache {
                         }
                     } else {
                         // The views report what is wrong, each as its own parse did.
-                        u->diag_buf.discard()
+                        u->discard_diags()
                         for var v: unsafe *HeaderSet in *job {
                             me->_enqueue_build(v)
                         }
