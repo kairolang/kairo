@@ -5971,7 +5971,7 @@ group = "operators"
     explain = """
     # the subscript form this use needs is not declared
 
-    A type that declares `op []=` splits its subscript in two (P880): `op []`
+    A type that declares `op []=` splits its subscript in two: `op []`
     is the read form, `op []=` the place (write) form, and each use of
     `x[i]` picks one by what it does with the element. A write picks
     `op []=`: the left side of `=` or of a compound assignment, the operand
@@ -6016,7 +6016,7 @@ group = "operators"
     explain = """
     # `op []` and `op []=` do not fit together
 
-    In a type that declares `op []=`, the subscript is split (P880): `op []`
+    In a type that declares `op []=`, the subscript is split: `op []`
     is the read form and `op []=` the place form, and the compiler picks one
     for each use. The two must describe one element:
 

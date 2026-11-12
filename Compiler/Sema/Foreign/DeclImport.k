@@ -487,7 +487,7 @@ pub class DeclImport {
             eval if defined!(DEBUG) {
                 if self.in_fill() && dc != self._fill_scope && !self._minted_here(dc->dc_owner) {
                     kairo::std::ice_fail(
-                        "DeclImport: a fill would give a published scope its first table (P855)",
+                        "DeclImport: a fill would give a published scope its first table",
                     )
                 }
             }
@@ -639,7 +639,7 @@ pub class DeclImport {
         eval if defined!(DEBUG) {
             if self.in_fill() {
                 kairo::std::ice_fail(
-                    f"DeclImport: a fill would create namespace '{q}' in a published header (P855)",
+                    f"DeclImport: a fill would create namespace '{q}' in a published header",
                 )
             }
         }
