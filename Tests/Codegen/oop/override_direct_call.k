@@ -4,10 +4,10 @@
 // hides the base's and must win (C++'s rule, with or without a
 // using-declaration).
 //
-// Formerly an expected failure (ticket "[Sema] Calling an overridden or
-// same-name method on the derived type is ambiguous"): every such call was
+// A call to an overridden or same-name method on the derived type is not
 // SC064E "call to 'k' is ambiguous", for an `override` and a plain
-// same-name method alike. Overload resolution now drops a base's method
+// same-name method alike:
+// overload resolution drops a base's method
 // that a derived one of the same parameters overrides or hides
 // (OverloadResolution::_hide), C++'s rule under the `using Base::m;` the
 // emitted class carries. override_overloads.k has the shapes beside it.

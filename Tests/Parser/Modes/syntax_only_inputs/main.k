@@ -1,7 +1,7 @@
-// --syntax-only checks the syntax of its inputs only. It used to parse
+// --syntax-only checks the syntax of its inputs only. It must not parse
 // the whole import closure (reporting every imported file's syntax errors,
 // once per input that reached it) and hand every ffi "c++" header to clang,
-// so a self-host run spent 30-60 s per file re-parsing Sema and the driver.
+// which costs a self-host run 30-60 s per file re-parsing Sema and the driver.
 // The closure is still preprocessed (an imported macro expands in this
 // file's tokens) and indexed (the parser disambiguates `pick<i32>(1)` against
 // lib.k's generic), but it is not parsed, and no header is.

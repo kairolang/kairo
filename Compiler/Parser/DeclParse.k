@@ -406,7 +406,7 @@ pub class <T: type> DeclParse {
 
         // `fn ::gf(...)`: a rooted name, which no closure starts with. Taken
         // for a closure, `::gf(a: i32)` was dropped without a word and every
-        // use of `a` in the body was "undeclared" (P985); _parse_function
+        // use of `a` in the body was "undeclared"; _parse_function
         // reports the name instead.
         if self.dyn()->check(TokenKind::OpColonColon)
             && self.dyn()->ig_peek_kind() == TokenKind::LitIdentifier {
@@ -969,8 +969,8 @@ pub class <T: type> DeclParse {
     ///
     ///          Unlike a bare `_parse_generic_params`, empty `<>` here is NOT
     ///          an error (S049E) it is the specialization introducer. This
-    ///          function is the single decl-position entry point; the old
-    ///          `_parse_generic_params` remains for contexts where empty `<>`
+    ///          function is the single decl-position entry point; `_parse_generic_params`
+    ///          remains for contexts where empty `<>`
     ///          is genuinely malformed.
     ///
     /// \returns true if recovery was entered while parsing type params.
@@ -1336,7 +1336,7 @@ pub class <T: type> DeclParse {
         self.dyn()->_reject_mode_binding() // `<@move T>`: a generic param is not passed.
         var start = self._cur_range()
 
-        // value parameter: `eval N: T` (Compiler/Spec/Eval.md#generic-value-parameters). `const N: T` is the old
+        // value parameter: `eval N: T` (Compiler/Spec/Eval.md#generic-value-parameters). `const N: T` is a former
         // spelling: an error with a fix-it to `eval`, parsed as the same
         // parameter so nothing after it cascades.
         if self.dyn()->check(TokenKind::KwEval) || self.dyn()->check(TokenKind::KwConst) {
@@ -1653,7 +1653,7 @@ pub class <T: type> DeclParse {
                 var rsq = self.dyn()->current()
                 out->push_back(self._stored_op_token(rsq))
                 self.dyn()->advance(T::SkipNL::After)
-                // `op []=`, the place form (P880): an `=` touching the `]`.
+                // `op []=`, the place form: an `=` touching the `]`.
                 // No lexer token: a `]=` token would break `a[i]= 5`. Only a
                 // parameter list can follow an operator name, so an `=` here
                 // is always this operator; one written apart is still read
@@ -1956,6 +1956,21 @@ pub class <T: type> DeclParse {
             || self.dyn()->check(TokenKind::KwSelf) {
             var name_tok = self.dyn()->current()
             self.dyn()->advance()
+
+            // `fn self(self)`: `self` is a keyword, taken here only as the
+            // head of a qualified name. As a function's own name it was
+            // accepted silently; reported as every other keyword
+            // name is (S047E), then kept, as the primitive-name case
+            // below keeps its name, so the signature and body still parse.
+            if name_tok.kind == TokenKind::KwSelf && !self.dyn()->check(TokenKind::OpColonColon) {
+                self.dyn()->diag->report(
+                    DiagID::S047E,
+                    name_tok.range.start,
+                    "'self' is a keyword and cannot name a function",
+                ).first(name_tok.range)->emit()
+                name_tok.imm  = self.dyn()->ctx->hoisted->intern("self")
+                name_tok.kind = TokenKind::LitIdentifier
+            }
 
             // out-of-line `Class::method` / `Class::Inner::method`
             if self.dyn()->check(TokenKind::OpColonColon) {
@@ -2644,7 +2659,7 @@ pub class <T: type> DeclParse {
     }
 
     /// \brief Parses the capture list for a closure, supporting value, pointer, and const pointer captures.
-    /// \details Implements the updated grammar:
+    /// \details Implements the grammar:
     ///            '|' capture (',' capture)* '|'
     ///            capture := 'const'? '*'? identifier | '*'
     /// \returns true only for a list SPELLED empty (`| |`). An entry that
@@ -3051,8 +3066,8 @@ pub class <T: type> DeclParse {
                 return
             }
 
-            // `= virtual` was the old pure-virtual spelling. A pure virtual
-            // method is now a `virtual fn` with no body (_parse_class marks
+            // `= virtual` is not a pure-virtual spelling. A pure virtual
+            // method is a `virtual fn` with no body (_parse_class marks
             // it), so the fix-it rewrites to that, and recovery reads the
             // method as pure virtual so the class is not also reported for
             // a missing body or a non-abstract instantiation.
@@ -3574,8 +3589,8 @@ pub class <T: type> DeclParse {
         }
 
         // `var a = 5` in a type body. Nothing infers a field's type (see
-        // `var f? = e` above), so a typeless field used to pass Sema with
-        // a null type and ICE in codegen (P46). The shorthand errors below
+        // `var f? = e` above), so a typeless field would pass Sema with
+        // a null type and ICE in codegen. The shorthand errors below
         // already say the same thing; a `:` whose type failed to parse was
         // reported by parse_type.
         if !has_colon && !has_q && p_depth == 0 {
@@ -5541,9 +5556,8 @@ pub class <T: type> DeclParse {
 
         var mac = Declarations::MacroDecl::create(self.dyn()->ctx, start, hdr.name)
 
-        // step 1: keep MacroDecl's existing lossy Token param list pure
-        // adapter, zero node changes. step 2 swaps this block for
-        // FrozenList<MacroParamSpec>.
+        // MacroDecl keeps its lossy Token parameter list; this block is a
+        // pure adapter and would be replaced by FrozenList<MacroParamSpec>.
         var params: cxx::std::vector<Declarations::MacroParamSpec>
         for var i: usize = 0; i < hdr.params.size(); ++i {
             if hdr.params[i].variadic != 0 {
@@ -5727,7 +5741,7 @@ pub class <T: type> DeclParse {
         }
 
         id->path_segments.from_buf(segs.data(), segs.size(), self.dyn()->ctx)
-        id->last_seg_is_macro = spec.last_seg_is_macro // NEW field, see below
+        id->last_seg_is_macro = spec.last_seg_is_macro
         id->is_wildcard       = spec.is_wildcard
 
         // selective items
@@ -5745,7 +5759,7 @@ pub class <T: type> DeclParse {
                 item.alias       = s->alias
                 item.has_alias   = s->has_alias
                 item.is_wildcard = s->is_wildcard
-                item.is_macro    = s->is_macro    // NEW field, see below
+                item.is_macro    = s->is_macro
                 item.range       = s->range
                 items.push_back(item)
             }
@@ -6382,7 +6396,7 @@ pub class <T: type> DeclParse {
         }
     }
 
-    /// The top-level loop's recovery after an item that failed (P981): to the
+    /// The top-level loop's recovery after an item that failed: to the
     /// next line or declaration, always moving.
     pub fn sync_top_level_progress(self) {
         self._sync_decl_progress(Self::DeclSyncCtx::TopLevel)
@@ -6426,7 +6440,7 @@ pub class <T: type> DeclParse {
             // above said nothing, say it here. Silent, it ate `main` from
             // `fn` NEWLINE `fn main() -> i32 { }` and `::gf(a: i32)` from
             // `fn ::gf(a: i32) -> i32 { }`, leaving the body's names
-            // undeclared with no reason given (P981, P985).
+            // undeclared with no reason given.
             var r      = self._cur_range()
             var k      = self.dyn()->ig_kind()
             var at_idx = self.dyn()->c_idx

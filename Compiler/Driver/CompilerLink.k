@@ -422,6 +422,33 @@ extend CompilerInstance {
     /// else when a file the inputs reach writes
     /// `@set_global_allocator` at the start of a line (the parser takes it
     /// nowhere else, so a comment or a doc line naming it does not count).
+    /// The link holds Kairo code, so it needs builtin, std and the runtime
+    /// (--kairo-lib): a Kairo input, a C/C++ input that includes a .k
+    /// (_discover_includes), or an object or archive carrying the ABI note
+    /// (LinkABI::carries_note). kcc passes --kairo-lib on every link, so
+    /// without this test a pure C or C++ program got the whole library, and
+    /// on ELF and wasm mimalloc in place of malloc and operator new:
+    /// a clang drop-in must leave such a program's heap, size and behaviour
+    /// alone. A `-l` library is not opened; one that holds Kairo objects
+    /// needs a Kairo input or note-carrying object beside it.
+    prot fn _link_has_kairo(self) -> bool {
+        if self._includes_kairo {
+            return true
+        }
+
+        for *k in self._inputs {
+            if k->cls == InputClass::Kairo {
+                return true
+            }
+
+            if k->cls == InputClass::LinkInput && LinkABI::carries_note(k->path) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// That scan reads the import graph the preprocessor would walk, which is
     /// the whole program under --emit-scope=graph; under inputs (kcc -c) it
     /// is only this run's share, and a file set apart needs the flag -- the

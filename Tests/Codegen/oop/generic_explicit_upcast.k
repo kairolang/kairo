@@ -3,9 +3,9 @@
 // derives Source<i32>. With T given, the parameter is *Source<i32> and the
 // ordinary derived-to-base conversion applies.
 //
-// Was SC063E ("cannot convert argument of type '*Counter' to parameter 's'
-// of type '*Source<T>'"): the explicit argument is now bound before the
-// arguments are judged, so the parameter is substituted (EVAL.md 3).
+// The explicit argument is bound before the arguments are judged, so the
+// parameter is substituted and SC063E ("cannot convert argument of type
+// '*Counter' to parameter 's' of type '*Source<T>'") does not arise (EVAL.md 3).
 
 class <T> Source {
     virtual fn get(self) -> i32 { return 0 }

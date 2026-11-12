@@ -1,5 +1,5 @@
 // Naming an associated type wrongly is diagnosed where it is named, at
-// type resolution, never deferred to an ICE (interfaces.md, Associated
+// type resolution, never deferred to codegen (interfaces.md, Associated
 // Types):
 //  - one no bound declares, or one two bounds both declare;
 //  - one outside its interface, with no type parameter to reach it;

@@ -2,9 +2,9 @@
 // (classes-inheritance.md, Calling base class methods: there is no `super`),
 // from an override that extends it and from a hiding method.
 //
-// Formerly an expected failure: `self` of type Derived was not viable for
-// Base's `self` (SC063E "cannot convert argument of type 'Derived' to
-// parameter 'self' of type 'Base'"). The object now binds as C++'s implicit
+// `self` of type Derived is viable for
+// Base's `self` (not SC063E "cannot convert argument of type 'Derived' to
+// parameter 'self' of type 'Base'"). The object binds as C++'s implicit
 // object does, by reference (derived-to-base), and the call is written
 // `obj.Base::m()`: non-virtual, as the qualified name asks.
 // qualified_base_shapes.k has more shapes.

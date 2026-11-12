@@ -2,7 +2,7 @@
 // (lib.k): a generic body here over the imported base, and lib.k's own
 // generic instantiated from here. Both bind the base's operators.
 // (Not main.k: a generic function in a file named main.k opens namespace
-// `main` beside `int main`, the open main.k ticket.)
+// `main` beside `int main`, a known limitation.)
 
 import std::io::println
 import lib::*

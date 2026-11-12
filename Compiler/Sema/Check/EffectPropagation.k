@@ -327,7 +327,7 @@ pub fn panic_in_duck(d_in: unsafe *Decl) -> bool {
 }
 
 /// Any constructor (a transfer one included) or the destructor: they never
-/// panic (USER 2026-10-27; PanicEffectChecking reports a `panic` on one), so
+/// panic (PanicEffectChecking reports a `panic` on one), so
 /// a call of one adds nothing, whatever it was marked.
 pub fn panic_lifecycle_fn(tu: unsafe *TypeUtil, f: unsafe *Declarations::FunctionDecl) -> bool {
     if f == &null {
@@ -993,6 +993,16 @@ pub fn overridden_at(tu:       unsafe *TypeUtil,
             }
 
             if b->params.size() != m->params.size() {
+                continue
+            }
+
+            // `const self` beside a plain-`self` virtual is another method
+            // (classes-inheritance.mdx), as in C++, where a const member
+            // never overrides a non-const one: CallConvCheck's
+            // overrides_virtual then wrote `override` on it, and clang
+            // dropped the declaration. The loop below skips the
+            // `self` parameters, so the receiver is compared here.
+            if !loose && m->is_const() != b->is_const() {
                 continue
             }
 

@@ -2,11 +2,11 @@
 // constructor by qualified name, `Base::Base(self, args)`
 // (classes-inheritance.md, Inheritance; the diamond example's `A::A`).
 //
-// Formerly an expected failure: `Animal::Animal(self, ...)` was R025E "no
+// `Animal::Animal(self, ...)` is not R025E "no
 // member named 'Animal' in 'Animal'", so a base with only a parameterized
-// constructor could not be derived at all (Kairo accepted the class, clang
-// rejected it with "must explicitly initialize the base class"). The name
-// now finds the constructors (ChainBinding), the leading calls become the
+// constructor can be derived (otherwise Kairo would accept the class and clang
+// would reject it with "must explicitly initialize the base class"). The name
+// finds the constructors (ChainBinding), the leading calls become the
 // C++ mem-initializers (EmitIR), and BaseInitCheck refuses the rest;
 // base_ctor_shapes.k, base_ctor_transfer.k, base_ctor_cross_module.k and
 // Sema/Check/base_init_errors.k cover the rest.

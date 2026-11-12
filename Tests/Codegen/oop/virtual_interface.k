@@ -3,8 +3,8 @@
 // conformer's witness table.
 //
 // XFAIL: *
-// Ticket "[Codegen] Virtual interfaces are not compiled"
-//. Today `virtual interface` and
+// Virtual interfaces are not compiled.
+// Today `virtual interface` and
 // calls through `*Iface` are not compiled (status.mdx, Not Compiled Yet).
 // When it XPASSes, delete the XFAIL -- the run below is already the real
 // assertion.

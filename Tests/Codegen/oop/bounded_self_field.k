@@ -4,7 +4,7 @@
 // checked where `Holder<Node>` is named, Node does not satisfy it yet, and
 // clang rejected the program (CL001E "constraints not satisfied for class
 // template 'Holder'") although Kairo had checked the bound. The head is
-// unconstrained now and the bound is pinned at the instance's home.
+// unconstrained and the bound is pinned at the instance's home.
 
 interface Show {
     fn show(const self) -> i32

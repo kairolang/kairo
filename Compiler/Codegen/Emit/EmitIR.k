@@ -1171,7 +1171,7 @@ pub class EmitIR {
     }
 
     /// A Kairo definition of a function C++ declares (`fn W::at`, `fn
-    /// ns::f`; CXXSpell::defines_foreign, P506), at global scope in the C++
+    /// ns::f`; CXXSpell::defines_foreign), at global scope in the C++
     /// declaration's own signature: its return, its parameter types (a
     /// `const T&` the Kairo side reads as `x: T` stays `const T&`), its
     /// `const`, and `noexcept` only when C++ says so. Anything else would
@@ -1197,9 +1197,9 @@ pub class EmitIR {
             nm = nm.subslice(2, nm.size())
         }
 
-        // Not yet (P506 stays open for them): a constructor or destructor
+        // Not emitted yet: a constructor or destructor
         // (no return type, member initializers) and a template's member.
-        // They stay unemitted, as every such definition was before.
+        // They stay unemitted.
         var last = nm
         var prev = ""
         var cut  = nm.rfind("::")
@@ -1753,7 +1753,7 @@ pub class EmitIR {
         self._cg->sink->synth_at_start(b->range, clang::tok::l_brace)
         if ext != &null && f->is_operator {
             var pro = if (f->is_const()) => ("const ") else => ""
-            // `[i32; 2]`'s pointer is `int (*self)[2]`: one type-specifier (P946).
+            // `[i32; 2]`'s pointer is `int (*self)[2]`: one type-specifier.
             pro += self._spell.type_specifier(
                 ext->target,
             ) + "* " + LowerTargets::ext_receiver_name() + " = &" + LowerTargets::ext_self() + ";"
@@ -1775,6 +1775,15 @@ pub class EmitIR {
                 vps[i]->range,
                 ", \"requires clause of '" + self._spell.leaf(f) + "' not satisfied\");",
             )
+        }
+
+        // A bounded generic record's bounds, which its head cannot carry,
+        // asserted where a value is made (CXXSpell::ctor_bound_asserts).
+        if self._is_ctor(f) {
+            var cba = self._spell.ctor_bound_asserts(f)
+            for var i: usize = 0; i < cba.size(); ++i {
+                self._cg->sink->spell(b->range, cba[i])
+            }
         }
 
         var egen       = f->is_generator && f->is_eval()
@@ -2523,7 +2532,7 @@ pub class EmitIR {
 
         // `fn main()` with no result is `int main()` (the head above), where
         // a bare `return;` is ill-formed: C++'s implicit 0 is only for
-        // falling off the end (P475).
+        // falling off the end.
         if n->value == &null && self._in_void_main() {
             self._cg->sink->spell(n->range, "return 0")
             self._cg->sink->synth_at_end(n->range, clang::tok::semi)
@@ -2590,8 +2599,8 @@ pub class EmitIR {
         // lives to the end of the full `co_yield` expression and so across
         // the suspension). A CONST lvalue binds neither, so it is copied to
         // a frame local first: the local lives until the block closes, after
-        // the generator resumes, and is what the reader sees (P324). Const
-        // by its type, or by its root (P962): `self.n` in a `const self`
+        // the generator resumes, and is what the reader sees. Const
+        // by its type, or by its root: `self.n` in a `const self`
         // generator, `p.n` of a `const p`, whose types say nothing. A
         // move-only one is MoveCheck's SC182E before this.
         var unsafe *elem = self._yield_elem(self._cur_fn)
@@ -2951,7 +2960,7 @@ pub class EmitIR {
     /// the function's flag (and value slot) and stops the fold, and the
     /// code after the outermost expansion returns.
     /// A loop over an imported C++ range that depends on the generic's own
-    /// parameter (StmtTyping::_cxx_range, P476): C++'s range-for, which picks
+    /// parameter (StmtTyping::_cxx_range): C++'s range-for, which picks
     /// begin()/end() per instance as every other member call on the range
     /// is. A plain binder is a copy (`auto x`), `*x` the element's address,
     /// several plain names a structured binding; the shapes StmtTyping lets
@@ -3619,8 +3628,8 @@ pub class EmitIR {
         // A C++ type Kairo cannot read (`fmt::format_string<T...>`, opaque
         // until clang substitutes the callee's pack) reached from a C string
         // or a C++ object: Sema let it through only because clang said C++
-        // converts it implicitly (P825), so C++ performs the conversion and
-        // the value goes as written (P832). A cast would spell the
+        // converts it implicitly, so C++ performs the conversion and
+        // the value goes as written. A cast would spell the
         // parameter's UNSUBSTITUTED type -- `static_cast<fs<T ...>>` names a
         // T that does not exist at the call -- and would also move fmt's
         // consteval format check off the literal it inspects.
@@ -4154,12 +4163,12 @@ pub class EmitIR {
             return
         }
 
-        // `|*count|` naming a global (P847): ExprTyper::_capture_view types
+        // `|*count|` naming a global: ExprTyper::_capture_view types
         // the name as the `*T` pointer, but ClosureCaptures captures no
         // global (it is named in place), so the body would dereference the
         // global's own value. The pointer the body reads is its address.
         // `|*|` gives a script's top-level `var` the same view in the
-        // top-level code (P561). Read off the name the typer marked
+        // top-level code. Read off the name the typer marked
         // (capture_ptr), not off the closure's list: a deferred global's
         // reads are rewritten by ScriptLowering into a checked place, whose
         // inner name is the value and must stay so.
@@ -4292,7 +4301,7 @@ pub class EmitIR {
             }
 
             // A member of a type named through a generic instance
-            // (`L<i32>::Color::Green`, GH#91): qualified through that
+            // (`L<i32>::Color::Green`): qualified through that
             // type, since the plain qualified name `::ns::L::Color` names
             // the template without its arguments.
             // A static member named through an instance (`Box<i32>::count`)
@@ -5579,7 +5588,7 @@ pub class EmitIR {
     }
 
     /// CallLowering's postcondition, checked where it matters: every
-    /// parameter has an argument. The one exception is decision 6: trailing
+    /// parameter has an argument. The one exception: trailing
     /// imported C++ defaults are omitted and clang supplies them -- the one
     /// place this layer gives clang headroom, on purpose. A dependent call is
     /// as written until M2 and is not checked.
@@ -6289,7 +6298,7 @@ pub class EmitIR {
             }
 
             var nm = self._spell.tok_name(decl_name_tok(d), self._owning_fid())
-            // A script's top-level `var` (P947) is a global: C++ captures no
+            // A script's top-level `var` is a global: C++ captures no
             // global, so the copy is an init-capture from its qualified name,
             // unless an enclosing closure holds it already under `nm`.
             var origin = nm
@@ -6320,8 +6329,8 @@ pub class EmitIR {
         return s
     }
 
-    /// Closure \p c captures the global \p d (a script's top-level `var`,
-    /// P947): inside it, `d` is the closure's own copy, named bare.
+    /// Closure \p c captures the global \p d (a script's top-level `var`):
+    /// inside it, `d` is the closure's own copy, named bare.
     priv fn _captures_global(self, c: unsafe *ClosureExpr, d: unsafe *Decl) -> bool {
         if c == &null || self._is_local(d) {
             return false
@@ -6835,14 +6844,14 @@ pub class EmitIR {
     /// An f256 / f512 literal: no C++ literal has the precision, so the
     /// digits go to the class's parser, `F256::lit_("<digits>", n)`, which
     /// rounds them once from the decimal (or hex) text, exactly as clang
-    /// rounds a `1.5Q`. A call at run time, not a constant; see P722.
+    /// rounds a `1.5Q`. A call at run time, not a constant.
     priv fn _wide_float_lit(self, at: SourceRange, ty: unsafe *Type, digits: *string) {
         var text = self._spell._type(ty) + "::lit_(\"" + *digits + "\", "
         text += f"{digits->size()})"
         self._cg->sink->spell(at, text)
     }
 
-    /// An f8e4m3 / f8e5m2 literal (P942): its class's `from_bits(b)`, the
+    /// An f8e4m3 / f8e5m2 literal: its class's `from_bits(b)`, the
     /// encoding rounded once from the digits at compile time
     /// (kairo::f8_literal_bits, APFloat). A double literal, which the class
     /// converts from, would round twice: to f64, then to the format.
@@ -7671,7 +7680,7 @@ pub class EmitIR {
 
     /// A statement expression in a namespace-scope initializer (`var c =
     /// unwrap!(one())`, a checked `as` into a closed enum): C++ allows no
-    /// statement expression there (P142), so it is the body of a lambda
+    /// statement expression there, so it is the body of a lambda
     /// called on the spot, as a binding form is (_form_open), its last
     /// expression statement returned. No capture: nothing at namespace
     /// scope needs one. Inside the lambda is a function body again.
@@ -8462,7 +8471,7 @@ pub class EmitIR {
             && self._cmp3_scalar(n->rhs->type_) {
             // A primitive `<=>` is the Ordering lang item (OperatorTyping),
             // but C++'s answers a `std::strong_ordering`, which converts to no
-            // enum (P579). The sign of that one result picks the variant
+            // enum. The sign of that one result picks the variant
             // (-1 / 0 / 1, Lib/builtin/base/ordering.k): each operand is
             // evaluated once and the lambda stays constant-evaluable.
             // Parenthesized: as a subscript index, `v[[](...)]` opens a C++ attribute.
@@ -9021,7 +9030,7 @@ pub class EmitIR {
         // is to the inner type, which then converts to the nullable.
         // Nullable<E> has no constructor from E's underlying integer (nor
         // Nullable<u8> from an enum class), so the one-step static_cast
-        // into it was a C++ error (P143). A closed enum's check has already
+        // into it is a C++ error. A closed enum's check has already
         // wrapped the operand (OperatorLowering), so it still runs first.
         if kind == "static_cast" && n->target != &null && n->target->canonical != &null {
             var unsafe *inner = self._nullable_inner(canon_unqual(n->target->canonical))
@@ -9218,7 +9227,7 @@ pub class EmitIR {
 
     /// One arm of an if-expression, converted to the join type \p t. An arm
     /// of type `!` (`else => die()`) is a void call to C++, which `?:` takes
-    /// only as a `throw` (P53: `static_cast<int>(die())` was CL001E). It is
+    /// only as a `throw` (`static_cast<int>(die())` is rejected, CL001E). It is
     /// the body of a lambda returning \p t that never returns, called on the
     /// spot: a prvalue of the join type for every T, a move-only or
     /// non-transferable one included, with nothing copied. `[&]` reaches

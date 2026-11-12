@@ -2,10 +2,10 @@
 ///
 ///   \brief Where `ffi::ref<T>` / `ffi::mref<T>` may stand, and that an
 ///          override of a C++ virtual returns what the virtual returns
-///          (P872, functions-parameter-modes.mdx "Reference returns from C++";
-///          any return, not only a reference, since P987), and that an
+///          (functions-parameter-modes.mdx "Reference returns from C++";
+///          any return, not only a reference), and that an
 ///          override of a KAIRO virtual returns what C++ accepts for it
-///          (SC297E, P995).
+///          (SC297E).
 ///
 ///   \detail
 ///     `ffi::ref<T>` (C++ `T&`), `ffi::ref<const T>` (`const T&`) and
@@ -29,7 +29,7 @@
 ///     agree. An out-of-line definition that disagrees is RedeclMerge's
 ///     (SC294E there, with the fix-it); an override's return is compared
 ///     here, because this is where an override meets the method it
-///     overrides. The legacy `-> *T` for a `T&` virtual (CXX-REF, 2026-11-08)
+///     overrides. The legacy `-> *T` for a `T&` virtual
 ///     is left alone: CallConvCheck marks it `cxx_ref_return`.
 ///
 ///     A misplaced node is rewritten to its referee's canonical once
@@ -97,7 +97,9 @@ import AST::Node::Types::{
 import AST::OperatorFacts::OperatorFacts
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
+import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
+import Location::SourceRange::SourceRange
 import Sema::Check::EffectPropagation::panic_overridden
 import Sema::SemaContext::{
     SemaContext,
@@ -336,7 +338,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
     /// Neither return is a reference: true when C++ accepts the pair or
     /// Kairo cannot tell. Any other mismatch (`-> i64` over `int val()`)
     /// passed Kairo and failed in clang as "virtual function 'val' has a
-    /// different return type" (P987).
+    /// different return type".
     ///
     /// A pointer to a record on both sides may be a covariant return, legal
     /// in C++ when the override's record derives from the virtual's (and is
@@ -392,7 +394,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
             return
         }
 
-        // The decided `-> *T` for `T&` (CXX-REF): CallConvCheck's.
+        // The accepted legacy `-> *T` for `T&`: CallConvCheck's.
         if mc != &null && OperatorFacts::ptr_implements_lref(mc, bc) {
             return
         }
@@ -412,10 +414,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         )
 
         b.first(at)
-        if m->return_type != &null && m->return_type->range.is_valid() {
-            b.fix(m->return_type->range, want, f"return '{want}', as the C++ declaration does")
-        }
-
+        self._return_fixit(unsafe &b, m, bc, want, "as the C++ declaration does")
         b.note(
             DiagCode(DiagID::SC294N),
             base->range.start,
@@ -429,6 +428,40 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         m->poison()
     }
 
+    /// The edit that makes \p m return \p want (\p bc, null or void for
+    /// none): `-> T` replaced, removed over a `void` virtual, or inserted
+    /// after the parameters (and a `panic` specifier, which comes first)
+    /// when \p m has none.
+    priv fn _return_fixit(self,
+                          b:         unsafe *DiagBuilder,
+                          m:         unsafe *FunctionDecl,
+                          bc:        unsafe *Type,
+                          const want: string,
+                          const why:  string) {
+        var bvoid   = bc == &null || self._tu.is_void(bc)
+        var written = m->return_type != &null && m->return_type->range.is_valid()
+        var after   = if (m->panic_range.is_valid()) => (m->panic_range) else => m->params_end
+        if written && bvoid {
+            if after.is_valid() {
+                b->remove(
+                    SourceRange::from_bounds(after.end, m->return_type->range.end),
+                    f"return nothing, {why}",
+                )
+            }
+
+            return
+        }
+
+        if written {
+            b->fix(m->return_type->range, want, f"return '{want}', {why}")
+            return
+        }
+
+        if (!bvoid) && after.is_valid() {
+            b->insert(after.end, f" -> {want}", f"return '{want}', {why}")
+        }
+    }
+
     /// # overrides of a Kairo virtual (SC297E)
 
     /// An override of a Kairo virtual returns what C++ accepts as an
@@ -437,7 +470,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
     /// (classes-inheritance.mdx), so this is no rule of Kairo's own: it is
     /// clang's verdict on the emitted pair, moved ahead so the error is a
     /// Kairo one with a fix-it instead of CL001E naming C++ types. What
-    /// clang accepted, measured on the emitted code (P995), stays legal:
+    /// clang accepted, measured on the emitted code, stays legal:
     ///
     ///   - `*D` over `*B`, safe or unsafe on either side, when record D is
     ///     B or derives it (directly or through other bases; `derives priv`
@@ -487,13 +520,9 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
     }
 
     priv fn _check_kairo_override_return(self, m: unsafe *FunctionDecl, base: unsafe *FunctionDecl) {
-        // Only the same `self` or `const self` overrides (classes-inheritance.mdx);
-        // the base walk compares the other parameters, not that one. A
-        // `const self` beside a plain-`self` virtual is another method.
-        if m->is_const() != base->is_const() {
-            return
-        }
-
+        // \p base has \p m's `self` constness: the base walk compares it
+        // (overridden_at), since a `const self` beside a plain-`self`
+        // virtual is another method (classes-inheritance.mdx).
         var bc: unsafe *Type = &null
         if base->return_type != &null {
             bc = base->return_type->canonical
@@ -529,14 +558,11 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         )
 
         b.first(at)
-        if m->return_type != &null && m->return_type->range.is_valid() && bc != &null {
-            b.fix(
-                m->return_type->range,
-                self._tu.return_fix(m->return_type, bc),
-                f"return '{want}', as the overridden method does",
-            )
+        if bc != &null {
+            want = self._tu.return_fix(m->return_type, bc)
         }
 
+        self._return_fixit(unsafe &b, m, bc, want, "as the overridden method does")
         var bat = if (base->return_type != &null) => (base->return_type->range) else => base->name.range
         b.note(
             DiagCode(DiagID::SC297N),
@@ -650,7 +676,7 @@ pub fn check_ref_return_value(sc:       unsafe *SemaContext,
 
     var unsafe *dc = canon_unqual(declared)
     if dc == &null || (!is_cxx_ref_canonical(dc)) {
-        return // rejected by FfiRefReturnCheck, read as its referee now.
+        return // rejected by FfiRefReturnCheck, read as its referee.
     }
 
     var unsafe *v = n->value

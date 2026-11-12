@@ -1,7 +1,7 @@
 // Forwarding functions in a user header (fwd.h): make_unique's shape with
 // an explicit T, a recursive std::forward fold, `const Ts&...` and `Ts&...`
 // packs, and a template parameter that only C++ fills (an `enable_if_t<...>
-// = 0` default; deduction no longer demands it of an import).
+// = 0` default; deduction does not demand it of an import).
 
 ffi "c++" import "fwd.h"
 

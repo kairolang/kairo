@@ -2,11 +2,11 @@
 // directly (interfaces.md, Conformance; RESOLUTION.md §2b: conformance
 // methods are ordinary members at lookup). `extend X impl I` and
 // structural conformance always worked; the inline clause is the case here.
-// MemberLookup::_walk_record used to walk `implements` and offer I's
-// bodiless requirement beside X's method, so every direct call was SC064E
+// MemberLookup::_walk_record does not walk `implements` to offer I's
+// bodiless requirement beside X's method, so no direct call is SC064E
 // "ambiguous" -- by value, through a pointer, on `self`, and for a static
 // requirement via X::id(). Interfaces have no default bodies, so the walk
-// no longer visits them.
+// does not visit them.
 
 interface I {
     fn f(self) -> i32

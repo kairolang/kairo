@@ -731,7 +731,7 @@ pub class CXXSpell {
 
     /// \p f is a Kairo definition of a function C++ declares: an
     /// out-of-line `fn W::at` / `fn ns::f` whose chain starts at an imported
-    /// declaration (P506). C++ already has the declaration, so nothing
+    /// declaration. C++ already has the declaration, so nothing
     /// declares it again; EmitIR::_foreign_def writes the definition in the
     /// C++ declaration's own signature.
     pub static fn defines_foreign(f: unsafe *Declarations::FunctionDecl) -> bool {
@@ -1010,7 +1010,7 @@ pub class CXXSpell {
             return "operator " + self._type(f->return_type)
         }
 
-        // A split subscript (its type declares `op []=`, P880): each form is
+        // A split subscript (its type declares `op []=`): each form is
         // a named member, called by that name, so the form Sema chose is the
         // one that runs (clang would pick `operator[]` by the object's
         // constness, the non-const one -- the place form -- for every read
@@ -1163,8 +1163,8 @@ pub class CXXSpell {
         return ""
     }
 
-    /// \p f, a form of a split subscript (OperatorFacts::in_split_subscript,
-    /// P880), gets a C++ `operator[]` forwarder to its named member, so C++
+    /// \p f, a form of a split subscript (OperatorFacts::in_split_subscript),
+    /// gets a C++ `operator[]` forwarder to its named member, so C++
     /// code subscripts the type as it always did: the place form's on a
     /// mutable object, a read form's (`const` when it takes `const self`)
     /// on a const one. InterfaceEmitter declares it, EmitIR defines it
@@ -1406,7 +1406,7 @@ pub class CXXSpell {
             }
 
             // A segment is a FILE or directory name, not a Kairo identifier:
-            // every input is a module now (decision C), and `operator.k` or
+            // every input is a module, and `operator.k` or
             // `01_basic.k` in the cwd is module `operator` / `01_basic`.
             out.push_back(CXXSpell::cxx_segment(*p))
         }
@@ -1417,8 +1417,8 @@ pub class CXXSpell {
     /// \p tu has no module path: a file outside every search dir (or one
     /// whose path a named library owns, ImportResolver::input_module_path),
     /// the driver's virtual library entry, or a tool's bare parse. Not
-    /// "a command-line input": since decision C an input takes the module
-    /// path an import gives it, and only these keep the pathless rules
+    /// "a command-line input": an input takes the module path an import
+    /// gives it, and only these keep the pathless rules
     /// below (stem namespace, priv decls in the unnamed namespace, no header).
     pub static fn is_entry_tu(tu: unsafe *TranslationUnit) -> bool {
         if tu == &null || tu->ctx == &null {
@@ -1430,9 +1430,8 @@ pub class CXXSpell {
 
     /// \p d is the program's `main`: a free function named `main` at file
     /// scope, in ANY TU. Emitted as the global `int main`, never in a
-    /// namespace and never in a header. It was "the entry TU's main" while
-    /// inputs were entries; now that an input is a module (decision C) a
-    /// `main` is the program's wherever its file sits. One in a `module foo
+    /// namespace and never in a header. A `main` is the program's wherever its
+    /// file sits, because every input is a module. One in a `module foo
     /// { }` block is `foo::main`, an ordinary function.
     fn is_main(self, d: unsafe *Decl) -> bool {
         if d == &null || !isa<Declarations::FunctionDecl>(d) {
@@ -1811,7 +1810,7 @@ pub class CXXSpell {
             return s + builtin_info(cast<BuiltinType>(c)->builtin)->spelling
         }
 
-        // `extend [i32; 2]` (P325): a fixed array is neither a record nor a
+        // `extend [i32; 2]`: a fixed array is neither a record nor a
         // builtin; its scope is named from its C++ spelling, which is a
         // function of the type and the target (an `isize` element is `long`
         // or `long long`), never of the build order. A scope struct never
@@ -1820,7 +1819,7 @@ pub class CXXSpell {
             return s + "arr__" + CXXSpell::_path_ident(self._type(c))
         }
 
-        // `extend i32?`, `extend <T> [T]?` (P325-1): a nullable is its
+        // `extend i32?`, `extend <T> [T]?`: a nullable is its
         // `::builtin::Nullable<T>` record to C++, but EmitPlan keys a
         // non-record target's scope by the exact canonical (_same_scope), so
         // each nullable gets its own struct, named from its C++ spelling as
@@ -1968,7 +1967,7 @@ pub class CXXSpell {
             return DeclFacts::decl_cxx_spelling(r)
         }
 
-        // A Kairo definition of a C++-declared function (P506) is called by
+        // A Kairo definition of a C++-declared function is called by
         // the C++ name, not under the module it is written in.
         var unsafe *rf = dyn_cast<Declarations::FunctionDecl>(r)
         if rf != &null && CXXSpell::defines_foreign(rf) {
@@ -2255,8 +2254,8 @@ pub class CXXSpell {
     /// x32: local-exec wherever the rules above say initial-exec. lld
     /// relaxes initial-exec to local-exec only in its REX.W movq / addq
     /// form, and x32's access is a REX-less movl, so a static link of the
-    /// library failed (P702). The cost: the library's objects cannot go into
-    /// an x32 shared object (P740).
+    /// library failed. The cost: the library's objects cannot go into
+    /// an x32 shared object.
     /// ELF only: elsewhere the attribute either means nothing (Mach-O,
     /// wasm) or is not the mechanism (COFF).
     fn tls_model(self, v: unsafe *Declarations::VariableDecl) -> string {
@@ -2331,7 +2330,7 @@ pub class CXXSpell {
     /// a C array (`signed int[2]`), whose declarator wraps whatever follows
     /// it (`int (*p)[2]`), is `__typeof__(signed int[2])`. Every spelling
     /// that appends `*`, `&`, ` const &` or a name to a type it got as a
-    /// string goes through here (P325, P946): an extension's receiver, a
+    /// string goes through here: an extension's receiver, a
     /// witness's Self, a generic parameter an instance binds to an array.
     fn type_specifier(self,
                       t:     unsafe *Type,
@@ -3216,7 +3215,7 @@ pub class CXXSpell {
         }
 
         // A C array's declarator wraps the name (`int (*self)[2]`), and every
-        // caller appends the name after this text (P325, `extend [i32; 2]`).
+        // caller appends the name after this text (`extend [i32; 2]`).
         s += self.type_specifier(x->target, subst)
         s += if (f->is_operator) => ("&") else => "*"
         return s
@@ -3241,7 +3240,7 @@ pub class CXXSpell {
     /// An imported C++ concept is its own C++ name (`::Addable`): the bound
     /// IS that concept, and the `I_c` stand-in is written only beside the
     /// Kairo file's own pieces, under the header's module namespace, which
-    /// a kcc header layout of the file does not contain (P481: "no member
+    /// a kcc header layout of the file does not contain ("no member
     /// named 'my_code' in the global namespace").
     fn concept_name(self, iface: unsafe *Decl) -> string {
         var unsafe *r = CXXSpell::rep(iface)
@@ -3775,6 +3774,63 @@ pub class CXXSpell {
                     rhs,
                     ie,
                 ) + ", \"Kairo checked this bound at the instance; C++ disagrees\");",
+            )
+        }
+
+        return out
+    }
+
+    /// `static_assert(::ns::I_c<T>, "...");` for each interface bound of the
+    /// generic record primary whose constructor \p f is, spelled over the
+    /// record's own parameters: the record's C++ head carries none of them
+    /// (defers_bounds: a head clause is checked where the template-id is
+    /// named, over a CRTP base or a `*Holder<Node>` inside Node while the
+    /// argument is still incomplete, and clang rejects those). A
+    /// constructor's body is instantiated only when a value is made, when
+    /// the argument is complete, so a C++ user making `Holder<Bad>` is told
+    /// which bound failed instead of failing inside a witness call.
+    /// Empty for anything else, and for a pack's bound (no one argument).
+    fn ctor_bound_asserts(self, f: unsafe *Declarations::FunctionDecl) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        if f == &null || f->semantic_dc == &null || !f->semantic_dc->is_type_scope() {
+            return out
+        }
+
+        var unsafe *d = CXXSpell::rep(f->semantic_dc->dc_owner)
+        if d == &null || !CXXSpell::defers_bounds(d) || DeclFacts::decl_generic_params(d).size() == 0 {
+            return out
+        }
+
+        var cs = cxx::std::vector<unsafe *ConstraintExpr>()
+        CXXSpell::impl_bounds(DeclFacts::decl_requires_clause(d), unsafe &cs)
+        for var i: usize = 0; i < cs.size(); ++i {
+            var unsafe *c = cs[i]
+            if c->rhs == &null || c->rhs->canonical == &null {
+                continue
+            }
+
+            var unsafe *gp = CXXSpell::_bound_param(c)
+            if gp == &null || gp->is_pack || gp->owner == &null || CXXSpell::rep(gp->owner) != d {
+                continue
+            }
+
+            var unsafe *rhs = canon_unqual(c->rhs->canonical)
+            if !isa<RecordType>(rhs) {
+                continue
+            }
+
+            var unsafe *idecl = CXXSpell::rep(
+                DeclFacts::decl_pattern(CXXSpell::rep(cast<RecordType>(rhs)->decl)),
+            )
+
+            if !isa<Declarations::InterfaceDecl>(idecl) {
+                continue
+            }
+
+            var tn  = self.tparam_name(gp, d)
+            var msg = "\x27" + self.leaf(d) + "\x27 requires \x27" + tn + "\x27 to implement \x27" + self.leaf(idecl) + "\x27"
+            out.push_back(
+                "static_assert(" + self.concept_name(idecl) + self.witness_args(tn, rhs) + ", \"" + msg + "\");",
             )
         }
 
@@ -4538,7 +4594,7 @@ pub class CXXSpell {
             targs = self.args_str(v, subst, scope)
         }
 
-        // `L<i32>::P` (GH#91): the member of the enclosing instance, spelled
+        // `L<i32>::P`: the member of the enclosing instance, spelled
         // through it -- `::ns::L<int>::P`, or `typename ::ns::L<T>::P` while
         // the instance is dependent.
         if r->outer != &null {
@@ -4756,7 +4812,7 @@ pub class CXXSpell {
         } else {
             // An instance's array argument is followed by the parameter's
             // `const &` or `*` (`template int f<int[2]>(int[2] const &)` is an
-            // array of references): one type-specifier (P946).
+            // array of references): one type-specifier.
             var unsafe *t = self.subst_for(g, subst)
             if t != &null {
                 return self.type_specifier(t, &null)

@@ -2,11 +2,11 @@
 // and using the checked value inside the branch as the non-null type:
 // `*p` and `p->m()` on a pointer, the value itself on a `T?`.
 //
-// Was XFAIL until the nullness analysis landed: `p->k()` on a
-// `(*A)?` was R027E "'->' requires a pointer on its left" in ChainBinding,
-// and `return p` / `*p` inside `if p?` read `i32?` / `(*i32)?` (SC028E /
-// SC070E). The nullness analysis now proves `p` inside each branch and
-// NarrowedAccessLowering reads it as `p.__value()`.
+// The nullness analysis proves `p` inside each branch: `p->k()` on a
+// `(*A)?` is not R027E "'->' requires a pointer on its left" in ChainBinding,
+// and `return p` / `*p` inside `if p?` do not read `i32?` / `(*i32)?` (SC028E /
+// SC070E). NarrowedAccessLowering
+// reads it as `p.__value()`.
 
 class A { virtual fn k(self) -> i32 { return 3 } }
 

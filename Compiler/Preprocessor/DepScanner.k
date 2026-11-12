@@ -352,6 +352,11 @@ pub class DepScanner {
         src->next() // ffi
         if src->peek(0).kind == TokenKind::LitString { // "lang"
             src->next()
+            // `ffi "c++"` NEWLINE `import "h"`: S064E in the walk, which
+            // reads it as one line (PPWalker::_handle_ffi); so does the scan.
+            while src->peek(0).kind == TokenKind::TkNewLine {
+                src->next()
+            }
         }
 
         var k = src->peek(0).kind

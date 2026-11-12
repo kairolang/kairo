@@ -234,7 +234,7 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
                 continue
             }
 
-            // An override of an imported `T&` method written `-> *T` (CXX-REF, decided 2026-11-08):
+            // An override of an imported `T&` method written `-> *T`:
             // C++ sees the reference (FunctionDecl::cxx_ref_return). Here
             // because this is where an override meets the method it
             // overrides; the flag is read by the Lower passes and codegen.
@@ -290,6 +290,24 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
         }
 
         var nm = self._tu.decl_name(unsafe (m as unsafe *Decl))
+        // The receiver differs (`const self` over a plain-`self` virtual, or
+        // the reverse): only the same one overrides (overridden_at).
+        if m->is_const() != meant->is_const() {
+            var mine   = if (m->is_const()) => ("const self") else => "self"
+            var theirs = if (meant->is_const()) => ("const self") else => "self"
+            var c = self.sc->diag->report(
+                DiagID::SC150E,
+                m->range.start,
+                f"'{nm}' is marked 'override' but overrides nothing: it takes '{mine}' and the base method takes '{theirs}'",
+            )
+
+            c.first(m->range)
+            c.note(meant->range.start, f"the base method of that name, which takes '{theirs}'")
+            c.child_first(meant->range)
+            c.emit()
+            return
+        }
+
         var b = self.sc->diag->report(
             DiagID::SC150E,
             m->range.start,
@@ -446,7 +464,7 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
                 }
             }
 
-            // Unmarked is the documented default, not `pub` (P771): `priv`
+            // Unmarked is the documented default, not `pub`: `priv`
             // outside a module, `prot` in one. Reading only the written word
             // made every unmarked function in a module-less file "public"
             // and rejected a calling convention that never reaches C++.

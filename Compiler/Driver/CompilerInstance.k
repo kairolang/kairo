@@ -833,14 +833,13 @@ pub class CompilerInstance {
     /// pinned module.k (`module foo`) above the file names a library; that
     /// pin is the only way a directory gets a name (Compiler/Spec/Imports.md#path-resolution).
     ///
-    /// `-I name=dir` used to be a second way to say it, and the two could
-    /// disagree. It is an error that says where the name goes now, not a
-    /// silently missing directory literally called `name=dir`. A path that
-    /// does contain `=` and exists is a path; every other spec with an `=`
-    /// is the old form, whatever the part before it looks like -- a
-    /// `geo-lib=vendor/geometry` used to slip past a "name-shaped" test and
-    /// vanish as a nonexistent directory, leaving only an R011E at the
-    /// import with nothing pointing at the flag.
+    /// `-I name=dir` is the old import-root spelling and is an error that
+    /// says where the name goes, not a silently missing directory literally
+    /// called `name=dir`. A path that does contain `=` and exists is a path;
+    /// every other spec with an `=` is the old form, whatever the part
+    /// before it looks like -- a `geo-lib=vendor/geometry` must not slip past
+    /// a "name-shaped" test and vanish as a nonexistent directory, leaving
+    /// only an R011E at the import with nothing pointing at the flag.
     priv fn _add_root(self, @inout rb: ImportResolver::Builder, const spec: string) {
         var pos = kairo::std::to_std_string(spec).find(('=' as u8) as c_char)
         if pos != usize::MAX && !Path(spec).is_directory() {
@@ -904,10 +903,10 @@ pub class CompilerInstance {
         }
     }
 
-    /// Two inputs one module path names (decision E): `./a.k` and `inc/a.k`
+    /// Two inputs one module path names: `./a.k` and `inc/a.k`
     /// under `-I inc` are both module `a`, and each would write `a.o`, the
     /// second over the first. An import of that path is already R017E, but
-    /// inputs are modules too now (decision C) and nothing imports them, so
+    /// inputs are modules too and nothing imports them, so
     /// they are claimed here, every one before any is compiled. False when
     /// two collided (reported).
     priv fn _claim_input_identities(self) -> bool {
@@ -1561,7 +1560,7 @@ pub class CompilerInstance {
 
         // Before the library: its objects are cached by this bit too.
         self._settle_global_allocator()
-        if !self._link_out.empty() && self.invocation()->linker.kairo_lib {
+        if !self._link_out.empty() && self.invocation()->linker.kairo_lib && self._link_has_kairo() {
             if !self._kairo_lib() {
                 result.aborted = true
                 return result
@@ -1732,8 +1731,8 @@ pub class CompilerInstance {
     ///        of it gets (ImportResolver::input_module_path), so a file is one
     ///        module, one namespace and one object path whether it is
     ///        compiled, imported or included, and `kcc -c lib/y.k` emits the
-    ///        `lib::y::f` an importer compiled in another run calls
-    ///        (decision C). Empty for a pathless file -- one outside every
+    ///        `lib::y::f` an importer compiled in another run calls.
+    ///        Empty for a pathless file -- one outside every
     ///        search dir, or one whose path a named library owns -- which
     ///        keeps the pathless rules (CXXSpell::is_entry_tu).
     /// The module path the driver gives input \p path (ParseAPI's as_module).

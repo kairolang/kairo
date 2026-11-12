@@ -4,7 +4,7 @@
 // BaseT::BaseT;` names the base's constructor, printed as the whole
 // specialization -- ran past the end of the header: "VirtualFileManager:
 // Offset out of segment bounds" on the bare import (llvm/ADT/DenseSet.h ends
-// exactly like decl_name_range.h). The name's range is now the token clang
+// exactly like decl_name_range.h). The name's range is the token clang
 // lexes there whenever the bytes are not the printed name.
 
 ffi "c++" import "decl_name_range.h"

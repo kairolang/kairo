@@ -193,6 +193,17 @@ pub class LinkABI {
         return false
     }
 
+    /// true when the object (or archive) at \p path carries any Kairo ABI
+    /// note record: it was compiled from Kairo code, so its link needs the
+    /// Kairo library (CompilerInstance::_link_has_kairo). An unreadable path
+    /// is false: lld reports it.
+    pub static fn carries_note(const path: string) -> bool {
+        var notes  = cxx::std::vector<AbiNote>()
+        var allocs = cxx::std::vector<AllocNote>()
+        LinkABI::_scan(path, &notes, &allocs)
+        return notes.size() > 0 || allocs.size() > 0
+    }
+
     /// An object that inlined System (flag 1) beside one that sets the
     /// global allocator (flag 2): its allocations never reach that
     /// allocator. One error, at the first such pair.

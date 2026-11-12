@@ -1,8 +1,8 @@
 // Every LLVM ADT header Compiler/ imports (grep `ffi "c++" import
 // "llvm/ADT` there), imported together and used in the shapes Compiler/
 // uses them: maps and vectors of Kairo pointers, inline sizes as value
-// arguments, a set probe. llvm/ADT/DenseSet.h alone used to ICE the import
-// (ffi_llvm_denseset.k); the rest must keep importing alongside it.
+// arguments, a set probe. llvm/ADT/DenseSet.h alone must import without
+// an internal error (ffi_llvm_denseset.k); the rest must keep importing alongside it.
 //
 // Object only (-c): linking needs libLLVMSupport, which a test has no
 // business pulling in, but the emitted C++ is compiled against the real

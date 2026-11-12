@@ -6,7 +6,7 @@
 // usize / isize is C++'s size_t / ptrdiff_t, so between same-width C
 // overloads it picks the one whose parameter IS that type, as clang does
 // (`std::to_string(n)` with n: usize is `to_string(unsigned long)` on
-// LP64). Both used to rank as a conversion and tie (SC064E).
+// LP64). Both do not rank as a conversion and tie (SC064E).
 
 ffi "c++" import "size_t_overload.h"
 ffi "c++" import "string"

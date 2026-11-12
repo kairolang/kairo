@@ -4,8 +4,8 @@
 // "test a nullable pointer before downcasting it" as the workaround).
 //
 // XFAIL: *
-// Ticket "[Sema] Checked downcast from a NULLABLE pointer is SC027E"
-//. Today: SC027E "no
+// Checked downcast from a NULLABLE pointer is SC027E.
+// Today: SC027E "no
 // conversion from '*Animal?' to '*Dog?'" -- CastTyping's pointer rungs ask
 // pointee(src), which is null for a nullable, so the cast falls to the
 // static ladder. When it XPASSes, delete the XFAIL -- the run below is

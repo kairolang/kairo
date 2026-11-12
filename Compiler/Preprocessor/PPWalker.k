@@ -251,7 +251,7 @@ pub class PPWalker
     }
 
     /// \brief an import the file did not write: a prelude-shaped wildcard
-    ///        of \p target (an f256 / f512 class file, P723). Called after
+    ///        of \p target (an f256 / f512 class file). Called after
     ///        run(), so the TU gets it where the driver's builtin prelude
     ///        import also lands, after every written one. Its edge orders
     ///        Sema (the class is typed first, its N binding the lang item),
@@ -675,7 +675,7 @@ pub class PPWalker
     ///        &null (the default) for call sites that don't route through
     ///        next_with_origin (ffi/vis-keyword passthrough, scope-tracked
     ///        brace/module tokens, the poison sentinel): those tokens are
-    ///        never origin-wrapped, same as before this existed.
+    ///        never origin-wrapped.
     priv fn _emit(self, t: Token, chain: unsafe *cxx::std::vector<InvokeHop> = &null) {
         // Sampled, same reasoning as _detect_invocation: the single choke
         // point every token passes through.
@@ -788,12 +788,44 @@ pub class PPWalker
 
         // The language string belongs on the `ffi` line. A lone `ffi` used
         // to take the NEWLINE as its language and the next line's `import
-        // "h"` as its own, silently (P993). Copied through instead, so the
+        // "h"` as its own, silently. Copied through instead, so the
         // parser reports it (S064E, "expected a language string") and the
         // next line is a statement of its own.
         if self._src->peek(1).kind != TokenKind::LitString {
             self._emit(self._src->next()) // ffi
             return
+        }
+
+        // `ffi "c++"` NEWLINE `import "h"` (or a declaration, or `{`): the
+        // language string stamped C++ linkage on whatever came next, so
+        // `fn main` lost its C entry, and the `import` line was S046E
+        //. Every documented form (imports.mdx, c-cpp-calling.mdx)
+        // keeps `ffi "lang"` and what it applies to on one line. Reported
+        // once, then read as the joined line, so nothing cascades.
+        var nl: usize = 0
+        while self._src->peek(2 + nl).kind == TokenKind::TkNewLine {
+            nl += 1
+        }
+
+        if nl > 0 {
+            var lang = self._src->peek(1)
+            var what = self._src->peek(2 + nl)
+            if !self._quiet {
+                var b = self._diag->report(
+                    DiagCode(DiagID::S064E),
+                    lang.range.start,
+                    "the declaration, block or import an ffi language string applies to must follow it on the same line",
+                )
+
+                b.first(lang.range)
+                if what.range.is_valid() {
+                    b.fix(SourceRange::from_bounds(lang.range.end, what.range.start), " ", "join the lines")
+                }
+
+                b.emit()
+            }
+
+            p2 = what.kind
         }
 
         if p2 == TokenKind::KwImport {
@@ -810,6 +842,10 @@ pub class PPWalker
             // is indexed.
             var ffi_kw   = self._src->next() // ffi
             var lang_tok = self._src->next() // "lang"
+            for var i: usize = 0; i < nl; ++i {
+                self._src->next() // the line break reported above
+            }
+
             self._src->next() // import
 
             var header_tok = Token()
@@ -820,7 +856,7 @@ pub class PPWalker
             // One header per line, then an optional `as name` (imports.mdx,
             // c-cpp-calling.mdx). Anything else was dropped unread, so
             // `import {"a.h", "nope.h"}` imported only "a.h" and never looked
-            // for the second (P993): the first stray token is S064E and the
+            // for the second: the first stray token is S064E and the
             // line imports nothing.
             var bad = false
             while !self._src->at_eof() {
@@ -941,6 +977,10 @@ pub class PPWalker
         // terminator. Nothing special needed just resume.
         self._emit(self._src->next()) // ffi
         self._emit(self._src->next()) // lang
+        for var i: usize = 0; i < nl; ++i {
+            self._src->next() // the line break reported above: joined
+        }
+
         // walk resumes; `{`/decl tokens copy normally. Macro invocations INSIDE
         // an ffi block still expand (they did before) the walk doesn't treat
         // ffi-block interior as special, matching current behavior.
@@ -1488,6 +1528,28 @@ pub class PPWalker
 
         var unsafe *entry = self._resolve(*inv)
         if entry == &null {
+            // `import lib::getter` then `getter!`: the import named the
+            // macro without its `!`. Said at the import, with the
+            // `!` as the fix.
+            var hint = if (self._imports != &null) => (self._imports->bare_macro_import(inv->name_sym))
+                       else => SourceRange()
+            if hint.is_valid() {
+                var nm   = self._sym_name(inv->name_sym)
+                var site = self._inv_site(inv)
+                var b = self._diag->report(
+                    DiagCode(DiagID::R013E),
+                    site.start,
+                    f"unknown macro '{nm}!': its import names '{nm}' without the '!'",
+                )
+
+                b.first(site)
+                b.note(hint.start, f"'{nm}' without '!' imports a declaration; a macro is imported as '{nm}!'")->child_first(hint)
+                b.insert(hint.end, "!", f"import the macro '{nm}!'")
+                b.emit()
+                self._emit_poison(inv)
+                return
+            }
+
             self._report_expand_err(
                 DiagID::R013E,
                 inv,
@@ -1974,7 +2036,7 @@ pub class PPWalker
 
     /// \p tok's StringData when it is an f-string with holes, read from the
     /// table of the file that lexed it (\p tbl becomes that table); null
-    /// otherwise. Adjacent literals join whatever their prefixes (P486), so
+    /// otherwise. Adjacent literals join whatever their prefixes, so
     /// the holes can sit in any segment of the chain: `"a" f"{x}"` is one.
     priv fn _fstring_data(self, tok: Token, @inout tbl: unsafe *ImmediateTable) -> unsafe *Immediate::StringData {
         if tok.kind != TokenKind::LitString {
@@ -2909,7 +2971,7 @@ pub class PPWalker
                 }
 
                 // A lexed string literal's source bytes ARE its spelling, a
-                // chain's included (its range covers every segment, P879);
+                // chain's included (its range covers every segment);
                 // TokenText rebuilds only `"<head body>"`, which no prefixed
                 // or joined literal matches. Only a synthesized one (owned
                 // text: file!, a nested stringify!) is not source.
@@ -2927,7 +2989,7 @@ pub class PPWalker
         // A prefixed string's token range starts at its quote (the prefix
         // is the StringData's own token), so the slice starts at the prefix
         // when the first argument has one, or `stringify!(r"a" y)` lost the
-        // `r` (P906). A later argument's prefix is inside the slice anyway.
+        // `r`. A later argument's prefix is inside the slice anyway.
         var head = first->range.start
         if source_backed && first->kind == TokenKind::LitString && self._lexed_string(*first) {
             var unsafe *ftbl = self._tcm->get_imm_table_for_token(*first)

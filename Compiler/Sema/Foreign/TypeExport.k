@@ -49,7 +49,7 @@
 ///     special members, except that the record's own `@copy` / `@move`
 ///     constructors (deleted or not), the `op =` beside each and a default
 ///     constructor are declared as the emitted class declares them
-///     (_mirror_transfers, P997), so a trait clang reads off them
+///     (_mirror_transfers), so a trait clang reads off them
 ///     (`is_copy_constructible`, a defaulted copy that must be deleted) is the
 ///     real type's. A Kairo destructor is not mirrored. That is enough for
 ///     phase A, which declares members and never instantiates their bodies;
@@ -1395,7 +1395,7 @@ pub class TypeExport {
         for var i: usize = 0; i < fields.size(); ++i {
             var ft: clang::QualType
             if (fields)[i] != &null {
-                ft = self.to_clang((fields)[i])
+                ft = self._layout_spelling((fields)[i])
             }
 
             // A pointer field only needs a pointer's layout, and a stand-in
@@ -1465,7 +1465,7 @@ pub class TypeExport {
     /// Declare on stand-in \p rd the transfer constructors Kairo record \p d
     /// writes (`@copy` / `@move`, deleted or not), each with the `op =`
     /// InterfaceEmitter derives beside it and a default constructor, exactly
-    /// as the emitted class declares them (P997). Without them the stand-in
+    /// as the emitted class declares them. Without them the stand-in
     /// of a move-only `Mv` copied implicitly, so every question phase A asks
     /// clang about a template over it came out as for a copyable type:
     /// `std::optional<Mv>` read trivially copyable, its defaulted copy was not
@@ -1953,7 +1953,7 @@ pub class TypeExport {
         var bq     = cxx::std::vector<clang::QualType>()
         var dyn_at = usize::MAX
         for var i: usize = 0; i < kbases.size(); ++i {
-            var q = self.to_clang(kbases[i])
+            var q = self._layout_spelling(kbases[i])
             // A base still being defined: this stand-in was reached through
             // a pointer field of that base (or of one of its fields), so the
             // base cannot be complete yet. Refused here rather than handed to
@@ -2040,6 +2040,23 @@ pub class TypeExport {
         }
 
         return false
+    }
+
+    /// \p t spelled for a stand-in's layout (a field, a base): never through
+    /// allow_opaque_args. That flag is the asker's (deduce_call's verdict on
+    /// the template), and it reported a FIELD's blob as the argument's
+    /// (used_opaque): `cxx::std::move(a)` for a Kairo class `Ar` holding
+    /// `unsafe *z::Blk` from a header <utility>'s set never saw
+    /// spelled Ar as its stand-in, and still dropped the substituted return
+    /// type, leaving `remove_reference_t<_Tp>&&` (SC028E). A field this set
+    /// cannot spell has its own fallbacks (_define: `void *`, a sized blob),
+    /// so the stand-in is the same whoever asked for it first.
+    priv fn _layout_spelling(self, t: unsafe *Type) -> clang::QualType {
+        var keep = self.allow_opaque_args
+        self.allow_opaque_args = false
+        var q = self.to_clang(t)
+        self.allow_opaque_args = keep
+        return q
     }
 
     /// Record type \p t has a vtable: an imported class clang calls dynamic,
@@ -2172,7 +2189,10 @@ pub class TypeExport {
         var        cg      = CodegenContext(tu_ctx, &null, self.psym, self.instances)
         var        sp      = CXXSpell(unsafe &cg)
         for var i: usize = 0; i < gps.size(); ++i {
-            var name = sp.imm_name(gps[i]->name.imm, fid)
+            // A parameter named in a macro body is a TkMacroExpand token,
+            // whose imm is not an index into the declaring file's table:
+            // tok_name resolves it as Codegen spells it.
+            var name = sp.tok_name(gps[i]->name, fid)
             if gps[i]->is_const_param {
                 var vt = self.to_clang(TypeExport::_value_canon(gps[i]))
                 var unsafe *nt = clang::NonTypeTemplateParmDecl::Create(

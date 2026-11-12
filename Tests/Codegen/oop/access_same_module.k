@@ -1,5 +1,5 @@
-// `priv` and `prot` are module-wide (classes.mdx, Visibility; decision
-// 2026-10-26): every function in the class's file -- free ones included --
+// `priv` and `prot` are module-wide (classes.mdx, Visibility):
+// every function in the class's file -- free ones included --
 // sees its private members. AccessCheck allows it, and the emitted C++
 // writes every Kairo member `public:` (C++ has no access level for "this
 // file"), so it compiles AND runs. Before, Kairo accepted these and clang

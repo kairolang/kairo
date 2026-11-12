@@ -70,8 +70,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, EnumDecl,     FunctionDecl, ImportDecl, ModuleDecl, StructDecl, TypeAliasDecl,
-    UnionDecl, VariableDecl,
+    ClassDecl, EnumDecl,     FunctionDecl, ImportDecl, MacroDecl, ModuleDecl, StructDecl,
+    TypeAliasDecl, UnionDecl, VariableDecl,
 }
 import AST::VisibilityFacts::{
     default_visibility_of,
@@ -273,6 +273,15 @@ pub class ImportResolution {
 
         var unsafe *src_imms = self.sc->ctx->tcm->get_imm_table_for_fid(fid)
         if src_imms == &null {
+            return
+        }
+
+        // `import foo::mac!`: a macro, which the preprocessor resolved and
+        // bound (FileImportIndex::record, R011E on a miss). Macros are not
+        // in the source's symbol table, so walking the path here reported
+        // the import's own macro as "not declared in module" (R015E, P1006).
+        // Nothing to fold: the expansion is already in the token stream.
+        if id->last_seg_is_macro {
             return
         }
 
@@ -531,16 +540,46 @@ pub class ImportResolution {
         }
 
         if cell == &null {
-            // FIXME(diag-table)
-            self.sc->diag->report(
+            // `import lib::getter` where lib has `macro getter!`: a macro is
+            // imported by its `!` spelling (`import lib::getter!`), and the
+            // bare one names a declaration. Said here, where the miss is
+            // already established: a file may declare both `fn getter` and
+            // `macro getter!`, and then the bare import is the function's.
+            var b = self.sc->diag->report(
                 DiagID::R015E,
                 at.start,
                 f"'{name}' is not declared in {disp}",
-            ).first(at)->emit()
+            )
+
+            b.first(at)
+            if prev == &null && self._declares_macro(src_tu, name) {
+                b.note(f"'{name}!' is a macro there; a macro is imported with its '!'")
+                b.insert(at.end, "!", f"import the macro '{name}!'")
+            }
+
+            b.emit()
             return &null
         }
 
         return cell
+    }
+
+    /// \p src_tu defines a macro spelled \p name (`macro name! ...`), at
+    /// any visibility: the hint only names the spelling, and a private
+    /// one is then the preprocessor's R011E.
+    priv fn _declares_macro(self, src_tu: unsafe *TranslationUnit, const name: string) -> bool {
+        if src_tu == &null || src_tu->ctx == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < src_tu->macros.size(); ++i {
+            var unsafe *md = dyn_cast<MacroDecl>(*src_tu->macros.get(i))
+            if md != &null && src_tu->ctx->get_spelling(md->name) == name {
+                return true
+            }
+        }
+
+        return false
     }
 
     priv fn _reexported_cell(self,
@@ -589,7 +628,9 @@ pub class ImportResolution {
                 continue
             }
 
-            if it.sub_path.size() == 0 {
+            // `import foo::{mac!, f}`: the macro item is the preprocessor's
+            // (see the `import foo::mac!` case in _resolve_one).
+            if it.sub_path.size() == 0 || it.is_macro {
                 continue
             }
 

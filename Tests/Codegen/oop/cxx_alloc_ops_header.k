@@ -2,7 +2,7 @@
 // are C++-facing text only: the --emit-headers header and the kcc
 // `#include "x.k"` stream give each record them, routed to the program's
 // global allocator (kairo_global_alloc / kairo_global_free), always: a class
-// cannot have its own `op new` / `op delete` (SC149E, 2026-11-08); the module's own
+// cannot have its own `op new` / `op delete` (SC149E); the module's own
 // object (--print-ir) has none of them, only the placement form an ADT
 // payload always carried.
 import builtin::base::alloc::*

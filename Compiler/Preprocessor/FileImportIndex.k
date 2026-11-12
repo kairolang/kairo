@@ -22,6 +22,7 @@
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "vector"
 
+import AST::ASTSupport::FrozenList
 import AST::Node::Declarations::{
     ImportDecl,
     ImportKind,
@@ -66,6 +67,18 @@ pub class FileImportIndex {
     /// module aliases for QUALIFIED invocation (`import Foo` -> Foo::mac!,
     /// `import Foo as f` -> f::mac!)
     pub var module_aliases: llvm::DenseMap<u64, ModulePath>
+
+    /// Items imported WITHOUT a `!` (`import Foo::mac`, `import Foo::{mac}`):
+    /// a declaration's spelling, which R013E reads only when a macro of
+    /// that name is unknown (bare_macro_import), to say the import needed
+    /// the `!`. Never consulted on a successful lookup.
+    struct BareItem {
+        var name:  SymbolID
+        var scope: ModulePath
+        var at:    SourceRange
+    }
+
+    priv var _bare: cxx::std::vector<Self::BareItem>
 
     priv var _sym:  *PreprocessorSymbolTable
     priv var _sm:   *SourceManager
@@ -155,6 +168,7 @@ pub class FileImportIndex {
                 }
 
                 if !it.is_macro { // non-macro items are the AST's concern
+                    self._note_bare(rr.source_scope, it.sub_path, it.range)
                     continue
                 }
 
@@ -169,8 +183,11 @@ pub class FileImportIndex {
 
                 var last     = it.sub_path[it.sub_path.size() - 1]
                 var name_sym = self._sym->intern(self._spell(last))
-                var alias_sym = if (it.has_alias) => (self._sym->intern(self._spell(it.alias)))
-                                else => name_sym
+                if it.has_alias {
+                    self._macro_alias(name_sym, it.alias)
+                }
+
+                var alias_sym = name_sym
 
                 self._record_named(item_scope, name_sym, alias_sym, it.range)
             }
@@ -194,8 +211,11 @@ pub class FileImportIndex {
             }
 
             var name_sym = self._sym->intern(segs[segs.size() - 1])
-            var alias_sym = if (id->has_alias) => (self._sym->intern(self._spell(id->alias)))
-                            else => name_sym
+            if id->has_alias {
+                self._macro_alias(name_sym, id->alias)
+            }
+
+            var alias_sym = name_sym
             self._record_named(rr.source_scope, name_sym, alias_sym, id->range)
             id->resolved_fid   = rr.target_fid
             id->file_seg_count = (rr.seg_count as u32)
@@ -209,12 +229,75 @@ pub class FileImportIndex {
             return 0
         }
 
+        // `import Foo::mac` reaching past the file: a symbol path, which
+        // may have meant the macro `mac!`.
+        if rr.seg_count < segs.size() {
+            var last = id->path_segments[id->path_segments.size() - 1]
+            var item_scope = rr.source_scope
+            item_scope.segments.pop_back()
+            var bi = Self::BareItem{}
+            bi.name  = self._sym->intern(segs[segs.size() - 1])
+            bi.scope = item_scope
+            bi.at    = last.range
+            self._bare.push_back(bi)
+        }
+
         var alias_key = if (id->has_alias) => (self._sym->intern(self._spell(id->alias)))
                         else => self._sym->intern(segs[segs.size() - 1])
         self.module_aliases[alias_key as u64] = rr.full_scope
         id->resolved_fid                      = rr.target_fid
         id->file_seg_count                    = (rr.seg_count as u32)
         return rr.target_fid
+    }
+
+    /// `import Foo::mac! as m`: the language reference gives a macro import
+    /// no `as` (macros.mdx, imports.mdx define it for declarations only), so
+    /// it is an error naming the form that works, and the macro is bound
+    /// under its own name. FIXME(diag-table): R001E placeholder.
+    priv fn _macro_alias(self, name: SymbolID, alias: Token) {
+        var nm = self._sym_name(name)
+        self._diag->report(
+            DiagCode(DiagID::R001E),
+            alias.range.start,
+            f"a macro import takes no 'as': import it as '{nm}!' and invoke '{nm}!'",
+        ).first(alias.range)->emit()
+    }
+
+    /// A braced item without `!` (`import Foo::{a::mac}`), recorded as
+    /// a BareItem under \p base plus every segment but its last.
+    priv fn _note_bare(self, const base: ModulePath, const sub: FrozenList<Token>, at: SourceRange) {
+        if sub.size() == 0 {
+            return
+        }
+
+        var scope = base
+        for var s: usize = 0; s + 1 < sub.size(); ++s {
+            var seg_id = IdentifierToken()
+            seg_id.name  = self._sym->intern(self._spell(sub[s]))
+            seg_id.token = &null
+            scope.segments.push_back(seg_id)
+        }
+
+        var last = sub[sub.size() - 1]
+        var bi = Self::BareItem{}
+        bi.name  = self._sym->intern(self._spell(last))
+        bi.scope = scope
+        bi.at    = last.range
+        self._bare.push_back(bi)
+    }
+
+    /// The name token of an import that spelled macro \p name without its
+    /// `!` (`import lib::getter` for `macro getter!` in lib), or an invalid
+    /// range. Read by R013E only, so the cost is on the error path.
+    fn bare_macro_import(self, name: SymbolID) -> SourceRange {
+        for var i: usize = 0; i < self._bare.size(); ++i {
+            var *b = &self._bare[i]
+            if b->name == name && self._tbl->find_ignoring_visibility(b->scope, name) != &null {
+                return b->at
+            }
+        }
+
+        return SourceRange()
     }
 
     /// # named macro import: resolve eagerly, enforce visibility
@@ -301,12 +384,12 @@ pub class FileImportIndex {
 
         out = self._resolve_greedy(segs, id, in_dir, anchor)
 
-        // Migration (Compiler/Spec/Imports.md#migration): the plain form
-        // used to look beside the importing file first. A path only that
+        // Compatibility (Compiler/Spec/Imports.md#migration): the plain form
+        // once resolved beside the importing file. A path only that
         // directory holds still resolves -- to the file it always meant --
         // and is reported with the `self::` that says so. Tried only once
         // every root has missed every prefix, so a root answer is never
-        // overridden by the old rule.
+        // overridden by it.
         if !out.found && id->import_kind == ImportKind::Native && self._has_dir {
             out = self._resolve_greedy(segs, id, true, self._dir)
             if out.found {
@@ -369,7 +452,7 @@ pub class FileImportIndex {
                 var fid = self._sm->load_file(rr.path)
                 if fid != (u32::MAX as FileID) {
                     // canonical ++ whatever the import spelled past the file:
-                    // for a root-relative import this is exactly the old
+                    // for a root-relative import this is exactly
                     // `segs`, so nothing changes for existing code.
                     var src = rr.canonical
                     for var i: usize = try_len; i < segs.size(); ++i {
@@ -447,7 +530,7 @@ pub class FileImportIndex {
     /// What _drain_collisions reports, for the driver: the preprocessor
     /// takes what the dependency scan's sweeps found before the walk starts
     /// (Preprocessor::preprocess), so no walk of the wave races another to
-    /// take them, which decided where they printed (P956).
+    /// take them, which would decide where they print.
     pub static fn report_collisions(res: *ImportResolver, diag: *DiagEngine) {
         var found = res->take_collisions()
         for var i: usize = 0; i < found.size(); ++i {

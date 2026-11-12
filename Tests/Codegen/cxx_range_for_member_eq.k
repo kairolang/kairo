@@ -1,6 +1,6 @@
 // A range-for over a C++ vector inside a class that declares its own `op ==`
 // emitted the iterator test as `operator ==(it, end)`; the member found by name
-// lookup hid the std one from ADL. A free imported operator is now written infix.
+// lookup hid the std one from ADL. A free imported operator is written infix.
 
 ffi "c++" import "vector";
 enum K derives u32 { A, B }

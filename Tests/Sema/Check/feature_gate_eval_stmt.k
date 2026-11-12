@@ -1,7 +1,7 @@
 // An `eval for` directly in a module or class body parses
 // (Tests/Parser/Grammar/eval_stmt_in_body.k) but nothing unrolls it there
 // yet, so FeatureGateCheck reports it, once per statement, as SC116E. An
-// `eval if` there is folded (EvalIfFolding, EVAL.md §4) and is no longer
+// `eval if` there is folded (EvalIfFolding, EVAL.md §4) and is not
 // gated: the untaken branch is discarded before it is resolved, so its
 // `"no"` into an `i32` is not reported, and the taken branch's `g` is the
 // module's.
