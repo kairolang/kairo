@@ -4099,11 +4099,7 @@ pub class CXXSpell {
 
         var vps = cxx::std::vector<unsafe *Expr>()
         CXXSpell::value_predicates(m->requires_clause, unsafe &vps)
-        if vps.size() == 0 {
-            return ""
-        }
-
-        var s = ""
+        var s = self._owner_impl_conjuncts(m, owner)
         for var i: usize = 0; i < vps.size(); ++i {
             var t = self._pred_text(vps[i])
             if t.size() == 0 {
@@ -4114,7 +4110,58 @@ pub class CXXSpell {
             s += "(" + t + ")"
         }
 
-        return s + ")"
+        return if (s.size() > 0) => (s + ")") else => ""
+    }
+
+    /// ` requires (::ns::I_c<P> && ...`, unclosed, for each `P impl I` of
+    /// member \p m's clause whose P is a parameter of \p owner, or "". The
+    /// instance that does not meet it has no such member, so its body is
+    /// never instantiated there.
+    priv fn _owner_impl_conjuncts(self,
+                                  m:     unsafe *Declarations::FunctionDecl,
+                                  owner: unsafe *Decl) -> string {
+        var tps = CXXSpell::template_params(CXXSpell::rep(owner))
+        var cs  = cxx::std::vector<unsafe *ConstraintExpr>()
+        CXXSpell::impl_bounds(m->requires_clause, unsafe &cs)
+        var s = ""
+        for var i: usize = 0; i < cs.size(); ++i {
+            var unsafe *c = cs[i]
+            if c->rhs == &null || c->rhs->canonical == &null {
+                continue
+            }
+
+            var unsafe *gp = CXXSpell::_bound_param(c)
+            var mine = false
+            for var k: usize = 0; gp != &null && k < tps.size(); ++k {
+                if tps[k] == gp {
+                    mine = true
+                    break
+                }
+            }
+
+            var unsafe *rhs = canon_unqual(c->rhs->canonical)
+            if !mine || gp->is_pack || !isa<RecordType>(rhs) {
+                continue
+            }
+
+            var unsafe *idecl = CXXSpell::rep(
+                DeclFacts::decl_pattern(
+                    CXXSpell::rep(cast<RecordType>(rhs)->decl),
+                ),
+            )
+
+            if !isa<Declarations::InterfaceDecl>(idecl) {
+                continue
+            }
+
+            s += if (s.size() == 0) => (" requires (") else => " && "
+            s += self.concept_name(idecl) + self.witness_args(
+                self.tparam_name(gp, CXXSpell::rep(gp->owner)),
+                rhs,
+            )
+        }
+
+        return s
     }
 
     /// A call of an `eval fn` whose whole body is `return f<P...>()` with f

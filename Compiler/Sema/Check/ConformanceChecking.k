@@ -432,6 +432,61 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             b.emit()
             return
         }
+
+        // `P impl I` on a parameter of the record: the instance's argument
+        // for P must conform. C++ drops the member where it does not.
+        var bounds = cxx::std::vector<unsafe *ConstraintExpr>()
+        self._impl_bounds(f->requires_clause, unsafe &bounds)
+        var unsafe *rd = self.tu.record_decl(rec)
+        if bounds.size() == 0 || rd == &null {
+            return
+        }
+
+        var unsafe *pat  = NameLookup::representative(self.tu.pattern_of(rd))
+        var        rargs = self.tu.record_args(rec)
+        for var i: usize = 0; i < bounds.size(); ++i {
+            var unsafe *bd = bounds[i]
+            var unsafe *gp = self._param_named(bd, pat)
+            if gp == &null || gp->is_pack || (gp->index as usize) >= rargs.size() {
+                continue
+            }
+
+            if bd->rhs == &null || bd->rhs->canonical == &null {
+                continue
+            }
+
+            var unsafe *x     = canon_unqual(rargs[gp->index as usize])
+            var unsafe *iface = canon_unqual(bd->rhs->canonical)
+            if iface->is_dependent() {
+                iface = d.substitute(iface)
+            }
+
+            if x == &null || iface == &null || x->is_dependent() || iface->is_dependent() {
+                continue
+            }
+
+            var unsafe *row = self.conforms(x, iface)
+            if row == &null || row->ok {
+                continue
+            }
+
+            var rs    = self.tu.str(rec)
+            var fname = self.tu.decl_name(unsafe (f as unsafe *Decl))
+            var b = self.sc->diag->report(
+                DiagID::SC153E,
+                c->range.start,
+                f"'{fname}' cannot be called on '{rs}': its 'requires' clause does not hold",
+            )
+
+            b.first(c->range)
+            b.note(
+                DiagCode(DiagID::SC153N),
+                bd->range.start,
+                f"'{self.tu.str(x)}' does not conform to '{self.tu.str(iface)}'",
+            )->child_first(bd->range)
+            b.emit()
+            return
+        }
     }
 
     /// The concrete record a method is called on, through pointers,

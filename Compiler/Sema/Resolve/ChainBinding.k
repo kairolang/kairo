@@ -1641,6 +1641,26 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     priv var _narrow_params: cxx::std::vector<unsafe *Declarations::GenericParamDecl>
     priv var _narrow_ifaces: cxx::std::vector<unsafe *Decl>
 
+    /// A member's `requires P impl I` (P a parameter of its record) holds
+    /// wherever the member exists: C++ drops the member from an instance
+    /// that does not meet it (CXXSpell::member_requires), so its body sees
+    /// I's members on P, as a taken `eval if P impl I` branch does.
+    fn traverse_function_decl(self,
+                              n: unsafe *Declarations::FunctionDecl) -> unsafe *Declarations::FunctionDecl {
+        var mark = self._narrow_params.size()
+        if n != &null && n->requires_clause != &null {
+            self._narrow_from(n->requires_clause)
+        }
+
+        var unsafe *out = RecursiveASTVisitor<ChainBinding>::traverse_function_decl(self, n)
+        while self._narrow_params.size() > mark {
+            self._narrow_params.pop_back()
+            self._narrow_ifaces.pop_back()
+        }
+
+        return out
+    }
+
     fn traverse_conditional_stmt(self, n: unsafe *ConditionalStmt) -> unsafe *ConditionalStmt {
         if n == &null || !n->is_eval {
             return RecursiveASTVisitor<ChainBinding>::traverse_conditional_stmt(
