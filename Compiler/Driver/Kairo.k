@@ -44,6 +44,7 @@ ffi "c++" import "llvm/Support/CodeGen.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/KLog.hh"
 ffi "c++" import "Native/GlobalRecycler.hh"
+ffi "c++" import "Native/KThread.hh" // execute_on_big_stack
 ffi "c++" import "locale"
 ffi "c++" import "sstream"
 ffi "c++" import "cstring"
@@ -51,6 +52,7 @@ ffi "c++" import "cstdio"
 
 import Diagnostic::Registry::DiagID
 import Driver::CompilerInfo
+import Driver::BatchResult::BatchResult
 import Driver::CompilerInstance::CompilerInstance
 import Driver::Progress::progress_configure
 import Driver::Runtime::init_runtime
@@ -59,6 +61,7 @@ import Support::ExitCodes::{
     EXIT_OK,
 }
 import Support::FileIO::Path::Path
+import Support::Tuning::WORKER_STACK_BYTES
 import Tooling::IncrReplay::incr_replay_main
 import Support::TimeReport::{
     TimeRegion,
@@ -259,7 +262,11 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         return EXIT_FAILURE
     }
 
-    var result = ci->execute()
+    // On a thread with the pool workers' stack: the entry file's Sema
+    // runs here, and a deep left-leaning chain recurses past the main
+    // thread's 8 MB.
+    var result = BatchResult()
+    kairo::execute_on_big_stack(ci, unsafe &result, WORKER_STACK_BYTES)
     ci->flush_errors()
 
     // An unwritable report/trace path is an error, not a note: the run

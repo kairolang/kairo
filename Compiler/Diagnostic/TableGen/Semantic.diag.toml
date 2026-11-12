@@ -6102,3 +6102,40 @@ group = "ffi"
 
     wrap the block in `unsafe { ... }` (the fix-it does).
     """
+
+[SC297]
+brief = "an override returns a type C++ does not accept over the virtual's return"
+group = "classes"
+
+    [SC297.E]
+    explain = """
+    # an override's return does not match the virtual it overrides
+
+    A Kairo class's virtual methods are C++ virtual functions, so an
+    override returns what C++ accepts as an override: the same type as the
+    virtual, or a pointer to a class that derives from the one the virtual
+    points to (a covariant return), with no more `const` on it.
+
+    ```kairo
+    class Shape {
+        virtual fn area(self) -> i32 { return 0 }
+        virtual fn me(self) -> *Shape { return &self }
+    }
+    class Square derives Shape {
+        override fn area(self) -> i64 { return 4 }      // error: not i32
+        override fn me(self) -> *Square { return &self } // fine: covariant
+    }
+    ```
+
+    A nullable pointer is not covariant (`*Square?` over `*Shape?` is an
+    error), and neither is a value of a derived class (`-> Square` over
+    `-> Shape`).
+
+    ## how to fix
+
+    return the virtual's type (the fix-it writes it), or a covariant
+    pointer.
+    """
+
+    [SC297.N]
+    explain = "Points at the return type of the virtual method the override must match."

@@ -4161,6 +4161,7 @@ pub class <T: type> DeclParse {
             return false
         }
 
+        var open = self._cur_range() // the `{`, for the unclosed-body note
         self.dyn()->advance(T::SkipNL::After) // consume `{`
 
         var field_idx: u32   = 0
@@ -4362,11 +4363,20 @@ pub class <T: type> DeclParse {
             return true
         }
 
-        self.dyn()->diag->report(
+        // The loop leaves only on `}` or at the end of the file, so the
+        // error lands on the file's last token, which can be hundreds of
+        // lines from the body that is open: the note names the `{`.
+        var b = self.dyn()->diag->report(
             DiagID::S048E,
             self.dyn()->prev().range.start,
             "expected '}' to close the type body",
-        ).first(self.dyn()->prev().range)->emit()
+        )
+        b.first(self.dyn()->prev().range)
+        if open.is_valid() {
+            b.note(open.start, "the type body opened here is not closed")->child_first(open)
+        }
+
+        b.emit()
         return false
     }
 

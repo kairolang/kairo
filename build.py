@@ -55,8 +55,7 @@ EXE = ".exe" if os.name == "nt" else ""
 # every build from Compiler/Diagnostic/TableGen; never committed.
 REGISTRY_DIR = ROOT / "build" / "registry"
 # The repo's own Compiler/ + Linker/ are the self-hosted (Stage 1 syntax) tree since the
-# switch-over (2026-11-06); kbld (Stage 0) can no longer build it. This used to be read from
-# a `.selfhosted` marker file, which was easy to lose and made a fresh clone refuse to build.
+# switch-over; kbld (Stage 0) cannot build it.
 REPO_SELFHOSTED = True
 
 # What Stage 1 cannot express yet, printed with --explain-gaps so nobody wonders
@@ -124,7 +123,7 @@ def host_triple() -> str:
 
 # --- version / metadata ------------------------------------------------------
 
-# The toolchain's version, one number for every binary (decided 2026-11-06: Stage 1.5 is
+# The toolchain's version, one number for every binary (Stage 1.5 is
 # v0.2.0). Builds carry +dev.<date>; a release build drops it.
 KAIRO_VERSION = "0.2.1"
 DEV = f"-{KAIRO_VERSION}+dev"
@@ -174,10 +173,10 @@ def write_meta(gen_dir: Path, name: str, os_: str, epoch=None, ver: str = None) 
     tooling. Section syntax is per object format (ELF / Mach-O / COFF).
 
     With `ver` it also defines kairo_version_cstr(), the tool's version string, which
-    Native/KShims.hh's version_string() returns under -D KAIRO_VERSION_EXTERN. The version
-    used to be a `-D VERSION="kcc+dev.<date>"` on every TU: a cc1 word, so in every
+    Native/KShims.hh's version_string() returns under -D KAIRO_VERSION_EXTERN. It is not a
+    `-D VERSION="kcc+dev.<date>"` on every TU: that is a cc1 word, so in every
     object key (Compiler/Spec/Incremental.md), and it differs per tool and per day, so
-    no two tools (and no two days) could share a cached object. Here it is in the one
+    no two tools (and no two days) could share a cached object. It lives in the one
     per-tool object that is never cached."""
     when = datetime.datetime.now(datetime.timezone.utc) if epoch is None else \
         datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc)
@@ -647,7 +646,7 @@ def _claim_native(obj: Path, keep: Path):
     obj is gone. The shared cache is pruned by whichever build stores next (another
     worktree, another key), and that could delete the object this build picked
     before its link read it: "object .native-objs/.../cc1as_main-*.o was never
-    written" (P959). The claimed name is this build's alone, and a link keeps the
+    written". The claimed name is this build's alone, and a link keeps the
     bytes alive whatever the cache does afterwards."""
     keep.mkdir(parents=True, exist_ok=True)
     mine = keep / obj.name
@@ -954,7 +953,7 @@ class Progress:
 # --- the compiler to build with -------------------------------------------------
 
 def release_triple(host: str) -> str:
-    """Where a host's RELEASE toolchain lives (decided 2026-11-06: every release build is
+    """Where a host's RELEASE toolchain lives (every release build is
     static). On Linux that is the static musl tree, which also runs here, so the release
     pipeline still stages through it; --debug keeps the dynamic glibc tree for speed."""
     if host.endswith("-linux-gnu"):
@@ -968,7 +967,7 @@ def _release_triples(host: str) -> list:
 
 
 def find_seed(triple: str) -> Path:
-    """The SEED (decided 2026-11-06): build/<host>/N-1/bin/kairo if there is one (the last
+    """The SEED: build/<host>/N-1/bin/kairo if there is one (the last
     release, backed up when the newest was built), else build/<host>/release, else
     `kairo` on PATH. Its kcc builds LLVM (cross_llvm.find_kcc) and its kairo starts a
     release's staging step."""
@@ -1020,11 +1019,10 @@ def kairo_has_flag(kairo: Path, flag: str) -> bool:
 
 
 def tree_visibility_args(kairo: Path) -> list:
-    """-fdefault-visibility=spec (2026-11-08): the tree builds under
+    """-fdefault-visibility=spec: the tree builds under
     the language's own rule. An unmarked declaration is `prot` to its module (each
     top-level Compiler/ and Linker/ directory holds a comments-only module.k), and
-    what another module uses is marked `pub`: that is the module's API. Before
-    that the tree passed `pub` (the old everything-visible rule); the flag stays for
+    what another module uses is marked `pub`: that is the module's API. The flag is also for
     users and tests. Passed explicitly rather than left to the default so the gate
     is visible in --print-jobs; empty for a seed that predates the flag, which has
     the old rule and needs nothing."""
@@ -1032,7 +1030,7 @@ def tree_visibility_args(kairo: Path) -> list:
 
 
 def find_kairo(arg, triple: str) -> Path:
-    """The compiler a build uses (decided 2026-11-06): --kairo, else $KAIRO_SEED, else
+    """The compiler a build uses: --kairo, else $KAIRO_SEED, else
     build/<host>/release/bin/kairo (the last good release), else whatever `kairo` is on
     PATH. The `kcc` beside it is what builds LLVM (Scripts/cross_llvm.py, find_kcc).
     Note PATH may still be Stage 0 (/usr/local/bin/kairo), which cannot build this tree;
@@ -1053,17 +1051,31 @@ def find_kairo(arg, triple: str) -> Path:
     die(f"no compiler: no build/<host>/release/bin/kairo and no kairo on PATH; pass --kairo or set KAIRO_SEED")
 
 
-def link_sysroot(out: Path, triple: str, prog) -> None:
-    """A tree outside build/<triple>/{release,debug} (stage1/, stage1.5/) has no bundled
-    sysroot, so its compiler finds no C++ headers (P001W, then 'new' file not found).
-    Point it at the release tree's, as kbld's debug tree does (sysroot -> ../release/sysroot)."""
+def link_sysroot(out: Path, triple: str, prog, compiler: Path = None) -> None:
+    """A tree outside build/<triple>/{release,debug} (stage1/, stage1.5/, any --out) has no
+    bundled sysroot, so its compiler finds no C++ headers (P001W, then 'new' file not found).
+    Point it at the release tree's, as kbld's debug tree does (sysroot -> ../release/sysroot).
+
+    In a git worktree (build/wt/<name>) there is no build/<triple>/release of its own, so
+    the link was silently skipped and an out-of-place release tree there could not import
+    <vector>. The compiler that built this tree has a staged tree beside it; its
+    sysroot is the fallback, linked by absolute path since it lies outside this checkout.
+    A tree that already has a sysroot (the installed release tree) is never touched."""
     dst = out / "sysroot"
-    src = ROOT / "build" / triple / "release" / "sysroot"
-    if dst.exists() or dst.is_symlink() or not src.is_dir():
+    if dst.exists() or dst.is_symlink():
         return
+    src = ROOT / "build" / triple / "release" / "sysroot"
+    rel = True
+    if not src.is_dir() and compiler is not None:
+        src = Path(compiler).resolve().parent.parent / "sysroot"
+        rel = False
+    if not src.is_dir():
+        return
+    src = src if rel else src.resolve()
     try:
-        os.symlink(os.path.relpath(src, out), dst, target_is_directory=True)
-        prog.log(f"sysroot: {dst} -> {os.path.relpath(src, out)}")
+        target = os.path.relpath(src, out) if rel else str(src)
+        os.symlink(target, dst, target_is_directory=True)
+        prog.log(f"sysroot: {dst} -> {target}")
     except OSError as e:
         # Windows without symlink rights: a copy keeps the tree self-contained.
         shutil.copytree(src, dst, symlinks=True)
@@ -1118,7 +1130,7 @@ def reproducible_args(os_: str, epoch: int, src: Path, out: Path) -> list:
 
 # --- main ------------------------------------------------------------------------
 
-# --- the pipeline (decided 2026-11-06) -------------------------------------------
+# --- the pipeline -------------------------------------------
 #
 #   python3 build.py --debug [targets]   build/<triple>/debug: the toolchain, built by the release
 #                                        compiler, permanent cache build/<triple>/cache/debug.
@@ -1134,7 +1146,7 @@ def reproducible_args(os_: str, epoch: int, src: Path, out: Path) -> list:
 #     cannot run here, so there is no staging step: the host's release compiler builds it.
 #
 # The caches are passed as --cache-dir, which is also kairo's incremental object cache
-# (phase 1, Compiler/Spec/Incremental.md): a TU whose object key is unchanged skips
+# (Compiler/Spec/Incremental.md): a TU whose object key is unchanged skips
 # codegen and clang. The debug cache is permanent; the release pipeline clears its caches
 # per run, so a release never reuses a staging compiler's objects.
 #
@@ -1235,7 +1247,7 @@ def _cross_llvm_stale(target: str) -> bool:
 def _cross_llvm_ready(a, host: str, target: str) -> bool:
     """A target's LLVM, rebuilt when the fork changed or it was never built, by the seed's
     kcc. A seed with no kcc (a bare `kairo` on PATH, a staging tree) gets one first:
-    built by the seed's kairo into build/<host>/staging (decided 2026-11-06)."""
+    built by the seed's kairo into build/<host>/staging."""
     if not _cross_llvm_stale(target):
         return True
     seed = find_seed(host)
@@ -1461,7 +1473,7 @@ def main() -> int:
         common = cross_llvm_args(llvm_src, a.target) + profile_args(debug, a.sanitize_ub)
     else:
         common = llvm_args(llvm_src, llvm_build, out_lib, os_) + platform_args(os_) + profile_args(debug, a.sanitize_ub, os_)
-    # --native (decided 2026-11-03): link against this machine's C library, headers and
+    # --native: link against this machine's C library, headers and
     # libraries. The vendored LLVM was built against the host glibc (2.38 / 2.44 symbol
     # versions), above the bundled sysroot's 2.31 floor, so a sysroot link warns L001W
     # and the binary only runs where that newer glibc is. Drop this once LLVM is built
@@ -1489,7 +1501,7 @@ def main() -> int:
     native_common = list(common)
     if selfhost:
         # The compiler's own source still has `<T: type>` sites (TODO(DUCK-GENERIC)).
-        # -fduck-generics is off by default (decided 2026-11-08: everyone else gets real
+        # -fduck-generics is off by default (everyone else gets real
         # bounds) and internal; only this tree's targets turn it on. After the
         # native_common copy: the C++ native objects have no generics, and their
         # cache key should not move with a Kairo-only flag.
@@ -1568,7 +1580,7 @@ def main() -> int:
 
     if staged:
         prog.next("stage tree (Scripts/stage_tree.py)")
-        link_sysroot(out, triple, prog)
+        link_sysroot(out, triple, prog, kairo)
         postbuild(out, mode_name, tree_triple, cross_dir(a.target) / "llvm" if a.target else None, a.target, src)
     if not (a.print_jobs or a.print_command):
         prog.done()

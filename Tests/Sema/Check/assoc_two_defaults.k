@@ -3,8 +3,8 @@
 // path (interfaces.md, "Associated types and inheritance"), so neither
 // does and the conformance fails, naming both. Declaring the type in the
 // conformer (`Both`) chooses; equal defaults (`Same`) agree; one default
-// alone (`One`) applies. The first one found used to win silently, for
-// every interface of the type, D2's row included.
+// alone (`One`) applies. The first one found does not win silently, for
+// any interface of the type, D2's row included.
 
 interface G { type Node }
 interface D1 derives G { type Node = i64 }

@@ -12,7 +12,7 @@
 ///     after the label is compiled unchecked (main's order is what proves
 ///     it ran); a jump back over it would run statements again around a line
 ///     the order counts once. Either is an error at the jump, with notes at
-///     the binding and the label (Compiler/Spec/ScriptMode.md#control-flow, decided). Which lines are
+///     the binding and the label (Compiler/Spec/ScriptMode.md#control-flow). Which lines are
 ///     deferred is ScriptRules::defers, the predicate ScriptLowering moves
 ///     them by, so the two cannot disagree.
 ///
@@ -189,7 +189,7 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
             var *jn       = jumps[j]
             var li: isize = -1
             for var l: usize = 0; l < labels.size(); l++ {
-                if labels[l]->name.imm == jn->target.imm {
+                if self._same_name(labels[l]->name, jn->target) {
                     li = (l as isize)
                     break
                 }
@@ -250,6 +250,17 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
         b.emit()
     }
 
+    /// Two label names are the same label: compared by identifier, read
+    /// through a macro wrapper. A name written in a macro body is a wrapped
+    /// token whose imm is its own expansion record, so comparing imms
+    /// matched no label a macro declared (SC006E on `jump!(again)` beside
+    /// its own `label!(again)`) and let a macro declare one twice; an
+    /// imported macro's identifier also indexes the defining file's table.
+    priv fn _same_name(self, a: Token, b: Token) -> bool {
+        var ia = self.sc->ctx->get_ident_imm(a)
+        return ia != u32::MAX && ia == self.sc->ctx->get_ident_imm(b)
+    }
+
     /// Validate every jump collected in the current frame against the
     /// frame's labels, then truncate both stacks back to the given floors.
     priv fn _validate_and_pop_frame(self, lf: usize, jf: usize) {
@@ -257,7 +268,7 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
             var *jn         = self.jumps[j]
             var found: bool = false
             for var l: usize = lf; l < self.labels.size(); l++ {
-                if self.labels[l].imm == jn->target.imm {
+                if self._same_name(self.labels[l], jn->target) {
                     found = true
                     break
                 }
@@ -284,7 +295,7 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
 
     fn visit_label_intrinsic_stmt(self, n: *LabelIntrinsicStmt) -> bool {
         for var l: usize = self.label_floor; l < self.labels.size(); l++ {
-            if self.labels[l].imm == n->name.imm {
+            if self._same_name(self.labels[l], n->name) {
                 self.sc->diag->report(
                     DiagID::SC007E,
                     n->range.start,

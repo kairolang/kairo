@@ -3,7 +3,9 @@
 ///   \brief Where `ffi::ref<T>` / `ffi::mref<T>` may stand, and that an
 ///          override of a C++ virtual returns what the virtual returns
 ///          (P872, functions-parameter-modes.mdx "Reference returns from C++";
-///          any return, not only a reference, since P987).
+///          any return, not only a reference, since P987), and that an
+///          override of a KAIRO virtual returns what C++ accepts for it
+///          (SC297E, P995).
 ///
 ///   \detail
 ///     `ffi::ref<T>` (C++ `T&`), `ffi::ref<const T>` (`const T&`) and
@@ -61,7 +63,10 @@ import AST::Node::Base::{
     Expr,
     Type,
 }
-import AST::Node::CanonicalNodes::canon_unqual
+import AST::Node::CanonicalNodes::{
+    canon_quals,
+    canon_unqual,
+}
 import AST::Node::Casting::{
     cast,
     dyn_cast,
@@ -99,6 +104,7 @@ import Sema::SemaContext::{
     SemaPhase,
 }
 import Sema::Type::NullnessFlow::null_flow_is_global
+import Sema::Type::Substitution::Substitution
 import Sema::Type::TypeUtil::TypeUtil
 
 /// \p t is a reference written `ffi::ref<...>` / `ffi::mref<...>`.
@@ -313,11 +319,15 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
             }
 
             var unsafe *base = panic_overridden(unsafe &self._tu, cd, m)
-            if base == &null || !decl_is_imported(unsafe (base as unsafe *Decl)) {
+            if base == &null {
                 continue
             }
 
-            self._check_override_return(m, base)
+            if decl_is_imported(unsafe (base as unsafe *Decl)) {
+                self._check_override_return(m, base)
+            } else {
+                self._check_kairo_override_return(m, base)
+            }
         }
 
         return true
@@ -416,6 +426,125 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         // Judged here; visit_type must not report it a second time when the
         // method's own traversal reaches it (a poisoned method is skipped).
         self._returns.push_back(m->return_type)
+        m->poison()
+    }
+
+    /// # overrides of a Kairo virtual (SC297E)
+
+    /// An override of a Kairo virtual returns what C++ accepts as an
+    /// override of the method it emits: the same type, or a covariant
+    /// pointer. The docs have no covariance rule for Kairo classes
+    /// (classes-inheritance.mdx), so this is no rule of Kairo's own: it is
+    /// clang's verdict on the emitted pair, moved ahead so the error is a
+    /// Kairo one with a fix-it instead of CL001E naming C++ types. What
+    /// clang accepted, measured on the emitted code (P995), stays legal:
+    ///
+    ///   - `*D` over `*B`, safe or unsafe on either side, when record D is
+    ///     B or derives it (directly or through other bases; `derives priv`
+    ///     too, since every C++ base is public) and D's pointee is no more
+    ///     const or volatile than B's (`*D` over `*const B` is fine,
+    ///     `*const D` over `*B` is not);
+    ///   - a pointer to the same non-record type with the same qualifiers.
+    ///
+    /// Everything else clang rejects: another value type (`-> i64` over
+    /// `-> i32`, `-> D` over `-> B`), a pointer to an unrelated record, a
+    /// nullable pointer of a derived record (`*D?` over `*B?`: `Nullable<D*>`
+    /// is not covariant), a value over `void` and the reverse.
+    priv fn _kairo_return_agrees(self, mc: unsafe *Type, bc: unsafe *Type) -> bool {
+        var mvoid = mc == &null || self._tu.is_void(mc)
+        var bvoid = bc == &null || self._tu.is_void(bc)
+        if mvoid || bvoid {
+            return mvoid == bvoid
+        }
+
+        var unsafe *mu = canon_unqual(mc)
+        var unsafe *bu = canon_unqual(bc)
+        if mu == bu || mu->is_dependent() || bu->is_dependent() {
+            return true
+        }
+
+        var unsafe *mp = self._tu.pointee(mu)
+        var unsafe *bp = self._tu.pointee(bu)
+        if mp == &null || bp == &null {
+            return false
+        }
+
+        var mq = canon_quals(mp)
+        var bq = canon_quals(bp)
+        var unsafe *mpu = canon_unqual(mp)
+        var unsafe *bpu = canon_unqual(bp)
+        if self._tu.record_decl(mpu) == &null || self._tu.record_decl(bpu) == &null {
+            return mpu == bpu && mq == bq
+        }
+
+        // [class.virtual]: the override's class type has the same or less
+        // cv-qualification than the base's.
+        if (mq & (~bq)) != 0 {
+            return false
+        }
+
+        return mpu == bpu || Substitution(self.sc).derives_from(mpu, bpu)
+    }
+
+    priv fn _check_kairo_override_return(self, m: unsafe *FunctionDecl, base: unsafe *FunctionDecl) {
+        // Only the same `self` or `const self` overrides (classes-inheritance.mdx);
+        // the base walk compares the other parameters, not that one. A
+        // `const self` beside a plain-`self` virtual is another method.
+        if m->is_const() != base->is_const() {
+            return
+        }
+
+        var bc: unsafe *Type = &null
+        if base->return_type != &null {
+            bc = base->return_type->canonical
+            if bc == &null || bc->is_dependent() {
+                return // unresolved (T reported it), or decided per instance.
+            }
+        }
+
+        var mc: unsafe *Type = &null
+        if m->return_type != &null {
+            mc = m->return_type->canonical
+            if mc == &null || mc->is_dependent() {
+                return
+            }
+        }
+
+        if self._kairo_return_agrees(mc, bc) {
+            return
+        }
+
+        var nm   = self._tu.decl_name(unsafe (m as unsafe *Decl))
+        var want = if (bc != &null) => (self._tu.return_str(bc)) else => "void"
+        var have = if (mc != &null) => (self._tu.return_str(mc)) else => "void"
+        if m->return_type != &null && m->return_type->range.is_valid() {
+            have = self.sc->ctx->get_spelling(m->return_type->range)
+        }
+
+        var at = if (m->return_type != &null) => (m->return_type->range) else => m->name.range
+        var b  = self.sc->diag->report(
+            DiagID::SC297E,
+            at.start,
+            f"'{nm}' returns '{have}', but the virtual it overrides returns '{want}'",
+        )
+
+        b.first(at)
+        if m->return_type != &null && m->return_type->range.is_valid() && bc != &null {
+            b.fix(
+                m->return_type->range,
+                self._tu.return_fix(m->return_type, bc),
+                f"return '{want}', as the overridden method does",
+            )
+        }
+
+        var bat = if (base->return_type != &null) => (base->return_type->range) else => base->name.range
+        b.note(
+            DiagCode(DiagID::SC297N),
+            bat.start,
+            "the virtual it overrides, whose return it must match",
+        )
+        b.child_first(bat)
+        b.emit()
         m->poison()
     }
 }

@@ -5,8 +5,8 @@
 // the members after it cascaded; the compiler's own ImportProbe.k and
 // SourceManager.k are written this way.
 // The `->` of a wrapped signature may start its own line whatever the
-// parameter list ends in: it used to work only after a typed parameter, so
-// `fn f()` and `fn m(self)` with the arrow below them were S048E / S052E.
+// parameter list ends in, not only after a typed parameter: otherwise
+// `fn f()` and `fn m(self)` with the arrow below them are S048E / S052E.
 // RUN: { %kairo %s --syntax-only 2>&1 || true; } | %FileCheck %s --check-prefix=OK --allow-empty
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=OK --allow-empty
 // OK-NOT: error

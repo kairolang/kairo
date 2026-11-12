@@ -1,7 +1,7 @@
 // `f(p: *B?)` beside `f(p: *const B?)` orders as `*B` beside `*const B`:
 // a `*D`, `*B` or `*D?` argument takes the non-const overload, as C++
 // does ([over.ics.rank]/3.2.1, the qualification conversion is a proper
-// subsequence). It was SC064E "ambiguous".
+// subsequence); it is not SC064E "ambiguous".
 
 class B { var x: i32 = 1 }
 class D derives B { }

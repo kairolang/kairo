@@ -1,6 +1,6 @@
 // Any `catch` arm after a bare `catch` is an error (PANIC.md §3.1): the
 // bare arm has already handled everything, so a later arm can only be a
-// mistake. It was SC009W, a warning; the edit removes the arm. A second
+// mistake. It is an error, not SC009W; the edit removes the arm. A second
 // bare `catch` stays SC008E. The expression form rejects a later arm in the
 // parser (S054E). These are structural (V), so they stop the run before
 // typing.

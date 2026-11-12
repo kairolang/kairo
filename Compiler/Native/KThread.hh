@@ -5,9 +5,9 @@
 ///
 ///   WHY C++: pthread_create / CreateThread take a C callback, `thread_local`
 ///   and `alignas` have no Kairo spelling, and the cell needs a hand-written
-///   move that relaxes through an atomic. These used to be inline C++
-///   blocks inside ThreadPool and PartitionQueue; Stage 1 does not emit
-///   inline foreign blocks, so the C++ lives here.
+///   move that relaxes through an atomic. Stage 1 does not emit inline
+///   foreign blocks, so the C++ lives here and ThreadPool and PartitionQueue
+///   call it.
 ///
 ///   ODR: everything is a template or an inline function, and the one piece
 ///   of state (the per-thread queue id) is a function-local thread_local, so
@@ -28,6 +28,7 @@
 
 #include "KPrelude.hh"
 #include <atomic>
+#include <exception>
 #include <utility>
 
 #if defined(_WIN32)
@@ -82,6 +83,53 @@ inline void spawn_pool_workers(Pool *pool, usize count, usize stack_bytes) {
 #endif
 }
 
+/// Runs `*out = ci->execute()` on a new thread with a stack of \p stack_bytes and
+/// waits for it, so the driver's own work (the entry file's parse and Sema,
+/// codegen) has the pool workers' stack rather than the main thread's,
+/// which the OS sizes (8 MB on Linux, 512 KB to 8 MB elsewhere) and only
+/// setrlimit, which is Linux-only and takes effect for new threads, could
+/// raise. A left-deep 30000-term `1 + 1 + ...` chain recursed past 8 MB in
+/// the entry file's Sema. An exception thrown on that thread is
+/// rethrown here. Where no thread with a stack size can be made (Windows,
+/// wasm, or pthread_create failing) it runs on the calling thread, as
+/// before. Templated on the instance so this header needs no declaration
+/// of CompilerInstance, a Kairo class.
+template <typename Ci, typename R>
+inline void execute_on_big_stack(Ci *ci, R *out, usize stack_bytes) {
+#if !defined(_WIN32) && !defined(__wasm__)
+    struct Job {
+        Ci *ci;
+        R *out;
+        ::std::exception_ptr err;
+    };
+    Job job{ci, out, nullptr};
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, stack_bytes);
+    pthread_t tid;
+    int rc = pthread_create(&tid, &attr, [](void *raw) -> void * {
+        auto *j = static_cast<Job *>(raw);
+        try {
+            *j->out = j->ci->execute();
+        } catch (...) {
+            j->err = ::std::current_exception();
+        }
+        return nullptr;
+    }, &job);
+    pthread_attr_destroy(&attr);
+    if (rc == 0) {
+        pthread_join(tid, nullptr);
+        if (job.err) {
+            ::std::rethrow_exception(job.err);
+        }
+        return;
+    }
+#else
+    (void)stack_bytes;
+#endif
+    *out = ci->execute();
+}
+
 /// The calling thread's cached queue index for ThreadPool::enqueue, or
 /// usize(-1) before its first enqueue. Shared by every pool on the thread,
 /// as the function-local thread_local it replaces was.
@@ -94,7 +142,7 @@ inline usize *thread_pool_local_qid() {
 /// the engine itself: a DiagEngineVBase (a BufferedDiagSink, opaque here)
 /// that a task of a parallel phase holds while it runs (DiagCapture), so
 /// the phase can hand its files' diagnostics to the engine in a fixed order
-/// instead of the order the tasks happen to finish in (P956).
+/// instead of the order the tasks happen to finish in.
 inline void **diag_capture() {
     thread_local void *sink = nullptr;
     return &sink;

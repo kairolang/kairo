@@ -2,7 +2,7 @@
 // as one of the first statements of a derived class's constructor, with
 // `self` first and nowhere else; each base once; and a base with no default
 // constructor is initialized by every constructor of a class deriving it
-// (an implicit one cannot). Left to clang, each of these was CL001E in the
+// (an implicit one cannot). Left to clang, each of these is CL001E in the
 // generated C++ ("must explicitly initialize the base class", ...).
 
 class Animal {
