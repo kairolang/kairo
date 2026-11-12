@@ -68,7 +68,7 @@ pub fn import_block_max() -> usize {
     return 6
 }
 
-/// The rules kfmt implements that were decided on 2026-11-08 (README
+/// The rules kfmt implements (README
 /// 8.1-8.4, 8.11, 14.4), one switch each. `true` is the spec's rule; a
 /// review can flip them here.
 pub struct Rules {

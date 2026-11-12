@@ -4,9 +4,7 @@ This file is the formatter's spec. Edit it freely; the code follows it.
 
 How to read the tags on every rule:
 
-- No tag, or `(decided 2026-11-08)`: a rule fixed in review (the original
-  draft, the 2026-11-08 notes, or the answers to the first round of open
-  questions).
+- No tag: a rule fixed in review.
 - `(proposed)`: a default proposed for review: accept, change, or delete.
 - `[impl]`: `Extras/Formatter/Driver/kfmt.k` does this today.
 - `[partial]`: some of it is implemented; the rule says which part is missing.
@@ -101,7 +99,7 @@ format pass turns it on.
 
 **2.6 Blank-line cap: 4, fixed.** [impl] Not a knob; see rule 14.1.
 
-**2.8 `--call-width=N`.** (decided 2026-11-08) [impl] Where a call's one-line
+**2.8 `--call-width=N`.** [impl] Where a call's one-line
 form must end (rule 4.1). Default 80; N from 40 to the line width (100).
 The compiler tree's format pass (Compiler/, Linker/, Extras/Formatter/) uses
 `--call-width=100`: calls there get the full line width like every other
@@ -155,7 +153,7 @@ by column **80**; a call that would cross column 80 is split. "Call" means any
 call expression: free function, method, constructor, `Type::f(...)`
 . Tuple and list literals, named initializers, parameter lists
 and imports use 100. The call limit is `--call-width=N` (2.8); the compiler
-tree's format pass sets it to 100 (decided 2026-11-08), other code keeps 80.
+tree's format pass sets it to 100, other code keeps 80.
 
 The two broken forms follow LLVM / Google clang-format:
 - **Aligned form.** The first item stays on the opener's line, right after
@@ -190,7 +188,7 @@ import foo::{
 ```
 - Where: imports and list / tuple / set / map literals. Not call
   arguments, parameters or named initializers. A `case` with many
-  alternatives has its own grid, rule 8.4 (decided 2026-11-08).
+  alternatives has its own grid, rule 8.4.
 - When: the list has more than 6 items, no item is over 24
   columns, no item spans several lines, and no comment sits between items.
   Otherwise one item per line.
@@ -562,7 +560,7 @@ type bodies. (proposed) [impl]
 
 ## 8. Statements
 
-**8.1 Blocks always break.** (decided 2026-11-08) [impl] `{` ends the line
+**8.1 Blocks always break.** [impl] `{` ends the line
 holding the header, one space before it; statements one level in; `}` alone
 at the header's indent. Never kept on one line, not even for one simple
 statement that would fit (LLVM / Google clang-format's
@@ -580,8 +578,7 @@ written on one line with exactly one simple statement and no comment stays
 on one line while it fits (and an if/else chain only as a whole,
 `Rules.if_chain_together`).
 
-**8.2 `if` / `else if` / `else`.** (proposed; decided 2026-11-08, as part of
-"chain every chainable clause", 8.4 / 8.11) [impl] `} else {` and
+**8.2 `if` / `else if` / `else`.** [impl] `} else {` and
 `} else if c {` on one line. Headers are copied as written today, so the
 condition's inner spacing is not normalized ([partial]). An `@likely` /
 `@unlikely` hint between `}` and `else` stays where it was written.
@@ -600,7 +597,7 @@ if a {
 }
 ```
 
-**8.3 `if` / `try` expressions.** (decided 2026-11-08) [impl] Both stay on
+**8.3 `if` / `try` expressions.** [impl] Both stay on
 one line while they fit; past the column limit they split one clause per
 line. The parser takes a line break before `else` / `else if` in an `if`
 expression and before `catch` in a `try` expression (`_skip_nl_if_next` in
@@ -635,7 +632,7 @@ The old `a if c else b` form has no rule: Stage 1 has no infix `if`
 (`_infix_precedence` has no `KwIf`). kfmt's leftover layout for it
 (`_ternary` in kfmt.k) is to be deleted; see section 18.
 
-**8.4 `match`.** (proposed; decided 2026-11-08) [impl] `match x {`, each
+**8.4 `match`.** [impl] `match x {`, each
 case's block laid out by rule 8.1. A block arm (`case` or `default` with a
 block body) chains onto the `}` of the block arm before it: `} case B
 {`, `} default {`. A value arm (`case A => 1`) is not a block: one per line.
@@ -709,8 +706,7 @@ space between the keyword and its operand or label.
 **8.10 Labels.** (proposed) [impl] `outer: for ...` keeps the label on the
 loop's line: `name: ` then the statement.
 
-**8.11 `finally`, `try`/`catch` statements, context bindings.** (proposed;
-decided 2026-11-08) [impl] Header as written, block by 8.1, `} catch ... {` on
+**8.11 `finally`, `try`/`catch` statements, context bindings.** [impl] Header as written, block by 8.1, `} catch ... {` on
 one line, and a `finally` right after a statement `try` chains onto its last
 `}`: `} finally {`. It is still the scope-exit `finally`
 (diagnostics.mdx: a `finally` on the line of the `try`'s closing brace or
@@ -791,7 +787,7 @@ per line, the values align in one column (rule 11.3).
 **9.7 Closures.** (proposed) [impl, copied] `fn (a: i32) -> i32 { ... }` and
 `fn ()|x, *y| { ... }`: one space between `fn` and `(`; the capture list
 `|...|` attaches to `)`. The head (`fn`, generics, parameters, captures,
-`-> T`) is copied as written. (2026-11-08) [impl] A block
+`-> T`) is copied as written. [impl] A block
 body is laid out like any block: 13.1 drops its redundant `;`, 9.5 applies,
 and a comment or macro use inside it belongs to the body's statement list, so
 it no longer makes the call or statement around the closure copied. A body
@@ -1026,7 +1022,7 @@ fn f() {
 **14.3 None added.** (proposed) [impl] kfmt adds a blank line only where
 rule 5.3 needs one (between the ffi and Kairo imports) and where 14.4 does.
 
-**14.4 A blank line after a closer line.** (decided 2026-11-08) [impl] After a
+**14.4 A blank line after a closer line.** [impl] After a
 line consisting only of closers (`}`, `)`, `]`, optionally followed by `;`
 or `,`; a trailing comment does not count) one blank line goes before the
 next line, unless that line also begins with a closer (`}`, `} else {`,
@@ -1108,9 +1104,8 @@ are still written.
 
 ## 17. Open questions
 
-O-1 to O-11 were answered on 2026-11-08 and folded into rules 2.x, 4.1,
-4.6, 4.10, 5.1, 5.2, 8.3, 11.1-11.3 and 12.4. The six rulings of the
-same day are folded into 8.1-8.4, 8.11 and 14.4 (marked).
+O-1 to O-11 were answered and folded into rules 2.x, 4.1,
+4.6, 4.10, 5.1, 5.2, 8.3, 11.1-11.3 and 12.4. The six later rulings are folded into 8.1-8.4, 8.11 and 14.4.
 
 Open (not decided):
 
@@ -1131,7 +1126,7 @@ items on proposals, not conflicts.
 
 ## 18. Implementation to-dos
 
-Status 2026-11-08: kfmt is a Stage 1 build target (`python3 build.py
+Status: kfmt is a Stage 1 build target (`python3 build.py
 --debug kfmt`; in build.py's TOOLCHAIN and the staged tree) and implements
 the spec below. The `[impl]` / `[partial]` / `[spec-only]` tags in sections
 1-16 predate this pass; read this section for what is done.
@@ -1161,7 +1156,7 @@ Done:
   values when broken; trailing comments in a run align.
 - 7.5 one-line type bodies; 8.1 / 8.2 (plus: an if/else chain is one-line
   only as a whole); 8.3; 8.12; 9.5; 12.4; section 13; 3.5.
-- The rulings of 2026-11-08: 8.1 blocks always break; 14.4 the
+- The rulings: 8.1 blocks always break; 14.4 the
   blank line after a closer line; 8.2 / 8.4 / 8.11 chained clauses
   (`} case B {`, `} default {`, `} finally {`); 8.3 `if` expressions with
   right-aligned keywords and `try` expressions with `catch` under `try`

@@ -315,6 +315,8 @@ pub class EnumLayoutQuery {
     /// laid out by the same rule as its pattern. Off, nothing changes for
     /// the compiler's readers: a declaration-scope `eval if` still refuses
     /// a C++ layout, and no ADT instance's static_assert depends on one.
+    /// (One twin is asked in both modes: a `@packed` record with a record
+    /// member, _compiler_needs_twin, which no plain rule gets right.)
     /// Read only after the TU's lowerings and mono (on_lowered), on the
     /// driver thread, as CopyMoveLowering reads the triviality bits.
     pub var foreign: bool = false
@@ -849,6 +851,14 @@ pub class EnumLayoutQuery {
             return self._twin_size(c, size, align)
         }
 
+        // The compiler's readers pin what this answers (an ADT instance's
+        // static_assert), and the one record shape the plain rule below
+        // answers wrongly is a packed record with a record member: clang is
+        // asked about it here as well, and no answer is no answer.
+        if (!self.foreign) && self._compiler_needs_twin(c) {
+            return self._twin_size(c, size, align)
+        }
+
         if self.foreign && decl_is_instance(cast<RecordType>(c)->decl)
             && !decl_is_imported(cast<RecordType>(c)->decl)
             && dyn_cast<Declarations::EnumDecl>(self.tu.pattern_of(cast<RecordType>(c)->decl)) == &null {
@@ -1222,7 +1232,7 @@ pub class EnumLayoutQuery {
         return (n + a - 1) / a * a
     }
 
-    /// # layout twins (foreign mode only)
+    /// # layout twins (foreign mode; and _compiler_needs_twin)
     ///
     /// The class EmitIR writes for a Kairo record with a base or a virtual
     /// method has a layout only clang computes -- the Itanium rules for
@@ -1272,6 +1282,36 @@ pub class EnumLayoutQuery {
             return true
         }
 
+        return self._packed_record_member(pat)
+    }
+
+    /// Compiler mode's share of _needs_twin: a plain (non-generic, local)
+    /// struct or class _plain_record_size would otherwise answer, packed,
+    /// with a record member. Everything else _needs_twin names is refused
+    /// by the plain rule already.
+    priv fn _compiler_needs_twin(self, c: unsafe *Type) -> bool {
+        var unsafe *d = NameLookup::representative(cast<RecordType>(c)->decl)
+        if d == &null || decl_is_imported(d) || decl_is_instance(d) {
+            return false
+        }
+
+        if (!isa<Declarations::StructDecl>(d)) && !isa<Declarations::ClassDecl>(d) {
+            return false
+        }
+
+        return self._packed_record_member(d)
+    }
+
+    /// \p pat is a `@packed` Kairo record with a field of record type (or
+    /// an array of one, or a `T?`). Whether clang packs that member is its
+    /// POD verdict on the member's EMITTED class -- a default member
+    /// initializer the emitter writes (`{}` on every number), a constructor,
+    /// a private field each make it non-POD, and a non-POD member keeps its
+    /// own alignment (and on some targets clang packs it anyway). Only a
+    /// twin knows that, so the compiler's own size_of asks one here too
+    /// (P901): the plain rule packed every member, and an ADT over such a
+    /// record failed the static_assert beside it.
+    priv fn _packed_record_member(self, pat: unsafe *Decl) -> bool {
         if !AttrFacts::is_packed(pat) {
             return false
         }
@@ -3021,6 +3061,26 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
             var unsafe *npv = en->variants[adt_niche_payload_variant(en) as usize]
             self._prebuild(npv->payload[0]->type_)
             niche = EnumLayoutQuery(self.sc).niche_verdict(en, npv->payload[0]->type_) == 1
+        }
+
+        // A generic ADT whose niche field names no parameter (`enum <T> GK
+        // { A { x: i32 }, B }`) has one verdict for every instance, and its
+        // specialization's constraint and body are not dependent: clang
+        // checks them where the template is written, so a field with no
+        // niche made `__kairo_niche<int>::pattern` an error at the
+        // declaration (P867). Known to be no niche, it is a plain tagged
+        // generic ADT; an unknown verdict keeps the specialization (shape_at
+        // then predicts nothing).
+        if shaped && generic {
+            var unsafe *gpv = en->variants[adt_niche_payload_variant(en) as usize]
+            var unsafe *gft = gpv->payload[0]->type_
+            if gft != &null && gft->canonical != &null
+                && (!gft->canonical->is_dependent()) && !gft->canonical->is_instantiation_dependent() {
+                self._prebuild(gft)
+                if EnumLayoutQuery(self.sc).niche_verdict(en, gft) == 0 {
+                    shaped = false
+                }
+            }
         }
 
         var        prefix = !generic && !niche && !knobs.any() && self._prefix_ok(en)

@@ -3,8 +3,8 @@
 // the object as the receiver. A const object picks the const overload, the
 // arguments pick among overloads, and the object is never moved by the
 // call (Ticker is move-only and is called twice). Through a pointer it is
-// `(*p)(x)`, on a member `self.fn_(x)` / `pw->fn_(x)`. It used to be
-// SC062E "'Counter' is not callable" (CXX-FUNCTOR, decided 2026-11-08).
+// `(*p)(x)`, on a member `self.fn_(x)` / `pw->fn_(x)`. It is not
+// SC062E "'Counter' is not callable".
 
 ffi "c++" import "cxx_functor_call.h"
 

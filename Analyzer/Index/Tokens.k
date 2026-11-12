@@ -66,7 +66,10 @@ import Lexer::Immediate::{
     Immediate,
     ImmediateTable,
 }
-import Lexer::Lexer::Lexer
+import Lexer::Lexer::{
+    Lexer,
+    chain_head_len,
+}
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
@@ -265,7 +268,7 @@ pub fn lexical_tokens(sm: unsafe *SourceManager, fid: u32, f: *const FileText, w
             }
 
             var off = r.offset as u32
-            var len = t.range.size() as u32
+            var len = chain_head_len(imm, t, t.range.size() as u32)
             var mods: u32 = 0
             var kind = lexical_kind(t, &f->text, off, len, &mods)
             if kind == TT_NONE() {
@@ -390,7 +393,7 @@ extend IndexWalker {
                 continue
             }
 
-            var len = t.range.size() as u32
+            var len = chain_head_len(imm, t, t.range.size() as u32)
             var hit = by_off.get(off)
             if hit != null {
                 var st = self.toks[*hit as usize]

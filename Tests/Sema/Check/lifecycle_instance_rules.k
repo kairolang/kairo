@@ -3,10 +3,10 @@
 // instance's own facts (ClassLifecycle::instance_failures), and
 // reported at that use with the instantiation chain, like an unmet
 // bound: a defaulted @copy over a field the instance cannot copy (SC129E),
-// a category that no longer matches the base's (SC061E), a non-trivial
+// a category that does not match the base's (SC061E), a non-trivial
 // destructor over a base without a virtual one (SC056E). An instance that
 // meets them (`Cell<i32>`, `Der<i32>`) is not reported, and neither is the
-// generic declaration itself. Before the fix every one was silently accepted.
+// generic declaration itself.
 
 class Mv {
     pub var id: i32

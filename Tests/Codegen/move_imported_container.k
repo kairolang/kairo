@@ -2,7 +2,7 @@
 // be copied either. Clang declares `std::vector<Mv>`'s copy constructor and
 // fails only when its body is instantiated, so its facts alone made the
 // instance COPY: `var all = words` stayed a copy and the error came from
-// libc++. It is MOVE now, and each transfer of it is a move. A vector of a
+// libc++. It is MOVE, and each transfer of it is a move. A vector of a
 // COPY element is still copied.
 
 ffi "c++" import "vector"

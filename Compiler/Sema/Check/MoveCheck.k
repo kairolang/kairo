@@ -88,6 +88,7 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::ASTSupport::FrozenList
 import AST::DeclFacts::decl_is_imported
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::StmtKind::StmtKind
@@ -109,10 +110,13 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
+    ClassDecl,
     FieldDecl,
     FnBodyKind,
     FunctionDecl,
     ParamDecl,
+    StructDecl,
+    TransferKind,
     VariableDecl,
 }
 import AST::Node::Expressions
@@ -340,6 +344,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     priv var _blocks: cxx::std::vector<cxx::std::vector<unsafe *Statements::FinallyStmt>>
     /// The label of the LabeledStmt being entered, for the loop it wraps
     /// to take onto its frame (_loop); cleared there.
+    /// The transfer being checked is an assignment's right-hand side
+    /// (_uncopyable_place leaves a Kairo NON_TRANSFER record to SC071E).
+    priv var _assigning: bool = false
     priv var _pending_has_label: bool  = false
     priv var _pending_label:     Token
     pub var  n_moves:            usize = 0
@@ -678,14 +685,18 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     var unsafe *d   = self._place_root(asn->lhs, unsafe &path)
                     if d != &null {
                         self.dispatch_expr(asn->rhs)
+                        self._assigning = true
                         self._transfer(asn->rhs, f"into '{self._spelled(asn->lhs)}'")
+                        self._assigning = false
                         self._st.clear(d, path)
                         return e
                     }
 
                     self.dispatch_expr(asn->lhs)
                     self.dispatch_expr(asn->rhs)
+                    self._assigning = true
                     self._transfer(asn->rhs, f"into '{self._spelled(asn->lhs)}'")
+                    self._assigning = false
                     return e
                 }
 
@@ -1596,11 +1607,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._mark(e, how)
     }
 
-    /// A transfer of an lvalue of an imported C++ record whose copy
-    /// constructor is deleted (`var o = llvm::outs()`, `take(get_nc())`):
-    /// clang rejects the copy at codegen, so Kairo refuses it first (the
-    /// semantic-independence rule). A prvalue is elided, never copied, and a
-    /// reference parameter takes no transfer, so neither reaches here.
+    /// A transfer of an lvalue of a record whose copy constructor is
+    /// deleted -- an imported C++ one (`var o = llvm::outs()`,
+    /// `take(get_nc())`), or a Kairo class whose `@copy` is `= delete`
+    /// (P306): clang rejects the copy at codegen, so Kairo refuses it first
+    /// (the semantic-independence rule). A prvalue is elided, never copied,
+    /// and a reference parameter takes no transfer, so neither reaches here;
+    /// a MOVE record moves (moves_on_pass) and never asks.
     priv fn _uncopyable_place(self, e: unsafe *Expr, const how: string) -> bool {
         var unsafe *x = self._tu.strip_parens(e)
         if x == &null || x->value_category != Expr::ValueCategory::LValue {
@@ -1611,12 +1624,39 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // the object copied).
         var unsafe *c  = self._tu.as_value(e->type_)
         var unsafe *rd = self._tu.record_decl(c)
-        if rd == &null || self._tu.is_tuple(c) || !decl_is_imported(rd) {
+        if rd == &null || self._tu.is_tuple(c) {
             return false
         }
 
         var unsafe *facts = lifecycle_of(self.sc)->facts_of(rd)
         if facts->copyable != LifecycleTri::No {
+            return false
+        }
+
+        // A Kairo record's deleted `@copy` is where the fix goes. Such a
+        // record transfers no way at all (NON_TRANSFER), so assigning one is
+        // already SC071E ("its transfer constructor is deleted"): not twice.
+        var unsafe *del = self._deleted_copy_ctor(rd)
+        if del != &null && self._assigning {
+            return false
+        }
+
+        if del != &null {
+            var kb = self.sc->diag->report(
+                DiagID::SC182E,
+                e->range.start,
+                f"cannot copy a value of type '{self._tu.str(c)}': {facts->why_not_copyable}",
+            )
+
+            kb.first(e->range)
+            kb.note(del->range.start, "the copy constructor is deleted here")->first(del->range)
+            kb.emit()
+            e->poison()
+            self.n_errored += 1
+            return true
+        }
+
+        if !decl_is_imported(rd) {
             return false
         }
 
@@ -1632,6 +1672,39 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         e->poison()
         self.n_errored += 1
         return true
+    }
+
+    /// The `@copy ... = delete` a Kairo class or struct \p rd declares
+    /// itself, or null (an imported record, or one not copyable for another
+    /// reason -- a field, a base, a move constructor alone -- which keeps
+    /// the old path).
+    priv fn _deleted_copy_ctor(self, rd: unsafe *Decl) -> unsafe *FunctionDecl {
+        if decl_is_imported(rd) {
+            return &null
+        }
+
+        var unsafe *cd = dyn_cast<ClassDecl>(rd)
+        if cd != &null {
+            return self._deleted_copy_in(unsafe &cd->methods)
+        }
+
+        var unsafe *sd = dyn_cast<StructDecl>(rd)
+        if sd != &null {
+            return self._deleted_copy_in(unsafe &sd->methods)
+        }
+
+        return &null
+    }
+
+    priv fn _deleted_copy_in(self, methods: unsafe *FrozenList<unsafe *FunctionDecl>) -> unsafe *FunctionDecl {
+        for var i: usize = 0; i < methods->size(); ++i {
+            var unsafe *m = (*methods)[i]
+            if m != &null && m->transfer == TransferKind::Copy && m->body_kind == FnBodyKind::Delete {
+                return m
+            }
+        }
+
+        return &null
     }
 
     /// A transfer of a value whose category its generic instance decides

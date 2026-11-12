@@ -128,6 +128,7 @@ import AST::Node::Casting::{
 import AST::Node::Declarations
 import AST::Node::Types::{
     FixedArrayType,
+    FunctionPointerType,
     PointerType,
     TypeExpr,
 }
@@ -4541,10 +4542,14 @@ pub class InterfaceEmitter {
                 var        vt = "::" + LowerTargets::adt_variant_tag() + f"<{m->adt_variant}>"
                 if en->adt_tag_member != &null {
                     // The common prefix: the tag goes in with the payload, or
-                    // alone into the tag-only member.
+                    // alone into the tag-only member. `constexpr`: every
+                    // field here is trivial and every special member the
+                    // defaulted one, so this is what makes the ADT a literal
+                    // type, and an `eval` constant of it a C++ constexpr
+                    // variable clang accepts (P516).
                     var tv = tt + "::" + self._tag_leaf(en, v)
                     if v->adt_member == &null {
-                        return nm + "(" + vt + ")" + nx + " : " + self._spell->leaf(
+                        return "constexpr " + nm + "(" + vt + ")" + nx + " : " + self._spell->leaf(
                             en->adt_tag_member,
                         ) + "{" + tv + "} {}"
                     }
@@ -4556,7 +4561,7 @@ pub class InterfaceEmitter {
                         )
                     }
 
-                    return self._field_ctor(en, v, nm, vt, "", nx, false, tv + ", ")
+                    return "constexpr " + self._field_ctor(en, v, nm, vt, "", nx, false, tv + ", ")
                 }
 
                 var init = tag + "(" + tt + "::" + self._tag_leaf(en, v) + ")" + site_init
@@ -6208,6 +6213,38 @@ pub class InterfaceEmitter {
         }
     }
 
+    /// \p t may be an operand of a C++ operator overload: anything but a
+    /// builtin number/bool/char, a pointer, a raw function pointer, or an
+    /// array of those. Unknown or dependent types count as yes, as before.
+    priv fn _forwardable_operand(self, t: unsafe *Type) -> bool {
+        if t == &null || t->canonical == &null {
+            return true
+        }
+
+        var unsafe *c = canon_unqual(t->canonical)
+        while c != &null && isa<FixedArrayType>(c) {
+            c = canon_unqual(cast<FixedArrayType>(c)->element)
+        }
+
+        if c == &null || c->is_dependent() || c->is_instantiation_dependent() {
+            return true
+        }
+
+        if isa<BuiltinType>(c) {
+            return cast<BuiltinType>(c)->lang_decl != &null
+        }
+
+        if isa<PointerType>(c) {
+            return false
+        }
+
+        if isa<FunctionPointerType>(c) {
+            return !(cast<FunctionPointerType>(c)->is_raw || cast<FunctionPointerType>(c)->is_unprototyped)
+        }
+
+        return true
+    }
+
     /// `inline RET operator+(X& __kairo_a0, Y __kairo_a1) { return
     /// ::N::__kairo_ext_X::__kairo_op_plus(__kairo_a0, ...); }`: the C++
     /// operator an extension operator is, for C++ callers. Kairo calls the
@@ -6222,6 +6259,26 @@ pub class InterfaceEmitter {
         var _op = self._spell->ext_forwarder_name(f)
         if _op.size() == 0 { // `in`, `^^`, ...: no C++ operator to forward from.
             return
+        }
+
+        // C++ overloads an operator only with an operand of class or enum
+        // type ([over.oper]): `extend i64 { fn op < ... }` as `operator<(
+        // long, long)` was CL001E at the extension (P315). Kairo never
+        // calls the forwarder (it calls the static member, and a bound
+        // generic the witness), and no C++ caller could reach one either.
+        if !self._forwardable_operand(ext->target) {
+            var any = false
+            for var i: usize = 0; i < f->params.size(); ++i {
+                var unsafe *p = f->params[i]
+                if p != &null && (!p->is_self) && self._forwardable_operand(p->type_) {
+                    any = true
+                    break
+                }
+            }
+
+            if !any {
+                return
+            }
         }
 
         var fid = CXXSpell::fid_of(unsafe (f as unsafe *Decl))

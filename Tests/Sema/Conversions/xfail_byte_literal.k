@@ -6,7 +6,7 @@
 // a TYPED i32 still needs `as` (matrix_i32.k), a bare literal does not.
 // 0..255 fit; a negative literal or 256 does not.
 //
-// Fixed 2026-11-08 (§85): literal_fits_int and LiteralTyping.k now treat
+// literal_fits_int and LiteralTyping.k treat
 // byte like c_char8 (0..=0xFF), so each literal below types as byte. This test
 // checks Sema only; that codegen spells the literal as a byte is a separate gap.
 

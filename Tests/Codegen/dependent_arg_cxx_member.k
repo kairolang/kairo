@@ -1,7 +1,7 @@
 // A member of a concrete C++ instance (`out.push_back(x)` on a
 // `vector<*A>`) whose ARGUMENT is dependent (`cur as *A`, `cur` of a
-// `<T: type>` type) is left to its overload set by Sema. EmitIR used to ICE
-// "unpromoted callee step"; it now goes out as written and clang picks the
+// `<T: type>` type) is left to its overload set by Sema. It does not ICE
+// in EmitIR: it goes out as written and clang picks the
 // overload in each instance.
 
 ffi "c++" import "vector";

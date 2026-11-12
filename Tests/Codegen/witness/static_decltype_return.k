@@ -4,7 +4,7 @@
 // gate in the witness. The gate's type was made by splitting the signature
 // at its first `(`, which for usize is inside the decltype:
 // `static_cast<decltype(*)(sizeof(0))()>`, and clang rejected the file. The
-// return now goes trailing, for a static and for a method requirement.
+// return goes trailing, for a static and for a method requirement.
 
 interface Scoped {
     static fn enter() -> usize

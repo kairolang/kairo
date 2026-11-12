@@ -1044,6 +1044,20 @@ pub class FrontendAction {
                     be->startup()
                 }
 
+                // A startup that failed (a word --mllvm rejects, a target
+                // clang cannot make, as --march=bogus) leaves no clang at
+                // all: no builtin, no header, so every builtin file's use of
+                // `__builtin_*` was an R020E flood under the real error
+                // (P896). A missing sysroot or resource dir does NOT fail
+                // the startup (it is a P008W / header errors, and the
+                // backend runs), so those keep type-checking.
+                if !be->ready() {
+                    return self._fatal(
+                        DiagID::I006F,
+                        "the clang backend failed to start (the error above says why); nothing can be type-checked without it",
+                    )
+                }
+
                 bi->init(
                     be->oracle(),
                     self._ci->sm(),
@@ -3699,7 +3713,11 @@ pub class FrontendAction {
                 && job->ok
                 && !job->reused
                 && job->sink.size() == 0
-                && job->written.size() == 1 {
+                && job->written.size() == 1
+                // The key says whether the TU compiled under the interface
+                // PCH (iface_on); an object compiled without it, after a
+                // failed PCH build or clang's retry, is not that key's (P888).
+                && job->iface_used == job->iface_on {
                 ocache.store(job->key, job->written[0])
             }
 

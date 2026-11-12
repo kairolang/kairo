@@ -539,6 +539,18 @@ pub class <T: type> PatternTyping {
                 self.dyn()->type_head(head)
             }
 
+            // A constant needs no domain: it is an `==` test like a literal
+            // on this column, and the instance's C++ picks the operator.
+            // Unresolved, the match had no decision tree and reached EmitIR
+            // as an ICE (P517).
+            if st != &null && !is_dotted && !has_parens && subs.size() == 0 {
+                var unsafe *vd = dyn_cast<VariableDecl>(self._head_decl(head))
+                if vd != &null && (vd->is_const() || vd->is_eval()) {
+                    p->resolved_decl = unsafe (vd as unsafe *Decl)
+                    return
+                }
+            }
+
             self._type_subs_unknown(subs)
             // A variadic enum's constructors are per instance: which tag a
             // pattern tests is unknown in a generic body (M2).

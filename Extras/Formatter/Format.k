@@ -178,7 +178,10 @@ pub fn lex_file(ci:  unsafe *CompilerInstance,
             break
         }
 
-        out->push_back(RawTok { kind: t.kind, start: t.range.start.raw(), end: t.range.end.raw() })
+        // A string chain's later segments stay in the gap after its head,
+        // where _chain_end finds them: the head at its own length.
+        var end = t.range.start.raw() + chain_head_len(imm, t, t.range.size())
+        out->push_back(RawTok { kind: t.kind, start: t.range.start.raw(), end: end })
     }
 
     lx->close()

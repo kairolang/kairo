@@ -1,7 +1,7 @@
 // A using-declaration at namespace scope binds its target under the
 // namespace too: a function from the global namespace, one from another
 // namespace (overloading the namespace's own `f`), a typedef and a struct.
-// Before, every one of these was R025E "no member named ... in module 'dst'".
+// None of these is R025E "no member named ... in module 'dst'".
 // libc++'s <cmath> brings `std::sqrt` in the same way (`using ::sqrt;` and
 // `using __math::sqrt;`); the arguments are typed because an untyped float
 // literal ranks f32 and f64 alike, the rule for any such overload set.

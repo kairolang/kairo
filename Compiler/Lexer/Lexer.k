@@ -67,6 +67,45 @@ import Token::TokenKind::{
 }
 import std::io
 
+/// The bytes of string token \p t's FIRST segment, prefix, quotes and
+/// suffix included; \p len (its range's size) for anything else. A chain
+/// is one token whose range covers every segment (P879); a reader that
+/// handles the later segments itself -- kals' tokens colour each apart,
+/// kfmt keeps them in the gap after the head -- takes the head's own
+/// length from here.
+pub fn chain_head_len(imm: unsafe *ImmediateTable, t: Token, len: u32) -> u32 {
+    if t.kind != TokenKind::LitString || imm == &null {
+        return len
+    }
+
+    var unsafe *d = imm->get<Immediate::StringData>(t.imm)
+    if d == &null || d->next == u32::MAX || (!d->body.start.is_valid()) {
+        return len
+    }
+
+    var s = t.range.start.raw()
+    if d->suffix.range.is_valid() && d->suffix.range.end.raw() > s {
+        var n = d->suffix.range.end.raw() - s
+        return if (n < len) => (n) else => len
+    }
+
+    // The closing quotes are as many as the opening ones, which run from
+    // the prefix's end (or the token's start) to the body.
+    var qs = s
+    if !d->prefix_kind.empty() && d->prefix.range.is_valid() {
+        qs = d->prefix.range.end.raw()
+    }
+
+    var bs = d->body.start.raw()
+    var be = d->body.end.raw()
+    if bs < qs || be < bs || be < s {
+        return len
+    }
+
+    var n = (be - s) + (bs - qs)
+    return if (n < len) => (n) else => len
+}
+
 /// \brief tracks git merge conflict marker detection state during lexing
 /// \details used to emit clean diagnostics when conflict markers are found
 ///
@@ -1923,7 +1962,14 @@ pub class Lexer {
         self.emit_fstring_exprs(&ctx)
 
         var head = self.make_text_token(&ctx)
-        self.chain_adjacent_text(&ctx)
+        // A chain is one token, so its range runs to the last segment's end
+        // (each segment's own range recursed through here first): what reads
+        // a token's text by its range -- stringify!, a caret -- saw only the
+        // head, and `stringify!("a" "b")` was `"a"` (P879).
+        var tail = self.chain_adjacent_text(&ctx)
+        if tail.kind == TokenKind::LitString {
+            head.set_range(SourceRange::from_bounds(head.range.start, tail.range.end))
+        }
 
         return head
     }
@@ -1952,9 +1998,9 @@ pub class Lexer {
     /// \warning the cursor is restored when no adjacent literal follows. The
     ///          newline after a lone string is a statement terminator and must
     ///          survive this lookahead.
-    priv inline fn chain_adjacent_text(self, @inout ctx: Self::TextCtx) {
+    priv inline fn chain_adjacent_text(self, @inout ctx: Self::TextCtx) -> Token {
         if ctx.delim != 0x22 {
-            return
+            return Token()
         }
 
         var saved = self._cursor
@@ -1972,7 +2018,7 @@ pub class Lexer {
 
         if self.is_eof() {
             self._cursor = saved
-            return
+            return Token()
         }
 
         // A prefixed continuation goes through lex_name, which owns what a
@@ -1985,7 +2031,7 @@ pub class Lexer {
             seg = self.lex_name(self.get_source_location())
         } else {
             self._cursor = saved
-            return
+            return Token()
         }
 
         if seg.kind == TokenKind::LitString {
@@ -1995,6 +2041,7 @@ pub class Lexer {
         }
 
         self._last_kind = LastTokenKind::Text
+        return seg
     }
 
     /// \brief the length of the string prefix at the cursor (`f`, `r`, `fr`,

@@ -1,6 +1,6 @@
 // libc's string functions take and return `const char*`, which imports as
 // `*const c_char` (std::c_char, C's plain char) and spells `const char*`
-// again in the C++: it used to import as `*const i8`, spelled `const signed
+// again in the C++: not as `*const i8`, which spells `const signed
 // char*`, which no C `char*` binds. A Kairo string's bytes become a C string
 // by reinterpreting its `data` (casting.mdx: unrelated pointees need `as
 // unsafe *`); the NUL after the last byte is there (primitives.mdx).

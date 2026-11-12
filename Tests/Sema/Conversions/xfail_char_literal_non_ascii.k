@@ -4,8 +4,8 @@
 // integers instead.
 //
 // XFAIL: *
-// Ticket "[Codegen] A non-ASCII char literal is spelled as a narrow C++
-// character literal" (2026-10-28). EmitIR writes '漢' as the C++ literal
+// Waits on spelling a non-ASCII char literal as a wide C++
+// character literal. EmitIR writes '漢' as the C++ literal
 // '漢' (type char / int, multi-byte) where char is char32_t, so clang
 // refuses it: CL001E "character too large for enclosing character literal
 // type". ASCII literals ('A') build only because a narrow literal of them

@@ -6,7 +6,7 @@
 // `allocator_traits<A>::size_type` -- and imported as an opaque type no
 // argument converts to: SC063E "cannot convert argument of type 'usize' to
 // parameter '__n' of type '<ffi type>'", and SC066E on `i < v.size()`. C++
-// resolves a call on a dependent object per instantiation; so does Kairo now.
+// resolves a call on a dependent object per instantiation; so does Kairo.
 // The concrete instance still resolves at the definition (f), and a
 // concrete instance's call inside main still binds its member. Type-check
 // only: emitting a call left to the instance (`self.v.push_back(x)`) is

@@ -1854,6 +1854,18 @@ pub class PPWalker
         return &null
     }
 
+    /// \p tok is a string literal the lexer made from source (its range is
+    /// its spelling), not one with owned text (file!, stringify!).
+    priv fn _lexed_string(self, tok: Token) -> bool {
+        var unsafe *tbl = self._tcm->get_imm_table_for_token(tok)
+        if tbl == &null {
+            return false
+        }
+
+        var unsafe *d = tbl->get<Immediate::StringData>(tok.imm)
+        return d != &null && !d->has_owned_text()
+    }
+
     /// The segment chained after \p seg in \p tbl, or null.
     priv fn _fstring_next(self,
                           tbl: unsafe *ImmediateTable,
@@ -2738,6 +2750,15 @@ pub class PPWalker
                 if i > 0 && t->range.start.id < invoke->arg_toks[i - 1].range.end.id {
                     source_backed = false
                     break
+                }
+
+                // A lexed string literal's source bytes ARE its spelling, a
+                // chain's included (its range covers every segment, P879);
+                // TokenText rebuilds only `"<head body>"`, which no prefixed
+                // or joined literal matches. Only a synthesized one (owned
+                // text: file!, a nested stringify!) is not source.
+                if t->kind == TokenKind::LitString && self._lexed_string(*t) {
+                    continue
                 }
 
                 if self._sm->get_text(t->range) != TokenText::spelling(*t, self._tcm) {

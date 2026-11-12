@@ -1,9 +1,9 @@
 // An argument that reaches a reference parameter through a conversion binds
 // the converted TEMPORARY, an rvalue, so `T&&` beats `const T&` for it as
 // for any rvalue ([over.ics.rank]/3.2.3). `vector<i64>::push_back(x)` with
-// x: i32 has both overloads at rank Converted, and used to be SC064E "call
-// to 'push_back' is ambiguous". An exact lvalue still takes `const T&`
-// (T&& does not bind it), and an exact rvalue `T&&`, as before.
+// x: i32 has both overloads at rank Converted, and is not SC064E "call
+// to 'push_back' is ambiguous". An exact lvalue takes `const T&`
+// (T&& does not bind it), and an exact rvalue `T&&`.
 
 ffi "c++" import "vector"
 

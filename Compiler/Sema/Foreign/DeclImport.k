@@ -74,6 +74,7 @@ import AST::Context::SymbolTable::{
 }
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
+    decl_clang,
     decl_generic_params_slot,
     decl_set_ffi_tag_keyword,
     decl_set_imported,
@@ -92,6 +93,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations
+import Diagnostic::Engine::DiagEngine
+import Diagnostic::Registry::DiagID
 import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
@@ -152,6 +155,11 @@ pub class DeclImport {
     /// goes in. Kept apart from _friend_scope, which also changes the C++
     /// spelling _stamp gives a freshly minted decl.
     priv var _using_scope: unsafe *clang::DeclContext = &null
+
+    /// Index mode's diagnostics (_conflicting_definition); null in a fill.
+    pub var diag: unsafe *DiagEngine = &null
+    /// Entities already reported by _conflicting_definition.
+    priv var _conflicts: cxx::std::vector<unsafe *DeclContext>
 
     pub var n_declared: usize = 0
     pub var n_defined:  usize = 0
@@ -406,7 +414,79 @@ pub class DeclImport {
             }
         }
 
+        // A table an earlier set froze is not this set's to write. Reached
+        // with a NEW member only when two headers define one entity (one
+        // USR) differently -- `struct Pt { int x; }` in ha.h and `struct Pt
+        // { double y; }` in hb.h, each imported by its own module: the
+        // second definition's members land in the first's scope (P904). The
+        // insert was a debug-build ICE and, in release, a member grafted
+        // onto the other header's record, accepted by Sema and rejected by
+        // clang at codegen. An identical second definition binds members
+        // already in the cell and never gets here.
+        if tbl->is_frozen() && self.fill_target == &null {
+            self._conflicting_definition(t, dc, name, d)
+            return
+        }
+
         tbl->append(name, d)
+    }
+
+    /// One error per entity (\p dc) that a second header defines
+    /// differently: Kairo keeps the first definition, so the member \p d of
+    /// the second is not imported, and the program cannot be compiled as
+    /// one C++ translation unit either. Index mode only (driver thread).
+    priv fn _conflicting_definition(self,
+                                    t:    unsafe *HeaderTarget,
+                                    dc:   unsafe *DeclContext,
+                                    name: DeclName,
+                                    d:    unsafe *Decl) {
+        if self.diag == &null || d == &null {
+            return
+        }
+
+        for var i: usize = 0; i < self._conflicts.size(); ++i {
+            if self._conflicts[i] == dc {
+                return
+            }
+        }
+
+        self._conflicts.push_back(dc)
+        var unsafe *owner = dc->owner_decl()
+        var        on     = self._clang_name_of(owner)
+        // Interned where _ident_key interned it: the scope's own TU.
+        var unsafe *kctx = t->ctx
+        var unsafe *ktu  = NameLookup::tu_of(dc)
+        if ktu != &null && ktu->ctx != &null {
+            kctx = ktu->ctx
+        }
+
+        var mn = if (name.is_ident()) => (name.describe(kctx)) else => self._clang_name_of(d)
+        var b = self.diag->report(
+            DiagID::R001E,
+            d->range.start,
+            f"'{on}' is defined differently by two imported headers: Kairo keeps one '{on}', so '{mn}' of this definition is not imported",
+        )
+
+        b.first(d->range, f"'{mn}' is not a member of the '{on}' Kairo uses")
+        if owner != &null && owner->range.is_valid() {
+            b.note(owner->range.start, f"the definition of '{on}' Kairo uses; one program sees one definition of each C/C++ entity, so give one of the two a different name")
+        }
+
+        b.emit()
+    }
+
+    /// The clang name behind imported \p d, or `?`.
+    priv fn _clang_name_of(self, d: unsafe *Decl) -> string {
+        if d == &null || decl_clang(d) == &null {
+            return "?"
+        }
+
+        var unsafe *nd = llvm::dyn_cast<clang::NamedDecl>(unsafe (decl_clang(d) as unsafe *clang::Decl))
+        if nd == &null {
+            return "?"
+        }
+
+        return self._display_name(nd)
     }
 
     /// One ModuleDecl per (header, qualified namespace). Reopenings within

@@ -421,6 +421,19 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             var unsafe *mc = cases->get(i)
             for var j: usize = 0; j < mc->patterns.size(); ++j {
                 if self._broken(mc->patterns[j]) {
+                    // On a dependent column PatternTyping resolves only a
+                    // constant; any other constructor head stays unresolved
+                    // with nothing reported, and a match with no tree is an
+                    // EmitIR ICE. Say so here instead.
+                    var unsafe *bp = mc->patterns[j]
+                    var unsafe *su = canon_unqual(scrutinee->type_)
+                    if !bp->is_error() && !bp->is_poisoned() && su->is_dependent() {
+                        self._unsupported(
+                            bp,
+                            "this pattern on a value whose type depends on a generic parameter",
+                        )
+                    }
+
                     return &null
                 }
             }

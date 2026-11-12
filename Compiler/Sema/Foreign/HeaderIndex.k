@@ -143,6 +143,7 @@ pub class HeaderIndex {
         di.cctx      = hs->ast()
         di.csm       = hs->csm()
         di.targets   = unsafe &self._targets
+        di.diag      = unsafe (self._diag as unsafe *DiagEngine)
         return di
     }
 
