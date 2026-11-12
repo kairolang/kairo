@@ -8972,23 +8972,56 @@ pub class EmitIR {
         self._cg->sink->spell(n->range, "(")
         self.emit(n->condition)
         self._cg->sink->spell(n->range, "?")
-        self._value(n->then_expr, n->type_)
+        self._if_arm(n->then_expr, n->type_)
         self._cg->sink->spell(n->range, ":")
         for var i: usize = 0; i < n->else_ifs.size(); ++i {
             var unsafe *arm = n->else_ifs.get(i)
             self._cg->sink->spell(arm->range, "(")
             self.emit(arm->condition)
             self._cg->sink->spell(arm->range, "?")
-            self._value(arm->body, n->type_)
+            self._if_arm(arm->body, n->type_)
             self._cg->sink->spell(arm->range, ":")
         }
 
-        self._value(n->else_expr, n->type_)
+        self._if_arm(n->else_expr, n->type_)
         for var i: usize = 0; i < n->else_ifs.size(); ++i {
             self._cg->sink->spell(n->range, ")")
         }
 
         self._cg->sink->spell(n->range, ")")
+    }
+
+    /// One arm of an if-expression, converted to the join type \p t. An arm
+    /// of type `!` (`else => die()`) is a void call to C++, which `?:` takes
+    /// only as a `throw` (P53: `static_cast<int>(die())` was CL001E). It is
+    /// the body of a lambda returning \p t that never returns, called on the
+    /// spot: a prvalue of the join type for every T, a move-only or
+    /// non-transferable one included, with nothing copied. `[&]` reaches
+    /// the arm's locals; at namespace scope nothing needs capturing, and no
+    /// capture-default is allowed there.
+    priv fn _if_arm(self, e: unsafe *Expr, t: unsafe *Type) {
+        var arm_never = e != &null && e->type_ != &null && self._is_never_type(e->type_)
+        if !arm_never || t == &null || self.tu_is_void(t) {
+            self._value(e, t)
+            return
+        }
+
+        var cap = if (self._ns_init) => ("[]") else => "[&]"
+        self._cg->sink->spell(e->range, cap + "() -> " + self._spell._type(t) + " { ")
+        var saved = self._ns_init
+        self._ns_init = false
+        self.emit(e)
+        self._ns_init = saved
+        self._cg->sink->spell(e->range, "; " + LowerTargets::clang_unreachable() + "(); }()")
+    }
+
+    priv fn _is_never_type(self, t: unsafe *Type) -> bool {
+        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        if c == &null || !isa<BuiltinType>(c) {
+            return false
+        }
+
+        return cast<BuiltinType>(c)->builtin == BuiltinKind::Never
     }
 
     /// ## Initializers

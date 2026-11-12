@@ -1260,9 +1260,16 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
         var _where = ""
         if mr->found_in != &null {
-            _where = f"  [member of {sema_dump_decl_name(self.ctx, mr->found_in)}]" + self._clang_fill_note(
-                mr->found_in,
-            )
+            // An `extend` block has no name: the type it extends is what the
+            // member belongs to (`extend i32 { fn twice }` answers for i32,
+            // which has no decl to name; GH#76).
+            var owner = sema_dump_decl_name(self.ctx, mr->found_in)
+            var unsafe *xd = dyn_cast<Declarations::ExtensionDecl>(mr->found_in)
+            if xd != &null && xd->target != &null {
+                owner = self._tu.str(xd->target)
+            }
+
+            _where = f"  [member of {owner}]" + self._clang_fill_note(mr->found_in)
         }
 
         match mr->outcome {

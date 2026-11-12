@@ -3773,6 +3773,14 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         if best == &null && spec != &null {
+            // One fault, one error (GH#75): the specialization's own R042E
+            // (_primary_of_spec) or this one, whichever is met first; the
+            // reporter poisons the specialization.
+            if spec->is_poisoned() {
+                return &null
+            }
+
+            spec->poison()
             var nm = self.sc->ctx->get_spelling(at->name)
             self.sc->diag->report(
                 DiagID::R042E,
@@ -6277,6 +6285,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             }
         }
 
+        // A use of it may have reported this first (see the use-site R042E).
+        if d->is_poisoned() {
+            return &null
+        }
+
+        d->poison()
         var nm = self._decl_name_str(d)
         self.sc->diag->report(
             DiagID::R042E,

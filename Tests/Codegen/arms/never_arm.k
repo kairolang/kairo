@@ -2,13 +2,11 @@
 // never-returning arm joins any type, so `if c => 1 else => die()` is an
 // i32.
 //
-// XFAIL: *
-// Ticket "[Codegen] An if-expression with a `-> !` arm is a clang error"
-//. Today it type-checks, and
-// EmitIR's _if_expr spells `(c ? 1 : static_cast<int>(die()))`, which clang
-// rejects: CL001E "static_cast from 'void' to 'int' is not allowed". When
-// it XPASSes, delete the XFAIL -- the run below is already the real
-// assertion.
+//
+// Spelling the arm as `(c ? 1 : static_cast<int>(die()))`,
+// which clang rejects: CL001E "static_cast from 'void' to 'int' is not
+// allowed". The `!` arm is a lambda returning the join type that never
+// returns (never_arm_forms.k has the other shapes).
 
 fn die() -> ! {
     while true { }

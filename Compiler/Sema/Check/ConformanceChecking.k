@@ -1775,9 +1775,119 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 bd.emit()
                 ok = false
             }
+
+            if !self._kind_bounds_ok(e, prim, at, chain) {
+                ok = false
+            }
         }
 
         return ok
+    }
+
+    /// The kind bounds `T: class` / `struct` / `enum` / `union`
+    /// (generics.mdx: they restrict T to that category of declaration) at
+    /// instance \p e. Parsed and never checked before P185: `fn <T: class>
+    /// f(x: T)` took `f(1)`. A dependent argument is the enclosing generic's
+    /// to meet; `: type` (Duck) and no bound restrict nothing. SC292E.
+    priv fn _kind_bounds_ok(self,
+                            e:     unsafe *InstanceEntry,
+                            prim:  unsafe *Decl,
+                            at:    SourceRange,
+                            chain: unsafe *InstanceEntry) -> bool {
+        var ok  = true
+        var gps = decl_generic_params(prim)
+        for var i: usize = 0; i < gps.size(); ++i {
+            var unsafe *gp = gps[i]
+            if gp == &null || gp->is_pack {
+                continue
+            }
+
+            var kw = Self::_kind_keyword(gp->kind_bound)
+            if kw.size() == 0 {
+                continue
+            }
+
+            var unsafe *x = self._arg_of(e, prim, gp)
+            if x == &null || x->is_dependent() || x->is_instantiation_dependent() {
+                continue
+            }
+
+            if Self::_kind_of_type(x) == gp->kind_bound {
+                continue
+            }
+
+            var xs = self.tu.str(x)
+            var gn = self.sc->ctx->get_spelling(gp->name)
+            var ar = if (kw == "enum") => ("an") else => "a"
+            var bd = self.sc->diag->report(
+                DiagID::SC292E,
+                at.start,
+                f"'{xs}' is not {ar} {kw}, so it cannot be '{gn}'",
+            )
+
+            bd.first(at)
+            var nat = if (gp->kind_bound_range.is_valid()) => (gp->kind_bound_range) else => gp->range
+            bd.note(DiagCode(DiagID::SC292N), nat.start, f"'{gn}' is bounded '{gn}: {kw}' here")->first(nat)
+            if chain != &null {
+                self.chain_notes(unsafe &bd, chain)
+            }
+
+            bd.emit()
+            ok = false
+        }
+
+        return ok
+    }
+
+    /// The keyword a restricting kind bound is written with, or "".
+    priv static fn _kind_keyword(k: Declarations::GenericParamKindBound) -> string {
+        match k {
+            case Declarations::GenericParamKindBound::Class {
+                return "class"
+            } case Declarations::GenericParamKindBound::Struct {
+                return "struct"
+            } case Declarations::GenericParamKindBound::Enum {
+                return "enum"
+            } case Declarations::GenericParamKindBound::Union {
+                return "union"
+            } default {
+                return ""
+            }
+        }
+
+        return ""
+    }
+
+    /// The kind bound canonical \p t meets: the declaration behind a record
+    /// type, Any for every other type (a builtin, a pointer, `T?`, ...).
+    priv static fn _kind_of_type(t: unsafe *Type) -> Declarations::GenericParamKindBound {
+        var unsafe *c = canon_unqual(t)
+        if c == &null || !isa<RecordType>(c) {
+            return Declarations::GenericParamKindBound::Any
+        }
+
+        var unsafe *d = cast<RecordType>(c)->decl
+        if d == &null {
+            return Declarations::GenericParamKindBound::Any
+        }
+
+        if isa<Declarations::ClassDecl>(d) {
+            return Declarations::GenericParamKindBound::Class
+        }
+
+        if isa<Declarations::StructDecl>(d) {
+            return Declarations::GenericParamKindBound::Struct
+        }
+
+        if isa<Declarations::EnumDecl>(d) {
+            return Declarations::GenericParamKindBound::Enum
+        }
+
+        if isa<Declarations::UnionDecl>(d) {
+            return Declarations::GenericParamKindBound::Union
+        }
+
+        return Declarations::GenericParamKindBound::Any
     }
 
     /// Every `derives` conjunct of \p e, in clause order (_impl_bounds' other

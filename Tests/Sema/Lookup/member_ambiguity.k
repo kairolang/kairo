@@ -72,8 +72,8 @@ fn use_combined_fn(c: Combined) -> i32 { return c.f() }
 // implementing class's definition of the same name. Interfaces have no
 // default bodies, so member lookup does not walk an `impl` clause: the
 // requirement is never a candidate beside the method that meets it, and
-// `.shout` binds outright to D's own (it used to be a 2-candidate set that
-// overload resolution then called ambiguous, SC064E).
+// `.shout` binds outright to D's own (not a 2-candidate set that
+// overload resolution would call ambiguous, SC064E).
 
 interface Shout {
     fn shout(self) -> i32;

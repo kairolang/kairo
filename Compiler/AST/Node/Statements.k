@@ -532,8 +532,9 @@ pub class YieldStmt derives Stmt {
 ///  RuntimeAssertStmt
 ///  Grammar:  'assert' expr (',' expr)?
 ///
-///  Runtime assertion. Behavior controlled by -fassert-mode. `message` is the
-///  optional second operand.
+///  Runtime assertion: a failure is a crash, never a panic. control-flow.mdx
+///  documents -fassert-mode (crash | return | log), not implemented yet.
+///  `message` is the optional second operand.
 ///
 pub class RuntimeAssertStmt derives Stmt {
     pub var condition: unsafe *Expr
@@ -998,7 +999,7 @@ pub class RangedForStmt derives Stmt {
     /// The iterable is an imported C++ template instance over the generic's
     /// own parameter (`cxx::std::vector<T>`): its begin()/end() are C++'s to
     /// pick per instance, as any member call on it is, so EmitIR spells a C++
-    /// range-for and the binder stays untyped (P476). No other Cxx piece is set.
+    /// range-for and the binder stays untyped. No other Cxx piece is set.
     pub var cxx_dependent: bool = false
 
     pub static fn create(ctx:      *ASTContext,

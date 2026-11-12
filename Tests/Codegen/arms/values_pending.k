@@ -40,7 +40,7 @@ fn f2(x: i32, y: i32) -> i32 = x + y
 
 // --- lit wiring -----------------------------------------------------------
 // The full §9.4 program: `match` and `try` value arms next to `if`. It
-// type-checks clean today. `match` lowers now (Tests/Codegen/match/run.k);
+// type-checks clean today. `match` lowers (Tests/Codegen/match/run.k);
 // `try` and `panic` still wait on PanicLowering.
 //
 // TODO(PanicLowering): link and run this file like values.k and expect exit

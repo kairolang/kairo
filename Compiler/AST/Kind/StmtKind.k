@@ -87,7 +87,9 @@ pub enum StmtKind derives u8 {
     YieldStmt,
 
     /// Runtime assertion:  assert expr, "message"
-    /// Behavior controlled by -fassert-mode (panic | return | log).
+    /// A failure is a crash, never a panic (Compiler/Spec/Panic.md, the crash
+    /// family). control-flow.mdx documents -fassert-mode (crash | return |
+    /// log) to replace it; that flag is not implemented yet.
     /// Node: RuntimeAssertStmt with condition *Expr + optional message *Expr.
     RuntimeAssertStmt,
 

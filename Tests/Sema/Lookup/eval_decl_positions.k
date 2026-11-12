@@ -1,8 +1,8 @@
 // An `eval` binding or `eval fn` resolves and types the same at file
 // scope, in a module, in a class and in a function body: each is an
 // ordinary declaration the name lookup finds (eval.mdx). At file scope and
-// in a function body these used to parse as `eval <expr>`: `N` and the
-// `eval fn`'s parameters were R020E "use of undeclared identifier".
+// in a function body these do not parse as `eval <expr>` (`N` and the
+// `eval fn`'s parameters would be R020E "use of undeclared identifier".
 // Compile-time evaluation itself is not checked here.
 
 eval N = 10

@@ -40,6 +40,7 @@ import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_instantiated_from,
     decl_is_imported,
+    decl_only_forward,
     decl_is_instance,
     param_is_type_pack,
 }
@@ -808,6 +809,66 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         ).first(f->name.range)->emit()
     }
 
+    /// \p t, held by value at \p at (\p what: "parameter 'a'", "the return
+    /// value of 'f'", "field 'x'"), is an abstract class (SC249E, as constructing one is)
+    /// or a record only ever forward-declared (SC227E, as a by-value field
+    /// of one is in TypeCycleCheck): reported with a note at the method
+    /// that keeps it abstract, or at the forward declaration. \p forward:
+    /// check the forward-declared case too.
+    fn reject_unheld_by_value(self, t: unsafe *Type, at: SourceRange, const what: string, forward: bool) {
+        var unsafe *c = if (t != &null && t->canonical != &null) => (canon_unqual(t->canonical)) else => &null
+        if c == &null || !isa<RecordType>(c) {
+            return
+        }
+
+        var unsafe *d = cast<RecordType>(c)->decl
+        if d == &null {
+            return
+        }
+
+        var dn = self.dyn()->tu.str(c)
+        if decl_only_forward(d) {
+            if !forward {
+                return
+            }
+
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC227E,
+                at.start,
+                f"{what} holds '{dn}' by value, but '{dn}' is only forward-declared, so its size is unknown",
+            )
+
+            b.first(at)
+            b.note(
+                DiagCode(DiagID::SC227N),
+                d->range.start,
+                f"'{dn}' is forward-declared here and never defined",
+            )->first(d->range)
+            b.emit()
+            return
+        }
+
+        var pure = self.dyn()->tu.first_pure_left(d)
+        if pure == &null {
+            return
+        }
+
+        var mname = self.dyn()->tu.decl_name(pure)
+        var b = self.dyn()->sc->diag->report(
+            DiagID::SC249E,
+            at.start,
+            f"{what} holds an object of abstract class '{dn}' by value; hold a pointer to it instead",
+        )
+
+        b.first(at)
+        b.note(
+            DiagCode(DiagID::SC249N),
+            pure->range.start,
+            f"'{mname}' is pure virtual and nothing overrides it, so '{dn}' is abstract",
+        )->first(pure->range)
+        b.emit()
+    }
+
     /// An array is initialized from a list literal and from nothing else
     /// (LiteralTyping::reject_array_copy, shared with a field initializer).
     priv fn _reject_array_copy(self, v: unsafe *VariableDecl, t: unsafe *Type) {
@@ -883,6 +944,40 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 p->range.start,
                 f"parameter '{self.dyn()->tu.param_name(p)}' takes an array by value; write 'const', {LangAttrs::quoted(LangAttrs::param_inout())}, or take a slice",
             ).first(p->range)->emit()
+        }
+
+        // A definition takes and returns by value only what can be an
+        // object: not an abstract class, not a record only ever forward-
+        // declared (P76, P210). Left to clang, both were CL001E on the
+        // generated C++. A declaration with no body may name either, as in
+        // C++; `const` and `@inout` parameters are references.
+        if n->body_kind == FnBodyKind::Block || n->body_kind == FnBodyKind::Expr {
+            for var i: usize = 0; i < n->params.size(); ++i {
+                var unsafe *p = n->params[i]
+                if p == &null || p->is_self || p->type_ == &null || p->is_const || p->mode != ParamMode::Value {
+                    continue
+                }
+
+                self.reject_unheld_by_value(
+                    p->type_,
+                    p->range,
+                    f"parameter '{self.dyn()->tu.param_name(p)}'",
+                    true,
+                )
+            }
+
+            if n->return_type != &null && !n->is_noreturn {
+                var rr = if (n->return_type->range.is_valid()) => (n->return_type->range) else => n->name.range
+                // Abstract only: a return of a record never defined is still
+                // clang's (CL001E "incomplete result type"), which
+                // Tests/Codegen/method_name_byte.k leans on until it moves.
+                self.reject_unheld_by_value(
+                    n->return_type,
+                    rr,
+                    f"the return value of '{self.dyn()->tu.decl_name((unsafe (n as unsafe *Decl)))}'",
+                    false,
+                )
+            }
         }
 
         self._stamp_no_unwind(n)
@@ -1102,6 +1197,18 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     fn traverse_field_decl(self, n: unsafe *FieldDecl) -> unsafe *FieldDecl {
         if n == &null {
             return n
+        }
+
+        // A field of an abstract class (P76). One only ever forward-declared
+        // is TypeCycleCheck's SC227E, which walks every by-value field.
+        if n->type_ != &null {
+            var fr = if (n->type_->range.is_valid()) => (n->type_->range) else => n->range
+            self.reject_unheld_by_value(
+                n->type_,
+                fr,
+                f"field '{self.dyn()->sc->ctx->get_spelling(n->name)}'",
+                false,
+            )
         }
 
         if n->init != &null {

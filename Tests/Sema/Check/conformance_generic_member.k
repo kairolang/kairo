@@ -1,9 +1,9 @@
 // A generic record's own member meets a requirement at the INSTANCE's
 // arguments: `Holder<i32>::get` returns T, which there is i32, so it meets
 // `fn get(const self) -> i32`, exactly as a call `h.get()` on a
-// Holder<i32> types as i32. The match used to compare the member's
+// Holder<i32> types as i32. The match does not compare the member's
 // pattern-side `T` against i32 and report Holder<i32> as non-conforming
-// (a generic EXTENSION's member was already read through its target).
+// (a generic EXTENSION's member is read through its target).
 // Holder<f64> still does not conform: T is f64 there.
 
 interface Getter {

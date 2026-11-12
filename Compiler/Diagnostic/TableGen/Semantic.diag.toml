@@ -5772,3 +5772,51 @@ group = "extend"
     `extend <T> [T]?`), or write a free generic function
     (`fn <T impl Show> describe(x: T) -> string`).
     """
+
+[SC291]
+brief = "constant index out of range for a fixed array"
+group = "type-check"
+
+    [SC291.E]
+    explain = """
+    # constant index out of range for a fixed array
+
+    the index of `a[i]` is a constant, `a` is a fixed array `[T; N]`, and the
+    index is negative or not below `N`. the access can only fail, so it is
+    reported where it is written instead of at run time.
+
+    ```kairo
+    var a: [i32; 2] = [1, 2]
+    a[5] = 1          // error: index 5 is out of range for '[i32; 2]', which has 2 elements
+    return a[1]       // fine
+    ```
+
+    ## how to fix
+
+    use an index from `0` to `N - 1`, or make the array longer.
+    """
+
+[SC292]
+brief = "type argument does not meet a kind bound"
+group = "generics"
+
+    [SC292.E]
+    explain = """
+    # type argument does not meet a kind bound
+
+    a kind bound restricts a type parameter to one category of declaration:
+    `T: class`, `T: struct`, `T: enum` or `T: union`. the argument given for
+    it (written or deduced) is a different kind of type.
+
+    ```kairo
+    fn <T: class> f(x: T) -> i32 { return 1 }
+    f(1)        // error: 'i32' is not a class, so it cannot be 'T'
+    ```
+
+    ## how to fix
+
+    pass a type of the bounded kind, or drop or change the bound.
+    """
+
+    [SC292.N]
+    explain = "Points at the kind bound the argument does not meet."

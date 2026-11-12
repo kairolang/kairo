@@ -1,4 +1,4 @@
-// P754, the error side: a limit the type does not have is refused at the
+// The error side: a limit the type does not have is refused at the
 // head of a longer chain as it is alone, once, at the limit (the step after
 // it is not reported against a poisoned base).
 

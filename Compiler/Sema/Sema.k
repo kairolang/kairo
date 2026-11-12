@@ -47,6 +47,7 @@ import Sema::Check::ConformanceChecking::ConformanceChecking
 import Sema::Check::ConstraintExtraction::ConstraintExtraction
 import Sema::Check::ControlFlowAnalysis::ControlFlowAnalysis
 import Sema::Check::CtorInitCheck::CtorInitCheck
+import Sema::Check::ArrayIndexCheck::ArrayIndexCheck
 import Sema::Check::EvalUsageChecking::EvalUsageChecking
 import Sema::Check::FeatureGateCheck::FeatureGateCheck
 import Sema::Check::FlagGates::FlagGates
@@ -996,6 +997,14 @@ pub class Sema {
         {
             var _p = TimeRegion("CtorInitCheck")
             CtorInitCheck(unsafe &self.sc).run()
+        }
+
+        // A constant index past a fixed array's extent (SC291E). REQUIRES
+        // X's types; after CtorInitCheck, whose SC176E says the same of an
+        // element write that builds a field and poisons that subscript.
+        {
+            var _p = TimeRegion("ArrayIndex")
+            ArrayIndexCheck(unsafe &self.sc).run()
         }
     }
 

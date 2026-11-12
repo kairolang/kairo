@@ -1653,6 +1653,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
 
             b.first(sub->index->range)
             b.emit()
+            sub->poison() // reported: ArrayIndexCheck skips it.
             self._erred.push_back(f)
             self._failed = true
         } else if self._st.elems[self._ebase[i] + k] != FieldInit::No {
