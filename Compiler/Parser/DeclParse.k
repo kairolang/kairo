@@ -1223,6 +1223,13 @@ pub class <T: type> DeclParse {
             return false
         }
 
+        // `const P` is a pattern over `P`, not `P` itself: a qualified name
+        // must classify as structured, or `<P> V<const P>` reads as the
+        // primary form and collides with the primary.
+        if !ty->flags.empty() {
+            return false
+        }
+
         return cast<ChainType>(ty)->is_simple() // single unqualified name, no args
     }
 
