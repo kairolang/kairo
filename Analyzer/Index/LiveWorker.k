@@ -13,7 +13,7 @@
 ///
 ///     in:  { "id": n, "out": <path>, "changed": [path...],
 ///            "open": [ { "path": real, "file": tmp }... ],
-///            "order": [path...], "progress": <path> }
+///            "progress": <path> }
 ///     out: { "id": n, "ok": true, "mode": "full" | "refresh", "why": str,
 ///            "rechecked": k, "pending": m, "files": N, "out": <path> }
 ///          { "id": n, "superseded": true }
@@ -121,7 +121,6 @@ class LiveReq {
     pub var open_paths: [string]
     pub var open_files: [string]
     pub var changed:    [string]
-    pub var order:      [string]
     pub var progress:   string = ""
 
     pub fn LiveReq(self) = default
@@ -352,13 +351,6 @@ fn live_take(t: *Transport, r: *LiveReq) {
             }
 
             c = d.next(c)
-        }
-
-        r->order.clear()
-        var q = d.first(d.get(d.root, RQ_ORDER))
-        while q != JSON_NONE() {
-            r->order.push_back(d.str(q))
-            q = d.next(q)
         }
     }
 }

@@ -39,21 +39,22 @@
 namespace kairo {
 
 /// Starts \p count detached native threads, thread i running
-/// `pool->worker_loop(i)`, each with a 32 MiB stack. Templated on the pool
+/// `pool->worker_loop(i)`, each with a stack of \p stack_bytes
+/// (Support/Tuning.k's WORKER_STACK_BYTES). Templated on the pool
 /// so this header needs no declaration of ThreadPool, which is a Kairo
 /// class; the pair handed to the thread is freed by the thread.
 ///
 /// Platforms other than POSIX (macOS/Linux) and Windows start no threads,
 /// exactly as the inline block this replaces did.
 template <typename Pool>
-inline void spawn_pool_workers(Pool *pool, usize count) {
+inline void spawn_pool_workers(Pool *pool, usize count, usize stack_bytes) {
 #if !defined(_WIN32) && !defined(__wasm__)
     // Every POSIX system, BSDs included: guarded by __APPLE__ || __linux__ before,
     // a FreeBSD / NetBSD compiler started no pool workers at all.
     for (usize i = 0; i < count; ++i) {
         pthread_attr_t attr;
         pthread_attr_init(&attr);
-        pthread_attr_setstacksize(&attr, 32UL * 1024 * 1024);
+        pthread_attr_setstacksize(&attr, stack_bytes);
         pthread_t tid;
         auto *arg = new ::std::pair<Pool *, usize>(pool, i);
         pthread_create(&tid, &attr, [](void *raw) -> void * {
@@ -72,11 +73,12 @@ inline void spawn_pool_workers(Pool *pool, usize count) {
             auto *p = static_cast<::std::pair<Pool *, usize> *>(raw);
             p->first->worker_loop(p->second);
             delete p;
-        }, arg, 32UL * 1024 * 1024);
+        }, arg, stack_bytes);
     }
 #else
     (void)pool;
     (void)count;
+    (void)stack_bytes;
 #endif
 }
 

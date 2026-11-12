@@ -29,6 +29,7 @@ import Support::EvalHash::{
     GOLDEN_RATIO_MIX,
 }
 import Support::Timer::Timer
+import Support::Tuning::WORKER_STACK_BYTES
 import Threading::PartitionQueue::{
     DEFAULT_QUEUE_SIZE,
     PartitionQueue,
@@ -81,13 +82,11 @@ pub class ThreadPool {
 
     /// Idle workers PARK here rather than spinning.
     ///
-    /// A worker with nothing to do used to alternate _thread_pause() and
-    /// cthread_yield() forever. On a serial workload that is every worker
-    /// burning a core for the whole run - measured at 4 x 16,984 samples
-    /// against the main thread's 16,984 on the 1 GiB lex benchmark, i.e. 80%
-    /// of all samples doing nothing. On an M-series package that is stolen
-    /// thermal budget, so it does not merely waste cores, it downclocks the
-    /// one core that is working and contaminates every measurement taken.
+    /// A worker with nothing to do parks; alternating _thread_pause() and
+    /// cthread_yield() would have every worker burn a core for the whole run
+    /// of a serial workload. On an M-series package that is stolen thermal
+    /// budget, so it does not merely waste cores, it downclocks the one core
+    /// that is working and contaminates every measurement taken.
     ///
     /// _queued is the number of tasks pushed but not yet claimed. It is the
     /// park predicate, and it is a separate counter from _groups: _groups[g]
@@ -96,10 +95,10 @@ pub class ThreadPool {
     /// duration of the last task.
     priv var _queued: kairo::std::Atomic<i64> = kairo::std::Atomic<i64>(0)
     /// Parking is an atomic wait on _epoch, not a mutex + condition variable.
-    /// Every enqueue used to lock/unlock a mutex and notify a condvar
+    /// A mutex and condvar would lock/unlock and notify on every enqueue
     /// whether or not anyone slept; under musl a condvar wake costs several
-    /// futex calls (per-waiter futex, then the mutex is re-taken), and the
-    /// static musl compiler spent twice glibc's kernel time on 4x the futexes.
+    /// futex calls (per-waiter futex, then the mutex is re-taken), which
+    /// doubles kernel time against glibc.
     /// atomic::wait / notify_one is one futex each way on every libc (libc++
     /// calls the kernel itself), and _sleepers lets a producer skip the wake
     /// entirely while every worker is busy.
@@ -167,7 +166,7 @@ pub class ThreadPool {
         // Now spawn threads all queues are guaranteed present. Each runs
         // worker_loop(i) on a detached native thread with a 32 MiB stack;
         // the pthread / CreateThread calls are in Native/KThread.hh.
-        kairo::spawn_pool_workers(unsafe &self, self._count)
+        kairo::spawn_pool_workers(unsafe &self, self._count, WORKER_STACK_BYTES)
 
         kairo::Logger::info(
             kairo::Logger::Stage::ThreadPool,
@@ -209,7 +208,7 @@ pub class ThreadPool {
         // Now spawn threads all queues are guaranteed present. Each runs
         // worker_loop(i) on a detached native thread with a 32 MiB stack;
         // the pthread / CreateThread calls are in Native/KThread.hh.
-        kairo::spawn_pool_workers(unsafe &self, self._count)
+        kairo::spawn_pool_workers(unsafe &self, self._count, WORKER_STACK_BYTES)
 
         kairo::Logger::info(
             kairo::Logger::Stage::ThreadPool,
@@ -333,9 +332,9 @@ pub class ThreadPool {
     /// \details
     /// Spins briefly (a short wait resolves without a syscall), then blocks
     ///     on the group's counter itself: an atomic wait, woken by the task
-    ///     that takes it to zero (_task_done). It used to sleep-poll instead
-    ///     -- 8 us, then 50 us naps for as long as the group ran, logging a
-    ///     "stalled" warning every cycle of a long join (the codegen fan-out).
+    ///     that takes it to zero (_task_done). It does not sleep-poll: that
+    ///     would nap for as long as the group runs and log a "stalled"
+    ///     warning every cycle of a long join (the codegen fan-out).
     ///
     ///     No lost wakeup: libc++'s wait(v) re-checks the value after
     ///     registering as a waiter, and the decrement to zero always

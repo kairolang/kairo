@@ -63,13 +63,5 @@ pub fn init_runtime(argc: i32, argv: unsafe *(unsafe *c_char)) -> unsafe *llvm::
         oss.str()
     }
 
-    eval if defined!(__linux__) {
-        var attr: pthread_attr_t
-        pthread_attr_init(unsafe &attr)
-        pthread_attr_setstacksize(unsafe &attr, (64 * 1024 * 1024) as usize)
-        // pthread_setattr_default_np(&attr);
-        pthread_attr_destroy(unsafe &attr)
-    }
-
     return init_llvm
 }

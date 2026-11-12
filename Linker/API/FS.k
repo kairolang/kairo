@@ -144,6 +144,17 @@ pub class LinkFS {
         return st.getLastModificationTime().time_since_epoch().count() as u64
     }
 
+    /// Size in bytes; 0 if \p p cannot be stat'd.
+    pub static fn size(const p: string) -> u64 {
+        var st: llvm::sys::fs::file_status
+        var ec = llvm::sys::fs::status(llvm::Twine(kairo::sref(p)), &st, true)
+        if ec.value() != 0 {
+            return 0
+        }
+
+        return st.getSize() as u64
+    }
+
     /// Atomic on one filesystem; false if \p to exists as a non-empty
     /// directory or the move fails.
     pub static fn rename(const from: string, const to: string) -> bool {

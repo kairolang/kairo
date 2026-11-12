@@ -642,8 +642,43 @@ def _llvm_identity(lib_dir: Path) -> str:
     return "\n".join(rows)
 
 
+def _claim_native(obj: Path, keep: Path):
+    """obj, hard-linked (else copied) into keep, the build's own tree, or None when
+    obj is gone. The shared cache is pruned by whichever build stores next (another
+    worktree, another key), and that could delete the object this build picked
+    before its link read it: "object .native-objs/.../cc1as_main-*.o was never
+    written" (P959). The claimed name is this build's alone, and a link keeps the
+    bytes alive whatever the cache does afterwards."""
+    keep.mkdir(parents=True, exist_ok=True)
+    mine = keep / obj.name
+    tmp = keep / f"{obj.name}.{os.getpid()}.tmp"
+    try:
+        tmp.unlink(missing_ok=True)
+        try:
+            os.link(obj, tmp)
+        except FileNotFoundError:
+            raise
+        except OSError:          # no hard links here (another filesystem)
+            shutil.copyfile(obj, tmp)
+        os.replace(tmp, mine)
+    except FileNotFoundError:
+        tmp.unlink(missing_ok=True)
+        return None
+    # Bounded by age, not count: the tools of one tree use different keys
+    # (kairo and kcc differ in VERSION) and may build at once, so another
+    # key's claim can be one a parallel link is about to read.
+    stem = obj.name.rsplit("-", 1)[0]
+    for f in keep.glob(f"{stem}-*.o"):
+        try:
+            if f.name != mine.name and time.time() - f.stat().st_mtime > 86400:
+                f.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return mine
+
+
 def native_object(kairo: Path, src: Path, args: list, key_args: list, llvm_lib: Path,
-                  cache: Path, prog) -> Path:
+                  cache: Path, prog, keep: Path) -> Path:
     """src (the fork's cc1as_main.cpp) compiled once, then taken from cache.
 
     It is one LLVM source file at -O3, ~2 s of every kairo/kcc link on the serial tail
@@ -672,8 +707,11 @@ def native_object(kairo: Path, src: Path, args: list, key_args: list, llvm_lib: 
             os.utime(obj)   # recency, for the bound below
         except OSError:
             pass
-        prog.log(f"{src.name}: cached ({obj})")
-        return obj
+        mine = _claim_native(obj, keep)
+        if mine is not None:
+            prog.log(f"{src.name}: cached ({obj})")
+            return mine
+        # Pruned between the test and the claim: compile it, as on a miss.
     # Per process: concurrent builds share this checkout and this cache.
     tmp = cache / f"{src.stem}-{key}.{os.getpid()}.tmp.o"
     argv = [str(kairo), str(src), "-c", "-o", str(tmp), *args]
@@ -688,7 +726,20 @@ def native_object(kairo: Path, src: Path, args: list, key_args: list, llvm_lib: 
                   key=lambda f: f.stat().st_mtime_ns, reverse=True)
     for old in olds[4:]:
         old.unlink(missing_ok=True)
-    return obj
+    mine = _claim_native(obj, keep)
+    if mine is None:
+        # Another build's prune took it already: the compiled bytes are gone,
+        # so compile once more, into this build's own tree only.
+        tmp = keep / f"{src.stem}-{key}.{os.getpid()}.tmp.o"
+        keep.mkdir(parents=True, exist_ok=True)
+        argv = [str(kairo), str(src), "-c", "-o", str(tmp), *args]
+        rc, secs = prog.run(src.name, argv, cache / f"{src.stem}.log", expect=None)
+        if rc != 0 or not tmp.exists():
+            prog.fail(cache / f"{src.stem}.log")
+            die(f"{src.name} did not compile (rc {rc}); see {cache / (src.stem + '.log')}")
+        mine = keep / f"{src.stem}-{key}.o"
+        os.replace(tmp, mine)
+    return mine
 
 
 # --- progress (a ninja-style pinned status line) -------------------------------
@@ -1476,7 +1527,8 @@ def main() -> int:
             nargs = [*roots, "--threads", str(a.jobs), *native_common]
             llvm_lib = (cross_dir(a.target) / "llvm" / "lib") if a.target else llvm_build / "lib"
             cc1as = native_object(kairo, cc1as, nargs, nargs, llvm_lib,
-                                  ROOT / "build" / ".native-objs" / tree_triple, prog)
+                                  ROOT / "build" / ".native-objs" / tree_triple, prog,
+                                  cache_root / "native")
         argv = [str(kairo), str(src / entry), str(meta), str(reg_o), str(cc1as), str(win32),
                 "-o", str(out / "bin" / f"{t}{target_exe(a.target)}"), *roots,
                 # The version is in the meta object (write_meta), not a define on every

@@ -37,6 +37,19 @@ eval NS_PER_DAY: u64 = (86400 as u64) * NS_PER_SEC
 pub
 eval CACHE_ENTRY_MAX_AGE_NS: u64 = 30 * NS_PER_DAY
 
+/// The object cache (Driver/ObjectCache.k) keeps at most this many bytes
+/// of objects; past it, the oldest-stored go, down to three quarters of
+/// it. About five generations of the compiler's own debug objects. Higher:
+/// more hits after switching between trees; lower: less disk per output
+/// tree.
+pub
+eval CACHE_OBJECTS_MAX_BYTES: u64 = (2048 as u64) * 1024 * 1024
+
+/// An object stored this recently is never evicted for size: it is the
+/// generation the run (or a parallel one) just wrote.
+pub
+eval CACHE_RECENT_STORE_NS: u64 = 3600 * NS_PER_SEC
+
 /// A partial copy (`.tmp-`, `.stale-`) older than this is a crashed store's
 /// and is removed. Lower reclaims sooner, but must stay well above the
 /// longest store a live run can be in the middle of.
@@ -49,3 +62,12 @@ eval CACHE_PARTIAL_MAX_AGE_NS: u64 = NS_PER_DAY
 /// lower: a same-tick edit can be missed on such a filesystem.
 pub
 eval MTIME_SLACK_NS: u64 = 2 * NS_PER_SEC
+
+/// The stack each thread-pool worker starts with (Threading/ThreadPool.k,
+/// Native/KThread.hh). Sema and the printers recurse once per level of a
+/// nested expression, so this bounds how deep a chain a worker can check
+/// (P804). The main thread keeps the stack the OS gave it, which is
+/// usually smaller and also runs Sema. Higher: deeper input survives; lower:
+/// less address space reserved per worker.
+pub
+eval WORKER_STACK_BYTES: usize = (32 * 1024 * 1024) as usize

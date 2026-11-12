@@ -48,6 +48,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
@@ -2065,17 +2066,28 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 e->range.start,
                 f"an extension of '{tn}' in '{file}' declares '{spelled}'; import it to use it",
             )
-            // Only a path this file may import: a file of another module
-            // is that module's to export (its module.k's `pub import`s;
-            // imports.mdx, Re-export Pattern), so naming it directly would
-            // reach past the module's surface (P945).
+            // A file of another module is offered only through what that
+            // module exports (imports.mdx, Re-export Pattern: its module.k's
+            // `pub import`s): the module itself when they reach the file,
+            // nothing when they do not, since the file is then an
+            // implementation detail of the module (P945).
             var        efid     = sm->get_fid(e->range.start) as u32
             var unsafe *etu     = self._tu_of_fid(efid)
             var unsafe *tu      = self.sc->tu
             var        emod     = tu_module_dir(etu)
             if emod.size() > 0 && tu != &null && !same_module(etu, tu) {
                 var mname = Path(emod).filename()
-                b.note(f"'{file}' is a file of module '{mname}': from outside it, its extensions come through what the module re-exports (its module.k's `pub import`s), not by importing the file")
+                var mfile = emod + "/module.k"
+                if self._pub_reaches(sm->find_fid(Path(mfile)) as u32, efid) {
+                    var mp = self._import_spelling(Path(sm->get_filename(at.start)), Path(emod + ".k"))
+                    if mp.size() > 0 {
+                        self._insert_import(&b, tu, f"import self::{mp}")
+                    } else {
+                        b.note(f"module '{mname}' exports '{file}'; import the module to use it")
+                    }
+                } else {
+                    b.note(f"'{file}' is not exported by module '{mname}': its module.k does not `pub import` it")
+                }
             } else {
                 var mp = self._import_spelling(Path(sm->get_filename(at.start)), epath)
                 if mp.size() > 0 && tu != &null {
@@ -2098,6 +2110,51 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         return c->tu
+    }
+
+    /// The file \p from_fid (a module.k) re-exports \p target through a
+    /// chain of `pub import`s, the only edges that carry a file to an
+    /// importer outside the module.
+    priv fn _pub_reaches(self, from_fid: u32, target: u32) -> bool {
+        if from_fid == u32::MAX { // no module.k loaded
+            return false
+        }
+
+        var unsafe *start = self._tu_of_fid(from_fid)
+        if start == &null {
+            return false
+        }
+
+        var seen = llvm::DenseSet<u64>()
+        var work = cxx::std::vector<unsafe *TranslationUnit>()
+        work.push_back(start)
+        seen.insert(from_fid as u64)
+        while !work.empty() {
+            var unsafe *t = work.back()
+            work.pop_back()
+            for var i: usize = 0; i < t->import_edges.size(); ++i {
+                var unsafe *ed  = t->import_edges.get(i)
+                var unsafe *eid = dyn_cast<Declarations::ImportDecl>(ed->decl)
+                if eid == &null || !eid->is_public() || eid->has_ffi_linkage() {
+                    continue
+                }
+
+                if ed->target_fid == target {
+                    return true
+                }
+
+                if !seen.insert(ed->target_fid as u64).second {
+                    continue
+                }
+
+                var unsafe *nt = self._tu_of_fid(ed->target_fid)
+                if nt != &null {
+                    work.push_back(nt)
+                }
+            }
+        }
+
+        return false
     }
 
     /// The fix-it that adds \p line to \p tu's file: on a new line after

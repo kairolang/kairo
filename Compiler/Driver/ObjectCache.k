@@ -43,6 +43,7 @@
 
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
+ffi "c++" import "llvm/ADT/StringSet.h"
 ffi "c++" import "llvm/Support/FileSystem.h"
 ffi "c++" import "llvm/Support/Process.h"
 ffi "c++" import "llvm/TargetParser/Triple.h"
@@ -66,7 +67,9 @@ import Interop::Clang::HeaderSet::HeaderSet
 import Interop::Clang::HeaderSetCache::HeaderSetCache
 import Support::Tuning::{
     CACHE_ENTRY_MAX_AGE_NS,
+    CACHE_OBJECTS_MAX_BYTES,
     CACHE_PARTIAL_MAX_AGE_NS,
+    CACHE_RECENT_STORE_NS,
 }
 import std::env
 
@@ -74,6 +77,13 @@ import std::env
 /// with it, or the section is not ours.
 fn cache_record_magic() -> string {
     return "kairo-cache-record"
+}
+
+/// One stored object, for ObjectCache::gc's size bound.
+struct CacheEntryStat {
+    pub var path:  string
+    pub var at:    u64 = 0 ///< mtime: when it was stored.
+    pub var bytes: u64 = 0
 }
 
 pub class ObjectCache {
@@ -112,6 +122,10 @@ pub class ObjectCache {
     priv var _edges:      cxx::std::vector<cxx::std::vector<u32>>
     priv var _hdr_global: string                                  = "" ///< in every TU's headers: the merged-PCH verdict and -include files
     priv var _tu_part:    string                                  = "" ///< the "headers" line of the TU key() was last asked for
+    /// The entries this run fetched or stored: gc's size bound never
+    /// evicts one, so the generation in use survives however old its
+    /// store time is (mtime is when an entry was stored, not used).
+    priv var _used: llvm::StringSet<llvm::MallocAllocator>
 
     fn ObjectCache(self) = default
 
@@ -535,10 +549,12 @@ pub class ObjectCache {
         }
 
         if ObjectCache::_record_key(have) == key {
+            self._used.insert(kairo::sref(entry))
             return true
         }
 
         if self._copy_into(entry, out) {
+            self._used.insert(kairo::sref(entry))
             return true
         }
 
@@ -567,6 +583,7 @@ pub class ObjectCache {
         // bytes already. One that does not (cut short, edited, foreign) is
         // replaced, or it would be a miss on every run.
         if ObjectCache::_record_key(ObjectCache::_record_of(entry)) == key {
+            self._used.insert(kairo::sref(entry))
             return true
         }
 
@@ -574,17 +591,28 @@ pub class ObjectCache {
             return false
         }
 
+        self._used.insert(kairo::sref(entry))
         self.stored += 1
         return true
     }
 
     /// \brief removes what no store has refreshed for 30 days, and private
-    ///        copies a crashed store left (a day old). Run once per run that
-    ///        stored, which a fully reused run never is.
+    ///        copies a crashed store left (a day old); then, while the
+    ///        entries left hold more than CACHE_OBJECTS_MAX_BYTES, the
+    ///        oldest-stored ones this run did not use, down to three
+    ///        quarters of it (P908: a
+    ///        worktree's debug cache grew to 2.8 GB in an afternoon, every
+    ///        build of a changed tree storing a full new generation). Run
+    ///        once per run that stored, which a fully reused run never is.
     ///
-    /// \details mtime is when an entry was stored, not last used: a 30-day-
-    ///          old entry still in use is removed and rebuilt on the next
-    ///          miss, which costs one compile and is never wrong.
+    /// \details mtime is when an entry was stored, not last used: an old
+    ///          entry still in use is removed and rebuilt on the next miss,
+    ///          which costs one compile and is never wrong. Removing one
+    ///          cannot break a parallel build that shares the store: fetch
+    ///          copies an entry out, and a copy that finds it gone is a miss.
+    ///          An entry this run fetched or stored is kept (_used), and so
+    ///          is one stored in the last CACHE_RECENT_STORE_NS, a parallel
+    ///          run's fresh generation.
     pub fn gc(self) {
         if !self.on || self.stored == 0 {
             return
@@ -593,7 +621,9 @@ pub class ObjectCache {
         var now = (cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
             cxx::std::chrono::system_clock::now().time_since_epoch(),
         ).count() as u64)
-        var objs = self.dir + "/objects"
+        var objs  = self.dir + "/objects"
+        var kept  = cxx::std::vector<CacheEntryStat>()
+        var total: u64 = 0
         for var name: string in LinkFS::list_dir(objs) {
             var p       = objs + "/" + name
             var partial = name.ends_with(".tmp")
@@ -601,7 +631,38 @@ pub class ObjectCache {
             var limit   = if (partial) => (CACHE_PARTIAL_MAX_AGE_NS) else => CACHE_ENTRY_MAX_AGE_NS
             if last != 0 && now > last && now - last > limit {
                 LinkFS::remove(p)
+                continue
             }
+
+            if !partial {
+                var bytes = LinkFS::size(p)
+                kept.push_back(CacheEntryStat { path: p, at: last, bytes: bytes })
+                total += bytes
+            }
+        }
+
+        if total <= CACHE_OBJECTS_MAX_BYTES {
+            return
+        }
+
+        llvm::sort(
+            kept.begin(),
+            kept.end(),
+            fn (const a: CacheEntryStat, const b: CacheEntryStat) || -> bool = a.at < b.at,
+        )
+
+        var target = CACHE_OBJECTS_MAX_BYTES / 4 * 3
+        for var i: usize = 0; i < kept.size() && total > target; ++i {
+            if kept[i].at != 0 && (kept[i].at >= now || now - kept[i].at < CACHE_RECENT_STORE_NS) {
+                break // sorted: everything after it is as recent
+            }
+
+            if self._used.contains(kairo::sref(kept[i].path)) {
+                continue
+            }
+
+            LinkFS::remove(kept[i].path)
+            total -= kept[i].bytes
         }
     }
 

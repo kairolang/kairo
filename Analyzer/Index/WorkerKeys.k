@@ -27,8 +27,6 @@ pub const RQ_FILE:     string = "file"      ///< live: the file holding an `open
 pub const RQ_CHANGED:  string = "changed"   ///< live: files whose text on disk changed
 pub const RQ_PROGRESS: string = "progress"  ///< live: where the progress count is written
 pub const RQ_TEXT:     string = "text"      ///< syntax: the buffer's text
-/// live: read by the worker, written by no server (P916).
-pub const RQ_ORDER:    string = "order"
 
 // --- answers ----------------------------------------------------------------
 pub const RP_ID:            string = "id"
