@@ -1115,7 +1115,59 @@ pub class EmitIR {
         self._body(m, &null)
         self._req_in_head = false
         self._eval_field_def(m, owner, at)
+        self._subscript_forwarder_def(m, owner, at)
         self._close_ns(m->range, wrap)
+    }
+
+    /// The `operator[]` forwarder to split subscript form \p m's named member
+    /// (CXXSpell::subscript_forwarded; InterfaceEmitter declares it), here,
+    /// beside \p m's own definition: out of the class, where a by-value
+    /// result or operand (`Slice<T>`, `Range<usize>`) is complete, and with
+    /// \p m's own inline-ness and owner template head, so it is wherever
+    /// \p m's definition is.
+    priv fn _subscript_forwarder_def(self, m: unsafe *FunctionDecl, owner: unsafe *Decl, at: SourceRange) {
+        if !self._spell.subscript_forwarded(m) {
+            return
+        }
+
+        var head = self._owner_template_head(owner)
+        if m->is_inline() {
+            head += "inline "
+        }
+
+        if m->is_constexpr() {
+            head += "constexpr "
+        }
+
+        head += self._ret(m) + " " + self._owner_qual(owner) + "::operator[]("
+        head += self._params_text(m, &null)
+        head += ")"
+        if m->is_const() {
+            head += " const"
+        }
+
+        if m->no_unwind {
+            head += " noexcept"
+        }
+
+        head += self._spell.member_requires(m, owner)
+        var args = ""
+        var fid  = CXXSpell::fid_of(unsafe (m as unsafe *Decl))
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var unsafe *p = m->params[i]
+            if p == &null || p->is_self {
+                continue
+            }
+
+            var nm = self._spell.imm_name(p->name.imm, fid)
+            if args.size() > 0 {
+                args += ", "
+            }
+
+            args += "static_cast<decltype(" + nm + ")&&>(" + nm + ")"
+        }
+
+        self._cg->sink->spell(at, head + " { return " + self._spell.leaf(unsafe (m as unsafe *Decl)) + "(" + args + "); }")
     }
 
     /// A Kairo definition of a function C++ declares (`fn W::at`, `fn

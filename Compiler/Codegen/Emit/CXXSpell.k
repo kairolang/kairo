@@ -36,6 +36,7 @@ import AST::Context::DeclContext::{
     DeclContextKind,
 }
 import AST::Context::InstantiationRegistry::InstanceEntry
+import AST::Context::SymbolTable::DeclName
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::CxxReservedWords::is_cxx_keyword
 import AST::DeclFacts
@@ -1143,6 +1144,81 @@ pub class CXXSpell {
         }
 
         return ""
+    }
+
+    /// \p f, a form of a split subscript (OperatorFacts::in_split_subscript,
+    /// P880), gets a C++ `operator[]` forwarder to its named member, so C++
+    /// code subscripts the type as it always did: the place form's on a
+    /// mutable object, a read form's (`const` when it takes `const self`)
+    /// on a const one. InterfaceEmitter declares it, EmitIR defines it
+    /// beside the form's own definition. None for a member template or an
+    /// unnamed operand (nothing to forward without spelling arguments), and
+    /// none for a read form C++ would see as the same overload as a place
+    /// form of its type (one constness, one operand type): the place form
+    /// takes `operator[]`, since C++ writes through it, and the read form is
+    /// reached by its name.
+    fn subscript_forwarded(self, f: unsafe *Declarations::FunctionDecl) -> bool {
+        if f == &null || f->is_poisoned() || !OperatorFacts::in_split_subscript(f) {
+            return false
+        }
+
+        if self.template_head(unsafe (f as unsafe *Decl)).size() > 0 {
+            return false
+        }
+
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var unsafe *p = f->params[i]
+            if p != &null && !p->is_self && (p->unname || p->is_pack) {
+                return false
+            }
+        }
+
+        if OperatorFacts::is_subscript_set(f) {
+            return true
+        }
+
+        var unsafe *dc = f->semantic_dc
+        if dc == &null || !dc->is_type_scope() {
+            dc = f->lexical_dc
+        }
+
+        var unsafe *sets = if (dc != &null) => (dc->lookup_symbol(DeclName::subscript_set_name())) else => &null
+        if sets == &null {
+            return true
+        }
+
+        var unsafe *mine = CXXSpell::_operand_of(f)
+        for var i: usize = 0; i < sets->size(); ++i {
+            var unsafe *g = dyn_cast<Declarations::FunctionDecl>(sets->get(i))
+            if g == &null || g->is_poisoned() || g->is_const() != f->is_const() {
+                continue
+            }
+
+            var unsafe *theirs = CXXSpell::_operand_of(g)
+            if mine != &null && mine == theirs {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// The first operand's type after the receiver, unqualified.
+    priv static fn _operand_of(f: unsafe *Declarations::FunctionDecl) -> unsafe *Type {
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var unsafe *p = f->params[i]
+            if p == &null || p->is_self {
+                continue
+            }
+
+            if p->type_ == &null {
+                return &null
+            }
+
+            return canon_unqual(p->type_->canonical)
+        }
+
+        return &null
     }
 
     /// `op r++` / `op r--`: the postfix form, which C++ declares with an

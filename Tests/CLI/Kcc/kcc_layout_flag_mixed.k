@@ -9,7 +9,7 @@
 // pass\")": the doc's error
 // for a layout-affecting flag (and for a single-language flag in a mixed
 // TU) is not implemented. Today kcc passes `-fno-rtti` through without a
-// word and the compile succeeds. The diagnostic's code is not decided; the
+// word and the compile succeeds. The diagnostic's code is not fixed; the
 // check asks for an error naming the flag. When it XPASSes, delete the
 // XFAIL and pin the code and message.
 fn main() -> i32 { return 0 }

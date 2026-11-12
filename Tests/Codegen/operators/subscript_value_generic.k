@@ -1,6 +1,6 @@
 // A generic record with a place `op []`, its const pair, and a value
-// `op []` returning a slice. The value form used to reach MemberTyping's
-// pointee ICE, since every `op []` was taken as a place.
+// `op []` returning a slice. The value form does not reach MemberTyping's
+// pointee ICE, since not every `op []` is taken as a place.
 
 struct <T> Buf {
     var data: [T; 4]

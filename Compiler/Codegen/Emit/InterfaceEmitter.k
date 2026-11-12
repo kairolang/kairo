@@ -1643,6 +1643,8 @@ pub class InterfaceEmitter {
             self._cg->sink->spell(mat, self._method_decl(m, d))
         }
 
+        cur_access = self._subscript_forwarders(d, methods, cur_access, at)
+
         if is_class {
             cur_access = self._base_usings(cast<Declarations::ClassDecl>(d), cur_access, at)
         }
@@ -6118,6 +6120,48 @@ pub class InterfaceEmitter {
         s += self._body_suffix(m)
         s += ";"
         return s
+    }
+
+    /// The `operator[]` forwarders C++ code reaches a split subscript's named
+    /// forms through (CXXSpell::subscript_forwarded decides which forms get
+    /// one), declared beside them; EmitIR::_subscript_forwarder_def defines
+    /// each beside its form's definition, where every type the signature
+    /// names is complete.
+    priv fn _subscript_forwarders(self,
+                                  d:          unsafe *Decl,
+                                  methods:    FrozenList<unsafe *Declarations::FunctionDecl>,
+                                  cur_access: u8,
+                                  at:         SourceRange) -> u8 {
+        var acc = cur_access
+        for var i: usize = 0; i < methods.size(); ++i {
+            var unsafe *m = methods[i]
+            if m == &null || !self._spell->subscript_forwarded(m) {
+                continue
+            }
+
+            var s = ""
+            if m->is_constexpr() {
+                s += "constexpr "
+            }
+
+            s += self._ret(m, d) + " operator[]("
+            s += self._params(m, false, &null, d, false)
+            s += ")"
+            if m->is_const() {
+                s += " const"
+            }
+
+            if m->no_unwind {
+                s += " noexcept"
+            }
+
+            s += self._spell->member_requires(m, d)
+            s += ";"
+            acc = self._access(acc, self._cxx_vis(unsafe (m as unsafe *Decl)), false, at)
+            self._cg->sink->spell(at, s)
+        }
+
+        return acc
     }
 
     /// `extern T const x;`. Always `extern`, own globals included: a

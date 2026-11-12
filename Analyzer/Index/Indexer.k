@@ -69,6 +69,7 @@ import AST::Node::CanonicalNodes::{
 }
 import AST::Node::Casting::{
     cast,
+    dyn_cast,
     isa,
 }
 import AST::Node::Declarations
@@ -79,6 +80,7 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Types
+import AST::OperatorFacts::OperatorFacts
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import AST::LangItems::LangAttrs
 import Diagnostic::Engine::DiagEngine
@@ -758,6 +760,28 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
 
     pub fn visit_unary_operator_expr(self, n: *Expressions::UnaryOperatorExpr) -> bool {
         self.user_op_(n->op_token, n->resolved_op)
+        return true
+    }
+
+    /// `x[i]` through a user `op []` / `op []=`: the `[` reads as a call of
+    /// the form Sema selected (P880: a split subscript's read or place form
+    /// is the one that runs) and jumps to it; a place form marks the use
+    /// `mutates`. SubscriptExpr keeps no bracket token: the `[` is the byte
+    /// after the base, where OperatorLowering puts it too.
+    pub fn visit_subscript_expr(self, n: *Expressions::SubscriptExpr) -> bool {
+        if (n->resolved_op == &null) || (n->base == &null) || n->base->range.is_invalid() {
+            return true
+        }
+
+        var t = Token()
+        t.set_kind(TokenKind::OpLSquare)
+        t.set_range(SourceRange::from_bounds(n->base->range.end, 1 as u32))
+        self.user_op_(t, n->resolved_op)
+        var unsafe *f = dyn_cast<Declarations::FunctionDecl>(n->resolved_op)
+        if (f != &null) && OperatorFacts::is_subscript_set(f) {
+            self.op_mod_(t, TM_MUTATES())
+        }
+
         return true
     }
 

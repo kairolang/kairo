@@ -1,5 +1,5 @@
-// --cmax-tuple-arity=0 means unlimited (per its help); it used to reject every
-// tuple because the parser compared the arity against 0. A 5-tuple must be
+// --cmax-tuple-arity=0 means unlimited (per its help); it must not reject every
+// tuple by comparing the arity against 0. A 5-tuple must be
 // accepted with 0, and still rejected with a cap of 2. See
 // cmax_tuple_arity.k for the plain cap case.
 
