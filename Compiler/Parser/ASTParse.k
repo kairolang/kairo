@@ -80,6 +80,7 @@ import AST::Node::Statements::{
     ConditionalStmt,
     DeclStmt,
     DestructuringDeclStmt,
+    ExpressionStmt,
 }
 import AST::ParamMode::ParamMode
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
@@ -219,6 +220,13 @@ pub class ASTParse
     /// was really emitted (not under a TentativeGuard's suppression), so
     /// skipping the token can never hide the only report of it.
     pub var _kept_closer:       unsafe *Token                    = &null
+    /// Set by _parse_top_decl / _parse_top_stmt when the item they parsed is
+    /// a recovery node: with no error reported for it, the top-level loop
+    /// reports one (P981).
+    pub var _top_item_failed:   bool                             = false
+    /// TypeParse::parse_bound_type: a rooted type path `::m::I` is legal
+    /// (P978).
+    pub var rooted_type_ok:     bool                             = false
     pub var error_count_base:   u32                              = 0 ///< error count recorded at parse start.
     pub var nl_depth:           u32                              = 0 ///< if non-zero, the parser ignores newlines.
     pub var _no_comment_skip:   bool                             = false
@@ -512,9 +520,25 @@ pub class ASTParse
                 continue
             }
 
-            var before = self.c_idx
-            var ok     = if self._routes_to_decl(k) => (self._parse_top_decl(program, unsafe &annot, k))
-                         else => self._parse_top_stmt(program, unsafe &annot)
+            var before      = self.c_idx
+            var errs_before = self.diag->error_count()
+            self._top_item_failed = false
+            var ok = if self._routes_to_decl(k) => (self._parse_top_decl(program, unsafe &annot, k))
+                     else => self._parse_top_stmt(program, unsafe &annot)
+
+            // An item that failed with no error said about it -- a null from
+            // the production, or a recovery node -- dropped the rest of the
+            // file silently when the loop stopped (P981), or kept an <error>
+            // node nobody reported. Whatever path got here, the loop says so
+            // once and carries on from the next line.
+            if (!ok || self._top_item_failed) && self.diag->error_count() == errs_before {
+                self._report_unparsed_item(before)
+                if !ok {
+                    self._skip_failed_item(before)
+                    continue
+                }
+            }
+
             if !ok {
                 break
             }
@@ -741,6 +765,34 @@ pub class ASTParse
         }
     }
 
+    /// \brief S063E at the first token of a top-level item that failed
+    ///        without a diagnostic of its own (P981).
+    priv fn _report_unparsed_item(self, at: usize) {
+        var unsafe *tok = if (at < self.span.size()) => (self.span.get(at)) else => self._current
+        if tok == &null {
+            return
+        }
+
+        var k = self.resolve_kind_deep(tok)
+        self.report_tok(
+            DiagID::S063E,
+            tok,
+            f"unexpected '{token_kind_to_readable_string(k)}': expected a declaration or a statement",
+        )
+    }
+
+    /// \brief moves the cursor past a top-level item that failed: from where
+    ///        the production stopped (never before the item's start) to the
+    ///        next line or declaration. Always makes progress, so the loop
+    ///        cannot spin on the token it just reported.
+    priv fn _skip_failed_item(self, before: usize) {
+        if self.c_idx < before {
+            self._restore_cursor(before)
+        }
+
+        self.sync_top_level_progress()
+    }
+
     /// \brief decl-vs-stmt routing for the top-level loop.
     ///
     /// \details var/const take the stmt path (it owns the plain-decl vs
@@ -795,9 +847,16 @@ pub class ASTParse
                             program: unsafe *Program,
                             annot:   unsafe *Self::PendingAnnotations,
                             k:       TokenKind) -> bool {
+        var at        = self.c_idx
+        var errs      = self.diag->error_count()
         var unsafe *d = self.parse_decl(true)
         if d == &null {
-            if k == TokenKind::KwFn {
+            // `fn` that is a closure, and any lead-in parse_decl declined
+            // without consuming or reporting anything (`inline "c++" { }`
+            // opens a statement, not a declaration): the statement path owns
+            // it. Before, the `inline` case ended the loop with no error and
+            // the rest of the file unparsed (P981).
+            if k == TokenKind::KwFn || (self.c_idx == at && self.diag->error_count() == errs) {
                 return self._parse_top_stmt(program, annot)
             }
 
@@ -808,6 +867,7 @@ pub class ASTParse
             return false
         }
 
+        self._top_item_failed = is_recovery(d)
         if isa<VisibilityGroupDecl>(d) {
             self._diag_annot_on_vis_group(annot)
             // do NOT stamp annot onto the group
@@ -837,6 +897,12 @@ pub class ASTParse
 
         if self.is_fatal<Stmt>(s) {
             return false
+        }
+
+        self._top_item_failed = is_recovery(s)
+        if isa<ExpressionStmt>(s) {
+            var unsafe *es = cast<ExpressionStmt>(s)
+            self._top_item_failed = self._top_item_failed || es->expr == &null || is_recovery(es->expr)
         }
 
         if isa<DeclStmt>(s) {
@@ -2221,6 +2287,19 @@ pub class ASTParse
         var b = self.diag->report(code, r.start, msg)
         b.first(r)
         b.remove(cut, fix_msg)
+        b.emit()
+    }
+
+    pub fn ig_err_insert(self,
+                         r:             SourceRange,
+                         const msg:     string,
+                         code:          DiagID,
+                         at:            SourceRange,
+                         const text:    string,
+                         const fix_msg: string) {
+        var b = self.diag->report(code, r.start, msg)
+        b.first(r)
+        b.insert(at.start, text, fix_msg)
         b.emit()
     }
 

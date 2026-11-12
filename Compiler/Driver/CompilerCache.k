@@ -39,8 +39,13 @@ import Driver::FrontendAction::FrontendAction
 import Location::SourceManager::FileID
 import Resolution::ModulePath::ModulePath
 import Support::FileIO::Path::Path
+import Driver::ObjectCache::{
+    CacheEntryStat,
+    cache_evict_to_cap,
+}
 import Support::Tuning::{
     CACHE_ENTRY_MAX_AGE_NS,
+    CACHE_LIBRARY_MAX_BYTES,
     CACHE_PARTIAL_MAX_AGE_NS,
 }
 import std::env
@@ -225,9 +230,12 @@ extend CompilerInstance {
 
     /// \brief removes the runtime cache's entries no store has refreshed for
     ///        30 days (a target or option set no longer used) and private
-    ///        copies a crashed store left (a day old). Run after a store,
-    ///        which is rare; a hit lists nothing.
-    prot static fn _rt_cache_gc(const dir: string) {
+    ///        copies a crashed store left (a day old); then, past
+    ///        CACHE_LIBRARY_MAX_BYTES, the oldest-stored entries other than
+    ///        \p used (what this run fetched or stored), as the object cache
+    ///        does (cache_evict_to_cap). Run after a store, which is
+    ///        rare; a hit lists nothing.
+    prot static fn _rt_cache_gc(const dir: string, const used: cxx::std::vector<string>) {
         if dir.empty() {
             return
         }
@@ -235,6 +243,8 @@ extend CompilerInstance {
         var now = (cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
             cxx::std::chrono::system_clock::now().time_since_epoch(),
         ).count() as u64)
+        var kept       = cxx::std::vector<CacheEntryStat>()
+        var total: u64 = 0
         for var name: string in LinkFS::list_dir(dir) {
             var p = dir + "/" + name
             if !LinkFS::is_file(p) {
@@ -249,8 +259,25 @@ extend CompilerInstance {
             var limit = if (partial) => (CACHE_PARTIAL_MAX_AGE_NS) else => CACHE_ENTRY_MAX_AGE_NS
             if last != 0 && now > last && now - last > limit {
                 LinkFS::remove(p)
+                continue
+            }
+
+            if !partial {
+                var pinned = false
+                for var i: usize = 0; i < used.size(); ++i {
+                    if used[i] == p {
+                        pinned = true
+                        break
+                    }
+                }
+
+                var bytes = LinkFS::size(p)
+                kept.push_back(CacheEntryStat { path: p, at: last, bytes: bytes, pinned: pinned })
+                total += bytes
             }
         }
+
+        cache_evict_to_cap(&kept, total, CACHE_LIBRARY_MAX_BYTES, now)
     }
 
     /// # The Kairo library (--kairo-lib)
@@ -589,17 +616,22 @@ extend CompilerInstance {
     }
 
     /// \brief removes the cached libraries beside \p keep that no link has
-    ///        used for 30 days, and what a crashed build left (a day old).
+    ///        used for 30 days, and what a crashed build left (a day old);
+    ///        then, past CACHE_LIBRARY_MAX_BYTES, the least recently used
+    ///        others (cache_evict_to_cap).
     ///
     /// \details Every compiler rebuild and every option set leaves a library
     ///          of its own, and nothing else removes them. Run when a library
     ///          is built, which is rare; a link only touches `used`
-    ///          (_read_kairo_lib).
+    ///          (_read_kairo_lib). \p keep, the one this run built, is never
+    ///          removed.
     priv fn _gc_kairo_libs(self, const keep: string) {
         var root = LinkFS::parent(keep)
         var now = (cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
             cxx::std::chrono::system_clock::now().time_since_epoch(),
         ).count() as u64)
+        var kept       = cxx::std::vector<CacheEntryStat>()
+        var total: u64 = LinkFS::tree_size(keep)
         for var name: string in LinkFS::list_dir(root) {
             var p = root + "/" + name
             if p == keep || !LinkFS::is_dir(p) {
@@ -622,7 +654,16 @@ extend CompilerInstance {
             var limit = if (partial) => (CACHE_PARTIAL_MAX_AGE_NS) else => CACHE_ENTRY_MAX_AGE_NS
             if last != 0 && now > last && now - last > limit {
                 LinkFS::remove_tree(p)
+                continue
+            }
+
+            if !partial {
+                var bytes = LinkFS::tree_size(p)
+                kept.push_back(CacheEntryStat { path: p, at: last, bytes: bytes, tree: true })
+                total += bytes
             }
         }
+
+        cache_evict_to_cap(&kept, total, CACHE_LIBRARY_MAX_BYTES, now)
     }
 }

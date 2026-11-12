@@ -404,6 +404,15 @@ pub class <T: type> DeclParse {
             return true
         }
 
+        // `fn ::gf(...)`: a rooted name, which no closure starts with. Taken
+        // for a closure, `::gf(a: i32)` was dropped without a word and every
+        // use of `a` in the body was "undeclared" (P985); _parse_function
+        // reports the name instead.
+        if self.dyn()->check(TokenKind::OpColonColon)
+            && self.dyn()->ig_peek_kind() == TokenKind::LitIdentifier {
+            return true
+        }
+
         // `fn f16(c: T)`: a primitive type's name where the function's goes.
         // No closure starts that way, and taking it for one parsed
         // `f16` away and the rest as a parameterless closure, so every use
@@ -1534,7 +1543,7 @@ pub class <T: type> DeclParse {
                 self.dyn()->advance()
             }
 
-            var bty = self.dyn()->parse_type()
+            var bty = self.dyn()->parse_bound_type()
             if bty == &null || is_recovery(bty) {
                 var bkw: string = if (is_derives) => ("derives") else => "impl"
                 self._report_missing_edge_type(bty, bkw)
@@ -1803,6 +1812,35 @@ pub class <T: type> DeclParse {
     ///
     /// \details precondition: current token is `fn`. `lead` carries any
     ///          static/virtual/override/final consumed before `fn`.
+    /// \brief S093E for a function name that starts with `::`; consumes the
+    ///        `::`. The cursor is on it, an identifier after it.
+    priv fn _report_rooted_fn_name(self) {
+        var colons = self._cur_range()
+        self.dyn()->advance() // consume `::`
+        var name      = self._cur_range()
+        var qualified = self.dyn()->ig_peek_kind() == TokenKind::OpColonColon
+        var nm        = self.dyn()->ctx->get_spelling(self.dyn()->current())
+        if qualified {
+            var b = self.dyn()->diag->report(
+                DiagID::S093E,
+                colons.start,
+                "a function name cannot start with '::'; a function C++ declares in a namespace or a class is defined with its qualified name alone",
+            )
+            b.first(colons | name)
+            b.remove(colons, "remove the leading '::'")
+            b.emit()
+            return
+        }
+
+        var b = self.dyn()->diag->report(
+            DiagID::S093E,
+            colons.start,
+            f"'fn ::{nm}' would define the C++ global function '{nm}'; a C++ global function cannot be defined from Kairo yet",
+        )
+        b.first(colons | name)
+        b.emit()
+    }
+
     priv fn _parse_function(self, lead: unsafe *Self::LeadMods) -> unsafe *Decl {
         var start = if (lead->any) => (lead->range) else => self._cur_range()
 
@@ -1859,6 +1897,15 @@ pub class <T: type> DeclParse {
         self._parse_generic_or_spec_intro(unsafe &gparams, &fn_intro)
         var has_generics = !gparams.is_empty()
         fd->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
+
+        // `fn ::gf` / `fn ::ns::f`: S093E at the name, then parsed on without
+        // the `::`, so the parameters and body are checked as usual and the
+        // one error is all the head reports. Defining a C++ global function
+        // has no spelling yet; a qualified name is written without the `::`.
+        if self.dyn()->check(TokenKind::OpColonColon)
+            && self.dyn()->ig_peek_kind() == TokenKind::LitIdentifier {
+            self._report_rooted_fn_name()
+        }
 
         // name | `op <operator>` | qualified `Class::method`
         if self.dyn()->check(TokenKind::KwOp) {
@@ -3627,7 +3674,7 @@ pub class <T: type> DeclParse {
                 self.dyn()->advance()
             }
 
-            var bty = self.dyn()->parse_type()
+            var bty = self.dyn()->parse_bound_type()
             if bty == &null || is_recovery(bty) {
                 self._report_missing_edge_type(bty, kw)
                 break
@@ -6325,6 +6372,12 @@ pub class <T: type> DeclParse {
         }
     }
 
+    /// The top-level loop's recovery after an item that failed (P981): to the
+    /// next line or declaration, always moving.
+    pub fn sync_top_level_progress(self) {
+        self._sync_decl_progress(Self::DeclSyncCtx::TopLevel)
+    }
+
     // Closures
 
     /// \brief Parses a complete closure signature with structured error recovery.
@@ -6334,6 +6387,7 @@ pub class <T: type> DeclParse {
         var captures: kairo::std::StackBuf<ClosureExpr::Capture, 4>
         var ret_type:           unsafe *Type = &null
         var explicit_no_capture              = false
+        var errs_at_start                    = self.dyn()->diag->error_count()
 
         // optional generic params: `fn <T> |captures| (params) -> T`
         if self.dyn()->check(TokenKind::OpLess) {
@@ -6358,7 +6412,27 @@ pub class <T: type> DeclParse {
             && !self.dyn()->check(TokenKind::OpEqual)
             && !self._is_closure_modifier(self.dyn()->ig_kind())
             && !self.dyn()->is_eof() {
+            // The skip below may drop tokens; when it does and the lists
+            // above said nothing, say it here. Silent, it ate `main` from
+            // `fn` NEWLINE `fn main() -> i32 { }` and `::gf(a: i32)` from
+            // `fn ::gf(a: i32) -> i32 { }`, leaving the body's names
+            // undeclared with no reason given (P981, P985).
+            var r      = self._cur_range()
+            var k      = self.dyn()->ig_kind()
+            var at_idx = self.dyn()->c_idx
             self._sync_to_closure_milestone()
+            // Stopped at EOF, the body check after it reports S054E; stopped
+            // at a milestone, a body follows and nothing else would speak.
+            if self.dyn()->c_idx != at_idx
+                && (!self.dyn()->is_eof())
+                && self.dyn()->diag->error_count() == errs_at_start {
+                self.dyn()->diag->report(
+                    DiagID::S047E,
+                    r.start,
+                    f"unexpected '{token_kind_to_readable_string(k)}' in a closure signature; "
+                        + "expected '(' and the parameters, '|' and the captures, '->', '{' or '='",
+                ).first(r | self._prev_range())->emit()
+            }
         }
 
         // capture list: `|a, *b|` / `|*|` / `||`

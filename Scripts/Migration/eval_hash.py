@@ -17,7 +17,7 @@
 # string is fold(u64 max)). Scripts/gen_diag.py has no Python copy of it --
 # it emits the compute_hash calls and Stage 0 evaluates them -- so this is
 # the one Python implementation. Checked against Stage 0 itself
-# (2026-11-03: a Stage 0 program printing compute_hash::<r"...">() for
+# (a Stage 0 program printing compute_hash::<r"...">() for
 # "C0001W", "null", "S048E", "a" gave 3595980705, 609591432, 707373511,
 # 3591181695, the selftest's values). The C++ registry.o is built by Stage 0
 # from the same calls, so the Kairo and C++ sides still agree.

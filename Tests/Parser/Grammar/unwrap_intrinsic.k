@@ -1,6 +1,6 @@
 // `unwrap!(expr)` is a parser
 // intrinsic, like `label!` / `jump!`: the preprocessor passes `unwrap` `!`
-// through raw (it used to be R013E "unknown macro 'unwrap!'"), and the
+// through raw (it is not R013E "unknown macro 'unwrap!'"), and the
 // expression parser builds an UnwrapExpr whose operand is an ordinary
 // expression: a name, a field path, an operator, a call, another unwrap!,
 // a macro expanded inside it. It is a primary expression, so a postfix

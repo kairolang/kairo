@@ -1,7 +1,7 @@
 // A bare variable passed to a C++ non-const `T&` parameter is the missing
 // `@inout` marker, SC097E with the `&` fix-it, as for a Kairo `@inout`
-// (decided 2026-11-08). A const `T&` takes it by value as
-// before, and an operator's operand (`a += b` on a C++ type) has no
+// A const `T&` takes it by value as
+// always, and an operator's operand (`a += b` on a C++ type) has no
 // marker to write and binds as C++ does.
 
 ffi "c++" import "cxx_lref_inout.h"

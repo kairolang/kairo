@@ -2,7 +2,8 @@
 ///
 ///   \brief Where `ffi::ref<T>` / `ffi::mref<T>` may stand, and that an
 ///          override of a C++ virtual returns what the virtual returns
-///          (P872, functions-parameter-modes.mdx "Reference returns from C++").
+///          (P872, functions-parameter-modes.mdx "Reference returns from C++";
+///          any return, not only a reference, since P987).
 ///
 ///   \detail
 ///     `ffi::ref<T>` (C++ `T&`), `ffi::ref<const T>` (`const T&`) and
@@ -293,8 +294,9 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
     /// # overrides
 
     /// Each override of an imported virtual returns what the virtual
-    /// returns, when either side is a C++ reference: clang would reject the
-    /// pair anyway, with a message that names C++ types and no fix.
+    /// returns: clang would reject the pair anyway, with a message that
+    /// names C++ types and no fix. A reference on either side must match
+    /// exactly; any other return as _plain_return_agrees says.
     fn visit_class_decl(self, cd: unsafe *ClassDecl) -> bool {
         if cd == &null || cd->is_poisoned() || decl_is_imported(unsafe (cd as unsafe *Decl)) {
             return true
@@ -321,6 +323,37 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         return true
     }
 
+    /// Neither return is a reference: true when C++ accepts the pair or
+    /// Kairo cannot tell. Any other mismatch (`-> i64` over `int val()`)
+    /// passed Kairo and failed in clang as "virtual function 'val' has a
+    /// different return type" (P987).
+    ///
+    /// A pointer to a record on both sides may be a covariant return, legal
+    /// in C++ when the override's record derives from the virtual's (and is
+    /// complete, and the base accessible and unambiguous): clang judges that
+    /// pair, not this check. Top-level qualifiers are ignored on both sides.
+    priv fn _plain_return_agrees(self, mc: unsafe *Type, bc: unsafe *Type) -> bool {
+        if mc == &null {
+            return self._tu.is_void(bc) // no `->`: the override returns void.
+        }
+
+        var unsafe *mu = canon_unqual(mc)
+        var unsafe *bu = canon_unqual(bc)
+        if mu == bu || mu == &null || bu == &null || mu->is_dependent() {
+            return true
+        }
+
+        var unsafe *mp = self._tu.pointee(mu)
+        var unsafe *bp = self._tu.pointee(bu)
+        if mp != &null && bp != &null
+            && self._tu.record_decl(mp) != &null
+            && self._tu.record_decl(bp) != &null {
+            return true
+        }
+
+        return false
+    }
+
     priv fn _check_override_return(self, m: unsafe *FunctionDecl, base: unsafe *FunctionDecl) {
         if base->return_type == &null || base->return_type->canonical == &null {
             return
@@ -341,7 +374,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
 
         var cxx_ref = is_cxx_ref_canonical(bc)
         var mine    = m->return_type != &null && (is_ffi_ref_spelled(m->return_type) || is_cxx_ref_canonical(mc))
-        if (!cxx_ref) && (!mine) {
+        if (!cxx_ref) && (!mine) && self._plain_return_agrees(mc, bc) {
             return
         }
 

@@ -1,6 +1,6 @@
 // -c -o, -S -o and --emit=asm -o name the output of the ONE user translation
-// unit. The builtin and std modules are TUs too; they used to count as
-// outputs, so -o failed with I004F for every ordinary program. They go under
+// unit. The builtin and std modules are TUs too; they must not count as
+// outputs, or -o fails with I004F for every ordinary program. They go under
 // --cache-dir instead. With two user TUs there is no single name, and the
 // I004F refusal stays.
 

@@ -1,7 +1,7 @@
 // `--emit` listing more than one kind with `-o` links: -o cannot name any
 // one of several outputs, so it is the executable, and the listed kinds are
 // written beside it as `<exe>.<ext>` (or under --cache-dir), each path
-// printed. This used to be I004F ("names one output, but this build emits
+// printed. It is not I004F ("names one output, but this build emits
 // 2"). One kind with -o is still that one output, and -c with several kinds
 // and one -o is still the refusal.
 

@@ -1018,7 +1018,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     /// tree declares HashMap, HashSet, ImmBigInt, ImmBigFloat and `string`, so five
     /// of the seventeen could never match.
     /// The lang items std declares: f8e4m3 / f8e5m2's classes (std/rt/
-    /// Float8.k, P942), which std holds because they are loaded only into
+    /// Float8.k), which std holds because they are loaded only into
     /// the files that spell the types (Preprocessor::_add_wide_floats), as
     /// f256's are from builtin. Bound from that one std TU, typed before
     /// its users by the implicit import's edge. Any other std TU misses.
@@ -3077,6 +3077,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 b.note(n->range.start, f"to bind the matched value to a new name, write 'var {nm}'")
             }
 
+            MemberLookup::note_failed_headers(self.sc, &b, n->range)
             b.emit()
             n->poison()
             self.sc->trace.use_site(

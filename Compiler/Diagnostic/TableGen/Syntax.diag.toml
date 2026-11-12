@@ -2070,3 +2070,40 @@ group = "ffi"
 
     write `ffi::ref<T>`, `ffi::ref<const T>` or `ffi::mref<T>`.
     """
+
+[S093]
+brief = "a function name cannot start with '::'"
+group = "ffi"
+
+    [S093.E]
+    explain = """
+    # a function name cannot start with '::'
+
+    `fn ::gf(...)` names the C++ global function `gf`. Defining a function that
+    C++ declares at global scope is not supported from Kairo yet: there is no
+    spelling for it. A C++ member or namespace function is defined with its
+    qualified name, without the leading `::`.
+
+    ```c++
+    int gf(int);
+    namespace ns { int nf(int); }
+    struct W { int at(int); };
+    ```
+
+    ```kairo
+    ffi "c++" import "g.h"
+
+    fn ::gf(a: i32) -> i32 { return a + 1 }        // error: not supported yet
+    fn ::ns::nf(a: i32) -> i32 { return a }        // error: write 'fn ns::nf'
+    fn ns::nf(a: i32) -> i32 { return a }          // defines ns::nf
+    fn W::at(self, a: i32) -> i32 { return a }     // defines W::at
+    ```
+
+    The rest of the function is still checked, as a Kairo function named
+    after the last segment.
+
+    ## how to fix
+
+    for a qualified name, remove the leading `::` (the fix-it does). For a
+    C++ global function, define it in C++ for now.
+    """

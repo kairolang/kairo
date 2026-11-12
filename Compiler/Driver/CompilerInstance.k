@@ -326,6 +326,7 @@ pub class CompilerInstance {
     prot var _rt_logs:  cxx::std::vector<string>
     prot var _rt_oks:   cxx::std::vector<u8> // not vec<bool>: its bits share bytes across threads
     prot var _rt_ents:  cxx::std::vector<string> // the cache entry a compiled object is stored to; "" for none
+    prot var _rt_used:  cxx::std::vector<string> // the cache entries this run fetched or stored: _rt_cache_gc keeps them
     prot var _rt_cache: string
     prot var _rt_started:        bool                     = false
     prot var _rt_prestart_tried: bool                     = false

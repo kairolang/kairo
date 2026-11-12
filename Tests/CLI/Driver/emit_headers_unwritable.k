@@ -1,5 +1,5 @@
 // --emit-headers into a directory that cannot be created is an error and a
-// nonzero exit; it used to exit 0 having written nothing.
+// nonzero exit, never 0 with nothing written.
 
 fn main() -> i32 { return 0 }
 

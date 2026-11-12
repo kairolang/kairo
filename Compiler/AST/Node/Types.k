@@ -840,7 +840,7 @@ pub class InferredType derives Type {
 ///
 pub class CXXLValueRefType derives Type {
     pub var referee: unsafe *Type
-    /// Written `ffi::ref<T>` / `ffi::mref<T>` in Kairo source (P872), not
+    /// Written `ffi::ref<T>` / `ffi::mref<T>` in Kairo source, not
     /// imported: the printer spells it back, FfiRefReturnCheck judges where.
     pub var ffi_spelled: bool = false
 
@@ -884,7 +884,7 @@ pub class CXXLValueRefType derives Type {
 ///
 pub class CXXRValueRefType derives Type {
     pub var referee: unsafe *Type
-    /// Written `ffi::ref<T>` / `ffi::mref<T>` in Kairo source (P872), not
+    /// Written `ffi::ref<T>` / `ffi::mref<T>` in Kairo source, not
     /// imported: the printer spells it back, FfiRefReturnCheck judges where.
     pub var ffi_spelled: bool = false
 
@@ -1180,7 +1180,7 @@ pub class ChainType derives Type {
     }
 
     /// \brief returns true if the chain starts with a leading `::`.
-    fn accesses_global_scope(self) -> bool {
+    pub fn accesses_global_scope(self) -> bool {
         if self.segments.is_empty() {
             return false
         }

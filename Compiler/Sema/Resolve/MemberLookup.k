@@ -97,6 +97,7 @@ import AST::Node::Types::{
     PointerType,
 }
 import Diagnostic::Code::DiagCode
+import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
 import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceRange::SourceRange
@@ -848,6 +849,29 @@ pub class MemberLookup {
         }
 
         return sc->foreign->fill(d, sc->diag, fid, alt)
+    }
+
+    /// True when the C++ headers \p sc's file imports failed to compile.
+    /// Nothing is imported from a set clang rejected (HeaderIndex::index), so
+    /// every name the file takes from it is undeclared: two headers that
+    /// define one `struct Base` left only "unknown type name 'Base'" under
+    /// clang's redefinition error (P986). The unresolved-name errors say why.
+    static fn headers_failed(sc: unsafe *SemaContext) -> bool {
+        if sc == &null || sc->tu == &null || sc->tu->header_set == &null {
+            return false
+        }
+
+        var unsafe *hs = unsafe (sc->tu->header_set as unsafe *HeaderSet)
+        return hs->is_built() && !hs->ok
+    }
+
+    /// The note headers_failed() asks for, on an unresolved-name error at \p at.
+    static fn note_failed_headers(sc: unsafe *SemaContext, b: *DiagBuilder, at: SourceRange) {
+        if !MemberLookup::headers_failed(sc) {
+            return
+        }
+
+        b->note(at.start, "the C++ headers this file imports did not compile (see clang's errors), so no name from them is visible")
     }
 
     /// True when \p d is an instance whose primary came from a C++ header --

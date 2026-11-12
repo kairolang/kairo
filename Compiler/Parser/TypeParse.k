@@ -115,7 +115,7 @@ pub class <T: type> TypeParse {
     /// nobody is owed, owes_close() looks without settling. Only 0 or 1:
     /// `>>>` reaches the parser as `>>` then `>`, so it needs no more, and
     /// owing twice is owing one. `>>=` is a token of its own and is not
-    /// split (`var v: A<A<i32>>= x` is S049E, P279).
+    /// split (`var v: A<A<i32>>= x` is S049E).
     ///
     /// Part of a speculation's checkpoint (ASTParse::checkpoint), so a
     /// rollback cannot leave a debt behind that a later list pays wrongly.
@@ -380,6 +380,19 @@ pub class <T: type> TypeParse {
     /// pointee is parsed that way, so `*T?` is a nullable POINTER, `(*T)?`,
     /// as nullables.md and pointers.md write it. A pointer to a nullable is
     /// spelled `*(T?)`.
+    /// \brief a bound's type: an `impl` / `derives` bound of a generic
+    ///        parameter, an inherit list, or a `requires` constraint. Only
+    ///        here may the path be rooted, `::m::I`; see the gate in
+    ///        the primary dispatch. Generic arguments inside the bound
+    ///        inherit it.
+    fn parse_bound_type(self) -> unsafe *Type {
+        var saved = self.dyn()->rooted_type_ok
+        self.dyn()->rooted_type_ok = true
+        var unsafe *t = self.parse_type()
+        self.dyn()->rooted_type_ok = saved
+        return t
+    }
+
     fn parse_type(self,
                   is_inferred:  bool = false,
                   skip_newline: bool = false,
@@ -560,7 +573,7 @@ pub class <T: type> TypeParse {
             return self._parse_typeof_type()
         }
 
-        // `ffi::ref<T>` / `ffi::mref<T>`: a C++ reference return (P872).
+        // `ffi::ref<T>` / `ffi::mref<T>`: a C++ reference return.
         // Parsed wherever a type may stand, so a misplaced one gets
         // FfiRefReturnCheck's one error, not a cascade from `ffi`.
         if self.dyn()->check(TokenKind::KwFfi) && self.dyn()->check_peek(TokenKind::OpColonColon) {
@@ -579,6 +592,17 @@ pub class <T: type> TypeParse {
                 return Self::_is_type_tok_kind(k)
             },
         ) {
+            return self._parse_qual_type()
+        }
+
+        // `::m::I` in a bound: a path from the file's root, as `::m::f()` is
+        // in an expression (ChainBinding anchors that at the TU). Refusing
+        // it in a generic list or a requires clause was S049E / S053E
+        //. Bounds only (parse_bound_type): the docs give no rooted
+        // type anywhere else, so there it stays S053E below.
+        if self.dyn()->rooted_type_ok
+            && self.dyn()->check(TokenKind::OpColonColon)
+            && self.dyn()->ig_peek_kind() == TokenKind::LitIdentifier {
             return self._parse_qual_type()
         }
 
@@ -2032,7 +2056,15 @@ pub class <T: type> TypeParse {
 
         var segments: kairo::std::StackBuf<Types::ChainType::ChainSegment, 4>
 
-        var seg = self._parse_chain_segment(Types::ChainType::SegmentSeparator::None)
+        // A leading `::` roots the path: the first segment keeps the
+        // separator, which is what ChainType::accesses_global_scope reads.
+        var first_sep = Types::ChainType::SegmentSeparator::None
+        if self.dyn()->check(TokenKind::OpColonColon) {
+            first_sep = Types::ChainType::SegmentSeparator::ColonColon
+            self.dyn()->advance() // consume the leading `::`
+        }
+
+        var seg = self._parse_chain_segment(first_sep)
         if seg.name == &null {
             return Types::ChainType::create_error(self.dyn()->ctx, start_range)
         }

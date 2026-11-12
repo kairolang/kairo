@@ -524,7 +524,7 @@ pub class <T: type> ExprParse {
                 var c_op = self.dyn()->current()
                 self.dyn()->advance(T::SkipNL::After) // consume `impl` / `derives`
 
-                var rty = self.dyn()->parse_type()
+                var rty = self.dyn()->parse_bound_type()
                 if rty == &null || is_recovery(rty) {
                     self.dyn()->diag->report(
                         DiagID::S052E,
@@ -2724,7 +2724,7 @@ pub class <T: type> ExprParse {
 
     /// \brief returns true if the token kind is a declaration/statement keyword
     ///        that should never appear inside a call argument list.
-    ///        used to bail out of arg parsing when sync has overshot.
+    ///        lets arg parsing bail out when sync has overshot.
     priv fn _is_decl_keyword(self, k: TokenKind) -> bool {
         return k == TokenKind::KwClass
             || k == TokenKind::KwStruct
@@ -3236,9 +3236,8 @@ pub class <T: type> ExprParse {
 
     /// \brief S052E for a list element that is not there at all (`[1, , 3]`,
     ///        `f(1, , 2)`): parse_expr returns null, unreported, when it
-    ///        starts on a stop token. While recovery ate the `,` and the list's
-    ///        own closer, some later error happened to fire; now that it keeps
-    ///        them, the hole would otherwise pass silently.
+    ///        starts on a stop token. Recovery keeps the `,` and the list's
+    ///        own closer, so no later error fires for the hole; report it here.
     priv fn _report_missing_element(self) {
         // after a depth abort S063E already said why; at the end of the file
         // the unclosed list or block is what gets reported
@@ -3532,8 +3531,8 @@ pub class <T: type> ExprParse {
             return first
         }
 
-        // missing `)` report WITHOUT eating the offending token (old code
-        // advanced blindly and could swallow the statement terminator).
+        // missing `)` report WITHOUT eating the offending token (advancing blindly
+        // could swallow the statement terminator).
         self.dyn()->diag->report(
             DiagID::S054E,
             first->range.start,
@@ -3804,7 +3803,7 @@ pub class <T: type> ExprParse {
         //
         // Raw is the head's (each chained segment's own Raw is read off its
         // prefix_kind by every decoder). Format is the CHAIN's: adjacent
-        // literals join whatever their prefixes (P486), so `"a" f"b{x}"` is
+        // literals join whatever their prefixes, so `"a" f"b{x}"` is
         // one f-string whose holes are every segment's, in order; a chain
         // with no format segment stays a plain compile-time literal.
         var skind = FlagSet<StringLiteralExpr::StringKind, u8>()
@@ -5576,7 +5575,7 @@ pub class <T: type> ExprParse {
     ///             generic arguments" is the right diagnostic for
     ///             `foo<a>(10)`, while `foo < limit` still rolls back to a
     ///             comparison. An unconditional generic commit here would
-    ///             re-break the `foo < limit` shape (old bug 1).
+    ///             re-break the `foo < limit` shape.
     ///          3. Unknown -> the caller runs the tentative parse (also
     ///             covers unqualified imported generics).
     enum GenericVerdict derives u8 {

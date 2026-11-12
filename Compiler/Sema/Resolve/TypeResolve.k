@@ -2285,7 +2285,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         // E5M2, and the docs define only `f8e4m3` / `f8e5m2`. It maps to no
         // BuiltinKind, and as a keyword it is in no lookup table either, so
         // without this it fell through with an unresolved type that reached
-        // EmitIR as an ICE (P584).
+        // EmitIR as an ICE.
         if tok.kind == TokenKind::AtF8 {
             var b = self.sc->diag->report(
                 DiagID::R021E,
@@ -2378,17 +2378,29 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 return
             } // recovery/synthetic name; parser diagnosed.
 
-            var gh = self._lookup_generic(imm)
+            // `::m::I` starts at the file's root: no generic parameter or
+            // local type can be its head, and the walk begins at the TU, as
+            // ChainBinding anchors `::m::f()` in an expression.
+            var rooted = ct->accesses_global_scope()
+            var gh     = Self::GenericHit()
+            if !rooted {
+                gh = self._lookup_generic(imm)
+            }
+
             if gh.decl != &null {
                 head       = unsafe (gh.decl as unsafe *Decl)
                 head_owner = gh.owner
             } else {
-                head = self._lookup_local_type(imm)
+                if !rooted {
+                    head = self._lookup_local_type(imm)
+                }
+
                 if head == &null {
                     // The spelled head, for --dump-import-uses (NameLookup::use_at).
                     var saved_at = self.sc->lookup.use_at
                     self.sc->lookup.use_at = seg0->name->range.start.id
-                    var r = self._lookup_unqualified(self.cur_dc, imm)
+                    var unsafe *from = if rooted => (unsafe (self.sc->tu as unsafe *DeclContext)) else => self.cur_dc
+                    var r = self._lookup_unqualified(from, imm)
                     self.sc->lookup.use_at = saved_at
                     // An `extend` body's DeclContext parents to the TU, so the
                     // walk above never reaches the type being extended. Its
@@ -2397,17 +2409,20 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     // does inside `class Foo`. `_selfs` already holds the
                     // target (traverse_extension_decl pushed it); for a class
                     // body this is a no-op, the DC chain answered first.
-                    if !r.found() {
+                    if !r.found() && !rooted {
                         r = self._lookup_in_selfs(imm, self.sc->ctx->get_spelling(tok))
                     }
 
                     if !r.found() {
                         var nm = self.sc->ctx->get_spelling(tok)
-                        self.sc->diag->report(
+                        var b  = self.sc->diag->report(
                             DiagID::R021E,
                             seg0->name->range.start,
                             f"unknown type name '{nm}'",
-                        ).first(seg0->name->range)->emit()
+                        )
+                        b.first(seg0->name->range)
+                        MemberLookup::note_failed_headers(self.sc, &b, seg0->name->range)
+                        b.emit()
                         ct->poison()
                         return
                     }
@@ -5084,8 +5099,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return out
     }
 
-    /// The targets an `extend` cannot have (P325 decided 2026-11-11, P943
-    /// decided 2026-11-12), each its own code:
+    /// The targets an `extend` cannot have, each its own code:
     ///   - a pointer, `*T` / `*const T` / `unsafe *T` (SC282E): its members
     ///     are its pointee's, reached with `->`. A container OF pointers
     ///     (`extend <T> [*T]`) is an ordinary record target and stays legal.
@@ -5146,7 +5160,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         n->poison()
     }
 
-    /// An operator in an `extend T?` block (P325-1, P967). Operator typing
+    /// An operator in an `extend T?` block. Operator typing
     /// reads a nullable operand as a value (`a + 1` on a maybe-null `a` is
     /// the nullness error, and the operator is looked up on T), except a
     /// BINARY operator the nullable itself declares when T is a record the
@@ -5226,7 +5240,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             || k == TokenKind::OpGreaterEqual
     }
 
-    /// `extend <T> [T; 2]`, `extend <T, eval N: usize> [T; N]` (P946): the
+    /// `extend <T> [T; 2]`, `extend <T, eval N: usize> [T; N]`: the
     /// extension index keys a non-record target by its one exact canonical
     /// (MemberLookup::_index_decl), so a pattern over arrays matched no
     /// array and every member was "no member named" (R025E) at the use.

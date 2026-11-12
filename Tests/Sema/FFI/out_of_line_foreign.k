@@ -11,8 +11,8 @@ fn U::U(self, x: i32) { }
 
 // --- lit wiring -----------------------------------------------------------
 // Out-of-line definitions of IMPORTED members. S and U live in the header's
-// TU, whose tables are keyed by that TU's imms; everything below used to
-// probe them with THIS file's imm and take whatever shared the index:
+// TU, whose tables are keyed by that TU's imms; everything below must
+// not probe them with THIS file's imm and take whatever shares the index:
 //
 //   - the out-of-line match itself (N(a) / R(b)): `S::g` compared against
 //     `f`, so every definition's verdict depended on declaration order;

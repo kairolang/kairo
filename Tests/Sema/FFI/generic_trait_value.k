@@ -6,10 +6,10 @@
 // `ns::Trait<T>::value` with T a Kairo generic parameter. The member
 // comes from a base over a builtin of the arguments (libc++ derives every
 // trait from integral_constant<bool, __is_xxx(T)>), which the pattern does
-// not show, so C++ looks it up per instantiation; it was R025E "no member
+// not show, so C++ looks it up per instantiation; it is not R025E "no member
 // named 'value' in 'is_trivially_destructible'". As an `eval if` condition it
 // is a compile-time value per instance, not SC001E "this is a run-time value".
-// The concrete `<i32>` form resolves since the fix (generic_scope_step.k).
+// The concrete `<i32>` form resolves too (generic_scope_step.k).
 // Codegen spells the member through the instance (`::std::is_trivially_
 // destructible<T>::value`) and clang decides it per instantiation: the run
 // checks both a trivial and a non-trivial T take their own branch.

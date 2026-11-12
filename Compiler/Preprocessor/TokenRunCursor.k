@@ -115,4 +115,21 @@ pub class TokenRunCursor
         b.remove(cut, fix_msg)
         b.emit()
     }
+
+    fn ig_err_insert(self,
+                     r:       SourceRange,
+                     msg:     string,
+                     code:    DiagID,
+                     at:      SourceRange,
+                     text:    string,
+                     fix_msg: string) {
+        if self._diag == &null {
+            return
+        }
+
+        var b = self._diag->report(DiagCode(code), r.start, msg)
+        b.first(r)
+        b.insert(at.start, text, fix_msg)
+        b.emit()
+    }
 }

@@ -129,6 +129,7 @@ extend CompilerInstance {
         self._rt_logs.clear()
         self._rt_oks.clear()
         self._rt_ents.clear()
+        self._rt_used.clear()
         self._rt_cache   = ""
         self._rt_started = true
         var runtime = self._runtime_sources()
@@ -210,6 +211,7 @@ extend CompilerInstance {
                     )
                 } else if CompilerInstance::_rt_cache_fetch(entry, obj) {
                     kairo::Logger::info(kairo::Logger::Stage::Driver, f"runtime cache hit: {entry}")
+                    self._rt_used.push_back(entry)
                     hit = true
                 } else {
                     kairo::Logger::info(
@@ -280,8 +282,10 @@ extend CompilerInstance {
             }
 
             if !self._rt_ents[i].empty() {
-                stored = CompilerInstance::_rt_cache_store(self._rt_objs[i], self._rt_ents[i])
-                    || stored
+                if CompilerInstance::_rt_cache_store(self._rt_objs[i], self._rt_ents[i]) {
+                    stored = true
+                    self._rt_used.push_back(self._rt_ents[i])
+                }
             }
 
             self._native_objs.push_back(self._rt_objs[i])
@@ -289,7 +293,7 @@ extend CompilerInstance {
         }
 
         if stored {
-            CompilerInstance::_rt_cache_gc(self._rt_cache)
+            CompilerInstance::_rt_cache_gc(self._rt_cache, self._rt_used)
         }
 
         return ok
@@ -357,7 +361,7 @@ extend CompilerInstance {
 
     /// \brief cxx_driver_words for a C input (`.c`): the C set kcc compiles
     ///        a `.c` with (C roots, C `-std`), for a C source kals' bridge
-    ///        lists because it reaches a `.k` through a header (P861); the
+    ///        lists because it reaches a `.k` through a header; the
     ///        C++ set's `-std=c++..` is an error for C. Empty without a
     ///        backend.
     pub fn c_driver_words(self) -> cxx::std::vector<string> {

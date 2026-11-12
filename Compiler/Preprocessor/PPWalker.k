@@ -363,6 +363,23 @@ pub class PPWalker
         b.emit()
     }
 
+    fn ig_err_insert(self,
+                     r:             SourceRange,
+                     const msg:     string,
+                     code:          DiagID,
+                     at:            SourceRange,
+                     const text:    string,
+                     const fix_msg: string) {
+        if self._quiet {
+            return
+        }
+
+        var b = self._diag->report(DiagCode(code), r.start, msg)
+        b.first(r)
+        b.insert(at.start, text, fix_msg)
+        b.emit()
+    }
+
     /// Frame 0 from tokens already lexed (TokenSource::set_replay).
     fn set_replay(self, toks: unsafe *cxx::std::vector<Token>) {
         eval if defined!(DEBUG) {

@@ -955,7 +955,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         // A definition takes and returns by value only what can be an
         // object: not an abstract class, not a record only ever forward-
-        // declared (P76, P210). Left to clang, both were CL001E on the
+        // declared. Left to clang, both were CL001E on the
         // generated C++. A declaration with no body may name either, as in
         // C++; `const` and `@inout` parameters are references.
         if n->body_kind == FnBodyKind::Block || n->body_kind == FnBodyKind::Expr {
@@ -1206,7 +1206,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return n
         }
 
-        // A field of an abstract class (P76). One only ever forward-declared
+        // A field of an abstract class. One only ever forward-declared
         // is TypeCycleCheck's SC227E, which walks every by-value field.
         if n->type_ != &null {
             var fr = if (n->type_->range.is_valid()) => (n->type_->range) else => n->range
@@ -1447,7 +1447,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     }
 
     /// `var t = a[i..j]` binds the place form of a split subscript when `a`
-    /// is mutable (P880-2): the binding is a view that may be written
+    /// is mutable: the binding is a view that may be written
     /// through; `const t = a[i..j]` binds the read form. A declared type
     /// that is a read-only view keeps the read form.
     priv fn _mark_range_binding(self, n: unsafe *VariableDecl, declared: unsafe *Type) {
@@ -2066,7 +2066,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         // iterable's own cv: a const one picks `op in (const self)`, and
         // with only `op in (self)` the loop is SC063E here ("'op in' is not
         // const"), where before the const was dropped and clang found it in
-        // the generated C++ (P950, `for x in m` with `const m: {K: V}`).
+        // the generated C++ (`for x in m` with `const m: {K: V}`).
         var forms = cxx::std::vector<unsafe *Decl>()
         var yelem = cxx::std::vector<unsafe *Type>()
         for var i: usize = 0; i < cands.size(); ++i {
@@ -2338,7 +2338,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         // An instance over the generic's own parameter (`vector<T>`): a
         // member call on it is left to C++ per instance (untyped), so
         // begin()/end()/`*it` have no type here and the loop is C++'s own
-        // range-for (P476: it was poisoned with no diagnostic, then an ICE).
+        // range-for. Poisoning it here would give no diagnostic and ICE later.
         var unsafe *oc = canon_unqual(obj)
         if rf != &null && oc != &null && (oc->is_dependent() || oc->is_instantiation_dependent()) {
             if self._dependent_for_shape(rf) {
@@ -2649,7 +2649,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         if b->shorthand.has(Statements::BindingShorthand::Pointer) {
             // An element reached through a `const T&` (a std::set's iterator)
             // is not writable: the binder points at a `const T`, or C++
-            // refuses the `const T*` into a `T*` (P474).
+            // refuses the `const T*` into a `T*`.
             if const_elem {
                 shaped = self.dyn()->sc->types->qualified(shaped, QUAL_CONST)
             }
@@ -2699,7 +2699,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         // Each binder of the tuple points into the same const element:
-        // `for (k, *v) in xs` over a const owner is `*const V` too (P950).
+        // `for (k, *v) in xs` over a const owner is `*const V` too.
         for var i: usize = 0; i < list->size(); ++i {
             self._bind_one(list->get(i), if (have) => (elems[i]) else => &null, const_elem)
         }
@@ -2712,9 +2712,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         // `for *e in x[a..b]` points into the elements: a split subscript
-        // there takes its place form on a mutable container (P880). By
+        // there takes its place form on a mutable container. By
         // value, the iterable is the receiver of its `op in`: the place form
-        // for now, settled once that `op in` is chosen.
+        // is taken provisionally and settled once that `op in` is chosen.
         var by_ptr = false
         for var bi: usize = 0; bi < n->bindings.size(); ++bi {
             var unsafe *b = n->bindings.get(bi)
@@ -2789,7 +2789,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     }
 
     /// A const array or vector owns its elements, so what `for *x` points
-    /// at through one is const, as `&a[i]` is (P921). The builtin vector
+    /// at through one is const, as `&a[i]` is. The builtin vector
     /// iterates through its own `op in (const self)` (IterKind::User), which
     /// says nothing about the element's const: without this a `for *e` over
     /// a const `[T]` wrote the elements and compiled. A slice is a view over
@@ -2818,7 +2818,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     /// `for h in *arr` over a C++ range whose element is an abstract class
     /// (toml::array yields toml::node): `h` binds a COPY, which C++ cannot
     /// make, and the failure would surface as clang's "variable type is an
-    /// abstract class" in emitted code (P833). Said here, at the binding,
+    /// abstract class" in emitted code. Said here, at the binding,
     /// with the `for *h` that iterates by pointer.
     priv fn _by_value_abstract(self, n: unsafe *Statements::RangedForStmt, elem: unsafe *Type) {
         if elem == &null || n->iter_kind != Statements::IterKind::Cxx || n->bindings.size() != 1 {
@@ -3052,6 +3052,29 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         self.dyn()->unsafe_depth -= 1
+        return n
+    }
+
+    /// SC296E: `inline "asm"` outside an unsafe context. Nothing checks what
+    /// the assembly does, so the docs put it in `unsafe` (c-cpp-calling.mdx,
+    /// "Inline ASM"); accepting it anywhere left that promise unenforced
+    ///. Only assembly: the other inline languages are their own
+    /// matter (c-cpp-calling.mdx says `inline "c++"` is not supported).
+    fn traverse_inline_block_stmt(self,
+                                  n: unsafe *Statements::InlineBlockStmt) -> unsafe *Statements::InlineBlockStmt {
+        if n == &null || n->lang != Statements::FFILang::Asm || self.dyn()->in_unsafe() {
+            return n
+        }
+
+        var b = self.dyn()->sc->diag->report(
+            DiagID::SC296E,
+            n->range.start,
+            "an inline assembly block must be inside 'unsafe': the compiler cannot check what the assembly does",
+        )
+        b.first(n->range)
+        b.insert(n->range.start, "unsafe { ", "wrap it in an unsafe block")
+        b.insert(n->range.end, " }", "close the unsafe block")
+        b.emit()
         return n
     }
 

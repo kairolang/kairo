@@ -1,5 +1,5 @@
 // --debug-macros asks clang for macro debug info (-fdebug-macro). LLVM crashes emitting it
-// for a Mach-O target (P774), so a macOS/darwin target keeps -g and drops the macro info;
+// for a Mach-O target, so a macOS/darwin target keeps -g and drops the macro info;
 // every other family still gets it.
 
 fn main() -> i32 { return 0 }

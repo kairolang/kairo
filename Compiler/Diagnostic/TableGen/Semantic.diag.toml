@@ -6070,3 +6070,35 @@ group = "lint"
     declare the binding `const` (the fix-it does), or silence the warning
     with `@no_warn(SC281W)` on the declaration.
     """
+
+[SC296]
+brief = "an inline assembly block must be in an unsafe context"
+group = "ffi"
+
+    [SC296.E]
+    explain = """
+    # `inline "asm"` belongs inside `unsafe`
+
+    The compiler cannot see what an assembly block reads, writes or clobbers
+    beyond what its constraint lists say, so it cannot check the block.
+    Writing it inside an `unsafe { }` block (or an unsafe function) is where
+    the programmer takes that responsibility.
+
+    ```kairo
+    fn ticks() -> u64 {
+        var low: u32
+        var high: u32
+        inline "asm" { "rdtsc" : "=a"(low), "=d"(high) : : }   // error
+
+        unsafe {
+            inline "asm" { "rdtsc" : "=a"(low), "=d"(high) : : }   // fine
+        }
+
+        return (high as u64 << 32) | (low as u64)
+    }
+    ```
+
+    ## how to fix
+
+    wrap the block in `unsafe { ... }` (the fix-it does).
+    """

@@ -79,11 +79,56 @@ fn cache_record_magic() -> string {
     return "kairo-cache-record"
 }
 
-/// One stored object, for ObjectCache::gc's size bound.
-struct CacheEntryStat {
-    pub var path:  string
-    pub var at:    u64 = 0 ///< mtime: when it was stored.
-    pub var bytes: u64 = 0
+/// One cache entry (a file, or a directory when \p tree), for the size
+/// bound every cache applies through cache_evict_to_cap.
+pub struct CacheEntryStat {
+    pub var path:   string
+    pub var at:     u64  = 0 ///< mtime: when it was stored (a library: last used).
+    pub var bytes:  u64  = 0
+    pub var pinned: bool = false ///< this run fetched or stored it: never evicted.
+    pub var tree:   bool = false ///< a directory: removed with remove_tree.
+}
+
+/// \brief while \p entries (one cache's entries left after its age bound,
+///        totalling \p total bytes) hold more than \p cap, removes the
+///        oldest first, down to three quarters of \p cap. Never a pinned
+///        entry, and never one stored in the last CACHE_RECENT_STORE_NS: a
+///        parallel run's fresh generation.
+///
+/// \details Removing an entry cannot break a parallel build sharing the
+///          cache: every reader copies an entry out, or finds it gone and
+///          rebuilds it.
+pub fn cache_evict_to_cap(@inout entries: cxx::std::vector<CacheEntryStat>, total: u64, cap: u64, now: u64) {
+    if total <= cap {
+        return
+    }
+
+    llvm::sort(
+        entries.begin(),
+        entries.end(),
+        fn (const a: CacheEntryStat, const b: CacheEntryStat) || -> bool = a.at < b.at,
+    )
+
+    var left   = total
+    var target = cap / 4 * 3
+    for var i: usize = 0; i < entries.size() && left > target; ++i {
+        var *e = &entries[i]
+        if e->at != 0 && (e->at >= now || now - e->at < CACHE_RECENT_STORE_NS) {
+            break // sorted: everything after it is as recent
+        }
+
+        if e->pinned {
+            continue
+        }
+
+        if e->tree {
+            LinkFS::remove_tree(e->path)
+        } else {
+            LinkFS::remove(e->path)
+        }
+
+        left -= e->bytes
+    }
 }
 
 pub class ObjectCache {
@@ -600,9 +645,9 @@ pub class ObjectCache {
     ///        copies a crashed store left (a day old); then, while the
     ///        entries left hold more than CACHE_OBJECTS_MAX_BYTES, the
     ///        oldest-stored ones this run did not use, down to three
-    ///        quarters of it (P908: a
-    ///        worktree's debug cache grew to 2.8 GB in an afternoon, every
-    ///        build of a changed tree storing a full new generation). Run
+    ///        quarters of it (without the cap, every build of a
+    ///        changed tree stores a full new generation, so the cache grows
+    ///        with each rebuild). Run
     ///        once per run that stored, which a fully reused run never is.
     ///
     /// \details mtime is when an entry was stored, not last used: an old
@@ -636,34 +681,13 @@ pub class ObjectCache {
 
             if !partial {
                 var bytes = LinkFS::size(p)
-                kept.push_back(CacheEntryStat { path: p, at: last, bytes: bytes })
+                var used  = self._used.contains(kairo::sref(p))
+                kept.push_back(CacheEntryStat { path: p, at: last, bytes: bytes, pinned: used })
                 total += bytes
             }
         }
 
-        if total <= CACHE_OBJECTS_MAX_BYTES {
-            return
-        }
-
-        llvm::sort(
-            kept.begin(),
-            kept.end(),
-            fn (const a: CacheEntryStat, const b: CacheEntryStat) || -> bool = a.at < b.at,
-        )
-
-        var target = CACHE_OBJECTS_MAX_BYTES / 4 * 3
-        for var i: usize = 0; i < kept.size() && total > target; ++i {
-            if kept[i].at != 0 && (kept[i].at >= now || now - kept[i].at < CACHE_RECENT_STORE_NS) {
-                break // sorted: everything after it is as recent
-            }
-
-            if self._used.contains(kairo::sref(kept[i].path)) {
-                continue
-            }
-
-            LinkFS::remove(kept[i].path)
-            total -= kept[i].bytes
-        }
+        cache_evict_to_cap(&kept, total, CACHE_OBJECTS_MAX_BYTES, now)
     }
 
     priv fn _entry(self, const key: string) -> string {

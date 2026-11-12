@@ -4,10 +4,8 @@
 # Kairo CODE, so a rewrite never fires inside a comment, a string literal or an
 # inline "c++" body.
 #
-# Split out of an earlier dry-run script that carried all six transforms and
-# this lexer in one file and wrote unconditionally because it ran on a
-# throwaway copy of the tree. Each transform is now its own script, and each
-# reports by default -- pass --apply to write.
+# Each transform is its own script and reports by default; pass --apply to
+# write.
 import os, re, sys
 
 IDENT = re.compile(r"[A-Za-z0-9_]")
@@ -223,7 +221,10 @@ def walk(root, only=None):
             if not nm.endswith(".k"):
                 continue
             p = os.path.join(dirpath, nm)
-            if any(d in p for d in SKIP_DIR):
+            # Below the root only: a tree that itself sits under a `build/`
+            # directory would otherwise skip every file.
+            rel = "/" + os.path.relpath(p, root).replace(os.sep, "/")
+            if any(d in rel for d in SKIP_DIR):
                 continue
             if only and only not in p:
                 continue

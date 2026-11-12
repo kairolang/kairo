@@ -2,8 +2,8 @@
 //
 // `vector` is first.k's set's, which never includes item.h, and
 // `cq::Item` is second.k's set's. An argument that is a plain record of a
-// THIRD set had no spelling in either, so the instance never filled and
-// `size` / `push_back` were "no member named" (R025E). The record is now
+// THIRD set has no spelling in either, so the instance would stay unfilled and
+// `size` / `push_back` be "no member named" (R025E). The record is
 // re-found by its qualified path in the set doing the fill.
 // CHECK-NOT: error
 

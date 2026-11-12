@@ -45,6 +45,15 @@ eval CACHE_ENTRY_MAX_AGE_NS: u64 = 30 * NS_PER_DAY
 pub
 eval CACHE_OBJECTS_MAX_BYTES: u64 = (2048 as u64) * 1024 * 1024
 
+/// The runtime cache and the Kairo library cache (Driver/CompilerCache.k)
+/// each keep at most this many bytes, evicted as the object cache is
+/// (a library cache gains one entry per compiler build, target and option
+/// set, so without a cap a cache root grows without bound). Higher:
+/// fewer rebuilds after switching between compilers or options; lower: less
+/// disk per cache root.
+pub
+eval CACHE_LIBRARY_MAX_BYTES: u64 = (2048 as u64) * 1024 * 1024
+
 /// An object stored this recently is never evicted for size: it is the
 /// generation the run (or a parallel one) just wrote.
 pub
@@ -65,8 +74,8 @@ eval MTIME_SLACK_NS: u64 = 2 * NS_PER_SEC
 
 /// The stack each thread-pool worker starts with (Threading/ThreadPool.k,
 /// Native/KThread.hh). Sema and the printers recurse once per level of a
-/// nested expression, so this bounds how deep a chain a worker can check
-/// (P804). The main thread keeps the stack the OS gave it, which is
+/// nested expression, so this bounds how deep a chain a worker can check.
+/// The main thread keeps the stack the OS gave it, which is
 /// usually smaller and also runs Sema. Higher: deeper input survives; lower:
 /// less address space reserved per worker.
 pub

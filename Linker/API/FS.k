@@ -155,6 +155,21 @@ pub class LinkFS {
         return st.getSize() as u64
     }
 
+    /// Bytes in the files under \p p (its own size when \p p is a file);
+    /// what cannot be stat'd counts 0.
+    pub static fn tree_size(const p: string) -> u64 {
+        if !LinkFS::is_dir(p) {
+            return LinkFS::size(p)
+        }
+
+        var total: u64 = 0
+        for var name: string in LinkFS::list_dir(p) {
+            total += LinkFS::tree_size(p + "/" + name)
+        }
+
+        return total
+    }
+
     /// Atomic on one filesystem; false if \p to exists as a non-empty
     /// directory or the move fails.
     pub static fn rename(const from: string, const to: string) -> bool {

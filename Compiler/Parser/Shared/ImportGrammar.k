@@ -19,6 +19,8 @@
 ///     fn ig_err(self, r: SourceRange, msg: string, code: DiagID)
 ///     fn ig_err_remove(self, r: SourceRange, msg: string, code: DiagID,
 ///                   cut: SourceRange, fix_msg: string) // + removal fix-it
+///     fn ig_err_insert(self, r: SourceRange, msg: string, code: DiagID,
+///                   at: SourceRange, text: string, fix_msg: string) // + insertion fix-it
 ///
 ///   The grammar does NOT consume a trailing `;` and does NOT handle visibility
 ///   prefixes or `ffi` -- both are the caller's.
@@ -39,6 +41,8 @@ import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Token::Token::Token
 import Token::TokenKind::TokenKind
+import Token::TokenKind::is_annotation
+import Token::TokenKind::token_kind_to_readable_string
 
 pub struct ImportSpecItem {
     pub var sub_path:    cxx::std::vector<Token> ///< path segments relative to base
@@ -66,9 +70,43 @@ pub struct ImportSpec {
 }
 
 // TODO(DUCK-GENERIC): T uses ig_bump, ig_bump_nl, ig_eof, ig_err, ig_err_remove, ig_kind, ig_peek_kind, ig_tok. Stage 0 was duck-typed; bound it or keep `: type`.
+/// \brief true for a token that can be an import path segment: a name, or a
+///        primitive type's word.
+///
+/// \details A segment names a FILE or a declaration in one, and a file may be
+///          called `f8.k`, `i32.k` or `bool.k`: the word lexes as a type
+///          keyword, and refusing it made such a file impossible to import
+///         . Only where the word would become the BOUND name does it
+///          clash with the type (_check_bound_word).
+pub fn is_import_path_word(k: TokenKind) -> bool {
+    return k == TokenKind::LitIdentifier || (is_annotation(k) && k != TokenKind::AtComment)
+}
+
 pub class <T: type> ImportGrammar {
     priv inline fn igd(self) -> unsafe *T {
         return unsafe ((&self) as *T)
+    }
+
+    /// \brief S046E when a primitive type's word would be the name an import
+    ///        binds: `import self::i32` binds `i32`, and `i32::f()` reads as
+    ///        the type, never the module. Fix-it: an `as` name after it.
+    /// \p kind is the word's RESOLVED kind (ig_kind when it was read): a
+    /// segment a macro expanded is a wrapper token whose own kind says
+    /// nothing about the word.
+    priv fn _check_bound_word(self, word: Token, kind: TokenKind) {
+        if kind == TokenKind::LitIdentifier {
+            return
+        }
+
+        var w = token_kind_to_readable_string(kind)
+        self.igd()->ig_err_insert(
+            word.range,
+            f"an import cannot bind the name '{w}': it is a primitive type, so '{w}::' names the type, not this module; give it another name with 'as', or import its contents with '::*'",
+            DiagID::S046E,
+            SourceRange(word.range.end, word.range.end),
+            f" as {w}_mod",
+            f"bind it as '{w}_mod'",
+        )
     }
 
     /// \brief parses one import statement. Precondition: current token is
@@ -96,7 +134,7 @@ pub class <T: type> ImportGrammar {
             self.igd()->ig_bump_nl() // consume the anchor
             last = self.igd()->ig_tok().range
             self.igd()->ig_bump_nl() // consume `::`
-            if self.igd()->ig_kind() != TokenKind::LitIdentifier {
+            if !is_import_path_word(self.igd()->ig_kind()) {
                 var anchor_kw = if (ak == TokenKind::KwSelf) => ("self") else => "module"
                 self.igd()->ig_err(
                     start | last,
@@ -109,7 +147,7 @@ pub class <T: type> ImportGrammar {
             }
         } else if ak == TokenKind::KwModule {
             // The removed `import module foo`. It forced the directory form
-            // (foo/module.k); each import form now looks in exactly one
+            // (foo/module.k); each import form looks in exactly one
             // place, so the plain path says the same thing. Parsed on as a
             // plain import, so the one error is all this line reports.
             var mod_tok = self.igd()->ig_tok()
@@ -129,7 +167,7 @@ pub class <T: type> ImportGrammar {
         }
 
         // first path segment
-        if self.igd()->ig_kind() != TokenKind::LitIdentifier {
+        if !is_import_path_word(self.igd()->ig_kind()) {
             self.igd()->ig_err(
                 start,
                 "expected a module or symbol path after 'import'",
@@ -140,6 +178,7 @@ pub class <T: type> ImportGrammar {
             return spec // ok = false
         }
 
+        var last_kind = self.igd()->ig_kind() // the last segment's resolved kind
         spec.segments.push_back(self.igd()->ig_tok())
         last = self.igd()->ig_tok().range
         self.igd()->ig_bump()
@@ -172,11 +211,12 @@ pub class <T: type> ImportGrammar {
                 break
             }
 
-            if pk != TokenKind::LitIdentifier {
+            if !is_import_path_word(pk) {
                 break // `::` followed by junk path ends; caller's problem
             }
 
             self.igd()->ig_bump_nl() // consume `::`
+            last_kind = self.igd()->ig_kind()
             spec.segments.push_back(self.igd()->ig_tok())
             last = self.igd()->ig_tok().range
             self.igd()->ig_bump()
@@ -208,6 +248,10 @@ pub class <T: type> ImportGrammar {
                     DiagID::S046E,
                 )
             }
+        }
+
+        if !spec.has_alias && !spec.has_items && !spec.is_wildcard && spec.segments.size() > 0 {
+            self._check_bound_word(spec.segments[spec.segments.size() - 1], last_kind)
         }
 
         spec.range = start | last
@@ -244,7 +288,7 @@ pub class <T: type> ImportGrammar {
                 continue
             }
 
-            if k != TokenKind::LitIdentifier {
+            if !is_import_path_word(k) {
                 self.igd()->ig_err(
                     self.igd()->ig_tok().range,
                     "expected an import item name or '*' in selective import list",
@@ -258,13 +302,15 @@ pub class <T: type> ImportGrammar {
             // named item: ident (:: ident)* !? (as alias !?)?
             var item       = ImportSpecItem()
             var item_start = self.igd()->ig_tok().range
+            var item_kind = self.igd()->ig_kind() // the last sub-path segment's resolved kind
             item.sub_path.push_back(self.igd()->ig_tok())
             *last = self.igd()->ig_tok().range
             self.igd()->ig_bump()
 
             while self.igd()->ig_kind() == TokenKind::OpColonColon
-                && self.igd()->ig_peek_kind() == TokenKind::LitIdentifier {
+                && is_import_path_word(self.igd()->ig_peek_kind()) {
                 self.igd()->ig_bump_nl()
+                item_kind = self.igd()->ig_kind()
                 item.sub_path.push_back(self.igd()->ig_tok())
                 *last = self.igd()->ig_tok().range
                 self.igd()->ig_bump()
@@ -294,6 +340,10 @@ pub class <T: type> ImportGrammar {
                         DiagID::S046E,
                     )
                 }
+            }
+
+            if !item.has_alias {
+                self._check_bound_word(item.sub_path[item.sub_path.size() - 1], item_kind)
             }
 
             item.range = item_start | *last
