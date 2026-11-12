@@ -35,6 +35,7 @@ import AST::DeclFacts::{
     decl_extension_of,
     decl_is_ffi,
     decl_name_tok,
+    decl_pattern,
     decl_requires_clause,
 }
 import AST::Node::Base::{
@@ -57,6 +58,7 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import AST::Node::Program::TopLevelKind
+import AST::Node::Statements
 import AST::Node::Types
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Engine::DiagEngine
@@ -67,6 +69,8 @@ import Lexer::Lexer::Lexer
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Sema::Resolve::AccessCheck::AccessCheck
+import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
     SemaContext,
@@ -108,11 +112,20 @@ extend IndexWalker {
 
         // Leading-underscore names are reserved for interop and trailing
         // underscores mark a file's private helpers: neither is something to
-        // offer from another file.
+        // offer from another file. (A local has no file to be found
+        // through, and is this file's: `var fn_` was not offered.)
         if name.starts_with("_") || name.ends_with("_") {
-            if NameLookup::ctx_of(d) != self.ast_() {
+            var unsafe *home = NameLookup::ctx_of(d)
+            if (home != &null) && (home != self.ast_()) {
                 return
             }
+        }
+
+        // A member the use site may not name (`priv` from another file,
+        // `prot` from outside the module and the subclasses) is not
+        // offered: by AccessCheck's own verdict, the one a use would get.
+        if (self.ac_ != &null) && self.ac_->refuses(d, self.ac_through_, self.cur_fn_) {
+            return
         }
 
         // One item per name: overloads share a label, and the editor shows
@@ -143,15 +156,17 @@ extend IndexWalker {
         }
     }
 
-    /// Every name a file declares at its top level. The file's DeclContext
-    /// lists its functions and types; a top-level `const` / `var` is only in
-    /// the program's item list, so both are read.
-    fn items_of_tu_(self, tu: unsafe *TranslationUnit, sort: u32) {
-        if tu == &null {
-            return
+    /// What a file declares at its top level, in the order it is offered.
+    /// The file's DeclContext lists its functions and types; a top-level
+    /// `const` / `var` is a statement of the program's item list (a
+    /// DeclStmt), so both are read. One list for a completion's items and
+    /// for the file's declaration table (Tables.k).
+    fn tu_decls_(self, tu: unsafe *TranslationUnit, out: *[unsafe *Decl]) {
+        var unsafe *dc = unsafe (tu as unsafe *DeclContext)
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            out->push_back(*dc->dc_decls.get(i))
         }
 
-        self.items_of_context_(unsafe (tu as unsafe *DeclContext), sort)
         if tu->program == &null {
             return
         }
@@ -160,8 +175,26 @@ extend IndexWalker {
         for var i: usize = 0; i < items->size(); i++ {
             var item = *items->get(i)
             if item.kind == TopLevelKind::Decl {
-                self.item_(item.as_decl(), sort)
+                out->push_back(item.as_decl())
+            } else if item.kind == TopLevelKind::Stmt {
+                var unsafe *st = item.as_stmt()
+                if (st != &null) && isa<Statements::DeclStmt>(st) {
+                    out->push_back(cast<Statements::DeclStmt>(st)->decl)
+                }
             }
+        }
+    }
+
+    /// Every name a file declares at its top level.
+    fn items_of_tu_(self, tu: unsafe *TranslationUnit, sort: u32) {
+        if tu == &null {
+            return
+        }
+
+        var all: [unsafe *Decl]
+        self.tu_decls_(tu, &all)
+        for var i: usize = 0; i < all.size(); ++i {
+            self.item_(all[i], sort)
         }
     }
 
@@ -234,51 +267,97 @@ extend IndexWalker {
         self.items_of_record_(d, depth)
     }
 
-    fn items_of_record_(self, d: unsafe *Decl, depth: u32) {
-        if (d == &null) || (depth > 8) {
-            return
-        }
-
+    /// What record, enum, interface or module \p d declares itself, in the
+    /// order it is offered: what `.` and `::` can name before its bases and
+    /// its extensions. The one list for a completion's items and for the
+    /// file's declaration table (Tables.k), so the two cannot differ.
+    fn own_members_(self, d: unsafe *Decl, out: *[unsafe *Decl]) {
         // A type keeps its members in typed lists; its DeclContext holds
         // what is nested in it. Both are what `.` and `::` can name.
         if isa<Declarations::ClassDecl>(d) {
             var unsafe *c = cast<Declarations::ClassDecl>(d)
             for var i: usize = 0; i < c->fields.size(); ++i {
-                self.item_(unsafe (c->fields[i] as unsafe *Decl), depth)
+                out->push_back(unsafe (c->fields[i] as unsafe *Decl))
             }
 
             for var i: usize = 0; i < c->methods.size(); ++i {
-                self.item_(unsafe (c->methods[i] as unsafe *Decl), depth)
+                out->push_back(unsafe (c->methods[i] as unsafe *Decl))
             }
         } else if isa<Declarations::StructDecl>(d) {
             var unsafe *c = cast<Declarations::StructDecl>(d)
             for var i: usize = 0; i < c->fields.size(); ++i {
-                self.item_(unsafe (c->fields[i] as unsafe *Decl), depth)
+                out->push_back(unsafe (c->fields[i] as unsafe *Decl))
             }
 
             for var i: usize = 0; i < c->methods.size(); ++i {
-                self.item_(unsafe (c->methods[i] as unsafe *Decl), depth)
+                out->push_back(unsafe (c->methods[i] as unsafe *Decl))
             }
         } else if isa<Declarations::UnionDecl>(d) {
             var unsafe *c = cast<Declarations::UnionDecl>(d)
             for var i: usize = 0; i < c->fields.size(); ++i {
-                self.item_(unsafe (c->fields[i] as unsafe *Decl), depth)
+                out->push_back(unsafe (c->fields[i] as unsafe *Decl))
             }
 
             for var i: usize = 0; i < c->methods.size(); ++i {
-                self.item_(unsafe (c->methods[i] as unsafe *Decl), depth)
+                out->push_back(unsafe (c->methods[i] as unsafe *Decl))
             }
         } else if isa<Declarations::EnumDecl>(d) {
             var unsafe *c = cast<Declarations::EnumDecl>(d)
             for var i: usize = 0; i < c->variants.size(); ++i {
-                self.item_(unsafe (c->variants[i] as unsafe *Decl), depth)
+                out->push_back(unsafe (c->variants[i] as unsafe *Decl))
             }
         } else if isa<Declarations::InterfaceDecl>(d) {
             var unsafe *c = cast<Declarations::InterfaceDecl>(d)
             for var i: usize = 0; i < c->methods.size(); ++i {
-                self.item_(unsafe (c->methods[i] as unsafe *Decl), depth)
+                out->push_back(unsafe (c->methods[i] as unsafe *Decl))
             }
-        } else if isa<Declarations::ModuleDecl>(d) {
+        }
+
+        var unsafe *dc = self.context_of_decl_(d)
+        if dc != &null {
+            for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+                out->push_back(*dc->dc_decls.get(i))
+            }
+        }
+    }
+
+    /// The methods of the `extend` blocks of \p d that this file sees
+    /// (MemberLookup's index, which applies the extension-visibility rule).
+    fn items_of_extensions_(self, d: unsafe *Decl, depth: u32) {
+        if self.ml_ == &null {
+            return
+        }
+
+        for var pass: usize = 0; pass < 2; ++pass {
+            // An instance's extensions are its pattern's.
+            var unsafe *key = d
+            if pass == 1 {
+                key = decl_pattern(d)
+                if (key == &null) || (key == d) {
+                    break
+                }
+            }
+
+            var unsafe *exts = self.ml_->extensions_of_decl(key)
+            if exts == &null {
+                continue
+            }
+
+            for var i: usize = 0; i < exts->size(); ++i {
+                var unsafe *e = (*exts)[i]
+                for var m: usize = 0; m < e->methods.size(); ++m {
+                    self.item_(unsafe (e->methods[m] as unsafe *Decl), depth)
+                }
+            }
+        }
+    }
+
+    fn items_of_record_(self, d: unsafe *Decl, depth: u32) {
+        if (d == &null) || (depth > 8) {
+            return
+        }
+
+        if isa<Declarations::ModuleDecl>(d) {
             // A file IS a module: `import std::io` binds `io` to io.k's
             // module_self, and what the file declares lives in its TU.
             var unsafe *mctx = NameLookup::ctx_of(d)
@@ -287,7 +366,26 @@ extend IndexWalker {
             }
         }
 
-        self.items_of_context_(self.context_of_decl_(d), depth)
+        var own: [unsafe *Decl]
+        self.own_members_(d, &own)
+        // An instance of a generic type holds the members a use has asked
+        // of it so far; its pattern declares them all, under the same
+        // names. (The methods of a generic base, `RecursiveASTVisitor<X>`,
+        // were missing but for the few the file had already called.) Both
+        // are listed, the instance's first: an imported C++ template's
+        // instance is filled by clang, and its pattern may hold less.
+        var unsafe *pat = decl_pattern(d)
+        if (pat != &null) && (pat != d) {
+            self.own_members_(pat, &own)
+        }
+
+        for var i: usize = 0; i < own.size(); ++i {
+            self.item_(own[i], depth)
+        }
+
+        if !isa<Declarations::ModuleDecl>(d) {
+            self.items_of_extensions_(d, depth)
+        }
 
         if isa<Declarations::ClassDecl>(d) {
             var unsafe *c = cast<Declarations::ClassDecl>(d)
@@ -300,6 +398,18 @@ extend IndexWalker {
     /// The cursor is after `recv.` / `recv->` / `recv::`.
     fn complete_member_(self, recv_type: unsafe *Type, recv_decl: unsafe *Decl) {
         self.completed = true
+        var ac = AccessCheck(self.sc)
+        var ml = MemberLookup(self.sc)
+        self.ac_         = unsafe &ac
+        self.ac_through_ = recv_type
+        self.ml_         = unsafe &ml
+        self.members_of_receiver_(recv_type, recv_decl)
+        self.ac_         = &null
+        self.ac_through_ = &null
+        self.ml_         = &null
+    }
+
+    fn members_of_receiver_(self, recv_type: unsafe *Type, recv_decl: unsafe *Decl) {
         // A name that IS a scope (a module, a type named for a static or a
         // variant) offers what it declares; a value offers its type's members.
         var unsafe *dc = self.context_of_decl_(recv_decl)
@@ -337,6 +447,10 @@ extend IndexWalker {
         }
 
         if self.cur_fn_ != &null {
+            var ac = AccessCheck(self.sc)
+            var ml = MemberLookup(self.sc)
+            self.ac_ = unsafe &ac
+            self.ml_ = unsafe &ml
             var unsafe *fd = unsafe (self.cur_fn_ as unsafe *Decl)
             var unsafe *dc = fd->semantic_dc
             while dc != &null {
@@ -346,6 +460,9 @@ extend IndexWalker {
 
                 dc = dc->dc_parent
             }
+
+            self.ac_ = &null
+            self.ml_ = &null
         }
 
         var unsafe *tu = self.sc->tu
@@ -365,7 +482,7 @@ extend IndexWalker {
         // Imported names: the overlay is the table name resolution itself
         // reads, so this is exactly the set an unqualified name can reach.
         if tu->import_overlay != &null {
-            self.overlay_rows_(tu)
+            self.overlay_rows_(tu, true)
         }
     }
 }

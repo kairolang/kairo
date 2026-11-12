@@ -158,7 +158,7 @@ pub enum WellKnownType derives u8 {
     F256,
     F512,
     /// `class F8E4M3` / `class F8E5M2` (std/rt/Float8.k): what C++ spells
-    /// `f8e4m3` / `f8e5m2` (P942). Bound only in a TU that spells one, the
+    /// `f8e4m3` / `f8e5m2`. Bound only in a TU that spells one, the
     /// file the preprocessor loads for it (_add_wide_floats).
     F8E4M3,
     F8E5M2,
@@ -1080,6 +1080,257 @@ pub class LangAttrs {
             }
         }
     }
+
+    /// How attribute \p word is written after the `@`, with the arguments
+    /// it takes named (`align(N)`); \p word itself for one that takes none
+    /// and for a word that is no row. For tooling that offers attributes
+    /// (the language server's completion): the list, the form and the
+    /// summary are read from here, so it offers what `known` admits.
+    pub static fn usage(const word: string) -> string {
+        if word == LangAttrs::assume() {
+            return "assume(cond)"
+        }
+
+        if word == LangAttrs::align() {
+            return "align(N)"
+        }
+
+        if word == LangAttrs::deprecated() {
+            return "deprecated(msg)"
+        }
+
+        if word == LangAttrs::no_warn() {
+            return "no_warn(CODE)"
+        }
+
+        if word == LangAttrs::create() {
+            return "create T(args)"
+        }
+
+        if word == LangAttrs::destroy() {
+            return "destroy p"
+        }
+
+        if word == LangAttrs::set_global_allocator() {
+            return "set_global_allocator(A)"
+        }
+
+        return word
+    }
+
+    /// What attribute \p word may be written before: words among `fn`,
+    /// `type` (a class, struct or union), `enum`, `field`, `var`, `param`,
+    /// `stmt` (a statement or a branch), `expr`, `file`, or `any` (every
+    /// declaration). "" for a word that is no row.
+    pub static fn targets(const word: string) -> string {
+        if word == LangAttrs::transfer_copy() {
+            return "fn"
+        }
+
+        if word == LangAttrs::transfer_move() {
+            return "fn param"
+        }
+
+        if word == LangAttrs::open_enum() {
+            return "enum"
+        }
+
+        if word == LangAttrs::implicit_conversion() {
+            return "fn"
+        }
+
+        if word == LangAttrs::no_unwind() {
+            return "fn"
+        }
+
+        if word == LangAttrs::unwind() {
+            return "fn"
+        }
+
+        if word == LangAttrs::param_inout() {
+            return "param"
+        }
+
+        if word == LangAttrs::likely() {
+            return "stmt"
+        }
+
+        if word == LangAttrs::unlikely() {
+            return "stmt"
+        }
+
+        if word == LangAttrs::assume() {
+            return "stmt"
+        }
+
+        if word == LangAttrs::hot_path() {
+            return "fn"
+        }
+
+        if word == LangAttrs::cold_path() {
+            return "fn"
+        }
+
+        if word == LangAttrs::pure_fn() {
+            return "fn"
+        }
+
+        if word == LangAttrs::preserve_most() {
+            return "fn"
+        }
+
+        if word == LangAttrs::preserve_all() {
+            return "fn"
+        }
+
+        if word == LangAttrs::preserve_none() {
+            return "fn"
+        }
+
+        if word == LangAttrs::packed() {
+            return "type"
+        }
+
+        if word == LangAttrs::align() {
+            return "type field var"
+        }
+
+        if word == LangAttrs::deprecated() {
+            return "any"
+        }
+
+        if word == LangAttrs::no_warn() {
+            return "any"
+        }
+
+        if word == LangAttrs::unreachable() {
+            return "stmt"
+        }
+
+        if word == LangAttrs::create() {
+            return "expr"
+        }
+
+        if word == LangAttrs::destroy() {
+            return "expr"
+        }
+
+        if word == LangAttrs::set_global_allocator() {
+            return "file"
+        }
+
+        if word == LangAttrs::no_inline() {
+            return "fn"
+        }
+
+        return ""
+    }
+
+    /// One line on what attribute \p word does (attributes.mdx, Built-in
+    /// Attributes); "" for a word that is no row.
+    pub static fn summary(const word: string) -> string {
+        if word == LangAttrs::transfer_copy() {
+            return "The constructor that copies: `@copy fn T(self, other: Self)`"
+        }
+
+        if word == LangAttrs::transfer_move() {
+            return "The constructor that moves (`@move fn T(self, other: Self)`); on a parameter, `@move x: T` takes the argument by move"
+        }
+
+        if word == LangAttrs::open_enum() {
+            return "The enum may hold any value of its underlying type: no checked `as`, no niche"
+        }
+
+        if word == LangAttrs::implicit_conversion() {
+            return "Lets a conversion operator (`fn op as`) apply without `as`"
+        }
+
+        if word == LangAttrs::no_unwind() {
+            return "Keep the function `noexcept`, even under `-funwind`"
+        }
+
+        if word == LangAttrs::unwind() {
+            return "Let a C++ exception pass through this function"
+        }
+
+        if word == LangAttrs::param_inout() {
+            return "`@inout x: T`: the parameter is the caller's object, written back"
+        }
+
+        if word == LangAttrs::likely() {
+            return "The condition is expected to be true (before `if`, or before `else`)"
+        }
+
+        if word == LangAttrs::unlikely() {
+            return "The condition is expected to be false (before `if`, or before `else`)"
+        }
+
+        if word == LangAttrs::assume() {
+            return "The optimizer may take `cond` as true from here on (undefined behaviour if it is false)"
+        }
+
+        if word == LangAttrs::hot_path() {
+            return "The function runs often: optimize it for speed"
+        }
+
+        if word == LangAttrs::cold_path() {
+            return "The function runs rarely: optimize it for size and keep it out of the way"
+        }
+
+        if word == LangAttrs::pure_fn() {
+            return "The result depends only on the inputs and memory the function can read; it writes nothing else"
+        }
+
+        if word == LangAttrs::preserve_most() {
+            return "The callee saves nearly every general-purpose register (`priv` functions)"
+        }
+
+        if word == LangAttrs::preserve_all() {
+            return "As `@preserve_most`, and the floating-point and vector registers too (`priv` functions)"
+        }
+
+        if word == LangAttrs::preserve_none() {
+            return "The callee saves nothing: tail-call-heavy dispatch (`priv` functions)"
+        }
+
+        if word == LangAttrs::packed() {
+            return "Remove padding between members"
+        }
+
+        if word == LangAttrs::align() {
+            return "Set the minimum alignment to N bytes"
+        }
+
+        if word == LangAttrs::deprecated() {
+            return "Mark a declaration as deprecated: a warning at every use"
+        }
+
+        if word == LangAttrs::no_warn() {
+            return "Suppress a compiler warning inside the declaration"
+        }
+
+        if word == LangAttrs::unreachable() {
+            return "The branch never executes. Not implemented yet"
+        }
+
+        if word == LangAttrs::create() {
+            return "Allocate and construct a `T`: sugar for `create<T>(args)`"
+        }
+
+        if word == LangAttrs::destroy() {
+            return "Destroy and free what `p` points at: sugar for `destroy(p)`"
+        }
+
+        if word == LangAttrs::set_global_allocator() {
+            return "The program's global allocator is `A`; a line of its own at file scope"
+        }
+
+        if word == LangAttrs::no_inline() {
+            return "Never inline the function"
+        }
+
+        return ""
+    }
 }
 
 /// \enum GlobalAllocFn
@@ -1211,6 +1462,85 @@ pub class LangIntrinsics {
     pub static fn is_trivially_destructible() -> string {
         return "is_trivially_destructible"
     }
+
+    /// Every intrinsic name above, one per index, then "" past the last
+    /// (for tooling that lists them, as LangMacros::known).
+    pub static fn known(i: usize) -> string {
+        match i {
+            case 0 {
+                return LangIntrinsics::label()
+            } case 1 {
+                return LangIntrinsics::jump()
+            } case 2 {
+                return LangIntrinsics::unwrap()
+            } case 3 {
+                return LangIntrinsics::defined()
+            } case 4 {
+                return LangIntrinsics::is_trivially_copyable()
+            } case 5 {
+                return LangIntrinsics::is_trivially_destructible()
+            } default {
+                return ""
+            }
+        }
+    }
+
+    /// How intrinsic \p word is written, and one line on what it does.
+    pub static fn usage(const word: string) -> string {
+        if word == LangIntrinsics::label() {
+            return "label!(name)"
+        }
+
+        if word == LangIntrinsics::jump() {
+            return "jump!(name)"
+        }
+
+        if word == LangIntrinsics::unwrap() {
+            return "unwrap!(expr)"
+        }
+
+        if word == LangIntrinsics::defined() {
+            return "defined!(name)"
+        }
+
+        if word == LangIntrinsics::is_trivially_copyable() {
+            return "is_trivially_copyable!(T)"
+        }
+
+        if word == LangIntrinsics::is_trivially_destructible() {
+            return "is_trivially_destructible!(T)"
+        }
+
+        return ""
+    }
+
+    pub static fn summary(const word: string) -> string {
+        if word == LangIntrinsics::label() {
+            return "Declare a jump target"
+        }
+
+        if word == LangIntrinsics::jump() {
+            return "Jump to a label"
+        }
+
+        if word == LangIntrinsics::unwrap() {
+            return "Force-unwrap a nullable; aborts the program on null"
+        }
+
+        if word == LangIntrinsics::defined() {
+            return "`true` if a macro with the given name exists"
+        }
+
+        if word == LangIntrinsics::is_trivially_copyable() {
+            return "`true` when a `T` is copied as its bytes"
+        }
+
+        if word == LangIntrinsics::is_trivially_destructible() {
+            return "`true` when destroying a `T` runs no code"
+        }
+
+        return ""
+    }
 }
 
 /// \class LangMacros
@@ -1312,6 +1642,248 @@ pub class LangMacros {
 
     pub static fn compile_note() -> string {
         return "compile_note"
+    }
+
+    /// Every builtin macro name above, one per index, then "" past the
+    /// last. For tooling that lists them (the language server's
+    /// completion): a row added above is added here.
+    pub static fn known(i: usize) -> string {
+        match i {
+            case 0 {
+                return LangMacros::file()
+            } case 1 {
+                return LangMacros::line()
+            } case 2 {
+                return LangMacros::column()
+            } case 3 {
+                return LangMacros::module_path()
+            } case 4 {
+                return LangMacros::count()
+            } case 5 {
+                return LangMacros::first()
+            } case 6 {
+                return LangMacros::last()
+            } case 7 {
+                return LangMacros::rest()
+            } case 8 {
+                return LangMacros::butlast()
+            } case 9 {
+                return LangMacros::paste()
+            } case 10 {
+                return LangMacros::stringify()
+            } case 11 {
+                return LangMacros::unstringify()
+            } case 12 {
+                return LangMacros::todo()
+            } case 13 {
+                return LangMacros::unreachable()
+            } case 14 {
+                return LangMacros::unreachable_unchecked()
+            } case 15 {
+                return LangMacros::unique_id()
+            } case 16 {
+                return LangMacros::include()
+            } case 17 {
+                return LangMacros::embed_str()
+            } case 18 {
+                return LangMacros::embed()
+            } case 19 {
+                return LangMacros::compile_error()
+            } case 20 {
+                return LangMacros::compile_warn()
+            } case 21 {
+                return LangMacros::compile_note()
+            } default {
+                return ""
+            }
+        }
+    }
+
+    /// How builtin macro \p word is invoked, with its parameters named
+    /// (macros-builtin.mdx); "" for a word that is no row.
+    pub static fn usage(const word: string) -> string {
+        if word == LangMacros::file() {
+            return "file!"
+        }
+
+        if word == LangMacros::line() {
+            return "line!"
+        }
+
+        if word == LangMacros::column() {
+            return "column!"
+        }
+
+        if word == LangMacros::module_path() {
+            return "module_path!"
+        }
+
+        if word == LangMacros::count() {
+            return "count!(...args)"
+        }
+
+        if word == LangMacros::first() {
+            return "first!(...args)"
+        }
+
+        if word == LangMacros::last() {
+            return "last!(...args)"
+        }
+
+        if word == LangMacros::rest() {
+            return "rest!(...args)"
+        }
+
+        if word == LangMacros::butlast() {
+            return "butlast!(...args)"
+        }
+
+        if word == LangMacros::paste() {
+            return "paste!(a, b)"
+        }
+
+        if word == LangMacros::stringify() {
+            return "stringify!(a)"
+        }
+
+        if word == LangMacros::unstringify() {
+            return "unstringify!(s)"
+        }
+
+        if word == LangMacros::todo() {
+            return "todo!(msg)"
+        }
+
+        if word == LangMacros::unreachable() {
+            return "unreachable!(msg)"
+        }
+
+        if word == LangMacros::unreachable_unchecked() {
+            return "unreachable_unchecked!"
+        }
+
+        if word == LangMacros::unique_id() {
+            return "unique_id!(tag)"
+        }
+
+        if word == LangMacros::include() {
+            return "include!(path)"
+        }
+
+        if word == LangMacros::embed_str() {
+            return "embed_str!(path)"
+        }
+
+        if word == LangMacros::embed() {
+            return "embed!(path)"
+        }
+
+        if word == LangMacros::compile_error() {
+            return "compile_error!(msg)"
+        }
+
+        if word == LangMacros::compile_warn() {
+            return "compile_warn!(msg)"
+        }
+
+        if word == LangMacros::compile_note() {
+            return "compile_note!(msg)"
+        }
+
+        return ""
+    }
+
+    /// One line on what builtin macro \p word does (macros-builtin.mdx).
+    pub static fn summary(const word: string) -> string {
+        if word == LangMacros::file() {
+            return "The current file's path, a string literal"
+        }
+
+        if word == LangMacros::line() {
+            return "The current line number, an integer literal"
+        }
+
+        if word == LangMacros::column() {
+            return "The current column number, an integer literal"
+        }
+
+        if word == LangMacros::module_path() {
+            return "The current module path, a string literal"
+        }
+
+        if word == LangMacros::count() {
+            return "The number of arguments"
+        }
+
+        if word == LangMacros::first() {
+            return "The first argument"
+        }
+
+        if word == LangMacros::last() {
+            return "The last argument"
+        }
+
+        if word == LangMacros::rest() {
+            return "Every argument except the first"
+        }
+
+        if word == LangMacros::butlast() {
+            return "Every argument except the last"
+        }
+
+        if word == LangMacros::paste() {
+            return "Paste identifier tokens into one identifier"
+        }
+
+        if word == LangMacros::stringify() {
+            return "Convert a token to a string literal"
+        }
+
+        if word == LangMacros::unstringify() {
+            return "Convert a string literal back to tokens"
+        }
+
+        if word == LangMacros::todo() {
+            return "A placeholder that crashes at run time, with an optional message"
+        }
+
+        if word == LangMacros::unreachable() {
+            return "Assert that a code path is unreachable (crashes if reached)"
+        }
+
+        if word == LangMacros::unreachable_unchecked() {
+            return "Optimizer hint: the path is dead (undefined behaviour if reached)"
+        }
+
+        if word == LangMacros::unique_id() {
+            return "Generate a unique identifier"
+        }
+
+        if word == LangMacros::include() {
+            return "Paste a file's contents as tokens"
+        }
+
+        if word == LangMacros::embed_str() {
+            return "A file's contents as a string literal"
+        }
+
+        if word == LangMacros::embed() {
+            return "A file's contents as a byte array (`[byte]`)"
+        }
+
+        if word == LangMacros::compile_error() {
+            return "Emit a compile error with the given message"
+        }
+
+        if word == LangMacros::compile_warn() {
+            return "Emit a compile warning"
+        }
+
+        if word == LangMacros::compile_note() {
+            return "Emit a compile note"
+        }
+
+        return ""
     }
 }
 
@@ -1763,14 +2335,14 @@ pub class LowerTargets {
         return "__kairo_op_index"
     }
 
-    /// The witness member for an `op []=` requirement (P880), beside
+    /// The witness member for an `op []=` requirement, beside
     /// witness_subscript's.
     pub static fn witness_subscript_set() -> string {
         return "__kairo_op_index_set"
     }
 
     /// The C++ member names of a SPLIT subscript's two forms (a type that
-    /// declares `op []=`, P880): `op []` is `__kairo_op_get`, `op []=` is
+    /// declares `op []=`): `op []` is `__kairo_op_get`, `op []=` is
     /// `__kairo_op_set`. Kairo calls each by its own name, so clang never
     /// picks between them; C++ users get `operator[]` forwarders to them
     /// (InterfaceEmitter::_subscript_forwarders). A type with no `op []=`
@@ -2036,8 +2608,8 @@ pub class LowerTargets {
     }
 
     /// The payload member of variant \p v, and its type below. A few
-    /// variant names would collide with another member of the ADT record
-    /// (P974): `Tag` with the tag enum `__kairo_Tag`, and a name ending in
+    /// variant names would collide with another member of the ADT record:
+    /// `Tag` with the tag enum `__kairo_Tag`, and a name ending in
     /// `_t` with the payload type of the variant it extends (`A_t`'s field
     /// is `A`'s type `__kairo_A_t`). Only those are escaped, to
     /// `__kairo_f_<V>` / `__kairo_t_<V>`, so every other variant keeps the

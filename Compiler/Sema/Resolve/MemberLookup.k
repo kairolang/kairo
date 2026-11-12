@@ -192,7 +192,7 @@ pub class MemberLookup {
         self.sc = &null
     }
 
-    fn MemberLookup(self, sc: unsafe *SemaContext) {
+    pub fn MemberLookup(self, sc: unsafe *SemaContext) {
         self.sc = sc
     }
 
@@ -326,7 +326,7 @@ pub class MemberLookup {
         }
     }
 
-    fn extensions_of_decl(self,
+    pub fn extensions_of_decl(self,
                           d: unsafe *Decl) -> unsafe *cxx::std::vector<unsafe *Declarations::ExtensionDecl> {
         self.index_extensions()
         var it = self._ext_by_decl.find(d as usize as u64)

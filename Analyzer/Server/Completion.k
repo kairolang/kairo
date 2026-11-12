@@ -54,8 +54,10 @@ import std::io
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Diagnostics::*
+import Server::CompletionWords::language_words
 import Server::Features::*
 import Server::Formatting::*
+import Server::IndexCompletion::*
 import Server::Lifecycle::*
 import Server::LiveIndex::*
 import Server::Lookup::*
@@ -80,6 +82,12 @@ extend Server {
         var i = self.docs.index_of(text_document_uri(d, params))
         if i == usize::MAX {
             self.respond(id, "[]")
+            return
+        }
+
+        // From the index when it can be: no compile, no worker, and not
+        // behind a completion that is one (IndexCompletion.k).
+        if self.index_complete_(i, d, params, id, t0) {
             return
         }
 
@@ -137,7 +145,7 @@ extend Server {
         self.write_buf_range(&ew, i, start, at)
 
         if self.complete_import(i, ei, at, ew.out, id) {
-            self.completed_(HOW_TEXT, t0)
+            self.completed_(HOW_TEXT, WHAT_IMPORT, 0, t0)
             return
         }
 
@@ -160,10 +168,12 @@ extend Server {
     }
 
     /// `$/kals/completed` (Protocol.k).
-    fn completed_(self, const how: string, t0_us: i64) {
+    fn completed_(self, const how: string, const what: string, count: usize, t0_us: i64) {
         var w = JsonWriter()
         w.begin_object()
         w.field(K_HOW, how)
+        w.field(K_WHAT, what)
+        w.field_uint(K_COUNT, count)
         w.field_int(K_US, now_us() - t0_us)
         w.end_object()
         self.notify(M_KALS_COMPLETED, w.out)
@@ -460,6 +470,7 @@ extend Server {
         w.begin_array()
 
         var found = false
+        var nitems: usize = 0
         if LinkFS::read(j->out, &text) && doc.parse(text) {
             var f = doc.first(doc.get(doc.root, SK_FILES))
             while f != JSON_NONE() {
@@ -484,6 +495,7 @@ extend Server {
                         )
 
                         found = true
+                        nitems += 1
                         it = doc.next(it)
                     }
                 }
@@ -511,16 +523,21 @@ extend Server {
         }
 
         if !j->member {
-            var kw = keywords()
-            for var k: usize = 0; k < kw.size(); ++k {
-                self.item(&w, kw[k], CIK_KEYWORD, "", "9" + kw[k], j->edit)
+            // Every word of the language: this path does not know where the
+            // name stands (the index path does, CompletionSite.k).
+            if self.words.empty() {
+                self.words = language_words()
+            }
+
+            for var k: usize = 0; k < self.words.size(); ++k {
+                self.item(&w, self.words[k].text, CIK_KEYWORD, "", "9" + self.words[k].text, j->edit)
             }
         }
 
         w.end_array()
         w.end_object()
         self.respond(j->id, w.out)
-        self.completed_(j->how, j->t0_us)
+        self.completed_(j->how, if (j->member) => (WHAT_MEMBER) else => WHAT_NAME, nitems, j->t0_us)
     }
 
     // --- the loop --------------------------------------------------------

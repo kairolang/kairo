@@ -108,10 +108,12 @@ class Client:
     def uri(self, rel):
         return "file://" + os.path.join(self.root, rel)
 
-    def start(self, options=None, progress=False):
+    def start(self, options=None, progress=False, capabilities=None):
         caps = {"workspace": {"semanticTokens": {"refreshSupport": True}}}
         if progress:
             caps["window"] = {"workDoneProgress": True}
+        # What an editor declares beyond the minimum (`textDocument`, ...).
+        caps.update(capabilities or {})
         r = self.request("initialize", {"processId": os.getpid(), "rootUri": "file://" + self.root,
                                         "capabilities": caps, "initializationOptions": options or {}})
         self.notify("initialized", {})

@@ -149,6 +149,91 @@ pub struct BaseRow {
     var base_kind: u32    = SYM_CLASS as u32
 }
 
+/// What a scope row says of a declaration, whichever file imports it: its
+/// name, kind, place and (for one no table has) signature. `ok` false: no
+/// name to offer.
+pub struct ScopeFact {
+    var ok:     bool   = false
+    var name:   string = ""
+    var kind:   u32    = 0
+    var fid:    u32    = u32::MAX  ///< the file its row is in; with `off` -1, the file it IS (a module)
+    var off:    i64    = -1
+    var detail: string = ""
+    var home:   u32    = u32::MAX  ///< the file that declares it: a `_name` / `name_` is offered there only
+    /// Which declaration the fact is of, beyond its address: where its name
+    /// is and what kind of node it is (ScopeFacts::get).
+    var loc: u32 = 0
+    var tag: u32 = 0
+}
+
+/// \class ScopeFacts
+/// \brief the ScopeFact of every declaration some file's overlay has
+///        named, by declaration, for the walks of one check.
+///
+/// \details A core file is imported by hundreds of files and the builtin
+///          library by all of them: each of their walks would spell the
+///          same names and print the same signatures again (most of what
+///          the scope rows cost, measured on a 442-file graph). Shared by
+///          the walks of a check, which run on Sema's threads: every call
+///          takes the lock. A tree that a re-check replaced is freed in
+///          time (LiveCheck's retired trees, a whole re-check's old
+///          instance) and a later declaration may be given its address, in
+///          the middle of a step too: a fact answers only for the
+///          declaration whose name is where it was and whose node kind is
+///          the same (`loc`, `tag`), and the facts are emptied before each
+///          check or re-check (`clear`) so they do not grow.
+pub class ScopeFacts {
+    var mu_:   kairo::std::Mutex
+    var at_:   {u64: u32}
+    var rows_: [ScopeFact]
+
+    pub fn ScopeFacts(self) = default
+
+    pub fn get(self, key: u64, loc: u32, tag: u32, out: *ScopeFact) -> bool {
+        var lock = kairo::std::LockGuard(self.mu_)
+        var hit = self.at_.get(key)
+        if hit == null {
+            return false
+        }
+
+        var *f = &self.rows_[(*hit) as usize]
+        if (f->loc != loc) || (f->tag != tag) {
+            return false // another declaration lives at the address now
+        }
+
+        (*out) = *f
+        return true
+    }
+
+    pub fn put(self, key: u64, const f: ScopeFact) {
+        var lock = kairo::std::LockGuard(self.mu_)
+        var hit = self.at_.get(key)
+        if hit != null {
+            self.rows_[(*hit) as usize] = f
+            return
+        }
+
+        self.at_[key] = self.rows_.size() as u32
+        self.rows_.push_back(f)
+    }
+
+    pub fn clear(self) {
+        var lock = kairo::std::LockGuard(self.mu_)
+        self.at_.clear()
+        self.rows_.clear()
+    }
+}
+
+/// A name the import overlay brings into the file (a "scope" row).
+pub struct ScopeRow {
+    var name:   string = ""
+    var kind:   u32    = 0
+    var sort:   u32    = 0
+    var file:   i64    = -1  ///< index into the walker's scope_files
+    var off:    i64    = -1  ///< the declared name's byte offset there; -1 with a file: the file itself
+    var detail: string = ""
+}
+
 pub struct ItemRow {
     var label:  string = ""
     var detail: string = ""
@@ -217,6 +302,20 @@ pub const SK_SYMBOLS: string = "symbols"  ///< outline symbols, flat, in source 
 pub const SK_INLAYS:  string = "inlays"   ///< inlay hints
 pub const SK_ITEMS:   string = "items"    ///< completion items (a completion run only)
 pub const SK_DOC:     string = "doc"      ///< a completion item's `///` block
+pub const SK_SCOPE:   string = "scope"    ///< SCOPE_* rows: what a bare name reaches through the file's imports
+pub const SK_SFILES:  string = "sfiles"   ///< paths a scope row's SCOPE_FILE indexes
+pub const SK_SEES:    string = "sees"     ///< files whose `extend` blocks this file sees (SemaContext::sees_extension_file)
+
+// the document: declaration tables, one per file of the graph (Tables.k)
+pub const SK_TABLES:     string = "tables"
+pub const SK_TABLES_SEQ: string = "tablesSeq"  ///< the worker step the tables are of (LiveWorker.k); absent from a run's
+pub const SK_TABLES_ALL: string = "tablesAll"  ///< every file's table is in this snapshot
+
+// a table (Tables.k)
+pub const SK_MOD:     string = "mod"      ///< the file's module directory ("": in no module): `prot` reaches the files of one
+pub const SK_BUILTIN: string = "builtin"  ///< a file of the builtin library: its extensions are seen by every file
+pub const SK_DECLS:   string = "decls"    ///< DC_* rows
+pub const SK_TBASES:  string = "bases"    ///< TB_* rows
 
 // a diagnostic row: the file, the LSP diagnostic, the fixes; a fix is a
 // title and its edits, each edit a path, a range and the new text
@@ -259,6 +358,59 @@ pub const BASE_NAME:      i64 = 7
 pub const BASE_BASE_NAME: i64 = 8
 pub const BASE_KIND:      i64 = 9
 pub const BASE_BASE_KIND: i64 = 10
+
+/// A "decls" row of a table: one declaration of the file, a parent before
+/// its members. `DC_PARENT` is the row it is declared in (-1: the file).
+/// `DC_OFF` is the byte offset of its name, the key a scope row and another
+/// table's `DC_TFILE`/`DC_TOFF` join on; `DC_LINE`/`DC_CHAR` are the same
+/// place as a ref row's `REF_TYPE_*` and `REF_DEF_*` name it. `DC_VIS` is a
+/// VIS_* word with the default applied. `DC_TFILE`/`DC_TOFF` name the
+/// record its TYPE is (a variable's, a field's, what a function returns;
+/// through pointers and `?`), as an index into the table's `files` and a
+/// name offset there, or -1; for a DF_EXT row the record it extends, and
+/// for a DF_ALIAS row the declaration itself (in another file).
+pub const DC_NAME:   i64 = 0
+pub const DC_KIND:   i64 = 1   ///< LSP CompletionItemKind
+pub const DC_PARENT: i64 = 2
+pub const DC_OFF:    i64 = 3
+pub const DC_LINE:   i64 = 4
+pub const DC_CHAR:   i64 = 5
+pub const DC_VIS:    i64 = 6
+pub const DC_FLAGS:  i64 = 7   ///< DF_* bits
+pub const DC_DETAIL: i64 = 8
+pub const DC_TFILE:  i64 = 9
+pub const DC_TOFF:   i64 = 10
+
+pub const VIS_PRIV: i64 = 1  ///< VisibilityKind's numbers, as an InheritEdge carries them
+pub const VIS_PROT: i64 = 2
+pub const VIS_PUB:  i64 = 3
+
+pub const DF_STATIC: i64 = 1   ///< named without an object: a static, a nested type, a variant
+pub const DF_EXT:    i64 = 2   ///< an `extend` block: no name, its members are the target's
+pub const DF_MACRO:  i64 = 4   ///< a `macro name!`
+pub const DF_ALIAS:  i64 = 8   ///< declared in another file and bound here
+pub const DF_SCOPE:  i64 = 16  ///< opens a scope: a type or a module
+pub const DF_METHOD: i64 = 32  ///< takes `self`
+
+/// A "bases" row of a table: decl row `TB_ROW` derives the record at
+/// (`TB_FILE`, `TB_OFF`) through an edge of visibility `TB_VIS` (0: none
+/// written).
+pub const TB_ROW:  i64 = 0
+pub const TB_FILE: i64 = 1
+pub const TB_OFF:  i64 = 2
+pub const TB_VIS:  i64 = 3
+
+/// A "scope" row of a file node: a name the file's imports bring in, as
+/// name lookup reads it (the import overlay). `SCOPE_FILE` (an index into
+/// `sfiles`) and `SCOPE_OFF` name its declaration, a table's `DC_OFF`;
+/// `SCOPE_OFF` -1: the name is the FILE, a module. `SCOPE_DETAIL` is
+/// written only for a declaration no table has (a C or C++ one).
+pub const SCOPE_NAME:   i64 = 0
+pub const SCOPE_KIND:   i64 = 1
+pub const SCOPE_SORT:   i64 = 2
+pub const SCOPE_FILE:   i64 = 3
+pub const SCOPE_OFF:    i64 = 4
+pub const SCOPE_DETAIL: i64 = 5
 
 /// A "links" row (LinkRow): the import path's range and the file it names.
 pub const LINK_LINE:   i64 = 0

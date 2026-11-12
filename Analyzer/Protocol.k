@@ -48,6 +48,19 @@ pub const K_US:     string = "us"    ///< M_KALS_COMPLETED: microseconds
 pub const HOW_LIVE: string = "live"
 pub const HOW_RUN:  string = "run"
 pub const HOW_TEXT: string = "text"
+/// `index`: from the entry's declaration tables and the buffer's text,
+/// with no compile and no worker (LanguageServer.md section 8).
+pub const HOW_INDEX: string = "index"
+/// M_KALS_COMPLETED: what was completed, a WHAT_* word, and how many items
+/// were sent.
+pub const K_WHAT:  string = "what"
+pub const K_COUNT: string = "count"
+pub const WHAT_NAME:      string = "name"       ///< a bare name: locals, the file, imports, keywords, macros
+pub const WHAT_MEMBER:    string = "member"     ///< after `.`, `->`, `::`
+pub const WHAT_ATTRIBUTE: string = "attribute"  ///< after `@`
+pub const WHAT_IMPORT:    string = "import"     ///< a Kairo import's path or names
+pub const WHAT_HEADER:    string = "header"     ///< an ffi import's header path
+pub const WHAT_NONE:      string = "none"       ///< nothing is offered there (a comment, a string, a name being declared)
 /// Debug: the installed snapshot of a buffer's entry (the rows of every
 /// indexed file, the diagnostics, the files of the graph), for a test that
 /// compares what two ways of analysing the same text installed.
@@ -155,6 +168,7 @@ pub const CIK_MODULE:         i64 = 9
 pub const CIK_ENUM:           i64 = 13
 pub const CIK_KEYWORD:        i64 = 14
 pub const CIK_SNIPPET:        i64 = 15
+pub const CIK_FILE:           i64 = 17
 pub const CIK_FOLDER:         i64 = 19
 pub const CIK_ENUM_MEMBER:    i64 = 20
 pub const CIK_CONSTANT:       i64 = 21
@@ -236,6 +250,14 @@ pub const K_IS_INCOMPLETE:   string = "isIncomplete"
 pub const K_SORT_TEXT:       string = "sortText"
 pub const K_DOCUMENTATION:   string = "documentation"
 pub const K_DATA:            string = "data"
+pub const K_CONTEXT:            string = "context"           ///< a completion request's: why it was sent
+pub const K_TRIGGER_CHARACTER:  string = "triggerCharacter"  ///< context: the character that sent it, when one did
+pub const K_ITEM_DEFAULTS:      string = "itemDefaults"      ///< a CompletionList's: what every item shares
+pub const K_EDIT_RANGE:         string = "editRange"         ///< itemDefaults: the range each item replaces
+pub const K_TEXT_EDIT_TEXT:     string = "textEditText"      ///< an item's text when the range is the default's
+pub const K_INSERT_TEXT_FORMAT: string = "insertTextFormat"
+pub const K_FILTER_TEXT:        string = "filterText"
+pub const ITF_SNIPPET: i64 = 2  ///< InsertTextFormat.Snippet
 pub const K_PADDING_LEFT:    string = "paddingLeft"
 pub const K_PADDING_RIGHT:   string = "paddingRight"
 
@@ -259,6 +281,9 @@ pub const OPT_DEBOUNCE_MS:        string = "debounceMs"
 pub const OPT_SYNTAX_DEBOUNCE_MS: string = "syntaxDebounceMs"
 pub const OPT_HIGHLIGHT_PANICS:   string = "highlightPanics"
 pub const OPT_LIVE_CHECK:         string = "liveCheck"
+/// false: every completion is the marked buffer's compile (the live copy
+/// or a run), none is answered from the index. For comparing the two.
+pub const OPT_INDEX_COMPLETION:   string = "indexCompletion"
 pub const OPT_MAX_WORKERS:        string = "maxWorkers"
 
 /// MarkupKind of every hover and documentation string the server writes.

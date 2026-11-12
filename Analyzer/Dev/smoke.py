@@ -451,9 +451,7 @@ def features(exe, root, label):
     check(label + "completion: members", {i["label"] for i in it} == {"x", "y", "norm1"}, it)
     c.pump(0.3)   # the notification follows the answer
     how = [n["params"]["how"] for n in c.notes if n["method"] == "$/kals/completed"]
-    live_on = os.environ.get("KALS_LIVE_CHECK") == "1"
-    check(label + "completion: " + ("the live worker tried the marked buffer aside, no process" if live_on else "a process per request"),
-          how and how[-1] == ("live" if live_on else "run"), how)
+    check(label + "completion: answered from the index, no compile and no worker", how and how[-1] == "index", how)
     it = complete("    c.no", 8, 7)
     check(label + "completion: members with a prefix typed", "norm1" in {i["label"] for i in it}, it)
     it = complete("    io::", 8, 8)
@@ -477,7 +475,7 @@ def features(exe, root, label):
     check(label + "completion: inside an f-string", {i["label"] for i in it} == {"x", "y", "norm1"}, it)
     c.pump(0.3)
     how = [n["params"]["how"] for n in c.notes if n["method"] == "$/kals/completed"]
-    check(label + "completion: every one of them the same way", len(how) >= 6 and set(how) == {"live" if live_on else "run"}, how)
+    check(label + "completion: every one of them from the index", len(how) >= 6 and set(how) == {"index"}, how)
     fs = "\n".join(lines[:l] + ['    io::println(f"p {c.norm1()} and {n + 1} {describe(n)}")'] + lines[l:])
     c.change(M, 12, fs)
     ft = [x for x in tokens(c, M, fs) if x[0] == l]
@@ -2918,6 +2916,10 @@ def live(exe, base):
         detail = {"deps": got["deps"] == want["deps"], "diagnostics": (got["diagnostics"], want["diagnostics"]),
                   "files": (sorted(got["files"]), sorted(want["files"])),
                   "differ": [k for k in want["files"] if got["files"].get(k) != want["files"][k]]}
+        # Which member of which file: said first, the lists above are long.
+        parts = [(os.path.basename(k), m) for k in want["files"] if k in got["files"]
+                 for m in sorted(set(want["files"][k]) | set(got["files"][k])) if got["files"][k].get(m) != want["files"][k].get(m)]
+        detail = (parts, detail)
     check("live: the final snapshot equals a process-per-run server's (rows, diagnostics, files)", same, detail)
 
     # Pre-emption. Each background slice is held back 1.5 s, so the second
@@ -3242,6 +3244,453 @@ def many_imports(exe, base):
     check("many imports: clean shutdown", c.stop() == 0)
 
 
+def completion_marker(exe, root):
+    """The compiler's own completion (the marker path), with the index
+    path off: what answers a receiver the tables do not type, and what
+    Dev/completion_oracle.py compares the index path with."""
+    live_on = os.environ.get("KALS_LIVE_CHECK") == "1"
+    label = "marker completion: "
+    c = Client(exe, root)
+    c.start({"indexCompletion": False})
+    M = "src/main.k"
+    src = c.open(M)
+    c.settle()
+    l, _ = pos(src, "return 0", 0, 0)
+    lines = src.split("\n")
+    ver = [5]
+
+    def complete(text_line, ch):
+        ver[0] += 1
+        c.change(M, ver[0], "\n".join(lines[:l] + [text_line] + lines[l:]))
+        return c.request("textDocument/completion", c.at(M, l, ch))["items"]
+
+    it = complete("    c.", 6)
+    check(label + "members", {i["label"] for i in it} == {"x", "y", "norm1"}, it)
+    c.pump(0.3)   # the notification follows the answer
+    how = [n["params"]["how"] for n in c.notes if n["method"] == "$/kals/completed"]
+    check(label + ("the live worker tried the marked buffer aside, no process" if live_on else "a process per request"),
+          how and how[-1] == ("live" if live_on else "run"), how)
+    it = complete("    c.no", 8)
+    check(label + "members with a prefix typed", "norm1" in {i["label"] for i in it}, it)
+    it = complete("    io::", 8)
+    check(label + "module contents", "println" in {i["label"] for i in it} and "write_line_" not in {i["label"] for i in it}, it)
+    it = complete("    Color::", 11)
+    check(label + "enum variants", {"Red", "Green", "Blue"} <= {i["label"] for i in it}, it)
+    it = complete("    cl", 6)
+    names = [i["label"] for i in it]
+    check(label + "scope", all(n in names for n in ("clamp", "c", "col", "LIMIT", "Point", "describe", "return")), names[:40])
+    check(label + "locals first", names.index("col") < names.index("Point"), names[:20])
+    check(label + "the locals are this function's (not the one above's)", "v" not in names, names[:12])
+    check(label + "items say what they replace", all("textEdit" in i for i in it), it[:2])
+    it = complete("    desc", 8)
+    d1 = next((i for i in it if i["label"] == "describe"), None)
+    check(label + "documentation is not in the list", d1 is not None and "documentation" not in d1, d1)
+    if d1:
+        rs = c.request("completionItem/resolve", d1)
+        check(label + "resolve adds the documentation", rs and "Describes" in rs.get("documentation", {}).get("value", "") and rs["label"] == "describe", rs)
+    it = complete('    io::println(f"p {c.} and {n + 1} {describe(n)}")', 23)
+    check(label + "inside an f-string", {i["label"] for i in it} == {"x", "y", "norm1"}, it)
+    c.pump(0.3)
+    how = [n["params"]["how"] for n in c.notes if n["method"] == "$/kals/completed"]
+    check(label + "every one of them the same way", len(how) >= 6 and set(how) == {"live" if live_on else "run"}, how)
+    check(label + "clean shutdown", c.stop() == 0)
+
+
+COMP_VAULT = """/// A vault.
+pub class Vault {
+    priv var code: i32 = 0
+    prot var mid: i32 = 0
+    pub var name: i32 = 0
+
+    priv fn hidden(const self) -> i32 {
+        return self.code
+    }
+
+    /// Opens the vault.
+    pub fn open(const self) -> i32 {
+        return self.hidden()
+    }
+}
+
+pub class Strong derives Vault {
+    pub var bolts: i32 = 0
+}
+
+pub class Sealed derives priv Vault {
+    pub var wax: i32 = 0
+}
+
+pub fn make_vault() -> Vault {
+    var v = Vault {}
+    return v
+}
+
+pub fn pick(v: i32) -> Vault {
+    return make_vault()
+}
+
+pub fn pick(const s: Strong) -> Strong {
+    return s
+}
+
+priv fn file_private() -> i32 {
+    return 1
+}
+"""
+
+COMP_EXT = """import vault::Vault
+
+extend Vault {
+    pub fn extra_power(const self) -> i32 {
+        return self.name
+    }
+}
+"""
+
+COMP_MAIN = """import std::io
+import vault
+import vault::{
+    Sealed,
+    Strong,
+    Vault,
+    make_vault,
+    pick,
+}
+import ext
+
+ffi "c++" import "geometry.hh"
+
+macro twice!(x) { x + x }
+
+const LIMIT: i32 = 10
+
+fn helper(v: i32) -> i32 {
+    return v
+}
+
+class Mine derives Vault {
+    pub var own: i32 = 0
+
+    fn peek(const self) -> i32 {
+        return self.own
+    }
+}
+
+fn main() -> i32 {
+    var box = make_vault()
+    var strong = Strong {}
+    var sealed = Sealed {}
+    var count = helper(twice!(2))
+    for step in 0..3 {
+        var inner = step
+        count = count + inner
+    }
+
+    var boxes: [Vault]
+    return count
+}
+"""
+
+COMP_OTHER = """import vault::{
+    Vault,
+    make_vault,
+}
+
+pub fn other() -> i32 {
+    var box = make_vault()
+    return box.name
+}
+"""
+
+
+def completion_index(exe, base):
+    """Completion answered from the index (P933): the declaration tables,
+    the file's scope rows and the buffer's text, with no compile and no
+    worker; the compiler is asked only for a receiver the tables do not
+    type. Run in both modes: the index path is the same, the fallback is the
+    live worker's copy or a run."""
+    root = os.path.join(base, "completion")
+    os.makedirs(os.path.join(root, "src"))
+    os.makedirs(os.path.join(root, "inc", "shapes"))
+    for name, text in (("vault.k", COMP_VAULT), ("ext.k", COMP_EXT), ("main.k", COMP_MAIN), ("other.k", COMP_OTHER)):
+        open(os.path.join(root, "src", name), "w").write(text)
+    open(os.path.join(root, "inc", "geometry.hh"), "w").write("inline int area(int w, int h) { return w * h; }\n")
+    open(os.path.join(root, "inc", "shapes", "circle.hh"), "w").write("inline int circle() { return 3; }\n")
+    open(os.path.join(root, "kairo_compile.json"), "w").write(
+        '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src", "--cxx-include", "inc"] },'
+        ' { "entry": "src/other.k", "args": ["-I", "src"] } ] }\n')
+    live_on = os.environ.get("KALS_LIVE_CHECK") == "1"
+    c = Client(exe, root)
+    c.start({"debounceMs": 50})
+    M, O, V = "src/main.k", "src/other.k", "src/vault.k"
+    c.open(M, COMP_MAIN)
+    c.open(O, COMP_OTHER)
+    c.open(V, COMP_VAULT)
+    c.settle()
+    # Both entries' first checks: the index path needs each one's tables.
+    both = lambda: {os.path.basename(n["params"]["entry"]) for n in c.notes if n["method"] == "$/kals/analysed"} >= {"main.k", "other.k"}
+    check("index completion: (both entries are analysed)", wait_for(both, 120, c))
+    ver = [10]
+
+    def ask(rel, text, needle, col=None, settle=False):
+        """Changes `rel` to `text` and completes at the end of the first
+        line holding `needle` (or at column `col` of it)."""
+        ver[0] += 1
+        c.change(rel, ver[0], text)
+        if settle:
+            c.settle()
+        rows = text.split("\n")
+        line = next((i for i, l in enumerate(rows) if l == needle), None)
+        if line is None:
+            line = next(i for i, l in enumerate(rows) if needle in l)
+        ch = len(rows[line]) if col is None else col
+        start = len(c.notes)
+        r = c.request("textDocument/completion", c.at(rel, line, ch))
+        c.pump(0.2)
+        done = [n["params"] for n in c.notes[start:] if n["method"] == "$/kals/completed"]
+        return (r or {}).get("items", []), (done[-1] if done else {})
+
+    def names(items):
+        return [i["label"] for i in items]
+
+    tail = "    return count\n"
+    with_line = lambda line, src=COMP_MAIN: src.replace(tail, line + "\n" + tail)
+
+    # --- a plain name, in a buffer that parses and in one that does not
+    it, d = ask(M, with_line("    co"), "    co")
+    n = names(it)
+    check("index completion: a plain name is answered from the index", d.get("how") == "index" and d.get("what") == "name", d)
+    check("index completion: locals, parameters' file, imports, builtins", all(x in n for x in ("count", "box", "strong", "helper", "LIMIT", "Vault", "make_vault", "io", "string")), n[:30])
+    check("index completion: a local of a block that has closed is not offered", "inner" not in n and "step" not in n, n[:12])
+    check("index completion: the list is whole (the client filters it)", isinstance(it, list) and len(n) > 50, len(n))
+    it, d = ask(M, with_line("    var broken = (1 +\n    co"), "    co")
+    n = names(it)
+    check("index completion: a plain name in a buffer that does not parse", d.get("how") == "index" and all(x in n for x in ("count", "box", "helper", "Vault")), (d, n[:12]))
+    check("index completion: under 50 ms of server time", 0 < d.get("us", 10 ** 9) < 50000, d)
+
+    # --- loop variables
+    in_loop = COMP_MAIN.replace("        count = count + inner\n", "        st\n        count = count + inner\n")
+    it, d = ask(M, in_loop, "        st")
+    check("index completion: a `for .. in` variable inside its loop", d.get("how") == "index" and {"step", "inner", "count"} <= set(names(it)), (d, names(it)[:8]))
+    it, d = ask(M, with_line("    for var idx: i32 = 0; idx < 3; ++idx {\n        id\n    }"), "        id")
+    check("index completion: a `for var i = ..; ..; ..` variable inside its loop", d.get("how") == "index" and "idx" in names(it), (d, names(it)[:8]))
+    it, d = ask(M, with_line("    for var idx: i32 = 0; idx < 3; ++idx {\n        count = idx\n    }\n    co"), "    co")
+    check("index completion: and not after it", d.get("how") == "index" and "idx" not in names(it) and "count" in names(it), (d, names(it)[:8]))
+
+    # --- the cursor in the middle of a name (what a backspace leaves)
+    text = with_line("    var again = helper(count)")
+    line = next(i for i, l in enumerate(text.split("\n")) if "var again" in l)
+    col = text.split("\n")[line].index("helper") + 3
+    it, d = ask(M, text, "var again", col)
+    h = next((i for i in it if i["label"] == "helper"), None)
+    check("index completion: inside a name, after a deletion", d.get("how") == "index" and h is not None, (d, names(it)[:8]))
+    check("index completion: the item replaces the name up to the cursor",
+          h and h["textEdit"]["range"]["start"]["character"] == col - 3 and h["textEdit"]["range"]["end"]["character"] == col, h)
+
+    # --- members: access, extensions, inheritance
+    it, d = ask(M, with_line("    box."), "    box.")
+    n = set(names(it))
+    check("index completion: members from the index", d.get("how") == "index" and d.get("what") == "member" and {"name", "open"} <= n, (d, n))
+    check("index completion: a priv member is not offered from another file", "code" not in n and "hidden" not in n, n)
+    check("index completion: nor a prot one outside its module", "mid" not in n, n)
+    check("index completion: an extension member is offered where its file is imported", "extra_power" in n, n)
+    it, d = ask(O, COMP_OTHER.replace("    return box.name", "    box.\n    return box.name"), "    box.")
+    n = set(names(it))
+    check("index completion: and not where it is not", d.get("how") == "index" and "extra_power" not in n and "name" in n, (d, n))
+    it, d = ask(V, COMP_VAULT.replace("    var v = Vault {}", "    var v = Vault {}\n    v."), "    v.")
+    n = set(names(it))
+    check("index completion: in its own file a priv member is offered", d.get("how") == "index" and {"code", "hidden", "mid", "name", "open"} <= n, (d, n))
+    it, d = ask(M, with_line("    strong."), "    strong.")
+    n = set(names(it))
+    check("index completion: inherited members", d.get("how") == "index" and {"bolts", "name", "open"} <= n and "code" not in n, (d, n))
+    in_sub = COMP_MAIN.replace("        return self.own\n", "        self.\n        return self.own\n")
+    it, d = ask(M, in_sub, "        self.")
+    n = set(names(it))
+    check("index completion: a subclass in another file reaches its base's prot members, not its priv ones",
+          d.get("how") == "index" and {"own", "mid", "name", "open", "peek"} <= n and "code" not in n and "hidden" not in n, (d, n))
+    it, d = ask(M, with_line("    sealed."), "    sealed.")
+    n = set(names(it))
+    check("index completion: a base's members behind a `derives priv` edge are not offered from another file",
+          d.get("how") == "index" and "wax" in n and "name" not in n and "open" not in n, (d, n))
+    it, d = ask(M, with_line("    vault::"), "    vault::")
+    n = set(names(it))
+    check("index completion: a module's names, without its file-private ones", d.get("how") == "index" and {"Vault", "make_vault"} <= n and "file_private" not in n, (d, n))
+    it, d = ask(M, with_line("    make_vault()."), "    make_vault().")
+    check("index completion: a call's result", d.get("how") == "index" and {"name", "open"} <= set(names(it)), (d, names(it)))
+    op = next((i for i in it if i["label"] == "open"), None)
+    it2, d2 = ask(M, with_line("    pick(strong)."), "    pick(strong).")
+    check("index completion: overloads that return different types are the compiler's to choose between",
+          d2.get("how") == ("live" if live_on else "run") and {"bolts", "name"} <= set(names(it2)), (d2, names(it2)))
+    it2, d2 = ask(M, with_line("    make_vault."), "    make_vault.")
+    check("index completion: a function that is not called is not its result", d2.get("how") != "index" and "open" not in names(it2), (d2, names(it2)))
+    rs = c.request("completionItem/resolve", op) if op else None
+    check("index completion: resolve reads the `///` block", rs and "Opens the vault" in rs.get("documentation", {}).get("value", ""), rs)
+    check("index completion: items carry the signature", op and op.get("detail") == "fn open(const self) -> i32", op)
+
+    # --- the index of a text that was checked with an error in it (a name
+    # still being typed) has no type for an inferred local: its
+    # initialiser is read instead
+    ver[0] += 1
+    c.change(M, ver[0], with_line("    co"))
+    c.settle()
+    c.pump(0.5)
+    it, d = ask(M, with_line("    co\n    box."), "    box.")
+    check("index completion: an inferred local's members when the file was last checked with an error in it",
+          d.get("how") == "index" and {"name", "open"} <= set(names(it)) and "code" not in names(it), (d, names(it)))
+    ver[0] += 1
+    c.change(M, ver[0], COMP_MAIN)
+    c.settle()
+
+    # --- a name typed since the index was built
+    it, d = ask(M, with_line("    var fresh = Vault {}\n    fre"), "    fre")
+    check("index completion: a local typed since the last index", d.get("how") == "index" and "fresh" in names(it), (d, names(it)[:8]))
+    it, d = ask(M, with_line("    var fresh = Vault {}\n    fresh."), "    fresh.")
+    check("index completion: and its members, from its initialiser", d.get("how") == "index" and {"name", "open"} <= set(names(it)), (d, names(it)))
+
+    it, d = ask(M, with_line("    var twice_of = fn (seed: i32) -> i32 {\n        se\n    }"), "        se")
+    check("index completion: a closure's parameter, typed since", d.get("how") == "index" and "seed" in names(it) and "count" in names(it), (d, names(it)[:8]))
+    it, d = ask(M, with_line("    var twice_of = fn (seed: i32) -> i32 {\n        return seed\n    }\n    co"), "    co")
+    check("index completion: and not after the closure has closed", d.get("how") == "index" and "seed" not in names(it) and "twice_of" in names(it), (d, names(it)[:8]))
+
+    # --- a receiver the tables do not type: the compiler answers
+    it, d = ask(M, with_line("    boxes[0]."), "    boxes[0].")
+    check("index completion: an indexed receiver falls back to the compiler" + (" (the live worker's copy)" if live_on else " (a run)"),
+          d.get("how") == ("live" if live_on else "run") and {"name", "open"} <= set(names(it)), (d, names(it)))
+
+    # --- keywords, by position
+    it, d = ask(M, with_line("    re"), "    re")
+    n = names(it)
+    check("index completion: statement keywords at a statement's start", {"return", "var", "if", "for"} <= set(n) and "import" not in n and "derives" not in n, [x for x in n if x in ("return", "import", "derives")])
+    it, d = ask(M, with_line("    var typed: "), "    var typed: ")
+    n = names(it)
+    check("index completion: a type position offers types", {"i32", "Vault", "string"} <= set(n) and "return" not in n and "count" not in n and "helper" not in n, n[:20])
+    it, d = ask(M, COMP_MAIN + "\np", "p")
+    n = names(it)
+    check("index completion: declaration keywords at file level", {"pub", "priv", "fn", "class"} <= set(n) and "return" not in n, [x for x in n if x in ("pub", "fn", "return")])
+    it, d = ask(M, with_line("    var nn"), "    var nn")
+    check("index completion: nothing where a name is being declared", d.get("what") == "none" and it == [], (d, names(it)[:5]))
+    it, d = ask(M, with_line("    // co"), "    // co")
+    check("index completion: nothing in a comment", d.get("what") == "none" and it == [], d)
+    it, d = ask(M, with_line('    io::println("co'), 'io::println("co')
+    check("index completion: nothing in a string", d.get("what") == "none" and it == [], d)
+
+    # --- a trigger character answers only where it means its trigger
+    text = with_line("    var half = count /")
+    ver[0] += 1
+    c.change(M, ver[0], text)
+    line = next(i for i, l in enumerate(text.split("\n")) if l == "    var half = count /")
+    params = c.at(M, line, len("    var half = count /"))
+    params["context"] = {"triggerKind": 2, "triggerCharacter": "/"}
+    r = c.request("textDocument/completion", params)
+    check("index completion: `/` typed as a division asks for nothing", (r or {}).get("items") == [], r)
+    params = c.at(M, line, len("    var half = count /"))
+    r = c.request("textDocument/completion", params)
+    check("index completion: (asked for by hand there, names are offered)", len((r or {}).get("items", [])) > 50, r)
+
+    # --- attributes
+    it, d = ask(M, with_line("    @"), "    @")
+    n = names(it)
+    al = next((i for i in it if i["label"] == "align"), None)
+    check("index completion: attributes after `@`", d.get("what") == "attribute" and {"deprecated", "align", "likely", "pure", "no_warn"} <= set(n), (d, n))
+    check("index completion: an attribute says how it is written and what it does",
+          al and al.get("detail") == "@align(N)" and "alignment" in al.get("documentation", {}).get("value", ""), al)
+    it, d = ask(M, COMP_MAIN.replace("fn helper", "@\nfn helper"), "@", 1)
+    n = names(it)
+    check("index completion: before a function, the attributes a function takes", {"pure", "deprecated", "no_inline"} <= set(n) and "packed" not in n and "likely" not in n, n)
+
+    # --- macros
+    it, d = ask(M, with_line("    tw"), "    tw")
+    tw = next((i for i in it if i["label"] == "twice!"), None)
+    st = next((i for i in it if i["label"] == "stringify!"), None)
+    check("index completion: the file's macros", tw and tw.get("detail") == "twice!(x)", (tw, d, names(it)[:6]))
+    check("index completion: the builtin macros, each with a line on what it does",
+          st and st.get("detail") == "stringify!(a)" and "string literal" in st.get("documentation", {}).get("value", ""), st)
+
+    # --- imports and headers
+    it, d = ask(M, "import va\n" + COMP_MAIN, "import va")
+    check("index completion: an import's path", d.get("what") == "import" and "vault" in names(it), (d, names(it)))
+    it, d = ask(M, "import vault::{Vault, ma\n" + COMP_MAIN, "import vault::{Vault, ma")
+    check("index completion: an import's names", d.get("what") == "import" and "make_vault" in names(it), (d, names(it)))
+    it, d = ask(M, 'ffi "c++" import "\n' + COMP_MAIN, 'ffi "c++" import "')
+    n = names(it)
+    check("index completion: a C++ header: the project's and the library's", d.get("what") == "header" and {"geometry.hh", "shapes", "vector", "cstdio"} <= set(n), (d, n[:20]))
+    it, d = ask(M, 'ffi "c++" import "shapes/\n' + COMP_MAIN, 'ffi "c++" import "shapes/')
+    check("index completion: a header's directory", d.get("what") == "header" and names(it) == ["circle.hh"], (d, names(it)))
+    it, d = ask(M, 'ffi "c" import "std\n' + COMP_MAIN, 'ffi "c" import "std')
+    n = names(it)
+    check("index completion: a C header", {"stdio.h", "stdlib.h"} <= set(n) and "vector" not in n, n[:20])
+
+    c.change(M, 900, COMP_MAIN)
+    check("index completion: clean shutdown", c.stop() == 0)
+
+    # --- the answer an editor gets: one that reads the list's default
+    # range and takes snippets (VS Code, Zed). The client above declares
+    # neither, so every item carried its own textEdit and plain text.
+    c = Client(exe, root)
+    c.start({"debounceMs": 50}, capabilities={"textDocument": {"completion": {
+        "completionItem": {"snippetSupport": True},
+        "completionList": {"itemDefaults": ["commitCharacters", "editRange", "insertTextFormat"]}}}})
+    c.open(M, COMP_MAIN)
+    c.settle()
+
+    def ask_list(text, needle):
+        ver[0] += 1
+        c.change(M, ver[0], text)
+        rows = text.split("\n")
+        line = next(i for i, l in enumerate(rows) if l == needle)
+        return c.request("textDocument/completion", c.at(M, line, len(needle))), line
+
+    r, line = ask_list(with_line("    tw"), "    tw")
+    its = (r or {}).get("items", [])
+    rng = (r or {}).get("itemDefaults", {}).get("editRange")
+    check("index completion: the range is stated once for the list, where the client reads it there",
+          rng == {"start": {"line": line, "character": 4}, "end": {"line": line, "character": 6}} and its and not any("textEdit" in i for i in its), (rng, its[:1]))
+    tw = next((i for i in its if i["label"] == "twice!"), None)
+    check("index completion: a macro is a snippet with a placeholder per parameter",
+          tw and tw.get("insertTextFormat") == 2 and tw.get("textEditText") == "twice!(${1:x})", tw)
+    plain = next((i for i in its if i["label"] == "helper"), None)
+    check("index completion: an item whose text is its label carries no text of its own",
+          plain and "textEditText" not in plain and "insertTextFormat" not in plain, plain)
+    r, line = ask_list(with_line("    @"), "    @")
+    its = (r or {}).get("items", [])
+    al = next((i for i in its if i["label"] == "align"), None)
+    pk = next((i for i in its if i["label"] == "packed"), None)
+    check("index completion: an attribute with an argument is a snippet", al and al.get("insertTextFormat") == 2 and al.get("textEditText") == "align(${1:N})", al)
+    check("index completion: one without is plain text", pk and "insertTextFormat" not in pk and "textEditText" not in pk, pk)
+    check("index completion: clean shutdown of the editor-shaped client", c.stop() == 0)
+
+    # --- the compiler's list, when the index path is turned off
+    c = Client(exe, root)
+    c.start({"debounceMs": 50, "indexCompletion": False})
+    c.open(M, COMP_MAIN)
+    c.settle()
+    it, d = ask(M, with_line("    box."), "    box.")
+    n = set(names(it))
+    check("index completion off: the compiler's list, with the same access and extensions",
+          d.get("how") == ("live" if live_on else "run") and {"name", "open", "extra_power"} <= n and "code" not in n and "hidden" not in n and "mid" not in n, (d, n))
+    it, d = ask(M, COMP_MAIN.replace("        return self.own\n", "        self.\n        return self.own\n"), "        self.")
+    n = set(names(it))
+    check("index completion off: a subclass in another file reaches its base's prot members, not its priv ones",
+          {"own", "mid", "name", "open", "peek"} <= n and "code" not in n and "hidden" not in n, (d, n))
+    it, d = ask(M, with_line("    sealed."), "    sealed.")
+    n = set(names(it))
+    check("index completion off: nor a base's members behind a `derives priv` edge", "wax" in n and "name" not in n and "open" not in n, (d, n))
+    it, d = ask(M, with_line("    strong."), "    strong.")
+    n = set(names(it))
+    check("index completion off: inherited members", {"bolts", "name", "open", "extra_power"} <= n and "code" not in n, (d, n))
+    it, d = ask(M, with_line("    vault::"), "    vault::")
+    n = set(names(it))
+    check("index completion off: a module's names, without its file-private ones", {"Vault", "make_vault"} <= n and "file_private" not in n, (d, n))
+    it, d = ask(M, COMP_MAIN.replace("        count = count + inner\n", "        st\n        count = count + inner\n"), "        st")
+    check("index completion off: a `for .. in` variable inside its loop", {"step", "inner"} <= set(names(it)), (d, names(it)[:8]))
+    it, d = ask(M, with_line("    co"), "    co")
+    n = names(it)
+    # (A local of a closed block is still in this list: the walk knows the
+    # function it is in, not the block.)
+    check("index completion off: and the function's locals", d.get("how") != "index" and {"count", "box", "strong", "helper"} <= set(n), n[:12])
+    check("index completion off: clean shutdown", c.stop() == 0)
+
+
 def launch_failures(exe, base):
     """A worker that cannot be started (K3, P892) leaves its work due: it is
     tried again, with a backoff, instead of the first refusal dropping that
@@ -3544,6 +3993,10 @@ def main():
             live(exe, base)
         if want("many_imports"):
             many_imports(exe, base)
+        if want("completion_index"):
+            completion_index(exe, base)
+        if want("completion_marker"):
+            completion_marker(exe, real)
         if want("broken_buffer"):
             broken_buffer(exe, base, False)
             broken_buffer(exe, base, True)

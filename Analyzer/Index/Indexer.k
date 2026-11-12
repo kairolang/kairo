@@ -78,7 +78,9 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
+import AST::Node::Patterns::BindingPattern
 import AST::Node::Program::TopLevelKind
+import AST::Node::Statements
 import AST::Node::Types
 import AST::OperatorFacts::OperatorFacts
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
@@ -91,6 +93,8 @@ import Lexer::Lexer::Lexer
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Sema::Resolve::AccessCheck::AccessCheck
+import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
     SemaContext,
@@ -111,6 +115,7 @@ import Index::Inlays::*
 import Index::Legend::*
 import Index::Macros::*
 import Index::Refs::*
+import Index::Tables::*
 import Index::Tokens::*
 import Index::Writer::*
 
@@ -178,6 +183,39 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     /// The function whose body the walk is in, for its enclosing type.
     var cur_fn_: unsafe *Declarations::FunctionDecl = &null
 
+    // --- Tables.k ---------------------------------------------------------
+
+    /// This file's declaration table, a JSON object (Snapshot.k, SK_DECLS).
+    pub var table: string = ""
+
+    /// What the file's imports bring in, the files those rows name, and the
+    /// files whose extensions the file sees: the block's `scope`, `sfiles`
+    /// and `sees`.
+    pub var scope_rows:  [ScopeRow]
+    pub var scope_files: [string]
+    pub var sees:        [string]
+
+    /// The check's shared ScopeFacts (the observer's), or null: each
+    /// declaration is then described by this walk.
+    pub var facts: unsafe *ScopeFacts = &null
+
+    var scope_fids_: [u32]
+    var scope_seen_: {u64: u32}  ///< a name's hash -> its first row
+    var t_fids_:     [u32]       ///< the files the table's rows name
+    var t_count_:    i64 = 0
+    var t_bases_:    [i64]       ///< TB_* rows, flat
+    var t_seen_:     {u64: u32}
+    var t_ac_:       unsafe *AccessCheck = &null  ///< while the table is built: reads a row's visibility
+
+    // --- CompletionItems.k: a completion's access filter ------------------
+
+    /// Set while the members of a receiver, or of the enclosing type, are
+    /// listed: a member the use site may not name is not offered.
+    var ac_:         unsafe *AccessCheck = &null
+    var ac_through_: unsafe *Type        = &null
+    /// The extensions this file sees, for the receiver's.
+    var ml_: unsafe *MemberLookup = &null
+
     var tu_: TypeUtil
 
     pub fn IndexWalker(self, sc: unsafe *SemaContext) {
@@ -204,6 +242,8 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         }
 
         self.file_(fid)
+        self.build_table_()
+        self.build_scope_()
 
         for var i: usize = 0; i < tu->imports.size(); ++i {
             self.import_(*tu->imports.get(i))
@@ -222,6 +262,23 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
                 }
             }
         }
+    }
+
+    /// Drops the locals of the declaration the walk has left: all of them
+    /// before a type at file level, and before a function all but the type
+    /// parameters of the types around it (\p keep_type_params).
+    fn leave_locals_(self, keep_type_params: bool) {
+        var kept: [unsafe *Decl]
+        if keep_type_params {
+            for var i: usize = 0; i < self.locals_.size(); ++i {
+                var unsafe *l = self.locals_[i]
+                if isa<Declarations::GenericParamDecl>(l) && (l->semantic_dc != &null) && l->semantic_dc->is_type_scope() {
+                    kept.push_back(l)
+                }
+            }
+        }
+
+        self.locals_ = kept
     }
 
     // --- locations -------------------------------------------------------
@@ -597,8 +654,19 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
 
     pub fn visit_decl(self, n: *Decl) -> bool {
         var unsafe *d = unsafe (n as unsafe *Decl)
+        // A function or a type declared at file, module or type level
+        // starts a scope of its own: the locals of the one before it are
+        // not in it. (A type parameter of an enclosing type still is.)
+        var outer = (d->semantic_dc == &null) || (d->semantic_dc->dc_kind == DeclContextKind::TranslationUnit)
+            || (d->semantic_dc->dc_kind == DeclContextKind::Module) || (d->semantic_dc->dc_kind == DeclContextKind::Extension)
+            || d->semantic_dc->is_type_scope()
         if isa<Declarations::FunctionDecl>(d) {
             self.cur_fn_ = cast<Declarations::FunctionDecl>(d)
+            if outer {
+                self.leave_locals_(true)
+            }
+        } else if outer && (self.context_of_decl_(d) != &null) && (!d->semantic_dc->is_type_scope()) {
+            self.leave_locals_(false)
         }
 
         self.declare_(d)
@@ -622,6 +690,30 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         }
 
         self.bases_of_(d)
+        return true
+    }
+
+    /// `for x in xs`, `for var (k, const v) in m`: each binder declares a
+    /// local. The visitor does not dispatch a binder's declaration (it is
+    /// in no table and no statement), so it had no row: no hover on it, no
+    /// "declaration" among its references, and it was no local to complete.
+    pub fn visit_ranged_for_stmt(self, n: *Statements::RangedForStmt) -> bool {
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var unsafe *b = n->bindings.get(i)
+            if (!b->is_discard) && (b->decl != &null) {
+                self.declare_(unsafe (b->decl as unsafe *Decl))
+            }
+        }
+
+        return true
+    }
+
+    /// `case var n`, `case Some(x)`: the pattern's binder, as above.
+    pub fn visit_binding_pattern(self, n: *BindingPattern) -> bool {
+        if n->decl != &null {
+            self.declare_(n->decl)
+        }
+
         return true
     }
 

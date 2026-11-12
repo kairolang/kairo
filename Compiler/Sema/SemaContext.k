@@ -187,8 +187,8 @@ pub class SemaOptions {
     pub var log_import_uses: bool = false ///< --dump-import-uses: I gives each overlay an ImportUseLog.
     pub var log_deps:        bool = false ///< --dump-deps / --dump-interface: the TU gets a DepLog.
     /// -fduck-generics: `<T: type>` is the C++-checked regime rather than an
-    /// error (FlagGates; Compiler/Spec/Generics.md#duck-regime). OFF by default
-    /// (decided 2026-11-08): internal, build.py turns it on for the compiler's
+    /// error (FlagGates; Compiler/Spec/Generics.md#duck-regime). OFF by default:
+    /// internal, build.py turns it on for the compiler's
     /// own source. A hand-built SemaOptions agrees with the driver.
     pub var duck_generics:       bool = false
     pub var no_fp:               bool = false ///< --no-fp.
@@ -416,10 +416,10 @@ pub class SemaContext {
     /// and RedeclMerge (sibling branches never conflict) and the late fold.
     pub var eval_branches: EvalBranchTable
 
-    /// The files whose `extend` blocks this TU sees (RESOLUTION.md, the
+    /// The files whose `extend` blocks this TU sees (Compiler/Spec/MemberLookup.md, the
     /// extension-visibility rule): its own, each file it imports, and what
     /// those re-export (`pub` edges onward, and `prot` ones within the
-    /// module, transitively; P842).
+    /// module, transitively).
     /// One set per TU, built on first need by
     /// sees_extension_file; member lookup, operator lookup and conformance
     /// all ask it, so the three cannot disagree. Membership only.
@@ -550,9 +550,9 @@ pub class SemaContext {
     /// file, a builtin file (seen by every TU, like its names), a file this
     /// TU imports, or one an imported file re-exports. Without the filter a TU saw every extension
     /// whose file happened to be resolved before it looked, so one program
-    /// type-checked or not by check order (P821). Rule (c), an extension
+    /// type-checked or not by check order. Rule (c), an extension
     /// beside its target type, is the caller's: only it knows the target.
-    fn sees_extension_file(self, fid: u32) -> bool {
+    pub fn sees_extension_file(self, fid: u32) -> bool {
         if self.ctx != &null && fid == self.ctx->fid {
             return true
         }
@@ -597,7 +597,7 @@ pub class SemaContext {
                 }
 
                 // Past this TU's own imports only a re-export carries an
-                // extension onward (P842): a `pub import` (a module.k's
+                // extension onward: a `pub import` (a module.k's
                 // exports are its `pub import`s), or a `prot import` when
                 // this TU is in the module of the file that wrote it, the
                 // only files a `prot` re-export is for (imports.mdx). A
@@ -683,7 +683,7 @@ pub class SemaContext {
         self.phase = p
     }
 
-    /// ## The library's fixed mode (P780)
+    /// ## The library's fixed mode
 
     /// This TU is builtin or std. The one test every pass asks: a library
     /// the user cannot edit is neither linted nor compiled in the user's

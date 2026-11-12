@@ -72,6 +72,11 @@ import std::io
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
+import Server::CompletionWords::{
+    BuiltinRow,
+    Word,
+}
+import Server::IndexCompletion::*
 import Server::Diagnostics::*
 import Server::Features::*
 import Server::Formatting::*
@@ -205,6 +210,29 @@ pub class Server {
     /// not carry hundreds of doc blocks.
     pub var item_labels: [string]
     pub var item_docs:   [string]
+
+    /// Completion from the index (IndexCompletion.k). Off
+    /// (`indexCompletion: false`, KALS_INDEX_COMPLETION=0): every list is
+    /// the compiler's, for comparing the two.
+    pub var index_completion: bool = true
+    /// The client reads `itemDefaults.editRange` / takes snippets.
+    pub var edit_default_ok: bool = false
+    pub var snippet_ok:      bool = false
+    /// The files the last list's items are declared in: an item's `data`
+    /// names one by index, for its `///` block on resolve.
+    pub var comp_paths: [string]
+    /// The language's words, attributes and builtin macros, read from the
+    /// compiler's tables on first use (CompletionWords.k).
+    /// The last header listing (IndexCompletion.k, header_candidates_): the
+    /// buffer, language and directory typed it was made for, when, and the
+    /// candidates. A path is typed a letter at a time and a client that
+    /// asks at each gets the listing it was just given.
+    pub var hdr_key:   string = ""
+    pub var hdr_ms:    i64    = 0
+    pub var hdr_cands: [Cand]
+    pub var words:      [Word]
+    pub var attr_rows:  [BuiltinRow]
+    pub var macro_rows: [BuiltinRow]
 
     /// The semantic tokens last sent per buffer, for the delta request: the
     /// URI, the result id it was sent under, and the integers.
@@ -567,6 +595,19 @@ pub class Server {
                     dw.end_object()
                     out = out.subslice(0, out.size() - 1) + ",\"documentation\":" + dw.out + "}"
                     break
+                }
+            }
+
+            // An item answered from the index says where it is declared.
+            if (d.get(params, K_DOCUMENTATION) == JSON_NONE()) && (d.get(params, K_DATA) != JSON_NONE()) && (out.size() > 1) {
+                var doc = self.resolve_doc_(&d, params)
+                if !doc.empty() {
+                    var dw = JsonWriter()
+                    dw.begin_object()
+                    dw.field(K_KIND, MARKUP_MARKDOWN)
+                    dw.field(K_VALUE, doc)
+                    dw.end_object()
+                    out = out.subslice(0, out.size() - 1) + ",\"documentation\":" + dw.out + "}"
                 }
             }
 

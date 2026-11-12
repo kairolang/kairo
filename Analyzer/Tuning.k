@@ -33,7 +33,7 @@ pub const SYNTAX_DEBOUNCE_MS: i64 = 100
 
 /// The persistent syntax worker is restarted, between requests, after this
 /// many passes or above this resident size: something a CompilerInstance
-/// allocates outlives it (about 0.4 MB a pass, P829), and a restart costs
+/// allocates outlives it (about 0.4 MB a pass), and a restart costs
 /// one process start (about 50 ms, overlapped with typing) per few hundred
 /// keystrokes. Higher: fewer restarts, more memory.
 pub const SYNTAX_SERVER_MAX_PASSES: u64 = 400
@@ -131,7 +131,7 @@ pub const BRIDGE_RECENT_SOURCES: usize = 16
 
 /// The clangd bridge follows a source's quoted includes this many headers
 /// deep, and reads at most this many headers per scan, to find the sources
-/// that reach a .k through a header (P861): deeper and more cover more
+/// that reach a .k through a header: deeper and more cover more
 /// indirect includers, at a read per header on every scan after a C/C++
 /// change. A source past either bound gets the overlay but not kcc's flags.
 pub const BRIDGE_INCLUDE_DEPTH:     u32   = 8
@@ -223,3 +223,9 @@ pub const LIVE_IDLE_RECYCLE_MS: i64 = 4000
 /// (FrontendAction::prefer_first_users; IncrementalSema.md, "Preferred
 /// order"): no whole check is taken for the preference.
 pub const LIVE_PREFER_OPEN: bool = true
+
+/// How long a header directory listing made for a completion is reused for
+/// the same directory of the same buffer (IndexCompletion.k). A path is
+/// typed in a second or two; a header added to the directory is seen after
+/// this long.
+pub const HEADER_LIST_KEEP_MS: i64 = 3000

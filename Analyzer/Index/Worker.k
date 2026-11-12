@@ -63,6 +63,7 @@ import Index::Snapshot::*
 import Index::WorkerKeys::*
 import Index::Indexer::IndexWalker
 import Index::Hovers
+import Index::Tables
 import Index::Writer
 import Index::Tokens::lexical_tokens
 import Protocol::*
@@ -138,6 +139,28 @@ pub class IndexObserver derives SemaObserver {
     pub var k_paths:  [string]
     pub var k_blocks: [string]
 
+    /// The declaration tables (Tables.k), one per Kairo file of the graph,
+    /// the library's too: comma-joined for a run; for the live worker kept
+    /// by path, each with the step that walked it (`seq`, which the worker
+    /// sets before a step), so a snapshot carries the ones its reader has
+    /// not got (LiveWorker.k).
+    pub var tables:      string = ""
+    pub var table_count: usize  = 0
+    pub var seq:         u64    = 0
+    pub var t_paths:     [string]
+    pub var t_blocks:    [string]
+    pub var t_seq:       [u64]
+
+    /// What the walks of one check share (Snapshot.k, ScopeFacts).
+    pub var facts: ScopeFacts
+
+    /// A check or a re-check starts: its tables are step \p seq's, and no
+    /// fact of the one before it is kept (a replaced tree's addresses).
+    pub fn begin_step(self, seq: u64) {
+        self.seq = seq
+        self.facts.clear()
+    }
+
     priv var mu_: kairo::std::Mutex
 
     /// Walked at on_checked, written at on_lowered (or by flush).
@@ -176,6 +199,19 @@ pub class IndexObserver derives SemaObserver {
         var path = sc->ctx->sm->get_filename(fid)
         var named = self.is_named_(path)
         if (!named) && (self.root.empty() || (!path.starts_with(self.root))) {
+            // Outside what is indexed (the library): no rows, but its
+            // declarations are what the indexed files name and complete.
+            if (!sc->ctx->syntax_skipped) && (!sc->tu->is_foreign) {
+                var tw0 = worker_us()
+                var unsafe *tw = kairo::std::create<IndexWalker>(sc)
+                tw->run_table(fid)
+                var table: string = tw->table
+                kairo::std::destroy(tw)
+                var lock = kairo::std::LockGuard(self.mu_)
+                self.walk_us += worker_us() - tw0
+                self.keep_table_(path, table)
+            }
+
             return
         }
 
@@ -197,6 +233,7 @@ pub class IndexObserver derives SemaObserver {
 
         var t0 = worker_us()
         var unsafe *walker = kairo::std::create<IndexWalker>(sc)
+        walker->facts = unsafe &self.facts
         walker->run(fid)
         walker->named_ = named
         walker->path_  = path
@@ -244,17 +281,48 @@ pub class IndexObserver derives SemaObserver {
         }
     }
 
+    /// Under the lock: \p path's table is \p table ("": it has none).
+    priv fn keep_table_(self, const path: string, const table: string) {
+        if table.empty() {
+            return
+        }
+
+        if !self.keep {
+            if self.table_count > 0 {
+                self.tables += ","
+            }
+
+            self.tables      += table
+            self.table_count += 1
+            return
+        }
+
+        for var i: usize = 0; i < self.t_paths.size(); ++i {
+            if self.t_paths[i] == path {
+                self.t_blocks[i] = table
+                self.t_seq[i]    = self.seq
+                return
+            }
+        }
+
+        self.t_paths.push_back(path)
+        self.t_blocks.push_back(table)
+        self.t_seq.push_back(self.seq)
+    }
+
     priv fn finish_(self, walker: unsafe *IndexWalker) {
         var t1 = worker_us()
         var w = JsonWriter()
         walker->write(&w)
         var named = walker->named_
         var wpath = walker->path_
+        var table: string = walker->table
         kairo::std::destroy(walker)
         var t2 = worker_us()
 
         var lock = kairo::std::LockGuard(self.mu_)
         self.write_us += t2 - t1
+        self.keep_table_(wpath, table)
         if self.keep {
             for var i: usize = 0; i < self.k_paths.size(); ++i {
                 if self.k_paths[i] == wpath {
@@ -969,26 +1037,31 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         // by the emitter's own rule.
         w.field(SK_HEADER, header_path_of(ci->imp()->input_module_path(Path(inputs[0]))))
         w.field_int(SK_ERRORS, collector->errors as i64)
-        // What kcc gives a C++ file that includes this module: the bridge
-        // hands it to clangd, which otherwise parses the header's prelude
-        // against the host's standard library and none of kcc's roots.
-        w.key(SK_CXX_FLAGS)
-        w.begin_array()
-        for var a: string in ci->cxx_driver_words() {
-            w.str(a)
-        }
-
-        w.end_array()
-        // And for a C source that reaches the module through a header (P861).
-        w.key(SK_C_FLAGS)
-        w.begin_array()
-        for var a: string in ci->c_driver_words() {
-            w.str(a)
-        }
-
-        w.end_array()
     }
 
+    // What kcc gives a C++ file that includes this module: the bridge
+    // hands it to clangd, which otherwise parses the header's prelude
+    // against the host's standard library and none of kcc's roots. In
+    // every snapshot, not the header job's alone: the include directories
+    // among them are where an `ffi import "..."` is completed from.
+    w.key(SK_CXX_FLAGS)
+    w.begin_array()
+    for var a: string in ci->cxx_driver_words() {
+        w.str(a)
+    }
+
+    w.end_array()
+    // And for a C source that reaches the module through a header (P861).
+    w.key(SK_C_FLAGS)
+    w.begin_array()
+    for var a: string in ci->c_driver_words() {
+        w.str(a)
+    }
+
+    w.end_array()
+
+    w.field_raw(SK_TABLES, "[" + observer->tables + "]")
+    w.field_bool(SK_TABLES_ALL, true)
     w.field_raw(SK_DIAGNOSTICS, "[" + collector->out + "]")
     w.key(SK_DEPS)
     w.begin_array()

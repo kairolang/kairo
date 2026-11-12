@@ -91,6 +91,7 @@ import Index::Indexer::*
 import Index::Inlays::*
 import Index::Legend::*
 import Index::Macros::*
+import Index::Tables::*
 import Index::Tokens::*
 import Index::Writer::*
 
@@ -635,7 +636,10 @@ extend IndexWalker {
         return self.ast_()->get_spelling(n->name) == completion_marker()
     }
 
-    fn overlay_rows_(self, tu: unsafe *TranslationUnit) {
+    /// \p as_items: each is a completion item (the marker's list); else a
+    /// scope row of the file's block (Tables.k), the same names in the same
+    /// order.
+    fn overlay_rows_(self, tu: unsafe *TranslationUnit, as_items: bool) {
         // A std::vector because ImportOverlay::collect_rows fills one: the
         // compiler's signature, not a choice made here.
         var all: cxx::std::vector<ImportOverlay::Row>
@@ -658,10 +662,15 @@ extend IndexWalker {
                     sort = 4
                 }
 
-                if e->targets[k].decl != &null {
-                    self.item_(e->targets[k].decl, sort)
-                } else if (e->targets[k].cell != &null) && (e->targets[k].cell->size() > 0) {
-                    self.item_(e->targets[k].cell->get(0), sort)
+                var d: unsafe *Decl = e->targets[k].decl
+                if (d == &null) && (e->targets[k].cell != &null) && (e->targets[k].cell->size() > 0) {
+                    d = e->targets[k].cell->get(0)
+                }
+
+                if as_items {
+                    self.item_(d, sort)
+                } else {
+                    self.scope_row_(d, sort)
                 }
             }
         }

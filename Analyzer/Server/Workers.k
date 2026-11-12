@@ -601,6 +601,16 @@ extend Server {
             self.entries[ei].dirty = true // narrow again: the files under the root were not walked
         }
 
+        // The declaration tables it brought (all of them, or the files
+        // walked since the last snapshot installed): kept whatever becomes
+        // of the rows below, since a table is of a file that was checked.
+        var tt0 = now_us()
+        var ntab = self.entries[ei].tb.merge(&doc)
+        if doc.get(doc.root, SK_TABLES_SEQ) != JSON_NONE() {
+            self.entries[ei].tb_have = doc.get_int(doc.root, SK_TABLES_SEQ) as u64
+        }
+
+        var tables_us = now_us() - tt0
         self.entries[ei].snap     = doc
         self.entries[ei].has_snap = true
         self.entries[ei].snap_rev = j->rev
@@ -728,7 +738,7 @@ extend Server {
         self.publish(ei)
         var t7 = now_us()
         var tm = doc.get(doc.root, SK_TIMING)
-        self.trace(f"install bytes={text.size()} read_us={t1 - t0} parse_us={t2 - t1} snap_copy_us={t3 - t2} idx_copy_us={t4 - t3} cache_us={t5 - t4} publish_us={t7 - t6} total_us={t7 - t0} worker=" + doc.dump(tm))
+        self.trace(f"install bytes={text.size()} read_us={t1 - t0} parse_us={t2 - t1} snap_copy_us={t3 - t2} idx_copy_us={t4 - t3} cache_us={t5 - t4} publish_us={t7 - t6} tables={ntab} tables_us={tables_us} total_us={t7 - t0} worker=" + doc.dump(tm))
         self.analysed_(ei, j, rc)
 
         // A buffer this run turned out NOT to hold still needs an entry: try

@@ -55,6 +55,7 @@ import std::io
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
+import Server::DeclTables::DeclTables
 import Server::Diagnostics::*
 import Server::Features::*
 import Server::Formatting::*
@@ -377,6 +378,13 @@ pub class Entry {
     /// before the edit until then: positions in their own text are exact,
     /// what they say about the edited file may not be.
     pub var live_pending: usize = 0
+
+    /// The declaration tables of the entry's graph (DeclTables.k), kept
+    /// across snapshots: one brings the tables of the files its worker
+    /// walked since `tb_have`, the `tablesSeq` of the last one installed
+    /// (0: none, so the next brings them all).
+    pub var tb:      DeclTables
+    pub var tb_have: u64 = 0
 
     pub var cf_node: [u32]
     pub var cf_lo:   [usize]

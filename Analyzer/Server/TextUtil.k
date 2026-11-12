@@ -116,7 +116,7 @@ pub fn k_includes(const text: string) -> [string] {
 }
 
 /// Every quoted `#include "x"` name of a C or C++ text, as written, in
-/// order (the bridge follows headers to the `.k` files they include, P861).
+/// order (the bridge follows headers to the `.k` files they include).
 /// Textual: a conditional block (`#ifdef __cplusplus`) is not evaluated.
 pub fn quoted_includes(const text: string) -> [string] {
     var out: [string]
@@ -298,33 +298,3 @@ pub fn keyword_list(const all: string) -> [string] {
 pub fn is_ident_byte(c: u8) -> bool {
     return ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || ((c >= ('0' as u8)) && (c <= ('9' as u8))) || (c == ('_' as u8)) || (c >= 128)
 }
-
-/// Offered wherever a bare name can start. The spellings are the language
-/// reference's; the lexer has no table to read them from.
-pub fn keywords() -> [string] {
-    var k: [string]
-    var all = "fn var const static eval if else unless while for loop match case default return break continue " +
-        "class struct enum union interface extend impl derives module import ffi pub priv prot " +
-        "unsafe inline virtual override final async await spawn yield try catch finally panic " +
-        "true false null self Self as in is where requires type macro test delete sizeof alignof typeof " +
-        "i8 i16 i32 i64 i128 isize u8 u16 u32 u64 u128 usize f32 f64 bool char byte void string"
-    var cur = string()
-    for var i: usize = 0; i < all.size(); ++i {
-        if all[i] == (' ' as u8) {
-            if !cur.empty() {
-                k.push_back(cur)
-            }
-
-            cur = string()
-        } else {
-            cur.push_back(all[i])
-        }
-    }
-
-    if !cur.empty() {
-        k.push_back(cur)
-    }
-
-    return k
-}
-

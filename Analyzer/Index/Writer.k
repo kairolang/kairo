@@ -89,6 +89,7 @@ import Index::Inlays::*
 import Index::Legend::*
 import Index::Macros::*
 import Index::Refs::*
+import Index::Tables::*
 import Index::Tokens::*
 
 extend IndexWalker {
@@ -311,6 +312,8 @@ extend IndexWalker {
         }
 
         w->end_array()
+
+        self.write_scope_(w)
 
         if self.completed {
             w->key(SK_ITEMS)

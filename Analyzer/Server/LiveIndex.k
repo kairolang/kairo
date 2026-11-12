@@ -168,6 +168,8 @@ extend Server {
             return false
         }
 
+        // A new worker counts its steps from one: it sends every table.
+        self.entries[ei].tb_have = 0
         self.lives[k].pid      = pid
         self.lives[k].steps    = 0
         self.lives[k].base_rss = -1
@@ -365,6 +367,7 @@ extend Server {
         var w = JsonWriter()
         w.begin_object()
         w.field_int(RQ_ID, s.id)
+        w.field_int(RQ_HAVE, self.entries[ei].tb_have as i64)
         w.field(RQ_OUT, s.out)
         w.key(RQ_OPEN)
         w.begin_array()

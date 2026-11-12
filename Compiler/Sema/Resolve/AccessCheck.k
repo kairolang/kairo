@@ -5,8 +5,7 @@
 ///   \detail
 ///     Runs after expression typing so it checks what was actually chosen
 ///     (the overload, the constructor), not what was visible. The rule
-///     (classes.mdx Visibility, modules.mdx Visibility Scopes;
-///     decided 2026-10-26 and 2026-11-08):
+///     (classes.mdx Visibility, modules.mdx Visibility Scopes):
 ///
 ///       pub    everywhere.
 ///       priv   the file that declares the member -- every function in it,
@@ -137,10 +136,46 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
     priv var _fns: cxx::std::vector<unsafe *FunctionDecl>
     /// The records being walked lexically: a field default is in its class.
     priv var _recs: cxx::std::vector<unsafe *Decl>
+    /// refuses(): a refusal is recorded, not reported.
+    priv var _quiet:   bool = false
+    priv var _refused: bool = false
 
-    fn AccessCheck(self, sc: unsafe *SemaContext) {
+    pub fn AccessCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
         self._tu = TypeUtil(sc)
+    }
+
+    /// \p d's visibility as this pass reads it: the keyword it or an
+    /// earlier redeclaration wrote, else the default of where it is
+    /// declared. For tooling that records it (the language server's
+    /// declaration tables).
+    pub fn visibility_of(self, d: unsafe *Decl) -> VisibilityKind {
+        if d == &null {
+            return VisibilityKind::Public
+        }
+
+        return self._effective(d, self._owner(d))
+    }
+
+    /// Whether a use of \p d written inside \p f (null: outside every
+    /// function), reached through a value or type \p through (null: by a
+    /// bare name), is one this pass refuses. Reports nothing. For tooling
+    /// that offers names before they are written (the language server's
+    /// completion list): what it offers is then what this pass admits, by
+    /// this pass's own rule.
+    pub fn refuses(self, d: unsafe *Decl, through: unsafe *Type, f: unsafe *FunctionDecl) -> bool {
+        var fns = self._fns
+        self._fns.clear()
+        if f != &null {
+            self._fns.push_back(f)
+        }
+
+        self._quiet   = true
+        self._refused = false
+        self._check(d, SourceRange(), through)
+        self._quiet = false
+        self._fns   = fns
+        return self._refused
     }
 
     fn run(self) {
@@ -719,6 +754,11 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             return
         }
 
+        if self._quiet {
+            self._refused = true
+            return
+        }
+
         var nm   = self._tu.decl_name(d)
         var word = if (v == VisibilityKind::Private) => ("private") else => "protected"
         var msg  = f"'{nm}' is private to its file"
@@ -896,6 +936,11 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                 continue
             }
 
+            if self._quiet {
+                self._refused = true
+                return
+            }
+
             var nm   = self._name(d)
             var hn   = self._tu.decl_name(holder)
             var bn   = self._tu.decl_name(owner)
@@ -990,6 +1035,11 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                     owner: unsafe *Decl,
                     v:     VisibilityKind,
                     at:    SourceRange) {
+        if self._quiet {
+            self._refused = true
+            return
+        }
+
         var nm   = self._name(d)
         var on   = self._tu.decl_name(owner)
         var word = if (v == VisibilityKind::Private) => ("private") else => "protected"
@@ -1074,7 +1124,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
     }
 
     /// A refused `prot` use inside an `extend` of a class deriving from the
-    /// member's class (P836): the extension is outside code, not a class
+    /// member's class: the extension is outside code, not a class
     /// deriving from it, so subclass reach does not apply, and the one way
     /// in is the module of the file that declares the member. Says so and
     /// names that module's root, because the error alone reads as if the
@@ -1122,6 +1172,11 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                                 owner:   unsafe *Decl,
                                 at:      SourceRange,
                                 through: unsafe *Type) {
+        if self._quiet {
+            self._refused = true
+            return
+        }
+
         var nm    = self._name(d)
         var on    = self._tu.decl_name(owner)
         var kind  = self._kind_word(d)
@@ -1160,6 +1215,11 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
     /// A subclass built a standalone object through a `prot` constructor.
     priv fn _report_prot_ctor(self, d: unsafe *Decl, owner: unsafe *Decl, at: SourceRange) {
+        if self._quiet {
+            self._refused = true
+            return
+        }
+
         var on = self._tu.decl_name(owner)
         var b = self.sc->diag->report(
             DiagID::SC242E,

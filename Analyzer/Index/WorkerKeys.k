@@ -34,6 +34,10 @@ pub const RQ_ASIDE_OUT: string = "asideOut"
 /// live: nothing but its asides (a completion): no buffer is brought up to
 /// date, and it is neither joined with a request nor takes one's place.
 pub const RQ_ONLY:      string = "only"
+/// live: the newest declaration tables the server holds, as the
+/// `tablesSeq` of the last snapshot it installed (0: none). The snapshot
+/// carries the tables walked since (LiveWorker.k, live_snapshot).
+pub const RQ_HAVE:      string = "have"
 
 // --- answers ----------------------------------------------------------------
 pub const RP_ID:            string = "id"

@@ -81,12 +81,17 @@ import API::FS::LinkFS
 import Diagnostic::FileDiagnostics::FileDiagConsumer
 import Index::Snapshot::{
     SK_DEPS,
+    SK_CXX_FLAGS,
+    SK_C_FLAGS,
     SK_DIAGNOSTICS,
     SK_FILES,
     SK_OK,
     SK_PARTIAL,
     SK_PATH,
     SK_RUN_US,
+    SK_TABLES,
+    SK_TABLES_ALL,
+    SK_TABLES_SEQ,
     SK_TIMING,
     SK_UNCHECKED,
     SK_UNIT_FIDS,
@@ -94,6 +99,7 @@ import Index::Snapshot::{
     SK_WIDE,
     SK_WRITE_US,
 }
+import Driver::CompilerNative::*
 import Index::Worker::{
     DiagCollector,
     IndexObserver,
@@ -150,6 +156,8 @@ class LiveReq {
     /// date, nothing is kept, and it is neither joined with a request nor
     /// takes one's place.
     pub var only: bool = false
+    /// The `tablesSeq` of the last snapshot the server installed.
+    pub var have: u64 = 0
 
     pub fn LiveReq(self) = default
 }
@@ -280,11 +288,20 @@ fn live_render(st: *LiveState, live: *LiveCheck, all: bool, owners: *const [stri
 /// The snapshot as the per-run worker writes it (Worker.k, worker_main),
 /// from what is kept: the rows of every open buffer, and on a narrow graph
 /// of every file under the root.
+///
+/// The declaration tables (Tables.k) are of every file, whatever the width,
+/// and are most of a snapshot's bytes; they change only with the file they
+/// are of. So a snapshot carries the ones walked after step \p have, the
+/// last the server says it installed: all of them on a first answer, the
+/// edited file's (and its re-checked importers') after an edit. A snapshot
+/// the server drops is made up for by the next, whose request says what it
+/// has.
 fn live_snapshot(st:    *LiveState,
                  obs:   unsafe *IndexObserver,
                  live:  *LiveCheck,
                  names: *const [string],
-                 took:  i64) -> string {
+                 took:  i64,
+                 have:  u64) -> string {
     var narrow = st->deps.size() <= WIDE_INDEX_LIMIT
     var files: string = ""
     var nfiles: usize = 0
@@ -329,6 +346,42 @@ fn live_snapshot(st:    *LiveState,
     w.field_bool(SK_OK, true)
     w.field_raw(SK_FILES, "[" + files + "]")
     w.field_bool(SK_WIDE, narrow)
+    var tables: string = ""
+    var nt: usize = 0
+    for var i: usize = 0; i < obs->t_paths.size(); ++i {
+        if obs->t_seq[i] <= have {
+            continue
+        }
+
+        if nt > 0 {
+            tables += ","
+        }
+
+        tables += obs->t_blocks[i]
+        nt += 1
+    }
+
+    // The compile's C and C++ driver words (Worker.k, worker_main).
+    if live->ci() != &null {
+        w.key(SK_CXX_FLAGS)
+        w.begin_array()
+        for var a: string in live->ci()->cxx_driver_words() {
+            w.str(a)
+        }
+
+        w.end_array()
+        w.key(SK_C_FLAGS)
+        w.begin_array()
+        for var a: string in live->ci()->c_driver_words() {
+            w.str(a)
+        }
+
+        w.end_array()
+    }
+
+    w.field_raw(SK_TABLES, "[" + tables + "]")
+    w.field_uint(SK_TABLES_SEQ, obs->seq as usize)
+    w.field_bool(SK_TABLES_ALL, have == 0)
     w.field_raw(SK_DIAGNOSTICS, "[" + diags + "]")
     w.key(SK_DEPS)
     w.begin_array()
@@ -397,6 +450,7 @@ fn live_take(t: *Transport, r: *LiveReq, asks: *[LiveReq]) {
         }
 
         r->id       = d.get_int(d.root, RQ_ID)
+        r->have     = d.get_int(d.root, RQ_HAVE) as u64
         r->out      = d.get_str(d.root, RQ_OUT)
         r->progress = d.get_str(d.root, RQ_PROGRESS)
         r->open_paths.clear()
@@ -515,6 +569,7 @@ fn live_step(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *L
 
     st->held_paths = hp
     st->held_texts = ht
+    obs->begin_step(obs->seq + 1)
     obs->named     = r->open_paths
     obs->progress  = r->progress
     obs->checked   = 0
@@ -614,6 +669,9 @@ fn live_aside(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *
 fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *LiveReq) {
     live->past_syntax = true
     live->aside       = true
+    // This copy's re-check makes trees of its own: no fact of the
+    // process it was copied from is its.
+    obs->facts.clear()
     obs->named        = r->aside_paths
     obs->progress     = ""
     var states: [string]
@@ -764,6 +822,20 @@ fn live_finish(st:        *LiveState,
 
         obs->k_paths  = kp
         obs->k_blocks = kb
+        var tp: [string]
+        var tb: [string]
+        var ts: [u64]
+        for var i: usize = 0; i < obs->t_paths.size(); ++i {
+            if live_has(&st->deps, obs->t_paths[i]) {
+                tp.push_back(obs->t_paths[i])
+                tb.push_back(obs->t_blocks[i])
+                ts.push_back(obs->t_seq[i])
+            }
+        }
+
+        obs->t_paths  = tp
+        obs->t_blocks = tb
+        obs->t_seq    = ts
         st->unchecked.clear()
         st->partial.clear()
     }
@@ -833,7 +905,7 @@ fn live_finish(st:        *LiveState,
     if bg && (!full) && (!touched) && (!diags_moved) && (!narrow) && (live->pending > 0) {
         wrote = ""
     } else {
-        var snap = live_snapshot(st, obs, live, &r->open_paths, took)
+        var snap = live_snapshot(st, obs, live, &r->open_paths, took, r->have)
         if !LinkFS::write(out, snap) {
             live_fail(t, r->id, "cannot write " + out)
             return
@@ -879,6 +951,7 @@ fn live_slice(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *
         }
     }
 
+    obs->begin_step(obs->seq + 1)
     obs->named    = r->open_paths
     obs->progress = ""
     obs->unchecked.clear()

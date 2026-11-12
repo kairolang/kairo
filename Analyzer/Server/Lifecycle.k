@@ -150,6 +150,25 @@ extend Server {
             self.live_on = false
         }
 
+        // Completion from the index, unless the client or the environment
+        // says no (a comparison of the two ways, Dev/completion_oracle.py).
+        self.index_completion = (d->get(opts, OPT_INDEX_COMPLETION) == JSON_NONE()) || d->get_bool(opts, OPT_INDEX_COMPLETION)
+        var unsafe *ienv = cxx::std::getenv(r"KALS_INDEX_COMPLETION")
+        if (ienv != &null) && ((ienv[0] as u8) == ('0' as u8)) {
+            self.index_completion = false
+        }
+
+        var ccap = d->get(d->get(d->get(params, K_CAPABILITIES), K_TEXT_DOCUMENT), "completion")
+        self.snippet_ok = d->get_bool(d->get(ccap, "completionItem"), "snippetSupport")
+        var idf = d->first(d->get(d->get(ccap, "completionList"), K_ITEM_DEFAULTS))
+        while idf != JSON_NONE() {
+            if d->str(idf) == K_EDIT_RANGE {
+                self.edit_default_ok = true
+            }
+
+            idf = d->next(idf)
+        }
+
         self.progress_ok = d->get_bool(d->get(d->get(params, K_CAPABILITIES), "window"), "workDoneProgress")
         self.watch_ok = d->get_bool(
             d->get(d->get(d->get(params, K_CAPABILITIES), K_WORKSPACE), "didChangeWatchedFiles"),
@@ -210,7 +229,13 @@ extend Server {
         // only looks for the options object then still sees the capability.
         w.field_raw("inlayHintProvider", "{\"resolveProvider\":false}")
         w.field_raw("codeActionProvider", "{\"codeActionKinds\":[\"" + KIND_QUICKFIX + "\",\"" + KIND_REFACTOR_INLINE + "\",\"" + KIND_REFACTOR_EXTRACT + "\"]}")
-        w.field_raw("completionProvider", "{\"triggerCharacters\":[\".\",\":\",\">\"],\"resolveProvider\":true}")
+        // `.` `:` `>`: a member (`a.`, `a::`, `a->`). `@`: an attribute.
+        // `"` and `/`: a header's path (`ffi "c++" import "`, then a
+        // directory), which is inside a string, where an editor does not
+        // ask on its own. A name needs none: every editor asks as a word
+        // is typed. Not a space (after `import`): it would ask after every
+        // word of a line.
+        w.field_raw("completionProvider", "{\"triggerCharacters\":[\".\",\":\",\">\",\"@\",\"\\\"\",\"/\"],\"resolveProvider\":true}")
         w.field_raw("documentOnTypeFormattingProvider", "{\"firstTriggerCharacter\":\"}\"}")
         w.end_object()
         w.key("serverInfo")
