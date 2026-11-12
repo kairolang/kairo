@@ -4,7 +4,7 @@
 // and C++ reads that `::` as continuing the concept's qualified name: clang
 // rejected the head ("qualified name refers into a specialization of
 // function template"), then every call and the explicit instantiation. The
-// clause is parenthesized now. A tuple return, a record return, and a
+// clause is parenthesized. A tuple return, a record return, and a
 // two-bound conjunction, each through a function pointer and a
 // destructuring bind (the shape of the program that found it).
 pub interface Scalable {

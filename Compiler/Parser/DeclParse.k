@@ -1572,6 +1572,32 @@ pub class <T: type> DeclParse {
 
     //  Function declaration
 
+    /// \brief \p t as an operator declaration stores it: through a macro
+    ///        expansion, so `fn op t (...)` with `t` bound to `<` is `<`.
+    ///
+    /// \details every reader of `op_token` keys by KIND (OperatorFacts::key,
+    ///          ASTParse::_op_decl_name, RedeclMerge, the codegen spelling,
+    ///          the `op finally` / `op as` tests): a kept TkMacroExpand made
+    ///          every operator from one macro the same table cell (R041E
+    ///          between `op <` and `op ==`). An operator spells from its kind,
+    ///          so the unwrapped token spells the same; the range stays the
+    ///          wrapped one (the invocation). The `l` / `r` marker is an
+    ///          identifier whose imm indexes the table of the file that WROTE
+    ///          it (an imported macro's), so it is re-interned here instead.
+    pub fn _stored_op_token(self, t: Token) -> Token {
+        if t.kind != TokenKind::TkMacroExpand {
+            return t
+        }
+
+        var ctx = self.dyn()->ctx
+        var u   = ctx->unwrap_token(t)
+        if u.kind == TokenKind::LitIdentifier {
+            return ctx->make_token(t.range, TokenKind::LitIdentifier, ctx->get_spelling(t))
+        }
+
+        return u
+    }
+
     /// \returns false if validation failed
     pub fn _parse_and_validate_op_spelling(self,
                                            out: unsafe *kairo::std::StackBuf<Token, 3>) -> bool {
@@ -1593,12 +1619,12 @@ pub class <T: type> DeclParse {
 
         // so we have upto 2 max 1 is single ops - anything else thats not a opener after is jut wrong
         var cur_tok = self.dyn()->current()
-        out->push_back(cur_tok)
+        out->push_back(self._stored_op_token(cur_tok))
 
-        if self.dyn()->current() == TokenKind::OpLParen {
+        if self.dyn()->ig_kind() == TokenKind::OpLParen {
             self.dyn()->advance()
-            if self.dyn()->current() == TokenKind::OpRParen {
-                out->push_back(self.dyn()->current())
+            if self.dyn()->ig_kind() == TokenKind::OpRParen {
+                out->push_back(self._stored_op_token(self.dyn()->current()))
                 self.dyn()->advance(T::SkipNL::After)
                 return true
             }
@@ -1612,18 +1638,18 @@ pub class <T: type> DeclParse {
             return false
         }
 
-        if self.dyn()->current() == TokenKind::OpLSquare {
+        if self.dyn()->ig_kind() == TokenKind::OpLSquare {
             self.dyn()->advance()
-            if self.dyn()->current() == TokenKind::OpRSquare {
+            if self.dyn()->ig_kind() == TokenKind::OpRSquare {
                 var rsq = self.dyn()->current()
-                out->push_back(rsq)
+                out->push_back(self._stored_op_token(rsq))
                 self.dyn()->advance(T::SkipNL::After)
                 // `op []=`, the place form (P880): an `=` touching the `]`.
                 // No lexer token: a `]=` token would break `a[i]= 5`. Only a
                 // parameter list can follow an operator name, so an `=` here
                 // is always this operator; one written apart is still read
                 // as it (one error, no cascade) and told to close the gap.
-                if self.dyn()->current() == TokenKind::OpEqual {
+                if self.dyn()->ig_kind() == TokenKind::OpEqual {
                     var eq = self.dyn()->current()
                     var ctx = self.dyn()->ctx
                     if ctx->written_range(eq).start != ctx->written_range(rsq).end {
@@ -1642,7 +1668,7 @@ pub class <T: type> DeclParse {
                         b.emit()
                     }
 
-                    out->push_back(eq)
+                    out->push_back(self._stored_op_token(eq))
                     self.dyn()->advance(T::SkipNL::After)
                 }
 
@@ -1658,7 +1684,7 @@ pub class <T: type> DeclParse {
             return false
         }
 
-        if self.dyn()->current() == TokenKind::LitIdentifier {
+        if self.dyn()->ig_kind() == TokenKind::LitIdentifier {
             // an `l`/`r` prefix must be followed by `++` or `--`; anything
             // else is invalid. a bare identifier here is not a valid operator.
             var spelling = self.dyn()->ctx->get_spelling(self.dyn()->current())
@@ -1681,8 +1707,8 @@ pub class <T: type> DeclParse {
             self.dyn()->advance()
 
             // must be `++` or `--`
-            if self.dyn()->current() != TokenKind::OpPlusPlus
-                && self.dyn()->current() != TokenKind::OpMinusMinus {
+            if self.dyn()->ig_kind() != TokenKind::OpPlusPlus
+                && self.dyn()->ig_kind() != TokenKind::OpMinusMinus {
                 self.dyn()->report_tok(
                     DiagID::S045E,
                     self.dyn()->current_ptr(),
@@ -1692,7 +1718,7 @@ pub class <T: type> DeclParse {
                 return false
             }
 
-            out->push_back(self.dyn()->current()) // the `++` / `--`
+            out->push_back(self._stored_op_token(self.dyn()->current())) // the `++` / `--`
             self.dyn()->advance(T::SkipNL::After)
             return true
         }

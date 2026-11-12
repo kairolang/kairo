@@ -1,7 +1,7 @@
-// An expression body that is an initializer reaches codegen typed. It used
-// to arrive untyped, because a written return type kept the body from ever
-// being visited, and EmitIR::_init ICEd ("untyped initializer reached
-// codegen"). Calls slipped through only because EmitIR::_call never checked.
+// An expression body that is an initializer reaches codegen typed. A written return type
+// does not keep the body from being visited, so EmitIR::_init meets no
+// "untyped initializer reached
+// codegen".
 // Free functions, extension members (static and instance) and class methods
 // all go through the same path.
 

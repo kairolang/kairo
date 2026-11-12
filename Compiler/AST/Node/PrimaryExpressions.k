@@ -44,6 +44,7 @@ import Support::FlagSet::{
 }
 import Token::Token::Token
 import Token::TokenBuffer::TokenBuffer
+import Token::TokenKind::TokenKind
 import Token::TokenText::TokenText
 
 ///
@@ -110,7 +111,17 @@ pub class NamedIdentExpr derives Expr {
         var unsafe *node = ctx->alloc<NamedIdentExpr>()
         node->kind          = ExprKind::NamedIdentExpr
         node->range         = range
-        node->name          = name
+        // A keyword from a macro body (`i32`, `bool`, `Self`) arrives as
+        // TkMacroExpand, and its readers key by KIND: TypeResolve's
+        // builtin_for_token found no `i32` in `fn get() -> i32` written in
+        // a macro, so every such return type was silently unresolved and
+        // the call `<unknown>`. A keyword spells from its kind, so the
+        // unwrapped token spells the same, at the wrapped (invocation)
+        // range, as UnaryOperatorExpr::create does for an operator. An
+        // identifier stays wrapped: its imm indexes the table of the file
+        // that wrote it (ASTContext::get_ident_imm re-keys it).
+        var u = ctx->unwrap_token(name)
+        node->name          = if (u.kind != TokenKind::LitIdentifier) => (u) else => name
         node->ctx           = ctx
         node->variant_decl  = &null
         node->narrowed_from = &null
@@ -440,7 +451,7 @@ pub class IntegerLiteralExpr derives Expr {
     ///        formats the stored 64-bit value: for a literal wider than 64
     ///        bits that is its low word only (a 2^200 literal read '0'), and
     ///        for `0x100` it is the decimal '256', which names a number the
-    ///        user never typed (P809).
+    ///        user never typed.
     pub fn get_source_text(self) -> string {
         return self.ctx->get_spelling(self.token.range)
     }
@@ -873,7 +884,7 @@ pub struct FormatHole {
     pub var by_addr: bool ///< Ptr with no pointer: the value's ADDRESS is printed.
     /// `put` is the VALUE's method, called `v.put(&buf, spec)`: f256 / f512,
     /// whose classes format themselves (F256::fmt_put_), so FmtBuf never
-    /// names them (P723).
+    /// names them.
     pub var on_value: bool
     pub var doc:      SourceRange ///< `{x=}`: source bytes printed before the value; invalid otherwise.
     /// The value's type is a generic body's (a `T`, or a member result
@@ -1105,7 +1116,7 @@ pub class StringLiteralExpr derives Expr {
 
     /// # the chain
     ///
-    ///   `"a" f"b{x}" r"c"` is one literal of three segments (P486): imm is
+    ///   `"a" f"b{x}" r"c"` is one literal of three segments: imm is
     ///   the first, and each links the next through StringData::next in the
     ///   table of the file that WROTE the literal (get_payload_table). Every
     ///   segment keeps its own prefix_kind, body and holes; parts holds the

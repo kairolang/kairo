@@ -711,7 +711,7 @@ pub class EmitWitness {
         // spell Self as text, and `const ` in front of `int *` would make
         // `const int *` (a pointer to const) where `const Self` is meant.
         // An array conformer likewise: `const int[2] *` is no type, and
-        // `const __kairo_Self *` is the pointer to the array (P946).
+        // `const __kairo_Self *` is the pointer to the array.
         var is_ptr = isa<PointerType>(canon_unqual(row->conformer))
         if is_ptr || isa<FixedArrayType>(canon_unqual(row->conformer)) {
             self._cg->sink->spell(at, "using " + LowerTargets::witness_self() + " = " + x + ";")
@@ -826,7 +826,7 @@ pub class EmitWitness {
             }
 
             s += "class "
-            s += self._spell->imm_name(gps[k]->name.imm, CXXSpell::fid_of(CXXSpell::rep(w)))
+            s += self._spell->tok_name(gps[k]->name, CXXSpell::fid_of(CXXSpell::rep(w)))
         }
 
         return s + "> "
@@ -962,7 +962,7 @@ pub class EmitWitness {
                 s += ", "
             }
 
-            s += self._spell->imm_name(m->generic_params[i]->name.imm, fid)
+            s += self._spell->tok_name(m->generic_params[i]->name, fid)
             if m->generic_params[i]->is_pack {
                 s += "..."
             }
@@ -1093,7 +1093,7 @@ pub class EmitWitness {
     }
 
     priv fn _pname(self, m: unsafe *FunctionDecl, p: unsafe *ParamDecl) -> string {
-        return self._spell->imm_name(p->name.imm, CXXSpell::fid_of(unsafe (m as unsafe *Decl)))
+        return self._spell->tok_name(p->name, CXXSpell::fid_of(unsafe (m as unsafe *Decl)))
     }
 
     /// Spell the bare Self of \p m's interface as \p self_s until restored.
@@ -1118,7 +1118,7 @@ pub class EmitWitness {
             }
 
             s += ", class "
-            s += self._spell->imm_name(gps[i]->name.imm, fid)
+            s += self._spell->tok_name(gps[i]->name, fid)
         }
 
         return s + ">"
@@ -1130,7 +1130,7 @@ pub class EmitWitness {
         var gps = decl_generic_params(iface)
         var fid = CXXSpell::fid_of(iface)
         for var i: usize = 0; i < gps.size(); ++i {
-            s += ", " + self._spell->imm_name(gps[i]->name.imm, fid)
+            s += ", " + self._spell->tok_name(gps[i]->name, fid)
         }
 
         return s + ">"

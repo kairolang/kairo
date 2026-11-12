@@ -838,6 +838,23 @@ pub class CXXSpell {
         return d->range
     }
 
+    /// A name token's spelling, read in \p fid's table (imm_name), or
+    /// through the expansion when a macro body wrote it: a wrapped token's
+    /// imm is its MacroExpansionInfo record, not an identifier, and read as
+    /// one it named whatever identifier sat at that index (`fn get(o: i32)`
+    /// declared by `mm!()` in a class came out as `mm(signed int main)`, so
+    /// the member was missing and its body's `o` undeclared). A free
+    /// function survived only because its uses were spelled the same wrong
+    /// way. Every codegen read of a declared name goes through here.
+    pub fn tok_name(self, t: Token, fid: u32) -> string {
+        if t.kind == TokenKind::TkMacroExpand && self._cg->ctx->tcm != &null {
+            var txt = TokenText::resolve(t, self._cg->ctx->tcm)
+            return CXXSpell::ident_safe(*txt.get_text())
+        }
+
+        return self.imm_name(t.imm, fid)
+    }
+
     /// A decl's name imm indexes ITS OWN TU's table (hard invariant #2).
     pub fn imm_name(self, imm: u32, fid: u32) -> string {
         if imm == u32::MAX {
@@ -942,7 +959,7 @@ pub class CXXSpell {
             }
         }
 
-        var nm = self.imm_name(t.imm, nfid)
+        var nm = self.tok_name(t, nfid)
         // An ADT's layout record IS the enum to C++, and takes its name.
         var unsafe *lay   = dyn_cast<Declarations::StructDecl>(d)
         var unsafe *named = d
@@ -1746,7 +1763,7 @@ pub class CXXSpell {
             if dc->dc_kind == DeclContextKind::Module {
                 var unsafe *m = cast<Declarations::ModuleDecl>(dc->dc_owner)
                 if m != &null && !m->is_anonymous {
-                    mods.push_back(self.imm_name(m->name.imm, CXXSpell::fid_of(m)))
+                    mods.push_back(self.tok_name(m->name, CXXSpell::fid_of(m)))
                 }
             }
 
@@ -2609,7 +2626,7 @@ pub class CXXSpell {
                 var unsafe *vd = dyn_cast<Declarations::VariableDecl>(v->vdecl)
                 if vd != &null
                     && (vd->semantic_dc == &null || CXXSpell::in_function_scope(v->vdecl)) {
-                    return self.imm_name(vd->name.imm, self._cg->ctx->sm->get_fid(vd->name.range))
+                    return self.tok_name(vd->name, self._cg->ctx->sm->get_fid(vd->name.range))
                 }
 
                 return self.qual_name(v->vdecl)
@@ -4224,7 +4241,7 @@ pub class CXXSpell {
             }
         }
 
-        return self.imm_name(gp->name.imm, CXXSpell::fid_of(owner))
+        return self.tok_name(gp->name, CXXSpell::fid_of(owner))
     }
 
     /// `template <class T, class... Ts, int N>` for a generic decl; "" otherwise.
@@ -4359,7 +4376,7 @@ pub class CXXSpell {
                 s += ", "
             }
 
-            s += self.imm_name(gps[j]->name.imm, CXXSpell::fid_of(d))
+            s += self.tok_name(gps[j]->name, CXXSpell::fid_of(d))
             if gps[j]->is_pack {
                 s += "..."
             }
@@ -4659,7 +4676,7 @@ pub class CXXSpell {
                     s += ", "
                 }
 
-                s += self.imm_name(gps[j]->name.imm, fid)
+                s += self.tok_name(gps[j]->name, fid)
                 if gps[j]->is_pack {
                     s += "..."
                 }

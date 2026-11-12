@@ -1159,7 +1159,7 @@ pub class EmitIR {
                 continue
             }
 
-            var nm = self._spell.imm_name(p->name.imm, fid)
+            var nm = self._spell.tok_name(p->name, fid)
             if args.size() > 0 {
                 args += ", "
             }
@@ -1242,7 +1242,7 @@ pub class EmitIR {
             first = false
             head += self._spell.decl(
                 cxx->params[fp]->type_,
-                self._spell.imm_name(p->name.imm, CXXSpell::fid_of(unsafe (f as unsafe *Decl))),
+                self._spell.tok_name(p->name, CXXSpell::fid_of(unsafe (f as unsafe *Decl))),
             )
             fp += 1
         }
@@ -1543,7 +1543,7 @@ pub class EmitIR {
         var unsafe *v = cast<VariableDecl>(d)
         return LowerTargets::ctor_local_slot(
             i,
-            self._spell.imm_name(v->name.imm, self._owning_fid()),
+            self._spell.tok_name(v->name, self._owning_fid()),
         )
     }
 
@@ -1602,7 +1602,7 @@ pub class EmitIR {
             }
 
             s += ", ::" + LowerTargets::lref() + "<" + self._spell.param_type(p) + "> "
-            s += self._spell.imm_name(p->name.imm, CXXSpell::fid_of(unsafe (m as unsafe *Decl)))
+            s += self._spell.tok_name(p->name, CXXSpell::fid_of(unsafe (m as unsafe *Decl)))
         }
 
         return s
@@ -1618,8 +1618,8 @@ pub class EmitIR {
                 continue
             }
 
-            s += ", " + self._spell.imm_name(
-                p->name.imm,
+            s += ", " + self._spell.tok_name(
+                p->name,
                 CXXSpell::fid_of(unsafe (m as unsafe *Decl)),
             )
         }
@@ -1720,7 +1720,7 @@ pub class EmitIR {
             first = false
             s += self._spell.param_decl(
                 p,
-                self._spell.imm_name(p->name.imm, CXXSpell::fid_of(unsafe (f as unsafe *Decl))),
+                self._spell.tok_name(p->name, CXXSpell::fid_of(unsafe (f as unsafe *Decl))),
             )
         }
 
@@ -1861,8 +1861,8 @@ pub class EmitIR {
             self._ice(f->range, "EmitIR: a dynamic-layout intrinsic is not fn <T>(p: *T)")
         }
 
-        var p = self._spell.imm_name(
-            f->params[0]->name.imm,
+        var p = self._spell.tok_name(
+            f->params[0]->name,
             CXXSpell::fid_of(unsafe (f as unsafe *Decl)),
         )
 
@@ -2229,7 +2229,7 @@ pub class EmitIR {
             && canon_unqual(cast<PointerType>(c)->pointee)->kind == TypeKind::FixedArrayType
         if c != &null && (c->kind == TypeKind::FixedArrayType || ptr_to_array) {
             // `T name[N]`: the name sits inside the declarator.
-            var nm = self._spell.imm_name(n->name.imm, self._owning_fid())
+            var nm = self._spell.tok_name(n->name, self._owning_fid())
             self._cg->sink->spell(n->name.range, self._spell.decl(n->type_, nm))
         } else {
             // Deduced from a duck chain: `auto` is the type, the instance's.
@@ -2823,7 +2823,7 @@ pub class EmitIR {
         )
 
         // The binding: a constant in each copy.
-        var nm = if (vd != &null) => (self._spell.imm_name(vd->name.imm, self._owning_fid()))
+        var nm = if (vd != &null) => (self._spell.tok_name(vd->name, self._owning_fid()))
                  else => LowerTargets::eval_for_unused()
         self._cg->sink->spell(at, "[[maybe_unused]] constexpr " + et + " " + nm + " = ")
         if is_range {
@@ -2927,7 +2927,7 @@ pub class EmitIR {
         if nb == 1 {
             var unsafe *b = n->bindings.get(0)
             if (!b->is_discard) && b->decl != &null {
-                var nm = self._spell.imm_name(b->decl->name.imm, self._owning_fid())
+                var nm = self._spell.tok_name(b->decl->name, self._owning_fid())
                 if b->shorthand.has(BindingShorthand::Pointer) {
                     ptr = "auto* " + nm + " = " + LowerTargets::clang_addressof() + "(" + el + ");"
                 } else {
@@ -2947,7 +2947,7 @@ pub class EmitIR {
                 if b->is_discard || b->decl == &null {
                     head = head + LowerTargets::unused_binding(i)
                 } else {
-                    head = head + self._spell.imm_name(b->decl->name.imm, self._owning_fid())
+                    head = head + self._spell.tok_name(b->decl->name, self._owning_fid())
                 }
             }
 
@@ -3002,7 +3002,7 @@ pub class EmitIR {
             }
         }
 
-        var nm = if (vd != &null) => (self._spell.imm_name(vd->name.imm, self._owning_fid()))
+        var nm = if (vd != &null) => (self._spell.tok_name(vd->name, self._owning_fid()))
                  else => LowerTargets::eval_for_unused()
         self._cg->sink->spell(at, "(void)(... && [&]([[maybe_unused]] auto& " + nm + ") -> bool {")
         // The element's type, for a witness call through its bound
@@ -6155,7 +6155,7 @@ pub class EmitIR {
                 head += ", "
             }
 
-            head += self._spell.param_decl(p, self._spell.imm_name(p->name.imm, self._owning_fid()))
+            head += self._spell.param_decl(p, self._spell.tok_name(p->name, self._owning_fid()))
         }
 
         head += ")"
@@ -6249,7 +6249,7 @@ pub class EmitIR {
                 continue
             }
 
-            var nm = self._spell.imm_name(decl_name_tok(d).imm, self._owning_fid())
+            var nm = self._spell.tok_name(decl_name_tok(d), self._owning_fid())
             // A script's top-level `var` (P947) is a global: C++ captures no
             // global, so the copy is an init-capture from its qualified name,
             // unless an enclosing closure holds it already under `nm`.
@@ -6404,7 +6404,7 @@ pub class EmitIR {
             return
         }
 
-        var spelled = self._spell.imm_name(t.imm, self._owning_fid())
+        var spelled = self._spell.tok_name(t, self._owning_fid())
         if spelled == "<?>" {
             self._ice(
                 t.range,
@@ -9322,7 +9322,7 @@ pub class EmitIR {
             var fname = self._spell.leaf(unsafe (fd as unsafe *Decl))
             for var i: usize = 0; i < fields.size(); ++i {
                 var unsafe *f = fields.get(i)
-                if self._spell.imm_name(f->name.imm, self._owning_fid()) != fname {
+                if self._spell.tok_name(f->name, self._owning_fid()) != fname {
                     continue
                 }
 

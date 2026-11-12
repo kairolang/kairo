@@ -172,8 +172,7 @@ import Token::TokenKind::TokenKind
 /// stream has no `#ifndef` to guard it with. One set, not a bool apiece:
 /// the host TU's copy (Backend/IncludeEmitter.k) is handed to each emitter
 /// and taken back whole, so a block added here cannot be missed by the
-/// copy or by the reset at TU end (P473 missed fmt_dyn in the copy, P553
-/// cxx_alloc and nopanic in the reset).
+/// copy or by the reset at TU end.
 pub enum HelperBlock derives u16 {
     Helpers      = 1 << 0,  ///< The lowering helpers (__kairo_tmp, ...).
     CtorSlots    = 1 << 1,  ///< _ctor_slot_helpers.
@@ -3241,7 +3240,7 @@ pub class InterfaceEmitter {
         self._site_type(header)
         // The table's bounds. ELF: the linker's __start_/__stop_, weak so a
         // program with no site links. Mach-O: section$start/end. Any other
-        // format has none here yet (ticketed): no site is ever found.
+        // format has none here yet: no site is ever found.
         if fmt == ObjectFormat::Elf || fmt == ObjectFormat::Unresolved {
             self._cg->sink->spell(
                 at,
@@ -3561,7 +3560,7 @@ pub class InterfaceEmitter {
     /// The enum's type pack parameter, as its own body names it.
     priv fn _pack_name(self, en: unsafe *Declarations::EnumDecl) -> string {
         var unsafe *gp = en->generic_params[DeclFacts::adt_pack_param(en)]
-        return self._spell->imm_name(gp->name.imm, CXXSpell::fid_of(unsafe (en as unsafe *Decl)))
+        return self._spell->tok_name(gp->name, CXXSpell::fid_of(unsafe (en as unsafe *Decl)))
     }
 
     /// The payload struct template of pack-expanded variant \p v, applied
@@ -3569,8 +3568,8 @@ pub class InterfaceEmitter {
     /// a `__kairo_pu<...>` expands.
     priv fn _pack_payload(self, ps: unsafe *Declarations::StructDecl, en: unsafe *Decl) -> string {
         var unsafe *gp = ps->adt_pack_param
-        return self._spell->leaf(unsafe (ps as unsafe *Decl)) + "<" + self._spell->imm_name(
-            gp->name.imm,
+        return self._spell->leaf(unsafe (ps as unsafe *Decl)) + "<" + self._spell->tok_name(
+            gp->name,
             CXXSpell::fid_of(en),
         ) + ">"
     }
@@ -3967,7 +3966,7 @@ pub class InterfaceEmitter {
                     args += ", "
                 }
 
-                args += self._spell->imm_name(gps[i]->name.imm, CXXSpell::fid_of(d))
+                args += self._spell->tok_name(gps[i]->name, CXXSpell::fid_of(d))
                 if gps[i]->is_pack {
                     args += "..."
                 }
@@ -4460,7 +4459,7 @@ pub class InterfaceEmitter {
 
     /// \p v's enumerator in the record's `__kairo_Tag`, by leaf: the tag
     /// enum's own variant at \p v's position, never \p v's name. They differ
-    /// when the variant is named like a type parameter (P539: `T` inside
+    /// when the variant is named like a type parameter (`T` inside
     /// `template <class T>` shadows it), which EnumLayoutLowering::_tag_enum
     /// renames; the tag is positional, so only the spelling moves.
     priv fn _tag_leaf(self,
@@ -4561,7 +4560,7 @@ pub class InterfaceEmitter {
                     // field here is trivial and every special member the
                     // defaulted one, so this is what makes the ADT a literal
                     // type, and an `eval` constant of it a C++ constexpr
-                    // variable clang accepts (P516).
+                    // variable clang accepts.
                     var tv = tt + "::" + self._tag_leaf(en, v)
                     if v->adt_member == &null {
                         return "constexpr " + nm + "(" + vt + ")" + nx + " : " + self._spell->leaf(
@@ -5109,7 +5108,7 @@ pub class InterfaceEmitter {
         taken.push_back(mk)
         var gps = CXXSpell::template_params(d)
         for var i: usize = 0; i < gps.size(); ++i {
-            taken.push_back(self._spell->imm_name(gps[i]->name.imm, CXXSpell::fid_of(d)))
+            taken.push_back(self._spell->tok_name(gps[i]->name, CXXSpell::fid_of(d)))
         }
 
         // Every member the record is written with: its nested types and
@@ -5766,7 +5765,7 @@ pub class InterfaceEmitter {
         t += " else { " + LowerTargets::clang_trap() + "(); } }"
         t += " template <class F> static void __drop(void* o) noexcept { delete static_cast<F*>(o); }"
         t += " template <class F> static constexpr __ops __ops_of{&__call<F>, &__copy<F>, &__drop<F>};"
-        // A C++ function that may throw, held in __o (P244): __rcall is a
+        // A C++ function that may throw, held in __o: __rcall is a
         // noexcept frame around a call C++ knows may throw, so clang gives
         // it the terminate landing pad. Held as the noexcept __ptr instead,
         // the call had none, and a throw unwound the Kairo frames above
@@ -5873,7 +5872,7 @@ pub class InterfaceEmitter {
                 &null,
                 owner,
             ) + "> "
-            s += self._spell->imm_name(p->name.imm, CXXSpell::fid_of(unsafe (m as unsafe *Decl)))
+            s += self._spell->tok_name(p->name, CXXSpell::fid_of(unsafe (m as unsafe *Decl)))
         }
 
         return s
@@ -6214,7 +6213,7 @@ pub class InterfaceEmitter {
         // The standard attributes lead the decl-specifiers: after `static`,
         // or after a GNU `__attribute__((noinline))` from fn_attrs, clang
         // reads one as appertaining to the type and rejects it ("'nodiscard'
-        // attribute cannot be applied to types", P320).
+        // attribute cannot be applied to types").
         if f->is_noreturn {
             s += "[[noreturn]] "
         }
@@ -6332,7 +6331,7 @@ pub class InterfaceEmitter {
 
         // C++ overloads an operator only with an operand of class or enum
         // type ([over.oper]): `extend i64 { fn op < ... }` as `operator<(
-        // long, long)` was CL001E at the extension (P315). Kairo never
+        // long, long)` is CL001E at the extension. Kairo never
         // calls the forwarder (it calls the static member, and a bound
         // generic the witness), and no C++ caller could reach one either.
         if !self._forwardable_operand(ext->target) {
@@ -6401,7 +6400,7 @@ pub class InterfaceEmitter {
         var tps   = CXXSpell::template_params(unsafe (f as unsafe *Decl))
         for var i: usize = 0; i < tps.size(); ++i {
             targs += (if (i == 0) => ("<") else => ", ")
-            targs += self._spell->imm_name(tps[i]->name.imm, fid)
+            targs += self._spell->tok_name(tps[i]->name, fid)
             if tps[i]->is_pack {
                 targs += "..."
             }
@@ -6476,8 +6475,8 @@ pub class InterfaceEmitter {
             first = false
             var nm = ""
             if !p->unname {
-                nm = self._spell->imm_name(
-                    p->name.imm,
+                nm = self._spell->tok_name(
+                    p->name,
                     CXXSpell::fid_of(unsafe (f as unsafe *Decl)),
                 )
             }
@@ -6529,7 +6528,7 @@ pub class InterfaceEmitter {
         var        tps   = CXXSpell::template_params(th)
         for var j: usize = 0; j < tps.size(); ++j {
             targs += (if (j == 0) => ("<") else => ", ")
-            targs += self._spell->imm_name(tps[j]->name.imm, fid)
+            targs += self._spell->tok_name(tps[j]->name, fid)
             if tps[j]->is_pack {
                 targs += "..."
             }

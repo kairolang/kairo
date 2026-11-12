@@ -39,7 +39,7 @@ pub fn sum_burst(f: Frame<i32>) -> i32 = match f {
 // no byte of its own left walks on through the file: here a token of the
 // class took the first byte of `guard` before the field was spelled, so the
 // name walked on and clang's "member is declared here" landed at line 33, in
-// `sum_burst`. The name now takes its byte back (TokenSink::_steal). This
+// `sum_burst`. The name takes its byte back (TokenSink::_steal). This
 // explanation sits below the code on purpose: the collision depends on the
 // bytes above it, so it must not move.
 //
@@ -48,7 +48,7 @@ pub fn sum_burst(f: Frame<i32>) -> i32 = match f {
 // The error itself is at the constructor's out-of-line definition. Its
 // in-class declaration and its qualifier (`Batch::Batch`) both spell the
 // name exactly, and only one exact token gets the name's byte, so the
-// definition's walked on to 38:72, a comment. Both now sit on the
+// definition's walked on to 38:72, a comment. Both sit on the
 // declaration's first byte, and the error lands on the name.
 
 // --- lit wiring -----------------------------------------------------------

@@ -2103,7 +2103,7 @@ pub class <T: type> ExprParse {
             self.dyn()->advance()
             result.target = ChainExpr::StepTarget::Operator
             var fops: kairo::std::StackBuf<Token, 3>
-            fops.push_back(ft)
+            fops.push_back(self.dyn()->_stored_op_token(ft))
             result.op_tokens.from_buf(fops.data(), fops.size(), self.dyn()->ctx)
             result.range = sep_range | ft.range
             return result
