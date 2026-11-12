@@ -39,7 +39,7 @@ fn f(g: Guard, m: Mover) {
 // followed the declaration, so Guard and Mover read COPY / MOVE either way.
 // The bits show through what reads them: SC129E on HoldsGuard, SC051E on the
 // two moves, and the category a class with no transfer constructor derives
-// from its field (ImplGuard, HoldsMover). BoxCopy no longer waits for T.
+// from its field (ImplGuard, HoldsMover). BoxCopy does not wait for T.
 // Triviality still folds the fields in, and a user body is never trivial.
 //
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty

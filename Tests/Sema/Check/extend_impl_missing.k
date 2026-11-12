@@ -5,11 +5,11 @@
 // through the interface.
 //
 // XFAIL: *
-// Tickets "[Sema] An `extend ... impl` missing interface methods is not
-// reported at the `extend`" (2026-10-26;
-// status.mdx, Not Diagnosed) and item 4 of "[Sema][Codegen]
-// Declared-witness edges left by d51202fb / 21e61694" (a declared
-// conformance that does not hold is not diagnosed). Today conformance is
+// Waits on reporting an `extend ... impl` that misses interface methods at
+// the `extend` (status.mdx, Not Diagnosed), and on diagnosing a declared
+// conformance that does not hold.
+//
+// Today conformance is
 // checked only where a bound meets the type (SC001E "does not conform", as
 // in conformance_base_missing.k), so this file is accepted without a word.
 // The code is not decided; the check asks for an error at the `extend`.

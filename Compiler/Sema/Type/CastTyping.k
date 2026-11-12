@@ -137,6 +137,17 @@ pub class <T: type> CastTyping {
         return unsafe ((&self) as *T)
     }
 
+    /// One of \p a, \p b is an f8 format and the other f256 or f512.
+    priv fn _f8_wide_pair(self, a: unsafe *Type, b: unsafe *Type) -> bool {
+        var ka = self.dyn()->tu.kind_of(canon_unqual(a))
+        var kb = self.dyn()->tu.kind_of(canon_unqual(b))
+        var f8a = ka == BuiltinKind::F8E4M3 || ka == BuiltinKind::F8E5M2
+        var f8b = kb == BuiltinKind::F8E4M3 || kb == BuiltinKind::F8E5M2
+        var wa  = ka == BuiltinKind::F256 || ka == BuiltinKind::F512
+        var wb  = kb == BuiltinKind::F256 || kb == BuiltinKind::F512
+        return (f8a && wb) || (wa && f8b)
+    }
+
     fn type_cast(self, n: unsafe *TypeCastExpr, expected: unsafe *Type) -> unsafe *Type {
         if n->target == &null || n->target->is_poisoned() {
             self.dyn()->type_of(n->operand, &null)
@@ -254,6 +265,20 @@ pub class <T: type> CastTyping {
                 n,
                 DiagID::SC030E,
                 f"'as const' only adds qualifiers: '{self.dyn()->tu.str(target)}' is not '{self.dyn()->tu.str(src)}' with 'const' added",
+            )
+
+            return &null
+        }
+
+        // f8e4m3 / f8e5m2 against f256 / f512 (P942): both sides are library
+        // classes in C++ (std/rt/Float8.k, num/f256_t.k) that do not know
+        // each other, so clang found the conversion ambiguous, and through
+        // f64 it would round twice. Said here, with the route that works.
+        if self._f8_wide_pair(src, target) {
+            self.dyn()->fail(
+                n,
+                DiagID::SC116E,
+                f"a conversion between '{self.dyn()->tu.str(src)}' and '{self.dyn()->tu.str(target)}' is not supported yet; convert through 'f32' or 'f64' with 'as'",
             )
 
             return &null

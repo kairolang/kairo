@@ -34,7 +34,10 @@ ffi "c++" import "algorithm"
 
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import AST::Context::TranslationUnit::TranslationUnit
-import AST::LangItems::builtin_root_name
+import AST::LangItems::{
+    builtin_root_name,
+    std_root_spelling,
+}
 import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Declarations::MacroDecl
 import Config::Invocation::CompilerInvocation
@@ -546,6 +549,8 @@ pub class PreProcessor {
     priv fn _add_wide_floats(self,
                              scanner:     *DepScanner,
                              graph:       *DepGraph,
+                             const root:  string,
+                             const dir:   string,
                              const leaf:  string,
                              const users: cxx::std::set<u32>) {
         if users.size() == 0 {
@@ -570,8 +575,8 @@ pub class PreProcessor {
         }
 
         var segs = cxx::std::vector<string>()
-        segs.push_back(builtin_root_name())
-        segs.push_back("num")
+        segs.push_back(root)
+        segs.push_back(dir)
         segs.push_back(leaf)
         var w_fid = scanner->add_module_dependency(segs, graph)
         if w_fid == 0 || w_fid == u32::MAX {
@@ -929,12 +934,16 @@ pub class PreProcessor {
 
         // `f256` / `f512` (P723): num/f256_t.k and num/f512_t.k, which the
         // builtin root does not re-export, for the files that name one;
-        // `f128`: num/f128_ext.k, its methods (sqrt and fma run the engine).
+        // `f128`: num/f128_ext.k, its methods (sqrt and fma run the engine);
+        // `f8e4m3` / `f8e5m2`: std/rt/Float8.k, their classes.
         self._wide_imports.clear()
         if !self._opts.no_prelude && self._opts.prelude_path.size() == 0 {
-            self._add_wide_floats(&scanner, &graph, "f256_t", graph.f256_users)
-            self._add_wide_floats(&scanner, &graph, "f512_t", graph.f512_users)
-            self._add_wide_floats(&scanner, &graph, "f128_ext", graph.f128_users)
+            self._add_wide_floats(&scanner, &graph, builtin_root_name(), "num", "f256_t", graph.f256_users)
+            self._add_wide_floats(&scanner, &graph, builtin_root_name(), "num", "f512_t", graph.f512_users)
+            self._add_wide_floats(&scanner, &graph, builtin_root_name(), "num", "f128_ext", graph.f128_users)
+            // `f8e4m3` / `f8e5m2`: std/rt/Float8.k (P942), from std, which
+            // a builtin file cannot import either.
+            self._add_wide_floats(&scanner, &graph, std_root_spelling(), "rt", "Float8", graph.f8_users)
         }
 
         // The macro prelude needs the builtin root WALKED before any file

@@ -741,10 +741,10 @@ pub class <T: type> LiteralTyping {
         }
 
         // A suffix is never ignored: it names a literal operator or it is an
-        // error (P798). Before this the lexer kept it and the type was
-        // `string` regardless, so `"hi"_len` silently called nothing.
+        // error. Ignoring it would type `"hi"_len` as `string` and
+        // silently call nothing.
         // On a chain the suffix is the whole chain's, whichever segment
-        // spells it (P878, _chain_suffix).
+        // spells it (_chain_suffix).
         if n->imm != &null {
             var sfx  = n->get_suffix()
             var good = true
@@ -780,7 +780,7 @@ pub class <T: type> LiteralTyping {
     }
 
     /// The suffix of the chain \p n heads, into \p out (an invalid token
-    /// when no segment has one); false after an error. C++'s rule (P878):
+    /// when no segment has one); false after an error. C++'s rule:
     /// a suffix on any segment is the whole joined string's, so `"12"
     /// "3"_km` is `"123"_km`, and segments that spell DIFFERENT suffixes
     /// are an error (SC277E), since no one of them can be meant for all.
@@ -1048,8 +1048,8 @@ pub class <T: type> LiteralTyping {
                     && !self.dyn()->tu.is_unsafe_ptr(expected)
                 // FIXME(builtin): Lib/builtin's string and FmtBuf still clear
                 // their `*u8` data with `&null` (string.k, fmt_buf.k finish);
-                // the builtin module is the user's to migrate, so it is not
-                // held to the rule until it is.
+                // the builtin module still needs migrating, so it is not
+                // held to the rule until then.
                 var sc = self.dyn()->sc
                 if sc->g != &null && sc->g->is_builtin_fid(sc->ctx->fid) {
                     safe = false
@@ -1310,7 +1310,7 @@ pub class <T: type> LiteralTyping {
     }
 
     priv fn _type_format_literal(self, n: *StringLiteralExpr, s: *Type) -> bool {
-        // Every chained segment's holes (P486): `"a" f"{x}"` keeps its hole
+        // Every chained segment's holes: `"a" f"{x}"` keeps its hole
         // facts on the second segment, not on imm.
         if n->hole_count() != n->parts.size() {
             kairo::std::ice_fail(
@@ -1410,14 +1410,22 @@ pub class <T: type> LiteralTyping {
                 }
             }
 
-            // f256 / f512 format themselves: FmtBuf has no put that names a
-            // library float's class (it would load them into every
-            // program, P723), so the hole calls the class's fmt_put_ on the
+            // f256 / f512 / f8e4m3 / f8e5m2 format themselves: FmtBuf has no
+            // put that names a library float's class (it would load them into
+            // every program; f8's are in std), so the hole calls the class's fmt_put_ on the
             // value. Its lang item is bound: the file names the type, so it
             // imports the class's file (Preprocessor::_add_wide_floats).
-            if h.kind == FormatKind::F256 || h.kind == FormatKind::F512 {
-                var wk = if (h.kind == FormatKind::F256) => WellKnownType::F256
-                         else => WellKnownType::F512
+            if h.kind == FormatKind::F256 || h.kind == FormatKind::F512
+                || h.kind == FormatKind::F8E4M3 || h.kind == FormatKind::F8E5M2 {
+                var wk = WellKnownType::F512
+                if h.kind == FormatKind::F256 {
+                    wk = WellKnownType::F256
+                } else if h.kind == FormatKind::F8E4M3 {
+                    wk = WellKnownType::F8E4M3
+                } else if h.kind == FormatKind::F8E5M2 {
+                    wk = WellKnownType::F8E5M2
+                }
+
                 h.put      = self._lang_method(wk, "fmt_put_")
                 h.on_value = true
                 if h.put == &null {

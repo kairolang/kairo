@@ -1050,6 +1050,12 @@ pub class <T: type> ControlTyping {
                 continue
             }
 
+            // A script's top-level `var` the closure copies (P947): a
+            // capture, as ClosureCaptures will record it.
+            if self.dyn()->script_copy_capture(n, d) {
+                return false
+            }
+
             var unsafe *dc = v->semantic_dc
             if dc == &null {
                 return false

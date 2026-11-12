@@ -9,6 +9,10 @@
 ///     automatic -- a local or a parameter of an enclosing function or
 ///     closure -- are its captures. A static or a namespace-scope variable
 ///     is not captured: the lambda names it directly, as any function does.
+///     One exception: a script's top-level `var`, used by a closure written
+///     in the top-level code with a list that copies it (no list, `|x|`),
+///     is captured by copy as a local is (P947); EmitIR spells the copy
+///     from the global (`x = ::ns::x`).
 ///
 ///         no list        every capture by copy (a MOVE type: moved in,
 ///                        ownership.md "Default capture")
@@ -94,7 +98,11 @@ import AST::Node::Statements::DeclStmt
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
-import Sema::Check::CaptureAnalysis::FreeVarScan
+import Sema::Check::CaptureAnalysis::{
+    FreeVarScan,
+    copies_script_var,
+    script_top_var,
+}
 import Sema::Check::ClassLifecycle::moves_on_pass
 import Sema::SemaContext::{
     SemaContext,
@@ -112,6 +120,9 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
     /// Uses already reported by an inner function's scan: an enclosing
     /// local function's scan sees them free too.
     priv var _reported: cxx::std::vector<unsafe *NamedIdentExpr>
+    /// Functions around the walk: 0 is a script's top-level code, where its
+    /// top-level `var`s read as locals (P947).
+    priv var _fn_depth: usize = 0
 
     fn ClosureCaptures(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -157,6 +168,13 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
         self._open.push_back(n)
         var unsafe *out = RecursiveASTVisitor<ClosureCaptures>::traverse_closure_expr(self, n)
         self._open.pop_back()
+        return out
+    }
+
+    fn traverse_function_decl(self, n: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
+        self._fn_depth += 1
+        var unsafe *out = RecursiveASTVisitor<ClosureCaptures>::traverse_function_decl(self, n)
+        self._fn_depth -= 1
         return out
     }
 
@@ -302,7 +320,13 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
         for var i: usize = 0; i < scan.free.size(); ++i {
             var unsafe *d      = scan.free[i]
             var unsafe *at_use = scan.free_at[i]
-            if !self._automatic(d) {
+            // A script's top-level `var` from its top-level code: a copy
+            // when the list asks for one; any other form names the global
+            // in place, as before (P947).
+            var script_copy = self._fn_depth == 0
+                && script_top_var(self.sc->script_root, d)
+                && self._open_copy(n, d)
+            if (!self._automatic(d)) && (!script_copy) {
                 continue
             }
 
@@ -352,6 +376,23 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
         n->cap_via_ptr.from_buf(unsafe (via.data() as unsafe *bool), via.size(), self.sc->ctx)
         n->cap_uses.from_vec(unsafe &uses, self.sc->ctx)
         n->caps_resolved = true
+    }
+
+    /// \p n and every closure around it copy the script variable \p d:
+    /// under a `|*|` one the name is that closure's pointer view
+    /// (ExprTyper::_capture_view), which the inner closure reads in place.
+    priv fn _open_copy(self, n: unsafe *ClosureExpr, d: unsafe *Decl) -> bool {
+        if !copies_script_var(n, d) {
+            return false
+        }
+
+        for var i: usize = 0; i < self._open.size(); ++i {
+            if !copies_script_var(self._open[i], d) {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// A local or a parameter: what a lambda can capture. A static or a

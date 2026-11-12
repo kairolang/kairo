@@ -100,7 +100,10 @@ import AST::Node::Declarations::{
     ParamDecl,
     TypeAliasDecl,
 }
-import AST::Node::Types::PointerType
+import AST::Node::Types::{
+    FixedArrayType,
+    PointerType,
+}
 import Codegen::CodegenContext::CodegenContext
 import Codegen::CodegenICE::codegen_ice
 import Codegen::Emit::CXXSpell::CXXSpell
@@ -707,8 +710,10 @@ pub class EmitWitness {
         // A pointer conformer is named through an alias inside: the members
         // spell Self as text, and `const ` in front of `int *` would make
         // `const int *` (a pointer to const) where `const Self` is meant.
+        // An array conformer likewise: `const int[2] *` is no type, and
+        // `const __kairo_Self *` is the pointer to the array (P946).
         var is_ptr = isa<PointerType>(canon_unqual(row->conformer))
-        if is_ptr {
+        if is_ptr || isa<FixedArrayType>(canon_unqual(row->conformer)) {
             self._cg->sink->spell(at, "using " + LowerTargets::witness_self() + " = " + x + ";")
             x = LowerTargets::witness_self()
         }

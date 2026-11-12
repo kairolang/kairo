@@ -32,12 +32,16 @@
 
 ffi "c++" import "vector"
 
+import AST::Context::DeclContext::DeclContextKind
 import AST::Node::Base::{
     Decl,
     Expr,
     Stmt,
 }
-import AST::Node::Casting::isa
+import AST::Node::Casting::{
+    cast,
+    isa,
+}
 import AST::Node::Declarations::{
     ParamDecl,
     VariableDecl,
@@ -55,6 +59,57 @@ import AST::Node::Statements::{
     TryCatchStmt,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+
+/// \p d is a top-level `var` of a script (\p script_root: the TU is one):
+/// a global in C++, but the script's local to the reader. `static`,
+/// `thread` and `eval` bindings are globals in every sense. Where the use
+/// sits (the top-level code, or a function of the script) is the caller's
+/// half: ExprTyper reads its frames, ClosureCaptures its walk.
+pub fn script_top_var(script_root: bool, d: unsafe *Decl) -> bool {
+    if (!script_root) || d == &null || (!isa<VariableDecl>(d)) {
+        return false
+    }
+
+    var unsafe *v = cast<VariableDecl>(d)
+    if v->is_static() || v->is_thread || v->is_eval() {
+        return false
+    }
+
+    var unsafe *dc = d->semantic_dc
+    return dc != &null && dc->dc_kind == DeclContextKind::TranslationUnit
+}
+
+/// Closure \p n's list asks for \p d BY COPY: no list, or a list naming `d`
+/// without `*`. Read for a script's top-level `var` used from the top-level
+/// code: there the default capture copies it, as it copies a local
+/// (closures.mdx, Capture Modes), and C++ needs the copy spelled, since a
+/// lambda captures no global. `|*|`, `|*d|`, `||` and a list
+/// that does not name it keep the global named in place.
+pub fn copies_script_var(n: unsafe *ClosureExpr, d: unsafe *Decl) -> bool {
+    if n == &null || n->explicit_no_capture {
+        return false
+    }
+
+    var named = false
+    for var i: usize = 0; i < n->captures.size(); ++i {
+        var unsafe *c = n->captures.get(i)
+        if c->name == &null {
+            if c->by_ptr {
+                return false
+            }
+
+            continue
+        }
+
+        if c->name->resolved_decl == d {
+            return !c->by_ptr
+        }
+
+        named = true
+    }
+
+    return !named
+}
 
 pub class FreeVarScan derives RecursiveASTVisitor<FreeVarScan> {
     /// Bindings used in the walked tree and declared outside it, first use

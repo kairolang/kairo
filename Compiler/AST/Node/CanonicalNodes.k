@@ -84,7 +84,7 @@ import Token::TokenKind::TokenKind
 ///   `var x: i32`, and why none of these have a `WellKnownType` row.
 ///
 /// \par WIDTH IS NOT IDENTITY
-///   Three widths now carry more than one entry, and this is the invariant
+///   Three widths carry more than one entry, and this is the invariant
 ///   most likely to be violated by accident:
 ///
 ///     8 bits   `F8E4M3`, `F8E5M2`, `I8`, `U8`, `Byte`, `CChar`, `CChar8`
@@ -176,15 +176,16 @@ pub enum BuiltinKind derives u8 {
     /// enum runs Half, BFloat, Float, Double, X86_FP80, FP128, PPC_FP128 and
     /// stops. There is no Float8*TyID. So:
     ///
-    ///   *storage*    `kairo::rt::f8e4m3` / `f8e5m2`, a struct wrapping u8.
-    ///   *arithmetic* promote to `f32`, compute, narrow back. See
-    ///                builtin_arith_promote().
-    ///   *folding*    APFloat HAS the semantics even though IR does not
-    ///                (`semFloat8E4M3FN`, `semFloat8E5M2`). The constant
-    ///                evaluator uses them directly, so eval-time arithmetic
-    ///                needs no bit-twiddling of ours.
+    ///   *storage*    std/rt/Float8.k's `F8E4M3` / `F8E5M2` classes, each
+    ///                wrapping its byte, loaded into the files that spell the
+    ///                type, as f256's class is).
+    ///   *arithmetic* in f32, the result rounded once to the format (the
+    ///                classes' operators).
+    ///   *literals*   APFloat HAS the semantics even though IR does not
+    ///                (`semFloat8E4M3FN`, `semFloat8E5M2`): EmitIR emits a
+    ///                literal as its encoding (kairo::f8_literal_bits).
     ///
-    /// The runtime header and APFloat MUST agree on all 256 bit patterns in
+    /// The classes and APFloat MUST agree on all 256 bit patterns in
     /// both directions. They are two implementations of one format, and a
     /// disagreement is a miscompile that appears only when a value crosses
     /// between compile time and run time. Test it exhaustively; 512 cases.
@@ -842,7 +843,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
             BuiltinKind::F8E4M3,
             TokenKind::AtF8E4M3,
             "f8e4m3",
-            "::kairo::rt::f8e4m3",
+            "::kairo::std::rt::Float8::F8E4M3",
             8,
             BF_FLOAT,
             FloatLayout {
@@ -862,7 +863,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
             BuiltinKind::F8E5M2,
             TokenKind::AtF8E5M2,
             "f8e5m2",
-            "::kairo::rt::f8e5m2",
+            "::kairo::std::rt::Float8::F8E5M2",
             8,
             BF_FLOAT,
             FloatLayout {

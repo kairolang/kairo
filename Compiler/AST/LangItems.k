@@ -157,6 +157,11 @@ pub enum WellKnownType derives u8 {
     /// TU that uses the type declares the class (BuiltinType::lang_decl).
     F256,
     F512,
+    /// `class F8E4M3` / `class F8E5M2` (std/rt/Float8.k): what C++ spells
+    /// `f8e4m3` / `f8e5m2` (P942). Bound only in a TU that spells one, the
+    /// file the preprocessor loads for it (_add_wide_floats).
+    F8E4M3,
+    F8E5M2,
 
     COUNT, ///< keep last.
 }
@@ -267,6 +272,10 @@ pub fn to_string(k: WellKnownType) -> string {
             return "F256"
         } case WellKnownType::F512 {
             return "F512"
+        } case WellKnownType::F8E4M3 {
+            return "F8E4M3"
+        } case WellKnownType::F8E5M2 {
+            return "F8E5M2"
         } case WellKnownType::COUNT {
             return "<count>"
         }

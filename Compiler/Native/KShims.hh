@@ -3,9 +3,9 @@
 ///   One-line C/C++ spellings that Kairo has no syntax for, given names so
 ///   Kairo code can use them.
 ///
-///   WHY C++: each of these used to be an inline C++ expression at its use
-///   site. Stage 1 does not emit inline foreign code, and none of them is
-///   worth a language feature on its own:
+///   WHY C++: each of these is a C++ expression at its use site. Stage 1
+///   does not emit inline foreign code, and none of them is worth a language
+///   feature on its own:
 ///
 ///     volatile_i64    `volatile` is not a Kairo qualifier on a local.
 ///     posix_stat      `struct stat`: in C++ the function stat() hides the
@@ -29,6 +29,7 @@
 
 #include "KPrelude.hh"
 #include "AddrRanges.hh"
+#include <llvm/ADT/APFloat.h>
 
 #if !defined(_WIN32)
 #include <sys/stat.h>
@@ -585,8 +586,8 @@ inline void neon_st_u8(uint8_t *p, uint8x16_t v) noexcept { vst1q_u8(p, v); }
 
 /// \p text written to \p path byte for byte: no newline translation on any
 /// host. llvm::sys::writeFileWithEncoding writes in text mode, so on Windows
-/// every '\n' became "\r\n" while LinkFS::read hands bytes back as they are;
-/// the Kairo library's manifest read back paths ending in '\r' (2026-11-06).
+/// every '\n' becomes "\r\n" while LinkFS::read hands bytes back as they are;
+/// the Kairo library's manifest reads back paths ending in '\r'.
 inline bool write_file_exact(llvm::StringRef path, llvm::StringRef text) noexcept {
     ::std::error_code ec;
     llvm::raw_fd_ostream os(path, ec, llvm::sys::fs::OF_None);
@@ -594,6 +595,30 @@ inline bool write_file_exact(llvm::StringRef path, llvm::StringRef text) noexcep
     os << text;
     os.close();
     return !os.has_error();
+}
+
+/// The f8e4m3 (\p e5m2 false: OCP E4M3FN) or f8e5m2 encoding of a float
+/// literal's digits \p s[0..n) (decimal, or `0x` hex with its `p`
+/// exponent; no separators, no suffix), rounded ONCE to nearest even, as
+/// clang rounds a literal at its own type: EmitIR emits an f8 literal as
+/// its class's `from_bits(<this>)` since no C++ literal has the
+/// format and a double literal would round twice. E4M3FN has no infinity:
+/// an overflow saturates to +/-448, Kairo's rule (std/rt/Float8.k), where
+/// APFloat would give NaN. -1 when APFloat does not read the digits.
+inline int f8_literal_bits(const unsigned char *s, size_t n, bool e5m2) noexcept {
+    llvm::APFloat v(e5m2 ? llvm::APFloat::Float8E5M2() : llvm::APFloat::Float8E4M3FN());
+    auto st = v.convertFromString(llvm::StringRef(reinterpret_cast<const char *>(s), n),
+                                  llvm::RoundingMode::NearestTiesToEven);
+    if (!st) {
+        llvm::consumeError(st.takeError());
+        return -1;
+    }
+
+    if (!e5m2 && (*st & llvm::APFloat::opOverflow)) {
+        return v.isNegative() ? 0xFE : 0x7E;
+    }
+
+    return static_cast<int>(v.bitcastToAPInt().getZExtValue());
 }
 
 /// The C streams as functions. stdout / stderr are macros on Darwin (__stdoutp) and

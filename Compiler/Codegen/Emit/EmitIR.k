@@ -1605,7 +1605,8 @@ pub class EmitIR {
         self._cg->sink->synth_at_start(b->range, clang::tok::l_brace)
         if ext != &null && f->is_operator {
             var pro = if (f->is_const()) => ("const ") else => ""
-            pro += self._spell._type(
+            // `[i32; 2]`'s pointer is `int (*self)[2]`: one type-specifier (P946).
+            pro += self._spell.type_specifier(
                 ext->target,
             ) + "* " + LowerTargets::ext_receiver_name() + " = &" + LowerTargets::ext_self() + ";"
             self._cg->sink->spell(b->range, pro)
@@ -3919,7 +3920,7 @@ pub class EmitIR {
             return
         }
 
-        if self._is_local(d) {
+        if self._is_local(d) || self._captures_global(self._closure, d) {
             self._name(n->name)
             return
         }
@@ -6056,13 +6057,21 @@ pub class EmitIR {
             }
 
             var nm = self._spell.imm_name(decl_name_tok(d).imm, self._owning_fid())
+            // A script's top-level `var` (P947) is a global: C++ captures no
+            // global, so the copy is an init-capture from its qualified name,
+            // unless an enclosing closure holds it already under `nm`.
+            var origin = nm
+            if (!self._is_local(d)) && (!self._captures_global(self._closure, d)) {
+                origin = self._spell.qual_name(d)
+            }
+
             match m {
                 case CaptureMode::Copy {
-                    s += nm
+                    s += if (origin == nm) => (nm) else => nm + " = " + origin
                 } case CaptureMode::Move {
                     s += nm + " = static_cast<" + self._spell._type(
                         self._capture_type(d),
-                    ) + "&&>(" + nm + ")"
+                    ) + "&&>(" + origin + ")"
                 } case CaptureMode::Ptr {
                     s += nm + " = &" + nm
                 } case CaptureMode::ConstPtr {
@@ -6077,6 +6086,22 @@ pub class EmitIR {
         }
 
         return s
+    }
+
+    /// Closure \p c captures the global \p d (a script's top-level `var`,
+    /// P947): inside it, `d` is the closure's own copy, named bare.
+    priv fn _captures_global(self, c: unsafe *ClosureExpr, d: unsafe *Decl) -> bool {
+        if c == &null || self._is_local(d) {
+            return false
+        }
+
+        for var i: usize = 0; i < c->cap_decls.size(); ++i {
+            if c->cap_decls[i] == d {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// The captured binding's own type, top-level cv dropped (a capture's
@@ -6439,7 +6464,7 @@ pub class EmitIR {
     ///   f16 `f16`, f32 `f`, f64 none, f80 `L`, f128 `Q`
     ///   bf16 has no literal suffix: `static_cast<__bf16>(<digits>f)`.
     ///   f256 / f512 are library classes: their parser (_wide_float_lit).
-    ///   f8* are library classes too: the double literal, as before.
+    ///   f8* are library classes too: their encoding, rounded here (_f8_lit).
     ///
     /// An unsuffixed f64 literal with no separator keeps its own bytes.
     priv fn _float_lit(self, n: unsafe *FloatingLiteralExpr) {
@@ -6563,6 +6588,12 @@ pub class EmitIR {
             } case BuiltinKind::F512 {
                 self._wide_float_lit(t.range, n->type_, &digits)
                 return
+            } case BuiltinKind::F8E4M3 {
+                self._f8_lit(t.range, n->type_, &digits, false)
+                return
+            } case BuiltinKind::F8E5M2 {
+                self._f8_lit(t.range, n->type_, &digits, true)
+                return
             } default { }
         }
 
@@ -6577,6 +6608,23 @@ pub class EmitIR {
         var text = self._spell._type(ty) + "::lit_(\"" + *digits + "\", "
         text += f"{digits->size()})"
         self._cg->sink->spell(at, text)
+    }
+
+    /// An f8e4m3 / f8e5m2 literal (P942): its class's `from_bits(b)`, the
+    /// encoding rounded once from the digits at compile time
+    /// (kairo::f8_literal_bits, APFloat). A double literal, which the class
+    /// converts from, would round twice: to f64, then to the format.
+    priv fn _f8_lit(self, at: SourceRange, ty: unsafe *Type, digits: *string, e5m2: bool) {
+        var b: i32 = 0
+        unsafe {
+            b = kairo::f8_literal_bits(unsafe (digits->as_ptr() as unsafe *const u8), digits->size(), e5m2) as i32
+        }
+
+        if b < 0 {
+            self._ice(at, "EmitIR: an f8 literal whose digits APFloat does not read")
+        }
+
+        self._cg->sink->spell(at, self._spell._type(ty) + f"::from_bits({b})")
     }
 
     /// ## Base initializers
@@ -7654,7 +7702,8 @@ pub class EmitIR {
         self._bind_depth = d
     }
 
-    /// f256 / f512: classes in C++ (num/f256_t.k) that declare `+ - * /`
+    /// f256 / f512 / f8e4m3 / f8e5m2: classes in C++ (num/f256_t.k,
+    /// std/rt/Float8.k) that declare `+ - * /`
     /// only, Kairo deriving `+=` and the rest (operator-overloading.mdx),
     /// so C++ has no `+=` to call.
     priv fn _wide_float(self, t: unsafe *Type) -> bool {
@@ -7665,6 +7714,7 @@ pub class EmitIR {
 
         var b = cast<BuiltinType>(c)->builtin
         return b == BuiltinKind::F256 || b == BuiltinKind::F512
+            || b == BuiltinKind::F8E4M3 || b == BuiltinKind::F8E5M2
     }
 
     /// `place OP= v` on an f256 / f512: `place = place OP v`, the place

@@ -1,6 +1,6 @@
 // The float suffixes every target has (primitives.mdx, Floating-Point):
 // f16, f32, f64. Each reached clang as written -- "invalid suffix 'f32' on
-// floating constant" -- and is now spelled with the C++ suffix of its type
+// floating constant" -- and is spelled with the C++ suffix of its type
 // (`f16`, `f`, none), so clang parses the digits at that format. Exponents,
 // hex floats, a float suffix on an integer body, `_` separators and
 // negation ride along. f80 and f128 exist on some targets only:

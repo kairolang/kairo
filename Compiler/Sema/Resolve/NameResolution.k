@@ -154,6 +154,7 @@ import AST::VisibilityFacts::{
     tu_of_scope,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import Config::ResourceLayout::ResourceLayout
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::named_declared_here
@@ -802,6 +803,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         if !self.sc->g->is_builtin_fid(self.sc->ctx->fid) {
+            self._fill_std_lang_items()
             return
         }
 
@@ -915,24 +917,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         // `byte` is spelled as the Byte enum, so a TU that uses it must
         // declare that enum. Codegen has no route to well_known, but every
         // `byte` it walks IS this one build-wide singleton: record it there.
-        var unsafe *bd = self.sc->well_known->get(WellKnownType::Byte)
-        var unsafe *bt = self.sc->types->builtin(BuiltinKind::Byte)
-        if bd != &null && bt != &null {
-            cast<BuiltinType>(bt)->lang_decl = bd
-        }
-
         // f256 / f512 likewise: spelled as the F256 / F512 classes.
-        var unsafe *f2d = self.sc->well_known->get(WellKnownType::F256)
-        var unsafe *f2t = self.sc->types->builtin(BuiltinKind::F256)
-        if f2d != &null && f2t != &null {
-            cast<BuiltinType>(f2t)->lang_decl = f2d
-        }
-
-        var unsafe *f5d = self.sc->well_known->get(WellKnownType::F512)
-        var unsafe *f5t = self.sc->types->builtin(BuiltinKind::F512)
-        if f5d != &null && f5t != &null {
-            cast<BuiltinType>(f5t)->lang_decl = f5d
-        }
+        self._spell_builtin_as(BuiltinKind::Byte, WellKnownType::Byte)
+        self._spell_builtin_as(BuiltinKind::F256, WellKnownType::F256)
+        self._spell_builtin_as(BuiltinKind::F512, WellKnownType::F512)
 
         // `null_t`'s constant has no Kairo declaration (`null` is a
         // keyword), so codegen writes it from a mark on the record.
@@ -1029,6 +1017,40 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     /// literals and asked for "Map", "Set", "Int", "Float" and "String"; the
     /// tree declares HashMap, HashSet, ImmBigInt, ImmBigFloat and `string`, so five
     /// of the seventeen could never match.
+    /// The lang items std declares: f8e4m3 / f8e5m2's classes (std/rt/
+    /// Float8.k, P942), which std holds because they are loaded only into
+    /// the files that spell the types (Preprocessor::_add_wide_floats), as
+    /// f256's are from builtin. Bound from that one std TU, typed before
+    /// its users by the implicit import's edge. Any other std TU misses.
+    priv fn _fill_std_lang_items(self) {
+        var unsafe *ci = self.sc->ctx->ci
+        if ci == &null || self.sc->ctx->sm == &null {
+            return
+        }
+
+        if !ResourceLayout::is_std_file(ci, self.sc->ctx->sm->get_filename(self.sc->ctx->fid)) {
+            return
+        }
+
+        var unsafe *root = unsafe (self.sc->tu as unsafe *DeclContext)
+        self._bind_lang(root, WellKnownType::F8E4M3)
+        self._bind_lang(root, WellKnownType::F8E5M2)
+        self._spell_builtin_as(BuiltinKind::F8E4M3, WellKnownType::F8E4M3)
+        self._spell_builtin_as(BuiltinKind::F8E5M2, WellKnownType::F8E5M2)
+    }
+
+    /// Builtin \p b is spelled in C++ as lang item \p k's declaration
+    /// (BuiltinType::lang_decl), when \p k is bound: a TU that uses \p b
+    /// declares it (EmitPlan), and codegen, which has no route to
+    /// well_known, reads it off the build-wide builtin singleton.
+    priv fn _spell_builtin_as(self, b: BuiltinKind, k: WellKnownType) {
+        var unsafe *d = self.sc->well_known->get(k)
+        var unsafe *t = self.sc->types->builtin(b)
+        if d != &null && t != &null {
+            cast<BuiltinType>(t)->lang_decl = d
+        }
+    }
+
     priv fn _bind_lang(self, root: unsafe *DeclContext, k: WellKnownType) {
         var spelling = to_string(k)
         var im       = self.sc->imm_table()->find_ident(spelling)

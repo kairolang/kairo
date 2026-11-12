@@ -84,7 +84,6 @@ ffi "c++" import "vector"
 ffi "c++" import "memory"
 
 import AST::ASTSupport::FrozenList
-import AST::Context::DeclContext::DeclContextKind
 import AST::DeclFacts::{
     decl_builtin_id,
     decl_is_imported,
@@ -140,6 +139,10 @@ import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Location::FullSourceLocation::FullSourceLocation
 import Location::SourceLocation::SourceLocation
+import Sema::Check::CaptureAnalysis::{
+    copies_script_var,
+    script_top_var,
+}
 import Sema::Check::EffectPropagation::{
     canonical_set,
     panic_home,
@@ -1029,7 +1032,7 @@ pub class ExprTyper
         }
 
         var at  = d->range.start.id
-        var top = self._script_top_capture(d)
+        var top = self.script_top_capture(d)
         var i   = self.frames.size()
         while i > 0 {
             i = i - 1
@@ -1084,23 +1087,33 @@ pub class ExprTyper
     /// the one place a global reads as a local, so `|*|` takes its address.
     /// A function in the script names it as the global it is, captured or
     /// not; `static`, `thread` and `eval` bindings stay globals everywhere.
-    priv fn _script_top_capture(self, d: unsafe *Decl) -> bool {
-        if self.sc == &null || !self.sc->script_root || (!isa<VariableDecl>(d)) {
-            return false
-        }
-
-        var unsafe *v = cast<VariableDecl>(d)
-        if v->is_static() || v->is_thread || v->is_eval() {
-            return false
-        }
-
-        var unsafe *dc = d->semantic_dc
-        if dc == &null || dc->dc_kind != DeclContextKind::TranslationUnit {
+    fn script_top_capture(self, d: unsafe *Decl) -> bool {
+        if self.sc == &null || !script_top_var(self.sc->script_root, d) {
             return false
         }
 
         for var k: usize = 0; k < self.frames.size(); ++k {
             if self.frames[k].fn_decl != &null {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// Closure \p n captures the script variable \p d by copy (P947): \p d
+    /// reads as a local here (script_top_capture), and \p n and every
+    /// closure around it ask for a copy. ClosureCaptures::_open_copy is the
+    /// same rule over its own walk; the closure's type (raw or not) and its
+    /// capture list must agree.
+    fn script_copy_capture(self, n: unsafe *Expressions::ClosureExpr, d: unsafe *Decl) -> bool {
+        if (!self.script_top_capture(d)) || (!copies_script_var(n, d)) {
+            return false
+        }
+
+        for var k: usize = 0; k < self.frames.size(); ++k {
+            var unsafe *c = self.frames[k].closure
+            if c != &null && c != n && (!copies_script_var(c, d)) {
                 return false
             }
         }

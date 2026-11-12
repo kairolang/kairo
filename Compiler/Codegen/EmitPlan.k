@@ -291,11 +291,11 @@ pub struct VpNames {
 ///
 /// A TU's stream is its incremental object key, and one cache is shared by
 /// every graph that holds the TU (kairo, kcc, kfmt are built from one tree).
-/// Two things the plan used to read were facts of the GRAPH, not of the TU:
+/// Two facts of the GRAPH, not of the TU, would otherwise leak into the plan:
 /// file ids (minted in the PP walk's order from the entry, so Kairo.k and
-/// Kcc.k number the same modules differently) ordered every tier, and an
-/// instance's home was its first namer in the one-thread order (which the
-/// entry decides too). Both are replaced here for the length of a codegen,
+/// Kcc.k number the same modules differently) would order every tier, and an
+/// instance's home would be its first namer in the one-thread order (which
+/// the entry decides too). Both are replaced here for the length of a codegen,
 /// set by the driver before any plan runs and read-only after.
 
 /// fid -> its rank in the build's files sorted by module path (set_file_ranks);
@@ -329,7 +329,7 @@ pub enum GraphPhase derives u8 {
 var _G_PHASE: GraphPhase = GraphPhase::Unset
 
 /// Functions and globals a header leaves out by its root rule (_hidden) that
-/// a visible body in ANOTHER file's header names (P900: `prot inline fn
+/// a visible body in ANOTHER file's header names (`prot inline fn
 /// scope_push`, called from AllocatorScope's template bodies in
 /// base/alloc.hh). The other header reaches them through an `#include` of
 /// their home's, so the HOME header declares them, as it declares a hidden
@@ -1101,7 +1101,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         return !self.host_in_module || tu_module_dir(CXXSpell::tu_of(d)).empty()
     }
 
-    /// # Hidden decls another header names (P900, _BORROWED)
+    /// # Hidden decls another header names (_BORROWED)
 
     pub static fn clear_borrowed() {
         _BORROWED.clear()
@@ -2010,7 +2010,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// A header or include is read by C++ code that CALLS the file's `pub`
     /// functions, and a call whose return or by-value parameter is an
     /// incomplete class is ill-formed: `lib::name()` returning `string` was
-    /// "incomplete return type '::builtin::string::string'" (P303), as was a
+    /// "incomplete return type '::builtin::string::string'", as was a
     /// record of another Kairo module. So an own function's signature is
     /// held as a complete class's member signature is (_expand_member_sig:
     /// by value Complete, a pointer still Fwd). An object build's preamble
@@ -2715,7 +2715,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// needs them, not only its body. A primary record's head carries none
     /// (CXXSpell::defers_bounds), but its member bodies still call through
     /// `I_witness<A>`, and they are written where the record is defined: in
-    /// its own TU, a header has the primaries too (P900: base/alloc.hh's
+    /// its own TU, a header has the primaries too (base/alloc.hh's
     /// AllocatorScope<A impl ScopedFullAllocator> named a witness no header
     /// declared).
     fn _witness_bounds(self, f: unsafe *Decl) {
@@ -4452,7 +4452,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 self._admit_type(self._nullable_record(c), need)
             }
 
-            // No Vector/Set/Map/Tuple arms: they are RecordTypes now and admit
+            // No Vector/Set/Map/Tuple arms: they are RecordTypes and admit
             // through the record path, which already walks their generic
             // arguments (a tuple's elements are by value, so at \p need).
             case TypeKind::FixedArrayType {
@@ -4522,13 +4522,14 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             } case TypeKind::BuiltinType {
                 // A builtin spelled as a Kairo declaration (`byte` -> Byte): an
                 // opaque `enum class : unsigned char;` is already complete, so
-                // any strength will do. f256 / f512 are classes whose members
-                // C++ calls where Kairo sees a builtin operator (`a + b`), and
-                // nothing else admits those: always the complete class.
+                // any strength will do. f256 / f512 / f8e4m3 / f8e5m2 are
+                // classes whose members C++ calls where Kairo sees a builtin
+                // operator (`a + b`), and nothing else admits those: always
+                // the complete class.
                 var unsafe *bt = cast<BuiltinType>(c)
                 if bt->lang_decl != &null {
                     var bneed = need
-                    if bt->builtin == BuiltinKind::F256 || bt->builtin == BuiltinKind::F512 {
+                    if bt->builtin != BuiltinKind::Byte {
                         bneed = PlanNeed::Complete
                     }
 

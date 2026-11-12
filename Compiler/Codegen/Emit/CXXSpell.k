@@ -2175,6 +2175,25 @@ pub class CXXSpell {
         return self.decl(t, "", subst, scope)
     }
 
+    /// \p t as ONE type-specifier that text may follow: `_type`, except that
+    /// a C array (`signed int[2]`), whose declarator wraps whatever follows
+    /// it (`int (*p)[2]`), is `__typeof__(signed int[2])`. Every spelling
+    /// that appends `*`, `&`, ` const &` or a name to a type it got as a
+    /// string goes through here (P325, P946): an extension's receiver, a
+    /// witness's Self, a generic parameter an instance binds to an array.
+    fn type_specifier(self,
+                      t:     unsafe *Type,
+                      subst: unsafe *InstanceEntry = &null,
+                      scope: unsafe *Decl = &null) -> string {
+        var s = self._type(t, subst, scope)
+        var unsafe *c = if (t != &null && t->canonical != &null) => (t->canonical) else => t
+        if c != &null && isa<FixedArrayType>(canon_unqual(c)) {
+            return "__typeof__(" + s + ")"
+        }
+
+        return s
+    }
+
     /// The C++ spelling of an unresolved member type of a generic parameter
     /// (`T::Guard`, `T::A::B`) as `typename T::Guard`, or "" for any other
     /// type: a type unresolved for any other reason is still a Sema gate
@@ -3045,14 +3064,8 @@ pub class CXXSpell {
         }
 
         // A C array's declarator wraps the name (`int (*self)[2]`), and every
-        // caller appends the name after this text, so an array target is
-        // spelled as one type-specifier instead (P325, `extend [i32; 2]`).
-        var t = self._type(x->target, subst)
-        if x->target != &null && x->target->canonical != &null && isa<FixedArrayType>(canon_unqual(x->target->canonical)) {
-            t = "__typeof__(" + t + ")"
-        }
-
-        s += t
+        // caller appends the name after this text (P325, `extend [i32; 2]`).
+        s += self.type_specifier(x->target, subst)
         s += if (f->is_operator) => ("&") else => "*"
         return s
     }
@@ -4589,9 +4602,12 @@ pub class CXXSpell {
                 return ps
             }
         } else {
+            // An instance's array argument is followed by the parameter's
+            // `const &` or `*` (`template int f<int[2]>(int[2] const &)` is an
+            // array of references): one type-specifier (P946).
             var unsafe *t = self.subst_for(g, subst)
             if t != &null {
-                return self._type(t, &null)
+                return self.type_specifier(t, &null)
             }
         }
 

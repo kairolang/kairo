@@ -5048,6 +5048,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         if n->target != &null {
             self.dispatch_type(n->target)
             self._reject_unextendable_target(n)
+            self._reject_generic_array_target(n)
         }
 
         // Self is the target as WRITTEN, args and all, after it resolved:
@@ -5159,6 +5160,36 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             b.emit()
             f->poison()
         }
+    }
+
+    /// `extend <T> [T; 2]`, `extend <T, eval N: usize> [T; N]` (P946): the
+    /// extension index keys a non-record target by its one exact canonical
+    /// (MemberLookup::_index_decl), so a pattern over arrays matched no
+    /// array and every member was "no member named" (R025E) at the use.
+    /// Matching one needs an array arm in the index and in the receiver's
+    /// deduction, and a generic static scope in codegen; until then the
+    /// block itself is the error, which names the concrete form that works
+    /// (extends.mdx: "a generic `[T; N]` extension ... not supported yet").
+    priv fn _reject_generic_array_target(self, n: unsafe *Declarations::ExtensionDecl) {
+        var unsafe *t = n->target
+        if t == &null || t->canonical == &null || n->is_poisoned() || n->generic_params.size() == 0 {
+            return
+        }
+
+        var unsafe *c = canon_unqual(t->canonical)
+        if (!isa<FixedArrayType>(c)) || (!c->is_dependent()) {
+            return
+        }
+
+        var b = self.sc->diag->report(
+            DiagID::SC116E,
+            t->range.start,
+            "a generic extension of a fixed array is not supported yet; extend each array type it is for, such as 'extend [i32; 2]'",
+        )
+
+        b.first(t->range, "generic array target")
+        b.emit()
+        n->poison()
     }
 
     /// True when `d`'s names live in another TU. DAG order guarantees that

@@ -81,6 +81,10 @@ pub class DepGraph {
     /// Files that name `f128`: num/f128_ext.k (f128's methods, whose sqrt
     /// and fma run the same engine) is added for them the same way.
     pub var f128_users: cxx::std::set<u32>
+    /// Files that name `f8e4m3` or `f8e5m2` (the keyword; neither has a
+    /// literal suffix): std/rt/Float8.k, the two classes C++ spells them as,
+    /// is added for them the same way (P942).
+    pub var f8_users: cxx::std::set<u32>
 
     fn add_node(self, fid: u32, const path: ModulePath) {
         if !self.all_fids.contains(fid) {
@@ -279,6 +283,8 @@ pub class DepScanner {
                 graph->f512_users.insert(fid)
             } else if k == TokenKind::AtF128 {
                 graph->f128_users.insert(fid)
+            } else if k == TokenKind::AtF8E4M3 || k == TokenKind::AtF8E5M2 {
+                graph->f8_users.insert(fid)
             } else if k == TokenKind::LitFloat || k == TokenKind::LitInt {
                 var w = DepScanner::_wide_float_suffix(TokenText::spelling(src.peek(0), self._tcm))
                 if w == 256 {
@@ -435,14 +441,12 @@ pub class DepScanner {
             }
         }
 
-        // A plain path may end in a symbol, not a module: try the full
-        // path, then without its last segment.
-        var may_drop = !spec.is_wildcard && spec.items.size() == 0 && !spec.last_seg_is_macro
-
+        // A path may end in symbols, not modules: _resolve_place tries
+        // every prefix, longest first, as the walk does.
         if spec.kind == ImportKind::Native {
-            dep = self._resolve_place(segs, may_drop, false, from_dir, from_dir, has_dir)
+            dep = self._resolve_place(segs, false, from_dir, from_dir, has_dir)
             if dep.fid == u32::MAX && has_dir {
-                dep = self._resolve_place(segs, may_drop, true, from_dir, from_dir, has_dir)
+                dep = self._resolve_place(segs, true, from_dir, from_dir, has_dir)
             }
         } else if has_dir {
             var anchor = from_dir
@@ -455,7 +459,7 @@ pub class DepScanner {
                 anchor = Path(mdir)
             }
 
-            dep = self._resolve_place(segs, may_drop, true, anchor, from_dir, has_dir)
+            dep = self._resolve_place(segs, true, anchor, from_dir, has_dir)
         }
 
         if dep.fid == u32::MAX { // unresolved: silent here; the PP walk errors
@@ -507,16 +511,20 @@ pub class DepScanner {
     ///          the PP walk re-resolves and owns that error.
     priv fn _resolve_place(self,
                            segments:       cxx::std::vector<string>,
-                           may_drop:       bool,
                            in_dir:         bool,
                            const dir:      Path,
                            const from_dir: Path,
                            has_from:       bool) -> Self::DepResult {
-        var dep = self.resolve_segments(segments, in_dir, dir, from_dir, has_from)
-        if dep.fid == u32::MAX && may_drop && segments.size() > 1 {
-            var shorter = segments
-            shorter.pop_back() // last seg was a symbol
-            dep = self.resolve_segments(shorter, in_dir, dir, from_dir, has_from)
+        // Every prefix, longest first: FileImportIndex::_resolve_greedy's
+        // rule. With only the full path (and one segment off a plain path)
+        // the walk still found a shorter prefix -- `import Dg::Dg::*` beside
+        // Dg.k, the R068E sibling case -- and loaded that file itself, mid
+        // walk, while lex workers read the file table unlocked (P918).
+        var dep  = self.resolve_segments(segments, in_dir, dir, from_dir, has_from)
+        var tail = segments
+        while dep.fid == u32::MAX && tail.size() > 1 {
+            tail.pop_back()
+            dep = self.resolve_segments(tail, in_dir, dir, from_dir, has_from)
         }
 
         return dep

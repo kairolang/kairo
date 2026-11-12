@@ -107,6 +107,7 @@ import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
     ChainType,
+    FixedArrayType,
     FunctionPointerType,
     GenericParamType,
     PackExpansionType,
@@ -555,6 +556,25 @@ pub class <T: type> CallTyping {
             // argument this way; this is the same rule applied to the winner.
             pt = r->ded.through_receiver(f, r->receiver, pt)
 
+            // `fn <T> f(a: T)` called with an array: T is `[i32; 2]`, and the
+            // parameter takes it by value, which the declaration's own check
+            // (StmtTyping, SC045E) could not see. C++ would decay it to a
+            // pointer and the callee would write the caller's array (P946).
+            if slot_deduced && self._array_by_value(f, p, pt) {
+                var pn = self.dyn()->tu.param_name(p)
+                var b = self.dyn()->sc->diag->report(
+                    DiagID::SC045E,
+                    a->range.start,
+                    f"parameter '{pn}' takes '{self.dyn()->tu.str(pt)}' by value here, and an array is not copyable; make it 'const', {LangAttrs::quoted(LangAttrs::param_inout())}, or pass a slice",
+                )
+
+                b.first(a->range)
+                b.note(p->range.start, f"'{pn}' is declared here, by value")->first(p->range)
+                b.emit()
+                a->expr->poison()
+                continue
+            }
+
             // A C++ callee takes this argument through one implicit
             // user-defined conversion (-fcxx-implicit-conv, P813): C++ performs
             // it, so the argument is emitted as written -- a string literal
@@ -716,6 +736,22 @@ pub class <T: type> CallTyping {
             a->carrier->value_category = a->expr->value_category // the wrapper IS its value.
             self.dyn()->finish(a->carrier, a->expr->type_)
         }
+    }
+
+    /// \p p, a Kairo parameter whose declared type is generic, takes \p pt,
+    /// a fixed array, by value: the case SC045E rejects on a declared
+    /// `[T; N]`. A declared array type was reported at the declaration.
+    priv fn _array_by_value(self, f: unsafe *FunctionDecl, p: unsafe *ParamDecl, pt: unsafe *Type) -> bool {
+        if pt == &null || p->is_self || p->is_pack || p->is_const || p->mode != ParamMode::Value {
+            return false
+        }
+
+        if decl_is_imported(unsafe (f as unsafe *Decl)) || (!isa<FixedArrayType>(canon_unqual(pt))) {
+            return false
+        }
+
+        var unsafe *dt = if (p->type_ != &null) => (p->type_->canonical) else => &null
+        return dt != &null && !isa<FixedArrayType>(canon_unqual(dt))
     }
 
     /// \p t with an interface member's `Self` read as the receiver, BEFORE

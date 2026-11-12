@@ -568,7 +568,10 @@ pub class PrimitiveLimits {
             }
         }
 
-        if b == BuiltinKind::BF16 {
+        // bf16 has no literal; f8e4m3 / f8e5m2 are classes built from
+        // the double, which holds each limit exactly. A bare double next to
+        // the class in `f8e4m3::MAX + x` would find no operator.
+        if b == BuiltinKind::BF16 || b == BuiltinKind::F8E4M3 || b == BuiltinKind::F8E5M2 {
             return "static_cast<" + builtin_info(b)->cxx + ">(" + v + ")"
         }
 

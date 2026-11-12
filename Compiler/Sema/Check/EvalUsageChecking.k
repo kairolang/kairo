@@ -957,6 +957,15 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             return "an 'f512' value"
         }
 
+        // The f8 classes (std/rt/Float8.k, P942) are no literal types either.
+        if k == BuiltinKind::F8E4M3 {
+            return "an 'f8e4m3' value"
+        }
+
+        if k == BuiltinKind::F8E5M2 {
+            return "an 'f8e5m2' value"
+        }
+
         return ""
     }
 

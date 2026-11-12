@@ -1922,6 +1922,13 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             &cands,
         )
 
+        // Every iteration form first, then one resolution among them on the
+        // iterable's own cv: a const one picks `op in (const self)`, and
+        // with only `op in (self)` the loop is SC063E here ("'op in' is not
+        // const"), where before the const was dropped and clang found it in
+        // the generated C++ (P950, `for x in m` with `const m: {K: V}`).
+        var forms = cxx::std::vector<unsafe *Decl>()
+        var yelem = cxx::std::vector<unsafe *Type>()
         for var i: usize = 0; i < cands.size(); ++i {
             var unsafe *f = dyn_cast<FunctionDecl>(cands[i])
             if f == &null {
@@ -1954,35 +1961,71 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 continue
             }
 
-            // The winner is resolved once more, alone, for its instance and
-            // its result through the receiver: a generic one -- an
-            // extension's on `[T]` above all, the form a builtin's iteration
-            // takes -- is called with X's arguments, never clang's
-            // (ExtensionLowering refuses it without them), and its `T` is
-            // the extension's, which member_through does not reach.
-            var one = cxx::std::vector<unsafe *Decl>()
-            one.push_back(cands[i])
-            var none = cxx::std::vector<ArgInfo>()
-            var recv = canon_unqual(self.dyn()->tu.strip_nullable(t))
-            var r    = self.dyn()->ovl.resolve(&one, &none, true, at->range, "op in", recv)
-            if r.outcome == OvlOutcome::Selected {
-                r.ded.bind_from_record(recv)
-                var srt = self.dyn()->call_result_type(r.decl, &r)
-                *inst = r.instance
-                if srt != &null && self.dyn()->tu.is_lang(srt, WellKnownType::Yield) {
-                    var sargs = self.dyn()->tu.record_args(srt)
-                    if sargs.size() > 0 {
-                        args = sargs
-                    }
-                }
-            }
-
-            *kind = Statements::IterKind::User
-            *_op  = cands[i]
-            return args[0]
+            forms.push_back(cands[i])
+            yelem.push_back(args[0])
         }
 
-        return &null
+        if forms.size() == 0 {
+            return &null
+        }
+
+        // The winner is resolved once more for its instance and its result
+        // through the receiver: a generic one -- an extension's on `[T]`
+        // above all, the form a builtin's iteration takes -- is called with
+        // X's arguments, never clang's (ExtensionLowering refuses it without
+        // them), and its `T` is the extension's, which member_through does
+        // not reach.
+        var none = cxx::std::vector<ArgInfo>()
+        var recv = canon_unqual(self.dyn()->tu.strip_nullable(t))
+        var qrecv = recv
+        if self._const_iterable(t) {
+            qrecv = self.dyn()->sc->types->qualified(recv, QUAL_CONST)
+        }
+
+        var r = self.dyn()->ovl.resolve(&forms, &none, true, at->range, "op in", qrecv)
+        if r.outcome == OvlOutcome::NoViable {
+            at->poison() // reported; the shapes below must not iterate it anyway.
+            return &null
+        }
+
+        var pick: usize = 0
+        if r.outcome == OvlOutcome::Selected {
+            for var i: usize = 0; i < forms.size(); ++i {
+                if forms[i] == unsafe (r.decl as unsafe *Decl) {
+                    pick = i
+                }
+            }
+        }
+
+        var unsafe *elem = yelem[pick]
+        if r.outcome == OvlOutcome::Selected {
+            r.ded.bind_from_record(recv)
+            var srt = self.dyn()->call_result_type(r.decl, &r)
+            *inst = r.instance
+            if srt != &null && self.dyn()->tu.is_lang(srt, WellKnownType::Yield) {
+                var sargs = self.dyn()->tu.record_args(srt)
+                if sargs.size() > 0 {
+                    elem = sargs[0]
+                }
+            }
+        }
+
+        *kind = Statements::IterKind::User
+        *_op  = forms[pick]
+        return elem
+    }
+
+    /// The iterable is const to its `op in`: a const binding, a `const`
+    /// parameter, a field reached through `const self`, a `const T&`.
+    priv fn _const_iterable(self, t: unsafe *Type) -> bool {
+        var unsafe *o = t
+        if o != &null && isa<CXXLValueRefType>(o) {
+            o = cast<CXXLValueRefType>(o)->referee
+        } else if o != &null && isa<CXXRValueRefType>(o) {
+            o = cast<CXXRValueRefType>(o)->referee
+        }
+
+        return o != &null && self.dyn()->tu.has_const(o)
     }
 
     priv fn _iter_classify(self,
@@ -2005,9 +2048,14 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         // gate in FeatureGateCheck (SC116E) refusing it. Asked only of a
         // record: an array (above), a pointer or a builtin has no members.
         if self.dyn()->tu.record_decl(self.dyn()->tu.strip_nullable(t)) != &null {
+            var was = at->is_poisoned()
             var unsafe *own = self._iter_own_op(at, t, kind, _op, inst)
             if own != &null {
                 return own
+            }
+
+            if (!was) && at->is_poisoned() { // its only `op in` refused the receiver: reported.
+                return &null
             }
         }
 
@@ -2510,8 +2558,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             )
         }
 
+        // Each binder of the tuple points into the same const element:
+        // `for (k, *v) in xs` over a const owner is `*const V` too (P950).
         for var i: usize = 0; i < list->size(); ++i {
-            self._bind_one(list->get(i), if (have) => (elems[i]) else => &null)
+            self._bind_one(list->get(i), if (have) => (elems[i]) else => &null, const_elem)
         }
     }
 
