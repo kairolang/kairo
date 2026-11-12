@@ -1288,7 +1288,7 @@ pub class RedeclMerge {
         self.sc->diag->report(
             DiagID::R054E,
             b->range.start,
-            f"'{name}' cannot be overloaded on '@move': a '@move' argument is written " + "with no marker, so a call could not choose between these declarations",
+            f"'{name}' cannot be overloaded on {LangAttrs::quoted(LangAttrs::param_move())}: a {LangAttrs::quoted(LangAttrs::param_move())} argument is written " + "with no marker, so a call could not choose between these declarations",
         ).first(b->range)->note(
             DiagCode(DiagID::R054N),
             a->range.start,

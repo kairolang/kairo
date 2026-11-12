@@ -1,13 +1,13 @@
 // An operand with no type of its own -- an untyped literal, a list literal,
 // `.V` -- takes the OTHER operand's type, whichever side it is on: the typed
 // operand is typed first and is the expected type of the other
-// (RESOLUTION.md "Operators"; GitHub #83). Before, only a RIGHT operand
-// took the left's: `1 + b` was an `i32 + u8` unification error waiting to
-// happen and `.North == d` was SC123E.
+// (RESOLUTION.md "Operators"; GitHub #83). A LEFT operand takes the
+// right's type as well as the reverse: `1 + b` is not an `i32 + u8`
+// unification error and `.North == d` is not SC123E.
 //
 // A shift's result is its left operand's type, so a literal left operand
 // takes the expected type when there is one, else an integer count's
-// (`1 << 4u8` is a u8 shift, decided 2026-10-28). Two context-typed operands
+// (`1 << 4u8` is a u8 shift). Two context-typed operands
 // keep their defaults. The inferred types below are the whole assertion.
 
 enum Dir { North, South }

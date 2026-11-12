@@ -55,12 +55,11 @@ import Support::EvalHash::compute_hash
 /// # Process-wide keyword spellings
 
 /// The keyword spellings both consumers below walk, computed once for the
-/// process (perf pass). Both lists come from clang's own
-/// tables and nothing else, so they still cannot drift from what clang
-/// rejects; they used to be recomputed per call (is_cxx_keyword: every
-/// token kind's getKeywordSpelling and a strlen, per module-path segment,
-/// a fifth of the registry's IR generation) and per file
-/// (CxxKeywordSet::build: a LangOptions and an IdentifierTable each).
+/// process. Both lists come from clang's own tables and nothing
+/// else, so they cannot drift from what clang rejects. Recomputing them per
+/// call (every token kind's getKeywordSpelling and a strlen, per module-path
+/// segment) or per file (a LangOptions and an IdentifierTable each) would
+/// repeat that work needlessly.
 /// Filled during static initialization, before main and before any worker
 /// thread exists, and never written after, so every read is lock-free.
 class CxxKeywordSpellings {
@@ -128,7 +127,7 @@ pub class CxxKeywordSet {
         // A user name is rejected here (SC004E) only if C++ would reject it,
         // so each spelling is also asked whether it is a keyword under the
         // newest GNU C++ mode, the widest C++ the emitted code may be built
-        // as. Without that, `var out` and `out: *T` were errors though
+        // as. Without that, `var out` and `out: *T` would be errors though
         // `int out;` is valid C++.
         // The spelling list is clang's, filtered once for the process
         // (CxxKeywordSpellings, which says how).
@@ -217,7 +216,7 @@ pub fn is_cxx_keyword(const s: string) -> bool {
     }
 
     // One hash probe: cxx_segment runs once per qualified name's path
-    // segment, and this used to walk every token kind for it.
+    // segment.
     if _KEYWORD_SPELLINGS.any_lang.contains(kairo::sref(s)) {
         return true
     }

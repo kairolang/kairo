@@ -1361,7 +1361,7 @@ pub class FrontendAction {
                 // The same mint ranks as the parallel driver, so the registry
                 // keys its worklist the same way under either.
                 var slot = SemaSlot()
-                slot.rank = rank_base + (g as u64) + 1 << 32
+                slot.rank = group_rank(rank_base, g as u64)
                 slot.enter()
                 self._sema_group(
                     unsafe &members,
@@ -1390,7 +1390,7 @@ pub class FrontendAction {
         // Past every group: a mint from here on (codegen, the next input's
         // header indexing) goes after all of this action's Sema in the
         // worklist, as one appended then always did.
-        self._global_scope->instances()->set_floor_rank(rank_base + ngroups + 1 << 32)
+        self._global_scope->instances()->set_floor_rank(group_rank(rank_base, ngroups))
 
         if fe.print_imports {
             self._dump_overlays()
@@ -1654,7 +1654,7 @@ pub class FrontendAction {
             }
 
             var slot = SemaSlot()
-            slot.rank = rank_base + (g as u64) + 1 << 32
+            slot.rank = group_rank(rank_base, g as u64)
             slot.enter()
             self._sema_group(unsafe &members, unsafe &effects, false, false, sema_opts)
             SemaSlot::leave()
@@ -1662,7 +1662,7 @@ pub class FrontendAction {
 
         reg->relive_log = &null
         reg->relive_at  = &null
-        reg->set_floor_rank(rank_base + ngroups + 1 << 32)
+        reg->set_floor_rank(group_rank(rank_base, ngroups))
 
         // An instance's once-only reports belong to its FIRST use in the
         // order files are checked. Two ways a re-check of some files can
@@ -2799,7 +2799,7 @@ pub class FrontendAction {
         var barrier = cxx::std::vector<u8>()
         for var g: usize = 0; g < m; ++g {
             var unsafe *slot = kairo::std::create<SemaSlot>()
-            slot->rank = rank_base + (g as u64) + 1 << 32
+            slot->rank = group_rank(rank_base, g as u64)
             for var k: usize = (groups->starts[g]); k < (groups->starts[g + 1]); ++k {
                 slot->members.push_back(groups->fids[k])
             }
@@ -5014,6 +5014,14 @@ pub class PublishOnExit {
         self._d->store(true, cxx::std::memory_order_release)
         self._d->notify_all()
     }
+}
+
+/// Group \p g's instantiation rank: reserve_ranks gave the run \p base
+/// and one counter value per group above it, and the value sits in the
+/// high word. Spelled once because `base + g + 1 << 32` shifts the sum
+/// only by C's precedence. g == the group count is the run's floor.
+fn group_rank(base: u64, g: u64) -> u64 {
+    return (base + g + 1) << 32
 }
 
 /// The registry's ordering key for the calling thread, narrowed to

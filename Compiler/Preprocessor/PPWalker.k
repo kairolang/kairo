@@ -40,6 +40,10 @@ import AST::Node::Declarations::{
     MacroDecl,
     MacroParamSpec,
 }
+import AST::Node::Statements::{
+    FFILang,
+    ffi_lang_of_literal,
+}
 import Config::Invocation::CompilerInvocation
 import Config::Preprocessor::PreprocessorOptions
 import Diagnostic::Code::DiagCode
@@ -939,12 +943,13 @@ pub class PPWalker
         return id
     }
 
-    /// `"c"` -> C, anything else -> Cpp. The parser owns the real
-    /// classification and its diagnostic; the PP only needs enough to make
+    /// C when the parser's table (Statements::ffi_lang_of) says C, so
+    /// `ffi "C"` is C here too; anything else -> Cpp. The parser owns the
+    /// classification's diagnostic; the PP only needs enough to make
     /// has_ffi_linkage() true and to carry the language to codegen.
     priv fn _ffi_lang_kind(self, lang_tok: Token) -> LinkageKind {
         var s = *TokenText::resolve(lang_tok, self._tcm).get_text()
-        if s == "\"c\"" || s == "c" {
+        if ffi_lang_of_literal(s) == FFILang::C {
             return LinkageKind::C
         }
 

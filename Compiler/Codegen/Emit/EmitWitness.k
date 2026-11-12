@@ -470,7 +470,7 @@ pub class EmitWitness {
         var x = self._spell->_type(p->row->conformer)
         self._cg->sink->spell(
             self._at(p),
-            "template <> struct hash<" + x + "> { decltype(sizeof(0)) operator()(const " + x + " & v) const noexcept; };",
+            "template <> struct " + LowerTargets::cxx_std_hash_leaf() + "<" + x + "> { " + LowerTargets::cxx_size_t() + " operator()(const " + x + " & v) const noexcept; };",
         )
     }
 
@@ -481,7 +481,7 @@ pub class EmitWitness {
         var w = self._spell->witness_name(p->iface) + self._spell->witness_args(x, p->row->iface)
         self._cg->sink->spell(
             self._at(p),
-            "inline decltype(sizeof(0)) hash<" + x + ">::operator()(const " + x + " & v) const noexcept { return " + w + "::hash(&v); }",
+            "inline " + LowerTargets::cxx_size_t() + " " + LowerTargets::cxx_std_hash_leaf() + "<" + x + ">::operator()(const " + x + " & v) const noexcept { return " + w + "::hash(&v); }",
         )
 
         self._cg->sink->brk()
@@ -849,10 +849,10 @@ pub class EmitWitness {
             // imported C++ type's is `std::hash<X>`.
             if !m->is_operator {
                 if ptr {
-                    return "reinterpret_cast<decltype(sizeof(0))>(*" + LowerTargets::witness_receiver_name() + ")"
+                    return "reinterpret_cast<" + LowerTargets::cxx_size_t() + ">(*" + LowerTargets::witness_receiver_name() + ")"
                 }
 
-                return "static_cast<decltype(sizeof(0))>(::std::hash<" + x + ">{}(*" + LowerTargets::witness_receiver_name() + "))"
+                return "static_cast<" + LowerTargets::cxx_size_t() + ">(" + LowerTargets::cxx_std_hash() + "<" + x + ">{}(*" + LowerTargets::witness_receiver_name() + "))"
             }
 
             if m->op_token.size() != 1 || m->op_token[0].kind != TokenKind::OpEqualEqual {

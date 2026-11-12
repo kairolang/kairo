@@ -74,7 +74,11 @@ import AST::DeclFacts::{
 }
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::TypeKind::TypeKind
-import AST::LangItems::WellKnownType
+import AST::LangItems::{
+    AllocNames,
+    GlobalAllocFn,
+    WellKnownType,
+}
 import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::{
     Decl,
@@ -283,11 +287,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         var names = cxx::std::vector<string>()
-        names.push_back("alloc")
-        names.push_back("free")
-        names.push_back("resize")
-        names.push_back("realloc")
-        names.push_back("alloc_zeroed")
+        for var k: usize = 0; k < (GlobalAllocFn::COUNT as u8 as usize); ++k {
+            names.push_back(AllocNames::global_alloc_member((k as u8) as GlobalAllocFn))
+        }
+
         var unsafe *imms = self.sc->ctx->get_imm_table()
         if imms == &null {
             return

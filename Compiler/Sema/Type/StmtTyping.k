@@ -804,7 +804,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         self.dyn()->sc->diag->report(
             DiagID::SC044E,
             f->range.start,
-            f"'{self.dyn()->tu.decl_name((unsafe (f as unsafe *Decl)))}' returns an array; an array is not returned by value, return '[T]' or fill an '@inout' parameter",
+            f"'{self.dyn()->tu.decl_name((unsafe (f as unsafe *Decl)))}' returns an array; an array is not returned by value, return '[T]' or fill an {LangAttrs::quoted(LangAttrs::param_inout())} parameter",
         ).first(f->name.range)->emit()
     }
 
@@ -881,7 +881,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             self.dyn()->sc->diag->report(
                 DiagID::SC045E,
                 p->range.start,
-                f"parameter '{self.dyn()->tu.param_name(p)}' takes an array by value; write 'const', '@inout', or take a slice",
+                f"parameter '{self.dyn()->tu.param_name(p)}' takes an array by value; write 'const', {LangAttrs::quoted(LangAttrs::param_inout())}, or take a slice",
             ).first(p->range)->emit()
         }
 
@@ -1022,14 +1022,14 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             var b = self.dyn()->sc->diag->report(
                 DiagID::SC267E,
                 n->range.start,
-                f"'{nm}' is marked both '@unwind' and '@no_unwind'",
+                f"'{nm}' is marked both {LangAttrs::quoted(LangAttrs::unwind())} and {LangAttrs::quoted(LangAttrs::no_unwind())}",
             )
 
             b.first(n->range)
             b.note(
                 DiagCode(DiagID::SC267N),
                 no_at->range.start,
-                "'@no_unwind' is here; it wins: the function is 'noexcept'",
+                LangAttrs::quoted(LangAttrs::no_unwind()) + " is here; it wins: the function is 'noexcept'",
             )->first(no_at->range)
             b.emit()
         }

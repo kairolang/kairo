@@ -983,7 +983,7 @@ pub class <T: type> ExprParse {
             var b = self.dyn()->diag->report(
                 DiagID::S069E,
                 r.start,
-                "'@inout' and '@move' are parameter passing modes; a mode can only be written on a function or closure parameter, and a call passes '&x' to an '@inout' parameter and 'x' to a '@move' one",
+                f"{LangAttrs::quoted(LangAttrs::param_inout())} and {LangAttrs::quoted(LangAttrs::param_move())} are parameter passing modes; a mode can only be written on a function or closure parameter, and a call passes '&x' to an {LangAttrs::quoted(LangAttrs::param_inout())} parameter and 'x' to a {LangAttrs::quoted(LangAttrs::param_move())} one",
             )
 
             b.first(r)
@@ -1175,7 +1175,7 @@ pub class <T: type> ExprParse {
             self.dyn()->diag->report(
                 DiagID::S046E,
                 head.start,
-                "expected 'new' or 'delete' after '@cxx::'; '@cxx::new' and '@cxx::delete' are C++'s own allocation",
+                f"expected 'new' or 'delete' after '{LangAttrs::cxx_scope_form()}'; '{LangAttrs::cxx_new_form()}' and '{LangAttrs::cxx_delete_form()}' are C++'s own allocation",
             ).first(head)->emit()
             return Expressions::CxxNewExpr::create_error(self.dyn()->ctx, head)
         }
@@ -1191,7 +1191,7 @@ pub class <T: type> ExprParse {
                 self.dyn()->diag->report(
                     DiagID::S053E,
                     lsq.start,
-                    "expected the element type after '@cxx::new ['; the array form is '@cxx::new [T; n]'",
+                    f"expected the element type after '{LangAttrs::cxx_new_form()} ['; the array form is '{LangAttrs::cxx_new_form()} [T; n]'",
                 ).first(head | lsq)->emit()
                 return Expressions::CxxNewExpr::create_error(self.dyn()->ctx, head)
             }
@@ -1200,7 +1200,7 @@ pub class <T: type> ExprParse {
                 self.dyn()->diag->report(
                     DiagID::S054E,
                     ty->range.start,
-                    "expected ';' and the element count after the type; the array form is '@cxx::new [T; n]'",
+                    f"expected ';' and the element count after the type; the array form is '{LangAttrs::cxx_new_form()} [T; n]'",
                 ).first(ty->range)->emit()
                 return Expressions::CxxNewExpr::create_error(self.dyn()->ctx, head | ty->range)
             }
@@ -1211,7 +1211,7 @@ pub class <T: type> ExprParse {
                 self.dyn()->diag->report(
                     DiagID::S052E,
                     head.start,
-                    "expected the element count in '@cxx::new [T; n]'",
+                    f"expected the element count in '{LangAttrs::cxx_new_form()} [T; n]'",
                 ).first(head)->emit()
                 return Expressions::CxxNewExpr::create_error(self.dyn()->ctx, head)
             }
@@ -1224,7 +1224,7 @@ pub class <T: type> ExprParse {
                 self.dyn()->diag->report(
                     DiagID::S054E,
                     lsq.start,
-                    "expected ']' to close '@cxx::new [T; n]'",
+                    f"expected ']' to close '{LangAttrs::cxx_new_form()} [T; n]'",
                 ).first(lsq)->emit()
             }
 
@@ -1238,7 +1238,7 @@ pub class <T: type> ExprParse {
             self.dyn()->diag->report(
                 DiagID::S052E,
                 head.start,
-                "expected a construction after '@cxx::new': '@cxx::new T(args)', or '@cxx::new [T; n]' for an array",
+                f"expected a construction after '{LangAttrs::cxx_new_form()}': '{LangAttrs::cxx_new_form()} T(args)', or '{LangAttrs::cxx_new_form()} [T; n]' for an array",
             ).first(if (init != &null) => (head | init->range) else => head)->emit()
             return Expressions::CxxNewExpr::create_error(
                 self.dyn()->ctx,
@@ -1494,12 +1494,12 @@ pub class <T: type> ExprParse {
             self.dyn()->advance()
             var arr = self.dyn()->check(TokenKind::OpLSquare)
             var b = self.dyn()->diag->report(DiagID::S091E, kw_range.start,
-                (if (arr) => ("Kairo has no 'delete' expression; memory from C++'s 'new T[n]' is freed with '@cxx::delete [] p'") else => "Kairo has no 'delete' expression; '@destroy p' runs the destructor and frees the memory through the allocator that '@create' took it from"))
+                (if (arr) => (f"Kairo has no 'delete' expression; memory from C++'s 'new T[n]' is freed with '{LangAttrs::cxx_delete_form()} [] p'") else => f"Kairo has no 'delete' expression; '{LangAttrs::at(LangAttrs::destroy())} p' runs the destructor and frees the memory through the allocator that {LangAttrs::quoted(LangAttrs::create())} took it from"))
             b.first(kw_range)
             if arr {
-                b.fix(kw_range, "@cxx::delete", "free C++ array memory with C++'s delete[]")
+                b.fix(kw_range, LangAttrs::cxx_delete_form(), "free C++ array memory with C++'s delete[]")
             } else {
-                b.fix(kw_range, "@destroy", "write '@destroy'")
+                b.fix(kw_range, LangAttrs::at(LangAttrs::destroy()), "write " + LangAttrs::quoted(LangAttrs::destroy()))
             }
 
             b.emit()

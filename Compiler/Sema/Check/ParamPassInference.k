@@ -142,6 +142,7 @@ import AST::DeclFacts::{
     param_is_type_pack,
 }
 import AST::Kind::TypeKind::TypeKind
+import AST::LangItems::LangAttrs
 import AST::Mixin::FFILinkage::LinkageKind
 import AST::Node::Base::{
     Decl,
@@ -688,7 +689,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
                 var b = self.sc->diag->report(
                     DiagID::SC274W,
                     p->name.range.start,
-                    f"'@inout' parameter '{nm}' is never mutated; declare it 'const'",
+                    f"{LangAttrs::quoted(LangAttrs::param_inout())} parameter '{nm}' is never mutated; declare it 'const'",
                 )
 
                 b.first(p->name.range)

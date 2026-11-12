@@ -19,6 +19,7 @@
 
 ffi "c++" import "clang/Basic/TokenKinds.h"
 
+import AST::LangItems::LowerTargets
 import Codegen::Sink::EmitSink::EmitSink
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
@@ -90,14 +91,14 @@ pub class TextSink derives EmitSink {
     priv var _pl_rec:   [usize]      ///< the record whose text claimed this physical line, else usize::MAX
     priv var _drop:     [bool]       ///< a record of a definition the header leaves out (_mark_drops_)
 
-    /// Out-of-line function definitions (P882): left out because their
+    /// Out-of-line function definitions: left out because their
     /// declaration holds their line, or kept because C++ in the including
     /// file may need the body (constexpr, consteval, a deduced type, an
     /// explicit specialization, internal linkage).
     pub var bodies_dropped: usize = 0
     pub var bodies_needed:  usize = 0
 
-    /// Doc comments carried into a layout header (P876): above their
+    /// Doc comments carried into a layout header: above their
     /// declaration on the .k file's own lines, on the forward declaration in
     /// the prelude when those lines are taken (classes only), or dropped.
     pub var docs_placed:  usize = 0
@@ -215,7 +216,7 @@ pub class TextSink derives EmitSink {
             // Not an enum the compiler mints (an ADT's `__kairo_Tag`): its
             // variants share the Kairo lines of the factories C++ calls.
             var head    = TextSink::_trim_(self._line)
-            var is_enum = self.layout && head.starts_with("enum class ") && (!head.starts_with("enum class __kairo"))
+            var is_enum = self.layout && head.starts_with("enum class ") && (!head.starts_with("enum class " + LowerTargets::reserved_stem()))
             self._depth += 1
             if is_enum {
                 self._enum_at = self._depth
@@ -411,7 +412,7 @@ pub class TextSink derives EmitSink {
     /// it spells, a specialization, alias or variable whose name it spells,
     /// or any other namespace-scope declaration, is a barrier). Text that
     /// claims no line: forward declarations whose definition then has it,
-    /// and what declares a name the compiler mints (P882). Text left out:
+    /// and what declares a name the compiler mints. Text left out:
     /// an out-of-line function definition whose declaration holds its line,
     /// when C++ cannot need its body (_mark_drops_).
     pub fn finish_layout(self, const include_line: string) -> string {
@@ -497,7 +498,7 @@ pub class TextSink derives EmitSink {
                 // A record the compiler names (`__kairo_ext_T`, an extend
                 // block's) is never what clangd is asked about: its line
                 // stays free even then, for whatever the block declares.
-                var minted = TextSink::_has_(self._rec_text[q], " __kairo")
+                var minted = TextSink::_has_(self._rec_text[q], " " + LowerTargets::reserved_stem())
                 if self._skip_fwd[q] && (!minted) && ((at > self._pl_decl.size()) || (self._pl_decl[at - 1] != at)) {
                     self._skip_fwd[q] = false
                     changed = true
@@ -636,7 +637,7 @@ pub class TextSink derives EmitSink {
             if (!minted) && (!self._rec_dir[r]) && (c_kind[r] == 0) && TextSink::_invented_(TextSink::_trim_(self._rec_text[r])) {
                 minted = true
                 // An extend block's struct holds the block's own functions.
-                var ext = TextSink::_has_(self._rec_text[r], "__kairo_ext_")
+                var ext = TextSink::_has_(self._rec_text[r], LowerTargets::ext_scope_prefix())
                 if (!ext) && TextSink::_trim_(self._rec_text[r]).ends_with("{") && (self._rec_depth[r] > starts_at) {
                     inv_depth = self._rec_depth[r]
                 }
@@ -785,7 +786,7 @@ pub class TextSink derives EmitSink {
     }
 
     /// Out-of-line function definitions the header leaves out, from the
-    /// placement just made; true if any (P882). The emitter writes inline
+    /// placement just made; true if any. The emitter writes inline
     /// and template bodies after every class, where clangd's go-to-definition
     /// then lands, though their declarations hold their Kairo lines. A body
     /// clangd does not need goes, so the jump falls back to the declaration.
@@ -1271,7 +1272,7 @@ pub class TextSink derives EmitSink {
     }
 
     /// Puts each placed declaration's doc comment on the lines it has in
-    /// the .k file, directly above the declaration (P876). Only where every
+    /// the .k file, directly above the declaration. Only where every
     /// one of those lines is empty in the header: nothing is ever moved to
     /// make room. clangd attaches a comment to the next declaration only
     /// across whitespace (no `;{}#`), so a declaration line that opens with
@@ -1414,10 +1415,10 @@ pub class TextSink derives EmitSink {
         }
 
         if at != 0 {
-            return u.subslice(at, u.size() - at).starts_with("__kairo")
+            return u.subslice(at, u.size() - at).starts_with(LowerTargets::reserved_stem())
         }
 
-        if u.starts_with("__kairo") {
+        if u.starts_with(LowerTargets::reserved_stem()) {
             return true
         }
 
@@ -1439,10 +1440,10 @@ pub class TextSink derives EmitSink {
                 b -= 1
             }
 
-            return u.subslice(b, e - b).starts_with("__kairo")
+            return u.subslice(b, e - b).starts_with(LowerTargets::reserved_stem())
         }
 
-        return TextSink::_var_name_(u).starts_with("__kairo")
+        return TextSink::_var_name_(u).starts_with(LowerTargets::reserved_stem())
     }
 
     /// A forward declaration (`struct S;`, `enum class E : int;`,

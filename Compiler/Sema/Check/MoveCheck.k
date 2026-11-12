@@ -92,6 +92,7 @@ import AST::ASTSupport::FrozenList
 import AST::DeclFacts::decl_is_imported
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::StmtKind::StmtKind
+import AST::LangItems::LangAttrs
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -1416,7 +1417,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var borrows = rref || p != &null && (p->is_const || p->is_pack)
         self._transfer_checked(
             e,
-            if (rref) => ("into a '@move' parameter") else => "into a by-value parameter",
+            if (rref) => ("into a " + LangAttrs::quoted(LangAttrs::param_move()) + " parameter") else => "into a by-value parameter",
             !borrows,
         )
     }
@@ -1591,7 +1592,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
-        self._mark(e, "into a '@move' parameter")
+        self._mark(e, "into a " + LangAttrs::quoted(LangAttrs::param_move()) + " parameter")
     }
 
     /// A transfer of \p e (passed by value, initialized from, assigned,

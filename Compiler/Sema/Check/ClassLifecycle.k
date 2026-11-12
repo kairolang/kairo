@@ -185,6 +185,7 @@ import AST::DeclFacts::{
     decl_is_instance,
 }
 import AST::Kind::TypeKind::TypeKind
+import AST::LangItems::LangAttrs
 import AST::Mixin::FFILinkage::ForeignLayout
 import AST::Node::Base::{
     Decl,
@@ -1426,7 +1427,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
             // Marked: `other` is written bare, so the marker is the only
             // thing that decides the C++ shape.
-            var marker = if (m->transfer == TransferKind::Copy) => ("@copy") else => "@move"
+            var marker = if (m->transfer == TransferKind::Copy) => (LangAttrs::at(LangAttrs::transfer_copy())) else => LangAttrs::at(LangAttrs::transfer_move())
             if p->mode != ParamMode::Value || p->default_val != &null || tail {
                 var b = self.sc->diag->report(
                     DiagID::SC110E,
@@ -1479,12 +1480,12 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         var b = self.sc->diag->report(
             DiagID::SC110E,
             m->range.start,
-            f"a constructor taking 'Self' first is a transfer constructor; declare it '@copy fn {dn}(self, const other: Self)' or '@move fn {dn}(self, other: Self)'",
+            f"a constructor taking 'Self' first is a transfer constructor; declare it '{LangAttrs::at(LangAttrs::transfer_copy())} fn {dn}(self, const other: Self)' or '{LangAttrs::at(LangAttrs::transfer_move())} fn {dn}(self, other: Self)'",
         )
 
         b.first(m->range)
         if p->mode != ParamMode::Value {
-            var mw = if (p->mode == ParamMode::Move) => ("@move") else => "@inout"
+            var mw = if (p->mode == ParamMode::Move) => (LangAttrs::at(LangAttrs::param_move())) else => LangAttrs::at(LangAttrs::param_inout())
             b.note(
                 p->mode_range.start,
                 f"'{mw}' on the parameter is not a transfer constructor",
@@ -1557,7 +1558,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         //    without `const` on `other` would otherwise merge as one member,
         //    since top-level const is not in a signature.
         if dup != &null {
-            var marker = if (dup->transfer == TransferKind::Copy) => ("@copy") else => "@move"
+            var marker = if (dup->transfer == TransferKind::Copy) => (LangAttrs::at(LangAttrs::transfer_copy())) else => LangAttrs::at(LangAttrs::transfer_move())
             self.sc->diag->report(
                 DiagID::SC057E,
                 dup->range.start,
@@ -1575,7 +1576,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             self.sc->diag->report(
                 DiagID::SC057E,
                 move_ctor->range.start,
-                f"'{dn}' declares both a '@copy' and a '@move' transfer constructor; pick one " + "(both may be '= delete' together, which makes the class non-transferable)",
+                f"'{dn}' declares both a {LangAttrs::quoted(LangAttrs::transfer_copy())} and a {LangAttrs::quoted(LangAttrs::transfer_move())} transfer constructor; pick one " + "(both may be '= delete' together, which makes the class non-transferable)",
             ).first(move_ctor->range)->note(
                 copy_ctor->range.start,
                 "the other transfer constructor is here",
@@ -1633,13 +1634,13 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             self.sc->diag->report(
                 DiagID::SC060W,
                 dtor->range.start,
-                f"'{dn}' has a custom destructor but no '@copy' or '@move' transfer constructor; it is implicitly copyable",
+                f"'{dn}' has a custom destructor but no {LangAttrs::quoted(LangAttrs::transfer_copy())} or {LangAttrs::quoted(LangAttrs::transfer_move())} transfer constructor; it is implicitly copyable",
             ).first(dtor->range)->note(
                 dtor->range.start,
-                f"declare it move-only: '@move fn {dn}(self, other: Self) = default'",
+                f"declare it move-only: '{LangAttrs::at(LangAttrs::transfer_move())} fn {dn}(self, other: Self) = default'",
             )->note(
                 dtor->range.start,
-                f"or make it non-transferable: '@copy fn {dn}(self, const other: Self) = delete'",
+                f"or make it non-transferable: '{LangAttrs::at(LangAttrs::transfer_copy())} fn {dn}(self, const other: Self) = delete'",
             )->emit()
         }
 
@@ -1816,13 +1817,13 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
     priv fn _cat_word(self, c: LifecycleCategory) -> string {
         match c {
             case LifecycleCategory::Move {
-                return "move-only (@move)"
+                return "move-only (" + LangAttrs::at(LangAttrs::transfer_move()) + ")"
             } case LifecycleCategory::NonTransfer {
                 return "non-transferable (deleted transfer)"
             } case LifecycleCategory::Unknown {
                 return "undecided until instantiation"
             } default {
-                return "copyable (@copy)"
+                return "copyable (" + LangAttrs::at(LangAttrs::transfer_copy()) + ")"
             }
         }
     }

@@ -125,6 +125,7 @@ ffi "c++" import "vector"
 import AST::Context::DeclContext::DeclContextKind
 import AST::Context::SymbolTable::OverloadCell
 import AST::Kind::StmtKind::StmtKind
+import AST::LangItems::LangAttrs
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -3682,7 +3683,7 @@ pub class NullnessFlow {
                 n.msg = f"'{nm}' may be changed in the loop here, so it may be null at the top of the loop"
                 return n
             } case NullWhy::Inout {
-                n.msg = f"this '@inout' argument lets the call change '{nm}'"
+                n.msg = f"this {LangAttrs::quoted(LangAttrs::param_inout())} argument lets the call change '{nm}'"
                 return n
             } case NullWhy::MutSelf {
                 n.msg = f"this call takes what holds '{nm}' as a mutable 'self', so it may change '{nm}'"

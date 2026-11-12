@@ -53,6 +53,7 @@ import AST::Kind::PatternKind::{
     to_string,
 }
 import AST::LangItems::{
+    LangAttrs,
     WellKnownType,
     to_string,
 }
@@ -2064,7 +2065,7 @@ pub class <T: type> ControlTyping {
                 self.dyn()->fail(
                     n,
                     DiagID::SC090E,
-                    f"the count of '@cxx::new [T; n]' is an integer, not '{self.dyn()->tu.str(ct)}'",
+                    f"the count of '{LangAttrs::at(LangAttrs::cxx_mem())}::{LangAttrs::cxx_new()} [T; n]' is an integer, not '{self.dyn()->tu.str(ct)}'",
                 )
 
                 return &null

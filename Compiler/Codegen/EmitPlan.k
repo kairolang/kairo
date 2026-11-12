@@ -2543,7 +2543,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         }
 
         var sp = DeclFacts::decl_cxx_spelling(prim)
-        if sp != "::std::hash" && sp != "std::hash" {
+        if !LowerTargets::is_cxx_std_hash(sp) {
             return
         }
 
@@ -2601,7 +2601,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         // Keyed with usize / isize folded, as a row's specialization is: one
         // C++ class per C++ type.
         self._spell.fold_sizes = true
-        var key = "::std::hash<" + self._spell._type(row->conformer) + ">"
+        var key = LowerTargets::cxx_std_hash() + "<" + self._spell._type(row->conformer) + ">"
         self._spell.fold_sizes = false
         for var i: usize = 0; i < self._witnesses.size(); ++i {
             if self._witnesses[i].std_hash && self._witnesses[i].key == key {

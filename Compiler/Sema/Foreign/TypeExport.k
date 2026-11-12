@@ -751,7 +751,7 @@ pub class TypeExport {
             return clang::QualType()
         }
 
-        var        leaf = "__kairo_opaque_blank"
+        var        leaf = LowerTargets::opaque_blank()
         var unsafe *tu  = unsafe (self.cctx->getTranslationUnitDecl() as unsafe *clang::DeclContext)
         var unsafe *lii = self._ident(leaf)
         var        res  = tu->lookup(clang::DeclarationName(lii))
@@ -836,7 +836,7 @@ pub class TypeExport {
             return clang::QualType()
         }
 
-        var        leaf = f"__kairo_opaque_s{size}_a{align}"
+        var        leaf = LowerTargets::opaque_record(size, align)
         var unsafe *tu  = unsafe (self.cctx->getTranslationUnitDecl() as unsafe *clang::DeclContext)
         var unsafe *lii = self._ident(leaf)
         var        res  = tu->lookup(clang::DeclarationName(lii))
@@ -2197,7 +2197,7 @@ pub class TypeExport {
             tu,
             loc,
             loc,
-            self._ident("__kairo_layout_twin"),
+            self._ident(LowerTargets::layout_twin()),
             &null,
         )
 
@@ -2297,7 +2297,7 @@ pub class TypeExport {
             &*self.cctx,
             rd,
             loc,
-            clang::DeclarationNameInfo(clang::DeclarationName(self._ident("__kairo_layout_vf")), loc),
+            clang::DeclarationNameInfo(clang::DeclarationName(self._ident(LowerTargets::layout_vf())), loc),
             ft,
             self.cctx->getTrivialTypeSourceInfo(ft, loc),
             clang::SC_None,

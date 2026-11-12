@@ -285,7 +285,7 @@ pub class Type derives TypeQual<Type>, Annotation<Type> { // all types have qual
         /// binds them must reach it (`P` read through `L<i32>` is
         /// `L<i32>::P`, RecordType::outer) although nothing in it is a
         /// parameter. Not dependence: the type is checked as written in
-        /// the owner's body, as it always was. Propagates up like the rest.
+        /// the owner's body. Propagates up like the rest.
         InGenericOwner = 1 << 4,
     }
 

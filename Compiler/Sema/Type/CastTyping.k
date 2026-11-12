@@ -65,6 +65,7 @@ ffi "c++" import "vector"
 
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::decl_generic_params
+import AST::LangItems::LangAttrs
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -923,7 +924,7 @@ pub class <T: type> CastTyping {
         )
 
         if !self.dyn()->tu.is_foreign(d) {
-            b.insert(en->range.start, "@open ", f"declare '{nm}' '@open' to let it hold any '{u}'")
+            b.insert(en->range.start, LangAttrs::at(LangAttrs::open_enum()) + " ", f"declare '{nm}' {LangAttrs::quoted(LangAttrs::open_enum())} to let it hold any '{u}'")
         }
 
         b.emit()

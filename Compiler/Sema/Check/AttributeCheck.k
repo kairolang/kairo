@@ -352,7 +352,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     /// names nothing knows. True when \p e was one of them (reported).
     priv fn _reserved_or_unknown(self, e: unsafe *AnnotationEntry, const nm: string) -> bool {
         if nm == LangAttrs::unreachable() {
-            self._unsupported(e, "'@unreachable' is not yet supported")
+            self._unsupported(e, LangAttrs::quoted(LangAttrs::unreachable()) + " is not yet supported")
             return true
         }
 
@@ -455,7 +455,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             self._bad_arg(
                 e,
                 e->range,
-                "'@no_warn' expects one or more warning codes, such as '@no_warn(SC031W)'",
+                f"{LangAttrs::quoted(LangAttrs::no_warn())} expects one or more warning codes, such as '{LangAttrs::at(LangAttrs::no_warn())}(SC031W)'",
             )
 
             return
@@ -470,7 +470,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             }
 
             var at = if (a != &null) => (a->range) else => e->range
-            self._bad_arg(e, at, "'@no_warn' " + why)
+            self._bad_arg(e, at, LangAttrs::quoted(LangAttrs::no_warn()) + " " + why)
         }
     }
 
@@ -490,7 +490,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         self._bad_arg(
             e,
             at,
-            "'@align' expects one integer literal that is a power of two, at most 268435456: '@align(16)'",
+            f"{LangAttrs::quoted(LangAttrs::align())} expects one integer literal that is a power of two, at most 268435456: '{LangAttrs::at(LangAttrs::align())}(16)'",
         )
     }
 
@@ -509,7 +509,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         }
 
         var at = if (a != &null) => (a->range) else => e->range
-        self._bad_arg(e, at, "'@deprecated' takes no argument or one string literal, the message")
+        self._bad_arg(e, at, LangAttrs::quoted(LangAttrs::deprecated()) + " takes no argument or one string literal, the message")
     }
 
     /// # positions
@@ -594,7 +594,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             self._misplaced(
                 e,
                 nm,
-                "is a statement of its own: '@assume(cond)'",
+                f"is a statement of its own: '{LangAttrs::at(LangAttrs::assume())}(cond)'",
                 d->range,
                 "declaration",
             )
@@ -616,7 +616,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             }
 
             if e->args.size() != 0 {
-                self._bad_arg(e, e->range, "'@packed' takes no arguments")
+                self._bad_arg(e, e->range, LangAttrs::quoted(LangAttrs::packed()) + " takes no arguments")
             }
 
             return

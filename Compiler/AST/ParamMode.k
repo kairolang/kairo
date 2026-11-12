@@ -43,6 +43,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import AST::LangItems::LangAttrs
+
 pub enum ParamMode derives u8 {
     Value = 0, ///< `x: T` / `const x: T`. The zero value: ASTContext::alloc's memset is a correct default.
     Inout, ///< `@inout x: T`.
@@ -54,9 +56,9 @@ pub enum ParamMode derives u8 {
 pub fn param_mode_prefix(m: ParamMode) -> string {
     match m {
         case ParamMode::Inout {
-            return "@inout "
+            return LangAttrs::at(LangAttrs::param_inout()) + " "
         } case ParamMode::Move {
-            return "@move "
+            return LangAttrs::at(LangAttrs::param_move()) + " "
         } default {
             return ""
         }
@@ -67,9 +69,9 @@ pub fn param_mode_prefix(m: ParamMode) -> string {
 pub fn param_mode_name(m: ParamMode) -> string {
     match m {
         case ParamMode::Inout {
-            return "@inout"
+            return LangAttrs::at(LangAttrs::param_inout())
         } case ParamMode::Move {
-            return "@move"
+            return LangAttrs::at(LangAttrs::param_move())
         } default {
             return "by value"
         }

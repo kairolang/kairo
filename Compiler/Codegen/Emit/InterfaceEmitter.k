@@ -101,8 +101,11 @@ import AST::EnumNiche::{
 import AST::Kind::DeclKind::DeclKind
 import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::{
+    ABORT_EXIT_CODE,
+    GlobalAllocFn,
     LangMembers,
     LowerTargets,
+    cxx_std_name,
     entry_point_name,
     fmt_put_name,
     format_kind_of,
@@ -4812,7 +4815,7 @@ pub class InterfaceEmitter {
         }
 
         var unsafe *d    = unsafe (en as unsafe *Decl)
-        var        mk    = "__kairo_mk"
+        var        mk    = LowerTargets::adt_factory_param()
         var        nx    = self._adt_noexcept()
         var        vt    = "::" + LowerTargets::adt_variant_tag()
         var        names = self._adt_factory_names(en, lay, nm, mk)
@@ -4931,15 +4934,15 @@ pub class InterfaceEmitter {
             return
         }
 
-        var z   = "decltype(sizeof(0))"
-        var av  = "::std::align_val_t"
-        var nt  = "const ::std::nothrow_t&"
-        var x   = "__attribute__((exclude_from_explicit_instantiation)) static "
+        var z   = LowerTargets::cxx_size_t()
+        var av  = "::" + cxx_std_name() + "::" + LowerTargets::cxx_align_val_t()
+        var nt  = "const ::" + cxx_std_name() + "::" + LowerTargets::cxx_nothrow_t() + "&"
+        var x   = LowerTargets::attr_exclude_from_instantiation() + "static "
         var got = "::" + LowerTargets::cxx_alloc_got()
         // The allocator: always the program's global one. A class cannot
         // declare its own (SC149E), so there is nothing to route to.
-        var alloc_fn = "::kairo_global_alloc"
-        var free_fn  = "::kairo_global_free"
+        var alloc_fn = "::" + LowerTargets::global_alloc_symbol(GlobalAllocFn::Alloc)
+        var free_fn  = "::" + LowerTargets::global_alloc_symbol(GlobalAllocFn::Free)
         var one      = "alignof(" + nm + ")"
         var arr = "(alignof(" + nm + ") > 2 * sizeof(void*) ? alignof(" + nm + ") : 2 * sizeof(void*))"
         var forms: cxx::std::vector<string>
@@ -4992,7 +4995,7 @@ pub class InterfaceEmitter {
     /// ones), and the null test the throwing forms share.
     priv fn _cxx_alloc_helpers(self, header: bool) {
         var at = self._tu_at()
-        var z  = "decltype(sizeof(0))"
+        var z  = LowerTargets::cxx_size_t()
         if header {
             self._cg->sink->directive(at, "#ifndef " + LowerTargets::cxx_alloc_guard())
         }
@@ -5003,32 +5006,34 @@ pub class InterfaceEmitter {
 
         self._cg->sink->spell(
             at,
-            "namespace std { enum class align_val_t : " + z + "; struct nothrow_t; }",
+            "namespace " + cxx_std_name() + " { enum class " + LowerTargets::cxx_align_val_t() + " : " + z + "; struct " + LowerTargets::cxx_nothrow_t() + "; }",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            "extern \"C\" unsigned char* kairo_global_alloc(" + z + " size, " + z + " align) noexcept;",
+            "extern \"C\" unsigned char* " + LowerTargets::global_alloc_symbol(GlobalAllocFn::Alloc) + "(" + z + " size, " + z + " align) noexcept;",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            "extern \"C\" void kairo_global_free(unsigned char* ptr, " + z + " size, " + z + " align) noexcept;",
+            "extern \"C\" void " + LowerTargets::global_alloc_symbol(GlobalAllocFn::Free) + "(unsigned char* ptr, " + z + " size, " + z + " align) noexcept;",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            "extern \"C\" __attribute__((noreturn)) void kairo_rt_crash_exit(const unsigned char* msg, " + z + " len, int code) noexcept;",
+            "extern \"C\" __attribute__((noreturn)) void " + LowerTargets::rt_crash_exit() + "(const unsigned char* msg, " + z + " len, int code) noexcept;",
         )
 
         self._cg->sink->brk()
         // The default OOM hook's message and status (alloc_raw.k default_oom).
+        // The message has no byte a C string literal must escape.
+        var oom = LowerTargets::oom_message()
         self._cg->sink->spell(
             at,
-            "inline void* " + LowerTargets::cxx_alloc_got() + "(unsigned char* p, bool nothrow) noexcept { " + "if (__builtin_expect(p == nullptr, 0) && !nothrow) ::kairo_rt_crash_exit(reinterpret_cast<const unsigned char*>(\"kairo: out of memory\"), 20, 134); " + "return p; }",
+            "inline void* " + LowerTargets::cxx_alloc_got() + "(unsigned char* p, bool nothrow) noexcept { " + "if (" + LowerTargets::clang_expect() + "(p == nullptr, 0) && !nothrow) ::" + LowerTargets::rt_crash_exit() + "(reinterpret_cast<const unsigned char*>(\"" + oom + "\"), " + f"{oom.size()}" + ", " + f"{ABORT_EXIT_CODE}" + "); " + "return p; }",
         )
 
         self._cg->sink->brk()

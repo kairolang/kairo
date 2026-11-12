@@ -55,6 +55,73 @@ import API::LinkDiag::{
 }
 import API::LinkJob::LinkJob
 
+// --- The record's payload --------------------------------------------------
+// One definition for the writer (the compiler's EmitIR::_abi_note) and the
+// reader (_scan). It lives here because the Compiler imports Linker::API,
+// never the reverse. The section and symbol names are not here: the reader
+// scans bytes and never needs them (LowerTargets::abi_note_section).
+
+/// The bytes every record starts with: 0x7f 'K' 'A' 'B' 'I'.
+pub fn abi_note_magic() -> string {
+    return "\x7f" + "KABI"
+}
+
+/// The byte after the magic: what kind of record follows. For the
+/// conventions record it doubles as the format version.
+pub
+const ABI_NOTE_KIND_CONV: u32 = 1
+pub
+const ABI_NOTE_KIND_ALLOC: u32 = 2
+
+/// The macro every Kairo file of a program that sets its global allocator
+/// is compiled with (the compiler's LowerTargets::global_alloc_set_macro
+/// forwards here): this file's message names it as the cure.
+pub fn alloc_set_macro_name() -> string {
+    return "__KAIRO_GLOBAL_ALLOCATOR_SET"
+}
+
+/// The global-allocator record's flags: built without
+/// __KAIRO_GLOBAL_ALLOCATOR_SET (its Global is System, inlined), and sets
+/// the global allocator (the strong kairo_global_* definitions).
+pub
+const ABI_ALLOC_INLINES_SYSTEM: u32 = 1
+pub
+const ABI_ALLOC_SETS_GLOBAL: u32 = 2
+
+/// FunctionDecl::call_conv's values; 0 is the default convention, which
+/// no record names.
+pub
+const CALL_CONV_PRESERVE_MOST: u8 = 1
+pub
+const CALL_CONV_PRESERVE_ALL: u8 = 2
+pub
+const CALL_CONV_PRESERVE_NONE: u8 = 3
+
+/// The conventions record's bit for \p cc (nonzero): 1 preserve_most,
+/// 2 preserve_all, 4 preserve_none.
+pub fn call_conv_note_bit(cc: u8) -> u32 {
+    return (1 as u32) << ((cc as u32) - (1 as u32))
+}
+
+/// The attribute \p cc is written as, without the `@`; "" for the default
+/// convention or a value no convention has. LangAttrs spells its rows
+/// from this, so a link message and a compile diagnostic name one word.
+pub fn call_conv_word(cc: u8) -> string {
+    if cc == CALL_CONV_PRESERVE_MOST {
+        return "preserve_most"
+    }
+
+    if cc == CALL_CONV_PRESERVE_ALL {
+        return "preserve_all"
+    }
+
+    if cc == CALL_CONV_PRESERVE_NONE {
+        return "preserve_none"
+    }
+
+    return ""
+}
+
 /// One note found in one input.
 pub struct AbiNote {
     var path:  string
@@ -118,7 +185,7 @@ pub class LinkABI {
         var allocs = cxx::std::vector<AllocNote>()
         LinkABI::_scan(path, &notes, &allocs)
         for var a: AllocNote in allocs {
-            if (a.flags & 2) != 0 {
+            if (a.flags & ABI_ALLOC_SETS_GLOBAL) != 0 {
                 return true
             }
         }
@@ -133,7 +200,7 @@ pub class LinkABI {
                                            @inout msgs:   cxx::std::vector<LinkMessage>) {
         var setter: isize = -1
         for var i: usize = 0; i < allocs.size(); ++i {
-            if (allocs[i].flags & 2) != 0 {
+            if (allocs[i].flags & ABI_ALLOC_SETS_GLOBAL) != 0 {
                 setter = (i as isize)
                 break
             }
@@ -145,7 +212,7 @@ pub class LinkABI {
 
         var s = allocs[setter as usize]
         for var a: AllocNote in allocs {
-            if (a.flags & 1) == 0 {
+            if (a.flags & ABI_ALLOC_INLINES_SYSTEM) == 0 {
                 continue
             }
 
@@ -154,7 +221,7 @@ pub class LinkABI {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
-                    how + " compiled without __KAIRO_GLOBAL_ALLOCATOR_SET, so its allocations go to System and bypass it; " + f"rebuild {a.path} with --global-allocator-set",
+                    how + " compiled without " + alloc_set_macro_name() + ", so its allocations go to System and bypass it; " + f"rebuild {a.path} with --global-allocator-set",
                 ),
             )
 
@@ -173,36 +240,32 @@ pub class LinkABI {
             return
         }
 
-        var n = data.size()
-        if n < 7 {
+        // Magic, kind, one payload byte: the shortest record (the
+        // allocator's); the conventions record has one more.
+        var magic = abi_note_magic()
+        var m     = magic.size()
+        var n     = data.size()
+        if n < m + 2 {
             return
         }
 
-        for var i: usize = 0; i + 7 <= n; ++i {
-            if ((data[i]) as u32) != 127 {
+        for var i: usize = 0; i + m + 2 <= n; ++i {
+            var at_magic = true
+            for var k: usize = 0; k < m; ++k {
+                if data[i + k] != magic[k] {
+                    at_magic = false
+                    break
+                }
+            }
+
+            if !at_magic {
                 continue
             }
 
-            if ((data[i + 1]) as u32) != 75 { // K
-                continue
-            }
-
-            if ((data[i + 2]) as u32) != 65 { // A
-                continue
-            }
-
-            if ((data[i + 3]) as u32) != 66 { // B
-                continue
-            }
-
-            if ((data[i + 4]) as u32) != 73 { // I
-                continue
-            }
-
-            var ver  = ((data[i + 5]) as u32)
-            var bits = ((data[i + 6]) as u32)
-            if ver == 2 {
-                if bits == 0 || bits > 3 {
+            var ver  = ((data[i + m]) as u32)
+            var bits = ((data[i + m + 1]) as u32)
+            if ver == ABI_NOTE_KIND_ALLOC {
+                if bits == 0 || bits > (ABI_ALLOC_INLINES_SYSTEM | ABI_ALLOC_SETS_GLOBAL) {
                     continue
                 }
 
@@ -210,18 +273,20 @@ pub class LinkABI {
                 g.path  = path
                 g.flags = bits
                 allocs.push_back(g)
-                i += 6
+                i += m + 1
                 continue
             }
 
-            if i + 8 > n {
+            if i + m + 3 > n {
                 continue
             }
 
-            var major = ((data[i + 7]) as u32)
+            var major = ((data[i + m + 2]) as u32)
             // A record of a version this linker does not know, or bytes that
             // only look like the magic, are not a note.
-            if ver != 1 || bits == 0 || bits > 7 || major == 0 {
+            var all_bits = call_conv_note_bit(CALL_CONV_PRESERVE_MOST) | call_conv_note_bit(CALL_CONV_PRESERVE_ALL)
+                | call_conv_note_bit(CALL_CONV_PRESERVE_NONE)
+            if ver != ABI_NOTE_KIND_CONV || bits == 0 || bits > all_bits || major == 0 {
                 continue
             }
 
@@ -230,20 +295,20 @@ pub class LinkABI {
             a.bits  = bits
             a.major = major
             out.push_back(a)
-            i += 7
+            i += m + 2
         }
     }
 
     /// The attribute bit \p bits' lowest set bit stands for.
     priv static fn _conv_name(bits: u32) -> string {
-        if (bits & 1) != 0 {
-            return "preserve_most"
+        if (bits & call_conv_note_bit(CALL_CONV_PRESERVE_MOST)) != 0 {
+            return call_conv_word(CALL_CONV_PRESERVE_MOST)
         }
 
-        if (bits & 2) != 0 {
-            return "preserve_all"
+        if (bits & call_conv_note_bit(CALL_CONV_PRESERVE_ALL)) != 0 {
+            return call_conv_word(CALL_CONV_PRESERVE_ALL)
         }
 
-        return "preserve_none"
+        return call_conv_word(CALL_CONV_PRESERVE_NONE)
     }
 }

@@ -57,6 +57,9 @@ pub enum DeclNameKind derives u8 {
     Destructor,
 }
 
+/// Where DeclName::as_key puts the kind.
+const DECL_NAME_KIND_SHIFT: u64 = 32
+
 /// \class DeclName
 /// \brief 8-byte lookup key for SymbolTable. kind + u32 payload.
 ///
@@ -112,9 +115,18 @@ pub class DeclName {
         return n
     }
 
-    /// The map key. Integer hash, no string compares on the hot path.
+    /// The map key. Integer hash, no string compares on the hot path: the
+    /// kind in bits 32..39, the payload below; key_kind / key_payload read it.
     pub fn as_key(self) -> u64 {
-        return ((self.kind as u8) as u64) << 32 | (self.payload as u64)
+        return ((self.kind as u8) as u64) << DECL_NAME_KIND_SHIFT | (self.payload as u64)
+    }
+
+    pub static fn key_kind(k: u64) -> DeclNameKind {
+        return (((k >> DECL_NAME_KIND_SHIFT & 0xFF) as u8) as DeclNameKind)
+    }
+
+    pub static fn key_payload(k: u64) -> u32 {
+        return ((k & 0xFFFFFFFF) as u32)
     }
 
     pub fn is_ident(self) -> bool {
@@ -413,8 +425,8 @@ pub class SymbolTable {
     pub fn collect_entries(self, @inout out: cxx::std::vector<Self::Entry>) {
         for var unsafe *it = self._cells.begin(); it != self._cells.end(); ++it {
             var e = Self::Entry{}
-            e.name.kind    = (((it->first >> 32 & 0xFF) as u8) as DeclNameKind)
-            e.name.payload = ((it->first & 0xFFFFFFFF) as u32)
+            e.name.kind    = DeclName::key_kind(it->first)
+            e.name.payload = DeclName::key_payload(it->first)
             e.cell         = it->second
             out.push_back(e)
         }

@@ -68,7 +68,10 @@ import AST::DeclFacts::{
     decl_is_instance,
     param_type_pack_param,
 }
-import AST::LangItems::WellKnownType
+import AST::LangItems::{
+    LangAttrs,
+    WellKnownType,
+}
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -369,7 +372,7 @@ pub class <T: type> CallTyping {
             self.dyn()->fail(
                 u,
                 DiagID::SC097E,
-                f"cannot pass '{self.dyn()->tu.str(_op->type_)}' to an '@inout' parameter of type '{self.dyn()->tu.str(pt)}'; an '@inout' argument must be a mutable lvalue",
+                f"cannot pass '{self.dyn()->tu.str(_op->type_)}' to an {LangAttrs::quoted(LangAttrs::param_inout())} parameter of type '{self.dyn()->tu.str(pt)}'; an {LangAttrs::quoted(LangAttrs::param_inout())} argument must be a mutable lvalue",
             )
         }
     }
@@ -440,7 +443,7 @@ pub class <T: type> CallTyping {
             var ub = self.dyn()->sc->diag->report(
                 DiagID::SC097E,
                 a->expr->range.start,
-                f"argument to '@inout' parameter '{pn}' must be marked with '&'",
+                f"argument to {LangAttrs::quoted(LangAttrs::param_inout())} parameter '{pn}' must be marked with '&'",
             )
 
             ub.first(a->expr->range)
@@ -2756,7 +2759,7 @@ pub class <T: type> CallTyping {
                     var ub = self.dyn()->sc->diag->report(
                         DiagID::SC097E,
                         a->range.start,
-                        f"argument to '@inout' parameter {i + 1} of '{self.dyn()->tu.str(ft)}' must be marked with '&'",
+                        f"argument to {LangAttrs::quoted(LangAttrs::param_inout())} parameter {i + 1} of '{self.dyn()->tu.str(ft)}' must be marked with '&'",
                     )
 
                     ub.first(a->range)
@@ -2777,7 +2780,7 @@ pub class <T: type> CallTyping {
                         self.dyn()->fail(
                             target,
                             DiagID::SC097E,
-                            f"cannot pass '{self.dyn()->tu.str(target->type_)}' to an '@inout' parameter of type '{self.dyn()->tu.str(pt)}'; an '@inout' argument must be a mutable lvalue",
+                            f"cannot pass '{self.dyn()->tu.str(target->type_)}' to an {LangAttrs::quoted(LangAttrs::param_inout())} parameter of type '{self.dyn()->tu.str(pt)}'; an {LangAttrs::quoted(LangAttrs::param_inout())} argument must be a mutable lvalue",
                         )
 
                         bad = true

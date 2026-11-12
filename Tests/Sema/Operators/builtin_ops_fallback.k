@@ -5,9 +5,9 @@
 // The containment `op in (self, x)` below is no iteration form: the set loop
 // (line 24) is quiet only because HashSet declares `op in (self) -> yield T`.
 //
-// Type-check only: the shapes have no lowering yet (EmitIR ICEs on `m[k]`,
+// Type-check only: the shapes have no lowering yet (EmitIR fails on `m[k]`,
 // IterLowering on the containers), which is what the gate is for. `[T]`
-// now declares both `op []` and `op in` (Lib/builtin/containers/vector.k),
+// declares both `op []` and `op in` (Lib/builtin/containers/vector.k),
 // so `v[0]` and `for x in v` are calls and stay quiet.
 
 extend <T> {T} {

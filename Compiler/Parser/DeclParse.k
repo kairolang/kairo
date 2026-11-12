@@ -32,7 +32,10 @@ import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
 }
-import AST::LangItems::AllocNames
+import AST::LangItems::{
+    AllocNames,
+    LangAttrs,
+}
 import AST::Mixin::Annotation::VisibilityKind
 import AST::Mixin::FFILinkage::LinkageKind
 import AST::Node::Base::{
@@ -2437,10 +2440,10 @@ pub class <T: type> DeclParse {
             // `const` with a mode contradicts it. Reported at the mode, and the
             // mode KEPT: the decl stays usable for everything downstream.
             if p_const && p_mode != ParamMode::Value {
-                var cmsg = "'const' cannot be combined with '@move'"
+                var cmsg = "'const' cannot be combined with " + LangAttrs::quoted(LangAttrs::param_move())
                 if p_mode == ParamMode::Inout {
-                    cmsg = "'const' and '@inout' contradict: an '@inout' parameter is a "
-                           "mutable borrow; a read-only borrow is 'const x: T'"
+                    var q = LangAttrs::quoted(LangAttrs::param_inout())
+                    cmsg = "'const' and " + q + " contradict: an " + q + " parameter is a mutable borrow; a read-only borrow is 'const x: T'"
                 }
 
                 self.dyn()->diag->report(DiagID::S070E, p_mode_range.start, cmsg).first(

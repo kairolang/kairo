@@ -60,6 +60,10 @@ import AST::LangItems::{
     FormatKind,
     LowerTargets,
     WellKnownType,
+    fmt_spec_base,
+    fmt_spec_fill,
+    fmt_spec_prec1,
+    fmt_spec_width,
     to_string,
 }
 import AST::Node::Base::{
@@ -643,10 +647,10 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
     /// The most bytes this hole can print. Wider than any output, never
     /// narrower: the puts still check, but a taken check is a realloc.
     priv fn _max_bytes(self, h: unsafe *FormatHole, e: unsafe *Expr) -> u64 {
-        var width: u64 = h->spec & 0xFFFF
-        var prec1: u64 = h->spec >> 16 & 0xFFFF
-        var fill:  u64 = h->spec >> 32 & 0x1FFFFF
-        var base:  u64 = h->spec >> 55 & 3
+        var width: u64 = fmt_spec_width(h->spec)
+        var prec1: u64 = fmt_spec_prec1(h->spec)
+        var fill:  u64 = fmt_spec_fill(h->spec)
+        var base:  u64 = fmt_spec_base(h->spec)
         var m:     u64 = 0
         // The instance's: a guess. A short buffer only grows.
         if h->deferred {

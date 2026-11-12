@@ -55,7 +55,10 @@ import AST::DeclFacts::{
     decl_is_imported,
     decl_pattern,
 }
-import AST::LangItems::WellKnownType
+import AST::LangItems::{
+    LangAttrs,
+    WellKnownType,
+}
 import AST::Node::Base::{
     Decl,
     Type,
@@ -133,7 +136,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             self._err_id(
                 f,
                 DiagID::SC115E,
-                "'@implicit' applies only to a conversion operator: 'fn op as (self) -> T' in a type's body",
+                LangAttrs::quoted(LangAttrs::implicit_conversion()) + " applies only to a conversion operator: 'fn op as (self) -> T' in a type's body",
             )
 
             return true
@@ -147,12 +150,14 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return true
         }
 
-        var        sym    = OperatorFacts::symbol(f)
+        var        sym    = OperatorFacts::symbol(f) // for the messages; identity is by kind.
+        var        k      = OperatorFacts::single_kind(f)
+        var        subs   = OperatorFacts::is_subscript(f)
         var unsafe *lex   = f->lexical_dc
         var        in_ext = lex != &null && lex->dc_kind == DeclContextKind::Extension
         var        member = f->is_method() || in_ext
 
-        if sym == "=" {
+        if k == TokenKind::OpEqual {
             self._err(
                 f,
                 "'=' is not overloadable; assignment is generated from the type's constructors",
@@ -161,7 +166,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return true
         }
 
-        if sym == "===" {
+        if k == TokenKind::OpEqualEqualEqual {
             self._err(
                 f,
                 "'===' is not overloadable; it is 'both present and equal' on nullable operands",
@@ -170,16 +175,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return true
         }
 
-        if sym == "&&"
-            || sym == "||"
-            || sym == "!"
-            || sym == "and"
-            || sym == "or"
-            || sym == "not"
-            || sym == "."
-            || sym == "::"
-            || sym == ".."
-            || sym == "..=" {
+        if OperatorFacts::is_not_overloadable(k) {
             self._err(f, f"'{sym}' is not overloadable")
             return true
         }
@@ -225,7 +221,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             nargs -= 1
         }
 
-        if in_ext && (sym == "as" || sym == "[]" || sym == "->" || sym == "finally") {
+        if in_ext && (k == TokenKind::KwAs || subs || k == TokenKind::OpArrow || k == TokenKind::KwFinally) {
             self._err(
                 f,
                 f"'op {sym}' cannot be declared in an extension; it must be a member, so declare it in the type's body",
@@ -234,7 +230,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return true
         }
 
-        if (sym == "++" || sym == "--") && !OperatorFacts::has_fixity(f) {
+        if (k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus) && !OperatorFacts::has_fixity(f) {
             self.sc->diag->report(
                 DiagID::SC053W,
                 f->range.start,
@@ -242,47 +238,38 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             ).first(f->range)->emit()
         }
 
-        if !self._arity_ok(sym, nargs) {
-            self._err(f, f"'op {sym}' takes {self._arity_text(sym)}, not {nargs}")
+        if !self._arity_ok(k, nargs) {
+            self._err(f, f"'op {sym}' takes {self._arity_text(k)}, not {nargs}")
             return true
         }
 
-        self._check_result(f, sym, nargs)
+        self._check_result(f, sym, k, subs, nargs)
         return true
     }
 
-    priv fn _arity_ok(self, const sym: string, n: usize) -> bool {
-        if sym == "+" || sym == "-" || sym == "in" {
+    /// \p k is OperatorFacts::single_kind: TkUnknown for `[]` / `()`.
+    priv fn _arity_ok(self, k: TokenKind, n: usize) -> bool {
+        if k == TokenKind::OpPlus || k == TokenKind::OpMinus || k == TokenKind::KwIn {
             return n <= 1
         }
 
-        if sym == "~"
-            || sym == "compl"
-            || sym == "as"
-            || sym == "finally"
-            || sym == "->"
-            || sym == "await"
-            || sym == "spawn"
-            || sym == "thread"
-            || sym == "panic"
-            || sym == "++"
-            || sym == "--" {
+        if OperatorFacts::is_unary_only(k) {
             return n == 0
         }
 
         return n == 1
     }
 
-    priv fn _arity_text(self, const sym: string) -> string {
-        if sym == "+" || sym == "-" {
+    priv fn _arity_text(self, k: TokenKind) -> string {
+        if k == TokenKind::OpPlus || k == TokenKind::OpMinus {
             return "zero or one operand"
         }
 
-        if sym == "in" {
+        if k == TokenKind::KwIn {
             return "one operand (containment) or none (iteration)"
         }
 
-        if self._arity_ok(sym, 0) {
+        if self._arity_ok(k, 0) {
             return "no operand besides the receiver"
         }
 
@@ -291,7 +278,12 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
 
     /// Result-type rules. A dependent or unresolved return type is left to
     /// the instantiation.
-    priv fn _check_result(self, f: unsafe *FunctionDecl, const sym: string, nargs: usize) {
+    priv fn _check_result(self,
+                          f:         unsafe *FunctionDecl,
+                          const sym: string,
+                          k:         TokenKind,
+                          subs:      bool,
+                          nargs:     usize) {
         var rt: unsafe *Type = &null
         if f->return_type != &null {
             rt = f->return_type->canonical
@@ -304,12 +296,12 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         // `fn op panic (const self) -> string` (Compiler/Spec/Panic.md#error-types): the display
         // path reads the message from a const caught error and through a C++
         // `const&`, so the receiver is const; and the message is a string.
-        if sym == "panic" {
+        if k == TokenKind::KwPanic {
             self._check_op_panic(f, rt)
             return
         }
 
-        if sym == "->" {
+        if k == TokenKind::OpArrow {
             var unsafe *p = if (rt != &null) => (self._tu.pointee(rt)) else => &null
             if p == &null || self._tu.is_unsafe_ptr(rt) {
                 self._err_id(f, DiagID::SC113E, "'op ->' must return a pointer: '*T' or '*const T'")
@@ -320,7 +312,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
 
         // The return decides place vs value (OperatorFacts::is_place); only
         // the two results that are neither are errors here.
-        if sym == "[]" {
+        if subs {
             if rt == &null {
                 self._err(f, f"'op {sym}' must return a value or a place ('*T' / '*const T')")
             } else if self._tu.is_unsafe_ptr(rt) {
@@ -345,14 +337,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return
         }
 
-        var wants_bool = sym == "=="
-            || sym == "!="
-            || sym == "not_eq"
-            || sym == "<"
-            || sym == "<="
-            || sym == ">"
-            || sym == ">="
-            || sym == "in" && nargs == 1
+        var wants_bool = OperatorFacts::returns_bool(k) || k == TokenKind::KwIn && nargs == 1
         if wants_bool {
             if rt == &null || canon_unqual(rt) != self.sc->builtin(BuiltinKind::Bool) {
                 self._err(f, f"'op {sym}' must return 'bool'")
@@ -361,7 +346,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return
         }
 
-        if sym == "<=>" {
+        if k == TokenKind::OpLessEqualGreater {
             var unsafe *ord = self.sc->well_known->get(WellKnownType::Ordering)
             var unsafe *d = if (rt != &null
                                 && isa<RecordType>(canon_unqual(rt))) => (cast<RecordType>(

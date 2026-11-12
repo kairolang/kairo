@@ -37,7 +37,7 @@ import AST::Kind::ExprKind::to_string
 import AST::LangItems::{
     FMT_ALT,    FMT_DEBUG,         FMT_SIGN_PLUS, FMT_UPPER,     FMT_ZERO,     FormatAlign,
     FormatKind, LangMembers,       WellKnownType, fmt_pack_spec, fmt_put_name, format_kind_of,
-    to_string,  tuple_record_name,
+    fmt_spec_flags, to_string,  tuple_record_name,
 }
 import AST::Node::Base::{
     Decl,
@@ -1204,7 +1204,7 @@ pub class <T: type> LiteralTyping {
             // A record: user repr, then user `op as`, then the address form.
             // `?` skips `op as`: it asks for the repr form or nothing.
             if h.kind == FormatKind::None {
-                var debug = (h.spec >> 57 & FMT_DEBUG) != 0
+                var debug = (fmt_spec_flags(h.spec) & FMT_DEBUG) != 0
                 if repr != &null {
                     h.conv = repr
                     h.kind = FormatKind::String

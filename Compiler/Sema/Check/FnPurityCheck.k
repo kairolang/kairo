@@ -102,6 +102,7 @@ import AST::DeclFacts::{
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::StmtKind::StmtKind
 import AST::Kind::TypeKind::TypeKind
+import AST::LangItems::LangAttrs
 import AST::Mixin::FFILinkage::LinkageKind
 import AST::Node::Base::{
     Decl,
@@ -569,7 +570,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             // X stamps no_unwind on every typed function but one marked
             // `@unwind`; under -funwind none is stamped, and the attribute
             // itself then supplies the nounwind every callee also keeps.
-            self._report_head(f, "is marked '@unwind'; the promise says no call unwinds", false)
+            self._report_head(f, "is marked " + LangAttrs::quoted(LangAttrs::unwind()) + "; the promise says no call unwinds", false)
         }
 
         if f->abi == AbiKind::Virtual || f->abi == AbiKind::Override || decl_is_requirement(f) {
@@ -1653,7 +1654,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     priv fn _promise(self) -> string {
-        return if (self._level == PurityLevel::Const) => ("const") else => "@pure"
+        return if (self._level == PurityLevel::Const) => ("const") else => LangAttrs::at(LangAttrs::pure_fn())
     }
 
     priv fn _head_range(self, f: unsafe *FunctionDecl) -> SourceRange {
@@ -1680,7 +1681,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         if self._level == PurityLevel::Const {
             b.note(head.start, self._who() + " is const: it may read only its own inputs")
         } else {
-            b.note(head.start, self._who() + " is @pure: it may read memory but never write it")
+            b.note(head.start, self._who() + " is " + LangAttrs::at(LangAttrs::pure_fn()) + ": it may read memory but never write it")
         }
 
         b.emit()
@@ -1734,7 +1735,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         var ok = if (self._level == PurityLevel::Const) => ("a const fn, an eval fn or a side-effect-free intrinsic")
-                 else => "a const fn, a @pure fn, an eval fn or a side-effect-free intrinsic"
+                 else => "a const fn, a " + LangAttrs::at(LangAttrs::pure_fn()) + " fn, an eval fn or a side-effect-free intrinsic"
         self._report(at, "call " + callee + ", which is not " + ok)
     }
 }

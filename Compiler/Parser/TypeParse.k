@@ -418,9 +418,8 @@ pub class <T: type> TypeParse {
             self.dyn()->diag->report(
                 DiagID::S069E,
                 mr.start,
-                "a passing mode is not part of a type; write it on the parameter "
-                "('@inout x: T'); in a function pointer type the mode goes before "
-                "the parameter type ('fn(@inout T)')",
+                f"a passing mode is not part of a type; write it on the parameter ('{LangAttrs::at(LangAttrs::param_inout())} x: T'); "
+                    + f"in a function pointer type the mode goes before the parameter type ('fn({LangAttrs::at(LangAttrs::param_inout())} T)')",
             ).first(mr)->emit()
         }
 

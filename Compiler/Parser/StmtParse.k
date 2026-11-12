@@ -26,6 +26,7 @@ ffi "c++" import "Native/Types.hh"
 import AST::ASTSupport::FrozenList // FrozenList in MatchCore
 import AST::Context::DeclContext::DeclContextKind
 import AST::LangItems::{
+    LangAttrs,
     LangIntrinsics,
     WellKnownType,
     to_string,
@@ -262,7 +263,7 @@ pub class <T: type> StmtParse {
             self.dyn()->diag->report(
                 DiagID::S051E,
                 lparen.start,
-                "expected ')' to close '@assume'",
+                "expected ')' to close " + LangAttrs::quoted(LangAttrs::assume()),
             ).first(lparen)->emit()
             return self._error_stmt(at_r | self.dyn()->prev().range)
         }
@@ -275,7 +276,7 @@ pub class <T: type> StmtParse {
             self.dyn()->diag->report(
                 DiagID::S080E,
                 at_r.start,
-                "'@assume' takes exactly one condition",
+                LangAttrs::quoted(LangAttrs::assume()) + " takes exactly one condition",
             ).first(full)->emit()
             return self._error_stmt(full)
         }
@@ -287,7 +288,7 @@ pub class <T: type> StmtParse {
             var b = self.dyn()->diag->report(
                 DiagID::SC148E,
                 at_r.start,
-                "@assume is a statement of its own; it does not attach to what follows on its line",
+                LangAttrs::at(LangAttrs::assume()) + " is a statement of its own; it does not attach to what follows on its line",
             )
 
             b.first(full)
@@ -1288,7 +1289,7 @@ pub class <T: type> StmtParse {
                 var b = self.dyn()->diag->report(
                     DiagID::S081E,
                     at_r.start,
-                    "only @likely / @unlikely may precede 'else'",
+                    "only " + LangAttrs::at(LangAttrs::likely()) + " / " + LangAttrs::at(LangAttrs::unlikely()) + " may precede 'else'",
                 )
 
                 b.first(at_r)
@@ -2611,125 +2612,10 @@ pub class <T: type> StmtParse {
             spelling = self.dyn()->ctx->get_spelling(imm->body)
         }
 
-        var as_lower: string
-        as_lower.reserve(spelling.size())
-
-        // make all the chars lowercase for comparison
-        for var i: u32 = 0; (i as usize) < spelling.size(); ++i {
-            var c = spelling[(i as usize)]
-            as_lower.push_back(c | ((c >= ('A' as u8) && c <= ('Z' as u8)) as u8) << 5)
-        }
-
-        if as_lower == "asm" {
-            return Statements::FFILang::Asm
-        }
-
-        if as_lower == "cuda" {
-            return Statements::FFILang::Cuda
-        }
-
-        if as_lower == "hip" {
-            return Statements::FFILang::Hip
-        }
-
-        if as_lower == "opencl" {
-            return Statements::FFILang::OpenCL
-        }
-
-        if as_lower == "hlsl" {
-            return Statements::FFILang::Hlsl
-        }
-
-        if as_lower == "metal" {
-            return Statements::FFILang::Metal
-        }
-
-        if as_lower == "spirv" {
-            return Statements::FFILang::SpirV
-        }
-
-        if as_lower == "wgsl" {
-            return Statements::FFILang::Wgsl
-        }
-
-        if as_lower == "glsl" {
-            return Statements::FFILang::Glsl
-        }
-
-        if as_lower == "kairo" {
-            return Statements::FFILang::Kairo
-        }
-
-        if as_lower == "c" {
-            return Statements::FFILang::C
-        }
-
-        if as_lower == "cpp" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "cxx" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "c++" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "cc" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "cp" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "h" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "hpp" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "hxx" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "h++" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "hh" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "inl" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "tcc" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "ipp" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "ixx" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "cppm" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "cxxm" {
-            return Statements::FFILang::Cpp
-        }
-
-        if as_lower == "ccm" {
-            return Statements::FFILang::Cpp
+        // The one table (Statements::ffi_lang_of), matched without case.
+        var lang = Statements::ffi_lang_of(spelling)
+        if lang != Statements::FFILang::None {
+            return lang
         }
 
         self.dyn()->diag->report(

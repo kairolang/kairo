@@ -123,11 +123,19 @@ pub fn diag_category_index(cat: DiagCategory) -> u32 {
     }
 }
 
+/// The policy key's layout, one place for both of its builders.
+const DIAG_KEY_CATEGORY_SHIFT: u32 = 24
+const DIAG_KEY_NUMBER_MASK: u32 = 0x00FFFFFF
+
+fn diag_key_pack(idx: u32, number: u32) -> u32 {
+    return idx << DIAG_KEY_CATEGORY_SHIFT | number & DIAG_KEY_NUMBER_MASK
+}
+
 /// Key into the per-code policy table: category index in the high byte, the
 /// code number below it. Keying on the number alone made SC005, S005 and R005
 /// one entry, so `-A SC005` silenced three unrelated diagnostics.
 pub fn diag_policy_key(cat: DiagCategory, number: u32) -> u32 {
-    return diag_category_index(cat) << 24 | number & 0x00FFFFFF
+    return diag_key_pack(diag_category_index(cat), number)
 }
 
 /// Parses a user-spelled code (\c R020E, \c sc005, \c C889W) into a policy key.
@@ -206,7 +214,7 @@ pub fn diag_policy_key_from_string(const code: string) -> u32 {
         return 0
     }
 
-    return idx << 24 | val & 0x00FFFFFF
+    return diag_key_pack(idx, val)
 }
 
 

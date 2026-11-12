@@ -56,9 +56,11 @@ import AST::Node::Expressions::{
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
+    FFILang,
     MatchStmt,
     UnsafeBlockStmt,
     YieldStmt,
+    ffi_lang_of_literal,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Registry::DiagID
@@ -241,8 +243,10 @@ pub class FlagGates derives RecursiveASTVisitor<FlagGates> {
                 "--no-ffi",
             )
         } else if self.sc->opts.no_cxx {
+            // C++ by the parser's table: "cpp", "C++", "hpp" too, not only
+            // a spelling that ends in "c++".
             var lang = self.sc->ctx->get_spelling(n->lang_token)
-            if lang.ends_with("c++\"") || lang.ends_with("c++") {
+            if ffi_lang_of_literal(lang) == FFILang::Cpp {
                 self._deny(
                     n->range,
                     "an ffi \"c++\" block is not allowed when C++ interop is disabled",

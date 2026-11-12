@@ -159,6 +159,89 @@ pub enum FFILang derives u8 {
     Kairo,  ///< inline "kairo" { }
 }
 
+/// The language a word after `ffi` / `inline` names, matched without case
+/// (`"C"` is `"c"`); None for a word that names none. \p word is the
+/// string literal's contents. The one table (the parser stamps from it);
+/// C++ is also every C++ source and header extension, written as the
+/// language.
+pub fn ffi_lang_of(const word: string) -> FFILang {
+    var s: string
+    s.reserve(word.size())
+    for var i: usize = 0; i < word.size(); ++i {
+        var c = word[i]
+        s.push_back(c | ((c >= ('A' as u8) && c <= ('Z' as u8)) as u8) << 5)
+    }
+
+    if s == "asm" {
+        return FFILang::Asm
+    }
+
+    if s == "cuda" {
+        return FFILang::Cuda
+    }
+
+    if s == "hip" {
+        return FFILang::Hip
+    }
+
+    if s == "opencl" {
+        return FFILang::OpenCL
+    }
+
+    if s == "hlsl" {
+        return FFILang::Hlsl
+    }
+
+    if s == "metal" {
+        return FFILang::Metal
+    }
+
+    if s == "spirv" {
+        return FFILang::SpirV
+    }
+
+    if s == "wgsl" {
+        return FFILang::Wgsl
+    }
+
+    if s == "glsl" {
+        return FFILang::Glsl
+    }
+
+    if s == "kairo" {
+        return FFILang::Kairo
+    }
+
+    if s == "c" {
+        return FFILang::C
+    }
+
+    if s == "cpp" || s == "cxx" || s == "c++" || s == "cc" || s == "cp" || s == "h" || s == "hpp"
+        || s == "hxx" || s == "h++" || s == "hh" || s == "inl" || s == "tcc" || s == "ipp"
+        || s == "ixx" || s == "cppm" || s == "cxxm" || s == "ccm" {
+        return FFILang::Cpp
+    }
+
+    return FFILang::None
+}
+
+/// ffi_lang_of for a string token's spelling, which keeps its quotes: the
+/// readers that see the token rather than the parsed literal (the
+/// preprocessor, FlagGates) classify the same word the parser does.
+pub fn ffi_lang_of_literal(const text: string) -> FFILang {
+    if text.size() < 2 || text[0] != ('"' as u8) || text[text.size() - 1] != ('"' as u8) {
+        return ffi_lang_of(text)
+    }
+
+    var w: string
+    w.reserve(text.size() - 2)
+    for var i: usize = 1; i + 1 < text.size(); ++i {
+        w.push_back(text[i])
+    }
+
+    return ffi_lang_of(w)
+}
+
 ///
 ///  ExpressionStmt
 ///  Grammar:  expr

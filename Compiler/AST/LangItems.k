@@ -53,6 +53,13 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import API::LinkABI::{
+    CALL_CONV_PRESERVE_ALL,
+    CALL_CONV_PRESERVE_MOST,
+    CALL_CONV_PRESERVE_NONE,
+    alloc_set_macro_name,
+    call_conv_word,
+}
 import AST::Node::Base::Decl
 import AST::Node::CanonicalNodes::BuiltinKind
 
@@ -709,7 +716,50 @@ const FMT_DEBUG: u8 = 16
 ///   bits 32..52 fill codepoint (0 = ' ')   bits 53..54 align (FormatAlign)
 ///   bits 55..56 base (0 = 10, 1 = 16, 2 = 8, 3 = 2)   bits 57..61 FMT_* flags
 pub fn fmt_pack_spec(width: u64, prec1: u64, fill: u64, align: u64, base: u64, flags: u64) -> u64 {
-    return width | prec1 << 16 | fill << 32 | align << 53 | base << 55 | flags << 57
+    return width
+        | prec1 << FMT_SHIFT_PREC
+        | fill << FMT_SHIFT_FILL
+        | align << FMT_SHIFT_ALIGN
+        | base << FMT_SHIFT_BASE
+        | flags << FMT_SHIFT_FLAGS
+}
+
+/// Where each field of the spec word starts (the layout above), and the
+/// readers of each: one layout for the packer and every reader
+/// (FStringLowering::_max_bytes, LiteralTyping).
+pub
+const FMT_SHIFT_PREC: u64 = 16
+pub
+const FMT_SHIFT_FILL: u64 = 32
+pub
+const FMT_SHIFT_ALIGN: u64 = 53
+pub
+const FMT_SHIFT_BASE: u64 = 55
+pub
+const FMT_SHIFT_FLAGS: u64 = 57
+
+pub fn fmt_spec_width(s: u64) -> u64 {
+    return s & 0xFFFF
+}
+
+pub fn fmt_spec_prec1(s: u64) -> u64 {
+    return s >> FMT_SHIFT_PREC & 0xFFFF
+}
+
+pub fn fmt_spec_fill(s: u64) -> u64 {
+    return s >> FMT_SHIFT_FILL & 0x1FFFFF
+}
+
+pub fn fmt_spec_align(s: u64) -> u64 {
+    return s >> FMT_SHIFT_ALIGN & 3
+}
+
+pub fn fmt_spec_base(s: u64) -> u64 {
+    return s >> FMT_SHIFT_BASE & 3
+}
+
+pub fn fmt_spec_flags(s: u64) -> u64 {
+    return s >> FMT_SHIFT_FLAGS & 0x1F
 }
 
 /// The FmtBuf method for a hole of this kind. `i32` is a keyword token, so
@@ -771,6 +821,17 @@ pub fn hex32(v: u32) -> string {
 ///        diagnostic quotes, so a message cannot name an attribute the
 ///        parser does not read.
 pub class LangAttrs {
+    /// \p word as it is written, `@word`, and as a message quotes it,
+    /// `'@word'`: a message names an attribute through these so it can only
+    /// name one this table spells.
+    pub static fn at(const word: string) -> string {
+        return "@" + word
+    }
+
+    pub static fn quoted(const word: string) -> string {
+        return "'@" + word + "'"
+    }
+
     /// `@copy fn T(self, other: Self)`: FunctionDecl::transfer (Parser).
     pub static fn transfer_copy() -> string {
         return "copy"
@@ -856,6 +917,20 @@ pub class LangAttrs {
         return "new"
     }
 
+    /// How a message writes the C++ allocation forms: `@cxx::`, `@cxx::new`,
+    /// `@cxx::delete` (`delete` is the keyword, not an attribute row).
+    pub static fn cxx_scope_form() -> string {
+        return LangAttrs::at(LangAttrs::cxx_mem()) + "::"
+    }
+
+    pub static fn cxx_new_form() -> string {
+        return LangAttrs::cxx_scope_form() + LangAttrs::cxx_new()
+    }
+
+    pub static fn cxx_delete_form() -> string {
+        return LangAttrs::cxx_scope_form() + "delete"
+    }
+
     /// Function attributes (FunctionDecl::hot_path / cold_path / is_pure),
     /// stamped by ASTParse::apply_annotations_to_decl.
     pub static fn hot_path() -> string {
@@ -877,17 +952,19 @@ pub class LangAttrs {
     }
 
     /// The calling conventions (FunctionDecl::call_conv), stamped by
-    /// ASTParse::apply_annotations_to_decl; at most one per function.
+    /// ASTParse::apply_annotations_to_decl; at most one per function. The
+    /// words and their codes are the ABI note's (Linker::API::LinkABI),
+    /// which kld names in its own messages.
     pub static fn preserve_most() -> string {
-        return "preserve_most"
+        return call_conv_word(CALL_CONV_PRESERVE_MOST)
     }
 
     pub static fn preserve_all() -> string {
-        return "preserve_all"
+        return call_conv_word(CALL_CONV_PRESERVE_ALL)
     }
 
     pub static fn preserve_none() -> string {
-        return "preserve_none"
+        return call_conv_word(CALL_CONV_PRESERVE_NONE)
     }
 
     /// `@set_global_allocator(A)` on a line of its own at file scope: the
@@ -902,19 +979,7 @@ pub class LangAttrs {
     /// the `@`; "" for the default convention. The one place a diagnostic
     /// or the ABI note turns the number back into a name.
     pub static fn call_conv_name(cc: u8) -> string {
-        if cc == 1 {
-            return LangAttrs::preserve_most()
-        }
-
-        if cc == 2 {
-            return LangAttrs::preserve_all()
-        }
-
-        if cc == 3 {
-            return LangAttrs::preserve_none()
-        }
-
-        return ""
+        return call_conv_word(cc)
     }
 
     /// `@packed` / `@align(N)` on a class, struct or union; `@align(N)` on a
@@ -1008,6 +1073,20 @@ pub class LangAttrs {
     }
 }
 
+/// \enum GlobalAllocFn
+/// \brief The five static functions a `@set_global_allocator(A)` class
+///        provides, in the order the forwarders are written
+///        (EmitIR::_global_allocator) and checked (ConformanceChecking).
+///        Each is also a C symbol, LowerTargets::global_alloc_symbol: an
+///        ABI with Lib/rt/global_alloc.h, which defines all five weakly.
+pub enum GlobalAllocFn derives u8 { Alloc = 0, Free, Resize, Realloc, AllocZeroed, COUNT }
+
+/// The process status of a Kairo crash that is not a panic: a failed
+/// `assert`, out of memory (the C++ operators' hook, InterfaceEmitter, and
+/// Lib/builtin/alloc_raw.k's default_oom both use it). SIGABRT's shell status.
+pub
+const ABORT_EXIT_CODE: i32 = 134
+
 /// \class AllocNames
 /// \brief Lib/builtin/base/alloc.k's names that the compiler reads.
 ///        Not lang items (only create / destroy are, for the
@@ -1029,6 +1108,26 @@ pub class AllocNames {
 
     pub static fn free_member() -> string {
         return "free"
+    }
+
+    /// The global allocator's function \p k, by the name A declares it
+    /// under (ConformanceChecking looks each up; the forwarders call it).
+    pub static fn global_alloc_member(k: GlobalAllocFn) -> string {
+        match k {
+            case GlobalAllocFn::Alloc {
+                return AllocNames::alloc_member()
+            } case GlobalAllocFn::Free {
+                return AllocNames::free_member()
+            } case GlobalAllocFn::Resize {
+                return "resize"
+            } case GlobalAllocFn::Realloc {
+                return "realloc"
+            } case GlobalAllocFn::AllocZeroed {
+                return "alloc_zeroed"
+            } case GlobalAllocFn::COUNT {
+                return ""
+            }
+        }
     }
 
     /// alloc.k's allocation calls, by spelling.
@@ -1739,8 +1838,15 @@ pub class LowerTargets {
 
     /// The reserved identifier prefix. CxxNameCheck rejects user identifiers
     /// that start with it.
+    /// The minted names' common stem, without the separator: what TextSink
+    /// tests an emitted line for (`__kairo_Tag`, `__kairo_ext_T`, ...).
+    /// reserved_prefix is this and the `_`.
+    pub static fn reserved_stem() -> string {
+        return "__kairo"
+    }
+
     pub static fn reserved_prefix() -> string {
-        return "__kairo_"
+        return LowerTargets::reserved_stem() + "_"
     }
 
     /// The include guard around a tuple record's definition (writer:
@@ -2670,17 +2776,124 @@ pub class LowerTargets {
         return "kairo_global_"
     }
 
+    /// The C symbol of the global allocator's function \p k
+    /// (`kairo_global_alloc`, ...): the prefix and A's member name.
+    pub static fn global_alloc_symbol(k: GlobalAllocFn) -> string {
+        return LowerTargets::global_alloc_symbol_prefix() + AllocNames::global_alloc_member(k)
+    }
+
+    /// The runtime's crash entry (Lib/rt/crash.h: message, its length, the
+    /// exit status; never returns): a failed `assert` (EmitIR::_assert) and
+    /// the C++ allocation operators' out-of-memory hook call it.
+    pub static fn rt_crash_exit() -> string {
+        return "kairo_rt_crash_exit"
+    }
+
+    /// What an allocation that cannot be met prints before it exits with
+    /// ABORT_EXIT_CODE. Lib/builtin/alloc_raw.k's default_oom spells the
+    /// same bytes itself (it sits below the string lang item); the OOM run
+    /// test in Tests/Codegen/global_allocator compares the two.
+    pub static fn oom_message() -> string {
+        return "kairo: out of memory"
+    }
+
     /// Defined for every Kairo file of a program some file of which sets
     /// the global allocator (PreprocessorOptions::global_allocator_set); the
     /// builtin's Global tests it with `defined!`.
     pub static fn global_alloc_set_macro() -> string {
-        return "__KAIRO_GLOBAL_ALLOCATOR_SET"
+        return alloc_set_macro_name()
     }
 
     /// The ABI note's global-allocator record (EmitIR::_abi_note, LinkABI):
     /// a used byte array beside the conventions record, in the same section.
     pub static fn abi_alloc_note_symbol() -> string {
         return "__kairo_abi_alloc"
+    }
+
+    /// Locals and parameters the emitter mints inside one construct; none
+    /// escapes it, so one spelling serves every use.
+    ///   yield_value_tmp: a const lvalue `yield`ed from a generator, copied
+    ///     so the co_yield sees a value (EmitIR::_yield).
+    ///   range_elem: a C++-dependent `for`'s element (EmitIR::_cxx_dependent_for).
+    ///   unused_binding: a discarded name in that loop's structured binding.
+    ///   forward_param: the lambda parameter of a nameless move (EmitIR::_cast).
+    ///   adt_factory_param: the template parameter that makes an ADT's
+    ///     factories templates (InterfaceEmitter::_adt_factories).
+    pub static fn yield_value_tmp() -> string {
+        return "__kairo_yv"
+    }
+
+    pub static fn range_elem() -> string {
+        return "__kairo_elem"
+    }
+
+    pub static fn unused_binding(i: usize) -> string {
+        return f"__kairo_unused{i}"
+    }
+
+    pub static fn forward_param() -> string {
+        return "__kairo_x"
+    }
+
+    pub static fn adt_factory_param() -> string {
+        return "__kairo_mk"
+    }
+
+    /// Records TypeExport declares in the header set's clang AST (never in
+    /// emitted text): the blank stand-in for an unknown layout, one opaque
+    /// record per size and alignment, and a layout twin's class and its
+    /// virtual.
+    pub static fn opaque_blank() -> string {
+        return "__kairo_opaque_blank"
+    }
+
+    pub static fn opaque_record(size: u64, align: u64) -> string {
+        return f"__kairo_opaque_s{size}_a{align}"
+    }
+
+    pub static fn layout_twin() -> string {
+        return "__kairo_layout_twin"
+    }
+
+    pub static fn layout_vf() -> string {
+        return "__kairo_layout_vf"
+    }
+
+    /// C++'s `size_t` without a header: the type of `sizeof`.
+    pub static fn cxx_size_t() -> string {
+        return "decltype(sizeof(0))"
+    }
+
+    /// The library types the C++ allocation operators' signatures name, by
+    /// their names in `std` (InterfaceEmitter declares them opaque, so a
+    /// header needs no <new>), and the attribute those operators carry.
+    pub static fn cxx_align_val_t() -> string {
+        return "align_val_t"
+    }
+
+    pub static fn cxx_nothrow_t() -> string {
+        return "nothrow_t"
+    }
+
+    pub static fn attr_exclude_from_instantiation() -> string {
+        return "__attribute__((exclude_from_explicit_instantiation)) "
+    }
+
+    /// The Hash interface's C++ side: `std::hash`, which a primitive's
+    /// conformance is and a C++ type's hash is read through (EmitPlan,
+    /// EmitWitness). Qualified; is_cxx_std_hash also takes it unqualified,
+    /// as an ffi re-declaration may spell it.
+    pub static fn cxx_std_hash() -> string {
+        return "::" + cxx_std_name() + "::" + LowerTargets::cxx_std_hash_leaf()
+    }
+
+    /// Its name inside `namespace std`, where the adapters specialize it.
+    pub static fn cxx_std_hash_leaf() -> string {
+        return "hash"
+    }
+
+    pub static fn is_cxx_std_hash(const sp: string) -> bool {
+        return sp == LowerTargets::cxx_std_hash() || "::" + sp == LowerTargets::cxx_std_hash()
     }
 
     pub static fn clang_malloc() -> string {

@@ -119,7 +119,18 @@ import AST::Kind::TypeKind::{
     TypeKind,
     to_string,
 }
+import API::LinkABI::{
+    ABI_ALLOC_INLINES_SYSTEM,
+    ABI_ALLOC_SETS_GLOBAL,
+    ABI_NOTE_KIND_ALLOC,
+    ABI_NOTE_KIND_CONV,
+    abi_note_magic,
+    call_conv_note_bit,
+}
 import AST::LangItems::{
+    ABORT_EXIT_CODE,
+    AllocNames,
+    GlobalAllocFn,
     LangAttrs,
     LowerTargets,
     to_string,
@@ -414,36 +425,46 @@ pub class EmitIR {
         var a   = self._spell._type(ta->aliased->canonical)
         var at  = tu->global_alloc_at
         var pre = "extern \"C\" "
-        var sym = LowerTargets::global_alloc_symbol_prefix()
-        var sz  = "decltype(sizeof(0))"
+        var sz  = LowerTargets::cxx_size_t()
         var p   = "unsigned char * "
+        // Each forwarder: the C symbol, and A's function of the same row.
+        var s_alloc = LowerTargets::global_alloc_symbol(GlobalAllocFn::Alloc)
+        var m_alloc = a + "::" + AllocNames::global_alloc_member(GlobalAllocFn::Alloc)
+        var s_free  = LowerTargets::global_alloc_symbol(GlobalAllocFn::Free)
+        var m_free  = a + "::" + AllocNames::global_alloc_member(GlobalAllocFn::Free)
+        var s_rsz   = LowerTargets::global_alloc_symbol(GlobalAllocFn::Resize)
+        var m_rsz   = a + "::" + AllocNames::global_alloc_member(GlobalAllocFn::Resize)
+        var s_real  = LowerTargets::global_alloc_symbol(GlobalAllocFn::Realloc)
+        var m_real  = a + "::" + AllocNames::global_alloc_member(GlobalAllocFn::Realloc)
+        var s_zero  = LowerTargets::global_alloc_symbol(GlobalAllocFn::AllocZeroed)
+        var m_zero  = a + "::" + AllocNames::global_alloc_member(GlobalAllocFn::AllocZeroed)
         self._cg->sink->spell(
             at,
-            pre + p + sym + "alloc(" + sz + " size, " + sz + " align) noexcept { return " + a + "::alloc(size, align); }",
+            pre + p + s_alloc + "(" + sz + " size, " + sz + " align) noexcept { return " + m_alloc + "(size, align); }",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            pre + "void " + sym + "free(" + p + "ptr, " + sz + " size, " + sz + " align) noexcept { " + a + "::free(ptr, size, align); }",
+            pre + "void " + s_free + "(" + p + "ptr, " + sz + " size, " + sz + " align) noexcept { " + m_free + "(ptr, size, align); }",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            pre + "bool " + sym + "resize(" + p + "ptr, " + sz + " old_size, " + sz + " new_size, " + sz + " align) noexcept { return " + a + "::resize(ptr, old_size, new_size, align); }",
+            pre + "bool " + s_rsz + "(" + p + "ptr, " + sz + " old_size, " + sz + " new_size, " + sz + " align) noexcept { return " + m_rsz + "(ptr, old_size, new_size, align); }",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            pre + p + sym + "realloc(" + p + "ptr, " + sz + " old_size, " + sz + " new_size, " + sz + " align) noexcept { return " + a + "::realloc(ptr, old_size, new_size, align); }",
+            pre + p + s_real + "(" + p + "ptr, " + sz + " old_size, " + sz + " new_size, " + sz + " align) noexcept { return " + m_real + "(ptr, old_size, new_size, align); }",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            pre + p + sym + "alloc_zeroed(" + sz + " size, " + sz + " align) noexcept { return " + a + "::alloc_zeroed(size, align); }",
+            pre + p + s_zero + "(" + sz + " size, " + sz + " align) noexcept { return " + m_zero + "(size, align); }",
         )
 
         self._cg->sink->brk()
@@ -462,7 +483,7 @@ pub class EmitIR {
         }
 
         if cc != 0 {
-            self._cc_bits |= (1 as u32) << (cc as u32) - (1 as u32)
+            self._cc_bits |= call_conv_note_bit(cc)
         }
     }
 
@@ -496,17 +517,18 @@ pub class EmitIR {
 
         var flags: u32 = 0
         if ci != &null && !ci->pp.global_allocator_set {
-            flags |= 1
+            flags |= ABI_ALLOC_INLINES_SYSTEM
         }
 
         if tu->global_alloc != &null {
-            flags |= 2
+            flags |= ABI_ALLOC_SETS_GLOBAL
         }
 
+        var magic = self._abi_magic_cxx()
         if flags != 0 {
             self._cg->sink->spell(
                 at,
-                "[[gnu::used, gnu::section(\"" + sec + "\")]] static const unsigned char " + LowerTargets::abi_alloc_note_symbol() + "[] = { 0x7f, 0x4b, 0x41, 0x42, 0x49, 2, " + f"{flags}" + " };",
+                "[[gnu::used, gnu::section(\"" + sec + "\")]] static const unsigned char " + LowerTargets::abi_alloc_note_symbol() + "[] = { " + magic + f"{ABI_NOTE_KIND_ALLOC}" + ", " + f"{flags}" + " };",
             )
 
             self._cg->sink->brk()
@@ -519,10 +541,27 @@ pub class EmitIR {
         var major: u32 = (kairo::llvm_version_major() as u32)
         self._cg->sink->spell(
             at,
-            "[[gnu::used, gnu::section(\"" + sec + "\")]] static const unsigned char " + LowerTargets::abi_note_symbol() + "[] = { 0x7f, 0x4b, 0x41, 0x42, 0x49, 1, " + f"{self._cc_bits}" + ", " + f"{major}" + " };",
+            "[[gnu::used, gnu::section(\"" + sec + "\")]] static const unsigned char " + LowerTargets::abi_note_symbol() + "[] = { " + magic + f"{ABI_NOTE_KIND_CONV}" + ", " + f"{self._cc_bits}" + ", " + f"{major}" + " };",
         )
 
         self._cg->sink->brk()
+    }
+
+    /// LinkABI's magic as the head of a C++ initializer, each byte in
+    /// lowercase hex with its separator: `0x7f, 0x4b, 0x41, 0x42, 0x49, `.
+    priv fn _abi_magic_cxx(self) -> string {
+        var digits = "0123456789abcdef"
+        var m      = abi_note_magic()
+        var out    = ""
+        for var k: usize = 0; k < m.size(); ++k {
+            var b = ((m[k]) as u32) & (255 as u32)
+            out += "0x"
+            out.push_back(digits[(b >> (4 as u32)) as usize])
+            out.push_back(digits[(b & (15 as u32)) as usize])
+            out += ", "
+        }
+
+        return out
     }
 
     /// The TU's panic site table (Compiler/Spec/Panic.md#site-ids; TranslationUnit::
@@ -2370,9 +2409,10 @@ pub class EmitIR {
             && vt != &null
             && canon_has_const(vt)
             && (!self._needs_cast(n->value, elem, &null)) {
-            self._cg->sink->spell(n->range, "{ auto __kairo_yv = (")
+            var yv = LowerTargets::yield_value_tmp()
+            self._cg->sink->spell(n->range, "{ auto " + yv + " = (")
             self._value(n->value, elem)
-            self._cg->sink->spell(n->range, "); co_yield(__kairo_yv); }")
+            self._cg->sink->spell(n->range, "); co_yield(" + yv + "); }")
             return
         }
 
@@ -2442,7 +2482,7 @@ pub class EmitIR {
         self.emit(n->condition)
         self._cg->sink->spell(
             n->range,
-            ")) ::kairo_rt_crash_exit(reinterpret_cast<const unsigned char*>(" + lit + "), sizeof(" + lit + ") - 1, 134);",
+            ")) ::" + LowerTargets::rt_crash_exit() + "(reinterpret_cast<const unsigned char*>(" + lit + "), sizeof(" + lit + ") - 1, " + f"{ABORT_EXIT_CODE}" + ");",
         )
     }
 
@@ -2693,19 +2733,20 @@ pub class EmitIR {
         var at = n->range
         var s  = self._cg->sink
         var nb = n->bindings.size()
-        var head = "auto&& __kairo_elem"
+        var el   = LowerTargets::range_elem()
+        var head = "auto&& " + el
         var ptr  = ""
         if nb == 1 {
             var unsafe *b = n->bindings.get(0)
             if (!b->is_discard) && b->decl != &null {
                 var nm = self._spell.imm_name(b->decl->name.imm, self._owning_fid())
                 if b->shorthand.has(BindingShorthand::Pointer) {
-                    ptr = "auto* " + nm + " = __builtin_addressof(__kairo_elem);"
+                    ptr = "auto* " + nm + " = " + LowerTargets::clang_addressof() + "(" + el + ");"
                 } else {
                     head = "auto " + nm
                 }
             } else {
-                head = "[[maybe_unused]] auto&& __kairo_elem"
+                head = "[[maybe_unused]] auto&& " + el
             }
         } else {
             head = "auto ["
@@ -2716,7 +2757,7 @@ pub class EmitIR {
                 }
 
                 if b->is_discard || b->decl == &null {
-                    head = head + f"__kairo_unused{i}"
+                    head = head + LowerTargets::unused_binding(i)
                 } else {
                     head = head + self._spell.imm_name(b->decl->name.imm, self._owning_fid())
                 }
@@ -3718,7 +3759,7 @@ pub class EmitIR {
             if tc != &null && isa<CXXRValueRefType>(tc) && e->is_lvalue() {
                 self._cg->sink->spell(
                     e->range,
-                    "([]<class T>(T& __kairo_x) -> T&& { return static_cast<T&&>(__kairo_x); }(",
+                    "([]<class T>(T& " + LowerTargets::forward_param() + ") -> T&& { return static_cast<T&&>(" + LowerTargets::forward_param() + "); }(",
                 )
 
                 self.emit(e)
@@ -7112,7 +7153,7 @@ pub class EmitIR {
             var rem = k == TokenKind::OpPercent
             s->spell(
                 at,
-                "if (__builtin_expect(" + b + " == 0, 0)) ::" + LowerTargets::div_zero_fn() + "(); ",
+                "if (" + LowerTargets::clang_expect() + "(" + b + " == 0, 0)) ::" + LowerTargets::div_zero_fn() + "(); ",
             )
 
             s->spell(
@@ -7606,7 +7647,7 @@ pub class EmitIR {
         s->spell(at, "); ")
         s->spell(
             at,
-            "if (__builtin_expect(" + tb + " == 0, 0)) ::" + LowerTargets::div_zero_fn() + "(); ",
+            "if (" + LowerTargets::clang_expect() + "(" + tb + " == 0, 0)) ::" + LowerTargets::div_zero_fn() + "(); ",
         )
 
         self._form_value(at)

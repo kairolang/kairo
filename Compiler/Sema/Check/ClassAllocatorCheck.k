@@ -39,6 +39,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import AST::LangItems::LangAttrs
 import AST::Node::Declarations::FunctionDecl
 import AST::Node::Program::TopLevelKind
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
@@ -110,7 +111,7 @@ pub class ClassAllocatorCheck derives RecursiveASTVisitor<ClassAllocatorCheck> {
         var b = self.sc->diag->report(
             DiagID::SC149E,
             at.start,
-            f"a class cannot declare its own allocator ('{word}'); objects are allocated with '@create' and freed with '@destroy' through the allocator in effect",
+            f"a class cannot declare its own allocator ('{word}'); objects are allocated with {LangAttrs::quoted(LangAttrs::create())} and freed with {LangAttrs::quoted(LangAttrs::destroy())} through the allocator in effect",
         )
 
         b.first(at)

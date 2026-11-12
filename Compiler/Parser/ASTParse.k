@@ -2642,8 +2642,7 @@ pub class ASTParse
         self.diag->report(
             DiagID::S069E,
             r.start,
-            "'@inout' and '@move' are parameter passing modes; a mode "
-            "can only be written on a function or closure parameter",
+            f"{LangAttrs::quoted(LangAttrs::param_inout())} and {LangAttrs::quoted(LangAttrs::param_move())} are parameter passing modes; a mode can only be written on a function or closure parameter",
         ).first(r)->emit()
         return true
     }
@@ -2868,7 +2867,7 @@ pub class ASTParse
             self.diag->report(
                 DiagID::S051E,
                 lparen.start,
-                "expected ')' to close '@set_global_allocator('",
+                "expected ')' to close '" + LangAttrs::at(LangAttrs::set_global_allocator()) + "('",
             ).first(lparen)->emit()
             while !self.is_eof()
                 && !self._is_terminator_tok(self._current)
@@ -2895,7 +2894,7 @@ pub class ASTParse
             var b = self.diag->report(
                 DiagID::SC139E,
                 e->range.start,
-                "an attribute cannot be applied to '@set_global_allocator'; it declares nothing",
+                "an attribute cannot be applied to " + LangAttrs::quoted(LangAttrs::set_global_allocator()) + "; it declares nothing",
             )
 
             b.first(e->range)
@@ -2907,7 +2906,7 @@ pub class ASTParse
             self.diag->report(
                 DiagID::S048E,
                 annot->vis_range.start,
-                "a visibility modifier cannot be applied to '@set_global_allocator'",
+                "a visibility modifier cannot be applied to " + LangAttrs::quoted(LangAttrs::set_global_allocator()),
             ).first(annot->vis_range)->emit()
         }
 
@@ -2915,7 +2914,7 @@ pub class ASTParse
             self.diag->report(
                 DiagID::S052E,
                 lparen.start,
-                "expected the allocator type: '@set_global_allocator(MyAllocator)'",
+                "expected the allocator type: '" + LangAttrs::at(LangAttrs::set_global_allocator()) + "(MyAllocator)'",
             ).first(whole)->emit()
             return
         }
@@ -2933,7 +2932,7 @@ pub class ASTParse
                 self.tu->global_alloc_at.start,
                 "set here first",
             )->first(self.tu->global_alloc_at)
-            b.remove(whole, "remove the second '@set_global_allocator'")
+            b.remove(whole, "remove the second " + LangAttrs::quoted(LangAttrs::set_global_allocator()))
             b.emit()
             return
         }
@@ -2980,7 +2979,7 @@ pub class ASTParse
             var b = self.diag->report(
                 DiagID::SC139E,
                 e->range.start,
-                "'@set_global_allocator' stands on a line of its own at file scope; it is not an attribute of a declaration or statement",
+                LangAttrs::quoted(LangAttrs::set_global_allocator()) + " stands on a line of its own at file scope; it is not an attribute of a declaration or statement",
             )
 
             b.first(e->range)
@@ -3506,12 +3505,12 @@ pub class ASTParse
             var b = self.diag->report(
                 DiagID::SC147E,
                 cold_at.start,
-                "'@hot_path' and '@cold_path' contradict each other",
+                LangAttrs::quoted(LangAttrs::hot_path()) + " and " + LangAttrs::quoted(LangAttrs::cold_path()) + " contradict each other",
             )
 
             b.first(cold_at)
             b.note(decl->range.start, "both are on this function")
-            b.remove(cold_at, "remove '@cold_path'")
+            b.remove(cold_at, "remove " + LangAttrs::quoted(LangAttrs::cold_path()))
             b.emit()
         }
 

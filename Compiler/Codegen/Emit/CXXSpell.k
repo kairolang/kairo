@@ -88,6 +88,7 @@ import AST::Node::Types::{
     GenericParamType, NullableType,     OpaqueFFIType, PointerType,    TypeExpr,
     ValueOp,
 }
+import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
 import Codegen::CodegenContext::CodegenContext
 import Codegen::CodegenICE::codegen_ice
@@ -945,11 +946,12 @@ pub class CXXSpell {
     /// l/r on ++/-- is fixity, not part of the name (see op_is_postfix).
     fn operator_name(self, f: unsafe *Declarations::FunctionDecl) -> string {
         var sym = self._op_symbol(f)
-        if sym == "finally" {
+        var k   = OperatorFacts::single_kind(f)
+        if k == TokenKind::KwFinally {
             return "~" + self.leaf(self.operator_owner(f))
         }
 
-        if sym == "as" {
+        if k == TokenKind::KwAs {
             if f->return_type == &null {
                 self._ice(f->range, "CXXSpell: `op as` with no target type")
             }
@@ -957,7 +959,7 @@ pub class CXXSpell {
             return "operator " + self._type(f->return_type)
         }
 
-        var named = CXXSpell::named_operator(sym, f)
+        var named = CXXSpell::named_operator(f)
         if named.size() > 0 {
             return named
         }
@@ -969,7 +971,7 @@ pub class CXXSpell {
         // OperatorSignatureCheck rejects it.
         if DeclFacts::decl_extension_of(f) != &null {
             var key = sym
-            if sym == "++" || sym == "--" {
+            if k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus {
                 key = (if (CXXSpell::op_is_postfix(f)) => ("r") else => "l") + sym
             }
 
@@ -997,16 +999,17 @@ pub class CXXSpell {
         }
 
         var sym   = self._op_symbol(f)
-        var named = CXXSpell::named_operator(sym, f)
+        var k     = OperatorFacts::single_kind(f)
+        var named = CXXSpell::named_operator(f)
         if named.size() > 0 {
             return named
         }
 
-        if sym == "[]" {
+        if OperatorFacts::is_subscript(f) {
             return LowerTargets::witness_subscript()
         }
 
-        if sym == "as" {
+        if k == TokenKind::KwAs {
             var rt = "void"
             if f->return_type != &null && f->return_type->canonical != &null {
                 rt = self._type(f->return_type->canonical)
@@ -1016,7 +1019,7 @@ pub class CXXSpell {
         }
 
         var key = sym
-        if sym == "++" || sym == "--" {
+        if k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus {
             key = (if (CXXSpell::op_is_postfix(f)) => ("r") else => "l") + sym
         }
 
@@ -1036,7 +1039,7 @@ pub class CXXSpell {
     /// (`in`, `^^`, ...) are not C++ operators, and are only static members.
     fn ext_forwarder_name(self, f: unsafe *Declarations::FunctionDecl) -> string {
         var sym = self._op_symbol(f)
-        if CXXSpell::named_operator(sym, f).size() > 0 {
+        if CXXSpell::named_operator(f).size() > 0 {
             return ""
         }
 
@@ -1063,29 +1066,31 @@ pub class CXXSpell {
         return sym
     }
 
-    static fn named_operator(const sym: string, f: unsafe *Declarations::FunctionDecl) -> string {
-        if sym == "in" {
+    /// The LowerTargets name of an operator C++ has no `operator` for, or "".
+    static fn named_operator(f: unsafe *Declarations::FunctionDecl) -> string {
+        var k = OperatorFacts::single_kind(f)
+        if k == TokenKind::KwIn {
             return if (f->params.size() > 1) => (LowerTargets::op_contains())
                    else => LowerTargets::op_iter()
         }
 
-        if sym == "^^" {
+        if k == TokenKind::OpCaretCaret {
             return LowerTargets::op_pow()
         }
 
-        if sym == "await" {
+        if k == TokenKind::KwAwait {
             return LowerTargets::op_await()
         }
 
-        if sym == "spawn" {
+        if k == TokenKind::KwSpawn {
             return LowerTargets::op_spawn()
         }
 
-        if sym == "thread" {
+        if k == TokenKind::KwThread {
             return LowerTargets::op_thread()
         }
 
-        if sym == "panic" {
+        if k == TokenKind::KwPanic {
             return LowerTargets::op_panic()
         }
 

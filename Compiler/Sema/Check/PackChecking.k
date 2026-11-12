@@ -52,6 +52,7 @@ import AST::DeclFacts::{
     decl_generic_params,
     param_is_type_pack,
 }
+import AST::LangItems::LangAttrs
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -258,7 +259,7 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
     /// meaning. No fix-it: dropping the mode is a different program
     /// (copies), not the one the author meant.
     priv fn _pack_mode(self, p: unsafe *ParamDecl) {
-        var mw = if (p->mode == ParamMode::Inout) => ("@inout") else => "@move"
+        var mw = if (p->mode == ParamMode::Inout) => (LangAttrs::at(LangAttrs::param_inout())) else => LangAttrs::at(LangAttrs::param_move())
         var at = p->mode_range
         if !at.is_valid() {
             at = p->range

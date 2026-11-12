@@ -82,6 +82,7 @@ import AST::DeclFacts::{
     param_is_type_pack,
     param_type_pack_param,
 }
+import AST::LangItems::LangAttrs
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -2848,7 +2849,7 @@ pub class OverloadResolution {
                     var iv = if (a->marked && a->inner_ty != &null) => (self.tu.str(a->inner_ty))
                              else => got
                     c->viable = false
-                    c->reason = f"parameter '{pn}' is '@inout' and needs a mutable lvalue of type '{self.tu.str(pt)}'; got '{iv}'"
+                    c->reason = f"parameter '{pn}' is {LangAttrs::quoted(LangAttrs::param_inout())} and needs a mutable lvalue of type '{self.tu.str(pt)}'; got '{iv}'"
                     return
                 }
 

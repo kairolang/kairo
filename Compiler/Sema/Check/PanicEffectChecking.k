@@ -96,6 +96,7 @@ import AST::DeclFacts::{
     decl_is_imported,
 }
 import AST::Kind::TypeKind::TypeKind
+import AST::LangItems::LangAttrs
 import AST::Mixin::TypeQual::TypeQual
 import AST::Node::Base::{
     Decl,
@@ -1796,7 +1797,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             }
 
             if OperatorFacts::is_implicit_conv(f) {
-                return "an '@implicit' conversion"
+                return "an " + LangAttrs::quoted(LangAttrs::implicit_conversion()) + " conversion"
             }
         }
 

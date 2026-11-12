@@ -52,6 +52,7 @@ ffi "c++" import "sstream"
 ffi "c++" import "vector"
 ffi "c++" import "cstring"
 
+import AST::LangItems::LowerTargets
 import Command::FlagTranslator::FlagTranslator
 import Driver::CompilerInstance::CompilerInstance
 import Driver::Runtime::init_runtime
@@ -192,9 +193,9 @@ pub fn _kcc_words(argc:       i32,
     // files' as well: the program sets its global allocator, which every
     // Kairo TU must know (--global-allocator-set; CompilerInstance::
     // _settle_global_allocator). Also reachable as -Xkairo --global-allocator-set.
+    var gdef = "--cxx-define=" + LowerTargets::global_alloc_set_macro()
     for *w in kw {
-        if *w == "--cxx-define=__KAIRO_GLOBAL_ALLOCATOR_SET"
-            || w->starts_with("--cxx-define=__KAIRO_GLOBAL_ALLOCATOR_SET=") {
+        if *w == gdef || w->starts_with(gdef + "=") {
             out.push_back("--global-allocator-set")
             break
         }

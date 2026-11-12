@@ -180,8 +180,98 @@ pub class OperatorFacts {
             return false
         }
 
-        var s = OperatorFacts::symbol(f)
-        return s == "[]"
+        return OperatorFacts::is_subscript(f)
+    }
+
+    /// `op []`: the two bracket tokens (the parser takes no other pair
+    /// after `[`), with the l/r marker, which `[]` never has, dropped.
+    pub static fn is_subscript(f: unsafe *FunctionDecl) -> bool {
+        if f == &null {
+            return false
+        }
+
+        var i = OperatorFacts::_first(f)
+        return f->op_token.size() == i + 2
+            && OperatorFacts::_kind_at(f, i) == TokenKind::OpLSquare
+            && OperatorFacts::_kind_at(f, i + 1) == TokenKind::OpRSquare
+    }
+
+    /// Token \p i's kind, through a macro expansion: an operator a macro
+    /// body declares has TkMacroExpand tokens, and symbol() spells through
+    /// them, so the kind must look through them too.
+    priv static fn _kind_at(f: unsafe *FunctionDecl, i: usize) -> TokenKind {
+        var t = f->op_token[i]
+        if t.kind != TokenKind::TkMacroExpand {
+            return t.kind
+        }
+
+        var unsafe *c = OperatorFacts::_ctx(f)
+        if c == &null {
+            return t.kind
+        }
+
+        return c->unwrap_token(t).kind
+    }
+
+    /// The operator's kind when it is one token after the l/r marker (`+`,
+    /// `and`, `as`, `finally`, a marked `++`); TkUnknown for `[]` / `()`.
+    /// Each kind has one spelling, so comparing it is comparing symbol()
+    /// without building the string. A minted `op delete` token is KwFinally.
+    pub static fn single_kind(f: unsafe *FunctionDecl) -> TokenKind {
+        if f == &null {
+            return TokenKind::TkUnknown
+        }
+
+        var i = OperatorFacts::_first(f)
+        if f->op_token.size() != i + 1 {
+            return TokenKind::TkUnknown
+        }
+
+        return OperatorFacts::_kind_at(f, i)
+    }
+
+    /// Operators a declaration may not overload at all (beyond `=` and
+    /// `===`, which OperatorSignatureCheck explains each in its own words).
+    /// The keyword spellings are listed apart from their symbols: `and` is
+    /// its own token, not `&&`.
+    pub static fn is_not_overloadable(k: TokenKind) -> bool {
+        return k == TokenKind::OpAmpAmp
+            || k == TokenKind::OpPipePipe
+            || k == TokenKind::OpExclaim
+            || k == TokenKind::KwAnd
+            || k == TokenKind::KwOr
+            || k == TokenKind::KwNot
+            || k == TokenKind::OpDot
+            || k == TokenKind::OpColonColon
+            || k == TokenKind::OpRange
+            || k == TokenKind::OpRangeEqual
+    }
+
+    /// Operators with no operand besides the receiver.
+    pub static fn is_unary_only(k: TokenKind) -> bool {
+        return k == TokenKind::OpTilde
+            || k == TokenKind::KwCompl
+            || k == TokenKind::KwAs
+            || k == TokenKind::KwFinally
+            || k == TokenKind::OpArrow
+            || k == TokenKind::KwAwait
+            || k == TokenKind::KwSpawn
+            || k == TokenKind::KwThread
+            || k == TokenKind::KwPanic
+            || k == TokenKind::OpPlusPlus
+            || k == TokenKind::OpMinusMinus
+    }
+
+    /// Comparisons, which must return bool (`in` too, with an operand: see
+    /// OperatorSignatureCheck).
+    pub static fn returns_bool(k: TokenKind) -> bool {
+        return k == TokenKind::OpEqualEqual
+            || k == TokenKind::OpExclaimEqual
+            || k == TokenKind::KwNotEq
+            || k == TokenKind::OpLess
+            || k == TokenKind::OpLessEqual
+            || k == TokenKind::OpGreater
+            || k == TokenKind::OpGreaterEqual
     }
 
     /// `[]` returning a safe `*T` / `*const T`: a place into `self`,
