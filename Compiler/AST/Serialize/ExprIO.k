@@ -191,7 +191,7 @@ pub fn expr_alloc(ar: unsafe *ASTArchive) -> unsafe *Expr {
 }
 
 fn io_expr_base(ar: unsafe *ASTArchive, e: unsafe *Expr) {
-    if !ar->reading {
+    if !ar->reading() {
         ar->en<ExprKind>(&e->kind)
         if e->kind == ExprKind::RecoveryExpr {
             ar->en<ExprKind>(&e->recovery_kind)
@@ -237,7 +237,7 @@ fn io_integer_literal_expr(ar: unsafe *ASTArchive, n: unsafe *IntegerLiteralExpr
     ar->tok(&n->token)
     var has = n->imm != &null
     ar->flag(&has)
-    if ar->reading {
+    if ar->reading() {
         n->ctx = ar->ctx
         if has {
             n->imm = ar->ctx->get_payload_table(n->token)->get<Immediate::IntData>(
@@ -248,7 +248,7 @@ fn io_integer_literal_expr(ar: unsafe *ASTArchive, n: unsafe *IntegerLiteralExpr
 
     eval if defined!(DEBUG) {
         ar->sema_is(n->pinned_kind == 255, "IntegerLiteralExpr::pinned_kind")
-        if has && !ar->reading {
+        if has && !ar->reading() {
             ar->sema_is(
                 n->imm == ar->ctx->get_payload_table(n->token)->get<Immediate::IntData>(
                     ar->ctx->unwrap_token(n->token).imm,
@@ -263,7 +263,7 @@ fn io_floating_literal_expr(ar: unsafe *ASTArchive, n: unsafe *FloatingLiteralEx
     ar->tok(&n->token)
     var has = n->imm != &null
     ar->flag(&has)
-    if ar->reading {
+    if ar->reading() {
         n->ctx = ar->ctx
         if has {
             n->imm = ar->ctx->get_payload_table(n->token)->get<Immediate::FloatData>(
@@ -275,7 +275,7 @@ fn io_floating_literal_expr(ar: unsafe *ASTArchive, n: unsafe *FloatingLiteralEx
     eval if defined!(DEBUG) {
         ar->sema_is(n->pinned_kind == 255, "FloatingLiteralExpr::pinned_kind")
         ar->sema_zero(n->limit as u64, "FloatingLiteralExpr::limit")
-        if has && !ar->reading {
+        if has && !ar->reading() {
             ar->sema_is(
                 n->imm == ar->ctx->get_payload_table(n->token)->get<Immediate::FloatData>(
                     ar->ctx->unwrap_token(n->token).imm,
@@ -291,7 +291,7 @@ fn io_string_literal_expr(ar: unsafe *ASTArchive, n: unsafe *StringLiteralExpr) 
     ar->num8(&n->string_kind.bits)
     var has = n->imm != &null
     ar->flag(&has)
-    if ar->reading {
+    if ar->reading() {
         n->ctx = ar->ctx
         if has {
             n->imm = ar->ctx->get_payload_table(n->token)->get<Immediate::StringData>(
@@ -314,7 +314,7 @@ fn io_string_literal_expr(ar: unsafe *ASTArchive, n: unsafe *StringLiteralExpr) 
         ar->sema_false(n->const_eval, "StringLiteralExpr::const_eval")
         ar->sema_null<Type>(n->c_string, "StringLiteralExpr::c_string")
         ar->sema_null<Decl>(n->udl_op, "StringLiteralExpr::udl_op")
-        if has && !ar->reading {
+        if has && !ar->reading() {
             ar->sema_is(
                 n->imm == ar->ctx->get_payload_table(n->token)->get<Immediate::StringData>(
                     ar->ctx->unwrap_token(n->token).imm,
@@ -327,7 +327,7 @@ fn io_string_literal_expr(ar: unsafe *ASTArchive, n: unsafe *StringLiteralExpr) 
 
 fn io_character_literal_expr(ar: unsafe *ASTArchive, n: unsafe *CharacterLiteralExpr) {
     ar->tok(&n->token)
-    if ar->reading {
+    if ar->reading() {
         n->ctx = unsafe (ar->ctx as *ASTContext)
     }
 
@@ -348,7 +348,7 @@ fn io_null_literal_expr(ar: unsafe *ASTArchive, n: unsafe *NullLiteralExpr) {
 fn io_named_ident_expr(ar: unsafe *ASTArchive, n: unsafe *NamedIdentExpr) {
     ar->tok(&n->name)
     io_generic_args(ar, &n->generic_args)
-    if ar->reading {
+    if ar->reading() {
         n->ctx = ar->ctx
     }
 
@@ -363,7 +363,7 @@ fn io_named_ident_expr(ar: unsafe *ASTArchive, n: unsafe *NamedIdentExpr) {
 
 fn io_chain_expr(ar: unsafe *ASTArchive, n: unsafe *ChainExpr) {
     ar->expr<Expr>(&n->base)
-    if ar->reading {
+    if ar->reading() {
         n->ctx = ar->ctx
     }
 
@@ -475,7 +475,7 @@ fn io_named_initializer_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::Nam
     ar->flag(&n->is_dotted)
     ar->flag(&n->has_braces)
     ar->tok(&n->dotted_name)
-    if ar->reading {
+    if ar->reading() {
         n->ctx = ar->ctx
     }
 
@@ -487,7 +487,7 @@ fn io_named_initializer_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::Nam
 
 fn io_anon_initializer_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::AnonInitializerExpr) {
     io_init_fields(ar, &n->fields)
-    if ar->reading {
+    if ar->reading() {
         n->ctx = unsafe (ar->ctx as *ASTContext)
     }
 }

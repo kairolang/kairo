@@ -96,6 +96,7 @@ import AST::Node::Statements::{
     MatchStmt,
 }
 import AST::Visitor::ASTWriter::ASTWriter
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -121,6 +122,7 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Tuple)
         if self.sc->tu == &null {
             return
         }

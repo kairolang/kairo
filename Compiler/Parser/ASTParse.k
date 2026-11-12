@@ -86,6 +86,7 @@ import Diagnostic::BufferedDiagSink::BufferedDiagSink
 import Diagnostic::Code::DiagCode
 import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
+import Driver::TUStage::TUStage
 import Lexer::Immediate::{
     Immediate,
     ImmediateTable,
@@ -428,6 +429,8 @@ pub class ASTParse
         // #71), so clearing it is safe, and this parse refills it.
         self.tu->dc_decls.clear()
         self._kept_closer = &null // a token of an earlier parse's stream
+
+        self.tu->advance(TUStage::Parsing)
         var unsafe *program = self.ctx->alloc_init<Program>(self.ctx->fid, self.ctx)
         self.tu->program = program
         self.scope.push(ScopeKind::Block, self.tu)

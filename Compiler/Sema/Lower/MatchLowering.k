@@ -169,6 +169,7 @@ import Sema::Check::PatternSpace::{
     PatternSpace,
 }
 import Sema::Lower::EnumLayoutLowering::EnumLayoutQuery
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Lower::OperatorLowering::OperatorLowering
 import Sema::Lower::PatternCompilation::{
@@ -254,6 +255,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Match)
         if self.sc->tu == &null {
             return
         }

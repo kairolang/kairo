@@ -230,6 +230,7 @@ import Sema::Check::ClassLifecycle::{
     lifecycle_of,
     lifecycle_open,
 }
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Foreign::TypeExport::TypeExport
 import Sema::Resolve::NameLookup::NameLookup
@@ -2690,6 +2691,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::EnumLayout)
         if self.sc->tu == &null {
             return
         }

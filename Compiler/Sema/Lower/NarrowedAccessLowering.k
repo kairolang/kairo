@@ -77,6 +77,7 @@ import AST::Visitor::ASTWriter::{
     ListBuilder,
 }
 import Location::SourceRange::SourceRange
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -97,6 +98,7 @@ pub class NarrowedAccessLowering derives ASTWriter<NarrowedAccessLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::NarrowedAccess)
         if self.sc->tu == &null {
             return
         }

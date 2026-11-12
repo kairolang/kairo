@@ -408,7 +408,7 @@ pub class LowerSynth {
     /// SequenceLowering it checks nothing: that pass orders what is minted
     /// ahead of it.
     priv fn _mint_check(self, call: unsafe *CallExpr, recv: unsafe *Expr, const who: string) {
-        if self.sc == &null || !self.sc->sequenced {
+        if self.sc == &null || !self.sc->sequenced() {
             return
         }
 
@@ -506,7 +506,7 @@ pub class LowerSynth {
     /// # text
 
     /// The extent C++ gives string literal \p sl as `const char[N]`: its
-    /// decoded bytes, every chained part, plus the terminator (P835). 0 when
+    /// decoded bytes, every chained part, plus the terminator. 0 when
     /// an escape does not decode, which the caller reads as "no literal".
     /// Typing needs it before StringLowering has built the bytes, so it
     /// decodes the chain as StringLowering::_collect does.

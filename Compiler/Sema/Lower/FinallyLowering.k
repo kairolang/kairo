@@ -136,6 +136,7 @@ import AST::Node::Statements::{
 import AST::Visitor::ASTWriter::ASTWriter
 import Location::SourceRange::SourceRange
 import Sema::Check::CaptureAnalysis::FreeVarScan
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -224,6 +225,7 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Finally)
         if self.sc->tu == &null {
             return
         }

@@ -39,6 +39,7 @@ import AST::Node::Declarations::{
     ModuleDecl,
 }
 import AST::Node::Program::Program
+import Driver::TUStage::TUStage // standalone enum, no imports of its own; no cycle
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Memory::ArenaList::ArenaList
@@ -358,6 +359,21 @@ pub class TranslationUnit derives DeclContext {
     pub var is_lib_tu:   bool   = false
     pub var module_dir:  string
 
+    /// How far this tree has gone: Preprocessing (the PP built the TU),
+    /// Parsing (a parse, or the AST reader, gave it its program), Sema (a
+    /// Sema began writing on it). The serializer holds only a parsed tree
+    /// (AST/Serialize/Serializer.k), and this says so in one place instead
+    /// of the per-slot checks alone: a Sema field missing from those lists
+    /// would otherwise be written as if the parser had set it.
+    ///
+    /// Per TU, not the driver's FrontendAction stage, which is one for a
+    /// whole batch and is skipped by parse_one, the live check and the
+    /// parse API. Forward only (advance), except the one rewind a reparse
+    /// takes (rewind_to_preprocessed). The other progress facts on this
+    /// class (vis_stamped, cxx_escaping_done, import_overlay) are separate
+    /// one-shot facts, not stages of this.
+    priv var _stage: TUStage = TUStage::Preprocessing
+
     fn TranslationUnit(self,
                        ctx:     unsafe *ASTContext,
                        fid:     u32,
@@ -390,5 +406,32 @@ pub class TranslationUnit derives DeclContext {
         self.pin_segments.set_allocator(unsafe &ctx->pp_alloc, 4)
         self.global_alloc    = &null
         self.global_alloc_at = SourceRange::invalid()
+    }
+
+    pub fn stage(self) -> TUStage {
+        return self._stage
+    }
+
+    /// The forward transitions: the parser's (and the AST reader's) to
+    /// Parsing, Sema's to Sema. Repeating one is fine (a re-entrant Sema run,
+    /// a second parse of a released tree); going back is a missing release:
+    /// a parse over a tree Sema wrote on would keep Sema's slots.
+    pub fn advance(self, to: TUStage) {
+        eval if defined!(DEBUG) {
+            if (to as u8) < (self._stage as u8) {
+                kairo::std::ice_fail(r"TranslationUnit: stage moved backward without a release")
+            }
+        }
+
+        if (to as u8) > (self._stage as u8) {
+            self._stage = to
+        }
+    }
+
+    /// The one backward transition: ASTContext::release_from(Parsing) (a
+    /// reparse) dropped the tree, and this TU, which lives in pp_alloc,
+    /// survives it with only the preprocessor's work.
+    pub fn rewind_to_preprocessed(self) {
+        self._stage = TUStage::Preprocessing
     }
 }

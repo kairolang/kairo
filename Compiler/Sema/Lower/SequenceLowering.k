@@ -121,6 +121,7 @@ import AST::Visitor::ASTWriter::{
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Codegen::CodegenICE::codegen_ice
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -219,6 +220,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Sequence)
         if self.sc->tu == &null {
             return
         }
@@ -1534,6 +1536,7 @@ pub class SequenceCheck derives RecursiveASTVisitor<SequenceCheck> {
     }
 
     fn run(self) {
+        self.sc->begin_lower(LowerStep::SequenceCheck)
         var unsafe *tu = self.sc->tu
         if tu == &null || tu->program == &null {
             return

@@ -114,6 +114,7 @@ import AST::Node::Types::{
     GenericParamType,
 }
 import AST::Visitor::ASTWriter::ASTWriter
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -139,6 +140,7 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Extension)
         if self.sc->tu == &null {
             return
         }

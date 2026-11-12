@@ -406,6 +406,22 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
     }
 }
 
+/// What a needs row names: an item the key reads (an eval fn or binding),
+/// or a record whose layout it needs complete.
+pub enum EvalNeedKind derives u8 {
+    Item,
+    Record,
+}
+
+/// One row of EvalUsageChecking's needs table: item `key` needs `val`
+/// (as `kind` says), at `at`.
+pub struct EvalNeedRow {
+    pub var key:  unsafe *Decl = &null
+    pub var kind: EvalNeedKind     = EvalNeedKind::Item
+    pub var val:  unsafe *Decl = &null
+    pub var at:   SourceRange  = SourceRange::invalid()
+}
+
 pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     pub var  sc: unsafe *SemaContext
     priv var tu: TypeUtil
@@ -1967,13 +1983,10 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     /// ICE. So is an eval binding whose value reaches itself through the eval
     /// fns and bindings it reads.
 
-    /// Every needs record computed, flattened: for item _nd_key[i], an
-    /// item (kind 0) or a record (kind 1) _nd_val[i], needed at _nd_at[i].
+    /// Every needs record computed, flattened, in the order computed; and
+    /// the items whose rows are in it.
     priv var _nd_done: cxx::std::vector<unsafe *Decl>
-    priv var _nd_key:  cxx::std::vector<unsafe *Decl>
-    priv var _nd_kind: cxx::std::vector<u8>
-    priv var _nd_val:  cxx::std::vector<unsafe *Decl>
-    priv var _nd_at:   cxx::std::vector<SourceRange>
+    priv var _nd:      cxx::std::vector<EvalNeedRow>
 
     priv fn _needs_of(self, item: unsafe *Decl) {
         for var i: usize = 0; i < self._nd_done.size(); ++i {
@@ -2022,17 +2035,21 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                 continue
             }
 
-            self._nd_key.push_back(item)
-            self._nd_kind.push_back(0 as u8)
-            self._nd_val.push_back(n.items[i])
-            self._nd_at.push_back(item->range)
+            var row = EvalNeedRow{}
+            row.key  = item
+            row.kind = EvalNeedKind::Item
+            row.val  = n.items[i]
+            row.at   = item->range
+            self._nd.push_back(row)
         }
 
         for var i: usize = 0; i < n.recs.size(); ++i {
-            self._nd_key.push_back(item)
-            self._nd_kind.push_back(1 as u8)
-            self._nd_val.push_back(n.recs[i])
-            self._nd_at.push_back(n.at[i])
+            var row = EvalNeedRow{}
+            row.key  = item
+            row.kind = EvalNeedKind::Record
+            row.val  = n.recs[i]
+            row.at   = n.at[i]
+            self._nd.push_back(row)
         }
     }
 
@@ -2047,9 +2064,9 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         for var k: usize = 0; k < out->size(); ++k {
             var unsafe *it = (*out)[k]
             self._needs_of(it)
-            for var i: usize = 0; i < self._nd_key.size(); ++i {
-                if self._nd_key[i] == it && self._nd_kind[i] == (0 as u8) {
-                    self._add_once(&*out, self._nd_val[i])
+            for var i: usize = 0; i < self._nd.size(); ++i {
+                if self._nd[i].key == it && self._nd[i].kind == EvalNeedKind::Item {
+                    self._add_once(&*out, self._nd[i].val)
                 }
             }
         }
@@ -2189,9 +2206,9 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         var cl = cxx::std::vector<unsafe *Decl>()
         self._closure(unsafe &seeds, unsafe &cl)
         for var k: usize = 0; k < cl.size(); ++k {
-            for var i: usize = 0; i < self._nd_key.size(); ++i {
-                if self._nd_key[i] == cl[k] && self._nd_kind[i] == (1 as u8) {
-                    self._add_once(&*out, self._nd_val[i])
+            for var i: usize = 0; i < self._nd.size(); ++i {
+                if self._nd[i].key == cl[k] && self._nd[i].kind == EvalNeedKind::Record {
+                    self._add_once(&*out, self._nd[i].val)
                 }
             }
         }
@@ -2396,12 +2413,12 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         self._closure(seeds, unsafe &cl)
         // The first item needing r, or a record that reaches r.
         for var k: usize = 0; k < cl.size(); ++k {
-            for var i: usize = 0; i < self._nd_key.size(); ++i {
-                if self._nd_key[i] != cl[k] || self._nd_kind[i] != (1 as u8) {
+            for var i: usize = 0; i < self._nd.size(); ++i {
+                if self._nd[i].key != cl[k] || self._nd[i].kind != EvalNeedKind::Record {
                     continue
                 }
 
-                var unsafe *need              = self._nd_val[i]
+                var unsafe *need              = self._nd[i].val
                 var        via:  unsafe *Decl = &null
                 if need != r {
                     var seen = cxx::std::vector<unsafe *Decl>()
@@ -2413,7 +2430,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                     via = need
                 }
 
-                self._report_cycle(r, at, cl[k], via, self._nd_at[i], what)
+                self._report_cycle(r, at, cl[k], via, self._nd[i].at, what)
                 return true
             }
         }

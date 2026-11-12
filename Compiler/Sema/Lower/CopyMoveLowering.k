@@ -40,6 +40,7 @@ import AST::Node::Base::Expr
 import AST::Node::CanonicalNodes::canon_unqual
 import AST::Node::Expressions::CastMode
 import AST::Visitor::ASTWriter::ASTWriter
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -58,6 +59,7 @@ pub class CopyMoveLowering derives ASTWriter<CopyMoveLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::CopyMove)
         if self.sc->tu == &null {
             return
         }

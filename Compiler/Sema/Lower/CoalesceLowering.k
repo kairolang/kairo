@@ -32,7 +32,7 @@
 ///
 ///     The operand appears twice in the expansion, so it must be evaluated
 ///     once (SequenceLowering's rule). A place (`x`, `o.cache`, `p->c`:
-///     LowerSynth::pure) is simply read twice. Anything else (a call, a
+///     LowerSynth::pure) is read twice. Anything else (a call, a
 ///     moved value, a nested expansion) is bound first to a `__kairo_coalK`
 ///     local in a statement expression, and the then-arm MOVES the value out
 ///     of it: CopyMoveLowering ran before this pass and never saw the
@@ -95,6 +95,7 @@ import AST::Visitor::ASTWriter::{
     ListBuilder,
 }
 import Location::SourceRange::SourceRange
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -127,6 +128,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Coalesce)
         if self.sc->tu == &null {
             return
         }

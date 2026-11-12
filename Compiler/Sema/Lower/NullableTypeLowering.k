@@ -76,6 +76,7 @@ import AST::Node::Expressions::VariantInitExpr
 import AST::Node::PrimaryExpressions::NullLiteralExpr
 import AST::Node::Types::NullableType
 import AST::Visitor::ASTWriter::ASTWriter
+import Sema::Lower::LowerStep::LowerStep
 import Sema::SemaContext::{
     SemaContext,
     SemaPhase,
@@ -96,6 +97,7 @@ pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::NullableType)
         if self.sc->tu == &null {
             return
         }

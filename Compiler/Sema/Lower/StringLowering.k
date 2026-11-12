@@ -62,6 +62,7 @@ import AST::Node::Expressions::CastMode
 import AST::Node::PrimaryExpressions::StringLiteralExpr
 import AST::Visitor::ASTWriter::ASTWriter
 import Lexer::Immediate::Immediate
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -83,6 +84,7 @@ pub class StringLowering derives ASTWriter<StringLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::String)
         if self.sc->tu == &null {
             return
         }

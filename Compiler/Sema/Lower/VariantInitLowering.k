@@ -78,6 +78,7 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import AST::Visitor::ASTWriter::ASTWriter
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -100,6 +101,7 @@ pub class VariantInitLowering derives ASTWriter<VariantInitLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::VariantInit)
         if self.sc->tu == &null {
             return
         }

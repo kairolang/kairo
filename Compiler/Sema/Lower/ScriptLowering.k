@@ -140,6 +140,7 @@ import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Memory::ArenaList::ArenaList
 import Sema::Check::ScriptRules::ScriptRules
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -369,6 +370,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Script)
         var unsafe *t = self.sc->tu
         if t == &null || t->program == &null {
             return

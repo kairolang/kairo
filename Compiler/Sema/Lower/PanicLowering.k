@@ -161,6 +161,7 @@ import Sema::Check::EffectPropagation::{
     panic_dep,  panic_home, panic_in_duck, panic_overridden_at, panic_set_of_fn, pset_has,
 }
 import Sema::Lower::EnumLayoutLowering::EnumLayoutQuery
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Lower::OperatorLowering::OperatorLowering
 import Sema::Resolve::MemberLookup::MemberLookup
@@ -269,6 +270,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Panic)
         if self.sc->tu == &null {
             return
         }
@@ -373,7 +375,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     /// X impl I`, `extend X impl I` holding it) and, for a record's own
     /// method, by its extensions (`extend X impl I` met by X's member).
     /// Null for a method that implements none. The first row wins; one
-    /// method meeting two requirements with different sets is ticketed.
+    /// method meeting two requirements with different sets is not reconciled.
     priv fn _requirement_of(self,
                             f:       unsafe *FunctionDecl,
                             out_row: unsafe * unsafe *ConformanceRow) -> unsafe *FunctionDecl {

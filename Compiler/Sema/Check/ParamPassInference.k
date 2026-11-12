@@ -195,6 +195,18 @@ import Token::TokenKind::{
     is_assignment_operator,
 }
 
+/// One candidate parameter of a function being walked.
+pub struct PassCand {
+    pub var param: unsafe *ParamDecl = &null
+    pub var refs:  usize             = 0     ///< its references seen.
+    pub var oks:   usize             = 0     ///< the references approved.
+    pub var depth: usize             = 0     ///< the closure depth it was declared at.
+    /// A use inside a closure already ruled it out.
+    pub var bad: bool = false
+    /// Its lint slot, or usize::MAX for a by-value one SC224W decides.
+    pub var slot: usize = usize::MAX
+}
+
 ///
 /// \class ParamPassInference
 /// \brief The pass. Writes ParamDecl::inferred_const; warns SC001W.
@@ -203,14 +215,8 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     pub var  sc:  unsafe *SemaContext
     priv var _tu: TypeUtil
     /// Candidates of every function being walked (a local `fn` nests one
-    /// walk inside another), and per candidate: its references seen, the
-    /// references approved, the closure depth it was declared at, and
-    /// whether a use inside a closure already ruled it out.
-    priv var _cand:  cxx::std::vector<unsafe *ParamDecl>
-    priv var _refs:  cxx::std::vector<usize>
-    priv var _oks:   cxx::std::vector<usize>
-    priv var _depth: cxx::std::vector<usize>
-    priv var _bad:   cxx::std::vector<u8>
+    /// walk inside another), innermost function's last.
+    priv var _cand: cxx::std::vector<PassCand>
     /// ParamDecl -> its index in _cand, plus one.
     priv var _index: llvm::DenseMap<u64, u64>
     /// The references an approving node has claimed: one approval each.
@@ -223,9 +229,6 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
 
     /// -Wconst-self, in a TU that is not library code.
     priv var _lint: bool = false
-    /// Per candidate (parallel to _cand): its lint slot, or usize::MAX for a
-    /// by-value one SC224W decides.
-    priv var _slot: cxx::std::vector<usize>
     /// Lint slots, for the whole TU: the parameter (`self` or an `@inout`
     /// one), its function, and whether it is still const-able.
     priv var _s_param: cxx::std::vector<unsafe *ParamDecl>
@@ -328,9 +331,9 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         // one can only be in its own body.
         while self._cand.size() > first {
             var        k         = self._cand.size() - 1
-            var unsafe *p        = self._cand[k]
-            var        unmutated = self._bad[k] == 0 && self._oks[k] == self._refs[k]
-            var        slot      = self._slot[k]
+            var unsafe *p        = self._cand[k].param
+            var        unmutated = (!self._cand[k].bad) && self._cand[k].oks == self._cand[k].refs
+            var        slot      = self._cand[k].slot
             if slot != usize::MAX {
                 if !unmutated {
                     self._s_ok[slot] = 0
@@ -341,11 +344,6 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
 
             self._index.erase(p as usize as u64)
             self._cand.pop_back()
-            self._refs.pop_back()
-            self._oks.pop_back()
-            self._depth.pop_back()
-            self._bad.pop_back()
-            self._slot.pop_back()
         }
 
         return out
@@ -511,12 +509,11 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     }
 
     priv fn _push_cand(self, p: unsafe *ParamDecl, slot: usize) {
-        self._cand.push_back(p)
-        self._refs.push_back(0)
-        self._oks.push_back(0)
-        self._depth.push_back(self._closures)
-        self._bad.push_back(0)
-        self._slot.push_back(slot)
+        var c = PassCand{}
+        c.param = p
+        c.depth = self._closures
+        c.slot  = slot
+        self._cand.push_back(c)
         self._index[p as usize as u64] = (self._cand.size() as u64)
     }
 
@@ -622,11 +619,11 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     /// SC224W's candidates, whose rule has no edges.
     priv fn _defer(self, r: unsafe *NamedIdentExpr, m: unsafe *FunctionDecl) {
         var k = self._cand_of(r->resolved_decl)
-        if k == usize::MAX || self._slot[k] == usize::MAX {
+        if k == usize::MAX || self._cand[k].slot == usize::MAX {
             return
         }
 
-        self._e_from.push_back(self._slot[k])
+        self._e_from.push_back(self._cand[k].slot)
         self._e_to.push_back(m->first_decl())
         self._claim(r)
     }
@@ -828,12 +825,12 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             return true
         }
 
-        self._refs[k] += 1
+        self._cand[k].refs += 1
         // Inside a closure: the capture decides the C++ (a `[&]` of a
         // `const T&` is a const view the body may write through), and the
         // closure may outlive the call. Ruled out.
-        if (self._closures as u64) > (self._depth[k] as u64) {
-            self._bad[k] = 1
+        if (self._closures as u64) > (self._cand[k].depth as u64) {
+            self._cand[k].bad = true
         }
 
         return true
@@ -982,7 +979,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         self._approved.insert(key)
         var k = self._cand_of(r->resolved_decl)
         if k != usize::MAX {
-            self._oks[k] += 1
+            self._cand[k].oks += 1
         }
     }
 

@@ -66,6 +66,7 @@ import AST::Node::Statements::{
     LabeledStmt, LoopStmt,     WhileLoopStmt,
 }
 import AST::Visitor::ASTWriter::ASTWriter
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -97,6 +98,7 @@ pub class LabelLowering derives ASTWriter<LabelLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Label)
         if self.sc->tu == &null {
             return
         }

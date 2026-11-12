@@ -41,6 +41,7 @@ ffi "c++" import "chrono"
 import AST::Context::ASTContext::ASTContext
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import AST::Context::InstantiationRegistry::{
+    InstLiveness,
     InstanceEntry,
     InstantiationRegistry,
 }
@@ -294,10 +295,10 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
 
         if rearm {
             st.rearmed_was.push_back(
-                f"depth {e->depth}" + (if (e->via != &null) => (", reached") else => "") + (if (e->failed) => (", failed") else => "") + (if (e->checked) => (", walked") else => ""),
+                f"depth {e->depth}" + (if (e->via != &null) => (", reached") else => "") + (if (e->failed) => (", failed") else => "") + (if (e->liveness == InstLiveness::Walked) => (", walked") else => ""),
             )
             // What the first use decided goes with it; what any use
-            // would have found the same stays (P886):
+            // would have found the same stays:
             //  - `failed` is the verdict of the bounds check where the
             //    entry became live. The re-check makes it live again and
             //    asks again (ConformanceChecking::_check_bounds), which
@@ -319,7 +320,7 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
             e->use_at             = SourceRange::invalid()
             e->via                = &null
             e->via_at             = SourceRange::invalid()
-            e->checked            = false
+            e->liveness           = InstLiveness::Minted
             e->ambiguity_reported = false
             e->undecided_reported = false
             e->panic_checked      = false

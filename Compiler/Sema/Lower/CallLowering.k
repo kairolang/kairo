@@ -153,6 +153,7 @@ import AST::Visitor::ASTWriter::{
 }
 import Location::FullSourceLocation::FullSourceLocation
 import Location::SourceRange::SourceRange
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -205,6 +206,7 @@ pub class CallLowering derives ASTWriter<CallLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Call)
         if self.sc->tu == &null {
             return
         }

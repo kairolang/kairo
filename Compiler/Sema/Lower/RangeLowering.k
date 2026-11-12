@@ -48,6 +48,7 @@ import AST::Node::Expressions::{
 }
 import AST::Visitor::ASTWriter::ASTWriter
 import Location::SourceRange::SourceRange
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -69,6 +70,7 @@ pub class RangeLowering derives ASTWriter<RangeLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Range)
         if self.sc->tu == &null {
             return
         }

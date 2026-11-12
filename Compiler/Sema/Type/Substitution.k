@@ -315,8 +315,8 @@ pub class Substitution {
     /// (InstanceEntry::args keeps packs flat, at the tail). Its bases'
     /// parameters too, as the instance sees them: a member a generic BASE
     /// declares (`class Seven derives Mixin<Seven>`, Mixin's `fn me(self)
-    /// -> *X`) reads through the receiver as X := Seven, where it used to
-    /// stay X and reach codegen unbound. Bindings are keyed by the declaring
+    /// -> *X`) reads through the receiver as X := Seven, where leaving
+    /// it as X would reach codegen unbound. Bindings are keyed by the declaring
     /// pattern, so a base's never collide with the record's own; the same
     /// template reached twice at different arguments keeps the first (C++
     /// finds such a member ambiguous anyway).

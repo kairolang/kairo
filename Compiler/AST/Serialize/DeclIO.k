@@ -193,7 +193,7 @@ pub fn decl_dc(d: unsafe *Decl) -> unsafe *DeclContext {
 
 /// The fields of the Decl base and its VisibilityAnnotation mixin.
 fn io_decl_base(ar: unsafe *ASTArchive, d: unsafe *Decl) {
-    if !ar->reading {
+    if !ar->reading() {
         ar->en<DeclKind>(&d->kind)
         if d->kind == DeclKind::RecoveryDecl {
             ar->en<DeclKind>(&d->recovery_kind)
@@ -650,12 +650,12 @@ fn io_import_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::ImportDecl) {
     ar->num32(&n->file_seg_count)
     if n->file_seg_count > 0 {
         var fref: u32 = 0
-        if !ar->reading {
+        if !ar->reading() {
             fref = ar->file_ref(n->resolved_fid)
         }
 
         ar->num32(&fref)
-        if ar->reading {
+        if ar->reading() {
             n->resolved_fid = ar->file_fid(fref)
         }
     }

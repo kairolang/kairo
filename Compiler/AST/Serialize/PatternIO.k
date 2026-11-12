@@ -77,7 +77,7 @@ pub fn pattern_alloc(ar: unsafe *ASTArchive) -> unsafe *Pattern {
 }
 
 fn io_pattern_base(ar: unsafe *ASTArchive, p: unsafe *Pattern) {
-    if !ar->reading {
+    if !ar->reading() {
         ar->en<PatternKind>(&p->kind)
         if p->kind == PatternKind::RecoveryPattern {
             ar->en<PatternKind>(&p->recovery_kind)

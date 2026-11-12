@@ -118,7 +118,7 @@ pub fn stmt_alloc(ar: unsafe *ASTArchive) -> unsafe *Stmt {
 }
 
 fn io_stmt_base(ar: unsafe *ASTArchive, s: unsafe *Stmt) {
-    if !ar->reading {
+    if !ar->reading() {
         ar->en<StmtKind>(&s->kind)
         if s->kind == StmtKind::RecoveryStmt {
             ar->en<StmtKind>(&s->recovery_kind)

@@ -41,7 +41,7 @@ pub fn <N: type> io_annotations(ar: unsafe *ASTArchive, n: unsafe *N) {
     var derived: u8  = 0
     for var i: usize = 0; i < count; ++i {
         var e = AnnotationEntry(AnnotationKind::Attribute, u32::MAX, SourceRange::invalid())
-        if !ar->reading {
+        if !ar->reading() {
             e = *n->annotations.get(i)
         }
 
@@ -54,7 +54,7 @@ pub fn <N: type> io_annotations(ar: unsafe *ASTArchive, n: unsafe *N) {
         }
 
         derived = derived | ((1 as u8) << (e.kind as u8))
-        if ar->reading {
+        if ar->reading() {
             n->add_annotation(e.kind, e.name, e.range, e.args)
         }
     }

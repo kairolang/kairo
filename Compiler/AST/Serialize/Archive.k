@@ -119,10 +119,25 @@ pub struct FileEntry {
     pub var fid:  u32    = u32::MAX ///< this process's fid; never written.
 }
 
+/// Which way an archive runs. Set once, by the writer's or the reader's
+/// entry (ASTBinWriter::write, ASTBinReader::read), before any primitive:
+/// every node function branches on it, so it can never change half way.
+/// An archive is single-use; a second write would append to streams and
+/// tables the first one filled.
+///
+/// Failure is NOT a mode: it is the sticky `failed` beside it. A failed
+/// read keeps reading (the primitives yield zeros) so the node code needs
+/// no error paths, and it must keep going the same way it started.
+pub enum ArchiveMode derives u8 {
+    Unbound, ///< constructed; neither entry has run.
+    Writing,
+    Reading,
+}
+
 pub class ASTArchive {
     //  mode and environment
 
-    pub var reading: bool                             = false
+    priv var _mode: ArchiveMode = ArchiveMode::Unbound
     pub var ctx:     unsafe *ASTContext               = &null
     pub var tu:      unsafe *TranslationUnit          = &null
     pub var sm:      unsafe *SourceManager            = &null
@@ -208,6 +223,34 @@ pub class ASTArchive {
         return unsafe ((&self) as unsafe *ASTArchive)
     }
 
+    /// The direction every primitive takes. False while Unbound too, which
+    /// is what the field this replaced read before either entry set it.
+    pub fn reading(self) -> bool {
+        return self._mode == ArchiveMode::Reading
+    }
+
+    /// The writer's entry: the only transition to Writing.
+    pub fn begin_writing(self) {
+        self._begin(ArchiveMode::Writing)
+    }
+
+    /// The reader's entry: the only transition to Reading. First thing in
+    /// read(), before the payload section (read before the tree) and
+    /// before its early failures, which already report through fail().
+    pub fn begin_reading(self) {
+        self._begin(ArchiveMode::Reading)
+    }
+
+    priv fn _begin(self, to: ArchiveMode) {
+        eval if defined!(DEBUG) {
+            if self._mode != ArchiveMode::Unbound {
+                kairo::std::ice_fail(r"ASTArchive: an archive is single-use; this one already ran")
+            }
+        }
+
+        self._mode = to
+    }
+
     /// Binds the archive to one file's context. Both directions call it
     /// before anything else.
     pub fn bind(self,
@@ -233,7 +276,7 @@ pub class ASTArchive {
     }
 
     pub fn ok(self) -> bool {
-        if self.reading && self.r.failed {
+        if self.reading() && self.r.failed {
             self.fail("serialized AST is truncated or damaged")
         }
 
@@ -272,6 +315,15 @@ pub class ASTArchive {
 
     /// The tree stream, once the tree is written.
     pub fn tree_bytes(self) -> unsafe *ByteWriter {
+        // Every payload stream pushed for a token was popped into payload_w:
+        // one still open would be cut off here, with its bytes lost from
+        // both sections.
+        eval if defined!(DEBUG) {
+            if self.wtop != 0 {
+                kairo::std::ice_fail(r"ASTArchive: tree_bytes with a payload stream still open")
+            }
+        }
+
         self.flush_bits()
         return unsafe &self.ws[0]
     }
@@ -307,7 +359,7 @@ pub class ASTArchive {
     //  numbers that mean the same in every process
 
     pub fn flag(self, @inout v: bool) {
-        if self.reading {
+        if self.reading() {
             if self.rbit_n == 0 {
                 self.rbit_acc = self.r.get_u8()
                 self.rbit_n   = 8
@@ -330,7 +382,7 @@ pub class ASTArchive {
     }
 
     pub fn num8(self, @inout v: u8) {
-        if self.reading {
+        if self.reading() {
             v = self.get() as u8
         } else {
             self.put(v as u64)
@@ -338,7 +390,7 @@ pub class ASTArchive {
     }
 
     pub fn num16(self, @inout v: u16) {
-        if self.reading {
+        if self.reading() {
             v = self.get() as u16
         } else {
             self.put(v as u64)
@@ -346,7 +398,7 @@ pub class ASTArchive {
     }
 
     pub fn num32(self, @inout v: u32) {
-        if self.reading {
+        if self.reading() {
             v = self.get() as u32
         } else {
             self.put(v as u64)
@@ -354,7 +406,7 @@ pub class ASTArchive {
     }
 
     pub fn num64(self, @inout v: u64) {
-        if self.reading {
+        if self.reading() {
             v = self.get()
         } else {
             self.put(v)
@@ -362,7 +414,7 @@ pub class ASTArchive {
     }
 
     pub fn size_(self, @inout v: usize) {
-        if self.reading {
+        if self.reading() {
             v = self.get() as usize
         } else {
             self.put(v as u64)
@@ -370,7 +422,7 @@ pub class ASTArchive {
     }
 
     pub fn snum8(self, @inout v: i8) {
-        if self.reading {
+        if self.reading() {
             v = self.get_s() as i8
         } else {
             self.put_s(v as i64)
@@ -378,7 +430,7 @@ pub class ASTArchive {
     }
 
     pub fn snum32(self, @inout v: i32) {
-        if self.reading {
+        if self.reading() {
             v = self.get_s() as i32
         } else {
             self.put_s(v as i64)
@@ -386,7 +438,7 @@ pub class ASTArchive {
     }
 
     pub fn snum64(self, @inout v: i64) {
-        if self.reading {
+        if self.reading() {
             v = self.get_s()
         } else {
             self.put_s(v)
@@ -402,7 +454,7 @@ pub class ASTArchive {
     /// on either byte order.
     pub fn <E: type> en(self, @inout e: E) {
         var v: u32 = 0
-        if !self.reading {
+        if !self.reading() {
             if sizeof(E) == 1 {
                 var b: u8 = 0
                 cxx::std::memcpy(unsafe ((unsafe &b) as unsafe *void), unsafe ((unsafe &e) as unsafe *const void), 1)
@@ -434,7 +486,7 @@ pub class ASTArchive {
     /// A list's length: written from \p have, or read (bounded by what the
     /// stream could still hold).
     pub fn len_(self, have: usize) -> usize {
-        if self.reading {
+        if self.reading() {
             self.rbit_n = 0
             return self.r.get_count()
         }
@@ -444,7 +496,7 @@ pub class ASTArchive {
     }
 
     pub fn str(self, @inout s: string) {
-        if self.reading {
+        if self.reading() {
             var id = self.get() as u32
             if !self.strings.has(id) {
                 self.fail("string index out of range")
@@ -656,7 +708,7 @@ pub class ASTArchive {
     ///   2  starts in another file: file index, offset, length
     ///   3  anything else: each end as a location
     pub fn range(self, @inout r: SourceRange) {
-        if self.reading {
+        if self.reading() {
             var v   = self.get()
             var tag = v & 3
             if tag == 0 {
@@ -841,7 +893,7 @@ pub class ASTArchive {
         self.en<TokenKind>(&t.kind)
         self.range(&t.range)
 
-        if self.reading {
+        if self.reading() {
             // The tag has to be the one this kind is written with: a kind
             // that indexes a table must come back with an index INTO that
             // table, or the first reader of the token walks off its end.
@@ -939,7 +991,7 @@ pub class ASTArchive {
     /// An identifier index of THIS file's table that is stored outside a
     /// token (an attribute's name): its spelling. u32::MAX stays u32::MAX.
     pub fn ident(self, @inout imm: u32) {
-        if self.reading {
+        if self.reading() {
             var has = false
             self.flag(&has)
             if !has {
@@ -965,7 +1017,7 @@ pub class ASTArchive {
 
     priv fn _io_big_int(self, b: unsafe *ImmBigInt) {
         var n = self.len_(b->limbs.size() as usize)
-        if self.reading {
+        if self.reading() {
             b->limbs.clear()
             for var i: usize = 0; i < n; ++i {
                 b->limbs.push_back(0)
@@ -993,7 +1045,7 @@ pub class ASTArchive {
         var has_big = d->big != &null
         self.flag(&has_big)
         if has_big {
-            if self.reading {
+            if self.reading() {
                 d->big = kairo::std::create<ImmBigInt>(0 as usize)
             }
 
@@ -1013,7 +1065,7 @@ pub class ASTArchive {
         // the same bytes on every host.
         var lo: u64 = 0
         var hi: u64 = 0
-        if !self.reading {
+        if !self.reading() {
             var unsafe *src = unsafe ((unsafe &d->value_ieee) as unsafe *const u8)
             cxx::std::memcpy(unsafe ((unsafe &lo) as unsafe *void), unsafe (src as unsafe *const void), 8)
             cxx::std::memcpy(
@@ -1025,7 +1077,7 @@ pub class ASTArchive {
 
         self.num64(&lo)
         self.num64(&hi)
-        if self.reading {
+        if self.reading() {
             var unsafe *dst = unsafe ((unsafe &d->value_ieee) as unsafe *u8)
             cxx::std::memcpy(unsafe (dst as unsafe *void), unsafe ((unsafe &lo) as unsafe *const void), 8)
             cxx::std::memcpy(
@@ -1038,7 +1090,7 @@ pub class ASTArchive {
         var has_big = d->big_float != &null
         self.flag(&has_big)
         if has_big {
-            if self.reading {
+            if self.reading() {
                 d->big_float = kairo::std::create<ImmBigFloat>()
             }
 
@@ -1059,7 +1111,7 @@ pub class ASTArchive {
         for var i: usize = 0; i < n; ++i {
             var rng: SourceRange
             var buf: unsafe *TokenBuffer<16> = &null
-            if !self.reading {
+            if !self.reading() {
                 buf = exprs[i].0
                 rng = exprs[i].1
             } else {
@@ -1068,24 +1120,24 @@ pub class ASTArchive {
 
             self.range(&rng)
             var have: usize = 0
-            if buf != &null && !self.reading {
+            if buf != &null && !self.reading() {
                 have = buf->size()
             }
 
             var m = self.len_(have)
             for var j: usize = 0; j < m; ++j {
                 var t: Token
-                if !self.reading {
+                if !self.reading() {
                     t = *buf->get(j)
                 }
 
                 self._tok_in(&t, u32::MAX)
-                if self.reading {
+                if self.reading() {
                     buf->append(t)
                 }
             }
 
-            if self.reading {
+            if self.reading() {
                 exprs.push_back((buf, rng))
             }
         }
@@ -1093,13 +1145,13 @@ pub class ASTArchive {
         var h = self.len_(holes.size() as usize)
         for var i: usize = 0; i < h; ++i {
             var spec: Immediate::HoleSpec
-            if !self.reading {
+            if !self.reading() {
                 spec = holes[i]
             }
 
             self.range(&spec.spec)
             self.range(&spec.doc)
-            if self.reading {
+            if self.reading() {
                 holes.push_back(spec)
             }
         }
@@ -1111,14 +1163,14 @@ pub class ASTArchive {
         var has = next != u32::MAX
         self.flag(&has)
         if !has {
-            if self.reading {
+            if self.reading() {
                 next = u32::MAX
             }
 
             return
         }
 
-        if self.reading {
+        if self.reading() {
             var p = self.get() as usize
             if p >= self.payload_imm.size() || self.payload_cls[p] != cls {
                 self.fail("payload index out of range or of the wrong class")
@@ -1159,7 +1211,7 @@ pub class ASTArchive {
 
         var inner = Token(d->def_range, d->original_kind, d->original_imm)
         self._tok_in(&inner, home)
-        if self.reading {
+        if self.reading() {
             d->def_range     = inner.range
             d->original_kind = inner.kind
             d->original_imm  = inner.imm
@@ -1168,7 +1220,7 @@ pub class ASTArchive {
         var has_parent = d->parent_idx != u32::MAX
         self.flag(&has_parent)
         if has_parent {
-            if self.reading {
+            if self.reading() {
                 var p = self.get() as usize
                 if p >= self.payload_imm.size() || self.payload_cls[p] != PAY_EXPANSION {
                     self.fail("payload index out of range or of the wrong class")
@@ -1179,7 +1231,7 @@ pub class ASTArchive {
             } else {
                 self.put(self._payload_ref(PAY_EXPANSION, home, d->parent_idx) as u64)
             }
-        } else if self.reading {
+        } else if self.reading() {
             d->parent_idx = u32::MAX
         }
 
@@ -1187,7 +1239,7 @@ pub class ASTArchive {
         // 0 and u32::MAX both mean "none" to its readers and are kept apart.
         var name_cls: u8 = 0
         var name: string
-        if !self.reading {
+        if !self.reading() {
             if d->macro_name == u32::MAX {
                 name_cls = 1
             } else if d->macro_name != 0 {
@@ -1210,7 +1262,7 @@ pub class ASTArchive {
             self.str(&name)
         }
 
-        if self.reading {
+        if self.reading() {
             if name_cls == 0 {
                 d->macro_name = 0
             } else if name_cls == 1 {
@@ -1455,7 +1507,7 @@ pub class ASTArchive {
     /// spine of `a + b + c + ...` is as deep as the expression is long,
     /// and the parser builds it without recursion.
     pub fn expr_begin(self, @inout p: unsafe *Expr) -> bool {
-        if self.reading {
+        if self.reading() {
             var q: unsafe *void = &null
             var fresh = self._begin_read(CAT_EXPR, &q)
             p = unsafe (q as unsafe *Expr)
@@ -1527,7 +1579,7 @@ pub class ASTArchive {
     /// base classes and every node class go through here. A reader checks
     /// that the node it got IS a T before the field holds it.
     pub fn <T: type> decl(self, @inout p: unsafe *T) {
-        if self.reading {
+        if self.reading() {
             var unsafe *d = unsafe (self._read_ref(CAT_DECL) as unsafe *Decl)
             if d != &null && !self._decl_is<T>(d) {
                 self.fail("declaration of the wrong class for its field")
@@ -1544,7 +1596,7 @@ pub class ASTArchive {
     }
 
     pub fn <T: type> expr(self, @inout p: unsafe *T) {
-        if self.reading {
+        if self.reading() {
             var unsafe *e = unsafe (self._read_ref(CAT_EXPR) as unsafe *Expr)
             if e != &null && !self._expr_is<T>(e) {
                 self.fail("expression of the wrong class for its field")
@@ -1561,7 +1613,7 @@ pub class ASTArchive {
     }
 
     pub fn <T: type> stmt(self, @inout p: unsafe *T) {
-        if self.reading {
+        if self.reading() {
             var unsafe *s = unsafe (self._read_ref(CAT_STMT) as unsafe *Stmt)
             if s != &null && !self._stmt_is<T>(s) {
                 self.fail("statement of the wrong class for its field")
@@ -1578,7 +1630,7 @@ pub class ASTArchive {
     }
 
     pub fn <T: type> type_(self, @inout p: unsafe *T) {
-        if self.reading {
+        if self.reading() {
             var unsafe *t = unsafe (self._read_ref(CAT_TYPE) as unsafe *Type)
             if t != &null && !self._type_is<T>(t) {
                 self.fail("type of the wrong class for its field")
@@ -1595,7 +1647,7 @@ pub class ASTArchive {
     }
 
     pub fn <T: type> pattern(self, @inout p: unsafe *T) {
-        if self.reading {
+        if self.reading() {
             var unsafe *q = unsafe (self._read_ref(CAT_PATTERN) as unsafe *Pattern)
             if q != &null && !self._pattern_is<T>(q) {
                 self.fail("pattern of the wrong class for its field")
@@ -1616,7 +1668,7 @@ pub class ASTArchive {
     /// parsed tree.
     pub fn dc(self, @inout p: unsafe *DeclContext) {
         var unsafe *tu_dc = unsafe (self.tu as unsafe *DeclContext)
-        if self.reading {
+        if self.reading() {
             var tag = self.get()
             if tag == 0 {
                 p = &null
@@ -1684,7 +1736,7 @@ pub class ASTArchive {
     /// caller then runs each element through its own `io_` function.
     pub fn <T: type> list(self, @inout l: FrozenList<T>) -> usize {
         var n = self.len_(l.count)
-        if self.reading {
+        if self.reading() {
             self.alloc_list<T>(&l, n)
         }
 
@@ -1738,12 +1790,12 @@ pub class ASTArchive {
         var n = self.len_(l.size())
         for var i: usize = 0; i < n; ++i {
             var d: unsafe *Decl = &null
-            if !self.reading {
+            if !self.reading() {
                 d = *l.get(i)
             }
 
             self.decl<Decl>(&d)
-            if self.reading {
+            if self.reading() {
                 l.push(d)
             }
         }
@@ -1757,7 +1809,7 @@ pub class ASTArchive {
     /// reloaded tree would differ from it. A failed write, never a silent
     /// difference.
     pub fn <T: type> sema_null(self, p: unsafe *T, const what: string) {
-        if self.reading {
+        if self.reading() {
             return
         }
 
@@ -1767,7 +1819,7 @@ pub class ASTArchive {
     }
 
     pub fn sema_zero(self, v: u64, const what: string) {
-        if self.reading {
+        if self.reading() {
             return
         }
 
@@ -1777,7 +1829,7 @@ pub class ASTArchive {
     }
 
     pub fn sema_false(self, v: bool, const what: string) {
-        if self.reading {
+        if self.reading() {
             return
         }
 
@@ -1788,7 +1840,7 @@ pub class ASTArchive {
 
     /// The general form: \p ok says the slot still holds its default.
     pub fn sema_is(self, ok: bool, const what: string) {
-        if self.reading {
+        if self.reading() {
             return
         }
 

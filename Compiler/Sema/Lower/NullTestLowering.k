@@ -56,6 +56,7 @@ import AST::Node::Expressions::{
     UnaryOperatorExpr,
 }
 import AST::Visitor::ASTWriter::ASTWriter
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -80,6 +81,7 @@ pub class NullTestLowering derives ASTWriter<NullTestLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::NullTest)
         if self.sc->tu == &null {
             return
         }

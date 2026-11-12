@@ -247,6 +247,25 @@ pub enum InstanceLatch derives u8 {
     PanicDone,     ///< panic_done: PanicLowering computed its panic facts.
 }
 
+/// \enum InstLiveness
+/// \brief Where an InstanceEntry is in M1's discovery (Compiler/Spec/Generics.md#m1-enumeration):
+///        minted (nothing has needed it: a losing candidate's substitution,
+///        say, whose bounds must not be checked), live (a use needs it; its
+///        reach not walked yet: drain hands it out), walked (its reach is in
+///        the registry and bound-checked). Forward only, under the registry
+///        lock: mark_live, set_checked. The one way back is a live check's
+///        re-arm (Sema/Incremental/Retract.k), which runs with nothing else
+///        in flight. `depth` stays the chain length, nonzero exactly when
+///        the entry is past Minted (_check_live). `failed` is not a state of
+///        this: it is the bounds verdict, written by mark_failed only and
+///        read without the lock by Conformance, which mark_live must not
+///        race on the same byte.
+pub enum InstLiveness derives u8 {
+    Minted = 0,
+    Live,
+    Walked,
+}
+
 /// \class InstanceEntry
 /// \brief One concrete instance of a generic type. Both halves of "an
 ///        instantiation" hang here: the CHECKING-side decl (what RecordType
@@ -366,10 +385,11 @@ pub class InstanceEntry {
     pub var fill_used_alt: bool                                    = false
     pub var fill_reqs:     cxx::std::vector<unsafe *InstanceEntry>
     pub var fill_req_fids: cxx::std::vector<u32> ///< parallel: the fid each request named.
-    /// Its reach has been walked (ConformanceChecking::discover): every
-    /// instance its body reaches is in the registry, linked by `reached`,
-    /// and bound-checked. Only a LIVE entry (`depth` > 0) is ever walked.
-    pub var checked: bool = false
+    /// Minted, Live, or Walked (InstLiveness): Walked once its reach has
+    /// been walked (ConformanceChecking::discover), every instance its body
+    /// reaches in the registry, linked by `reached`, and bound-checked. Only
+    /// a Live entry is ever walked.
+    pub var liveness: InstLiveness = InstLiveness::Minted
     /// Live: some use needs it. 1 for an instance a tree names at a use
     /// (ConformanceChecking's instantiation site), the reacher's + 1 for one
     /// only a generic body reaches; 0 for an entry nothing has needed yet --
@@ -2015,6 +2035,8 @@ pub class InstantiationRegistry {
             e->via_at = via_at
         }
 
+        e->liveness = InstLiveness::Live
+        self._check_live(e)
         return true
     }
 
@@ -2034,7 +2056,8 @@ pub class InstantiationRegistry {
         // candidate) may become live only now, in a later TU.
         for var i: usize = 0; i < self._order.size(); ++i {
             var unsafe *e = self._order[i]
-            if e->depth > 0 && !e->checked {
+            self._check_live(e)
+            if e->liveness == InstLiveness::Live {
                 out->push_back(e)
             }
         }
@@ -2046,7 +2069,21 @@ pub class InstantiationRegistry {
         }
 
         var lock = kairo::std::LockGuard(self._mu)
-        e->checked = true
+        // Only from Live, as `checked` was only ever set on a live entry:
+        // drain hands out Live ones, and _check_bounds runs on one mark_live
+        // just made live.
+        e->liveness = InstLiveness::Walked
+        self._check_live(e)
+    }
+
+    /// Debug: the liveness byte and the chain length agree. Under the lock,
+    /// or with nothing else in flight.
+    priv fn _check_live(self, e: unsafe *InstanceEntry) {
+        eval if defined!(DEBUG) {
+            if (e->depth == 0) != (e->liveness == InstLiveness::Minted) {
+                kairo::std::ice_fail(r"InstantiationRegistry: an entry's liveness and depth disagree")
+            }
+        }
     }
 
     /// # Internals

@@ -69,6 +69,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/Types.hh" // kairo::std::ice_fail
 ffi "c++" import "vector"
 
 import AST::Context::DeclContext::DeclContextKind
@@ -309,18 +310,94 @@ pub const CAND_USER_CONV: u8 = 2
 /// on it found nothing viable.
 pub const CAND_NO_VIABLE: u8 = 255
 
+/// How an argument, or the implicit object, bound a reference parameter,
+/// for the reference tiebreak (_ref_prefers). The Temp kinds are the same
+/// three bound to a converted TEMPORARY (`push_back(x)` with x: i32 into
+/// `vector<i64>`): kept apart from the Exact ones, so only two of them are
+/// ever compared with each other.
+pub enum RefBind derives u8 {
+    None = 0,      ///< a value parameter, or not ranked Exact.
+    ConstLRef,     ///< `const T&`.
+    RRef,          ///< `T&&`.
+    LRef,          ///< `T&` (an `@inout` binding is one).
+    TempConstLRef, ///< `const T&`, to a converted temporary.
+    TempRRef,      ///< `T&&`, to a converted temporary.
+    TempLRef,      ///< `T&`, to a converted temporary.
+}
+
+/// \p k bound to a converted temporary instead (None stays None).
+fn ref_bind_on_temp(k: RefBind) -> RefBind {
+    if k == RefBind::ConstLRef {
+        return RefBind::TempConstLRef
+    }
+
+    if k == RefBind::RRef {
+        return RefBind::TempRRef
+    }
+
+    if k == RefBind::LRef {
+        return RefBind::TempLRef
+    }
+
+    return k
+}
+
+/// How one argument of a candidate was judged, for the tiebreaks and the
+/// ambiguity diagnostic (Candidate::judged). All four are written while the
+/// argument is ranked (_judge) and read only after every candidate is.
+pub struct ArgJudgment {
+    /// The reference kind it bound AT EXACT, or (a Temp kind) to a
+    /// converted temporary. Read only by the reference tiebreak.
+    pub var bind: RefBind = RefBind::None
+    /// How a TYPED integer argument bound AT EXACT -- 0 not judged (not an
+    /// integer, not Exact, an untyped literal), 1 its natural C type, 2 a
+    /// same-width C alias (ParamDecl::cxx_int_alias) -- and how a string
+    /// literal bound a C string parameter: 1 `const char *`, 2 a byte
+    /// pointer. Read only by the integer tiebreak.
+    pub var int_kind: u8 = 0
+    /// How an untyped FLOAT LITERAL bound at Exact to a non-dependent float
+    /// parameter -- 0 not judged, 1 f64 (C++'s double, the literal's own
+    /// type), 2 any other float (a floating conversion to C++). Read only
+    /// by the float-literal tiebreak.
+    pub var flit_kind: u8 = 0
+    /// The parameter type it was ranked against, null where nothing was
+    /// ranked (a C `...` tail, an assumed argument). Read only by the
+    /// ambiguity diagnostic: which enum a `.V` argument took is known only
+    /// here, after `self` is skipped and `Self` is read through the receiver.
+    pub var target: unsafe *Type = &null
+}
+
+/// What a candidate's judgment concluded. A rejected candidate keeps no
+/// other verdict: every reader of the three viable-but kinds asks a winner,
+/// which is viable. The three are exclusive by construction (an assumed
+/// candidate is not shown to clang, and clang's dependent-argument answer
+/// returns before the soft rejection is decided), which `note` checks.
+pub enum Verdict derives u8 {
+    Viable = 0,
+    /// defer mode: some argument was ASSUMED viable, not ranked. `rank` is
+    /// then a lower bound -- the instance can only make it worse.
+    Assumed,
+    /// An imported template clang could not judge because an argument is a
+    /// generic body's dependent type: its SFINAE verdict is the instance's.
+    SfinaeDeferred,
+    /// Clang removed this imported template, but over a Kairo record's
+    /// stand-in, which has the record's fields and none of its methods: the
+    /// removal may be the stand-in's. Viable, and loses any tie to a
+    /// candidate clang kept (resolve_mixed).
+    SoftRejected,
+    /// Not viable; `reason` / `reason_code` say why.
+    Rejected,
+}
+
 pub class Candidate {
     pub var f:       unsafe *FunctionDecl = &null
-    pub var viable:  bool                 = true
+    priv var _verdict: Verdict = Verdict::Viable
     pub var rank:    u8                   = CAND_EXACT ///< CAND_EXACT / CAND_CONVERTED / CAND_USER_CONV.
     pub var generic: bool                 = false
     pub var free:    bool                 = false ///< from resolve_mixed's free list: judged with no receiver.
     /// Judged in defer mode: a dependent parameter or argument is viable and
     /// unranked instead of unified. Set before _judge, read by it.
     pub var defer: bool = false
-    /// defer mode: some argument was ASSUMED viable, not ranked. `rank` is
-    /// then a lower bound -- the instance can only make it worse.
-    pub var assumed: bool   = false
     pub var reason:  string = ""
     /// An edit that would make this candidate viable, inserted at `fix_at`;
     /// "" for none. Set for a C string parameter: the reinterpretation of
@@ -341,31 +418,13 @@ pub class Candidate {
     /// finish_call_args finds none and types a literal there with its
     /// default, which is C's promotion).
     pub var arg_to_param: cxx::std::vector<usize>
-    /// per arg: the reference kind it bound AT EXACT -- 0 none (a value
-    /// parameter, or not Exact), 1 `const T&`, 2 `T&&`, 3 `T&` -- or, 4-6,
-    /// the same kinds bound to a converted temporary. Read only by the
-    /// reference tiebreak.
-    pub var binds: cxx::std::vector<u8>
-    /// per arg: how a TYPED integer argument bound AT EXACT -- 0 not judged
-    /// (not an integer, not Exact, an untyped literal), 1 its natural C
-    /// type, 2 a same-width C alias (ParamDecl::cxx_int_alias) -- and how a
-    /// string literal bound a C string parameter: 1 `const char *`, 2 a
-    /// byte pointer. Read only by the integer tiebreak.
-    pub var ints: cxx::std::vector<u8>
-    /// per arg: how an untyped FLOAT LITERAL bound at Exact to a
-    /// non-dependent float parameter -- 0 not judged, 1 f64 (C++'s double,
-    /// the literal's own type), 2 any other float (a floating conversion
-    /// to C++). Read only by the float-literal tiebreak.
-    pub var flits: cxx::std::vector<u8>
-    /// per arg: the parameter type it was ranked against, null where nothing
-    /// was ranked (a C `...` tail, an assumed argument). Read only by the
-    /// ambiguity diagnostic: which enum a `.V` argument took is known only
-    /// here, after `self` is skipped and `Self` is read through the receiver.
-    pub var targets: cxx::std::vector<unsafe *Type>
+    /// per arg: how it was judged (ArgJudgment), one entry per argument.
+    pub var judged: cxx::std::vector<ArgJudgment>
     /// The implicit object parameter, judged like one more reference
-    /// argument: 1 `const self`, 3 plain `self`, 0 not judged (no receiver
-    /// object known). recv_const is the OBJECT's constness.
-    pub var recv_bind:  u8   = 0
+    /// argument: ConstLRef `const self`, LRef plain `self`, RRef a `q() &&`,
+    /// None not judged (no receiver object known). recv_const is the
+    /// OBJECT's constness.
+    pub var recv_bind:  RefBind = RefBind::None
     pub var recv_const: bool = false
     /// The implicit object parameter's own cv (QUAL_CONST / QUAL_VOLATILE),
     /// for the [over.ics.rank]/3.2.6 tie-break; set with recv_bind.
@@ -393,18 +452,40 @@ pub class Candidate {
     /// when Kairo's import of the declared one is opaque; else null.
     /// Written by _clang_substitute.
     pub var cxx_ret: unsafe *Type = &null
-    /// An imported template clang could not judge because an argument is a
-    /// generic body's dependent type: its SFINAE verdict is the instance's.
-    pub var sfinae_dep: bool = false
-    /// sfinae_dep, and the dependent argument is a dereference (`*slot` on
-    /// `slot: *T`): see OvlResult::deref_dep.
+    /// SfinaeDeferred, and the dependent argument is a dereference (`*slot`
+    /// on `slot: *T`): see OvlResult::deref_dep.
     pub var deref_dep: bool = false
-    /// Clang removed this imported template, but over a Kairo record's
-    /// stand-in, which has the record's fields and none of its methods: the
-    /// removal may be the stand-in's. Viable, and loses any tie to a
-    /// candidate clang kept (resolve_mixed).
-    pub var soft_rejected: bool = false
     fn Candidate(self) { }
+
+    pub fn verdict(const self) -> Verdict {
+        return self._verdict
+    }
+
+    pub fn viable(const self) -> bool {
+        return self._verdict != Verdict::Rejected
+    }
+
+    /// Out, whatever it was: the one transition from every verdict.
+    pub fn reject(self) {
+        self._verdict = Verdict::Rejected
+    }
+
+    /// One of the viable-but kinds. A rejected candidate stays rejected
+    /// (what it would have noted is read only on a viable one); repeating
+    /// the same kind is fine (several assumed arguments).
+    pub fn note(self, v: Verdict) {
+        if self._verdict == Verdict::Rejected {
+            return
+        }
+
+        eval if defined!(DEBUG) {
+            if self._verdict != Verdict::Viable && self._verdict != v {
+                kairo::std::ice_fail(r"OverloadResolution: a candidate given two viable-but verdicts")
+            }
+        }
+
+        self._verdict = v
+    }
 }
 
 pub class OvlResult {
@@ -612,7 +693,7 @@ pub class OverloadResolution {
         }
 
         for var i: usize = 0; i < cs.size(); ++i {
-            if cs[i].viable {
+            if cs[i].viable() {
                 return true
             }
         }
@@ -701,7 +782,7 @@ pub class OverloadResolution {
         // best rank among viable
         var best: u8 = CAND_NO_VIABLE
         for var i: usize = 0; i < cs.size(); ++i {
-            if cs[i].viable && cs[i].rank < best {
+            if cs[i].viable() && cs[i].rank < best {
                 best = cs[i].rank
             }
         }
@@ -736,7 +817,7 @@ pub class OverloadResolution {
 
         var winners = cxx::std::vector<usize>()
         for var i: usize = 0; i < cs.size(); ++i {
-            if cs[i].viable && cs[i].rank == best {
+            if cs[i].viable() && cs[i].rank == best {
                 winners.push_back(i)
             }
         }
@@ -747,7 +828,7 @@ pub class OverloadResolution {
         if defer && winners.size() > 1 && best == 0 {
             var firm = cxx::std::vector<usize>()
             for var i: usize = 0; i < winners.size(); ++i {
-                if !cs[winners[i]].assumed {
+                if cs[winners[i]].verdict() != Verdict::Assumed {
                     firm.push_back(winners[i])
                 }
             }
@@ -757,7 +838,7 @@ pub class OverloadResolution {
             }
         }
 
-        // A soft-rejected template (Candidate::soft_rejected) yields to any
+        // A soft-rejected template (Verdict::SoftRejected) yields to any
         // winner clang did not reject: `make_unique<Cp>(4)` keeps the
         // single-object overload over the array ones, whose conditions the
         // stand-in for `Cp` answers truly. Alone, it stands: the concept a
@@ -765,7 +846,7 @@ pub class OverloadResolution {
         if winners.size() > 1 {
             var firm = cxx::std::vector<usize>()
             for var i: usize = 0; i < winners.size(); ++i {
-                if !cs[winners[i]].soft_rejected {
+                if cs[winners[i]].verdict() != Verdict::SoftRejected {
                     firm.push_back(winners[i])
                 }
             }
@@ -976,7 +1057,7 @@ pub class OverloadResolution {
                        const winners: cxx::std::vector<usize>) -> bool {
         var any_assumed = false
         for var i: usize = 0; i < winners.size(); ++i {
-            if (cs)[(((winners)[i]))].assumed {
+            if (cs)[(((winners)[i]))].verdict() == Verdict::Assumed {
                 any_assumed = true
             }
         }
@@ -991,7 +1072,7 @@ pub class OverloadResolution {
 
         var viable: usize = 0
         for var i: usize = 0; i < cs.size(); ++i {
-            if (cs)[i].viable {
+            if (cs)[i].viable() {
                 viable += 1
             }
         }
@@ -1000,12 +1081,12 @@ pub class OverloadResolution {
     }
 
     /// Every one of \p winners is an imported template whose substitution
-    /// waits on a dependent argument (Candidate::sfinae_dep).
+    /// waits on a dependent argument (Verdict::SfinaeDeferred).
     priv fn _sfinae_pending(self,
                             const cs:      cxx::std::vector<Candidate>,
                             const winners: cxx::std::vector<usize>) -> bool {
         for var i: usize = 0; i < winners.size(); ++i {
-            if !(cs)[(((winners)[i]))].sfinae_dep {
+            if (cs)[(((winners)[i]))].verdict() != Verdict::SfinaeDeferred {
                 return false
             }
         }
@@ -1066,7 +1147,7 @@ pub class OverloadResolution {
             return false
         }
 
-        if args == &null || x->binds.size() != args->size() || y->binds.size() != args->size() {
+        if args == &null || x->judged.size() != args->size() || y->judged.size() != args->size() {
             return false
         }
 
@@ -1084,7 +1165,7 @@ pub class OverloadResolution {
         // With ref-qualifiers on both ([over.ics.rank]/3.2.3 excludes only
         // an implicit object of a method WITHOUT one), the object is what it
         // is: a temporary prefers `q() &&` to `q() const &`.
-        if x->recv_bind != 0 && y->recv_bind != 0 {
+        if x->recv_bind != RefBind::None && y->recv_bind != RefBind::None {
             var ra = ArgInfo()
             ra.cat = Expr::ValueCategory::LValue
             if x->f->ffi_ref_qualifier != 0 && y->f->ffi_ref_qualifier != 0 {
@@ -1117,12 +1198,12 @@ pub class OverloadResolution {
 
         for var k: usize = 0; k < args->size(); ++k {
             var *a = &(*args)[k]
-            if self._ref_prefers(a, x->binds[k], y->binds[k]) {
+            if self._ref_prefers(a, x->judged[k].bind, y->judged[k].bind) {
                 better = true
                 continue
             }
 
-            if self._ref_prefers(a, y->binds[k], x->binds[k]) {
+            if self._ref_prefers(a, y->judged[k].bind, x->judged[k].bind) {
                 return false
             }
         }
@@ -1175,18 +1256,18 @@ pub class OverloadResolution {
             return false
         }
 
-        if x->ints.size() != y->ints.size() {
+        if x->judged.size() != y->judged.size() {
             return false
         }
 
         var better = false
-        for var k: usize = 0; k < x->ints.size(); ++k {
-            if x->ints[k] == 1 && y->ints[k] == 2 {
+        for var k: usize = 0; k < x->judged.size(); ++k {
+            if x->judged[k].int_kind == 1 && y->judged[k].int_kind == 2 {
                 better = true
                 continue
             }
 
-            if x->ints[k] == 2 && y->ints[k] == 1 {
+            if x->judged[k].int_kind == 2 && y->judged[k].int_kind == 1 {
                 return false
             }
         }
@@ -1240,14 +1321,14 @@ pub class OverloadResolution {
             return false
         }
 
-        if x->targets.size() != y->targets.size() {
+        if x->judged.size() != y->judged.size() {
             return false
         }
 
         var better = false
-        for var k: usize = 0; k < x->targets.size(); ++k {
-            var unsafe *tx = x->targets[k]
-            var unsafe *ty = y->targets[k]
+        for var k: usize = 0; k < x->judged.size(); ++k {
+            var unsafe *tx = x->judged[k].target
+            var unsafe *ty = y->judged[k].target
             if tx == &null || ty == &null || tx == ty {
                 continue
             }
@@ -1341,18 +1422,18 @@ pub class OverloadResolution {
             return false
         }
 
-        if x->flits.size() != y->flits.size() {
+        if x->judged.size() != y->judged.size() {
             return false
         }
 
         var better = false
-        for var k: usize = 0; k < x->flits.size(); ++k {
-            if x->flits[k] == 1 && y->flits[k] == 2 {
+        for var k: usize = 0; k < x->judged.size(); ++k {
+            if x->judged[k].flit_kind == 1 && y->judged[k].flit_kind == 2 {
                 better = true
                 continue
             }
 
-            if x->flits[k] == 2 && y->flits[k] == 1 {
+            if x->judged[k].flit_kind == 2 && y->judged[k].flit_kind == 1 {
                 return false
             }
         }
@@ -1360,7 +1441,7 @@ pub class OverloadResolution {
         return better
     }
 
-    /// Candidate::flits' code for a float literal ranked Exact against
+    /// ArgJudgment::flit_kind code for a float literal ranked Exact against
     /// \p pt, read through a reference and a nullable as _rank_literal_arg
     /// reads it. A dependent parameter is not judged: what the literal
     /// deduces there is the generic tiebreak's business, not this one's.
@@ -1384,7 +1465,7 @@ pub class OverloadResolution {
         return if (self.tu.kind_of(t) == BuiltinKind::F64) => (1) else => 2
     }
 
-    /// Candidate::flits' code for an int literal ranked Exact against an
+    /// ArgJudgment::flit_kind code for an int literal ranked Exact against an
     /// imported \p pt: 1 C's `int` (i32 spelled `int`, not LLP64's `long`
     /// alias), 2 any other type (a conversion to C++). Dependent: not judged.
     priv fn _ilit_code(self, pt: unsafe *Type, alias: bool) -> u8 {
@@ -1538,7 +1619,7 @@ pub class OverloadResolution {
     priv fn _hide(self, cs: unsafe *cxx::std::vector<Candidate>) {
         for var i: usize = 0; i < cs->size(); ++i {
             var *y = &(*cs)[i]
-            if !y->viable || y->free {
+            if !y->viable() || y->free {
                 continue
             }
 
@@ -1571,7 +1652,7 @@ pub class OverloadResolution {
                     continue
                 }
 
-                y->viable = false
+                y->reject()
                 y->reason = f"hidden by '{self.tu.decl_name(ox)}::{self.tu.decl_name((unsafe (x->f as unsafe *Decl)))}', which takes the same parameters"
                 break
             }
@@ -1772,52 +1853,52 @@ pub class OverloadResolution {
         return false
     }
 
-    priv fn _ref_prefers(self, a: *ArgInfo, bx: u8, by: u8) -> bool {
+    priv fn _ref_prefers(self, a: *ArgInfo, bx: RefBind, by: RefBind) -> bool {
         // A safe `&x` is the `@inout` marker (functions-parameter-modes.mdx):
         // binding it as `@inout` beats taking it as the pointer it would
         // otherwise be -- `pick(&x)` is `pick(int&)`, not `pick(int*)`;
         // `pick(unsafe &x)` is no marker and takes the pointer.
-        if a->marked && bx == 3 && by == 0 {
+        if a->marked && bx == RefBind::LRef && by == RefBind::None {
             return true
         }
 
         // Two bindings of one converted temporary: it is an rvalue, so `T&&`
         // beats `const T&` ([over.ics.rank]/3.2.3), as for an rvalue at Exact.
-        if by == 4 {
-            return bx == 5
+        if by == RefBind::TempConstLRef {
+            return bx == RefBind::TempRRef
         }
 
-        if by != 1 { // only ever over `const T&`.
+        if by != RefBind::ConstLRef { // only ever over `const T&`.
             return false
         }
 
         var rvalue = a->cat == Expr::ValueCategory::RValue || a->cat == Expr::ValueCategory::XValue
-        if bx == 2 && rvalue {
+        if bx == RefBind::RRef && rvalue {
             return true
         }
 
-        if bx == 3 && a->cat == Expr::ValueCategory::LValue && !a->is_const {
+        if bx == RefBind::LRef && a->cat == Expr::ValueCategory::LValue && !a->is_const {
             return true
         }
 
         return false
     }
 
-    /// The Candidate::binds code for a parameter of type \p pt.
-    priv fn _bind_kind(self, pt: unsafe *Type) -> u8 {
+    /// The ArgJudgment::bind kind for a parameter of type \p pt.
+    priv fn _bind_kind(self, pt: unsafe *Type) -> RefBind {
         if pt == &null {
-            return 0
+            return RefBind::None
         }
 
         if isa<CXXRValueRefType>(pt) {
-            return 2
+            return RefBind::RRef
         }
 
         if isa<CXXLValueRefType>(pt) {
-            return if (canon_has_const(cast<CXXLValueRefType>(pt)->referee)) => (1) else => 3
+            return if (canon_has_const(cast<CXXLValueRefType>(pt)->referee)) => (RefBind::ConstLRef) else => RefBind::LRef
         }
 
-        return 0
+        return RefBind::None
     }
 
     priv fn _any_dependent(self, args: unsafe *cxx::std::vector<ArgInfo>) -> bool {
@@ -1897,7 +1978,7 @@ pub class OverloadResolution {
             }
 
             self._judge(unsafe &c, args, has_receiver, receiver, qualifier)
-            if c.viable && c.generic && f->is_imported() && !c.assumed {
+            if c.viable() && c.generic && f->is_imported() && c.verdict() != Verdict::Assumed {
                 self._clang_substitute(&c, args, has_receiver)
             }
 
@@ -1997,7 +2078,7 @@ pub class OverloadResolution {
             }
 
             if self.tu.c_string_literal(a->expr) != &null
-                && (to_clang || self._forwards_cstr(c->f, a, c->targets[order[j]])) {
+                && (to_clang || self._forwards_cstr(c->f, a, c->judged[order[j]].target)) {
                 // What EmitIR writes: the literal's bytes, which C++ reads
                 // as `const char[N]` decayed (CallTyping, user_convs).
                 var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
@@ -2006,7 +2087,7 @@ pub class OverloadResolution {
                 // A literal takes the type it was ranked at: its default
                 // where a deduced parameter reads it, which is what C++
                 // deduces from the literal EmitIR writes.
-                t = self._literal_default(a, c->targets[order[j]])
+                t = self._literal_default(a, c->judged[order[j]].target)
             } else if a->ty != &null {
                 t = canon_unqual(self.tu.as_value(a->ty))
                 if a->is_const && a->cat != Expr::ValueCategory::RValue {
@@ -2022,7 +2103,7 @@ pub class OverloadResolution {
             // each instance's question, exactly as for a dependent call in a
             // C++ template. Flagged, so a tie it leaves defers (resolve_mixed).
             if t->is_dependent() || t->is_instantiation_dependent() {
-                c->sfinae_dep = true
+                c->note(Verdict::SfinaeDeferred)
                 var unsafe *ue = dyn_cast<UnaryOperatorExpr>(a->expr)
                 if ue != &null && ue->op_token.kind == TokenKind::OpStar {
                     c->deref_dep = true
@@ -2096,14 +2177,14 @@ pub class OverloadResolution {
         }
 
         if keep == 0 {
-            c->viable = false
+            c->reject()
             c->reason = f"template ignored: {why}"
         }
 
         // Removed over a Kairo record's stand-in: maybe the stand-in's fault
         // (no methods), so it only loses a tie (resolve_mixed).
         if keep == 2 {
-            c->soft_rejected = true
+            c->note(Verdict::SoftRejected)
         }
     }
 
@@ -2129,7 +2210,7 @@ pub class OverloadResolution {
         }
 
         if n > gps.size() && !has_pack {
-            c->viable = false
+            c->reject()
             c->reason = f"it takes {gps.size()} generic argument(s), and {n} were written"
             return false
         }
@@ -2156,7 +2237,7 @@ pub class OverloadResolution {
                 }
 
                 if in_params || gp->is_const_param {
-                    c->viable = false
+                    c->reject()
                     var pn = self.sc->ctx->get_spelling(gp->name)
                     c->reason = f"'{pn}' is a type pack, deduced from the arguments; it cannot be written as a generic argument yet"
                     return false
@@ -2171,7 +2252,7 @@ pub class OverloadResolution {
 
                     var unsafe *ce = canon_unqual(e)
                     if isa<TypeExpr>(ce) && cast<TypeExpr>(ce)->is_value {
-                        c->viable = false
+                        c->reject()
                         var pn2 = self.sc->ctx->get_spelling(gp->name)
                         c->reason = f"'{pn2}' is a type pack, and argument {j + 1} is a value"
                         return false
@@ -2196,7 +2277,7 @@ pub class OverloadResolution {
             }
 
             if is_value != gp->is_const_param {
-                c->viable = false
+                c->reject()
                 var nm = self.sc->ctx->get_spelling(gp->name)
                 c->reason = if (gp->is_const_param) => (f"'{nm}' is a generic value parameter, and argument {i + 1} is a type")
                             else => f"'{nm}' is a type parameter, and argument {i + 1} is a value"
@@ -2320,7 +2401,7 @@ pub class OverloadResolution {
 
         var oq = canon_quals(receiver)
         if (oq & ~sq) != 0 {
-            c->viable = false
+            c->reject()
             // An operator has no name token to spell (TokenText::resolve
             // asserts on its empty one): its symbol, `op +=`.
             var nm = if (c->f->is_operator) => ("op " + OperatorFacts::symbol(c->f))
@@ -2329,7 +2410,7 @@ pub class OverloadResolution {
             return
         }
 
-        c->recv_bind  = if ((sq & QUAL_CONST) != 0) => (1) else => 3
+        c->recv_bind  = if ((sq & QUAL_CONST) != 0) => (RefBind::ConstLRef) else => RefBind::LRef
         c->recv_const = (oq & QUAL_CONST) != 0
         c->recv_quals = sq & (QUAL_CONST | QUAL_VOLATILE)
         // A ref-qualified method's implicit object parameter IS a reference
@@ -2346,19 +2427,19 @@ pub class OverloadResolution {
         var mname = if (c->f->is_operator) => ("op " + OperatorFacts::symbol(c->f))
                     else => self.tu.decl_name(c->f)
         if rq == 1 && rvalue && (sq & QUAL_CONST) == 0 {
-            c->viable = false
+            c->reject()
             c->reason = f"'{mname}' is '&'-qualified; it cannot be called on a temporary"
             return
         }
 
         if rq == 2 && !rvalue {
-            c->viable = false
+            c->reject()
             c->reason = f"'{mname}' is '&&'-qualified; it can only be called on a temporary"
             return
         }
 
         if rq == 2 {
-            c->recv_bind = 2
+            c->recv_bind = RefBind::RRef
         }
     }
 
@@ -2380,7 +2461,7 @@ pub class OverloadResolution {
 
             if p->is_self && has_receiver {
                 self._judge_receiver(c, p, receiver)
-                if !c->viable {
+                if !c->viable() {
                     return
                 }
 
@@ -2393,7 +2474,7 @@ pub class OverloadResolution {
         // An extension's own parameters are the receiver's, decided before any
         // argument is ranked (Deduction::bind_from_extension).
         if !c->ded.bind_from_extension(f, receiver) {
-            c->viable = false
+            c->reject()
             c->reason = "the receiver is not an instance this extension applies to"
             return
         }
@@ -2464,10 +2545,7 @@ pub class OverloadResolution {
 
         for var i: usize = 0; i < args->size(); ++i {
             c->arg_to_param.push_back(ARG_PACK_TAIL) // placed below
-            c->binds.push_back(0)
-            c->ints.push_back(0)
-            c->flits.push_back(0)
-            c->targets.push_back(&null)
+            c->judged.push_back(ArgJudgment{})
         }
 
         // 1. NAMED first, then positional. Placement has to know which slots a
@@ -2489,14 +2567,14 @@ pub class OverloadResolution {
             }
 
             if found == usize::MAX {
-                c->viable      = false
+                c->reject()
                 c->reason_code = DiagID::SC019E
                 c->reason      = f"no parameter named '{a->name}'"
                 return
             }
 
             if filled[found] != 0 {
-                c->viable      = false
+                c->reject()
                 c->reason_code = DiagID::SC020E
                 c->reason      = f"parameter '{a->name}' was already given"
                 return
@@ -2528,7 +2606,7 @@ pub class OverloadResolution {
                 // pack and no hint that the parameter they wanted exists.
                 var kw = self._keyword_only_meant(c, a, unsafe &params, pack_at, nparams, receiver)
                 if kw != usize::MAX {
-                    c->viable      = false
+                    c->reject()
                     c->reason_code = DiagID::SC018E
                     c->reason = f"parameter '{self.tu.param_name(params[kw])}' can only be given by name; it follows a pack, so this argument joins the pack instead"
                     return
@@ -2558,7 +2636,7 @@ pub class OverloadResolution {
                     continue
                 }
 
-                c->viable = false
+                c->reject()
                 c->reason = f"expects {nparams} argument(s), {args->size()} given"
                 return
             }
@@ -2573,7 +2651,7 @@ pub class OverloadResolution {
         //     middle would put a non-member inside that run and CallLowering
         //     would reorder it as a pack element.
         if pack_n > 0 && pack_hi - pack_lo + 1 != pack_n {
-            c->viable      = false
+            c->reject()
             c->reason_code = DiagID::SC022E
             c->reason = "a named argument cannot appear between two pack arguments; move it after them"
             return
@@ -2599,7 +2677,7 @@ pub class OverloadResolution {
 
             var pn = self.tu.param_name(params[j])
             c->reason_code = DiagID::SC021E
-            c->viable      = false
+            c->reject()
             c->reason      = f"missing argument for parameter '{pn}'"
             return
         }
@@ -2624,7 +2702,7 @@ pub class OverloadResolution {
                 }
 
                 if skipped != &null {
-                    c->viable      = false
+                    c->reject()
                     c->reason_code = DiagID::SC107E
                     c->reason = f"parameter '{self.tu.param_name(params[j])}' is given but '{self.tu.param_name(skipped)}' before it is left to its C++ default; a C++ call can only leave out trailing defaults"
                     return
@@ -2664,7 +2742,7 @@ pub class OverloadResolution {
             }
 
             if p->type_ != &null && p->type_->is_poisoned() {
-                c->viable = false
+                c->reject()
                 c->reason = "parameter type is invalid"
                 return
             }
@@ -2686,12 +2764,12 @@ pub class OverloadResolution {
                         && (p->type_ == &null
                             || !(p->type_->is_dependent()
                                 || p->type_->is_instantiation_dependent())) {
-                        c->viable = false
+                        c->reject()
                         c->reason = "parameter type is unresolved"
                         return
                     }
 
-                    c->assumed = true
+                    c->note(Verdict::Assumed)
                     continue
                 }
             }
@@ -2709,7 +2787,7 @@ pub class OverloadResolution {
                     continue
                 }
 
-                c->viable = false
+                c->reject()
                 c->reason = "parameter type is unresolved"
                 return
             }
@@ -2727,7 +2805,7 @@ pub class OverloadResolution {
                 pt   = canon_unqual(cast<CXXLValueRefType>(pt)->referee)
             }
 
-            c->targets[i] = pt
+            c->judged[i].target = pt
             // `Base::m(obj)`: the object is an ordinary argument here, but
             // it is still the implicit object, which C++ binds as `Base&`
             // (`const Base&` for `const self`) -- a Derived binds by
@@ -2765,7 +2843,7 @@ pub class OverloadResolution {
                 // `<<(const char8_t *)`. The integer tiebreak orders them:
                 // `char` is the natural spelling, a byte pointer the alias.
                 var unsafe *lp = self.tu.pointee(canon_unqual(pt))
-                c->ints[i] = if (lp != &null
+                c->judged[i].int_kind = if (lp != &null
                                  && self.tu.is_builtin(canon_unqual(lp), BuiltinKind::CChar)) => (1)
                              else => 2
             } else {
@@ -2848,7 +2926,7 @@ pub class OverloadResolution {
                 if mode == ParamMode::Inout {
                     var iv = if (a->marked && a->inner_ty != &null) => (self.tu.str(a->inner_ty))
                              else => got
-                    c->viable = false
+                    c->reject()
                     c->reason = f"parameter '{pn}' is {LangAttrs::quoted(LangAttrs::param_inout())} and needs a mutable lvalue of type '{self.tu.str(pt)}'; got '{iv}'"
                     return
                 }
@@ -2864,7 +2942,7 @@ pub class OverloadResolution {
                     }
                 }
 
-                c->viable = false
+                c->reject()
                 c->reason = f"cannot convert argument of type '{got}' to parameter '{pn}' of type '{self.tu.str(shown)}'"
                 if uvia != "" {
                     var tn = self.tu.str(uto)
@@ -2922,18 +3000,18 @@ pub class OverloadResolution {
 
             // An `@inout` binding IS a `T&` binding for the reference tiebreak.
             if r == ImplicitRank::Exact {
-                c->binds[i] = if (mode == ParamMode::Inout) => (3) else => self._bind_kind(rt)
+                c->judged[i].bind = if (mode == ParamMode::Inout) => (RefBind::LRef) else => self._bind_kind(rt)
             }
 
             // A reference reached through a conversion binds the converted
             // TEMPORARY, an rvalue whatever the argument was: `push_back(x)`
             // with x: i32 into `vector<i64>`. Recorded apart from the Exact
-            // codes (+3), so only two such bindings are ever compared
-            // (_ref_prefers).
+            // kinds (the Temp ones), so only two such bindings are ever
+            // compared (_ref_prefers).
             if r == ImplicitRank::Converted && mode != ParamMode::Inout {
                 var bk = self._bind_kind(pt)
-                if bk != 0 {
-                    c->binds[i] = bk + 3
+                if bk != RefBind::None {
+                    c->judged[i].bind = ref_bind_on_temp(bk)
                 }
             }
 
@@ -2941,7 +3019,7 @@ pub class OverloadResolution {
                 && a->lit == LitKind::None
                 && a->ty != &null
                 && self.tu.is_integer(a->ty) {
-                c->ints[i] = if (p->cxx_int_alias) => (2) else => 1
+                c->judged[i].int_kind = if (p->cxx_int_alias) => (2) else => 1
             }
 
             // usize / isize is C++'s size_t / ptrdiff_t, which every target
@@ -2964,12 +3042,12 @@ pub class OverloadResolution {
                         canon_unqual(self.tu.as_value(a->ty)),
                     )
                     && self.tu.is_signed_int(pt) == (ak == BuiltinKind::ISize) {
-                    c->ints[i] = if (p->cxx_int_alias) => (2) else => 1
+                    c->judged[i].int_kind = if (p->cxx_int_alias) => (2) else => 1
                 }
             }
 
             if r == ImplicitRank::Exact && a->lit == LitKind::Float {
-                c->flits[i] = self._flit_code(pt)
+                c->judged[i].flit_kind = self._flit_code(pt)
             }
 
             // An imported overload set is ranked as C++ ranks it (docs:
@@ -2981,7 +3059,7 @@ pub class OverloadResolution {
             // tiebreak as a float literal. Kairo's own overloads keep the
             // documented closed list of tiebreaks: none orders an int literal.
             if r == ImplicitRank::Exact && a->lit == LitKind::Int && f->is_imported() {
-                c->flits[i] = self._ilit_code(pt, p->cxx_int_alias)
+                c->judged[i].flit_kind = self._ilit_code(pt, p->cxx_int_alias)
             }
 
             if mode == ParamMode::Inout && !a->marked {
@@ -2997,19 +3075,19 @@ pub class OverloadResolution {
             c->ded.fill_ffi_defaults(f)
         }
 
-        if c->generic && c->assumed && !c->ded.is_complete(f) {
+        if c->generic && c->verdict() == Verdict::Assumed && !c->ded.is_complete(f) {
             return
         }
 
         if c->generic && !c->ded.is_complete(f) {
-            c->viable = false
+            c->reject()
             c->reason = "could not deduce every generic parameter from the arguments"
             return
         }
 
         var unsafe *ext = decl_extension_of(f)
         if ext != &null && !c->ded.is_complete(ext) {
-            c->viable = false
+            c->reject()
             c->reason = "could not deduce the extension's generic parameters"
             return
         }
@@ -4086,8 +4164,8 @@ pub class OverloadResolution {
                         continue
                     }
 
-                    if j < c->targets.size() {
-                        et = self._variant_enum(c->targets[j])
+                    if j < c->judged.size() {
+                        et = self._variant_enum(c->judged[j].target)
                     }
 
                     break

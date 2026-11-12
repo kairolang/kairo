@@ -87,6 +87,7 @@ import AST::Visitor::ASTWriter::{
     ListBuilder,
 }
 import Location::SourceRange::SourceRange
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -119,6 +120,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::ListLiteral)
         if self.sc->tu == &null {
             return
         }

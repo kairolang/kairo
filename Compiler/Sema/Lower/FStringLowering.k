@@ -99,6 +99,7 @@ import AST::Visitor::ASTWriter::{
 import Lexer::Immediate::Immediate
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -121,6 +122,7 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::FString)
         if self.sc->tu == &null {
             return
         }
@@ -478,7 +480,7 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
 
     /// # holes across a chain
     ///
-    ///   Adjacent literals join whatever their prefixes (P486), so a hole can
+    ///   Adjacent literals join whatever their prefixes, so a hole can
     ///   sit in any segment of the chain: `"a" f"b{x}" r"\c" f"{y}"`. Each
     ///   segment's text is decoded under its own prefix (its Raw bit), and
     ///   the segments with no hole are text whole.

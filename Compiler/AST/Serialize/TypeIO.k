@@ -114,7 +114,7 @@ pub fn type_alloc(ar: unsafe *ASTArchive) -> unsafe *Type {
 
 /// The fields of the Type base and its TypeQual mixin.
 fn io_type_base(ar: unsafe *ASTArchive, t: unsafe *Type) {
-    if !ar->reading {
+    if !ar->reading() {
         ar->en<TypeKind>(&t->kind)
         if t->kind == TypeKind::RecoveryType {
             ar->en<TypeKind>(&t->recovery_kind)
@@ -133,7 +133,7 @@ fn io_type_base(ar: unsafe *ASTArchive, t: unsafe *Type) {
     io_annotations<Type>(ar, t)
 
     if has_ext {
-        if ar->reading {
+        if ar->reading() {
             t->ext = ar->ctx->alloc<ExtQuals>()
         }
 
@@ -144,13 +144,13 @@ fn io_type_base(ar: unsafe *ASTArchive, t: unsafe *Type) {
     var n = ar->len_(t->spans.size())
     for var i: usize = 0; i < n; ++i {
         var s = QualSpan(0 as u16, SourceRange::invalid())
-        if !ar->reading {
+        if !ar->reading() {
             s = *t->spans.get(i)
         }
 
         ar->num16(&s.qual_flag)
         ar->range(&s.range)
-        if ar->reading {
+        if ar->reading() {
             t->spans.push(s)
         }
     }
@@ -297,7 +297,7 @@ fn io_cxx_rvalue_ref_type(ar: unsafe *ASTArchive, n: unsafe *Types::CXXRValueRef
 fn io_opaque_ffi_type(ar: unsafe *ASTArchive, n: unsafe *Types::OpaqueFFIType) {
     ar->num32(&n->name)
     var sp: string
-    if !ar->reading && n->sp != &null {
+    if !ar->reading() && n->sp != &null {
         sp = string(unsafe ((n->sp as unsafe *const u8) as *const u8), n->sp_len as usize)
     }
 
@@ -305,7 +305,7 @@ fn io_opaque_ffi_type(ar: unsafe *ASTArchive, n: unsafe *Types::OpaqueFFIType) {
     ar->flag(&has)
     if has {
         ar->str(&sp)
-        if ar->reading {
+        if ar->reading() {
             var unsafe *mem = ar->ctx->alloc_array<u8>(sp.size() + 1)
             cxx::std::memcpy(
                 unsafe (mem as unsafe *void),

@@ -159,6 +159,7 @@ import AST::Visitor::ASTWriter::{
 }
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstEval::ConstEval
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
@@ -183,6 +184,7 @@ pub class FieldInitLowering derives ASTWriter<FieldInitLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::FieldInit)
         if self.sc->tu == &null {
             return
         }

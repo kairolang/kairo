@@ -73,6 +73,7 @@ import AST::Node::Statements::{
     ReturnStmt,
 }
 import AST::Visitor::ASTWriter::ASTWriter
+import Sema::Lower::LowerStep::LowerStep
 import Sema::SemaContext::{
     SemaContext,
     SemaPhase,
@@ -88,6 +89,7 @@ pub class ExprBodyDesugar derives ASTWriter<ExprBodyDesugar> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::ExprBody)
         if self.sc->tu == &null {
             return
         }

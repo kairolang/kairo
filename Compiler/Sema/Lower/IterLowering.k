@@ -63,7 +63,7 @@
 ///     they wait on; FeatureGateCheck (SC116E) rejects them first, so the ICE is an invariant. A dependent iterable (iter_kind None, no type) is left for M2;
 ///     reaching codegen it ICEs in EmitIR. An imported C++ instance over the
 ///     generic's parameter (cxx_dependent) is not lowered: EmitIR spells C++'s
-///     own range-for (P476).
+///     own range-for.
 ///
 ///   Phase: LOWER, after CallLowering and before ExtensionLowering: a user
 ///   `op in` declared in an extension is called here through a chain, and
@@ -138,6 +138,7 @@ import AST::Visitor::ASTWriter::{
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstEval::ConstEval
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Lower::OperatorLowering::OperatorLowering
 import Sema::Resolve::NameLookup::NameLookup
@@ -265,6 +266,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Iter)
         if self.sc->tu == &null {
             return
         }

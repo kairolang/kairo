@@ -131,6 +131,7 @@ import AST::ParamMode::ParamMode
 import AST::Visitor::ASTWriter::ASTWriter
 import Location::SourceRange::SourceRange
 import Sema::Check::ClassLifecycle::moves_on_pass
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -184,6 +185,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::WhereDispatch)
         if self.sc->tu == &null {
             return
         }

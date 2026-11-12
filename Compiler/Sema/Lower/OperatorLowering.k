@@ -119,6 +119,7 @@ import AST::Visitor::ASTWriter::{
 }
 import Location::SourceRange::SourceRange
 import Sema::Lower::EnumLayoutLowering::EnumLayoutQuery
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -183,6 +184,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::Operator)
         if self.sc->tu == &null {
             return
         }

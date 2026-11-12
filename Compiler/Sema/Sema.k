@@ -36,6 +36,7 @@ ffi "c++" import "Native/KShims.hh" // purity_inferred_*
 import AST::Context::ASTContext::ASTContext
 import AST::Context::DepLog::DepLogScope
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
+import Driver::TUStage::TUStage
 import Sema::Check::AttributeCheck::AttributeCheck
 import Sema::Check::BaseInitCheck::BaseInitCheck
 import Sema::Check::CallConvCheck::CallConvCheck
@@ -225,6 +226,12 @@ pub class Sema {
     /// fully parsed TranslationUnit (dc_symbols frozen, out_of_line
     /// collected) i.e. ASTParse::parse() returned it.
     fn Sema(self, ctx: unsafe *ASTContext, g: unsafe *GlobalDisambigTable) {
+        // From here on the tree is no longer the parser's (the serializer's
+        // gate, TranslationUnit::stage).
+        if ctx != &null && ctx->tu != &null {
+            ctx->tu->advance(TUStage::Sema)
+        }
+
         self.sc = SemaContext(ctx, g)
         // Only now: `sc` was assigned from a temporary, and the instance
         // keeps `&self.sc` while `sc` keeps `&self.lifecycle`, so both have
@@ -1355,7 +1362,6 @@ pub class Sema {
             self._arena_note("L:SequenceCheck", _ma)
         }
 
-        self.sc.sequenced = true
         // After OperatorLowering: a list literal can be an operand of a user
         // operator, and this pass builds constructor calls that must not be
         // re-read as operator nodes.
@@ -1374,6 +1380,8 @@ pub class Sema {
             StringLowering(unsafe &self.sc).run()
             self._arena_note("L:StringLowering", _ma)
         }
+
+        self.sc.end_lowerings()
 
         // -finfer-purity: const / pure for the functions that keep the
         // promise unwritten, by FnPurityCheck's own rules, as a greatest

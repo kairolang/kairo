@@ -91,6 +91,7 @@ import AST::Serialize::TypeIO::{
     type_alloc,
     type_io,
 }
+import Driver::TUStage::TUStage
 import Parser::ASTParse::ASTParse
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Token::Token::Token
@@ -151,7 +152,9 @@ fn install_hooks(ar: unsafe *ASTArchive) {
 
 /// The TU's own fields, in both directions. What is here is what the
 /// preprocessor and the parser wrote; everything Sema, the driver or a
-/// later stage writes on a TU is listed in the checks at the end, and the
+/// later stage writes on a TU is listed in the checks at the end (`_stage`
+/// is not stored: the writer requires a parsed tree and the reader sets
+/// Parsing on what it built), and the
 /// fields the reader REBUILDS (scope, dc_scope, dc_symbols, out_of_line,
 /// module_self) are restored by ASTParse::rebuild_derived, not stored.
 fn io_tu(ar: unsafe *ASTArchive, tu: unsafe *TranslationUnit) {
@@ -166,12 +169,12 @@ fn io_tu(ar: unsafe *ASTArchive, tu: unsafe *TranslationUnit) {
     var pins = ar->len_(tu->pin_segments.size())
     for var i: usize = 0; i < pins; ++i {
         var t: Token
-        if !ar->reading {
+        if !ar->reading() {
             t = *tu->pin_segments.get(i)
         }
 
         ar->tok(&t)
-        if ar->reading {
+        if ar->reading() {
             tu->pin_segments.push(t)
         }
     }
@@ -188,7 +191,7 @@ fn io_tu(ar: unsafe *ASTArchive, tu: unsafe *TranslationUnit) {
     var edges = ar->len_(tu->import_edges.size())
     for var i: usize = 0; i < edges; ++i {
         var e = ImportEdge{}
-        if !ar->reading {
+        if !ar->reading() {
             e = *tu->import_edges.get(i)
         }
 
@@ -196,12 +199,12 @@ fn io_tu(ar: unsafe *ASTArchive, tu: unsafe *TranslationUnit) {
         ar->flag(&resolved)
         if resolved {
             var fref: u32 = 0
-            if !ar->reading {
+            if !ar->reading() {
                 fref = ar->file_ref(e.target_fid)
             }
 
             ar->num32(&fref)
-            if ar->reading {
+            if ar->reading() {
                 e.target_fid = ar->file_fid(fref)
             }
         } else {
@@ -209,7 +212,7 @@ fn io_tu(ar: unsafe *ASTArchive, tu: unsafe *TranslationUnit) {
         }
 
         ar->decl<ImportDecl>(&e.decl)
-        if ar->reading {
+        if ar->reading() {
             tu->import_edges.push(e)
         }
     }
@@ -229,7 +232,7 @@ fn io_tu(ar: unsafe *ASTArchive, tu: unsafe *TranslationUnit) {
     var has_prog = prog != &null
     ar->flag(&has_prog)
     if has_prog {
-        if ar->reading {
+        if ar->reading() {
             prog        = ar->ctx->alloc_init<Program>(ar->ctx->fid, ar->ctx)
             tu->program = prog
         }
@@ -237,39 +240,39 @@ fn io_tu(ar: unsafe *ASTArchive, tu: unsafe *TranslationUnit) {
         var items = ar->len_(have)
         for var i: usize = 0; i < items; ++i {
             var kind = TopLevelKind::Decl
-            if !ar->reading {
+            if !ar->reading() {
                 kind = prog->items.get(i)->get_kind()
             }
 
             ar->en<TopLevelKind>(&kind)
             if kind == TopLevelKind::Decl {
                 var d: unsafe *Decl = &null
-                if !ar->reading {
+                if !ar->reading() {
                     d = prog->items.get(i)->as_decl()
                 }
 
                 ar->decl<Decl>(&d)
-                if ar->reading {
+                if ar->reading() {
                     prog->add_item(TopLevelItem::from_decl(d))
                 }
             } else if kind == TopLevelKind::Stmt {
                 var s: unsafe *Stmt = &null
-                if !ar->reading {
+                if !ar->reading() {
                     s = prog->items.get(i)->as_stmt()
                 }
 
                 ar->stmt<Stmt>(&s)
-                if ar->reading {
+                if ar->reading() {
                     prog->add_item(TopLevelItem::from_stmt(s))
                 }
             } else {
                 var e: unsafe *Expr = &null
-                if !ar->reading {
+                if !ar->reading() {
                     e = prog->items.get(i)->as_expr()
                 }
 
                 ar->expr<Expr>(&e)
-                if ar->reading {
+                if ar->reading() {
                     prog->add_item(TopLevelItem::from_expr(unsafe (e as *Expr)))
                 }
             }
@@ -363,7 +366,20 @@ pub class ASTBinWriter {
         }
 
         var unsafe *ar = self.ar.me()
-        ar->reading = false
+        ar->begin_writing()
+
+        // Only a parsed tree: the stage says so for the whole TU, and the
+        // per-slot checks in each io_ function stay as the cross-check for a
+        // Sema write into this tree from another TU's Sema (an instance
+        // homed here), which does not move this TU's stage. Debug-only, as
+        // they are: a release build does not pay for either.
+        eval if defined!(DEBUG) {
+            if (tu->stage() as u8) > (TUStage::Parsing as u8) {
+                self.ar.fail("the translation unit has been through Sema; only a parsed tree can be serialized")
+                return false
+            }
+        }
+
         ar->bind(tu->ctx, psym, gs)
         ar->tu = tu
         install_hooks(ar)
@@ -435,7 +451,7 @@ pub class ASTBinReader {
                 psym: unsafe *PreprocessorSymbolTable,
                 gs:   unsafe *GlobalDisambigTable) -> unsafe *TranslationUnit {
         var unsafe *ar = self.ar.me()
-        ar->reading = true
+        ar->begin_reading()
         install_hooks(ar)
 
         if ctx == &null || ctx->tu != &null {
@@ -557,6 +573,8 @@ pub class ASTBinReader {
         // What the parser derives from the finished tree rather than parses.
         var rebuild = ASTParse(ctx, &null, gs, ASTParse::ParseMode::Full)
         rebuild.rebuild_derived()
+        // What the reader built is a parsed tree, as the parser's is.
+        tu->advance(TUStage::Parsing)
         return tu
     }
 }

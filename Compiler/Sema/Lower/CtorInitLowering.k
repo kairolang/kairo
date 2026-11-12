@@ -49,6 +49,7 @@ import AST::Node::Declarations::FunctionDecl
 import AST::Node::Statements::CompoundStmt
 import AST::Visitor::ASTWriter::ASTWriter
 import Location::SourceRange::SourceRange
+import Sema::Lower::LowerStep::LowerStep
 import Sema::SemaContext::{
     SemaContext,
     SemaPhase,
@@ -64,6 +65,7 @@ pub class CtorInitLowering derives ASTWriter<CtorInitLowering> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::CtorInit)
         if self.sc->tu == &null {
             return
         }

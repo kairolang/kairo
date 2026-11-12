@@ -82,6 +82,7 @@ import Sema::Check::ConstraintSet::ConstraintSet
 import Sema::Expand::EvalBranches::EvalBranchTable
 import Sema::Foreign::BuiltinImport::BuiltinImport
 import Sema::Foreign::ForeignInstantiate::ForeignInstantiate
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::Resolve::ResolutionState::ResolutionState
 import Sema::Resolve::ResolutionTrace::ResolutionTrace
@@ -292,11 +293,9 @@ pub class SemaContext {
     pub var diag:  unsafe *BufferedDiagSink
     pub var opts:  SemaOptions
     pub var phase: SemaPhase                   = SemaPhase::Parsed
-    /// SequenceLowering has run (Sema.k sets it after SequenceCheck): from
-    /// here on Kairo's evaluation order is written into the tree, and a pass
-    /// that mints a call with two effectful operands ICEs at the mint
-    /// (LowerSynth::_mint_check) unless it says the order is unobservable.
-    pub var sequenced: bool                          = false
+    /// The last lowering that started (Sema/Lower/LowerStep.k): written
+    /// only by begin_lower / end_lowerings, in the enum's order.
+    priv var _lower: LowerStep = LowerStep::None
     pub var instances: unsafe *InstantiationRegistry = &null
     /// Fills instances of IMPORTED class templates from clang (MemberLookup's
     /// trigger). Build-wide, owned by CompilerInstance and wired by the driver
@@ -632,6 +631,32 @@ pub class SemaContext {
                 )
             }
         }
+    }
+
+    /// A lowering's first act (its `run()`): \p step must be the one right
+    /// after the last that started, so the order in LowerStep is the order
+    /// the passes run in, and each header's "after" / "before" holds.
+    fn begin_lower(self, step: LowerStep) {
+        eval if defined!(DEBUG) {
+            if (step as u8) != (self._lower as u8) + 1 {
+                kairo::std::ice_fail(r"SemaContext: lowering ran out of its LowerStep order (Sema::_stage_lowerings schedule bug)")
+            }
+        }
+
+        self._lower = step
+    }
+
+    /// Sema::_stage_lowerings, after its last pass: every step ran.
+    fn end_lowerings(self) {
+        self.begin_lower(LowerStep::Done)
+    }
+
+    /// SequenceCheck is done: from here on Kairo's evaluation order is
+    /// written into the tree, and a pass that mints a call with two
+    /// effectful operands ICEs at the mint (LowerSynth::_mint_check) unless
+    /// it says the order is unobservable.
+    fn sequenced(self) -> bool {
+        return (self._lower as u8) > (LowerStep::SequenceCheck as u8)
     }
 
     /// Driver-only. Monotonic.

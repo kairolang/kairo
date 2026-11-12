@@ -424,6 +424,10 @@ pub class ASTContext {
         }
 
         if (from as u8) <= (TUStage::Parsing as u8) {
+            if self.tu != &null {
+                self.tu->rewind_to_preprocessed()
+            }
+
             self._run_cleanups(&self._cleanup_ast)
             self.ast_alloc.reset_fast()
             self.scratch_alloc.reset_fast()
