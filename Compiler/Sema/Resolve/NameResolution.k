@@ -1696,11 +1696,16 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             // this TU's imm for the name finds whichever member happens to
             // share its index (`fn S::g` probed S's `f`). The spelling lets
             // in_scope re-intern the name in the scope's own TU.
+            // An operator has no name token (its op_token is its name, and
+            // spelling the empty token ICE'd in a debug build, so every
+            // `fn T::op [] (...)` failed there): its key is token kinds,
+            // which in_scope compares across TUs as they are.
             var        key   = self._member_key(f, home)
             var        ml    = MemberLookup(self.sc)
-            var unsafe *cell = ml.in_scope(home, key, self.sc->ctx->get_spelling(f->name))
+            var        nm    = if (f->is_operator) => ("op " + OperatorFacts::symbol(f))
+                               else => self.sc->ctx->get_spelling(f->name)
+            var unsafe *cell = ml.in_scope(home, key, if (f->is_operator) => ("") else => nm)
             if cell == &null {
-                var nm = self.sc->ctx->get_spelling(f->name)
                 self.sc->diag->report(
                     DiagID::R031E,
                     f->range.start,

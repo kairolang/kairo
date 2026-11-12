@@ -1763,6 +1763,26 @@ pub class LowerTargets {
         return "__kairo_op_index"
     }
 
+    /// The witness member for an `op []=` requirement (P880), beside
+    /// witness_subscript's.
+    pub static fn witness_subscript_set() -> string {
+        return "__kairo_op_index_set"
+    }
+
+    /// The C++ member names of a SPLIT subscript's two forms (a type that
+    /// declares `op []=`, P880): `op []` is `__kairo_op_get`, `op []=` is
+    /// `__kairo_op_set`. Kairo calls each by its own name, so clang never
+    /// picks between them; C++ users get `operator[]` forwarders to them
+    /// (InterfaceEmitter::_subscript_forwarders). A type with no `op []=`
+    /// keeps `operator[]` itself, as before.
+    pub static fn subscript_get() -> string {
+        return "__kairo_op_get"
+    }
+
+    pub static fn subscript_set() -> string {
+        return "__kairo_op_set"
+    }
+
     /// A witness member's name for an `op as` requirement (an interpolation
     /// or a cast through a bound, Compiler/Spec/Generics.md#body-regimes). Like `op []` it has no
     /// extension row. \p target is the requirement's result type as one C++

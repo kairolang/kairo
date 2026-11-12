@@ -1155,6 +1155,7 @@ pub class MemberLookup {
 
             var k0 = TokenKind::TkUnknown
             var k1 = TokenKind::TkUnknown
+            var k2 = TokenKind::TkUnknown
             if f->op_token.size() > 0 {
                 k0 = f->op_token[0].kind
             }
@@ -1163,7 +1164,12 @@ pub class MemberLookup {
                 k1 = f->op_token[1].kind
             }
 
-            return DeclName::op_name(k0, k1).as_key() == name.as_key()
+            // `op []=` is three tokens (DeclName::op_name_of).
+            if f->op_token.size() > 2 {
+                k2 = f->op_token[2].kind
+            }
+
+            return DeclName::op_name_of(k0, k1, k2).as_key() == name.as_key()
         }
 
         if name.kind != DeclNameKind::Identifier {

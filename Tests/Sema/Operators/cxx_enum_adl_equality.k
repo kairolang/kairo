@@ -7,8 +7,8 @@
 // template for something else (llvm::sys::fs::file_type next to
 // ArrayRef/ErrorOr's): ADL found that template, none of its candidates
 // could take the enum, and the comparison failed with SC063E instead of
-// falling back to the built-in comparison C++ itself would use. Found in
-// the migrated Support/FileIO/Path.k (self-host phase 5.2).
+// falling back to the built-in comparison C++ itself would use, as in
+// path comparison.
 
 // DIAG-NOT: error
 

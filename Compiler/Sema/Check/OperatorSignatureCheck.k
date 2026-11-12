@@ -52,6 +52,7 @@ import AST::Context::SymbolTable::{
     SymbolTable,
 }
 import AST::DeclFacts::{
+    decl_bases,
     decl_is_imported,
     decl_pattern,
 }
@@ -86,6 +87,7 @@ import AST::OperatorFacts::OperatorFacts
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Location::SourceRange::SourceRange
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
     SemaContext,
@@ -152,7 +154,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
 
         var        sym    = OperatorFacts::symbol(f) // for the messages; identity is by kind.
         var        k      = OperatorFacts::single_kind(f)
-        var        subs   = OperatorFacts::is_subscript(f)
+        var        subs   = OperatorFacts::is_subscript(f) || OperatorFacts::is_subscript_set(f)
         var unsafe *lex   = f->lexical_dc
         var        in_ext = lex != &null && lex->dc_kind == DeclContextKind::Extension
         var        member = f->is_method() || in_ext
@@ -221,6 +223,17 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             nargs -= 1
         }
 
+        // `op []=` is member-only as `op []` is, and a free one would be a
+        // place form no receiver owns.
+        if OperatorFacts::is_subscript_set(f) && !member {
+            self._err(
+                f,
+                f"'op {sym}' cannot be a free function; it must be a member, so declare it in the type's body",
+            )
+
+            return true
+        }
+
         if in_ext && (k == TokenKind::KwAs || subs || k == TokenKind::OpArrow || k == TokenKind::KwFinally) {
             self._err(
                 f,
@@ -243,8 +256,305 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return true
         }
 
+        if OperatorFacts::is_subscript_set(f) {
+            self._check_subscript_set(f, sym)
+            return true
+        }
+
         self._check_result(f, sym, k, subs, nargs)
+        if subs && !f->is_poisoned() && OperatorFacts::in_split_subscript(f) {
+            self._check_split_read(f)
+        }
+
         return true
+    }
+
+    /// # the split subscript (P880)
+    ///
+    /// A type that declares `op []=` splits its subscript: `op []` is the
+    /// read form, `op []=` the place form, and MemberTyping picks one for
+    /// each use by what the use does (Compiler/Spec/ExprTyping.md). Each
+    /// form's own rules are here; the pair's (one element type) are
+    /// _split_pairs'. A type with no `op []=` is not split, and its `op []`
+    /// keeps the one-operator rules of _check_result.
+
+    /// `op []=`: takes `self` and returns what a write goes through, a safe
+    /// `*T` or a mutable view `[T;]`. A `const self` place form (a view a
+    /// const binding can still write through) is not decided yet, so it is
+    /// refused rather than given a meaning here.
+    priv fn _check_subscript_set(self, f: unsafe *FunctionDecl, const sym: string) {
+        var unsafe *recv = self._self_param(f)
+        if recv != &null && recv->is_const {
+            var b = self.sc->diag->report(
+                DiagID::SC280E,
+                recv->range.start,
+                f"'op {sym}' takes 'self': it hands out the place a write goes through, and a 'const self' place form is not supported",
+            )
+
+            b.first(recv->range)
+            if recv->name.range.is_valid() && recv->range.start.raw() < recv->name.range.start.raw() {
+                b.remove(
+                    SourceRange::from_bounds(recv->range.start, recv->name.range.start),
+                    "take 'self'",
+                )
+            }
+
+            b.emit()
+            f->poison()
+            return
+        }
+
+        var want = f"'op {sym}' must return the place a write goes through, '*T', or a mutable view '[T;]'"
+        if f->return_type == &null {
+            self._err_id(f, DiagID::SC280E, want)
+            return
+        }
+
+        var unsafe *rt = f->return_type->canonical
+        if rt == &null { // unresolved: T diagnosed it.
+            return
+        }
+
+        if self._tu.is_unsafe_ptr(rt) {
+            self._err_id(
+                f,
+                DiagID::SC114E,
+                f"'op {sym}' cannot return 'unsafe *T'; a place is '*T', and an unsafe pointer is not one",
+            )
+
+            return
+        }
+
+        var unsafe *p = self._tu.pointee(rt)
+        if p != &null {
+            if self._tu.has_const(p) {
+                self._err_id(
+                    f,
+                    DiagID::SC280E,
+                    f"'op {sym}' returns '*const T', which cannot be written through; return '*T' (the read form, 'op []', returns '*const T')",
+                )
+            }
+
+            return
+        }
+
+        if self._tu.is_slice(rt) {
+            var unsafe *e = self._tu.container_elem(rt)
+            if e != &null && self._tu.has_const(e) {
+                self._err_id(
+                    f,
+                    DiagID::SC280E,
+                    f"'op {sym}' returns a read-only view, which cannot be written through; return '[T;]'",
+                )
+            }
+
+            return
+        }
+
+        // A value, or a type parameter that is not known to be a pointer:
+        // neither is a place. A value subscript is the read form's.
+        self._err_id(f, DiagID::SC280E, want + "; a value cannot be written through (a value subscript is 'op []')")
+    }
+
+    /// `op []` beside an `op []=`: the read form. A `*T` result would be a
+    /// second place form, a write the selection never routes there.
+    priv fn _check_split_read(self, f: unsafe *FunctionDecl) {
+        if f->return_type == &null || f->return_type->canonical == &null {
+            return
+        }
+
+        var unsafe *rt = f->return_type->canonical
+        var unsafe *p  = self._tu.pointee(rt)
+        if p == &null || self._tu.is_unsafe_ptr(rt) || self._tu.has_const(p) {
+            return
+        }
+
+        var b = self.sc->diag->report(
+            DiagID::SC280E,
+            f->range.start,
+            "'op []' is the read form in a type that declares 'op []=', so it returns '*const T', a value or a read-only view; '*T' would let a write go through the read form",
+        )
+
+        b.first(f->range)
+        var unsafe *g = self._first_set_of(f)
+        if g != &null {
+            b.note(DiagCode(DiagID::SC280N), g->range.start, "'op []=' is declared here")->child_first(g->range)
+        }
+
+        b.emit()
+        f->poison()
+    }
+
+    /// The first `op []=` of \p f's own type, or null.
+    priv fn _first_set_of(self, f: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
+        var unsafe *dc = f->semantic_dc
+        if dc == &null || !dc->is_type_scope() {
+            dc = f->lexical_dc
+        }
+
+        if dc == &null {
+            return &null
+        }
+
+        var unsafe *cell = dc->lookup_symbol(DeclName::subscript_set_name())
+        if cell == &null || cell->size() == 0 {
+            return &null
+        }
+
+        return dyn_cast<FunctionDecl>(cell->get(0))
+    }
+
+    priv fn _self_param(self, f: unsafe *FunctionDecl) -> unsafe *ParamDecl {
+        for var i: usize = 0; i < f->params.size(); ++i {
+            if f->params[i] != &null && f->params[i]->is_self {
+                return f->params[i]
+            }
+        }
+
+        return &null
+    }
+
+    /// The first operand's type of a subscript form (its index), unqualified.
+    priv fn _index_of(self, f: unsafe *FunctionDecl) -> unsafe *Type {
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var unsafe *p = f->params[i]
+            if p == &null || p->is_self {
+                continue
+            }
+
+            if p->type_ == &null {
+                return &null
+            }
+
+            return canon_unqual(p->type_->canonical)
+        }
+
+        return &null
+    }
+
+    /// The element a subscript form hands out, const dropped: the pointee
+    /// of `*T` / `*const T`, a view's element, or the value itself.
+    priv fn _element_of(self, f: unsafe *FunctionDecl) -> unsafe *Type {
+        if f->return_type == &null || f->return_type->canonical == &null {
+            return &null
+        }
+
+        var unsafe *rt = f->return_type->canonical
+        var unsafe *p  = self._tu.pointee(rt)
+        if p != &null {
+            return canon_unqual(p)
+        }
+
+        if self._tu.is_slice(rt) {
+            return canon_unqual(self._tu.container_elem(rt))
+        }
+
+        return canon_unqual(rt)
+    }
+
+    /// The pair's rules: for one index type, `op []` and `op []=` name one
+    /// element (MemberTyping may move a use from the read form to the place
+    /// form once its consumer is known, which must change nothing but
+    /// const), and a split type inherits no place-returning `op []`, which
+    /// would be a place form beside its own.
+    priv fn _split_pairs(self, dc: unsafe *DeclContext, at: *Decl) {
+        if !OperatorFacts::declares_subscript_set(dc) {
+            return
+        }
+
+        var unsafe *gets = dc->lookup_symbol(DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare))
+        var unsafe *sets = dc->lookup_symbol(DeclName::subscript_set_name())
+        if gets != &null && sets != &null {
+            for var i: usize = 0; i < gets->size(); ++i {
+                var unsafe *g = dyn_cast<FunctionDecl>(gets->get(i))
+                if g == &null || g->is_poisoned() || g->is_out_of_line() {
+                    continue
+                }
+
+                for var j: usize = 0; j < sets->size(); ++j {
+                    var unsafe *s = dyn_cast<FunctionDecl>(sets->get(j))
+                    if s == &null || s->is_poisoned() || s->is_out_of_line() {
+                        continue
+                    }
+
+                    self._agree(g, s)
+                }
+            }
+        }
+
+        var bases = decl_bases(unsafe (at as unsafe *Decl))
+        for var i: usize = 0; i < bases.size(); ++i {
+            var unsafe *e = bases.get(i)
+            if e == &null || e->base == &null || e->base->canonical == &null {
+                continue
+            }
+
+            var unsafe *rec = dyn_cast<RecordType>(canon_unqual(e->base->canonical))
+            if rec == &null {
+                continue
+            }
+
+            var unsafe *bdc = NameLookup::context_of(decl_pattern(rec->decl))
+            if bdc == &null || OperatorFacts::declares_subscript_set(bdc) {
+                continue
+            }
+
+            var unsafe *bg = bdc->lookup_symbol(DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare))
+            if bg == &null {
+                continue
+            }
+
+            for var k: usize = 0; k < bg->size(); ++k {
+                var unsafe *g = dyn_cast<FunctionDecl>(bg->get(k))
+                if g == &null || !OperatorFacts::is_place(g) {
+                    continue
+                }
+
+                var unsafe *pp = self._tu.pointee(g->return_type->canonical)
+                if pp == &null || self._tu.has_const(pp) {
+                    continue
+                }
+
+                var bn = self._tu.decl_name(rec->decl)
+                var b = self.sc->diag->report(
+                    DiagID::SC280E,
+                    at->range.start,
+                    f"a type that declares 'op []=' cannot inherit a place-returning 'op []' ('*T') from '{bn}': that one would be a second place form",
+                )
+
+                b.first(at->range)
+                b.note(DiagCode(DiagID::SC280N), g->range.start, f"'{bn}::op []' is declared here")->child_first(g->range)
+                b.emit()
+                return
+            }
+        }
+    }
+
+    /// \p g (`op []`) and \p s (`op []=`) taking one index type name one
+    /// element, const aside.
+    priv fn _agree(self, g: unsafe *FunctionDecl, s: unsafe *FunctionDecl) {
+        var unsafe *gi = self._index_of(g)
+        var unsafe *si = self._index_of(s)
+        if gi == &null || si == &null || gi != si {
+            return
+        }
+
+        var unsafe *ge = self._element_of(g)
+        var unsafe *se = self._element_of(s)
+        if ge == &null || se == &null || ge == se || ge->is_dependent() || se->is_dependent() {
+            return
+        }
+
+        var b = self.sc->diag->report(
+            DiagID::SC280E,
+            s->range.start,
+            f"'op []' and 'op []=' taking '{self._tu.str(gi)}' disagree on the element: '{self._tu.str(ge)}' and '{self._tu.str(se)}'; the two forms of one subscript hand out one element type",
+        )
+
+        b.first(s->range)
+        b.note(DiagCode(DiagID::SC280N), g->range.start, "the read form is declared here")->child_first(g->range)
+        b.emit()
+        s->poison()
     }
 
     /// \p k is OperatorFacts::single_kind: TkUnknown for `[]` / `()`.
@@ -439,6 +749,9 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
     priv fn _table(self, dc: unsafe *DeclContext, at: *Decl) {
         self._pairs(dc, at)
         self._cmp_shadows(dc, dc)
+        if !isa<ExtensionDecl>(at) {
+            self._split_pairs(dc, at)
+        }
     }
 
     /// An extension's table against itself and against the target's own body.

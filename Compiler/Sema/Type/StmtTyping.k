@@ -84,6 +84,7 @@ import AST::Node::Expressions::{
     BinaryOperatorExpr,
     ClosureExpr,
     RangeExpr,
+    SubscriptExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
@@ -109,6 +110,11 @@ import Sema::Check::FfiRefReturnCheck::check_ref_return_value
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::Resolve::ResolutionState::ResolveState
+import Sema::Type::MemberTyping::{
+    SUB_BIND,
+    SUB_RECV,
+    SUB_SOFT,
+}
 import Sema::Type::OverloadResolution::{
     ArgInfo,
     OvlOutcome,
@@ -1440,6 +1446,30 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
     }
 
+    /// `var t = a[i..j]` binds the place form of a split subscript when `a`
+    /// is mutable (P880-2): the binding is a view that may be written
+    /// through; `const t = a[i..j]` binds the read form. A declared type
+    /// that is a read-only view keeps the read form.
+    priv fn _mark_range_binding(self, n: unsafe *VariableDecl, declared: unsafe *Type) {
+        if n->is_const() || n->init == &null {
+            return
+        }
+
+        var unsafe *s = dyn_cast<SubscriptExpr>(self.dyn()->tu.strip_parens(n->init))
+        if s == &null || s->index == &null || !isa<RangeExpr>(self.dyn()->tu.strip_parens(s->index)) {
+            return
+        }
+
+        if declared != &null {
+            var unsafe *e = self.dyn()->tu.container_elem(declared)
+            if !self.dyn()->tu.is_slice(declared) || e == &null || self.dyn()->tu.has_const(e) {
+                return
+            }
+        }
+
+        self.dyn()->mark_subscript_use(n->init, SUB_BIND)
+    }
+
     fn traverse_variable_decl(self, n: unsafe *VariableDecl) -> unsafe *VariableDecl {
         if n == &null {
             return n
@@ -1494,6 +1524,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return n
         }
 
+        self._mark_range_binding(n, declared)
         self.dyn()->push_null_target(n->init, n->type_, n)
         var t = self.dyn()->type_of(n->init, declared)
         self.dyn()->pop_null_target()
@@ -2680,8 +2711,26 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return n
         }
 
+        // `for *e in x[a..b]` points into the elements: a split subscript
+        // there takes its place form on a mutable container (P880). By
+        // value, the iterable is the receiver of its `op in`: the place form
+        // for now, settled once that `op in` is chosen.
+        var by_ptr = false
+        for var bi: usize = 0; bi < n->bindings.size(); ++bi {
+            var unsafe *b = n->bindings.get(bi)
+            if b != &null && b->shorthand.has(Statements::BindingShorthand::Pointer) {
+                by_ptr = true
+                break
+            }
+        }
+
+        self.dyn()->mark_subscript_use(n->iterable, if (by_ptr) => (SUB_SOFT) else => SUB_RECV)
         var it   = self.dyn()->type_of(n->iterable, &null)
         var elem = if (it != &null) => (self.iter_elem_type(n->iterable, it, n)) else => &null
+        if !by_ptr {
+            self.dyn()->settle_iterable_subscript(n->iterable, n->iter_op)
+        }
+
         // `for x in xs` over a type pack: one copy of the body per element,
         // each with its own type, so `x` is typed as the pack (dependent,
         // like any generic body) and C++ unrolls it (EmitIR::_pack_for).

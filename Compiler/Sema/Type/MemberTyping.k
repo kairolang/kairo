@@ -58,6 +58,7 @@ import AST::Node::CanonicalNodes::{
     BuiltinKind,
     QUAL_CONST,
     RecordType,
+    canon_has_const,
     canon_quals,
     canon_unqual,
 }
@@ -67,7 +68,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    EnumVariantDecl, FieldDecl, FunctionDecl, InterfaceDecl, ParamDecl, TypeAliasDecl, VariableDecl,
+    EnumVariantDecl, FieldDecl,     FunctionDecl, InterfaceDecl, ParamDecl, StorageClass, TypeAliasDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
     RangeExpr,
@@ -83,6 +85,7 @@ import AST::Node::Types::{
     GenericParamType,
 }
 import AST::OperatorFacts::OperatorFacts
+import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Resolve::NameLookup::NameLookup
@@ -100,6 +103,31 @@ import Sema::Type::OverloadResolution::{
 }
 import Sema::Type::Substitution::Substitution
 import Token::TokenKind::TokenKind
+
+/// SubscriptExpr::place_ctx (P880): what the consumer of `x[i]` does with
+/// the element, set by mark_subscript_use before the subscript is typed. A
+/// SPLIT subscript (its type declares `op []=`) selects by it; a type with
+/// no `op []=` ignores it (today's single `op []`, place or value by its
+/// return).
+///   READ   the read form, `op []`; no fallback to `op []=` (SC279E).
+///   WRITE  the place form, `op []=`; no fallback (SC071E on a const
+///          container): `=` / `op=` / `++` / `--`, a member written through,
+///          the container of a written subscript.
+///   SOFT   the place form on a mutable container, else the read form:
+///          `&x[i]` (P880-4: `*const T` on a const container), `for *e in`.
+///   BIND   `var t = a[i..j]` (P880-2): as SOFT.
+///   RECV   a method receiver: as SOFT, then settle_receiver_subscript moves
+///          it to the read form unless the chosen method takes `self`.
+pub
+const SUB_READ: u8 = 0
+pub
+const SUB_WRITE: u8 = 1
+pub
+const SUB_SOFT: u8 = 2
+pub
+const SUB_BIND: u8 = 3
+pub
+const SUB_RECV: u8 = 4
 
 /// \enum ChainKind
 /// \brief What the position a chain walk has reached denotes: the walk's
@@ -549,6 +577,7 @@ pub class <T: type> MemberTyping {
 
                 var k0 = TokenKind::TkUnknown
                 var k1 = TokenKind::TkUnknown
+                var k2 = TokenKind::TkUnknown
                 if st->op_tokens.size() > 0 {
                     k0 = st->op_tokens[0].kind
                 }
@@ -557,10 +586,15 @@ pub class <T: type> MemberTyping {
                     k1 = st->op_tokens[1].kind
                 }
 
+                // `op []=` is three tokens (DeclName::op_name_of).
+                if st->op_tokens.size() > 2 {
+                    k2 = st->op_tokens[2].kind
+                }
+
                 info->callable_cands.clear()
                 self.dyn()->ml.lookup(
                     self.dyn()->tu.strip_nullable(owner_ty),
-                    DeclName::op_name(k0, k1),
+                    DeclName::op_name_of(k0, k1, k2),
                     &info->callable_cands,
                 )
 
@@ -889,11 +923,12 @@ pub class <T: type> MemberTyping {
     /// `b[i]` through the record's own `op []`: \p cands is what the
     /// lookup on \p recv (the receiver, or an array's slice view) found.
     priv fn _type_subscript_op(self,
-                               n:     *SubscriptExpr,
-                               bt:    *Type,
-                               recv:  *Type,
-                               obj:   *Type,
-                               cands: unsafe *cxx::std::vector<*Decl>) -> unsafe *Type {
+                               n:           *SubscriptExpr,
+                               bt:          *Type,
+                               recv:        *Type,
+                               obj:         *Type,
+                               cands:       unsafe *cxx::std::vector<*Decl>,
+                               const label: string = "op []") -> unsafe *Type {
         if cands->size() == 0 {
             self.dyn()->type_of(n->index, &null)
             self.dyn()->fail(
@@ -907,7 +942,7 @@ pub class <T: type> MemberTyping {
 
         var args = cxx::std::vector<ArgInfo>()
         args.push_back(self.dyn()->arg_info(n->index))
-        var r = self.dyn()->ovl.resolve(cands, &args, true, n->range, "op []", obj)
+        var r = self.dyn()->ovl.resolve(cands, &args, true, n->range, label, obj)
         if r.outcome == OvlOutcome::Dependent {
             self.dyn()->mark_unknown(n)
             return &null
@@ -992,6 +1027,344 @@ pub class <T: type> MemberTyping {
         }
 
         return self.dyn()->sc->types->qualified(t, QUAL_CONST)
+    }
+
+    /// # the split subscript (P880)
+
+    /// \p e is used as \p ctx (a SUB_* value): marks every subscript it
+    /// reaches before it is typed, so a split subscript selects its form
+    /// once, when it is typed. Through parens, `.field` / `.0` steps and a
+    /// subscript's container: writing `x[i].a` or `x[i][j]` writes `x[i]`
+    /// (the container of a place is a place), and a softer use only
+    /// prefers the place form there. Not through `->`, `*p` or a call: what
+    /// they reach is not the container's own storage. `.` never reads
+    /// through a pointer (R027E), so a `.field` path stays in the element.
+    fn mark_subscript_use(self, e: unsafe *Expr, ctx: u8) {
+        var unsafe *cur = e
+        var        c    = ctx
+        for var guard: usize = 0; cur != &null && guard < 256; ++guard {
+            cur = self.dyn()->tu.strip_parens(cur)
+            if cur == &null {
+                return
+            }
+
+            var unsafe *s = dyn_cast<SubscriptExpr>(cur)
+            if s != &null {
+                if s->place_ctx == SUB_READ || c == SUB_WRITE {
+                    s->place_ctx = c
+                }
+
+                if c != SUB_WRITE && c != SUB_RECV {
+                    c = SUB_SOFT
+                }
+
+                cur = s->base
+                continue
+            }
+
+            var unsafe *ch = dyn_cast<ChainExpr>(cur)
+            if ch != &null && ch->base != &null && self.member_path(ch, ch->steps.size()) {
+                cur = ch->base
+                continue
+            }
+
+            return
+        }
+    }
+
+    /// Steps [0, \p upto) of \p ch are `.field` / `.0` steps: the object
+    /// they reach is a member of the chain's base.
+    fn member_path(self, ch: unsafe *ChainExpr, upto: usize) -> bool {
+        if upto > ch->steps.size() {
+            return false
+        }
+
+        for var i: usize = 0; i < upto; ++i {
+            var unsafe *st = ch->steps.get(i)
+            if st == &null
+                || st->access_kind != ChainExpr::AccessKind::Dot
+                || st->is_operator()
+                || st->generic_args.size() > 0 {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// `x[i]` on a split subscript: \p gets are its `op []` (read) forms,
+    /// \p sets its `op []=` (place) forms, \p obj the receiver with the
+    /// container's const. The form is the use's (SubscriptExpr::place_ctx),
+    /// never a fallback from the other: a read never calls `op []=` and a
+    /// write never calls `op []` (P880-1), so the type's const pair does
+    /// not decide, and neither does the return type.
+    priv fn _type_split_subscript(self,
+                                  n:    *SubscriptExpr,
+                                  bt:   *Type,
+                                  recv: *Type,
+                                  obj:  *Type,
+                                  gets: unsafe *cxx::std::vector<*Decl>,
+                                  sets: unsafe *cxx::std::vector<*Decl>) -> unsafe *Type {
+        var ctx        = n->place_ctx
+        var recv_const = canon_has_const(unsafe (obj as unsafe *Type))
+        var place      = ctx == SUB_WRITE || (ctx != SUB_READ && !recv_const)
+        if place && recv_const {
+            self.dyn()->type_of(n->index, &null)
+            self._const_split_write(n)
+            return &null
+        }
+
+        if place {
+            return self._type_subscript_op(n, bt, recv, obj, sets, "op []=")
+        }
+
+        if gets->size() == 0 {
+            self.dyn()->type_of(n->index, &null)
+            self._missing_read_form(n, bt, sets)
+            return &null
+        }
+
+        return self._type_subscript_op(n, bt, recv, obj, gets, "op []")
+    }
+
+    /// `x[i]` as source text for a message, or a description when it is
+    /// long or spans lines.
+    priv fn _use_text(self, n: *SubscriptExpr) -> string {
+        var t = self.dyn()->sc->ctx->get_spelling(n->range)
+        if t.size() == 0 || t.size() > 40 {
+            return "the subscript"
+        }
+
+        for var i: usize = 0; i < t.size(); ++i {
+            if t[i] == ('\n' as u8) || t[i] == ('\r' as u8) {
+                return "the subscript"
+            }
+        }
+
+        return "\x27" + t + "\x27"
+    }
+
+    /// SC279E: a read of a split subscript whose type declares only the
+    /// place form. No fallback (P880-1): `op []=` may do what a read must
+    /// not (insert a key, mark its owner changed).
+    priv fn _missing_read_form(self,
+                               n:    *SubscriptExpr,
+                               bt:   *Type,
+                               sets: unsafe *cxx::std::vector<*Decl>) {
+        if !n->is_poisoned() {
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC279E,
+                n->range.start,
+                f"'{self.dyn()->tu.str(bt)}' declares no read subscript 'op []'; {self._use_text(n)} here is a read",
+            )
+
+            b.first(n->range)
+            if sets->size() > 0 && (*sets)[0] != &null {
+                var d = (*sets)[0]
+                b.note(DiagCode(DiagID::SC279N), d->range.start, "only the place form, 'op []=', is declared")->child_first(
+                    d->range,
+                )
+            }
+
+            b.emit()
+        }
+
+        self.dyn()->poison_only(n)
+    }
+
+    /// A write through a split subscript of a const container: `op []=`
+    /// takes `self`, and the read form is no fallback for a write (P880-1).
+    /// Named after the container when a const binding is what made it
+    /// const, with the `var` fix-it on a local.
+    priv fn _const_split_write(self, n: *SubscriptExpr) {
+        if n->is_poisoned() {
+            return
+        }
+
+        var unsafe *b0 = self.dyn()->tu.strip_parens(n->base)
+        var d: unsafe *Decl = &null
+        var unsafe *id = dyn_cast<NamedIdentExpr>(b0)
+        if id != &null {
+            d = id->resolved_decl
+        }
+
+        var unsafe *vd = if (d != &null) => (dyn_cast<VariableDecl>(d)) else => &null
+        var unsafe *pd = if (d != &null) => (dyn_cast<ParamDecl>(d)) else => &null
+        var nm = ""
+        var at = SourceRange::invalid()
+        if vd != &null && vd->is_const() {
+            nm = self.dyn()->sc->ctx->get_spelling(vd->name)
+            at = vd->name.range
+        } else if pd != &null && pd->is_const {
+            nm = self.dyn()->sc->ctx->get_spelling(pd->name)
+            at = pd->name.range
+        }
+
+        var msg = f"cannot write through {self._use_text(n)}: its container is const, and 'op []=' takes 'self'"
+        if nm.size() > 0 {
+            msg = f"cannot write an element of '{nm}': '{nm}' is const, and 'op []=' takes 'self'"
+        }
+
+        var b = self.dyn()->sc->diag->report(DiagID::SC071E, n->range.start, msg)
+        b.first(n->range)
+        if at.is_valid() {
+            b.note(at.start, f"'{nm}' declared const here")->child_first(at)
+        }
+
+        if vd != &null && nm.size() > 0 && vd->storage == StorageClass::Const && vd->storage_kw.is_valid() {
+            b.fix(vd->storage_kw, "var", "declare it with \x27var\x27 to make it assignable")
+        }
+
+        b.emit()
+        self.dyn()->poison_only(n)
+    }
+
+    /// The method call through `ce` resolved to \p w: a split subscript at
+    /// the root of its receiver (`x[i].m()`, `x[i].f.m()`), typed with the
+    /// place form while the method was unknown (SUB_RECV), keeps it only if
+    /// \p w takes `self`; otherwise the use is a read, and moves to the read
+    /// form (`.` reaches the element itself: it never reads through a
+    /// pointer, and `->` is not marked a receiver at all). The
+    /// two forms name one element (OperatorSignatureCheck::_agree), so only
+    /// const changes, and nothing the call resolved against.
+    fn settle_receiver_subscript(self, ce: unsafe *ChainExpr, w: unsafe *Decl) {
+        if ce == &null || ce->base == &null || ce->steps.size() == 0 || w == &null {
+            return
+        }
+
+        var upto = ce->steps.size() - 1
+        if ce->steps.get(upto)->access_kind != ChainExpr::AccessKind::Dot || !self.member_path(ce, upto) {
+            return
+        }
+
+        var unsafe *s = dyn_cast<SubscriptExpr>(self.dyn()->tu.strip_parens(ce->base))
+        if s == &null || !self._holds_place_form(s) {
+            return
+        }
+
+        self._settle(s, w)
+    }
+
+    /// `for e in x[i]`: as settle_receiver_subscript, for the iteration's
+    /// `op in` \p w (RangedForStmt::iter_op). Null is an iteration with no
+    /// user operator (an array, a slice): a read.
+    fn settle_iterable_subscript(self, iterable: unsafe *Expr, w: unsafe *Decl) {
+        var unsafe *s = dyn_cast<SubscriptExpr>(self.dyn()->tu.strip_parens(iterable))
+        if s == &null || !self._holds_place_form(s) {
+            return
+        }
+
+        if w == &null {
+            self._demote(s)
+            return
+        }
+
+        self._settle(s, w)
+    }
+
+    /// \p s keeps its place form only for a \p w that takes `self`.
+    priv fn _settle(self, s: unsafe *SubscriptExpr, w: unsafe *Decl) {
+        var unsafe *wf = dyn_cast<FunctionDecl>(w)
+        var mutating = wf != &null
+            && wf->is_method()
+            && !wf->is_const()
+            && wf->params.size() > 0
+            && wf->params[0] != &null
+            && !wf->params[0]->is_const
+        if mutating {
+            return
+        }
+
+        self._demote(s)
+    }
+
+    /// \p s was typed with the place form while it was only a receiver.
+    priv fn _holds_place_form(self, s: unsafe *SubscriptExpr) -> bool {
+        if s->place_ctx != SUB_RECV || s->resolved_op == &null || s->is_poisoned() {
+            return false
+        }
+
+        var unsafe *f = dyn_cast<FunctionDecl>(s->resolved_op)
+        return f != &null && OperatorFacts::is_subscript_set(f)
+    }
+
+    /// Moves \p s, typed with the place form, to the read form: its
+    /// container first when that was a receiver's container too
+    /// (`x[i][j].get()` reads `x[i]` as well). In place: the base and the
+    /// index are typed already and stay so.
+    priv fn _demote(self, s: unsafe *SubscriptExpr) {
+        var unsafe *bs = dyn_cast<SubscriptExpr>(self.dyn()->tu.strip_parens(s->base))
+        if bs != &null && self._holds_place_form(bs) {
+            self._demote(bs)
+        }
+
+        s->place_ctx = SUB_READ
+        var unsafe *bt = s->base->type_
+        if bt == &null {
+            return
+        }
+
+        if self.dyn()->tu.nullable_inner(bt) != &null {
+            bt = self.dyn()->tu.nullable_inner(bt)
+        }
+
+        while true {
+            var u = canon_unqual(bt)
+            if isa<CXXLValueRefType>(u) {
+                bt = cast<CXXLValueRefType>(u)->referee
+                continue
+            }
+
+            if isa<CXXRValueRefType>(u) {
+                bt = cast<CXXRValueRefType>(u)->referee
+                continue
+            }
+
+            break
+        }
+
+        var obj_q = canon_quals(bt)
+        bt = canon_unqual(bt)
+        var unsafe *recv = self.dyn()->tu.strip_nullable(bt)
+        var is_range = s->index != &null && isa<RangeExpr>(self.dyn()->tu.strip_parens(s->index))
+        var array_range = is_range && self.dyn()->tu.element_of(bt) != &null
+        if array_range {
+            recv = self.dyn()->tu.array_view(s->base->type_)
+        }
+
+        if recv == &null {
+            return
+        }
+
+        var gets  = cxx::std::vector<*Decl>()
+        var sets  = cxx::std::vector<*Decl>()
+        var bound = self.dyn()->bound_scopes(recv)
+        if bound.size() > 0 {
+            for var i: usize = 0; i < bound.size(); ++i {
+                self.dyn()->ml.lookup(bound[i], DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare), &gets)
+                self.dyn()->ml.lookup(bound[i], DeclName::subscript_set_name(), &sets)
+            }
+        } else {
+            self.dyn()->ml.lookup(recv, DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare), &gets)
+            self.dyn()->ml.lookup(recv, DeclName::subscript_set_name(), &sets)
+        }
+
+        if gets.size() == 0 {
+            self._missing_read_form(unsafe (s as *SubscriptExpr), unsafe (bt as *Type), unsafe &sets)
+            return
+        }
+
+        var obj = if (array_range) => (recv) else => self._subscript_receiver(recv, obj_q)
+        var t   = self._type_subscript_op(s, bt, recv, obj, &gets, "op []")
+        if t == &null {
+            if !s->is_poisoned() {
+                self.dyn()->poison_only(s)
+            }
+
+            return
+        }
+
+        s->type_ = t
     }
 
     fn type_subscript(self, n: unsafe *SubscriptExpr, expected: unsafe *Type) -> unsafe *Type {
@@ -1083,25 +1456,34 @@ pub class <T: type> MemberTyping {
                 || self.dyn()->tu.pointee(bt) != &null
             if !no_members || array_range {
                 var cands    = cxx::std::vector<*Decl>()
+                var sets     = cxx::std::vector<*Decl>()
                 var sub_name = DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare)
+                var set_name = DeclName::subscript_set_name()
                 // A bounded parameter has no members of its own: its `op []`
                 // is a bound's requirement, as a binary operator's is
                 // (OperatorTyping::_gather), which sends the call through the
                 // interface's witness (Compiler/Spec/Witnesses.md#call-sites) -- or a `derives`
-                // bound's base's own `op []`, an ordinary member.
+                // bound's base's own `op []`, an ordinary member. `op []=`
+                // the same way.
                 var bound = self.dyn()->bound_scopes(recv)
                 if bound.size() > 0 {
                     for var i: usize = 0; i < bound.size(); ++i {
                         self.dyn()->ml.lookup(bound[i], sub_name, &cands)
+                        self.dyn()->ml.lookup(bound[i], set_name, &sets)
                     }
                 } else {
                     self.dyn()->ml.lookup(recv, sub_name, &cands)
+                    self.dyn()->ml.lookup(recv, set_name, &sets)
+                }
+
+                // An array's slice view is a fresh value; the view's own
+                // element type already carries the array's const.
+                var obj = if (array_range) => (recv) else => self._subscript_receiver(recv, obj_q)
+                if sets.size() > 0 {
+                    return self._type_split_subscript(n, bt, recv, obj, &cands, &sets)
                 }
 
                 if cands.size() > 0 || !has_shape || array_range {
-                    // An array's slice view is a fresh value; the view's own
-                    // element type already carries the array's const.
-                    var obj = if (array_range) => (recv) else => self._subscript_receiver(recv, obj_q)
                     return self._type_subscript_op(n, bt, recv, obj, &cands)
                 }
             }

@@ -1221,6 +1221,7 @@ pub class ASTParse
 
         var k0 = TokenKind::TkUnknown
         var k1 = TokenKind::TkUnknown
+        var k2 = TokenKind::TkUnknown
         if i < n {
             k0 = f->op_token[i].kind
         }
@@ -1229,7 +1230,11 @@ pub class ASTParse
             k1 = f->op_token[i + 1].kind
         }
 
-        return DeclName::op_name(k0, k1)
+        if i + 2 < n {
+            k2 = f->op_token[i + 2].kind
+        }
+
+        return DeclName::op_name_of(k0, k1, k2)
     }
 
     /// \brief walks \p walk_dc's owned decls, appending each named decl to

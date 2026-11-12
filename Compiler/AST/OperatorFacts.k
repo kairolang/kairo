@@ -136,6 +136,7 @@ pub class OperatorFacts {
     pub static fn key(f: unsafe *FunctionDecl) -> DeclName {
         var k0 = TokenKind::TkUnknown
         var k1 = TokenKind::TkUnknown
+        var k2 = TokenKind::TkUnknown
         var n  = f->op_token.size()
         var i  = OperatorFacts::_first(f)
         if i < n {
@@ -146,7 +147,11 @@ pub class OperatorFacts {
             k1 = f->op_token[i + 1].kind
         }
 
-        return DeclName::op_name(k0, k1)
+        if i + 2 < n {
+            k2 = f->op_token[i + 2].kind
+        }
+
+        return DeclName::op_name_of(k0, k1, k2)
     }
 
     /// `+`, `+=`, `[]`, `<=>`, `in`: the spelling with the marker dropped.
@@ -170,21 +175,24 @@ pub class OperatorFacts {
         return s
     }
 
-    /// `[]`: the one operator that MAY be a place, whatever it returns. `->`
-    /// is not one: C++'s `operator->` returns a pointer, and so does Kairo's.
-    /// `.*` and `->*` are not overloadable at all (the parser rejects the
-    /// declaration), so they never reach here. Signature identity keys on
-    /// this (RedeclMerge); the place/value decision is is_place's.
+    /// `[]` and `[]=`: the operators that MAY be a place, whatever they
+    /// return. `->` is not one: C++'s `operator->` returns a pointer, and so
+    /// does Kairo's. `.*` and `->*` are not overloadable at all (the parser
+    /// rejects the declaration), so they never reach here. The place/value
+    /// decision is is_place's. Signature identity (RedeclMerge's const
+    /// exemption) keys on is_subscript alone: `op []=` has no const pair.
     pub static fn is_place_kind(f: unsafe *FunctionDecl) -> bool {
         if f == &null || !f->is_operator || !f->is_method() {
             return false
         }
 
-        return OperatorFacts::is_subscript(f)
+        return OperatorFacts::is_subscript(f) || OperatorFacts::is_subscript_set(f)
     }
 
     /// `op []`: the two bracket tokens (the parser takes no other pair
-    /// after `[`), with the l/r marker, which `[]` never has, dropped.
+    /// after `[`), with the l/r marker, which `[]` never has, dropped. The
+    /// read form when its type also declares `op []=`; otherwise today's
+    /// one operator, place or value by its return (P880 compatibility).
     pub static fn is_subscript(f: unsafe *FunctionDecl) -> bool {
         if f == &null {
             return false
@@ -194,6 +202,54 @@ pub class OperatorFacts {
         return f->op_token.size() == i + 2
             && OperatorFacts::_kind_at(f, i) == TokenKind::OpLSquare
             && OperatorFacts::_kind_at(f, i + 1) == TokenKind::OpRSquare
+    }
+
+    /// `op []=`: the place (write) form of the subscript, three tokens
+    /// (`[` `]` `=`, the `=` touching the `]`; DeclParse). Keyed apart from
+    /// `op []` (DeclName::op_name_of), so a lookup of one never finds the
+    /// other.
+    pub static fn is_subscript_set(f: unsafe *FunctionDecl) -> bool {
+        if f == &null {
+            return false
+        }
+
+        var i = OperatorFacts::_first(f)
+        return f->op_token.size() == i + 3
+            && OperatorFacts::_kind_at(f, i) == TokenKind::OpLSquare
+            && OperatorFacts::_kind_at(f, i + 1) == TokenKind::OpRSquare
+            && OperatorFacts::_kind_at(f, i + 2) == TokenKind::OpEqual
+    }
+
+    /// The record whose member \p f is declares an `op []=`: its subscript
+    /// is split (P880), and `op []` there is the read form only. A record
+    /// with none keeps today's single `op []`, place or value by its return.
+    /// By the record's own table: `op []=` is member-only, so it is always
+    /// declared in the body the lookup scope is.
+    pub static fn in_split_subscript(f: unsafe *FunctionDecl) -> bool {
+        if f == &null || !f->is_operator {
+            return false
+        }
+
+        if OperatorFacts::is_subscript_set(f) {
+            return true
+        }
+
+        if !OperatorFacts::is_subscript(f) {
+            return false
+        }
+
+        return OperatorFacts::declares_subscript_set(f->semantic_dc)
+            || OperatorFacts::declares_subscript_set(f->lexical_dc)
+    }
+
+    /// \p dc's own table holds an `op []=`.
+    pub static fn declares_subscript_set(dc: unsafe *DeclContext) -> bool {
+        if dc == &null || !dc->is_type_scope() {
+            return false
+        }
+
+        var unsafe *cell = dc->lookup_symbol(DeclName::subscript_set_name())
+        return cell != &null && cell->size() > 0
     }
 
     /// Token \p i's kind, through a macro expansion: an operator a macro

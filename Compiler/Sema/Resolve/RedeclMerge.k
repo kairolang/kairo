@@ -80,7 +80,7 @@
 ///                            stay two entities; the gate is _foreign, the
 ///                            same predicate TypeResolution uses. The
 ///                            `[]` operator
-///                            (OperatorFacts::is_place_kind) is the one
+///                            (OperatorFacts::is_subscript) is the one
 ///                            exception to the restriction: `-> *T` beside
 ///                            `-> *const T` is the pair a const receiver
 ///                            needs, and X ranks the two by receiver. Keyed
@@ -587,11 +587,15 @@ pub class RedeclMerge {
             // Cross-TU safe (see NameResolution::_attach_out_of_line): a raw
             // lookup_symbol with this TU's imm probes an imported record's
             // table with the wrong key and returns ANOTHER member's cell.
+            // An operator's name is its op_token (NameResolution::
+            // _attach_out_of_line): its empty name token is never spelled.
             var ml = MemberLookup(self.sc)
+            var nm = if (f->is_operator) => ("op " + OperatorFacts::symbol(f))
+                     else => self.sc->ctx->get_spelling(f->name)
             var unsafe *cell = ml.in_scope(
                 home,
                 self._member_key(f, home),
-                self.sc->ctx->get_spelling(f->name),
+                if (f->is_operator) => ("") else => nm,
             )
 
             if cell == &null { // N(a) diagnosed the missing name.
@@ -624,7 +628,6 @@ pub class RedeclMerge {
             }
 
             if hit == &null {
-                var nm = self.sc->ctx->get_spelling(f->name)
                 var hm = self._dc_name(home)
                 self.sc->diag->report(
                     DiagID::R031E,
@@ -647,7 +650,6 @@ pub class RedeclMerge {
             // bodyless in-class declaration in both passes.
             var unsafe *prior = hit->definition()
             if prior != &null && prior != f {
-                var nm = self.sc->ctx->get_spelling(f->name)
                 self.sc->diag->report(
                     DiagID::R029E,
                     f->range.start,
@@ -693,7 +695,7 @@ pub class RedeclMerge {
             // File-scope rule, deliberately: the out-of-line definition is
             // not part of the member-specification, so it may legally pair
             // with the in-class declaration.
-            self._link(self.sc->ctx->get_spelling(f->name), hit, f, false)
+            self._link(nm, hit, f, false)
         }
     }
 
@@ -710,6 +712,7 @@ pub class RedeclMerge {
         if f->is_operator {
             var k0 = TokenKind::TkUnknown
             var k1 = TokenKind::TkUnknown
+            var k2 = TokenKind::TkUnknown
             if f->op_token.count > 0 {
                 k0 = f->op_token[0].kind
             }
@@ -718,7 +721,12 @@ pub class RedeclMerge {
                 k1 = f->op_token[1].kind
             }
 
-            return DeclName::op_name(k0, k1)
+            // `op []=` is three tokens (DeclName::op_name_of).
+            if f->op_token.count > 2 {
+                k2 = f->op_token[2].kind
+            }
+
+            return DeclName::op_name_of(k0, k1, k2)
         }
 
         var im = self.sc->ctx->get_ident_imm(f->name)
@@ -883,12 +891,14 @@ pub class RedeclMerge {
         // STL leans on it hard -- begin()/begin() const, the operator[]
         // pairs -- so an extracted header's pairs are two entities and must
         // not merge; a Kairo `op []` is the same pair by design. By KIND
-        // (is_place_kind), whatever the return: a value `op []` returning
+        // (is_subscript), whatever the return: a value `op []` returning
         // `[T;]` and `[const T;]` is a const pair as much as a place is.
+        // `op []=` (P880) has no const pair: it is the place form whatever
+        // the receiver, so it is held to the named-method rule.
         var const_is_identity = fa
             || fb
-            || OperatorFacts::is_place_kind(a)
-            || OperatorFacts::is_place_kind(b)
+            || OperatorFacts::is_subscript(a)
+            || OperatorFacts::is_subscript(b)
         if const_is_identity {
             if a->is_const() != b->is_const() {
                 return false
@@ -1746,7 +1756,7 @@ pub class RedeclMerge {
     /// not permit const overloading -- see the header. Two links
     /// disagreeing about const are one entity with two contracts. An
     /// `[]` pair never reaches here: const is its identity,
-    /// keyed on operator kind (is_place_kind), place or value alike.
+    /// keyed on operator kind (is_subscript), place or value alike.
     ///
     /// A `where` guard never reaches here: a guarded pair is a dispatch
     /// group, not a chain (_merge_cell), and WhereGuardCheck holds its

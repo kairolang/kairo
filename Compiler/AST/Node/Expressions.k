@@ -238,9 +238,9 @@ pub class CallExpr derives Expr {
 ///  NamedArgExpr
 ///  `name: value` in an argument list.
 ///
-/// A label is not an expression, so this is not an operator node. It used to
-/// be an AssignOperatorExpr carrying a `:` operator token, which forced every
-/// reader of an argument list to recognise that shape and step around the lhs.
+/// A label is not an expression, so this is not an operator node: a `:`
+/// operator token would force every reader of an argument list to recognise
+/// that shape and step around the lhs.
 /// Placement (CallTyping) reads `name`; everything else reads `value`.
 ///
 pub class NamedArgExpr derives Expr {
@@ -309,6 +309,11 @@ pub class SubscriptExpr derives Expr {
     /// template's, or a bound's generic requirement), as on
     /// BinaryOperatorExpr.
     pub var op_instance: unsafe *InstanceEntry = &null
+    /// What the use does with the element, set by its consumer before it
+    /// types the subscript: which form a SPLIT subscript (a type that
+    /// declares `op []=`) selects. One of MemberTyping's SUB_CTX_* values;
+    /// 0 is a read. A type with no `op []=` ignores it. Written by X only.
+    pub var place_ctx: u8 = 0
 
     pub static fn create(ctx:   unsafe *ASTContext,
                          range: SourceRange,
@@ -322,6 +327,7 @@ pub class SubscriptExpr derives Expr {
         node->resolved_op = &null
         node->op_via_free = false
         node->op_instance = &null
+        node->place_ctx   = 0
         node->init_annotations(unsafe &ctx->ast_alloc)
         return node
     }
@@ -336,6 +342,7 @@ pub class SubscriptExpr derives Expr {
         node->resolved_op   = &null
         node->op_via_free   = false
         node->op_instance   = &null
+        node->place_ctx     = 0
         node->init_annotations(unsafe &ctx->ast_alloc)
         return node
     }
@@ -998,10 +1005,8 @@ pub class BinaryOperatorExpr derives Expr {
 pub class AssignOperatorExpr derives Expr {
     pub var lhs: unsafe *Expr
     pub var rhs: unsafe *Expr
-    /// Never `:`. A `name: value` argument is a NamedArgExpr; this node
-    /// carried that shape once, and every reader of an argument list had to
-    /// know to step around the lhs. `create` rejects it so the old shape
-    /// cannot come back by accident.
+    /// Never `:`: a `name: value` argument is a NamedArgExpr, and `create`
+    /// rejects that shape.
     pub var op_token: Token
 
     /// The user operator overload resolution selected, or null for a builtin
@@ -2217,9 +2222,8 @@ pub class TypeCastExpr derives Expr {
     pub var operand: unsafe *Expr
     pub var target:  unsafe *Type
 
-    /// Kept in step with `mode == CastMode::Unsafe`. Redundant on purpose for
-    /// now -- the printer and ClangDiagAdapter still read the bool -- and goes
-    /// away once every reader has moved to `mode`.
+    /// Mirrors `mode == CastMode::Unsafe`; the printer and ClangDiagAdapter
+    /// still read the bool.
     pub var is_unsafe: bool
     pub var mode:      CastMode = CastMode::Default
 

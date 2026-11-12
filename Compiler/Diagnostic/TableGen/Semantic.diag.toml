@@ -5962,3 +5962,86 @@ group = "ffi"
 
     [SC295.N]
     explain = "Points at the local variable or parameter the returned reference would outlive."
+
+[SC279]
+brief = "a subscript uses a form its type does not declare"
+group = "operators"
+
+    [SC279.E]
+    explain = """
+    # the subscript form this use needs is not declared
+
+    A type that declares `op []=` splits its subscript in two (P880): `op []`
+    is the read form, `op []=` the place (write) form, and each use of
+    `x[i]` picks one by what it does with the element. A write picks
+    `op []=`: the left side of `=` or of a compound assignment, the operand
+    of `++` / `--`, a member written through (`x[i].f = v`), the base of a
+    written nested subscript (`x[i][j] = v`), a `for *e in x[...]`, and a
+    receiver of a method that takes `self`. Every other use reads, and picks
+    `op []`. There is no fallback from one form to the other: a read never
+    calls `op []=`, a write never calls `op []`.
+
+    ```kairo
+    class Ring {
+        fn op []= (self, i: usize) -> *i32 { ... }
+    }
+    var r = Ring()
+    r[0] = 4          // ok: a write, through op []=
+    var x = r[0]      // error: a read, and Ring declares no op []
+    ```
+
+    `&x[i]` is the one use that may take either form: the place form on a
+    mutable `x`, and the read form (a `*const T`) when `x` is const, when
+    the type declares no `op []=`, or when the target is `*const T`.
+
+    A type with no `op []=` keeps the single `op []` it always had: its
+    return type decides whether `x[i]` can be written (`*T`) or only read
+    (`*const T` or a value).
+
+    ## how to fix
+
+    declare the missing form: `fn op [] (const self, i: usize) -> *const T`
+    for reads, `fn op []= (self, i: usize) -> *T` for writes. If the type
+    is meant to be read-only, or write-only, change the use instead.
+    """
+
+    [SC279.N]
+    explain = "Points at the form the type does declare."
+
+[SC280]
+brief = "the two subscript forms are declared inconsistently"
+group = "operators"
+
+    [SC280.E]
+    explain = """
+    # `op []` and `op []=` do not fit together
+
+    In a type that declares `op []=`, the subscript is split (P880): `op []`
+    is the read form and `op []=` the place form, and the compiler picks one
+    for each use. The two must describe one element:
+
+    - `op []=` takes `self` and returns the place a write goes through,
+      `*T`, or a mutable view `[T;]`. A `*const T` result cannot be written,
+      and a `const self` place form is not supported yet.
+    - `op []` returns `*const T`, a value, or a read-only view. A `*T`
+      result would let a write go through the read form.
+    - For one index type, both forms name the same element type, up to
+      `const`: `*const i32` with `*i32`, a value `i32` with `*i32`.
+    - A type that declares `op []=` cannot inherit a place-returning
+      `op []` (`*T`) from a base: that one would be both forms.
+
+    ```kairo
+    class Buf {
+        fn op [] (const self, i: usize) -> *const i32 { ... }
+        fn op []= (self, i: usize) -> *i64 { ... }   // error: i32 and i64
+    }
+    ```
+
+    ## how to fix
+
+    make the forms agree, as the message says: one element type, `*T` (or
+    `[T;]`) from `op []=`, `*const T` (or a value) from `op []`.
+    """
+
+    [SC280.N]
+    explain = "Points at the other form of the pair."

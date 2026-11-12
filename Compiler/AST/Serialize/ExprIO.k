@@ -430,6 +430,7 @@ fn io_subscript_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::SubscriptEx
         ar->sema_null<Decl>(n->resolved_op, "SubscriptExpr::resolved_op")
         ar->sema_false(n->op_via_free, "SubscriptExpr::op_via_free")
         ar->sema_is(n->op_instance == &null, "SubscriptExpr::op_instance")
+        ar->sema_zero(n->place_ctx as u64, "SubscriptExpr::place_ctx")
     }
 }
 

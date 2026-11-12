@@ -252,7 +252,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// `@set_global_allocator(A)`: A is a class or struct with the five
     /// static functions the strong `kairo_global_*` forwarders call
     /// (EmitIR::_global_allocator), each found by name. Their signatures
-    /// are clang's to check against the forwarders for now: the interface
+    /// are checked by clang against the forwarders: the interface
     /// they make up (FullAllocator) lives in the builtin, which this TU
     /// cannot name from here. Without this, a missing one is a clang error
     /// in generated code.
@@ -1245,7 +1245,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// is named here, as a call's is by CallTyping, so its `impl` bounds are
     /// checked at the use and EmitPlan homes it. Unchecked, a bound the
     /// argument does not meet failed only in clang, as an "address of
-    /// overloaded function" error (P270). A callee is never typed (CallTyping
+    /// overloaded function" error. A callee is never typed (CallTyping
     /// binds it untyped), so a node with a fn type here is a value use.
     priv fn _check_fn_value(self, e: unsafe *Expr) {
         if e->type_ == &null || e->type_->canonical == &null
@@ -1422,7 +1422,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             // A member whose `requires` is false here is dropped from this
             // instance by C++ (its trailing clause, CXXSpell::member_requires),
             // so its body never runs as this instance: a reuse in it is no
-            // use after move (P309, vector.k's resize(n, value) on [Mv]).
+            // use after move (vector.k's resize(n, value) on [Mv]).
             if self._requires_false_at(ms[k], unsafe &d) {
                 continue
             }
@@ -1542,8 +1542,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// when its `requires` is known false at \p rt, and the type argument
     /// whose copy it needed: C++ drops that constructor from the instance
     /// (CXXSpell::member_requires), so the instance has no copy although
-    /// ClassLifecycle, reading the declaration, calls it COPY (`[Mv]`,
-    /// P308). MoveCheck asks at each copy of an lvalue.
+    /// ClassLifecycle, reading the declaration, calls it COPY (`[Mv]`).
+    /// MoveCheck asks at each copy of an lvalue.
     pub fn dropped_copy(self, rt: unsafe *Type) -> DroppedCopy {
         var out = DroppedCopy{}
         var unsafe *c = canon_unqual(rt)
@@ -1809,8 +1809,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 }
             }
 
-            // `X derives B`: the argument is B or reaches it. Unchecked
-            // before; it matters now that the bound is what makes a CRTP
+            // `X derives B`: the argument is B or reaches it. Checked
+            // because the bound is what makes a CRTP
             // base's `&self as *X` a static_cast (CastTyping 3b), and a
             // class naming `Mixin<Other>` would otherwise compile to a cast
             // clang rejects inside the base.
@@ -1865,8 +1865,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// The kind bounds `T: class` / `struct` / `enum` / `union`
     /// (generics.mdx: they restrict T to that category of declaration) at
-    /// instance \p e. Parsed and never checked before P185: `fn <T: class>
-    /// f(x: T)` took `f(1)`. A dependent argument is the enclosing generic's
+    /// instance \p e. Without this check, `fn <T: class>
+    /// f(x: T)` would accept `f(1)`. A dependent argument is the enclosing generic's
     /// to meet; `: type` (Duck) and no bound restrict nothing. SC292E.
     priv fn _kind_bounds_ok(self,
                             e:     unsafe *InstanceEntry,
@@ -3265,8 +3265,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return NameLookup::representative(unsafe (f as unsafe *Decl))
         }
 
-        // Member lookup no longer returns an extension this TU does not
-        // import (P821), so the skip above never sees it: ask for the hidden
+        // Member lookup does not return an extension this TU does not
+        // import, so the skip above never sees it: ask for the hidden
         // extension's members directly, or the miss reads as a signature
         // mismatch instead of "import its module here".
         if self._hidden == &null {
@@ -3857,6 +3857,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         if m->is_operator {
             var k0 = TokenKind::TkUnknown
             var k1 = TokenKind::TkUnknown
+            var k2 = TokenKind::TkUnknown
             if m->op_token.size() > 0 {
                 k0 = m->op_token[0].kind
             }
@@ -3865,7 +3866,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 k1 = m->op_token[1].kind
             }
 
-            return DeclName::op_name(k0, k1)
+            // `op []=` is three tokens (DeclName::op_name_of).
+            if m->op_token.size() > 2 {
+                k2 = m->op_token[2].kind
+            }
+
+            return DeclName::op_name_of(k0, k1, k2)
         }
 
         var unsafe *imms = self.sc->ctx->get_imm_table()

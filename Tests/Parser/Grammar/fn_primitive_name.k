@@ -1,6 +1,6 @@
 // A function named after a primitive type (`fn f16(...)`) is one error at
-// the name, and its parameters still resolve in the body. It used to parse
-// as a parameterless closure, so every use of a parameter was R020E
+// the name, and its parameters still resolve in the body. It must not parse
+// as a parameterless closure, which makes every use of a parameter R020E
 // "undeclared" and the function itself vanished.
 
 class Base { var k: i32 = 1 }

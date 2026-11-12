@@ -1574,7 +1574,7 @@ pub class <T: type> DeclParse {
 
     /// \returns false if validation failed
     pub fn _parse_and_validate_op_spelling(self,
-                                           out: unsafe *kairo::std::StackBuf<Token, 2>) -> bool {
+                                           out: unsafe *kairo::std::StackBuf<Token, 3>) -> bool {
         // `op delete`, the destructor's pre-0.2.0 spelling: keyed as `op
         // finally` (a token minted with that spelling, so OperatorFacts and
         // CXXSpell read "finally" off it). The callers report the spelling.
@@ -1615,8 +1615,37 @@ pub class <T: type> DeclParse {
         if self.dyn()->current() == TokenKind::OpLSquare {
             self.dyn()->advance()
             if self.dyn()->current() == TokenKind::OpRSquare {
-                out->push_back(self.dyn()->current())
+                var rsq = self.dyn()->current()
+                out->push_back(rsq)
                 self.dyn()->advance(T::SkipNL::After)
+                // `op []=`, the place form (P880): an `=` touching the `]`.
+                // No lexer token: a `]=` token would break `a[i]= 5`. Only a
+                // parameter list can follow an operator name, so an `=` here
+                // is always this operator; one written apart is still read
+                // as it (one error, no cascade) and told to close the gap.
+                if self.dyn()->current() == TokenKind::OpEqual {
+                    var eq = self.dyn()->current()
+                    var ctx = self.dyn()->ctx
+                    if ctx->written_range(eq).start != ctx->written_range(rsq).end {
+                        var gap = SourceRange::from_bounds(
+                            ctx->written_range(rsq).end,
+                            ctx->written_range(eq).start,
+                        )
+                        var b = self.dyn()->diag->report(
+                            DiagID::S045E,
+                            eq.range.start,
+                            "the place subscript operator is spelled 'op []=', with no space before '='",
+                        )
+
+                        b.first(eq.range)
+                        b.remove(gap, "remove the space")
+                        b.emit()
+                    }
+
+                    out->push_back(eq)
+                    self.dyn()->advance(T::SkipNL::After)
+                }
+
                 return true
             }
 
@@ -1845,7 +1874,7 @@ pub class <T: type> DeclParse {
                     fd->old_dtor_at = self.dyn()->current_ptr()->range
                 }
 
-                var ops: kairo::std::StackBuf<Token, 2>
+                var ops: kairo::std::StackBuf<Token, 3>
                 self._parse_and_validate_op_spelling(unsafe &ops)
                 fd->op_token.from_buf(ops.data(), ops.size(), self.dyn()->ctx)
                 fd->name = Token()
@@ -1866,7 +1895,7 @@ pub class <T: type> DeclParse {
                         fd->old_dtor_at = self.dyn()->current_ptr()->range
                     }
 
-                    var ops: kairo::std::StackBuf<Token, 2>
+                    var ops: kairo::std::StackBuf<Token, 3>
                     self._parse_and_validate_op_spelling(unsafe &ops)
                     fd->op_token.from_buf(ops.data(), ops.size(), self.dyn()->ctx)
                     fd->name = Token()

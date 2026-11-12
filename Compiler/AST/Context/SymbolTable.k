@@ -99,6 +99,25 @@ pub class DeclName {
         return DeclName::op_name(k0, TokenKind::TkUnknown)
     }
 
+    /// The key of an operator spelled by up to THREE tokens, the fixity
+    /// marker already dropped: every key builder goes through here, so the
+    /// one three-token operator cannot alias its two-token prefix. `op []=`
+    /// (`[` `]` `=`, the place form of the subscript) is keyed `[` `=`,
+    /// a pair no other operator spells (`[` is followed by `]` everywhere
+    /// else); any other spelling is its first two kinds, as op_name.
+    pub static fn op_name_of(k0: TokenKind, k1: TokenKind, k2: TokenKind) -> DeclName {
+        if k0 == TokenKind::OpLSquare && k1 == TokenKind::OpRSquare && k2 == TokenKind::OpEqual {
+            return DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpEqual)
+        }
+
+        return DeclName::op_name(k0, k1)
+    }
+
+    /// `op []=`'s key (op_name_of): what a use looks the place form up by.
+    pub static fn subscript_set_name() -> DeclName {
+        return DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpEqual)
+    }
+
     /// Context-relative constructor key. The context being queried already
     /// identifies the type, so the key carries none.
     pub static fn ctor() -> DeclName {

@@ -2070,7 +2070,7 @@ pub class <T: type> ExprParse {
                 return result
             }
 
-            var ops: kairo::std::StackBuf<Token, 2>
+            var ops: kairo::std::StackBuf<Token, 3>
             self.dyn()->_parse_and_validate_op_spelling(&ops)
             // One error per site: `op delete` already has S090E and its
             // fix-it, and SC116E on top would point at a `finally` the user
@@ -2102,7 +2102,7 @@ pub class <T: type> ExprParse {
             self._report_finally_call(ft.range)
             self.dyn()->advance()
             result.target = ChainExpr::StepTarget::Operator
-            var fops: kairo::std::StackBuf<Token, 2>
+            var fops: kairo::std::StackBuf<Token, 3>
             fops.push_back(ft)
             result.op_tokens.from_buf(fops.data(), fops.size(), self.dyn()->ctx)
             result.range = sep_range | ft.range
@@ -2479,7 +2479,7 @@ pub class <T: type> ExprParse {
                 || k == TokenKind::OpRBrace
                 || k == TokenKind::TkNewLine
                 || k == TokenKind::TkEof {
-                var ops: kairo::std::StackBuf<Token, 2>
+                var ops: kairo::std::StackBuf<Token, 3>
                 ops.push_back(op_tok)
                 result->op_tokens.from_buf(ops.data(), ops.size(), self.dyn()->ctx)
                 result->generic_args.from_buf(

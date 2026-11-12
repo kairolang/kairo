@@ -143,6 +143,10 @@ import Diagnostic::NoteText::named_declared_here
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstEval::ConstEval
 import Sema::Type::Conversion::ImplicitRank
+import Sema::Type::MemberTyping::{
+    SUB_SOFT,
+    SUB_WRITE,
+}
 import Sema::Type::NullnessFlow::{
     NULL_READ_NARROWED,
     NullCond,
@@ -2508,6 +2512,16 @@ pub class <T: type> OperatorTyping {
         n->poison()
     }
 
+    /// \p expected is `*const T` (either kind): `&x[i]` there is a read.
+    priv fn _wants_const_pointer(self, expected: unsafe *Type) -> bool {
+        if expected == &null {
+            return false
+        }
+
+        var unsafe *p = self.dyn()->tu.pointee(expected)
+        return p != &null && self.dyn()->tu.has_const(p)
+    }
+
     fn type_unary(self, n: unsafe *UnaryOperatorExpr, expected: unsafe *Type) -> unsafe *Type {
         var k = n->op_token.kind
 
@@ -2539,6 +2553,15 @@ pub class <T: type> OperatorTyping {
 
                 return t
             }
+        }
+
+        // `++` / `--` write their operand; `&x[i]` prefers the place form of
+        // a split subscript, falling back to the read form (`*const T`) on a
+        // const container or where `*const T` is the target (P880-4).
+        if k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus {
+            self.dyn()->mark_subscript_use(n->operand, SUB_WRITE)
+        } else if k == TokenKind::OpAmp && n->is_prefix() && !self._wants_const_pointer(expected) {
+            self.dyn()->mark_subscript_use(n->operand, SUB_SOFT)
         }
 
         var ot = self.dyn()->type_of(
@@ -3312,7 +3335,13 @@ pub class <T: type> OperatorTyping {
     }
 
     fn type_assign(self, n: unsafe *AssignOperatorExpr, expected: unsafe *Type) -> unsafe *Type {
-        var k  = n->op_token.kind
+        var k = n->op_token.kind
+        // The left side is written: a split subscript there takes its place
+        // form (P880), and so does the container of one it reaches.
+        if k != TokenKind::OpColon {
+            self.dyn()->mark_subscript_use(n->lhs, SUB_WRITE)
+        }
+
         var lt = self.dyn()->type_of(n->lhs, &null)
         if self.dyn()->propagate(n, n->lhs) || lt == &null {
             // A left side whose type is unknown (a dependent `res[i]`) must

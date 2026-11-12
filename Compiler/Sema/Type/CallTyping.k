@@ -126,6 +126,10 @@ import Sema::Check::ClassLifecycle::moves_on_pass
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::Type::Conversion::ImplicitRank
+import Sema::Type::MemberTyping::{
+    SUB_RECV,
+    SUB_SOFT,
+}
 import Sema::Type::NullnessFlow::{
     NULL_READ_NARROWED,
     NULL_READ_REFUSED,
@@ -212,6 +216,11 @@ pub class <T: type> CallTyping {
         // memo hit on it.
         var unsafe *_op = mode_marker_operand(e)
         if _op != &null {
+            // `&x[i]` before the parameter is known: an `@inout` / `T&`
+            // argument writes it, a pointer argument may. The place form of
+            // a split subscript on a mutable container, else the read form
+            // (P880-4), whose const lvalue an `@inout` then refuses.
+            self.dyn()->mark_subscript_use(_op, SUB_SOFT)
             self.dyn()->type_of(_op, &null)
             a.marked      = true
             a.inner_ty    = _op->type_
@@ -1462,6 +1471,17 @@ pub class <T: type> CallTyping {
         /// ## chain
         if isa<ChainExpr>(callee) {
             var ce = cast<ChainExpr>(callee)
+            // `x[i].m()`: whether the element is written depends on which
+            // `m` wins, which needs the receiver typed. A split subscript
+            // there takes its place form for now (on a mutable container);
+            // settle_receiver_subscript keeps it only for a `self` method.
+            if ce->base != &null
+                && ce->steps.size() > 0
+                && ce->steps.get(ce->steps.size() - 1)->access_kind == ChainExpr::AccessKind::Dot
+                && self.dyn()->member_path(ce, ce->steps.size() - 1) {
+                self.dyn()->mark_subscript_use(ce->base, SUB_RECV)
+            }
+
             self.dyn()->type_of(callee, &null)
             if callee->is_poisoned() {
                 self.dyn()->poison_only(n)
@@ -1506,6 +1526,10 @@ pub class <T: type> CallTyping {
 
                 self.dyn()->ovl.explicit_args.clear()
                 self.dyn()->ovl.recv_cat = Expr::ValueCategory::LValue
+                if !n->is_poisoned() {
+                    self.dyn()->settle_receiver_subscript(ce, last->resolved_decl)
+                }
+
                 if ce->has_optional_chaining() {
                     return self._safe_call_result(n, r)
                 }

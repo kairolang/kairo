@@ -992,6 +992,17 @@ pub class CXXSpell {
             return "operator " + self._type(f->return_type)
         }
 
+        // A split subscript (its type declares `op []=`, P880): each form is
+        // a named member, called by that name, so the form Sema chose is the
+        // one that runs (clang would pick `operator[]` by the object's
+        // constness, the non-const one -- the place form -- for every read
+        // of a mutable object). C++ users reach them through `operator[]`
+        // forwarders (InterfaceEmitter::_subscript_forwarders).
+        if OperatorFacts::in_split_subscript(f) {
+            return if (OperatorFacts::is_subscript_set(f)) => (LowerTargets::subscript_set())
+                   else => LowerTargets::subscript_get()
+        }
+
         var named = CXXSpell::named_operator(f)
         if named.size() > 0 {
             return named
@@ -1040,6 +1051,10 @@ pub class CXXSpell {
 
         if OperatorFacts::is_subscript(f) {
             return LowerTargets::witness_subscript()
+        }
+
+        if OperatorFacts::is_subscript_set(f) {
+            return LowerTargets::witness_subscript_set()
         }
 
         if k == TokenKind::KwAs {
@@ -1151,21 +1166,25 @@ pub class CXXSpell {
         return s.size() > 0 && s[0] == ('r' as u8)
     }
 
-    /// `[]` returning a safe `*T` / `*const T`: a place.
+    /// `[]` or `[]=` returning a safe `*T` / `*const T`: a place.
     /// Codegen's copy of OperatorFacts::is_place, return-type test included,
     /// on this side of the import boundary. Any other return is a value
-    /// operator and is spelled as declared. `[]` is two tokens.
+    /// operator and is spelled as declared. `[]` is two tokens, `[]=` three.
     static fn is_place_operator(f: unsafe *Declarations::FunctionDecl) -> bool {
         if f == &null || !f->is_operator || !f->is_method() {
             return false
         }
 
-        if f->op_token.size() != 2 {
+        if f->op_token.size() != 2 && f->op_token.size() != 3 {
             return false
         }
 
         if f->op_token[0].kind != TokenKind::OpLSquare
             || f->op_token[1].kind != TokenKind::OpRSquare {
+            return false
+        }
+
+        if f->op_token.size() == 3 && f->op_token[2].kind != TokenKind::OpEqual {
             return false
         }
 

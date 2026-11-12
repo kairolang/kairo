@@ -264,6 +264,7 @@ pub fn incr_decl_key_name(ctx: unsafe *ASTContext, d: unsafe *Decl) -> string {
     if f != &null && f->is_operator {
         var k0 = TokenKind::TkUnknown
         var k1 = TokenKind::TkUnknown
+        var k2 = TokenKind::TkUnknown
         if f->op_token.size() > 0 {
             k0 = f->op_token[0].kind
         }
@@ -272,7 +273,12 @@ pub fn incr_decl_key_name(ctx: unsafe *ASTContext, d: unsafe *Decl) -> string {
             k1 = f->op_token[1].kind
         }
 
-        return incr_key_name(ctx, DeclName::op_name(k0, k1))
+        // `op []=` is three tokens (DeclName::op_name_of).
+        if f->op_token.size() > 2 {
+            k2 = f->op_token[2].kind
+        }
+
+        return incr_key_name(ctx, DeclName::op_name_of(k0, k1, k2))
     }
 
     return sema_dump_decl_name(ctx, d)
