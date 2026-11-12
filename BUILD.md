@@ -109,21 +109,56 @@ build/llvm/bin/llvm-lit Tests -s
 
 ## 5. Editor support
 
-The language server ships as part of the compiler, so editors only need to know where `kairo` is.
+The language server is `kals`. It is a separate tool built from this tree; the editor extensions only start it.
 
-**VS Code:** install the Kairo extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=KSF.kairo), or a `.vsix` from [kairo-lsp](https://github.com/kairolang/kairo-lsp/). To build it yourself:
+**Build and install the server:**
 
 ```bash
-git clone https://github.com/kairolang/kairo-lsp/
-cd kairo-lsp
-npm install
-npm run build --omit=dev
-npx @vscode/vsce package
+python3 build.py --release kairo kcc kals
 ```
 
-If `kairo` is on your `PATH` the extension finds it; otherwise set `kairo.path` in `settings.json`. **Run Kairo File** runs and attaches the debugger; **Run Kairo File with Args** prompts for comma-separated arguments.
+This puts `kals` beside `kairo` in `build/<triple>/release/bin/` and, like `kairo` and `kcc`, links it on your `PATH` (`~/.local/bin`) unless you pass `--no-path`. Check it:
 
-**Zed:** the extension lives in `Extras/LSPClients/zed-kairo` (install it with Zed's "install dev extension"); the tree-sitter grammar is in `Extras/LSPClients/tree-sitter-kairo`.
+```bash
+kals --version        # kals (Kairo language server)
+```
+
+A release archive already contains `kals` in its `bin/`; with that `bin/` on `PATH` there is nothing to build.
+
+`kals` reads a project's entry points from `kairo_compile.json` at the project root. For this tree, write it with:
+
+```bash
+python3 build.py --emit-compile-json
+```
+
+A file that no entry reaches, or a directory with no `kairo_compile.json`, is checked on its own.
+
+**Install an editor client.** The clients live in [kairo-lsp](https://github.com/kairolang/kairo-lsp/). Each finds `kals` on `PATH`; none needs configuration.
+
+- **VS Code:** install the Kairo extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=KSF.kairo), or build the `.vsix`:
+
+  ```bash
+  git clone https://github.com/kairolang/kairo-lsp/
+  cd kairo-lsp/vscode
+  npm install
+  npm run build
+  npx @vscode/vsce package
+  code --install-extension kairo-*.vsix
+  ```
+
+  To use a `kals` that is not on `PATH`, set `kairo.kals.path` in `settings.json`.
+
+- **Zed:** clone `kairo-lsp`, then run "zed: install dev extension" from the command palette and pick its `zed/` directory. Semantic highlighting is off in Zed by default; turn it on for Kairo in `settings.json`:
+
+  ```json
+  { "languages": { "Kairo": { "semantic_tokens": "combined" } } }
+  ```
+
+- **Neovim 0.11+:** clone `kairo-lsp` and put its `nvim/` directory on the runtimepath (`vim.opt.rtp:prepend("~/kairo-lsp/nvim")`). The plugin builds its parser the first time a Kairo file is opened, so it needs a C compiler. `:checkhealth kairo` reports what it found.
+
+- **Any other editor:** start `kals` with no arguments; it speaks LSP on its standard input and output.
+
+The server's options and what each client draws are in the [kals manual](https://www.kairolang.org/docs/toolchain/kals/).
 
 ---
 
