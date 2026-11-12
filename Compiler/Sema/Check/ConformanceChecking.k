@@ -184,6 +184,22 @@ pub class _NestedUses derives RecursiveASTVisitor<_NestedUses> {
     }
 }
 
+/// A requires-clause predicate known false, and the type whose missing
+/// copy made it so, when one predicate names it (else null).
+pub struct PredFalse {
+    pub var known:   bool         = false
+    pub var blocker: unsafe *Type = &null
+}
+
+/// ConformanceChecking::dropped_copy: the record's `@copy` constructor an
+/// instance loses to its `requires` (null when the instance keeps its
+/// copy), and the type argument that cannot be copied (null when no
+/// predicate names one).
+pub struct DroppedCopy {
+    pub var ctor:    unsafe *Declarations::FunctionDecl = &null
+    pub var element: unsafe *Type                       = &null
+}
+
 pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     pub var  sc: unsafe *SemaContext
     priv var tu: TypeUtil
@@ -1336,44 +1352,170 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// True when one of \p f's `requires` value predicates is known false
     /// under \p d; an undecidable one does not count.
     priv fn _requires_false_at(self, f: unsafe *Declarations::FunctionDecl, d: unsafe *Deduction) -> bool {
+        return self._requires_blocker(f, d).known
+    }
+
+    /// _requires_false_at, and the type whose missing copy (or move) made
+    /// the clause false, when one predicate names it.
+    priv fn _requires_blocker(self, f: unsafe *Declarations::FunctionDecl, d: unsafe *Deduction) -> PredFalse {
+        var out = PredFalse{}
         if f->requires_clause == &null || f->generic_params.size() > 0 {
-            return false
+            return out
         }
 
         var vps = cxx::std::vector<unsafe *Expr>()
         self._value_preds(f->requires_clause, unsafe &vps)
         for var i: usize = 0; i < vps.size(); ++i {
-            var v = self._vp(vps[i], d, 0)
-            if v.known && v.v == 0 {
-                return true
-            }
-
-            if self._transfer_pred_false(vps[i], d) {
-                return true
+            out = self._pred_false(vps[i], d, 0)
+            if out.known {
+                return out
             }
         }
 
-        return false
+        return out
     }
 
-    /// `__builtin_is_constructible<X, const X>()` (or `<X, X>`) known false
-    /// under \p d: X cannot be copied (or neither copied nor moved). The
-    /// copy/move form is what a container member's `requires` spells, and
-    /// the one the move check has to agree with C++ on.
-    priv fn _transfer_pred_false(self, p: unsafe *Expr, d: unsafe *Deduction) -> bool {
+    /// Value predicate \p p known false under \p d. Beyond _vp: the
+    /// transfer facts (_transfer_pred_false), and a disjunction of false
+    /// sides, which is how a container's copy guards its recursive case
+    /// (`(!__builtin_is_complete<T>()) || __builtin_is_constructible<T,
+    /// const T>()`, vector.k): at a concrete, complete T the first side is
+    /// false and the second decides.
+    priv fn _pred_false(self, p: unsafe *Expr, d: unsafe *Deduction, depth: u32) -> PredFalse {
+        var out = PredFalse{}
+        if p == &null || depth > 64 {
+            return out
+        }
+
+        var v = self._vp(p, d, 0)
+        if v.known && v.v == 0 {
+            out.known = true
+            return out
+        }
+
+        var unsafe *x = self.tu.strip_parens(p)
+        var unsafe *t = self._transfer_pred_false(x, d)
+        if t != &null {
+            out.known   = true
+            out.blocker = t
+            return out
+        }
+
+        var unsafe *b = dyn_cast<BinaryOperatorExpr>(x)
+        if b != &null && (b->op_token.kind == TokenKind::OpPipePipe || b->op_token.kind == TokenKind::KwOr) {
+            var l = self._pred_false(b->lhs, d, depth + 1)
+            if !l.known {
+                return out
+            }
+
+            var r = self._pred_false(b->rhs, d, depth + 1)
+            if r.known && r.blocker == &null {
+                r.blocker = l.blocker
+            }
+
+            return r
+        }
+
+        var unsafe *u = dyn_cast<UnaryOperatorExpr>(x)
+        if u != &null
+            && (u->op_token.kind == TokenKind::OpExclaim || u->op_token.kind == TokenKind::KwNot)
+            && self._complete_pred_true(u->operand, d) {
+            out.known = true
+        }
+
+        return out
+    }
+
+    /// `__builtin_is_complete<X>()` known true under \p d: X is a concrete
+    /// Kairo record. One is complete wherever an instance's member is judged
+    /// (a body, not the record's own definition, the case the predicate
+    /// guards); an imported record may be only declared, so it stays
+    /// unknown.
+    priv fn _complete_pred_true(self, p: unsafe *Expr, d: unsafe *Deduction) -> bool {
         var unsafe *c = dyn_cast<CallExpr>(self.tu.strip_parens(p))
         if c == &null || c->args.size() != 0 {
             return false
         }
 
         var unsafe *callee = self._callee_of(c)
-        if callee == &null || self.tu.decl_name(callee) != "__builtin_is_constructible" {
+        if callee == &null || self.tu.decl_name(callee) != "__builtin_is_complete" {
             return false
         }
 
         var unsafe *ni = dyn_cast<NamedIdentExpr>(self.tu.strip_parens(c->callee))
-        if ni == &null || ni->generic_args.size() != 2 {
+        if ni == &null || ni->generic_args.size() != 1 {
             return false
+        }
+
+        var unsafe *t = self._subst(ni->generic_args.get(0)->ty, d)
+        if t == &null || t->is_dependent() || t->is_instantiation_dependent() {
+            return false
+        }
+
+        var unsafe *rd = self.tu.record_decl(canon_unqual(t))
+        return rd != &null && !decl_is_imported(NameLookup::representative(rd))
+    }
+
+    /// The `@copy` constructor record type \p rt's declaration declares,
+    /// when its `requires` is known false at \p rt, and the type argument
+    /// whose copy it needed: C++ drops that constructor from the instance
+    /// (CXXSpell::member_requires), so the instance has no copy although
+    /// ClassLifecycle, reading the declaration, calls it COPY (`[Mv]`,
+    /// P308). MoveCheck asks at each copy of an lvalue.
+    pub fn dropped_copy(self, rt: unsafe *Type) -> DroppedCopy {
+        var out = DroppedCopy{}
+        var unsafe *c = canon_unqual(rt)
+        if c == &null || !isa<RecordType>(c) || c->is_dependent() || c->is_instantiation_dependent() {
+            return out
+        }
+
+        var unsafe *rd = self.tu.record_decl(c)
+        if rd == &null || decl_is_imported(NameLookup::representative(rd)) {
+            return out
+        }
+
+        var ms = self._methods_of(NameLookup::representative(self.tu.pattern_of(rd)))
+        for var k: usize = 0; k < ms.size(); ++k {
+            var unsafe *m = ms[k]
+            if m == &null
+                || m->transfer != Declarations::TransferKind::Copy
+                || m->requires_clause == &null
+                || m->body_kind == Declarations::FnBodyKind::Delete {
+                continue
+            }
+
+            var d = Deduction(self.sc, &null)
+            d.bind_from_record(c)
+            var why = self._requires_blocker(m, unsafe &d)
+            if why.known {
+                out.ctor    = m
+                out.element = why.blocker
+                return out
+            }
+        }
+
+        return out
+    }
+
+    /// `__builtin_is_constructible<X, const X>()` (or `<X, X>`) known false
+    /// under \p d: X cannot be copied (or neither copied nor moved). The
+    /// copy/move form is what a container member's `requires` spells, and
+    /// the one the move check has to agree with C++ on.
+    /// \return X then, else null.
+    priv fn _transfer_pred_false(self, p: unsafe *Expr, d: unsafe *Deduction) -> unsafe *Type {
+        var unsafe *c = dyn_cast<CallExpr>(self.tu.strip_parens(p))
+        if c == &null || c->args.size() != 0 {
+            return &null
+        }
+
+        var unsafe *callee = self._callee_of(c)
+        if callee == &null || self.tu.decl_name(callee) != "__builtin_is_constructible" {
+            return &null
+        }
+
+        var unsafe *ni = dyn_cast<NamedIdentExpr>(self.tu.strip_parens(c->callee))
+        if ni == &null || ni->generic_args.size() != 2 {
+            return &null
         }
 
         var unsafe *a0 = ni->generic_args.get(0)->ty
@@ -1381,15 +1523,26 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         var unsafe *t0 = self._subst(a0, d)
         var unsafe *t1 = self._subst(a1, d)
         if t0 == &null || t1 == &null || canon_unqual(t0) != canon_unqual(t1) {
-            return false
+            return &null
         }
 
         var f = lifecycle_of(self.sc)->facts_of_type_concrete(canon_unqual(t0), "ConformanceChecking")
         if f.copyable != LifecycleTri::No {
-            return false
+            // X's declaration says COPY, but its own instance may have lost
+            // its copy the same way (`[[Mv]]`): ask it in turn. The type
+            // arguments only get smaller, so this ends.
+            if a1->is_const() && self.dropped_copy(t0).ctor != &null {
+                return canon_unqual(t0)
+            }
+
+            return &null
         }
 
-        return a1->is_const() || f.movable == LifecycleTri::No
+        if a1->is_const() || f.movable == LifecycleTri::No {
+            return canon_unqual(t0)
+        }
+
+        return &null
     }
 
     priv fn _reuse_home(self,

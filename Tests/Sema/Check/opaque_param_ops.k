@@ -3,7 +3,7 @@
 // opaque parameter `T` is something only a bound can grant, so each is an
 // error AT THE DEFINITION, naming what would grant it, never a C++ error at
 // some instance (or none, if the template is never used). An interpolation
-// is the exception (decided 2026-11-03): formatted per instance, so only a
+// is the exception (FormatHole::deferred): formatted per instance, so only a
 // format SPEC on it is refused here (SC080E).
 // Under `-fduck-generics` a `: type` parameter keeps the C++ rule: nothing
 // is said here, and C++ checks each instance.

@@ -30,8 +30,8 @@ fn ok(b: i32, g: u8, h: i32?, i: bool, f: f64) {
 }
 
 // `<=>` yields the `Ordering` lang item. The prelude puts it in scope in
-// every TU, so this types as `Ordering` -- it used to report the missing item
-// instead, which was the right answer only while nothing imported builtin.
+// every TU, so this types as `Ordering` -- it does not report a missing item.
+//
 fn spaceship(b: i32) {
     var cmp = b <=> b;
 }

@@ -1,4 +1,4 @@
-// No constructor and no destructor can panic (decided 2026-10-27; PANIC.md
+// No constructor and no destructor can panic (PANIC.md
 // §7's notes): an object is built whole or not at all, and a destructor
 // runs on every exit, where nothing could take an error. `panic` on one is
 // an error with an edit removing it (declarations.k); a panic ESCAPING one's

@@ -4,7 +4,7 @@
 // disables for a type C++ was never told about: "call to implicitly-deleted
 // default constructor of 'std::hash<...>'" plus four __hash_table follow-ons,
 // though string conforms to Hash. Each TU that names `std::hash<K>` for a
-// Kairo K impl Hash now specializes it over the Hash witness -- for the
+// Kairo K impl Hash specializes it over the Hash witness -- for the
 // builtin string (an extension conformance in another module) and for a
 // user record (its own members).
 

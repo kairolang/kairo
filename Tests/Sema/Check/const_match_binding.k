@@ -2,13 +2,10 @@
 // (enums-adt.mdx, Destructuring with match: "message = ... // compile error:
 // message is const"). Kairo reports it, so `--type-check-only` does.
 //
-// XFAIL: *
-// Ticket "[Sema] Assigning to a `const` match-pattern binding is not
-// diagnosed by Sema". Today
-// --type-check-only accepts it and a full build fails in clang (CL001E
-// "cannot assign to variable 'message' with const-qualified type"). The code
-// is not decided; the check asks for an error at the marked line. When it
-// XPASSes, delete the XFAIL and pin the code and message.
+//
+// --type-check-only rejects it as SC071E; without Sema it would pass and
+// a full build fail in clang (CL001E "cannot assign to variable 'message'
+// with const-qualified type").
 
 enum <T> R {
     Ok { v: T },
@@ -20,7 +17,7 @@ fn main() -> i32 {
     match r {
         case .Error(const message) {
             message = 4
-// CHECK: const_match_binding.k:[[@LINE-1]]:{{[0-9]+}}: error [{{[A-Z]+[0-9]+}}E]:
+// CHECK: const_match_binding.k:[[@LINE-1]]:13: error [SC071E]: cannot assign to 'message': it is const
         }
         case .Ok(var v) { }
     }

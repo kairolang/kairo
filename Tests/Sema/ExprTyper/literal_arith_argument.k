@@ -1,7 +1,7 @@
 // Arithmetic over untyped integer literals is still untyped: as an
 // argument it takes the type its parameter asks for, as one literal does
 // (primitives.md §5, a parameter is an expected type). `Arena(256 * 1024)`
-// against `blk_sz: usize` was SC063E, the product stuck at i32.
+// against `blk_sz: usize` is not SC063E (the product is not stuck at i32).
 
 class Arena {
     pub var n: usize = 0;

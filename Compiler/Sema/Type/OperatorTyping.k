@@ -107,6 +107,7 @@ import AST::Node::Base::{
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
     RecordType,
+    canon_has_const,
     canon_quals,
     canon_unqual,
     is_c_character,
@@ -117,8 +118,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtRole,      ClassDecl, EnumDecl, FieldDecl, FunctionDecl, ParamDecl, StructDecl, UnionDecl,
-    VariableDecl,
+    AdtRole,      ClassDecl, EnumDecl, FieldDecl, FunctionDecl, ParamDecl, StorageClass, StructDecl,
+    UnionDecl,    VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr, BinaryOperatorExpr, OpRewrite, TypeCastExpr, TypeOfExpr, UnaryOperatorExpr,
@@ -1924,10 +1925,24 @@ pub class <T: type> OperatorTyping {
             lifted = self.dyn()->sc->diag->lift_suppress()
         }
 
+        // unify_operands fails both when neither side converts and when
+        // both do (`char` and `u32`): the second is an ambiguity, and
+        // "neither converts" would send the reader looking for a missing
+        // conversion (P387).
+        var why = "neither converts implicitly to the other"
+        if lt != &null && rt != &null {
+            var unsafe *lv = self.dyn()->tu.as_value(lt)
+            var unsafe *rv = self.dyn()->tu.as_value(rt)
+            if self.dyn()->conv.implicit_builtin(lv, rv) != ImplicitRank::None
+                && self.dyn()->conv.implicit_builtin(rv, lv) != ImplicitRank::None {
+                why = "each converts implicitly to the other, so the mix is ambiguous"
+            }
+        }
+
         self.dyn()->sc->diag->report(
             DiagID::SC033E,
             n->range.start,
-            f"operands '{self.dyn()->tu.str(lt)}' and '{self.dyn()->tu.str(rt)}' do not unify; neither converts implicitly to the other",
+            f"operands '{self.dyn()->tu.str(lt)}' and '{self.dyn()->tu.str(rt)}' do not unify; {why}",
         ).first(n->range)->note(
             n->range.start,
             "cast one side explicitly with 'as' to choose the result type",
@@ -2986,6 +3001,10 @@ pub class <T: type> OperatorTyping {
                 return &null
             }
 
+            if self._reject_const_write(unsafe (n as unsafe *Expr), n->operand, "increment or decrement") {
+                return &null
+            }
+
             if n->is_prefix() {
                 n->value_category = Expr::ValueCategory::LValue
             }
@@ -3017,6 +3036,10 @@ pub class <T: type> OperatorTyping {
 
         if !self.dyn()->is_lvalue(n->operand) {
             self.dyn()->fail(n, DiagID::SC071E, "'++'/'--' require an assignable operand")
+            return &null
+        }
+
+        if self._reject_const_write(unsafe (n as unsafe *Expr), n->operand, "increment or decrement") {
             return &null
         }
 
@@ -3100,6 +3123,108 @@ pub class <T: type> OperatorTyping {
         return &null
     }
 
+    /// SC071E for a write through a const lvalue (variables.mdx, "The
+    /// `const` Binding Rule"; pointers.mdx, "Const Pointers"): a `const` or
+    /// `eval` binding, a `const` parameter, or a place whose type is const
+    /// (`*p` through a `*const T`, a `for *x` binder over a const range, a
+    /// `const T&` result). \p n is the write (`=`, `op=`, `++`, `--`), \p
+    /// lhs what it writes. Without this the write reached clang as CL001E,
+    /// or compiled silently where the binding's top-level const is not
+    /// emitted (a `const c: *i32` parameter; P347, P839).
+    /// A const FIELD is CtorInitCheck's (SC171E): a constructor of its own
+    /// record initializes it once, a write this rule cannot tell from an
+    /// assignment.
+    /// \return whether it reported (the caller stops typing \p n).
+    priv fn _reject_const_write(self, n: unsafe *Expr, lhs: unsafe *Expr, verb: string) -> bool {
+        var x = self.dyn()->tu.strip_parens(lhs)
+        if x == &null {
+            return false
+        }
+
+        var unsafe *d = self._assigned_decl(x)
+        if d != &null && isa<FieldDecl>(d) {
+            return false
+        }
+
+        var vd: unsafe *VariableDecl = &null
+        var pd: unsafe *ParamDecl    = &null
+        if d != &null {
+            vd = dyn_cast<VariableDecl>(d)
+            pd = dyn_cast<ParamDecl>(d)
+        }
+
+        var by_decl = (vd != &null && vd->is_const()) || (pd != &null && pd->is_const)
+        var by_type = false
+        if (!by_decl) && x->type_ != &null {
+            var unsafe *t = x->type_
+            if isa<CXXLValueRefType>(t) {
+                t = cast<CXXLValueRefType>(t)->referee
+            }
+
+            by_type = canon_has_const(t)
+        }
+
+        if (!by_decl) && (!by_type) {
+            return false
+        }
+
+        // A deref's operand names the pointer whose `*const` made the place
+        // const: the note points at that pointer's declaration.
+        if !by_decl {
+            vd = &null
+            pd = &null
+            var unsafe *u = dyn_cast<UnaryOperatorExpr>(x)
+            if u != &null && u->is_prefix() && u->op_token.kind == TokenKind::OpStar {
+                var unsafe *pdecl = self._assigned_decl(u->operand)
+                if pdecl != &null {
+                    vd = dyn_cast<VariableDecl>(pdecl)
+                    pd = dyn_cast<ParamDecl>(pdecl)
+                }
+            }
+        }
+
+        var at = SourceRange::invalid()
+        var nm = ""
+        if vd != &null {
+            nm = self.dyn()->sc->ctx->get_spelling(vd->name)
+            at = vd->name.range
+        } else if pd != &null {
+            nm = self.dyn()->sc->ctx->get_spelling(pd->name)
+            at = pd->name.range
+        }
+
+        var msg = "cannot " + verb + " a const place"
+        if by_decl {
+            msg = "cannot " + verb + " \x27" + nm + "\x27: it is const"
+        } else if !nm.empty() {
+            msg = "cannot " + verb + " \x27*" + nm + "\x27: \x27" + nm + "\x27 points to const"
+        }
+
+        if !n->is_poisoned() {
+            var b = self.dyn()->sc->diag->report(DiagID::SC071E, n->range.start, msg)
+            b.first(lhs->range)
+            if at.is_valid() {
+                var why = "declared const here"
+                if !by_decl {
+                    why = "declared as a pointer to const here"
+                }
+
+                b.note(at.start, "\x27" + nm + "\x27 " + why)->first(at)
+            }
+
+            // `const n = ...` -> `var n = ...` is the one-token edit; a
+            // parameter's or a pointee's const has no keyword range recorded.
+            if by_decl && vd != &null && vd->storage == StorageClass::Const && vd->storage_kw.is_valid() {
+                b.fix(vd->storage_kw, "var", "declare it with \x27var\x27 to make it assignable")
+            }
+
+            b.emit()
+        }
+
+        n->poison()
+        return true
+    }
+
     /// \p d's type as written, or null: what a fix-it on its slot edits.
     priv fn _written_type_of(self, d: unsafe *Decl) -> unsafe *Type {
         if d == &null {
@@ -3155,6 +3280,31 @@ pub class <T: type> OperatorTyping {
             self.dyn()->fail(n, DiagID::SC071E, "left side of assignment is not assignable")
             self.dyn()->type_of(n->rhs, &null)
             return &null
+        }
+
+        // A record's own `op +=` decides for itself (its `const self`, or
+        // not); every other write to a const place stops here.
+        if k == TokenKind::OpEqual
+            || self.dyn()->tu.kind_of(lt) != BuiltinKind::COUNT
+            || self.dyn()->tu.pointee(lt) != &null {
+            var verb = "update"
+            if k == TokenKind::OpEqual {
+                verb = "assign to"
+            }
+
+            if self._reject_const_write(n, n->lhs, verb) {
+                // The right side is still typed (a brace initializer must
+                // not reach codegen untyped, O4), against the place's type;
+                // a bare `null` there has no target to take a type from and
+                // would add SC076E to the one real error.
+                if isa<NullLiteralExpr>(self.dyn()->tu.strip_parens(n->rhs)) {
+                    self.dyn()->mark_unknown(n->rhs)
+                } else {
+                    self.dyn()->type_of(n->rhs, lt)
+                }
+
+                return &null
+            }
         }
 
         if k == TokenKind::OpEqual {

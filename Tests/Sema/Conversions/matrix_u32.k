@@ -580,7 +580,7 @@ fn main() -> i32 { return 0; }
 // DIAG-NOT: :306:
 // DIAG: {{.*}}:307:{{[0-9]+}}: error [SC039E]: the 'else' branch has type 'char', which does not unify with the earlier 'u32'
 // DIAG-NEXT: {{.*}}: note [I900N]: every branch of a value-producing construct must convert to one type
-// DIAG: {{.*}}:308:{{[0-9]+}}: error [SC033E]: operands 'u32' and 'char' do not unify; neither converts implicitly to the other
+// DIAG: {{.*}}:308:{{[0-9]+}}: error [SC033E]: operands 'u32' and 'char' do not unify; each converts implicitly to the other, so the mix is ambiguous
 // DIAG-NEXT: {{.*}}: note [I900N]: cast one side explicitly with 'as' to choose the result type
 // DIAG-NOT: :309:
 // DIAG-NOT: :310:

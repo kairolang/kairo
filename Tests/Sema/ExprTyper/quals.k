@@ -7,9 +7,9 @@
 // result and a branch join are all plain `i32`. An alias carries the cv it
 // was written with, at the level it was written.
 //
-// NOT YET AN ERROR: `*p = 2` through a `*const i32`. Assignment through a
-// const lvalue is ConstChecking's, which is still a stub; this change makes
-// the qualifier visible, it does not start enforcing it.
+// `*p = 2` through a `*const i32` is an error (SC071E): the place
+// keeps its const, and Sema rejects a write through a const lvalue rather
+// than leaving it to clang.
 
 type T = const *i32
 
@@ -27,6 +27,8 @@ fn quals(c: bool) {
     var sc = k + 1
 }
 
+// DIAG: quals.k:24:5: error [SC071E]: cannot assign to '*p': 'p' points to const
+// DIAG-NEXT: quals.k:18:9: note [I900N]: 'p' declared as a pointer to const here
 // DIAG-NOT: error
 
 // An lvalue keeps its cv, and so does its address.
@@ -36,7 +38,7 @@ fn quals(c: bool) {
 // A prvalue has none.
 // SEMA:      BinaryOperatorExpr @ 21:13 : i32
 // SEMA:      IfExpr @ 22:13 : i32
-// SEMA:      0 unknown, 0 errored
+// SEMA:      0 unknown, 1 errored
 // SEMA:      -- inferred decls --
 // SEMA-NEXT: y : i32
 // SEMA-NEXT: a : *const i32

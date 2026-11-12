@@ -145,6 +145,7 @@ import Sema::Check::ClassLifecycle::{
     lifecycle_of,
     moves_on_pass,
 }
+import Sema::Check::ConformanceChecking::ConformanceChecking
 import Sema::SemaContext::{
     SemaContext,
     SemaPhase,
@@ -1426,6 +1427,18 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     priv fn _return_value(self, v: unsafe *Expr) {
         if !isa<NamedIdentExpr>(self._tu.strip_parens(v)) {
             self._transfer(v, "out of the function")
+            return
+        }
+
+        // C++'s implicit move of a returned name still needs a constructor
+        // that takes it, and a record whose only transfer is a `@copy` its
+        // instance dropped has none (`return a` with `a: [Mv]`, P308).
+        if v != &null && (!v->is_poisoned()) && (!moves_on_pass(self.sc, v->type_)) {
+            var unsafe *c  = self._tu.as_value(v->type_)
+            var unsafe *rd = self._tu.record_decl(c)
+            if rd != &null && !self._tu.is_tuple(c) {
+                self._dropped_copy_place(v, c, rd, "out of the function")
+            }
         }
     }
 
@@ -1643,7 +1656,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         var unsafe *facts = lifecycle_of(self.sc)->facts_of(rd)
         if facts->copyable != LifecycleTri::No {
-            return false
+            return self._dropped_copy_place(e, c, rd, how)
         }
 
         // A Kairo record's deleted `@copy` is where the fix goes. Such a
@@ -1685,6 +1698,75 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         e->poison()
         self.n_errored += 1
         return true
+    }
+
+    /// A copy of an lvalue of a Kairo generic record whose declared `@copy`
+    /// constructor its instance loses to that constructor's `requires`
+    /// (`[Mv]`: Vector's copy needs T's, vector.k). ClassLifecycle reads
+    /// the declaration, so the type is COPY and the transfer is a copy, but
+    /// C++ drops the constructor from the instance and clang rejected the
+    /// copy (P308). A class declares one transfer constructor (SC057E), so
+    /// such a record has no move to fall back on either. An assignment is
+    /// reported too: the derived `op =` is constrained the same way, and no
+    /// other check sees it.
+    priv fn _dropped_copy_place(self,
+                                e:          unsafe *Expr,
+                                c:          unsafe *Type,
+                                rd:         unsafe *Decl,
+                                const how:  string) -> bool {
+        if decl_is_imported(rd) || !self._has_constrained_copy(rd) {
+            return false
+        }
+
+        var dc = ConformanceChecking(self.sc).dropped_copy(c)
+        if dc.ctor == &null {
+            return false
+        }
+
+        var ts  = self._tu.str(c)
+        var msg = f"cannot copy a value of type '{ts}': its copy constructor's requirements do not hold for it"
+        if dc.element != &null {
+            var es = self._tu.str(dc.element)
+            msg = f"cannot copy a value of type '{ts}': copying it copies each '{es}', and '{es}' cannot be copied"
+        }
+
+        var b = self.sc->diag->report(DiagID::SC182E, e->range.start, msg)
+        b.first(e->range)
+        b.note(
+            e->range.start,
+            f"'{ts}' is a copy type, so the transfer {how} copies it, and it has no move to fall back on (its one transfer constructor is '@copy'): take it as a 'const' parameter or through a pointer, or build it in place",
+        )
+        b.note(dc.ctor->range.start, "the copy constructor is constrained here")->first(dc.ctor->range)
+        b.emit()
+        e->poison()
+        self.n_errored += 1
+        return true
+    }
+
+    /// \p rd declares a `@copy` constructor with a `requires` clause: the
+    /// only shape _dropped_copy_place has to evaluate, checked first so
+    /// every other copy skips the evaluation.
+    priv fn _has_constrained_copy(self, rd: unsafe *Decl) -> bool {
+        var unsafe *pd = self._tu.pattern_of(rd)
+        var unsafe *cd = dyn_cast<ClassDecl>(pd)
+        var unsafe *sd = dyn_cast<StructDecl>(pd)
+        var ms: unsafe *FrozenList<unsafe *FunctionDecl> = &null
+        if cd != &null {
+            ms = unsafe &cd->methods
+        } else if sd != &null {
+            ms = unsafe &sd->methods
+        } else {
+            return false
+        }
+
+        for var i: usize = 0; i < ms->size(); ++i {
+            var unsafe *m = (*ms)[i]
+            if m != &null && m->transfer == TransferKind::Copy && m->requires_clause != &null {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// The `@copy ... = delete` a Kairo class or struct \p rd declares

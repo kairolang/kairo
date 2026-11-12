@@ -9,8 +9,8 @@
 // a call (one_S), so the casts are runtime conversions at -O0.
 //
 // XFAIL: *
-// Ticket "[Codegen] `f16 as bf16` / `bf16 as f16` emit a static_cast clang
-// refuses" (2026-10-28). Both are E (R4: every float pair but the three
+// Waits on `f16 as bf16` / `bf16 as f16` emitting a cast clang
+// accepts. Both are E (R4: every float pair but the three
 // widenings), so Sema accepts them, and EmitIR's _cast spells every numeric
 // `as` as static_cast<T>(x). clang has no direct _Float16 <-> __bf16
 // conversion: CL001E "static_cast from '_Float16' to '__bf16' is not

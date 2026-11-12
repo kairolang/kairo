@@ -126,7 +126,7 @@ def classify(s, t):
     nonnum = s if s.cat in ("bool", "char", "byte") else t
     other = t if nonnum is s else s
     if nonnum.cat == "char" and other.cat == "int":
-        # Decided 2026-11-04: char (32-bit scalar) <-> integer is implicit
+        # char (32-bit scalar) <-> integer is implicit
         # only when the target is equal or wider; the pointer-sized types and
         # everything else need `as`.
         if other.ptr:
@@ -162,7 +162,7 @@ def numeric(t):
 # a red matrix_*.k is a regression, not a known bug. The run side has three.
 # Each key is an `as` pair (S, T) that the spec allows (class E) but the
 # toolchain cannot build; its round trip leaves roundtrip_as*.k for
-# xfail_<file>.k, under a header naming the ticket, so the spec's verdict
+# xfail_<file>.k, under a header naming the waiting bug, so the spec's verdict
 # stays the assertion. When one XPASSes, delete its entry here and rerun:
 # the pair moves back into the main file (delete the stale xfail file).
 
@@ -226,7 +226,12 @@ def arg_err(s, t):
             f"candidate not viable: cannot convert argument of type '{s.name}' to parameter 'x' of type '{t.name}'")
 
 def unify_err(a, b):
-    return ("SC033E", f"operands '{a.name}' and '{b.name}' do not unify; neither converts implicitly to the other",
+    # When each side converts implicitly to the other the mix is ambiguous,
+    # and the message says so; otherwise neither converts.
+    both = classify(a, b)[0] in ("I", "W") and classify(b, a)[0] in ("I", "W")
+    why = "each converts implicitly to the other, so the mix is ambiguous" if both \
+        else "neither converts implicitly to the other"
+    return ("SC033E", f"operands '{a.name}' and '{b.name}' do not unify; {why}",
             "cast one side explicitly with 'as' to choose the result type")
 
 def bitwise_mix_err(a, b):

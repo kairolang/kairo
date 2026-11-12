@@ -724,7 +724,7 @@ group = "operators"
     # the operands have no common type
 
     a binary operator needs both operands at one type, and neither side converts implicitly to the
-    other.
+    other, or each does (`char` and `u32`), so neither type is the one to pick.
 
     ```kairo
     let r = a_u32 + b_i64s;   // error

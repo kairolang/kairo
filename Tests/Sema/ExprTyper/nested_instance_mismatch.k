@@ -1,7 +1,7 @@
 // A type nested in a generic class, named through an instance, is THAT
 // instance's (GH#91): `L<i32>::P` and `L<f64>::P` are two types, and a
 // member read through one has its argument's type (`b.k` is an i32, so the
-// error names i32, not `K`). Both used to be the pattern's P.
+// error names i32, not `K`). Neither is the pattern's P.
 
 class <K> L {
     pub struct P {
