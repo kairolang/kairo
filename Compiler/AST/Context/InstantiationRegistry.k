@@ -236,10 +236,12 @@ pub struct PartialPredValue {
 
 /// \enum InstanceLatch
 /// \brief An InstanceEntry's one-shot facts: each goes true once per build,
-///        for the first claimant only (InstantiationRegistry::claim). The
-///        T fronts on the pool and the driver's Conformance meet the same
-///        build-wide entry, so a plain check-then-set let two of them both
-///        report SC157E / SC158E, or both compute its panic facts.
+///        for the first claimant only (InstantiationRegistry::claim). T and
+///        the driver's Conformance meet the same build-wide entry, so a plain
+///        check-then-set let two of them both report SC157E / SC158E, or both
+///        compute its panic facts. Every claim is the driver's, in group
+///        order: a parallel T front only records the mention, and the driver
+///        claims it at the group's turn (FrontendAction::_settle_once).
 pub enum InstanceLatch derives u8 {
     Ambiguity = 0, ///< ambiguity_reported: SC157E at a naming site.
     Undecided,     ///< undecided_reported: SC158E at a naming site.
@@ -1595,6 +1597,13 @@ pub class InstantiationRegistry {
 
         *bit = true
         return true
+    }
+
+    /// \p l is already taken for \p e: a later claim is sure to lose. A
+    ///    false answer can go stale at once (another thread may take it),
+    ///    which is why a front that sees one only records the mention.
+    pub fn taken(self, e: unsafe *InstanceEntry, l: InstanceLatch) -> bool {
+        return e != &null && self._latched(e, l)
     }
 
     priv fn _latched(self, e: unsafe *InstanceEntry, l: InstanceLatch) -> bool {

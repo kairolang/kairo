@@ -201,6 +201,7 @@ import Codegen::PlanVisitors::{
     GlobalInitReach,
     HoistedLocals,
 }
+import Config::Target::ObjectFormat
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Lexer::Immediate::Immediate
@@ -511,7 +512,7 @@ pub class EmitIR {
         var        at  = self._cg->ctx->sm->get_range(tu->fid, 0, 1)
         var        sec = LowerTargets::abi_note_section()
         var unsafe *ci = self._cg->ctx->ci
-        if ci != &null && ci->target.object_format == "Mach-O" {
+        if ci != &null && ci->target.object_format_kind == ObjectFormat::MachO {
             sec = LowerTargets::abi_note_section_macho()
         }
 
@@ -581,7 +582,7 @@ pub class EmitIR {
         var        st  = LowerTargets::panic_site_type() // InterfaceEmitter defines it.
         var        sec = LowerTargets::panic_sites_section()
         var unsafe *ci = self._cg->ctx->ci
-        if ci != &null && ci->target.object_format == "Mach-O" {
+        if ci != &null && ci->target.object_format_kind == ObjectFormat::MachO {
             sec = LowerTargets::panic_sites_section_macho()
         }
 

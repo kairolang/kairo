@@ -28,6 +28,7 @@ import AST::Context::ASTContext::ASTContext
 import AST::Context::InstantiationRegistry::InstantiationRegistry
 import AST::Context::TranslationUnit::TranslationUnit
 import Codegen::Sink::EmitSink::EmitSink
+import Config::Target::ObjectFormat
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 
 pub enum CodegenPhase derives u8 {
@@ -64,8 +65,7 @@ pub class EmitOptions {
     pub var tls_model: string = ""
     /// The target is x32 (x86_64 gnux32 / muslx32). lld relaxes an
     /// initial-exec access only in its REX.W movq / addq form, and x32's is a
-    /// REX-less movl, so CXXSpell::tls_model never picks initial-exec there
-    /// (P702).
+    /// REX-less movl, so CXXSpell::tls_model never picks initial-exec there.
     pub var x32: bool = false
 
     fn EmitOptions(self) { }
@@ -117,7 +117,7 @@ pub class CodegenContext {
             self.opts.warn_unproven_shift = ctx->ci->diag.Wshift_count_unproven
             self.opts.target_triple       = ctx->ci->target.effective_triple
             self.opts.exe_link            = !ctx->ci->linker.shared && !ctx->ci->linker.compile_only
-            self.opts.elf                 = ctx->ci->target.object_format == "ELF"
+            self.opts.elf                 = ctx->ci->target.object_format_kind == ObjectFormat::Elf
             self.opts.tls_model           = ctx->ci->codegen.tls_model
             var tt = ctx->ci->target.effective_triple
             self.opts.x32 = tt.starts_with("x86_64") && tt.ends_with("x32")

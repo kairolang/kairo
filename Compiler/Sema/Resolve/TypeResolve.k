@@ -161,6 +161,7 @@ import Sema::Resolve::NameLookup::{
 }
 import Sema::Resolve::ResolutionState::ResolveState
 import Sema::SemaContext::{
+    OnceMention,
     SemaContext,
     SemaPhase,
 }
@@ -267,7 +268,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     pub var n_dependent: usize = 0
     pub var n_errored:   usize = 0
 
-    fn TypeResolution(self, sc: unsafe *SemaContext) {
+    pub fn TypeResolution(self, sc: unsafe *SemaContext) {
         self.sc = sc
     }
 
@@ -4206,16 +4207,8 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
             // The null tests first: this runs at every generic mention, and
             // only a rare entry has a selection to report.
-            if e != &null
-                && e->ambiguous_a != &null
-                && self.sc->instances->claim(e, InstanceLatch::Ambiguity) {
-                self._ambiguous_partials(e, seg->range)
-            }
-
-            if e != &null
-                && e->undecided != &null
-                && self.sc->instances->claim(e, InstanceLatch::Undecided) {
-                self._undecided_partial(e, seg->range)
+            if e != &null && (e->ambiguous_a != &null || e->undecided != &null) {
+                self.report_selection(e, seg->range)
             }
         }
 
@@ -6130,6 +6123,38 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         )
 
         b.emit()
+    }
+
+    /// \p e's partial selection (an ambiguity, or a clause that could not be
+    /// decided), met at the written mention \p at: reported once per build,
+    /// by the first mention in the one-thread order of files. On the driver
+    /// that is whoever claims first, as here. In a parallel front it is not
+    /// (the fronts of files that do not import each other race), so the
+    /// mention is only recorded, unless both latches are gone already, and
+    /// the driver claims it at the group's turn (FrontendAction::
+    /// _settle_once, which calls back with the log unset).
+    pub fn report_selection(self, e: unsafe *InstanceEntry, at: SourceRange) {
+        if self.sc->once_log != &null {
+            var amb = e->ambiguous_a != &null && !self.sc->instances->taken(e, InstanceLatch::Ambiguity)
+            var und = e->undecided != &null && !self.sc->instances->taken(e, InstanceLatch::Undecided)
+            if amb || und {
+                var m = OnceMention{}
+                m.sc    = self.sc
+                m.entry = e
+                m.at    = at
+                self.sc->once_log->push_back(m)
+            }
+
+            return
+        }
+
+        if e->ambiguous_a != &null && self.sc->instances->claim(e, InstanceLatch::Ambiguity) {
+            self._ambiguous_partials(e, at)
+        }
+
+        if e->undecided != &null && self.sc->instances->claim(e, InstanceLatch::Undecided) {
+            self._undecided_partial(e, at)
+        }
     }
 
     /// A partial matched \p e's arguments by pattern, but its clause could

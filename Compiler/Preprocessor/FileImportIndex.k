@@ -441,17 +441,25 @@ pub class FileImportIndex {
     /// resolver sweeps each directory once, so each collision is reported once
     /// no matter how many imports walk through it.
     priv fn _drain_collisions(self) {
-        var found = self._res->take_collisions()
+        Self::report_collisions(self._res, self._diag)
+    }
+
+    /// What _drain_collisions reports, for the driver: the preprocessor
+    /// takes what the dependency scan's sweeps found before the walk starts
+    /// (Preprocessor::preprocess), so no walk of the wave races another to
+    /// take them, which decided where they printed (P956).
+    pub static fn report_collisions(res: *ImportResolver, diag: *DiagEngine) {
+        var found = res->take_collisions()
         for var i: usize = 0; i < found.size(); ++i {
             var c = found[i]
             if c.case_only {
-                self._diag->report(
+                diag->report(
                     DiagCode(DiagID::P002E),
                     f"'{c.a}' and '{c.b}' in '{c.dir}' differ only by case: they are two "
                     "modules on Linux and one file on default macOS/Windows; rename one",
                 ).emit()
             } else {
-                self._diag->report(
+                diag->report(
                     DiagCode(DiagID::R018E),
                     f"'{c.a}' and '{c.b}' in '{c.dir}' both name module '{c.ident}' "
                     "('-' in a module filename means '_'); rename one",
@@ -463,8 +471,8 @@ pub class FileImportIndex {
         // a library's name, found by a resolution (decision E). Fatal for
         // the same reason as a duplicate root: the two would share one C++
         // namespace and one object path.
-        for var msg: string in self._res->take_late_collisions() {
-            self._diag->report(DiagCode(DiagID::R018E), msg).emit()
+        for var msg: string in res->take_late_collisions() {
+            diag->report(DiagCode(DiagID::R018E), msg).emit()
         }
     }
 

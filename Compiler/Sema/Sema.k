@@ -195,6 +195,20 @@ pub class Sema {
         return self._run == SemaRun::Stopped
     }
 
+    /// The hard stop T's own gate would have made, for a run that paused at
+    /// the end of T (TypesPreDone at TypesResolved) and was then given
+    /// errors of T's that a parallel front deferred to the driver
+    /// (FrontendAction::_settle_once): the TU stops after T exactly as a
+    /// one-thread run, which reported them inside T, stops it. A run past
+    /// T, or one already stopped, is left alone.
+    pub fn stop_if_types_errored(self) {
+        if self._run == SemaRun::TypesPreDone
+            && self.sc.phase == SemaPhase::TypesResolved
+            && self._hard_stop() {
+            self._stop()
+        }
+    }
+
     /// The only way into Stopped.
     priv fn _stop(self) -> bool {
         self._stop_phase = self.sc.phase

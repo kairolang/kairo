@@ -159,6 +159,7 @@ import Codegen::Emit::EmitWitness::EmitWitness
 import Codegen::EmitPlan::{
     EmitPlan, ExtScope, FileFriends, PlanEntry, PlanMode, PlanNeed, PlanTier, plan_under_duck,
 }
+import Config::Target::ObjectFormat
 import Location::SourceRange::SourceRange
 import Support::FlagSet::{
     FlagBit,
@@ -3212,10 +3213,12 @@ pub class InterfaceEmitter {
         var        ss  = "::" + api + "::" + LowerTargets::panic_api_source_site()
         var        b0  = LowerTargets::panic_sites_begin_sym()
         var        b1  = LowerTargets::panic_sites_end_sym()
-        var        fmt = ""
+        // Unresolved: no target read yet (a hand-built invocation), which
+        // this has always treated as ELF.
+        var        fmt = ObjectFormat::Unresolved
         var unsafe *ci = self._cg->ctx->ci
         if ci != &null {
-            fmt = ci->target.object_format
+            fmt = ci->target.object_format_kind
         }
 
         if header {
@@ -3230,7 +3233,7 @@ pub class InterfaceEmitter {
         // The table's bounds. ELF: the linker's __start_/__stop_, weak so a
         // program with no site links. Mach-O: section$start/end. Any other
         // format has none here yet (ticketed): no site is ever found.
-        if fmt == "ELF" || fmt.size() == 0 {
+        if fmt == ObjectFormat::Elf || fmt == ObjectFormat::Unresolved {
             self._cg->sink->spell(
                 at,
                 "extern \"C\" { [[gnu::weak]] extern const " + st + " " + LowerTargets::panic_sites_start() + "[]; " + "[[gnu::weak]] extern const " + st + " " + LowerTargets::panic_sites_stop() + "[]; }",
@@ -3238,7 +3241,7 @@ pub class InterfaceEmitter {
 
             b0 = LowerTargets::panic_sites_start()
             b1 = LowerTargets::panic_sites_stop()
-        } else if fmt == "Mach-O" {
+        } else if fmt == ObjectFormat::MachO {
             self._cg->sink->spell(
                 at,
                 "extern const " + st + " " + b0 + "[] __asm(\"" + LowerTargets::panic_sites_start_macho() + "\");",

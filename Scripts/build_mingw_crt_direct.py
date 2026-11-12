@@ -27,7 +27,7 @@ The reference runner for share/kairo/sysroot/mingw-crt/ (build/sysroot-share/FOR
 
 Templates: {src} = mingw-crt/src, {build} = the work dir, {sysroot} = the libc-headers root
 (also --sysroot; its include/ is the mingw headers). The headers root must hold NO libc++
-headers, and kcc must come from a prefix without sysroot/<target> (P610): by default the
+headers, and kcc must come from a prefix without sysroot/<target>: by default the
 kit Scripts/runtimes_recipe.py make_kit() makes under build/sysgen/z1/kit.
 """
 from __future__ import annotations

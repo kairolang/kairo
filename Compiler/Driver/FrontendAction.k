@@ -176,8 +176,12 @@ import Sema::Incremental::Facts::{
 }
 import Sema::Resolve::ImportResolution::ImportResolution
 import Sema::Resolve::NameLookup::NameLookup
+import Sema::Resolve::TypeResolve::TypeResolution
 import Sema::Sema::Sema
-import Sema::SemaContext::SemaPhase
+import Sema::SemaContext::{
+    OnceMention,
+    SemaPhase,
+}
 import Sema::SemaDump::SemaDump
 import Tooling::SemaObserver::SemaObserver
 import Support::FileIO::Path::Path
@@ -2526,7 +2530,9 @@ pub class FrontendAction {
                 // checks hit a hard stop there, and a continuation would carry
                 // it past the stop; one that finished them continues into
                 // Conformance. An unsplit run goes to Typed as it always did.
-                if !sems[0]->split_conformance || sems[0]->checks_front_done() {
+                // One _settle_once stopped after T goes no further.
+                if !sems[0]->stopped()
+                    && (!sems[0]->split_conformance || sems[0]->checks_front_done()) {
                     sems[0]->run_to(SemaPhase::Typed)
                 }
             } else {
@@ -2809,6 +2815,10 @@ pub class FrontendAction {
     ///  - Conformance, which decides where an instance diagnostic lands, the
     ///    panic-set barrier, the late checks, the lowerings and mono stay on
     ///    this thread, in order;
+    ///  - a once-per-build report T meets in a front (SC157E / SC158E) is
+    ///    recorded, not claimed, and the front stops after T; this thread
+    ///    claims it at the group's turn (_settle_once), so the first file in
+    ///    the one-thread order reports it and stops, as with one thread;
     ///  - a group whose Sema writes facts that TUs not importing it read runs
     ///    alone (a barrier, no front): a builtin TU (lang items,
     ///    WellKnownDecls), a TU declaring a specialization (the registry's
@@ -2965,6 +2975,7 @@ pub class FrontendAction {
             }
 
             slot->enter()
+            self._settle_once(slot)
             self._sema_finish(slot->sems, effects, print_sema, print_lowered, sema_opts)
             SemaSlot::leave()
             if slot->members.size() > 0 && progress_on() {
@@ -2988,6 +2999,33 @@ pub class FrontendAction {
         self._ci->pool()->wait_group(SEMA_GROUP)
         for var g: usize = 0; g < m; ++g {
             kairo::std::destroy(slots[g])
+        }
+    }
+
+    /// The group's turn for the once-per-build reports its front deferred
+    /// (SemaContext::once_log): each is claimed now, in the order the front
+    /// met them, as T claims on this thread, so the file that reports it is
+    /// the first in the one-thread order whatever the fronts' timing. Every
+    /// earlier group has finished, and with it every claim a one-thread run
+    /// makes before this group's. A claimed report is a T error, and stops
+    /// its TU after T as T's own gate would have (Sema::stop_if_types_errored).
+    priv fn _settle_once(self, slot: unsafe *SemaSlot) {
+        for var i: usize = 0; i < slot->sems.size(); ++i {
+            slot->sems[i]->sc.once_log = &null
+        }
+
+        for var i: usize = 0; i < slot->once.size(); ++i {
+            var *m = &slot->once[i]
+            TypeResolution(m->sc).report_selection(m->entry, m->at)
+        }
+
+        if slot->once.size() == 0 {
+            return
+        }
+
+        slot->once.clear()
+        for var i: usize = 0; i < slot->sems.size(); ++i {
+            slot->sems[i]->stop_if_types_errored()
         }
     }
 
@@ -5165,6 +5203,16 @@ fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> b
             si->run_to(phases[p])
         }
 
+        // A front that met a once-per-build report in T stops after T: the
+        // driver claims it, and whichever TU it lands in may then stop
+        // there (FrontendAction::_settle_once).
+        if front && phases[p] == SemaPhase::TypesResolved && n > 0 {
+            var unsafe *log = (*sems)[0]->sc.once_log
+            if log != &null && log->size() > 0 {
+                return false
+            }
+        }
+
         // Re-exports across the cycle, to a fixpoint: the TU that
         // ran I first folded its sources' re-exports from overlays
         // the others had not built yet (ImportResolution::
@@ -5221,6 +5269,11 @@ pub class SemaSlot {
     pub var queued:  bool                     = false ///< handed to the pool (or run by the driver).
     pub var claim:   kairo::std::Atomic<u32>  = kairo::std::Atomic<u32>(0)
     pub var done:    kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(false)
+    /// The once-per-build reports the front met, in the order it met them
+    /// (SemaContext::once_log; one thread runs a front, so this is the
+    /// one-thread order within the group). The driver claims them at the
+    /// group's turn (FrontendAction::_settle_once).
+    pub var once: cxx::std::vector<OnceMention>
 
     fn SemaSlot(self) { }
 
@@ -5238,6 +5291,10 @@ pub class SemaSlot {
             var        _ts  = TimeRegion("Sema")
             var unsafe *sem = self.sems[0]
             sem->split_conformance = true
+            for var i: usize = 0; i < self.sems.size(); ++i {
+                self.sems[i]->sc.once_log = unsafe &self.once
+            }
+
             sema_sub(0, 0)
             // Two facts only show after a stage, and each makes what follows
             // read another TU's late Sema, so the rest waits for the driver,
@@ -5268,6 +5325,16 @@ pub class SemaSlot {
                 if !sem->stopped() && !self.partial {
                     sem->run_to(SemaPhase::NamesResolved)
                     if !sem->stopped() && _defines_foreign_members(sem->sc.tu, self.sems) {
+                        self.partial = true
+                    }
+                }
+
+                // A once-per-build report T met waits for the driver, and
+                // a claimed one stops the TU after T (_settle_once): the
+                // typed checks wait with it.
+                if !sem->stopped() && !self.partial {
+                    sem->run_to(SemaPhase::TypesResolved)
+                    if !sem->stopped() && self.once.size() > 0 {
                         self.partial = true
                     }
                 }

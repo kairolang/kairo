@@ -53,6 +53,7 @@ import Preprocessor::MacroTable::{
     MacroEntry,
     MacroTable,
 }
+import Preprocessor::FileImportIndex::FileImportIndex
 import Preprocessor::PPWalker::PPWalker
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Preprocessor::TokenSource::TokenSource
@@ -970,6 +971,12 @@ pub class PreProcessor {
 
         self._prelex_cycles(&graph)
 
+        // The scan resolved every import through the same resolver, so its
+        // directory sweeps found nearly every module-name collision there
+        // is; reported here, before the walk, they would otherwise go to
+        // whichever walk of the first wave asked first (P956).
+        FileImportIndex::report_collisions(self._resolver, self._diag)
+
         var executor          = WaveExecutor(self._pool)
         var dispatched: usize = 0
         {
@@ -995,6 +1002,8 @@ pub class PreProcessor {
                     _tw.units(self._sm->get_file_size(fid) as u64, "B".c_str())
                     self._walk_one(fid, mod_path)
                 },
+                unsafe (self._diag as unsafe *DiagEngine),
+                unsafe (self._sm as unsafe *SourceManager),
             )
         }
 

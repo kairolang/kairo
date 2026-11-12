@@ -34,8 +34,8 @@ pub enum ObjectFormat derives u8 {
     Spirv,
 }
 
-/// \p f as `kairo --print-target-info`, the linker's messages and the
-/// emitter's comparisons (TargetOptions::object_format) spell it.
+/// \p f as `kairo --print-target-info` and the linker's messages spell it
+/// (TargetOptions::object_format).
 pub fn object_format_name(f: ObjectFormat) -> string {
     if f == ObjectFormat::Elf {
         return "ELF"
@@ -176,10 +176,10 @@ pub class TargetOptions {
     pub var vendor_name:   string = "" ///< second component, e.g. "pc".
     pub var os_name:       string = "" ///< third component, e.g. "linux".
     pub var env_name:      string = "" ///< fourth component, e.g. "gnu"; "" if none.
-    /// What the driver and the linker branch on. \c object_format is its
-    /// name (object_format_name), set beside it by the same writer
-    /// (CompilerInstance::_apply_invocation): the emitter still compares
-    /// the text.
+    /// What the driver, the linker and the emitters branch on. \c
+    /// object_format is its name (object_format_name), set beside it by the
+    /// same writer (CompilerInstance::_apply_invocation), for messages and
+    /// --print-target-info.
     pub var object_format_kind: ObjectFormat = ObjectFormat::Unresolved
     pub var object_format:      string       = "" ///< "ELF" / "COFF" / "Mach-O" / ...
 

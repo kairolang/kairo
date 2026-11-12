@@ -88,6 +88,16 @@ inline usize *thread_pool_local_qid() {
     return &local_qid;
 }
 
+/// Where DiagEngine::emit puts what the calling thread reports, or null for
+/// the engine itself: a DiagEngineVBase (a BufferedDiagSink, opaque here)
+/// that a task of a parallel phase holds while it runs (DiagCapture), so
+/// the phase can hand its files' diagnostics to the engine in a fixed order
+/// instead of the order the tasks happen to finish in (P956).
+inline void **diag_capture() {
+    thread_local void *sink = nullptr;
+    return &sink;
+}
+
 /// The dependency log of the translation unit whose Sema the calling thread
 /// is running, or null: no log (the flags that ask for one are off), or no
 /// Sema on this thread. AST/Context/DepLog.k owns the pointee; a symbol

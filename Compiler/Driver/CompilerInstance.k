@@ -130,6 +130,7 @@ ffi "c++" import "llvm/Support/CodeGen.h"
 ffi "c++" import "llvm/ADT/APFloat.h"
 ffi "c++" import "llvm/ADT/IntrusiveRefCntPtr.h"
 ffi "c++" import "clang/Basic/Diagnostic.h"
+ffi "c++" import "Native/KThread.hh" // diag_capture
 ffi "c++" import "clang/Basic/DiagnosticIDs.h"
 ffi "c++" import "clang/Basic/DiagnosticOptions.h"
 ffi "c++" import "clang/Basic/TargetInfo.h"
@@ -171,6 +172,7 @@ import Config::Invocation::CompilerInvocation
 import Config::ResourceLayout::ResourceLayout
 import Config::Target::TargetOptions
 import Diagnostic::BasicConsumer::BasicDiagConsumer
+import Diagnostic::BufferedDiagSink::BufferedDiagSink
 import Diagnostic::Code::DiagCode
 import Diagnostic::Engine::DiagEngine
 import Diagnostic::PrettyConsumer::PrettyDiagConsumer
@@ -794,6 +796,20 @@ pub class CompilerInstance {
 
         // The process aborts next: a pinned line would stay on the screen.
         progress_finish()
+        // An ICE inside a walk task: what the task reported is still in its
+        // own sink (DiagCapture, held by WaveExecutor::run; the only holder,
+        // and its sinks are BufferedDiagSinks), so it goes to the engine
+        // here, capture off first or emit would put it straight back. The
+        // other tasks of that wave die with their sinks undrained.
+        var unsafe *cap = *kairo::diag_capture()
+        if cap != &null {
+            *kairo::diag_capture() = &null
+            (unsafe (cap as unsafe *BufferedDiagSink))->drain_into(
+                unsafe (self_->_diag as unsafe *DiagEngine),
+                unsafe (self_->_sm as unsafe *SourceManager),
+            )
+        }
+
         if self_->_g_scope != &null {
             self_->_g_scope->drain_sinks_for_ice(unsafe (self_->_diag as unsafe *DiagEngine))
         }

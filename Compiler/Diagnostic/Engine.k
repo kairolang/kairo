@@ -50,6 +50,7 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/StringSet.h"
+ffi "c++" import "Native/KThread.hh" // diag_capture
 
 import Diagnostic::Category::DiagCategory
 import Diagnostic::Code::DiagCode
@@ -278,9 +279,9 @@ pub class DiagEngine derives DiagEngineVBase {
     /// This is a deferred-free list, NOT a log: nothing reads it but the
     /// destructor. So only diagnostics that actually reach a consumer belong
     /// here   a suppressed one is destroyed at its suppression site instead
-    /// (the _suppress_depth path at the top of emit() always did this; the
-    /// other four paths used to push, which is why a reparse loop retained
-    /// ~26k diagnostics per pass while showing 64).
+    /// (the _suppress_depth path at the top of emit() does this, and so do
+    /// the other suppression paths, so a reparse loop retains only what it
+    /// shows).
     ///
     /// Still unbounded within a run by design. A tool that reparses in a loop
     /// must call clear_retained() between passes.
@@ -311,7 +312,7 @@ pub class DiagEngine derives DiagEngineVBase {
     priv var _delivered: llvm::StringSet<llvm::MallocAllocator> ///< membership only; owns the key bytes
     /// The "too many ..." line is printed once per run. Keyed on its own state,
     /// not on _suppressed_count: a prior -A/-w suppression bumps that counter
-    /// and used to swallow the limit notice entirely.
+    /// and would otherwise swallow the limit notice entirely.
     priv var _error_limit_state: LimitState = LimitState::Open
     priv var _warn_limit_state:  LimitState = LimitState::Open
 
@@ -488,6 +489,17 @@ pub class DiagEngine derives DiagEngineVBase {
     ///   3. Error limit errors and fatals beyond \c _error_limit are counted,
     ///      then dropped.
     fn emit(self, diag: unsafe *Diagnostic) {
+        // A task of a parallel phase holding a capture (DiagCapture): the
+        // diagnostic waits in the task's own sink, and the phase drains the
+        // sinks into this engine in its fixed file order, which is where
+        // every policy, dedup and limit below then applies. Before the lock:
+        // the sink is the calling thread's alone.
+        var unsafe *cap = *kairo::diag_capture()
+        if cap != &null {
+            (unsafe (cap as unsafe *DiagEngineVBase))->emit(diag)
+            return
+        }
+
         // Whole body, not just the push_back: every early-return path below
         // also mutates _suppressed_count and _all_diags. See _mu.
         var lock = kairo::std::LockGuard(self._mu)
@@ -989,5 +1001,26 @@ pub class DiagEngine derives DiagEngineVBase {
         }
 
         return out
+    }
+}
+
+/// While alive, what the calling thread reports to any DiagEngine goes into
+/// \p sink instead (DiagEngine::emit). For a task of a parallel phase whose
+/// diagnostics must reach the engine in a fixed order (WaveExecutor's
+/// walks): the phase drains each task's sink in that order once the tasks
+/// are done. Restores the previous capture however the task ends, so a
+/// nested one, or a task that throws, leaves the thread as it found it.
+pub class DiagCapture {
+    priv var _prev: unsafe *void = &null
+
+    pub fn DiagCapture(self, sink: unsafe *DiagEngineVBase) {
+        self._prev             = *kairo::diag_capture()
+        *kairo::diag_capture() = unsafe (sink as unsafe *void)
+    }
+
+    @copy fn DiagCapture(self, const other: Self) = delete
+
+    fn op finally (self) {
+        *kairo::diag_capture() = self._prev
     }
 }

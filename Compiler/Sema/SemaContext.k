@@ -35,7 +35,10 @@ import AST::Context::CanonicalTypes::CanonicalTypeStore
 import AST::Context::DeclContext::DeclContext
 import AST::Context::DepLog::DepLog
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
-import AST::Context::InstantiationRegistry::InstantiationRegistry
+import AST::Context::InstantiationRegistry::{
+    InstanceEntry,
+    InstantiationRegistry,
+}
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
     decl_generic_params,
@@ -286,6 +289,17 @@ pub class SemaOptions {
     }
 }
 
+/// A once-per-build selection report (SC157E / SC158E) that a parallel
+/// Sema front met and did not claim: which front gets to a build-wide
+/// entry first is a race, so the claim waits for the driver, which takes
+/// the group's mentions in the order the front met them, at the group's
+/// turn in the one-thread order (FrontendAction::_settle_once).
+pub struct OnceMention {
+    pub var sc:    unsafe *SemaContext   = &null ///< the TU whose T met it; the report goes in its sink.
+    pub var entry: unsafe *InstanceEntry = &null
+    pub var at:    SourceRange           = SourceRange::invalid()
+}
+
 pub class SemaContext {
     pub var ctx:   unsafe *ASTContext
     pub var tu:    unsafe *TranslationUnit
@@ -297,6 +311,12 @@ pub class SemaContext {
     /// only by begin_lower / end_lowerings, in the enum's order.
     priv var _lower: LowerStep = LowerStep::None
     pub var instances: unsafe *InstantiationRegistry = &null
+    /// Non-null while this TU's front runs on a pool worker (SemaSlot::
+    /// run_front): T's once-per-build selection reports are appended here,
+    /// a list the group's TUs share, instead of claimed where T meets them
+    /// (TypeResolution::report_selection). Null on the driver, which
+    /// claims in order.
+    pub var once_log: unsafe *cxx::std::vector<OnceMention> = &null
     /// Fills instances of IMPORTED class templates from clang (MemberLookup's
     /// trigger). Build-wide, owned by CompilerInstance and wired by the driver
     /// after construction; null when nothing imports C++ -- every reader
