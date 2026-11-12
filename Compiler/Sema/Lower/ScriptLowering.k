@@ -130,6 +130,7 @@ import AST::Node::Program::{
     TopLevelKind,
 }
 import AST::Node::Statements
+import AST::Node::Types::FixedArrayType
 import AST::Visitor::ASTWriter::{
     ASTWriter,
     ListBuilder,
@@ -465,6 +466,28 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
                     )
 
                     b.emit()
+                    ok = false
+                    continue
+                }
+
+                // Its storage would be `Nullable<T[N]>`, which Lib/builtin's
+                // Nullable cannot construct. A list literal of
+                // constants is not deferred (ScriptRules::constant).
+                if isa<FixedArrayType>(c) {
+                    var ab = self.sc->diag->report(
+                        DiagID::SC235E,
+                        v->range.start,
+                        "a script variable of array type with an initializer that is not constant is not supported yet",
+                    )
+
+                    ab.first(v->range)
+                    ab.note(
+                        DiagCode(DiagID::SC235N),
+                        v->range.start,
+                        "initialize it from a list literal of constants, and assign the elements on the next lines",
+                    )
+
+                    ab.emit()
                     ok = false
                     continue
                 }
@@ -861,7 +884,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         }
 
         // `|*|` / `|*count|` in the top-level code views the global as the
-        // pointer to it (ExprTyper::_capture_view, P561): the checked
+        // pointer to it (ExprTyper::_capture_view): the checked
         // place's address, not its value.
         if n->capture_ptr {
             return self._guarded_addr(n, g)

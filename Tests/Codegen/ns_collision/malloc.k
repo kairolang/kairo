@@ -1,6 +1,6 @@
 // A module named after a global the build's headers declare
 // (`::malloc`, <stdlib.h>) gets the fixed rename `malloc_` for its C++
-// namespace, so `namespace malloc {` no longer redefines the function.
+// namespace, so `namespace malloc {` does not redefine the function.
 
 fn helper() -> i32 { return 42 }
 

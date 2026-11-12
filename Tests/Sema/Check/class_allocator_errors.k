@@ -1,5 +1,5 @@
-// A class cannot declare its own allocator (decided 2026-11-02,
-// reaffirmed 2026-11-08). Every `op new` and every static `op delete` is
+// A class cannot declare its own allocator.
+// Every `op new` and every static `op delete` is
 // SC149E at its name (Sema/Check/ClassAllocatorCheck.k), whatever its
 // signature; the destructor `op finally(self)` is not one. Nothing routes
 // create / destroy to a class any more, so a deduced destroy(p) is fine.

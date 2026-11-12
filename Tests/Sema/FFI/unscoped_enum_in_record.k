@@ -7,9 +7,9 @@
 // (`LS::b`, of `LS::Kind`; clang's `LangStandard::lang_gnucxx26`) is the
 // enum's value. MemberTyping kept the qualifier's type for a variant step
 // (meant for `Foo<i32>::V` on a generic enum), so it typed as `LS` and
-// `setk(k)` was SC063E "cannot convert argument of type 'LS' to parameter
-// 'k' of type 'Kind'". Found in the migrated Support/TermRenderer.k
-// (self-host phase 5.2).
+// `setk(k)` would be SC063E "cannot convert argument of type 'LS' to parameter
+// 'k' of type 'Kind'" (as in Support/TermRenderer.k).
+//
 
 // DIAG-NOT: error
 

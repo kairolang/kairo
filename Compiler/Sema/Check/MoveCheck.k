@@ -38,6 +38,17 @@
 ///         to something enclosing it, clears it; at a join, moved on either
 ///         path means moved. A `var` declaration starts a new binding.
 ///
+///     (d) Copies it cannot make. A transfer that copies a value whose type
+///         cannot be copied is SC182E here rather than in clang: a MOVE value
+///         out of a place const by its type or root (place_has_const_root:
+///         `self.r` in a `const self` method, `p.r` of a `const p`), an
+///         element reached through a C++ `T&` (never moved from), a deleted
+///         or constraint-dropped `@copy`, `v[i] = v[j]` of a MOVE element (a
+///         move out of `x[i]` is not decided), and four copies the language
+///         makes on its own: `yield` of a const place, a plain `for` binder,
+///         the left operand of an `op +` derived from `op +=`, and the
+///         elements of a vector, set or map literal.
+///
 ///     Intraprocedural only, bindings only: a move through a pointer, out
 ///     of `self`, a capture, or into another function is not tracked and
 ///     stays AMT's (Stage 2), though the cast is still made.
@@ -89,7 +100,10 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
-import AST::DeclFacts::decl_is_imported
+import AST::DeclFacts::{
+    decl_is_imported,
+    place_has_const_root,
+}
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::StmtKind::StmtKind
 import AST::LangItems::LangAttrs
@@ -128,6 +142,8 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Statements
+import AST::Node::Statements::IterKind
+import AST::OperatorFacts::OperatorFacts
 import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
@@ -143,6 +159,7 @@ import Diagnostic::NoteText::type_declared_here
 import Location::SourceRange::SourceRange
 import Sema::Check::ClassLifecycle::{
     LifecycleCategory,
+    LifecycleFacts,
     LifecycleTri,
     lifecycle_of,
     moves_on_pass,
@@ -710,6 +727,24 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
                     self.dispatch_expr(asn->lhs)
                     self.dispatch_expr(asn->rhs)
+                    // `v[i] = v[j]` of a MOVE element would move out of an
+                    // element into another one. Whether a move out of
+                    // `x[i]` is allowed is not decided, and clang rejected
+                    // this shape before SequenceLowering's statement form
+                    // stopped copying the store's result, so it is
+                    // refused rather than becoming a silent move.
+                    if self._is_element(asn->lhs)
+                        && self._is_element(asn->rhs)
+                        && moves_on_pass(self.sc, asn->rhs->type_)
+                        && !asn->rhs->is_poisoned() {
+                        self._no_copy(
+                            asn->rhs,
+                            f"'{self._spelled(asn->rhs)}' is an element of a container, and moving an element out into another element is not supported; swap them, or move through a local",
+                        )
+
+                        return e
+                    }
+
                     self._assigning = true
                     self._transfer(asn->rhs, f"into '{self._spelled(asn->lhs)}'")
                     self._assigning = false
@@ -743,6 +778,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
                 var unsafe *out = RecursiveASTVisitor<MoveCheck>::dispatch_expr(self, e)
                 if bo->resolved_op != &null {
+                    self._derived_operand(bo)
                     self._operator_operands(bo->resolved_op, bo->op_via_free, bo->lhs, bo->rhs)
                 }
 
@@ -1004,6 +1040,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     }
                 }
 
+                self._for_binder_copies(n)
                 self._loop(&null, n->body, &null, true, n)
                 return s
             } case StmtKind::IndexedForStmt {
@@ -1434,7 +1471,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         // C++'s implicit move of a returned name still needs a constructor
         // that takes it, and a record whose only transfer is a `@copy` its
-        // instance dropped has none (`return a` with `a: [Mv]`, P308).
+        // instance dropped has none (`return a` with `a: [Mv]`).
         if v != &null && (!v->is_poisoned()) && (!moves_on_pass(self.sc, v->type_)) {
             var unsafe *c  = self._tu.as_value(v->type_)
             var unsafe *rd = self._tu.record_decl(c)
@@ -1626,7 +1663,19 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
-        if self._const_place(x) || self._const_root(e) {
+        // A const place cannot be moved from, and a MOVE value cannot be
+        // copied: a transfer that copies is refused here, not
+        // left to clang. `self.r` in a `const self` method and `p.r` of a
+        // `const p` are const by their root (place_has_const_root). A slot
+        // that only borrows (\p copies false) takes no copy.
+        if self._const_place(x) || self._const_root(e) || place_has_const_root(x) {
+            if copies {
+                self._no_copy(
+                    e,
+                    f"'{self._spelled(x)}' is const, so the transfer {how} cannot move it, and moving is the only transfer its type has",
+                )
+            }
+
             return
         }
 
@@ -1638,7 +1687,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// A transfer of an lvalue of a record whose copy constructor is
     /// deleted -- an imported C++ one (`var o = llvm::outs()`,
     /// `take(get_nc())`), or a Kairo class whose `@copy` is `= delete`
-    /// (P306): clang rejects the copy at codegen, so Kairo refuses it first
+    /// clang rejects the copy at codegen, so Kairo refuses it first
     /// (the semantic-independence rule). A prvalue is elided, never copied,
     /// and a reference parameter takes no transfer, so neither reaches here;
     /// a MOVE record moves (moves_on_pass) and never asks.
@@ -1685,7 +1734,20 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         if !decl_is_imported(rd) {
-            return false
+            // A Kairo record that cannot be copied, reached through a C++
+            // `T&` (an imported container's element, `cv[0]`, or a `*it`):
+            // MoveCheck moves only out of storage it tracks, never out of a
+            // reference, so the transfer stays a copy, which clang rejected
+            // An assignment of a record with no `op =` at all is
+            // ClassLifecycle's SC071E.
+            if !self._is_lref(e->type_) || self._assigning && facts->assignable == LifecycleTri::No {
+                return false
+            }
+
+            return self._no_copy(
+                e,
+                f"'{self._spelled(x)}' is a reference into storage this code does not own (a C++ 'T&'), which is never moved from, so the transfer {how} copies it",
+            )
         }
 
         var b = self.sc->diag->report(
@@ -1707,7 +1769,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// (`[Mv]`: Vector's copy needs T's, vector.k). ClassLifecycle reads
     /// the declaration, so the type is COPY and the transfer is a copy, but
     /// C++ drops the constructor from the instance and clang rejected the
-    /// copy (P308). A class declares one transfer constructor (SC057E), so
+    /// copy. A class declares one transfer constructor (SC057E), so
     /// such a record has no move to fall back on either. An assignment is
     /// reported too: the derived `op =` is constrained the same way, and no
     /// other check sees it.
@@ -1739,6 +1801,272 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             f"'{ts}' is a copy type, so the transfer {how} copies it, and it has no move to fall back on (its one transfer constructor is '@copy'): take it as a 'const' parameter or through a pointer, or build it in place",
         )
         b.note(dc.ctor->range.start, "the copy constructor is constrained here")->child_first(dc.ctor->range)
+        b.emit()
+        e->poison()
+        self.n_errored += 1
+        return true
+    }
+
+    /// The facts of the record \p t names (through a C++ reference) when it
+    /// definitely cannot be copied; null otherwise, an Unknown included. A
+    /// tuple's are its elements' (\p tf holds them).
+    priv fn _uncopyable_facts(self,
+                              t:  unsafe *Type,
+                              tf: unsafe *LifecycleFacts,
+                              rd: unsafe *(unsafe *Decl)) -> unsafe *LifecycleFacts {
+        var unsafe *c = self._tu.as_value(t)
+        var unsafe *r = self._tu.record_decl(c)
+        if c == &null || r == &null || c->is_dependent() {
+            return &null
+        }
+
+        *rd = r
+        var facts: unsafe *LifecycleFacts = &null
+        if self._tu.is_tuple(c) {
+            *tf   = lifecycle_of(self.sc)->facts_of_type(c)
+            facts = tf
+            *rd   = &null // a tuple is declared nowhere.
+        } else {
+            facts = lifecycle_of(self.sc)->facts_of(r)
+        }
+
+        return if (facts->copyable == LifecycleTri::No) => (facts) else => &null
+    }
+
+    /// SC182E at \p e, whose value is copied and cannot be: \p why says why
+    /// the copy is the transfer here. False when the type can be copied.
+    priv fn _no_copy(self, e: unsafe *Expr, const why: string) -> bool {
+        var        tf    = LifecycleFacts()
+        var rd: unsafe *Decl = &null
+        var unsafe *facts = self._uncopyable_facts(e->type_, unsafe &tf, unsafe &rd)
+        if facts == &null {
+            return false
+        }
+
+        var ts = self._tu.str(self._tu.as_value(e->type_))
+        var b  = self.sc->diag->report(
+            DiagID::SC182E,
+            e->range.start,
+            f"cannot copy a value of type '{ts}': {facts->why_not_copyable}",
+        )
+
+        b.first(e->range)
+        b.note(e->range.start, why)
+        if rd != &null {
+            b.note(rd->range.start, type_declared_here())->child_first(rd->range)
+        }
+
+        b.emit()
+        e->poison()
+        self.n_errored += 1
+        return true
+    }
+
+    /// \p e is an element reached through a user or library `op []`
+    /// (`v[i]` of a `[T]` or a class), parens aside. A builtin array's or a
+    /// pointer's subscript is not one: `arr[0] = arr[1]` compiles
+    /// as a move, and is not refused here, like every other such move.
+    priv fn _is_element(self, e: unsafe *Expr) -> bool {
+        var unsafe *x = self._tu.strip_parens(e)
+        return x != &null
+            && isa<Expressions::SubscriptExpr>(x)
+            && cast<Expressions::SubscriptExpr>(x)->resolved_op != &null
+    }
+
+    /// \p t is a C++ `T&`, as written or canonical.
+    priv fn _is_lref(self, t: unsafe *Type) -> bool {
+        if t == &null {
+            return false
+        }
+
+        if isa<CXXLValueRefType>(t) {
+            return true
+        }
+
+        return t->canonical != &null && isa<CXXLValueRefType>(canon_unqual(t->canonical))
+    }
+
+    /// `yield e` of a const lvalue: the generator copies it to a frame local
+    /// (EmitIR::_yield; the promise's `T&` cannot bind it and its `T&&`
+    /// cannot take an lvalue), so a type that cannot be copied is refused
+    /// here. A non-const lvalue is yielded by address, a temporary
+    /// by `T&&`: neither copies.
+    fn traverse_yield_stmt(self, n: *Statements::YieldStmt) -> *Statements::YieldStmt {
+        var out = RecursiveASTVisitor<MoveCheck>::traverse_yield_stmt(self, n)
+        if n->value == &null || n->value->is_poisoned() || n->value->type_ == &null {
+            return out
+        }
+
+        var unsafe *x = self._tu.strip_parens(n->value)
+        if x == &null || x->value_category != Expr::ValueCategory::LValue {
+            return out
+        }
+
+        if canon_has_const(x->type_) || self._const_place(x) || place_has_const_root(x) {
+            self._no_copy(
+                n->value,
+                f"'{self._spelled(x)}' is const, and a generator yields a const value by copying it",
+            )
+        }
+
+        return out
+    }
+
+    /// `for x in xs`: a plain binder is a copy of each element (IterLowering,
+    /// Binders), so an element type that cannot be copied is refused at the
+    /// binder rather than in clang. The element is a place for an
+    /// array, a slice and a generator (`*it.current()`), and for a C++ range
+    /// whose `*it` is an lvalue; a C++ `*it` that returns a value builds the
+    /// binder in place. `*x` binds the address and copies nothing; a
+    /// destructuring binder is not checked here.
+    priv fn _for_binder_copies(self, n: unsafe *Statements::RangedForStmt) {
+        if n->bindings.size() != 1 {
+            return
+        }
+
+        var k = n->iter_kind
+        if k != IterKind::Array && k != IterKind::Slice && k != IterKind::User && k != IterKind::Cxx {
+            return
+        }
+
+        if k == IterKind::Cxx
+            && (n->cxx_deref == &null || n->cxx_deref->value_category != Expr::ValueCategory::LValue) {
+            return
+        }
+
+        var unsafe *bn = n->bindings.get(0)
+        var unsafe *bd = bn->decl
+        if bd == &null || bd->type_ == &null || bd->is_poisoned() {
+            return
+        }
+
+        var unsafe *t = if (bd->type_->canonical != &null) => (bd->type_->canonical) else => bd->type_
+        var        tf = LifecycleFacts()
+        var rd: unsafe *Decl = &null
+        var unsafe *facts = self._uncopyable_facts(t, unsafe &tf, unsafe &rd)
+        if facts == &null {
+            return
+        }
+
+        var nm = self.sc->ctx->get_spelling(bd->name)
+        var ts = self._tu.str(self._tu.as_value(t))
+        var b  = self.sc->diag->report(
+            DiagID::SC182E,
+            bn->range.start,
+            f"cannot copy a value of type '{ts}': {facts->why_not_copyable}",
+        )
+
+        b.first(bn->range)
+        b.note(
+            bn->range.start,
+            f"the loop binder '{nm}' is a copy of each element; bind '*{nm}' for the element's address instead",
+        )
+
+        if rd != &null {
+            b.note(rd->range.start, type_declared_here())->child_first(rd->range)
+        }
+
+        b.emit()
+        bd->poison()
+        self.n_errored += 1
+    }
+
+    /// `a + b` through an `op +` derived from `op +=` copies `a`, applies
+    /// `+=` to the copy and yields it (operator-overloading.mdx, Compound
+    /// assignment; OperatorLowering::_derived_sum). A temporary `a` is
+    /// built in the copy's place; an lvalue of a type that cannot be copied
+    /// is refused here, not in clang.
+    priv fn _derived_operand(self, bo: unsafe *Expressions::BinaryOperatorExpr) {
+        var unsafe *f = dyn_cast<FunctionDecl>(bo->resolved_op)
+        if f == &null || bo->lhs == &null || bo->lhs->is_poisoned() {
+            return
+        }
+
+        var ck = OperatorFacts::compound_of(bo->op_token.kind)
+        if ck == TokenKind::TkUnknown || OperatorFacts::op_kind(f) != ck {
+            return
+        }
+
+        var unsafe *x = self._tu.strip_parens(bo->lhs)
+        if x == &null || x->value_category != Expr::ValueCategory::LValue {
+            return
+        }
+
+        var sym  = self.sc->ctx->get_spelling(bo->op_token)
+        var csym = sym + "="
+
+        if self._no_copy(
+            bo->lhs,
+            f"'{sym}' is derived from 'op {csym}': it copies its left operand '{self._spelled(x)}', applies '{csym}' to the copy and yields it; write '{self._spelled(x)} {csym} ...' to change it in place",
+        ) {
+            bo->poison()
+        }
+    }
+
+    /// A vector, set or map literal is built from a backing array, which the
+    /// container's constructor COPIES out of (ListLiteralLowering), so its
+    /// elements must be copyable. A literal of move-only elements cannot be
+    /// built yet (how move-only literals lower is the library's
+    /// design): refused here, naming the element type, not in clang.
+    fn visit_list_literal_expr(self, n: *Expressions::ListLiteralExpr) -> bool {
+        if n->elements.size() > 0 && n->type_ != &null && self._tu.is_vector_like(n->type_) {
+            self._literal_elems(unsafe (n as unsafe *Expr), self._tu.container_elem(n->type_), "vector")
+        }
+
+        return true
+    }
+
+    fn visit_set_literal_expr(self, n: *Expressions::SetLiteralExpr) -> bool {
+        if n->elements.size() > 0 && n->type_ != &null && self._tu.is_set_like(n->type_) {
+            self._literal_elems(unsafe (n as unsafe *Expr), self._tu.container_elem(n->type_), "set")
+        }
+
+        return true
+    }
+
+    fn visit_map_literal_expr(self, n: *Expressions::MapLiteralExpr) -> bool {
+        if n->entries.size() == 0 || n->type_ == &null {
+            return true
+        }
+
+        var kt: unsafe *Type = &null
+        var vt: unsafe *Type = &null
+        if !self._tu.map_key_value(n->type_, unsafe &kt, unsafe &vt) {
+            return true
+        }
+
+        if !self._literal_elems(unsafe (n as unsafe *Expr), kt, "map") {
+            self._literal_elems(unsafe (n as unsafe *Expr), vt, "map")
+        }
+
+        return true
+    }
+
+    priv fn _literal_elems(self, e: unsafe *Expr, elem: unsafe *Type, const what: string) -> bool {
+        if elem == &null || e->is_poisoned() {
+            return false
+        }
+
+        var        tf = LifecycleFacts()
+        var rd: unsafe *Decl = &null
+        var unsafe *facts = self._uncopyable_facts(elem, unsafe &tf, unsafe &rd)
+        if facts == &null {
+            return false
+        }
+
+        var ts = self._tu.str(self._tu.as_value(elem))
+        var b  = self.sc->diag->report(
+            DiagID::SC182E,
+            e->range.start,
+            f"a {what} literal of '{ts}' elements cannot be built yet: the {what} copies each element out of the literal, and '{ts}' cannot be copied ({facts->why_not_copyable})",
+        )
+
+        b.first(e->range)
+        b.note(e->range.start, f"build the {what} empty and add each element instead")
+        if rd != &null {
+            b.note(rd->range.start, type_declared_here())->child_first(rd->range)
+        }
+
         b.emit()
         e->poison()
         self.n_errored += 1

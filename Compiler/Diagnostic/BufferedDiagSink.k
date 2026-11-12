@@ -131,12 +131,45 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         self._suppress_depth = d
     }
 
-    /// Drop warnings with policy key \p key located inside \p scope.
+    /// Drop warnings with policy key \p key located inside \p scope: from
+    /// now on at emit, and those already buffered here. The second half is
+    /// what lets the parser apply a `@no_warn` to the declaration it has
+    /// just parsed (ASTParse::apply_annotations_to_decl): a warning
+    /// inside it was reported before its range was known.
     pub fn quiet_in(self, key: u32, scope: SourceRange) {
         var q = Self::QuietScope{}
         q.key   = key
         q.scope = scope
         self._quiet.push_back(q)
+
+        var kept: usize = 0
+        for var i: usize = 0; i < self._diags.size(); ++i {
+            var unsafe *d = self._diags[i]
+            if self._quieted_by(d, key, scope) {
+                kairo::std::destroy(d)
+                if self._warn_count > 0 {
+                    self._warn_count -= 1
+                }
+
+                continue
+            }
+
+            self._diags[kept] = d
+            kept += 1
+        }
+
+        while self._diags.size() > kept {
+            self._diags.pop_back()
+        }
+    }
+
+    priv fn _quieted_by(self, diag: unsafe *Diagnostic, key: u32, scope: SourceRange) -> bool {
+        if !diag->has_loc || diag->code.severity() != DiagSeverity::Warning {
+            return false
+        }
+
+        return diag_policy_key(diag->code.category(), diag->code.number()) == key
+            && scope.contains(diag->loc)
     }
 
     priv fn _quieted(self, diag: unsafe *Diagnostic) -> bool {

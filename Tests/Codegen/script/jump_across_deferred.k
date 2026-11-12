@@ -1,6 +1,6 @@
 // A `jump!` at the top level of a script that crosses the line of a
 // deferred script variable is an error, in either direction (SCRIPT.md
-// 2.7, decided). Forward, it would skip the initializer while every read
+// 2.7). Forward, it would skip the initializer while every read
 // after the label is compiled unchecked, as proven by main's order; back,
 // it would run statements again around a line the order says ran once.
 // JumpLabelCheck reports it, on the same "constant initializer" rule

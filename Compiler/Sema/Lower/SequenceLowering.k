@@ -36,7 +36,11 @@
 ///     A record prvalue leaves the block by C++17's guaranteed elision (no
 ///     copy or move is asked of the type); an lvalue result (an imported
 ///     `T&` return) leaves it as its address, dereferenced, so the node is
-///     still the place. Only an xvalue result keeps C++'s order.
+///     still the place. Only an xvalue result keeps C++'s order. A record
+///     assignment that is a whole statement ends the block inside a block
+///     of its own, so the statement expression is void: C++ would
+///     otherwise copy the store's result out, which a move-only record
+///     cannot.
 ///
 ///   \par Not rewritten
 ///     An integer `+= -= *= /= %= <<= >>=` is EmitIR's: its wrap form binds
@@ -85,6 +89,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
+    BuiltinKind,
     BuiltinType,
     RecordType,
     canon_unqual,
@@ -1241,9 +1246,24 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
                           n:       unsafe *Expr,
                           stmts:   unsafe *ListBuilder<unsafe *Stmt>,
                           as_stmt: bool) -> unsafe *Expr {
-        if as_stmt {
+        if as_stmt && self.tu.record_decl(canon_unqual(n->type_)) == &null {
             stmts->push(ExpressionStmt::create(self.ctx, n->range, n))
             return self.synth.stmt_expr(n, &*stmts, n->type_)
+        }
+
+        // A statement expression copy-initializes its value from its last
+        // expression even when the value is discarded, so a record lvalue
+        // ending the block is copied: a copy a move-only record does not
+        // have (`**p = X()`, `v[i] = v[j]`: CL001E). As a statement,
+        // a record's store ends the block inside a block of its own, which
+        // leaves the statement expression no value (void) to copy.
+        if as_stmt {
+            var unsafe *inner = CompoundStmt::create(self.ctx, n->range)
+            var one = self.list_builder<unsafe *Stmt>()
+            one.push(ExpressionStmt::create(self.ctx, n->range, n))
+            one.freeze_into(&inner->body)
+            stmts->push(unsafe (inner as unsafe *Stmt))
+            return self.synth.stmt_expr(n, &*stmts, self.sc->builtin(BuiltinKind::Void))
         }
 
         var unsafe *pt = self.sc->types->pointer(n->type_)

@@ -42,6 +42,7 @@ import AST::Node::Base::{
 }
 import AST::Node::CanonicalNodes::{
     RecordType,
+    canon_has_const,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -50,10 +51,20 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations
+import AST::Node::Expressions::{
+    ParenExpr,
+    SubscriptExpr,
+}
+import AST::Node::PrimaryExpressions::{
+    ChainExpr,
+    NamedIdentExpr,
+}
 import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
+    FixedArrayType,
     GenericParamType,
+    PointerType,
 }
 import Token::Token::Token
 
@@ -1576,4 +1587,108 @@ pub fn decl_fold_pin(d: unsafe *Decl) -> string {
     }
 
     return ""
+}
+
+/// # Const places
+
+/// \p e is a place the generated C++ sees as const although its Kairo type
+/// says nothing: a `const` binding or parameter (`const self` included), a
+/// `.field` / `.0` path from one (`p.a.b` of a `const p`), or a path through
+/// a `const` field. A field's type carries no const of its own, so C++'s
+/// view of `self.n` in a `const self` method is read off the root here.
+/// An element: of a fixed array, through to the array; through a user
+/// `op []`, a `const self` form's result decides (`*const T` is const, a
+/// slice's `*T` is not), and a `self` form's receiver does (C++ calls the
+/// `const` overload on a const one). Not through `->`, `*p`, a pointer's
+/// `p[i]` or a call: what they reach is another object, whose constness is
+/// its own type's.
+pub fn place_has_const_root(e: unsafe *Expr) -> bool {
+    var unsafe *x = e
+    for var guard: usize = 0; x != &null && guard < 256; ++guard {
+        if isa<ParenExpr>(x) {
+            x = cast<ParenExpr>(x)->inner
+            continue
+        }
+
+        if isa<SubscriptExpr>(x) {
+            var unsafe *sx = cast<SubscriptExpr>(x)
+            var unsafe *opf = dyn_cast<Declarations::FunctionDecl>(sx->resolved_op)
+            if opf != &null {
+                var unsafe *rt = opf->return_type
+                if rt == &null || rt->canonical == &null {
+                    return false
+                }
+
+                var unsafe *pt = dyn_cast<PointerType>(canon_unqual(rt->canonical))
+                if pt == &null {
+                    return false
+                }
+
+                if canon_has_const(pt->pointee) {
+                    return true
+                }
+
+                // A `const self` form decides by its result (a slice's
+                // `*T` is a mutable element). A `self` form bound on a
+                // receiver const by its root is not what C++ calls: it
+                // takes the `const` overload, so the receiver decides.
+                if opf->is_const() {
+                    return false
+                }
+
+                x = sx->base
+                continue
+            }
+
+            var unsafe *bt = if (sx->base != &null) => (sx->base->type_) else => &null
+            if bt == &null || bt->canonical == &null || !isa<FixedArrayType>(canon_unqual(bt->canonical)) {
+                return false
+            }
+
+            x = sx->base
+            continue
+        }
+
+        if !isa<ChainExpr>(x) {
+            break
+        }
+
+        var unsafe *c = cast<ChainExpr>(x)
+        for var i: usize = 0; i < c->steps.size(); ++i {
+            var unsafe *st = c->steps.get(i)
+            if st->access_kind != ChainExpr::AccessKind::Dot {
+                return false
+            }
+
+            var unsafe *fd = dyn_cast<Declarations::FieldDecl>(st->resolved_decl)
+            if fd == &null || fd->is_static() {
+                return false
+            }
+
+            if fd->is_const() {
+                return true
+            }
+        }
+
+        x = c->base
+    }
+
+    if x == &null || !isa<NamedIdentExpr>(x) {
+        return false
+    }
+
+    var unsafe *d = cast<NamedIdentExpr>(x)->resolved_decl
+    if d == &null {
+        return false
+    }
+
+    if isa<Declarations::VariableDecl>(d) {
+        return cast<Declarations::VariableDecl>(d)->is_const()
+    }
+
+    if isa<Declarations::ParamDecl>(d) {
+        return cast<Declarations::ParamDecl>(d)->is_const
+    }
+
+    return false
 }

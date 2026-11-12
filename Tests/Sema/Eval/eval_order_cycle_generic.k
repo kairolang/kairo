@@ -24,8 +24,8 @@ fn main() -> i32 {
 // EVAL.md §11 on a generic record: a computed field type, or a
 // `requires` value predicate, evaluated in the record's definition from an
 // eval item that needs an instance of the record complete has no order in
-// any instance. Checked on the primary: before, the generic record was
-// skipped and the field reached EmitPlan's toposort as an ICE. An item that
+// any instance. Checked on the primary: the generic record is not
+// skipped (the field would reach EmitPlan's toposort and fail). An item that
 // needs another record only (Fine) is no cycle.
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["

@@ -2035,11 +2035,32 @@ pub class LowerTargets {
         return "__kairo_Tag"
     }
 
+    /// The payload member of variant \p v, and its type below. A few
+    /// variant names would collide with another member of the ADT record
+    /// (P974): `Tag` with the tag enum `__kairo_Tag`, and a name ending in
+    /// `_t` with the payload type of the variant it extends (`A_t`'s field
+    /// is `A`'s type `__kairo_A_t`). Only those are escaped, to
+    /// `__kairo_f_<V>` / `__kairo_t_<V>`, so every other variant keeps the
+    /// `__kairo_<V>` spelling generated C++ and tests read. A name starting
+    /// with `f_` or `t_` is escaped too, so no escaped name can meet an
+    /// unescaped one.
+    pub static fn adt_payload_escaped(const v: string) -> bool {
+        return v == "Tag" || v.ends_with("_t") || v.starts_with("f_") || v.starts_with("t_")
+    }
+
     pub static fn adt_payload_field(const v: string) -> string {
+        if LowerTargets::adt_payload_escaped(v) {
+            return "__kairo_f_" + v
+        }
+
         return "__kairo_" + v
     }
 
     pub static fn adt_payload_type(const v: string) -> string {
+        if LowerTargets::adt_payload_escaped(v) {
+            return "__kairo_t_" + v
+        }
+
         return "__kairo_" + v + "_t"
     }
 

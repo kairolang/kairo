@@ -70,6 +70,10 @@ import AST::Node::Declarations::{
     FunctionDecl, InterfaceDecl, ModuleDecl,    ProcedureMacroDecl, StructDecl,          TestDecl,
     TransferKind, TypeAliasDecl, UnionDecl,     VariableDecl,       VisibilityGroupDecl,
 }
+import AST::Node::PrimaryExpressions::{
+    NamedIdentExpr,
+    StringLiteralExpr,
+}
 import AST::Node::Program::{
     Program,
     TopLevelItem,
@@ -84,9 +88,14 @@ import AST::Node::Statements::{
 }
 import AST::ParamMode::ParamMode
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
-import Diagnostic::Code::DiagCode
+import Diagnostic::Code::{
+    DiagCode,
+    diag_from_code,
+}
 import Diagnostic::DiagBuilder::DiagBuilder
+import Diagnostic::Engine::diag_policy_key
 import Diagnostic::Registry::DiagID
+import Diagnostic::Severity::DiagSeverity
 import Driver::TUStage::TUStage
 import Lexer::Immediate::{
     Immediate,
@@ -3415,6 +3424,59 @@ pub class ASTParse
         self._pending_trailing.clear()
     }
 
+    /// \brief `@no_warn(CODE)` over the warnings this parse already reported
+    ///        inside \p decl (P964).
+    ///
+    /// \details Sema registers every `@no_warn` scope before its first pass
+    ///          (AttributeCheck::register_suppressions), but the parser's own
+    ///          warnings (S055W on a nested nullable) are reported while the
+    ///          declaration is still being parsed, before its range or its
+    ///          attributes are known, and are drained before Sema runs. So the
+    ///          scope is applied here as well, the moment the declaration is
+    ///          complete: BufferedDiagSink::quiet_in drops the matching
+    ///          warnings still buffered. Only valid warning codes; a bad one is
+    ///          AttributeCheck's error. The lexer and preprocessor report to
+    ///          the engine directly, so their warnings are not covered.
+    priv fn _quiet_parse_warnings(self, decl: unsafe *Decl, annot: unsafe *Self::PendingAnnotations) {
+        var k_nw = self.ctx->hoisted->intern(LangAttrs::no_warn())
+        for var i: usize = 0; i < annot->entries.size(); ++i {
+            var *e = &annot->entries[i]
+            if e->kind != AnnotationKind::Attribute || e->name != k_nw {
+                continue
+            }
+
+            for var j: usize = 0; j < e->args.size(); ++j {
+                var unsafe *a    = e->args[j]
+                var        text = ""
+                if a != &null && isa<NamedIdentExpr>(a) {
+                    text = self.ctx->get_spelling(cast<NamedIdentExpr>(a)->name)
+                } else if a != &null && isa<StringLiteralExpr>(a) {
+                    var sp = self.ctx->get_spelling(a->range)
+                    if sp.size() >= 2 && sp[0] == ('"' as u8) && sp[sp.size() - 1] == ('"' as u8) {
+                        var inner: string = sp.subslice(1, sp.size() - 2)
+                        text = inner
+                    }
+                }
+
+                if text.size() == 0 {
+                    continue
+                }
+
+                var id = diag_from_code(text)
+                if id == DiagID::Invalid {
+                    continue
+                }
+
+                var c = DiagCode(id)
+                if c.severity() != DiagSeverity::Warning {
+                    continue
+                }
+
+                self.diag->quiet_in(diag_policy_key(c.category(), c.number()), decl->range)
+            }
+        }
+    }
+
     /// \brief transfers annotations and visibility to a declaration.
     pub fn apply_annotations_to_decl(self,
                                      decl:  unsafe *Decl,
@@ -3429,6 +3491,8 @@ pub class ASTParse
             var *e = &annot->entries[i]
             decl->add_annotation(e->kind, e->name, e->range, e->args)
         }
+
+        self._quiet_parse_warnings(decl, annot)
 
         // `@copy fn T(self, other: Self)` / `@move ...`: the transfer-ctor
         // attribute IS the TransferKind. Everything downstream (ClassLifecycle,

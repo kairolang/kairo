@@ -45,6 +45,7 @@ import AST::Node::Base::{
     Expr,
     Type,
 }
+import AST::Node::CanonicalNodes::canon_unqual
 import AST::Node::Casting::{
     cast,
     dyn_cast,
@@ -53,12 +54,14 @@ import AST::Node::Declarations::{
     FunctionDecl,
     VariableDecl,
 }
+import AST::Node::Expressions::ListLiteralExpr
 import AST::Node::PrimaryExpressions::StringLiteralExpr
 import AST::Node::Program::{
     TopLevelItem,
     TopLevelKind,
 }
 import AST::Node::Statements::DeclStmt
+import AST::Node::Types::FixedArrayType
 import Location::SourceRange::SourceRange
 import Memory::ArenaList::ArenaList
 import Sema::Check::ConstEval::ConstEval
@@ -223,10 +226,31 @@ pub class ScriptRules {
                 return true
             } case ExprKind::StringLiteralExpr {
                 return !cast<StringLiteralExpr>(x)->is_format()
+            } case ExprKind::ListLiteralExpr {
+                return self._constant_array(cast<ListLiteralExpr>(x), t)
             } default {
                 return self._constant_int(x, t)
             }
         }
+    }
+
+    /// A list literal initializing a fixed array, every element constant:
+    /// C++'s static `{...}` initializer. A deferred array would need
+    /// `Nullable<T[N]>` storage, which the library cannot build.
+    priv fn _constant_array(self, l: unsafe *ListLiteralExpr, t: unsafe *Type) -> bool {
+        var unsafe *a = dyn_cast<FixedArrayType>(canon_unqual(t))
+        if a == &null || a->element == &null {
+            return false
+        }
+
+        var unsafe *et = if (a->element->canonical != &null) => (a->element->canonical) else => a->element
+        for var i: usize = 0; i < l->elements.size(); ++i {
+            if !self.constant(l->elements[i], et) {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// An integer ConstEval folds and that fits \p t (a `-1`, an `eval`

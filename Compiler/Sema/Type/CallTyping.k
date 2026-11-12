@@ -92,7 +92,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    FunctionDecl, GenericParamDecl, InterfaceDecl, ModuleDecl, ParamDecl, TransferKind,
+    FnBodyKind, FunctionDecl, GenericParamDecl, InterfaceDecl, ModuleDecl, ParamDecl, TransferKind,
     TypeAliasDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
@@ -126,6 +126,7 @@ import Sema::Check::ClassLifecycle::moves_on_pass
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::Type::Conversion::ImplicitRank
+import Sema::Type::GenericArrayCopy::GenericArrayCopyScan
 import Sema::Type::MemberTyping::{
     SUB_RECV,
     SUB_SOFT,
@@ -469,6 +470,7 @@ pub class <T: type> CallTyping {
                         f:    unsafe *FunctionDecl,
                         args: unsafe *cxx::std::vector<ArgInfo>,
                         r:    *OvlResult) {
+        self._array_copied_in_body(f, args, r)
         var params = cxx::std::vector<unsafe *ParamDecl>()
         for var i: usize = 0; i < f->params.size(); ++i {
             var unsafe *p = f->params[i]
@@ -745,6 +747,104 @@ pub class <T: type> CallTyping {
             a->carrier->value_category = a->expr->value_category // the wrapper IS its value.
             self.dyn()->finish(a->carrier, a->expr->type_)
         }
+    }
+
+    /// A call that binds a type parameter of \p f to a fixed array, where
+    /// \p f's body copies a value of that parameter or returns one (P971):
+    /// the body was typed once, over T, and only this instance copies an
+    /// array, which is not copyable (SC083E, as for a concrete one). Said at
+    /// the argument T is deduced from (else the first), naming the generic,
+    /// the parameter and the array, with a note at the copy.
+    priv fn _array_copied_in_body(self,
+                                  f:    unsafe *FunctionDecl,
+                                  args: unsafe *cxx::std::vector<ArgInfo>,
+                                  r:    *OvlResult) {
+        if f == &null || r->ded.bindings.size() == 0 || args->size() == 0 {
+            return
+        }
+
+        if decl_is_imported(unsafe (f as unsafe *Decl)) {
+            return
+        }
+
+        // Only a call that binds some parameter to an array is scanned.
+        var any_array = false
+        for var i: usize = 0; i < r->ded.bindings.size(); ++i {
+            var unsafe *bt = r->ded.bindings[i].ty
+            if bt != &null && isa<FixedArrayType>(canon_unqual(bt)) {
+                any_array = true
+                break
+            }
+        }
+
+        if !any_array {
+            return
+        }
+
+        var scan = GenericArrayCopyScan(r->ded.bindings)
+        var site: unsafe *Expr = &null
+        var copied = ""
+        if f->return_type != &null && scan.array_param(f->return_type) {
+            copied = "it returns"
+        } else if f->body_kind == FnBodyKind::Block && f->body_block != &null {
+            scan.dispatch_stmt(f->body_block)
+            site   = scan.site
+            copied = scan.copied
+        }
+
+        if scan.array == &null || copied.size() == 0 {
+            return
+        }
+
+        if site == &null && copied != "it returns" {
+            return
+        }
+
+        // The argument T is deduced from: the first whose parameter is T.
+        var unsafe *at = (*args)[0].expr
+        for var i: usize = 0; i < args->size() && i < r->arg_to_param.size(); ++i {
+            var pi = r->arg_to_param[i]
+            if pi == ARG_PACK_TAIL || pi == ARG_C_VARARG {
+                continue
+            }
+
+            var k = pi
+            if f->params.size() > 0 && f->params[0] != &null && f->params[0]->is_self && r->receiver_bound {
+                k += 1
+            }
+
+            if k < f->params.size() && f->params[k] != &null && f->params[k]->type_ != &null {
+                var probe = GenericArrayCopyScan(r->ded.bindings)
+                if probe.array_param(f->params[k]->type_) && probe.param == scan.param {
+                    at = (*args)[i].expr
+                    break
+                }
+            }
+        }
+
+        if at == &null || at->is_poisoned() {
+            return
+        }
+
+        var fname = self.dyn()->sc->ctx->get_spelling(f->name)
+        var tname = if (scan.param->param_name != &null) => (self.dyn()->sc->ctx->get_spelling(scan.param->param_name->name))
+                    else => "T"
+        var arr   = self.dyn()->tu.str(scan.array)
+        var b = self.dyn()->sc->diag->report(
+            DiagID::SC083E,
+            at->range.start,
+            f"'{fname}' copies a '{tname}', which is '{arr}' here, and an array is not copyable; pass a slice, or a pointer to the array",
+        )
+
+        b.first(at->range)
+        if site != &null {
+            b.note(site->range.start, f"{copied} a '{tname}'")->child_first(site->range)
+        } else if f->return_type != &null {
+            b.note(f->return_type->range.start, f"'{fname}' returns its '{tname}' by value")->child_first(f->return_type->range)
+        }
+
+        b.emit()
+        at->poison()
     }
 
     /// \p p, a Kairo parameter whose declared type is generic, takes \p pt,

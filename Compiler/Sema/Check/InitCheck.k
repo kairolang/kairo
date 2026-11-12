@@ -282,10 +282,18 @@ pub class InitCheck derives RecursiveASTVisitor<InitCheck> {
         )
 
         b.first(e->range)
-        b.note(
-            ctor->range.start,
-            f"'{nm}' constructor declared here; call it instead: '{nm}(...)'",
-        )->child_first(ctor->range)
+        if ctor->transfer == TransferKind::NotTransfer {
+            b.note(
+                ctor->range.start,
+                f"'{nm}' constructor declared here; call it instead: '{nm}(...)'",
+            )->child_first(ctor->range)
+        } else {
+            b.note(
+                ctor->range.start,
+                f"'{nm}' declares a transfer constructor here; give it a constructor to call, or remove this one to build it from braces",
+            )->child_first(ctor->range)
+        }
+
         b.emit()
         e->poison()
     }
@@ -401,8 +409,8 @@ pub class InitCheck derives RecursiveASTVisitor<InitCheck> {
         return unsafe &cast<StructDecl>(d)->methods
     }
 
-    /// A constructor: named after the record, not an operator, not a
-    /// transfer (`@copy`/`@move` build from another value, not from none).
+    /// A constructor: named after the record, not an operator, not an ADT
+    /// variant's. Transfer constructors (`@copy`/`@move`) included.
     priv fn _is_ctor(self, m: unsafe *FunctionDecl, const nm: string) -> bool {
         if m == &null || m->is_operator {
             return false
@@ -415,17 +423,31 @@ pub class InitCheck derives RecursiveASTVisitor<InitCheck> {
         return self.sc->ctx->get_spelling(m->name) == nm
     }
 
+    /// The constructor a brace initializer is refused for: an ordinary one
+    /// first (the note says to call it), else a transfer constructor. A
+    /// `@copy` or `@move` alone counts too: C++ makes any
+    /// user-declared constructor, a defaulted or deleted transfer included,
+    /// a non-aggregate, and EmitIR has no lowering from the braces to it.
     priv fn _first_ctor(self, d: unsafe *Decl) -> unsafe *FunctionDecl {
-        var        nm  = self._record_name(d)
-        var unsafe *ms = self._methods(d)
+        var        nm       = self._record_name(d)
+        var unsafe *ms      = self._methods(d)
+        var xfer: unsafe *FunctionDecl = &null
         for var i: usize = 0; i < ms->size(); ++i {
             var unsafe *m = (*ms)[i]
-            if self._is_ctor(m, nm) && m->transfer == TransferKind::NotTransfer {
+            if !self._is_ctor(m, nm) {
+                continue
+            }
+
+            if m->transfer == TransferKind::NotTransfer {
                 return m
+            }
+
+            if xfer == &null {
+                xfer = m
             }
         }
 
-        return &null
+        return xfer
     }
 
     priv fn _takes_args(self, m: unsafe *FunctionDecl) -> bool {

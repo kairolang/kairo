@@ -101,7 +101,7 @@ import AST::Context::SymbolTable::OverloadCell
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
     decl_cxx_spelling, decl_extension_of, decl_fold_pin, decl_generic_params, decl_is_imported,      decl_is_instance,
-    decl_name_tok,     decl_pattern,  param_is_type_pack,  param_type_pack_param,
+    decl_name_tok,     decl_pattern,  param_is_type_pack,  param_type_pack_param, place_has_const_root,
 }
 import AST::Kind::DeclKind::{
     DeclKind,
@@ -2590,12 +2590,15 @@ pub class EmitIR {
         // lives to the end of the full `co_yield` expression and so across
         // the suspension). A CONST lvalue binds neither, so it is copied to
         // a frame local first: the local lives until the block closes, after
-        // the generator resumes, and is what the reader sees (P324).
+        // the generator resumes, and is what the reader sees (P324). Const
+        // by its type, or by its root (P962): `self.n` in a `const self`
+        // generator, `p.n` of a `const p`, whose types say nothing. A
+        // move-only one is MoveCheck's SC182E before this.
         var unsafe *elem = self._yield_elem(self._cur_fn)
         var unsafe *vt   = n->value->type_
         if n->value->value_category == Expr::ValueCategory::LValue
             && vt != &null
-            && canon_has_const(vt)
+            && (canon_has_const(vt) || place_has_const_root(n->value) || self._const_place_call(n->value))
             && (!self._needs_cast(n->value, elem, &null)) {
             var yv = LowerTargets::yield_value_tmp()
             self._cg->sink->spell(n->range, "{ auto " + yv + " = (")
@@ -2609,6 +2612,42 @@ pub class EmitIR {
         self._value(n->value, elem)
         self._cg->sink->spell(n->range, ")")
         self._cg->sink->synth_at_end(n->range, clang::tok::semi)
+    }
+
+    /// \p e is a lowered `x[i]` through a place `op []` C++ sees as a
+    /// `const T&` (CXXSpell::return_spelling), which neither `yield_value`
+    /// binds: the form returns `*const T`, or it is a `self` form on a
+    /// receiver const by its root (`self.items[0]` in a `const self`
+    /// generator), where C++ picks the `const` overload instead.
+    priv fn _const_place_call(self, e: unsafe *Expr) -> bool {
+        var unsafe *x = e
+        while x != &null && isa<ParenExpr>(x) {
+            x = cast<ParenExpr>(x)->inner
+        }
+
+        var unsafe *c = dyn_cast<CallExpr>(x)
+        if c == &null || c->callee == &null {
+            return false
+        }
+
+        var unsafe *f = dyn_cast<FunctionDecl>(self._callee_decl(c->callee))
+        if !CXXSpell::is_place_operator(f) {
+            return false
+        }
+
+        var unsafe *pt = cast<PointerType>(canon_unqual(f->return_type->canonical))
+        if canon_has_const(pt->pointee) {
+            return true
+        }
+
+        // A `const self` form is what C++ calls on a const receiver too, so
+        // its result decides (a slice's `*T` is a mutable element).
+        if f->is_const() {
+            return false
+        }
+
+        var unsafe *ch = dyn_cast<ChainExpr>(c->callee)
+        return ch != &null && ch->base != &null && place_has_const_root(ch->base)
     }
 
     /// `T` of a generator's Yield<T> return canonical, or null (nothing to

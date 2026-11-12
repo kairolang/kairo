@@ -692,6 +692,26 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             }
         }
 
+        // A slice constant needs a compile-time Slice, and Lib/builtin's has
+        // no constexpr constructor: the declaration reached clang ("Slice<int>
+        // is not literal"), or an ICE for a file-scope one. Refused at
+        // the declaration until the library has one; an array (`[T; N]`) is
+        // the compile-time form today.
+        if n->is_eval() && n->type_ != &null && n->type_->canonical != &null
+            && self.tu.is_slice(n->type_->canonical) {
+            var nm = self.sc->ctx->get_spelling(n->name)
+            var b = self.sc->diag->report(
+                DiagID::SC116E,
+                n->name.range.start,
+                f"an 'eval' constant of slice type '{self.tu.str(n->type_->canonical)}' is not yet supported: a slice has no compile-time form; declare '{nm}' as a fixed array",
+            )
+
+            b.first(n->name.range)
+            b.emit()
+            n->poison()
+            return n
+        }
+
         if n->is_eval() && n->init == &null {
             self._needs_init(n->name, n->range)
         }
@@ -865,7 +885,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         var nm = self.tu.decl_name(unsafe (n as unsafe *Decl))
         // eval.mdx: a compile-time object is never destroyed, so an eval
         // destructor never runs. C++ rejects a `consteval` destructor, and
-        // that clang error on the emitted text was all the user saw (P298).
+        // that clang error on the emitted text was all the user saw.
         if n->is_operator && n->op_token.size() > 0 && n->op_token[0].kind == TokenKind::KwFinally {
             var b = self.sc->diag->report(
                 DiagID::SC290E,
@@ -950,7 +970,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
     /// "an 'f256' value" / "an 'f512' value" when \p t is one, else "". The
     /// two are library classes whose every operation, literals included,
-    /// is a run-time call into num/softfloat.k (P722): C++ has no
+    /// is a run-time call into num/softfloat.k: C++ has no
     /// compile-time form of them, and clang would say so only about the
     /// emitted text ("non-literal type").
     priv fn _wide_float(self, t: unsafe *Type) -> string {
@@ -972,7 +992,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             return "an 'f512' value"
         }
 
-        // The f8 classes (std/rt/Float8.k, P942) are no literal types either.
+        // The f8 classes (std/rt/Float8.k) are no literal types either.
         if k == BuiltinKind::F8E4M3 {
             return "an 'f8e4m3' value"
         }
@@ -1768,7 +1788,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             return &null
         }
 
-        // An f256 / f512 value is a run-time call even as a literal (P722).
+        // An f256 / f512 value is a run-time call even as a literal.
         if self._wide_float(e->type_).size() > 0 {
             return e
         }

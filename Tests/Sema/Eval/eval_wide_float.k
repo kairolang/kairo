@@ -16,7 +16,7 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // f256 / f512 are library classes whose every operation is a run-time call
-// (P722): an eval context holding one is SC116E at the Kairo source, not
+// so an eval context holding one is SC116E at the Kairo source, not
 // clang's "constexpr variable cannot have non-literal type" on the emitted
 // text.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s

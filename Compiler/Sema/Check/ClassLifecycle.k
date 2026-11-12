@@ -90,7 +90,9 @@
 ///     neither has no category of its own to declare: C++ generates its
 ///     transfers from its bases and fields, so its category is the weakest
 ///     they allow, read off the folded facts exactly as an ADT's is
-///     (_folded_category). A class holding a move-only field is MOVE, and one
+///     (_folded_category). So does an IMPORTED record that declares both
+///     transfers `= default` (std::pair): C++ defines such a copy over a
+///     move-only member as deleted and keeps the move (P980). A class holding a move-only field is MOVE, and one
 ///     holding a std::mutex is NON_TRANSFER.
 ///
 ///     Facts are computed on demand and memoized per TU, keyed on the
@@ -1113,7 +1115,22 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         // transfer open (a provided one is pinned above, so it never is).
         // NON_TRANSFER stands regardless: no field brings a deleted transfer
         // back.
-        if !f->user_transfer {
+        // An imported record whose transfers are all `= default` is the
+        // same case as one that declares none (P980): C++ defines a
+        // defaulted copy that would copy a move-only member as DELETED and
+        // keeps the defaulted move, so `std::pair<Mv, i32>` is MOVE. Both
+        // must be declared: with the copy alone, C++ declares no move and an
+        // rvalue falls back to the deleted copy. Only a
+        // Kairo record keeps what it declared over its fields (a defaulted
+        // `@copy` over a move-only field is SC129E there).
+        var imported_defaulted = user_copy
+            && user_move
+            && (!copy_provided)
+            && (!move_provided)
+            && (!copy_deleted)
+            && (!move_deleted)
+            && decl_is_imported(d)
+        if (!f->user_transfer) || imported_defaulted {
             f->category = self._folded_category(f)
         } else if f->category != LifecycleCategory::NonTransfer
             && (f->copyable == LifecycleTri::Unknown || f->movable == LifecycleTri::Unknown) {

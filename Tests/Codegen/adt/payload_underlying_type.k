@@ -3,9 +3,9 @@
 // and a u8 payload, two bytes, and `W`'s u16 tag makes it four although its
 // two variants would fit the u8 tag an undeclared one gets.
 //
-// Was XFAIL on the ticket "[Sema/Codegen] A payload enum's declared
-// underlying type is ignored":
-// the tag was always u32 and `sizeof E` 8.
+// A payload enum's declared underlying type sets its tag:
+//
+// the tag is not always u32 and `sizeof E` is not always 8.
 
 enum E derives u8 {
     A { x: u8 },
