@@ -67,6 +67,7 @@ ffi "c++" import "string"
 ffi "c++" import "vector"
 ffi "c++" import "memory"
 
+import API::EnvNames::EnvNames
 import API::HostSystem::HostSystem
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
 import Diagnostic::ClangDiagAdapter::ClangDiagAdapter
@@ -301,15 +302,15 @@ pub class ClangJobs {
         }
 
         var sys = cxx::std::vector<string>()
-        for var d: string in HostSystem::env_list("C_INCLUDE_PATH") {
+        for var d: string in HostSystem::env_list(EnvNames::c_include_path()) {
             sys.push_back(d)
         }
 
-        for var d: string in HostSystem::env_list("CPLUS_INCLUDE_PATH") {
+        for var d: string in HostSystem::env_list(EnvNames::cplus_include_path()) {
             sys.push_back(d)
         }
 
-        for var d: string in HostSystem::env_list("OBJC_INCLUDE_PATH") {
+        for var d: string in HostSystem::env_list(EnvNames::objc_include_path()) {
             sys.push_back(d)
         }
 
@@ -333,7 +334,7 @@ pub class ClangJobs {
             }
         }
 
-        for var d: string in HostSystem::env_list("CPATH") {
+        for var d: string in HostSystem::env_list(EnvNames::cpath()) {
             var want       = "-I" + d
             var at:  usize = 0
             for var k: usize = 1; k < n; ++k {

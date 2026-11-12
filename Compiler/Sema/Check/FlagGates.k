@@ -63,6 +63,7 @@ import AST::Node::Statements::{
     ffi_lang_of_literal,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import Config::ResourceLayout::ResourceLayout
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::SemaContext::SemaContext
@@ -686,20 +687,7 @@ pub class FlagGates derives RecursiveASTVisitor<FlagGates> {
             return false
         }
 
-        var root = ci->pp.std_dir
-        if root.empty() && !ci->target.resource_dir.empty() {
-            root = ci->target.resource_dir + "/std"
-        }
-
-        if root.empty() {
-            return false
-        }
-
-        if !root.ends_with("/") {
-            root += "/"
-        }
-
-        return self.sc->ctx->sm->get_filename(fid).starts_with(root)
+        return ResourceLayout::is_std_file(ci, self.sc->ctx->sm->get_filename(fid))
     }
 
     priv fn _deny(self,

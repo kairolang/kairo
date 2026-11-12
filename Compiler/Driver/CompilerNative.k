@@ -32,6 +32,7 @@ import Command::FlagTranslator::{
     ClangSpelling,
     FlagTranslator,
 }
+import Config::ResourceLayout::ResourceLayout
 import Diagnostic::Engine::DiagEngine
 import Diagnostic::Registry::DiagID
 import Driver::CompilerCache
@@ -149,7 +150,7 @@ extend CompilerInstance {
         // would shadow a user's own copy).
         var extra = cxx::std::vector<string>()
         extra.push_back("-I")
-        extra.push_back(Path::join_str(self._runtime_root(), "rt/mimalloc/include"))
+        extra.push_back(Path::join_str(self._runtime_root(), ResourceLayout::mimalloc_include_subdir()))
 
         // Side by side on the pool: each file is its own CompilerInstance
         // (ClangBackend::run_native) printing into its own log. The
@@ -586,7 +587,7 @@ extend CompilerInstance {
     prot fn _runtime_root(self) -> string {
         var broot = self.invocation()->pp.builtins_dir
         if broot.empty() && !self.invocation()->target.resource_dir.empty() {
-            broot = (Path(self.invocation()->target.resource_dir) / "builtin").full_path()
+            broot = (Path(self.invocation()->target.resource_dir) / ResourceLayout::builtin_subdir()).full_path()
         }
 
         if broot.empty() {
@@ -608,7 +609,7 @@ extend CompilerInstance {
             return out
         }
 
-        var root                      = Path::join_str(rroot, "rt")
+        var root                      = Path::join_str(rroot, ResourceLayout::rt_subdir())
         var ec:  cxx::std::error_code
         var it  = llvm::sys::fs::directory_iterator(llvm::Twine(kairo::sref(root)), &ec, true)
         var end = llvm::sys::fs::directory_iterator()
@@ -657,8 +658,8 @@ extend CompilerInstance {
         }
 
         var subs = cxx::std::vector<string>()
-        subs.push_back("rt/mimalloc/src")
-        subs.push_back("rt/mimalloc/include")
+        subs.push_back(ResourceLayout::mimalloc_src_subdir())
+        subs.push_back(ResourceLayout::mimalloc_include_subdir())
         for *sub in subs {
             var root                      = Path::join_str(rroot, (*sub))
             var ec:  cxx::std::error_code

@@ -139,6 +139,7 @@ import AST::Node::Types::{
 }
 import AST::OperatorFacts::OperatorFacts
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import Config::ResourceLayout::ResourceLayout
 import Diagnostic::Code::DiagCode
 import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
@@ -1243,20 +1244,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             return false
         }
 
-        var root = ci->pp.std_dir
-        if root.empty() && !ci->target.resource_dir.empty() {
-            root = ci->target.resource_dir + "/std"
-        }
-
-        if root.empty() {
-            return false
-        }
-
-        if !root.ends_with("/") {
-            root += "/"
-        }
-
-        return self.sc->ctx->sm->get_filename(fid).starts_with(root)
+        return ResourceLayout::is_std_file(ci, self.sc->ctx->sm->get_filename(fid))
     }
 
     /// # subset rules (§2.2)

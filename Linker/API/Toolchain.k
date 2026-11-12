@@ -2,7 +2,7 @@
 ///
 ///   Toolchain: finds the libraries, crt objects and runtime a link needs.
 ///
-///   This is the part of clang's driver kairo used to borrow through
+///   This replaces what clang's driver reports through
 ///   `clang++ -###`. It reads the filesystem and the environment, nothing
 ///   else. What it cannot find is reported as a LinkMessage, never guessed.
 ///
@@ -92,6 +92,7 @@ ffi "c++" import "llvm/TargetParser/Triple.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import API::EnvNames::EnvNames
 import API::FS::LinkFS
 import API::LinkDiag::{
     LinkDiag,
@@ -101,11 +102,15 @@ import API::LinkDiag::{
 import API::SysrootManifest::SysrootManifest
 import API::Text::LinkText
 import Config::Linker::LinkerOptions
-import Config::Target::TargetOptions
+import Config::Target::{
+    ObjectFormat,
+    TargetOptions,
+    object_format_name,
+}
 
 pub class Toolchain {
     pub var ok:     bool   = false
-    pub var format: string         ///< ELF | Mach-O | COFF | Wasm
+    pub var format: ObjectFormat   ///< Elf | MachO | Coff | Wasm
 
     pub var triple: string        ///< effective, as the driver resolved it
     pub var arch:   string        ///< canonical: x86_64 i386 aarch64 arm riscv64 ...
@@ -170,16 +175,13 @@ pub class Toolchain {
             return false
         }
 
-        var fmt = t->object_format
-        if fmt == "wasm" || fmt == "WASM" {
-            fmt = "Wasm"
-        }
-
-        if fmt != "ELF" && fmt != "Mach-O" && fmt != "COFF" && fmt != "Wasm" {
+        var fmt = t->object_format_kind
+        if fmt != ObjectFormat::Elf && fmt != ObjectFormat::MachO && fmt != ObjectFormat::Coff
+            && fmt != ObjectFormat::Wasm {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Fatal,
-                    f"linking {t->object_format} output for {t->describe()} is not implemented; only ELF, Mach-O, COFF and Wasm targets link",
+                    f"linking {object_format_name(fmt)} output for {t->describe()} is not implemented; only ELF, Mach-O, COFF and Wasm targets link",
                 ),
             )
 
@@ -187,9 +189,9 @@ pub class Toolchain {
         }
 
         self.format = fmt
-        var darwin = fmt == "Mach-O"
-        var coff   = fmt == "COFF"
-        var wasm   = fmt == "Wasm"
+        var darwin = fmt == ObjectFormat::MachO
+        var coff   = fmt == ObjectFormat::Coff
+        var wasm   = fmt == ObjectFormat::Wasm
 
         self.triple = t->effective_triple
         self.arch   = Toolchain::canon_arch(t->arch_name)
@@ -297,7 +299,7 @@ pub class Toolchain {
 
         self.sysroot = sr
 
-        var mpath = LinkText::join(sr, "SYSROOT.toml")
+        var mpath = LinkText::join(sr, SysrootManifest::file_name())
         if LinkFS::is_file(mpath) {
             if !SysrootManifest::load(mpath, &self.manifest) {
                 msgs.push_back(
@@ -582,7 +584,7 @@ pub class Toolchain {
         self.pass_sysroot = false
 
         if self.sysroot == "/" {
-            for var d: string in Toolchain::_split(LinkFS::env("LIB"), ';' as u8) {
+            for var d: string in Toolchain::_split(LinkFS::env(EnvNames::lib()), ';' as u8) {
                 if !d.empty() {
                     self._add_dir(LinkText::strip_slash(d))
                 }
@@ -695,7 +697,7 @@ pub class Toolchain {
     }
 
     priv fn _pick_runtimes(self, o: *LinkerOptions, @inout msgs: cxx::std::vector<LinkMessage>) {
-        if self.format == "Mach-O" {
+        if self.format == ObjectFormat::MachO {
             if !o->rtlib.empty() && o->rtlib != "compiler-rt" {
                 msgs.push_back(
                     LinkDiag::make(
@@ -752,7 +754,7 @@ pub class Toolchain {
             return
         }
 
-        if self.format == "Wasm" {
+        if self.format == ObjectFormat::Wasm {
             var rt = o->rtlib
             if rt.empty() && self.has_manifest {
                 rt = self.manifest.rtlib
@@ -907,7 +909,7 @@ pub class Toolchain {
         }
 
         // llvm-mingw and ksys keep the builtins beside the CRT, old -<arch> layout.
-        if self.format == "COFF" || self.format == "Wasm" {
+        if self.format == ObjectFormat::Coff || self.format == ObjectFormat::Wasm {
             for var d: string in self.lib_dirs {
                 if self._try_rt(d, f"-{rtarch}") {
                     return
@@ -1051,7 +1053,7 @@ pub class Toolchain {
         Toolchain::_push_unique(&out, f"{t->arch_name}-unknown-{t->os_name}{env}")
         Toolchain::_push_unique(&out, f"{t->arch_name}-{t->os_name}{env}")
         Toolchain::_push_unique(&out, f"{t->arch_name}-pc-{t->os_name}{env}")
-        if self.format == "COFF" {
+        if self.format == ObjectFormat::Coff {
             Toolchain::_push_unique(&out, f"{t->arch_name}-w64-windows-gnu")
             Toolchain::_push_unique(&out, f"{t->arch_name}-w64-mingw32")
         }
@@ -1075,7 +1077,7 @@ pub class Toolchain {
         }
 
         // base is the host's own libc++; only a host-format link may take it.
-        if self.format == "ELF" || self.format == "Mach-O" {
+        if self.format == ObjectFormat::Elf || self.format == ObjectFormat::MachO {
             cands.push_back(base)
         }
 
@@ -1393,7 +1395,7 @@ pub class Toolchain {
             out.push_back(f"manifest:        {self.manifest.path}")
         }
 
-        if self.format == "Mach-O" {
+        if self.format == ObjectFormat::MachO {
             out.push_back(
                 f"platform:        {self.platform} {self.min_version} (SDK {self.sdk_version})",
             )
@@ -1402,7 +1404,7 @@ pub class Toolchain {
             out.push_back(f"rtlib:           {self.rtlib}")
             out.push_back(f"builtins:        {Toolchain::or_none(self.builtins)}")
             out.push_back(f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}")
-        } else if self.format == "COFF" {
+        } else if self.format == ObjectFormat::Coff {
             out.push_back(f"libc:            {self.libc}")
             out.push_back(f"rtlib:           {self.rtlib}")
             out.push_back(f"unwindlib:       {self.unwindlib}")
@@ -1413,7 +1415,7 @@ pub class Toolchain {
             if self.libc == "mingw" {
                 out.push_back(f"emulation:       {Toolchain::or_none(self.emulation)}")
             }
-        } else if self.format == "Wasm" {
+        } else if self.format == ObjectFormat::Wasm {
             out.push_back(f"libc:            {Toolchain::or_none(self.libc)}")
             out.push_back(f"rtlib:           {self.rtlib}")
             out.push_back(f"unwindlib:       {self.unwindlib}")
@@ -1675,7 +1677,7 @@ pub class Toolchain {
 
         // The rest are glibc's own: the soname from the arch's shlib-versions
         // (Z4's glibc/abilists/targets.toml `ld` agrees), the directory from
-        // its configure's libc_cv_rtlddir, /lib where it sets none (P704).
+        // its configure's libc_cv_rtlddir, /lib where it sets none.
         if a == "powerpc" {
             return "/lib/ld.so.1"
         }
@@ -2063,7 +2065,7 @@ pub class Toolchain {
             return ""
         }
 
-        var sdkroot = LinkText::strip_slash(LinkFS::env("SDKROOT"))
+        var sdkroot = LinkText::strip_slash(LinkFS::env(EnvNames::sdkroot()))
         if !sdkroot.empty()
             && LinkFS::is_dir(sdkroot)
             && LinkText::starts_with(LinkFS::filename(LinkFS::real(sdkroot)), pname) {
@@ -2071,7 +2073,7 @@ pub class Toolchain {
         }
 
         var devs = cxx::std::vector<string>()
-        var dd   = LinkText::strip_slash(LinkFS::env("DEVELOPER_DIR"))
+        var dd   = LinkText::strip_slash(LinkFS::env(EnvNames::developer_dir()))
         if !dd.empty() {
             devs.push_back(dd)
         }
@@ -2161,7 +2163,7 @@ pub class Toolchain {
     /// \details A macOS triple with no version (`x86_64-apple-macosx`,
     ///          `arm64-apple-darwin`) makes clang assume Mac OS X 10.4, which
     ///          has no thread-local storage: Lib/builtin's allocator state is
-    ///          thread_local, so every Kairo program failed CL001E (P746). The
+    ///          thread_local, so every Kairo program failed CL001E. The
     ///          floor is the deployment target the darwin roots are built for
     ///          (darwin-sysroot.sh, the recipe's min_macos): 11.0 on arm64 /
     ///          arm64e, the first macOS for Apple silicon, and 10.15 on

@@ -22,6 +22,7 @@
 ffi "c++" import "vector"
 
 import API::Text::LinkText
+import Sysroot::KccArgv::KccArgv
 import Sysroot::Names::SysTarget
 import Sysroot::Outcome::SysOutcome
 import Sysroot::Share::{
@@ -114,17 +115,11 @@ pub class StageCtx {
         return exe
     }
 
-    /// kcc, as every stage spawns it: always with --sysroot, so its own
-    /// sysroot hook never re-enters ksys for the target being built, and
-    /// --sysroot-exact, so a root bundled beside kcc for the same triple
-    /// never replaces the stage's own headers (P610).
+    /// kcc, as every stage spawns it (KccArgv::push_target).
     pub fn kcc(self, const sysroot: string) -> cxx::std::vector<string> {
         var a = cxx::std::vector<string>()
         a.push_back(self.tool("kcc"))
-        a.push_back("--target=" + self.target.clang_triple)
-        a.push_back("--sysroot=" + sysroot)
-        a.push_back("-Xkairo")   // kcc takes kairo-only words this way
-        a.push_back("--sysroot-exact")
+        KccArgv::push_target(&a, self.target.clang_triple, sysroot)
         return a
     }
 }

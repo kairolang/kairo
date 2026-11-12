@@ -5,7 +5,13 @@
 ///   The flat TOML subset it needs: `key = "string"`, `key = true|false`,
 ///   `key = ["a", "b"]` (arrays may span lines), `#` comments. Table headers
 ///   are skipped; the manifest is flat. Unknown keys are ignored: they belong
-///   to kbld or ksys, not the linker.
+///   to kbld or ksys, not the linker. Three such keys are written by ksys's
+///   SDK staging (Sysroot/Sdk.k) and the release scripts for other readers:
+///   `redistributable = false` and `local_only = [...]` are what
+///   Scripts/package_release.py (redistributable()) refuses to ship, and
+///   `msvc_crt = "static"` records for a human the CRT the root's libraries
+///   were built against (/MT, the COFF flavour's default, Flavor/COFF.k);
+///   nothing reads it.
 ///
 ///   Relative paths in the manifest resolve against the manifest's own
 ///   directory (`sysroot = "."` is that directory), and every other path
@@ -21,6 +27,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/KShims.hh"
 ffi "c++" import "vector"
 
 import API::FS::LinkFS
@@ -300,6 +307,20 @@ pub class SysrootManifest {
     pub var libcxx_link:  cxx::std::vector<string>
     pub var cc_isolation: cxx::std::vector<string>
     pub var cc_defines:   cxx::std::vector<string> ///< -D names the prebuilt libc++ was built with
+
+    /// The manifest's name inside a sysroot: what marks a directory as one.
+    pub static fn file_name() -> string {
+        return "SYSROOT.toml"
+    }
+
+    /// The `llvm_version` a root this toolchain writes records: the LLVM it
+    /// is built against (llvm-config.h), so no copy of the number can lag
+    /// a toolchain bump. The share tree's templates spell it in
+    /// Scripts/ship_sysroot_inputs.py; Tests/CLI/Sysroot/llvm_version_drift.k
+    /// holds the two together.
+    pub static fn toolchain_llvm_version() -> string {
+        return string(unsafe ((kairo::llvm_version_string() as unsafe *const u8) as *const u8))
+    }
 
     pub static fn load(const path: string, @inout out: SysrootManifest) -> bool {
         out      = SysrootManifest()

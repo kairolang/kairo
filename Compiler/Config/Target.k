@@ -16,6 +16,50 @@ ffi "c++" import "vector"
 import Command::FlagRegistry::DEFAULT_PIC_LEVEL
 import Command::ParsedArgs::ParsedArgs
 
+/// The target's object file format, from llvm::Triple::getObjectFormat()
+/// (the one switch is CompilerInstance::_object_format_of; Config/ never
+/// sees LLVM). The driver, the linker and the info queries branch on this.
+/// \c Unresolved is "the driver has not filled the target yet", which is not
+/// LLVM's unknown format: the emitter treats the two differently.
+pub enum ObjectFormat derives u8 {
+    Unresolved = 0,
+    Unknown,
+    Elf,
+    MachO,
+    Coff,
+    Wasm,
+    Xcoff,
+    Goff,
+    DxContainer,
+    Spirv,
+}
+
+/// \p f as `kairo --print-target-info`, the linker's messages and the
+/// emitter's comparisons (TargetOptions::object_format) spell it.
+pub fn object_format_name(f: ObjectFormat) -> string {
+    if f == ObjectFormat::Elf {
+        return "ELF"
+    } else if f == ObjectFormat::MachO {
+        return "Mach-O"
+    } else if f == ObjectFormat::Coff {
+        return "COFF"
+    } else if f == ObjectFormat::Wasm {
+        return "Wasm"
+    } else if f == ObjectFormat::Xcoff {
+        return "XCOFF"
+    } else if f == ObjectFormat::Goff {
+        return "GOFF"
+    } else if f == ObjectFormat::DxContainer {
+        return "DXContainer"
+    } else if f == ObjectFormat::Spirv {
+        return "SPIR-V"
+    } else if f == ObjectFormat::Unknown {
+        return "unknown"
+    }
+
+    return ""
+}
+
 ///
 /// \class TargetOptions
 ///
@@ -132,7 +176,12 @@ pub class TargetOptions {
     pub var vendor_name:   string = "" ///< second component, e.g. "pc".
     pub var os_name:       string = "" ///< third component, e.g. "linux".
     pub var env_name:      string = "" ///< fourth component, e.g. "gnu"; "" if none.
-    pub var object_format: string = "" ///< "ELF" / "COFF" / "Mach-O" / ...
+    /// What the driver and the linker branch on. \c object_format is its
+    /// name (object_format_name), set beside it by the same writer
+    /// (CompilerInstance::_apply_invocation): the emitter still compares
+    /// the text.
+    pub var object_format_kind: ObjectFormat = ObjectFormat::Unresolved
+    pub var object_format:      string       = "" ///< "ELF" / "COFF" / "Mach-O" / ...
 
     pub var is_little_endian: bool = true
 

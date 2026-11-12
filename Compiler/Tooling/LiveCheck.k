@@ -39,6 +39,7 @@ ffi "c++" import "llvm/ADT/STLExtras.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
 
+import Config::Diagnostic::renders_through_basic
 import Diagnostic::Diagnostic::Diagnostic
 import Diagnostic::FileDiagnostics::FileDiagConsumer
 import Diagnostic::Severity::DiagSeverity
@@ -241,8 +242,7 @@ pub class LiveCheck {
                   out_fid:    *u32,
                   set:        *cxx::std::vector<u32>,
                   names:      *cxx::std::vector<string>) -> string {
-        var format = self._ci->invocation()->diag.format
-        if format != "basic" && format != "json" {
+        if !renders_through_basic(self._ci->invocation()->diag.error_format) {
             return "the pretty renderer coalesces across files"
         }
 

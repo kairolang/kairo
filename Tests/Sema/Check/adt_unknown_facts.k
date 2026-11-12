@@ -4,8 +4,8 @@
 // arguments (ClassLifecycle, Instances) -- so `Box<i32>` is as
 // known as `Known` and nothing here is reported: not the enum over the
 // instance, not the one over scalars and a non-generic class, not the generic
-// one, whose members clang picks per instance. (Before the fix the first was
-// SC116E, "not known until instantiation": an instance read its pattern.)
+// one, whose members clang picks per instance. (The first is not
+// SC116E, "not known until instantiation": an instance reads its own facts.)
 
 class <T> Box { pub var v: T }
 class Known { pub var id: i32 }

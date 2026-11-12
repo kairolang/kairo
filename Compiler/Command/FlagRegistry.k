@@ -21,6 +21,10 @@ import Command::FlagUtils::{
     FlagDef,
     FlagKind,
 }
+import Config::Diagnostic::{
+    ErrorFormat,
+    error_format_name,
+}
 import Diagnostic::Engine::DiagEngine
 import Support::Assert::Assert
 import std::io
@@ -1544,7 +1548,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "",
         "error-format",
         "diagnostic output format: pretty|basic|json (default: pretty)",
-        "pretty",
+        error_format_name(ErrorFormat::Pretty),
     )
 
     cmd->define<FlagKind::Bool>(

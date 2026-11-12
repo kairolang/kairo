@@ -54,6 +54,13 @@ ffi "c++" import "vector"
 ffi "c++" import "chrono"
 
 import API::FS::*
+import Driver::CacheFormat::{
+    CACHE_SCHEMA,
+    cache_dir_name,
+    fingerprint_prefix,
+    fingerprint_schema_key,
+    fingerprint_version_key,
+}
 import Interop::Clang::ClangBackend::ClangBackend
 import Interop::Clang::HeaderSet::HeaderSet
 import Interop::Clang::HeaderSetCache::HeaderSetCache
@@ -62,12 +69,6 @@ import Support::Tuning::{
     CACHE_PARTIAL_MAX_AGE_NS,
 }
 import std::env
-
-/// Bumped by any change to the record or to how a key is computed, and by
-/// any change that alters emitted objects without a version bump
-/// (Compiler/Spec/Incremental.md#development-builds).
-pub
-const CACHE_SCHEMA: u32 = 2
 
 /// The first line of every record: what objcache_record finds must start
 /// with it, or the section is not ours.
@@ -131,7 +132,7 @@ pub class ObjectCache {
 
         self._f_lines = self._fingerprint(be, &args)
         self.f_hash   = ObjectCache::hash(self._f_lines)
-        self.dir      = cache_dir + f"/kairo-cache-v{CACHE_SCHEMA}/" + self.f_hash
+        self.dir      = cache_dir + "/" + cache_dir_name() + "/" + self.f_hash
         if !LinkFS::make_dirs(self.dir + "/objects") {
             return false
         }
@@ -695,7 +696,7 @@ pub class ObjectCache {
                 if ObjectCache::_find(self.run_part, line + "\n") == usize::MAX {
                     out += " " + line.subslice(0, sp)
                 }
-            } else if line.starts_with("f.") {
+            } else if line.starts_with(fingerprint_prefix()) {
                 if ObjectCache::_find(self._f_lines, line + "\n") == usize::MAX {
                     out += " " + line.subslice(0, sp)
                 }
@@ -733,8 +734,8 @@ pub class ObjectCache {
                          args: *cxx::std::vector<string>) -> string {
         var ver  = string(unsafe ((kairo::version_string() as unsafe *const u8) as *const u8))
         var core = ObjectCache::_version_core(ver)
-        var out  = f"f.schema {CACHE_SCHEMA}\n"
-        out += "f.version " + core + "\n"
+        var out  = fingerprint_schema_key() + f" {CACHE_SCHEMA}\n"
+        out += fingerprint_version_key() + " " + core + "\n"
         var dev = core.empty()
             || ObjectCache::_find(ver, "+dev") != usize::MAX
             || ObjectCache::_find(ver, "+rc") != usize::MAX

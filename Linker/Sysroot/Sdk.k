@@ -6,7 +6,7 @@
 ///   scripts/darwin-sysroot.sh and scripts/msvc-sysroot (stage_sdk /
 ///   stage_msvc, the shipped overlay laid over it, emit_toml), so a
 ///   hand-unzipped toolchain assembles its own host's root on first use the
-///   way the installer does (P743).
+///   way the installer does.
 ///
 ///     darwin  the SDK from --input, else SDKROOT / DEVELOPER_DIR / the
 ///             selected Xcode / the Command Line Tools / Xcode.app
@@ -45,13 +45,16 @@ ffi "c++" import "Native/KShims.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import API::EnvNames::EnvNames
 import API::FS::LinkFS
+import API::SysrootManifest::SysrootManifest
 import API::Text::LinkText
 import API::Toolchain::Toolchain
 import Sysroot::Cache::{
     SysCache,
     SysLock,
 }
+import Sysroot::KccArgv::KccArgv
 import Sysroot::Names::SysTarget
 import Sysroot::Outcome::SysOutcome
 import Sysroot::Share::ShareTree
@@ -146,12 +149,12 @@ pub class SysSdk {
         if !input.empty() {
             cands.push_back(input)
         } else {
-            var x = LinkFS::env("XWIN")
+            var x = LinkFS::env(EnvNames::xwin())
             if !x.empty() {
                 cands.push_back(x)
             }
 
-            var mc = LinkFS::env("MSVC_CACHE")
+            var mc = LinkFS::env(EnvNames::msvc_cache())
             if mc.empty() {
                 mc = LinkText::join(SysSdk::prefix(), "share/kairo/msvc-cache")
             }
@@ -201,7 +204,7 @@ pub class SysSdk {
         var have = c.lookup(t->name)
         var src  = ""
         var xa   = SysSdk::msvc_arch(arch)
-        if input.empty() && !have.empty() && LinkFS::is_file(LinkText::join(have, "SYSROOT.toml")) {
+        if input.empty() && !have.empty() && LinkFS::is_file(LinkText::join(have, SysrootManifest::file_name())) {
             src = if (darwin) => (SysSdk::find_macos_sdk(""))
                   else => SysSdk::find_msvc_splat("", xa)
             if src.empty() {
@@ -453,14 +456,21 @@ pub class SysSdk {
     /// the driver would put it in place of the user's --target, and
     /// `arm64-apple-macosx13.0` must stay 13.0 (a bare one already gets its
     /// floor from Toolchain::with_os_floor).
+    ///
+    /// `redistributable = false` (darwin) and `local_only` (msvc) are for
+    /// Scripts/package_release.py, which refuses to ship such a root; the
+    /// compiler never reads them, as ksys keeps these roots in the local
+    /// cache. `msvc_crt` documents the CRT for humans; nothing reads it
+    /// (SysrootManifest.k).
     priv static fn _write_toml(t:          *SysTarget,
                                const xa:   string,
                                const dst:  string,
                                @inout out: SysOutcome) -> bool {
-        var s = ""
+        var llvm = SysrootManifest::toolchain_llvm_version()
+        var s    = ""
         if t->family == "darwin" {
             s += f"triple        = \x22{t->name}\x22\n"
-            s += "llvm_version  = \x2222.1.0\x22\n"
+            s += f"llvm_version  = \x22{llvm}\x22\n"
             s += "family        = \x22darwin\x22\n"
             s += "sysroot       = \x22.\x22\n"
             s += "resource_dir  = \x22clang\x22\n"
@@ -478,7 +488,7 @@ pub class SysSdk {
             s += "cc_isolation  = [\x22-nostdlibinc\x22, \x22-nostdinc++\x22]\n"
         } else {
             s += f"triple        = \x22{t->name}\x22\n"
-            s += "llvm_version  = \x2222.1.0\x22\n"
+            s += f"llvm_version  = \x22{llvm}\x22\n"
             s += "family        = \x22windows-msvc\x22\n"
             s += "sysroot       = \x22.\x22\n"
             s += "include_dirs  = [\x22include/c++/v1\x22, \x22msvc/crt/include\x22, \x22msvc/sdk/include/ucrt\x22, \x22msvc/sdk/include/um\x22, \x22msvc/sdk/include/shared\x22]\n"
@@ -498,7 +508,7 @@ pub class SysSdk {
             s += "cc_isolation  = [\x22-nostdlibinc\x22, \x22-nostdinc++\x22]\n"
         }
 
-        var p = LinkText::join(dst, "SYSROOT.toml")
+        var p = LinkText::join(dst, SysrootManifest::file_name())
         if !LinkFS::write(p, s) {
             return out.fail(f"cannot write {p}", "")
         }
@@ -593,10 +603,7 @@ pub class SysSdk {
         var log  = LinkText::join(w, "compile.log")
         var argv = cxx::std::vector<string>()
         argv.push_back(kcc)
-        argv.push_back(f"--target={ct}")
-        argv.push_back(f"--sysroot={r}")
-        argv.push_back("-Xkairo")   // kcc takes kairo-only words this way
-        argv.push_back("--sysroot-exact")
+        KccArgv::push_target(&argv, ct, r)
         argv.push_back("-std=c++20")
         argv.push_back("-c")
         argv.push_back(src)
@@ -683,7 +690,7 @@ pub class SysSdk {
         )
 
         var fields = cxx::std::vector<SysJsonField>()
-        SysUtil::field(&fields, "schema", "1")
+        SysUtil::field(&fields, "schema", SysCache::key_schema())
         SysUtil::field(&fields, "name", SysUtil::json_str(t->name))
         SysUtil::field(&fields, "vs", SysUtil::json_str(vs))
         SysUtil::field(&fields, "vc_tools", SysUtil::json_str(stamp))
@@ -724,7 +731,7 @@ pub class SysSdk {
             LinkFS::set_env("WORK", old_work)
             LinkFS::remove_tree(stage + ".work")
             var made = LinkText::join(stage, t->name)
-            if rc != 0 || !LinkFS::is_file(LinkText::join(made, "SYSROOT.toml")) {
+            if rc != 0 || !LinkFS::is_file(LinkText::join(made, SysrootManifest::file_name())) {
                 LinkFS::remove_tree(stage)
                 return out.fail(f"msvc-sysroot.ps1 {t->arch} failed (exit {rc})", f"log: {log}")
             }
@@ -777,7 +784,7 @@ pub class SysSdk {
         var rev = ""
         LinkFS::read(LinkText::join(LinkFS::parent(ov), "REVISION"), &rev)
         var fields = cxx::std::vector<SysJsonField>()
-        SysUtil::field(&fields, "schema", "1")
+        SysUtil::field(&fields, "schema", SysCache::key_schema())
         SysUtil::field(&fields, "name", SysUtil::json_str(t->name))
         SysUtil::field(&fields, "provider", SysUtil::json_str("user"))
         SysUtil::field(&fields, "source", SysUtil::json_str(src))

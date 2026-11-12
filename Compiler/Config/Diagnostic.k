@@ -24,6 +24,50 @@ import Command::FlagRegistry::{
 }
 import Command::ParsedArgs::ParsedArgs
 
+/// --error-format: which consumer renders the diagnostics. Parsed once
+/// (DiagnosticOptions::from_args); the driver branches on this, never on
+/// the spelling, so a format the setup accepts is one every site knows.
+pub enum ErrorFormat derives u8 {
+    Pretty = 0, ///< PrettyDiagConsumer, the default
+    Basic,      ///< BasicDiagConsumer, one line per diagnostic
+    Json,       ///< BasicDiagConsumer in JSON mode, one object per line
+}
+
+/// The flag's spelling of \p f, as --error-format takes it.
+pub fn error_format_name(f: ErrorFormat) -> string {
+    if f == ErrorFormat::Basic {
+        return "basic"
+    }
+
+    if f == ErrorFormat::Json {
+        return "json"
+    }
+
+    return "pretty"
+}
+
+/// \p s as a format into \p out; false (and \p out untouched) for a
+/// spelling with no consumer.
+pub fn error_format_of(const s: string, @inout out: ErrorFormat) -> bool {
+    if s == error_format_name(ErrorFormat::Pretty) {
+        out = ErrorFormat::Pretty
+    } else if s == error_format_name(ErrorFormat::Basic) {
+        out = ErrorFormat::Basic
+    } else if s == error_format_name(ErrorFormat::Json) {
+        out = ErrorFormat::Json
+    } else {
+        return false
+    }
+
+    return true
+}
+
+/// Basic and json share BasicDiagConsumer (one line, or one object, per
+/// diagnostic); pretty has its own.
+pub fn renders_through_basic(f: ErrorFormat) -> bool {
+    return f == ErrorFormat::Basic || f == ErrorFormat::Json
+}
+
 ///
 /// \class DiagnosticOptions
 ///
@@ -38,7 +82,13 @@ pub class DiagnosticOptions {
     pub var forbid_list: cxx::std::vector<string> ///< -F<name>
     /// # formatting
 
-    pub var format: string = "pretty" ///< pretty|basic|json|msvc
+    /// --error-format as given, for the message that refuses it and for
+    /// the incremental record's f.diag line.
+    pub var format: string = error_format_name(ErrorFormat::Pretty)
+    /// What \c format names; Pretty when it names nothing (\c format_known
+    /// false), which CompilerSetup refuses before anything renders.
+    pub var error_format: ErrorFormat = ErrorFormat::Pretty
+    pub var format_known: bool        = true
     /// # budget limits (from --c* config flags)
 
     pub var max_errors:        i32 = DEFAULT_MAX_ERRORS ///< 0 = unlimited
@@ -73,7 +123,8 @@ pub class DiagnosticOptions {
 
     static fn from_args(@inout args: ParsedArgs) -> DiagnosticOptions {
         var o = DiagnosticOptions()
-        o.format = args.get_string("error-format")
+        o.format       = args.get_string("error-format")
+        o.format_known = error_format_of(o.format, &o.error_format)
         var is_tty:   bool = isatty(1) != 0
         var no_color: bool = args.get_bool("no-color")
         o.no_color              = !is_tty || no_color

@@ -8,7 +8,7 @@
 ///   to ../../lib, and a link that became a file would be a second copy that
 ///   drifts from the first. Windows, where a symlink needs a privilege,
 ///   copies the target instead. A schema 2 share input holds no links at
-///   all (a zip cannot carry them to Windows, P612): materialise() makes
+///   all (a zip cannot carry them to Windows): materialise() makes
 ///   them in the root from the input's links.tsv, and restores the
 ///   case-colliding names casefold.tsv records.
 ///

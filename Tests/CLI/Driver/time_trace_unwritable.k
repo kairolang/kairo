@@ -1,5 +1,5 @@
 // --time-trace to a path that cannot be written is an error and a nonzero
-// exit. It used to print a note and exit 0 with no trace file.
+// exit, not a note with exit 0 and no trace file.
 
 fn main() -> i32 { return 0 }
 

@@ -1,4 +1,4 @@
-// glibc on MIPS links (P704, SysRoot.md section 22): the linker library knows
+// glibc on MIPS links (SysRoot.md section 22): the linker library knows
 // glibc's MIPS loaders, o32 /lib/ld.so.1 and n64 /lib64/ld.so.1 (glibc's
 // shlib-versions soname, its configure's rtlddir; Z4's targets.toml `ld`
 // agrees), and a MIPS link asks lld for a sysv hash table, as clang's driver

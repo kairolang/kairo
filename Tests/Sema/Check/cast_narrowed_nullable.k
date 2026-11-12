@@ -1,5 +1,5 @@
 // After `if ptr == &null { return }`, an `as` cast reads the narrowed
-// `*B` as member access there does: `ptr as unsafe *B` was SC026E
+// `*B` as member access there does: `ptr as unsafe *B` is not SC026E
 // "'*B?' is neither a pointer nor an integer". An unproven nullable still
 // does not convert.
 

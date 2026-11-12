@@ -57,6 +57,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations
+import Config::ResourceLayout::ResourceLayout
 import Resolution::SearchRoot::module_dir_at_or_above
 import Support::FileIO::Path::Path
 
@@ -91,27 +92,7 @@ fn _is_lib_tu(tu: unsafe *TranslationUnit) -> bool {
         return false
     }
 
-    var root = ci->pp.std_dir
-    if root.empty() && !ci->target.resource_dir.empty() {
-        root = ci->target.resource_dir + "/std"
-    }
-
-    if root.empty() {
-        return false
-    }
-
-    var file  = tu->ctx->sm->get_filename(tu->fid)
-    var slash = if (root.ends_with("/")) => (root) else => (root + "/")
-    if file.starts_with(slash) {
-        return true
-    }
-
-    var real_root = Path::real_path_of(root)
-    if !real_root.ends_with("/") {
-        real_root += "/"
-    }
-
-    return Path::real_path_of(file).starts_with(real_root)
+    return ResourceLayout::is_std_file(ci, tu->ctx->sm->get_filename(tu->fid))
 }
 
 /// Records \p tu's facts. The driver calls it for every TU of a build

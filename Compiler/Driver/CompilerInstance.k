@@ -155,6 +155,7 @@ ffi "c++" import "atomic"
 ffi "c++" import "thread"
 ffi "c++" import "cstdlib"
 
+import API::EnvNames::EnvNames
 import API::FS::LinkFS
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import AST::DeclFacts::PackSetOrder
@@ -165,7 +166,9 @@ import AST::LangItems::{
 }
 import Command::Command::Command
 import Command::FlagRegistry::register_kairo_flags
+import Config::Diagnostic::renders_through_basic
 import Config::Invocation::CompilerInvocation
+import Config::ResourceLayout::ResourceLayout
 import Config::Target::TargetOptions
 import Diagnostic::BasicConsumer::BasicDiagConsumer
 import Diagnostic::Code::DiagCode
@@ -799,7 +802,7 @@ pub class CompilerInstance {
     }
 
     pub fn flush_errors(self) {
-        if self.invocation()->diag.format == "basic" || self.invocation()->diag.format == "json" {
+        if renders_through_basic(self.invocation()->diag.error_format) {
             self._basic->finalize_to_stderr()
         } else {
             self._pretty->finalize_to_stderr()
@@ -986,7 +989,7 @@ pub class CompilerInstance {
             // USE by whichever pass needs one, never here.
             var broot = self.invocation()->pp.builtins_dir
             if broot.empty() && !self.invocation()->target.resource_dir.empty() {
-                broot = (Path(self.invocation()->target.resource_dir) / "builtin").full_path()
+                broot = (Path(self.invocation()->target.resource_dir) / ResourceLayout::builtin_subdir()).full_path()
             }
 
             if !broot.empty() {
@@ -1006,7 +1009,7 @@ pub class CompilerInstance {
             if !self.invocation()->pp.no_stdlib {
                 var sroot = self.invocation()->pp.std_dir
                 if sroot.empty() && !self.invocation()->target.resource_dir.empty() {
-                    sroot = (Path(self.invocation()->target.resource_dir) / "std").full_path()
+                    sroot = (Path(self.invocation()->target.resource_dir) / ResourceLayout::std_subdir()).full_path()
                 }
 
                 if !sroot.empty() {
@@ -1183,7 +1186,7 @@ pub class CompilerInstance {
     ///        frontend is skipped (a hit, without --incr-verify).
     priv fn _incr_begin(self, order: *cxx::std::vector<InputKind>) -> bool {
         var *fe = &self.invocation()->frontend
-        if LinkFS::env("KAIRO_INCR_SEMA") == "1" {
+        if LinkFS::env(EnvNames::kairo_incr_sema()) == "1" {
             fe->incremental_sema = true
         }
 
@@ -1195,7 +1198,7 @@ pub class CompilerInstance {
         self.incr.paranoid     = fe->incr_paranoid
         self.incr.print_status = fe->print_incr_status
         var format = self.invocation()->diag.format
-        var basic  = format == "basic" || format == "json"
+        var basic  = renders_through_basic(self.invocation()->diag.error_format)
         var color  = false
         if !basic {
             color = self._pretty->stderr_color()
@@ -1246,8 +1249,7 @@ pub class CompilerInstance {
         tr.objects     = self.incr.old_objects
         tr.ffi_pthread = self.incr.old_pthread
         tr.warn_count  = self.incr.old_warns
-        var format = self.invocation()->diag.format
-        if format == "basic" || format == "json" {
+        if renders_through_basic(self.invocation()->diag.error_format) {
             self._basic->replay = self.incr.old_diag
         } else {
             self._pretty->replay = self.incr.old_diag
@@ -1261,8 +1263,7 @@ pub class CompilerInstance {
     /// \brief a TU's share of the diagnostics, for its record: the console
     ///        consumer's count, and the text of a range of it.
     pub fn incr_diag_count(self) -> usize {
-        var format = self.invocation()->diag.format
-        if format == "basic" || format == "json" {
+        if renders_through_basic(self.invocation()->diag.error_format) {
             return self._basic->count()
         }
 
@@ -1275,8 +1276,7 @@ pub class CompilerInstance {
     }
 
     pub fn incr_diag_text(self, a: usize, b: usize) -> string {
-        var format = self.invocation()->diag.format
-        if format == "basic" || format == "json" {
+        if renders_through_basic(self.invocation()->diag.error_format) {
             return self._basic->render_range(a, b)
         }
 
@@ -1394,8 +1394,7 @@ pub class CompilerInstance {
             return
         }
 
-        var format = self.invocation()->diag.format
-        var basic  = format == "basic" || format == "json"
+        var basic  = renders_through_basic(self.invocation()->diag.error_format)
         var n1     = if (basic) => (self._basic->count()) else => self._pretty->count()
         var text   = if (basic) => (self._basic->render_range(self.incr.diag0, n1)) else => self._pretty->render_range(self.incr.diag0, n1)
         var warns  = self._diag->warn_count() - self.incr.warns0

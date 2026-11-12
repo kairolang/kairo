@@ -37,6 +37,7 @@
 
 ffi "c++" import "vector"
 
+import API::Flavor::LldWords::LldWords
 import API::LinkDiag::{
     LinkDiag,
     LinkMessage,
@@ -106,8 +107,8 @@ pub class WasmArgs {
         argv.push_back("wasm-ld")
         argv.push_back("-m")
         argv.push_back(tc.emulation)
-        argv.push_back("--color-diagnostics=never")
-        argv.push_back("--error-limit=0")
+        argv.push_back(LldWords::no_color())
+        argv.push_back(LldWords::no_error_limit())
         if job.threads > 0 {
             argv.push_back(f"--threads={job.threads}")
         }

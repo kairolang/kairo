@@ -1,7 +1,7 @@
 // --cmax-scope-depth caps parser nesting. A cap too small for the program
-// (here 4, and the builtin sources nest deeper still) used to hang the
-// compiler: the depth check failed without consuming a token and the caller's
-// loop re-entered the same construct forever. It must now terminate with the
+// (here 4, and the builtin sources nest deeper still) would hang the
+// compiler: the depth check fails without consuming a token and the caller's
+// loop re-enters the same construct forever. It must terminate with the
 // nesting error, and a generous cap must leave the same program clean.
 
 fn main() -> i32 { return 0 }

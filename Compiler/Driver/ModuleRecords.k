@@ -37,42 +37,55 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 ffi "c++" import "chrono"
 
+import API::EnvNames::EnvNames
 import API::FS::*
+import Driver::CacheFormat::{
+    CACHE_SCHEMA,
+    INCR_SEMA_SCHEMA,
+    cache_dir_name,
+    fingerprint_prefix,
+    fingerprint_schema_key,
+    fingerprint_version_key,
+    incr_run_header,
+}
 import Driver::ObjectCache::ObjectCache
-import Driver::ObjectCache::CACHE_SCHEMA
 import Sema::Incremental::Plan::PlanModule
 import Support::FileIO::Path::Path
 import Support::Tuning::MTIME_SLACK_NS
 import std::env
 
-/// Bumped by any change to the manifest or record format, or to what the
-/// hit decision compares.
-pub
-const INCR_SEMA_SCHEMA: u32 = 2
-
 /// The environment variables a run can read that steer which files it finds
 /// or how it renders (sysroot, SDK, include search, colour). Others are not
 /// keyed (Compiler/Spec/IncrementalSema.md#phase-2, "not covered").
+///
+/// The whole cache-root chain (API/EnvNames.k cache_root()), not only its
+/// first link: with no KAIRO_SYSROOT_CACHE and no KAIRO_CACHE_DIR, HOME
+/// (or XDG_CACHE_HOME, or LOCALAPPDATA) decides which cached sysroot a
+/// target without a bundled one gets, so its headers, and a run that
+/// changed it was a hit replaying the other root's verdict.
 fn incr_env_names() -> cxx::std::vector<string> {
     var v = cxx::std::vector<string>()
-    v.push_back("KAIRO_SYSROOT_SHARE")
-    v.push_back("KAIRO_SYSROOT_CACHE")
-    v.push_back("KAIRO_CACHE_DIR")
-    v.push_back("KAIRO_INCR_TEST")
-    v.push_back("SDKROOT")
-    v.push_back("DEVELOPER_DIR")
-    v.push_back("NIX_CFLAGS_COMPILE")
-    v.push_back("PKG_CONFIG_SYSROOT_DIR")
-    v.push_back("PKG_CONFIG_LIBDIR")
-    v.push_back("CPATH")
-    v.push_back("C_INCLUDE_PATH")
-    v.push_back("CPLUS_INCLUDE_PATH")
-    v.push_back("INCLUDE")
-    v.push_back("LIB")
-    v.push_back("XWIN")
-    v.push_back("MSVC_CACHE")
-    v.push_back("NO_COLOR")
-    v.push_back("TERM")
+    v.push_back(EnvNames::kairo_sysroot_share())
+    v.push_back(EnvNames::kairo_sysroot_cache())
+    v.push_back(EnvNames::kairo_cache_dir())
+    v.push_back(EnvNames::xdg_cache_home())
+    v.push_back(EnvNames::home())
+    v.push_back(EnvNames::local_app_data())
+    v.push_back(EnvNames::kairo_incr_test())
+    v.push_back(EnvNames::sdkroot())
+    v.push_back(EnvNames::developer_dir())
+    v.push_back(EnvNames::nix_cflags_compile())
+    v.push_back(EnvNames::pkg_config_sysroot_dir())
+    v.push_back(EnvNames::pkg_config_libdir())
+    v.push_back(EnvNames::cpath())
+    v.push_back(EnvNames::c_include_path())
+    v.push_back(EnvNames::cplus_include_path())
+    v.push_back(EnvNames::include())
+    v.push_back(EnvNames::lib())
+    v.push_back(EnvNames::xwin())
+    v.push_back(EnvNames::msvc_cache())
+    v.push_back(EnvNames::no_color())
+    v.push_back(EnvNames::term())
     return v
 }
 
@@ -178,8 +191,8 @@ pub class ModuleRecords {
         }
 
         var ver = string(unsafe ((kairo::version_string() as unsafe *const u8) as *const u8))
-        self._f_lines = f"f.schema {INCR_SEMA_SCHEMA}.{CACHE_SCHEMA}\n"
-        self._f_lines += "f.version " + ObjectCache::clean(ver) + "\n"
+        self._f_lines = fingerprint_schema_key() + f" {INCR_SEMA_SCHEMA}.{CACHE_SCHEMA}\n"
+        self._f_lines += fingerprint_version_key() + " " + ObjectCache::clean(ver) + "\n"
         self._f_lines += "f.args " + ObjectCache::hash(args) + "\n"
         self._f_lines += "f.cwd " + ObjectCache::hash(Path::cwd().path_data) + "\n"
         self._f_lines += "f.env " + ObjectCache::hash(envs) + "\n"
@@ -188,12 +201,12 @@ pub class ModuleRecords {
         // not a hash in F: hashing a debug compiler on every run would cost
         // more than the hit saves. KAIRO_INCR_TEST_EXE stands in for it in
         // the tests, which cannot swap the binary under lit.
-        self._exe = LinkFS::env("KAIRO_INCR_TEST_EXE")
+        self._exe = LinkFS::env(EnvNames::kairo_incr_test_exe())
         if self._exe.empty() {
             self._exe = env::exe_path()
         }
 
-        self.dir       = cache_dir + f"/kairo-cache-v{CACHE_SCHEMA}/mod"
+        self.dir       = cache_dir + "/" + cache_dir_name() + "/mod"
         self._manifest = self.dir + "/run-" + ObjectCache::hash(input + "\n" + output) + ".txt"
         self.on        = true
         return true
@@ -239,7 +252,7 @@ pub class ModuleRecords {
         }
 
         self._lines = ModuleRecords::_split(text.subslice(0, at + 1))
-        if self._lines.empty() || self._lines[0] != f"kairo-incr-run {INCR_SEMA_SCHEMA}" {
+        if self._lines.empty() || self._lines[0] != incr_run_header() {
             self.status = "miss: record of another schema"
             return false
         }
@@ -247,7 +260,7 @@ pub class ModuleRecords {
         // F_sema first, by part, so the reason says which part moved.
         var have_f = ""
         for var l: string in self._lines {
-            if l.starts_with("f.") {
+            if l.starts_with(fingerprint_prefix()) {
                 have_f += l + "\n"
             }
         }
@@ -262,7 +275,7 @@ pub class ModuleRecords {
                         self.status = "miss: flags changed"
                     } else if part == "f.env" {
                         self.status = "miss: environment changed"
-                    } else if part == "f.version" {
+                    } else if part == fingerprint_version_key() {
                         self.status = "miss: compiler changed (version)"
                     } else {
                         self.status = "miss: " + part + " changed"
@@ -407,7 +420,7 @@ pub class ModuleRecords {
             return false
         }
 
-        var m = f"kairo-incr-run {INCR_SEMA_SCHEMA}\n" + self._f_lines
+        var m = incr_run_header() + "\n" + self._f_lines
         m += f"t {self._t_start}\n"
         m += self._file_line("exe", self._exe, "")
 

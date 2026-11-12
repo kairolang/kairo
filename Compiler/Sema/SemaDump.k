@@ -118,6 +118,7 @@ import AST::Printer::PrintCore::{
     PrintOptions,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import Config::ResourceLayout::ResourceLayout
 import Location::SourceLocation::SourceLocation
 import Sema::Check::ClassLifecycle::{
     LifecycleCategory,
@@ -695,20 +696,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return false
         }
 
-        var root = ci->pp.std_dir
-        if root.empty() && !ci->target.resource_dir.empty() {
-            root = ci->target.resource_dir + "/std"
-        }
-
-        if root.empty() {
-            return false
-        }
-
-        if !root.ends_with("/") {
-            root += "/"
-        }
-
-        return self.ctx->sm->get_filename(self.fid).starts_with(root)
+        return ResourceLayout::is_std_file(ci, self.ctx->sm->get_filename(self.fid))
     }
 
     /// \return how many scopes actually printed, so the caller can say

@@ -52,6 +52,7 @@ ffi "c++" import "algorithm"
 ffi "c++" import "vector"
 
 import API::FS::LinkFS
+import API::SysrootManifest::SysrootManifest
 import API::Text::LinkText
 import Sysroot::Names::{
     SysNames,
@@ -421,7 +422,7 @@ pub class SysRuntimes {
         }
 
         LinkFS::make_dirs(dst)
-        if !LinkFS::write(dst + "/SYSROOT.toml", toml) {
+        if !LinkFS::write(dst + "/" + SysrootManifest::file_name(), toml) {
             return out.fail(f"cannot write {dst}/SYSROOT.toml", "")
         }
 

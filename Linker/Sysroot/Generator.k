@@ -49,6 +49,7 @@ import Sysroot::Cache::{
     SysLock,
     SysStage,
 }
+import Sysroot::KccArgv::KccArgv
 import Sysroot::Names::{
     SysNames,
     SysTarget,
@@ -308,7 +309,7 @@ pub class SysGen {
     /// [validate] run mode and the host allow. A step that cannot run is
     /// printed SKIP, never counted a pass.
     pub fn validate(self, const dir: string, @inout out: SysOutcome) -> bool {
-        var mpath = LinkText::join(dir, "SYSROOT.toml")
+        var mpath = LinkText::join(dir, SysrootManifest::file_name())
         if !LinkFS::is_file(mpath) {
             return out.fail(f"validation failed at manifest: {mpath} is missing", "")
         }
@@ -373,7 +374,7 @@ pub class SysGen {
                                 const work:  string,
                                 @inout rep:  string,
                                 @inout out:  SysOutcome) -> bool {
-        var mpath = LinkText::join(root, "SYSROOT.toml")
+        var mpath = LinkText::join(root, SysrootManifest::file_name())
         var m     = SysrootManifest()
         if !SysrootManifest::load(mpath, &m) {
             return out.fail(f"validation failed at manifest: {mpath}: {m.error}", "")
@@ -443,10 +444,7 @@ pub class SysGen {
         var real_root = LinkFS::real(root)
         var probe     = cxx::std::vector<string>()
         probe.push_back(kcc)
-        probe.push_back("--target=" + m.triple)
-        probe.push_back("--sysroot=" + root)
-        probe.push_back("-Xkairo")   // kcc takes kairo-only words this way
-        probe.push_back("--sysroot-exact")
+        KccArgv::push_target(&probe, m.triple, root)
         probe.push_back("-###")
         probe.push_back(LinkText::join(vdir, "t.c"))
         probe.push_back("-o")
@@ -466,7 +464,7 @@ pub class SysGen {
         }
 
         // replay-validate.sh passes the TOML's extra_cflags itself: the
-        // driver does not read them yet (P590), and wasm's
+        // driver does not read them yet, and wasm's
         // -fwasm-exceptions is what makes a C++ catch work there.
         var extra = cxx::std::vector<string>()
         var mtext = ""
@@ -554,10 +552,7 @@ pub class SysGen {
                     argv.push_back("--driver-mode=g++")
                 }
 
-                argv.push_back("--target=" + m.triple)
-                argv.push_back("--sysroot=" + root)
-                argv.push_back("-Xkairo")   // kcc takes kairo-only words this way
-                argv.push_back("--sysroot-exact")
+                KccArgv::push_target(&argv, m.triple, root)
                 for var x: string in extra {
                     argv.push_back(x)
                 }
@@ -1097,7 +1092,7 @@ pub class SysGen {
             }
         }
 
-        if !LinkFS::write(dest + "/SYSROOT.toml", SysGen::render_toml(&p->recipe, &p->target)) {
+        if !LinkFS::write(dest + "/" + SysrootManifest::file_name(), SysGen::render_toml(&p->recipe, &p->target)) {
             return out.fail(f"cannot write {dest}/SYSROOT.toml", "")
         }
 
@@ -1227,7 +1222,7 @@ pub class SysGen {
             return out.refuse(f"the {ctx->target.recipe} recipe has no [toml] table", "")
         }
 
-        if !LinkFS::write(ctx->stage + "/out/SYSROOT.toml", text) {
+        if !LinkFS::write(ctx->stage + "/out/" + SysrootManifest::file_name(), text) {
             return out.fail(f"cannot write {ctx->stage}/out/SYSROOT.toml", "")
         }
 
@@ -1247,9 +1242,9 @@ pub class SysGen {
         var root = ctx->stage + "/root"
         var none = cxx::std::vector<string>()
         var asm_ = ctx->product("assemble")
-        var tom  = ctx->product("toml") + "/SYSROOT.toml"
+        var tom  = ctx->product("toml") + "/" + SysrootManifest::file_name()
         if !SysRun::link_tree(asm_, root, &none)
-            || !SysRun::put_file(tom, root + "/SYSROOT.toml", false) {
+            || !SysRun::put_file(tom, root + "/" + SysrootManifest::file_name(), false) {
             return out.fail(f"cannot lay out {root} for validation", "")
         }
 
@@ -1281,9 +1276,9 @@ pub class SysGen {
         var tmp  = fin + ".tmp"
         var none = cxx::std::vector<string>()
         LinkFS::remove_tree(tmp)
-        var tom = ctx->product("toml") + "/SYSROOT.toml"
+        var tom = ctx->product("toml") + "/" + SysrootManifest::file_name()
         if !SysRun::link_tree(ctx->product("assemble"), tmp, &none)
-            || !SysRun::put_file(tom, tmp + "/SYSROOT.toml", false) {
+            || !SysRun::put_file(tom, tmp + "/" + SysrootManifest::file_name(), false) {
             LinkFS::remove_tree(tmp)
             return out.fail(f"cannot write {tmp}", "")
         }
@@ -1408,10 +1403,7 @@ pub class SysGen {
         LinkFS::write(src, f"{c} kairo_type_probe;\n")
         var argv = cxx::std::vector<string>()
         argv.push_back(kcc)
-        argv.push_back("--target=" + triple)
-        argv.push_back("--sysroot=" + root)
-        argv.push_back("-Xkairo")   // kcc takes kairo-only words this way
-        argv.push_back("--sysroot-exact")
+        KccArgv::push_target(&argv, triple, root)
         argv.push_back("-c")
         argv.push_back(src)
         argv.push_back("-o")
@@ -1616,7 +1608,7 @@ pub class SysGen {
     /// that stage only, so a changed quirk rebuilds just those stages.
     priv static fn _key_json(p: *SysPlan, const build_id: string, const stage: string) -> string {
         var f = cxx::std::vector<SysJsonField>()
-        SysUtil::field(&f, "schema", "1")
+        SysUtil::field(&f, "schema", SysCache::key_schema())
         SysUtil::field(&f, "name", SysUtil::json_str(p->target.name))
         SysUtil::field(&f, "clang_triple", SysUtil::json_str(p->target.clang_triple))
         SysUtil::field(&f, "provider", SysUtil::json_str(p->target.provider))

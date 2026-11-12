@@ -12,7 +12,7 @@
 ///   the driver is already in libLLVM); merging members into an archive is
 ///   llvm-ar's (`qc`, and `qcL` for the Makefile's MRI ADDLIB). What
 ///   mingw-w64-crt does not build (winpthreads, libssp, winstorecompat,
-///   windowsappcompat, libomp's import lib: P623) comes verbatim from
+///   windowsappcompat, libomp's import lib) comes verbatim from
 ///   mingw/crt/<arch>.
 ///
 ///   Without it (an older share), import libraries are rebuilt from

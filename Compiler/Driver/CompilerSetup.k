@@ -33,6 +33,7 @@ ffi "c++" import "vector"
 ffi "c++" import "memory"
 ffi "c++" import "string"
 
+import API::EnvNames::EnvNames
 import API::FS::LinkFS
 import API::HostSystem::{
     HostSystem,
@@ -45,6 +46,15 @@ import AST::LangItems::LowerTargets
 import Command::FlagTranslator::{
     ClangSpelling,
     FlagTranslator,
+}
+import Config::Diagnostic::{
+    ErrorFormat,
+    renders_through_basic,
+}
+import Config::ResourceLayout::ResourceLayout
+import Config::Target::{
+    ObjectFormat,
+    object_format_name,
 }
 import Diagnostic::BasicConsumer::BasicDiagConsumer
 import Diagnostic::Engine::{
@@ -116,7 +126,7 @@ extend CompilerInstance {
             // Toolchain::canonical_triple reads an explicit --target: the
             // armv7 hosts' LLVM_HOST_TRIPLE is armv7-linux-musl, and taken as
             // soft-float the native default compiled against the hard-float
-            // root and looked for the soft-float loader (P750).
+            // root and looked for the soft-float loader.
             var plain_arm = (triple.isARM() || triple.isThumb())
                 && (env == llvm::Triple::GNU || env == llvm::Triple::Musl)
             var hf = env == llvm::Triple::GNUEABIHF || env == llvm::Triple::MuslEABIHF || plain_arm
@@ -166,7 +176,7 @@ extend CompilerInstance {
 
         var root  = sr
         var dirs  = cxx::std::vector<string>()
-        var mpath = LinkText::join(sr, "SYSROOT.toml")
+        var mpath = LinkText::join(sr, SysrootManifest::file_name())
         if LinkFS::is_file(mpath) {
             var m = SysrootManifest()
             if !SysrootManifest::load(mpath, &m) {
@@ -251,7 +261,7 @@ extend CompilerInstance {
             return true
         }
 
-        // --sysroot-exact: the caller (ksys building a root, P610) names the
+        // --sysroot-exact: the caller (ksys building a root) names the
         // exact headers to compile against. A bundled root for the same
         // triple (x86_64-linux-gnu-glibc2.31 while building 2.42) would
         // otherwise win and mix two C libraries' headers.
@@ -270,7 +280,7 @@ extend CompilerInstance {
         }
 
         var why   = ""
-        var mpath = LinkText::join(dir, "SYSROOT.toml")
+        var mpath = LinkText::join(dir, SysrootManifest::file_name())
         if !LinkFS::is_dir(dir) {
             why = "it is not a directory"
         } else if !LinkFS::is_file(mpath) {
@@ -301,10 +311,10 @@ extend CompilerInstance {
     ///
     /// For an explicit --target and for the implicit one alike, with no
     /// --sysroot: an explicit --sysroot outranks anything built. The
-    /// implicit target used to be skipped as "the bundle covers the host",
-    /// which holds for Linux and Windows archives only: a hand-unzipped
-    /// macOS or BSD archive ships no root for its own host, so a plain
-    /// `kairo h.k` there had no system headers at all (P743).
+    /// implicit target is not skipped as "the bundle covers the host": that
+    /// holds for Linux and Windows archives only, and a hand-unzipped macOS
+    /// or BSD archive ships no root for its own host, so a plain `kairo h.k`
+    /// there would have no system headers at all.
     ///
     /// Not under --freestanding or --macos-sdk (no root wanted, or one
     /// given), and not for Apple / MSVC targets on hosts without their SDK:
@@ -346,7 +356,7 @@ extend CompilerInstance {
         // ensure --input, the SDK= of the scripts) serves any host.
         var cache  = SysCache(SysCache::default_root())
         var cached = if (cache.root.empty()) => ("") else => cache.lookup(name)
-        if !cached.empty() && LinkFS::is_file(LinkText::join(cached, "SYSROOT.toml")) {
+        if !cached.empty() && LinkFS::is_file(LinkText::join(cached, SysrootManifest::file_name())) {
             tg->sysroot = cached
             return true
         }
@@ -416,7 +426,7 @@ extend CompilerInstance {
     }
 
     /// --target in the one spelling everything downstream reads, decided
-    /// once (P745, P746):
+    /// once:
     ///
     ///   - a glibc version, ours (`-glibc2.28`) or Zig's (`.2.28`), is split
     ///     off into TargetOptions::glibc by the parser ksys names targets
@@ -490,7 +500,7 @@ extend CompilerInstance {
     /// target in another spelling; "" for none.
     prot fn _bundled_sysroot_dir(self, const want: string) -> string {
         var prefix = Path::parent_of(Path::parent_of(env::exe_path()))
-        var root   = LinkText::join(prefix, "sysroot")
+        var root   = LinkText::join(prefix, ResourceLayout::sysroot_subdir())
         var dir    = LinkText::join(root, want)
         if !LinkFS::exists(dir) && !self.invocation()->target.glibc.empty() {
             return ""
@@ -613,7 +623,7 @@ extend CompilerInstance {
 
         // The target flags clang has a spelling for. Parsed into the
         // invocation long before this; until they are copied here they reach
-        // nothing -- `--sysroot` used to be accepted and silently dropped.
+        // nothing.
         var tgt = self.invocation()->target
         if !tgt.cxx_std.empty() {
             bcfg.cxx_std = tgt.cxx_std
@@ -627,7 +637,7 @@ extend CompilerInstance {
 
         // The AVR driver warns "no target microcontroller specified" for a
         // line without -mmcu, and picks no CPU: the probe is such a line
-        // unless the --cxx-flags -mmcu reaches it too (P661). Given it,
+        // unless the --cxx-flags -mmcu reaches it too. Given it,
         // the probe's -target-cpu is the MCU the C inputs compile for.
         var mmcu_next = false
         for s in *self.invocation()->args.get_list("cxx-flags") {
@@ -700,17 +710,17 @@ extend CompilerInstance {
         // hermetic).
         bcfg.strip_env = tgt.host_mode.empty()
         if !tgt.host_mode.empty() {
-            for var d: string in HostSystem::env_list("CPATH") {
+            for var d: string in HostSystem::env_list(EnvNames::cpath()) {
                 bcfg.extra_cc1.push_back("-I")
                 bcfg.extra_cc1.push_back(d)
             }
 
-            for var d: string in HostSystem::env_list("C_INCLUDE_PATH") {
+            for var d: string in HostSystem::env_list(EnvNames::c_include_path()) {
                 bcfg.extra_cc1.push_back("-c-isystem")
                 bcfg.extra_cc1.push_back(d)
             }
 
-            for var d: string in HostSystem::env_list("CPLUS_INCLUDE_PATH") {
+            for var d: string in HostSystem::env_list(EnvNames::cplus_include_path()) {
                 bcfg.extra_cc1.push_back("-cxx-isystem")
                 bcfg.extra_cc1.push_back(d)
             }
@@ -801,7 +811,7 @@ extend CompilerInstance {
     /// headers under a relative --sysroot are re-included from
     /// /kairo/pch/<id>.h and resolve against the PCH's directory, and
     /// --working-dir only chdirs AFTER this runs (apply_input_options), so
-    /// -I and --sysroot used to resolve against two different directories.
+    /// -I and --sysroot must resolve before it, against the same directory.
     ///
     /// Relative paths are taken against --working-dir when given, else the
     /// cwd -- the directory the user meant, on the CLI and programmatic paths
@@ -889,11 +899,11 @@ extend CompilerInstance {
     priv fn _discover_roots(self) {
         var *inv   = self.invocation()
         var prefix = CompilerInstance::_toolchain_prefix()
-        var lib    = LinkText::join(prefix, "lib")
+        var lib    = LinkText::join(prefix, ResourceLayout::lib_subdir())
 
         var rd_given = !inv->target.resource_dir.empty()
         if !rd_given {
-            var rd = CompilerInstance::_pick_resource_dir(LinkText::join(lib, "clang"))
+            var rd = CompilerInstance::_pick_resource_dir(LinkText::join(lib, ResourceLayout::clang_subdir()))
             if !rd.empty() {
                 inv->target.resource_dir = rd
             } else {
@@ -911,10 +921,10 @@ extend CompilerInstance {
         if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
             var legacy = ""
             if rd_given {
-                legacy = LinkText::join(inv->target.resource_dir, "builtin")
+                legacy = LinkText::join(inv->target.resource_dir, ResourceLayout::builtin_subdir())
             }
 
-            var dir = LinkText::join(lib, "builtin")
+            var dir = LinkText::join(lib, ResourceLayout::builtin_subdir())
             if !legacy.empty() && LinkFS::is_dir(legacy) {
                 inv->pp.builtins_dir = legacy
             } else if LinkFS::is_dir(dir) {
@@ -930,10 +940,10 @@ extend CompilerInstance {
         if inv->pp.std_dir.empty() && !inv->pp.no_stdlib {
             var legacy = ""
             if rd_given {
-                legacy = LinkText::join(inv->target.resource_dir, "std")
+                legacy = LinkText::join(inv->target.resource_dir, ResourceLayout::std_subdir())
             }
 
-            var dir = LinkText::join(lib, "std")
+            var dir = LinkText::join(lib, ResourceLayout::std_subdir())
             if !legacy.empty() && LinkFS::is_dir(legacy) {
                 inv->pp.std_dir = legacy
             } else if LinkFS::is_dir(dir) {
@@ -978,12 +988,12 @@ extend CompilerInstance {
                 want = self._effective_triple()
             }
 
-            var root = LinkText::join(CompilerInstance::_toolchain_prefix(), "sysroot")
+            var root = LinkText::join(CompilerInstance::_toolchain_prefix(), ResourceLayout::sysroot_subdir())
             if self._unshipped_sdk(want) {
                 var want_tri = llvm::Triple(llvm::Triple::normalize(kairo::sref(want)))
                 var script = if (want_tri.isOSDarwin()) => ("darwin-sysroot.sh")
                              else => "msvc-sysroot.sh"
-                var scripts = LinkText::join(CompilerInstance::_toolchain_prefix(), "scripts")
+                var scripts = LinkText::join(CompilerInstance::_toolchain_prefix(), ResourceLayout::scripts_subdir())
                 self._diag->report(
                     DiagID::P008E,
                     f"no sysroot for target '{want}': its SDK is never shipped with the compiler",
@@ -1093,7 +1103,7 @@ extend CompilerInstance {
 
             var inc  = cxx::std::vector<string>()
             var seen = cxx::std::vector<string>()
-            var nixc = HostSystem::split_words(LinkFS::env("NIX_CFLAGS_COMPILE"))
+            var nixc = HostSystem::split_words(LinkFS::env(EnvNames::nix_cflags_compile()))
             for var i: usize = 0; i + 1 < nixc.size(); ++i {
                 if nixc[i] == "-isystem" || nixc[i] == "-idirafter" {
                     HostSystem::add_dir(&inc, &seen, nixc[i + 1])
@@ -1109,7 +1119,7 @@ extend CompilerInstance {
 
             var libs  = cxx::std::vector<string>()
             var seenl = cxx::std::vector<string>()
-            var nixl  = HostSystem::split_words(LinkFS::env("NIX_LDFLAGS"))
+            var nixl  = HostSystem::split_words(LinkFS::env(EnvNames::nix_ldflags()))
             for var i: usize = 0; i < nixl.size(); ++i {
                 var w = nixl[i]
                 if (w == "-L" || w == "-rpath") && i + 1 < nixl.size() {
@@ -1130,7 +1140,7 @@ extend CompilerInstance {
             }
 
             tg->host_lib_dirs = libs
-            tg->env_lib_dirs  = HostSystem::env_list("LIBRARY_PATH")
+            tg->env_lib_dirs  = HostSystem::env_list(EnvNames::library_path())
 
             if mode == "native" {
                 var t = kairo::std::from_std_string<string>(eff.getTriple())
@@ -1149,8 +1159,8 @@ extend CompilerInstance {
         }
 
         if !tg->triple.empty()
-            && LinkFS::env("PKG_CONFIG_SYSROOT_DIR").empty()
-            && LinkFS::env("PKG_CONFIG_LIBDIR").empty() {
+            && LinkFS::env(EnvNames::pkg_config_sysroot_dir()).empty()
+            && LinkFS::env(EnvNames::pkg_config_libdir()).empty() {
             self._diag->report(
                 DiagID::U018E,
                 f"--pkg-config cannot be used with --target={tg->triple} as is: this machine's .pc files describe this machine, not the target",
@@ -1342,10 +1352,9 @@ extend CompilerInstance {
         var d  = self.invocation()->diag
         var fe = self.invocation()->frontend
 
-        // Only the formats a consumer exists for. json and msvc used to be
-        // advertised and silently rendered as pretty; msvc still has no
-        // consumer, so it is refused rather than faked.
-        if d.format != "pretty" && d.format != "basic" && d.format != "json" {
+        // Only the formats a consumer exists for. msvc has no
+        // consumer, so it is refused rather than rendered as pretty.
+        if !d.format_known {
             if d.format == "msvc" {
                 self._diag->report(DiagID::U021E, "error format 'msvc' is not implemented").emit()
             } else {
@@ -1359,10 +1368,10 @@ extend CompilerInstance {
             return
         }
 
-        if d.format == "basic" || d.format == "json" {
+        if renders_through_basic(d.error_format) {
             self._diag->remove_consumer(unsafe (self._pretty as unsafe *PrettyDiagConsumer))
             self._diag->add_consumer(unsafe (self._basic as unsafe *BasicDiagConsumer))
-            self._basic->set_json(d.format == "json")
+            self._basic->set_json(d.error_format == ErrorFormat::Json)
             // Flag-parse diagnostics (U005W, -D shape errors) are already in
             // the pretty buffer; carry them over or basic mode never shows them.
             self._pretty->drain_into(unsafe (self._basic as unsafe *BasicDiagConsumer))
@@ -1524,28 +1533,7 @@ extend CompilerInstance {
         var osn:  llvm::StringRef = tt.getOSName()
         var env:  llvm::StringRef = tt.getEnvironmentName()
 
-        var objfmt: string
-        match tt.getObjectFormat() {
-            case llvm::Triple::COFF {
-                objfmt = "COFF"
-            } case llvm::Triple::ELF {
-                objfmt = "ELF"
-            } case llvm::Triple::MachO {
-                objfmt = "Mach-O"
-            } case llvm::Triple::Wasm {
-                objfmt = "Wasm"
-            } case llvm::Triple::XCOFF {
-                objfmt = "XCOFF"
-            } case llvm::Triple::GOFF {
-                objfmt = "GOFF"
-            } case llvm::Triple::DXContainer {
-                objfmt = "DXContainer"
-            } case llvm::Triple::SPIRV {
-                objfmt = "SPIR-V"
-            } default {
-                objfmt = "unknown"
-            }
-        }
+        var objfmt = CompilerInstance::_object_format_of(&tt)
 
         var *t = &self.invocation()->target
         t->effective_triple = full
@@ -1557,7 +1545,8 @@ extend CompilerInstance {
 
         t->os_name = string(unsafe ((osn.data() as unsafe *const u8) as *const u8), osn.size())
         t->env_name = string(unsafe ((env.data() as unsafe *const u8) as *const u8), env.size())
-        t->object_format    = objfmt
+        t->object_format_kind = objfmt
+        t->object_format      = object_format_name(objfmt)
         t->is_little_endian = tt.isLittleEndian()
         t->is_x86           = tt.isX86()
         t->has_os           = tt.getOS() != llvm::Triple::UnknownOS
@@ -1581,7 +1570,7 @@ extend CompilerInstance {
         // before the validity check and before anything forwards the name.
         // Resolved only for a host build: with --target the host's CPU names
         // nothing about the target, and guessing would silently build for a
-        // machine nobody asked for (P423).
+        // machine nobody asked for.
         if self._inv.target.mcpu == "native" {
             if !self._inv.target.triple.empty() {
                 self._diag->report(
@@ -1618,6 +1607,35 @@ extend CompilerInstance {
                 return
             }
         }
+    }
+
+    /// The one llvm::Triple -> ObjectFormat switch, for the target facts
+    /// (_apply_invocation) and --print-target-info alike.
+    prot static fn _object_format_of(@inout tt: llvm::Triple) -> ObjectFormat {
+        var f = ObjectFormat::Unknown
+        match tt.getObjectFormat() {
+            case llvm::Triple::COFF {
+                f = ObjectFormat::Coff
+            } case llvm::Triple::ELF {
+                f = ObjectFormat::Elf
+            } case llvm::Triple::MachO {
+                f = ObjectFormat::MachO
+            } case llvm::Triple::Wasm {
+                f = ObjectFormat::Wasm
+            } case llvm::Triple::XCOFF {
+                f = ObjectFormat::Xcoff
+            } case llvm::Triple::GOFF {
+                f = ObjectFormat::Goff
+            } case llvm::Triple::DXContainer {
+                f = ObjectFormat::DxContainer
+            } case llvm::Triple::SPIRV {
+                f = ObjectFormat::Spirv
+            } default {
+                f = ObjectFormat::Unknown
+            }
+        }
+
+        return f
     }
 
     /// Fill TargetOptions' `long double` block and int64_t spelling from

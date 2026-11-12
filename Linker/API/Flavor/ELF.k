@@ -34,6 +34,7 @@
 ffi "c++" import "vector"
 
 import API::FS::LinkFS
+import API::Flavor::LldWords::LldWords
 import API::HostSystem::HostSystem
 import API::LinkDiag::{
     LinkDiag,
@@ -87,8 +88,8 @@ pub class ELFArgs {
 
         /// # options
         argv.push_back("ld.lld")
-        argv.push_back("--color-diagnostics=never")
-        argv.push_back("--error-limit=0")
+        argv.push_back(LldWords::no_color())
+        argv.push_back(LldWords::no_error_limit())
         if job.threads > 0 {
             argv.push_back(f"--threads={job.threads}")
         }
@@ -114,8 +115,7 @@ pub class ELFArgs {
 
         // MIPS: sysv only, as clang's driver links it. Its ABI sorts .dynsym
         // by GOT order and .gnu.hash wants bucket order, so lld refuses
-        // .gnu.hash outright and the "gnu" default would fail every MIPS link
-        // (P704).
+        // .gnu.hash outright and the "gnu" default would fail every MIPS link.
         var hs = o->hash_style
         if LinkText::starts_with(tc.arch, "mips") && (hs == "gnu" || hs == "both") {
             hs = "sysv"

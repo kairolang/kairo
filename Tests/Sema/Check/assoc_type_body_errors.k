@@ -7,7 +7,7 @@
 //    value-returning body.
 // `type Made impl Default` makes `T::Made{}` and `T::Made()` legal, and
 // `type Item impl Display` makes `x.show()` and `s.get().show()` legal (a
-// member through the associated type's own bounds; it was SC116E, see
+// member through the associated type's own bounds, see
 // Tests/Codegen/witness/assoc_type_member.k).
 
 interface Display { fn show(const self) -> i32 }

@@ -3,9 +3,9 @@
 // link. What an input IS comes from one classifier (Driver/InputKinds.k):
 // clang's own type table, plus `.k` and the link inputs clang has no type for.
 //
-// Regression: Path::extension() keeps the dot (".cc"), and the driver used to
-// compare against bare spellings ("cc", "o"), so every .c/.cc/.o here was
-// lexed as Kairo and failed with R020E on `#include`.
+// Regression: Path::extension() keeps the dot (".cc"), and the driver must not
+// compare against bare spellings ("cc", "o"), or every .c/.cc/.o here is
+// lexed as Kairo and fails with R020E on `#include`.
 //
 // -x <lang> names the language of the inputs that FOLLOW it, as in clang;
 // -x none goes back to the extension.

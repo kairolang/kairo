@@ -38,6 +38,7 @@ import API::Toolchain::Toolchain
 import Command::Command::Command
 import Command::FlagRegistry::register_kairo_flags
 import Command::FlagTranslator::FlagTranslator
+import Config::Target::object_format_name
 import Diagnostic::Code::diag_from_code
 import Diagnostic::Registry::{
     DiagID,
@@ -379,28 +380,7 @@ extend CompilerInstance {
             os_family = "unknown"
         }
 
-        var obj_format: string
-        match llvm_triple.getObjectFormat() {
-            case llvm::Triple::COFF {
-                obj_format = "COFF"
-            } case llvm::Triple::ELF {
-                obj_format = "ELF"
-            } case llvm::Triple::MachO {
-                obj_format = "Mach-O"
-            } case llvm::Triple::Wasm {
-                obj_format = "Wasm"
-            } case llvm::Triple::XCOFF {
-                obj_format = "XCOFF"
-            } case llvm::Triple::GOFF {
-                obj_format = "GOFF"
-            } case llvm::Triple::DXContainer {
-                obj_format = "DXContainer"
-            } case llvm::Triple::SPIRV {
-                obj_format = "SPIR-V"
-            } default {
-                obj_format = "unknown"
-            }
-        }
+        var obj_format = object_format_name(CompilerInstance::_object_format_of(&llvm_triple))
 
         io::println(f"Triple:          {full_triple}")
         io::println(

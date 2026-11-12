@@ -40,6 +40,7 @@ import API::LinkDiag::{
 import API::LinkJob::LinkJob
 import API::Text::LinkText
 import API::Toolchain::Toolchain
+import Config::Target::ObjectFormat
 
 pub struct LinkResult {
     pub var ok:          bool                          = false
@@ -60,11 +61,11 @@ pub class Link {
             return false
         }
 
-        if tc.format == "Mach-O" {
+        if tc.format == ObjectFormat::MachO {
             return MachOArgs::build(&job, &tc, &argv, &msgs)
         }
 
-        if tc.format == "COFF" {
+        if tc.format == ObjectFormat::Coff {
             if tc.libc == "msvc" {
                 return COFFArgs::build(&job, &tc, &argv, &msgs)
             }
@@ -72,7 +73,7 @@ pub class Link {
             return MinGWArgs::build(&job, &tc, &argv, &msgs)
         }
 
-        if tc.format == "Wasm" {
+        if tc.format == ObjectFormat::Wasm {
             return WasmArgs::build(&job, &tc, &argv, &msgs)
         }
 

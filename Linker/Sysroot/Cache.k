@@ -37,6 +37,10 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "algorithm"
 ffi "c++" import "vector"
 
+import API::EnvNames::{
+    EnvNames,
+    cache_root,
+}
 import API::FS::LinkFS
 import API::Text::LinkText
 
@@ -97,34 +101,20 @@ pub class SysCache {
         self.root = LinkText::strip_slash(root)
     }
 
+    /// The `schema` field of every key object (Compiler/Spec/SysRoot.md
+    /// section 7), written by both key builders (Generator's _key_json,
+    /// Sdk's _key and the MSVC tools key): a bump re-keys every root.
+    pub static fn key_schema() -> string {
+        return "1"
+    }
+
     pub static fn default_root() -> string {
-        var r = LinkFS::env("KAIRO_SYSROOT_CACHE")
+        var r = LinkFS::env(EnvNames::kairo_sysroot_cache())
         if !r.empty() {
             return SysCache::_slashes(LinkText::strip_slash(r))
         }
 
-        r = LinkFS::env("KAIRO_CACHE_DIR")
-        if r.empty() {
-            var xdg = LinkFS::env("XDG_CACHE_HOME")
-            if !xdg.empty() {
-                r = xdg + "/kairo"
-            }
-        }
-
-        if r.empty() {
-            var home = LinkFS::env("HOME")
-            if !home.empty() {
-                r = home + "/.cache/kairo"
-            }
-        }
-
-        if r.empty() {
-            var local = LinkFS::env("LOCALAPPDATA")
-            if !local.empty() {
-                r = local + "/kairo"
-            }
-        }
-
+        r = cache_root()
         if r.empty() {
             return ""
         }

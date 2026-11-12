@@ -25,11 +25,13 @@ ffi "c++" import "vector"
 ffi "c++" import "string"
 ffi "c++" import "chrono"
 
+import API::EnvNames::cache_root
 import API::FS::LinkFS
 import Command::FlagTranslator::{
     ClangSpelling,
     FlagTranslator,
 }
+import Config::ResourceLayout::ResourceLayout
 import Diagnostic::Registry::DiagID
 import Driver::CompilerInstance::CompilerInstance
 import Driver::CompilerNative
@@ -95,7 +97,7 @@ extend CompilerInstance {
             return out
         }
 
-        var rt    = Path::join_str(rroot, "rt")
+        var rt    = Path::join_str(rroot, ResourceLayout::rt_subdir())
         var files = cxx::std::vector<string>()
         for var name: string in LinkFS::list_dir(rt) {
             var p = rt + "/" + name
@@ -289,48 +291,12 @@ extend CompilerInstance {
         return true
     }
 
-    /// \brief the toolchain's cache root, shared by the Kairo library
-    ///        (_kairo_lib_dir) and the runtime objects (_rt_cache_dir):
-    ///        $KAIRO_CACHE_DIR, else $XDG_CACHE_HOME/kairo, else
-    ///        ~/.cache/kairo, else %LOCALAPPDATA%/kairo (Windows, where HOME
-    ///        is usually unset). "" when none is set: nothing is cached.
+    /// \brief the toolchain's cache root (API/EnvNames.k), shared by the
+    ///        Kairo library (_kairo_lib_dir), the runtime objects
+    ///        (_rt_cache_dir) and the LTO cache. "" when no variable names
+    ///        one: nothing is cached.
     prot static fn _cache_root() -> string {
-        var root = LinkFS::env("KAIRO_CACHE_DIR")
-        if root.empty() {
-            var xdg = LinkFS::env("XDG_CACHE_HOME")
-            if !xdg.empty() {
-                root = xdg + "/kairo"
-            }
-        }
-
-        if root.empty() {
-            var home = LinkFS::env("HOME")
-            if !home.empty() {
-                root = home + "/.cache/kairo"
-            }
-        }
-
-        if root.empty() {
-            var local = LinkFS::env("LOCALAPPDATA")
-            if !local.empty() {
-                root = local + "/kairo"
-            }
-        }
-
-        // One separator. Windows hands back C:\Users\... and the library code
-        // compares paths the source manager spells with '/' against ones built
-        // here: a mixed C:\...\Local/kairo/... root never matched, so the
-        // library's own temporary entry was recorded as a source and the cache
-        // was "incomplete" on every Windows run. Windows takes '/' everywhere.
-        eval if defined!(_WIN32) {
-            for var i: usize = 0; i < root.size(); ++i {
-                if root[i] == ('\\' as u8) {
-                    root[i] = ('/' as u8)
-                }
-            }
-        }
-
-        return root
+        return cache_root()
     }
 
     /// The cache directory for this target and option set; "" without a root.

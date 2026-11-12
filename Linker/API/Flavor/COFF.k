@@ -61,6 +61,7 @@
 ffi "c++" import "vector"
 
 import API::FS::LinkFS
+import API::Flavor::LldWords::LldWords
 import API::LinkDiag::{
     LinkDiag,
     LinkMessage,
@@ -132,7 +133,7 @@ pub class COFFArgs {
         /// # options
         argv.push_back("lld-link")
         argv.push_back("-nologo")
-        argv.push_back("-errorlimit:0")
+        argv.push_back(LldWords::coff_no_error_limit())
         if job.threads > 0 {
             argv.push_back(f"-threads:{job.threads}")
         }

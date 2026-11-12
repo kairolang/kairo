@@ -1,6 +1,6 @@
 // A file-scope `finally` has no enclosing function: no body for its guard
 // to be local to and no scope that is ever left. It is an error, not an
-// ICE in MoveCheck or FinallyLowering, bare or inside a file-scope block;
+// internal error in MoveCheck or FinallyLowering, bare or inside a file-scope block;
 // one in a function body beside it is fine.
 
 finally { }

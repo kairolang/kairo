@@ -40,6 +40,7 @@
 ffi "c++" import "vector"
 
 import API::FS::LinkFS
+import API::Flavor::LldWords::LldWords
 import API::LinkDiag::{
     LinkDiag,
     LinkMessage,
@@ -82,8 +83,8 @@ pub class MachOArgs {
 
         /// # options
         argv.push_back("ld64.lld")
-        argv.push_back("--color-diagnostics=never")
-        argv.push_back("--error-limit=0")
+        argv.push_back(LldWords::no_color())
+        argv.push_back(LldWords::no_error_limit())
         if job.threads > 0 {
             argv.push_back(f"--threads={job.threads}")
         }

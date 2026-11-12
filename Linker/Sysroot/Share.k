@@ -17,6 +17,7 @@
 
 ffi "c++" import "vector"
 
+import API::EnvNames::EnvNames
 import API::FS::LinkFS
 import API::SysrootManifest::{
     TomlLite,
@@ -457,7 +458,7 @@ pub class ShareTree {
             return ShareTree::_absolute(LinkText::strip_slash(flag))
         }
 
-        var e = LinkFS::env("KAIRO_SYSROOT_SHARE")
+        var e = LinkFS::env(EnvNames::kairo_sysroot_share())
         if !e.empty() {
             return ShareTree::_absolute(LinkText::strip_slash(e))
         }
@@ -540,7 +541,7 @@ pub class ShareTree {
     /// only when it is relative). The stages hand input paths to
     /// -ffile-prefix-map, which a relative path does not match: the compiler
     /// records the headers it finds absolute, and the share's location then
-    /// ends up in every object (P670).
+    /// ends up in every object.
     priv static fn _absolute(const p: string) -> string {
         var abs = LinkText::starts_with(p, "/")
             || LinkText::starts_with(p, "\\")

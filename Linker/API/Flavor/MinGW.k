@@ -50,6 +50,7 @@
 
 ffi "c++" import "vector"
 
+import API::Flavor::LldWords::LldWords
 import API::LinkDiag::{
     LinkDiag,
     LinkMessage,
@@ -116,7 +117,7 @@ pub class MinGWArgs {
         argv.push_back("ld.lld")
         argv.push_back("-m")
         argv.push_back(tc.emulation)
-        argv.push_back("--error-limit=0")
+        argv.push_back(LldWords::no_error_limit())
         if job.threads > 0 {
             argv.push_back(f"--threads={job.threads}")
         }

@@ -519,6 +519,9 @@ inline void prefetch_t0(const void *p) noexcept { __builtin_prefetch(p, 0, 3); }
 /// (build.k), absent from builds that do not define it.
 #ifdef LLVM_VERSION_MAJOR
 inline constexpr int llvm_version_major() noexcept { return LLVM_VERSION_MAJOR; }
+/// "22.1.0": the LLVM this tool is built against, which its runtimes must
+/// match (SysrootManifest::toolchain_llvm_version, the llvm_version a staged root records).
+inline const char *llvm_version_string() noexcept { return LLVM_VERSION_STRING; }
 #endif
 #if defined(KAIRO_VERSION_EXTERN)
 /// build.py: the version is defined once, in the tool's meta object

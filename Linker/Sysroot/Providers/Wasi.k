@@ -6,7 +6,7 @@
 ///   sources compiled, its archives written, its shared libraries linked by
 ///   kld's wasm flavor. libc++ (the eh/ and noeh/ trees beside the libc) is
 ///   not built from source yet and comes from the wasi/<v> base, copied per
-///   [bundle_layout] as the bundle provider copies one (P624).
+///   [bundle_layout] as the bundle provider copies one.
 ///
 ///   Without the wasi-libc input (an older share) the base is the whole
 ///   root, as for the bundle provider.
@@ -174,7 +174,7 @@ pub class WasiProvider derives SysrootProvider {
         }
 
         WasiProvider::_install_ready(&t, &env)
-        // Not a kcc link: that would link the Kairo runtime in (P591). The
+        // Not a kcc link: that would link the Kairo runtime  in. The
         // lines are what clang's driver ran for wasi-libc's own link.
         for var l: CrtLink in t.links {
             var argv = cxx::std::vector<string>()
