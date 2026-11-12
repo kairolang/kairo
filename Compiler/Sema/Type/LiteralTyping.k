@@ -2376,10 +2376,16 @@ pub class <T: type> LiteralTyping {
 
             // A tuple element is a value: an imported `T&`/`T&&` result
             // (`(d, cxx::std::move(c))`) is a tuple of the T it refers to,
-            // not of a reference type that no `(A, T)` target accepts.
+            // not of a reference type that no `(A, T)` target accepts, and a
+            // field read through `const self` is a tuple of K, not of
+            // `const K`: `Tuple2<const K, const V>` converts to no `(K, V)`.
             var ec = canon_unqual(t)
             if ec != &null && (isa<CXXLValueRefType>(ec) || isa<CXXRValueRefType>(ec)) {
-                t = self.dyn()->tu.as_value(ec)
+                ec = canon_unqual(self.dyn()->tu.as_value(ec))
+            }
+
+            if ec != &null {
+                t = ec
             }
 
             elems.push_back(t)
