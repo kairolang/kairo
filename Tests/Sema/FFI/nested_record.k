@@ -4,8 +4,8 @@
 // Nested records of an instance of an IMPORTED template, reached by a
 // written type path. clang's implicit instantiation of `holder<alloc>`
 // DECLARES `holder<alloc>::node` but does not define it (a member class is
-// defined only when required complete), so the fill used to bind `node` as
-// a type with no members. The fill now completes the nested records its own
+// defined only when required complete), so the fill must not bind `node` as
+// a type with no members. The fill completes the nested records its own
 // walk reaches (ForeignInstantiate::_complete_nested) -- two levels deep
 // here, `node::tag`. nested_record_return.k and nested_record_extend.k reach
 // `node` through the other ensure_filled callers.

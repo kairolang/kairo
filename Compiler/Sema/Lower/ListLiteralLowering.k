@@ -25,10 +25,14 @@
 ///     exactness cast skips dependent parameters.
 ///
 ///   \par Extended
-///     The only case that mints a declaration, and always in front of a
-///     DeclStmt: ExprTyper marks a slice literal Extended only where it
-///     directly initializes a `var`. Inner backings splice first. A for-init
-///     variable has no statement list to splice into and ICEs by name.
+///     The only case that mints a declaration, in front of the statement
+///     that owns the literal: ExprTyper marks a slice literal Extended only
+///     where it directly initializes a `var` (and IterLowering, CallLowering
+///     and SequenceLowering likewise for the locals they mint), so that is a
+///     DeclStmt -- or, for a script's deferred binding, the `g = <init>`
+///     expression statement ScriptLowering moved the initializer into.
+///     Inner backings splice first. A for-init variable has no statement
+///     list to splice into and ICEs by name.
 ///
 ///     A namespace-scope variable's backing is a namespace-scope variable
 ///     too, in the owner's scope and spliced ahead of it there (a TU's item
@@ -72,7 +76,10 @@ import AST::Node::Base::{
     Stmt,
     Type,
 }
-import AST::Node::Declarations::VariableDecl
+import AST::Node::Declarations::{
+    StorageClass,
+    VariableDecl,
+}
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
     canon_unqual,
@@ -125,6 +132,10 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     /// statement list of its own again).
     priv var _ns_owner: unsafe *VariableDecl = &null
 
+    /// The local `var` whose DeclStmt is being rewritten, or null (an
+    /// expression statement, or a statement nested in its initializer).
+    priv var _local_owner: unsafe *VariableDecl = &null
+
     /// Namespace-scope backings minted under _ns_owner, in run order.
     priv var _ns_pending: cxx::std::vector<unsafe *Decl>
 
@@ -134,6 +145,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         var window: bool
         var scalar: bool
         var owner:  unsafe *VariableDecl
+        var local:  unsafe *VariableDecl
     }
 
     priv var synth: LowerSynth
@@ -158,7 +170,11 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     /// # the statements a backing array can precede
 
     fn transform_decl_stmt(self, n: unsafe *DeclStmt) -> cxx::std::vector<unsafe *Stmt> {
-        var w    = self._open_window()
+        var w = self._open_window()
+        if n->decl != &null && isa<VariableDecl>(n->decl) {
+            self._local_owner = cast<VariableDecl>(n->decl)
+        }
+
         var body = ASTWriter<ListLiteralLowering>::transform_decl_stmt(self, n)
         return self._close_window(w, body)
     }
@@ -170,7 +186,9 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     /// ahead of the assignment: main's locals outlive every read of g, and
     /// main's first statement (the teardown `finally`) nulls g on the way
     /// out. Nothing else puts an Extended literal under an expression
-    /// statement.
+    /// statement: the other writers (IterLowering::_extend,
+    /// CallLowering::_mark_extended, SequenceLowering::_mark_extended) mark
+    /// a literal that initializes a local they mint as a DeclStmt.
     fn transform_expression_stmt(self,
                                  n: unsafe *Statements::ExpressionStmt) -> cxx::std::vector<unsafe *Stmt> {
         var w    = self._open_window()
@@ -186,6 +204,8 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         w.window = self._window
         w.scalar = self._scalar_slot
         w.owner  = self._ns_owner
+        w.local  = self._local_owner
+        self._local_owner = &null
         self._window      = !w.scalar
         self._scalar_slot = false         // statements nested in the initializer are lists again.
         self._ns_owner    = &null
@@ -199,6 +219,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         self._window      = w.window
         self._scalar_slot = w.scalar
         self._ns_owner    = w.owner
+        self._local_owner = w.local
 
         var out = cxx::std::vector<unsafe *Stmt>()
         for var i: usize = w.mark; i < self._pending.size(); ++i {
@@ -566,6 +587,15 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         }
 
         var unsafe *vd = self.synth.local(at, "tmp", arr_ty, unsafe (il as unsafe *Expr))
+        // A `static` (or `thread`) local outlives its frame, and so must
+        // what it points at: initialized once, with it. A plain local
+        // backing died at the first return, and every later call read
+        // through the static slice into a dead frame.
+        if self._local_owner != &null && self._local_owner->storage == StorageClass::Static {
+            vd->storage   = StorageClass::Static
+            vd->is_thread = self._local_owner->is_thread
+        }
+
         self._pending.push_back(
             unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
         )

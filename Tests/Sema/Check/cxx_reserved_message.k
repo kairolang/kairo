@@ -4,8 +4,8 @@
 // by C++ at every scope ([lex.name]/3). A plain `_lower` is reserved by C++
 // only at global scope; a field, parameter or local spelled so is legal C++,
 // and Kairo refuses it on its own account, at every scope on purpose. The
-// message used to call every case "reserved for the implementation in C++",
-// which sent readers looking for a C++ rule that does not apply to members.
+// message does not call every case "reserved for the implementation in C++":
+// that would send readers looking for a C++ rule that does not apply to members.
 
 class <T> Node {
     var _next: i32

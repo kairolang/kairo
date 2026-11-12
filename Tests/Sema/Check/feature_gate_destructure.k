@@ -1,5 +1,5 @@
 // Destructuring a struct by field name has no lowering yet; FeatureGateCheck
-// reports it (SC116E) so TupleLowering's ICE on one stays an invariant. A
+// reports it (SC116E), so TupleLowering never sees one. A
 // tuple's positional form is lowered and passes.
 
 struct P { var x: i32  var y: i32 }

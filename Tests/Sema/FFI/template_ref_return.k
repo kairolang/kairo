@@ -7,9 +7,9 @@
 // parameter (`const T&`, `T&`, `T&&`): substituting the return type had no
 // arm for a C++ reference, so the call typed as unknown with no diagnostic.
 // `var req = std::max(a, b)` then reached codegen untyped (I011W) and the
-// first member access through a value built from it was an EmitIR gate ICE
-// ("unbound member step reached codegen"). Found compiling the migrated
-// Memory/ArenaAllocator.k to an object (self-host phase 5.3).
+// first member access through a value built from it was an EmitIR gate error
+// ("unbound member step reached codegen"), as in compiling
+// Memory/ArenaAllocator.k to an object.
 
 ffi "c++" import "template_ref_return.h"
 

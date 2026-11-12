@@ -109,6 +109,7 @@ import AST::Node::Declarations::{
 import AST::Node::Expressions::{
     AssignOperatorExpr,
     BinaryOperatorExpr,
+    ClosureExpr,
     RangeExpr,
     UnaryOperatorExpr,
 }
@@ -435,7 +436,7 @@ pub class Candidate {
     pub var inout_unmarked: cxx::std::vector<usize>
     pub var inout_params:   cxx::std::vector<unsafe *ParamDecl>
     /// Arguments a C++ callee takes through ONE implicit user-defined
-    /// conversion (-fcxx-implicit-conv, P813): ranked below every standard
+    /// conversion (-fcxx-implicit-conv): ranked below every standard
     /// conversion (rank 2), emitted as written for C++ to convert.
     pub var user_convs: cxx::std::vector<usize>
     /// The subset of user_convs whose parameter Kairo cannot read before
@@ -2868,8 +2869,8 @@ pub class OverloadResolution {
 
             // C++ takes an argument through one implicit user-defined
             // conversion ([over.best.ics]); Kairo does only at a C++ callee
-            // and only under -fcxx-implicit-conv (P813, owner's rule:
-            // crossing into C++ follows C++; -fimplicit-conv is the
+            // and only under -fcxx-implicit-conv (crossing into
+            // C++ follows C++; -fimplicit-conv is the
             // Kairo-side rules and has no say here). Below every standard
             // conversion, as C++ ranks it. Without the flag the reason says
             // which conversion C++ would have used.
@@ -2887,7 +2888,7 @@ pub class OverloadResolution {
             // parameter is a C++ alias over the pack, opaque to Kairo, and
             // T... comes from the OTHER arguments. Which class the literal
             // must become is known only once clang has substituted T..., so
-            // the conversion is clang's to check at deduction (P825).
+            // the conversion is clang's to check at deduction.
             if r == ImplicitRank::None
                 && uvia == ""
                 && mode != ParamMode::Inout
@@ -2964,6 +2965,15 @@ pub class OverloadResolution {
                     c->reason += "; a C string is '*const c_char' (std::c_char), which no byte or i8 pointer converts to"
                     c->fix_text = f" as {self.tu.str(pt)}"
                     c->fix_at   = a->range.end
+                } else if self._raw_fn_from_capturing(a, pt) {
+                    // SC258E's wording, which a declaration's initializer
+                    // gets: as a bare SC063E a capturing closure handed to
+                    // `qsort` said only that the types differ.
+                    if a->expr != &null && isa<ClosureExpr>(self.tu.strip_parens(a->expr)) {
+                        c->reason += "; this closure captures, so it has no function pointer: only a named function or a closure that captures nothing is a raw 'unsafe fn'"
+                    } else {
+                        c->reason += "; a 'fn' value may hold a capturing closure, which has no function pointer: only a named function or a closure that captures nothing is a raw 'unsafe fn'"
+                    }
                 } else if f->is_imported()
                     && a->ty != &null
                     && self.tu.is_string(a->ty)
@@ -2981,8 +2991,8 @@ pub class OverloadResolution {
 
             // An unmarked argument reaching `@inout` is TOLERATED (CallTyping
             // warns), never preferred: it ranks as a conversion. At Exact it
-            // tied `f(x: T)` and `f(a)` was ambiguous; now the by-value
-            // overload wins `f(a)` and `f(&a)` still picks `@inout`.
+            // would tie `f(x: T)` and make `f(a)` ambiguous; ranked as a
+            // conversion, the by-value overload wins `f(a)` and `f(&a)` still picks `@inout`.
             // Kairo's own `@inout` only: a C++ `T&` read as one
             // (cxx_lref_inout) ranks as C++ ranks it, so `(int&, const int&)`
             // still picks `int&` for a bare lvalue -- and SC097E says the
@@ -3055,7 +3065,7 @@ pub class OverloadResolution {
             // int: the identity to `int`, a conversion to everything else.
             // Kairo's literal takes any integer or float it fits (§5), so
             // without this `f(int)` / `f(unsigned)` / `f(double)` all rank
-            // Exact and `f(7)` was ambiguous (P816). Same code space and
+            // Exact and `f(7)` would be ambiguous. Same code space and
             // tiebreak as a float literal. Kairo's own overloads keep the
             // documented closed list of tiebreaks: none orders an int literal.
             if r == ImplicitRank::Exact && a->lit == LitKind::Int && f->is_imported() {
@@ -3755,7 +3765,7 @@ pub class OverloadResolution {
     /// \p a is a string literal at an imported template's forwarding
     /// reference \p pt (`T&&`, toml++'s `value_or(T&& default)`): T is a C
     /// string, never builtin::string, which no C++ template expects (the
-    /// P815 rule for `T`, P827). C++ itself deduces `const char(&)[N]`,
+    /// rule for `T`). C++ itself deduces `const char(&)[N]`,
     /// which Kairo cannot spell; the decayed pointer is what every such
     /// template also takes. Also true for \p pt already substituted to
     /// `const char*&&`.
@@ -3793,7 +3803,7 @@ pub class OverloadResolution {
     /// \p a. To C++ a string literal is `const char[N]`, which a by-value
     /// `T` deduces as `const char *` ([temp.deduct.call]/2): deduced from
     /// the Kairo `string` instead, `template<class T> f(T)` was instantiated
-    /// on builtin::string, which no C++ template expects (P815). CallTyping
+    /// on builtin::string, which no C++ template expects. CallTyping
     /// then sees the substituted `const char *` slot and passes the bytes,
     /// as for a written C string parameter. A reference parameter is left
     /// alone: C++ deduces the ARRAY there, which Kairo cannot spell.
@@ -3894,7 +3904,7 @@ pub class OverloadResolution {
 
         // What the hand search cannot see -- a constructor template, a
         // defaulted trailing parameter, a consteval or lazily declared
-        // constructor (P825) -- clang answers. Only for what C++ itself
+        // constructor -- clang answers. Only for what C++ itself
         // sees at the boundary: a string literal (`const char[N]`, decayed)
         // or a C++ class value. A Kairo `string` VALUE stays out: the docs
         // give it `.c_str()`, so no implicit route into C++ (c-cpp.mdx).
@@ -4000,6 +4010,23 @@ pub class OverloadResolution {
         return isa<BinaryOperatorExpr>(e) || isa<AssignOperatorExpr>(e) || isa<RangeExpr>(e)
     }
 
+    /// A `fn` value (\p a: a closure or a variable of `fn` type) offered to
+    /// a raw `unsafe fn` parameter \p pt: the conversion that never holds,
+    /// since the value may capture.
+    priv fn _raw_fn_from_capturing(self, a: *ArgInfo, pt: unsafe *Type) -> bool {
+        if a->ty == &null || pt == &null || a->ty->canonical == &null || pt->canonical == &null {
+            return false
+        }
+
+        var unsafe *from = canon_unqual(a->ty->canonical)
+        var unsafe *to   = canon_unqual(pt->canonical)
+        if !isa<FunctionPointerType>(from) || !isa<FunctionPointerType>(to) {
+            return false
+        }
+
+        return cast<FunctionPointerType>(to)->is_raw && !cast<FunctionPointerType>(from)->is_raw
+    }
+
     priv fn _c_string_reinterpret(self, from: unsafe *Type, to: unsafe *Type) -> bool {
         if from == &null || to == &null {
             return false
@@ -4044,7 +4071,7 @@ pub class OverloadResolution {
         )
 
         b.first(at)
-        // C++ would have converted an argument implicitly (P813). One target
+        // C++ would have converted an argument implicitly. One target
         // record: the note names how, and `as` is the edit. Several (each
         // overload reachable by its own conversion): the note lists them and
         // no edit is offered, since which one is meant is the user's call.

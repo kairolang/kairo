@@ -57,6 +57,50 @@ import AST::Node::Types::{
 }
 import Token::Token::Token
 
+/// # Namespace scopes
+
+/// The declarations \p d stands for in a namespace scope, pushed on \p out
+/// in source order: \p d itself, or, for a wrapper, what it holds -- a
+/// `module` block's decls, a visibility group's members, an `eval` block's
+/// body -- flattened through nested wrappers. A pass that walks the file's
+/// top-level items for generic declarations calls this on each, so a
+/// declaration inside `module m { }` is reached as one at file scope is
+/// (RequiresDesugar, ConstraintExtraction: a bound there was dropped).
+pub fn scope_decls(d: unsafe *Decl, @inout out: cxx::std::vector<unsafe *Decl>) {
+    if d == &null {
+        return
+    }
+
+    if isa<Declarations::ModuleDecl>(d) {
+        var unsafe *m = cast<Declarations::ModuleDecl>(d)
+        for var i: usize = 0; i < m->dc_decls.size(); i++ {
+            scope_decls(*m->dc_decls.get(i), &out)
+        }
+
+        return
+    }
+
+    if isa<Declarations::VisibilityGroupDecl>(d) {
+        var unsafe *g = cast<Declarations::VisibilityGroupDecl>(d)
+        for var i: usize = 0; i < g->members.size(); i++ {
+            scope_decls(*g->members.get(i), &out)
+        }
+
+        return
+    }
+
+    if isa<Declarations::EvalBlockDecl>(d) {
+        var unsafe *b = cast<Declarations::EvalBlockDecl>(d)
+        for var i: usize = 0; i < b->body.size(); i++ {
+            scope_decls(*b->body.get(i), &out)
+        }
+
+        return
+    }
+
+    out.push_back(d)
+}
+
 /// # TemplateParams
 ///
 /// Function, Struct, Class, Interface, Extension, Enum, Union, TypeAlias.

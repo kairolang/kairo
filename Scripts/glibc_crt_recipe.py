@@ -70,7 +70,7 @@ ARCHES = {
 }
 # x32: glibc's x32 syscall macros (sysdeps/unix/sysv/linux/x86_64/x32/sysdep.h, ARGIFY) are
 # rejected by clang ("variable has incomplete type typeof(...)") in every era: no start files,
-# so no x32 root (its abilists and headers ship). P680.
+# so no x32 root (its abilists and headers ship).
 NO_CRT = {"x32"}
 CRT = ["csu/crt1.o", "csu/Scrt1.o", "csu/crti.o", "csu/crtn.o"]
 # Configure checks that need a working link or a GCC: what they would find for a GNU toolchain.
@@ -99,7 +99,7 @@ DROP = {"-mno-gnu-attribute",      # ppc64le: suppress .gnu.attributes; clang em
         "-Wa,-execstack"}          # mips: the default; clang's assembler has no such option
 DROP_PREFIX = ("-Wa,-mtune=",)     # i386: an assembler tuning hint
 WA_TO_DRIVER = {"-Wa,-mno-relax": "-mno-relax"}   # riscv: the driver option clang has
-# -mabi values clang's driver takes but kcc hands to LLVM as an ABI name it rejects (P681);
+# -mabi values clang's driver takes but kcc hands to LLVM as an ABI name it rejects;
 # each is the default of the triple the tables are compiled for, so dropping it changes
 # nothing (mips o32, mips64 n64), or touches only long double, which no start file or
 # libc_nonshared member uses (ppc64le IEEE binary128 long double).

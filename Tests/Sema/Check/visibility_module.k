@@ -1,4 +1,4 @@
-// `prot` is the module's (decided 2026-11-08): Inputs/visibility_mod/geo/
+// `prot` is the module's: Inputs/visibility_mod/geo/
 // holds a module.k, so every file under it shares shapes.k's `prot`
 // declarations, and an unmarked declaration there is `prot` too.
 //

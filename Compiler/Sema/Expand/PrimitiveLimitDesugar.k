@@ -33,7 +33,7 @@
 ///
 ///     A limit at the head of a longer chain (`f64::NAN.is_nan()`) is the
 ///     chain's base once minted, parenthesized, with the steps after it
-///     applying to it (P754).
+///     applying to it.
 ///
 ///     A generic argument `Buf<u8::BITS>` parses as a type; it becomes the
 ///     TypeExpr a value argument is (`Buf<8>`), over the minted literal.
@@ -118,7 +118,7 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
 
         // `f64::NAN.is_nan()`, `i32::MAX.sq()`: the limit is the head of a
         // longer chain, so only the first step is the limit and the rest
-        // apply to the literal (P754). A second `::` step (`f64::MAX::x`)
+        // apply to the literal. A second `::` step (`f64::MAX::x`)
         // is no member access of a value; it stays for ChainBinding's error.
         if n->steps.size() > 1 {
             var unsafe *nx = n->steps.get(1)

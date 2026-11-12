@@ -1,9 +1,9 @@
 // Two pointer operands (`p != &null`, `p == q`) compare with the builtin
 // operator, as in C++, where an operator function is looked up only when an
 // operand has class or enumeration type ([over.match.oper]/1). ADL through
-// `pc::Node*` reached the namespace's free operator templates, none viable,
-// and the comparison was SC063E "no matching overload for call to 'op !='"
-// (the self-host's `llvm::dyn_cast<T>(x) != &null` beside clang's
+// `pc::Node*` reaches the namespace's free operator templates, none viable,
+// so the comparison would be SC063E "no matching overload for call to 'op !='"
+// (as in `llvm::dyn_cast<T>(x) != &null` beside clang's
 // CustomizableOptional operators).
 
 ffi "c++" import "pointer_compare_no_operator.h"

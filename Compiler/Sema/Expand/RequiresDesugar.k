@@ -38,10 +38,13 @@
 ///
 /// ----------------------------------------------------------------- ///
 
+ffi "c++" import "vector"
+
 import AST::ASTSupport::FrozenList
 import AST::Context::ASTContext::ASTContext
 import AST::Context::DeclContext::DeclContext
 import AST::Context::TranslationUnit::TranslationUnit
+import AST::DeclFacts::scope_decls
 import AST::Kind::DeclKind::DeclKind
 import AST::Node::Base::{
     Decl,
@@ -80,12 +83,20 @@ pub class RequiresDesugar {
             return
         }
 
+        // Through `module` blocks and the other wrappers (scope_decls): a
+        // bound on a generic declared in `module m { }` stayed inline and
+        // ConstraintExtraction never saw it.
         var *items = &tu->program->items
+        var decls  = cxx::std::vector<unsafe *Decl>()
         for var i: usize = 0; i < items->size(); i++ {
             var item = *items->get(i)
             if item.kind == TopLevelKind::Decl {
-                self._visit_decl(item.as_decl())
+                scope_decls(item.as_decl(), &decls)
             }
+        }
+
+        for var i: usize = 0; i < decls.size(); i++ {
+            self._visit_decl(decls[i])
         }
     }
 
