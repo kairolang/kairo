@@ -2813,7 +2813,6 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
     /// had the drop, and that path walks dc_decls. Left as-is on purpose.
 
     fn _d_struct(self, sd: unsafe *Declarations::StructDecl) {
-        var empty_methods: FrozenList<unsafe *Declarations::FunctionDecl>
         self.p.paint(Color::Keyword, "struct")
         self._generic_params(sd->generic_params)
         self.p.put(" ")
@@ -2822,7 +2821,9 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self._spec_args(sd->spec_kind, sd->spec_args) // post-name `<...>` (#68)
         self._inherit_list("impl", sd->implements)
         self._requires(sd->requires_clause)
-        self._member_body(sd->fields, empty_methods)
+        // a struct body holds operators and constructors (only named
+        // methods are refused), kept in `methods` as a class's are
+        self._member_body(sd->fields, sd->methods)
     }
 
     fn _d_class(self, cd: unsafe *Declarations::ClassDecl) {
@@ -2918,14 +2919,13 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
     }
 
     fn _d_union(self, ud: unsafe *Declarations::UnionDecl) {
-        var empty_methods: FrozenList<unsafe *Declarations::FunctionDecl>
         self.p.paint(Color::Keyword, "union")
         self._generic_params(ud->generic_params)
         self.p.put(" ")
         self._spec_intro(ud->spec_kind) // `<>` marker (#68)
         self.p.paint(Color::TypeName, self.tok(ud->name))
         self._spec_args(ud->spec_kind, ud->spec_args) // post-name `<...>` (#68)
-        self._member_body(ud->fields, empty_methods)
+        self._member_body(ud->fields, ud->methods)
     }
 
     fn _d_type_alias(self, ta: unsafe *Declarations::TypeAliasDecl) {
@@ -5864,12 +5864,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self._dd_spec(sd->spec_kind, sd->spec_args) // specialization tag (#68)
         self._inherit_list("impl", sd->implements)
         self.p.newline()
-        var empty_methods: FrozenList<unsafe *Declarations::FunctionDecl>
         var members = cxx::std::vector<unsafe *Decl>()
         self._collect_type_members(
             unsafe (sd as unsafe *DeclContext),
             sd->fields,
-            empty_methods,
+            sd->methods, // operators and constructors
             unsafe &members,
         )
 
@@ -5944,12 +5943,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self.p.paint(Color::TypeName, self.tok(ud->name))
         self._dd_spec(ud->spec_kind, ud->spec_args) // specialization tag (#68)
         self.p.newline()
-        var empty_methods: FrozenList<unsafe *Declarations::FunctionDecl>
         var members = cxx::std::vector<unsafe *Decl>()
         self._collect_type_members(
             unsafe (ud as unsafe *DeclContext),
             ud->fields,
-            empty_methods,
+            ud->methods, // operators and constructors
             unsafe &members,
         )
 
