@@ -180,7 +180,7 @@ extend Server {
             }
 
             var *s = &self.entries[ei].idx
-            if (s->count(s->get(s->root, "unchecked")) > 0) || (s->count(s->get(s->root, "partial")) > 0) {
+            if (s->count(s->get(s->root, SK_UNCHECKED)) > 0) || (s->count(s->get(s->root, SK_PARTIAL)) > 0) {
                 return true
             }
         }
@@ -208,9 +208,9 @@ extend Server {
         }
 
         var *s = &self.entries[ei].idx
-        var f = s->first(s->get(s->root, "files"))
+        var f = s->first(s->get(s->root, SK_FILES))
         while f != JSON_NONE() {
-            if s->get_str(f, "path") == path {
+            if s->get_str(f, SK_PATH) == path {
                 return f
             }
 
@@ -247,11 +247,11 @@ extend Server {
         e->ct_hi.clear()
         e->ct_data.clear()
         var *s = &e->idx
-        var f = s->first(s->get(s->root, "files"))
+        var f = s->first(s->get(s->root, SK_FILES))
         while f != JSON_NONE() {
             e->cf_node.push_back(f)
             e->cf_lo.push_back(e->cr_row.size())
-            var r = s->first(s->get(f, "refs"))
+            var r = s->first(s->get(f, SK_REFS))
             while r != JSON_NONE() {
                 var a = s->first(r)
                 var b = s->next(a)
@@ -267,7 +267,7 @@ extend Server {
             e->ct_lo.push_back(e->ct_data.size())
             // `panics` is in every snapshot; it is sent only to a client
             // that asked (initializationOptions.highlightPanics).
-            var t = s->first(s->get(f, "tokens"))
+            var t = s->first(s->get(f, SK_TOKENS))
             var at: usize = 0
             while t != JSON_NONE() {
                 var v = s->as_int(t)
@@ -327,7 +327,7 @@ extend Server {
         }
 
         var s: *const JsonDoc = &self.entries[ei].idx
-        var r = s->first(s->get(f, "refs"))
+        var r = s->first(s->get(f, SK_REFS))
         while r != JSON_NONE() {
             var a = s->first(r)
             var b = s->next(a)
@@ -434,19 +434,9 @@ extend Server {
         return -1
     }
 
+    /// The one-line Range of \p len characters at (\p line, \p ch).
     fn write_range(self, w: *JsonWriter, line: i64, ch: i64, len: i64) {
-        w->begin_object()
-        w->key("start")
-        w->begin_object()
-        w->field_int("line", line)
-        w->field_int("character", ch)
-        w->end_object()
-        w->key("end")
-        w->begin_object()
-        w->field_int("line", line)
-        w->field_int("character", ch + len)
-        w->end_object()
-        w->end_object()
+        write_lsp_range(w, line, ch, line, ch + len)
     }
 
     /// Every use of the declaration ref row \p row names, across every
@@ -470,7 +460,7 @@ extend Server {
             return
         }
 
-        var def_path = s->str(self.nth(s, s->get(f, "files"), def_file))
+        var def_path = s->str(self.nth(s, s->get(f, SK_FILES), def_file))
         var def_line = s->as_int(self.nth(s, row, REF_DEF_LINE))
         var def_ch   = s->as_int(self.nth(s, row, REF_DEF_CHAR))
 
@@ -489,9 +479,9 @@ extend Server {
             }
 
             var *o = &self.entries[ei].idx
-            var of = o->first(o->get(o->root, "files"))
+            var of = o->first(o->get(o->root, SK_FILES))
             while of != JSON_NONE() {
-                var path = o->get_str(of, "path")
+                var path = o->get_str(of, SK_PATH)
                 if (!only.empty()) && (path != only) {
                     of = o->next(of)
                     continue
@@ -499,13 +489,13 @@ extend Server {
 
                 var uri   = self.uri_of(path)
                 var opened = false
-                var r = o->first(o->get(of, "refs"))
+                var r = o->first(o->get(of, SK_REFS))
                 while r != JSON_NONE() {
                     var fi = o->as_int(self.nth(o, r, REF_DEF_FILE))
                     var same = (fi >= 0)
                         && (o->as_int(self.nth(o, r, REF_DEF_LINE)) == dl)
                         && (o->as_int(self.nth(o, r, REF_DEF_CHAR)) == def_ch)
-                        && (o->str(self.nth(o, o->get(of, "files"), fi)) == def_path)
+                        && (o->str(self.nth(o, o->get(of, SK_FILES), fi)) == def_path)
                     if same && (with_decl || (o->as_int(self.nth(o, r, REF_IS_DECL)) == 0)) {
                         var line = self.shift_out(sh, ei, path, o->as_int(self.nth(o, r, REF_LINE)))
                         var ch   = o->as_int(self.nth(o, r, REF_CHAR))
@@ -522,15 +512,15 @@ extend Server {
                             seen.push_back(key)
                             if mode == 0 {
                                 w->begin_object()
-                                w->field("uri", uri)
-                                w->key("range")
+                                w->field(K_URI, uri)
+                                w->key(K_RANGE)
                                 self.write_range(w, line, ch, len)
                                 w->end_object()
                             } else if mode == 1 {
                                 w->begin_object()
-                                w->key("range")
+                                w->key(K_RANGE)
                                 self.write_range(w, line, ch, len)
-                                w->field_int("kind", 1)
+                                w->field_int(K_KIND, DHK_TEXT)
                                 w->end_object()
                             } else {
                                 if !opened {
@@ -540,9 +530,9 @@ extend Server {
                                 }
 
                                 w->begin_object()
-                                w->key("range")
+                                w->key(K_RANGE)
                                 self.write_range(w, line, ch, len)
-                                w->field("newText", new_name)
+                                w->field(K_NEW_TEXT, new_name)
                                 w->end_object()
                             }
                         }

@@ -49,3 +49,51 @@ pub class ModulePath { // 256-bit class (32 bytes - max)
         return self.segments.size() < other.segments.size()
     }
 }
+
+/// `geo/vec.hh` for the module path `geo::vec`: where `--emit-headers` puts
+/// a module's header under its output directory. The one statement of that
+/// layout, for the emitter (CXXSpell::header_path) and for kals, which tells
+/// the clangd bridge where the header is (Analyzer/Index/Worker.k).
+pub fn header_path_of(const segs: cxx::std::vector<string>) -> string {
+    var s = ""
+    for var i: usize = 0; i < segs.size(); ++i {
+        if i > 0 {
+            s += "/"
+        }
+
+        s += segs[i]
+    }
+
+    s += ".hh"
+    return s
+}
+
+// --- file and path spellings ---------------------------------------------------
+//
+// For the tools around the compiler (kals) that name Kairo files and paths
+// without a ModulePath in hand. The compiler's own sites still spell them.
+
+/// `k`: a Kairo source file's extension.
+pub fn kairo_ext() -> string {
+    return "k"
+}
+
+/// `.k`.
+pub fn kairo_dot_ext() -> string {
+    return "." + kairo_ext()
+}
+
+/// `module`: the stem of the file that makes a directory a module.
+pub fn module_file_stem() -> string {
+    return "module"
+}
+
+/// `module.k`: `geo/module.k` is the module `geo`.
+pub fn module_file_name() -> string {
+    return module_file_stem() + kairo_dot_ext()
+}
+
+/// `::`, between the segments of a module path.
+pub fn path_separator() -> string {
+    return "::"
+}

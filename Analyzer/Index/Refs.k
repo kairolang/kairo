@@ -13,6 +13,7 @@
 
 
 import Index::Snapshot::*
+import Protocol::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
@@ -312,7 +313,7 @@ extend IndexWalker {
         }
 
         if is_ctor {
-            s.kind = 9 // LSP SymbolKind.Constructor
+            s.kind = SYM_CONSTRUCTOR as u32
         }
 
         if s.kind != 0 {

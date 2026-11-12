@@ -30,6 +30,7 @@ import DocumentStore::{
 import Index::Legend::*
 import Index::Snapshot::*
 import Protocol::*
+import Resolution::ModulePath::*
 import Tuning::*
 import Json::{
     JSON_NONE,
@@ -74,7 +75,7 @@ extend Server {
         // Scans the whole text: materialise the edited buffers (O(document),
         // once per request, never per keystroke).
         self.docs.sync_all()
-        var i = self.docs.index_of(d->get_str(d->get(params, "textDocument"), "uri"))
+        var i = self.docs.index_of(text_document_uri(d, params))
         if i == usize::MAX {
             self.respond(id, "[]")
             return
@@ -97,12 +98,12 @@ extend Server {
             return
         }
 
-        var pos  = d->get(params, "position")
+        var pos  = d->get(params, K_POSITION)
         var *text = &self.docs.docs[i].text
         var at = self.docs.docs[i].lines.offset(
             *text,
-            d->get_int(pos, "line") as usize,
-            d->get_int(pos, "character") as usize,
+            d->get_int(pos, K_LINE) as usize,
+            d->get_int(pos, K_CHARACTER) as usize,
             false,
         )
 
@@ -131,12 +132,7 @@ extend Server {
 
         // What an accepted item replaces: the identifier under the cursor.
         var ew = JsonWriter()
-        ew.begin_object()
-        ew.key("start")
-        self.write_pos(&ew, i, start)
-        ew.key("end")
-        self.write_pos(&ew, i, at)
-        ew.end_object()
+        self.write_buf_range(&ew, i, start, at)
 
         if self.complete_import(i, ei, at, ew.out, id) {
             return
@@ -156,7 +152,7 @@ extend Server {
         j.path   = path
         j.member = member
         j.edit   = ew.out
-        j.marked = self.scratch(".k")
+        j.marked = self.scratch(kairo_dot_ext())
         LinkFS::write(j.marked, marked)
 
         var argv = self.worker_argv(ei, j.out, path, j.marked)
@@ -182,22 +178,19 @@ extend Server {
             const sort:   string,
             const edit:   string) {
         w->begin_object()
-        w->field("label", label)
-        w->field_int("kind", kind)
+        w->field(K_LABEL, label)
+        w->field_int(K_KIND, kind)
         if !detail.empty() {
-            w->field("detail", detail)
+            w->field(K_DETAIL, detail)
         }
 
         if !sort.empty() {
-            w->field("sortText", sort)
+            w->field(K_SORT_TEXT, sort)
         }
 
         if !edit.empty() {
-            w->key("textEdit")
-            w->begin_object()
-            w->field_raw("range", edit)
-            w->field("newText", label)
-            w->end_object()
+            w->key(K_TEXT_EDIT)
+            write_lsp_text_edit_raw(w, edit, label)
         }
 
         w->end_object()
@@ -303,7 +296,7 @@ extend Server {
             }
 
             for var f: usize = 0; f < self.entries[ei].files.size(); ++f {
-                if Path::filename_of(self.entries[ei].files[f]) == "module.k" {
+                if Path::filename_of(self.entries[ei].files[f]) == module_file_name() {
                     var lib = Path::parent_of(self.entries[ei].files[f])
                     roots.push_back(Path::parent_of(lib))
                 }
@@ -313,8 +306,8 @@ extend Server {
         var seen: [string]
         var w = JsonWriter()
         w.begin_object()
-        w.field_bool("isIncomplete", false)
-        w.key("items")
+        w.field_bool(K_IS_INCOMPLETE, false)
+        w.key(K_ITEMS)
         w.begin_array()
 
         var rel: string = ""
@@ -329,9 +322,9 @@ extend Server {
             }
 
             // The path so far names a FILE: offer what it declares.
-            var file = dir + ".k"
+            var file = dir + kairo_dot_ext()
             if (!rel.empty()) && (!Path::exists_at(file)) {
-                file = Path::join_str(dir, "module.k")
+                file = Path::join_str(dir, module_file_name())
             }
 
             if (!rel.empty()) && Path::exists_at(file) {
@@ -364,10 +357,10 @@ extend Server {
             for var n: usize = 0; n < names.size(); ++n {
                 var name = names[n]
                 var kind: i64 = CIK_FOLDER
-                if name.ends_with(".k") {
-                    name = name.subslice(0, name.size() - 2)
+                if name.ends_with(kairo_dot_ext()) {
+                    name = name.subslice(0, name.size() - kairo_dot_ext().size())
                     kind = CIK_MODULE
-                    if name == "module" {
+                    if name == module_file_stem() {
                         continue
                     }
                 } else if (!LinkFS::is_dir(Path::join_str(dir, name))) || name.starts_with(".") {
@@ -380,7 +373,7 @@ extend Server {
                     // A library is a directory with a module.k: `std` sits
                     // beside `builtin` and is one whether or not this file
                     // has imported it yet.
-                    var is_lib = (kind == CIK_FOLDER) && LinkFS::is_file(Path::join_str(Path::join_str(dir, name), "module.k"))
+                    var is_lib = (kind == CIK_FOLDER) && LinkFS::is_file(Path::join_str(Path::join_str(dir, name), module_file_name()))
 
                     var from_i = (ei != usize::MAX) && (r < (2 + (self.entries[ei].args.size() / 2)))
                     if (!is_lib) && (!from_i) {
@@ -417,31 +410,31 @@ extend Server {
         var doc = JsonDoc()
         var w = JsonWriter()
         w.begin_object()
-        w.field_bool("isIncomplete", false)
-        w.key("items")
+        w.field_bool(K_IS_INCOMPLETE, false)
+        w.key(K_ITEMS)
         w.begin_array()
 
         var found = false
         if LinkFS::read(j->out, &text) && doc.parse(text) {
-            var f = doc.first(doc.get(doc.root, "files"))
+            var f = doc.first(doc.get(doc.root, SK_FILES))
             while f != JSON_NONE() {
-                if doc.get_str(f, "path") == j->path {
-                    var it = doc.first(doc.get(f, "items"))
+                if doc.get_str(f, SK_PATH) == j->path {
+                    var it = doc.first(doc.get(f, SK_ITEMS))
                     self.item_labels.clear()
                     self.item_docs.clear()
                     while it != JSON_NONE() {
-                        var idoc = doc.get_str(it, "doc")
+                        var idoc = doc.get_str(it, SK_DOC)
                         if !idoc.empty() {
-                            self.item_labels.push_back(doc.get_str(it, "label"))
+                            self.item_labels.push_back(doc.get_str(it, K_LABEL))
                             self.item_docs.push_back(idoc)
                         }
 
                         self.item(
                             &w,
-                            doc.get_str(it, "label"),
-                            doc.get_int(it, "kind"),
-                            doc.get_str(it, "detail"),
-                            doc.get_str(it, "sortText"),
+                            doc.get_str(it, K_LABEL),
+                            doc.get_int(it, K_KIND),
+                            doc.get_str(it, K_DETAIL),
+                            doc.get_str(it, K_SORT_TEXT),
                             j->edit,
                         )
 
@@ -464,9 +457,9 @@ extend Server {
             var fn_ = self.file_node(cei, j->path)
             if fn_ != JSON_NONE() {
                 var *s = &self.entries[cei].idx
-                var c = s->first(s->get(fn_, "symbols"))
+                var c = s->first(s->get(fn_, SK_SYMBOLS))
                 while c != JSON_NONE() {
-                    self.item(&w, s->get_str(c, "name"), CIK_VARIABLE, "", "", j->edit)
+                    self.item(&w, s->get_str(c, K_NAME), CIK_VARIABLE, "", "", j->edit)
                     c = s->next(c)
                 }
             }

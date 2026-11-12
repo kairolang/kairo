@@ -99,15 +99,15 @@ extend Server {
             return true
         }
 
-        var method = d.get_str(d.root, "method")
-        var idn    = d.get(d.root, "id")
+        var method = d.get_str(d.root, K_METHOD)
+        var idn    = d.get(d.root, K_ID)
         if idn == JSON_NONE() {
             return true
         }
 
         var id     = d.dump(idn)
-        var params = d.get(d.root, "params")
-        var path   = self.path_of(d.get_str(d.get(params, "textDocument"), "uri"))
+        var params = d.get(d.root, K_PARAMS)
+        var path   = self.path_of(text_document_uri(&d, params))
 
         // A buffer that does not parse has no index for its current text,
         // and may not get one until it parses again. Its syntax pass lexed
@@ -232,8 +232,8 @@ extend Server {
             || (method == M_TYPE_DEFINITION) || (method == M_IMPLEMENTATION)
             || (method == M_REFERENCES) || (method == M_DOCUMENT_HIGHLIGHT)) {
             sh = self.line_shift(ei, di)
-            var spos = d.get(params, "position")
-            stale = (!sh.active) || (sh.to_old(d.get_int(spos, "line")) < 0)
+            var spos = d.get(params, K_POSITION)
+            stale = (!sh.active) || (sh.to_old(d.get_int(spos, K_LINE)) < 0)
         }
 
         if stale {
@@ -254,9 +254,9 @@ extend Server {
         }
 
         var *s   = &self.entries[ei].idx
-        var pos  = d.get(params, "position")
-        var line = sh.to_old(d.get_int(pos, "line")) // inactive: the line itself
-        var ch   = d.get_int(pos, "character")
+        var pos  = d.get(params, K_POSITION)
+        var line = sh.to_old(d.get_int(pos, K_LINE)) // inactive: the line itself
+        var ch   = d.get_int(pos, K_CHARACTER)
 
         if (method == M_SEMANTIC_TOKENS_FULL) || (method == M_SEMANTIC_TOKENS_DELTA)
             || (method == M_SEMANTIC_TOKENS_RANGE) {
@@ -281,7 +281,7 @@ extend Server {
         if method == M_DOCUMENT_SYMBOL {
             var w = JsonWriter()
             w.begin_array()
-            var c = s->first(s->get(f, "symbols"))
+            var c = s->first(s->get(f, SK_SYMBOLS))
             while c != JSON_NONE() {
                 c = self.symbol(s, c, &w)
             }
@@ -292,7 +292,7 @@ extend Server {
         }
 
         if method == M_INLAY_HINT {
-            self.respond(id, s->dump(s->get(f, "inlays")))
+            self.respond(id, s->dump(s->get(f, SK_INLAYS)))
             return true
         }
 
@@ -323,25 +323,14 @@ extend Server {
             if mrow != JSON_NONE() {
                 var mw = JsonWriter()
                 mw.begin_object()
-                mw.key("contents")
+                mw.key(K_CONTENTS)
                 mw.begin_object()
-                mw.field("kind", "markdown")
+                mw.field(K_KIND, MARKUP_MARKDOWN)
                 var mtext = s->str(self.nth(s, mrow, MACRO_TEXT))
-                mw.field("value", "**Expands to**\n\n```kairo\n" + mtext + "\n```")
+                mw.field(K_VALUE, "**Expands to**\n\n```kairo\n" + mtext + "\n```")
                 mw.end_object()
-                mw.key("range")
-                mw.begin_object()
-                mw.key("start")
-                mw.begin_object()
-                mw.field_int("line", ml)
-                mw.field_int("character", s->as_int(self.nth(s, mrow, MACRO_CHAR)))
-                mw.end_object()
-                mw.key("end")
-                mw.begin_object()
-                mw.field_int("line", me)
-                mw.field_int("character", s->as_int(self.nth(s, mrow, MACRO_END_CHAR)))
-                mw.end_object()
-                mw.end_object()
+                mw.key(K_RANGE)
+                write_lsp_range(&mw, ml, s->as_int(self.nth(s, mrow, MACRO_CHAR)), me, s->as_int(self.nth(s, mrow, MACRO_END_CHAR)))
                 mw.end_object()
                 self.respond(id, mw.out)
                 return true
@@ -355,12 +344,12 @@ extend Server {
 
             var w = JsonWriter()
             w.begin_object()
-            w.key("contents")
+            w.key(K_CONTENTS)
             w.begin_object()
-            w.field("kind", "markdown")
-            w.field("value", s->str(self.nth(s, s->get(f, "hovers"), h)))
+            w.field(K_KIND, MARKUP_MARKDOWN)
+            w.field(K_VALUE, s->str(self.nth(s, s->get(f, SK_HOVERS), h)))
             w.end_object()
-            w.key("range")
+            w.key(K_RANGE)
             self.write_range(&w, self.shift_out(&sh, ei, path, s->as_int(self.nth(s, row, REF_LINE))), s->as_int(self.nth(s, row, REF_CHAR)), s->as_int(self.nth(s, row, REF_LEN)))
             w.end_object()
             self.respond(id, w.out)
@@ -383,9 +372,9 @@ extend Server {
             w.begin_array()
             self.hierarchy_item(
                 &w,
-                self.name_in_hover(s->str(self.nth(s, s->get(f, "hovers"), s->as_int(self.nth(s, row, REF_HOVER))))),
-                if call => SK_FUNCTION else => SK_CLASS,
-                s->str(self.nth(s, s->get(f, "files"), fi)),
+                self.name_in_hover(s->str(self.nth(s, s->get(f, SK_HOVERS), s->as_int(self.nth(s, row, REF_HOVER))))),
+                if call => SYM_FUNCTION else => SYM_CLASS,
+                s->str(self.nth(s, s->get(f, SK_FILES), fi)),
                 s->as_int(self.nth(s, row, REF_DEF_LINE)),
                 s->as_int(self.nth(s, row, REF_DEF_CHAR)),
                 s->as_int(self.nth(s, row, REF_DEF_LEN)),
@@ -407,7 +396,7 @@ extend Server {
             var w = JsonWriter()
             w.begin_array()
             self.related_types(
-                s->str(self.nth(s, s->get(f, "files"), fi)),
+                s->str(self.nth(s, s->get(f, SK_FILES), fi)),
                 s->as_int(self.nth(s, row, REF_DEF_LINE)),
                 s->as_int(self.nth(s, row, REF_DEF_CHAR)),
                 false,
@@ -424,12 +413,12 @@ extend Server {
         if method == M_DOCUMENT_LINK {
             var w = JsonWriter()
             w.begin_array()
-            var l = s->first(s->get(f, "links"))
+            var l = s->first(s->get(f, SK_LINKS))
             while l != JSON_NONE() {
                 w.begin_object()
-                w.key("range")
+                w.key(K_RANGE)
                 self.write_range(&w, s->as_int(self.nth(s, l, LINK_LINE)), s->as_int(self.nth(s, l, LINK_CHAR)), s->as_int(self.nth(s, l, LINK_LEN)))
-                w.field("target", self.uri_of(s->str(self.nth(s, l, LINK_TARGET))))
+                w.field(K_TARGET, self.uri_of(s->str(self.nth(s, l, LINK_TARGET))))
                 w.end_object()
                 l = s->next(l)
             }
@@ -463,7 +452,7 @@ extend Server {
                 return true
             }
 
-            var tpath = s->str(self.nth(s, s->get(f, "files"), ti))
+            var tpath = s->str(self.nth(s, s->get(f, SK_FILES), ti))
             var tl = self.shift_out(&sh, ei, tpath, s->as_int(self.nth(s, row, REF_TYPE_LINE)))
             if tl < 0 {
                 self.respond(id, "null") // declared in the changed middle
@@ -472,8 +461,8 @@ extend Server {
 
             var w = JsonWriter()
             w.begin_object()
-            w.field("uri", self.uri_of(tpath))
-            w.key("range")
+            w.field(K_URI, self.uri_of(tpath))
+            w.key(K_RANGE)
             self.write_range(&w, tl, s->as_int(self.nth(s, row, REF_TYPE_CHAR)), s->as_int(self.nth(s, row, REF_TYPE_LEN)))
             w.end_object()
             self.respond(id, w.out)
@@ -486,15 +475,15 @@ extend Server {
                 // No name here, but perhaps a link: an import's module path
                 // or an ffi header string. Its definition is the file it
                 // names, at its start, as clangd answers on an `#include`.
-                var l = s->first(s->get(f, "links"))
+                var l = s->first(s->get(f, SK_LINKS))
                 while l != JSON_NONE() {
                     var lc = s->as_int(self.nth(s, l, LINK_CHAR))
                     if (s->as_int(self.nth(s, l, LINK_LINE)) == line) && (lc <= ch)
                         && (ch <= (lc + s->as_int(self.nth(s, l, LINK_LEN)))) {
                         var lw = JsonWriter()
                         lw.begin_object()
-                        lw.field("uri", self.uri_of(s->str(self.nth(s, l, LINK_TARGET))))
-                        lw.key("range")
+                        lw.field(K_URI, self.uri_of(s->str(self.nth(s, l, LINK_TARGET))))
+                        lw.key(K_RANGE)
                         self.write_range(&lw, 0, 0, 0)
                         lw.end_object()
                         self.respond(id, lw.out)
@@ -508,7 +497,7 @@ extend Server {
                 return true
             }
 
-            var dpath = s->str(self.nth(s, s->get(f, "files"), fi))
+            var dpath = s->str(self.nth(s, s->get(f, SK_FILES), fi))
             var dl = self.shift_out(&sh, ei, dpath, s->as_int(self.nth(s, row, REF_DEF_LINE)))
             if dl < 0 {
                 self.respond(id, "null") // declared in the changed middle
@@ -517,8 +506,8 @@ extend Server {
 
             var w = JsonWriter()
             w.begin_object()
-            w.field("uri", self.uri_of(dpath))
-            w.key("range")
+            w.field(K_URI, self.uri_of(dpath))
+            w.key(K_RANGE)
             self.write_range(&w, dl, s->as_int(self.nth(s, row, REF_DEF_CHAR)), s->as_int(self.nth(s, row, REF_DEF_LEN)))
             w.end_object()
             self.respond(id, w.out)
@@ -558,9 +547,9 @@ extend Server {
 
             var w = JsonWriter()
             w.begin_object()
-            w.key("changes")
+            w.key(K_CHANGES)
             w.begin_object()
-            self.uses(s, f, row, &w, 2, "", d.get_str(params, "newName"), true, &sh)
+            self.uses(s, f, row, &w, 2, "", d.get_str(params, K_NEW_NAME), true, &sh)
             w.end_object()
             w.end_object()
             self.respond(id, w.out)

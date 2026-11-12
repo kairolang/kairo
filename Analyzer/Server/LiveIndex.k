@@ -34,8 +34,10 @@ ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "chrono"
 
 import DocumentStore::DocumentStore
+import Index::WorkerKeys::*
 import Protocol::*
 import Tuning::*
+import WorkerArgs::*
 import Json::{
     JSON_NONE,
     JsonDoc,
@@ -132,8 +134,8 @@ extend Server {
         }
 
         // '\n'-separated words: the shim's argv (kals_child_spawn).
-        var words = self.exe + "\n--worker\n--index-server\n--cwd\n" + self.entries[ei].dir
-        words += "\n--root\n" + self.project.dir + "\n--"
+        var words = self.exe + "\n" + WA_WORKER + "\n" + WA_INDEX_SERVER + "\n" + WA_CWD + "\n" + self.entries[ei].dir
+        words += "\n" + WA_ROOT + "\n" + self.project.dir + "\n" + WA_END
         for var i: usize = 0; i < self.entries[ei].args.size(); ++i {
             words += "\n" + self.entries[ei].args[i]
         }
@@ -260,9 +262,9 @@ extend Server {
 
         var w = JsonWriter()
         w.begin_object()
-        w.field_int("id", s.id)
-        w.field("out", s.out)
-        w.key("open")
+        w.field_int(RQ_ID, s.id)
+        w.field(RQ_OUT, s.out)
+        w.key(RQ_OPEN)
         w.begin_array()
         for var b: usize = 0; b < self.docs.docs.size(); ++b {
             var path = self.docs.docs[b].path
@@ -283,15 +285,15 @@ extend Server {
             }
 
             w.begin_object()
-            w.field("path", path)
-            w.field("file", self.docs.docs[b].tmp_path)
+            w.field(RQ_PATH, path)
+            w.field(RQ_FILE, self.docs.docs[b].tmp_path)
             w.end_object()
             s.text_paths.push_back(path)
             s.texts.push_back(self.docs.docs[b].text)
         }
 
         w.end_array()
-        w.key("changed")
+        w.key(RQ_CHANGED)
         w.begin_array()
         for var q: usize = 0; q < self.entries[ei].live_changed.size(); ++q {
             w.str(self.entries[ei].live_changed[q])
@@ -303,7 +305,7 @@ extend Server {
         var want = (!self.entries[ei].ran) || self.entries[ei].slow
         if want {
             s.prog_file = self.scratch(".prog")
-            w.field("progress", s.prog_file)
+            w.field(RQ_PROGRESS, s.prog_file)
         }
 
         w.end_object()
@@ -319,7 +321,7 @@ extend Server {
             s.progress = f"kals-index-{self.seq}"
             var cw = JsonWriter()
             cw.begin_object()
-            cw.field("token", s.progress)
+            cw.field(K_TOKEN, s.progress)
             cw.end_object()
             self.request_with(M_WORK_DONE_PROGRESS_CREATE, cw.out)
             var m = self.entries[ei].files.size() as i64
@@ -386,7 +388,7 @@ extend Server {
             return
         }
 
-        var id = d.get_int(d.root, "id")
+        var id = d.get_int(d.root, RP_ID)
         var at = usize::MAX
         for var q: usize = 0; q < self.lives[k].sent.size(); ++q {
             if self.lives[k].sent[q].id == id {
@@ -399,9 +401,9 @@ extend Server {
         }
 
         // More answers come under this id while files are queued.
-        var bg      = d.get_bool(d.root, "bg")
-        var pending = d.get_int(d.root, "pending")
-        var more    = d.get_bool(d.root, "ok") && (pending > 0)
+        var bg      = d.get_bool(d.root, RP_BG)
+        var pending = d.get_int(d.root, RP_PENDING)
+        var more    = d.get_bool(d.root, RP_OK) && (pending > 0)
         self.lives[k].sent[at].draining = more
         self.lives[k].sent[at].ms       = now_ms()
         var s = self.lives[k].sent[at]
@@ -430,12 +432,12 @@ extend Server {
             }
         }
 
-        if (!ptoken.empty()) && ((ei == usize::MAX) || (!d.get_bool(d.root, "ok"))) {
+        if (!ptoken.empty()) && ((ei == usize::MAX) || (!d.get_bool(d.root, RP_OK))) {
             self.progress(ptoken, "end", "", -1)
             ptoken = ""
         }
 
-        if d.get_bool(d.root, "superseded") {
+        if d.get_bool(d.root, RP_SUPERSEDED) {
             self.garbage.push_back(s.out)
             self.trace(f"live superseded id={id}")
             return
@@ -443,7 +445,7 @@ extend Server {
 
         // A slice's snapshot is a file of its own; a slice that changed
         // nothing a snapshot holds sends none.
-        var out = d.get_str(d.root, "out")
+        var out = d.get_str(d.root, RP_OUT)
         // Nor is a slice installed over something newer: a process run of
         // a later text (a buffer that stopped parsing while files were
         // queued) that is in flight, or has landed. Its snapshot is of the
@@ -464,16 +466,16 @@ extend Server {
             out = ""
         }
 
-        if bg && out.empty() && d.get_bool(d.root, "ok") && (ei != usize::MAX) {
+        if bg && out.empty() && d.get_bool(d.root, RP_OK) && (ei != usize::MAX) {
             self.entries[ei].live_pending = pending as usize
             var nj = Job()
             nj.kind        = JobKind::Index
             nj.entry_id    = self.entries[ei].id
             nj.rev         = s.rev
             nj.live        = true
-            nj.l_mode      = d.get_str(d.root, "mode")
-            nj.l_why       = d.get_str(d.root, "why")
-            nj.l_rechecked = d.get_int(d.root, "rechecked") as usize
+            nj.l_mode      = d.get_str(d.root, RP_MODE)
+            nj.l_why       = d.get_str(d.root, RP_WHY)
+            nj.l_rechecked = d.get_int(d.root, RP_RECHECKED) as usize
             nj.l_pending   = pending as usize
             self.analysed_(ei, &nj, 0)
             return
@@ -488,7 +490,7 @@ extend Server {
             return // the project was reloaded under this request
         }
 
-        if !d.get_bool(d.root, "ok") {
+        if !d.get_bool(d.root, RP_OK) {
             // The command line was refused: the process run says so in
             // the words a user is shown, and the worker starts over.
             self.garbage.push_back(s.out)
@@ -507,22 +509,22 @@ extend Server {
         j.rev         = s.rev
         // A slice took what the worker says it took, not the time since
         // the request: `slow` is about how long an answer is waited for.
-        j.started_ms  = if (bg) => (now_ms() - (d.get_int(d.root, "us") / 1000)) else => (s.ms)
+        j.started_ms  = if (bg) => (now_ms() - (d.get_int(d.root, RP_US) / 1000)) else => (s.ms)
         j.rooted      = true
         j.text_paths  = s.text_paths
         j.texts       = s.texts
         j.live        = true
-        j.l_mode      = d.get_str(d.root, "mode")
-        j.l_why       = d.get_str(d.root, "why")
-        j.l_rechecked = d.get_int(d.root, "rechecked") as usize
-        j.l_pending   = d.get_int(d.root, "pending") as usize
+        j.l_mode      = d.get_str(d.root, RP_MODE)
+        j.l_why       = d.get_str(d.root, RP_WHY)
+        j.l_rechecked = d.get_int(d.root, RP_RECHECKED) as usize
+        j.l_pending   = d.get_int(d.root, RP_PENDING) as usize
         var rooted = self.entries[ei].rooted
         self.entries[ei].rooted = true
         self.entries[ei].live_pending = pending as usize
         // A slice that re-checked an open buffer changed its rows with no
         // edit of its own: the editor is asked to draw it again, though
         // the revision is one a refresh already went out for.
-        if bg && d.get_bool(d.root, "touched") {
+        if bg && d.get_bool(d.root, RP_TOUCHED) {
             self.entries[ei].owe_refresh = true
             self.refreshed_rev = 0
         }
@@ -557,8 +559,8 @@ extend Server {
 
         self.lives[k].rss     = rss
         self.lives[k].last_ms = now_ms()
-        var rmb = d.get_int(d.root, "retiredMb")
-        var rfi = d.get_int(d.root, "retiredFiles")
+        var rmb = d.get_int(d.root, RP_RETIRED_MB)
+        var rfi = d.get_int(d.root, RP_RETIRED_FILES)
         self.trace(f"live done entry={self.lives[k].entry} id={id} mode={j.l_mode} rechecked={j.l_rechecked} pending={pending} rss={rss} MB retired={rfi} trees {rmb} MB")
         if (rss > 0) && self.lives[k].sent.empty()
             && (rss > (((self.lives[k].base_rss * LIVE_RSS_FACTOR_PCT) / 100) + LIVE_RSS_SLACK_MB)) {

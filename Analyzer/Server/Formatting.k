@@ -30,6 +30,7 @@ import DocumentStore::{
 import Index::Legend::*
 import Index::Snapshot::*
 import Protocol::*
+import Resolution::ModulePath::*
 import Tuning::*
 import Json::{
     JSON_NONE,
@@ -74,18 +75,18 @@ extend Server {
         // Scans the whole text: materialise the edited buffers (O(document),
         // once per request, never per keystroke).
         self.docs.sync_all()
-        var i = self.docs.index_of(d->get_str(d->get(params, "textDocument"), "uri"))
+        var i = self.docs.index_of(text_document_uri(d, params))
         if (i == usize::MAX) || (d->get_str(params, "ch") != "}") {
             self.respond(id, "[]")
             return
         }
 
         var *text = &self.docs.docs[i].text
-        var pos = d->get(params, "position")
+        var pos = d->get(params, K_POSITION)
         var at = self.docs.docs[i].lines.offset(
             *text,
-            d->get_int(pos, "line") as usize,
-            d->get_int(pos, "character") as usize,
+            d->get_int(pos, K_LINE) as usize,
+            d->get_int(pos, K_CHARACTER) as usize,
             false,
         )
 
@@ -132,14 +133,9 @@ extend Server {
         var w = JsonWriter()
         w.begin_array()
         w.begin_object()
-        w.key("range")
-        w.begin_object()
-        w.key("start")
-        self.write_pos(&w, i, ls)
-        w.key("end")
-        self.write_pos(&w, i, close)
-        w.end_object()
-        w.field("newText", want)
+        w.key(K_RANGE)
+        self.write_buf_range(&w, i, ls, close)
+        w.field(K_NEW_TEXT, want)
         w.end_object()
         w.end_array()
         self.respond(id, w.out)
@@ -151,7 +147,7 @@ extend Server {
         // Scans the whole text: materialise the edited buffers (O(document),
         // once per request, never per keystroke).
         self.docs.sync_all()
-        var i = self.docs.index_of(d->get_str(d->get(params, "textDocument"), "uri"))
+        var i = self.docs.index_of(text_document_uri(d, params))
         if i == usize::MAX {
             self.respond(id, "null")
             return
@@ -163,7 +159,7 @@ extend Server {
             return
         }
 
-        var src = self.scratch(".k")
+        var src = self.scratch(kairo_dot_ext())
         var out = self.scratch(".fmt")
         LinkFS::write(src, self.docs.docs[i].text)
 
@@ -240,10 +236,10 @@ extend Server {
         // Range formatting: kfmt formats a file, so the answer is its edit
         // when that edit lies inside the lines asked for, and nothing
         // otherwise (never a change the user did not select).
-        var rr = d->get(params, "range")
+        var rr = d->get(params, K_RANGE)
         if d->is_object(rr) {
-            var lo = d->get_int(d->get(rr, "start"), "line") as usize
-            var hi = d->get_int(d->get(rr, "end"), "line") as usize
+            var lo = d->get_int(d->get(rr, K_START), K_LINE) as usize
+            var hi = d->get_int(d->get(rr, K_END), K_LINE) as usize
             var el = self.docs.docs[i].lines.line_of(a)
             var eh = self.docs.docs[i].lines.line_of(if oe > a => (oe - 1) else => a)
             if (el < lo) || (eh > hi) {
@@ -255,14 +251,9 @@ extend Server {
         var w = JsonWriter()
         w.begin_array()
         w.begin_object()
-        w.key("range")
-        w.begin_object()
-        w.key("start")
-        self.write_pos(&w, i, a)
-        w.key("end")
-        self.write_pos(&w, i, oe)
-        w.end_object()
-        w.field("newText", text.subslice(a, ne - a))
+        w.key(K_RANGE)
+        self.write_buf_range(&w, i, a, oe)
+        w.field(K_NEW_TEXT, text.subslice(a, ne - a))
         w.end_object()
         w.end_array()
         self.respond(id, w.out)

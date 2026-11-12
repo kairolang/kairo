@@ -30,7 +30,9 @@ import DocumentStore::{
 import Index::Legend::*
 import Index::Snapshot::*
 import Protocol::*
+import Resolution::ModulePath::*
 import Tuning::*
+import WorkerArgs::*
 import Json::{
     JSON_NONE,
     JsonDoc,
@@ -317,7 +319,7 @@ extend Server {
                         continue
                     }
 
-                    if names[i].ends_with(".k") {
+                    if names[i].ends_with(kairo_dot_ext()) {
                         kj += r + "\n"
                     } else if is_cxx_source(r) {
                         hj += r + "\n"
@@ -815,7 +817,7 @@ extend Server {
 
         var argv: [string]
         argv.push_back(self.exe)
-        argv.push_back("--worker")
+        argv.push_back(WA_WORKER)
         argv.push_back(j.out)
         // The flags of the entry whose graph holds the file (its -I roots
         // name its imports), else the project's default_args.
@@ -826,21 +828,21 @@ extend Server {
             }
         }
 
-        argv.push_back("--cwd")
+        argv.push_back(WA_CWD)
         if held != usize::MAX {
             argv.push_back(self.entries[held].dir)
         } else {
             argv.push_back(self.bridge_root_())
         }
 
-        argv.push_back("--as-module")
+        argv.push_back(WA_AS_MODULE)
         for var i: usize = 0; i < self.docs.docs.size(); ++i {
-            argv.push_back("--overlay")
+            argv.push_back(WA_OVERLAY)
             argv.push_back(self.docs.docs[i].path)
             argv.push_back(self.overlay_of_(i))
         }
 
-        argv.push_back("--")
+        argv.push_back(WA_END)
         if held != usize::MAX {
             for var i: usize = 0; i < self.entries[held].args.size(); ++i {
                 argv.push_back(self.entries[held].args[i])
@@ -851,9 +853,9 @@ extend Server {
             }
         }
 
-        argv.push_back("--emit-headers")
+        argv.push_back(CF_EMIT_HEADERS)
         argv.push_back(self.bridge_dir_())
-        argv.push_back("--emit-headers-layout")
+        argv.push_back(CF_EMIT_HEADERS_LAYOUT)
         argv.push_back(self.br_files[b])
 
         // Clean only once its job is running: a refused launch leaves the
@@ -883,13 +885,13 @@ extend Server {
         self.br_running[b] = false
         var text: string = ""
         var doc = JsonDoc()
-        if !(LinkFS::read(j->out, &text) && doc.parse(text) && doc.get_bool(doc.root, "ok")) {
+        if !(LinkFS::read(j->out, &text) && doc.parse(text) && doc.get_bool(doc.root, SK_OK)) {
             self.trace(f"bridge: header job failed rc={rc} " + j->path)
             return // the last good header stays
         }
 
         var deps: string = ""
-        var x = doc.first(doc.get(doc.root, "deps"))
+        var x = doc.first(doc.get(doc.root, SK_DEPS))
         while x != JSON_NONE() {
             deps += doc.str(x)
             deps += "\n"
@@ -897,7 +899,7 @@ extend Server {
         }
 
         self.br_deps[b] = deps
-        var h = Path::join_str(self.bridge_dir_(), doc.get_str(doc.root, "header"))
+        var h = Path::join_str(self.bridge_dir_(), doc.get_str(doc.root, SK_HEADER))
         if LinkFS::is_file(h) {
             self.br_hdr[b] = h
         }
@@ -905,14 +907,14 @@ extend Server {
         // kcc's words for a C++ and for a C source that includes this
         // file: per file, since entries' flags differ (P861).
         var cxx: string = ""
-        var a = doc.first(doc.get(doc.root, "cxx_flags"))
+        var a = doc.first(doc.get(doc.root, SK_CXX_FLAGS))
         while a != JSON_NONE() {
             cxx += doc.str(a) + "\n"
             a = doc.next(a)
         }
 
         var cw: string = ""
-        a = doc.first(doc.get(doc.root, "c_flags"))
+        a = doc.first(doc.get(doc.root, SK_C_FLAGS))
         while a != JSON_NONE() {
             cw += doc.str(a) + "\n"
             a = doc.next(a)
@@ -926,7 +928,7 @@ extend Server {
             self.br_c_w[b] = cw
         }
 
-        var errs = doc.get_int(doc.root, "errors")
+        var errs = doc.get_int(doc.root, SK_ERRORS)
         self.trace(f"bridge: header done rc={rc} errors={errs} " + h)
         self.bridge_overlay_()
     }

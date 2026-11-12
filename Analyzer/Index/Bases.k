@@ -13,6 +13,7 @@
 
 
 import Index::Snapshot::*
+import Protocol::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
@@ -248,8 +249,8 @@ extend IndexWalker {
                     row.base_len  = bn.size() as u32
                     row.name      = mn
                     row.base_name = mn
-                    row.kind      = 6
-                    row.base_kind = 6
+                    row.kind      = SYM_METHOD as u32
+                    row.base_kind = SYM_METHOD as u32
                     self.bases.push_back(row)
                 }
             }

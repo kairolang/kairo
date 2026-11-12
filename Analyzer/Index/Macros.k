@@ -129,7 +129,7 @@ extend IndexWalker {
     /// spanning their union. The text is spelled through TokenText, as
     /// `--dump-preprocessed` spells it, with the body's own line breaks.
     fn macros_(self, w: *JsonWriter) {
-        w->key("macros")
+        w->key(SK_MACROS)
         w->begin_array()
         if (self.ast_() == &null) || (self.ast_()->tcm == &null) {
             w->end_array()

@@ -31,6 +31,7 @@ import Index::Legend::*
 import Index::Snapshot::*
 import Protocol::*
 import Tuning::*
+import WorkerArgs::*
 import Json::{
     JSON_NONE,
     JsonDoc,
@@ -78,12 +79,12 @@ extend Server {
     /// the files that had some last time and have none now.
     fn publish(self, ei: usize) {
         var *s = &self.entries[ei].snap
-        var diags = s->get(s->root, "diagnostics")
+        var diags = s->get(s->root, SK_DIAGNOSTICS)
 
         var paths: [string]
         var d = s->first(diags)
         while d != JSON_NONE() {
-            var p = s->get_str(d, "path")
+            var p = s->get_str(d, SK_PATH)
             if p.empty() {
                 p = self.entries[ei].entry
             }
@@ -133,8 +134,8 @@ extend Server {
 
             var w = JsonWriter()
             w.begin_object()
-            w.field("uri", uri)
-            w.field_raw("diagnostics", arr)
+            w.field(K_URI, uri)
+            w.field_raw(K_DIAGNOSTICS, arr)
             w.end_object()
             self.notify(M_PUBLISH_DIAGNOSTICS, w.out)
             now.push_back(uri)
@@ -151,8 +152,8 @@ extend Server {
             if !still {
                 var w = JsonWriter()
                 w.begin_object()
-                w.field("uri", self.entries[ei].published[i])
-                w.field_raw("diagnostics", "[]")
+                w.field(K_URI, self.entries[ei].published[i])
+                w.field_raw(K_DIAGNOSTICS, "[]")
                 w.end_object()
                 self.notify(M_PUBLISH_DIAGNOSTICS, w.out)
             }
@@ -183,14 +184,14 @@ extend Server {
 
         var argv: [string]
         argv.push_back(self.exe)
-        argv.push_back("--worker")
+        argv.push_back(WA_WORKER)
         argv.push_back(j.out)
-        argv.push_back("--syntax-only")
+        argv.push_back(WA_SYNTAX_ONLY)
         argv.push_back(j.path)
-        argv.push_back("--overlay")
+        argv.push_back(WA_OVERLAY)
         argv.push_back(j.path)
         argv.push_back(overlay)
-        argv.push_back("--")
+        argv.push_back(WA_END)
         argv.push_back(j.path)
 
         // The buffer is no longer due only once its pass is running: a
@@ -216,7 +217,7 @@ extend Server {
 
         var text: string = ""
         var doc = JsonDoc()
-        if !(LinkFS::read(j->out, &text) && doc.parse(text) && doc.get_bool(doc.root, "ok")) {
+        if !(LinkFS::read(j->out, &text) && doc.parse(text) && doc.get_bool(doc.root, SK_OK)) {
             return // a crash costs the fast path only; the Sema run still comes
         }
 
@@ -236,24 +237,24 @@ extend Server {
         }
 
         var diags: string = ""
-        var x = doc->first(doc->get(doc->root, "diagnostics"))
+        var x = doc->first(doc->get(doc->root, SK_DIAGNOSTICS))
         while x != JSON_NONE() {
             if !diags.empty() {
                 diags += ","
             }
 
-            diags += doc->dump(doc->get(x, "diag"))
+            diags += doc->dump(doc->get(x, SK_DIAG))
             x = doc->next(x)
         }
 
         var tokens: [i64]
-        var t = doc->first(doc->get(doc->root, "tokens"))
+        var t = doc->first(doc->get(doc->root, SK_TOKENS))
         while t != JSON_NONE() {
             tokens.push_back(doc->as_int(t))
             t = doc->next(t)
         }
 
-        self.docs.docs[di].syn.land(rev, self.docs.docs[di].changed_at, doc->get_bool(doc->root, "parsed"), diags, &tokens)
+        self.docs.docs[di].syn.land(rev, self.docs.docs[di].changed_at, doc->get_bool(doc->root, SK_PARSED), diags, &tokens)
 
         if publish {
             self.publish_syntax(di)
@@ -282,15 +283,15 @@ extend Server {
 
         if have_snap {
             var *s = &self.entries[ei].snap
-            var d = s->first(s->get(s->root, "diagnostics"))
+            var d = s->first(s->get(s->root, SK_DIAGNOSTICS))
             while d != JSON_NONE() {
-                var p = s->get_str(d, "path")
+                var p = s->get_str(d, SK_PATH)
                 if p.empty() {
                     p = self.entries[ei].entry
                 }
 
-                var dg = s->get(d, "diag")
-                if (p == path) && ((!syn_newer) || (!is_syntax_code(s->get_str(dg, "code")))) {
+                var dg = s->get(d, SK_DIAG)
+                if (p == path) && ((!syn_newer) || (!is_syntax_code(s->get_str(dg, K_CODE)))) {
                     if *n > 0 {
                         out += ","
                     }
@@ -320,8 +321,8 @@ extend Server {
         var arr = self.compose_diags(ei, path, &n)
         var w = JsonWriter()
         w.begin_object()
-        w.field("uri", self.docs.docs[di].uri)
-        w.field_raw("diagnostics", arr)
+        w.field(K_URI, self.docs.docs[di].uri)
+        w.field_raw(K_DIAGNOSTICS, arr)
         w.end_object()
         self.notify(M_PUBLISH_DIAGNOSTICS, w.out)
 

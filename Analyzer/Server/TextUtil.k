@@ -30,6 +30,7 @@ import DocumentStore::{
 import Index::Legend::*
 import Index::Snapshot::*
 import Protocol::*
+import Resolution::ModulePath::*
 import Tuning::*
 import Json::{
     JSON_NONE,
@@ -106,7 +107,7 @@ pub fn k_includes(const text: string) -> [string] {
     var out: [string]
     var all = quoted_includes(text)
     for var i: usize = 0; i < all.size(); ++i {
-        if all[i].ends_with(".k") {
+        if all[i].ends_with(kairo_dot_ext()) {
             out.push_back(all[i])
         }
     }

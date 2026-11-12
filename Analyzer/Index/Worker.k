@@ -57,11 +57,13 @@ import DocumentStore::{
 }
 import Driver::CompilerInstance::CompilerInstance
 import Driver::TUStage::TUStage
-import Index::Snapshot::FileText
+import Index::Snapshot::*
+import Index::WorkerKeys::*
 import Index::Indexer::IndexWalker
 import Index::Tokens::lexical_tokens
 import Protocol::*
 import Tuning::WIDE_INDEX_LIMIT
+import WorkerArgs::*
 import Json::{
     JsonDoc,
     JsonWriter,
@@ -70,7 +72,10 @@ import JsonRpc::Transport
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
-import Resolution::ModulePath::ModulePath
+import Resolution::ModulePath::{
+    ModulePath,
+    header_path_of,
+}
 import Sema::SemaContext::SemaContext
 import Support::FileIO::Path::Path
 import Tooling::ParseAPI::{
@@ -356,18 +361,9 @@ pub class DiagCollector derives DiagConsumer {
             }
         }
 
-        w->begin_object()
-        w->key("start")
-        w->begin_object()
-        w->field_uint("line", self.files_[fi].lines.line_of(so))
-        w->field_uint("character", self.files_[fi].lines.character(self.files_[fi].text, so, false))
-        w->end_object()
-        w->key("end")
-        w->begin_object()
-        w->field_uint("line", self.files_[fi].lines.line_of(eo))
-        w->field_uint("character", self.files_[fi].lines.character(self.files_[fi].text, eo, false))
-        w->end_object()
-        w->end_object()
+        var *lm = &self.files_[fi].lines
+        var *tx = &self.files_[fi].text
+        write_lsp_range(w, lm->line_of(so) as i64, lm->character(*tx, so, false) as i64, lm->line_of(eo) as i64, lm->character(*tx, eo, false) as i64)
         return fi
     }
 
@@ -399,15 +395,15 @@ pub class DiagCollector derives DiagConsumer {
                 title = "apply fix"
             }
 
-            w->field("title", title)
-            w->key("edits")
+            w->field(K_TITLE, title)
+            w->key(SK_EDITS)
             w->begin_array()
             w->begin_object()
             var rw = JsonWriter()
             var fi = self.range_(&rw, d->fixits[i].range, false)
-            w->field("path", self.files_[fi].path)
-            w->field_raw("range", rw.out)
-            w->field("newText", d->fixits[i].replacement)
+            w->field(SK_PATH, self.files_[fi].path)
+            w->field_raw(K_RANGE, rw.out)
+            w->field(K_NEW_TEXT, d->fixits[i].replacement)
             w->end_object()
             w->end_array()
             w->end_object()
@@ -462,19 +458,17 @@ pub class DiagCollector derives DiagConsumer {
             var rw = JsonWriter()
             var fi = self.range_(&rw, self.span_(diag), true)
             path = self.files_[fi].path
-            dw.field_raw("range", rw.out)
+            dw.field_raw(K_RANGE, rw.out)
         } else {
             // No location (a bad flag, a missing root): the editor still has
             // to show it somewhere, and the top of the entry is that place.
-            dw.field_raw(
-                "range",
-                "{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":1}}",
-            )
+            dw.key(K_RANGE)
+            write_lsp_range(&dw, 0, 0, 0, 1)
         }
 
-        dw.field_uint("severity", lsp)
-        dw.field("code", diag->code as string)
-        dw.field("source", "kairo")
+        dw.field_uint(K_SEVERITY, lsp)
+        dw.field(K_CODE, diag->code as string)
+        dw.field(K_SOURCE, "kairo")
 
         var msg = diag->message
         var related = JsonWriter()
@@ -490,12 +484,9 @@ pub class DiagCollector derives DiagConsumer {
                 related.begin_object()
                 var rw = JsonWriter()
                 var fi = self.range_(&rw, self.span_(c), true)
-                related.key("location")
-                related.begin_object()
-                related.field("uri", path_to_uri(self.files_[fi].path))
-                related.field_raw("range", rw.out)
-                related.end_object()
-                related.field("message", c->message)
+                related.key(K_LOCATION)
+                write_lsp_location_raw(&related, path_to_uri(self.files_[fi].path), rw.out)
+                related.field(K_MESSAGE, c->message)
                 related.end_object()
                 nrel += 1
             } else {
@@ -517,16 +508,16 @@ pub class DiagCollector derives DiagConsumer {
             }
         }
 
-        dw.field("message", msg)
+        dw.field(K_MESSAGE, msg)
         if nrel > 0 {
-            dw.field_raw("relatedInformation", related.out)
+            dw.field_raw(K_RELATED_INFORMATION, related.out)
         }
 
         dw.end_object()
 
-        w.field("path", path)
-        w.field_raw("diag", dw.out)
-        w.key("fixes")
+        w.field(SK_PATH, path)
+        w.field_raw(SK_DIAG, dw.out)
+        w.key(SK_FIXES)
         w.begin_array()
         self.fixes_(&w, diag)
         w.end_array()
@@ -544,8 +535,8 @@ pub class DiagCollector derives DiagConsumer {
 fn worker_fail(const out_path: string, const why: string) -> i32 {
     var w = JsonWriter()
     w.begin_object()
-    w.field_bool("ok", false)
-    w.field("error", why)
+    w.field_bool(SK_OK, false)
+    w.field(SK_ERROR, why)
     w.end_object()
     LinkFS::write(out_path, w.out)
     return 1
@@ -658,9 +649,9 @@ fn syntax_answer(const file:   string,
 
     var w = JsonWriter()
     w.begin_object()
-    w.field_bool("ok", true)
-    w.field_bool("parsed", collector->errors == 0)
-    w.field_raw("diagnostics", "[" + collector->out + "]")
+    w.field_bool(SK_OK, true)
+    w.field_bool(SK_PARSED, collector->errors == 0)
+    w.field_raw(SK_DIAGNOSTICS, "[" + collector->out + "]")
     lexical_tokens(ci->sm(), fid, &ft, &w)
     w.end_object()
     return w.out
@@ -669,8 +660,8 @@ fn syntax_answer(const file:   string,
 fn fail_json(const why: string) -> string {
     var w = JsonWriter()
     w.begin_object()
-    w.field_bool("ok", false)
-    w.field("error", why)
+    w.field_bool(SK_OK, false)
+    w.field(SK_ERROR, why)
     w.end_object()
     return w.out
 }
@@ -704,22 +695,22 @@ fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
                 continue
             }
 
-            var f = d.get_str(d.root, "file")
+            var f = d.get_str(d.root, RQ_FILE)
             for var k: usize = 0; k < files.size(); ++k {
                 if (files[k] == f) && (ids[k] >= 0) {
                     var sw = JsonWriter()
                     sw.begin_object()
-                    sw.field_int("id", ids[k])
-                    sw.field_bool("superseded", true)
+                    sw.field_int(RP_ID, ids[k])
+                    sw.field_bool(RP_SUPERSEDED, true)
                     sw.end_object()
                     t.send(sw.out)
                     ids[k] = -1
                 }
             }
 
-            ids.push_back(d.get_int(d.root, "id"))
+            ids.push_back(d.get_int(d.root, RQ_ID))
             files.push_back(f)
-            texts.push_back(d.get_str(d.root, "text"))
+            texts.push_back(d.get_str(d.root, RQ_TEXT))
         }
 
         for var k: usize = 0; k < files.size(); ++k {
@@ -733,8 +724,8 @@ fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
             }
 
             words.push_back(files[k])
-            words.push_back("--type-check-only")
-            words.push_back("--threads=1")
+            words.push_back(CF_TYPE_CHECK_ONLY)
+            words.push_back(CF_THREADS_ONE)
             var real: [string]
             real.push_back(files[k])
             var txt: [string]
@@ -742,7 +733,7 @@ fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
             var body = syntax_answer(files[k], &real, &txt, &words)
             var idn = ids[k]
             // `{"id":N,` spliced before the answer's own members.
-            var msg: string = "{\"id\":"
+            var msg: string = "{\"" + RP_ID + "\":"
             msg += f"{idn}"
             msg += ","
             msg += body.subslice(1, body.size() - 1)
@@ -759,10 +750,10 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         return 2
     }
 
-    if args[0] == "--syntax-server" {
+    if args[0] == WA_SYNTAX_SERVER {
         var base: cxx::std::vector<string>
         var i: usize = 1
-        if (i < args.size()) && (args[i] == "--") {
+        if (i < args.size()) && (args[i] == WA_END) {
             i += 1
         }
 
@@ -788,12 +779,12 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     var i: usize = 1
     while i < args.size() {
         var a = args[i]
-        if a == "--" {
+        if a == WA_END {
             i += 1
             break
         }
 
-        if (a == "--cwd") && ((i + 1) < args.size()) {
+        if (a == WA_CWD) && ((i + 1) < args.size()) {
             // Before anything reads a path: the command's relative -I
             // directories and its entry are relative to this.
             Path::set_cwd(args[i + 1])
@@ -801,13 +792,13 @@ pub fn worker_main(@inout args: [string]) -> i32 {
             continue
         }
 
-        if (a == "--root") && ((i + 1) < args.size()) {
+        if (a == WA_ROOT) && ((i + 1) < args.size()) {
             root = args[i + 1]
             i += 2
             continue
         }
 
-        if (a == "--syntax-only") && ((i + 1) < args.size()) {
+        if (a == WA_SYNTAX_ONLY) && ((i + 1) < args.size()) {
             syntax_file = args[i + 1]
             i += 2
             continue
@@ -816,19 +807,19 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         // The clangd bridge's header job (LanguageServer.md section 15): the
         // file is checked as the module the driver names it, so
         // --emit-headers writes its header, and the snapshot says where.
-        if a == "--as-module" {
+        if a == WA_AS_MODULE {
             as_module = true
             i += 1
             continue
         }
 
-        if (a == "--progress") && ((i + 1) < args.size()) {
+        if (a == WA_PROGRESS) && ((i + 1) < args.size()) {
             progress = args[i + 1]
             i += 2
             continue
         }
 
-        if (a == "--overlay") && ((i + 2) < args.size()) {
+        if (a == WA_OVERLAY) && ((i + 2) < args.size()) {
             real.push_back(args[i + 1])
             tmps.push_back(args[i + 2])
             i += 3
@@ -844,19 +835,19 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     }
 
     // An editor never wants an object file out of a keystroke.
-    words.push_back("--type-check-only")
+    words.push_back(CF_TYPE_CHECK_ONLY)
 
     // The index run checks what syntax errors leave sound
     // (LanguageServer.md section 9); the syntax pass stops at the parse.
     if syntax_file.empty() {
-        words.push_back("--check-past-syntax-errors")
+        words.push_back(CF_CHECK_PAST_SYNTAX_ERRORS)
     }
 
     if !syntax_file.empty() {
         // One file has nothing to share out: a thread pool of every core
         // costs more to start and stop (and to schedule on a busy machine)
         // than the parse it would run.
-        words.push_back("--threads=1")
+        words.push_back(CF_THREADS_ONE)
         return syntax_main(out_path, syntax_file, &real, &tmps, &words)
     }
 
@@ -936,7 +927,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
     var w = JsonWriter()
     w.begin_object()
-    w.field_bool("ok", true)
+    w.field_bool(SK_OK, true)
     var files = observer->out
     var wide  = unit.fids.size() <= WIDE_INDEX_LIMIT
     if wide && (observer->rest_count > 0) {
@@ -947,40 +938,31 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         files += observer->rest
     }
 
-    w.field_raw("files", "[" + files + "]")
-    w.key("unchecked")
+    w.field_raw(SK_FILES, "[" + files + "]")
+    w.key(SK_UNCHECKED)
     w.begin_array()
     for var k: usize = 0; k < observer->unchecked.size(); ++k {
         w.str(observer->unchecked[k])
     }
 
     w.end_array()
-    w.key("partial")
+    w.key(SK_PARTIAL)
     w.begin_array()
     for var k: usize = 0; k < observer->partial.size(); ++k {
         w.str(observer->partial[k])
     }
 
     w.end_array()
-    w.field_bool("wide", wide)
+    w.field_bool(SK_WIDE, wide)
     if as_module {
-        // Where EmitCXXHeader put the entry's header under --emit-headers:
-        // `<module path>.hh` (CXXSpell::header_path).
-        var rel: string = ""
-        for var seg: string in ci->imp()->input_module_path(Path(inputs[0])) {
-            if !rel.empty() {
-                rel += "/"
-            }
-
-            rel += seg
-        }
-
-        w.field("header", rel + ".hh")
-        w.field_int("errors", collector->errors as i64)
+        // Where EmitCXXHeader put the entry's header under --emit-headers,
+        // by the emitter's own rule.
+        w.field(SK_HEADER, header_path_of(ci->imp()->input_module_path(Path(inputs[0]))))
+        w.field_int(SK_ERRORS, collector->errors as i64)
         // What kcc gives a C++ file that includes this module: the bridge
         // hands it to clangd, which otherwise parses the header's prelude
         // against the host's standard library and none of kcc's roots.
-        w.key("cxx_flags")
+        w.key(SK_CXX_FLAGS)
         w.begin_array()
         for var a: string in ci->cxx_driver_words() {
             w.str(a)
@@ -988,7 +970,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
         w.end_array()
         // And for a C source that reaches the module through a header (P861).
-        w.key("c_flags")
+        w.key(SK_C_FLAGS)
         w.begin_array()
         for var a: string in ci->c_driver_words() {
             w.str(a)
@@ -997,8 +979,8 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         w.end_array()
     }
 
-    w.field_raw("diagnostics", "[" + collector->out + "]")
-    w.key("deps")
+    w.field_raw(SK_DIAGNOSTICS, "[" + collector->out + "]")
+    w.key(SK_DEPS)
     w.begin_array()
     for var k: usize = 0; k < unit.fids.size(); ++k {
         w.str(ci->sm()->get_filename(unit.fids[k]))
@@ -1007,13 +989,13 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     w.end_array()
     // Phase timers: the whole compile (Sema with the walker inside it), the
     // walker's and the row writer's share of it, and the snapshot assembly.
-    w.key("timing")
+    w.key(SK_TIMING)
     w.begin_object()
-    w.field_int("run_us", t_parsed - t_run)
-    w.field_int("walk_us", observer->walk_us)
-    w.field_int("write_us", observer->write_us)
-    w.field_int("assemble_us", worker_us() - t_parsed)
-    w.field_uint("unit_fids", unit.fids.size())
+    w.field_int(SK_RUN_US, t_parsed - t_run)
+    w.field_int(SK_WALK_US, observer->walk_us)
+    w.field_int(SK_WRITE_US, observer->write_us)
+    w.field_int(SK_ASSEMBLE_US, worker_us() - t_parsed)
+    w.field_uint(SK_UNIT_FIDS, unit.fids.size())
     w.end_object()
     w.end_object()
 

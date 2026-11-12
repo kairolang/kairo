@@ -168,6 +168,7 @@ ffi "c++" import "sstream"
 import Index::LiveWorker::index_server_main
 import Index::Worker::worker_main
 import Server::Server::server_main
+import WorkerArgs::*
 import std::c_char
 import std::env
 import std::io
@@ -233,7 +234,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         )
     }
 
-    if (args.size() > 0) && (args[0] == "--worker") {
+    if (args.size() > 0) && (args[0] == WA_WORKER) {
         kairo::Logger::init(kairo::Logger::Level::Warn)
         var unsafe *llvm_init = init_runtime(argc, argv)
         finally {
@@ -247,7 +248,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             rest.push_back(args[i])
         }
 
-        if (rest.size() > 0) && (rest[0] == "--index-server") {
+        if (rest.size() > 0) && (rest[0] == WA_INDEX_SERVER) {
             return index_server_main(&rest)
         }
 

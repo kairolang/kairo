@@ -75,12 +75,12 @@ extend Server {
         if method == M_SEMANTIC_TOKENS_RANGE {
             // Cut to the lines asked for and re-based: the encoding is
             // relative, so the first one kept restarts it.
-            var rr = d->get(params, "range")
-            var lo = d->get_int(d->get(rr, "start"), "line")
-            var hi = d->get_int(d->get(rr, "end"), "line")
+            var rr = d->get(params, K_RANGE)
+            var lo = d->get_int(d->get(rr, K_START), K_LINE)
+            var hi = d->get_int(d->get(rr, K_END), K_LINE)
             var w = JsonWriter()
             w.begin_object()
-            w.key("data")
+            w.key(K_DATA)
             w.begin_array()
             var tl: i64 = 0
             var tc: i64 = 0
@@ -120,7 +120,7 @@ extend Server {
             return
         }
 
-        var uri = d->get_str(d->get(params, "textDocument"), "uri")
+        var uri = text_document_uri(d, params)
         var slot = self.tok_uri.size()
         for var q: usize = 0; q < self.tok_uri.size(); ++q {
             if self.tok_uri[q] == uri {
@@ -165,13 +165,13 @@ extend Server {
                 ne += 1
             }
 
-            w.key("edits")
+            w.key(K_EDITS)
             w.begin_array()
             if (oe > a) || (ne > a) {
                 w.begin_object()
-                w.field_uint("start", a)
+                w.field_uint(K_START, a)
                 w.field_uint("deleteCount", oe - a)
-                w.key("data")
+                w.key(K_DATA)
                 w.begin_array()
                 for var q: usize = a; q < ne; ++q {
                     w.integer((*now)[q])
@@ -183,7 +183,7 @@ extend Server {
 
             w.end_array()
         } else {
-            w.key("data")
+            w.key(K_DATA)
             w.begin_array()
             for var q: usize = 0; q < now->size(); ++q {
                 w.integer((*now)[q])

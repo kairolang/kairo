@@ -186,7 +186,7 @@ pub fn lexical_kind(t: Token, text: *const string, off: u32, len: u32, mods: *u3
 /// Writes \p all (sorted, in bytes of \p f) as the `tokens` array: LSP's
 /// relative five-integer encoding, one token per line of a multi-line one.
 pub fn encode_tokens(all: *const [SemTok], f: *const FileText, w: *JsonWriter) {
-    w->key("tokens")
+    w->key(SK_TOKENS)
     w->begin_array()
     var prev_line: usize = 0
     var prev_char: usize = 0

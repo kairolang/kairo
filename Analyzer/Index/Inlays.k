@@ -13,6 +13,7 @@
 
 
 import Index::Snapshot::*
+import Protocol::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
@@ -148,7 +149,7 @@ extend IndexWalker {
             var row = InlayRow{}
             row.off       = off
             row.label     = pn + ":"
-            row.kind      = 2
+            row.kind      = IHK_PARAMETER as u32
             row.pad_right = true
             self.inlays.push_back(row)
         }

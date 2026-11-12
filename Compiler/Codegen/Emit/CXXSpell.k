@@ -92,6 +92,7 @@ import AST::ParamMode::ParamMode
 import Codegen::CodegenContext::CodegenContext
 import Codegen::CodegenICE::codegen_ice
 import Location::SourceRange::SourceRange
+import Resolution::ModulePath::header_path_of
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 import Token::TokenText::TokenText
@@ -1862,18 +1863,7 @@ pub class CXXSpell {
 
     /// `geo/vec.hh` for the TU's module path.
     fn header_path(self, tu: unsafe *TranslationUnit) -> string {
-        var segs = self.module_segments(tu)
-        var s    = ""
-        for var i: usize = 0; i < segs.size(); ++i {
-            if i > 0 {
-                s += "/"
-            }
-
-            s += segs[i]
-        }
-
-        s += ".hh"
-        return s
+        return header_path_of(self.module_segments(tu))
     }
 
     /// `extern "C" ` for a Kairo-authored `ffi "c"` free function, else "".

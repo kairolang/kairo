@@ -78,18 +78,18 @@ extend Server {
         // Scans the whole text: materialise the edited buffers (O(document),
         // once per request, never per keystroke).
         self.docs.sync_all()
-        var i = self.docs.index_of(d->get_str(d->get(params, "textDocument"), "uri"))
+        var i = self.docs.index_of(text_document_uri(d, params))
         if i == usize::MAX {
             self.respond(id, "null")
             return
         }
 
         var *text = &self.docs.docs[i].text
-        var pos = d->get(params, "position")
+        var pos = d->get(params, K_POSITION)
         var at = self.docs.docs[i].lines.offset(
             *text,
-            d->get_int(pos, "line") as usize,
-            d->get_int(pos, "character") as usize,
+            d->get_int(pos, K_LINE) as usize,
+            d->get_int(pos, K_CHARACTER) as usize,
             false,
         )
 
@@ -125,9 +125,9 @@ extend Server {
             }
 
             var *o = &self.entries[ei].idx
-            var of = o->first(o->get(o->root, "files"))
+            var of = o->first(o->get(o->root, SK_FILES))
             while of != JSON_NONE() {
-                var h = o->first(o->get(of, "hovers"))
+                var h = o->first(o->get(of, SK_HOVERS))
                 while h != JSON_NONE() {
                     var md = o->str(h)
                     // The signature is the code block's one line, after its
@@ -271,12 +271,12 @@ extend Server {
         w.begin_array()
         for var q: usize = 0; q < labels.size(); ++q {
             w.begin_object()
-            w.field("label", labels[q])
+            w.field(K_LABEL, labels[q])
             if !docs[q].empty() {
-                w.key("documentation")
+                w.key(K_DOCUMENTATION)
                 w.begin_object()
-                w.field("kind", "markdown")
-                w.field("value", docs[q])
+                w.field(K_KIND, MARKUP_MARKDOWN)
+                w.field(K_VALUE, docs[q])
                 w.end_object()
             }
 
@@ -308,7 +308,7 @@ extend Server {
                         var piece = labels[q].subslice(ps, c - ps)
                         if (c > ps) && (piece != "self") && (piece != "const self") {
                             w.begin_object()
-                            w.key("label")
+                            w.key(K_LABEL)
                             w.begin_array()
                             w.uint(ps)
                             w.uint(c)

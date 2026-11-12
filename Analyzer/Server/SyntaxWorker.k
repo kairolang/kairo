@@ -27,8 +27,11 @@ ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "chrono"
 
 import DocumentStore::DocumentStore
+import Index::Snapshot::SK_OK
+import Index::WorkerKeys::*
 import Protocol::*
 import Tuning::*
+import WorkerArgs::*
 import Json::{
     JSON_NONE,
     JsonDoc,
@@ -106,7 +109,7 @@ extend Server {
         }
 
         // '\n'-separated words: the shim's argv (kals_child_spawn).
-        var words = self.exe + "\n--worker\n--syntax-server\n--"
+        var words = self.exe + "\n" + WA_WORKER + "\n" + WA_SYNTAX_SERVER + "\n" + WA_END
         var to_child: i32 = -1
         var from_child: i32 = -1
         var pid: i64 = -1
@@ -202,9 +205,9 @@ extend Server {
         self.syn_seq += 1
         var w = JsonWriter()
         w.begin_object()
-        w.field_int("id", self.syn_seq)
-        w.field("file", self.docs.docs[di].path)
-        w.field("text", self.docs.docs[di].text)
+        w.field_int(RQ_ID, self.syn_seq)
+        w.field(RQ_FILE, self.docs.docs[di].path)
+        w.field(RQ_TEXT, self.docs.docs[di].text)
         w.end_object()
 
         self.syn.state   = SynWorker::Busy
@@ -232,7 +235,7 @@ extend Server {
 
     fn syntax_answer(self, const msg: string) {
         var d = JsonDoc()
-        if (!d.parse(msg)) || (d.get_int(d.root, "id") != self.syn.id) || (!self.syn.busy()) {
+        if (!d.parse(msg)) || (d.get_int(d.root, RP_ID) != self.syn.id) || (!self.syn.busy()) {
             return // superseded inside the worker, or a reply to a lost request
         }
 
@@ -247,12 +250,12 @@ extend Server {
             // newer text starts now (syntax_kick). This is also the publish
             // coalescing: with one pass in flight, typing faster than a
             // pass publishes nothing until it pauses for one pass's time.
-            if d.get_bool(d.root, "ok") {
+            if d.get_bool(d.root, SK_OK) {
                 self.land_syntax(di, self.syn.rev, &d, true)
             }
         }
 
-        // Recycled between requests (P829: a pass leaks about 0.4 MB).
+        // Recycled between requests (a pass leaks about 0.4 MB).
         var rss: i64 = unsafe kals_child_rss_mb(self.syn.pid)
         if (self.syn.passes >= SYNTAX_SERVER_MAX_PASSES) || (rss > SYNTAX_SERVER_MAX_RSS_MB) {
             self.trace(f"syntax worker recycled after {self.syn.passes} passes, {rss} MB")

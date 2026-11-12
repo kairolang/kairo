@@ -1,8 +1,11 @@
 /// --- The Kairo Project --------------------------- Analyzer/Protocol.k --- ///
 ///
 ///   The wire constants: LSP method and notification names, error codes, code-action
-///   kinds, commands and the LSP enums the server writes. One definition each; the
-///   token legend (types, modifiers, bit positions) is Index/Legend.k.
+///   kinds, commands, the LSP enums the server writes and the JSON member
+///   names of the LSP objects it reads and writes (K_*), with one writer per
+///   shape that repeats (a position, a range, a location). One definition
+///   each; the token legend (types, modifiers, bit positions) is
+///   Index/Legend.k, the snapshot's own members are Index/Snapshot.k (SK_*).
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -13,6 +16,11 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+
+import Json::{
+    JsonDoc,
+    JsonWriter,
+}
 
 // --- methods and notifications ----------------------------------------------
 pub const M_INITIALIZE: string = "initialize"
@@ -86,6 +94,9 @@ pub const KIND_REFACTOR_INLINE: string = "refactor.inline"
 pub const KIND_REFACTOR_EXTRACT: string = "refactor.extract"
 pub const CMD_SHOW_MACRO_EXPANSION: string = "kairo.showMacroExpansion"
 
+// --- JSON-RPC ---------------------------------------------------------------
+pub const JSONRPC_VERSION: string = "2.0"
+
 // --- JSON-RPC / LSP error codes --------------------------------------------
 pub const ERR_INVALID_REQUEST:    i64 = -32600
 pub const ERR_METHOD_NOT_FOUND:   i64 = -32601
@@ -107,19 +118,50 @@ pub const DS_INFORMATION: usize = 3
 pub const DS_HINT:        usize = 4
 
 // --- SymbolKind ------------------------------------------------------------
-pub const SK_CLASS:     i64 = 5
-pub const SK_METHOD:    i64 = 6
-pub const SK_ENUM:      i64 = 10
-pub const SK_INTERFACE: i64 = 11
-pub const SK_FUNCTION:  i64 = 12
-pub const SK_STRUCT:    i64 = 23
+pub const SYM_NAMESPACE:      i64 = 3
+pub const SYM_CLASS:          i64 = 5
+pub const SYM_METHOD:         i64 = 6
+pub const SYM_FIELD:          i64 = 8
+pub const SYM_CONSTRUCTOR:    i64 = 9
+pub const SYM_ENUM:           i64 = 10
+pub const SYM_INTERFACE:      i64 = 11
+pub const SYM_FUNCTION:       i64 = 12
+pub const SYM_VARIABLE:       i64 = 13
+pub const SYM_CONSTANT:       i64 = 14
+pub const SYM_ENUM_MEMBER:    i64 = 22
+pub const SYM_STRUCT:         i64 = 23
+pub const SYM_TYPE_PARAMETER: i64 = 26
 
 // --- CompletionItemKind ----------------------------------------------------
-pub const CIK_FUNCTION: i64 = 3
-pub const CIK_VARIABLE: i64 = 6
-pub const CIK_MODULE:   i64 = 9
-pub const CIK_KEYWORD:  i64 = 14
-pub const CIK_FOLDER:   i64 = 19
+pub const CIK_TEXT:           i64 = 1
+pub const CIK_METHOD:         i64 = 2
+pub const CIK_FUNCTION:       i64 = 3
+pub const CIK_FIELD:          i64 = 5
+pub const CIK_VARIABLE:       i64 = 6
+pub const CIK_CLASS:          i64 = 7
+pub const CIK_INTERFACE:      i64 = 8
+pub const CIK_MODULE:         i64 = 9
+pub const CIK_ENUM:           i64 = 13
+pub const CIK_KEYWORD:        i64 = 14
+pub const CIK_SNIPPET:        i64 = 15
+pub const CIK_FOLDER:         i64 = 19
+pub const CIK_ENUM_MEMBER:    i64 = 20
+pub const CIK_CONSTANT:       i64 = 21
+pub const CIK_STRUCT:         i64 = 22
+pub const CIK_TYPE_PARAMETER: i64 = 25
+
+// --- InlayHintKind (0: the member is left out) ------------------------------
+pub const IHK_TYPE:      i64 = 1
+pub const IHK_PARAMETER: i64 = 2
+
+// --- DocumentHighlightKind ---------------------------------------------------
+pub const DHK_TEXT: i64 = 1
+
+// --- TextDocumentSyncKind ----------------------------------------------------
+pub const TDS_INCREMENTAL: i64 = 2
+
+// --- FoldingRangeKind --------------------------------------------------------
+pub const FRK_COMMENT: string = "comment"
 
 // --- semantic tokens -------------------------------------------------------
 /// Integers per token in the LSP encoding: deltaLine, deltaStart, length,
@@ -127,3 +169,127 @@ pub const CIK_FOLDER:   i64 = 19
 pub const SEMTOK_STRIDE: usize = 5
 /// The tokenModifiers bit set's position within a token's five.
 pub const SEMTOK_MODS:   usize = 4
+
+// --- JSON member names ------------------------------------------------------
+//
+// The LSP objects' member names, read and written. The snapshot rows that are
+// LSP objects (a symbol, an inlay hint, a diagnostic, a completion item) use
+// the same names, since the server forwards them as they are.
+
+// JSON-RPC envelope
+pub const K_JSONRPC: string = "jsonrpc"
+pub const K_ID:      string = "id"
+pub const K_METHOD:  string = "method"
+pub const K_PARAMS:  string = "params"
+pub const K_RESULT:  string = "result"
+pub const K_ERROR:   string = "error"
+pub const K_CODE:    string = "code"
+pub const K_MESSAGE: string = "message"
+
+// documents, positions, ranges, locations
+pub const K_TEXT_DOCUMENT:   string = "textDocument"
+pub const K_URI:             string = "uri"
+pub const K_VERSION:         string = "version"
+pub const K_TEXT:            string = "text"
+pub const K_CONTENT_CHANGES: string = "contentChanges"
+pub const K_POSITION:        string = "position"
+pub const K_POSITIONS:       string = "positions"
+pub const K_RANGE:           string = "range"
+pub const K_START:           string = "start"
+pub const K_END:             string = "end"
+pub const K_LINE:            string = "line"
+pub const K_CHARACTER:       string = "character"
+pub const K_LOCATION:        string = "location"
+pub const K_TARGET:          string = "target"
+
+// edits
+pub const K_NEW_TEXT:  string = "newText"
+pub const K_TEXT_EDIT: string = "textEdit"
+pub const K_EDIT:      string = "edit"
+pub const K_EDITS:     string = "edits"
+pub const K_CHANGES:   string = "changes"
+pub const K_NEW_NAME:  string = "newName"
+
+// symbols, hovers, completion, signature help
+pub const K_NAME:            string = "name"
+pub const K_DETAIL:          string = "detail"
+pub const K_KIND:            string = "kind"
+pub const K_SELECTION_RANGE: string = "selectionRange"
+pub const K_CHILDREN:        string = "children"
+pub const K_CONTENTS:        string = "contents"
+pub const K_VALUE:           string = "value"
+pub const K_LABEL:           string = "label"
+pub const K_ITEMS:           string = "items"
+pub const K_ITEM:            string = "item"
+pub const K_IS_INCOMPLETE:   string = "isIncomplete"
+pub const K_SORT_TEXT:       string = "sortText"
+pub const K_DOCUMENTATION:   string = "documentation"
+pub const K_DATA:            string = "data"
+pub const K_PADDING_LEFT:    string = "paddingLeft"
+pub const K_PADDING_RIGHT:   string = "paddingRight"
+
+// diagnostics, code actions, commands, progress
+pub const K_DIAGNOSTICS:         string = "diagnostics"
+pub const K_SEVERITY:            string = "severity"
+pub const K_SOURCE:              string = "source"
+pub const K_RELATED_INFORMATION: string = "relatedInformation"
+pub const K_TITLE:               string = "title"
+pub const K_COMMAND:             string = "command"
+pub const K_TOKEN:               string = "token"
+pub const K_TYPE:                string = "type"
+
+// initialize
+pub const K_CAPABILITIES:    string = "capabilities"
+pub const K_WORKSPACE:       string = "workspace"
+pub const K_REFRESH_SUPPORT: string = "refreshSupport"
+
+// initializationOptions: kals' own settings (LanguageServer.md)
+pub const OPT_DEBOUNCE_MS:        string = "debounceMs"
+pub const OPT_SYNTAX_DEBOUNCE_MS: string = "syntaxDebounceMs"
+pub const OPT_HIGHLIGHT_PANICS:   string = "highlightPanics"
+pub const OPT_LIVE_CHECK:         string = "liveCheck"
+pub const OPT_MAX_WORKERS:        string = "maxWorkers"
+
+/// MarkupKind of every hover and documentation string the server writes.
+pub const MARKUP_MARKDOWN: string = "markdown"
+
+// --- shapes -----------------------------------------------------------------
+
+/// Writes the Position `{"line":L,"character":C}`.
+pub fn write_lsp_position(w: *JsonWriter, line: i64, ch: i64) {
+    w->begin_object()
+    w->field_int(K_LINE, line)
+    w->field_int(K_CHARACTER, ch)
+    w->end_object()
+}
+
+/// Writes the Range from (\p sl, \p sc) to (\p el, \p ec).
+pub fn write_lsp_range(w: *JsonWriter, sl: i64, sc: i64, el: i64, ec: i64) {
+    w->begin_object()
+    w->key(K_START)
+    write_lsp_position(w, sl, sc)
+    w->key(K_END)
+    write_lsp_position(w, el, ec)
+    w->end_object()
+}
+
+/// Writes the Location `{"uri":U,"range":R}`, with \p range already JSON.
+pub fn write_lsp_location_raw(w: *JsonWriter, const uri: string, const range: string) {
+    w->begin_object()
+    w->field(K_URI, uri)
+    w->field_raw(K_RANGE, range)
+    w->end_object()
+}
+
+/// Writes the TextEdit `{"range":R,"newText":T}`, with \p range already JSON.
+pub fn write_lsp_text_edit_raw(w: *JsonWriter, const range: string, const text: string) {
+    w->begin_object()
+    w->field_raw(K_RANGE, range)
+    w->field(K_NEW_TEXT, text)
+    w->end_object()
+}
+
+/// `params.textDocument.uri`: the document nearly every request is about.
+pub fn text_document_uri(d: *const JsonDoc, params: u32) -> string {
+    return d->get_str(d->get(params, K_TEXT_DOCUMENT), K_URI)
+}

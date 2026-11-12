@@ -106,7 +106,7 @@ extend Server {
         var root = d->get_str(params, "rootUri")
         var wf   = d->first(d->get(params, "workspaceFolders"))
         if wf != JSON_NONE() {
-            root = d->get_str(wf, "uri")
+            root = d->get_str(wf, K_URI)
         }
 
         if root.empty() {
@@ -125,50 +125,50 @@ extend Server {
         self.project.dir = self.root
 
         var opts = d->get(params, "initializationOptions")
-        var dms  = d->get_int(opts, "debounceMs")
-        if d->is_number(d->get(opts, "debounceMs")) && (dms >= 0) && (dms <= MAX_DEBOUNCE_OPTION_MS) {
+        var dms  = d->get_int(opts, OPT_DEBOUNCE_MS)
+        if d->is_number(d->get(opts, OPT_DEBOUNCE_MS)) && (dms >= 0) && (dms <= MAX_DEBOUNCE_OPTION_MS) {
             self.debounce_ms = dms
         }
 
-        var sms = d->get_int(opts, "syntaxDebounceMs")
-        if d->is_number(d->get(opts, "syntaxDebounceMs")) && (sms >= 0) && (sms <= MAX_DEBOUNCE_OPTION_MS) {
+        var sms = d->get_int(opts, OPT_SYNTAX_DEBOUNCE_MS)
+        if d->is_number(d->get(opts, OPT_SYNTAX_DEBOUNCE_MS)) && (sms >= 0) && (sms <= MAX_DEBOUNCE_OPTION_MS) {
             self.syntax_ms = sms
         }
 
-        self.highlight_panics = d->get_bool(opts, "highlightPanics")
+        self.highlight_panics = d->get_bool(opts, OPT_HIGHLIGHT_PANICS)
         // The environment turns it on for a whole session whatever the
         // editor sends (a test suite run in live mode).
-        self.live_on = d->get_bool(opts, "liveCheck")
+        self.live_on = d->get_bool(opts, OPT_LIVE_CHECK)
         var unsafe *lenv = cxx::std::getenv(r"KALS_LIVE_CHECK")
         if (lenv != &null) && ((lenv[0] as u8) == (49 as u8)) {
             self.live_on = true
         }
 
-        self.progress_ok = d->get_bool(d->get(d->get(params, "capabilities"), "window"), "workDoneProgress")
+        self.progress_ok = d->get_bool(d->get(d->get(params, K_CAPABILITIES), "window"), "workDoneProgress")
         self.watch_ok = d->get_bool(
-            d->get(d->get(d->get(params, "capabilities"), "workspace"), "didChangeWatchedFiles"),
+            d->get(d->get(d->get(params, K_CAPABILITIES), K_WORKSPACE), "didChangeWatchedFiles"),
             "dynamicRegistration",
         )
 
-        var mw = d->get_int(opts, "maxWorkers")
-        if d->is_number(d->get(opts, "maxWorkers")) && (mw >= 1) && (mw <= MAX_WORKERS_OPTION) {
+        var mw = d->get_int(opts, OPT_MAX_WORKERS)
+        if d->is_number(d->get(opts, OPT_MAX_WORKERS)) && (mw >= 1) && (mw <= MAX_WORKERS_OPTION) {
             self.max_index = mw as usize
         }
 
-        var ws = d->get(d->get(params, "capabilities"), "workspace")
-        self.refresh_tokens = d->get_bool(d->get(ws, "semanticTokens"), "refreshSupport")
-        self.refresh_inlays = d->get_bool(d->get(ws, "inlayHint"), "refreshSupport")
+        var ws = d->get(d->get(params, K_CAPABILITIES), K_WORKSPACE)
+        self.refresh_tokens = d->get_bool(d->get(ws, "semanticTokens"), K_REFRESH_SUPPORT)
+        self.refresh_inlays = d->get_bool(d->get(ws, "inlayHint"), K_REFRESH_SUPPORT)
 
         var w = JsonWriter()
         w.begin_object()
-        w.key("capabilities")
+        w.key(K_CAPABILITIES)
         w.begin_object()
         // UTF-16 is the encoding every client speaks; none is negotiated.
         w.field("positionEncoding", "utf-16")
         w.key("textDocumentSync")
         w.begin_object()
         w.field_bool("openClose", true)
-        w.field_int("change", 2)
+        w.field_int("change", TDS_INCREMENTAL)
         w.field_raw("save", "{\"includeText\":false}")
         w.end_object()
         w.key("semanticTokensProvider")
@@ -179,7 +179,7 @@ extend Server {
         w.field_raw("tokenModifiers", token_modifier_names())
         w.end_object()
         w.field_raw("full", "{\"delta\":true}")
-        w.field_bool("range", true)
+        w.field_bool(K_RANGE, true)
         w.end_object()
         w.field_bool("definitionProvider", true)
         w.field_bool("hoverProvider", true)
@@ -209,7 +209,7 @@ extend Server {
         w.end_object()
         w.key("serverInfo")
         w.begin_object()
-        w.field("name", "kals")
+        w.field(K_NAME, "kals")
         w.end_object()
         w.end_object()
         self.respond(id, w.out)

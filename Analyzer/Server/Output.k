@@ -78,8 +78,8 @@ extend Server {
         if self.ready() {
             var w = JsonWriter()
             w.begin_object()
-            w.field_int("type", level)
-            w.field("message", s)
+            w.field_int(K_TYPE, level)
+            w.field(K_MESSAGE, s)
             w.end_object()
             self.notify(M_LOG_MESSAGE, w.out)
         }
@@ -111,29 +111,30 @@ extend Server {
     }
 
     fn respond(self, const id: string, const result: string) {
-        var m: string = "{\"jsonrpc\":\"2.0\",\"id\":"
-        m += id
-        m += ",\"result\":"
-        m += result
-        m += "}"
+        var w = JsonWriter()
+        w.begin_object()
+        w.field(K_JSONRPC, JSONRPC_VERSION)
+        w.field_raw(K_ID, id)
+        w.field_raw(K_RESULT, result)
+        w.end_object()
         var head = result
         if head.size() > 80 {
             head = head.subslice(0, 80)
         }
 
         self.trace(f"-> {id} {result.size()}B " + head)
-        self.t.send(m)
+        self.t.send(w.out)
     }
 
     fn respond_error(self, const id: string, code: i64, const message: string) {
         var w = JsonWriter()
         w.begin_object()
-        w.field("jsonrpc", "2.0")
-        w.field_raw("id", id)
-        w.key("error")
+        w.field(K_JSONRPC, JSONRPC_VERSION)
+        w.field_raw(K_ID, id)
+        w.key(K_ERROR)
         w.begin_object()
-        w.field_int("code", code)
-        w.field("message", message)
+        w.field_int(K_CODE, code)
+        w.field(K_MESSAGE, message)
         w.end_object()
         w.end_object()
         self.trace(f"-> {id} ERROR {code} " + message)
@@ -142,38 +143,40 @@ extend Server {
 
     fn notify(self, const method: string, const params: string) {
         self.trace(f"-> notify {method} {params.size()}B")
-        var m: string = "{\"jsonrpc\":\"2.0\",\"method\":\""
-        m += method
-        m += "\",\"params\":"
-        m += params
-        m += "}"
-        self.t.send(m)
+        var w = JsonWriter()
+        w.begin_object()
+        w.field(K_JSONRPC, JSONRPC_VERSION)
+        w.field(K_METHOD, method)
+        w.field_raw(K_PARAMS, params)
+        w.end_object()
+        self.t.send(w.out)
     }
 
     /// A request of our own; the editor's reply carries no method and is
     /// dropped in handle().
     fn request(self, const method: string) {
         self.seq += 1
-        var m: string = "{\"jsonrpc\":\"2.0\",\"id\":\"kals-"
-        m += f"{self.seq}"
-        m += "\",\"method\":\""
-        m += method
-        m += "\"}"
-        self.t.send(m)
+        var w = JsonWriter()
+        w.begin_object()
+        w.field(K_JSONRPC, JSONRPC_VERSION)
+        w.field(K_ID, f"kals-{self.seq}")
+        w.field(K_METHOD, method)
+        w.end_object()
+        self.t.send(w.out)
     }
 
     /// The same, with \p params (JSON).
     fn request_with(self, const method: string, const params: string) {
         self.seq += 1
-        var m: string = "{\"jsonrpc\":\"2.0\",\"id\":\"kals-"
-        m += f"{self.seq}"
-        m += "\",\"method\":\""
-        m += method
-        m += "\",\"params\":"
-        m += params
-        m += "}"
+        var w = JsonWriter()
+        w.begin_object()
+        w.field(K_JSONRPC, JSONRPC_VERSION)
+        w.field(K_ID, f"kals-{self.seq}")
+        w.field(K_METHOD, method)
+        w.field_raw(K_PARAMS, params)
+        w.end_object()
         self.trace(f"-> request {method}")
-        self.t.send(m)
+        self.t.send(w.out)
     }
 
     /// One `$/progress` notification for \p token: \p kind is begin, report
@@ -181,17 +184,17 @@ extend Server {
     fn progress(self, const token: string, const kind: string, const message: string, pct: i64) {
         var w = JsonWriter()
         w.begin_object()
-        w.field("token", token)
-        w.key("value")
+        w.field(K_TOKEN, token)
+        w.key(K_VALUE)
         w.begin_object()
-        w.field("kind", kind)
+        w.field(K_KIND, kind)
         if kind == "begin" {
-            w.field("title", "Indexing Kairo")
+            w.field(K_TITLE, "Indexing Kairo")
             w.field_bool("cancellable", false)
         }
 
         if !message.empty() {
-            w.field("message", message)
+            w.field(K_MESSAGE, message)
         }
 
         if (pct >= 0) && (kind != "end") {
@@ -206,8 +209,8 @@ extend Server {
     fn show(self, level: i64, const text: string) {
         var w = JsonWriter()
         w.begin_object()
-        w.field_int("type", level)
-        w.field("message", text)
+        w.field_int(K_TYPE, level)
+        w.field(K_MESSAGE, text)
         w.end_object()
         self.notify(M_SHOW_MESSAGE, w.out)
     }

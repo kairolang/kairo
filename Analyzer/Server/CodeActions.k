@@ -78,41 +78,38 @@ extend Server {
                    const path: string,
                    ei:         usize,
                    mf:         u32) {
-        var rr = d->get(params, "range")
-        var rs = d->get_int(d->get(rr, "start"), "line")
-        var re = d->get_int(d->get(rr, "end"), "line")
+        var rr = d->get(params, K_RANGE)
+        var rs = d->get_int(d->get(rr, K_START), K_LINE)
+        var re = d->get_int(d->get(rr, K_END), K_LINE)
 
         var w = JsonWriter()
         w.begin_array()
-        var x = s->first(s->get(s->root, "diagnostics"))
+        var x = s->first(s->get(s->root, SK_DIAGNOSTICS))
         while x != JSON_NONE() {
-            var diag = s->get(x, "diag")
-            var dr   = s->get(diag, "range")
-            var ds   = s->get_int(s->get(dr, "start"), "line")
-            var de   = s->get_int(s->get(dr, "end"), "line")
-            if (s->get_str(x, "path") == path) && (ds <= re) && (de >= rs) {
-                var fix = s->first(s->get(x, "fixes"))
+            var diag = s->get(x, SK_DIAG)
+            var dr   = s->get(diag, K_RANGE)
+            var ds   = s->get_int(s->get(dr, K_START), K_LINE)
+            var de   = s->get_int(s->get(dr, K_END), K_LINE)
+            if (s->get_str(x, SK_PATH) == path) && (ds <= re) && (de >= rs) {
+                var fix = s->first(s->get(x, SK_FIXES))
                 var first = true
                 while fix != JSON_NONE() {
                     w.begin_object()
-                    w.field("title", s->get_str(fix, "title"))
-                    w.field("kind", KIND_QUICKFIX)
-                    w.field_raw("diagnostics", "[" + s->dump(diag) + "]")
+                    w.field(K_TITLE, s->get_str(fix, K_TITLE))
+                    w.field(K_KIND, KIND_QUICKFIX)
+                    w.field_raw(K_DIAGNOSTICS, "[" + s->dump(diag) + "]")
                     // The compiler lists its preferred fix first.
                     w.field_bool("isPreferred", first)
                     first = false
-                    w.key("edit")
+                    w.key(K_EDIT)
                     w.begin_object()
-                    w.key("changes")
+                    w.key(K_CHANGES)
                     w.begin_object()
-                    var e = s->first(s->get(fix, "edits"))
+                    var e = s->first(s->get(fix, SK_EDITS))
                     while e != JSON_NONE() {
-                        w.key(self.uri_of(s->get_str(e, "path")))
+                        w.key(self.uri_of(s->get_str(e, SK_PATH)))
                         w.begin_array()
-                        w.begin_object()
-                        w.field_raw("range", s->dump(s->get(e, "range")))
-                        w.field("newText", s->get_str(e, "newText"))
-                        w.end_object()
+                        write_lsp_text_edit_raw(&w, s->dump(s->get(e, K_RANGE)), s->get_str(e, K_NEW_TEXT))
                         w.end_array()
                         e = s->next(e)
                     }
@@ -132,10 +129,10 @@ extend Server {
         // that text (an edit: works in any client).
         if (mf != JSON_NONE()) && (ei < self.entries.size()) && self.entries[ei].has_idx {
             var *xs = &self.entries[ei].idx
-            var cs = d->get_int(d->get(rr, "start"), "character")
-            var ce = d->get_int(d->get(rr, "end"), "character")
+            var cs = d->get_int(d->get(rr, K_START), K_CHARACTER)
+            var ce = d->get_int(d->get(rr, K_END), K_CHARACTER)
             var uri = self.uri_of(path)
-            var m = xs->first(xs->get(mf, "macros"))
+            var m = xs->first(xs->get(mf, SK_MACROS))
             while m != JSON_NONE() {
                 var ml = xs->as_int(self.nth(xs, m, MACRO_LINE))
                 var mc = xs->as_int(self.nth(xs, m, MACRO_CHAR))
@@ -147,26 +144,15 @@ extend Server {
                 if (!before) && (!after) {
                     var text = xs->str(self.nth(xs, m, MACRO_TEXT))
                     var rw = JsonWriter()
-                    rw.begin_object()
-                    rw.key("start")
-                    rw.begin_object()
-                    rw.field_int("line", ml)
-                    rw.field_int("character", mc)
-                    rw.end_object()
-                    rw.key("end")
-                    rw.begin_object()
-                    rw.field_int("line", el)
-                    rw.field_int("character", ec)
-                    rw.end_object()
-                    rw.end_object()
+                    write_lsp_range(&rw, ml, mc, el, ec)
 
                     w.begin_object()
-                    w.field("title", "View expanded macro")
-                    w.field("kind", KIND_QUICKFIX)
-                    w.key("command")
+                    w.field(K_TITLE, "View expanded macro")
+                    w.field(K_KIND, KIND_QUICKFIX)
+                    w.key(K_COMMAND)
                     w.begin_object()
-                    w.field("title", "View expanded macro")
-                    w.field("command", CMD_SHOW_MACRO_EXPANSION)
+                    w.field(K_TITLE, "View expanded macro")
+                    w.field(K_COMMAND, CMD_SHOW_MACRO_EXPANSION)
                     w.key("arguments")
                     w.begin_array()
                     w.str(uri)
@@ -177,18 +163,15 @@ extend Server {
                     w.end_object()
 
                     w.begin_object()
-                    w.field("title", "Expand macro here")
-                    w.field("kind", KIND_REFACTOR_INLINE)
-                    w.key("edit")
+                    w.field(K_TITLE, "Expand macro here")
+                    w.field(K_KIND, KIND_REFACTOR_INLINE)
+                    w.key(K_EDIT)
                     w.begin_object()
-                    w.key("changes")
+                    w.key(K_CHANGES)
                     w.begin_object()
                     w.key(uri)
                     w.begin_array()
-                    w.begin_object()
-                    w.field_raw("range", rw.out)
-                    w.field("newText", text)
-                    w.end_object()
+                    write_lsp_text_edit_raw(&w, rw.out, text)
                     w.end_array()
                     w.end_object()
                     w.end_object()
@@ -207,28 +190,17 @@ extend Server {
     /// An empty LSP range at (line, ch): where an insert goes.
     fn point_range_(const self, line: i64, ch: i64) -> string {
         var rw = JsonWriter()
-        rw.begin_object()
-        rw.key("start")
-        rw.begin_object()
-        rw.field_int("line", line)
-        rw.field_int("character", ch)
-        rw.end_object()
-        rw.key("end")
-        rw.begin_object()
-        rw.field_int("line", line)
-        rw.field_int("character", ch)
-        rw.end_object()
-        rw.end_object()
+        write_lsp_range(&rw, line, ch, line, ch)
         return rw.out
     }
 
     /// True when a file of snapshot \p s declares something called \p name.
     fn snapshot_declares_(const self, s: *const JsonDoc, const name: string) -> bool {
-        var f = s->first(s->get(s->root, "files"))
+        var f = s->first(s->get(s->root, SK_FILES))
         while f != JSON_NONE() {
-            var y = s->first(s->get(f, "symbols"))
+            var y = s->first(s->get(f, SK_SYMBOLS))
             while y != JSON_NONE() {
-                if s->get_str(y, "name") == name {
+                if s->get_str(y, K_NAME) == name {
                     return true
                 }
 
@@ -255,8 +227,8 @@ extend Server {
         }
 
         var *text = &self.docs.docs[di].text
-        var st = d->get(d->get(params, "range"), "start")
-        var at = self.docs.docs[di].lines.offset(*text, d->get_int(st, "line") as usize, d->get_int(st, "character") as usize, false)
+        var st = d->get(d->get(params, K_RANGE), K_START)
+        var at = self.docs.docs[di].lines.offset(*text, d->get_int(st, K_LINE) as usize, d->get_int(st, K_CHARACTER) as usize, false)
         var plan = interface_for(*text, at, "")
         if !plan.ok {
             return
@@ -295,24 +267,18 @@ extend Server {
         var uri = self.uri_of(path)
 
         w->begin_object()
-        w->field("title", "Generate interface for \x27" + plan.name + "\x27")
-        w->field("kind", KIND_REFACTOR_EXTRACT)
-        w->key("edit")
+        w->field(K_TITLE, "Generate interface for \x27" + plan.name + "\x27")
+        w->field(K_KIND, KIND_REFACTOR_EXTRACT)
+        w->key(K_EDIT)
         w->begin_object()
-        w->key("changes")
+        w->key(K_CHANGES)
         w->begin_object()
         w->key(uri)
         w->begin_array()
         // Header first: both are inserts, at different lines, so their order
         // in the array does not move either one.
-        w->begin_object()
-        w->field_raw("range", self.point_range_(hl, hc))
-        w->field("newText", plan.impl_text)
-        w->end_object()
-        w->begin_object()
-        w->field_raw("range", self.point_range_(il, 0))
-        w->field("newText", plan.text)
-        w->end_object()
+        write_lsp_text_edit_raw(w, self.point_range_(hl, hc), plan.impl_text)
+        write_lsp_text_edit_raw(w, self.point_range_(il, 0), plan.text)
         w->end_array()
         w->end_object()
         w->end_object()
@@ -322,7 +288,7 @@ extend Server {
     /// The macro row of file node \p f (in \p s) whose invocation holds
     /// (line, ch), or JSON_NONE.
     fn macro_at(const self, s: *const JsonDoc, f: u32, line: i64, ch: i64) -> u32 {
-        var m = s->first(s->get(f, "macros"))
+        var m = s->first(s->get(f, SK_MACROS))
         while m != JSON_NONE() {
             var ml = s->as_int(self.nth(s, m, MACRO_LINE))
             var mc = s->as_int(self.nth(s, m, MACRO_CHAR))

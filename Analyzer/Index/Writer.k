@@ -13,6 +13,7 @@
 
 
 import Index::Snapshot::*
+import Protocol::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
@@ -121,30 +122,23 @@ extend IndexWalker {
         return units
     }
 
-    /// Writes `"line":L,"character":C` members for byte \p off of file \p fi.
+    /// Writes the Position of byte \p off of file \p fi.
     fn pos_(self, w: *JsonWriter, fi: usize, off: usize) {
-        var line = self.files[fi].lines.line_of(off)
-        w->field_uint("line", line)
-        w->field_uint("character", self.files[fi].lines.character(self.files[fi].text, off, false))
+        var line = self.files[fi].lines.line_of(off) as i64
+        write_lsp_position(w, line, self.files[fi].lines.character(self.files[fi].text, off, false) as i64)
     }
 
+    /// Writes the Range of \p len bytes at \p off of file \p fi.
     fn range_(self, w: *JsonWriter, fi: usize, off: usize, len: usize) {
-        w->begin_object()
-        w->key("start")
-        w->begin_object()
-        self.pos_(w, fi, off)
-        w->end_object()
-        w->key("end")
-        w->begin_object()
-        self.pos_(w, fi, off + len)
-        w->end_object()
-        w->end_object()
+        var *lm = &self.files[fi].lines
+        var *tx = &self.files[fi].text
+        write_lsp_range(w, lm->line_of(off) as i64, lm->character(*tx, off, false) as i64, lm->line_of(off + len) as i64, lm->character(*tx, off + len, false) as i64)
     }
 
     /// Writes this file's index as one JSON object into \p w.
     pub fn write(self, w: *JsonWriter) {
         w->begin_object()
-        w->field("path", self.files[0].path)
+        w->field(SK_PATH, self.files[0].path)
 
         // --- semantic tokens: LSP's relative encoding, five integers each.
         var all: [SemTok]
@@ -165,7 +159,7 @@ extend IndexWalker {
         sort_u64(&order)
 
         // --- refs: the REF_* columns of Snapshot.k, in that order
-        w->key("refs")
+        w->key(SK_REFS)
         w->begin_array()
         for var oi: usize = 0; oi < order.size(); ++oi {
             var r = self.refs[(order[oi] & 0xFFFFFFFF) as usize]
@@ -219,7 +213,7 @@ extend IndexWalker {
         w->end_array()
 
         // --- bases: [line, char, len, baseFile, baseLine, baseChar, baseLen, name, baseName, kind, baseKind]
-        w->key("bases")
+        w->key(SK_BASES)
         w->begin_array()
         for var i: usize = 0; i < self.bases.size(); ++i {
             var b = self.bases[i]
@@ -242,7 +236,7 @@ extend IndexWalker {
         w->end_array()
 
         // --- links: [line, char, len, target path]
-        w->key("links")
+        w->key(SK_LINKS)
         w->begin_array()
         for var i: usize = 0; i < self.links.size(); ++i {
             w->begin_array()
@@ -257,7 +251,7 @@ extend IndexWalker {
 
         self.macros_(w)
 
-        w->key("files")
+        w->key(SK_FILES)
         w->begin_array()
         for var i: usize = 0; i < self.files.size(); ++i {
             w->str(self.files[i].path)
@@ -265,7 +259,7 @@ extend IndexWalker {
 
         w->end_array()
 
-        w->key("hovers")
+        w->key(SK_HOVERS)
         w->begin_array()
         for var i: usize = 0; i < self.hovers.size(); ++i {
             w->str(self.hovers[i])
@@ -274,45 +268,43 @@ extend IndexWalker {
         w->end_array()
 
         // --- outline: flat, in source order; the server nests by range.
-        w->key("symbols")
+        w->key(SK_SYMBOLS)
         w->begin_array()
         for var i: usize = 0; i < self.syms.size(); ++i {
             var s = self.syms[i]
             w->begin_object()
-            w->field("name", s.name)
+            w->field(K_NAME, s.name)
             if !s.detail.empty() {
-                w->field("detail", s.detail)
+                w->field(K_DETAIL, s.detail)
             }
 
-            w->field_uint("kind", s.kind as usize)
-            w->key("range")
+            w->field_uint(K_KIND, s.kind as usize)
+            w->key(K_RANGE)
             self.range_(w, 0, s.start as usize, (s.end - s.start) as usize)
-            w->key("selectionRange")
+            w->key(K_SELECTION_RANGE)
             self.range_(w, 0, s.sel_off as usize, s.sel_len as usize)
             w->end_object()
         }
 
         w->end_array()
 
-        w->key("inlays")
+        w->key(SK_INLAYS)
         w->begin_array()
         for var i: usize = 0; i < self.inlays.size(); ++i {
             w->begin_object()
-            w->key("position")
-            w->begin_object()
+            w->key(K_POSITION)
             self.pos_(w, 0, self.inlays[i].off as usize)
-            w->end_object()
-            w->field("label", self.inlays[i].label)
+            w->field(K_LABEL, self.inlays[i].label)
             if self.inlays[i].kind != 0 {
-                w->field_uint("kind", self.inlays[i].kind as usize)
+                w->field_uint(K_KIND, self.inlays[i].kind as usize)
             }
 
             if self.inlays[i].pad_left {
-                w->field_bool("paddingLeft", true)
+                w->field_bool(K_PADDING_LEFT, true)
             }
 
             if self.inlays[i].pad_right {
-                w->field_bool("paddingRight", true)
+                w->field_bool(K_PADDING_RIGHT, true)
             }
 
             w->end_object()
@@ -321,22 +313,22 @@ extend IndexWalker {
         w->end_array()
 
         if self.completed {
-            w->key("items")
+            w->key(SK_ITEMS)
             w->begin_array()
             for var i: usize = 0; i < self.items.size(); ++i {
                 var it = self.items[i]
                 w->begin_object()
-                w->field("label", it.label)
-                w->field_uint("kind", it.kind as usize)
+                w->field(K_LABEL, it.label)
+                w->field_uint(K_KIND, it.kind as usize)
                 if !it.detail.empty() {
-                    w->field("detail", it.detail)
+                    w->field(K_DETAIL, it.detail)
                 }
 
                 // sortText orders groups (locals before members before
                 // imports); within a group the editor sorts by label.
-                w->field("sortText", f"{it.sort}{it.label}")
+                w->field(K_SORT_TEXT, f"{it.sort}{it.label}")
                 if !it.doc.empty() {
-                    w->field("doc", it.doc)
+                    w->field(SK_DOC, it.doc)
                 }
 
                 w->end_object()

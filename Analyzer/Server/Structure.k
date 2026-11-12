@@ -72,28 +72,28 @@ extend Server {
     /// Returns the next symbol that is NOT inside it. The snapshot lists
     /// symbols flat in source order, a parent before its members.
     fn symbol(self, s: *const JsonDoc, c: u32, w: *JsonWriter) -> u32 {
-        var range = s->get(c, "range")
-        var end   = s->get(range, "end")
-        var el    = s->get_int(end, "line")
-        var ec    = s->get_int(end, "character")
+        var range = s->get(c, K_RANGE)
+        var end   = s->get(range, K_END)
+        var el    = s->get_int(end, K_LINE)
+        var ec    = s->get_int(end, K_CHARACTER)
 
         w->begin_object()
-        w->field("name", s->get_str(c, "name"))
-        var detail = s->get_str(c, "detail")
+        w->field(K_NAME, s->get_str(c, K_NAME))
+        var detail = s->get_str(c, K_DETAIL)
         if !detail.empty() {
-            w->field("detail", detail)
+            w->field(K_DETAIL, detail)
         }
 
-        w->field_int("kind", s->get_int(c, "kind"))
-        w->field_raw("range", s->dump(range))
-        w->field_raw("selectionRange", s->dump(s->get(c, "selectionRange")))
-        w->key("children")
+        w->field_int(K_KIND, s->get_int(c, K_KIND))
+        w->field_raw(K_RANGE, s->dump(range))
+        w->field_raw(K_SELECTION_RANGE, s->dump(s->get(c, K_SELECTION_RANGE)))
+        w->key(K_CHILDREN)
         w->begin_array()
         var n = s->next(c)
         while n != JSON_NONE() {
-            var st = s->get(s->get(n, "range"), "start")
-            var sl = s->get_int(st, "line")
-            var sc = s->get_int(st, "character")
+            var st = s->get(s->get(n, K_RANGE), K_START)
+            var sl = s->get_int(st, K_LINE)
+            var sc = s->get_int(st, K_CHARACTER)
             if (sl > el) || ((sl == el) && (sc >= ec)) {
                 break
             }
@@ -106,19 +106,18 @@ extend Server {
         return n
     }
 
-    /// Writes `{"line":L,"character":C}` for byte \p off of buffer \p i.
-    fn write_pos(self, w: *JsonWriter, i: usize, off: usize) {
-        w->begin_object()
-        w->field_uint("line", self.docs.docs[i].lines.line_of(off))
-        w->field_uint("character", self.docs.docs[i].lines.character(self.docs.docs[i].text, off, false))
-        w->end_object()
+    /// Writes the Range of bytes [\p a, \p b) of buffer \p i.
+    fn write_buf_range(self, w: *JsonWriter, i: usize, a: usize, b: usize) {
+        var *lm = &self.docs.docs[i].lines
+        var *tx = &self.docs.docs[i].text
+        write_lsp_range(w, lm->line_of(a) as i64, lm->character(*tx, a, false) as i64, lm->line_of(b) as i64, lm->character(*tx, b, false) as i64)
     }
 
     fn folding(self, d: *const JsonDoc, params: u32, const id: string) {
         // Scans the whole text: materialise the edited buffers (O(document),
         // once per request, never per keystroke).
         self.docs.sync_all()
-        var i = self.docs.index_of(d->get_str(d->get(params, "textDocument"), "uri"))
+        var i = self.docs.index_of(text_document_uri(d, params))
         if i == usize::MAX {
             self.respond(id, "[]")
             return
@@ -149,7 +148,7 @@ extend Server {
             w.field_uint("startLine", a)
             w.field_uint("endLine", b)
             if sp[k].kind == 3 {
-                w.field("kind", "comment")
+                w.field(K_KIND, FRK_COMMENT)
             }
 
             w.end_object()
@@ -163,7 +162,7 @@ extend Server {
         // Scans the whole text: materialise the edited buffers (O(document),
         // once per request, never per keystroke).
         self.docs.sync_all()
-        var i = self.docs.index_of(d->get_str(d->get(params, "textDocument"), "uri"))
+        var i = self.docs.index_of(text_document_uri(d, params))
         if i == usize::MAX {
             self.respond(id, "[]")
             return
@@ -173,12 +172,12 @@ extend Server {
         var sp = spans(*text)
         var w = JsonWriter()
         w.begin_array()
-        var p = d->first(d->get(params, "positions"))
+        var p = d->first(d->get(params, K_POSITIONS))
         while p != JSON_NONE() {
             var at = self.docs.docs[i].lines.offset(
                 *text,
-                d->get_int(p, "line") as usize,
-                d->get_int(p, "character") as usize,
+                d->get_int(p, K_LINE) as usize,
+                d->get_int(p, K_CHARACTER) as usize,
                 false,
             )
 
@@ -240,13 +239,8 @@ extend Server {
 
             for var q: usize = 0; q < keep_lo.size(); ++q {
                 w.begin_object()
-                w.key("range")
-                w.begin_object()
-                w.key("start")
-                self.write_pos(&w, i, keep_lo[q])
-                w.key("end")
-                self.write_pos(&w, i, keep_hi[q])
-                w.end_object()
+                w.key(K_RANGE)
+                self.write_buf_range(&w, i, keep_lo[q], keep_hi[q])
                 if (q + 1) < keep_lo.size() {
                     w.key("parent")
                 }
@@ -276,14 +270,14 @@ extend Server {
             }
 
             var *o = &self.entries[ei].idx
-            var of = o->first(o->get(o->root, "files"))
+            var of = o->first(o->get(o->root, SK_FILES))
             while (of != JSON_NONE()) && (total < WORKSPACE_SYMBOL_CAP) {
-                var path = o->get_str(of, "path")
-                var sy = o->first(o->get(of, "symbols"))
+                var path = o->get_str(of, SK_PATH)
+                var sy = o->first(o->get(of, SK_SYMBOLS))
                 while (sy != JSON_NONE()) && (total < WORKSPACE_SYMBOL_CAP) {
-                    var name = o->get_str(sy, "name")
+                    var name = o->get_str(sy, K_NAME)
                     if needle.empty() || (find_from(lower(name), needle, 0) != usize::MAX) {
-                        var range = o->dump(o->get(sy, "selectionRange"))
+                        var range = o->dump(o->get(sy, K_SELECTION_RANGE))
                         var key = path + range
                         var dup = false
                         for var q: usize = 0; q < seen.size(); ++q {
@@ -295,13 +289,10 @@ extend Server {
                         if !dup {
                             seen.push_back(key)
                             w.begin_object()
-                            w.field("name", name)
-                            w.field_int("kind", o->get_int(sy, "kind"))
-                            w.key("location")
-                            w.begin_object()
-                            w.field("uri", self.uri_of(path))
-                            w.field_raw("range", range)
-                            w.end_object()
+                            w.field(K_NAME, name)
+                            w.field_int(K_KIND, o->get_int(sy, K_KIND))
+                            w.key(K_LOCATION)
+                            write_lsp_location_raw(&w, self.uri_of(path), range)
                             w.end_object()
                             total += 1
                         }

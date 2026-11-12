@@ -61,6 +61,7 @@ import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
 import Json::JsonWriter
+import Protocol::*
 import Lexer::Immediate::ImmediateTable
 import Lexer::Lexer::Lexer
 import Location::SourceLocation::SourceLocation
@@ -129,7 +130,7 @@ pub struct SymRow {
 pub struct InlayRow {
     var off:       u32    = 0
     var label:     string = ""
-    var kind:      u32    = 1     ///< LSP InlayHintKind: 1 type, 2 parameter
+    var kind:      u32    = IHK_TYPE as u32  ///< LSP InlayHintKind; 0 leaves it out
     var pad_left:  bool   = false
     var pad_right: bool   = false
 }
@@ -144,8 +145,8 @@ pub struct BaseRow {
     var base_len: u32 = 0
     var name:      string = ""    ///< the deriving declaration
     var base_name: string = ""
-    var kind:      u32    = 5     ///< LSP SymbolKind of the deriving declaration
-    var base_kind: u32    = 5
+    var kind:      u32    = SYM_CLASS as u32  ///< LSP SymbolKind of the deriving declaration
+    var base_kind: u32    = SYM_CLASS as u32
 }
 
 pub struct ItemRow {
@@ -173,6 +174,55 @@ pub class FileText {
 pub fn completion_marker() -> string {
     return "kalsCompletionMarker"
 }
+
+// --- members ---------------------------------------------------------------
+//
+// The snapshot is the JSON a worker writes and the server reads (Worker.k,
+// LiveWorker.k, Writer.k, Macros.k, Tokens.k write it; Server/ reads it).
+// Its own members are named here, once, for both sides. A row that IS an
+// LSP object (an outline symbol, an inlay hint, a completion item, a
+// diagnostic, a fix's edit) uses the LSP names (Protocol.k K_*), since the
+// server forwards it as it is.
+
+// the document
+pub const SK_OK:          string = "ok"          ///< false: `error` says why, nothing else is written
+pub const SK_ERROR:       string = "error"
+pub const SK_FILES:       string = "files"       ///< the indexed files' nodes; in a node, the paths its rows index
+pub const SK_UNCHECKED:   string = "unchecked"   ///< files syntax errors left unchecked
+pub const SK_PARTIAL:     string = "partial"     ///< files checked without the bodies the errors are in
+pub const SK_WIDE:        string = "wide"        ///< every file indexed; false over WIDE_INDEX_LIMIT (the open buffers only)
+pub const SK_HEADER:      string = "header"      ///< `--as-module` (the header job): the module's header, relative
+pub const SK_ERRORS:      string = "errors"      ///< `--as-module`: the run's error count
+pub const SK_CXX_FLAGS:   string = "cxx_flags"
+pub const SK_C_FLAGS:     string = "c_flags"
+pub const SK_DIAGNOSTICS: string = "diagnostics" ///< diagnostic rows
+pub const SK_DEPS:        string = "deps"        ///< every file of the graph
+pub const SK_PARSED:      string = "parsed"      ///< syntax-only: the buffer parsed without error
+pub const SK_TIMING:      string = "timing"      ///< the worker's own timings, for the trace
+pub const SK_RUN_US:      string = "run_us"
+pub const SK_WALK_US:     string = "walk_us"
+pub const SK_WRITE_US:    string = "write_us"
+pub const SK_ASSEMBLE_US: string = "assemble_us"
+pub const SK_UNIT_FIDS:   string = "unit_fids"
+
+// a file node (Writer.k)
+pub const SK_PATH:    string = "path"
+pub const SK_TOKENS:  string = "tokens"   ///< semantic tokens, LSP-encoded
+pub const SK_REFS:    string = "refs"     ///< REF_* rows
+pub const SK_BASES:   string = "bases"    ///< BASE_* rows
+pub const SK_LINKS:   string = "links"    ///< LINK_* rows
+pub const SK_MACROS:  string = "macros"   ///< MACRO_* rows
+pub const SK_HOVERS:  string = "hovers"   ///< hover texts, by a ref row's REF_HOVER
+pub const SK_SYMBOLS: string = "symbols"  ///< outline symbols, flat, in source order
+pub const SK_INLAYS:  string = "inlays"   ///< inlay hints
+pub const SK_ITEMS:   string = "items"    ///< completion items (a completion run only)
+pub const SK_DOC:     string = "doc"      ///< a completion item's `///` block
+
+// a diagnostic row: the file, the LSP diagnostic, the fixes; a fix is a
+// title and its edits, each edit a path, a range and the new text
+pub const SK_DIAG:  string = "diag"
+pub const SK_FIXES: string = "fixes"
+pub const SK_EDITS: string = "edits"
 
 // --- row columns -----------------------------------------------------------
 //

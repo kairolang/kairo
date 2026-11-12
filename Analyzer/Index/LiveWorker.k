@@ -66,10 +66,23 @@ ffi "c++" import "thread"
 
 import API::FS::LinkFS
 import Diagnostic::FileDiagnostics::FileDiagConsumer
+import Index::Snapshot::{
+    SK_DEPS,
+    SK_DIAGNOSTICS,
+    SK_FILES,
+    SK_OK,
+    SK_RUN_US,
+    SK_TIMING,
+    SK_UNIT_FIDS,
+    SK_WALK_US,
+    SK_WIDE,
+    SK_WRITE_US,
+}
 import Index::Worker::{
     DiagCollector,
     IndexObserver,
 }
+import Index::WorkerKeys::*
 import Json::{
     JSON_NONE,
     JsonDoc,
@@ -83,6 +96,7 @@ import Tuning::{
     LIVE_SLICE_FILES,
     WIDE_INDEX_LIMIT,
 }
+import WorkerArgs::*
 
 fn live_us() -> i64 {
     var t = cxx::std::chrono::steady_clock::now()
@@ -278,23 +292,23 @@ fn live_snapshot(st:    *LiveState,
 
     var w = JsonWriter()
     w.begin_object()
-    w.field_bool("ok", true)
-    w.field_raw("files", "[" + files + "]")
-    w.field_bool("wide", narrow)
-    w.field_raw("diagnostics", "[" + diags + "]")
-    w.key("deps")
+    w.field_bool(SK_OK, true)
+    w.field_raw(SK_FILES, "[" + files + "]")
+    w.field_bool(SK_WIDE, narrow)
+    w.field_raw(SK_DIAGNOSTICS, "[" + diags + "]")
+    w.key(SK_DEPS)
     w.begin_array()
     for var k: usize = 0; k < st->deps.size(); ++k {
         w.str(st->deps[k])
     }
 
     w.end_array()
-    w.key("timing")
+    w.key(SK_TIMING)
     w.begin_object()
-    w.field_int("run_us", took)
-    w.field_int("walk_us", obs->walk_us)
-    w.field_int("write_us", obs->write_us)
-    w.field_uint("unit_fids", st->deps.size())
+    w.field_int(SK_RUN_US, took)
+    w.field_int(SK_WALK_US, obs->walk_us)
+    w.field_int(SK_WRITE_US, obs->write_us)
+    w.field_uint(SK_UNIT_FIDS, st->deps.size())
     w.end_object()
     w.end_object()
     return w.out
@@ -312,25 +326,25 @@ fn live_take(t: *Transport, r: *LiveReq) {
         if r->id >= 0 {
             var sw = JsonWriter()
             sw.begin_object()
-            sw.field_int("id", r->id)
-            sw.field_bool("superseded", true)
+            sw.field_int(RP_ID, r->id)
+            sw.field_bool(RP_SUPERSEDED, true)
             sw.end_object()
             t->send(sw.out)
         }
 
-        r->id       = d.get_int(d.root, "id")
-        r->out      = d.get_str(d.root, "out")
-        r->progress = d.get_str(d.root, "progress")
+        r->id       = d.get_int(d.root, RQ_ID)
+        r->out      = d.get_str(d.root, RQ_OUT)
+        r->progress = d.get_str(d.root, RQ_PROGRESS)
         r->open_paths.clear()
         r->open_files.clear()
-        var o = d.first(d.get(d.root, "open"))
+        var o = d.first(d.get(d.root, RQ_OPEN))
         while o != JSON_NONE() {
-            r->open_paths.push_back(d.get_str(o, "path"))
-            r->open_files.push_back(d.get_str(o, "file"))
+            r->open_paths.push_back(d.get_str(o, RQ_PATH))
+            r->open_files.push_back(d.get_str(o, RQ_FILE))
             o = d.next(o)
         }
 
-        var c = d.first(d.get(d.root, "changed"))
+        var c = d.first(d.get(d.root, RQ_CHANGED))
         while c != JSON_NONE() {
             var p = d.str(c)
             if !live_has(&r->changed, p) {
@@ -341,7 +355,7 @@ fn live_take(t: *Transport, r: *LiveReq) {
         }
 
         r->order.clear()
-        var q = d.first(d.get(d.root, "order"))
+        var q = d.first(d.get(d.root, RQ_ORDER))
         while q != JSON_NONE() {
             r->order.push_back(d.str(q))
             q = d.next(q)
@@ -352,9 +366,9 @@ fn live_take(t: *Transport, r: *LiveReq) {
 fn live_fail(t: *Transport, id: i64, const why: string) {
     var w = JsonWriter()
     w.begin_object()
-    w.field_int("id", id)
-    w.field_bool("ok", false)
-    w.field("error", why)
+    w.field_int(RP_ID, id)
+    w.field_bool(RP_OK, false)
+    w.field(RP_ERROR, why)
     w.end_object()
     t->send(w.out)
 }
@@ -567,23 +581,23 @@ fn live_finish(st:        *LiveState,
 
     var w = JsonWriter()
     w.begin_object()
-    w.field_int("id", r->id)
-    w.field_bool("ok", true)
+    w.field_int(RP_ID, r->id)
+    w.field_bool(RP_OK, true)
     if bg {
-        w.field_bool("bg", true)
+        w.field_bool(RP_BG, true)
     }
 
-    w.field("mode", mode)
-    w.field("why", why)
-    w.field_uint("rechecked", if (full) => (st->deps.size()) else => (rechecked->size()))
-    w.field_uint("pending", live->pending)
-    w.field_bool("touched", touched || full)
-    w.field_uint("files", st->deps.size())
-    w.field("out", wrote)
-    w.field_int("us", took)
+    w.field(RP_MODE, mode)
+    w.field(RP_WHY, why)
+    w.field_uint(RP_RECHECKED, if (full) => (st->deps.size()) else => (rechecked->size()))
+    w.field_uint(RP_PENDING, live->pending)
+    w.field_bool(RP_TOUCHED, touched || full)
+    w.field_uint(RP_FILES, st->deps.size())
+    w.field(RP_OUT, wrote)
+    w.field_int(RP_US, took)
     // What the re-checks since the last whole check replaced and hold.
-    w.field_uint("retiredFiles", live->retired_files())
-    w.field_uint("retiredMb", live->retired_bytes() / 1048576)
+    w.field_uint(RP_RETIRED_FILES, live->retired_files())
+    w.field_uint(RP_RETIRED_MB, live->retired_bytes() / 1048576)
     w.end_object()
     t->send(w.out)
 }
@@ -622,18 +636,18 @@ pub fn index_server_main(@inout args: [string]) -> i32 {
     var i: usize = 1
     while i < args.size() {
         var a = args[i]
-        if a == "--" {
+        if a == WA_END {
             i += 1
             break
         }
 
-        if (a == "--cwd") && ((i + 1) < args.size()) {
+        if (a == WA_CWD) && ((i + 1) < args.size()) {
             Path::set_cwd(args[i + 1])
             i += 2
             continue
         }
 
-        if (a == "--root") && ((i + 1) < args.size()) {
+        if (a == WA_ROOT) && ((i + 1) < args.size()) {
             st.root = args[i + 1]
             i += 2
             continue
@@ -650,7 +664,7 @@ pub fn index_server_main(@inout args: [string]) -> i32 {
     // A refresh re-renders nothing it kept, which the pretty renderer's
     // coalescing across files does not allow (LiveCheck refuses it). The
     // worker reads Diagnostic objects: the format changes nothing it sends.
-    words.push_back("--error-format=basic")
+    words.push_back(CF_ERROR_FORMAT_BASIC)
 
     var unsafe *obs = kairo::std::create<IndexObserver>()
     finally {
@@ -715,8 +729,8 @@ pub fn index_server_main(@inout args: [string]) -> i32 {
         if (draining.id >= 0) && (live.pending > 0) {
             var sw = JsonWriter()
             sw.begin_object()
-            sw.field_int("id", draining.id)
-            sw.field_bool("superseded", true)
+            sw.field_int(RP_ID, draining.id)
+            sw.field_bool(RP_SUPERSEDED, true)
             sw.end_object()
             t.send(sw.out)
         }

@@ -31,6 +31,7 @@
 
 
 import Index::Snapshot::*
+import Protocol::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
@@ -418,55 +419,55 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     fn symbol_kind_(self, d: unsafe *Decl) -> u32 {
         var k = self.kind_of_(d)
         if k == TT_FUNCTION() {
-            return 12
+            return SYM_FUNCTION as u32
         }
 
         if k == TT_METHOD() {
-            return 6
+            return SYM_METHOD as u32
         }
 
         if k == TT_VARIABLE() {
             if (self.mods_of_(d) & TM_CONSTANT()) != 0 {
-                return 14
+                return SYM_CONSTANT as u32
             }
 
-            return 13
+            return SYM_VARIABLE as u32
         }
 
         if k == TT_PROPERTY() {
-            return 8
+            return SYM_FIELD as u32
         }
 
         if k == TT_CLASS() {
-            return 5
+            return SYM_CLASS as u32
         }
 
         if (k == TT_STRUCT()) || (k == TT_UNION()) {
-            return 23
+            return SYM_STRUCT as u32
         }
 
         if k == TT_INTERFACE() {
-            return 11
+            return SYM_INTERFACE as u32
         }
 
         if k == TT_ENUM() {
-            return 10
+            return SYM_ENUM as u32
         }
 
         if k == TT_ENUM_MEMBER() {
-            return 22
+            return SYM_ENUM_MEMBER as u32
         }
 
         if k == TT_NAMESPACE() {
-            return 3
+            return SYM_NAMESPACE as u32
         }
 
         if k == TT_TYPE_ALIAS() {
-            return 5
+            return SYM_CLASS as u32
         }
 
         if k == TT_TYPE_PARAM() {
-            return 26
+            return SYM_TYPE_PARAMETER as u32
         }
 
         return 0
@@ -476,58 +477,58 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     fn item_kind_(self, d: unsafe *Decl) -> u32 {
         var k = self.kind_of_(d)
         if k == TT_FUNCTION() {
-            return 3
+            return CIK_FUNCTION as u32
         }
 
         if k == TT_METHOD() {
-            return 2
+            return CIK_METHOD as u32
         }
 
         if (k == TT_VARIABLE()) || (k == TT_PARAMETER()) || (k == TT_SELF()) {
             if (self.mods_of_(d) & TM_CONSTANT()) != 0 {
-                return 21
+                return CIK_CONSTANT as u32
             }
 
-            return 6
+            return CIK_VARIABLE as u32
         }
 
         if k == TT_PROPERTY() {
-            return 5
+            return CIK_FIELD as u32
         }
 
         if k == TT_CLASS() {
-            return 7
+            return CIK_CLASS as u32
         }
 
         if (k == TT_STRUCT()) || (k == TT_UNION()) {
-            return 22
+            return CIK_STRUCT as u32
         }
 
         if k == TT_INTERFACE() {
-            return 8
+            return CIK_INTERFACE as u32
         }
 
         if k == TT_ENUM() {
-            return 13
+            return CIK_ENUM as u32
         }
 
         if k == TT_ENUM_MEMBER() {
-            return 20
+            return CIK_ENUM_MEMBER as u32
         }
 
         if k == TT_NAMESPACE() {
-            return 9
+            return CIK_MODULE as u32
         }
 
         if k == TT_TYPE_PARAM() {
-            return 25
+            return CIK_TYPE_PARAMETER as u32
         }
 
         if k == TT_MACRO() {
-            return 15
+            return CIK_SNIPPET as u32
         }
 
-        return 1
+        return CIK_TEXT as u32
     }
 
     // --- hover -----------------------------------------------------------

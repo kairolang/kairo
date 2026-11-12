@@ -246,7 +246,7 @@ pub class Server {
         for var q: usize = 0; q < self.parked.size(); ++q {
             var pd = JsonDoc()
             if pd.parse(self.parked[q].msg) {
-                self.respond_error(pd.dump(pd.get(pd.root, "id")), ERR_REQUEST_CANCELLED, "cancelled: the server is shutting down")
+                self.respond_error(pd.dump(pd.get(pd.root, K_ID)), ERR_REQUEST_CANCELLED, "cancelled: the server is shutting down")
             }
         }
 
@@ -287,18 +287,18 @@ pub class Server {
             return
         }
 
-        var method = d.get_str(d.root, "method")
-        var idn    = d.get(d.root, "id")
+        var method = d.get_str(d.root, K_METHOD)
+        var idn    = d.get(d.root, K_ID)
         var has_id = idn != JSON_NONE()
         var id     = d.dump(idn)
-        var params = d.get(d.root, "params")
+        var params = d.get(d.root, K_PARAMS)
 
         if method.empty() {
             self.trace("<- reply " + id)
             return // a reply to one of our own requests
         }
 
-        var about = d.get_str(d.get(params, "textDocument"), "uri")
+        var about = text_document_uri(&d, params)
         if about.size() > 40 {
             about = about.subslice(about.size() - 40, 40)
         }
@@ -343,7 +343,7 @@ pub class Server {
             // What the client says it supports decides what it will ask for;
             // when a feature never shows up in an editor, this is the first
             // thing to read.
-            var td = d.get(d.get(params, "capabilities"), "textDocument")
+            var td = d.get(d.get(params, K_CAPABILITIES), K_TEXT_DOCUMENT)
             var have: string = "client textDocument capabilities:"
             var c = d.first(td)
             while c != JSON_NONE() {
@@ -388,8 +388,8 @@ pub class Server {
         }
 
         if method == M_DID_OPEN {
-            var td = d.get(params, "textDocument")
-            var i  = self.docs.open(d.get_str(td, "uri"), d.get_int(td, "version"), d.get_str(td, "text"))
+            var td = d.get(params, K_TEXT_DOCUMENT)
+            var i  = self.docs.open(d.get_str(td, K_URI), d.get_int(td, K_VERSION), d.get_str(td, K_TEXT))
             self.docs.docs[i].path = Path::real_path_of(self.docs.docs[i].path)
             // A buffer opened with the text its entry's last run read from
             // the disk, and indexed by that run, changes nothing the
@@ -411,10 +411,10 @@ pub class Server {
         }
 
         if method == M_DID_CHANGE {
-            var td = d.get(params, "textDocument")
-            var i  = self.docs.index_of(d.get_str(td, "uri"))
+            var td = d.get(params, K_TEXT_DOCUMENT)
+            var i  = self.docs.index_of(d.get_str(td, K_URI))
             if i != usize::MAX {
-                self.docs.change(i, d.get_int(td, "version"), &d, d.get(params, "contentChanges"))
+                self.docs.change(i, d.get_int(td, K_VERSION), &d, d.get(params, K_CONTENT_CHANGES))
                 self.touch(self.docs.docs[i].path)
             }
 
@@ -422,7 +422,7 @@ pub class Server {
         }
 
         if method == M_DID_CLOSE {
-            var uri = d.get_str(d.get(params, "textDocument"), "uri")
+            var uri = text_document_uri(&d, params)
             var i   = self.docs.index_of(uri)
             if i != usize::MAX {
                 var path = self.docs.docs[i].path
@@ -443,7 +443,7 @@ pub class Server {
         }
 
         if method == M_DID_SAVE {
-            var path = self.path_of(d.get_str(d.get(params, "textDocument"), "uri"))
+            var path = self.path_of(text_document_uri(&d, params))
             if Path::filename_of(path) == project_file_name() {
                 self.rev += 1
                 self.load_project()
@@ -458,10 +458,10 @@ pub class Server {
         }
 
         if method == M_DID_CHANGE_WATCHED {
-            var c = d.first(d.get(params, "changes"))
+            var c = d.first(d.get(params, K_CHANGES))
             var reload = false
             while c != JSON_NONE() {
-                var path = self.path_of(d.get_str(c, "uri"))
+                var path = self.path_of(d.get_str(c, K_URI))
                 if Path::filename_of(path) == project_file_name() {
                     reload = true
                 } else if Path::filename_of(path) == "compile_commands.json" {
@@ -510,20 +510,20 @@ pub class Server {
         }
 
         if (method == M_INCOMING_CALLS) || (method == M_OUTGOING_CALLS) {
-            self.calls(&d, d.get(params, "item"), method == M_INCOMING_CALLS, id)
+            self.calls(&d, d.get(params, K_ITEM), method == M_INCOMING_CALLS, id)
             return
         }
 
         if (method == M_SUPERTYPES) || (method == M_SUBTYPES) {
-            var item = d.get(params, "item")
-            var sel  = d.get(d.get(item, "selectionRange"), "start")
+            var item = d.get(params, K_ITEM)
+            var sel  = d.get(d.get(item, K_SELECTION_RANGE), K_START)
             var w = JsonWriter()
             w.begin_array()
             var nosh = LineShift() // an item from an answer already placed
             self.related_types(
-                self.path_of(d.get_str(item, "uri")),
-                d.get_int(sel, "line"),
-                d.get_int(sel, "character"),
+                self.path_of(d.get_str(item, K_URI)),
+                d.get_int(sel, K_LINE),
+                d.get_int(sel, K_CHARACTER),
                 method == M_SUPERTYPES,
                 &w,
                 true,
@@ -544,13 +544,13 @@ pub class Server {
             // The item comes back as it was sent; its documentation is added
             // when the last list had some for that label.
             var out = d.dump(params)
-            var label = d.get_str(params, "label")
+            var label = d.get_str(params, K_LABEL)
             for var q: usize = 0; q < self.item_labels.size(); ++q {
-                if (self.item_labels[q] == label) && (out.size() > 1) && (d.get(params, "documentation") == JSON_NONE()) {
+                if (self.item_labels[q] == label) && (out.size() > 1) && (d.get(params, K_DOCUMENTATION) == JSON_NONE()) {
                     var dw = JsonWriter()
                     dw.begin_object()
-                    dw.field("kind", "markdown")
-                    dw.field("value", self.item_docs[q])
+                    dw.field(K_KIND, MARKUP_MARKDOWN)
+                    dw.field(K_VALUE, self.item_docs[q])
                     dw.end_object()
                     out = out.subslice(0, out.size() - 1) + ",\"documentation\":" + dw.out + "}"
                     break
@@ -584,11 +584,11 @@ pub class Server {
             // is answered "cancelled" now rather than computed later, and a
             // completion still running is disowned (its worker finishes and
             // is ignored; a process cannot be recalled mid-compile).
-            var want = d.dump(d.get(params, "id"))
+            var want = d.dump(d.get(params, K_ID))
             var kept: [Parked]
             for var q: usize = 0; q < self.parked.size(); ++q {
                 var pd = JsonDoc()
-                if pd.parse(self.parked[q].msg) && (pd.dump(pd.get(pd.root, "id")) == want) {
+                if pd.parse(self.parked[q].msg) && (pd.dump(pd.get(pd.root, K_ID)) == want) {
                     self.respond_error(want, ERR_REQUEST_CANCELLED, "cancelled")
                 } else {
                     kept.push_back(self.parked[q])
@@ -615,7 +615,7 @@ pub class Server {
         if method == M_KALS_TEXT {
             // Debug: what the server holds for a buffer, for a test to
             // compare with its own copy after a run of incremental edits.
-            var i = self.docs.index_of(d.get_str(d.get(params, "textDocument"), "uri"))
+            var i = self.docs.index_of(text_document_uri(&d, params))
             if i == usize::MAX {
                 self.respond(id, "null")
                 return
@@ -628,14 +628,14 @@ pub class Server {
             w.field("hash", f"{h}")
             w.field_uint("size", self.docs.docs[i].text.size())
             w.field_uint("lines", self.docs.docs[i].buf.line_count())
-            w.field_int("version", self.docs.docs[i].version)
+            w.field_int(K_VERSION, self.docs.docs[i].version)
             w.end_object()
             self.respond(id, w.out)
             return
         }
 
         if method == M_KALS_SNAPSHOT {
-            var sei = self.entry_of(self.path_of(d.get_str(d.get(params, "textDocument"), "uri")))
+            var sei = self.entry_of(self.path_of(text_document_uri(&d, params)))
             if (sei == usize::MAX) || (!self.entries[sei].has_snap) {
                 self.respond(id, "null")
                 return
@@ -644,13 +644,13 @@ pub class Server {
             var w = JsonWriter()
             w.begin_object()
             if self.entries[sei].has_idx {
-                w.field_raw("files", self.entries[sei].idx.dump(self.entries[sei].idx.get(self.entries[sei].idx.root, "files")))
+                w.field_raw(SK_FILES, self.entries[sei].idx.dump(self.entries[sei].idx.get(self.entries[sei].idx.root, SK_FILES)))
             } else {
-                w.field_raw("files", "[]")
+                w.field_raw(SK_FILES, "[]")
             }
 
-            w.field_raw("diagnostics", self.entries[sei].snap.dump(self.entries[sei].snap.get(self.entries[sei].snap.root, "diagnostics")))
-            w.field_raw("deps", self.entries[sei].snap.dump(self.entries[sei].snap.get(self.entries[sei].snap.root, "deps")))
+            w.field_raw(SK_DIAGNOSTICS, self.entries[sei].snap.dump(self.entries[sei].snap.get(self.entries[sei].snap.root, SK_DIAGNOSTICS)))
+            w.field_raw(SK_DEPS, self.entries[sei].snap.dump(self.entries[sei].snap.get(self.entries[sei].snap.root, SK_DEPS)))
             w.end_object()
             self.respond(id, w.out)
             return

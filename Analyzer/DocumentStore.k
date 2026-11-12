@@ -1,6 +1,7 @@
 
 
 import Json::*
+import Protocol::*
 
 /// \brief `file://` URI -> filesystem path (percent-decoded).
 ///
@@ -778,20 +779,20 @@ pub class DocumentStore {
         self.docs[i].version = version
         var c = msg->first(changes)
         while c != JSON_NONE() {
-            var range = msg->get(c, "range")
-            var text  = msg->get_str(c, "text")
+            var range = msg->get(c, K_RANGE)
+            var text  = msg->get_str(c, K_TEXT)
             if msg->is_object(range) {
-                var s = msg->get(range, "start")
-                var e = msg->get(range, "end")
+                var s = msg->get(range, K_START)
+                var e = msg->get(range, K_END)
                 var so = self.docs[i].buf.offset(
-                    msg->get_int(s, "line") as usize,
-                    msg->get_int(s, "character") as usize,
+                    msg->get_int(s, K_LINE) as usize,
+                    msg->get_int(s, K_CHARACTER) as usize,
                     self.utf8,
                 )
 
                 var eo = self.docs[i].buf.offset(
-                    msg->get_int(e, "line") as usize,
-                    msg->get_int(e, "character") as usize,
+                    msg->get_int(e, K_LINE) as usize,
+                    msg->get_int(e, K_CHARACTER) as usize,
                     self.utf8,
                 )
 

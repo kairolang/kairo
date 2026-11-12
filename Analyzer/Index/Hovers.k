@@ -74,6 +74,7 @@ import Lexer::Lexer::Lexer
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Resolution::ModulePath::path_separator
 import Sema::Lower::EnumLayoutLowering::EnumLayoutQuery
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -564,7 +565,7 @@ extend IndexWalker {
             if (d->semantic_dc != &null) && (d->semantic_dc->dc_owner != &null)
                 && isa<Declarations::EnumDecl>(d->semantic_dc->dc_owner) {
                 s += sema_dump_decl_name(ctx, d->semantic_dc->dc_owner)
-                s += "::"
+                s += path_separator()
             }
 
             return s + self.variant_line_(cast<Declarations::EnumVariantDecl>(d), ctx)

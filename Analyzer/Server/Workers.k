@@ -31,7 +31,9 @@ import DocumentStore::{
 import Index::Legend::*
 import Index::Snapshot::*
 import Protocol::*
+import Resolution::ModulePath::*
 import Tuning::*
+import WorkerArgs::*
 import Json::{
     JSON_NONE,
     JsonDoc,
@@ -127,7 +129,7 @@ extend Server {
                 self.garbage.push_back(self.docs.docs[i].tmp_path)
             }
 
-            self.docs.docs[i].tmp_path = self.scratch(".k")
+            self.docs.docs[i].tmp_path = self.scratch(kairo_dot_ext())
             self.docs.docs[i].tmp_rev  = self.docs.docs[i].revision
             LinkFS::write(self.docs.docs[i].tmp_path, self.docs.docs[i].text)
         }
@@ -245,9 +247,9 @@ extend Server {
         self.docs.sync_all()
         var argv: [string]
         argv.push_back(self.exe)
-        argv.push_back("--worker")
+        argv.push_back(WA_WORKER)
         argv.push_back(out)
-        argv.push_back("--cwd")
+        argv.push_back(WA_CWD)
         argv.push_back(self.entries[ei].dir)
         // `--root` indexes every file under the project, and the worker
         // drops those rows again when the graph is wide (WIDE_INDEX_LIMIT):
@@ -256,7 +258,7 @@ extend Server {
         // finds it narrow again is rerun with it (finish_index).
         self.entries[ei].rooted = !(self.entries[ei].ran && (self.entries[ei].files.size() > WIDE_INDEX_LIMIT))
         if self.entries[ei].rooted {
-            argv.push_back("--root")
+            argv.push_back(WA_ROOT)
             argv.push_back(self.project.dir)
         }
 
@@ -272,18 +274,18 @@ extend Server {
                 continue
             }
 
-            argv.push_back("--overlay")
+            argv.push_back(WA_OVERLAY)
             argv.push_back(path)
             argv.push_back(self.overlay_of_(i))
         }
 
         if !marked_path.empty() {
-            argv.push_back("--overlay")
+            argv.push_back(WA_OVERLAY)
             argv.push_back(marked_path)
             argv.push_back(marked_tmp)
         }
 
-        argv.push_back("--")
+        argv.push_back(WA_END)
         for var i: usize = 0; i < self.entries[ei].args.size(); ++i {
             argv.push_back(self.entries[ei].args[i])
         }
@@ -376,7 +378,7 @@ extend Server {
         var want = (!self.entries[ei].ran) || self.entries[ei].slow
         if want {
             j.prog_file = self.scratch(".prog")
-            argv.push_back("--progress")
+            argv.push_back(WA_PROGRESS)
             argv.push_back(j.prog_file)
         }
 
@@ -415,7 +417,7 @@ extend Server {
             j.progress = f"kals-index-{self.seq}"
             var cw = JsonWriter()
             cw.begin_object()
-            cw.field("token", j.progress)
+            cw.field(K_TOKEN, j.progress)
             cw.end_object()
             self.request_with(M_WORK_DONE_PROGRESS_CREATE, cw.out)
             var m = self.entries[ei].files.size() as i64
@@ -560,12 +562,12 @@ extend Server {
         var doc = JsonDoc()
         var read_ok = LinkFS::read(j->out, &text)
         var t1 = now_us()
-        var ok  = read_ok && doc.parse(text) && doc.get_bool(doc.root, "ok")
+        var ok  = read_ok && doc.parse(text) && doc.get_bool(doc.root, SK_OK)
         var t2 = now_us()
         if !ok {
             // A crash (no output) or a refused command line. The last good
             // snapshot stays; say why once, where the user can find it.
-            var why = doc.get_str(doc.root, "error")
+            var why = doc.get_str(doc.root, SK_ERROR)
             if why.empty() {
                 var tail: string = ""
                 LinkFS::read(j->log, &tail)
@@ -585,12 +587,12 @@ extend Server {
         // The first result for an entry, and any run slow enough to be felt,
         // is worth a line; a run per keystroke on a small project is not.
         if (!self.entries[ei].has_snap) || (took > SLOW_RUN_MS) {
-            var nd = doc.count(doc.get(doc.root, "diagnostics"))
-            var nf = doc.count(doc.get(doc.root, "deps"))
+            var nd = doc.count(doc.get(doc.root, SK_DIAGNOSTICS))
+            var nf = doc.count(doc.get(doc.root, SK_DEPS))
             self.say(MSG_LOG, f"analysed {self.entries[ei].entry}: {nf} files, {nd} diagnostics, {took} ms")
         }
 
-        if (!j->rooted) && doc.get_bool(doc.root, "wide") {
+        if (!j->rooted) && doc.get_bool(doc.root, SK_WIDE) {
             self.entries[ei].dirty = true // narrow again: the files under the root were not walked
         }
 
@@ -599,7 +601,7 @@ extend Server {
         self.entries[ei].snap_rev = j->rev
         var t3 = now_us()
         var t4 = t3
-        if (doc.count(doc.get(doc.root, "files")) > 0) && self.index_installs(ei, &doc) {
+        if (doc.count(doc.get(doc.root, SK_FILES)) > 0) && self.index_installs(ei, &doc) {
             self.entries[ei].idx     = doc
             self.entries[ei].has_idx = true
             self.entries[ei].idx_rev = j->rev
@@ -620,7 +622,7 @@ extend Server {
 
         // The graph may have grown or shrunk with this edit.
         self.entries[ei].files.clear()
-        var d = self.entries[ei].snap.first(self.entries[ei].snap.get(self.entries[ei].snap.root, "deps"))
+        var d = self.entries[ei].snap.first(self.entries[ei].snap.get(self.entries[ei].snap.root, SK_DEPS))
         while d != JSON_NONE() {
             self.entries[ei].files.push_back(self.entries[ei].snap.str(d))
             d = self.entries[ei].snap.next(d)
@@ -675,7 +677,7 @@ extend Server {
         var t6 = now_us()
         self.publish(ei)
         var t7 = now_us()
-        var tm = doc.get(doc.root, "timing")
+        var tm = doc.get(doc.root, SK_TIMING)
         self.trace(f"install bytes={text.size()} read_us={t1 - t0} parse_us={t2 - t1} snap_copy_us={t3 - t2} idx_copy_us={t4 - t3} cache_us={t5 - t4} publish_us={t7 - t6} total_us={t7 - t0} worker=" + doc.dump(tm))
         self.analysed_(ei, j, rc)
 

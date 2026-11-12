@@ -31,6 +31,7 @@ import DocumentStore::{
 import Index::Legend::*
 import Index::Snapshot::*
 import Protocol::*
+import Resolution::ModulePath::*
 import Tuning::*
 import Json::{
     JSON_NONE,
@@ -447,8 +448,8 @@ extend Server {
         for var i: usize = 0; i < self.entries[ei].published.size(); ++i {
             var w = JsonWriter()
             w.begin_object()
-            w.field("uri", self.entries[ei].published[i])
-            w.field_raw("diagnostics", "[]")
+            w.field(K_URI, self.entries[ei].published[i])
+            w.field_raw(K_DIAGNOSTICS, "[]")
             w.end_object()
             self.notify(M_PUBLISH_DIAGNOSTICS, w.out)
         }
@@ -532,7 +533,7 @@ extend Server {
             return ei
         }
 
-        if !path.ends_with(".k") {
+        if !path.ends_with(kairo_dot_ext()) {
             return usize::MAX
         }
 
