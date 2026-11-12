@@ -520,6 +520,11 @@ extend Server {
             aw.field("why", j->l_why)
             aw.field_uint("rechecked", j->l_rechecked)
             aw.field_uint("pending", j->l_pending)
+            // Buffers that do not parse were tried aside, not kept: how
+            // each went (LiveIndex.k).
+            if !j->l_aside.empty() {
+                aw.field("aside", j->l_aside)
+            }
         }
 
         aw.end_object()
@@ -655,6 +660,51 @@ extend Server {
                 if j->text_paths[q] == kp {
                     read_it = true
                 }
+            }
+
+            // A buffer that did not parse, which a live worker was told to
+            // keep its older text of (Job::held_paths): not a run that
+            // missed the buffer, and no reason for another. The index is of
+            // that older text, which is what the buffer's own revision has
+            // to say from here on (it was changed before this run was sent,
+            // so by the numbers it would pass for indexed): as if changed
+            // now. Its syntax pass is still of this text.
+            var held = false
+            for var q: usize = 0; q < j->held_paths.size(); ++q {
+                if j->held_paths[q] == kp {
+                    held = true
+                }
+            }
+
+            if held {
+                // No text of it was ever kept for this entry: the worker
+                // read the disk's, which is then what the index is of.
+                if (!read_it) && (self.docs.docs[k].idx_entry != self.entries[ei].entry)
+                    && self.entries[ei].has_idx && (self.entries[ei].idx_rev == j->rev)
+                    && (self.file_node(ei, kp) != JSON_NONE()) {
+                    var disk: string = ""
+                    if LinkFS::read(kp, &disk) {
+                        self.docs.docs[k].set_indexed(disk, self.entries[ei].idx_rev, self.entries[ei].entry)
+                    }
+                }
+
+                self.docs.docs[k].sync()
+                var same = (self.docs.docs[k].idx_entry == self.entries[ei].entry)
+                    && (self.docs.docs[k].idx_rev == self.entries[ei].idx_rev)
+                    && (self.docs.docs[k].idx_text == self.docs.docs[k].text)
+                if (!same) && (self.docs.docs[k].changed_at <= j->rev) {
+                    var was = self.docs.docs[k].changed_at
+                    self.rev += 1
+                    self.docs.docs[k].changed_at = self.rev
+                    if self.docs.docs[k].syn.current(was) {
+                        self.docs.docs[k].syn.at = self.rev
+                        if self.docs.docs[k].syn.started < self.rev {
+                            self.docs.docs[k].syn.started = self.rev
+                        }
+                    }
+                }
+
+                continue
             }
 
             if read_it {

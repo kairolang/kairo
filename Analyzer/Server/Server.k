@@ -179,10 +179,11 @@ pub class Server {
     pub var syn:     SyntaxChild    ///< the persistent syntax worker (SyntaxWorker.k)
     pub var syn_seq: i64 = 0        ///< ids of its requests
 
-    /// initializationOptions.liveCheck (or KALS_LIVE_CHECK=1): an entry's
-    /// graph is kept checked in a process that stays up and an edit is
-    /// re-checked in place (LiveIndex.k). Off, every run is a process.
-    pub var live_on:  bool = false
+    /// An entry's graph is kept checked in a process that stays up and an
+    /// edit is re-checked in place (LiveIndex.k). The default; off with
+    /// initializationOptions.liveCheck: false or KALS_LIVE_CHECK=0, and
+    /// then every run is a process.
+    pub var live_on:  bool = true
     pub var lives:    [LiveChild]
     pub var live_seq: i64  = 0
 
@@ -274,6 +275,18 @@ pub class Server {
 
         self.jobs.clear()
         self.syntax_stop()
+        // A completion a live worker was asked for is answered here:
+        // stopping the worker would hand it to a process of its own.
+        for var k: usize = 0; k < self.lives.size(); ++k {
+            for var q: usize = 0; q < self.lives[k].asks.size(); ++q {
+                self.respond_error(self.lives[k].asks[q].lsp_id, ERR_REQUEST_CANCELLED, "cancelled: the server is shutting down")
+                self.garbage.push_back(self.lives[k].asks[q].out)
+                self.garbage.push_back(self.lives[k].asks[q].marked)
+            }
+
+            self.lives[k].asks.clear()
+        }
+
         self.live_stop_all()
     }
 

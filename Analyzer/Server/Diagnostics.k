@@ -108,8 +108,8 @@ extend Server {
         // nothing for it.
         for var k: usize = 0; k < self.docs.docs.size(); ++k {
             var dp = self.docs.docs[k].path
-            if self.docs.docs[k].syn.landed && (self.docs.docs[k].syn.at > self.entries[ei].snap_rev)
-                && self.entries[ei].holds(dp) {
+            if ((self.docs.docs[k].syn.landed && (self.docs.docs[k].syn.at > self.entries[ei].snap_rev))
+                || self.docs.docs[k].side_current()) && self.entries[ei].holds(dp) {
                 var seen = false
                 for var q: usize = 0; q < paths.size(); ++q {
                     if paths[q] == dp {
@@ -273,6 +273,15 @@ extend Server {
         var out: string = "["
         *n = 0
         var di = self.docs.index_of_path(path)
+        // A buffer that does not parse, tried by the live worker without
+        // being kept (LiveIndex.k): that check read exactly this text, the
+        // parser's errors and what Sema says of the rest of the file, so
+        // it is the whole answer. The entry's run is of an older text of it.
+        if (di != usize::MAX) && self.docs.docs[di].side_current() {
+            *n = self.docs.docs[di].side_n
+            return "[" + self.docs.docs[di].side_diags + "]"
+        }
+
         var have_snap = (ei != usize::MAX) && self.entries[ei].has_snap
         var syn_newer = (di != usize::MAX) && self.docs.docs[di].syn.landed
             && ((!have_snap) || (self.docs.docs[di].syn.at > self.entries[ei].snap_rev))
@@ -329,6 +338,34 @@ extend Server {
         if ei == usize::MAX {
             return
         }
+
+        var uri = self.docs.docs[di].uri
+        var kept: [string]
+        for var k: usize = 0; k < self.entries[ei].published.size(); ++k {
+            if self.entries[ei].published[k] != uri {
+                kept.push_back(self.entries[ei].published[k])
+            }
+        }
+
+        if n > 0 {
+            kept.push_back(uri)
+        }
+
+        self.entries[ei].published = kept
+    }
+
+    /// Publishes buffer \p di's diagnostics as they now compose (a live
+    /// worker's aside result landed for it), and keeps entry \p ei's list
+    /// of files that show some.
+    fn publish_doc(self, ei: usize, di: usize) {
+        var n: usize = 0
+        var arr = self.compose_diags(ei, self.docs.docs[di].path, &n)
+        var w = JsonWriter()
+        w.begin_object()
+        w.field(K_URI, self.docs.docs[di].uri)
+        w.field_raw(K_DIAGNOSTICS, arr)
+        w.end_object()
+        self.notify(M_PUBLISH_DIAGNOSTICS, w.out)
 
         var uri = self.docs.docs[di].uri
         var kept: [string]

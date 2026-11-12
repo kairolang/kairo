@@ -57,6 +57,7 @@ import Server::Diagnostics::*
 import Server::Features::*
 import Server::Formatting::*
 import Server::Lifecycle::*
+import Server::LiveIndex::*
 import Server::Lookup::*
 import Server::Navigation::*
 import Server::Output::*
@@ -72,6 +73,7 @@ extend Server {
     /// Completion runs its own worker on a copy of the buffer with a marker
     /// identifier where the cursor is (Indexer.k: completion_marker).
     fn completion(self, d: *const JsonDoc, params: u32, const id: string) {
+        var t0 = now_us()
         // Scans the whole text: materialise the edited buffers (O(document),
         // once per request, never per keystroke).
         self.docs.sync_all()
@@ -135,6 +137,7 @@ extend Server {
         self.write_buf_range(&ew, i, start, at)
 
         if self.complete_import(i, ei, at, ew.out, id) {
+            self.completed_(HOW_TEXT, t0)
             return
         }
 
@@ -142,6 +145,40 @@ extend Server {
         marked += completion_marker()
         marked += text->subslice(end, text->size() - end)
 
+        var mpath = self.scratch(kairo_dot_ext())
+        LinkFS::write(mpath, marked)
+
+        // The live worker of the entry tries the marked buffer aside: one
+        // file's re-check in a copy of it, where a process is a whole
+        // compile of the graph. A process only when there is no worker to
+        // ask (LiveIndex.k).
+        if self.live_complete_(ei, id, path, member, ew.out, mpath, t0) {
+            return
+        }
+
+        self.complete_by_run_(ei, id, path, member, ew.out, mpath, t0)
+    }
+
+    /// `$/kals/completed` (Protocol.k).
+    fn completed_(self, const how: string, t0_us: i64) {
+        var w = JsonWriter()
+        w.begin_object()
+        w.field(K_HOW, how)
+        w.field_int(K_US, now_us() - t0_us)
+        w.end_object()
+        self.notify(M_KALS_COMPLETED, w.out)
+    }
+
+    /// A completion as a process of its own: a compile of entry \p ei's
+    /// graph with the marked buffer \p mpath in \p path's place.
+    fn complete_by_run_(self,
+                        ei:           usize,
+                        const id:     string,
+                        const path:   string,
+                        member:       bool,
+                        const edit:   string,
+                        const mpath:  string,
+                        t0_us:        i64) {
         var j = Job()
         j.kind   = JobKind::Complete
         j.entry_id = self.entries[ei].id
@@ -151,9 +188,9 @@ extend Server {
         j.id     = id
         j.path   = path
         j.member = member
-        j.edit   = ew.out
-        j.marked = self.scratch(kairo_dot_ext())
-        LinkFS::write(j.marked, marked)
+        j.edit   = edit
+        j.marked = mpath
+        j.t0_us  = t0_us
 
         var argv = self.worker_argv(ei, j.out, path, j.marked)
         if self.launch_job(&argv, &j, "complete") != LaunchResult::Started {
@@ -248,8 +285,16 @@ extend Server {
             return false
         }
 
-        if (stmt != ls) && (find_from(spec, "{", 0) == usize::MAX) {
-            return false
+        // On a later line only inside the brace list the import's own line
+        // opens: a `{` further down is a body's, and every name typed in
+        // the first function under the imports was taken for an import
+        // path (and answered with nothing).
+        if stmt != ls {
+            var brace = find_from(spec, "{", 0)
+            var nl    = find_from(spec, "\n", 0)
+            if (brace == usize::MAX) || ((nl != usize::MAX) && (nl < brace)) {
+                return false
+            }
         }
 
         // Split at `::` into path segments; inside braces the last segment is
@@ -475,6 +520,7 @@ extend Server {
         w.end_array()
         w.end_object()
         self.respond(j->id, w.out)
+        self.completed_(j->how, j->t0_us)
     }
 
     // --- the loop --------------------------------------------------------

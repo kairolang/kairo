@@ -43,6 +43,18 @@
 ///   `superseded`. A queued file's rows and diagnostics in a snapshot are
 ///   the ones from before the edit until its turn comes.
 ///
+///   ASIDE. A request may name buffers whose text is TRIED AND NOT KEPT
+///   (`aside`: a buffer that does not parse yet, or one with a completion
+///   marker in it). After the request's own step the worker makes a copy of
+///   itself (kairo::aside_fork); the copy gives those buffers their texts,
+///   re-checks each as an edit's first tier does (with LiveCheck::past_syntax:
+///   syntax errors inside function bodies drop those bodies), writes the
+///   files' diagnostics and rows to `asideOut`, and ends. This process never
+///   sees the texts: what it holds for those files is the last text that was
+///   sent to be kept, and nothing of its graph or its queue moves. An `open`
+///   entry with `keep` and no `file` says the buffer is still open and its
+///   held text stands.
+///
 ///   The worker keeps each walked file's rows (IndexObserver::keep) and each
 ///   file's diagnostics as rendered JSON, and replaces those of the files a
 ///   step re-checked. A file under the project root is walked whether a
@@ -63,6 +75,7 @@ ffi "c++" import "vector"
 ffi "c++" import "chrono"
 ffi "c++" import "cstdlib"
 ffi "c++" import "thread"
+ffi "c++" import "Native/KShims.hh"
 
 import API::FS::LinkFS
 import Diagnostic::FileDiagnostics::FileDiagConsumer
@@ -71,8 +84,11 @@ import Index::Snapshot::{
     SK_DIAGNOSTICS,
     SK_FILES,
     SK_OK,
+    SK_PARTIAL,
+    SK_PATH,
     SK_RUN_US,
     SK_TIMING,
+    SK_UNCHECKED,
     SK_UNIT_FIDS,
     SK_WALK_US,
     SK_WIDE,
@@ -92,6 +108,7 @@ import JsonRpc::Transport
 import Support::FileIO::Path::Path
 import Tooling::LiveCheck::LiveCheck
 import Tuning::{
+    LIVE_ASIDE_TIMEOUT_MS,
     LIVE_PREFER_OPEN,
     LIVE_SLICE_FILES,
     WIDE_INDEX_LIMIT,
@@ -122,6 +139,17 @@ class LiveReq {
     pub var open_files: [string]
     pub var changed:    [string]
     pub var progress:   string = ""
+    /// Buffers tried and not kept, the files their texts are in, where the
+    /// copy writes what it found, and how that went ("" when none was asked
+    /// for; "ok"; "unsupported": no copy of a process here; "failed").
+    pub var aside_paths: [string]
+    pub var aside_files: [string]
+    pub var aside_out:   string = ""
+    pub var aside:       string = ""
+    /// Nothing but its asides (a completion): no buffer is brought up to
+    /// date, nothing is kept, and it is neither joined with a request nor
+    /// takes one's place.
+    pub var only: bool = false
 
     pub fn LiveReq(self) = default
 }
@@ -137,6 +165,13 @@ class LiveState {
 
     /// The files of the graph, as the last step left it.
     pub var deps: [string]
+
+    /// Files the last whole check left without rows, or with a part of
+    /// them, for syntax errors in the text it read (the observer's lists,
+    /// as a run's snapshot names them). Only a whole check does that: a
+    /// re-check in place takes no file that does not parse.
+    pub var unchecked: [string]
+    pub var partial:   [string]
 
     /// Each owner's diagnostics as rendered rows, comma-joined (an owner is
     /// the file whose check delivered them; "" is the driver). Rendered
@@ -302,6 +337,20 @@ fn live_snapshot(st:    *LiveState,
     }
 
     w.end_array()
+    w.key(SK_UNCHECKED)
+    w.begin_array()
+    for var k: usize = 0; k < st->unchecked.size(); ++k {
+        w.str(st->unchecked[k])
+    }
+
+    w.end_array()
+    w.key(SK_PARTIAL)
+    w.begin_array()
+    for var k: usize = 0; k < st->partial.size(); ++k {
+        w.str(st->partial[k])
+    }
+
+    w.end_array()
     w.key(SK_TIMING)
     w.begin_object()
     w.field_int(SK_RUN_US, took)
@@ -315,10 +364,26 @@ fn live_snapshot(st:    *LiveState,
 
 /// Takes every buffered request into \p r: the newest buffers and output
 /// path, the changed lists joined; each older id is answered `superseded`.
-fn live_take(t: *Transport, r: *LiveReq) {
+fn live_take(t: *Transport, r: *LiveReq, asks: *[LiveReq]) {
     while t->wait(0) {
         var d = JsonDoc()
         if !d.parse(t->take()) {
+            continue
+        }
+
+        if d.get_bool(d.root, RQ_ONLY) {
+            var a = LiveReq()
+            a.id        = d.get_int(d.root, RQ_ID)
+            a.only      = true
+            a.aside_out = d.get_str(d.root, RQ_ASIDE_OUT)
+            var x = d.first(d.get(d.root, RQ_ASIDE))
+            while x != JSON_NONE() {
+                a.aside_paths.push_back(d.get_str(x, RQ_PATH))
+                a.aside_files.push_back(d.get_str(x, RQ_FILE))
+                x = d.next(x)
+            }
+
+            asks->push_back(a)
             continue
         }
 
@@ -352,6 +417,17 @@ fn live_take(t: *Transport, r: *LiveReq) {
 
             c = d.next(c)
         }
+
+        r->aside_paths.clear()
+        r->aside_files.clear()
+        r->aside_out = d.get_str(d.root, RQ_ASIDE_OUT)
+        var s = d.first(d.get(d.root, RQ_ASIDE))
+        while s != JSON_NONE() {
+            r->aside_paths.push_back(d.get_str(s, RQ_PATH))
+            r->aside_files.push_back(d.get_str(s, RQ_FILE))
+            s = d.next(s)
+        }
+
     }
 }
 
@@ -378,8 +454,10 @@ fn live_step(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *L
     }
 
     for var k: usize = 0; k < r->open_paths.size(); ++k {
+        // `keep`: open, and the text held for it stands (its current text
+        // is tried aside, not kept).
         var text: string = ""
-        if !LinkFS::read(r->open_files[k], &text) {
+        if r->open_files[k].empty() || !LinkFS::read(r->open_files[k], &text) {
             continue
         }
 
@@ -440,6 +518,8 @@ fn live_step(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *L
     obs->named     = r->open_paths
     obs->progress  = r->progress
     obs->checked   = 0
+    obs->unchecked.clear()
+    obs->partial.clear()
 
     var full = false
     var mode: string = "refresh"
@@ -497,7 +577,150 @@ fn live_step(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *L
         }
     }
 
+    r->aside = live_aside(st, live, obs, r)
     live_finish(st, live, obs, r, t, full, mode, why, &rechecked, false, r->out, t0)
+}
+
+/// The buffers of \p r that are tried and not kept, in a copy of this
+/// process: see the head of this file. Returns how it went (LiveReq::aside).
+fn live_aside(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *LiveReq) -> string {
+    if r->aside_paths.empty() || r->aside_out.empty() || (!st->checked) || (live->ci() == &null) {
+        return ""
+    }
+
+    var pid = kairo::aside_fork()
+    if pid < 0 {
+        return ASIDE_UNSUPPORTED
+    }
+
+    if pid == 0 {
+        live_aside_copy(st, live, obs, r)
+        kairo::aside_exit(0)
+    }
+
+    if kairo::aside_wait(pid, LIVE_ASIDE_TIMEOUT_MS as i32) != 0 {
+        return ASIDE_FAILED
+    }
+
+    return ASIDE_OK
+}
+
+/// In the copy: each buffer's text, its re-check, and what it gave, written
+/// to LiveReq::aside_out as `{"ok", "states": [{"path", "state"}], "files",
+/// "diagnostics"}`. A state is `checked`, `partial` (checked without the
+/// function bodies its syntax errors are in), `unchecked` (it could not be
+/// re-checked in place: its parser diagnostics alone) or `none` (not a file
+/// of the graph, or its text could not be read).
+fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *LiveReq) {
+    live->past_syntax = true
+    live->aside       = true
+    obs->named        = r->aside_paths
+    obs->progress     = ""
+    var states: [string]
+    var whys:   [string]
+    var stopped = false
+    for var k: usize = 0; k < r->aside_paths.size(); ++k {
+        var text: string = ""
+        whys.push_back("")
+        if stopped || (!live_has(&st->deps, r->aside_paths[k])) || (!LinkFS::read(r->aside_files[k], &text)) {
+            states.push_back(AS_NONE)
+            continue
+        }
+
+        live->set_overlay(r->aside_paths[k], text)
+        if (!live->replace_file(r->aside_paths[k])) || (live->ci() == &null) {
+            states.push_back(AS_NONE)
+            stopped = true
+            continue
+        }
+
+        if live->mode != "refresh" {
+            // Refused: the copy's graph is not one to re-check another
+            // file in. Before the text was even read (a refusal known
+            // from the graph as it stood: the file's kept text has syntax
+            // errors of its own, it declares a specialization, ...) the
+            // diagnostics the copy holds are the KEPT text's, at that
+            // text's positions: nothing was found out about this one.
+            states.push_back(if (live->overlay_pending(r->aside_paths[k])) => AS_NONE else => AS_UNCHECKED)
+            whys[k] = live->why
+            stopped = true
+            continue
+        }
+
+        states.push_back(if (live->dropped_bodies) => AS_PARTIAL else => AS_CHECKED)
+    }
+
+    obs->flush()
+    var w = JsonWriter()
+    w.begin_object()
+    w.field_bool(SK_OK, true)
+    w.key(AS_STATES)
+    w.begin_array()
+    for var k: usize = 0; k < r->aside_paths.size(); ++k {
+        w.begin_object()
+        w.field(SK_PATH, r->aside_paths[k])
+        w.field(AS_STATE, states[k])
+        if !whys[k].empty() {
+            w.field(AS_WHY, whys[k])
+        }
+
+        w.end_object()
+    }
+
+    w.end_array()
+    var files: string = ""
+    for var k: usize = 0; k < r->aside_paths.size(); ++k {
+        if (states[k] != AS_CHECKED) && (states[k] != AS_PARTIAL) {
+            continue
+        }
+
+        for var i: usize = 0; i < obs->k_paths.size(); ++i {
+            if obs->k_paths[i] == r->aside_paths[k] {
+                if !files.empty() {
+                    files += ","
+                }
+
+                files += obs->k_blocks[i]
+            }
+        }
+    }
+
+    w.field_raw(SK_FILES, "[" + files + "]")
+
+    // The files' own diagnostics, and what the parser said of one that was
+    // refused (no file owns those).
+    var diags: string = ""
+    var unsafe *fd = live->file_diags()
+    if (fd != &null) && (live->ci() != &null) {
+        var unsafe *col = kairo::std::create<DiagCollector>(live->ci()->sm())
+        for var i: usize = 0; i < fd->diags.size(); ++i {
+            var owner: string = fd->owners[i]
+            if owner.empty() && fd->diags[i]->has_loc {
+                owner = live->ci()->sm()->get_filename(fd->diags[i]->loc)
+            }
+
+            if !live_has(&r->aside_paths, owner) {
+                continue
+            }
+
+            col->out   = ""
+            col->count = 0
+            col->handle(fd->diags[i])
+            if col->count == 0 {
+                continue
+            }
+
+            if !diags.empty() {
+                diags += ","
+            }
+
+            diags += col->out
+        }
+    }
+
+    w.field_raw(SK_DIAGNOSTICS, "[" + diags + "]")
+    w.end_object()
+    LinkFS::write(r->aside_out, w.out)
 }
 
 /// The end of a step, first tier or slice: the rows and diagnostics of
@@ -534,6 +757,52 @@ fn live_finish(st:        *LiveState,
         var kb: [string]
         for var i: usize = 0; i < obs->k_paths.size(); ++i {
             if live_has(&st->deps, obs->k_paths[i]) {
+                kp.push_back(obs->k_paths[i])
+                kb.push_back(obs->k_blocks[i])
+            }
+        }
+
+        obs->k_paths  = kp
+        obs->k_blocks = kb
+        st->unchecked.clear()
+        st->partial.clear()
+    }
+
+    // A file this step left unchecked has no rows: the ones kept for it
+    // are of a text it no longer has. One it re-checked whole is whole.
+    var up: [string]
+    var pp: [string]
+    for var i: usize = 0; i < st->unchecked.size(); ++i {
+        if !live_has(rechecked, st->unchecked[i]) {
+            up.push_back(st->unchecked[i])
+        }
+    }
+
+    for var i: usize = 0; i < st->partial.size(); ++i {
+        if !live_has(rechecked, st->partial[i]) {
+            pp.push_back(st->partial[i])
+        }
+    }
+
+    for var i: usize = 0; i < obs->unchecked.size(); ++i {
+        if !live_has(&up, obs->unchecked[i]) {
+            up.push_back(obs->unchecked[i])
+        }
+    }
+
+    for var i: usize = 0; i < obs->partial.size(); ++i {
+        if !live_has(&pp, obs->partial[i]) {
+            pp.push_back(obs->partial[i])
+        }
+    }
+
+    st->unchecked = up
+    st->partial   = pp
+    if !st->unchecked.empty() {
+        var kp: [string]
+        var kb: [string]
+        for var i: usize = 0; i < obs->k_paths.size(); ++i {
+            if !live_has(&st->unchecked, obs->k_paths[i]) {
                 kp.push_back(obs->k_paths[i])
                 kb.push_back(obs->k_blocks[i])
             }
@@ -590,6 +859,10 @@ fn live_finish(st:        *LiveState,
     // What the re-checks since the last whole check replaced and hold.
     w.field_uint(RP_RETIRED_FILES, live->retired_files())
     w.field_uint(RP_RETIRED_MB, live->retired_bytes() / 1048576)
+    if (!bg) && (!r->aside.empty()) {
+        w.field(RP_ASIDE, r->aside)
+    }
+
     w.end_object()
     t->send(w.out)
 }
@@ -608,6 +881,8 @@ fn live_slice(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *
 
     obs->named    = r->open_paths
     obs->progress = ""
+    obs->unchecked.clear()
+    obs->partial.clear()
     live->drain(LIVE_SLICE_FILES, prefer)
     var rechecked: [string]
     for var q: usize = 0; q < live->rechecked.size(); ++q {
@@ -657,6 +932,11 @@ pub fn index_server_main(@inout args: [string]) -> i32 {
     // coalescing across files does not allow (LiveCheck refuses it). The
     // worker reads Diagnostic objects: the format changes nothing it sends.
     words.push_back(CF_ERROR_FORMAT_BASIC)
+    // A WHOLE check of a graph that holds a file with syntax errors (on the
+    // disk, or a buffer sent before its verdict) indexes what they leave
+    // sound, as a run does (Worker.k): without it such a graph has no rows
+    // at all. A re-check in place never takes such a file (LiveCheck).
+    words.push_back(CF_CHECK_PAST_SYNTAX_ERRORS)
 
     var unsafe *obs = kairo::std::create<IndexObserver>()
     finally {
@@ -704,16 +984,31 @@ pub fn index_server_main(@inout args: [string]) -> i32 {
         }
 
         var r = LiveReq()
-        live_take(&t, &r)
-        if r.id < 0 {
-            continue
-        }
-
-        if delay_ms > 0 {
+        var asks: [LiveReq]
+        live_take(&t, &r, &asks)
+        if (r.id >= 0) && (delay_ms > 0) {
             cxx::std::this_thread::sleep_for(cxx::std::chrono::milliseconds(delay_ms))
             // What arrived meanwhile replaces it, as a change during a
             // per-run worker's run kills that run.
-            live_take(&t, &r)
+            live_take(&t, &r, &asks)
+        }
+
+        // Asides alone, answered from the graph as it stands (a queue of
+        // importers waits for them and goes on).
+        for var q: usize = 0; q < asks.size(); ++q {
+            var how = live_aside(&st, &live, obs, &asks[q])
+            var aw = JsonWriter()
+            aw.begin_object()
+            aw.field_int(RP_ID, asks[q].id)
+            aw.field_bool(RP_OK, true)
+            aw.field_bool(RP_ONLY, true)
+            aw.field(RP_ASIDE, how)
+            aw.end_object()
+            t.send(aw.out)
+        }
+
+        if r.id < 0 {
+            continue
         }
 
         // The request that was draining gets no more slices under its id:

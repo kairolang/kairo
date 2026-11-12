@@ -615,6 +615,12 @@ fn syntax_answer(const file:   string,
     ci->initialize(Path::cwd())
     var saved = ci->diag()->take_consumers()
     ci->diag()->add_consumer(collector)
+    // No limit on errors: a file parsed alone reports every import it
+    // cannot resolve (not kept: not about the text), and after --max-errors
+    // of those (20) the engine delivers nothing more, the parser's errors
+    // included. The pass then said `parsed` of any broken file with twenty
+    // imports, which is most files of a real project (P930).
+    ci->diag()->set_error_limit(0)
 
     // The bytes must outlive the pass: the source manager keeps a view.
     for var k: usize = 0; k < real->size(); ++k {

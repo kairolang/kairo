@@ -201,7 +201,31 @@ pub class LiveSent {
     /// ones are being re-checked: more answers come under this id.
     pub var draining: bool = false
 
+    /// Buffers of the entry that did not parse when it was sent: their
+    /// texts were sent to be tried and not kept (LiveIndex.k, "aside"),
+    /// and the worker wrote what that gave to `aside_out`.
+    pub var aside_paths: [string]
+    pub var aside_out:   string = ""
+
     fn LiveSent(self) = default
+}
+
+/// A completion request a live index worker was asked to answer (LiveIndex.k,
+/// live_complete_): the buffer with the completion marker in it is tried
+/// aside, and the items are read from what that wrote.
+pub class LiveAsk {
+    pub var id:       i64    = 0     ///< the worker request's id
+    pub var lsp_id:   string = ""    ///< the editor's request id, as JSON
+    pub var entry_id: u64    = 0
+    pub var path:     string = ""
+    pub var marked:   string = ""    ///< the marked copy of the buffer, on disk
+    pub var out:      string = ""    ///< where the worker's copy writes
+    pub var edit:     string = ""    ///< as Job::edit
+    pub var member:   bool   = false
+    pub var ms:       i64    = 0     ///< now_ms() when it was sent
+    pub var t0_us:    i64    = 0     ///< now_us() when the request arrived
+
+    fn LiveAsk(self) = default
 }
 
 /// A live index worker (`kals --worker --index-server`, LiveIndex.k): one
@@ -222,6 +246,7 @@ pub class LiveChild {
     pub var skip_once: bool = false
 
     pub var sent: [LiveSent]         ///< in flight, oldest first
+    pub var asks: [LiveAsk]          ///< completion requests it has not answered
 
     fn LiveChild(self) = default
 }
@@ -246,6 +271,8 @@ pub class Job {
     pub var marked: string = ""     ///< Complete: the marked copy of the buffer
     pub var edit:   string = ""     ///< Complete: the range an accepted item replaces, as JSON
     pub var cancelled: bool = false ///< Complete: already answered "cancelled"; drop the result
+    pub var how:    string = HOW_RUN ///< Complete: what computed it (M_KALS_COMPLETED)
+    pub var t0_us:  i64    = 0      ///< Complete: now_us() when the request arrived
     pub var started_ms: i64 = 0
     pub var rooted: bool = true    ///< Index: run with `--root` (worker_argv)
 
@@ -266,6 +293,11 @@ pub class Job {
     /// text it read (Document::idx_text).
     pub var text_paths: [string]
     pub var texts:      [string]
+    /// Index, from a live worker: buffers of the entry that did not parse
+    /// and were not sent to be kept (LiveSent::aside_paths). The worker's
+    /// rows for them are of the last text that did.
+    pub var held_paths: [string]
+    pub var l_aside:    string = ""  ///< how the buffers tried aside went, comma-joined
 
     /// Index: the answer of a live index worker, installed through
     /// finish_index like a run's output: what the worker did (`full`: the

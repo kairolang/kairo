@@ -71,6 +71,85 @@ extend Server {
     /// Answers a semanticTokens request (full, delta or range) from \p now,
     /// the five-integer encoding of the whole file: the index's (decoded once
     /// per snapshot), or the lexical tokens of a buffer that does not parse.
+    /// One token at (\p line, \p ch), appended to \p out in the protocol's
+    /// relative encoding; \p pl / \p pc are the last one's position.
+    priv fn tok_put_(self, out: *[i64], pl: *i64, pc: *i64, line: i64, ch: i64, len: i64, kind: i64, mods: i64) {
+        out->push_back(line - (*pl))
+        out->push_back(if line == (*pl) => (ch - (*pc)) else => ch)
+        out->push_back(len)
+        out->push_back(kind)
+        out->push_back(mods)
+        *pl = line
+        *pc = ch
+    }
+
+    /// \brief the tokens of buffer \p di when entry \p ei's index (cache
+    ///        slot \p k) is of an older text of it: LanguageServer.md
+    ///        section 9.
+    ///
+    /// \details The index's semantic tokens for every line the edits left
+    ///          alone (\p sh: the lines both texts start with and the lines
+    ///          both end with, each byte for byte the same, so a token's
+    ///          column and length stand and only its line moves), and
+    ///          between them the syntax pass's lexical tokens of the
+    ///          buffer's current text for the lines that changed. In
+    ///          position order by construction: prefix, middle, suffix. So
+    ///          a half-typed line costs the colours of that line's names and
+    ///          of no other.
+    fn merged_tokens(self, ei: usize, k: usize, di: usize, sh: *const LineShift) -> [i64] {
+        var out: [i64]
+        var pl: i64 = 0
+        var pc: i64 = 0
+        var e: *const Entry = &self.entries[ei]
+        for var pass: usize = 0; pass < 3; ++pass {
+            if pass == 1 {
+                // The changed middle, from the buffer's own lexical pass.
+                var *syn = &self.docs.docs[di].syn.tokens
+                var sl: i64 = 0
+                var sc: i64 = 0
+                var t: usize = 0
+                while (t + SEMTOK_STRIDE) <= syn->size() {
+                    if (*syn)[t] != 0 {
+                        sl += (*syn)[t]
+                        sc = (*syn)[t + 1]
+                    } else {
+                        sc += (*syn)[t + 1]
+                    }
+
+                    if (sl >= sh->pre) && (sl < (sh->new_n - sh->suf)) {
+                        self.tok_put_(&out, &pl, &pc, sl, sc, (*syn)[t + 2], (*syn)[t + 3], (*syn)[t + 4])
+                    }
+
+                    t += SEMTOK_STRIDE
+                }
+
+                continue
+            }
+
+            var tl: i64 = 0
+            var tc: i64 = 0
+            var q = e->ct_lo[k]
+            while (q + SEMTOK_STRIDE) <= e->ct_hi[k] {
+                if e->ct_data[q] != 0 {
+                    tl += e->ct_data[q]
+                    tc = e->ct_data[q + 1]
+                } else {
+                    tc += e->ct_data[q + 1]
+                }
+
+                var prefix = tl < sh->pre
+                var suffix = (tl >= (sh->old_n - sh->suf)) && (tl < sh->old_n)
+                if ((pass == 0) && prefix) || ((pass == 2) && suffix && (!prefix)) {
+                    self.tok_put_(&out, &pl, &pc, sh->to_new(tl), tc, e->ct_data[q + 2], e->ct_data[q + 3], e->ct_data[q + 4])
+                }
+
+                q += SEMTOK_STRIDE
+            }
+        }
+
+        return out
+    }
+
     fn send_tokens(self, d: *const JsonDoc, params: u32, const id: string, const method: string, now: *const [i64]) {
         if method == M_SEMANTIC_TOKENS_RANGE {
             // Cut to the lines asked for and re-based: the encoding is

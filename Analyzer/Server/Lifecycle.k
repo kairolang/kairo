@@ -136,12 +136,18 @@ extend Server {
         }
 
         self.highlight_panics = d->get_bool(opts, OPT_HIGHLIGHT_PANICS)
-        // The environment turns it on for a whole session whatever the
-        // editor sends (a test suite run in live mode).
-        self.live_on = d->get_bool(opts, OPT_LIVE_CHECK)
+        // On unless the client says `liveCheck: false` (the default since
+        // 2026-11-12, LanguageServer.md section 10). The environment
+        // decides for a whole session whatever the editor sends:
+        // KALS_LIVE_CHECK=0 is off, =1 is on (a test suite run in one mode).
+        self.live_on = (d->get(opts, OPT_LIVE_CHECK) == JSON_NONE()) || d->get_bool(opts, OPT_LIVE_CHECK)
         var unsafe *lenv = cxx::std::getenv(r"KALS_LIVE_CHECK")
         if (lenv != &null) && ((lenv[0] as u8) == ('1' as u8)) {
             self.live_on = true
+        }
+
+        if (lenv != &null) && ((lenv[0] as u8) == ('0' as u8)) {
+            self.live_on = false
         }
 
         self.progress_ok = d->get_bool(d->get(d->get(params, K_CAPABILITIES), "window"), "workDoneProgress")

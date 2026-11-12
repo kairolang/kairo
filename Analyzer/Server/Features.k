@@ -127,6 +127,24 @@ extend Server {
                     && (self.entries[lei].idx_rev >= self.docs.docs[ldi].changed_at)
                     && (self.file_node(lei, path) != JSON_NONE())
                 if !idx_fresh {
+                    // With the last good index's colours on every line the
+                    // edits left alone, when the text it read is known:
+                    // only the broken lines fall back to the lexical ones.
+                    var lf = JSON_NONE()
+                    if (lei != usize::MAX) && self.entries[lei].has_idx {
+                        lf = self.file_node(lei, path)
+                    }
+
+                    if lf != JSON_NONE() {
+                        var lsh = self.line_shift(lei, ldi)
+                        var lk  = self.cache_slot(lei, lf)
+                        if lsh.active && (lk != usize::MAX) {
+                            var merged = self.merged_tokens(lei, lk, ldi, &lsh)
+                            self.send_tokens(&d, params, id, method, &merged)
+                            return true
+                        }
+                    }
+
                     self.send_tokens(&d, params, id, method, &self.docs.docs[ldi].syn.tokens)
                     return true
                 }
@@ -236,6 +254,35 @@ extend Server {
             stale = (!sh.active) || (sh.to_old(d.get_int(spos, K_LINE)) < 0)
         }
 
+        // What the editor DRAWS (hints, lenses, colours) is answered the same
+        // way, for every line the edits left alone: each such row is sent
+        // at its line in the buffer, and the rows of the changed lines are
+        // not (colours: the syntax pass's lexical ones there, so they wait
+        // for that pass). One broken line then costs that line's hints and
+        // no other's, where ContentModified left it to each editor how
+        // long it kept which of them. The editor is told to ask again when
+        // an index of this text lands.
+        var is_tokens = (method == M_SEMANTIC_TOKENS_FULL) || (method == M_SEMANTIC_TOKENS_DELTA)
+            || (method == M_SEMANTIC_TOKENS_RANGE)
+        //
+        // Only when no index of this text is about to land: the buffer does
+        // not parse, or the entry has nothing due (its last run kept the
+        // older index). While a run of a text that parses is on its way the
+        // editor keeps what it has for those few milliseconds, as before: a
+        // mapped answer there would turn the names of the line being typed
+        // lexical on every keystroke.
+        var syn_now = (di != usize::MAX) && self.docs.docs[di].syn.current(self.docs.docs[di].changed_at)
+        var settled = (can == Answer::Fresh) || (syn_now && (!self.docs.docs[di].syn.parsed))
+        if stale && settled && (is_tokens || (method == M_INLAY_HINT) || (method == M_CODE_LENS)) {
+            sh = self.line_shift(ei, di)
+            stale = (!sh.active) || (is_tokens && (!syn_now))
+            if !stale {
+                self.entries[ei].owe_refresh = true
+            } else {
+                sh = LineShift()
+            }
+        }
+
         if stale {
             if (method == M_HOVER) || (method == M_DEFINITION)
                 || (method == M_DECLARATION) || (method == M_TYPE_DEFINITION)
@@ -262,7 +309,9 @@ extend Server {
             || (method == M_SEMANTIC_TOKENS_RANGE) {
             var now: [i64]
             var k = self.cache_slot(ei, f)
-            if k != usize::MAX {
+            if sh.active && (k != usize::MAX) {
+                now = self.merged_tokens(ei, k, di, &sh)
+            } else if k != usize::MAX {
                 now.reserve(self.entries[ei].ct_hi[k] - self.entries[ei].ct_lo[k])
                 for var q = self.entries[ei].ct_lo[k]; q < self.entries[ei].ct_hi[k]; ++q {
                     now.push_back(self.entries[ei].ct_data[q])
@@ -274,7 +323,7 @@ extend Server {
         }
 
         if method == M_CODE_LENS {
-            self.code_lens(s, f, path, id)
+            self.code_lens(s, f, path, id, &sh)
             return true
         }
 
@@ -292,7 +341,43 @@ extend Server {
         }
 
         if method == M_INLAY_HINT {
-            self.respond(id, s->dump(s->get(f, SK_INLAYS)))
+            if !sh.active {
+                self.respond(id, s->dump(s->get(f, SK_INLAYS)))
+                return true
+            }
+
+            // An older text's hints: each on its line in the buffer.
+            var iw = JsonWriter()
+            iw.begin_array()
+            var h = s->first(s->get(f, SK_INLAYS))
+            while h != JSON_NONE() {
+                var hp = s->get(h, K_POSITION)
+                var hl = sh.to_new(s->get_int(hp, K_LINE))
+                if hl >= 0 {
+                    iw.begin_object()
+                    iw.key(K_POSITION)
+                    write_lsp_position(&iw, hl, s->get_int(hp, K_CHARACTER))
+                    iw.field(K_LABEL, s->get_str(h, K_LABEL))
+                    if s->get(h, K_KIND) != JSON_NONE() {
+                        iw.field_int(K_KIND, s->get_int(h, K_KIND))
+                    }
+
+                    if s->get_bool(h, K_PADDING_LEFT) {
+                        iw.field_bool(K_PADDING_LEFT, true)
+                    }
+
+                    if s->get_bool(h, K_PADDING_RIGHT) {
+                        iw.field_bool(K_PADDING_RIGHT, true)
+                    }
+
+                    iw.end_object()
+                }
+
+                h = s->next(h)
+            }
+
+            iw.end_array()
+            self.respond(id, iw.out)
             return true
         }
 

@@ -424,12 +424,15 @@ def features(exe, root, label):
     c.settle()
     r = c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": c.uri(M)}}, raw=True)
     lx = decode(r["data"], broken) if isinstance(r, dict) and "data" in r else []
-    check(label + "syntax error: tokens are the current text's lexical ones (keywords at their places, no names)",
+    bl = pos(broken, "var t = tier(n")[0]
+    check(label + "syntax error: tokens are the current text's: keywords at their places, and on the broken line no names "
+          "(the lines the edit left alone keep the last good index's colours, section 9)",
           lx and all((w in KEYWORDS) or ("defaultLibrary" in ms) for _, _, w, ty, ms in lx if ty == "keyword") and {"fn", "var", "return"} <= {w for _, _, w, _, _ in lx}
-          and not any(ty in ("function", "variable", "method", "class") for _, _, _, ty, _ in lx), r)
+          and not any(ty in ("function", "variable", "method", "class") for l, _, _, ty, _ in lx if l == bl), r)
     check(label + "syntax error: reported", any(x["severity"] == 1 for x in c.diagnostics(M) or []), c.diagnostics(M))
     ih2 = c.request("textDocument/inlayHint", {"textDocument": {"uri": c.uri(M)}, "range": {}}, raw=True)
-    check(label + "syntax error: stale inlay hints are not sent", isinstance(ih2, dict) and "__error__" in ih2, ih2)
+    check(label + "syntax error: no stale inlay hint is sent for the broken line (the other lines keep theirs)",
+          (isinstance(ih2, dict) and "__error__" in ih2) or (isinstance(ih2, list) and not any(h["position"]["line"] == bl for h in ih2)), ih2)
     h = c.request("textDocument/hover", c.at(M, *pos(broken, "tier(n")))
     check(label + "syntax error: hover on the broken line gives nothing rather than a stale answer", h is None, h)
     h = c.request("textDocument/hover", c.at(M, *pos(broken, "describe(n)")))
@@ -446,6 +449,11 @@ def features(exe, root, label):
         return c.request("textDocument/completion", c.at(M, l, ch))["items"]
     it = complete("    c.", 6, 6)
     check(label + "completion: members", {i["label"] for i in it} == {"x", "y", "norm1"}, it)
+    c.pump(0.3)   # the notification follows the answer
+    how = [n["params"]["how"] for n in c.notes if n["method"] == "$/kals/completed"]
+    live_on = os.environ.get("KALS_LIVE_CHECK") == "1"
+    check(label + "completion: " + ("the live worker tried the marked buffer aside, no process" if live_on else "a process per request"),
+          how and how[-1] == ("live" if live_on else "run"), how)
     it = complete("    c.no", 8, 7)
     check(label + "completion: members with a prefix typed", "norm1" in {i["label"] for i in it}, it)
     it = complete("    io::", 8, 8)
@@ -467,6 +475,9 @@ def features(exe, root, label):
     # inside an f-string's interpolation: completion, and code colours
     it = complete('    io::println(f"p {c.} and {n + 1} {describe(n)}")', 23, 11)
     check(label + "completion: inside an f-string", {i["label"] for i in it} == {"x", "y", "norm1"}, it)
+    c.pump(0.3)
+    how = [n["params"]["how"] for n in c.notes if n["method"] == "$/kals/completed"]
+    check(label + "completion: every one of them the same way", len(how) >= 6 and set(how) == {"live" if live_on else "run"}, how)
     fs = "\n".join(lines[:l] + ['    io::println(f"p {c.norm1()} and {n + 1} {describe(n)}")'] + lines[l:])
     c.change(M, 12, fs)
     ft = [x for x in tokens(c, M, fs) if x[0] == l]
@@ -688,15 +699,27 @@ def broken_from_start(exe, base):
     pr = c.request("textDocument/prepareRename", c.at(O, *pos(other, "helper(v)")))
     check("broken from the start: rename refuses while the index lacks the broken body's uses", pr is None, pr)
 
+    # Broken another way, a line further down: the errors shown are of THIS
+    # text. (A live worker keeps the text it first read, broken as it was,
+    # and cannot re-check the file in place: what its copy holds is then
+    # the kept text's diagnostics, which are not an answer about this one.)
+    moved = "// a line above\n" + broken.replace("var w = v + ;", "var w = v + + ;")
+    c.change(B, 2, moved)
+    c.settle()
+    c.pump(0.5)
+    es = [x["range"]["start"]["line"] for x in c.diagnostics(B) or [] if x["severity"] == 1 and str(x.get("code", "")).startswith("S")]
+    check("broken from the start: broken another way, the syntax errors are at their lines in this text",
+          es and all(l == pos(moved, "var w = v + + ;")[0] for l in es), (es, c.diagnostics(B)))
+
     # Fixed, then broken again in the same body: the complete index of the
     # fixed text stays (a partial one would erase the body's answers), and
     # the untouched line of the body answers from it (case A).
     fixed = broken.replace("var w = v + ;", "var w = v + 1")
-    c.change(B, 2, fixed)
+    c.change(B, 3, fixed)
     c.settle()
     h = hov(B, fixed, "return w", 7)
     check("broken from the start: fixed, the body answers", h and "w: i32" in h["contents"]["value"], h)
-    c.change(B, 3, broken)
+    c.change(B, 4, broken)
     c.settle()
     h = hov(B, broken, "return w", 7)
     check("broken from the start: broken again, the last complete index still answers in the body",
@@ -2840,7 +2863,7 @@ def live(exe, base):
     installs for the same text."""
     root = os.path.join(base, "live")
     main = live_project(root)
-    c = Client(exe, root)
+    c = Client(exe, root, env={"KALS_LIVE_CHECK": "1"})
     c.start({"liveCheck": True, "debounceMs": 50})
     steps = dict(live_edits(c, main))
     a = steps["first"]
@@ -2863,7 +2886,8 @@ def live(exe, base):
     d = steps["mid diagnostics fixed"]
     check("live: and the error goes when the signature is fixed", d == [], d)
     a = steps["does not parse"]
-    check("live: a buffer that does not parse is analysed by a process (no mode)", a.get("settled") and "mode" not in a, a)
+    check("live: a buffer that does not parse starts no process: the worker tries it aside",
+          a.get("settled") and a.get("mode") == "refresh" and a.get("rechecked") == 0 and a.get("aside") in ("partial", "unchecked"), a)
     d = steps["main diagnostics broken"]
     check("live: and its errors are shown", d and any(x["severity"] == 1 for x in d), d)
     a = steps["parses again"]
@@ -2883,6 +2907,8 @@ def live(exe, base):
     p.start({"debounceMs": 50})
     psteps = dict(live_edits(p, main))
     check("live: (the comparison run is a process per run)", all("mode" not in v for v in psteps.values() if isinstance(v, dict)), psteps)
+    a = psteps["does not parse"]
+    check("live: (and there a buffer that does not parse is a run)", a.get("settled") and "mode" not in a and "aside" not in a, a)
     want = snapshot_of(p, "src/main.k")
     check("live: clean shutdown of the comparison run", p.stop() == 0)
     same = bool(got) and bool(want) and got["deps"] == want["deps"] and got["diagnostics"] == want["diagnostics"] \
@@ -2899,7 +2925,7 @@ def live(exe, base):
     # re-checked at once, ahead of them, and the queue is drained after.
     shutil.rmtree(root)
     main = live_project(root)
-    c = Client(exe, root, env={"KALS_DEBUG_LIVE_SLICE_DELAY_MS": "1500"})
+    c = Client(exe, root, env={"KALS_DEBUG_LIVE_SLICE_DELAY_MS": "1500", "KALS_LIVE_CHECK": "1"})
     c.start({"liveCheck": True, "debounceMs": 50})
     c.open("src/main.k", main)
     c.open("src/base.k", LIVE_BASE)
@@ -2926,9 +2952,9 @@ def live(exe, base):
     check("live, pre-emption: and the queue is drained afterwards", after and after[-1].get("pending") == 0 and after[-1].get("mode") == "refresh", after)
     d = c.diagnostics("src/mid.k")
     check("live, pre-emption: the broken importer has its error once its turn came", d and any(x["severity"] == 1 for x in d), d)
-    # A buffer stops parsing while files are queued: that revision is a
-    # process's, and the slices still coming (of the text before it) must
-    # not be installed over its result.
+    # A buffer stops parsing while files are queued: its text is tried
+    # aside, and the slices still coming (of the text before it) must not
+    # take its errors away.
     c.change("src/base.k", 3, LIVE_BASE.replace("base_val(x: i32)", "base_val(x: i32, z: i32)"))
     start = len(c.notes)
     end = time.time() + 30
@@ -2938,7 +2964,7 @@ def live(exe, base):
     ok = c.settle()
     c.pump(5)   # the held-back slices arrive after the process run
     d = c.diagnostics("src/main.k")
-    check("live, pre-emption: a process run during a drain keeps its result (the parse error stays)",
+    check("live, pre-emption: a buffer broken during a drain keeps its errors (the parse error stays)",
           ok and d and any(x["severity"] == 1 for x in d), d)
     h = c.request("textDocument/hover", c.at("src/side.k", *pos(LIVE_SIDE, "side_val")), timeout=20)
     check("live, pre-emption: and the entry still answers", h and "fn side_val" in h["contents"]["value"], h)
@@ -2957,7 +2983,7 @@ def live(exe, base):
     # answered with nothing re-checked.
     wroot = os.path.join(base, "livewide")
     wmain = live_project(wroot, wide=100)
-    c = Client(exe, wroot)
+    c = Client(exe, wroot, env={"KALS_LIVE_CHECK": "1"})
     c.start({"liveCheck": True, "debounceMs": 50})
     c.open("src/main.k", wmain)
     c.settle()
@@ -2975,6 +3001,245 @@ def live(exe, base):
     check("live, wide graph: an edit of a leaf re-checks it and its importer, not a hundred files",
           a.get("mode") == "refresh" and a.get("rechecked") == 1 and a.get("pending") == 0, a)
     check("live, wide graph: clean shutdown", c.stop() == 0)
+
+
+TYPING_WORK = """/// Healthy.
+pub fn healthy(x: i32) -> i32 {
+    var h = x + 1
+    return h
+}
+
+pub fn typing(x: i32) -> i32 {
+    var t = x * 2
+    var u = t + 1
+    return u
+}
+
+pub fn below(x: i32) -> i32 {
+    var w = healthy(x)
+    return w
+}
+"""
+
+TYPING_MAIN = """import work::below
+import base::base_val
+
+fn main() -> i32 {
+    return below(1) + base_val(2)
+}
+"""
+
+
+def apply_token_edits(data, edits):
+    out = list(data)
+    for e in sorted(edits, key=lambda e: -e["start"]):
+        out[e["start"]:e["start"] + e["deleteCount"]] = e.get("data", [])
+    return out
+
+
+def broken_buffer(exe, base, live_mode):
+    """A buffer that does not parse (LanguageServer.md sections 9 and 10).
+    What the editor draws from the last good index stays on every line the
+    edits left alone, at the line's place in the buffer: inlay hints, code
+    lenses, semantic colours; hover answers there. With a live worker no
+    process is started for it: the text is tried aside, its diagnostics are
+    that check's, and the fix is one re-check in place."""
+    tag = "broken buffer (%s)" % ("live" if live_mode else "process per run")
+    root = os.path.join(base, "broken-live" if live_mode else "broken-run")
+    os.makedirs(os.path.join(root, "src"))
+    for name, text in (("base.k", LIVE_BASE), ("work.k", TYPING_WORK), ("main.k", TYPING_MAIN)):
+        open(os.path.join(root, "src", name), "w").write(text)
+    open(os.path.join(root, "kairo_compile.json"), "w").write(
+        '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src"] } ] }\n')
+    c = Client(exe, root, env={"KALS_LIVE_CHECK": "1" if live_mode else "0"})
+    c.start({"liveCheck": live_mode, "debounceMs": 50})
+    rel = "src/work.k"
+    doc = {"textDocument": {"uri": c.uri(rel)}}
+    whole = {"start": {"line": 0, "character": 0}, "end": {"line": 999, "character": 0}}
+    hints = lambda: sorted((h["position"]["line"], h["position"]["character"], h["label"] if isinstance(h["label"], str) else "".join(p["value"] for p in h["label"]))
+                           for h in (c.request("textDocument/inlayHint", dict(doc, range=whole)) or []))
+    lenses = lambda: sorted((l["range"]["start"]["line"], l["command"]["title"]) for l in (c.request("textDocument/codeLens", doc) or []))
+    c.open("src/main.k", TYPING_MAIN)
+    c.open(rel, TYPING_WORK)
+    ok = c.settle()
+    h0, l0 = hints(), lenses()
+    t0 = c.request("textDocument/semanticTokens/full", doc)
+    d0 = decode(t0["data"], TYPING_WORK)
+    check(tag + ": the healthy file has its hints, lenses and colours", ok and len(h0) >= 4 and len(l0) >= 3
+          and any(t[2] == "healthy" and t[3] == "function" for t in d0), (h0, l0))
+    errs = lambda: sorted((d["range"]["start"]["line"], d.get("code")) for d in (c.diagnostics(rel) or []) if d["severity"] == 1)
+    e0 = errs()
+    check(tag + ": and no error", e0 == [], e0)
+
+    # One line is typed into, and a line added under it: the body of
+    # `typing` is broken in its middle, with complete statements after it,
+    # which are one line further down than the index has them.
+    tl = pos(TYPING_WORK, "var t = x * 2")[0]
+    down = lambda l: l if l < tl else l + 1
+
+    def broken(line):
+        return TYPING_WORK.replace("    var t = x * 2\n", line + "\n    // typed\n")
+
+    def at_line(text, needle):
+        return pos(text, needle)[0]
+
+    version = [1]
+
+    def edit(text):
+        version[0] += 1
+        start = len(c.notes)
+        c.change(rel, version[0], text)
+        ok = c.settle()
+        return ok, [n["params"] for n in c.notes[start:] if n["method"] == "$/kals/analysed"]
+
+    text = broken("    var t = = 2")
+    ok, runs = edit(text)
+    bl = at_line(text, "var t = = 2")
+    if live_mode:
+        check(tag + ": no process is started, the worker tries the text aside",
+              ok and runs and all("mode" in r for r in runs) and runs[-1].get("aside") == "partial" and runs[-1].get("rechecked") == 0, runs)
+    e = errs()
+    check(tag + ": the syntax error is shown on the broken line", any(l == bl and str(code).startswith("S") for l, code in e), e)
+    h = c.request("textDocument/hover", c.at(rel, *pos(text, "healthy(x: i32)")))
+    check(tag + ": hover on a healthy declaration answers", h and "fn healthy" in h["contents"]["value"], h)
+    h = c.request("textDocument/hover", c.at(rel, *pos(text, "below(x: i32)")))
+    check(tag + ": and on one under the broken line, at its new line", h and "fn below" in h["contents"]["value"], h)
+    h = c.request("textDocument/hover", c.at("src/main.k", *pos(TYPING_MAIN, "below(1)")))
+    check(tag + ": an importer keeps answering", h and "fn below" in h["contents"]["value"], h)
+    pr = c.request("textDocument/prepareRename", c.at("src/main.k", *pos(TYPING_MAIN, "below(1)")))
+    check(tag + ": rename is refused while a file is not whole", pr is None, pr)
+    h1 = hints()
+    moved = sorted((down(l), ch, label) for l, ch, label in h0 if l != tl)
+    check(tag + ": the hints of every other line stay, each on its line in the buffer", h1 == moved and len(h1) == len(h0) - 1, (h1, moved))
+    check(tag + ": the broken line has none", not any(l == bl for l, _, _ in h1), h1)
+    l1 = lenses()
+    check(tag + ": the lenses stay too, moved with their lines", l1 == sorted((down(l), t) for l, t in l0), (l1, l0))
+    t1 = c.request("textDocument/semanticTokens/full", doc)
+    d1 = decode(t1["data"], text)
+    want = sorted((down(l), ch, w, ty, tuple(sorted(m))) for l, ch, w, ty, m in d0 if l != tl)
+    got = sorted((l, ch, w, ty, tuple(sorted(m))) for l, ch, w, ty, m in d1 if l != bl and l != bl + 1)
+    check(tag + ": names on untouched lines keep their semantic colours, at their lines", got == want, (got[:6], want[:6]))
+    on_broken = [t for t in d1 if t[0] == bl]
+    check(tag + ": the broken line has the lexical ones only", on_broken and all(t[3] in ("keyword", "number", "operator", "string", "comment") for t in on_broken), on_broken)
+
+    # The same, with an error in a function that is whole: what Sema says of
+    # the rest of the file is part of the answer (the live worker's check of
+    # this very text; a process per run reports it too).
+    text_sem = text.replace("var h = x + 1", "var h = x + nope")
+    ok, runs = edit(text_sem)
+    e = errs()
+    check(tag + ": a healthy function's own error is reported beside the syntax error, at its line",
+          ok and any(l == 2 and not str(code).startswith("S") for l, code in e) and any(l == bl and str(code).startswith("S") for l, code in e), e)
+    ok, runs = edit(text)
+    t1 = c.request("textDocument/semanticTokens/full", doc)
+
+    # More of the same line, then a shape that may leave the file unchecked.
+    text2 = broken("    var t = = 2 +")
+    ok, runs = edit(text2)
+    if live_mode:
+        check(tag + ": typing on is still no process", ok and runs and all("mode" in r for r in runs) and runs[-1].get("aside") in ("partial", "unchecked"), runs)
+    dl = c.request("textDocument/semanticTokens/full/delta", dict(doc, previousResultId=t1["resultId"]))
+    t2 = c.request("textDocument/semanticTokens/full", doc)
+    check(tag + ": a delta after an edit of the broken line rebuilds the full answer",
+          isinstance(dl, dict) and (apply_token_edits(t1["data"], dl["edits"]) if "edits" in dl else dl.get("data")) == t2["data"], dl)
+    text3 = broken("    var t = (x * 2")
+    ok, runs = edit(text3)
+    if live_mode:
+        check(tag + ": an unclosed parenthesis is no process either", ok and runs and all("mode" in r for r in runs)
+              and runs[-1].get("aside") in ("partial", "unchecked"), runs)
+    h = c.request("textDocument/hover", c.at(rel, *pos(text3, "healthy(x: i32)")))
+    check(tag + ": and hover on the healthy declaration still answers", h and "fn healthy" in h["contents"]["value"], h)
+    t3 = c.request("textDocument/semanticTokens/full", doc)
+
+    # Errors the lexer reports: a stray backslash, a string left open.
+    for name, line in (("a stray backslash", "    var t = x * 2 \\"), ("a string left open", '    var t = "abc')):
+        tx = broken(line)
+        ok, runs = edit(tx)
+        if live_mode:
+            check(tag + ": " + name + " is no process and no whole check", ok and runs and all(r.get("mode") == "refresh" for r in runs)
+                  and runs[-1].get("aside") in ("partial", "unchecked"), runs)
+        e = errs()
+        check(tag + ": " + name + " is reported", any(str(code).startswith("S") for _, code in e), e)
+        hx = hints()
+        check(tag + ": " + name + ": the hints of the other lines stay", hx == moved, (hx, moved))
+
+    # The fix: every hint exact again, one re-check in place.
+    fixed = TYPING_WORK.replace("    var t = x * 2\n", "    var t = x * 3\n    // typed\n")
+    ok, runs = edit(fixed)
+    if live_mode:
+        check(tag + ": the fix is one re-check in place", ok and runs and runs[0].get("mode") == "refresh" and runs[0].get("rechecked") == 1
+              and "aside" not in runs[-1], runs)
+    e = errs()
+    check(tag + ": the errors are gone", e == [], e)
+    c.pump(0.3)
+    hf = hints()
+    check(tag + ": every hint is back, exact", hf == sorted((down(l) if l != tl else l, ch, label) for l, ch, label in h0), (hf, h0))
+    dl = c.request("textDocument/semanticTokens/full/delta", dict(doc, previousResultId=t3["resultId"]))
+    t4 = c.request("textDocument/semanticTokens/full", doc)
+    check(tag + ": a delta after the fix rebuilds the full answer",
+          isinstance(dl, dict) and (apply_token_edits(t3["data"], dl["edits"]) if "edits" in dl else dl.get("data")) == t4["data"], dl)
+    d4 = decode(t4["data"], fixed)
+    check(tag + ": and the colours are the semantic ones everywhere", any(t[2] == "t" and t[3] == "variable" for t in d4), d4[:8])
+
+    # An error outside every body: the file cannot be checked at all.
+    outside = fixed + "pub fn (\n"
+    ok, runs = edit(outside)
+    if live_mode:
+        check(tag + ": an error outside a body is no process: unchecked, the last good index answers",
+              ok and runs and all("mode" in r for r in runs) and runs[-1].get("aside") == "unchecked", runs)
+    e = errs()
+    check(tag + ": its syntax errors are shown", any(str(code).startswith("S") for _, code in e), e)
+    h = c.request("textDocument/hover", c.at(rel, *pos(outside, "healthy(x: i32)")))
+    check(tag + ": hover still answers above it", h and "fn healthy" in h["contents"]["value"], h)
+    ok, runs = edit(fixed)
+    check(tag + ": and it is whole again when the line goes", ok and errs() == [], errs())
+    pr = c.request("textDocument/prepareRename", c.at("src/main.k", *pos(TYPING_MAIN, "below(1)")))
+    check(tag + ": rename answers again", bool(pr), pr)
+    check(tag + ": clean shutdown", c.stop() == 0)
+
+
+def many_imports(exe, base):
+    """A file with more imports than --max-errors (20). Parsed alone, as the
+    syntax pass parses it, none of them resolves, and the engine stopped
+    delivering errors after twenty: the parser's errors of a broken body
+    were never seen and the pass said `parsed` (so a live worker was handed
+    the broken text to keep: a whole check per keystroke). And a name typed
+    in the first function under the imports is a name, not an import path."""
+    root = os.path.join(base, "many-imports")
+    os.makedirs(os.path.join(root, "src"))
+    names = ["m%02d" % i for i in range(26)]
+    for n in names:
+        open(os.path.join(root, "src", n + ".k"), "w").write("pub fn %s() -> i32 {\n    return 1\n}\n" % n)
+    head = "".join("import %s::%s\n" % (n, n) for n in names)
+    good = head + "\nfn main() -> i32 {\n    var total = m00()\n    return total\n}\n"
+    open(os.path.join(root, "src", "main.k"), "w").write(good)
+    open(os.path.join(root, "kairo_compile.json"), "w").write(
+        '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src"] } ] }\n')
+    c = Client(exe, root)
+    c.start({"debounceMs": 50})
+    c.open("src/main.k", good)
+    c.settle()
+    bad = good.replace("var total = m00()", "var total = m00() +")
+    start = len(c.notes)
+    c.change("src/main.k", 2, bad)
+    ok = c.settle()
+    c.pump(0.5)
+    d = c.diagnostics("src/main.k") or []
+    check("many imports: a broken body is reported though the file has more imports than --max-errors",
+          ok and any(str(x.get("code", "")).startswith("S") for x in d), d)
+    if os.environ.get("KALS_LIVE_CHECK") == "1":
+        runs = [n["params"] for n in c.notes[start:] if n["method"] == "$/kals/analysed"]
+        check("many imports: and the live worker is not handed the broken text to keep (no whole check)",
+              runs and all(r.get("mode") == "refresh" for r in runs) and runs[-1].get("aside") in ("partial", "unchecked"), runs)
+    typed = good.replace("    return total", "    tot\n    return total")
+    c.change("src/main.k", 3, typed)
+    it = c.request("textDocument/completion", c.at("src/main.k", pos(typed, "    tot\n".rstrip("\n"))[0], 7))
+    c.pump(0.3)
+    labels = [i["label"] for i in (it or {}).get("items", [])] if isinstance(it, dict) else []
+    how = [n["params"]["how"] for n in c.notes if n["method"] == "$/kals/completed"]
+    check("many imports: a name typed under the imports completes as a name, not as an import path",
+          "total" in labels and how and how[-1] != "text", (labels[:8], how))
+    check("many imports: clean shutdown", c.stop() == 0)
 
 
 def launch_failures(exe, base):
@@ -3170,6 +3435,14 @@ def lifecycle(exe, base):
 def main():
     exe = find_kals()
     print("kals:", exe)
+    # The live index worker is the server's default, and so is this file's:
+    # run plain, every server a check starts without a mode of its own is
+    # live; KALS_LIVE_CHECK=0 in the environment runs the suite with a
+    # process per run. The gate is BOTH, and the mode is always stated to
+    # the servers (the checks that are about one mode set their own).
+    if os.environ.get("KALS_LIVE_CHECK") != "0":
+        os.environ["KALS_LIVE_CHECK"] = "1"
+    print("mode:", "live index worker (the default)" if os.environ["KALS_LIVE_CHECK"] == "1" else "a process per run (KALS_LIVE_CHECK=0)")
     base = tempfile.mkdtemp(prefix="kals-smoke-")
     # kals adopts the nearest kairo_compile.json above a workspace (as clangd
     # does compile_commands.json) and keeps its cache beside it. A temp root
@@ -3269,6 +3542,11 @@ def main():
             entry_identity(exe, base)
         if want("live"):
             live(exe, base)
+        if want("many_imports"):
+            many_imports(exe, base)
+        if want("broken_buffer"):
+            broken_buffer(exe, base, False)
+            broken_buffer(exe, base, True)
         print("%.1fs" % (time.time() - t0))
     finally:
         shutil.rmtree(base, ignore_errors=True)

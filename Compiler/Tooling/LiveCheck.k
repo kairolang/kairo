@@ -47,6 +47,7 @@ import AST::Context::ASTContext::ASTContext
 
 import Driver::CompilerGraph
 import Driver::CompilerInstance::CompilerInstance
+import Driver::CompilerRecovery
 import Driver::FrontendAction::FrontendAction
 import Driver::TUStage::TUStage
 import Resolution::ModulePath::ModulePath

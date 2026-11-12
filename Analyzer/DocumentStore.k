@@ -657,6 +657,28 @@ pub class Document {
     pub var idx_rev:   u64    = 0
     pub var idx_entry: string = ""
 
+    /// What a live index worker found when it tried this buffer's text
+    /// without keeping it (Server/LiveIndex.k: a buffer that does not
+    /// parse): the file's diagnostics (LSP Diagnostic objects, comma-joined)
+    /// and their number, for the text as changed at `side_at`. `side_state`
+    /// is the worker's word for it: `partial` (checked without the function
+    /// bodies its syntax errors are in) or `unchecked`. Used while the
+    /// buffer has not changed since (side_current).
+    /// The file `idx_text` was last written to for a live worker that is to
+    /// keep it (the buffer does not parse), and the `idx_rev` it was.
+    pub var held_tmp: string = ""
+    pub var held_rev: u64    = 0
+
+    pub var side_has:   bool   = false
+    pub var side_at:    u64    = 0
+    pub var side_state: string = ""
+    pub var side_diags: string = ""
+    pub var side_n:     usize  = 0
+
+    fn side_current(const self) -> bool {
+        return self.side_has && (self.side_at >= self.changed_at)
+    }
+
     fn Document(self) = default
 
     /// Records \p text as what entry \p entry's index of revision \p rev

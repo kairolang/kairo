@@ -347,7 +347,10 @@ extend Server {
     }
 
     /// "N references" above each function and type of the file.
-    fn code_lens(self, s: *const JsonDoc, f: u32, const path: string, const id: string) {
+    /// \param sh  the index is of an older text of the buffer (inactive: it
+    ///            is not): a lens is placed on the buffer's line, and one
+    ///            whose line the edits changed is not sent.
+    fn code_lens(self, s: *const JsonDoc, f: u32, const path: string, const id: string, sh: *const LineShift) {
         // One pass over every snapshot's refs, counting uses per declaration
         // of THIS file; a use is counted once however many entries index it.
         var decl_keys: [string]
@@ -407,9 +410,29 @@ extend Server {
             var kind = s->get_int(c, K_KIND)
             var wanted = (kind == SYM_FUNCTION) || (kind == SYM_METHOD) || (kind == SYM_CLASS) || (kind == SYM_STRUCT) ||
                 (kind == SYM_INTERFACE) || (kind == SYM_ENUM)
-            if wanted {
+            var sel = s->get(c, K_SELECTION_RANGE)
+            var l0  = s->get_int(s->get(sel, K_START), K_LINE)
+            var l1  = s->get_int(s->get(sel, K_END), K_LINE)
+            if wanted && sh->active && (!sh->kept(l0, l1)) {
+                wanted = false
+            }
+
+            if wanted && sh->active {
+                w.begin_object()
+                w.key(K_RANGE)
+                write_lsp_range(
+                    &w,
+                    sh->to_new(l0),
+                    s->get_int(s->get(sel, K_START), K_CHARACTER),
+                    sh->to_new(l1),
+                    s->get_int(s->get(sel, K_END), K_CHARACTER),
+                )
+            } else if wanted {
                 w.begin_object()
                 w.field_raw(K_RANGE, s->dump(s->get(c, K_SELECTION_RANGE)))
+            }
+
+            if wanted {
                 w.key(K_COMMAND)
                 w.begin_object()
                 var n = counts[k]

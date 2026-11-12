@@ -185,6 +185,21 @@ extend Server {
             }
         }
 
+        // The same, where the index was not replaced at all and the rows
+        // of a buffer that does not parse are of its last text that did:
+        // by a live worker, which keeps that text (LiveIndex.k).
+        for var di: usize = 0; di < self.docs.docs.size(); ++di {
+            if self.docs.docs[di].side_current() {
+                return true
+            }
+
+            // Or by a run that indexed the file in part and was not
+            // installed over complete rows (index_installs).
+            if self.docs.docs[di].syn.current(self.docs.docs[di].changed_at) && (!self.docs.docs[di].syn.parsed) {
+                return true
+            }
+        }
+
         return false
     }
 

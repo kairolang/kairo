@@ -137,7 +137,8 @@ pub const BRIDGE_RECENT_SOURCES: usize = 16
 pub const BRIDGE_INCLUDE_DEPTH:     u32   = 8
 pub const BRIDGE_INCLUDE_MAX_READS: usize = 4000
 
-/// --- the live index worker (initializationOptions.liveCheck) -------------
+/// --- the live index worker (on by default; initializationOptions.liveCheck:
+/// --- false or KALS_LIVE_CHECK=0 turns it off) -----------------------------
 
 /// Entries that may hold a live index worker at once. Each is a whole
 /// checked graph kept resident (about 4 GB for a 400-file graph), where a
@@ -170,11 +171,32 @@ pub const LIVE_TIMEOUT_MS: i64 = 300000
 pub const LIVE_MAX_RESTARTS: u64 = 4
 
 /// How long a live request waits for the syntax pass's verdict on a changed
-/// buffer. A buffer that does not parse cannot be re-checked in place (the
-/// live worker would fall back to a whole check and grow by one), so that
-/// revision goes to a process per run instead and the live worker keeps the
-/// last text that parsed. Past this the request is sent without a verdict.
+/// buffer. A buffer that does not parse must not be sent to be kept (the
+/// live worker would fall back to a whole check and grow by one): it is
+/// sent to be tried aside, in a copy of the worker, and the worker keeps
+/// the last text that parsed. Past this the request is sent without a
+/// verdict, the buffer as one to keep.
 pub const LIVE_SYNTAX_WAIT_MS: i64 = 500
+
+/// How long the live worker waits for its copy to try a text aside (one
+/// file's re-check: 70 to 120 ms in a release build on this repository's
+/// graph, 0.6 s for a file of its largest import cycle). Past it the copy
+/// is killed and the request is answered without that result: the syntax
+/// pass's errors stand. Well above a debug build's worst.
+pub const LIVE_ASIDE_TIMEOUT_MS: i64 = 20000
+
+/// How long a completion request waits for the live worker before it is
+/// handed to a process of its own (what every completion was before the
+/// worker answered them). The worker looks at its requests between two
+/// steps, and a step is one file or one import cycle: tens of
+/// milliseconds, 0.6 s for this repository's largest cycle in a release
+/// build. Higher: fewer whole compiles for a list; lower: a list sooner
+/// when the worker is in a long step. At about what a process takes on
+/// this repository's graph (8 s unloaded): waiting less than that for a
+/// worker that is merely busy only trades one file's re-check for a whole
+/// compile (measured on a loaded machine: 24 s where the worker would have
+/// answered in 5).
+pub const LIVE_ASK_TIMEOUT_MS: i64 = 10000
 
 /// Files the live worker re-checks in the background between two looks at
 /// its requests (a file is about 25 ms in a release build). An edit that

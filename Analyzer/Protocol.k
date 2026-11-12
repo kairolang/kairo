@@ -37,6 +37,17 @@ pub const M_PROGRESS: string = "$/progress"
 pub const M_DOLLAR_PREFIX: string = "$/"
 pub const M_KALS_TEXT: string = "$/kals/text"
 pub const M_KALS_ANALYSED: string = "$/kals/analysed"
+/// Sent after each completion answer: `how` it was computed (`live`: the
+/// live worker tried the marked buffer aside; `run`: a process per
+/// request; `text`: from the buffer and the filesystem alone) and `us`,
+/// the server's own time from the request to the answer. For tests and
+/// benchmarks, as `$/kals/analysed` is.
+pub const M_KALS_COMPLETED: string = "$/kals/completed"
+pub const K_HOW:    string = "how"   ///< M_KALS_COMPLETED: a HOW_* word
+pub const K_US:     string = "us"    ///< M_KALS_COMPLETED: microseconds
+pub const HOW_LIVE: string = "live"
+pub const HOW_RUN:  string = "run"
+pub const HOW_TEXT: string = "text"
 /// Debug: the installed snapshot of a buffer's entry (the rows of every
 /// indexed file, the diagnostics, the files of the graph), for a test that
 /// compares what two ways of analysing the same text installed.
