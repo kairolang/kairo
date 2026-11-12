@@ -3890,14 +3890,14 @@ pub class <T: type> ExprParse {
     ///        (NamedIdentExpr::container_head). No list, map or set literal
     ///        is followed by `::`, so the literal forms keep their parse.
     priv fn _parse_container_type_head(self) -> unsafe *Expr {
-        var open = self.dyn()->current()
-        var unsafe *ty = self.dyn()->parse_type()
+        var        open = self.dyn()->current()
+        var unsafe *ty  = self.dyn()->parse_type()
         if ty == &null {
             return &null
         }
 
         var args: kairo::std::StackBuf<ChainType::GenericArg, 2>
-        var arg = ChainType::GenericArg{}
+        var arg                                                  = ChainType::GenericArg{}
         arg.name       = &null
         arg.name_range = SourceRange::invalid()
         if isa<VectorType>(ty) {
@@ -3914,11 +3914,16 @@ pub class <T: type> ExprParse {
         } else {
             // `[T; N]` and `[T;]` name no record a path can step into.
             self.dyn()->diag->report(
-                DiagID::S001E,
+                DiagID::S094E,
                 ty->range.start,
                 "only a vector '[T]', map '{K: V}' or set '{T}' type can head a '::' path",
             ).first(ty->range)->emit()
-            var unsafe *bad = NamedIdentExpr::create(self.dyn()->ctx, ty->range, open)
+            var unsafe *bad = NamedIdentExpr::create(
+                self.dyn()->ctx,
+                ty->range,
+                open,
+            )
+
             bad->poison()
             return bad
         }

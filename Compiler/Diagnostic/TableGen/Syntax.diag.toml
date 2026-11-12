@@ -2107,3 +2107,24 @@ group = "ffi"
     for a qualified name, remove the leading `::` (the fix-it does). For a
     C++ global function, define it in C++ for now.
     """
+
+[S094]
+brief = "only a vector, set or map type can head a '::' path"
+group = "syntax"
+
+    [S094.E]
+    explain = """
+    # only a vector, set or map type can head a '::' path
+
+    In an expression, a bracket type before `::` names the builtin record it
+    spells: `[T]` is the vector, `{T}` the set and `{K: V}` the map, so
+    `[i32]::make()` means what `Vector<i32>::make()` does. A fixed array
+    `[T; N]` and a slice `[T;]` name no record whose members a `::` can
+    reach.
+
+    ```kairo
+    var v = [i32]::with_capacity(8)     // the vector's static member
+    var m = {string: i32}::make()       // the map's
+    var a = [i32; 4]::make()            // error: an array has no members
+    ```
+    """
