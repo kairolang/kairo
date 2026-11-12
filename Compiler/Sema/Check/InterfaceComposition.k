@@ -373,11 +373,11 @@ pub class InterfaceComposition {
                 d.note(
                     a->decl->range.start,
                     f"'{nm}' returning '{self._type_text(id, a, fa->return_type)}' is declared here",
-                )->first(a->decl->range)
+                )->child_first(a->decl->range)
                 d.note(
                     b->decl->range.start,
                     f"'{nm}' returning '{self._type_text(id, b, fb->return_type)}' is declared here",
-                )->first(b->decl->range)
+                )->child_first(b->decl->range)
                 d.emit()
                 ok = false
             }
@@ -404,11 +404,11 @@ pub class InterfaceComposition {
             )
 
             d.first(at)
-            d.note(a->decl->range.start, f"'{nm} = {self.tu.str(da)}' is declared here")->first(
+            d.note(a->decl->range.start, f"'{nm} = {self.tu.str(da)}' is declared here")->child_first(
                 a->decl->range,
             )
 
-            d.note(b->decl->range.start, f"'{nm} = {self.tu.str(db)}' is declared here")->first(
+            d.note(b->decl->range.start, f"'{nm} = {self.tu.str(db)}' is declared here")->child_first(
                 b->decl->range,
             )
 
@@ -828,7 +828,7 @@ pub class InterfaceComposition {
                 )
 
                 d.first(at)
-                d.note(uses.ranges[k].start, f"'{nm}' names it here")->first(uses.ranges[k])
+                d.note(uses.ranges[k].start, f"'{nm}' names it here")->child_first(uses.ranges[k])
                 d.emit()
                 ok = false
             }

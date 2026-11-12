@@ -387,7 +387,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
                 DiagCode(DiagID::SC201N),
                 f->range.start,
                 "the operator is declared here",
-            )->first(f->range)
+            )->child_first(f->range)
             b.insert(recv->range.start, "const ", "make the receiver 'const self'")
             b.emit()
         }
@@ -406,7 +406,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         )
 
         rb.first(at)
-        rb.note(DiagCode(DiagID::SC201N), f->range.start, "the operator is declared here")->first(
+        rb.note(DiagCode(DiagID::SC201N), f->range.start, "the operator is declared here")->child_first(
             f->range,
         )
 
@@ -506,7 +506,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
                 DiagID::SC054E,
                 f->range.start,
                 f"'op {sym}' and 'op {bsym}' are both declared; a type declares one of the pair and the other is derived from it",
-            ).first(f->range)->note(g->range.start, f"'op {bsym}' is declared here")->first(
+            ).first(f->range)->note(g->range.start, f"'op {bsym}' is declared here")->child_first(
                 g->range,
             )->emit()
             f->poison()
@@ -584,7 +584,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             ).first(f->range)->note(
                 g->range.start,
                 "'op <=>' is declared here; it already derives '<', '<=', '>', '>=', '==' and '!='",
-            )->first(g->range)->emit()
+            )->child_first(g->range)->emit()
         }
     }
 

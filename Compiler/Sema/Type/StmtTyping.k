@@ -843,7 +843,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 DiagCode(DiagID::SC227N),
                 d->range.start,
                 f"'{dn}' is forward-declared here and never defined",
-            )->first(d->range)
+            )->child_first(d->range)
             b.emit()
             return
         }
@@ -865,7 +865,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             DiagCode(DiagID::SC249N),
             pure->range.start,
             f"'{mname}' is pure virtual and nothing overrides it, so '{dn}' is abstract",
-        )->first(pure->range)
+        )->child_first(pure->range)
         b.emit()
     }
 
@@ -1125,7 +1125,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 DiagCode(DiagID::SC267N),
                 no_at->range.start,
                 LangAttrs::quoted(LangAttrs::no_unwind()) + " is here; it wins: the function is 'noexcept'",
-            )->first(no_at->range)
+            )->child_first(no_at->range)
             b.emit()
         }
 
@@ -3094,12 +3094,12 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                     b.note(
                         f->return_type->range.start,
                         "declare the return type 'yield T' to make this a generator",
-                    )->first(f->return_type->range)
+                    )->child_first(f->return_type->range)
                 } else if f != &null && !f->is_operator {
                     b.note(
                         f->name.range.start,
                         "this function has no return type; declare '-> yield T' to make it a generator",
-                    )->first(f->name.range)
+                    )->child_first(f->name.range)
                 }
 
                 b.emit()

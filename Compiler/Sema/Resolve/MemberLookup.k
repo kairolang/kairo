@@ -1295,7 +1295,7 @@ pub class MemberLookup {
                 DiagCode(DiagID::SC243N),
                 tok.range.start,
                 f"'{nm}' is declared here, in '{on}'",
-            )->first(tok.range)
+            )->child_first(tok.range)
         }
 
         b.insert(at.start, "Self::", f"qualify with 'Self::'")
@@ -1368,7 +1368,7 @@ pub class MemberLookup {
                 DiagCode(DiagID::R016N),
                 t.decl->range.start,
                 f"'{nm}' could be the {what} declared here",
-            )->first(t.decl->range)
+            )->child_first(t.decl->range)
         }
 
         b.emit()

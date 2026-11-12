@@ -115,7 +115,7 @@ pub class FieldReadScan derives RecursiveASTVisitor<FieldReadScan> {
             )
 
             b.first(n->range)
-            b.note(read->range.start, f"'{other}' is declared here, without 'static'")->first(
+            b.note(read->range.start, f"'{other}' is declared here, without 'static'")->child_first(
                 read->range,
             )
 
@@ -170,7 +170,7 @@ pub class FieldReadScan derives RecursiveASTVisitor<FieldReadScan> {
         b.note(
             read->range.start,
             f"'{other}' is declared here; defaults run in declaration order, so it is not built yet when '{mine}' is",
-        )->first(read->range)
+        )->child_first(read->range)
         b.emit()
         return true
     }
@@ -285,7 +285,7 @@ pub class InitCheck derives RecursiveASTVisitor<InitCheck> {
         b.note(
             ctor->range.start,
             f"'{nm}' constructor declared here; call it instead: '{nm}(...)'",
-        )->first(ctor->range)
+        )->child_first(ctor->range)
         b.emit()
         e->poison()
     }

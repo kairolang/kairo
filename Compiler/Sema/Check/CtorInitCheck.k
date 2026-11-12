@@ -679,7 +679,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         b.note(
             f->range.start,
             f"'{nm}' is const: only a constructor of its own record initializes it, once",
-        )->first(f->name.range)
+        )->child_first(f->name.range)
         b.emit()
         return true
     }
@@ -719,7 +719,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         b.note(
             f->range.start,
             f"only the constructor's first whole write of '{nm}', before the object is used, initializes it",
-        )->first(f->name.range)
+        )->child_first(f->name.range)
         b.emit()
     }
 
@@ -823,7 +823,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     b.note(
                         fd->range.start,
                         f"'{nm}' is declared here without an initializer; give it one, or write the constructor",
-                    )->first(fd->name.range)
+                    )->child_first(fd->name.range)
                     b.emit()
                 } else {
                     var why = self._why(fd)
@@ -837,7 +837,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     b.note(
                         fd->range.start,
                         f"'{nm}' is declared here without an initializer; give it one, or write the constructor",
-                    )->first(fd->name.range)
+                    )->child_first(fd->name.range)
                     b.emit()
                 }
             }
@@ -969,7 +969,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     b.note(
                         fd->range.start,
                         f"'{nm}' is declared here; assign it on every branch (an 'if' needs its 'else'), or give it an initializer",
-                    )->first(fd->name.range)
+                    )->child_first(fd->name.range)
                     b.emit()
                     self._failed = true
                 } else if self._required(fd) && !self._is_written(fd) {
@@ -988,7 +988,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     b.note(
                         fd->range.start,
                         f"'{nm}' has {n} elements; write each one once ('self.{nm}[k] = ...' for every k from 0 to {n - 1}) on every path, or assign it whole",
-                    )->first(fd->name.range)
+                    )->child_first(fd->name.range)
                     b.emit()
                     self._failed = true
                 } else if self._required(fd) {
@@ -1003,7 +1003,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     b.note(
                         fd->range.start,
                         f"'{nm}' is declared here; assign it on every branch (an 'if' needs its 'else'), or give it an initializer",
-                    )->first(fd->name.range)
+                    )->child_first(fd->name.range)
                     b.emit()
                     self._failed = true
                 } else if ctor_init_is_array(fd) && self._is_written(fd) && !self._has_erred(fd) {
@@ -1019,7 +1019,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     b.note(
                         fd->range.start,
                         f"'{nm}' is declared here; assign it on every branch (an 'if' needs its 'else'), or on none",
-                    )->first(fd->name.range)
+                    )->child_first(fd->name.range)
                     b.emit()
                     self._failed = true
                 }
@@ -1160,7 +1160,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                             "the last const field is initialized here; the object exists only after it",
                             "the last field is initialized here; the object exists only after it",
                         ),
-                    )->first(self._frontier)
+                    )->child_first(self._frontier)
                     b.emit()
                     self._failed = true
                 }
@@ -1386,7 +1386,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 b.note(
                     f->range.start,
                     f"'{nm}' is declared here; initialize it before the loop",
-                )->first(f->name.range)
+                )->child_first(f->name.range)
                 b.emit()
                 self._erred.push_back(f)
                 self._failed = true
@@ -1403,7 +1403,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     b.note(
                         prev.start,
                         "initialized here first; assign its elements instead",
-                    )->first(prev)
+                    )->child_first(prev)
                 }
 
                 b.emit()
@@ -1429,7 +1429,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 b.note(
                     f->init->range.start,
                     "its initializer is here; remove it, or this assignment",
-                )->first(f->init->range)
+                )->child_first(f->init->range)
                 b.emit()
                 self._failed = true
             } else if self._loops > 0 {
@@ -1452,7 +1452,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 b.first(at)
                 var prev = self._assigned_at[i]
                 if prev.is_valid() {
-                    b.note(prev.start, "initialized here first")->first(prev)
+                    b.note(prev.start, "initialized here first")->child_first(prev)
                 }
 
                 b.emit()
@@ -1496,7 +1496,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 b.note(
                     first.start,
                     f"'{nm}' starts being built here; read it after its last element is written",
-                )->first(first)
+                )->child_first(first)
             }
 
             b.emit()
@@ -1513,7 +1513,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     continue
                 }
 
-                b.note(self._first_at[j].start, f"'{nm}' is first assigned here")->first(
+                b.note(self._first_at[j].start, f"'{nm}' is first assigned here")->child_first(
                     self._first_at[j],
                 )
 
@@ -1538,7 +1538,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     f"the last const field is initialized here; read '{nm}' after it",
                     f"the last field is initialized here; read '{nm}' after it",
                 ),
-            )->first(self._frontier)
+            )->child_first(self._frontier)
             b.emit()
         }
 
@@ -1575,10 +1575,10 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         b.note(
             f->range.start,
             f"'{nm}' is declared here without an initializer; the constructor must build it whole first ('self.{nm} = ...'), or give it an initializer",
-        )->first(f->name.range)
+        )->child_first(f->name.range)
         var how = self._part_note(f)
         if how.size() > 0 {
-            b.note(DiagCode(DiagID::SC175N), at.start, how)->first(at)
+            b.note(DiagCode(DiagID::SC175N), at.start, how)->child_first(at)
         }
 
         b.emit()
@@ -1624,7 +1624,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             b.note(
                 f->range.start,
                 f"'{nm}' has no default; write 'self.{nm}[0] = ...' through 'self.{nm}[{len - 1}] = ...' outside the loop, or assign it whole ('self.{nm} = [...]')",
-            )->first(f->name.range)
+            )->child_first(f->name.range)
             b.emit()
             self._erred.push_back(f)
             self._failed = true
@@ -1640,7 +1640,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             b.note(
                 f->range.start,
                 f"'{nm}' has no default, so the constructor builds it whole ('self.{nm} = [...]') or writes each of its {len} elements once with a constant index",
-            )->first(f->name.range)
+            )->child_first(f->name.range)
             b.emit()
             self._erred.push_back(f)
             self._failed = true
@@ -1666,7 +1666,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             b.first(at)
             var prev = self._eat[self._ebase[i] + k]
             if prev.is_valid() {
-                b.note(DiagCode(DiagID::SC176N), prev.start, "initialized here first")->first(prev)
+                b.note(DiagCode(DiagID::SC176N), prev.start, "initialized here first")->child_first(prev)
             }
 
             b.emit()
@@ -1726,7 +1726,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 "the last const field is initialized here; the object exists only after it, so move this use below it",
                 "the last field is initialized here; the object exists only after it, so move this use below it",
             ),
-        )->first(self._frontier)
+        )->child_first(self._frontier)
         b.emit()
         self._failed = true
     }
@@ -1888,7 +1888,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             b.note(
                 fd->range.start,
                 f"'{nm}' is declared here without an initializer; assign it in every constructor, or give it one",
-            )->first(fd->name.range)
+            )->child_first(fd->name.range)
             b.emit()
             return
         }
@@ -1904,7 +1904,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         b.note(
             fd->range.start,
             f"'{nm}' is declared here without an initializer; assign it whole in every constructor ('self.{nm} = ...'), or give it one",
-        )->first(fd->name.range)
+        )->child_first(fd->name.range)
         // Writing its elements one by one is the likely attempt: they need
         // the whole value to exist first.
         var pw = CtorPartWriteFind()
@@ -1920,10 +1920,10 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             b.note(
                 pw.at.start,
                 f"this writes part of '{nm}', which does not exist until it is built whole",
-            )->first(pw.at)
+            )->child_first(pw.at)
             var how = self._part_note(fd)
             if how.size() > 0 {
-                b.note(DiagCode(DiagID::SC173N), pw.at.start, how)->first(pw.at)
+                b.note(DiagCode(DiagID::SC173N), pw.at.start, how)->child_first(pw.at)
             }
         }
 

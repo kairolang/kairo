@@ -1406,7 +1406,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
             var b = self.sc->diag->report(DiagID::R063E, d->range.start, msg)
             b.first(d->range)
-            b.note(DiagCode(DiagID::R063N), ref_d->range.start, nmsg)->first(ref_d->range)
+            b.note(DiagCode(DiagID::R063N), ref_d->range.start, nmsg)->child_first(ref_d->range)
             // Only where the declaration starts with its keyword: a leading
             // `final` or `abstract` would put the edit on the wrong word.
             var kr = SourceRange::from_bounds(d->range.start, kw.size() as u32)
@@ -1504,7 +1504,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 DiagCode(DiagID::R029N),
                 defs[0]->range.start,
                 f"previous definition of '{name}' is here",
-            )->first(defs[0]->range)->emit()
+            )->child_first(defs[0]->range)->emit()
             for var i: usize = 1; i < defs.size(); ++i {
                 defs[i]->poison()
             }
@@ -1613,7 +1613,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 DiagCode(DiagID::R029N),
                 prev->range.start,
                 f"previous declaration of '{name}' is here",
-            )->first(prev->range)
+            )->child_first(prev->range)
             // Two file-scope bindings: in a script every one is a global,
             // whatever keyword declares it, so `var x` after `static x` is
             // the same name twice, and the edit is almost always a rename
@@ -2447,7 +2447,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                         DiagCode(DiagID::R029N),
                         prev->range.start,
                         f"previous declaration of '{nm}' is here",
-                    )->first(prev->range)
+                    )->child_first(prev->range)
                 }
 
                 b.emit()
@@ -3466,7 +3466,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         b.first(n->range)
         if d != &null {
-            b.note(DiagCode(DiagID::R049N), d->range.start, named_declared_here(nm))->first(
+            b.note(DiagCode(DiagID::R049N), d->range.start, named_declared_here(nm))->child_first(
                 d->range,
             )
         }

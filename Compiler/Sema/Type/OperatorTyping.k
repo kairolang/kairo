@@ -3260,7 +3260,7 @@ pub class <T: type> OperatorTyping {
                     why = "declared as a pointer to const here"
                 }
 
-                b.note(at.start, "\x27" + nm + "\x27 " + why)->first(at)
+                b.note(at.start, "\x27" + nm + "\x27 " + why)->child_first(at)
             }
 
             // A const element of a mutable container: its `op []` hands out
@@ -3268,7 +3268,7 @@ pub class <T: type> OperatorTyping {
             var unsafe *sx = dyn_cast<SubscriptExpr>(x)
             if (!at.is_valid()) && sx != &null && sx->resolved_op != &null {
                 b.note(sx->resolved_op->range.start, "\x27op []\x27 returns a const place here")
-                    ->first(sx->resolved_op->range)
+                    ->child_first(sx->resolved_op->range)
             }
 
             // `const n = ...` -> `var n = ...` is the one-token edit; a

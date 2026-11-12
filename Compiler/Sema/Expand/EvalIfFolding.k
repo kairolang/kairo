@@ -326,7 +326,7 @@ pub class LateFoldRebind derives RecursiveASTVisitor<LateFoldRebind> {
             DiagCode(DiagID::R020N),
             was->range.start,
             f"'{nm}' is declared only in a branch of an 'eval if' that is not taken",
-        )->first(was->range)
+        )->child_first(was->range)
         b.emit()
         n->poison()
     }
@@ -743,7 +743,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 DiagCode(DiagID::SC230N),
                 vd->name.range.start,
                 named_declared_here(nm),
-            )->first(vd->name.range)
+            )->child_first(vd->name.range)
             // A `const` that folds is one keyword from usable (Compiler/Spec/Eval.md#generic-value-parameters).
             if vd->storage == Declarations::StorageClass::Const
                 && !vd->const_binding
@@ -759,7 +759,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 DiagCode(DiagID::SC230N),
                 at->range.start,
                 "in a function body the same condition is 'if constexpr', which C++ decides with the layout it chooses",
-            )->first(at->range)
+            )->child_first(at->range)
         }
 
         b.emit()
@@ -788,7 +788,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 DiagCode(DiagID::SC132N),
                 nt.range.start,
                 f"declare '{kw} <{ps}> {nm}<{ps}> requires <condition>' once per member set: each a partial specialization of '{nm}' whose body holds that set",
-            )->first(nt.range)
+            )->child_first(nt.range)
         }
 
         b.emit()

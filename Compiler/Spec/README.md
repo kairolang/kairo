@@ -79,6 +79,8 @@ The authoritative pass order and the cross-pass invariants are in [Pipeline.md](
 | Document | Contents |
 |---|---|
 | [Driver.md](Driver.md) | Driver phases, flags, toolchain discovery, native inputs |
+| [IncrementalSema.md](IncrementalSema.md) | Design: module records, declaration identity, dependency logging, the four Sema changes, phases and gate for incremental AST/Sema |
+| [LanguageServer.md](LanguageServer.md) | kals: server and worker processes, `kairo_compile.json`, the snapshot format, the compiler hooks it uses |
 | [Diagnostics.md](Diagnostics.md) | Diagnostic codes, the registry, rendering, clang diagnostics, fix-its |
 | [BuildSystem.md](BuildSystem.md) | `build.py`, staged trees, LLVM, release packaging |
 | [SelfHosting.md](SelfHosting.md) | Stages, bootstrap, migration, the self-host harness |
@@ -86,6 +88,7 @@ The authoritative pass order and the cross-pass invariants are in [Pipeline.md](
 | [Performance.md](Performance.md) | Benchmarks, parallel codegen, compile-time optimizations |
 | [TodoMarkers.md](TodoMarkers.md) | The `TODO(<CATEGORY>)` markers the source migration left, per category |
 | [Incremental.md](Incremental.md) | Incremental compilation: interface vs object keys, global invalidation, the cache record in each object (phase 2 not implemented) |
+| [Serialization.md](Serialization.md) | The serialized AST: one file's parsed tree as bytes, the format, what is rebuilt on read, the round-trip test flags |
 
 ## Language reference
 

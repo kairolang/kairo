@@ -121,7 +121,7 @@ python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen \
 
 ### Engine
 
-`DiagEngine::emit` is the single choke point; it holds a mutex because lexers and other pool workers report into it directly. It applies, in order:
+`DiagEngine::emit` is the single choke point; it holds a mutex because lexers and other pool workers report into it directly. A thread holding a `DiagCapture` puts what it reports into its own sink instead (see [Order guarantee](#order-guarantee)), which is drained here later. It applies, in order:
 
 1. Suppression depth (`push_suppress`/`pop_suppress`): drop.
 2. Duplicates: a located diagnostic whose code, location and message were already delivered is dropped. A file is tokenized twice ([Lexing.md](Lexing.md#streaming-interface)), and without this each lexer warning printed once per pass.
@@ -129,11 +129,24 @@ python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen \
 4. Per-code policy, keyed on category and number (the severity letter is not part of the key, so `-A R020` and `-A R020E` are one entry, while `SC005` and `S005` are distinct). Precedence, highest first: `-F <code>` (force error, not overridable), `-E <code>` (warning to error), `-A <code>` (drop), then the blanket `-w` (drop all warnings) and `--Werror` (all warnings to errors). An explicit code beats a blanket flag. `-W <code>` raises an Ignored code to a warning and, given after `-A`, lifts that silence. Errors and fatals are never silenced.
 5. `--quiet`: drop warnings, notes and remarks.
 6. Warning limit (`--cmax-warnings`, 0 unlimited): past it, warnings are dropped and one U024W notice is printed.
-7. Error limit (`--cmax-errors`, default 20, 0 unlimited): past it, errors are dropped and one I957E notice is printed.
-8. Counters, then trimming of children to `--cmax-notes` and of fix-its to `--cmax-suggestion-count` (default 5, 0 keeps none).
+7. Error limit (`--cmax-errors`, default 20, 0 unlimited): errors and fatals are counted first (`error_count`, `fatal_count`), then, past the limit of delivered ones, dropped, with one I957E notice. The limit caps what is shown, not what is counted: every stage gate reads the counters (a TU's own "did it error" delta, the batch abort on a fatal), so a TU whose errors are hidden still stops where it would have (P887).
+8. The other counters, then trimming of children to `--cmax-notes` and of fix-its to `--cmax-suggestion-count` (default 5, 0 keeps none).
 9. Delivery to every registered consumer.
 
 `BufferedDiagSink` (`Compiler/Diagnostic/BufferedDiagSink.k`) is a per-file engine stand-in. The parser and a clang instance write into one; it supports suppression depth and the `@no_warn(CODE)` scopes registered by `AttributeCheck` (warnings only), and `drain_into` sorts its diagnostics by file, offset and insertion order before passing them to the engine. The driver drains parse sinks in file order, so parallel and serial runs print the same output.
+
+#### Order guarantee
+
+For a fixed input and fixed flags the compiler prints the same diagnostics in the same order on every run, at any thread count, and `--cmax-errors` cuts the same ones, because the engine applies the limit in delivery order and delivery order is fixed (P956). Every parallel phase buffers each file's diagnostics and hands them to the engine in an order that depends only on the input, each file's batch in source order:
+
+- **Preprocessor walk.** The walk runs the import graph in waves, and the files of one wave walk side by side. Each walk task holds a `DiagCapture` (`Compiler/Diagnostic/Engine.k`, a thread-local set for the task). While it holds one, `DiagEngine::emit` puts whatever that thread reports, lexer included, into the task's own sink. When a wave is done, `WaveExecutor::run` drains its sinks in the wave's dispatch order. So waves come out in graph order, and within a wave the order is the ready list's. Each wave is drained as soon as it finishes, not at the end of the walk. The module-name collisions that the dependency scan finds are reported once, before the walk (`FileImportIndex::report_collisions`), rather than by whichever walk asks first.
+- **Parse.** Each file's sink is drained in fid order, as soon as every earlier file has been drained (the flusher in `FrontendAction::_parse`).
+- **Sema.** Each group's sinks are drained in import-group order (`_sema_finish`), whichever front finished first.
+- **Codegen.** Each job's sinks are drained in TU order after the fan-out.
+
+The output is byte-identical to the one-thread run's (`--threads=1`), with one known exception in an import cycle. On one thread, each member of the cycle runs its typed checks and then its Conformance before the next member starts. A front runs every member's typed checks first. So if one member uses an instance only unwritten and a later member names it in a body, a different member can report its selection. This predates the order guarantee.
+
+A once-per-build report goes to the first file in the one-thread order. Today these are the partial-selection reports SC157E and SC158E, which T makes at the first written mention of an instance (`InstanceLatch::Ambiguity` / `Undecided`). A parallel Sema front does not take the latch. It records the mention (`SemaContext::once_log`) and stops after T. The driver then claims the mentions at that group's turn, in the order the front met them (`FrontendAction::_settle_once`). A claimed report is a T error, so it stops its file after T (`Sema::stop_if_types_errored`), exactly as it does in a one-thread run. `Scripts/diag_determinism.py` runs the compiler N times on an input and reports how many distinct outputs it got.
 
 ### Consumers
 

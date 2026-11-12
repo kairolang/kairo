@@ -1581,7 +1581,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
                     b.first(e->range)
                     if !is_tup { // a tuple is declared nowhere.
-                        b.note(rd->range.start, type_declared_here())->first(rd->range)
+                        b.note(rd->range.start, type_declared_here())->child_first(rd->range)
                     }
 
                     b.emit()
@@ -1677,7 +1677,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             )
 
             kb.first(e->range)
-            kb.note(del->range.start, "the copy constructor is deleted here")->first(del->range)
+            kb.note(del->range.start, "the copy constructor is deleted here")->child_first(del->range)
             kb.emit()
             e->poison()
             self.n_errored += 1
@@ -1695,7 +1695,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         )
 
         b.first(e->range)
-        b.note(rd->range.start, type_declared_here())->first(rd->range)
+        b.note(rd->range.start, type_declared_here())->child_first(rd->range)
         b.emit()
         e->poison()
         self.n_errored += 1
@@ -1738,7 +1738,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             e->range.start,
             f"'{ts}' is a copy type, so the transfer {how} copies it, and it has no move to fall back on (its one transfer constructor is '@copy'): take it as a 'const' parameter or through a pointer, or build it in place",
         )
-        b.note(dc.ctor->range.start, "the copy constructor is constrained here")->first(dc.ctor->range)
+        b.note(dc.ctor->range.start, "the copy constructor is constrained here")->child_first(dc.ctor->range)
         b.emit()
         e->poison()
         self.n_errored += 1
@@ -2161,7 +2161,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         var b = self.sc->diag->report(DiagID::SC052E, n->range.start, msg)
         b.first(n->range)
-        b.note(mp.at.start, f"'{gone}' was moved here, {mp.how}")->first(mp.at)
+        b.note(mp.at.start, f"'{gone}' was moved here, {mp.how}")->child_first(mp.at)
         b.note(n->range.start, f"assign a new value to '{gone}' before using it again")
         b.emit()
         n->poison()

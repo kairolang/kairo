@@ -245,8 +245,8 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
             DiagCode(DiagID::SC238N),
             v->range.start,
             f"'{name}' is given its value here; " + why,
-        )->first(v->range)
-        b.note(DiagCode(DiagID::SC238N), lab->range.start, "the jump lands here")->first(lab->range)
+        )->child_first(v->range)
+        b.note(DiagCode(DiagID::SC238N), lab->range.start, "the jump lands here")->child_first(lab->range)
         b.emit()
     }
 

@@ -542,7 +542,7 @@ pub class <T: type> PatternTyping {
             // A constant needs no domain: it is an `==` test like a literal
             // on this column, and the instance's C++ picks the operator.
             // Unresolved, the match had no decision tree and reached EmitIR
-            // as an ICE (P517).
+            // as an ICE.
             if st != &null && !is_dotted && !has_parens && subs.size() == 0 {
                 var unsafe *vd = dyn_cast<VariableDecl>(self._head_decl(head))
                 if vd != &null && (vd->is_const() || vd->is_eval()) {
@@ -862,7 +862,7 @@ pub class <T: type> PatternTyping {
             )
 
             b.first(p->range)
-            b.note(v->range.start, "one variant per element of the pack")->first(v->range)
+            b.note(v->range.start, "one variant per element of the pack")->child_first(v->range)
             b.emit()
             return -1
         }
@@ -905,7 +905,7 @@ pub class <T: type> PatternTyping {
                 )
 
                 b.first(bp->type_->range, "the payload's type picks the variant")
-                b.note(v->range.start, f"its variants here: {ve->describe(st, v)}")->first(v->range)
+                b.note(v->range.start, f"its variants here: {ve->describe(st, v)}")->child_first(v->range)
                 b.emit()
                 return -1
             }
@@ -945,7 +945,7 @@ pub class <T: type> PatternTyping {
             )
         }
 
-        b.note(v->range.start, f"its variants here: {ve->describe(st, v)}")->first(v->range)
+        b.note(v->range.start, f"its variants here: {ve->describe(st, v)}")->child_first(v->range)
         b.emit()
         return -1
     }

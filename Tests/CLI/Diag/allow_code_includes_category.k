@@ -1,5 +1,5 @@
 // A policy code is category + number. SC005 (a Semantic warning) and S005 (a
-// Syntax code) used to collapse to the key 5, so allowing one silenced the
+// Syntax code) must not collapse to the key 5, or allowing one silences the
 // other. -A S005 must leave the SC005W warning alone; -A SC005 removes it.
 
 fn f(__x: i32) -> i32 { return __x }

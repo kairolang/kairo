@@ -27,7 +27,7 @@ The driver turns a command line into a batch: it parses flags into a `CompilerIn
 9. `execute()` runs the batch.
 10. Write the timing report, `--stats-file` and `--time-trace` outputs. An unwritable path is U023E and fails the run.
 
-The exit status is 0 when `BatchResult::ok()` holds: no error anywhere in the batch. Warnings alone exit 0.
+The exit status is 0 when `BatchResult::ok()` holds: no error anywhere in the batch. Warnings alone exit 0. Otherwise it is 1, or the sysroot hook's own status (2 refusal, 3 build failure). The numbers are named once: `EXIT_OK` / `EXIT_FAILURE` in `Compiler/Support/ExitCodes.k`, `SYS_STATUS_REFUSED` / `SYS_STATUS_FAILED` in `Linker/Sysroot/Outcome.k`.
 
 ### Construction
 
@@ -85,7 +85,7 @@ With exactly one Kairo input and no C/C++ input including a `.k`, the clang head
 `_plan_outputs` decides, once per batch:
 
 - `-o` names one output: the executable or library when the run links, the single object (or `.s`, `.ll`, `.bc`, `.pch`) otherwise. `-o` naming a directory is I004F. Under a non-linking run, more than one output with `-o` is I004F; the count is `(kairo + source inputs) × emitted kinds + headers`, taken before any TU writes.
-- The run links when it is not `-c`, does not stop before codegen, and has at least one Kairo, source or link input. A build of headers alone writes their `.pch` files and stops. The default link output is `a.out`.
+- The run links when it is not `-c` or `-S`, does not stop before codegen, has at least one Kairo, source or link input, and its `--emit` set links (`EmitKinds::links`, `Compiler/Config/Frontend.k`): `obj` alone links; one other kind does not (`-o` names that file); two or more kinds link only with `-o`, which then names the executable. The set counts distinct kinds, the one parse codegen also uses, so an empty item or a repeat changes nothing: `obj,`, `,obj` and `obj,obj` are `obj`, and `asm,asm` is `asm`. An empty set (`--emit=`) links nothing and is I004F. A build of headers alone writes their `.pch` files and stops. The default link output is `a.out`.
 - Objects go to `--cache-dir` (kept). Without it, a linking run uses a temporary directory removed after the link, or `<output>.kobj` under `--save-temps`; a non-linking run uses the working directory.
 - With `--emit` naming kinds besides `obj` on a linking run, objects are still produced for the link; the listed kinds are outputs, written beside the executable when the object directory is temporary.
 - `--emit-scope=graph` (default) writes objects for every Kairo file the run reaches; `inputs` writes them for the command line's own files only, as `clang -c` does.
@@ -128,6 +128,12 @@ Several letters keep Kairo meanings that differ from clang's: `-I` is a Kairo im
 
 Groups in the registry: identity and info queries, input, output, target, build mode, optimization, reproducible builds, language semantics (hard switches), language feature toggles (`-f`), defines and config, warnings and diagnostics, BCIR/AMT internals, incremental compilation, module system, linking, per-platform link options (Darwin, Windows, WASM, embedded), testing, verbosity, developer dumps, and compiler limits.
 
+Two feature toggles split the conversion rules: `-f[no-]implicit-conv` is the Kairo-side implicit conversions (the primitive lattice's W class and ABI widening; on by default), and `-f[no-]cxx-implicit-conv` lets C++'s own implicit conversions apply where a value crosses into C++ (one user-defined conversion, a literal crossing as `const char[N]`; off by default, so such a crossing needs ` as T`). Neither implies the other ([ExprTyping.md](ExprTyping.md#c-implicit-conversions-at-a-crossing)).
+
+### Dialect flags and the library
+
+A flag that changes a language rule (`-fno-implicit-conv`, `-fduck-generics`, the `--no-*` gates and `--max-*` limits) applies to the user's files only. `Lib/builtin` and `Lib/std` always compile in one fixed mode, whatever the user passes (P780: `Conversion::implicit_enabled` and `FlagGates::_library_tu`). Not yet under this rule: `-fcxx-implicit-conv`, `-finfer-purity` and `-funwind` still reach the library (P939).
+
 ### Unimplemented flags
 
 A flag the parser accepts but nothing consumes is registered with `cmd->mark_unimplemented(key)` at the end of `register_kairo_flags` (`c:<name>` for config limits, the bare name for features). Setting one emits U005W ("accepted but not yet implemented; it has no effect"), once per flag, and `--help` renders it with `[not implemented]`, so a flag never appears to do something it does not. The entry is removed in the same change that wires the flag's consumer. An unknown key in the list is ignored, so a typo there cannot abort the compiler.
@@ -160,12 +166,20 @@ Dump flags are orthogonal to the action and fire at fixed points:
 | Flag | Output | Point |
 |---|---|---|
 | `--dump-preprocessed`, `--print-tokens`, `--print-macros`, `--print-imports` | token stream, macros, import graph and overlays | after preprocessing |
+| `--emit-ast-bin=<path>`, `--ast-roundtrip`, `--verify-ast-roundtrip` | the entry file's serialized AST; every parsed tree replaced by, or compared with, its reloaded one ([Serialization.md](Serialization.md#driver-flags)) | after parsing, before the AST dumps |
 | `--print-ast=tree\|flat\|canonical`, `--print-symbols` | AST, frozen symbol tables | after parsing |
 | `--print-sema` | every resolved binding | after the checks, before any lowering |
 | `--print-lowered` | the same dump after the `Lower/` passes | after lowering |
+| `--dump-interface=<path.json>`, `--dump-deps=<path.json>` | every file's interface hashes and name sets; every file's dependency rows ([IncrementalSema.md](IncrementalSema.md#the-dumps)) | the interface at `Checked`, before any lowering; the rows and both files at the end of Sema |
+| `--emit-headers-line-directives` (hidden) | with `--emit-headers`: `#line` before each header line naming its Kairo file and line, invented text under the header's own name; an unchanged header is not rewritten | for kals' clangd bridge only (LanguageServer.md section 15); a plain `--emit-headers` stays directive-free |
+| `--emit-headers-layout` (hidden) | with `--emit-headers`: each declaration on the same physical line as in its `.k` file, invented text in `<header>.prelude` included from line 1; for clangd, which ignores `#line` | kals only |
 | `--print-emit-plan`, `--print-cxx`, `--emit-headers=<dir>` | EmitPlan, C++ preamble text, interop headers | after Sema; headers only without errors |
 | `--print-cg`, `--print-ir` | codegen token stream, generated C++ | in codegen (forces one worker) |
 | `--print-panic-sets` | every `Panic<T, E...>` instance | after Sema |
+
+`--dump-interface` and `--dump-deps` are the facts of incremental Sema's phase 1, for `Scripts/incr_oracle.py` and the tests under `Tests/Sema/Incremental/`; nothing reads them back. Either one turns dependency logging on for the run (about 7% more CPU on the compiler's own tree); without them no log exists and Sema does what it did. Both files are sorted throughout and hold no absolute path but a top-level `root`, the working directory: a file's `path` is relative to it, and empty for a file outside it, which its module path still names. A file that cannot be written is U001E.
+
+The three serialized-AST flags are for testing the format, not for output a user keeps: `--emit-ast-bin` writes only the entry file's tree, `--ast-roundtrip` (also `KAIRO_AST_ROUNDTRIP=1` in the environment, which is how `Scripts/lit_ast_roundtrip.py` runs the unmodified test suite under it) makes Sema and every later stage, the AST dumps included, run on trees the reader built, and `--verify-ast-roundtrip` reports a tree that does not survive the round trip as I002F and leaves the parsed tree in place.
 
 Each dump covers every TU, including builtin and std. Its exact pinning to Sema phases is specified in [Pipeline.md](Pipeline.md#compilation-phases).
 
@@ -306,3 +320,15 @@ Native inputs follow the batch's action: `-c` writes `.o`, `-S` `.s`, `--emit` k
 ### Open decisions
 
 `-E` stays the diagnostic deny flag. A clang user typing `kairo -E foo.cc` gets "deny foo.cc"; `--preprocess` is the preprocess spelling. Moving `-E` to the clang meaning, with `--error=<code>` long-only, is an open design question.
+
+### Incremental Sema (`--incremental-sema`)
+
+Off by default; `--incremental-sema` or `KAIRO_INCR_SEMA=1` turns it on ([IncrementalSema.md](IncrementalSema.md#phase-2-module-records-and-the-all-hit-skip)). With `--cache-dir`, a run of one Kairo input whose only frontend outputs are the link's objects (or none, under `--type-check-only`) keeps a manifest and one record per module under `<cache-dir>/kairo-cache-v<CACHE_SCHEMA>/mod/`. `CompilerInstance::execute` decides before the action loop: when every recorded input is unchanged the action is replaced by the recorded result (objects, `ffi_pthread`, the frontend's rendered diagnostics, its warning count) and the library, C/C++ inputs, runtime and link run as always. Any miss runs the full pipeline and rewrites the records; a run that reported an error writes them marked, as the baseline for the next run's plan and never as a hit (`miss: the recorded run had errors`).
+
+- `--print-incr-status` prints the verdict to stdout: `incremental: hit, N modules`, `incremental: miss: <first reason>` (`no record`, `flags changed`, `environment changed`, `f.diag changed`, `compiler changed: <path>`, `changed: <path>`, `removed: <path>`, `added: <path>`, `graph changed: <dir>`, `object changed: <path>`) or `incremental: miss: not eligible (<why>)`.
+- `--incr-verify`: on a would-be hit the full pipeline runs anyway and its diagnostics, warning count, object list, per-module object keys and `I(m)` are compared with the records; a difference is U001E (`--incr-verify: the records claim a hit, but a full run differs in ...`). A verified hit prints `incremental: hit, N modules, verified`.
+- `--print-incr-plan`: after a miss, the re-check set the stored dependency rows give for what changed ([IncrementalSema.md](IncrementalSema.md#phase-3-the-re-check-plan-and-what-blocks-the-rest)): `incremental: plan: re-check K of N modules`, then one `incremental: plan:   <module>: <rule and what it matched>` line per module, sorted; or `incremental: plan: re-check all N modules (<why>)` when something moved that the rows cannot see. Nothing is reused on it: the run is a full run. With `--incr-verify` the plan is proven against that run (every module left out has the interface and diagnostics of its record: `incremental: plan: verified, M modules as recorded`), and a module that differs is U001E (`--incr-verify: the dependency rows leave a module out of the re-check set ...`), with the records left as they were.
+- `--incr-replay=<script>` (with `--incr-replay-dump=<dir>`): a test mode, independent of `--incremental-sema`. The entry is type-checked once, then each step of the script edits files on disk and the same process brings the result up to date through `Tooling::LiveCheck` ([IncrementalSema.md](IncrementalSema.md#phase-4-the-live-check-at-full-fallback)). Per step: `incr-replay: step <n> <name>: <mode> (<why>), <files> files, <errors> errors, <ms> ms` on stdout, `== incr-replay step <n> <name>` and the diagnostics on stderr. `Scripts/incr_replay_check.py` compares every step with a fresh run. With `--incr-replay-in-place` an edit is re-checked in place where that is sound (`refresh (K of N files)`). Three more, all test modes ([IncrementalSema.md](IncrementalSema.md#phase-5-buffers-the-observer-two-tiers-and-the-worker-that-stays-up)): `--incr-replay-overlay` hands each edit of an existing `.k` file to the live check as a buffer and leaves the disk as it was; `--incr-replay-observe` installs a Sema observer and prints `checked <file>` / `lowered <file>` for each call; `--incr-replay-two-tier` re-checks each edited file as its edit is read (`incr-replay:   fg <file>: <mode> (<why>), <ms> ms`, and `== incr-replay fg <n> <file>` with that file's diagnostics on stderr), queues the files that import it, honours `drain <n>` lines in the script, and prints the step once the queue is empty.
+- `--incr-paranoid` hashes every recorded file instead of trusting an unchanged size and mtime.
+- Not eligible (always a full run): no `--cache-dir`, more than one Kairo input or one found through an include, a C++ input that includes a `.k`, objects in a temporary directory, `--emit` beside the link or of `.s`/`.ll`/`.bc`, `--print-cg`/`--print-ir`/`--force-recompile`, any `--print-*`/`--dump-*` flag, a run stopping before Sema.
+

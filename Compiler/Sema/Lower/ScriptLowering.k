@@ -417,7 +417,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
                 DiagCode(DiagID::SC234N),
                 main_fn->range.start,
                 "'main' is declared here",
-            )->first(main_fn->range)
+            )->child_first(main_fn->range)
             b.emit()
             return
         }
@@ -598,7 +598,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
                 DiagCode(DiagID::SC236N),
                 r.range.start,
                 f"'{fname}' reads '{name}' here",
-            )->first(r.range)
+            )->child_first(r.range)
             var unsafe *v = self._deferred[g]
             var when = if (self._line[g] == ord) => ("by this line, once the call returns")
                        else => "here, later"
@@ -606,7 +606,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
                 DiagCode(DiagID::SC236N),
                 v->range.start,
                 f"'{name}' is given its value " + when,
-            )->first(v->range)
+            )->child_first(v->range)
             b.emit()
             return // one error per call
         }
@@ -969,7 +969,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
             DiagCode(DiagID::SC236N),
             v->range.start,
             f"'{name}' is given its value here",
-        )->first(v->range)
+        )->child_first(v->range)
         b.emit()
     }
 

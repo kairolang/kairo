@@ -656,7 +656,7 @@ pub class RedeclMerge {
                     DiagCode(DiagID::R029N),
                     prior->range.start,
                     f"previous definition of '{nm}' is here",
-                )->first(prior->range)->emit()
+                )->child_first(prior->range)->emit()
                 f->poison()
                 continue
             }
@@ -686,7 +686,7 @@ pub class RedeclMerge {
                     DiagCode(DiagID::R056N),
                     hit->range.start,
                     "the in-class declaration, where defaults go",
-                )->first(hit->range)->emit()
+                )->child_first(hit->range)->emit()
                 p->default_val = &null
             }
 
@@ -1167,7 +1167,7 @@ pub class RedeclMerge {
             DiagCode(DiagID::R061N),
             prev->range.start,
             previously_declared_here(),
-        )->first(prev->range)->emit()
+        )->child_first(prev->range)->emit()
         cur->poison()
     }
 
@@ -1293,7 +1293,7 @@ pub class RedeclMerge {
             DiagCode(DiagID::R054N),
             a->range.start,
             f"the other declaration is here; they differ only in the passing mode of '{pn}'",
-        )->first(a->range)->emit()
+        )->child_first(a->range)->emit()
         b->poison()
     }
 
@@ -1387,7 +1387,7 @@ pub class RedeclMerge {
             DiagCode(DiagID::R052N),
             a->range.start,
             f"'{ka}' declared here",
-        )->first(a->range)->emit()
+        )->child_first(a->range)->emit()
         b->poison()
     }
 
@@ -1612,7 +1612,7 @@ pub class RedeclMerge {
             DiagCode(DiagID::R037N),
             prev_at.start,
             "previously declared with this return type",
-        )->first(prev_at)->emit()
+        )->child_first(prev_at)->emit()
         cur->poison()
     }
 
@@ -1664,7 +1664,7 @@ pub class RedeclMerge {
                 DiagCode(DiagID::R040N),
                 pp->default_val->range.start,
                 "previous default argument is here",
-            )->first(pp->default_val->range)->emit()
+            )->child_first(pp->default_val->range)->emit()
             cur->poison()
         }
     }
@@ -1688,7 +1688,7 @@ pub class RedeclMerge {
             DiagCode(DiagID::R038N),
             prev->range.start,
             previously_declared_here(),
-        )->first(prev->range)->emit()
+        )->child_first(prev->range)->emit()
         cur->poison()
     }
 
@@ -1748,7 +1748,7 @@ pub class RedeclMerge {
             DiagCode(DiagID::R039N),
             prev->range.start,
             previously_declared_here(),
-        )->first(prev->range)->emit()
+        )->child_first(prev->range)->emit()
         cur->poison()
     }
 
@@ -1777,7 +1777,7 @@ pub class RedeclMerge {
             DiagCode(DiagID::R039N),
             prev->range.start,
             f"previously declared here with {before}",
-        )->first(prev->range)->emit()
+        )->child_first(prev->range)->emit()
         cur->poison()
     }
 
@@ -1846,7 +1846,7 @@ pub class RedeclMerge {
                 DiagCode(DiagID::R041N),
                 prev->range.start,
                 "previous declaration is here",
-            )->first(prev->range)->emit()
+            )->child_first(prev->range)->emit()
             cur->poison()
             return
         }
@@ -1867,7 +1867,7 @@ pub class RedeclMerge {
                 DiagCode(DiagID::R029N),
                 prev->range.start,
                 f"previous definition of '{name}' is here",
-            )->first(prev->range)->emit()
+            )->child_first(prev->range)->emit()
             cur->poison()
             return
         }

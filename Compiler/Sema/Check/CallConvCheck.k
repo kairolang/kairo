@@ -269,7 +269,7 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
                 f"overridden method declared here with {theirs}",
             )
 
-            b.first(base->range)
+            b.child_first(base->range)
             b.emit()
         }
 
@@ -302,7 +302,7 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
             "the base method of that name; a C++ 'const T&' parameter is written 'const x: T'",
         )
 
-        b.first(meant->range)
+        b.child_first(meant->range)
         b.emit()
     }
 

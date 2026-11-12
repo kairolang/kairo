@@ -6,12 +6,11 @@
 ///          filled, pack tail gathered.
 ///
 ///   \detail
-///     The one copy. Three passes apply an argument list, and they used to
-///     disagree: TypeResolve (a type position, `var v: std::vector<i32>`)
-///     had the full rule; ExprTyper (`std::vector<i32>()` in expression
-///     position) demanded an exact count and so rejected every C++ template
-///     with a defaulted parameter; ChainBinding (`Foo<A>::x`) deferred
-///     anything but the exact-count case to inference.
+///     The single implementation of applying an argument list. TypeResolve
+///     (a type position, `var v: std::vector<i32>`), ExprTyper
+///     (`std::vector<i32>()` in expression position) and ChainBinding
+///     (`Foo<A>::x`) all route through it, so a defaulted template parameter
+///     and a pack tail are handled identically in each.
 ///
 ///     Defaults are READ here, never resolved. A Kairo primary's default is
 ///     resolved in the PRIMARY's scope with its own params in frame, which
@@ -127,7 +126,7 @@ pub class GenericArgs {
                     DiagCode(DiagID::R032N),
                     d->range.start,
                     declared_here(),
-                )->first(d->range)->emit()
+                )->child_first(d->range)->emit()
             }
 
             return false
@@ -143,7 +142,7 @@ pub class GenericArgs {
                     DiagCode(DiagID::R032N),
                     d->range.start,
                     declared_here(),
-                )->first(d->range)->emit()
+                )->child_first(d->range)->emit()
             }
 
             return false
@@ -159,7 +158,7 @@ pub class GenericArgs {
                     DiagCode(DiagID::R032N),
                     d->range.start,
                     declared_here(),
-                )->first(d->range)->emit()
+                )->child_first(d->range)->emit()
             }
 
             return false
@@ -210,7 +209,7 @@ pub class GenericArgs {
                       else => f"'{nm}' is a type parameter; it takes a type, not a value"
             var b = self.sc->diag->report(DiagID::R060E, at.start, msg)
             b.first(at)
-            b.note(DiagCode(DiagID::R060N), gp->range.start, named_declared_here(nm))->first(
+            b.note(DiagCode(DiagID::R060N), gp->range.start, named_declared_here(nm))->child_first(
                 gp->range,
             )
 

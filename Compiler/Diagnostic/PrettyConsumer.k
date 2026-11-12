@@ -29,7 +29,9 @@ import Diagnostic::Diagnostic::{
     FixIt,
 }
 import Diagnostic::Severity::DiagSeverity
+import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
+import Location::SourceRange::SourceRange
 import Support::FileIO::Path::Path
 import Support::TermRenderer::TermRenderer
 import std::io
@@ -489,13 +491,14 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     priv fn _labels_hide_message(self,
                                  d:    unsafe *Diagnostic,
                                  sm:   unsafe *SourceManager,
+                                 fid:  u32,
                                  line: usize) -> bool {
         for var li: usize = 0; li < d->labels.size(); ++li {
             if d->labels[li].range.is_invalid() {
                 continue
             }
 
-            if sm->get_line_col(d->labels[li].range.start).line != line {
+            if !self._on_line(d->labels[li].range.start, sm, fid, line) {
                 continue
             }
 
@@ -572,7 +575,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         if self._show_context {
             for var i: usize = 0; i < group.diags.size(); ++i {
                 var unsafe *nd = group.diags[i]
-                if self._labels_hide_message(nd, sm, group.line_num as usize) {
+                if self._labels_hide_message(nd, sm, group.key.file_id, group.line_num as usize) {
                     out += "  " + self.code_prefix(
                         nd->code,
                         nd->code.severity(),
@@ -625,45 +628,26 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                     continue
                 }
 
-                var start_lc = sm->get_line_col(label.range.start)
-                var end_lc   = sm->get_line_col(label.range.end)
-                if start_lc.line != (group.line_num as usize) {
+                // A label in another file can share this line NUMBER: a note
+                // label on a header declaration at the call's line once drew
+                // the whole declaration's width from column 1 under the call
+                // (P961). Only labels in this group's file belong here.
+                if !self._on_line(label.range.start, sm, group.key.file_id, group.line_num as usize) {
                     continue
                 }
 
                 var span: CaretSpan
-                span.start_col = start_lc.column
-                span.end_col   = end_lc.column
-                span.code      = diag->code
-                span.sev       = dsev
-                span.style     = label.style
+                span.code  = diag->code
+                span.sev   = dsev
+                span.style = label.style
+                self._place_span(&span, line_text, label.range, sm)
 
                 var ltext: string = label.text
-                if ltext.length() == 0 && !emitted_any {
+                if (ltext.length() == 0) && (!emitted_any) {
                     ltext = default_text
                 }
 
                 emitted_any = true
-
-                if span.start_col > 0 {
-                    span.start_col -= 1
-                }
-
-                if span.end_col > 0 {
-                    span.end_col -= 1
-                }
-
-                if span.end_col <= span.start_col {
-                    span.end_col = span.start_col + 1
-                }
-
-                if span.start_col > line_text.length() {
-                    span.start_col = line_text.length()
-                }
-
-                if span.end_col > line_text.length() {
-                    span.end_col = line_text.length()
-                }
 
                 spans.push_back(span)
                 span_text.push_back(ltext)
@@ -671,32 +655,14 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
             if !emitted_any {
                 // no label on this line: fall back to the diag loc itself
-                var loc_info           = sm->get_line_col(diag->loc)
-                var span:    CaretSpan
-                span.start_col = loc_info.column
-                span.end_col   = loc_info.column + 1       // was +4 magic width
-                span.code      = diag->code
-                span.sev       = dsev
-                span.style     = DiagLabel::Style::Primary
-                if span.start_col > 0 {
-                    span.start_col -= 1
-                }
-
-                if span.end_col > 0 {
-                    span.end_col -= 1
-                }
-
-                if span.end_col <= span.start_col {
-                    span.end_col = span.start_col + 1
-                }
-
-                if span.start_col > line_text.length() {
-                    span.start_col = line_text.length()
-                }
-
-                if span.end_col > line_text.length() {
-                    span.end_col = line_text.length()
-                }
+                var span: CaretSpan
+                span.code  = diag->code
+                span.sev   = dsev
+                span.style = DiagLabel::Style::Primary
+                var at     = SourceRange::invalid()
+                at.start = diag->loc
+                at.end   = diag->loc
+                self._place_span(&span, line_text, at, sm)
 
                 spans.push_back(span)
                 span_text.push_back(default_text)
@@ -731,55 +697,61 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             for var fj: usize = 0; fj < dg->fixits.size(); ++fj {
                 var pf = dg->fixits[fj]
                 if pf.range.is_valid()
-                    && sm->get_line_col(pf.range.start).line == (group.line_num as usize) {
+                    && self._on_line(pf.range.start, sm, group.key.file_id, group.line_num as usize) {
                     primary_fix     = pf
                     has_primary_fix = true
                 }
             }
         }
 
-        // Fix-it geometry, 0-based columns clamped to the primary line.
-        var fix_start_col: usize = 0
-        var fix_mid_len:   usize = 0 ///< removed span width ('-' markers)
-        var fix_ins_len:   usize = 0 ///< inserted text width ('+' markers)
+        // Fix-it geometry, 0-based byte columns clamped to the primary line
+        // (render_fixed_line slices the text with them), and the same edit in
+        // terminal cells for the '-'/'+' markers on the caret row.
+        var fix_start_col:  usize  = 0
+        var fix_mid_len:    usize  = 0 ///< removed span bytes
+        var fix_start_cell: usize  = 0
+        var fix_mid_cells:  usize  = 0 ///< removed span width ('-' markers)
+        var fix_ins_cells:  usize  = 0 ///< inserted text width ('+' markers)
+        var shown_text:     string = line_text ///< the primary line as printed
         if has_primary_fix {
-            fix_start_col = sm->get_line_col(primary_fix.range.start).column
-            var f_end_col = sm->get_line_col(primary_fix.range.end).column
-            if fix_start_col > 0 {
-                fix_start_col -= 1
-            }
+            var fb        = self._byte_span(primary_fix.range, line_text.length(), sm)
+            fix_start_col = fb.start_col
+            var f_end_col = fb.end_col
+            fix_mid_len   = f_end_col - fix_start_col
+            var rep     = primary_fix.replacement
 
-            if f_end_col > 0 {
-                f_end_col -= 1
-            }
-
-            if fix_start_col > line_text.length() {
-                fix_start_col = line_text.length()
-            }
-
-            if f_end_col > line_text.length() {
-                f_end_col = line_text.length()
-            }
-
-            if f_end_col < fix_start_col {
-                f_end_col = fix_start_col
-            }
-
-            fix_mid_len = f_end_col - fix_start_col
-            fix_ins_len = primary_fix.replacement.length()
+            fix_start_cell = self._cells(line_text, fix_start_col)
+            fix_mid_cells  = self._cells(line_text, f_end_col) - fix_start_cell
+            fix_ins_cells  = self._cells(rep, rep.length())
 
             // The fixed line keeps the removed text (struck) AND adds the
             // inserted text, so every column past the edit moves right by
             // the insert width. Shift labels there, or a label after an
             // insert (`fn f(self) const` -> strike on const) lands under
-            // the wrong token.
-            var edit_end = fix_start_col + fix_mid_len
+            // the wrong token. A label that runs across the edit stretches
+            // over the insert, or it stops that many cells short of its end.
+            var edit_end = fix_start_cell + fix_mid_cells
             for var s: usize = 0; s < spans.size(); ++s {
                 if spans[s].start_col >= edit_end {
-                    spans[s].start_col += fix_ins_len
-                    spans[s].end_col += fix_ins_len
+                    spans[s].start_col += fix_ins_cells
+                    spans[s].end_col += fix_ins_cells
+                } else if spans[s].end_col > edit_end {
+                    spans[s].end_col += fix_ins_cells
                 }
             }
+
+            // The caret rows sit under the line as printed, insert included.
+            var fixed: string
+            for var i: usize = 0; i < f_end_col; ++i {
+                fixed.push_back(line_text[i])
+            }
+
+            fixed += rep
+            for var i: usize = f_end_col; i < line_text.length(); ++i {
+                fixed.push_back(line_text[i])
+            }
+
+            shown_text = fixed
         }
 
         // Per-column severity map (for overlap coloring on the caret row)
@@ -840,10 +812,10 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             /// Column-addressed so fix markers can overlay carets: '-' (red)
             /// over removed columns, '+' (green) under inserted text, both in
             /// fixed-line coordinates.
-            var fix_end_col: usize = fix_start_col + fix_mid_len + fix_ins_len
-            var row_cols:    usize = max_col
-            if has_primary_fix && fix_end_col > row_cols {
-                row_cols = fix_end_col
+            var fix_end_cell: usize = fix_start_cell + fix_mid_cells + fix_ins_cells
+            var row_cols:     usize = max_col
+            if has_primary_fix && fix_end_cell > row_cols {
+                row_cols = fix_end_cell
             }
 
             var row_glyph: cxx::std::vector<u8>
@@ -861,24 +833,25 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             }
 
             if has_primary_fix {
-                var mc: usize = fix_start_col
-                for var c: usize = 0; c < fix_mid_len; ++c {
+                var mc: usize = fix_start_cell
+                for var c: usize = 0; c < fix_mid_cells; ++c {
                     row_glyph[mc] = ('-' as u8)
                     row_color[mc] = self.RED
                     mc += 1
                 }
 
-                for var c: usize = 0; c < fix_ins_len; ++c {
+                for var c: usize = 0; c < fix_ins_cells; ++c {
                     row_glyph[mc] = ('+' as u8)
                     row_color[mc] = self.GREEN
                     mc += 1
                 }
             }
 
+            var under = self._blank(shown_text, 0, row_cols) ///< one byte per cell
             var caret_row: string
             for var c: usize = 0; c < row_cols; ++c {
                 if row_glyph[c] == (' ' as u8) {
-                    caret_row.push_back(' ' as u8)
+                    caret_row.push_back(under[c])
                     continue
                 }
 
@@ -927,7 +900,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                         continue
                     }
 
-                    row += string(' ' as u8, anchor - col)
+                    row += self._blank(shown_text, col, anchor)
                     if color {
                         var ce = self.severity_color(active_spans[s].sev)
                         row += f"{ce}|{self.RESET}"
@@ -940,7 +913,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
                 // the message, always padded to its own anchor
                 if msg_anchor > col {
-                    row += string(' ' as u8, msg_anchor - col)
+                    row += self._blank(shown_text, col, msg_anchor)
                 }
 
                 var msg = active_texts[ri]
@@ -1132,7 +1105,6 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             }
 
             var start_lc  = sm->get_line_col(label.range.start)
-            var end_lc    = sm->get_line_col(label.range.end)
             var line_text = sm->get_full_line(label.range.start)
 
             var glyph_col = if color => (if (label.style == DiagLabel::Style::Primary) => (sev_col)
@@ -1180,32 +1152,13 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             // conn_gutter. Padding with a plain blank run the width of the
             // line-number prefix leaves note carets floating with no '|'
             // under the source line.
-            var pad       = f"{indent}{string((' ' as u8), left_pad)} {pipe} "
-            var start_col = start_lc.column
-            var end_col   = end_lc.column
-
-            if start_col > 0 {
-                start_col -= 1
-            }
-
-            if end_col > 0 {
-                end_col -= 1
-            }
-
-            if start_col > line_text.length() {
-                start_col = line_text.length()
-            }
-
-            if end_col > line_text.length() {
-                end_col = line_text.length()
-            }
-
-            if end_col <= start_col {
-                end_col = start_col + 1
-            }
+            var pad = f"{indent}{string((' ' as u8), left_pad)} {pipe} "
+            var cells: CaretSpan
+            self._place_span(&cells, line_text, label.range, sm)
 
             var glyph     = self.label_char(label.style)
-            var underline = string(' ' as u8, start_col) + string(glyph, end_col - start_col)
+            var lead      = self._blank(line_text, 0, cells.start_col)
+            var underline = lead + string(glyph, cells.end_col - cells.start_col)
 
             out += pad + (if color => f"{glyph_col}{underline}{self.RESET}" else => underline)
 
@@ -1220,6 +1173,175 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     }
 
     /// # Helpers
+
+    /// True when \p loc is on \p line of file \p fid. A line number alone is
+    /// not a place: the call and the header declaration a note points at
+    /// can both be on line 7.
+    priv fn _on_line(self,
+                     loc:  SourceLocation,
+                     sm:   unsafe *SourceManager,
+                     fid:  u32,
+                     line: usize) -> bool {
+        if (sm->resolve(loc).fid as u32) != fid {
+            return false
+        }
+
+        return sm->get_line_col(loc).line == line
+    }
+
+    /// Puts \p span under \p range on \p line_text (the range's start line),
+    /// in terminal cells: 0-based, end exclusive, inside the line and at
+    /// least one cell wide (a point at the end of the line gets the cell
+    /// just past it). A range that ends on a later line, or in another
+    /// file, runs to the end of this one: its end column is that other
+    /// line's, and measured against this one it stopped the underline short
+    /// of the range or ran it past the text.
+    priv fn _place_span(self,
+                        @inout span:     CaretSpan,
+                        const line_text: string,
+                        range:           SourceRange,
+                        sm:              unsafe *SourceManager) {
+        var bytes = self._byte_span(range, line_text.length(), sm)
+        span.start_col = self._cells(line_text, bytes.start_col)
+        span.end_col   = self._cells(line_text, bytes.end_col)
+        if span.end_col <= span.start_col {
+            span.end_col = span.start_col + 1
+        }
+    }
+
+    /// \p range on its start line of \p len bytes, as 0-based byte columns
+    /// (end exclusive, possibly empty) clamped to the line; a range ending
+    /// on another line or in another file runs to the line's end. Shared by
+    /// labels and fix-its, whose removal markers had the same mismeasured
+    /// end (`x = Tok(2)` struck five columns of ten).
+    priv fn _byte_span(self, range: SourceRange, len: usize, sm: unsafe *SourceManager) -> CaretSpan {
+        var start_lc  = sm->get_line_col(range.start)
+        var end_lc    = sm->get_line_col(range.end)
+        var b0: usize = if (start_lc.column > 0) => (start_lc.column - 1) else => 0
+        var b1: usize = if (end_lc.column > 0) => (end_lc.column - 1) else => 0
+        var same_file = sm->resolve(range.end).fid == sm->resolve(range.start).fid
+        if (end_lc.line != start_lc.line) || (!same_file) {
+            b1 = len
+        }
+
+        if b0 > len {
+            b0 = len
+        }
+
+        if b1 > len {
+            b1 = len
+        }
+
+        if b1 < b0 {
+            b1 = b0
+        }
+
+        var out: CaretSpan
+        out.start_col = b0
+        out.end_col   = b1
+        return out
+    }
+
+    /// Bytes of the one terminal cell that starts at byte \p i of \p text: a
+    /// whole well-formed UTF-8 sequence, or else the maximal ill-formed
+    /// subpart, which a terminal shows as one U+FFFD (Unicode's
+    /// "substitution of maximal subparts"): `F4 90 80 80` is four cells,
+    /// `E2 82 61` is two (`E2 82`, then `a`). Never 0.
+    priv fn _cell_bytes(self, const text: string, i: usize) -> usize {
+        var b = text[i] as u8
+        if b < (0x80 as u8) {
+            return 1
+        }
+
+        var need: usize = 0
+        var lo:   u8    = 0x80 as u8 ///< the second byte's range; later ones are 80..BF
+        var hi:   u8    = 0xBF as u8
+        if (b >= (0xC2 as u8)) && (b <= (0xDF as u8)) {
+            need = 1
+        } else if b == (0xE0 as u8) {
+            need = 2
+            lo   = 0xA0 as u8
+        } else if b == (0xED as u8) {
+            need = 2
+            hi   = 0x9F as u8
+        } else if (b >= (0xE1 as u8)) && (b <= (0xEF as u8)) {
+            need = 2
+        } else if b == (0xF0 as u8) {
+            need = 3
+            lo   = 0x90 as u8
+        } else if b == (0xF4 as u8) {
+            need = 3
+            hi   = 0x8F as u8
+        } else if (b >= (0xF1 as u8)) && (b <= (0xF3 as u8)) {
+            need = 3
+        }
+
+        var n: usize = 1
+        while (n <= need) && ((i + n) < text.length()) {
+            var c = text[i + n] as u8
+            if n == 1 {
+                if (c < lo) || (c > hi) {
+                    break
+                }
+            } else if (c < (0x80 as u8)) || (c > (0xBF as u8)) {
+                break
+            }
+
+            n += 1
+        }
+
+        return n
+    }
+
+    /// Terminal cells the first \p bytes bytes of \p text take (see
+    /// _cell_bytes). Source columns are bytes; used as cells they put a
+    /// caret after "é" one cell right of its token for every multi-byte
+    /// character before it. A wide (East Asian) character still counts as
+    /// one cell.
+    priv fn _cells(self, const text: string, bytes: usize) -> usize {
+        var n: usize = 0
+        var i: usize = 0
+        while (i < bytes) && (i < text.length()) {
+            i += self._cell_bytes(text, i)
+            n += 1
+        }
+
+        return n
+    }
+
+    /// The blank run under cells [\p from, \p to) of \p text: a tab under
+    /// each tab, a space under everything else. The source row and the
+    /// caret row have gutters of one width, so the terminal expands a tab
+    /// in both to the same stop; a space under a tab left every caret after
+    /// it short by the tab's width.
+    priv fn _blank(self, const text: string, from: usize, to: usize) -> string {
+        var out:  string
+        var cell: usize = 0
+        var i:    usize = 0
+        while (i < text.length()) && (cell < to) {
+            var b = text[i] as u8
+            i += self._cell_bytes(text, i)
+            if cell >= from {
+                if b == ('\t' as u8) {
+                    out.push_back('\t' as u8)
+                } else {
+                    out.push_back(' ' as u8)
+                }
+            }
+
+            cell += 1
+        }
+
+        // Cells past the end of the text (a caret after the last character).
+        if to > from {
+            var want = to - from
+            if out.length() < want {
+                out += string(' ' as u8, want - out.length())
+            }
+        }
+
+        return out
+    }
 
     /// The highlighter language for a snippet of \p path: its extension, so
     /// a C/C++ input (or a header a clang note points into) is coloured as

@@ -567,7 +567,7 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
             b.note(
                 self._scope_var->range.start,
                 "the scope is opened here, and closing it at the end of this block frees everything allocated in it",
-            )->first(self._scope_var->range)
+            )->child_first(self._scope_var->range)
         }
 
         b.emit()

@@ -208,7 +208,7 @@ A foreign module's table is probed by spelling, never by this TU's identifier in
 
 ### Import-use dump
 
-`--dump-import-uses=<path.json>` writes, after Sema, every TU's written imports and each name the overlay answered, attributed to the import(s) whose targets hold it (`OverlayTarget::origin`), with the spelled use sites (`FrontendAction::_dump_import_uses`). The overlay is the one place an import answers a name, so `NameLookup::unqualified` logs each overlay hit into `ImportOverlay::uses` (an `ImportUseLog`, allocated by I only under the flag; one null check otherwise). The site is `NameLookup::use_at`, set around the lookup by the callers that hold a token (N's identifier and out-of-line qualifier heads, an `extend` target, T's type heads); a hit with no site (lang items, operator fallbacks, attributes) is counted as `implicit`, and one outside the TU's file (a macro body, an imported node T read) as `foreign`. Extensions are indexed build-wide (`MemberLookup::index_extensions`), not through imports, so they need no import edge.
+`--dump-import-uses=<path.json>` writes, after Sema, every TU's written imports and each name the overlay answered, attributed to the import(s) whose targets hold it (`OverlayTarget::origin`), with the spelled use sites (`FrontendAction::_dump_import_uses`). The overlay is the one place an import answers a name, so `NameLookup::unqualified` logs each overlay hit into `ImportOverlay::uses` (an `ImportUseLog`, allocated by I only under the flag; one null check otherwise). The site is `NameLookup::use_at`, set around the lookup by the callers that hold a token (N's identifier and out-of-line qualifier heads, an `extend` target, T's type heads); a hit with no site (lang items, operator fallbacks, attributes) is counted as `implicit`, and one outside the TU's file (a macro body, an imported node T read) as `foreign`. An import used only for the `extend` blocks of its file is a real use: extensions are visible through the import DAG (MemberLookup.md#visibility), not through the overlay, so the log records no name for it.
 
 `Scripts/import_lint.py` reads the dumps (one per configuration and entry, unioned) and reports or rewrites wildcard, dead and misordered imports; its docstring has the rules.
 
@@ -225,6 +225,8 @@ A `pub` or `prot` import is part of its file's surface. A re-exported name lives
 Both accept a target only when its `origin` import is `pub` or `prot`, so a private import edge in the source is never surface. A folded re-export takes this TU's import as its `origin`, so it is surface here only if that edge is `pub`/`prot` too. Keeping the source's origin instead leaked every target that once crossed a `pub import` through private edges and grew one duplicate per import path.
 
 A form re-exports what it bound. `pub import bar` re-exports the name `bar`, so an importer of foo writes `foo::bar::f()`; `pub import bar::*` re-exports bar's contents, so it writes `foo::f()`.
+
+A re-export also carries the `extend` blocks of its target onward, whatever its form ([MemberLookup.md](MemberLookup.md#visibility), P842): a file sees the extensions of the files it imports and of what those re-export, and a private edge further down carries none. A `prot` edge carries them only to an importer in the module of the file that wrote it. The name overlay above does not make that last distinction yet: a `prot import`'s names fold as surface for an importer outside the module too.
 
 ## Module pinning
 

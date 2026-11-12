@@ -323,7 +323,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 DiagCode(DiagID::SC141N),
                 rd->range.start,
                 "the global allocator needs static alloc, free, resize, realloc and alloc_zeroed (FullAllocator)",
-            )->first(rd->range)
+            )->child_first(rd->range)
             b.emit()
         }
     }
@@ -424,7 +424,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 DiagCode(DiagID::SC153N),
                 vps[i]->range.start,
                 f"this is false for '{rs}'",
-            )->first(vps[i]->range)
+            )->child_first(vps[i]->range)
             b.emit()
             return
         }
@@ -912,7 +912,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 )
 
                 b.first(ta->aliased->range)
-                b.note(c->range.start, "the bound is declared here")->first(c->range)
+                b.note(c->range.start, "the bound is declared here")->child_first(c->range)
                 b.emit()
             }
         }
@@ -1196,7 +1196,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         )
 
         r.first(c->range)
-        r.note(f->range.start, f"'{self._req_name(f)}' is required here")->first(f->range)
+        r.note(f->range.start, f"'{self._req_name(f)}' is required here")->child_first(f->range)
         r.emit()
         c->poison()
     }
@@ -1595,8 +1595,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             )
 
             b.first(e->use_at, f"'{inst}' is instantiated here")
-            b.note(site->range.start, f"'{nm}' was moved here, as a '{ts}'")->first(site->range)
-            b.note(read->range.start, "and used again here")->first(read->range)
+            b.note(site->range.start, f"'{nm}' was moved here, as a '{ts}'")->child_first(site->range)
+            b.note(read->range.start, "and used again here")->child_first(read->range)
             self.chain_notes(unsafe &b, e)
             b.emit()
         }
@@ -1767,7 +1767,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 )
 
                 bd.first(at)
-                bd.note(b->range.start, "required by this bound")->first(b->range)
+                bd.note(b->range.start, "required by this bound")->child_first(b->range)
                 if chain != &null {
                     self.chain_notes(unsafe &bd, chain)
                 }
@@ -1827,7 +1827,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
             bd.first(at)
             var nat = if (gp->kind_bound_range.is_valid()) => (gp->kind_bound_range) else => gp->range
-            bd.note(DiagCode(DiagID::SC292N), nat.start, f"'{gn}' is bounded '{gn}: {kw}' here")->first(nat)
+            bd.note(DiagCode(DiagID::SC292N), nat.start, f"'{gn}' is bounded '{gn}: {kw}' here")->child_first(nat)
             if chain != &null {
                 self.chain_notes(unsafe &bd, chain)
             }
@@ -2024,7 +2024,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 DiagCode(DiagID::SC159N),
                 rd->range.start,
                 f"declare 'virtual fn op finally(self)' in '{ts}'",
-            )->first(rd->range)
+            )->child_first(rd->range)
         }
 
         self.chain_notes(unsafe &b, e)
@@ -2047,7 +2047,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             var b  = self.sc->diag->report(x->id, e->use_at.start, x->msg)
             b.first(e->use_at, f"'{self._inst_name(e)}' is instantiated here")
             for var k: usize = 0; k < x->note_ids.size(); ++k {
-                b.note(DiagCode(x->note_ids[k]), x->note_at[k].start, x->note_msg[k])->first(
+                b.note(DiagCode(x->note_ids[k]), x->note_at[k].start, x->note_msg[k])->child_first(
                     x->note_at[k],
                 )
             }
@@ -2363,7 +2363,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             b.note(
                 at.start,
                 f"'{next}' is required here, instantiation {lim + 1} of the chain",
-            )->first(at)
+            )->child_first(at)
         }
 
         b.note("the limit is set by --cmax-generic-depth")
@@ -2425,7 +2425,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             b->note(
                 hp->via_at.start,
                 f"in instantiation of '{self._inst_name(hp)}' required here",
-            )->first(hp->via_at)
+            )->child_first(hp->via_at)
         }
     }
 
@@ -4031,10 +4031,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
                 bd.first(at)
                 if b != &null {
-                    bd.note(b->range.start, f"required by this bound")->first(b->range)
+                    bd.note(b->range.start, f"required by this bound")->child_first(b->range)
                 }
 
-                bd.note(areq->range.start, f"'{an}' and its bounds are declared here")->first(
+                bd.note(areq->range.start, f"'{an}' and its bounds are declared here")->child_first(
                     areq->range,
                 )
 
@@ -4067,17 +4067,17 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
                 cd.first(at)
                 if b != &null {
-                    cd.note(b->range.start, f"required by this bound")->first(b->range)
+                    cd.note(b->range.start, f"required by this bound")->child_first(b->range)
                 }
 
-                cd.note(dnodes[0]->range.start, f"'{i0}' gives it '{d0}' here")->first(
+                cd.note(dnodes[0]->range.start, f"'{i0}' gives it '{d0}' here")->child_first(
                     dnodes[0]->range,
                 )
 
                 cd.note(
                     dnodes[1]->range.start,
                     f"'{i1}' gives it '{d1}' here; declare 'type {an} = ...' in '{xs}' to choose",
-                )->first(dnodes[1]->range)
+                )->child_first(dnodes[1]->range)
                 if e != &null {
                     self.chain_notes(unsafe &cd, e)
                 }
@@ -4110,11 +4110,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
                 sd.first(at)
                 if b != &null {
-                    sd.note(b->range.start, f"required by this bound")->first(b->range)
+                    sd.note(b->range.start, f"required by this bound")->child_first(b->range)
                 }
 
-                sd.note(al->range.start, f"'{xs}' declares '{an}' here")->first(al->range)
-                sd.note(areq->range.start, f"'{an}' is required here")->first(areq->range)
+                sd.note(al->range.start, f"'{xs}' declares '{an}' here")->child_first(al->range)
+                sd.note(areq->range.start, f"'{an}' is required here")->child_first(areq->range)
                 if e != &null {
                     self.chain_notes(unsafe &sd, e)
                 }
@@ -4133,16 +4133,16 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
             ad.first(at)
             if b != &null {
-                ad.note(b->range.start, f"required by this bound")->first(b->range)
+                ad.note(b->range.start, f"required by this bound")->child_first(b->range)
             }
 
             if areq->aliased != &null && row->declared == &null {
                 ad.note(
                     areq->range.start,
                     f"'{an}' has a default, but a default applies only to a type that declares 'impl {is}'",
-                )->first(areq->range)
+                )->child_first(areq->range)
             } else {
-                ad.note(areq->range.start, f"'{an}' is required here")->first(areq->range)
+                ad.note(areq->range.start, f"'{an}' is required here")->child_first(areq->range)
             }
 
             if e != &null {
@@ -4189,11 +4189,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
             b2.first(at)
             if b != &null {
-                b2.note(b->range.start, f"required by this bound")->first(b->range)
+                b2.note(b->range.start, f"required by this bound")->child_first(b->range)
             }
 
             if req != &null {
-                b2.note(req->range.start, req_note)->first(req->range)
+                b2.note(req->range.start, req_note)->child_first(req->range)
             }
 
             var hat = if (hf->is_operator && hf->op_token.size() > 0) => (hf->op_token[0].range)
@@ -4201,7 +4201,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             b2.note(
                 hat.start,
                 f"'{hn}' is declared here: a private or protected member implements a requirement only for an 'impl' declared in its own file",
-            )->first(hat)
+            )->child_first(hat)
             var written = hr->visibility_range()
             if written.is_valid() {
                 b2.fix(written, "pub", f"make '{hn}' public")
@@ -4222,18 +4222,18 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         var d = self.sc->diag->report(DiagID::SC162E, at.start, msg)
         d.first(at)
         if b != &null {
-            d.note(b->range.start, f"required by this bound")->first(b->range)
+            d.note(b->range.start, f"required by this bound")->child_first(b->range)
         }
 
         if req != &null {
-            d.note(req->range.start, req_note)->first(req->range)
+            d.note(req->range.start, req_note)->child_first(req->range)
         }
 
         if missing.size() > 0 && row->hidden != &null {
             d.note(
                 row->hidden->range.start,
                 "this extension member implements it, in a file this one does not import; import its module here to use the conformance",
-            )->first(row->hidden->range)
+            )->child_first(row->hidden->range)
         }
 
         if e != &null {
@@ -4263,7 +4263,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         d.first(at)
         if b != &null {
-            d.note(b->range.start, f"required by this bound")->first(b->range)
+            d.note(b->range.start, f"required by this bound")->child_first(b->range)
         }
 
         for var i: usize = 0; i < row->witnesses.size() && i < other->witnesses.size(); ++i {
@@ -4273,14 +4273,14 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 continue
             }
 
-            d.note(mine->range.start, "this implementation is the one visible here")->first(
+            d.note(mine->range.start, "this implementation is the one visible here")->child_first(
                 mine->range,
             )
 
             d.note(
                 theirs->range.start,
                 "this one implements it for another file of the program",
-            )->first(theirs->range)
+            )->child_first(theirs->range)
             break
         }
 

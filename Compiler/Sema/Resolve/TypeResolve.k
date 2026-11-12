@@ -801,7 +801,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             DiagCode(DiagID::SC193N),
             k->name.range.start,
             f"'{kn}' is declared here; its value is computed by C++, which reads it only once the class is complete",
-        )->first(k->name.range)
+        )->child_first(k->name.range)
         if owner != &null && k->type_ != &null && k->init != &null && !self._foreign(k) {
             var unsafe *sm = self.sc->ctx->sm
             var hoist = f"eval {kn}: {sm->get_text(k->type_->range)} = {sm->get_text(k->init->range)}\n"
@@ -1569,7 +1569,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             )
 
             b.first(at)
-            b.note(DiagCode(DiagID::SC192N), f->range.start, named_declared_here(nm))->first(
+            b.note(DiagCode(DiagID::SC192N), f->range.start, named_declared_here(nm))->child_first(
                 f->name.range,
             )
 
@@ -1631,7 +1631,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 DiagCode(DiagID::SC192N),
                 vd->name.range.start,
                 f"'{nm}' is declared 'const' here",
-            )->first(vd->name.range)
+            )->child_first(vd->name.range)
             var kw = vd->storage_kw
             if kw.is_valid()
                 && vd->storage == Declarations::StorageClass::Const
@@ -1673,7 +1673,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 DiagCode(DiagID::SC192N),
                 bvd->name.range.start,
                 named_declared_here(vn),
-            )->first(bvd->name.range)
+            )->child_first(bvd->name.range)
             vb.emit()
             return
         }
@@ -1700,7 +1700,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 DiagCode(DiagID::SC192N),
                 ce->bad_decl->range.start,
                 named_declared_here(dn),
-            )->first(ce->bad_decl->range)
+            )->child_first(ce->bad_decl->range)
         }
 
         b.emit()
@@ -2988,7 +2988,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             )
 
             b.first(seg->range)
-            b.note(td->range.start, declared_here())->first(td->range)
+            b.note(td->range.start, declared_here())->child_first(td->range)
             b.emit()
             ct->poison()
             return &null
@@ -3006,7 +3006,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             )
 
             b.first(seg->range)
-            b.note(td->range.start, named_declared_here(nm))->first(td->range)
+            b.note(td->range.start, named_declared_here(nm))->child_first(td->range)
             b.emit()
             ct->poison()
             return &null
@@ -3120,7 +3120,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         )
 
         b.first(at)
-        b.note(DiagCode(DiagID::SC116N), td->range.start, declared_here())->first(td->range)
+        b.note(DiagCode(DiagID::SC116N), td->range.start, declared_here())->child_first(td->range)
         b.emit()
         ct->poison()
     }
@@ -3213,7 +3213,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         var b = self.sc->diag->report(DiagID::SC170E, td->name.range.start, why)
         b.first(td->name.range)
-        b.note(inh->range.start, "the inherited associated type is declared here")->first(
+        b.note(inh->range.start, "the inherited associated type is declared here")->child_first(
             inh->range,
         )
 
@@ -3403,11 +3403,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 )
 
                 b.first(seg->name->range)
-                b.note(DiagCode(DiagID::R028N), hit->range.start, "one is declared here")->first(
+                b.note(DiagCode(DiagID::R028N), hit->range.start, "one is declared here")->child_first(
                     hit->range,
                 )
 
-                b.note(DiagCode(DiagID::R028N), td->range.start, "another is declared here")->first(
+                b.note(DiagCode(DiagID::R028N), td->range.start, "another is declared here")->child_first(
                     td->range,
                 )
 
@@ -3429,16 +3429,16 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                         b.note(
                             decl_at.start,
                             f"'{hname}' has no interface bound; a generic body may use only what its bounds declare",
-                        )->first(decl_at)
+                        )->child_first(decl_at)
                     } else {
                         b.note(
                             decl_at.start,
                             f"'{hname}' is declared with no bound; add 'impl <Interface>' to give it associated types",
-                        )->first(decl_at)
+                        )->child_first(decl_at)
                     }
                 } else {
                     for var k: usize = 0; k < bexprs.size(); ++k {
-                        b.note(bexprs[k]->range.start, "bound here")->first(bexprs[k]->range)
+                        b.note(bexprs[k]->range.start, "bound here")->child_first(bexprs[k]->range)
                     }
                 }
 
@@ -3790,7 +3790,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 DiagCode(DiagID::R042N),
                 spec->range.start,
                 "specialization declared here",
-            )->first(spec->range)->emit()
+            )->child_first(spec->range)->emit()
             return &null
         }
 
@@ -3804,7 +3804,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 DiagCode(DiagID::R023N),
                 r.cell->get(0)->range.start,
                 f"'{nm}' is declared here, but as a value, not a type",
-            )->first(r.cell->get(0)->range)->emit()
+            )->child_first(r.cell->get(0)->range)->emit()
             return &null
         }
 
@@ -4009,7 +4009,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     DiagCode(DiagID::R023N),
                     gp->range.start,
                     "declared as a generic value parameter here",
-                )->first(gp->range)->emit()
+                )->child_first(gp->range)->emit()
                 ct->poison()
                 return &null
             }
@@ -4109,7 +4109,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     DiagCode(DiagID::R032N),
                     td->range.start,
                     declared_here(),
-                )->first(td->range)->emit()
+                )->child_first(td->range)->emit()
                 ct->poison()
                 return &null
             }
@@ -4182,7 +4182,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     DiagCode(DiagID::SC116N),
                     canon->range.start,
                     "the builtin result type, declared here",
-                )->first(canon->range)
+                )->child_first(canon->range)
                 b.emit()
                 ct->poison()
                 return &null
@@ -4456,7 +4456,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 DiagCode(DiagID::R036N),
                 td->range.start,
                 f"'{nm}' is declared here; the chain continues from its target",
-            )->first(td->range)->fix(
+            )->child_first(td->range)->fix(
                 f"flatten the alias chain, or raise the limit with --cmax-type-alias-depth={wider}",
             )->emit()
             self.sc->rstate.fail_decl(td)
@@ -4638,7 +4638,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             DiagCode(DiagID::R050N),
             worst->range.start,
             f"'{tnm}' is declared {tw} here",
-        )->first(worst->range)
+        )->child_first(worst->range)
         // The narrowing edit is the safe one to offer: widening the target
         // publishes a second entity, which is a decision only its author makes.
         if td->visibility_range().is_valid() {
@@ -4772,7 +4772,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     DiagCode(DiagID::R035N),
                     fr.decl->range.start,
                     f"'{lnm}' is declared here and refers to the next alias in the cycle",
-                )->first(fr.decl->range)
+                )->child_first(fr.decl->range)
                 fr.decl->poison()
                 self.sc->rstate.fail_decl(fr.decl)
             }
@@ -5969,7 +5969,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                         DiagCode(DiagID::SC116N),
                         d->range.start,
                         "this partial specialization is never selected; write one without the pack, or an explicit specialization per argument list",
-                    )->first(d->range)
+                    )->child_first(d->range)
                     pb.emit()
                 }
 
@@ -6043,7 +6043,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 DiagCode(DiagID::R043N),
                 e->decl->range.start,
                 "first instantiated here; a specialization must precede every use of it",
-            )->first(e->decl->range)->emit()
+            )->child_first(e->decl->range)->emit()
             d->poison()
             return
         }
@@ -6057,7 +6057,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 DiagCode(DiagID::R044N),
                 e->decl->range.start,
                 previously_declared_here(),
-            )->first(e->decl->range)->emit()
+            )->child_first(e->decl->range)->emit()
             d->poison()
             return
         }
@@ -6347,7 +6347,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 DiagCode(DiagID::R029N),
                 prev->range.start,
                 "previous definition is here",
-            )->first(prev->range)->emit()
+            )->child_first(prev->range)->emit()
             cur->poison()
             return
         }

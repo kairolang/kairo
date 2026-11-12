@@ -1378,7 +1378,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             b.first(st->name->range)
             for var i: usize = 0; i < n; ++i {
                 var unsafe *d = (*cands)[i]
-                b.note(DiagCode(DiagID::R028N), d->range.start, "candidate declared here")->first(
+                b.note(DiagCode(DiagID::R028N), d->range.start, "candidate declared here")->child_first(
                     d->range,
                 )
             }
@@ -1754,7 +1754,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                         DiagCode(DiagID::R051N),
                         assoc->assoc->range.start,
                         "the associated type is declared with no bound; add 'impl <Interface>' to give it members",
-                    )->first(assoc->assoc->range)
+                    )->child_first(assoc->assoc->range)
                 }
 
                 d0.emit()
@@ -1811,7 +1811,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 DiagCode(DiagID::R051N),
                 gp->range.start,
                 f"'{pname}' is declared with no bound; add 'impl <Interface>' to give it members",
-            )->first(gp->range)
+            )->child_first(gp->range)
             d.emit()
             if st->name != &null {
                 st->name->poison()

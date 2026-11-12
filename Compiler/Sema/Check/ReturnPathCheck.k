@@ -331,7 +331,7 @@ pub class ReturnPathCheck derives RecursiveASTVisitor<ReturnPathCheck> {
                 DiagCode(DiagID::SC105N),
                 decl_at.start,
                 "declared '-> !' here; end the body with a 'panic', a call to another '-> !' function, or an infinite loop",
-            )->first(decl_at)
+            )->child_first(decl_at)
             // A body that ENDS in a call to a header function reads as if it
             // ended the path; it does not, because the header never said the
             // function does not return (an imported decl is `-> !` only when
@@ -346,12 +346,12 @@ pub class ReturnPathCheck derives RecursiveASTVisitor<ReturnPathCheck> {
                     DiagCode(DiagID::SC105N),
                     call->range.start,
                     f"'{nm}' is a C/C++ function its header does not declare '[[noreturn]]', so in Kairo this call returns and does not end the path",
-                )->first(call->range)
+                )->child_first(call->range)
                 b.note(
                     DiagCode(DiagID::SC105N),
                     ff->range.start,
                     f"'{nm}' declared here; only a '-> !' function or a C/C++ function declared '[[noreturn]]' (or '_Noreturn') has type '!'",
-                )->first(ff->range)
+                )->child_first(ff->range)
             }
 
             b.emit()
@@ -372,7 +372,7 @@ pub class ReturnPathCheck derives RecursiveASTVisitor<ReturnPathCheck> {
             DiagCode(DiagID::SC104N),
             decl_at.start,
             f"declared to return {ty} here; every path must end in 'return', 'panic', or a call that does not return",
-        )->first(decl_at)
+        )->child_first(decl_at)
         b.emit()
     }
 }

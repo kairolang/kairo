@@ -2755,7 +2755,7 @@ pub class FrontendAction {
                     )
 
                     d.first(here)
-                    d.note(DiagCode(DiagID::SC138N), first.start, f"'{a}' sets it here")->first(
+                    d.note(DiagCode(DiagID::SC138N), first.start, f"'{a}' sets it here")->child_first(
                         first,
                     )
 

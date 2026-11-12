@@ -270,7 +270,7 @@ pub class <T: type> CastTyping {
             return &null
         }
 
-        // f8e4m3 / f8e5m2 against f256 / f512 (P942): both sides are library
+        // f8e4m3 / f8e5m2 against f256 / f512: both sides are library
         // classes in C++ (std/rt/Float8.k, num/f256_t.k) that do not know
         // each other, so clang found the conversion ambiguous, and through
         // f64 it would round twice. Said here, with the route that works.
@@ -449,7 +449,7 @@ pub class <T: type> CastTyping {
                         DiagID::SC025E,
                         n->range.start,
                         f"cannot downcast from '{self.dyn()->tu.str(src)}': '{self.dyn()->tu.decl_name(sd)}' has no virtual methods, so there is no runtime type to check",
-                    ).first(n->range)->note(sd->range.start, declared_here())->first(
+                    ).first(n->range)->note(sd->range.start, declared_here())->child_first(
                         sd->range,
                     )->emit()
                     n->poison()

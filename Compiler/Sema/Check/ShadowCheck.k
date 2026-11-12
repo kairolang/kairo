@@ -285,7 +285,7 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             hidden->range.start,
             f"outer '{nm}' declared here; assign to it with '{nm} = ...' if that "
             "is what you meant, or rename this one",
-        )->first(hidden->range)->emit()
+        )->child_first(hidden->range)->emit()
     }
 
     /// The canonical type of a binding, or null when it is not yet known.

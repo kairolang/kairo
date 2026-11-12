@@ -501,7 +501,7 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
         b.first(at_use->range)
         var at = self._name_range(d)
         if at.is_valid() {
-            b.note(at.start, f"'{nm}' is declared here, outside the closure")->first(at)
+            b.note(at.start, f"'{nm}' is declared here, outside the closure")->child_first(at)
         }
 
         if n->explicit_no_capture {

@@ -98,7 +98,7 @@ pub class DiagBuilder {
     // diagnostic, and the ICE is what catches it.
 
     // Copy is forbidden: a raw-pointer member with a freeing dtor double-frees
-    // on any copy. Misuse (pass-by-value, auto b2 = b) is now a compile error.
+    // on any copy. Misuse (pass-by-value, auto b2 = b) is a compile error.
 
     /// ## Labels
 
@@ -288,6 +288,12 @@ pub class DiagBuilder {
     }
 
     /// Attaches a child note. Overloaded for with/without source location.
+    ///
+    /// Every child adder returns THIS builder, the parent's: `->first(r)`
+    /// after it labels the parent, not the note. Label the note with
+    /// `->child_first(r)`; `->first(r)` would label the parent, drawing the
+    /// note's range on the parent's own line, or on another file's line of
+    /// the same number.
     pub fn note(self,
                 const code: DiagCode,
                 loc:        SourceLocation,
@@ -409,7 +415,7 @@ pub class DiagBuilder {
     /// use the reserved I900 base so callers do not have to invent a code that
     /// nothing consumes.
 
-    /// Attaches a child note.
+    /// Attaches a child note; label it with child_first (see the note above).
     pub fn note(self, loc: SourceLocation, const msg: string) -> unsafe *Self {
         if self._diag == &null {
             return unsafe &self

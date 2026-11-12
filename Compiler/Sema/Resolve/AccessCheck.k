@@ -734,7 +734,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         var tok_r   = self._name_range(d)
         var written = d->visibility_range()
         if written.is_valid() {
-            b.note(DiagCode(DiagID::SC242N), tok_r.start, f"'{nm}' is declared {word} here")->first(
+            b.note(DiagCode(DiagID::SC242N), tok_r.start, f"'{nm}' is declared {word} here")->child_first(
                 tok_r,
             )
         } else {
@@ -742,7 +742,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                 DiagCode(DiagID::SC242N),
                 tok_r.start,
                 f"'{nm}' is {word} by default: {self._default_why(home)}",
-            )->first(tok_r)
+            )->child_first(tok_r)
         }
 
         self._pub_fix(&b, d, nm)
@@ -912,7 +912,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                 DiagCode(DiagID::SC242N),
                 e->range.start,
                 f"'{hn}' declares its base '{bn}' '{kw}' here, so the members of '{bn}' are {word} to '{hn}' and its file",
-            )->first(e->range)
+            )->child_first(e->range)
             b.emit()
             return
         }
@@ -1023,7 +1023,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                 DiagCode(DiagID::SC242N),
                 tok_r.start,
                 f"'{nm}' is declared {word} here: {why}",
-            )->first(tok_r)
+            )->child_first(tok_r)
             b.fix(written, "pub", f"make '{nm}' public")
         } else {
             // The old rule's one default, kept word for word where the new
@@ -1043,7 +1043,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                 DiagCode(DiagID::SC242N),
                 tok_r.start,
                 f"'{nm}' is {word} by default ({dflt}): {why}",
-            )->first(tok_r)
+            )->child_first(tok_r)
             b.insert(r->range.start, "pub ", f"make '{nm}' public")
         }
 
@@ -1153,7 +1153,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             DiagCode(DiagID::SC242N),
             tok_r.start,
             f"'{nm}' is protected: outside the file that declares '{on}', a class deriving from it reaches it only through an object of its own class (as C++ does, [class.protected])",
-        )->first(tok_r)
+        )->child_first(tok_r)
         self._pub_fix(&b, r, nm)
         b.emit()
     }
@@ -1178,7 +1178,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             DiagCode(DiagID::SC242N),
             tok_r.start,
             f"declared protected here: outside the file that declares '{on}', a subclass calls it only as '{on}::{on}(self, ...)' at the start of its own constructor",
-        )->first(tok_r)
+        )->child_first(tok_r)
         self._pub_fix(&b, r, on)
         b.emit()
     }

@@ -283,7 +283,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
                     DiagCode(DiagID::R029N),
                     fallback->range.start,
                     f"previous definition of '{name}' is here",
-                )->first(fallback->range)
+                )->child_first(fallback->range)
                 b.emit()
                 members[i]->poison()
                 return

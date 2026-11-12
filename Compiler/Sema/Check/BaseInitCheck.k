@@ -284,7 +284,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
                     hint = f"'{bname}' is a base here and declares no constructor to call; give it one, or make its implicit one possible"
                 }
 
-                b.note(DiagCode(DiagID::SC181N), e->range.start, hint)->first(e->range)
+                b.note(DiagCode(DiagID::SC181N), e->range.start, hint)->child_first(e->range)
                 b.emit()
             }
         }
@@ -317,7 +317,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
                 DiagCode(DiagID::SC181N),
                 e->range.start,
                 f"'{bname}' is a base here; declare a constructor whose first statement calls one of its own: '{bname}::{self._leaf(e->base)}(self, ...)'",
-            )->first(e->range)
+            )->child_first(e->range)
             b.emit()
         }
 
@@ -485,7 +485,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
                     DiagCode(DiagID::SC180N),
                     f->name.range.start,
                     "this constructor builds the object itself",
-                )->first(f->name.range)
+                )->child_first(f->name.range)
                 b.emit()
                 self._ok.push_back(n)
                 continue
@@ -503,7 +503,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
                     DiagCode(DiagID::SC180N),
                     decl_name_tok(base).range.start,
                     named_declared_here(bname),
-                )->first(decl_name_tok(base).range)
+                )->child_first(decl_name_tok(base).range)
                 b.emit()
                 self._ok.push_back(n)
                 continue
@@ -564,7 +564,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
                 DiagCode(DiagID::SC180N),
                 n->range.start,
                 f"this initializes base '{bname}'",
-            )->first(n->callee->range)
+            )->child_first(n->callee->range)
             b.emit()
             return
         }
@@ -587,7 +587,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
                 DiagCode(DiagID::SC180N),
                 n->range.start,
                 "base initializers run before any field is initialized",
-            )->first(n->callee->range)
+            )->child_first(n->callee->range)
             b.emit()
             return
         }
@@ -653,7 +653,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
             DiagCode(DiagID::SC180N),
             ctor->name.range.start,
             f"to build an object of '{bname}', call the type by name instead",
-        )->first(ctor->name.range)
+        )->child_first(ctor->name.range)
         b.emit()
         return true
     }

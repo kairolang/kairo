@@ -91,7 +91,7 @@ pub class ArmOrderCheck derives RecursiveASTVisitor<ArmOrderCheck> {
                         DiagCode(DiagID::SC240N),
                         bare_at.start,
                         "the bare 'catch' is here",
-                    )->first(bare_at)
+                    )->child_first(bare_at)
                     b.remove(arm->range, "remove the arm")
                     b.emit()
                 }

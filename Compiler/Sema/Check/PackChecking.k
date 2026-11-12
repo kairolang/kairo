@@ -418,7 +418,7 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
                 )
 
                 d.first(v->pack_range)
-                d.note(first->pack_range.start, "the first one")->first(first->pack_range)
+                d.note(first->pack_range.start, "the first one")->child_first(first->pack_range)
                 d.emit()
                 bad = true
                 continue
@@ -437,7 +437,7 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
                 d.note(
                     en->variants[i + 1]->range.start,
                     f"'{nx}' follows it, and its tag would move with the pack",
-                )->first(en->variants[i + 1]->range)
+                )->child_first(en->variants[i + 1]->range)
                 d.emit()
                 bad = true
             }
@@ -557,7 +557,7 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
         )
 
         d.first(n->range)
-        d.note((unsafe (p as unsafe *Decl))->range.start, "declared as a pack here")->first(
+        d.note((unsafe (p as unsafe *Decl))->range.start, "declared as a pack here")->child_first(
             (unsafe (p as unsafe *Decl))->range,
         )
 

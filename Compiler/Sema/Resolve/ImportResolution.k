@@ -1267,7 +1267,7 @@ pub class ImportResolution {
                     DiagCode(DiagID::R016N),
                     o.decl->range.start,
                     f"'{visible}' could be the {what} declared here",
-                )->first(o.decl->range)
+                )->child_first(o.decl->range)
             }
 
             b.emit()

@@ -1266,7 +1266,7 @@ pub class <T: type> ControlTyping {
             b.note(
                 a->assoc->range.start,
                 f"'{an}' is declared here; build it through a constructor bound ('type {an} impl ...')",
-            )->first(a->assoc->range)
+            )->child_first(a->assoc->range)
             b.emit()
             self.dyn()->poison_only(n)
             return &null
@@ -1283,7 +1283,7 @@ pub class <T: type> ControlTyping {
             b.note(
                 a->assoc->range.start,
                 f"'{an}' is declared here; bound it with an interface that declares a constructor requirement",
-            )->first(a->assoc->range)
+            )->child_first(a->assoc->range)
             b.emit()
             self.dyn()->poison_only(n)
             return &null
@@ -1531,7 +1531,7 @@ pub class <T: type> ControlTyping {
                     DiagCode(DiagID::SC116N),
                     v->range.start,
                     "the variant is expanded over the pack here",
-                )->first(v->range)
+                )->child_first(v->range)
                 b.emit()
                 self.dyn()->poison_only(n)
                 return &null
@@ -1546,7 +1546,7 @@ pub class <T: type> ControlTyping {
                 )
 
                 b.first(n->range)
-                b.note(v->range.start, "one variant per element of the pack")->first(v->range)
+                b.note(v->range.start, "one variant per element of the pack")->child_first(v->range)
                 b.emit()
                 self.dyn()->poison_only(n)
                 return &null
@@ -1764,7 +1764,7 @@ pub class <T: type> ControlTyping {
                           else => f"a '{what}' fits more than one '{nm}' of '{self.dyn()->tu.str(rec)}'; the payload's type must pick one"
                 var b = self.dyn()->sc->diag->report(DiagID::SC256E, vals[0]->range.start, msg)
                 b.first(vals[0]->range, "the payload's type picks the variant")
-                b.note(v->range.start, f"its variants here: {ve->describe(rec, v)}")->first(
+                b.note(v->range.start, f"its variants here: {ve->describe(rec, v)}")->child_first(
                     v->range,
                 )
 

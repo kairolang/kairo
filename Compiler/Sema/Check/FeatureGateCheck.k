@@ -72,7 +72,7 @@
 ///     Reads the same guard IterLowering does: a poisoned or untyped
 ///     iterable is already diagnosed or dependent, and is not reported.
 ///
-///     A gate is removed in the commit that lands its lowering.
+///     A gate is removed together with the lowering it guards.
 ///
 ///   Phase: CHECKS (last; needs X's iter_kind)
 ///
@@ -303,7 +303,7 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
     /// interface's witness table (interfaces.mdx, "Virtual Interfaces").
     /// ExtensionLowering renders a requirement call only through a
     /// dependent Self (a bounded parameter or an associated type) and ICEs
-    /// on this one (P558); nothing builds the table yet. Reported at the
+    /// on this one; nothing builds the table yet. Reported at the
     /// member step; a `::` call keeps its own path.
     fn visit_call_expr(self, n: *CallExpr) -> bool {
         var tu = TypeUtil(self.sc)
@@ -507,7 +507,7 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
                     DiagCode(DiagID::SC116N),
                     fd->range.start,
                     f"'{fname}' of variant '{vname}' has type '{tn}', whose copy, move and destruction are not known until instantiation",
-                )->first(fd->range)
+                )->child_first(fd->range)
                 noted = true
                 break
             }
@@ -647,7 +647,7 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
             DiagCode(DiagID::SC197N),
             n->name.range.start,
             "give a variant a payload to make it an ADT enum, or remove the generic parameters",
-        )->first(n->name.range)
+        )->child_first(n->name.range)
         b.emit()
     }
 

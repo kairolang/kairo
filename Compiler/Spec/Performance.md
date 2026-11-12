@@ -134,10 +134,11 @@ A rest runs beside the fronts of later groups, which never import it. Three kind
 | a TU declaring an explicit or partial specialization | the registry matches every use against them, imported or not (`register_partial` re-selects minted entries) |
 | a TU declaring an extension | every TU's member lookup indexes every TU's extensions (`MemberLookup::index_extensions`) |
 
-A front that reaches one of two facts stops there, and the driver finishes its group alone (`SemaSlot::partial`):
+A front stops early in three cases, and the driver then finishes its group (`SemaSlot::partial`). In the first two the driver runs the group alone:
 
 - after E, an `eval if` deferred to T's late fold, which decides from layouts (`EnumLayoutQuery::size_of`, `NullableType::lowered`) that other TUs' lowerings fill;
-- after N, an out-of-line definition of a member of a type outside the group, which RedeclMerge splices into that file's redeclaration ring.
+- after N, an out-of-line definition of a member of a type outside the group, which RedeclMerge splices into that file's redeclaration ring;
+- after T, a once-per-build selection report (SC157E / SC158E). The front records it (`SemaContext::once_log`) instead of claiming its latch, because whichever front got there first would win. At the group's turn the driver claims it, before the rest (`FrontendAction::_settle_once`), and stops the file after T if it now has a T error (`Sema::stop_if_types_errored`). So the reporting file, and the file that stops, are the first in the one-thread order ([Diagnostics.md](Diagnostics.md#order-guarantee)).
 
 On the compiler's own graph (276 groups) there are 27 barriers, all builtin TUs, and no stopped fronts.
 
@@ -158,11 +159,11 @@ Arenas (`ArenaAllocator`, `ArenaList`) are single-owner, except a build-wide sto
 | Writer | Arena / storage | Rule |
 |---|---|---|
 | `InstantiationRegistry` (entries, rows, tables) | its own arena, shared under `_arena_mu` | `_mu` for the tables; order by key (above) |
-| Instance shells' own lists (`dc_decls`, annotations; the shell's `dc_symbols`) | the registry's arena (the lists), the header TU's arena (the table, the imported members) | grown only by `ForeignInstantiate::fill`, under its `_mu`, never by the registry: so the arena's own lock, not `_mu`, is what keeps a fill's slab and a worker's new entry apart. Read after `instantiated` (acquire fence), or through `MemberLookup::ensure_filled`, which waits on the fill's `_mu` |
+| Instance shells' own lists (`dc_decls`, annotations; the shell's `dc_symbols`) | the registry's arena (the lists), the header TU's arena (the table, the imported members) | grown only by `ForeignInstantiate::fill`, under its `_mu`, never by the registry: so the arena's own lock, not `_mu`, is what keeps a fill's slab and a worker's new entry apart. Read after the shell's `ForeignFill` is seen `Filled` (an acquire load, `decl_instantiated`), or through `MemberLookup::ensure_filled`, which waits on the fill's `_mu` |
 | `CanonicalTypeStore` | its own arena, shared under `_arena_mu` | `_mu`; identities are pure. `AssocType` bounds: the cycle guard is per TU (`SemaContext::assoc_busy`), the cache is published once after a release fence |
 | `TupleRecords` | its own arena, shared under `_arena_mu` | `_mu`; interns `TupleN` into the builtin root's `ImmediateTable` |
 | `ImmediateTable` identifier sheet | the table's `ArenaList`s | `_ident_mu`: writers exclusive (`intern_ident`, and the `synth_names` push of `intern_ident_copy` / `intern_string_copy` / `intern_bytes_copy`), `find_ident` shared. Writers into another TU's table: TupleRecords (root) and foreign fills (header TUs) |
-| `ForeignInstantiate::fill` (header TU's DCs, shells, clang AST) | the header TU's arena | one build-wide `_mu`, then the set's `sema_lock`; the unlocked fast path reads `instantiated` after an acquire fence, written after a release fence |
+| `ForeignInstantiate::fill` (header TU's DCs, shells, clang AST) | the header TU's arena | one build-wide `_mu`, then the set's `sema_lock`; the unlocked fast path reads the shell's `ForeignFill` with an acquire load; the fill writes it last, with a release store (`decl_publish_fill`) |
 | `WellKnownDecls` | the global table | written by builtin TUs only, which are barriers |
 | `MemberLookup::index_extensions` | per instance | reads every TU's declaration lists; skips a TU proven extension-free (`TranslationUnit::no_extensions`), whose lists its own Sema may be rewriting |
 | `ClassLifecycle`, `CtorInitCheck` facts | the TU's own arena | own-TU decls only |
@@ -254,3 +255,7 @@ Replacing a `libcxx::unordered_map` or `libcxx::deque` with an LLVM container is
 ### Concurrency rule for lazy indexes
 
 A pool task never indexes a container that the enqueuing side can resize. `SourceLineTable` builds a file's line index on the pool in two halves (`Compiler/Location/SourceLineTable.k`): `reserve_build` runs on the caller's thread under `SourceManager::_load_mu`, before the task is enqueued, and resolves the file's entry and increments `_builds`; `run_reserved_build` runs on the pool, fills that entry, and releases the reservation. Resolving the entry inside the task raced with `register_file` resizing the table and handed a worker a null buffer; counting the build only when the task started let `_drain_builds` return and `evict` unmap bytes a queued task still viewed. Every reservation must reach exactly one `run_reserved_build`. A consumer that reads line and column for a just-loaded file waits for the index (`wait_for_line_index`).
+
+Each entry's build state is one atomic byte, `LineEntryState`: Absent (registered, never claimed), Queued (`reserve_build` claimed it), Building (a scan is filling it), Ready (lines published), Stale (`invalidate` withdrew the old index and rebuilds it under `_load_mu`). A claim is a compare-and-swap from Absent or Stale, so a second claim on an in-flight build fails instead of building twice; Queued and Building are always counted in `_builds`, so after a drain no entry may be in either, and a debug build asserts each transition's source state. `wait_until_ready` returns at once for an Absent entry, which nothing will build.
+
+The lex workers of the preprocessor walk read the `VirtualFileManager`'s segment table unlocked, so nothing may register or re-map a file while a walk runs. `PreProcessor::preprocess` brackets the walk with `SourceManager::begin_walk` / `end_walk`; in a debug build an `invalidate`, `replace_bytes`, `evict` or `reset` inside the bracket is an ICE, and a registration is logged as a warning. The walk does still register files (an import that resolves to a file the dependency scan did not load, such as the sibling file R068E reports), so that check is not yet fatal.

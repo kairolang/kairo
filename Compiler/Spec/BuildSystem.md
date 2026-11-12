@@ -2,7 +2,7 @@
 
 How the toolchain (`kairo`, `kcc` and the tools beside them) is built, staged into a relocatable tree, and packaged. Building from source as a user is `BUILD.md`. Targets, triples and CPU floors are [Portability.md](Portability.md#targets); compile-speed work is [Performance.md](Performance.md). Why the repo builds itself is [SelfHosting.md](SelfHosting.md).
 
-0.2.0: `build.py` is the only build of the compiler. A seed release (0.2.0+) is required (`--kairo`, `$KAIRO_SEED`, `build/<host>/{N-1,release}/bin/kairo`, or `kairo` on `PATH`); the first build also builds the patched LLVM (CMake and Ninja). The toolchain targets are `kairo`, `kcc`, `kld`, `kfmt`, `ksys` (plus `katar`, `kparse`, `clang-diag-identity`); the staged tree holds `kairo`, `kcc`, `kld`, `kfmt`, `ksys`, `llvm-symbolizer`, `llvm-ar` / `llvm-ranlib` / `llvm-lib` and `lib/clang/22`, and no `clang` or `clang++` binary (kairo and kcc run clang in-process, kld runs lld in-process). `kbld` below is Stage 0's historical driver.
+0.2.0: `build.py` is the only build of the compiler. A seed release (0.2.0+) is required (`--kairo`, `$KAIRO_SEED`, `build/<host>/{N-1,release}/bin/kairo`, or `kairo` on `PATH`); the first build also builds the patched LLVM (CMake and Ninja). The toolchain targets are `kairo`, `kcc`, `kld`, `kfmt`, `ksys`, `kals` (plus `katar`, `kparse`, `clang-diag-identity`); the staged tree holds `kairo`, `kcc`, `kld`, `kfmt`, `ksys`, `kals`, `llvm-symbolizer`, `llvm-ar` / `llvm-ranlib` / `llvm-lib` and `lib/clang/22`, and no `clang` or `clang++` binary (kairo and kcc run clang in-process, kld runs lld in-process). `kbld` below is Stage 0's historical driver.
 
 Two build drivers exist:
 
@@ -33,11 +33,12 @@ Two build drivers exist:
 | `kairo` | `Compiler/Driver/Kairo.k` |
 | `kcc` | `Compiler/Driver/Kcc.k` |
 | `kld` | `Linker/Driver/kld.k` |
+| `kals` | `Analyzer/Driver/kals.k` (adds the `Analyzer` and `Extras/Formatter` roots) |
 | `kparse` | `Compiler/Tooling/ParseOnceTest.k` |
 | `katar` | `Extras/KaTAR/KTCompress.k` (adds the `Extras/KaTAR` root) |
 | `clang-diag-identity` | `Compiler/Tooling/GenClangDiagIdentity.k` |
 
-The toolchain is `kairo` and `kcc`; only those two trigger [staging](#staged-trees). `kbld`, `kfmt`, `kals` and `kpkg` are refused until their sources are migrated.
+The toolchain (`TOOLCHAIN`, what a bare `python3 build.py` builds and a release ships) is `kairo`, `kcc`, `kld`, `kfmt`, `ksys` and `kals`; each of them triggers [staging](#staged-trees) (`STAGED`). `kbld` and `kpkg` are refused until their sources are migrated.
 
 ### Pipeline
 

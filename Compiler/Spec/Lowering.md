@@ -14,6 +14,8 @@ Rules every pass keeps:
 
 `Compiler/Sema/Sema.k::_stage_lowerings` owns the order; this table is that function's sequence.
 
+Rows 1 to 27 are also `LowerStep` (`Compiler/Sema/Lower/LowerStep.k`), whose declaration order is this order. Each of those passes starts its `run()` with `SemaContext::begin_lower(<its step>)`, which in a debug build ICEs unless the step just before it is the last one that started, and `_stage_lowerings` closes the list with `end_lowerings` after StringLowering. A pass moved, added or dropped without moving its step is an ICE at that pass, so the position constraints below are checked, not only stated. Rows 28 to 30 are not tree rewrites and keep their own gates.
+
 | # | Pass | Position constraint | Specified in |
 |---|---|---|---|
 | 1 | VariantInitLowering | first: X's variant facts are on the nodes X wrote them on, and every later pass sees one node kind for a construction | [Passes](#variantinitlowering) |
@@ -40,7 +42,7 @@ Rules every pass keeps:
 | 22 | LabelLowering | after IterLowering (labels on minted loops) and MatchLowering (an arm's `break L` moves with the arm) | [Passes](#labellowering) |
 | 23 | ExtensionLowering | before SequenceLowering, which orders the receiver | [Passes](#extensionlowering) |
 | 24 | SequenceLowering | after OperatorLowering (operators are calls); before ListLiteralLowering | [Passes](#sequencelowering) |
-| 25 | SequenceCheck | right after SequenceLowering; sets `SemaContext::sequenced` | [Passes](#sequencelowering) |
+| 25 | SequenceCheck | right after SequenceLowering; from the next step on `SemaContext::sequenced()` is true | [Passes](#sequencelowering) |
 | 26 | ListLiteralLowering | after OperatorLowering and SequenceLowering | [Passes](#listliterallowering) |
 | 27 | StringLowering | last rewrite: a literal is pure until it becomes a constructor call | [Passes](#stringlowering) |
 | 28 | PurityInference (-finfer-purity, on by default) | after every lowering (judges every call a lowering minted); before ParamPassInference, which must leave an inferred-const function's parameters by value | [Passes](#purityinference) |

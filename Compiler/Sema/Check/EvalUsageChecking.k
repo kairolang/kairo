@@ -560,7 +560,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
         b.first(n->value_type->range)
         if at != &null {
-            b.note(DiagCode(DiagID::SC183N), at->range.start, declared_here())->first(at->range)
+            b.note(DiagCode(DiagID::SC183N), at->range.start, declared_here())->child_first(at->range)
         }
 
         b.emit()
@@ -687,7 +687,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                     DiagCode(DiagID::SC184N),
                     dt->range.start,
                     "the destructor is declared here",
-                )->first(dt->range)
+                )->child_first(dt->range)
                 b.emit()
             }
         }
@@ -854,7 +854,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             DiagCode(DiagID::SC186N),
             e->range.start,
             "for runtime-conditional dispatch, use 'where'",
-        )->first(e->range)
+        )->child_first(e->range)
         d.emit()
     }
 
@@ -1010,7 +1010,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                 DiagCode(DiagID::SC184N),
                 dtor->range.start,
                 "the destructor is declared here",
-            )->first(dtor->range)
+            )->child_first(dtor->range)
             b.emit()
         }
     }
@@ -1086,7 +1086,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         )
 
         b.first(n->range)
-        b.note(DiagCode(DiagID::SC189N), f->range.start, named_declared_here(nm))->first(
+        b.note(DiagCode(DiagID::SC189N), f->range.start, named_declared_here(nm))->child_first(
             f->range,
         )
 
@@ -1122,7 +1122,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             )
 
             pb.first(e->range)
-            pb.note(DiagCode(DiagID::SC189N), d->range.start, named_declared_here(pn))->first(
+            pb.note(DiagCode(DiagID::SC189N), d->range.start, named_declared_here(pn))->child_first(
                 d->range,
             )
 
@@ -1159,7 +1159,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         )
 
         b.first(e->range)
-        b.note(DiagCode(DiagID::SC189N), d->range.start, named_declared_here(nm))->first(
+        b.note(DiagCode(DiagID::SC189N), d->range.start, named_declared_here(nm))->child_first(
             d->range,
         )
 
@@ -1247,7 +1247,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         )
 
         b.first(at)
-        b.note(DiagCode(DiagID::SC189N), f->range.start, "the operator is declared here")->first(
+        b.note(DiagCode(DiagID::SC189N), f->range.start, "the operator is declared here")->child_first(
             f->range,
         )
 
@@ -1492,7 +1492,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                         DiagCode(DiagID::SC190N),
                         f->range.start,
                         named_declared_here(nm),
-                    )->first(f->name.range)
+                    )->child_first(f->name.range)
                     if !self._foreign(f) {
                         b.insert(f->range.start, "eval ", f"make '{nm}' an 'eval fn'")
                     }
@@ -1540,7 +1540,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                 DiagCode(DiagID::SC190N),
                 pv->name.range.start,
                 f"'{pn}' is declared here, not as 'eval'",
-            )->first(pv->name.range)
+            )->child_first(pv->name.range)
         }
 
         b.emit()
@@ -1622,7 +1622,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         )
 
         b.first(n->range)
-        b.note(DiagCode(DiagID::SC190N), f->range.start, named_declared_here(nm))->first(
+        b.note(DiagCode(DiagID::SC190N), f->range.start, named_declared_here(nm))->child_first(
             f->name.range,
         )
 
@@ -1732,7 +1732,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                 DiagCode(DiagID::SC192N),
                 pv->name.range.start,
                 f"'{pn}' is declared here, not as 'eval'",
-            )->first(pv->name.range)
+            )->child_first(pv->name.range)
         }
 
         b.emit()
@@ -2505,9 +2505,9 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                 DiagCode(DiagID::SC195N),
                 need_at.start,
                 f"'{inn}' needs '{nn}' complete here",
-            )->first(need_at)
+            )->child_first(need_at)
         } else {
-            b.note(DiagCode(DiagID::SC195N), item->range.start, named_declared_here(inn))->first(
+            b.note(DiagCode(DiagID::SC195N), item->range.start, named_declared_here(inn))->child_first(
                 item->range,
             )
         }
@@ -2559,7 +2559,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                 DiagCode(DiagID::SC196N),
                 v->init->range.start,
                 "its initializer, which reads it back",
-            )->first(v->init->range)
+            )->child_first(v->init->range)
         }
 
         b.emit()

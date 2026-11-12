@@ -606,13 +606,13 @@ pub class PanicSets {
             var unsafe *da = self.tu.record_decl(a)
             var unsafe *db = self.tu.record_decl(b)
             if da != &null {
-                bld.note(DiagCode(DiagID::SC223N), da->range.start, f"'{an}' declared here")->first(
+                bld.note(DiagCode(DiagID::SC223N), da->range.start, f"'{an}' declared here")->child_first(
                     da->range,
                 )
             }
 
             if db != &null {
-                bld.note(DiagCode(DiagID::SC223N), db->range.start, f"'{bn}' declared here")->first(
+                bld.note(DiagCode(DiagID::SC223N), db->range.start, f"'{bn}' declared here")->child_first(
                     db->range,
                 )
             }

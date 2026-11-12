@@ -569,7 +569,7 @@ pub class <T: type> CallTyping {
                 )
 
                 b.first(a->range)
-                b.note(p->range.start, f"'{pn}' is declared here, by value")->first(p->range)
+                b.note(p->range.start, f"'{pn}' is declared here, by value")->child_first(p->range)
                 b.emit()
                 a->expr->poison()
                 continue
@@ -1282,17 +1282,17 @@ pub class <T: type> CallTyping {
             )
 
             b.first(n->range)
-            b.note(k->range.start, "required by this bound")->first(k->range)
+            b.note(k->range.start, "required by this bound")->child_first(k->range)
             b.note(
                 x.start,
                 f"'{pname}' is declared here; bound it 'impl {is}' too, or by an interface that derives it",
-            )->first(x)
+            )->child_first(x)
             b.emit()
         } else {
             var b = self.dyn()->sc->diag->report(DiagID::R051E, n->range.start, msg)
             b.first(n->range)
-            b.note(k->range.start, "required by this bound")->first(k->range)
-            b.note(DiagCode(DiagID::R051N), x.start, f"'{pname}' is declared with no bound")->first(
+            b.note(k->range.start, "required by this bound")->child_first(k->range)
+            b.note(DiagCode(DiagID::R051N), x.start, f"'{pname}' is declared with no bound")->child_first(
                 x,
             )
 
@@ -1812,7 +1812,7 @@ pub class <T: type> CallTyping {
                 DiagCode(DiagID::SC247N),
                 fd->range.start,
                 f"'{nm}' is declared here, without 'self'",
-            )->first(fd->range)
+            )->child_first(fd->range)
         }
 
         // The receiver's TYPE as written in the diagnostics (`T`, not what a
@@ -1966,7 +1966,7 @@ pub class <T: type> CallTyping {
                 )
 
                 d.first(n->range)
-                d.note(qd->range.start, named_declared_here(iname))->first(qd->range)
+                d.note(qd->range.start, named_declared_here(iname))->child_first(qd->range)
                 d.emit()
                 self.dyn()->poison_only(n)
                 return &null
@@ -2367,7 +2367,7 @@ pub class <T: type> CallTyping {
             why = f"'{mname}' is pure virtual: a 'virtual fn' with no body"
         }
 
-        b.note(DiagCode(DiagID::SC249N), pure->range.start, why)->first(pure->range)
+        b.note(DiagCode(DiagID::SC249N), pure->range.start, why)->child_first(pure->range)
         b.emit()
         n->poison()
         return true
@@ -2473,7 +2473,7 @@ pub class <T: type> CallTyping {
                         DiagCode(DiagID::SC250N),
                         d->range.start,
                         f"'{nm}' declared here",
-                    )->first(d->range)->emit()
+                    )->child_first(d->range)->emit()
                     n->poison()
                     return &null
                 }
@@ -2486,7 +2486,7 @@ pub class <T: type> CallTyping {
                 DiagID::SC038E,
                 n->range.start,
                 f"'{self.dyn()->tu.decl_name(d)}' declares no constructor taking arguments",
-            ).first(n->range)->note(d->range.start, type_declared_here())->first(d->range)->emit()
+            ).first(n->range)->note(d->range.start, type_declared_here())->child_first(d->range)->emit()
             n->poison()
             return &null
         }
@@ -2608,7 +2608,7 @@ pub class <T: type> CallTyping {
         b.note(
             a->assoc->range.start,
             f"'{an}' is declared here; bound it with an interface that declares a constructor requirement",
-        )->first(a->assoc->range)
+        )->child_first(a->assoc->range)
         b.emit()
         self.dyn()->poison_only(n)
         return &null

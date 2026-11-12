@@ -4031,7 +4031,7 @@ pub class OverloadResolution {
             if only->reason_code != DiagID::SC001E {
                 var sb = self.sc->diag->report(only->reason_code, at.start, only->reason)
                 sb.first(at)
-                sb.note(only->f->range.start, declared_here())->first(only->f->range)
+                sb.note(only->f->range.start, declared_here())->child_first(only->f->range)
                 sb.emit()
                 return
             }
@@ -4077,7 +4077,7 @@ pub class OverloadResolution {
         var fixed        = utargets.size() > 1
         for var i: usize = 0; i < cs->size() && shown < 6; ++i {
             var *c = &(*cs)[i]
-            b.note(c->f->range.start, f"candidate not viable: {c->reason}")->first(c->f->range)
+            b.note(c->f->range.start, f"candidate not viable: {c->reason}")->child_first(c->f->range)
             // One edit per call: two candidates' casts cannot both apply.
             if !fixed && c->fix_text != "" {
                 var why = if (c->fix_text == ".c_str()") => ("pass the string's NUL-terminated bytes")
@@ -4226,7 +4226,7 @@ pub class OverloadResolution {
         b.first(at)
         for var i: usize = 0; i < winners->size() && i < 6; ++i {
             var *c = &(*cs)[(((*winners)[i]))]
-            b.note(c->f->range.start, "candidate declared here")->first(c->f->range)
+            b.note(c->f->range.start, "candidate declared here")->child_first(c->f->range)
         }
 
         var spelled = self._variant_spellings(&*cs, *winners, margs, fargs)

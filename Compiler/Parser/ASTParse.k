@@ -878,7 +878,7 @@ pub class ASTParse
                 DiagCode(DiagID::S048N),
                 e->range.start,
                 "this annotation also cannot apply to the group",
-            )->first(e->range)
+            )->child_first(e->range)
         }
 
         b.emit()
@@ -2958,7 +2958,7 @@ pub class ASTParse
                 DiagCode(DiagID::SC138N),
                 self.tu->global_alloc_at.start,
                 "set here first",
-            )->first(self.tu->global_alloc_at)
+            )->child_first(self.tu->global_alloc_at)
             b.remove(whole, "remove the second " + LangAttrs::quoted(LangAttrs::set_global_allocator()))
             b.emit()
             return

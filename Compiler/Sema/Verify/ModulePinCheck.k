@@ -41,11 +41,11 @@ pub class ModulePinCheck {
     ///
     /// \details THE rule, and its only home. Today: in a module.k only, the
     ///          one file whose pin has a meaning (it names the directory as a
-    ///          library). Elsewhere the meaning is undecided, and an error
-    ///          now keeps every choice open, where accepting it silently
-    ///          would make "does nothing" the meaning code starts relying on.
-    ///          The alternatives the user may pick later, each a change to
-    ///          this function and the diagnostic in run() alone:
+    ///          library). Elsewhere the meaning is undecided: an error
+    ///          keeps every choice open, where accepting it silently would
+    ///          make "does nothing" the meaning code starts relying on. The
+    ///          alternatives, each a change to this function and the
+    ///          diagnostic in run() alone:
     ///            (b) the pin names the FILE itself: `utils/strings.k` saying
     ///                `module text` is `utils::text`. Return true here, and
     ///                canonical_module_path reads the pin for the leaf.

@@ -133,7 +133,7 @@ The partial is emitted with its clause, so C++ selects from the same predicate. 
 | `ord_rank`, `ord_seq` | the smallest request key: the schedule step that asked and the group's request count ([Parallel Sema](Performance.md#parallel-sema)) | mint, `_claim` |
 | `seq` | worklist index | `_new_entry` |
 | `depth` | 0 not live; 1 named at a use; reacher + 1 when only a body reaches it | `mark_live` |
-| `checked` | its reach has been walked | `set_checked` |
+| `liveness` | `InstLiveness`: Minted (nothing has needed it), Live (a use needs it; its reach not walked yet), Walked (its reach has been walked). Past Minted exactly when `depth` is nonzero (a debug check in each transition); back to Minted only by a live check's re-arm | `mark_live`, `set_checked` |
 | `use_at` | the use that made its chain's root live, inherited down the chain | `mark_live` |
 | `via`, `via_at` | the live instance whose body made it live, and the use in that body | `mark_live` |
 | `reached`, `reached_by` | instances its body reaches (deduplicated, reach order); first reacher | `add_reach` |
@@ -160,7 +160,7 @@ The Sema stages after the lowerings are M1 (`SemaPhase::MonoCollected`) and M2 (
 
 The fixpoint runs at the end of each TU's ConformanceChecking (before the Typed barrier, where its diagnostics belong) and again as M1, where it normally finds nothing. M1 builds a fresh ConformanceChecking, which indexes extensions lazily. After M1 every live instance's reach is in the registry.
 
-The cycle state is the entry's (`checked`), never the decl's, because every function instance shares its primary's decl. Each instance's rows are its own bounds' only; the walk checks each reached instance after the outer one's rows are written.
+The cycle state is the entry's (`liveness`), never the decl's, because every function instance shares its primary's decl. Each instance's rows are its own bounds' only; the walk checks each reached instance after the outer one's rows are written.
 
 A use with no range (`var b = Box<M>(...)` visits the inferred type before the initializer) waits for a written use in the same TU and falls back to the enclosing range at the end of the TU. A reached instance inherits its root's `use_at`.
 

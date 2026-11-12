@@ -403,7 +403,7 @@ extend CompilerInstance {
                 DiagCode(DiagID::SC142N),
                 p.script_at.start,
                 f"'{a}' is a script: its first top-level statement is here",
-            )->first(p.script_at)
+            )->child_first(p.script_at)
             d.emit()
         }
     }
@@ -593,7 +593,7 @@ extend CompilerInstance {
             )
 
             d.first(r.global_alloc_at)
-            d.note(DiagCode(DiagID::SC138N), p.global_alloc_at.start, f"'{a}' sets it here")->first(
+            d.note(DiagCode(DiagID::SC138N), p.global_alloc_at.start, f"'{a}' sets it here")->child_first(
                 p.global_alloc_at,
             )
 

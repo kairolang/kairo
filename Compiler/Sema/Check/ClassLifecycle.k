@@ -1316,7 +1316,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             b.note(
                 bd->range.start,
                 f"declare 'virtual fn op finally(self)' in '{bn}' and 'override fn op finally(self)' in '{dn}'",
-            )->first(bd->range)
+            )->child_first(bd->range)
             b.emit()
             self.n_errored += 1
         }
@@ -1489,7 +1489,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             b.note(
                 p->mode_range.start,
                 f"'{mw}' on the parameter is not a transfer constructor",
-            )->first(p->mode_range)
+            )->child_first(p->mode_range)
         }
 
         b.emit()
@@ -1566,7 +1566,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             ).first(dup->range)->note(
                 dup_of->range.start,
                 "the other transfer constructor is here",
-            )->first(dup_of->range)->emit()
+            )->child_first(dup_of->range)->emit()
             dup->poison()
             self.n_errored += 1
         } else if copy_ctor != &null
@@ -1580,7 +1580,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             ).first(move_ctor->range)->note(
                 copy_ctor->range.start,
                 "the other transfer constructor is here",
-            )->first(copy_ctor->range)->emit()
+            )->child_first(copy_ctor->range)->emit()
             move_ctor->poison()
             self.n_errored += 1
         }
@@ -1608,7 +1608,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 DiagID::SC059E,
                 xfer->range.start,
                 f"'{dn}' has a transfer constructor with a body and a deleted destructor; the derived 'op =' must destroy the old value first and cannot",
-            ).first(xfer->range)->note(dtor->range.start, "destructor deleted here")->first(
+            ).first(xfer->range)->note(dtor->range.start, "destructor deleted here")->child_first(
                 dtor->range,
             )->note(
                 xfer->range.start,
@@ -1673,7 +1673,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 DiagID::SC061E,
                 e->range.start,
                 f"'{dn}' is {self._cat_word(f->category)}, but its base '{bn}' is {self._cat_word(bf->category)}; a derived class's lifecycle category must match its base's, or be non-transferable",
-            ).first(e->range)->note(bd->range.start, "base declared here")->first(bd->range)->emit()
+            ).first(e->range)->note(bd->range.start, "base declared here")->child_first(bd->range)->emit()
             self.n_errored += 1
         }
 
@@ -1735,7 +1735,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 DiagCode(DiagID::SC129N),
                 e->range.start,
                 f"'{bn}' is a base of '{dn}' here",
-            )->first(e->range)
+            )->child_first(e->range)
             b.emit()
             self.n_errored += 1
             return
@@ -1771,7 +1771,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             )
 
             b.first(x->range)
-            b.note(DiagCode(DiagID::SC129N), fd->range.start, f"'{fname}' declared here")->first(
+            b.note(DiagCode(DiagID::SC129N), fd->range.start, f"'{fname}' declared here")->child_first(
                 fd->range,
             )
 
@@ -2297,7 +2297,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         )
 
         b.first(n->range)
-        b.note(rd->range.start, type_declared_here())->first(rd->range)
+        b.note(rd->range.start, type_declared_here())->child_first(rd->range)
         // `op =` cannot be written (rule 2), so there is no assignment to
         // suggest: the value has to be built anew.
         if f->poly_rebuild {

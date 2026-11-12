@@ -552,7 +552,7 @@ pub class TypeCycleCheck {
             DiagCode(DiagID::SC227N),
             held->range.start,
             f"'{hn}' is forward-declared here and never defined",
-        )->first(held->range)
+        )->child_first(held->range)
         if self._fix_at.is_valid() {
             b.insert(self._fix_at, "unsafe *", f"hold a pointer to '{hn}' instead")
         }

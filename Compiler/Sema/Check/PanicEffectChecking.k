@@ -431,14 +431,14 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                     DiagCode(DiagID::SC208N),
                     w->range.start,
                     f"'{self._qual_name(w)}' may panic with {names}",
-                )->first(wat)
+                )->child_first(wat)
                 var qat = if (q->panic_range.is_valid()) => (q->panic_range)
                           else => self._name_range(q)
                 bld.note(
                     DiagCode(DiagID::SC208N),
                     q->range.start,
                     named_declared_here(qn),
-                )->first(qat)
+                )->child_first(qat)
                 ConformanceChecking(self.sc).chain_notes(unsafe &bld, e)
                 bld.emit()
             }
@@ -569,8 +569,8 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             DiagCode(DiagID::SC209N),
             first.start,
             f"this arm catches '{nm}' at these arguments",
-        )->first(first)
-        b.note(DiagCode(DiagID::SC209N), second.start, "and so does this one")->first(second)
+        )->child_first(first)
+        b.note(DiagCode(DiagID::SC209N), second.start, "and so does this one")->child_first(second)
         ConformanceChecking(self.sc).chain_notes(unsafe &b, e)
         b.emit()
     }
@@ -803,7 +803,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         )
 
         w.first(kw, "registered here, after the 'try'")
-        w.note(DiagCode(DiagID::SC211N), end, "it runs here, when this block is left")->first(
+        w.note(DiagCode(DiagID::SC211N), end, "it runs here, when this block is left")->child_first(
             SourceRange::from_bounds(end, 1 as u32),
         )
 
@@ -811,7 +811,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             DiagCode(DiagID::SC211N),
             prev->range.start,
             "a 'return', 'break' or uncaught panic leaving this 'try' never reaches the 'finally', so it does not run on that path",
-        )->first(SourceRange::from_bounds(prev->range.start, 3 as u32))
+        )->child_first(SourceRange::from_bounds(prev->range.start, 3 as u32))
         w.note(
             DiagCode(DiagID::SC211N),
             "to run it as soon as the 'try' is done, and on every way out of it, put it first in a block of its own: '{ finally { ... } try { ... } catch { ... } }'",
@@ -917,7 +917,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
 
         b.first(at)
         if d != &null && d->range.is_valid() {
-            b.note(DiagCode(DiagID::SC212N), d->range.start, named_declared_here(nm))->first(
+            b.note(DiagCode(DiagID::SC212N), d->range.start, named_declared_here(nm))->child_first(
                 d->range,
             )
         }
@@ -963,7 +963,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 DiagCode(DiagID::SC213N),
                 f->range.start,
                 "handle every error in 'main', or stop the program with 'crash!()'",
-            )->first(self._name_range(f))
+            )->child_first(self._name_range(f))
             b.remove(f->panic_range, "remove 'panic'")
             b.emit()
             return
@@ -977,7 +977,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             )
 
             b.first(at)
-            b.note(DiagCode(DiagID::SC214N), f->range.start, named_declared_here(nm))->first(
+            b.note(DiagCode(DiagID::SC214N), f->range.start, named_declared_here(nm))->child_first(
                 self._name_range(f),
             )
 
@@ -995,7 +995,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                       else => "an object is either built whole or not at all"
             var b = self.sc->diag->report(DiagID::SC215E, at.start, f"{life} cannot panic: " + why)
             b.first(at)
-            b.note(DiagCode(DiagID::SC215N), f->range.start, named_declared_here(nm))->first(
+            b.note(DiagCode(DiagID::SC215N), f->range.start, named_declared_here(nm))->child_first(
                 self._name_range(f),
             )
 
@@ -1022,7 +1022,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             )
 
             b.first(at)
-            b.note(DiagCode(DiagID::SC215N), f->range.start, named_declared_here(nm))->first(
+            b.note(DiagCode(DiagID::SC215N), f->range.start, named_declared_here(nm))->child_first(
                 self._name_range(f),
             )
 
@@ -1052,7 +1052,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 DiagCode(DiagID::SC216N),
                 f->range.start,
                 "a declared set, 'panic(E1, E2)', bounds it: what the recursive call panics with must then be in it or caught",
-            )->first(self._name_range(f))
+            )->child_first(self._name_range(f))
             b.emit()
             return
         }
@@ -1082,7 +1082,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             b.first(at)
             var rt = if (f->return_type != &null) => (f->return_type->range)
                      else => self._name_range(f)
-            b.note(DiagCode(DiagID::SC116N), rt.start, "its result names 'Self' here")->first(rt)
+            b.note(DiagCode(DiagID::SC116N), rt.start, "its result names 'Self' here")->child_first(rt)
             b.emit()
             return
         }
@@ -1380,7 +1380,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         d.first(at)
         var sat = if (sup->panic_range.is_valid()) => (sup->panic_range)
                   else => self._name_range(sup)
-        d.note(DiagCode(DiagID::SC208N), sup->range.start, named_declared_here(sn))->first(sat)
+        d.note(DiagCode(DiagID::SC208N), sup->range.start, named_declared_here(sn))->child_first(sat)
         // A set naming its own parameters, read at arguments, has no
         // spelling to add to: the base's or interface's list is written in
         // its parameters, not in these arguments.
@@ -1554,11 +1554,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                  else => "panics with " + pset_names(&self._tu, unsafe &a)
         var bd = if (b.size() == 0) => ("does not panic")
                  else => "panics with " + pset_names(&self._tu, unsafe &b)
-        d.note(DiagCode(DiagID::SC116N), a_fn->range.start, f"'{an}' {ad}")->first(
+        d.note(DiagCode(DiagID::SC116N), a_fn->range.start, f"'{an}' {ad}")->child_first(
             self._name_range(a_fn),
         )
 
-        d.note(DiagCode(DiagID::SC116N), b_fn->range.start, f"'{bn}' {bd}")->first(
+        d.note(DiagCode(DiagID::SC116N), b_fn->range.start, f"'{bn}' {bd}")->child_first(
             self._name_range(b_fn),
         )
 
@@ -1651,7 +1651,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         b.first(at)
         var pr  = if (h->panic_range.is_valid()) => (h->panic_range) else => f->panic_range
         var nat = if (pr.is_valid()) => (pr) else => self._name_range(f)
-        b.note(DiagCode(DiagID::SC219N), f->range.start, named_declared_here(nm))->first(nat)
+        b.note(DiagCode(DiagID::SC219N), f->range.start, named_declared_here(nm))->child_first(nat)
         var unsafe *inf = self._fn_inferred(f)
         if inf != &null {
             self._write_set_fix(&b, pr, inf)
@@ -1684,7 +1684,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             )
 
             b.first(at)
-            b.note(DiagCode(DiagID::SC214N), c->range.start, "the closure is here")->first(c->range)
+            b.note(DiagCode(DiagID::SC214N), c->range.start, "the closure is here")->child_first(c->range)
             b.remove(c->panic_range, "remove 'panic'")
             b.emit()
             return
@@ -2017,7 +2017,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
 
                 b.first(filt->range)
                 var rj = self._arm_range(t, j)
-                b.note(DiagCode(DiagID::SC209N), rj.start, "the first arm is here")->first(rj)
+                b.note(DiagCode(DiagID::SC209N), rj.start, "the first arm is here")->child_first(rj)
                 b.remove(ar, "remove this arm")
                 b.emit()
                 dup = true
@@ -2154,7 +2154,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 DiagCode(DiagID::SC220N),
                 d->range.start,
                 f"'{nm}' is declared here, in C++",
-            )->first(d->range)
+            )->child_first(d->range)
         }
 
         b.remove(ar, "remove the arm")
@@ -2338,7 +2338,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 DiagCode(DiagID::SC221N),
                 holder->range.start,
                 "the default is declared here",
-            )->first(holder->range)
+            )->child_first(holder->range)
         }
 
         b.emit()
@@ -2360,7 +2360,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 DiagCode(DiagID::SC222N),
                 holder->range.start,
                 "initialize it in a function instead",
-            )->first(holder->range)
+            )->child_first(holder->range)
         }
 
         b.emit()
@@ -2380,7 +2380,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 DiagCode(DiagID::SC222N),
                 holder->range.start,
                 "initialize it in a function instead",
-            )->first(holder->range)
+            )->child_first(holder->range)
         }
 
         b.emit()
@@ -2428,7 +2428,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             DiagCode(DiagID::SC222N),
             cf->range.start,
             f"'{self._fn_name(cf)}' is declared 'panic' here",
-        )->first(r)
+        )->child_first(r)
     }
 
     /// # helpers

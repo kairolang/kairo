@@ -1727,7 +1727,7 @@ pub class ExprTyper
                 DiagCode(DiagID::R051N),
                 gp->range.start,
                 f"'{pname}' is declared with no bound",
-            )->first(gp->range)
+            )->child_first(gp->range)
             b.emit()
         }
 
