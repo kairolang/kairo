@@ -1988,8 +1988,13 @@ pub class <T: type> DeclParse {
                 fd->name = Token()
             }
         } else if self.dyn()->check(TokenKind::LitIdentifier)
-            || self.dyn()->check(TokenKind::KwSelf) {
+            || self.dyn()->check(TokenKind::KwSelf)
+            || (in_type_scope && self.dyn()->is_member_name_keyword(self.dyn()->ig_kind())) {
             var name_tok = self.dyn()->current()
+            if self.dyn()->is_member_name_keyword(self.dyn()->ig_kind()) {
+                name_tok = self.dyn()->keyword_as_name(name_tok)
+            }
+
             self.dyn()->advance()
 
             // `fn self(self)`: `self` is a keyword, taken here only as the
@@ -2029,6 +2034,10 @@ pub class <T: type> DeclParse {
                     fd->name = Token()
                 } else {
                     fd->name = self.dyn()->current()
+                    if self.dyn()->is_member_name_keyword(self.dyn()->ig_kind()) {
+                        fd->name = self.dyn()->keyword_as_name(fd->name)
+                    }
+
                     self.dyn()->advance()
                 }
             } else {

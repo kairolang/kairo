@@ -2331,6 +2331,33 @@ pub class ASTParse
                      else => &null
     }
 
+    /// \brief a keyword that may still name a member: after `fn` in a type
+    ///        body or after `Class::` in an out-of-line definition, and
+    ///        after `.`, `->`, `?.`, `?->` and `::`.
+    ///
+    /// \details only `test`, whose one job is to open a top-level test
+    ///          block (DeclParse::_parse_test). C++ names its own methods
+    ///          `test` (`std::bitset::test`), and in none of these positions
+    ///          can a test block start, so nothing is ambiguous. A top-level
+    ///          `fn test()` stays an error. A keyword that is a statement or
+    ///          a declaration in its own right does not join this list
+    ///          without a language rule.
+    pub inline fn is_member_name_keyword(self, k: TokenKind) -> bool {
+        return k == TokenKind::KwTest
+    }
+
+    /// \brief \p tok, a keyword in a name position
+    ///        (is_member_name_keyword), as the identifier it spells, at the
+    ///        same range.
+    pub fn keyword_as_name(self, tok: Token) -> Token {
+        var k = self.resolve_kind_deep(unsafe &tok)
+        return self.ctx->make_token(
+            tok.range,
+            TokenKind::LitIdentifier,
+            token_kind_to_readable_string(k),
+        )
+    }
+
     pub inline fn ig_kind(self) -> TokenKind {
         if self._current == &null {
             return TokenKind::TkEof

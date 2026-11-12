@@ -1926,6 +1926,38 @@ def styles(exe, root):
         c.stop()
 
 
+TEST_MEMBER = """class Flags {
+    var bits: u32 = 0
+    pub fn Flags(self) { }
+    pub fn test(const self, i: u32) -> bool { return (self.bits & (1 as u32 << i)) != 0 }
+}
+
+fn probe() -> bool {
+    var b = Flags()
+    return b.test(3)
+}
+
+test "flags start clear" {
+}
+"""
+
+
+def member_test_name(exe, root):
+    """`test` naming a member is a method, not the test-block keyword."""
+    X = "src/test_member.k"
+    open(os.path.join(root, X), "w").write(TEST_MEMBER)
+    c = Client(exe, root)
+    c.start()
+    c.open(X, TEST_MEMBER)
+    c.settle()
+    by = {(l, col): (w, ty, m) for l, col, w, ty, m in tokens(c, X, TEST_MEMBER)}
+    tok = lambda needle, off=0, nth=0: by.get(pos(TEST_MEMBER, needle, off, nth), ("", "", set()))
+    check("tokens: a method named test, declared", tok("test(const")[1] == "method", tok("test(const"))
+    check("tokens: a method named test, called", tok("test(3)")[1] == "method", tok("test(3)"))
+    check("tokens: a test block's test is a keyword", tok('test "flags')[1] == "keyword", tok('test "flags'))
+    c.stop()
+
+
 def interfaces(exe, root):
     """Generate interface for 'Name': the edit, applied, still type-checks."""
     c = Client(exe, root)
@@ -4182,6 +4214,8 @@ def main():
             interfaces(exe, real)
         if want("styles"):
             styles(exe, real)
+        if want("member_test_name"):
+            member_test_name(exe, real)
         if want("bridge"):
             bridge(exe, base)
         if want("bridge_real"):

@@ -2305,12 +2305,14 @@ pub class <T: type> ExprParse {
             }
         }
 
-        // expect identifier
-        if !self.dyn()->check(
-            fn(k: TokenKind) -> bool {
-                return Self::_is_expr_ident_kind(k)
-            },
-        ) {
+        // expect identifier (or a keyword that may name a member: `b.test(3)`)
+        var kw_name = self.dyn()->is_member_name_keyword(self.dyn()->ig_kind())
+        if (!kw_name)
+            && !self.dyn()->check(
+                fn(k: TokenKind) -> bool {
+                    return Self::_is_expr_ident_kind(k)
+                },
+            ) {
             self.dyn()->diag->report(
                 DiagID::S054E,
                 sep_range.start,
@@ -2321,18 +2323,23 @@ pub class <T: type> ExprParse {
 
         var id_ptr   = self.dyn()->current_ptr()
         var id_range = id_ptr->range
+        var id_tok   = *id_ptr
+        if kw_name {
+            id_tok = self.dyn()->keyword_as_name(id_tok)
+        }
+
         self.dyn()->advance() // consume identifier
 
-        var nte = NamedIdentExpr::create(self.dyn()->ctx, id_range, *id_ptr)
+        var nte = NamedIdentExpr::create(self.dyn()->ctx, id_range, id_tok)
         result.name  = nte
         result.range = sep_range | id_range
 
         /// # generic args after :: separator only
         /// foo::<T> is generic, foo.<T> is not valid syntax
         /// also check hoisted scope for disambiguation of foo::Bar<T>
-        if self.dyn()->check(TokenKind::OpLess) && self._can_take_generic_args(*id_ptr) {
+        if self.dyn()->check(TokenKind::OpLess) && self._can_take_generic_args(id_tok) {
             if result.access_kind == ChainExpr::AccessKind::ColonColon {
-                if self._is_generic_name(*id_ptr) {
+                if self._is_generic_name(id_tok) {
                     var generic_args: kairo::std::StackBuf<ChainType::GenericArg, 4>
                     self.dyn()->_parse_generic_args(&generic_args)
                     self.dyn()->forgive_close()
