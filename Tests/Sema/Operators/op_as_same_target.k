@@ -1,6 +1,6 @@
 // Two `op as` to the SAME target are one member declared twice (R041E),
 // whatever their bodies: the target is the overload's whole identity. The
-// diagnostic names the operator, 'op as' (it used to say 'op'). Different
+// diagnostic names the operator, 'op as'. Different
 // targets beside them are fine.
 
 class Dup {

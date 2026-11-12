@@ -6045,3 +6045,28 @@ group = "operators"
 
     [SC280.N]
     explain = "Points at the other form of the pair."
+
+[SC281]
+brief = "a sub-range binding takes the place form but is never written through"
+group = "lint"
+
+    [SC281.W]
+    explain = """
+    # a `var` sub-range binding that is only read
+
+    `var t = a[0..2]` on a mutable `a` whose type declares `op []=` binds the
+    place form: `t` is a mutable view, so `t[0] = 5` writes `a`. When nothing
+    in the scope writes through `t`, the place form was not needed, and
+    picking it may do work a read does not (a map inserts, a view marks its
+    owner changed). `const t = a[0..2]` binds the read form.
+
+    ```kairo
+    var t = b[0..2]      // warned: t is only read
+    print(t[0])
+    ```
+
+    ## how to fix
+
+    declare the binding `const` (the fix-it does), or silence the warning
+    with `@no_warn(SC281W)` on the declaration.
+    """

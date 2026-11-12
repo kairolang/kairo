@@ -63,6 +63,7 @@ import Sema::Check::PackChecking::PackChecking
 import Sema::Check::PanicEffectChecking::PanicEffectChecking
 import Sema::Check::ParamPassInference::ParamPassInference
 import Sema::Check::PatternChecking::PatternChecking
+import Sema::Check::RangeBindingLint::RangeBindingLint
 import Sema::Check::ReturnPathCheck::ReturnPathCheck
 import Sema::Check::ScopeEscapeCheck::ScopeEscapeCheck
 import Sema::Check::ShadowCheck::ShadowCheck
@@ -779,7 +780,7 @@ pub class Sema {
         }
 
         // Where `ffi::ref<T>` / `ffi::mref<T>` may stand, and an override's
-        // return against the C++ virtual's (P872). Before ExprTyper: a
+        // return against the C++ virtual's. Before ExprTyper: a
         // misplaced one is rewritten to its referee, so no call types
         // against a reference that is not there.
         {
@@ -861,9 +862,17 @@ pub class Sema {
             ForCopyLint(unsafe &self.sc).run()
         }
 
+        // `var t = a[i..j]` that took a split subscript's place form and is
+        // never written through (SC281W). REQUIRES ExprTyper: reads
+        // SubscriptExpr::place_ctx and resolved_op.
+        {
+            var _p = TimeRegion("RangeBindingLint")
+            RangeBindingLint(unsafe &self.sc).run()
+        }
+
         // A derived method with a CRTP hook's name and arity but other
         // parameter types: the base's `self.dyn()->hook(x)` still runs the
-        // base's (SC278W, P537). REQUIRES TypeResolve's signatures only; the
+        // base's (SC278W). REQUIRES TypeResolve's signatures only; the
         // bodies are read for their dyn calls, not their types.
         {
             var _p = TimeRegion("CRTPHookCheck")
@@ -1457,7 +1466,6 @@ pub class Sema {
         // `using Base::name;` for merged base overloads C++ would hide is
         // InterfaceEmitter::_base_usings: a property of the class
         // definition, written where it is spelled, so no pass here.
-        // TODO(sema): ...
         self.sc.advance_phase(SemaPhase::Lowered)
         return true
     }

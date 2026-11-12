@@ -1108,6 +1108,19 @@ pub class <T: type> MemberTyping {
         var ctx        = n->place_ctx
         var recv_const = canon_has_const(unsafe (obj as unsafe *Type))
         var place      = ctx == SUB_WRITE || (ctx != SUB_READ && !recv_const)
+        // A softer use prefers the place form only where one takes this
+        // index: the forms are per index type, so `var t = b[0..2]` with a
+        // read range form and no place one is the read it can be. A write
+        // has no such fallback (P880-1).
+        if place && ctx != SUB_WRITE {
+            var probe = cxx::std::vector<ArgInfo>()
+            probe.push_back(self.dyn()->arg_info(n->index))
+            var unsafe *ro = unsafe (obj as unsafe *Type)
+            if !self.dyn()->ovl.any_viable(sets, &probe, true, &null, &null, ro) {
+                place = false
+            }
+        }
+
         if place && recv_const {
             self.dyn()->type_of(n->index, &null)
             self._const_split_write(n)
@@ -1228,7 +1241,7 @@ pub class <T: type> MemberTyping {
     /// two forms name one element (OperatorSignatureCheck::_agree), so only
     /// const changes, and nothing the call resolved against.
     fn settle_receiver_subscript(self, ce: unsafe *ChainExpr, w: unsafe *Decl) {
-        if ce == &null || ce->base == &null || ce->steps.size() == 0 || w == &null {
+        if ce == &null || ce->base == &null || ce->steps.size() == 0 {
             return
         }
 
@@ -1237,45 +1250,62 @@ pub class <T: type> MemberTyping {
             return
         }
 
-        var unsafe *s = dyn_cast<SubscriptExpr>(self.dyn()->tu.strip_parens(ce->base))
-        if s == &null || !self._holds_place_form(s) {
-            return
-        }
-
-        self._settle(s, w)
+        self._settle_walk(ce->base, self._takes_self(w))
     }
 
     /// `for e in x[i]`: as settle_receiver_subscript, for the iteration's
     /// `op in` \p w (RangedForStmt::iter_op). Null is an iteration with no
     /// user operator (an array, a slice): a read.
     fn settle_iterable_subscript(self, iterable: unsafe *Expr, w: unsafe *Decl) {
-        var unsafe *s = dyn_cast<SubscriptExpr>(self.dyn()->tu.strip_parens(iterable))
-        if s == &null || !self._holds_place_form(s) {
-            return
-        }
-
-        if w == &null {
-            self._demote(s)
-            return
-        }
-
-        self._settle(s, w)
+        self._settle_walk(iterable, self._takes_self(w))
     }
 
-    /// \p s keeps its place form only for a \p w that takes `self`.
-    priv fn _settle(self, s: unsafe *SubscriptExpr, w: unsafe *Decl) {
-        var unsafe *wf = dyn_cast<FunctionDecl>(w)
-        var mutating = wf != &null
+    /// \p w is a method taking a mutable `self`. Null (no method was
+    /// chosen: a `fn` value called through a field, an error) is a read.
+    priv fn _takes_self(self, w: unsafe *Decl) -> bool {
+        var unsafe *wf = if (w != &null) => (dyn_cast<FunctionDecl>(w)) else => &null
+        return wf != &null
             && wf->is_method()
             && !wf->is_const()
             && wf->params.size() > 0
             && wf->params[0] != &null
             && !wf->params[0]->is_const
-        if mutating {
+    }
+
+    /// Every subscript mark_subscript_use reached from \p e as a receiver,
+    /// in the same walk (parens, `.field` / `.0`, a subscript's container),
+    /// keeps the place form when \p keep, else moves to the read form: a
+    /// RECV mark is never left standing.
+    priv fn _settle_walk(self, e: unsafe *Expr, keep: bool) {
+        if keep {
             return
         }
 
-        self._demote(s)
+        var unsafe *cur = e
+        for var guard: usize = 0; cur != &null && guard < 256; ++guard {
+            cur = self.dyn()->tu.strip_parens(cur)
+            if cur == &null {
+                return
+            }
+
+            var unsafe *s = dyn_cast<SubscriptExpr>(cur)
+            if s != &null {
+                if self._holds_place_form(s) {
+                    self._demote(s)
+                }
+
+                cur = s->base
+                continue
+            }
+
+            var unsafe *ch = dyn_cast<ChainExpr>(cur)
+            if ch != &null && ch->base != &null && self.member_path(ch, ch->steps.size()) {
+                cur = ch->base
+                continue
+            }
+
+            return
+        }
     }
 
     /// \p s was typed with the place form while it was only a receiver.

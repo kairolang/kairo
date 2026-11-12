@@ -1489,6 +1489,12 @@ pub class <T: type> CallTyping {
             }
 
             var info = self.dyn()->chain_info(ce)
+            // No method to settle a receiver subscript against (a `fn`
+            // value called through a field, an unknown callee): it is read.
+            if info == &null || info->callable_cands.size() == 0 {
+                self.dyn()->settle_receiver_subscript(ce, &null)
+            }
+
             if info == &null {
                 self.dyn()->mark_unknown(n)
                 self._type_args_blind(n)

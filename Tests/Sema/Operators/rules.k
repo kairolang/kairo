@@ -1,6 +1,6 @@
 // The operator rules, one declaration or use per rule. Each is X's or
 // OperatorSignatureCheck's error; none reaches a lowering. Every EmitIR
-// record-operand ICE is unreachable because the shape that would reach it is
+// record-operand failure is unreachable because the shape that would reach it is
 // rejected here first.
 
 struct V {
