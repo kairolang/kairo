@@ -291,6 +291,19 @@ pub class <T: type> MemberTyping {
         return Expr::ValueCategory::LValue
     }
 
+    /// The method's own `self` parameter when \p n's base is it; null
+    /// otherwise.
+    fn chain_self_param(self, n: unsafe *ChainExpr) -> unsafe *ParamDecl {
+        var unsafe *b  = self.dyn()->tu.strip_parens(n->base)
+        var unsafe *id = dyn_cast<NamedIdentExpr>(b)
+        if id == &null || id->resolved_decl == &null {
+            return &null
+        }
+
+        var unsafe *p = dyn_cast<ParamDecl>(id->resolved_decl)
+        return if (p != &null && p->is_self) => (p) else => &null
+    }
+
     fn type_chain(self, n: unsafe *ChainExpr, expected: unsafe *Type) -> unsafe *Type {
         var info = self.dyn()->new_chain_info(n)
 
@@ -710,6 +723,22 @@ pub class <T: type> MemberTyping {
                     )
 
                     cur = self.dyn()->ded_scratch()->member_through(seen, ft)
+                    // In a `const self` method a field reached from `self`
+                    // through `.` is part of the const object, so it is
+                    // const too (C++ reads `this->f` in a const member
+                    // function the same way). A `mutable var` field stays
+                    // writable, as C++ `mutable` does. Through `->` the
+                    // field belongs to the pointee, whose const is its own.
+                    if cur != &null
+                        && cur_kind == ChainKind::Value
+                        && (recv_q & QUAL_CONST) != 0
+                        && !f->is_mutable
+                        && st->access_kind != ChainExpr::AccessKind::Arrow
+                        && st->access_kind != ChainExpr::AccessKind::QuestionArrow
+                        && self.chain_self_param(n) != &null {
+                        cur = self.dyn()->sc->types->qualified(cur, QUAL_CONST)
+                    }
+
                     st->through = self._instance_through(st, cur_kind, cur_type)
                     cur_kind          = ChainKind::Value
                     st->resolved_type = cur

@@ -19,7 +19,7 @@ extend R {
     static fn make(x: bool) -> R = R { a: x }
 // DIAG: expr_body_typed.k:[[@LINE-1]]:43: error [SC028E]: cannot convert 'bool' to 'u32'
     fn flag(const self) -> bool = self.a
-// DIAG: expr_body_typed.k:[[@LINE-1]]:35: error [SC028E]: cannot convert 'u32' to 'bool'
+// DIAG: expr_body_typed.k:[[@LINE-1]]:35: error [SC028E]: cannot convert 'const u32' to 'bool'
 }
 
 class C {

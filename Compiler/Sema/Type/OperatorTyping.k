@@ -3474,7 +3474,10 @@ pub class <T: type> OperatorTyping {
     /// emitted (a `const c: *i32` parameter).
     /// A const FIELD is CtorInitCheck's (SC171E): a constructor of its own
     /// record initializes it once, a write this rule cannot tell from an
-    /// assignment.
+    /// assignment. A field of `self` in a `const self` method is const
+    /// through its object (MemberTyping types `self.f` const there), and a
+    /// write to it is reported here; a `mutable var` field is not const
+    /// there, as C++ `mutable` is not.
     /// \return whether it reported (the caller stops typing \p n).
     priv fn _reject_const_write(self, n: unsafe *Expr, lhs: unsafe *Expr, verb: string) -> bool {
         var x = self.dyn()->tu.strip_parens(lhs)
@@ -3484,7 +3487,12 @@ pub class <T: type> OperatorTyping {
 
         var unsafe *d = self._assigned_decl(x)
         if d != &null && isa<FieldDecl>(d) {
-            return false
+            return self._reject_const_self_field_write(
+                n,
+                x,
+                cast<FieldDecl>(d),
+                verb,
+            )
         }
 
         var vd: unsafe *VariableDecl = &null
@@ -3595,6 +3603,49 @@ pub class <T: type> OperatorTyping {
                 )
             }
 
+            b.emit()
+        }
+
+        n->poison()
+        return true
+    }
+
+    /// SC071E for a write to \p f, a field of `self` reached in a
+    /// `const self` method (\p x is the place, \p n the write): the
+    /// object is const, and so is the field unless it is `mutable var`.
+    /// \return whether it reported.
+    priv fn _reject_const_self_field_write(self,
+                                           n:    unsafe *Expr,
+                                           x:    unsafe *Expr,
+                                           f:    unsafe *FieldDecl,
+                                           verb: string) -> bool {
+        var unsafe *ch = dyn_cast<ChainExpr>(x)
+        if ch == &null
+            || f->is_mutable
+            || f->storage == StorageClass::Const
+            || x->type_ == &null
+            || !canon_has_const(x->type_) {
+            return false
+        }
+
+        var unsafe *sp = self.dyn()->chain_self_param(ch)
+        if sp == &null || !sp->is_const {
+            return false
+        }
+
+        var nm = self.dyn()->sc->ctx->get_spelling(f->name)
+        if !n->is_poisoned() {
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC071E,
+                n->range.start,
+                f"cannot {verb} '{nm}': 'self' is const in a 'const self' method",
+            )
+
+            b.first(x->range)
+            b.note(
+                f->name.range.start,
+                f"'{nm}' is declared here; a 'mutable var' field may be written from a 'const self' method",
+            )->child_first(f->name.range)
             b.emit()
         }
 
