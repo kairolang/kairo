@@ -514,6 +514,24 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
             return
         }
 
+        // Written `ffi::ref<T>` / `ffi::mref<T>`: spelled back as
+        // written; the referee carries its own `const`.
+        if isa<Types::CXXLValueRefType>(ty) && cast<Types::CXXLValueRefType>(ty)->ffi_spelled {
+            self.p.paint(Color::TypeName, "ffi::ref")
+            self.p.paint(Color::Punct, "<")
+            self.src_type(cast<Types::CXXLValueRefType>(ty)->referee)
+            self.p.paint(Color::Punct, ">")
+            return
+        }
+
+        if isa<Types::CXXRValueRefType>(ty) && cast<Types::CXXRValueRefType>(ty)->ffi_spelled {
+            self.p.paint(Color::TypeName, "ffi::mref")
+            self.p.paint(Color::Punct, "<")
+            self.src_type(cast<Types::CXXRValueRefType>(ty)->referee)
+            self.p.paint(Color::Punct, ">")
+            return
+        }
+
         if isa<Types::CXXLValueRefType>(ty) {
             self._quals(ty)
             self.src_type(cast<Types::CXXLValueRefType>(ty)->referee)
@@ -4070,7 +4088,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
     /// A left-leaning chain (`1 + 1 + 1 + ...`) is printed with the left
     /// spine walked in a loop: its depth is the term count, and a few
-    /// thousand terms overflowed the stack when each level was a call (P804).
+    /// thousand terms overflowed the stack when each level was a call.
     /// The rows come out in the order the recursion printed them: every
     /// node's head on the way down, then each right operand and `leave` on
     /// the way back.
@@ -4145,7 +4163,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         // The suffix is a separate token, not part of the literal's own
         // spelling; without it `"hi"_len` dumped as a plain string though Sema
         // makes it a literal-operator call. It belongs to the whole joined
-        // chain, on whichever segment it is written (P878: `"12" "3"_km` is
+        // chain, on whichever segment it is written (`"12" "3"_km` is
         // `"123"_km`), so it prints once, from the first segment that has it.
         var unsafe *seg = e->imm
         while seg != &null {
@@ -5082,9 +5100,9 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
     //  DECL dump row
     //
-    //  Every aggregate now walks dc_decls (DeclContext) the COMPLETE
+    //  Every aggregate walks dc_decls (DeclContext) the COMPLETE
     //  source-ordered member list  instead of the fields/methods/variants
-    //  projection caches that dropped nested types and VisibilityGroupDecl.
+    //  projection caches that drop nested types and VisibilityGroupDecl.
     //  Every decl row also renders written visibility + annotation child rows.
 
     fn dump_decl_row(self, decl: unsafe *Decl, is_last: bool) {

@@ -3,7 +3,7 @@
 // every argument defaults; numbers and pointers zero; an array of records
 // builds each element. `var e: Opt` (defaults only through arguments)
 // is SC116E for now, so it is written `Opt()` here. (A brace initializer on a class with a constructor
-// ICEd in EmitIR; Sema now rejects it -- Tests/Sema/Check/default_init.k.)
+// is rejected in Sema, not in EmitIR -- Tests/Sema/Check/default_init.k.)
 
 class Def {
     pub var a: i32 = 3

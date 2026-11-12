@@ -1831,6 +1831,70 @@ pub class TypeUtil {
         return "?"
     }
 
+    /// \p t as a Kairo RETURN type: a C++ reference is spelled the way a
+    /// Kairo definition writes it (`T&` is `ffi::ref<T>`, `const T&` is
+    /// `ffi::ref<const T>`, `T&&` is `ffi::mref<T>`); anything else as
+    /// str() spells it. The fix-its and the hover's `->` read it, so the
+    /// spelling they offer is the one the parser takes back.
+    pub fn return_str(self, t: unsafe *Type) -> string {
+        if t != &null && isa<Types::CXXLValueRefType>(t) {
+            return "ffi::ref<" + self.str(cast<Types::CXXLValueRefType>(t)->referee) + ">"
+        }
+
+        if t != &null && isa<Types::CXXRValueRefType>(t) {
+            return "ffi::mref<" + self.str(cast<Types::CXXRValueRefType>(t)->referee) + ">"
+        }
+
+        return self.str(t)
+    }
+
+    /// The fix-it text that makes the written return type \p written return
+    /// \p want (a canonical), as return_str spells it, but keeping the
+    /// user's own spelling of the referenced type when it is the same type
+    /// (`cxx::std::string` stays that; str() would print the instance as
+    /// `basic_string<c_char, ...>`, which does not parse back). Only the
+    /// reference kind and the `const` change then.
+    pub fn return_fix(self, written: unsafe *Type, want: unsafe *Type) -> string {
+        var unsafe *core = written
+        if written != &null && isa<Types::CXXLValueRefType>(written) {
+            core = cast<Types::CXXLValueRefType>(written)->referee
+        } else if written != &null && isa<Types::CXXRValueRefType>(written) {
+            core = cast<Types::CXXRValueRefType>(written)->referee
+        }
+
+        var unsafe *wc = canon_unqual(want)
+        var unsafe *wr = wc
+        var wconst     = false
+        if wc != &null && isa<Types::CXXLValueRefType>(wc) {
+            wr     = cast<Types::CXXLValueRefType>(wc)->referee
+            wconst = canon_has_const(wr)
+        } else if wc != &null && isa<Types::CXXRValueRefType>(wc) {
+            wr     = cast<Types::CXXRValueRefType>(wc)->referee
+            wconst = canon_has_const(wr)
+        }
+
+        if core == &null || core->canonical == &null || (!core->range.is_valid())
+            || canon_unqual(core->canonical) != canon_unqual(wr) {
+            return self.return_str(want)
+        }
+
+        var text = self.sc->ctx->get_spelling(core->range)
+        if text.starts_with("const ") {
+            text = text.subslice(6, text.size())
+        }
+
+        var cv = if (wconst) => ("const ") else => ""
+        if wc != &null && isa<Types::CXXLValueRefType>(wc) {
+            return "ffi::ref<" + cv + text + ">"
+        }
+
+        if wc != &null && isa<Types::CXXRValueRefType>(wc) {
+            return "ffi::mref<" + cv + text + ">"
+        }
+
+        return text
+    }
+
     pub fn str(self, t: unsafe *Type) -> string {
         if t == &null {
             return "<unknown>"
@@ -2077,9 +2141,9 @@ pub class TypeUtil {
                 return "<T>"
             }
 
-            // The C++ spelling clang gave it (`std::FILE`, `__m128i`). A bare
-            // "<ffi type>" told the user nothing, and two of them tied in
-            // EffectPropagation's order, which then fell back to addresses.
+            // The C++ spelling clang gave it (`std::FILE`, `__m128i`). A constant
+            // name would tie in EffectPropagation's order and fall back to
+            // addresses.
             case TypeKind::OpaqueFFIType {
                 var sp = cast<Types::OpaqueFFIType>(t)->text()
                 if sp.length() == 0 {

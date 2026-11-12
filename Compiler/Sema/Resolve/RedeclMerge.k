@@ -1603,6 +1603,40 @@ pub class RedeclMerge {
         var prev_at = if (prev->return_type != &null) => (prev->return_type->range)
                       else => prev->range
 
+        // A definition of an imported function where either side is a C++
+        // reference (P872): the one spelling that matches is the fix-it.
+        if prev->is_imported() && (Self::_is_cxx_ref(rp) || Self::_is_cxx_ref(rc)) {
+            var tu   = TypeUtil(self.sc)
+            var want = tu.return_fix(cur->return_type, rp)
+            var have = tu.return_str(rc)
+            if cur->return_type != &null && cur->return_type->range.is_valid() {
+                have = self.sc->ctx->get_spelling(cur->return_type->range)
+            }
+
+            var b = self.sc->diag->report(
+                DiagID::SC294E,
+                at.start,
+                f"'{name}' returns '{have}', but its C++ declaration returns '{want}'",
+            )
+
+            b.first(at)
+            if cur->return_type != &null {
+                b.fix(at, want, f"return '{want}', as the C++ declaration does")
+            }
+
+            // An imported declaration's return type has no range of its own.
+            var decl_at = if (prev_at.is_valid()) => (prev_at) else => prev->range
+            b.note(
+                DiagCode(DiagID::SC294N),
+                decl_at.start,
+                "the C++ declaration, whose return it must match",
+            )
+            b.child_first(decl_at)
+            b.emit()
+            cur->poison()
+            return
+        }
+
         self.sc->diag->report(
             DiagID::R037E,
             at.start,
@@ -1619,6 +1653,11 @@ pub class RedeclMerge {
     /// The canonical a non-expr-bodied function returns: the declared
     /// type's canonical, or void when the return type was omitted, so an
     /// omitted `-> void` and an explicit one compare equal.
+    priv static fn _is_cxx_ref(c: unsafe *Type) -> bool {
+        var unsafe *u = canon_unqual(c)
+        return u != &null && (isa<CXXLValueRefType>(u) || isa<CXXRValueRefType>(u))
+    }
+
     priv fn _return_canonical(self, f: unsafe *Declarations::FunctionDecl) -> unsafe *Type {
         if f->return_type == &null {
             return self.sc->builtin(BuiltinKind::Void)

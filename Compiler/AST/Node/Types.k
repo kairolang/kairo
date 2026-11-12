@@ -840,10 +840,13 @@ pub class InferredType derives Type {
 ///
 pub class CXXLValueRefType derives Type {
     pub var referee: unsafe *Type
+    /// Written `ffi::ref<T>` / `ffi::mref<T>` in Kairo source (P872), not
+    /// imported: the printer spells it back, FfiRefReturnCheck judges where.
+    pub var ffi_spelled: bool = false
 
-    static fn create(ctx:     *ASTContext,
-                     range:   SourceRange,
-                     referee: unsafe *Type) -> unsafe *CXXLValueRefType {
+    pub static fn create(ctx:     *ASTContext,
+                         range:   SourceRange,
+                         referee: unsafe *Type) -> unsafe *CXXLValueRefType {
         var unsafe *node = ctx->alloc<CXXLValueRefType>()
         node->kind  = TypeKind::CXXLValueRefType
         node->range = range
@@ -881,10 +884,13 @@ pub class CXXLValueRefType derives Type {
 ///
 pub class CXXRValueRefType derives Type {
     pub var referee: unsafe *Type
+    /// Written `ffi::ref<T>` / `ffi::mref<T>` in Kairo source (P872), not
+    /// imported: the printer spells it back, FfiRefReturnCheck judges where.
+    pub var ffi_spelled: bool = false
 
-    static fn create(ctx:     *ASTContext,
-                     range:   SourceRange,
-                     referee: unsafe *Type) -> unsafe *CXXRValueRefType {
+    pub static fn create(ctx:     *ASTContext,
+                         range:   SourceRange,
+                         referee: unsafe *Type) -> unsafe *CXXRValueRefType {
         var unsafe *node = ctx->alloc<CXXRValueRefType>()
         node->kind  = TypeKind::CXXRValueRefType
         node->range = range

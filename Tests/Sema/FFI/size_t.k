@@ -3,7 +3,7 @@
 // size_t, uintptr_t -> usize and ptrdiff_t, intptr_t -> isize. Canonical
 // `size_t` is `unsigned long`, i.e. u64: the right width but the wrong
 // type, since usize does not convert to u64 implicitly, so every size_t
-// parameter used to reject a usize argument. The typedef is read off the
+// parameter accepts a usize argument. The typedef is read off the
 // sugar before canonicalization drops it. A plain `unsigned long` is still
 // C's unsigned long, not usize: u64 on LP64 and u32 on LLP64, so a u32 goes
 // in and a u64 comes out on both, and neither would bind to a usize.

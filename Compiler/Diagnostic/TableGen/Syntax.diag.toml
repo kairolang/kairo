@@ -2039,3 +2039,34 @@ group = "memory"
     write `@destroy p` for Kairo memory (the fix-it does), or `@cxx::delete p` for
     C++ memory. To run the destructor early without freeing, call `x.finally()`.
     """
+
+[S092]
+brief = "malformed 'ffi::ref' / 'ffi::mref' type"
+group = "ffi"
+
+    [S092.E]
+    explain = """
+    # malformed 'ffi::ref' / 'ffi::mref' type
+
+    A function that C++ declares returning a reference is defined in Kairo with
+    one of three spellings of its return type:
+
+    | C++ return | Kairo return         |
+    | ---------- | -------------------- |
+    | `T&`       | `ffi::ref<T>`        |
+    | `const T&` | `ffi::ref<const T>`  |
+    | `T&&`      | `ffi::mref<T>`       |
+
+    After `ffi::` only `ref` and `mref` may follow, and each takes exactly one
+    type argument, the referenced type.
+
+    ```kairo
+    fn W::at(self, i: usize) -> ffi::ref<i32> { return self.items[i] }   // ok
+    fn W::at(self, i: usize) -> ffi::reference<i32> { ... }   // error
+    fn W::at(self, i: usize) -> ffi::ref<i32, i64> { ... }    // error
+    ```
+
+    ## how to fix
+
+    write `ffi::ref<T>`, `ffi::ref<const T>` or `ffi::mref<T>`.
+    """

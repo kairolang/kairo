@@ -411,8 +411,8 @@ extend IndexWalker {
                 var pt = self.type_str_(p->type_, ctx)
                 // A C++ reference parameter, as Kairo passes it: `T&` is
                 // `@inout x: T`, `T&&` is `@move x: T`, `const T&` is
-                // `const x: T`. Return types keep `&` / `&&`: Kairo has no
-                // spelling for a reference return yet (P872).
+                // `const x: T`. A reference return reads `ffi::ref<T>` /
+                // `ffi::mref<T>`, as a Kairo definition spells it.
                 if ffi_fn && (!p->mode_range.is_valid()) {
                     var cref = pt.starts_with("const ") && pt.ends_with("&") && (!pt.ends_with("&&"))
                     if pt.ends_with("&&") {
@@ -476,6 +476,11 @@ extend IndexWalker {
             }
 
             var rt = self.type_str_(f->return_type, ctx)
+            if (f->return_type != &null) && (!rt.empty()) && (f->return_type->canonical != &null)
+                && (isa<Types::CXXLValueRefType>(f->return_type->canonical)
+                    || isa<Types::CXXRValueRefType>(f->return_type->canonical)) {
+                rt = self.tu_.return_str(f->return_type->canonical)
+            }
             if (!rt.empty()) && (rt != "void") {
                 s += " -> "
                 s += rt
@@ -648,7 +653,7 @@ extend IndexWalker {
     ///
     /// Read from the TEXT, not from the tree: under --preserve-comments the
     /// tree carried doc comments for some library declarations and for none
-    /// of a project file's (P799), and the flag also turns a test file's
+    /// of a project file's, and the flag also turns a test file's
     /// `// RUN:` lines into annotations. The lines above a name are
     /// exactly what a reader calls its documentation.
     fn doc_(self, d: unsafe *Decl) -> string {

@@ -1298,7 +1298,7 @@ def cxx_refs(exe, root):
     check("cxx refs: T& / const T& / T&& parameters read as @inout / const / @move",
           got == "fn by_ref(@inout a: i32, const b: RefThing, @move c: RefThing, d: i32)", got)
     got = head("ret_ref")
-    check("cxx refs: a reference return keeps its &", got == "fn ret_ref(@inout a: i32) -> i32&", got)
+    check("cxx refs: a reference return reads as ffi::ref (P872)", got == "fn ret_ref(@inout a: i32) -> ffi::ref<i32>", got)
     c.notify("textDocument/didClose", {"textDocument": {"uri": c.uri(F)}})
     os.remove(os.path.join(root, F))
     os.remove(os.path.join(root, "refs_smoke.h"))

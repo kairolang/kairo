@@ -560,6 +560,13 @@ pub class <T: type> TypeParse {
             return self._parse_typeof_type()
         }
 
+        // `ffi::ref<T>` / `ffi::mref<T>`: a C++ reference return (P872).
+        // Parsed wherever a type may stand, so a misplaced one gets
+        // FfiRefReturnCheck's one error, not a cascade from `ffi`.
+        if self.dyn()->check(TokenKind::KwFfi) && self.dyn()->check_peek(TokenKind::OpColonColon) {
+            return self._parse_ffi_ref_type()
+        }
+
         if self.dyn()->check(TokenKind::TkCodeComplete) {
             self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
             self.dyn()->advance(T::SkipNL::After) // consume code complete token and any newlines after it
@@ -611,6 +618,76 @@ pub class <T: type> TypeParse {
         }
 
         return self._error_type(cur_range)
+    }
+
+    /// `ffi::ref<T>` (C++ `T&`; `ffi::ref<const T>` is `const T&`) or
+    /// `ffi::mref<T>` (`T&&`). The referee's own `const` is the C++ one, so
+    /// it is parsed as any generic argument is. The node is the C++
+    /// reference type imports already build, marked as written
+    /// (`ffi_spelled`): the printer spells it back and FfiRefReturnCheck
+    /// decides whether it stands where one may.
+    inline fn _parse_ffi_ref_type(self) -> unsafe *Type {
+        var start = self.dyn()->current_ptr()->range
+        self.dyn()->advance() // `ffi`
+        var sep = self.dyn()->current_ptr()->range
+        self.dyn()->advance() // `::`
+
+        var unsafe *nt = self.dyn()->current_ptr()
+        var nm         = ""
+        if nt != &null && nt->kind == TokenKind::LitIdentifier {
+            nm = self.dyn()->ctx->get_spelling(*nt)
+        }
+
+        if nm != "ref" && nm != "mref" {
+            var at = if (nt != &null) => (nt->range) else => sep
+            self.dyn()->diag->report(
+                DiagID::S092E,
+                at.start,
+                "expected 'ref' or 'mref' after 'ffi::'; a C++ reference return is written 'ffi::ref<T>', 'ffi::ref<const T>' or 'ffi::mref<T>'",
+            ).first(at)->emit()
+            if nt != &null && nt->kind == TokenKind::LitIdentifier {
+                self.dyn()->advance()
+                if self.dyn()->check(TokenKind::OpLess) {
+                    var skipped: kairo::std::StackBuf<Types::ChainType::GenericArg, 4>
+                    self._parse_generic_args(unsafe &skipped)
+                }
+            }
+
+            return self._error_type(start | self.dyn()->prev().range)
+        }
+
+        self.dyn()->advance() // `ref` / `mref`
+        if !self.dyn()->check(TokenKind::OpLess) {
+            var at = self.dyn()->prev().range
+            self.dyn()->diag->report(
+                DiagID::S092E,
+                at.start,
+                f"'ffi::{nm}' takes the referenced type: 'ffi::{nm}<T>'",
+            ).first(start | at)->emit()
+            return self._error_type(start | at)
+        }
+
+        var args: kairo::std::StackBuf<Types::ChainType::GenericArg, 4>
+        self._parse_generic_args(unsafe &args)
+        var full = start | self.dyn()->prev().range
+        if args.size() != 1 || args[0].ty == &null || args[0].name_range.start.is_valid() {
+            self.dyn()->diag->report(
+                DiagID::S092E,
+                full.start,
+                f"'ffi::{nm}' takes exactly one type, the referenced one: 'ffi::{nm}<T>'",
+            ).first(full)->emit()
+            return self._error_type(full)
+        }
+
+        if nm == "mref" {
+            var unsafe *rr = Types::CXXRValueRefType::create(self.dyn()->ctx, full, args[0].ty)
+            rr->ffi_spelled = true
+            return rr
+        }
+
+        var unsafe *lr = Types::CXXLValueRefType::create(self.dyn()->ctx, full, args[0].ty)
+        lr->ffi_spelled = true
+        return lr
     }
 
     inline fn _parse_self_type(self) -> unsafe *Types::SelfType {

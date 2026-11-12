@@ -6,7 +6,7 @@
 // search dir, so its #include_next restarted from the first one, found
 // libc++'s math.h again (already guarded) and never the C one: "use of
 // undeclared identifier 'FP_NAN'" from builtin's TUs. HeaderSet::
-// replay_include now spells a system header by name. math_cxx.k is the
+// replay_include spells a system header by name. math_cxx.k is the
 // same through `ffi "c++"`.
 
 ffi "c" import "math.h"

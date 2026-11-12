@@ -285,10 +285,12 @@ fn io_inferred_type(ar: unsafe *ASTArchive, n: unsafe *Types::InferredType) {
 
 fn io_cxx_lvalue_ref_type(ar: unsafe *ASTArchive, n: unsafe *Types::CXXLValueRefType) {
     ar->type_<Type>(&n->referee)
+    ar->flag(&n->ffi_spelled)
 }
 
 fn io_cxx_rvalue_ref_type(ar: unsafe *ASTArchive, n: unsafe *Types::CXXRValueRefType) {
     ar->type_<Type>(&n->referee)
+    ar->flag(&n->ffi_spelled)
 }
 
 /// `name` is a hash of the spelling (not an imm index: OpaqueFFIType says

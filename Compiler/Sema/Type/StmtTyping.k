@@ -105,6 +105,7 @@ import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::named_declared_here
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstEval::ConstEval
+import Sema::Check::FfiRefReturnCheck::check_ref_return_value
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::Resolve::ResolutionState::ResolveState
@@ -1732,6 +1733,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             }
 
             self.dyn()->check_convertible(n->value, fr->declared)
+            check_ref_return_value(self.dyn()->sc, n, fr->fn_decl, fr->declared)
             return n
         }
 

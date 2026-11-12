@@ -5843,3 +5843,122 @@ group = "eval"
     destructor cannot be an 'eval' value at all; give it a trivial one
     (no 'op finally') to use it at compile time.
     """
+
+[SC293]
+brief = "'ffi::ref' / 'ffi::mref' where a C++ reference return is not being defined"
+group = "ffi"
+
+    [SC293.E]
+    explain = """
+    # 'ffi::ref' / 'ffi::mref' outside a C++ reference return
+
+    `ffi::ref<T>`, `ffi::ref<const T>` and `ffi::mref<T>` are not types: nothing
+    in Kairo can hold a reference. They spell the return of a function that C++
+    declares returning `T&`, `const T&` or `T&&`, and they may stand only as the
+    WHOLE return type of:
+
+    - an out-of-line definition of a member of a C++ class
+      (`fn Widget::at(self, i: usize) -> ffi::ref<i32>`), or of a function in a
+      C++ namespace;
+    - an override of a C++ virtual method.
+
+    Everywhere else is an error: a parameter, a variable, a field, a generic
+    argument, a type alias, inside another type (`[ffi::ref<T>]`,
+    `ffi::ref<T>?`, `fn() -> ffi::ref<T>`), a closure, an interface, and any
+    function Kairo itself declares.
+
+    ```kairo
+    ffi "c++" import "widget.h"     // struct Widget { int& at(size_t); ... };
+
+    fn Widget::at(self, i: usize) -> ffi::ref<i32> { return self.items[i] }  // ok
+    fn first(@inout v: [i32]) -> ffi::ref<i32> { return v[0] }  // error: a Kairo function
+    var r: ffi::ref<i32> = x                                   // error: a variable
+    ```
+
+    ## how to fix
+
+    a Kairo function that hands out a place returns a pointer (`-> *T`,
+    `return &x`). A variable or field that should alias something is a pointer
+    too. Drop the `ffi::ref` from anything that is not the return of a C++
+    reference-returning function.
+    """
+
+    [SC293.N]
+    explain = "Points at the C++ declaration, or says why the function is not one C++ declares."
+
+[SC294]
+brief = "the return type does not match the C++ declaration's reference return"
+group = "ffi"
+
+    [SC294.E]
+    explain = """
+    # return type does not match the C++ declaration
+
+    A Kairo definition of a function C++ declares, or a Kairo override of a C++
+    virtual, returns exactly what the C++ declaration returns. For a C++
+    reference that is:
+
+    | C++ return | Kairo return         |
+    | ---------- | -------------------- |
+    | `T&`       | `ffi::ref<T>`        |
+    | `const T&` | `ffi::ref<const T>`  |
+    | `T&&`      | `ffi::mref<T>`       |
+
+    `const` on the referenced type is part of the match, and so is the
+    referenced type itself (`i64` does not match `int&`). A by-value return
+    does not match a reference return, and the other way round.
+
+    ```kairo
+    // header: virtual const std::string& name() const;
+    override fn name(const self) -> ffi::ref<string> { ... }        // error
+    override fn name(const self) -> ffi::ref<const string> { ... }  // ok
+    ```
+
+    ## how to fix
+
+    take the spelling the fix-it gives, which is the C++ declaration's return.
+    """
+
+    [SC294.N]
+    explain = "Points at the C++ declaration whose return type the definition must match."
+
+[SC295]
+brief = "a reference return must return a place that outlives the call"
+group = "ffi"
+
+    [SC295.E]
+    explain = """
+    # a reference return returns a place that outlives the call
+
+    A function returning `ffi::ref<T>` or `ffi::mref<T>` returns the place
+    itself: `return a` hands the caller a reference to `a`, so no `&` is
+    written. The place must still exist after the function returns. That rules
+    out:
+
+    - a temporary or any other value that is not a place (`return a + 1`,
+      `return make()`);
+    - a local variable, or a by-value parameter, or a part of one
+      (`return local`, `return local.field`, `return local_array[i]`).
+
+    A field of `self`, an element reached through a pointer or a reference,
+    an `@inout` or `@move` parameter, a global, and the result of another call
+    that returns a reference are all fine.
+
+    ```kairo
+    fn Widget::at(self, i: usize) -> ffi::ref<i32> {
+        var copy = self.items[i]
+        return copy               // error: `copy` dies when the call returns
+    }
+    fn Widget::at(self, i: usize) -> ffi::ref<i32> {
+        return self.items[i]      // ok
+    }
+    ```
+
+    ## how to fix
+
+    return a place that belongs to the receiver, the caller, or the program:
+    a field, an element through a pointer, an `@inout` parameter, or a global.
+    """
+
+    [SC295.N]
+    explain = "Points at the local variable or parameter the returned reference would outlive."

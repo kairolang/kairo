@@ -40,6 +40,7 @@ import Driver::TUStage::TUStage
 import Sema::Check::AttributeCheck::AttributeCheck
 import Sema::Check::BaseInitCheck::BaseInitCheck
 import Sema::Check::CallConvCheck::CallConvCheck
+import Sema::Check::FfiRefReturnCheck::FfiRefReturnCheck
 import Sema::Check::ClassAllocatorCheck::ClassAllocatorCheck
 import Sema::Check::ClassLifecycle::ClassLifecycle
 import Sema::Check::ClosureCaptures::ClosureCaptures
@@ -775,6 +776,15 @@ pub class Sema {
         {
             var _p = TimeRegion("AttributeCheck")
             AttributeCheck(unsafe &self.sc).run()
+        }
+
+        // Where `ffi::ref<T>` / `ffi::mref<T>` may stand, and an override's
+        // return against the C++ virtual's (P872). Before ExprTyper: a
+        // misplaced one is rewritten to its referee, so no call types
+        // against a reference that is not there.
+        {
+            var _p = TimeRegion("FfiRefReturn")
+            FfiRefReturnCheck(unsafe &self.sc).run()
         }
 
         // Layout acyclicity. Runs before anything that needs a size:
