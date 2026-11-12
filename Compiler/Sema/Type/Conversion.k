@@ -701,6 +701,13 @@ pub class Conversion {
                    else => ImplicitRank::None
         }
 
+        // `[T;]` / `[T]` -> `[const T;]`: a read-only view of the same
+        // elements, the slice counterpart of `*T -> *const T`, ranked as it
+        // is. EmitIR builds the Slice over the source's storage.
+        if self.views_as_const_slice(fu, tq) {
+            return ImplicitRank::Converted
+        }
+
         if !user {
             return ImplicitRank::None
         }
@@ -769,6 +776,26 @@ pub class Conversion {
         }
 
         return true
+    }
+
+    /// A slice or a vector of T seen as the slice \p to of `const T`: the
+    /// qualifier is only added, never lost (`[const T;] -> [T;]` is no
+    /// conversion), and the element is otherwise the same type.
+    fn views_as_const_slice(self, from: unsafe *Type, to: unsafe *Type) -> bool {
+        var unsafe *fu = canon_unqual(from)
+        if fu == &null || !self.tu.is_slice(to) || !(self.tu.is_slice(fu) || self.tu.is_vector_like(fu)) {
+            return false
+        }
+
+        var want = self.tu.record_args(to)
+        var have = self.tu.record_args(fu)
+        if want.size() != 1 || have.size() != 1 {
+            return false
+        }
+
+        return canon_has_const(want[0])
+            && !canon_has_const(have[0])
+            && canon_unqual(want[0]) == canon_unqual(have[0])
     }
 
     /// `[T; N]` seen as the slice \p to: `[T;]`, or `[const T;]`. A const

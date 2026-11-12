@@ -133,7 +133,9 @@ import AST::LangItems::{
     AllocNames,
     GlobalAllocFn,
     LangAttrs,
+    LangMembers,
     LowerTargets,
+    WellKnownType,
     to_string,
 }
 import AST::Node::Base::{
@@ -3742,7 +3744,7 @@ pub class EmitIR {
                    e:     unsafe *Expr,
                    want:  unsafe *Type,
                    subst: unsafe *InstanceEntry = &null) {
-        if self._array_view(e, want, subst) {
+        if self._array_view(e, want, subst) || self._const_slice_view(e, want, subst) {
             return
         }
 
@@ -4250,6 +4252,61 @@ pub class EmitIR {
         self._cg->sink->spell(e->range, self._spell._type(want, subst) + "(&(")
         self.emit(e)
         self._cg->sink->spell(e->range, ")[0], " + f"{have->size_bits}" + ")")
+        return true
+    }
+
+    /// `[T;]` or `[T]` where `[const T;]` is wanted: Sema's const view
+    /// (Conversion::views_as_const_slice). C++ has no conversion between
+    /// two Slice instances, so it is spelled as the target's `(data, len)`
+    /// construction over the source's storage, inside a lambda so the
+    /// source is evaluated once. True when it emitted.
+    priv fn _const_slice_view(self,
+                              e:     unsafe *Expr,
+                              want:  unsafe *Type,
+                              subst: unsafe *InstanceEntry) -> bool {
+        if e == &null || want == &null || e->type_ == &null || want->canonical == &null {
+            return false
+        }
+
+        var unsafe *have = dyn_cast<RecordType>(canon_unqual(e->type_))
+        var unsafe *w    = dyn_cast<RecordType>(canon_unqual(want->canonical))
+        if have == &null || w == &null || have == w || have->is_dependent() || w->is_dependent() {
+            return false
+        }
+
+        if have->args.size() != 1 || w->args.size() != 1 || !canon_has_const(*w->args.get(0)) {
+            return false
+        }
+
+        var *gs = self._cg->tu->global_scope
+        if gs == &null {
+            return false
+        }
+
+        var unsafe *sd = gs->well_known()->get(WellKnownType::Slice)
+        var unsafe *vd = gs->well_known()->get(WellKnownType::Vector)
+        if sd == &null || CXXSpell::rep(decl_pattern(w->decl)) != CXXSpell::rep(sd) {
+            return false
+        }
+
+        var unsafe *hp = CXXSpell::rep(decl_pattern(have->decl))
+        var s   = LowerTargets::forward_param()
+        var acc = ""
+        if hp == CXXSpell::rep(sd) {
+            acc = s + "." + LangMembers::slice_data() + ", " + s + "." + LangMembers::slice_len()
+        } else if vd != &null && hp == CXXSpell::rep(vd) {
+            acc = s + ".data(), " + s + ".size()"
+        } else {
+            return false
+        }
+
+        self._cg->sink->spell(
+            e->range,
+            "([](auto const& " + s + ") noexcept { return " + self._spell._type(want, subst) + "(" + acc + "); }(",
+        )
+
+        self.emit(e)
+        self._cg->sink->spell(e->range, "))")
         return true
     }
 
@@ -9448,7 +9505,8 @@ pub class EmitIR {
         }
 
         // `a as [T;]` on an array: the same view an implicit site gets.
-        if self._array_view(n->operand, n->target, &null) {
+        if self._array_view(n->operand, n->target, &null)
+            || self._const_slice_view(n->operand, n->target, &null) {
             return
         }
 

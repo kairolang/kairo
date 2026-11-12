@@ -816,7 +816,12 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         var        at    = n->range
         var unsafe *elem = n->iter_elem
         var unsafe *st   = canon_unqual(n->iterable->type_)
-        var unsafe *ptr  = self.sc->types->pointer(elem)
+        // The cursor has the slice's own `data` type: iter_elem is
+        // unqualified, and a `[const T;]` holds a `*const T` that no `*T`
+        // local accepts.
+        var sargs = self.tu.record_args(st)
+        var unsafe *pe = if (sargs.size() == 1 && sargs[0] != &null) => (sargs[0]) else => elem
+        var unsafe *ptr = self.sc->types->pointer(pe)
 
         var unsafe *s = self._local(pre, at, "seq", st, n->iterable)
         self._extend(n->iterable)
