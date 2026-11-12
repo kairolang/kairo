@@ -3301,6 +3301,12 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             MemberLookup::note_failed_headers(self.sc, &b, n->range)
             b.emit()
             n->poison()
+            // Contained: the name is poisoned, so every use of it is silent
+            // downstream (as ChainBinding's R025E). The stage gate after T
+            // then lets the expression typer run, and the rest of the file
+            // keeps its types (the language server's hover and inlay hints
+            // read them).
+            self.sc->contained_errors += 1
             self.sc->trace.use_site(
                 imm,
                 n->range,

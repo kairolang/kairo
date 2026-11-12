@@ -461,7 +461,8 @@ pub class SemaContext {
     /// node or name they concern is poisoned at every use, so resolving the
     /// rest of the TU yields information rather than cascade. The stage
     /// gates (Sema::_hard_stop) do not count them; errored() still does, so
-    /// the TU still fails. One writer today: I's eager R016E.
+    /// the TU still fails. Writers: I's eager R016E, N's R020E for an
+    /// undeclared expression head, ChainBinding's member misses (R025E).
     pub var contained_errors: u32 = 0
 
     /// Default ctor: leaves the context UNWIRED (null handles, Parsed phase).
