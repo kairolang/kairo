@@ -118,7 +118,10 @@ pub class GlobalDisambigTable {
         }
 
         for var i: usize = 0; i < 1024; ++i {
-            var unsafe *page = self._dir[i].load(kairo::std::MemoryOrder::relaxed)
+            var unsafe *page = self._dir[i].load(
+                kairo::std::MemoryOrder::relaxed,
+            )
+
             if page != &null {
                 kairo::std::destroy(page)
             }
@@ -145,8 +148,15 @@ pub class GlobalDisambigTable {
     /// Mirrors \p fid's entry into _dir. Caller holds _mu exclusively.
     priv fn _publish(self, fid: u32, ctx: unsafe *ASTContext, hoisted: unsafe *DisambigTable) {
         var unsafe *page = self._page_for_write(fid)
-        page->ctx[(fid as usize) & 4095].store(ctx, kairo::std::MemoryOrder::release)
-        page->hoisted[(fid as usize) & 4095].store(hoisted, kairo::std::MemoryOrder::release)
+        page->ctx[(fid as usize) & 4095].store(
+            ctx,
+            kairo::std::MemoryOrder::release,
+        )
+
+        page->hoisted[(fid as usize) & 4095].store(
+            hoisted,
+            kairo::std::MemoryOrder::release,
+        )
     }
 
     /// Lock-free read side of _dir; null for an unknown fid.
@@ -175,7 +185,15 @@ pub class GlobalDisambigTable {
             return known
         }
 
-        var unsafe *ctx = kairo::std::create<ASTContext>(fid, sm, tcm, diag, resolver, ci)
+        var unsafe *ctx = kairo::std::create<ASTContext>(
+            fid,
+            sm,
+            tcm,
+            diag,
+            resolver,
+            ci,
+        )
+
         ctx->module_base = mod_path
 
         var lock = kairo::std::LockGuard(self._mu)
@@ -301,7 +319,9 @@ pub class GlobalDisambigTable {
             return &null
         }
 
-        return page->hoisted[(fid as usize) & 4095].load(kairo::std::MemoryOrder::acquire)
+        return page->hoisted[(fid as usize) & 4095].load(
+            kairo::std::MemoryOrder::acquire,
+        )
     }
 
     /// The ICE path (CompilerInstance::_flush_for_ice): every context's
@@ -334,7 +354,9 @@ pub class GlobalDisambigTable {
             return &null
         }
 
-        return page->ctx[(fid as usize) & 4095].load(kairo::std::MemoryOrder::acquire)
+        return page->ctx[(fid as usize) & 4095].load(
+            kairo::std::MemoryOrder::acquire,
+        )
     }
 
     /// Looks up an unqualified name in a specific file's scope.
@@ -414,7 +436,9 @@ pub class GlobalDisambigTable {
             return false
         }
 
-        return page->builtin[(fid as usize) & 4095].load(kairo::std::MemoryOrder::acquire)
+        return page->builtin[(fid as usize) & 4095].load(
+            kairo::std::MemoryOrder::acquire,
+        )
     }
 
     fn size(self) -> usize {
@@ -439,7 +463,12 @@ pub class GlobalDisambigTable {
             return &null
         }
 
-        return self._tuples.pattern(arity, self.get_context(fid), root_dc, unsafe &self._types)
+        return self._tuples.pattern(
+            arity,
+            self.get_context(fid),
+            root_dc,
+            unsafe &self._types,
+        )
     }
 
     /// # Debug

@@ -80,7 +80,9 @@ pub fn unwrap_expansion(tok:       Token,
 
     eval if defined!(DEBUG) {
         if !(tcm != &null) {
-            kairo::std::ice_fail(r"TokenCacheManager is null in unwrap_expansion")
+            kairo::std::ice_fail(
+                r"TokenCacheManager is null in unwrap_expansion",
+            )
         }
     }
 
@@ -177,7 +179,9 @@ pub class TokenText {
     pub static fn resolve(tok: Token, tcm: unsafe *TokenCacheManager) -> TokenText {
         eval if defined!(DEBUG) {
             if !(tcm != &null) {
-                kairo::std::ice_fail(r"TokenCacheManager is null in TokenText::resolve")
+                kairo::std::ice_fail(
+                    r"TokenCacheManager is null in TokenText::resolve",
+                )
             }
         }
 
@@ -187,13 +191,17 @@ pub class TokenText {
 
         eval if defined!(DEBUG) {
             if !(sm != &null) {
-                kairo::std::ice_fail(r"SourceManager is null in TokenText::resolve")
+                kairo::std::ice_fail(
+                    r"SourceManager is null in TokenText::resolve",
+                )
             }
         }
 
         eval if defined!(DEBUG) {
             if !(tbl != &null) {
-                kairo::std::ice_fail(r"ImmediateTable is null in TokenText::resolve")
+                kairo::std::ice_fail(
+                    r"ImmediateTable is null in TokenText::resolve",
+                )
             }
         }
 
@@ -267,14 +275,18 @@ pub class TokenText {
                     return create(tbl->get_ident(imm))
                 }
 
-                return create(f"$FALLBACK-MISSING-INTERN$ {sm->get_text(tok_range)}")
+                return create(
+                    f"$FALLBACK-MISSING-INTERN$ {sm->get_text(tok_range)}",
+                )
             } case TokenKind::LitString {
                 if tbl != &null {
                     var str_text = tbl->string_text(imm, sm)
                     return create(f"\"{str_text}\"")
                 }
 
-                return create(f"$FALLBACK-MISSING-STRING-INTERN$ {sm->get_text(tok_range)}")
+                return create(
+                    f"$FALLBACK-MISSING-STRING-INTERN$ {sm->get_text(tok_range)}",
+                )
             } case TokenKind::AtComment, TokenKind::LitChar,  TokenKind::KwMutable,
                    TokenKind::AtByte,    TokenKind::AtChar,   TokenKind::AtF8,
                    TokenKind::AtF8E4M3,  TokenKind::AtF8E5M2, TokenKind::AtBf16,
@@ -283,7 +295,12 @@ pub class TokenText {
                 // spelling; the eight words never had a row here, and for a lexed
                 // token their source bytes are the table's spelling anyway.
                 // Moving them to the table is its own change, not this one.
-                return TokenText(sm->get_text(tok_range), tok_range, is_expand, false)
+                return TokenText(
+                    sm->get_text(tok_range),
+                    tok_range,
+                    is_expand,
+                    false,
+                )
             } default {
                 // keywords, operators, primitive-type words, `null` and `Self`:
                 // TokenKind's spelling table, so a new keyword is spelled once.
@@ -293,7 +310,12 @@ pub class TokenText {
                     return create(token_kind_to_readable_string(kind))
                 }
 
-                return TokenText(sm->get_text(tok_range), tok_range, is_expand, false)
+                return TokenText(
+                    sm->get_text(tok_range),
+                    tok_range,
+                    is_expand,
+                    false,
+                )
             }
 
             // LitString / LitChar deliberately fall through to the range
@@ -320,7 +342,9 @@ pub class TokenText {
     pub static fn spelling(tok: Token, tcm: unsafe *TokenCacheManager) -> string {
         eval if defined!(DEBUG) {
             if !(tcm != &null) {
-                kairo::std::ice_fail(r"TokenCacheManager is null in TokenText::spelling")
+                kairo::std::ice_fail(
+                    r"TokenCacheManager is null in TokenText::spelling",
+                )
             }
         }
 
@@ -338,7 +362,9 @@ pub class TokenText {
     pub static fn from_range(range: SourceRange, sm: unsafe *SourceManager) -> TokenText {
         eval if defined!(DEBUG) {
             if !(sm != &null) {
-                kairo::std::ice_fail(r"SourceManager is null in TokenText::from_range")
+                kairo::std::ice_fail(
+                    r"SourceManager is null in TokenText::from_range",
+                )
             }
         }
 

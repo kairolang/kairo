@@ -64,21 +64,17 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::Context::DeclContext::DeclContextKind
 import AST::Kind::ExprKind::to_string
 import AST::LangItems::{
     WellKnownType,
     to_string,
 }
-import AST::Context::DeclContext::DeclContextKind
 import AST::Node::Base::{
     Decl,
     Expr,
     Stmt,
     Type,
-}
-import AST::Node::Declarations::{
-    StorageClass,
-    VariableDecl,
 }
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
@@ -87,6 +83,10 @@ import AST::Node::CanonicalNodes::{
 import AST::Node::Casting::{
     cast,
     isa,
+}
+import AST::Node::Declarations::{
+    StorageClass,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
     InitField,            InitListExpr,   ListLiteralExpr, ListStorage, MapLiteralExpr,
@@ -191,8 +191,12 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     /// a literal that initializes a local they mint as a DeclStmt.
     fn transform_expression_stmt(self,
                                  n: unsafe *Statements::ExpressionStmt) -> cxx::std::vector<unsafe *Stmt> {
-        var w    = self._open_window()
-        var body = ASTWriter<ListLiteralLowering>::transform_expression_stmt(self, n)
+        var w = self._open_window()
+        var body = ASTWriter<ListLiteralLowering>::transform_expression_stmt(
+            self,
+            n,
+        )
+
         return self._close_window(w, body)
     }
 
@@ -200,14 +204,14 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     /// a for-init): its Extended backings splice in front of it.
     priv fn _open_window(self) -> Self::Window {
         var w = Self::Window{}
-        w.mark   = self._pending.size()
-        w.window = self._window
-        w.scalar = self._scalar_slot
-        w.owner  = self._ns_owner
-        w.local  = self._local_owner
+        w.mark            = self._pending.size()
+        w.window          = self._window
+        w.scalar          = self._scalar_slot
+        w.owner           = self._ns_owner
+        w.local           = self._local_owner
         self._local_owner = &null
         self._window      = !w.scalar
-        self._scalar_slot = false         // statements nested in the initializer are lists again.
+        self._scalar_slot = false // statements nested in the initializer are lists again.
         self._ns_owner    = &null
         return w
     }
@@ -245,13 +249,20 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         if dc == &null
             || (dc->dc_kind != DeclContextKind::TranslationUnit
                 && dc->dc_kind != DeclContextKind::Module) {
-            return ASTWriter<ListLiteralLowering>::transform_variable_decl(self, n)
+            return ASTWriter<ListLiteralLowering>::transform_variable_decl(
+                self,
+                n,
+            )
         }
 
         var mark        = self._ns_pending.size()
         var saved_owner = self._ns_owner
         self._ns_owner = n
-        var body = ASTWriter<ListLiteralLowering>::transform_variable_decl(self, n)
+        var body = ASTWriter<ListLiteralLowering>::transform_variable_decl(
+            self,
+            n,
+        )
+
         self._ns_owner = saved_owner
 
         var out = cxx::std::vector<unsafe *Decl>()
@@ -297,7 +308,11 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     fn transform_list_literal_expr(self, n: unsafe *ListLiteralExpr) -> unsafe *Expr {
         // Children first: nested literals are already lowered, and an inner
         // Extended backing is already pending ahead of this one.
-        var unsafe *out = ASTWriter<ListLiteralLowering>::transform_list_literal_expr(self, n)
+        var unsafe *out = ASTWriter<ListLiteralLowering>::transform_list_literal_expr(
+            self,
+            n,
+        )
+
         if n->is_poisoned() || n->type_ == &null {
             return out
         }
@@ -361,14 +376,24 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     /// -> `HashSet()`. The set's own constructor inserts in order, so a
     /// repeated element keeps its first place.
     fn transform_set_literal_expr(self, n: unsafe *SetLiteralExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<ListLiteralLowering>::transform_set_literal_expr(self, n)
+        var unsafe *out = ASTWriter<ListLiteralLowering>::transform_set_literal_expr(
+            self,
+            n,
+        )
+
         if n->is_poisoned() || n->type_ == &null {
             return out
         }
 
         var none = self.list_builder<unsafe *Expr>()
         if self.tu.is_map_like(canon_unqual(n->type_)) { // `{}` as a map.
-            return self._hashed(n->range, n->type_, WellKnownType::HashMap, &null, &none)
+            return self._hashed(
+                n->range,
+                n->type_,
+                WellKnownType::HashMap,
+                &null,
+                &none,
+            )
         }
 
         var unsafe *elem = self.tu.container_elem(canon_unqual(n->type_))
@@ -383,21 +408,35 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             elems.push(n->elements[i])
         }
 
-        return self._hashed(n->range, n->type_, WellKnownType::HashSet, elem, &elems)
+        return self._hashed(
+            n->range,
+            n->type_,
+            WellKnownType::HashSet,
+            elem,
+            &elems,
+        )
     }
 
     /// `{k: v, ...}` -> `HashMap(Slice(<array of (k, v) tuples>, N))`: one
     /// braced array, so the entries are evaluated in written order, key
     /// before value. `{}` typed as a map -> `HashMap()`.
     fn transform_map_literal_expr(self, n: unsafe *MapLiteralExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<ListLiteralLowering>::transform_map_literal_expr(self, n)
+        var unsafe *out = ASTWriter<ListLiteralLowering>::transform_map_literal_expr(
+            self,
+            n,
+        )
+
         if n->is_poisoned() || n->type_ == &null {
             return out
         }
 
         var kt: unsafe *Type = &null
         var vt: unsafe *Type = &null
-        if !self.tu.map_key_value(canon_unqual(n->type_), unsafe &kt, unsafe &vt) {
+        if !self.tu.map_key_value(
+            canon_unqual(n->type_),
+            unsafe &kt,
+            unsafe &vt,
+        ) {
             kairo::std::ice_fail(
                 "ListLiteralLowering: a map literal whose type is not a HashMap; LiteralTyping::type_map_literal invariant violation",
             )
@@ -415,9 +454,14 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
 
         var elems = self.list_builder<unsafe *Expr>()
         for var i: usize = 0; i < n->entries.size(); ++i {
-            var unsafe *en    = n->entries.get(i)
-            var unsafe *init  = NamedInitializerExpr::create(self.ctx, en->range, &null)
-            var        fields = self.list_builder<InitField>()
+            var unsafe *en = n->entries.get(i)
+            var unsafe *init = NamedInitializerExpr::create(
+                self.ctx,
+                en->range,
+                &null,
+            )
+
+            var fields = self.list_builder<InitField>()
             for var j: usize = 0; j < 2; ++j {
                 var unsafe *e  = if (j == 0) => (en->key) else => en->value
                 var unsafe *fd = self.tu.tuple_field(tt, j)
@@ -428,7 +472,11 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
                 }
 
                 var f = InitField{}
-                f.name = self.synth.ident(e->range, self.tu.decl_name(unsafe (fd as unsafe *Decl)))
+                f.name = self.synth.ident(
+                    e->range,
+                    self.tu.decl_name(unsafe (fd as unsafe *Decl)),
+                )
+
                 f.value      = e
                 f.range      = e->range
                 f.field_decl = unsafe (fd as unsafe *Decl)
@@ -441,7 +489,13 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             elems.push(init)
         }
 
-        return self._hashed(n->range, n->type_, WellKnownType::HashMap, tt, &elems)
+        return self._hashed(
+            n->range,
+            n->type_,
+            WellKnownType::HashMap,
+            tt,
+            &elems,
+        )
     }
 
     /// The HashSet / HashMap lang record \p ty built from \p elems: its
@@ -471,9 +525,11 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             lit->type_          = st
             lit->value_category = Expr::ValueCategory::RValue
             lit->storage        = ListStorage::FullExpr
-            lit->slice_ctor     = self.tu.lang_ctor(WellKnownType::Slice, 2, false)
+            lit->slice_ctor = self.tu.lang_ctor(WellKnownType::Slice, 2, false)
             if lit->slice_ctor == &null {
-                kairo::std::ice_fail("ListLiteralLowering: Slice has no (data, len) constructor")
+                kairo::std::ice_fail(
+                    "ListLiteralLowering: Slice has no (data, len) constructor",
+                )
             }
 
             args.push(self._slice(lit, st, elem))
@@ -568,7 +624,9 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         if self._ns_owner != &null {
             var unsafe *gv = self.synth.local(
                 at,
-                "slice_" + self.tu.decl_name(unsafe (self._ns_owner as unsafe *Decl)) + "_",
+                "slice_" + self.tu.decl_name(
+                    unsafe (self._ns_owner as unsafe *Decl),
+                ) + "_",
                 arr_ty,
                 unsafe (il as unsafe *Expr),
             )
@@ -586,7 +644,13 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             )
         }
 
-        var unsafe *vd = self.synth.local(at, "tmp", arr_ty, unsafe (il as unsafe *Expr))
+        var unsafe *vd = self.synth.local(
+            at,
+            "tmp",
+            arr_ty,
+            unsafe (il as unsafe *Expr),
+        )
+
         // A `static` (or `thread`) local outlives its frame, and so must
         // what it points at: initialized once, with it. A plain local
         // backing died at the first return, and every later call read

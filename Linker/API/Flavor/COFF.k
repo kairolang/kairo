@@ -81,13 +81,19 @@ pub class COFFArgs {
         var *o    = job.opts
 
         if job.output.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "link: no output path"))
+            msgs.push_back(
+                LinkDiag::make(LinkSeverity::Error, "link: no output path"),
+            )
+
             return false
         }
 
         if o->shared && o->static_link {
             msgs.push_back(
-                LinkDiag::make(LinkSeverity::Error, "--shared and --static are mutually exclusive"),
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "--shared and --static are mutually exclusive",
+                ),
             )
 
             return false
@@ -107,7 +113,10 @@ pub class COFFArgs {
         var machine = Toolchain::msvc_machine(tc.arch)
         if machine.empty() {
             msgs.push_back(
-                LinkDiag::make(LinkSeverity::Error, f"lld-link has no machine type for {tc.arch}"),
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    f"lld-link has no machine type for {tc.arch}",
+                ),
             )
 
             return false
@@ -376,7 +385,10 @@ pub class COFFArgs {
 
         if !o->rpath_link.empty() {
             msgs.push_back(
-                LinkDiag::make(LinkSeverity::Warning, "-rpath-link has no PE equivalent; ignored"),
+                LinkDiag::make(
+                    LinkSeverity::Warning,
+                    "-rpath-link has no PE equivalent; ignored",
+                ),
             )
         }
 
@@ -426,7 +438,13 @@ pub class COFFArgs {
         }
 
         if name.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"-l {spec}: no library name"))
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    f"-l {spec}: no library name",
+                ),
+            )
+
             return
         }
 

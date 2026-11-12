@@ -172,7 +172,14 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             return true
         }
 
-        var v = self._check(n->scrutinee, &n->cases, n->range, true, n->null_arm)
+        var v = self._check(
+            n->scrutinee,
+            &n->cases,
+            n->range,
+            true,
+            n->null_arm,
+        )
+
         n->is_exhaustive = v.is_exhaustive
         n->covering_arm  = v.covering_arm
         n->open_tail     = v.open_tail
@@ -184,7 +191,14 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             return true
         }
 
-        var v = self._check(n->scrutinee, &n->cases, n->range, false, n->null_arm)
+        var v = self._check(
+            n->scrutinee,
+            &n->cases,
+            n->range,
+            false,
+            n->null_arm,
+        )
+
         n->is_exhaustive = v.is_exhaustive
         n->covering_arm  = v.covering_arm
         n->open_tail     = v.open_tail
@@ -799,7 +813,15 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             if c.kind == CtorKind::Int {
                 var segs = self._ps.int_segments(rows, c.lo, c.hi)
                 for var k: usize = 0; k < segs.size(); ++k {
-                    var r = self._useful_ctor(unsafe &rows, *q, segs[k], d, closed, want)
+                    var r = self._useful_ctor(
+                        unsafe &rows,
+                        *q,
+                        segs[k],
+                        d,
+                        closed,
+                        want,
+                    )
+
                     if r.useful {
                         return r
                     }
@@ -850,7 +872,15 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
                         c.kind  = CtorKind::Variant
                         c.index = (k as u32)
                         c.arity = (adt_variant_at(d.en, k)->payload.size() as u32)
-                        var r = self._useful_ctor(unsafe &rows, *q, c, d, closed, want)
+                        var r = self._useful_ctor(
+                            unsafe &rows,
+                            *q,
+                            c,
+                            d,
+                            closed,
+                            want,
+                        )
+
                         if r.useful {
                             return r
                         }
@@ -893,7 +923,15 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
                         c.kind = CtorKind::Bool
                         c.lo   = b
                         c.hi   = b
-                        var r = self._useful_ctor(unsafe &rows, *q, c, d, closed, want)
+                        var r = self._useful_ctor(
+                            unsafe &rows,
+                            *q,
+                            c,
+                            d,
+                            closed,
+                            want,
+                        )
+
                         if r.useful {
                             return r
                         }
@@ -914,7 +952,15 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
 
                 if hole < 0 {
                     for var k: usize = 0; k < segs.size(); ++k {
-                        var r = self._useful_ctor(unsafe &rows, *q, segs[k], d, closed, want)
+                        var r = self._useful_ctor(
+                            unsafe &rows,
+                            *q,
+                            segs[k],
+                            d,
+                            closed,
+                            want,
+                        )
+
                         if r.useful {
                             return r
                         }

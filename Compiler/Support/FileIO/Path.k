@@ -109,7 +109,12 @@ pub class Path {
     pub static fn cwd() -> Path {
         var buf: llvm::SmallString<256>
         llvm::sys::fs::current_path(&buf)
-        return Path(string(unsafe ((buf.data() as unsafe *const u8) as *const u8), buf.size()))
+        return Path(
+            string(
+                unsafe ((buf.data() as unsafe *const u8) as *const u8),
+                buf.size(),
+            ),
+        )
     }
 
     static fn home() -> Path {
@@ -118,13 +123,23 @@ pub class Path {
             kairo::std::ice_fail("Path::home: no home directory (HOME not set)")
         }
 
-        return Path(string(unsafe ((buf.data() as unsafe *const u8) as *const u8), buf.size()))
+        return Path(
+            string(
+                unsafe ((buf.data() as unsafe *const u8) as *const u8),
+                buf.size(),
+            ),
+        )
     }
 
     pub static fn temp_dir() -> Path {
         var buf: llvm::SmallString<256>
         llvm::sys::path::system_temp_directory(true, &buf)
-        return Path(string(unsafe ((buf.data() as unsafe *const u8) as *const u8), buf.size()))
+        return Path(
+            string(
+                unsafe ((buf.data() as unsafe *const u8) as *const u8),
+                buf.size(),
+            ),
+        )
     }
 
     static fn root() -> Path {
@@ -178,8 +193,16 @@ pub class Path {
         // posix style: Path stores the generic form on every host, and a
         // native append would splice a '\\' into it on Windows.
         var buf = llvm::SmallString<256>(kairo::sref(base))
-        llvm::sys::path::append(&buf, llvm::sys::path::Style::posix, llvm::Twine(kairo::sref(rel)))
-        return string(unsafe ((buf.data() as unsafe *const u8) as *const u8), buf.size())
+        llvm::sys::path::append(
+            &buf,
+            llvm::sys::path::Style::posix,
+            llvm::Twine(kairo::sref(rel)),
+        )
+
+        return string(
+            unsafe ((buf.data() as unsafe *const u8) as *const u8),
+            buf.size(),
+        )
     }
 
     /// # string-level queries (no Path built, no stat)
@@ -189,22 +212,34 @@ pub class Path {
 
     pub static fn parent_of(const p: string) -> string {
         var sr = llvm::sys::path::parent_path(kairo::sref(p))
-        return string(unsafe ((sr.data() as unsafe *const u8) as *const u8), sr.size())
+        return string(
+            unsafe ((sr.data() as unsafe *const u8) as *const u8),
+            sr.size(),
+        )
     }
 
     pub static fn filename_of(const p: string) -> string {
         var sr = llvm::sys::path::filename(kairo::sref(p))
-        return string(unsafe ((sr.data() as unsafe *const u8) as *const u8), sr.size())
+        return string(
+            unsafe ((sr.data() as unsafe *const u8) as *const u8),
+            sr.size(),
+        )
     }
 
     pub static fn stem_of(const p: string) -> string {
         var sr = llvm::sys::path::stem(kairo::sref(p))
-        return string(unsafe ((sr.data() as unsafe *const u8) as *const u8), sr.size())
+        return string(
+            unsafe ((sr.data() as unsafe *const u8) as *const u8),
+            sr.size(),
+        )
     }
 
     pub static fn extension_of(const p: string) -> string {
         var sr = llvm::sys::path::extension(kairo::sref(p))
-        return string(unsafe ((sr.data() as unsafe *const u8) as *const u8), sr.size())
+        return string(
+            unsafe ((sr.data() as unsafe *const u8) as *const u8),
+            sr.size(),
+        )
     }
 
     /// \p p with every symlink resolved, or \p p unchanged when it cannot
@@ -224,8 +259,14 @@ pub class Path {
             return p
         }
 
-        var generic = llvm::sys::path::convert_to_slash(llvm::StringRef(buf.data(), buf.size()))
-        return string(unsafe ((generic.data() as unsafe *const u8) as *const u8), generic.size())
+        var generic = llvm::sys::path::convert_to_slash(
+            llvm::StringRef(buf.data(), buf.size()),
+        )
+
+        return string(
+            unsafe ((generic.data() as unsafe *const u8) as *const u8),
+            generic.size(),
+        )
     }
 
     /// # filesystem mutations
@@ -236,7 +277,10 @@ pub class Path {
             return true
         }
 
-        return llvm::sys::fs::create_directories(llvm::Twine(kairo::sref(dir)), true).value() == 0
+        return llvm::sys::fs::create_directories(
+            llvm::Twine(kairo::sref(dir)),
+            true,
+        ).value() == 0
     }
 
     /// The directory \p file will be written into, created if missing.
@@ -275,13 +319,21 @@ pub class Path {
             return ""
         }
 
-        return string(unsafe ((out.data() as unsafe *const u8) as *const u8), out.size())
+        return string(
+            unsafe ((out.data() as unsafe *const u8) as *const u8),
+            out.size(),
+        )
     }
 
     /// Writes \p text to \p p in one go, truncating. False on failure.
     pub static fn write_file(const p: string, const text: string) -> bool {
         var ec: cxx::std::error_code
-        var os = llvm::raw_fd_ostream(kairo::sref(p), &ec, llvm::sys::fs::OF_None)
+        var os = llvm::raw_fd_ostream(
+            kairo::sref(p),
+            &ec,
+            llvm::sys::fs::OF_None,
+        )
+
         if ec.value() != 0 {
             return false
         }
@@ -329,7 +381,10 @@ pub class Path {
     ///
     pub fn extension(const self) -> string {
         var sr = llvm::sys::path::extension(kairo::sref(self.path_data))
-        return string(unsafe ((sr.data() as unsafe *const u8) as *const u8), sr.size())
+        return string(
+            unsafe ((sr.data() as unsafe *const u8) as *const u8),
+            sr.size(),
+        )
     }
 
     ///
@@ -337,7 +392,10 @@ pub class Path {
     ///
     pub fn filename(const self) -> string {
         var sr = llvm::sys::path::filename(kairo::sref(self.path_data))
-        return string(unsafe ((sr.data() as unsafe *const u8) as *const u8), sr.size())
+        return string(
+            unsafe ((sr.data() as unsafe *const u8) as *const u8),
+            sr.size(),
+        )
     }
 
     ///
@@ -345,7 +403,10 @@ pub class Path {
     ///
     pub fn stem(const self) -> string {
         var sr = llvm::sys::path::stem(kairo::sref(self.path_data))
-        return string(unsafe ((sr.data() as unsafe *const u8) as *const u8), sr.size())
+        return string(
+            unsafe ((sr.data() as unsafe *const u8) as *const u8),
+            sr.size(),
+        )
     }
 
     ///
@@ -354,7 +415,10 @@ pub class Path {
     ///
     pub fn parent_path(const self) -> string {
         var sr = llvm::sys::path::parent_path(kairo::sref(self.path_data))
-        return string(unsafe ((sr.data() as unsafe *const u8) as *const u8), sr.size())
+        return string(
+            unsafe ((sr.data() as unsafe *const u8) as *const u8),
+            sr.size(),
+        )
     }
 
     ///
@@ -394,11 +458,19 @@ pub class Path {
 
         var buf: llvm::SmallString<256>
         while it != end {
-            llvm::sys::path::append(&buf, llvm::sys::path::Style::posix, llvm::Twine(*it))
+            llvm::sys::path::append(
+                &buf,
+                llvm::sys::path::Style::posix,
+                llvm::Twine(*it),
+            )
+
             ++it
         }
 
-        return string(unsafe ((buf.data() as unsafe *const u8) as *const u8), buf.size())
+        return string(
+            unsafe ((buf.data() as unsafe *const u8) as *const u8),
+            buf.size(),
+        )
     }
 
     ///
@@ -517,7 +589,13 @@ pub class Path {
         var buf = llvm::SmallString<256>(kairo::sref(input))
         llvm::sys::fs::make_absolute(&buf)
         llvm::sys::path::remove_dots(&buf, false)
-        var generic = llvm::sys::path::convert_to_slash(llvm::StringRef(buf.data(), buf.size()))
-        return string(unsafe ((generic.data() as unsafe *const u8) as *const u8), generic.size())
+        var generic = llvm::sys::path::convert_to_slash(
+            llvm::StringRef(buf.data(), buf.size()),
+        )
+
+        return string(
+            unsafe ((generic.data() as unsafe *const u8) as *const u8),
+            generic.size(),
+        )
     }
 }

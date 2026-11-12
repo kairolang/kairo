@@ -33,7 +33,12 @@ pub module Int128 {
         eval if defined!(_MSC_VER) {
             return kairo::wide::mul_add_64(&val, factor, addend, &hi)
         } else if defined!(__SIZEOF_INT128__) {
-            return kairo::wide::mul_add_64(unsafe &val, factor, addend, unsafe &hi)
+            return kairo::wide::mul_add_64(
+                unsafe &val,
+                factor,
+                addend,
+                unsafe &hi,
+            )
         } else {
             // manual 32-bit multiplication fallback
             var a0: u64 = val & U32_MAX
@@ -90,7 +95,12 @@ pub module Int128 {
         eval if defined!(_MSC_VER) {
             return kairo::wide::mul_add_128(&lo, &hi, factor, addend)
         } else if defined!(__SIZEOF_INT128__) {
-            return kairo::wide::mul_add_128(unsafe &lo, unsafe &hi, factor, addend)
+            return kairo::wide::mul_add_128(
+                unsafe &lo,
+                unsafe &hi,
+                factor,
+                addend,
+            )
         } else {
             // manual fallback: split into 32-bit chunks
             // 128-bit value as (a3:a2:a1:a0) where each is 32-bit

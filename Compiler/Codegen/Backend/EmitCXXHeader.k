@@ -63,19 +63,19 @@ pub class EmitCXXHeader {
     pub var layout:  bool   = false
     pub var prelude: string = ""
 
-    /// Layout only: what became of the module's doc comments (P876,
-    /// TextSink::docs_placed): on their own lines, on a forward declaration
+    /// Layout only: what became of the module's doc comments
+    /// (TextSink::docs_placed): on their own lines, on a forward declaration
     /// in the prelude, or dropped for want of room.
     pub var docs_placed:  usize = 0
     pub var docs_prelude: usize = 0
     pub var docs_dropped: usize = 0
 
     /// Layout only: out-of-line function bodies left out, their declarations
-    /// holding their lines, and kept because C++ may need them (P882,
-    /// TextSink::bodies_dropped).
-    pub var bodies_dropped: usize = 0
-    pub var bodies_needed:  usize = 0
-    priv var _prelude_path: string = ""
+    /// holding their lines, and kept because C++ may need them
+    /// (TextSink::bodies_dropped).
+    pub var  bodies_dropped: usize  = 0
+    pub var  bodies_needed:  usize  = 0
+    priv var _prelude_path:  string = ""
 
     pub fn EmitCXXHeader(self,
                          ctx:       unsafe *ASTContext,
@@ -99,7 +99,13 @@ pub class EmitCXXHeader {
         // Emptiness is the PREAMBLE plan's fact, the same one the driver
         // skips codegen on, so the two cannot disagree about a TU.
         {
-            var pcg   = CodegenContext(self._ctx, &null, self._psym, self._instances)
+            var pcg = CodegenContext(
+                self._ctx,
+                &null,
+                self._psym,
+                self._instances,
+            )
+
             var pplan = EmitPlan(unsafe &pcg, PlanMode::Preamble)
             pplan.run()
             if pplan.is_empty() {
@@ -107,14 +113,21 @@ pub class EmitCXXHeader {
             }
         }
 
-        var ts   = TextSink(self._ctx->sm, self._ctx->tcm)
+        var ts = TextSink(self._ctx->sm, self._ctx->tcm)
         ts.line_mode = self.line_directives
         ts.self_path = self.header_name
         ts.layout    = self.layout && self.line_directives
         if ts.layout && (self._ctx->sm != &null) {
             ts.home_path = self._ctx->sm->get_filename(tu->fid)
         }
-        var cg   = CodegenContext(self._ctx, unsafe &ts, self._psym, self._instances)
+
+        var cg = CodegenContext(
+            self._ctx,
+            unsafe &ts,
+            self._psym,
+            self._instances,
+        )
+
         var plan = EmitPlan(unsafe &cg, PlanMode::Header)
         plan.run()
         cg.advance_phase(CodegenPhase::Planned)
@@ -134,10 +147,13 @@ pub class EmitCXXHeader {
         }
 
         if ts.layout {
-            self.prelude = ts.finish_layout("#include \"" + self._prelude_path + "\"")
-            self.docs_placed  = ts.docs_placed
-            self.docs_prelude = ts.docs_prelude
-            self.docs_dropped = ts.docs_dropped
+            self.prelude = ts.finish_layout(
+                "#include \"" + self._prelude_path + "\"",
+            )
+
+            self.docs_placed    = ts.docs_placed
+            self.docs_prelude   = ts.docs_prelude
+            self.docs_dropped   = ts.docs_dropped
             self.bodies_dropped = ts.bodies_dropped
             self.bodies_needed  = ts.bodies_needed
         }
@@ -177,8 +193,8 @@ pub class EmitCXXHeader {
     /// The path under \p dir this TU's header lands at.
     pub fn path_under(self, const dir: string) -> string {
         var unsafe *tu = self._ctx->tu
-        var        cg  = CodegenContext(self._ctx, &null, self._psym, self._instances)
-        var        sp  = CXXSpell(unsafe &cg)
+        var cg = CodegenContext(self._ctx, &null, self._psym, self._instances)
+        var sp = CXXSpell(unsafe &cg)
         return dir + "/" + sp.header_path(tu)
     }
 
@@ -191,7 +207,10 @@ pub class EmitCXXHeader {
 
         if self.layout && self.line_directives {
             Path::make_parent_dirs(p)
-            self._prelude_path = Path::join_str(Path::real_path_of(Path::parent_of(p)), Path::filename_of(p) + ".prelude")
+            self._prelude_path = Path::join_str(
+                Path::real_path_of(Path::parent_of(p)),
+                Path::filename_of(p) + ".prelude",
+            )
         }
 
         var text = self.render()

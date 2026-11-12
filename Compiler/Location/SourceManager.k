@@ -99,15 +99,21 @@ pub class SourceManager {
                      vfile_mgr: unsafe *VirtualFileManager,
                      diag:      unsafe *DiagEngine) {
         if pool == &null {
-            kairo::std::ice_fail("SourceManager: A valid ThreadPool is required")
+            kairo::std::ice_fail(
+                "SourceManager: A valid ThreadPool is required",
+            )
         }
 
         if vfile_mgr == &null {
-            kairo::std::ice_fail("SourceManager: A valid VirtualFileManager is required")
+            kairo::std::ice_fail(
+                "SourceManager: A valid VirtualFileManager is required",
+            )
         }
 
         if diag == &null {
-            kairo::std::ice_fail("SourceManager: A valid DiagEngine is required")
+            kairo::std::ice_fail(
+                "SourceManager: A valid DiagEngine is required",
+            )
         }
 
         self._diag      = diag
@@ -115,7 +121,10 @@ pub class SourceManager {
         self._files     = cxx::std::vector<unsafe *SourceFile>()
         self._total_b   = 0
         self._vfile_mgr = vfile_mgr
-        kairo::Logger::info(kairo::Logger::Stage::Driver, f"SourceManager: initialized")
+        kairo::Logger::info(
+            kairo::Logger::Stage::Driver,
+            f"SourceManager: initialized",
+        )
     }
 
     ///
@@ -159,7 +168,10 @@ pub class SourceManager {
         }
 
         if !path.exists() {
-            self._diag->report(DiagID::I005F, f"no such file: '{path.full_path()}'").emit()
+            self._diag->report(
+                DiagID::I005F,
+                f"no such file: '{path.full_path()}'",
+            ).emit()
             return u32::MAX
         }
 
@@ -180,7 +192,10 @@ pub class SourceManager {
         }
 
         if !path.is_regular_file() {
-            self._diag->report(DiagID::I005F, f"'{path.full_path()}' is not a regular file").emit()
+            self._diag->report(
+                DiagID::I005F,
+                f"'{path.full_path()}' is not a regular file",
+            ).emit()
             return u32::MAX
         }
 
@@ -357,10 +372,7 @@ pub class SourceManager {
     /// \brief load_overlay without the load: \p real_path gets these bytes
     ///        when the graph first loads it, with the file id its place in
     ///        the load order gives it (VirtualFileManager::stage_overlay).
-    pub fn stage_overlay(self,
-                         const real_path: Path,
-                         data:            kairo::std::ConstPtr<u8>,
-                         size:            usize) {
+    pub fn stage_overlay(self, const real_path: Path, data: kairo::std::ConstPtr<u8>, size: usize) {
         var lock = kairo::std::LockGuard(self._load_mu)
         self._vfile_mgr->stage_overlay(real_path, data, size)
     }
@@ -445,7 +457,10 @@ pub class SourceManager {
     ///
     /// \warning As invalidate(): every SourceLocation into the file, and any
     ///          token or AST built from it, is stale.
-    pub fn replace_bytes(self, file_id: FileID, data: kairo::std::ConstPtr<u8>, size: usize) -> bool {
+    pub fn replace_bytes(self,
+                         file_id: FileID,
+                         data:    kairo::std::ConstPtr<u8>,
+                         size:    usize) -> bool {
         var lock = kairo::std::LockGuard(self._load_mu)
         self._line_table.drain_builds()
 
@@ -641,7 +656,7 @@ pub class SourceManager {
 
         self._files[fid]->utf8_checked = true
 
-        var        buf                            = self._files[fid]->buffer->bytes()
+        var buf = self._files[fid]->buffer->bytes()
         const      base: kairo::std::ConstPtr<u8> = buf.data()
         const      end:  kairo::std::ConstPtr<u8> = base + buf.size()
         var unsafe *p                             = base
@@ -899,7 +914,11 @@ pub class SourceManager {
         if mbuf.size() == 0 {
             return string()
         }
-        return string(unsafe ((mbuf.data() as unsafe *const u8) as *const u8), mbuf.size() as usize)
+
+        return string(
+            unsafe ((mbuf.data() as unsafe *const u8) as *const u8),
+            mbuf.size() as usize,
+        )
     }
 
     ///

@@ -12,18 +12,17 @@
 /// ------------------------------------------------------------------------ ///
 
 
-import Index::Snapshot::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
-import AST::Context::ImportOverlay::{
-    ImportOverlay,
-    OverlayVisibility,
-}
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
+}
+import AST::Context::ImportOverlay::{
+    ImportOverlay,
+    OverlayVisibility,
 }
 import AST::Context::SymbolTable::{
     DeclName,
@@ -61,6 +60,16 @@ import AST::Node::Types
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
+import Index::Bases::*
+import Index::CompletionItems::*
+import Index::Hovers::*
+import Index::Indexer::*
+import Index::Inlays::*
+import Index::Legend::*
+import Index::Macros::*
+import Index::Refs::*
+import Index::Snapshot::*
+import Index::Writer::*
 import Json::JsonWriter
 import Lexer::Immediate::{
     Immediate,
@@ -81,26 +90,17 @@ import Sema::SemaContext::{
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
-import Token::TokenText::TokenText
 import Token::TokenKind::{
     TokenKind,
     is_keyword,
 }
-import Index::Bases::*
-import Index::CompletionItems::*
-import Index::Hovers::*
-import Index::Indexer::*
-import Index::Inlays::*
-import Index::Legend::*
-import Index::Macros::*
-import Index::Refs::*
-import Index::Writer::*
+import Token::TokenText::TokenText
 
 /// UTF-16 length of bytes [off, off+len) of \p text.
 pub fn utf16_len(text: *const string, off: usize, len: usize) -> usize {
     var units: usize = 0
-    var i   = off
-    var end = off + len
+    var i            = off
+    var end          = off + len
     if end > text->size() {
         end = text->size()
     }
@@ -108,16 +108,16 @@ pub fn utf16_len(text: *const string, off: usize, len: usize) -> usize {
     while i < end {
         var c = (*text)[i]
         if c >= 0xF0 {
-            i     += 4
+            i += 4
             units += 2
         } else if c >= 0xE0 {
-            i     += 3
+            i += 3
             units += 1
         } else if c >= 0xC0 {
-            i     += 2
+            i += 2
             units += 1
         } else {
-            i     += 1
+            i += 1
             units += 1
         }
     }
@@ -170,7 +170,9 @@ pub fn lexical_kind(t: Token, text: *const string, off: u32, len: u32, mods: *u3
         // client colours it as one without a rule of its own. `Self` keeps
         // its own type (and with it the colour it shares with `self`).
         var c = (*text)[off as usize]
-        if ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || (c == ('_' as u8)) {
+        if ((c >= ('a' as u8)) && (c <= ('z' as u8)))
+            || ((c >= ('A' as u8)) && (c <= ('Z' as u8)))
+            || (c == ('_' as u8)) {
             *mods = TM_DEFAULT_LIB()
             if (len == 4) && (text->subslice(off as usize, 4) == "Self") {
                 return TT_BUILTIN()
@@ -243,9 +245,9 @@ pub fn encode_tokens(all: *const [SemTok], f: *const FileText, w: *JsonWriter) {
 /// does not parse (the syntax-only worker): no identifier is classified,
 /// and an f-string is one string.
 pub fn lexical_tokens(sm: unsafe *SourceManager, fid: u32, f: *const FileText, w: *JsonWriter) {
-    var all: [SemTok]
-    var unsafe *diag = kairo::std::create<DiagEngine>()
-    var unsafe *imm  = kairo::std::create<ImmediateTable>()
+    var        all:  [SemTok]
+    var unsafe *diag          = kairo::std::create<DiagEngine>()
+    var unsafe *imm           = kairo::std::create<ImmediateTable>()
     imm->initialize(sm)
     var unsafe *lx = kairo::std::create<Lexer>(sm, &null, diag, imm)
     finally {
@@ -267,10 +269,10 @@ pub fn lexical_tokens(sm: unsafe *SourceManager, fid: u32, f: *const FileText, w
                 continue
             }
 
-            var off = r.offset as u32
-            var len = chain_head_len(imm, t, t.range.size() as u32)
+            var off       = r.offset as u32
+            var len       = chain_head_len(imm, t, t.range.size() as u32)
             var mods: u32 = 0
-            var kind = lexical_kind(t, &f->text, off, len, &mods)
+            var kind      = lexical_kind(t, &f->text, off, len, &mods)
             if kind == TT_NONE() {
                 continue
             }
@@ -438,13 +440,9 @@ extend IndexWalker {
     /// Splits the string literal at [off, off+len) around its `{...}`
     /// interpolations. False when it has none the walk classified (a plain
     /// string, or braces that are just text), and the caller emits it whole.
-    fn interpolated_(self,
-                          off:    u32,
-                          len:    u32,
-                          by_off: *{u32: u32},
-                          out:    *[SemTok]) -> bool {
+    fn interpolated_(self, off: u32, len: u32, by_off: *{u32: u32}, out: *[SemTok]) -> bool {
         var *text = &self.files[0].text
-        var end = (off + len) as usize
+        var end   = (off + len) as usize
         if end > text->size() {
             return false
         }
@@ -472,7 +470,7 @@ extend IndexWalker {
 
             // The matching `}` of this interpolation (nested braces count).
             var depth: usize = 1
-            var q = p + 1
+            var q            = p + 1
             while (q < end) && (depth > 0) {
                 if (*text)[q] == ('{' as u8) {
                     depth += 1
@@ -491,10 +489,10 @@ extend IndexWalker {
             self.piece_(seg, p + 1, TT_STRING(), out)
 
             // the expression: names the walk knew, numbers, and operators
-            var c = p + 1
+            var c    = p + 1
             var stop = q - 1
             while c < stop {
-                var ch = (*text)[c]
+                var ch  = (*text)[c]
                 var hit = by_off->get(c as u32)
                 if hit != null {
                     var st = self.toks[*hit as usize]
@@ -510,8 +508,11 @@ extend IndexWalker {
 
                 if (ch >= ('0' as u8)) && (ch <= ('9' as u8)) {
                     var ne = c
-                    while (ne < stop) && ((((*text)[ne] >= ('0' as u8)) && ((*text)[ne] <= ('9' as u8))) || ((*text)[ne] == ('.' as u8))
-                        || ((*text)[ne] == ('_' as u8)) || (((*text)[ne] >= ('a' as u8)) && ((*text)[ne] <= ('z' as u8)))) {
+                    while (ne < stop)
+                        && ((((*text)[ne] >= ('0' as u8)) && ((*text)[ne] <= ('9' as u8)))
+                            || ((*text)[ne] == ('.' as u8))
+                            || ((*text)[ne] == ('_' as u8))
+                            || (((*text)[ne] >= ('a' as u8)) && ((*text)[ne] <= ('z' as u8)))) {
                         ne += 1
                     }
 
@@ -520,19 +521,35 @@ extend IndexWalker {
                     continue
                 }
 
-                if ((ch >= ('a' as u8)) && (ch <= ('z' as u8))) || ((ch >= ('A' as u8)) && (ch <= ('Z' as u8))) || (ch == ('_' as u8)) {
+                if ((ch >= ('a' as u8)) && (ch <= ('z' as u8)))
+                    || ((ch >= ('A' as u8)) && (ch <= ('Z' as u8)))
+                    || (ch == ('_' as u8)) {
                     // A word the walk did not classify: a keyword (`as`,
                     // `if`) or an unresolved name. Left to the grammar.
-                    while (c < stop) && (((*text)[c] >= ('0' as u8) && (*text)[c] <= ('9' as u8)) || ((*text)[c] >= ('a' as u8) && (*text)[c] <= ('z' as u8))
-                        || ((*text)[c] >= ('A' as u8) && (*text)[c] <= ('Z' as u8)) || ((*text)[c] == ('_' as u8))) {
+                    while (c < stop)
+                        && (((*text)[c] >= ('0' as u8) && (*text)[c] <= ('9' as u8))
+                            || ((*text)[c] >= ('a' as u8) && (*text)[c] <= ('z' as u8))
+                            || ((*text)[c] >= ('A' as u8) && (*text)[c] <= ('Z' as u8))
+                            || ((*text)[c] == ('_' as u8))) {
                         c += 1
                     }
 
                     continue
                 }
 
-                if (ch == ('+' as u8)) || (ch == ('-' as u8)) || (ch == ('*' as u8)) || (ch == ('/' as u8)) || (ch == ('%' as u8)) || (ch == ('<' as u8)) || (ch == ('>' as u8))
-                    || (ch == ('=' as u8)) || (ch == ('!' as u8)) || (ch == ('&' as u8)) || (ch == ('|' as u8)) || (ch == ('^' as u8)) || (ch == ('?' as u8)) {
+                if (ch == ('+' as u8))
+                    || (ch == ('-' as u8))
+                    || (ch == ('*' as u8))
+                    || (ch == ('/' as u8))
+                    || (ch == ('%' as u8))
+                    || (ch == ('<' as u8))
+                    || (ch == ('>' as u8))
+                    || (ch == ('=' as u8))
+                    || (ch == ('!' as u8))
+                    || (ch == ('&' as u8))
+                    || (ch == ('|' as u8))
+                    || (ch == ('^' as u8))
+                    || (ch == ('?' as u8)) {
                     self.piece_(c, c + 1, TT_OPERATOR(), out)
                 }
 
@@ -558,9 +575,9 @@ extend IndexWalker {
                 from:   u32,
                 by_off: *{u32: u32},
                 out:    *[SemTok]) {
-        var *text = &self.files[0].text
-        var unsafe *seg = imm->get<Immediate::StringData>(t.imm)
-        var        at   = from as usize
+        var        *text = &self.files[0].text
+        var unsafe *seg  = imm->get<Immediate::StringData>(t.imm)
+        var        at    = from as usize
         while (seg != &null) && (seg->next != u32::MAX) {
             seg = imm->get<Immediate::StringData>(seg->next)
             if seg == &null {
@@ -568,7 +585,10 @@ extend IndexWalker {
             }
 
             while (at < text->size())
-                && (((*text)[at] == (' ' as u8)) || ((*text)[at] == ('\t' as u8)) || ((*text)[at] == ('\n' as u8)) || ((*text)[at] == ('\r' as u8))) {
+                && (((*text)[at] == (' ' as u8))
+                    || ((*text)[at] == ('\t' as u8))
+                    || ((*text)[at] == ('\n' as u8))
+                    || ((*text)[at] == ('\r' as u8))) {
                 at += 1
             }
 

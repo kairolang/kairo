@@ -67,13 +67,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtRole,
-    EnumDecl,
-    FunctionDecl,
-    GenericParamDecl,
-    ImportDecl,
-    SpecKind,
-    StructDecl,
+    AdtRole, EnumDecl, FunctionDecl, GenericParamDecl, ImportDecl, SpecKind, StructDecl,
 }
 import AST::VisibilityFacts::{
     is_library_tu,
@@ -243,8 +237,10 @@ pub class SemaOptions {
         self.infer_purity    = ci->lang.infer_purity != 0
         self.print_stats     = ci->frontend.print_stats
         self.log_import_uses = !ci->frontend.dump_import_uses.empty()
-        self.log_deps        = (!ci->frontend.dump_deps.empty()) || (!ci->frontend.dump_interface.empty()) || ci->frontend.incremental_sema
-        self.duck_generics   = ci->lang.duck_generics == 1 // unset = off (see above)
+        self.log_deps = (!ci->frontend.dump_deps.empty())
+            || (!ci->frontend.dump_interface.empty())
+            || ci->frontend.incremental_sema
+        self.duck_generics = ci->lang.duck_generics == 1 // unset = off (see above)
         // FlagTranslator's test of a hosted target, on the resolved triple.
         var hosted = !(ci->lang.freestanding || ci->codegen.kernel_mode)
         if ci->target.resolved && !ci->target.has_os {
@@ -302,8 +298,8 @@ pub class SemaContext {
     pub var phase: SemaPhase                   = SemaPhase::Parsed
     /// The last lowering that started (Sema/Lower/LowerStep.k): written
     /// only by begin_lower / end_lowerings, in the enum's order.
-    priv var _lower: LowerStep = LowerStep::None
-    pub var instances: unsafe *InstantiationRegistry = &null
+    priv var _lower:    LowerStep                     = LowerStep::None
+    pub var  instances: unsafe *InstantiationRegistry = &null
     /// Non-null while this TU's front runs on a pool worker (SemaSlot::
     /// run_front): T's once-per-build selection reports are appended here,
     /// a list the group's TUs share, instead of claimed where T meets them
@@ -424,7 +420,7 @@ pub class SemaContext {
     /// sees_extension_file; member lookup, operator lookup and conformance
     /// all ask it, so the three cannot disagree. Membership only.
     pub var ext_visible:       llvm::DenseSet<u64>
-    pub var ext_visible_built: bool = false
+    pub var ext_visible_built: bool                = false
 
     /// Every `typeof e` written in a type position, in the order T met
     /// them. T cannot resolve one (no expression has a type yet); a
@@ -527,7 +523,9 @@ pub class SemaContext {
         }
 
         if ctx->ci != &null {
-            self.rstate.set_max_depth(ctx->ci->frontend.max_scope_depth as usize)
+            self.rstate.set_max_depth(
+                ctx->ci->frontend.max_scope_depth as usize,
+            )
         }
 
         // Tracing costs one branch per name when off, so it is gated on the
@@ -652,7 +650,9 @@ pub class SemaContext {
     fn begin_lower(self, step: LowerStep) {
         eval if defined!(DEBUG) {
             if (step as u8) != (self._lower as u8) + 1 {
-                kairo::std::ice_fail(r"SemaContext: lowering ran out of its LowerStep order (Sema::_stage_lowerings schedule bug)")
+                kairo::std::ice_fail(
+                    r"SemaContext: lowering ran out of its LowerStep order (Sema::_stage_lowerings schedule bug)",
+                )
             }
         }
 
@@ -676,7 +676,9 @@ pub class SemaContext {
     fn advance_phase(self, p: SemaPhase) {
         eval if defined!(DEBUG) {
             if !((p as u8) > (self.phase as u8)) {
-                kairo::std::ice_fail(r"SemaContext: phase must advance monotonically")
+                kairo::std::ice_fail(
+                    r"SemaContext: phase must advance monotonically",
+                )
             }
         }
 
@@ -812,7 +814,9 @@ pub class SemaContext {
     fn nullable_member(self, role: AdtRole, const pass: string) -> unsafe *FunctionDecl {
         var unsafe *en = self.nullable_enum()
         if en == &null {
-            kairo::std::ice_fail(pass + ": the Nullable lang item is not an enum")
+            kairo::std::ice_fail(
+                pass + ": the Nullable lang item is not an enum",
+            )
         }
 
         var unsafe *lay = dyn_cast<StructDecl>(en->adt_layout)
@@ -1002,7 +1006,11 @@ pub class SemaContext {
             args.push_back(r->args[i])
         }
 
-        return self.instances->select_partial(NameLookup::representative(d), unsafe &args, out)
+        return self.instances->select_partial(
+            NameLookup::representative(d),
+            unsafe &args,
+            out,
+        )
     }
 
     /// Errors produced since sema began.

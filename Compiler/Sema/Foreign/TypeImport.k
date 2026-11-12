@@ -155,7 +155,13 @@ pub class TypeImport {
         // the plain-char -1 and does not convert back. With its type it is
         // `(unsigned char)'\xff'`, and an integer is `4UL` -- both exact.
         pol.AlwaysIncludeTypeForTemplateArgument = (true as u32)
-        var s = clang::TypeName::getFullyQualifiedName(qt, *self.cctx, pol, true)
+        var s = clang::TypeName::getFullyQualifiedName(
+            qt,
+            *self.cctx,
+            pol,
+            true,
+        )
+
         return kairo::std::from_std_string<string>(s)
     }
 
@@ -167,7 +173,7 @@ pub class TypeImport {
         pol.FullyQualifiedName     = (true as u32)
         pol.SuppressUnwrittenScope = (true as u32)
         var s: cxx::std::string
-        var os = llvm::raw_string_ostream(&s)
+        var os                  = llvm::raw_string_ostream(&s)
         d->printQualifiedName(&os, pol)
         os.flush()
         return "::" + kairo::std::from_std_string<string>(s)
@@ -293,9 +299,13 @@ pub class TypeImport {
                 return &null
             }
 
-            var nm   = tt->getDecl()->getName()
-            var name = string(unsafe ((nm.data() as unsafe *const u8) as *const u8), nm.size())
-            var k    = builtin_for_c_typedef(name)
+            var nm = tt->getDecl()->getName()
+            var name = string(
+                unsafe ((nm.data() as unsafe *const u8) as *const u8),
+                nm.size(),
+            )
+
+            var k = builtin_for_c_typedef(name)
             if k != BuiltinKind::COUNT {
                 return self.store->qualified(
                     self.store->builtin(k),
@@ -339,7 +349,10 @@ pub class TypeImport {
             if !self._ptr_args.empty() {
                 var it = self._ptr_args.find(cty as usize as u64)
                 if it != self._ptr_args.end() {
-                    return self.store->qualified(it->second, TypeImport::quals_of(canon))
+                    return self.store->qualified(
+                        it->second,
+                        TypeImport::quals_of(canon),
+                    )
                 }
             }
 
@@ -352,12 +365,16 @@ pub class TypeImport {
 
         var unsafe *lr = qt->getAs<clang::LValueReferenceType>()
         if lr != &null {
-            return self.store->cxx_lref(self._map_or_opaque(lr->getPointeeType()))
+            return self.store->cxx_lref(
+                self._map_or_opaque(lr->getPointeeType()),
+            )
         }
 
         var unsafe *rr = qt->getAs<clang::RValueReferenceType>()
         if rr != &null {
-            return self.store->cxx_rref(self._map_or_opaque(rr->getPointeeType()))
+            return self.store->cxx_rref(
+                self._map_or_opaque(rr->getPointeeType()),
+            )
         }
 
         return &null
@@ -509,12 +526,16 @@ pub class TypeImport {
         var unsafe *lr = llvm::dyn_cast<clang::LValueReferenceType>(ty)
         if lr != &null {
             // the const rides in through _map.
-            return self.store->cxx_lref(self._map_or_opaque(lr->getPointeeType()))
+            return self.store->cxx_lref(
+                self._map_or_opaque(lr->getPointeeType()),
+            )
         }
 
         var unsafe *rr = llvm::dyn_cast<clang::RValueReferenceType>(ty)
         if rr != &null {
-            return self.store->cxx_rref(self._map_or_opaque(rr->getPointeeType()))
+            return self.store->cxx_rref(
+                self._map_or_opaque(rr->getPointeeType()),
+            )
         }
 
         /// ## arrays
@@ -528,7 +549,9 @@ pub class TypeImport {
 
         var unsafe *ia = llvm::dyn_cast<clang::IncompleteArrayType>(ty)
         if ia != &null {
-            return self.store->incomplete_array(self._map_or_opaque(ia->getElementType()))
+            return self.store->incomplete_array(
+                self._map_or_opaque(ia->getElementType()),
+            )
         }
 
         /// ## functions
@@ -577,14 +600,20 @@ pub class TypeImport {
             if pd != &null {
                 owner = self._owner_of_param(pd)
             } else if (tp->getDepth() as usize) < self.tpl_owners.size() {
-                owner = NameLookup::representative(self.tpl_owners[tp->getDepth() as usize])
+                owner = NameLookup::representative(
+                    self.tpl_owners[tp->getDepth() as usize],
+                )
             }
 
             if owner == &null {
                 return &null
             }
 
-            return self.store->generic_param(owner, tp->getIndex(), tp->isParameterPack())
+            return self.store->generic_param(
+                owner,
+                tp->getIndex(),
+                tp->isParameterPack(),
+            )
         }
 
         var unsafe *st = llvm::dyn_cast<clang::SubstTemplateTypeParmType>(ty)
@@ -606,7 +635,10 @@ pub class TypeImport {
             }
 
             var args = cxx::std::vector<unsafe *Type>()
-            return self.store->record(NameLookup::representative(kd), unsafe &args)
+            return self.store->record(
+                NameLookup::representative(kd),
+                unsafe &args,
+            )
         }
 
         // A dependent specialization (`std::vector<T>` in a template body):
@@ -628,7 +660,10 @@ pub class TypeImport {
                 return &null
             }
 
-            return self.store->record(NameLookup::representative(prim), unsafe &args)
+            return self.store->record(
+                NameLookup::representative(prim),
+                unsafe &args,
+            )
         }
 
         /// ## GNU / ext vectors
@@ -675,7 +710,10 @@ pub class TypeImport {
             return &null
         }
 
-        var unsafe *spec = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(rd)
+        var unsafe *spec = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(
+            rd,
+        )
+
         if spec != &null && !llvm::isa<clang::ClassTemplatePartialSpecializationDecl>(rd) {
             var unsafe *prim = self._decl_for(spec->getSpecializedTemplate())
             if prim == &null {
@@ -759,7 +797,9 @@ pub class TypeImport {
             var unsafe *tpl = cxx_v->getDescribedClassTemplate()->getTemplateParameters()
             for var i: u32 = 0; i < tpl->size(); ++i {
                 var unsafe *p = tpl->getParam(i)
-                args.push_back(self.store->generic_param(rep, i, p->isParameterPack()))
+                args.push_back(
+                    self.store->generic_param(rep, i, p->isParameterPack()),
+                )
             }
         }
 
@@ -792,12 +832,17 @@ pub class TypeImport {
                 // it back into `R(A)`), and both must be one registry entry
                 // or the imported parameter never accepts the written
                 // argument (SC063E, G104b). `R(*)(A)` stays a raw `unsafe fn`.
-                var        at   = a.getAsType().getCanonicalType()
-                var unsafe *afp = llvm::dyn_cast<clang::FunctionProtoType>(at.getTypePtr())
+                var at = a.getAsType().getCanonicalType()
+                var unsafe *afp = llvm::dyn_cast<clang::FunctionProtoType>(
+                    at.getTypePtr(),
+                )
+
                 if afp != &null {
                     var fparams = cxx::std::vector<unsafe *Type>()
                     for var j: u32 = 0; j < afp->getNumParams(); ++j {
-                        fparams.push_back(self._map_or_opaque(afp->getParamType(j)))
+                        fparams.push_back(
+                            self._map_or_opaque(afp->getParamType(j)),
+                        )
                     }
 
                     out.push_back(
@@ -859,12 +904,20 @@ pub class TypeImport {
                     return false
                 }
 
-                var unsafe *ctd = llvm::dyn_cast<clang::NamedDecl>(td->getCanonicalDecl())
+                var unsafe *ctd = llvm::dyn_cast<clang::NamedDecl>(
+                    td->getCanonicalDecl(),
+                )
+
                 if ctd == &null {
                     return false
                 }
 
-                out.push_back(self.store->opaque(TypeImport::opaque_key(self._template_name(ctd))))
+                out.push_back(
+                    self.store->opaque(
+                        TypeImport::opaque_key(self._template_name(ctd)),
+                    ),
+                )
+
                 continue
             }
 
@@ -945,7 +998,12 @@ pub class TypeImport {
             }
 
             self._ptr_args.try_emplace(cu as usize as u64, ku)
-            self._note_arg(cast<PointerType>(ku)->pointee, cp->getPointeeType(), depth + 1)
+            self._note_arg(
+                cast<PointerType>(ku)->pointee,
+                cp->getPointeeType(),
+                depth + 1,
+            )
+
             return
         }
 
@@ -1097,7 +1155,7 @@ pub class TypeImport {
             return false
         }
 
-        var        c   = qt.getNonReferenceType().getCanonicalType().getUnqualifiedType()
+        var c = qt.getNonReferenceType().getCanonicalType().getUnqualifiedType()
         var unsafe *bt = c->getAs<clang::BuiltinType>()
         if bt == &null || !bt->isInteger() {
             return false
@@ -1252,7 +1310,10 @@ pub class TypeImport {
             if bits == 96 || bits == 128 {
                 // x86: 80-bit extended padded to 12 or 16 bytes. PPC double-double
                 // and true binary128 also report 128; ask the format.
-                var *fmt = &self.cctx->getFloatTypeSemantics(clang::QualType(bt, 0))
+                var *fmt = &self.cctx->getFloatTypeSemantics(
+                    clang::QualType(bt, 0),
+                )
+
                 if fmt == &llvm::APFloat::x87DoubleExtended() {
                     return self.store->builtin(BuiltinKind::F80)
                 }
@@ -1271,19 +1332,27 @@ pub class TypeImport {
             var bits = self.cctx->getTypeSize(clang::QualType(bt, 0))
             var sgn  = bt->isSignedInteger()
             if bits == 8 {
-                return self.store->builtin(if (sgn) => (BuiltinKind::I8) else => BuiltinKind::U8)
+                return self.store->builtin(
+                    if (sgn) => (BuiltinKind::I8) else => BuiltinKind::U8,
+                )
             }
 
             if bits == 16 {
-                return self.store->builtin(if (sgn) => (BuiltinKind::I16) else => BuiltinKind::U16)
+                return self.store->builtin(
+                    if (sgn) => (BuiltinKind::I16) else => BuiltinKind::U16,
+                )
             }
 
             if bits == 32 {
-                return self.store->builtin(if (sgn) => (BuiltinKind::I32) else => BuiltinKind::U32)
+                return self.store->builtin(
+                    if (sgn) => (BuiltinKind::I32) else => BuiltinKind::U32,
+                )
             }
 
             if bits == 64 {
-                return self.store->builtin(if (sgn) => (BuiltinKind::I64) else => BuiltinKind::U64)
+                return self.store->builtin(
+                    if (sgn) => (BuiltinKind::I64) else => BuiltinKind::U64,
+                )
             }
 
             if bits == 128 {

@@ -133,7 +133,11 @@ pub class BuiltinsSet {
             return false
         }
 
-        self._ci->getTarget().adjust(&self._ci->getDiagnostics(), &self._ci->getLangOpts(), &null)
+        self._ci->getTarget().adjust(
+            &self._ci->getDiagnostics(),
+            &self._ci->getLangOpts(),
+            &null,
+        )
 
         self._ci->createFileManager()
         self._ci->createSourceManager()
@@ -143,7 +147,10 @@ pub class BuiltinsSet {
         // The step BeginSourceFile would have taken: give every supported
         // builtin's identifier its ID.
         var *pp = &self._ci->getPreprocessor()
-        pp->getBuiltinInfo().initializeBuiltins(&pp->getIdentifierTable(), self._ci->getLangOpts())
+        pp->getBuiltinInfo().initializeBuiltins(
+            &pp->getIdentifierTable(),
+            self._ci->getLangOpts(),
+        )
 
         // createPreprocessor wrote the predefines buffer (`#define __linux__
         // 1` ...) but no main file is entered, so none is defined in the
@@ -166,7 +173,10 @@ pub class BuiltinsSet {
             }
 
             var rest = line.drop_front(def.size())
-            self._predef.try_emplace(rest.substr(0, rest.find_first_of(stop)), 1 as u32)
+            self._predef.try_emplace(
+                rest.substr(0, rest.find_first_of(stop)),
+                1 as u32,
+            )
         }
 
         // Read back what got an ID. Iterating the table rather than the ID
@@ -184,7 +194,9 @@ pub class BuiltinsSet {
 
         self._sorted.reserve(self._ids.size())
         for var e = self._ids.begin(); e != self._ids.end(); ++e {
-            self._sorted.push_back(cxx::std::pair<llvm::StringRef, u32>(e->getKey(), e->getValue()))
+            self._sorted.push_back(
+                cxx::std::pair<llvm::StringRef, u32>(e->getKey(), e->getValue()),
+            )
         }
 
         // Sorted: the pseudo-header BuiltinImport writes from this is then the
@@ -229,7 +241,10 @@ pub class BuiltinsSet {
 
     pub fn name_at(self, i: usize) -> string {
         var k = self._sorted[i].first
-        return string(unsafe ((k.data() as unsafe *const u8) as *const u8), k.size())
+        return string(
+            unsafe ((k.data() as unsafe *const u8) as *const u8),
+            k.size(),
+        )
     }
 
     pub fn id_at(self, i: usize) -> u32 {

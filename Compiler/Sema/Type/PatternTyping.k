@@ -205,7 +205,10 @@ pub class <T: type> PatternTyping {
                 }
 
                 for var i: usize = 0; i < tp->elements.size(); ++i {
-                    self.type_pattern(tp->elements[i], if (have) => (elems[i]) else => &null)
+                    self.type_pattern(
+                        tp->elements[i],
+                        if (have) => (elems[i]) else => &null,
+                    )
                 }
             } case PatternKind::AlternationPattern {
                 var unsafe *a = cast<AlternationPattern>(p)
@@ -239,7 +242,15 @@ pub class <T: type> PatternTyping {
                 )
             } case PatternKind::UnresolvedConstructorPattern {
                 var unsafe *c = cast<UnresolvedConstructorPattern>(p)
-                self._type_ctor(p, c->head, false, Token(), c->has_parens, c->subpatterns, st)
+                self._type_ctor(
+                    p,
+                    c->head,
+                    false,
+                    Token(),
+                    c->has_parens,
+                    c->subpatterns,
+                    st,
+                )
             } default {
                 0
             }
@@ -398,8 +409,8 @@ pub class <T: type> PatternTyping {
     /// # ranges
 
     priv fn _type_range(self, r: unsafe *RangePattern, st: unsafe *Type) {
-        var unsafe *p      = unsafe (r as unsafe *Pattern)
-        var        is_char = st != &null && self.dyn()->tu.is_builtin(st, BuiltinKind::Char)
+        var unsafe *p = unsafe (r as unsafe *Pattern)
+        var is_char = st != &null && self.dyn()->tu.is_builtin(st, BuiltinKind::Char)
         if st != &null && !st->is_dependent() && !self.dyn()->tu.is_integer(st) && !is_char {
             self.dyn()->sc->diag->report(
                 DiagID::SC126E,
@@ -555,12 +566,16 @@ pub class <T: type> PatternTyping {
             // A variadic enum's constructors are per instance: which tag a
             // pattern tests is unknown in a generic body (M2).
             var unsafe *den = if (st != &null) => (self._enum_of(st)) else => &null
-            var unsafe *pv = if (den != &null && den->is_adt) => (adt_pack_variant(den))
+            var unsafe *pv = if (den != &null && den->is_adt) => (adt_pack_variant(
+                                 den,
+                             ))
                              else => &null
             var hits = false
             if pv != &null {
                 if is_dotted {
-                    hits = self.dyn()->sc->ctx->get_spelling(dotted) == self.dyn()->tu.decl_name(pv)
+                    hits = self.dyn()->sc->ctx->get_spelling(dotted) == self.dyn()->tu.decl_name(
+                        pv,
+                    )
                 } else {
                     hits = self._head_decl(head) == pv
                 }
@@ -747,7 +762,16 @@ pub class <T: type> PatternTyping {
         var pick: i32 = -1
         var pes       = cxx::std::vector<unsafe *Type>()
         if v != &null && v->is_pack_expansion {
-            pick = self._pat_pick_element(p, v, owner, subs, st, &ve, unsafe &pes)
+            pick = self._pat_pick_element(
+                p,
+                v,
+                owner,
+                subs,
+                st,
+                &ve,
+                unsafe &pes,
+            )
+
             if pick < 0 {
                 p->poison()
                 self._type_subs_unknown(subs)
@@ -826,7 +850,10 @@ pub class <T: type> PatternTyping {
             if pick >= 0 {
                 ft = ve.field_at(st, fd, pick as usize)
             } else if fd->type_ != &null && fd->type_->canonical != &null {
-                ft = self.dyn()->ded_scratch()->member_through(st, fd->type_->canonical)
+                ft = self.dyn()->ded_scratch()->member_through(
+                    st,
+                    fd->type_->canonical,
+                )
             }
 
             self.type_pattern(sp, ft)
@@ -862,7 +889,10 @@ pub class <T: type> PatternTyping {
             )
 
             b.first(p->range)
-            b.note(v->range.start, "one variant per element of the pack")->child_first(v->range)
+            b.note(v->range.start, "one variant per element of the pack")->child_first(
+                v->range,
+            )
+
             b.emit()
             return -1
         }
@@ -875,8 +905,8 @@ pub class <T: type> PatternTyping {
                 continue
             }
 
-            var want                   = self.dyn()->sc->ctx->get_spelling(bp->name)
-            var fd:  unsafe *FieldDecl = &null
+            var want = self.dyn()->sc->ctx->get_spelling(bp->name)
+            var fd: unsafe *FieldDecl = &null
             for var k: usize = 0; k < v->payload.size(); ++k {
                 if self.dyn()->tu.decl_name(v->payload[k]) == want {
                     fd = v->payload[k]
@@ -904,8 +934,15 @@ pub class <T: type> PatternTyping {
                     f"no '{owner}' of '{stn}' holds a '{self.dyn()->tu.str(bp->type_->canonical)}'",
                 )
 
-                b.first(bp->type_->range, "the payload's type picks the variant")
-                b.note(v->range.start, f"its variants here: {ve->describe(st, v)}")->child_first(v->range)
+                b.first(
+                    bp->type_->range,
+                    "the payload's type picks the variant",
+                )
+
+                b.note(
+                    v->range.start,
+                    f"its variants here: {ve->describe(st, v)}",
+                )->child_first(v->range)
                 b.emit()
                 return -1
             }
@@ -945,7 +982,10 @@ pub class <T: type> PatternTyping {
             )
         }
 
-        b.note(v->range.start, f"its variants here: {ve->describe(st, v)}")->child_first(v->range)
+        b.note(v->range.start, f"its variants here: {ve->describe(st, v)}")->child_first(
+            v->range,
+        )
+
         b.emit()
         return -1
     }

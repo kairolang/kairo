@@ -316,7 +316,12 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
                        owner:      SourceRange,
                        const what: string) {
         var an = "'@" + nm + "'"
-        var b  = self.sc->diag->report(DiagID::SC143E, e->range.start, an + " " + why)
+        var b = self.sc->diag->report(
+            DiagID::SC143E,
+            e->range.start,
+            an + " " + why,
+        )
+
         b.first(e->range)
         b.note(owner.start, "the attribute is on this " + what)
         b.remove(e->range, "remove " + an)
@@ -337,7 +342,12 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
 
     priv fn _unknown(self, e: unsafe *AnnotationEntry, const nm: string) {
         var an = "'@" + nm + "'"
-        var b  = self.sc->diag->report(DiagID::SC145E, e->range.start, "unknown attribute " + an)
+        var b = self.sc->diag->report(
+            DiagID::SC145E,
+            e->range.start,
+            "unknown attribute " + an,
+        )
+
         b.first(e->range)
         var near = self._closest(nm)
         if near.size() > 0 {
@@ -352,7 +362,11 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     /// names nothing knows. True when \p e was one of them (reported).
     priv fn _reserved_or_unknown(self, e: unsafe *AnnotationEntry, const nm: string) -> bool {
         if nm == LangAttrs::unreachable() {
-            self._unsupported(e, LangAttrs::quoted(LangAttrs::unreachable()) + " is not yet supported")
+            self._unsupported(
+                e,
+                LangAttrs::quoted(LangAttrs::unreachable()) + " is not yet supported",
+            )
+
             return true
         }
 
@@ -470,7 +484,11 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             }
 
             var at = if (a != &null) => (a->range) else => e->range
-            self._bad_arg(e, at, LangAttrs::quoted(LangAttrs::no_warn()) + " " + why)
+            self._bad_arg(
+                e,
+                at,
+                LangAttrs::quoted(LangAttrs::no_warn()) + " " + why,
+            )
         }
     }
 
@@ -509,7 +527,13 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         }
 
         var at = if (a != &null) => (a->range) else => e->range
-        self._bad_arg(e, at, LangAttrs::quoted(LangAttrs::deprecated()) + " takes no argument or one string literal, the message")
+        self._bad_arg(
+            e,
+            at,
+            LangAttrs::quoted(
+                LangAttrs::deprecated(),
+            ) + " takes no argument or one string literal, the message",
+        )
     }
 
     /// # positions
@@ -567,14 +591,27 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
 
         if nm == LangAttrs::no_unwind() || nm == LangAttrs::unwind() {
             if !fnd {
-                self._misplaced(e, nm, "applies only to a function", d->range, "declaration")
+                self._misplaced(
+                    e,
+                    nm,
+                    "applies only to a function",
+                    d->range,
+                    "declaration",
+                )
             }
 
             return
         }
 
         if nm == LangAttrs::likely() || nm == LangAttrs::unlikely() {
-            self._misplaced(e, nm, "applies only to an 'if' statement", d->range, "declaration")
+            self._misplaced(
+                e,
+                nm,
+                "applies only to an 'if' statement",
+                d->range,
+                "declaration",
+            )
+
             return
         }
 
@@ -616,7 +653,11 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             }
 
             if e->args.size() != 0 {
-                self._bad_arg(e, e->range, LangAttrs::quoted(LangAttrs::packed()) + " takes no arguments")
+                self._bad_arg(
+                    e,
+                    e->range,
+                    LangAttrs::quoted(LangAttrs::packed()) + " takes no arguments",
+                )
             }
 
             return
@@ -667,7 +708,13 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
 
         if nm == LangAttrs::likely() || nm == LangAttrs::unlikely() {
             if !is_if {
-                self._misplaced(e, nm, "applies only to an 'if' statement", owner, what)
+                self._misplaced(
+                    e,
+                    nm,
+                    "applies only to an 'if' statement",
+                    owner,
+                    what,
+                )
             }
 
             return
@@ -720,13 +767,20 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
 
             for var j: usize = 0; j < e->args.size(); ++j {
                 var why = ""
-                var id  = self._warning_code(self._code_text(self._arg(e, j)), &why)
+                var id = self._warning_code(
+                    self._code_text(self._arg(e, j)),
+                    &why,
+                )
+
                 if id == DiagID::Invalid {
                     continue
                 }
 
                 var c = DiagCode(id)
-                self.sc->diag->quiet_in(diag_policy_key(c.category(), c.number()), n->range)
+                self.sc->diag->quiet_in(
+                    diag_policy_key(c.category(), c.number()),
+                    n->range,
+                )
             }
         }
 

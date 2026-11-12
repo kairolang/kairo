@@ -12,18 +12,17 @@
 /// ------------------------------------------------------------------------ ///
 
 
-import Index::Snapshot::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
-import AST::Context::ImportOverlay::{
-    ImportOverlay,
-    OverlayVisibility,
-}
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
+}
+import AST::Context::ImportOverlay::{
+    ImportOverlay,
+    OverlayVisibility,
 }
 import AST::Context::SymbolTable::{
     DeclName,
@@ -43,7 +42,6 @@ import AST::Mixin::Annotation::{
     AnnotationKind,
     VisibilityKind,
 }
-import AST::ParamMode::param_mode_prefix
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -65,9 +63,20 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Types
+import AST::ParamMode::param_mode_prefix
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
+import Index::Bases::*
+import Index::CompletionItems::*
+import Index::Indexer::*
+import Index::Inlays::*
+import Index::Legend::*
+import Index::Macros::*
+import Index::Refs::*
+import Index::Snapshot::*
+import Index::Tokens::*
+import Index::Writer::*
 import Json::JsonWriter
 import Lexer::Immediate::ImmediateTable
 import Lexer::Lexer::Lexer
@@ -84,20 +93,11 @@ import Sema::SemaContext::{
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
-import Token::TokenText::TokenText
 import Token::TokenKind::{
     TokenKind,
     is_keyword,
 }
-import Index::Bases::*
-import Index::CompletionItems::*
-import Index::Indexer::*
-import Index::Inlays::*
-import Index::Legend::*
-import Index::Macros::*
-import Index::Refs::*
-import Index::Tokens::*
-import Index::Writer::*
+import Token::TokenText::TokenText
 
 /// How far a type's head is read from its start for the hover (to its `{`):
 /// a head longer than this falls back to the keyword and the name.
@@ -148,7 +148,10 @@ extend IndexWalker {
         var space = false
         for var i: usize = so; i < so + n; ++i {
             var ch = self.files[fi].text[i]
-            if (ch == (' ' as u8)) || (ch == ('\t' as u8)) || (ch == ('\n' as u8)) || (ch == ('\r' as u8)) {
+            if (ch == (' ' as u8))
+                || (ch == ('\t' as u8))
+                || (ch == ('\n' as u8))
+                || (ch == ('\r' as u8)) {
                 space = true
                 continue
             }
@@ -236,14 +239,14 @@ extend IndexWalker {
             return none
         }
 
-        var res = self.sm->resolve(d->range.start)
-        var fi  = self.file_(res.fid as u32)
-        var i   = res.offset as usize
-        var n   = self.files[fi].text.size()
-        var raw: string = ""
-        var space  = false
-        var closed = false
-        var steps: usize = 0
+        var res           = self.sm->resolve(d->range.start)
+        var fi            = self.file_(res.fid as u32)
+        var i             = res.offset as usize
+        var n             = self.files[fi].text.size()
+        var raw:   string = ""
+        var space         = false
+        var closed        = false
+        var steps: usize  = 0
         while (i < n) && (steps < TYPE_HEAD_SCAN_BYTES) {
             var ch = self.files[fi].text[i]
             if ch == ('{' as u8) {
@@ -251,7 +254,10 @@ extend IndexWalker {
                 break
             }
 
-            if (ch == (' ' as u8)) || (ch == ('\t' as u8)) || (ch == ('\n' as u8)) || (ch == ('\r' as u8)) {
+            if (ch == (' ' as u8))
+                || (ch == ('\t' as u8))
+                || (ch == ('\n' as u8))
+                || (ch == ('\r' as u8)) {
                 space = true
             } else {
                 if space && (!raw.empty()) {
@@ -262,7 +268,7 @@ extend IndexWalker {
                 raw += self.files[fi].text.subslice(i, 1)
             }
 
-            i     += 1
+            i += 1
             steps += 1
         }
 
@@ -294,7 +300,11 @@ extend IndexWalker {
     }
 
     /// A binding's storage keyword as the source spells it.
-    fn storage_kw_(self, sc: Declarations::StorageClass, is_thread: bool, const_binding: bool, is_mut: bool) -> string {
+    fn storage_kw_(self,
+                   sc:            Declarations::StorageClass,
+                   is_thread:     bool,
+                   const_binding: bool,
+                   is_mut:        bool) -> string {
         if is_thread {
             return if (const_binding) => ("thread const ") else => "thread "
         }
@@ -344,8 +354,8 @@ extend IndexWalker {
         var name = sema_dump_decl_name(ctx, d)
 
         if isa<Declarations::FunctionDecl>(d) {
-            var unsafe *f = cast<Declarations::FunctionDecl>(d)
-            var s: string = head
+            var unsafe *f        = cast<Declarations::FunctionDecl>(d)
+            var        s: string = head
             if full && (!d->is_implicit) && (!decl_is_ffi(d)) {
                 if f->abi == Declarations::AbiKind::Static {
                     s += "static "
@@ -414,7 +424,9 @@ extend IndexWalker {
                 // `const x: T`. A reference return reads `ffi::ref<T>` /
                 // `ffi::mref<T>`, as a Kairo definition spells it.
                 if ffi_fn && (!p->mode_range.is_valid()) {
-                    var cref = pt.starts_with("const ") && pt.ends_with("&") && (!pt.ends_with("&&"))
+                    var cref = pt.starts_with("const ")
+                        && pt.ends_with("&")
+                        && (!pt.ends_with("&&"))
                     if pt.ends_with("&&") {
                         s += "@move "
                         pt = pt.subslice(0, pt.size() - 2)
@@ -476,11 +488,14 @@ extend IndexWalker {
             }
 
             var rt = self.type_str_(f->return_type, ctx)
-            if (f->return_type != &null) && (!rt.empty()) && (f->return_type->canonical != &null)
+            if (f->return_type != &null)
+                && (!rt.empty())
+                && (f->return_type->canonical != &null)
                 && (isa<Types::CXXLValueRefType>(f->return_type->canonical)
                     || isa<Types::CXXRValueRefType>(f->return_type->canonical)) {
                 rt = self.tu_.return_str(f->return_type->canonical)
             }
+
             if (!rt.empty()) && (rt != "void") {
                 s += " -> "
                 s += rt
@@ -505,7 +520,13 @@ extend IndexWalker {
 
         if isa<Declarations::VariableDecl>(d) {
             var unsafe *v = cast<Declarations::VariableDecl>(d)
-            var s: string = head + self.storage_kw_(v->storage, v->is_thread, v->const_binding, false)
+            var s: string = head + self.storage_kw_(
+                v->storage,
+                v->is_thread,
+                v->const_binding,
+                false,
+            )
+
             s += name
             var t = self.type_str_(v->type_, ctx)
             if !t.empty() {
@@ -517,8 +538,8 @@ extend IndexWalker {
         }
 
         if isa<Declarations::ParamDecl>(d) {
-            var unsafe *p = cast<Declarations::ParamDecl>(d)
-            var s: string = "(parameter) " + head
+            var unsafe *p        = cast<Declarations::ParamDecl>(d)
+            var        s: string = "(parameter) " + head
             if p->is_self {
                 return s + "self"
             }
@@ -539,7 +560,13 @@ extend IndexWalker {
 
         if isa<Declarations::FieldDecl>(d) {
             var unsafe *f = cast<Declarations::FieldDecl>(d)
-            var s: string = head + self.storage_kw_(f->storage, f->is_thread, f->const_binding, f->is_mutable)
+            var s: string = head + self.storage_kw_(
+                f->storage,
+                f->is_thread,
+                f->const_binding,
+                f->is_mutable,
+            )
+
             s += name
             var t = self.type_str_(f->type_, ctx)
             if !t.empty() {
@@ -553,7 +580,11 @@ extend IndexWalker {
         if isa<Declarations::TypeAliasDecl>(d) {
             var s: string = head + "type "
             s += name
-            var t = self.type_str_(cast<Declarations::TypeAliasDecl>(d)->aliased, ctx)
+            var t = self.type_str_(
+                cast<Declarations::TypeAliasDecl>(d)->aliased,
+                ctx,
+            )
+
             if !t.empty() {
                 s += " = "
                 s += t
@@ -567,13 +598,17 @@ extend IndexWalker {
         // number it is.
         if isa<Declarations::EnumVariantDecl>(d) {
             var s: string = "(variant) " + head
-            if (d->semantic_dc != &null) && (d->semantic_dc->dc_owner != &null)
+            if (d->semantic_dc != &null)
+                && (d->semantic_dc->dc_owner != &null)
                 && isa<Declarations::EnumDecl>(d->semantic_dc->dc_owner) {
                 s += sema_dump_decl_name(ctx, d->semantic_dc->dc_owner)
                 s += path_separator()
             }
 
-            return s + self.variant_line_(cast<Declarations::EnumVariantDecl>(d), ctx)
+            return s + self.variant_line_(
+                cast<Declarations::EnumVariantDecl>(d),
+                ctx,
+            )
         }
 
         // An enum's underlying type is part of what it is (its size, what
@@ -586,7 +621,9 @@ extend IndexWalker {
             if full && (!d->is_implicit) && (!decl_is_ffi(d)) {
                 var th = self.type_head_text_(d, "enum ")
                 if !th.empty() {
-                    if (e->underlying == &null) && (!e->is_adt) && (self.word_in_(th, "derives ") == usize::MAX) {
+                    if (e->underlying == &null)
+                        && (!e->is_adt)
+                        && (self.word_in_(th, "derives ") == usize::MAX) {
                         th += " derives u32 /* default */"
                     }
 
@@ -611,7 +648,8 @@ extend IndexWalker {
 
         var kw: string = ""
         if isa<Declarations::ClassDecl>(d) {
-            kw = if (full && cast<Declarations::ClassDecl>(d)->is_final) => ("final class ") else => "class "
+            kw = if (full && cast<Declarations::ClassDecl>(d)->is_final) => ("final class ")
+                 else => "class "
         } else if isa<Declarations::StructDecl>(d) {
             kw = "struct "
         } else if isa<Declarations::UnionDecl>(d) {
@@ -631,8 +669,12 @@ extend IndexWalker {
         }
 
         // A type's head as written: `class <T> Box derives Base impl Add`.
-        if full && (!d->is_implicit) && (!decl_is_ffi(d))
-            && (isa<Declarations::ClassDecl>(d) || isa<Declarations::StructDecl>(d) || isa<Declarations::UnionDecl>(d)
+        if full
+            && (!d->is_implicit)
+            && (!decl_is_ffi(d))
+            && (isa<Declarations::ClassDecl>(d)
+                || isa<Declarations::StructDecl>(d)
+                || isa<Declarations::UnionDecl>(d)
                 || isa<Declarations::InterfaceDecl>(d)) {
             var bare = if (isa<Declarations::ClassDecl>(d)) => ("class ") else => kw
             var th = self.type_head_text_(d, bare)
@@ -658,8 +700,8 @@ extend IndexWalker {
     /// exactly what a reader calls its documentation.
     fn doc_(self, d: unsafe *Decl) -> string {
         var out: string = ""
-        var name = decl_name_tok(d)
-        var at   = name.range.start
+        var name        = decl_name_tok(d)
+        var at          = name.range.start
         if !at.is_valid() {
             at = d->range.start
         }
@@ -675,17 +717,25 @@ extend IndexWalker {
         // Walk up over the block: `///` lines, and attribute lines between
         // the comment and the declaration (`@inline`, a visibility keyword
         // on its own line).
-        var first = line
+        var first           = line
         var lines: [string]
         while first > 0 {
             var ls = self.files[fi].lines.starts[first - 1]
-            var le = self.files[fi].lines.line_end(self.files[fi].text, first - 1)
-            var p  = ls
-            while (p < le) && ((self.files[fi].text[p] == (' ' as u8)) || (self.files[fi].text[p] == ('\t' as u8))) {
+            var le = self.files[fi].lines.line_end(
+                self.files[fi].text,
+                first - 1,
+            )
+
+            var p = ls
+            while (p < le)
+                && ((self.files[fi].text[p] == (' ' as u8))
+                    || (self.files[fi].text[p] == ('\t' as u8))) {
                 p += 1
             }
 
-            if ((p + 2) < le) && (self.files[fi].text[p] == ('/' as u8)) && (self.files[fi].text[p + 1] == ('/' as u8))
+            if ((p + 2) < le)
+                && (self.files[fi].text[p] == ('/' as u8))
+                && (self.files[fi].text[p + 1] == ('/' as u8))
                 && (self.files[fi].text[p + 2] == ('/' as u8)) {
                 p += 3
                 if (p < le) && (self.files[fi].text[p] == (' ' as u8)) {
@@ -697,7 +747,9 @@ extend IndexWalker {
                 continue
             }
 
-            if ((p + 2) == le) && (self.files[fi].text[p] == ('/' as u8)) && (self.files[fi].text[p + 1] == ('/' as u8)) {
+            if ((p + 2) == le)
+                && (self.files[fi].text[p] == ('/' as u8))
+                && (self.files[fi].text[p + 1] == ('/' as u8)) {
                 break // a bare `//` ends a doc block
             }
 
@@ -740,15 +792,23 @@ extend IndexWalker {
             // requirement is the declaration alone (inherited_methods_).
             var own: [string]
             for var i: usize = 0; i < it->methods.size(); ++i {
-                lines.push_back("    " + self.signature_(unsafe (it->methods[i] as unsafe *Decl), true))
-                own.push_back(self.signature_(unsafe (it->methods[i] as unsafe *Decl)))
+                lines.push_back(
+                    "    " + self.signature_(
+                        unsafe (it->methods[i] as unsafe *Decl),
+                        true,
+                    ),
+                )
+
+                own.push_back(
+                    self.signature_(unsafe (it->methods[i] as unsafe *Decl)),
+                )
             }
 
             var inherited: [string]
             self.inherited_methods_(d, 0, &inherited)
             for var i: usize = 0; i < inherited.size(); ++i {
                 var line = "    " + inherited[i]
-                var dup = false
+                var dup  = false
                 for var k: usize = 0; k < own.size(); ++k {
                     if own[k] == inherited[i] {
                         dup = true
@@ -759,7 +819,9 @@ extend IndexWalker {
                     lines.push_back(line + "  // inherited")
                 }
             }
-        } else if isa<Declarations::ClassDecl>(d) || isa<Declarations::StructDecl>(d) || isa<Declarations::UnionDecl>(d) {
+        } else if isa<Declarations::ClassDecl>(d)
+            || isa<Declarations::StructDecl>(d)
+            || isa<Declarations::UnionDecl>(d) {
             var fields: [unsafe *Decl]
             var meths:  [unsafe *Decl]
             if isa<Declarations::ClassDecl>(d) {
@@ -821,19 +883,28 @@ extend IndexWalker {
                     }
 
                     for var m: usize = 0; (m < ext->methods.size()) && (lines.size() < 60); ++m {
-                        lines.push_back("    " + self.signature_(unsafe (ext->methods[m] as unsafe *Decl), true) + "  // extend")
+                        lines.push_back(
+                            "    " + self.signature_(
+                                unsafe (ext->methods[m] as unsafe *Decl),
+                                true,
+                            ) + "  // extend",
+                        )
                     }
                 }
             }
         } else if isa<Declarations::EnumDecl>(d) {
-            var unsafe *e = cast<Declarations::EnumDecl>(d)
+            var unsafe *e   = cast<Declarations::EnumDecl>(d)
             var unsafe *ctx = NameLookup::ctx_of(d)
             if ctx == &null {
                 ctx = self.ast_()
             }
 
             for var i: usize = 0; (i < e->variants.size()) && (lines.size() < 60); ++i {
-                lines.push_back("    " + self.head_(unsafe (e->variants[i] as unsafe *Decl)) + self.variant_line_(e->variants[i], ctx))
+                lines.push_back(
+                    "    " + self.head_(
+                        unsafe (e->variants[i] as unsafe *Decl),
+                    ) + self.variant_line_(e->variants[i], ctx),
+                )
             }
         } else {
             return ""
@@ -856,7 +927,9 @@ extend IndexWalker {
     /// One variant as it reads in its enum: `Name { a: T, b: U }` for a
     /// payload, `Name = 3` for a plain variant whose value Sema computed
     /// (implicit values too: the reader wants the number, not the rule).
-    fn variant_line_(self, v: unsafe *Declarations::EnumVariantDecl, ctx: unsafe *ASTContext) -> string {
+    fn variant_line_(self,
+                     v:   unsafe *Declarations::EnumVariantDecl,
+                     ctx: unsafe *ASTContext) -> string {
         var s: string = sema_dump_decl_name(ctx, unsafe (v as unsafe *Decl))
         if v->payload.size() > 0 {
             s += " { "
@@ -931,10 +1004,14 @@ extend IndexWalker {
         }
 
         if isa<Declarations::TypeAliasDecl>(d) {
-            return self.layout_of_type_(cast<Declarations::TypeAliasDecl>(d)->aliased)
+            return self.layout_of_type_(
+                cast<Declarations::TypeAliasDecl>(d)->aliased,
+            )
         }
 
-        if !(isa<Declarations::ClassDecl>(d) || isa<Declarations::StructDecl>(d) || isa<Declarations::UnionDecl>(d)
+        if !(isa<Declarations::ClassDecl>(d)
+            || isa<Declarations::StructDecl>(d)
+            || isa<Declarations::UnionDecl>(d)
             || isa<Declarations::EnumDecl>(d)) {
             return ""
         }
@@ -959,12 +1036,18 @@ extend IndexWalker {
             return ""
         }
 
-        var size:  u64 = 0
-        var align: u64 = 0
-        var unsafe *c = canon_unqual(t)
-        if (c != &null) && isa<RecordType>(c) && isa<Declarations::UnionDecl>(cast<RecordType>(c)->decl)
+        var        size:  u64 = 0
+        var        align: u64 = 0
+        var unsafe *c         = canon_unqual(t)
+        if (c != &null)
+            && isa<RecordType>(c)
+            && isa<Declarations::UnionDecl>(cast<RecordType>(c)->decl)
             && (!decl_is_imported(cast<RecordType>(c)->decl)) {
-            if !self.union_layout_(cast<Declarations::UnionDecl>(cast<RecordType>(c)->decl), &size, &align) {
+            if !self.union_layout_(
+                cast<Declarations::UnionDecl>(cast<RecordType>(c)->decl),
+                &size,
+                &align,
+            ) {
                 return ""
             }
 
@@ -1002,7 +1085,10 @@ extend IndexWalker {
         }
 
         var unsafe *c = canon_unqual(t_in->canonical)
-        if (c == &null) || (!isa<RecordType>(c)) || c->is_dependent() || c->is_instantiation_dependent() {
+        if (c == &null)
+            || (!isa<RecordType>(c))
+            || c->is_dependent()
+            || c->is_instantiation_dependent() {
             return u32::MAX
         }
 
@@ -1025,14 +1111,17 @@ extend IndexWalker {
         // Past the code block's closing fence, where hover_ puts the line.
         var at = base.size()
         for var k: usize = 9; (k + 4) <= base.size(); ++k {
-            if (base[k] == ('\n' as u8)) && (base[k + 1] == ('`' as u8)) && (base[k + 2] == ('`' as u8)) && (base[k + 3] == ('`' as u8)) {
+            if (base[k] == ('\n' as u8))
+                && (base[k + 1] == ('`' as u8))
+                && (base[k + 2] == ('`' as u8))
+                && (base[k + 3] == ('`' as u8)) {
                 at = k + 4
                 break
             }
         }
 
         self.hovers.push_back(base)
-        var idx = (self.hovers.size() - 1) as u32
+        var        idx  = (self.hovers.size() - 1) as u32
         var unsafe *ctx = NameLookup::ctx_of(d)
         if ctx == &null {
             ctx = self.ast_()
@@ -1062,7 +1151,7 @@ extend IndexWalker {
         q.foreign = true
         var big: u64 = 0
         var al:  u64 = 1
-        var any = false
+        var any      = false
         for var i: usize = 0; i < u->fields.size(); ++i {
             var unsafe *f = u->fields[i]
             if (f == &null) || f->is_static() {
@@ -1120,7 +1209,10 @@ extend IndexWalker {
             var idx = self.layout_hover_[i] as usize
             var at  = self.layout_at_[i]
             var h   = self.hovers[idx]
-            self.hovers[idx] = h.subslice(0, at) + "\n\n" + lay + h.subslice(at, h.size() - at)
+            self.hovers[idx] = h.subslice(0, at) + "\n\n" + lay + h.subslice(
+                at,
+                h.size() - at,
+            )
         }
     }
 
@@ -1132,7 +1224,7 @@ extend IndexWalker {
             return *hit
         }
 
-        var sig = self.signature_(d, true)
+        var sig        = self.signature_(d, true)
         var md: string = "```kairo\n"
         md += sig
         md += self.members_(d)
@@ -1145,7 +1237,7 @@ extend IndexWalker {
         // differently from a free `bar`.
         if (d->semantic_dc != &null) && (d->semantic_dc->dc_owner != &null) {
             var unsafe *owner = d->semantic_dc->dc_owner
-            var on = sema_dump_decl_name(self.ast_(), owner)
+            var        on     = sema_dump_decl_name(self.ast_(), owner)
             if (!on.empty()) && (!isa<Declarations::FunctionDecl>(owner)) {
                 md += "\n\nin `"
                 md += on
@@ -1161,14 +1253,18 @@ extend IndexWalker {
 
         self.hovers.push_back(md)
         var idx = (self.hovers.size() - 1) as u32
-        if isa<Declarations::ClassDecl>(d) || isa<Declarations::StructDecl>(d) || isa<Declarations::UnionDecl>(d)
-            || isa<Declarations::EnumDecl>(d) || isa<Declarations::TypeAliasDecl>(d) {
+        if isa<Declarations::ClassDecl>(d)
+            || isa<Declarations::StructDecl>(d)
+            || isa<Declarations::UnionDecl>(d)
+            || isa<Declarations::EnumDecl>(d)
+            || isa<Declarations::TypeAliasDecl>(d) {
             self.layout_hover_.push_back(idx)
             self.layout_at_.push_back(lay_at)
             self.layout_decl_.push_back(d)
             self.layout_type_.push_back(&null)
             self.layout_name_.push_back("")
         }
+
         self.hover_of_[key] = idx
         return idx
     }

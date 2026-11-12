@@ -65,7 +65,12 @@ pub fn codegen_ice(ctx: unsafe *ASTContext, id: DiagID, at: SourceRange, const m
         kairo::std::ice_fail(msg)
     }
 
-    var b = ctx->diag_sink.report(DiagCode(id), at.start, f"internal compiler error: {msg}")
+    var b = ctx->diag_sink.report(
+        DiagCode(id),
+        at.start,
+        f"internal compiler error: {msg}",
+    )
+
     b.first(at)
     b.emit()
     if ctx->diags != &null {

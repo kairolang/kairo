@@ -169,7 +169,10 @@ pub class InterfacePCH {
 
         // A COPY of the backend's invocation, as for the header PCH: the
         // PCH reader rejects one whose options differ from the TU's.
-        var inv = cxx::std::make_shared<clang::CompilerInvocation>(*be->invocation())
+        var inv = cxx::std::make_shared<clang::CompilerInvocation>(
+            *be->invocation(),
+        )
+
         var empty = llvm::MemoryBuffer::getMemBuffer(
             llvm::StringRef(r"", 0),
             kairo::sref(r"<injected>"),

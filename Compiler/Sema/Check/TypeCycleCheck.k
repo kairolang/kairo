@@ -368,9 +368,19 @@ pub class TypeCycleCheck {
 
                 return self._fields_use_param(&n->fields, rec, index, depth)
             } case DeclKind::StructDecl {
-                return self._fields_use_param(&cast<StructDecl>(rec)->fields, rec, index, depth)
+                return self._fields_use_param(
+                    &cast<StructDecl>(rec)->fields,
+                    rec,
+                    index,
+                    depth,
+                )
             } case DeclKind::UnionDecl {
-                return self._fields_use_param(&cast<UnionDecl>(rec)->fields, rec, index, depth)
+                return self._fields_use_param(
+                    &cast<UnionDecl>(rec)->fields,
+                    rec,
+                    index,
+                    depth,
+                )
             } case DeclKind::EnumDecl {
                 var unsafe *n = cast<EnumDecl>(rec)
                 for var i: usize = 0; i < n->variants.size(); ++i {
@@ -464,18 +474,38 @@ pub class TypeCycleCheck {
                         continue
                     }
 
-                    if self._type_uses_param(*r->args.get(i), rec, index, depth + 1) {
+                    if self._type_uses_param(
+                        *r->args.get(i),
+                        rec,
+                        index,
+                        depth + 1,
+                    ) {
                         return true
                     }
                 }
 
                 return false
             } case TypeKind::FixedArrayType {
-                return self._type_uses_param(cast<FixedArrayType>(c)->element, rec, index, depth)
+                return self._type_uses_param(
+                    cast<FixedArrayType>(c)->element,
+                    rec,
+                    index,
+                    depth,
+                )
             } case TypeKind::NullableType {
-                return self._type_uses_param(cast<NullableType>(c)->inner, rec, index, depth)
+                return self._type_uses_param(
+                    cast<NullableType>(c)->inner,
+                    rec,
+                    index,
+                    depth,
+                )
             } case TypeKind::QualifiedType {
-                return self._type_uses_param(cast<QualifiedType>(c)->inner, rec, index, depth)
+                return self._type_uses_param(
+                    cast<QualifiedType>(c)->inner,
+                    rec,
+                    index,
+                    depth,
+                )
             } default {
                 return false
             }
@@ -554,7 +584,11 @@ pub class TypeCycleCheck {
             f"'{hn}' is forward-declared here and never defined",
         )->child_first(held->range)
         if self._fix_at.is_valid() {
-            b.insert(self._fix_at, "unsafe *", f"hold a pointer to '{hn}' instead")
+            b.insert(
+                self._fix_at,
+                "unsafe *",
+                f"hold a pointer to '{hn}' instead",
+            )
         }
 
         b.emit()

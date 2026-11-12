@@ -117,11 +117,11 @@ import AST::Node::Types::{
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::{
     declared_here,
     named_declared_here,
 }
+import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
@@ -269,7 +269,10 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
             return
         }
 
-        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
         if c == &null {
             return
         }
@@ -364,15 +367,24 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
         } else if isa<Expressions::CallExpr>(e) {
             self.named(cast<Expressions::CallExpr>(e)->ctor_decl, e->range)
         } else if isa<Expressions::BinaryOperatorExpr>(e) {
-            self.named(cast<Expressions::BinaryOperatorExpr>(e)->resolved_op, e->range)
+            self.named(
+                cast<Expressions::BinaryOperatorExpr>(e)->resolved_op,
+                e->range,
+            )
         } else if isa<Expressions::UnaryOperatorExpr>(e) {
-            self.named(cast<Expressions::UnaryOperatorExpr>(e)->resolved_op, e->range)
+            self.named(
+                cast<Expressions::UnaryOperatorExpr>(e)->resolved_op,
+                e->range,
+            )
         } else if isa<Expressions::SizeOfExpr>(e) {
             self.rec_type(cast<Expressions::SizeOfExpr>(e)->type_arg, e->range)
         } else if isa<Expressions::AlignOfExpr>(e) {
             self.rec_type(cast<Expressions::AlignOfExpr>(e)->type_arg, e->range)
         } else if isa<Expressions::TypeTraitExpr>(e) {
-            self.rec_type(cast<Expressions::TypeTraitExpr>(e)->type_arg, e->range)
+            self.rec_type(
+                cast<Expressions::TypeTraitExpr>(e)->type_arg,
+                e->range,
+            )
         }
 
         return true
@@ -391,7 +403,10 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
                 self.rec_type(p->type_, d->range)
             }
         } else if isa<Declarations::FunctionDecl>(d) {
-            self.rec_type(cast<Declarations::FunctionDecl>(d)->return_type, d->range)
+            self.rec_type(
+                cast<Declarations::FunctionDecl>(d)->return_type,
+                d->range,
+            )
         }
 
         return true
@@ -417,7 +432,7 @@ pub enum EvalNeedKind derives u8 {
 /// (as `kind` says), at `at`.
 pub struct EvalNeedRow {
     pub var key:  unsafe *Decl = &null
-    pub var kind: EvalNeedKind     = EvalNeedKind::Item
+    pub var kind: EvalNeedKind = EvalNeedKind::Item
     pub var val:  unsafe *Decl = &null
     pub var at:   SourceRange  = SourceRange::invalid()
 }
@@ -484,7 +499,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             self._ctx_fn += 1
         }
 
-        var unsafe *r = RecursiveASTVisitor<EvalUsageChecking>::traverse_function_decl(self, n)
+        var unsafe *r = RecursiveASTVisitor<EvalUsageChecking>::traverse_function_decl(
+            self,
+            n,
+        )
+
         if ev {
             self._ctx -= 1
             self._ctx_fn -= 1
@@ -560,7 +579,9 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
         b.first(n->value_type->range)
         if at != &null {
-            b.note(DiagCode(DiagID::SC183N), at->range.start, declared_here())->child_first(at->range)
+            b.note(DiagCode(DiagID::SC183N), at->range.start, declared_here())->child_first(
+                at->range,
+            )
         }
 
         b.emit()
@@ -576,7 +597,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             return
         }
 
-        var tn                                                              = self.tu.decl_name(rd)
+        var tn = self.tu.decl_name(rd)
         var fields:  unsafe *FrozenList<unsafe *Declarations::FieldDecl>    = &null
         var methods: unsafe *FrozenList<unsafe *Declarations::FunctionDecl> = &null
         if isa<Declarations::ClassDecl>(rd) {
@@ -673,7 +694,10 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     fn traverse_variable_decl(self,
                               n: unsafe *Declarations::VariableDecl) -> unsafe *Declarations::VariableDecl {
         if n->is_eval() && n->type_ != &null && n->type_->canonical != &null {
-            var unsafe *dt = self._user_dtor(self.tu.record_decl(canon_unqual(n->type_->canonical)))
+            var unsafe *dt = self._user_dtor(
+                self.tu.record_decl(canon_unqual(n->type_->canonical)),
+            )
+
             if dt != &null {
                 var nm = self.sc->ctx->get_spelling(n->name)
                 var b = self.sc->diag->report(
@@ -697,7 +721,9 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         // is not literal"), or an ICE for a file-scope one. Refused at
         // the declaration until the library has one; an array (`[T; N]`) is
         // the compile-time form today.
-        if n->is_eval() && n->type_ != &null && n->type_->canonical != &null
+        if n->is_eval()
+            && n->type_ != &null
+            && n->type_->canonical != &null
             && self.tu.is_slice(n->type_->canonical) {
             var nm = self.sc->ctx->get_spelling(n->name)
             var b = self.sc->diag->report(
@@ -718,7 +744,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
         if n->is_eval() && n->init != &null {
             self._ctx += 1
-            var unsafe *r = RecursiveASTVisitor<EvalUsageChecking>::traverse_variable_decl(self, n)
+            var unsafe *r = RecursiveASTVisitor<EvalUsageChecking>::traverse_variable_decl(
+                self,
+                n,
+            )
+
             self._ctx -= 1
             return r
         }
@@ -727,7 +757,10 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             self._check_local(n)
         }
 
-        return RecursiveASTVisitor<EvalUsageChecking>::traverse_variable_decl(self, n)
+        return RecursiveASTVisitor<EvalUsageChecking>::traverse_variable_decl(
+            self,
+            n,
+        )
     }
 
     fn traverse_field_decl(self,
@@ -749,18 +782,29 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
         if n->is_eval() && n->init != &null {
             self._ctx += 1
-            var unsafe *r = RecursiveASTVisitor<EvalUsageChecking>::traverse_field_decl(self, n)
+            var unsafe *r = RecursiveASTVisitor<EvalUsageChecking>::traverse_field_decl(
+                self,
+                n,
+            )
+
             self._ctx -= 1
             return r
         }
 
-        return RecursiveASTVisitor<EvalUsageChecking>::traverse_field_decl(self, n)
+        return RecursiveASTVisitor<EvalUsageChecking>::traverse_field_decl(
+            self,
+            n,
+        )
     }
 
     /// `eval e` is an eval context: C++ computes `e` in place.
     fn traverse_eval_expr(self, n: *Expressions::EvalExpr) -> *Expressions::EvalExpr {
         self._ctx += 1
-        var *r = RecursiveASTVisitor<EvalUsageChecking>::traverse_eval_expr(self, n)
+        var *r = RecursiveASTVisitor<EvalUsageChecking>::traverse_eval_expr(
+            self,
+            n,
+        )
+
         self._ctx -= 1
         return r
     }
@@ -1121,9 +1165,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         )
 
         b.first(n->range)
-        b.note(DiagCode(DiagID::SC189N), f->range.start, named_declared_here(nm))->child_first(
-            f->range,
-        )
+        b.note(
+            DiagCode(DiagID::SC189N),
+            f->range.start,
+            named_declared_here(nm),
+        )->child_first(f->range)
 
         if !self._foreign(f) && !f->is_implicit && f->body_kind == Declarations::FnBodyKind::Block {
             b.insert(f->range.start, "eval ", f"make '{nm}' an 'eval fn'")
@@ -1157,9 +1203,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             )
 
             pb.first(e->range)
-            pb.note(DiagCode(DiagID::SC189N), d->range.start, named_declared_here(pn))->child_first(
-                d->range,
-            )
+            pb.note(
+                DiagCode(DiagID::SC189N),
+                d->range.start,
+                named_declared_here(pn),
+            )->child_first(d->range)
 
             pb.emit()
             return
@@ -1194,9 +1242,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         )
 
         b.first(e->range)
-        b.note(DiagCode(DiagID::SC189N), d->range.start, named_declared_here(nm))->child_first(
-            d->range,
-        )
+        b.note(
+            DiagCode(DiagID::SC189N),
+            d->range.start,
+            named_declared_here(nm),
+        )->child_first(d->range)
 
         if vd != &null
             && vd->storage == Declarations::StorageClass::Const
@@ -1254,7 +1304,10 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         if n->resolved_op != &null
             && isa<Declarations::FunctionDecl>(n->resolved_op)
             && !cast<Declarations::FunctionDecl>(n->resolved_op)->is_eval() {
-            self._op_not_eval(n->range, cast<Declarations::FunctionDecl>(n->resolved_op))
+            self._op_not_eval(
+                n->range,
+                cast<Declarations::FunctionDecl>(n->resolved_op),
+            )
         }
 
         return true
@@ -1268,7 +1321,10 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         if n->resolved_op != &null
             && isa<Declarations::FunctionDecl>(n->resolved_op)
             && !cast<Declarations::FunctionDecl>(n->resolved_op)->is_eval() {
-            self._op_not_eval(n->range, cast<Declarations::FunctionDecl>(n->resolved_op))
+            self._op_not_eval(
+                n->range,
+                cast<Declarations::FunctionDecl>(n->resolved_op),
+            )
         }
 
         return true
@@ -1282,9 +1338,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         )
 
         b.first(at)
-        b.note(DiagCode(DiagID::SC189N), f->range.start, "the operator is declared here")->child_first(
-            f->range,
-        )
+        b.note(
+            DiagCode(DiagID::SC189N),
+            f->range.start,
+            "the operator is declared here",
+        )->child_first(f->range)
 
         if !self._foreign(f) {
             b.insert(f->range.start, "eval ", "make it 'eval'")
@@ -1424,7 +1482,10 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
     fn traverse_ranged_for_stmt(self, n: unsafe *RangedForStmt) -> unsafe *RangedForStmt {
         if !n->is_eval || self._in_eval_fn() {
-            return RecursiveASTVisitor<EvalUsageChecking>::traverse_ranged_for_stmt(self, n)
+            return RecursiveASTVisitor<EvalUsageChecking>::traverse_ranged_for_stmt(
+                self,
+                n,
+            )
         }
 
         self._check_eval_for(n)
@@ -1485,7 +1546,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
     priv fn _check_eval_for(self, n: unsafe *RangedForStmt) {
         if n->bindings.size() != 1 {
-            self._err(n->range, "an 'eval for' binds one name; destructure inside the body")
+            self._err(
+                n->range,
+                "an 'eval for' binds one name; destructure inside the body",
+            )
+
             return
         }
 
@@ -1500,7 +1565,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         if isa<Expressions::RangeExpr>(e) {
             var unsafe *r = cast<Expressions::RangeExpr>(e)
             if r->begin == &null || r->end == &null {
-                self._err(e->range, "an 'eval for' over a range needs both bounds")
+                self._err(
+                    e->range,
+                    "an 'eval for' over a range needs both bounds",
+                )
+
                 return
             }
 
@@ -1529,7 +1598,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                         named_declared_here(nm),
                     )->child_first(f->name.range)
                     if !self._foreign(f) {
-                        b.insert(f->range.start, "eval ", f"make '{nm}' an 'eval fn'")
+                        b.insert(
+                            f->range.start,
+                            "eval ",
+                            f"make '{nm}' an 'eval fn'",
+                        )
                     }
 
                     b.emit()
@@ -1537,7 +1610,10 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                 }
 
                 for var i: usize = 0; i < call->args.size(); ++i {
-                    self._need_eval(call->args[i], "an argument of an 'eval for' generator")
+                    self._need_eval(
+                        call->args[i],
+                        "an argument of an 'eval for' generator",
+                    )
                 }
 
                 return
@@ -1550,7 +1626,10 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             if isa<Expressions::ListLiteralExpr>(e) {
                 var unsafe *ll = cast<Expressions::ListLiteralExpr>(e)
                 for var i: usize = 0; i < ll->elements.size(); ++i {
-                    self._need_eval(ll->elements[i], "an element of an 'eval for' array")
+                    self._need_eval(
+                        ll->elements[i],
+                        "an element of an 'eval for' array",
+                    )
                 }
 
                 return
@@ -1657,9 +1736,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         )
 
         b.first(n->range)
-        b.note(DiagCode(DiagID::SC190N), f->range.start, named_declared_here(nm))->child_first(
-            f->name.range,
-        )
+        b.note(
+            DiagCode(DiagID::SC190N),
+            f->range.start,
+            named_declared_here(nm),
+        )->child_first(f->name.range)
 
         b.emit()
         return true
@@ -2006,7 +2087,9 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             return &null
         }
 
-        return dyn_cast<Declarations::VariableDecl>(cast<NamedIdentExpr>(e)->resolved_decl)
+        return dyn_cast<Declarations::VariableDecl>(
+            cast<NamedIdentExpr>(e)->resolved_decl,
+        )
     }
 
     priv fn _err(self, at: SourceRange, const msg: string) {
@@ -2217,7 +2300,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         // Method signatures name their types; only fields and bases lay
         // them out. Close enough: a by-value cycle through a signature is
         // no definition-order problem, so take fields and bases only.
-        var lay                                                         = EvalNeeds(unsafe &self.tu)
+        var lay = EvalNeeds(unsafe &self.tu)
         var fields: unsafe *FrozenList<unsafe *Declarations::FieldDecl> = &null
         if isa<Declarations::ClassDecl>(r) {
             fields = unsafe &cast<Declarations::ClassDecl>(r)->fields
@@ -2391,7 +2474,12 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         for var t: usize = 0; t < ts.size(); ++t {
             var seeds = cxx::std::vector<unsafe *Decl>()
             self._type_items(ts[t], unsafe &seeds)
-            if self._check_seeds(r, unsafe &seeds, ws[t], "this type has a value C++ computes") {
+            if self._check_seeds(
+                r,
+                unsafe &seeds,
+                ws[t],
+                "this type has a value C++ computes",
+            ) {
                 return
             }
         }
@@ -2542,9 +2630,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                 f"'{inn}' needs '{nn}' complete here",
             )->child_first(need_at)
         } else {
-            b.note(DiagCode(DiagID::SC195N), item->range.start, named_declared_here(inn))->child_first(
-                item->range,
-            )
+            b.note(
+                DiagCode(DiagID::SC195N),
+                item->range.start,
+                named_declared_here(inn),
+            )->child_first(item->range)
         }
 
         b.emit()

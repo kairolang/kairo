@@ -200,18 +200,25 @@ fn init_runtime(argc: i32, argv: unsafe *(unsafe *c_char)) -> unsafe *llvm::Init
 }
 
 fn usage() {
-    io::eprintln("Usage: kals [--stdio]            run the language server on stdin/stdout")
+    io::eprintln(
+        "Usage: kals [--stdio]            run the language server on stdin/stdout",
+    )
+
     io::eprintln("       kals --version")
-    io::eprintln("       kals --worker <out.json> [--root <dir>] [--overlay <real> <tmp>]... -- <kairo args>")
+    io::eprintln(
+        "       kals --worker <out.json> [--root <dir>] [--overlay <real> <tmp>]... -- <kairo args>",
+    )
 }
 
 pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var args: [string]
     for var i: i32 = 1; i < argc; ++i {
-        args.push_back(string(
-            unsafe ((argv[i] as unsafe *const u8) as *const u8),
-            cxx::std::strlen(argv[i]),
-        ))
+        args.push_back(
+            string(
+                unsafe ((argv[i] as unsafe *const u8) as *const u8),
+                cxx::std::strlen(argv[i]),
+            ),
+        )
     }
 
     if (args.size() > 0) && ((args[0] == "--help") || (args[0] == "-h")) {

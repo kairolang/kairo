@@ -29,27 +29,13 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
@@ -66,6 +52,20 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 extend Server {
     /// A line for the person using the editor: it goes to the client's log
@@ -99,7 +99,10 @@ extend Server {
         self.trace_dirty = true
         // Bounded: the last few hundred messages are the ones that matter.
         if self.trace_buf.size() > TRACE_CAP_BYTES {
-            self.trace_buf = self.trace_buf.subslice(self.trace_buf.size() - TRACE_KEEP_BYTES, TRACE_KEEP_BYTES)
+            self.trace_buf = self.trace_buf.subslice(
+                self.trace_buf.size() - TRACE_KEEP_BYTES,
+                TRACE_KEEP_BYTES,
+            )
         }
     }
 
@@ -258,7 +261,9 @@ extend Server {
             return ""
         }
 
-        return string(unsafe ((found.get().c_str() as unsafe *const u8) as *const u8))
+        return string(
+            unsafe ((found.get().c_str() as unsafe *const u8) as *const u8),
+        )
     }
 
     // --- entries ---------------------------------------------------------
@@ -290,19 +295,24 @@ extend Server {
 
             self.jobs[q].prog_n = n
             var m: i64 = 0
-            var pe = self.entry_by_id(self.jobs[q].entry_id)
+            var pe     = self.entry_by_id(self.jobs[q].entry_id)
             if pe != usize::MAX {
                 m = self.entries[pe].files.size() as i64
             }
 
             if m > 0 {
                 var shown = if n > m => m else => n
-                var pct = (shown * 100) / m
+                var pct   = (shown * 100) / m
                 if pct > 99 {
                     pct = 99
                 }
 
-                self.progress(self.jobs[q].progress, "report", f"{shown}/{m}", pct)
+                self.progress(
+                    self.jobs[q].progress,
+                    "report",
+                    f"{shown}/{m}",
+                    pct,
+                )
             } else {
                 self.progress(self.jobs[q].progress, "report", f"{n} files", -1)
             }

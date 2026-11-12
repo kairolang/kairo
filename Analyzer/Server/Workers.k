@@ -30,16 +30,32 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Resolution::ModulePath::*
-import Tuning::*
-import WorkerArgs::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
+import Protocol::*
+import Resolution::ModulePath::*
+import Server::ClangdBridge::*
+import Server::CodeActions::*
+import Server::Completion::*
+import Server::Diagnostics::*
+import Server::Features::*
+import Server::Formatting::*
+import Server::Lifecycle::*
+import Server::LiveIndex::*
+import Server::Lookup::*
+import Server::Navigation::*
+import Server::Output::*
+import Server::Scheduling::*
+import Server::Server::*
+import Server::SignatureHelp::*
+import Server::Structure::*
+import Server::SyntaxWorker::*
+import Server::TextUtil::*
+import Server::Tokens::*
 import Support::FileIO::Path::Path
 import TextScan::{
     InterfacePlan,
@@ -48,29 +64,13 @@ import TextScan::{
     interface_for,
     spans,
 }
+import Tuning::*
+import WorkerArgs::*
 import Workspace::CompileCommandsLoader::{
     Project,
     project_file_name,
 }
 import std::io
-import Server::ClangdBridge::*
-import Server::CodeActions::*
-import Server::Completion::*
-import Server::Diagnostics::*
-import Server::Features::*
-import Server::Formatting::*
-import Server::Lifecycle::*
-import Server::Lookup::*
-import Server::Navigation::*
-import Server::Output::*
-import Server::Scheduling::*
-import Server::Server::*
-import Server::SignatureHelp::*
-import Server::Structure::*
-import Server::TextUtil::*
-import Server::Tokens::*
-import Server::SyntaxWorker::*
-import Server::LiveIndex::*
 
 extend Server {
     /// Reads KALS_DEBUG_LAUNCH_FAIL (`index=1,syntax=2`): a test makes a
@@ -83,8 +83,8 @@ extend Server {
 
         var spec = string(unsafe ((env as unsafe *const u8) as *const u8))
         var name: string = ""
-        var n: u32 = 0
-        var in_n = false
+        var n:    u32    = 0
+        var in_n         = false
         for var i: usize = 0; i <= spec.size(); ++i {
             if (i == spec.size()) || (spec[i] == (',' as u8)) { // ','
                 if !name.empty() {
@@ -112,7 +112,10 @@ extend Server {
         for var i: usize = 0; i < self.dbg_fail_kind.size(); ++i {
             if (self.dbg_fail_kind[i] == kind) && (self.dbg_fail_left[i] > 0) {
                 self.dbg_fail_left[i] -= 1
-                self.trace("debug: launch of " + kind + " refused (KALS_DEBUG_LAUNCH_FAIL)")
+                self.trace(
+                    "debug: launch of " + kind + " refused (KALS_DEBUG_LAUNCH_FAIL)",
+                )
+
                 return true
             }
         }
@@ -124,7 +127,8 @@ extend Server {
     /// written again only when the buffer changed since (sync it first).
     /// The file it replaces is removed once no worker runs.
     fn overlay_of_(self, i: usize) -> string {
-        if (self.docs.docs[i].tmp_rev != self.docs.docs[i].revision) || self.docs.docs[i].tmp_path.empty() {
+        if (self.docs.docs[i].tmp_rev != self.docs.docs[i].revision)
+            || self.docs.docs[i].tmp_path.empty() {
             if !self.docs.docs[i].tmp_path.empty() {
                 self.garbage.push_back(self.docs.docs[i].tmp_path)
             }
@@ -154,15 +158,22 @@ extend Server {
         var nlog = kairo::std::to_std_string(log)
         var redir: llvm::SmallVector<cxx::std::optional<llvm::StringRef>, 3>
         redir.push_back(cxx::std::optional<llvm::StringRef>(cxx::std::nullopt))
-        redir.push_back(cxx::std::optional<llvm::StringRef>(llvm::StringRef(nlog)))
-        redir.push_back(cxx::std::optional<llvm::StringRef>(llvm::StringRef(nlog)))
+        redir.push_back(
+            cxx::std::optional<llvm::StringRef>(llvm::StringRef(nlog)),
+        )
+
+        redir.push_back(
+            cxx::std::optional<llvm::StringRef>(llvm::StringRef(nlog)),
+        )
 
         var emsg:  cxx::std::string
-        var failed = false
+        var failed                  = false
         *pi = llvm::sys::ExecuteNoWait(
             refs[0],
             llvm::ArrayRef<llvm::StringRef>(refs),
-            cxx::std::optional<llvm::ArrayRef<llvm::StringRef>>(cxx::std::nullopt),
+            cxx::std::optional<llvm::ArrayRef<llvm::StringRef>>(
+                cxx::std::nullopt,
+            ),
             llvm::ArrayRef<cxx::std::optional<llvm::StringRef>>(redir),
             0,
             unsafe &emsg,
@@ -195,7 +206,9 @@ extend Server {
         if self.debug_refuse_(kind) || (!self.launch(&argv, j->log, &j->pi)) {
             // Once per run of refusals: the retries say nothing new.
             if self.launch_refusals == 0 {
-                self.log(f"cannot start a worker ({self.exe}) for a {kind} job; trying again")
+                self.log(
+                    f"cannot start a worker ({self.exe}) for a {kind} job; trying again",
+                )
             }
 
             var wait = LAUNCH_RETRY_MS
@@ -209,14 +222,19 @@ extend Server {
 
             self.launch_refusals += 1
             self.launch_after_ms = now + wait
-            self.trace(f"launch refused kind={kind} refusals={self.launch_refusals} retry_ms={wait}")
+            self.trace(
+                f"launch refused kind={kind} refusals={self.launch_refusals} retry_ms={wait}",
+            )
+
             self.garbage.push_back(j->out)
             self.garbage.push_back(j->log)
             return LaunchResult::Refused
         }
 
         if self.launch_refusals > 0 {
-            self.trace(f"launch recovered after {self.launch_refusals} refusal(s)")
+            self.trace(
+                f"launch recovered after {self.launch_refusals} refusal(s)",
+            )
         }
 
         self.launch_refusals = 0
@@ -233,7 +251,12 @@ extend Server {
         }
 
         var emsg: cxx::std::string
-        var done = llvm::sys::Wait(pi, cxx::std::optional<u32>(cxx::std::nullopt), unsafe &emsg)
+        var done = llvm::sys::Wait(
+            pi,
+            cxx::std::optional<u32>(cxx::std::nullopt),
+            unsafe &emsg,
+        )
+
         return done.ReturnCode
     }
 
@@ -256,7 +279,8 @@ extend Server {
         // on the kals graph (418 files) walking them was 2.2 s of CPU in a
         // 10 s run. A graph last seen wide is run without it; a run that
         // finds it narrow again is rerun with it (finish_index).
-        self.entries[ei].rooted = !(self.entries[ei].ran && (self.entries[ei].files.size() > WIDE_INDEX_LIMIT))
+        self.entries[ei].rooted = !(self.entries[ei].ran
+            && (self.entries[ei].files.size() > WIDE_INDEX_LIMIT))
         if self.entries[ei].rooted {
             argv.push_back(WA_ROOT)
             argv.push_back(self.project.dir)
@@ -330,7 +354,9 @@ extend Server {
             }
 
             var o = self.entry_by_id(self.jobs[i].entry_id)
-            if (o == usize::MAX) || (!self.entries[o].ran) || (self.entries[o].files.size() > WIDE_INDEX_LIMIT) {
+            if (o == usize::MAX)
+                || (!self.entries[o].ran)
+                || (self.entries[o].files.size() > WIDE_INDEX_LIMIT) {
                 return false
             }
         }
@@ -344,11 +370,11 @@ extend Server {
         }
 
         var j = Job()
-        j.kind  = JobKind::Index
-        j.entry_id = self.entries[ei].id
-        j.out   = self.scratch(".json")
-        j.log   = self.scratch(".log")
-        j.rev   = self.rev
+        j.kind       = JobKind::Index
+        j.entry_id   = self.entries[ei].id
+        j.out        = self.scratch(".json")
+        j.log        = self.scratch(".log")
+        j.rev        = self.rev
         j.started_ms = now_ms()
 
         var wargv = self.worker_argv(ei, j.out, "", "")
@@ -398,7 +424,11 @@ extend Server {
             // answered from nothing now, and it is tried again on its next
             // change.
             if self.launch_refusals >= LAUNCH_GIVE_UP {
-                self.say(MSG_WARNING, f"cannot start a worker ({self.exe}): {self.entries[ei].entry} is not analysed until it changes")
+                self.say(
+                    MSG_WARNING,
+                    f"cannot start a worker ({self.exe}): {self.entries[ei].entry} is not analysed until it changes",
+                )
+
                 self.entries[ei].dirty    = false
                 self.entries[ei].ran      = true
                 self.entries[ei].done_rev = j.rev
@@ -424,7 +454,12 @@ extend Server {
             if m > 0 {
                 self.progress(j.progress, "begin", f"0/{m}", 0)
             } else {
-                self.progress(j.progress, "begin", Path::filename_of(self.entries[ei].entry), -1)
+                self.progress(
+                    j.progress,
+                    "begin",
+                    Path::filename_of(self.entries[ei].entry),
+                    -1,
+                )
             }
         } else if want {
             self.say(MSG_LOG, "indexing " + self.entries[ei].entry)
@@ -536,7 +571,10 @@ extend Server {
         // its result belongs to no entry now (disown_runs_ killed it).
         var ei = self.entry_by_id(j->entry_id)
         if ei == usize::MAX {
-            self.trace(f"index dropped entry_id={j->entry_id} rev={j->rev}: its entry is gone")
+            self.trace(
+                f"index dropped entry_id={j->entry_id} rev={j->rev}: its entry is gone",
+            )
+
             return
         }
 
@@ -546,7 +584,10 @@ extend Server {
         if j->stale {
             self.entries[ei].running = false
             self.entries[ei].dirty   = true
-            self.trace(f"index dropped entry={self.entries[ei].entry} rev={j->rev}")
+            self.trace(
+                f"index dropped entry={self.entries[ei].entry} rev={j->rev}",
+            )
+
             return
         }
 
@@ -558,16 +599,18 @@ extend Server {
         // build of the server, a smaller graph) goes back to exact answers.
         var took = now_ms() - j->started_ms
         self.entries[ei].slow = took > SLOW_RUN_MS
-        self.trace(f"index done entry={self.entries[ei].entry} rc={rc} rev={j->rev}")
+        self.trace(
+            f"index done entry={self.entries[ei].entry} rc={rc} rev={j->rev}",
+        )
 
         // What installing a snapshot costs (section 11, scenario 2): traced
         // per run as `install`.
-        var t0 = now_us()
-        var text: string = ""
-        var doc = JsonDoc()
-        var read_ok = LinkFS::read(j->out, &text)
-        var t1 = now_us()
-        var ok  = read_ok && doc.parse(text) && doc.get_bool(doc.root, SK_OK)
+        var t0             = now_us()
+        var text:   string = ""
+        var doc            = JsonDoc()
+        var read_ok        = LinkFS::read(j->out, &text)
+        var t1             = now_us()
+        var ok = read_ok && doc.parse(text) && doc.get_bool(doc.root, SK_OK)
         var t2 = now_us()
         if !ok {
             // A crash (no output) or a refused command line. The last good
@@ -594,7 +637,10 @@ extend Server {
         if (!self.entries[ei].has_snap) || (took > SLOW_RUN_MS) {
             var nd = doc.count(doc.get(doc.root, SK_DIAGNOSTICS))
             var nf = doc.count(doc.get(doc.root, SK_DEPS))
-            self.say(MSG_LOG, f"analysed {self.entries[ei].entry}: {nf} files, {nd} diagnostics, {took} ms")
+            self.say(
+                MSG_LOG,
+                f"analysed {self.entries[ei].entry}: {nf} files, {nd} diagnostics, {took} ms",
+            )
         }
 
         if (!j->rooted) && doc.get_bool(doc.root, SK_WIDE) {
@@ -604,7 +650,7 @@ extend Server {
         // The declaration tables it brought (all of them, or the files
         // walked since the last snapshot installed): kept whatever becomes
         // of the rows below, since a table is of a file that was checked.
-        var tt0 = now_us()
+        var tt0  = now_us()
         var ntab = self.entries[ei].tb.merge(&doc)
         if doc.get(doc.root, SK_TABLES_SEQ) != JSON_NONE() {
             self.entries[ei].tb_have = doc.get_int(doc.root, SK_TABLES_SEQ) as u64
@@ -620,7 +666,7 @@ extend Server {
             self.entries[ei].idx     = doc
             self.entries[ei].has_idx = true
             self.entries[ei].idx_rev = j->rev
-            t4 = now_us()
+            t4                       = now_us()
             self.index_cache(ei)
 
             // Only a buffer this index has rows for: one the graph never
@@ -628,7 +674,11 @@ extend Server {
             for var q: usize = 0; q < j->texts.size(); ++q {
                 var tdi = self.docs.index_of_path(j->text_paths[q])
                 if (tdi != usize::MAX) && (self.file_node(ei, j->text_paths[q]) != JSON_NONE()) {
-                    self.docs.docs[tdi].set_indexed(j->texts[q], j->rev, self.entries[ei].entry)
+                    self.docs.docs[tdi].set_indexed(
+                        j->texts[q],
+                        j->rev,
+                        self.entries[ei].entry,
+                    )
                 }
             }
         }
@@ -637,7 +687,10 @@ extend Server {
 
         // The graph may have grown or shrunk with this edit.
         self.entries[ei].files.clear()
-        var d = self.entries[ei].snap.first(self.entries[ei].snap.get(self.entries[ei].snap.root, SK_DEPS))
+        var d = self.entries[ei].snap.first(
+            self.entries[ei].snap.get(self.entries[ei].snap.root, SK_DEPS),
+        )
+
         while d != JSON_NONE() {
             self.entries[ei].files.push_back(self.entries[ei].snap.str(d))
             d = self.entries[ei].snap.next(d)
@@ -647,7 +700,9 @@ extend Server {
         // redundant now: the project entry answers for it.
         if !self.entries[ei].adhoc {
             for var k: usize = 0; k < self.entries.size(); ++k {
-                if self.entries[k].adhoc && (!self.entries[k].entry.empty()) && self.entries[ei].holds(self.entries[k].entry) {
+                if self.entries[k].adhoc
+                    && (!self.entries[k].entry.empty())
+                    && self.entries[ei].holds(self.entries[k].entry) {
                     self.retire_(k)
                 }
             }
@@ -689,12 +744,18 @@ extend Server {
             if held {
                 // No text of it was ever kept for this entry: the worker
                 // read the disk's, which is then what the index is of.
-                if (!read_it) && (self.docs.docs[k].idx_entry != self.entries[ei].entry)
-                    && self.entries[ei].has_idx && (self.entries[ei].idx_rev == j->rev)
+                if (!read_it)
+                    && (self.docs.docs[k].idx_entry != self.entries[ei].entry)
+                    && self.entries[ei].has_idx
+                    && (self.entries[ei].idx_rev == j->rev)
                     && (self.file_node(ei, kp) != JSON_NONE()) {
                     var disk: string = ""
                     if LinkFS::read(kp, &disk) {
-                        self.docs.docs[k].set_indexed(disk, self.entries[ei].idx_rev, self.entries[ei].entry)
+                        self.docs.docs[k].set_indexed(
+                            disk,
+                            self.entries[ei].idx_rev,
+                            self.entries[ei].entry,
+                        )
                     }
                 }
 
@@ -728,17 +789,24 @@ extend Server {
             }
 
             self.rev += 1
-            self.docs.docs[k].changed_at  = self.rev
-            self.entries[ei].dirty        = true
-            self.entries[ei].change_rev   = self.rev
-            self.trace("index read " + kp + " from the disk, not its buffer: run again")
+            self.docs.docs[k].changed_at = self.rev
+            self.entries[ei].dirty       = true
+            self.entries[ei].change_rev  = self.rev
+            self.trace(
+                "index read " + kp + " from the disk, not its buffer: run again",
+            )
         }
 
         var t6 = now_us()
         self.publish(ei)
         var t7 = now_us()
         var tm = doc.get(doc.root, SK_TIMING)
-        self.trace(f"install bytes={text.size()} read_us={t1 - t0} parse_us={t2 - t1} snap_copy_us={t3 - t2} idx_copy_us={t4 - t3} cache_us={t5 - t4} publish_us={t7 - t6} tables={ntab} tables_us={tables_us} total_us={t7 - t0} worker=" + doc.dump(tm))
+        self.trace(
+            f"install bytes={text.size()} read_us={t1 - t0} parse_us={t2 - t1} snap_copy_us={t3 - t2} idx_copy_us={t4 - t3} cache_us={t5 - t4} publish_us={t7 - t6} tables={ntab} tables_us={tables_us} total_us={t7 - t0} worker=" + doc.dump(
+                tm,
+            ),
+        )
+
         self.analysed_(ei, j, rc)
 
         // A buffer this run turned out NOT to hold still needs an entry: try
@@ -764,7 +832,7 @@ extend Server {
         }
 
         if self.entries[ei].owe_refresh {
-            others = 2
+            others                       = 2
             self.entries[ei].owe_refresh = false
         }
 

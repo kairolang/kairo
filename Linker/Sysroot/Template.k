@@ -242,7 +242,10 @@ pub class SysTemplate {
             }
 
             // Only [<prefix>.fNNN] itself: archive.cxx is not archive.cxxabi.
-            if LinkText::contains(LinkText::slice(tb, pre.size(), tb.size()), ".") {
+            if LinkText::contains(
+                LinkText::slice(tb, pre.size(), tb.size()),
+                ".",
+            ) {
                 continue
             }
 
@@ -307,7 +310,12 @@ pub class SysTemplate {
         var path   = LinkText::slice(rest, 0, eq)
         var member = LinkFS::filename(path) + sfx
         if eq < rest.size() {
-            member = SysUtil::fill(LinkText::slice(rest, eq + 1, rest.size()), "o", sfx)
+            member = SysUtil::fill(
+                LinkText::slice(rest, eq + 1, rest.size()),
+                "o",
+                sfx,
+            )
+
             member = SysUtil::fill(member, "crt_arch", p->get("crt_arch"))
         }
 

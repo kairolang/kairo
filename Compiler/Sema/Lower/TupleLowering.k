@@ -134,7 +134,11 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
 
     fn transform_tuple_literal_expr(self, n: unsafe *TupleLiteralExpr) -> unsafe *Expr {
         // Children first: a nested tuple is lowered on its own.
-        var unsafe *out = ASTWriter<TupleLowering>::transform_tuple_literal_expr(self, n)
+        var unsafe *out = ASTWriter<TupleLowering>::transform_tuple_literal_expr(
+            self,
+            n,
+        )
+
         if n->is_poisoned() || n->type_ == &null {
             return out
         }
@@ -157,8 +161,13 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
             )
         }
 
-        var unsafe *init  = NamedInitializerExpr::create(self.ctx, n->range, &null)
-        var        fields = self.list_builder<InitField>()
+        var unsafe *init = NamedInitializerExpr::create(
+            self.ctx,
+            n->range,
+            &null,
+        )
+
+        var fields = self.list_builder<InitField>()
         for var i: usize = 0; i < count; ++i {
             var unsafe *e  = n->elements[i]
             var unsafe *fd = self.tu.tuple_field(t, i)
@@ -169,7 +178,11 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
             }
 
             var f = InitField{}
-            f.name = self.synth.ident(e->range, self.tu.decl_name(unsafe (fd as unsafe *Decl)))
+            f.name = self.synth.ident(
+                e->range,
+                self.tu.decl_name(unsafe (fd as unsafe *Decl)),
+            )
+
             f.value      = e
             f.range      = e->range
             f.field_decl = unsafe (fd as unsafe *Decl)
@@ -188,7 +201,11 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
     /// spell, since an ordinal is not an identifier. Rewritten in place: the
     /// node keeps its identity for every record keyed on it (move_sites).
     fn transform_chain_expr(self, n: unsafe *ChainExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<TupleLowering>::transform_chain_expr(self, n)
+        var unsafe *out = ASTWriter<TupleLowering>::transform_chain_expr(
+            self,
+            n,
+        )
+
         if n->is_poisoned() {
             return out
         }
@@ -232,7 +249,11 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
 
     fn transform_destructuring_decl_stmt(self,
                                          n: unsafe *DestructuringDeclStmt) -> cxx::std::vector<unsafe *Stmt> {
-        var out = ASTWriter<TupleLowering>::transform_destructuring_decl_stmt(self, n)
+        var out = ASTWriter<TupleLowering>::transform_destructuring_decl_stmt(
+            self,
+            n,
+        )
+
         if n->kind_ != DestructureKind::Tuple { // Struct: FeatureGateCheck rejected it.
             return out
         }
@@ -285,7 +306,9 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
 
             var unsafe *bd = dyn_cast<VariableDecl>(b->decl)
             if bd == &null {
-                kairo::std::ice_fail("TupleLowering: a binder whose decl is not a variable")
+                kairo::std::ice_fail(
+                    "TupleLowering: a binder whose decl is not a variable",
+                )
             }
 
             if bd->type_ == &null {
@@ -296,7 +319,9 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
 
             var unsafe *fd = self.tu.tuple_field(t, i)
             if fd == &null {
-                kairo::std::ice_fail("TupleLowering: Tuple record with fewer fields than its arity")
+                kairo::std::ice_fail(
+                    "TupleLowering: Tuple record with fewer fields than its arity",
+                )
             }
 
             var unsafe *place = self.synth.field_of(
@@ -357,7 +382,11 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
     fn transform_match_expr(self, n: unsafe *MatchExpr) -> unsafe *Expr {
         var unsafe *saved = self._scrutinee
         self._scrutinee = self.tu.strip_parens(n->scrutinee)
-        var unsafe *out = ASTWriter<TupleLowering>::transform_match_expr(self, n)
+        var unsafe *out = ASTWriter<TupleLowering>::transform_match_expr(
+            self,
+            n,
+        )
+
         self._scrutinee = saved
         return out
     }

@@ -107,7 +107,10 @@ pub class UTF8View {
         var pos: usize = 0
 
         while pos < self.size {
-            var decoded = UTF8View::decode_utf8(self.data + pos, self.size - pos)
+            var decoded = UTF8View::decode_utf8(
+                self.data + pos,
+                self.size - pos,
+            )
 
             if decoded.len == 0 { // no progress safeguard
                 break

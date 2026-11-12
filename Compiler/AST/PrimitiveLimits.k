@@ -409,15 +409,21 @@ pub class PrimitiveLimits {
             case PrimLimit::MantissaDigits {
                 return PrimitiveLimits::_small(p)
             } case PrimLimit::Digits {
-                return PrimitiveLimits::_small(PrimitiveLimits::_floor_log(p - 1))
+                return PrimitiveLimits::_small(
+                    PrimitiveLimits::_floor_log(p - 1),
+                )
             } case PrimLimit::MaxDigits {
-                return PrimitiveLimits::_small(1 + PrimitiveLimits::_ceil_log(p))
+                return PrimitiveLimits::_small(
+                    1 + PrimitiveLimits::_ceil_log(p),
+                )
             } case PrimLimit::MinExp {
                 return PrimitiveLimits::_small(PrimitiveLimits::emin(b) + 1)
             } case PrimLimit::MaxExp {
                 return PrimitiveLimits::_small(PrimitiveLimits::emax(b) + 1)
             } case PrimLimit::Min10Exp {
-                return PrimitiveLimits::_small(PrimitiveLimits::_ceil_log(PrimitiveLimits::emin(b)))
+                return PrimitiveLimits::_small(
+                    PrimitiveLimits::_ceil_log(PrimitiveLimits::emin(b)),
+                )
             }
 
             // MAX is just under 2^(emax+1), whose log10 is never an integer.
@@ -560,7 +566,9 @@ pub class PrimitiveLimits {
             } case PrimLimit::Infinity {
                 v = LowerTargets::float_inf(PrimitiveLimits::_builtin_tag(b)) + "()"
             } case PrimLimit::NegInfinity {
-                v = "-" + LowerTargets::float_inf(PrimitiveLimits::_builtin_tag(b)) + "()"
+                v = "-" + LowerTargets::float_inf(
+                    PrimitiveLimits::_builtin_tag(b),
+                ) + "()"
             } case PrimLimit::Nan {
                 v = LowerTargets::float_nan(PrimitiveLimits::_builtin_tag(b)) + "(\"\")"
             } default {

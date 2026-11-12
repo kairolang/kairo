@@ -220,7 +220,12 @@ pub class PPWalker
         self._opts    = opts
         self._imm     = lexer->get_imm_tbl()
         self._out     = kairo::std::create<TokenBuffer<512>>()
-        self._src     = kairo::std::create<TokenSource>(lexer, opts.max_token_count, diag)
+        self._src = kairo::std::create<TokenSource>(
+            lexer,
+            opts.max_token_count,
+            diag,
+        )
+
         self._src->set_preserve_comments(opts.preserve_comments)
         self._src->set_file_name(sm->get_filename(fid))
         self._imports = kairo::std::create<FileImportIndex>(
@@ -233,8 +238,15 @@ pub class PPWalker
             fid,
         )
 
-        self._tracker = kairo::std::create<ScopeTracker>(sym, sm, self._imm, tcm, module_base)
-        self._sink    = self._out
+        self._tracker = kairo::std::create<ScopeTracker>(
+            sym,
+            sm,
+            self._imm,
+            tcm,
+            module_base,
+        )
+
+        self._sink = self._out
     }
 
     /// \brief the prelude for macros: the file behaves as though it wrote
@@ -401,7 +413,9 @@ pub class PPWalker
     /// Debug builds: \p what configures the read, so it must come before it.
     priv fn _check_fresh(self, what: string) {
         if self._phase != WalkPhase::Fresh {
-            kairo::std::ice_fail(f"PPWalker::{what} after the walker started reading (phase {self._phase as u8 as u32})")
+            kairo::std::ice_fail(
+                f"PPWalker::{what} after the walker started reading (phase {self._phase as u8 as u32})",
+            )
         }
     }
 
@@ -522,7 +536,10 @@ pub class PPWalker
             return
         }
 
-        var builtin = self._is_builtin_name(TokenText::spelling(hdr.name, self._tcm))
+        var builtin = self._is_builtin_name(
+            TokenText::spelling(hdr.name, self._tcm),
+        )
+
         if self._src->peek(0).kind != TokenKind::OpLBrace {
             if builtin {
                 self._recover_to_terminator()
@@ -744,8 +761,11 @@ pub class PPWalker
         for var i: usize = 0; i < chain.size(); ++i {
             var hop = (chain)[i]
 
-            var        idx   = self._imm->create<Immediate::MacroExpansionInfo>()
-            var unsafe *info = self._imm->get<Immediate::MacroExpansionInfo>(idx)
+            var idx = self._imm->create<Immediate::MacroExpansionInfo>()
+            var unsafe *info = self._imm->get<Immediate::MacroExpansionInfo>(
+                idx,
+            )
+
             info->invoke_range  = hop.loc
             info->def_range     = def_range
             info->original_kind = cur_kind
@@ -775,7 +795,12 @@ pub class PPWalker
             return false
         }
 
-        self._tracker->feed_stream(self._src, vis, fn(tok: Token) { self._emit(tok) })
+        self._tracker->feed_stream(
+            self._src,
+            vis,
+            fn(tok: Token) { self._emit(tok) },
+        )
+
         return true
     }
 
@@ -819,7 +844,14 @@ pub class PPWalker
 
                 b.first(lang.range)
                 if what.range.is_valid() {
-                    b.fix(SourceRange::from_bounds(lang.range.end, what.range.start), " ", "join the lines")
+                    b.fix(
+                        SourceRange::from_bounds(
+                            lang.range.end,
+                            what.range.start,
+                        ),
+                        " ",
+                        "join the lines",
+                    )
                 }
 
                 b.emit()
@@ -883,7 +915,12 @@ pub class PPWalker
                         has_alias = true
                         last      = alias_tok
                     } else if !bad {
-                        self.ig_err(t.range, "expected a name after 'as' in ffi import", DiagID::S064E)
+                        self.ig_err(
+                            t.range,
+                            "expected a name after 'as' in ffi import",
+                            DiagID::S064E,
+                        )
+
                         bad = true
                     }
 
@@ -926,6 +963,7 @@ pub class PPWalker
                     "an ffi import takes one header, not a list; write one 'ffi \"c++\" import \"header\"' line per header",
                     DiagID::S064E,
                 )
+
                 bad = true
             }
 
@@ -935,6 +973,7 @@ pub class PPWalker
                     "expected a header path string after 'ffi \"...\" import'",
                     DiagID::S064E,
                 )
+
                 bad = true
             }
 
@@ -942,17 +981,27 @@ pub class PPWalker
                 return
             }
 
-            var        fr        = ffi_kw.range | last.range
-            var unsafe *fid_node = ImportDecl::create(self._ctx, fr, ImportKind::Native)
+            var fr = ffi_kw.range | last.range
+            var unsafe *fid_node = ImportDecl::create(
+                self._ctx,
+                fr,
+                ImportKind::Native,
+            )
+
             fid_node->header    = header_tok
             fid_node->alias     = alias_tok
             fid_node->has_alias = has_alias
             fid_node->range     = fr
-            fid_node->set_ffi_linkage(self._ffi_lang_kind(lang_tok), lang_tok, fr)
+            fid_node->set_ffi_linkage(
+                self._ffi_lang_kind(lang_tok),
+                lang_tok,
+                fr,
+            )
+
             self._tu->imports.push(fid_node)
 
             if saw_header {
-                var h   = HeaderSet::unquote(self._ctx->get_spelling(header_tok))
+                var h = HeaderSet::unquote(self._ctx->get_spelling(header_tok))
                 var dup = false
                 for var i: usize = 0; i < self._ffi_headers.size(); ++i {
                     if self._ffi_headers[i] == h {
@@ -963,7 +1012,10 @@ pub class PPWalker
 
                 if !dup && h.size() > 0 {
                     self._ffi_headers.push_back(h)
-                    self._ffi_c.push_back((self._ffi_lang_kind(lang_tok) == LinkageKind::C) as u8)
+                    self._ffi_c.push_back(
+                        (self._ffi_lang_kind(lang_tok) == LinkageKind::C) as u8,
+                    )
+
                     self._ffi_locs.push_back(header_tok.range)
                 }
             }
@@ -1243,23 +1295,33 @@ pub class PPWalker
         }
 
         // node into TU
-        var unsafe *decl = MacroDecl::create(self._ctx, kw.range | lbrace, hdr.name)
+        var unsafe *decl = MacroDecl::create(
+            self._ctx,
+            kw.range | lbrace,
+            hdr.name,
+        )
+
         decl->params_spec.from_buf_pp(specs.data(), (specs.size() as usize), self._ctx)
         decl->accepts_params = hdr.accepts_params
         decl->is_variadic    = is_variadic
 
         if body_len > 0 {
-            decl->body_span = storage->get(0)->range | storage->get((body_len as usize) - 1)->range
+            decl->body_span = storage->get(0)->range | storage->get(
+                (body_len as usize) - 1,
+            )->range
         }
 
         decl->set_visibility(vis, kw.range | lbrace)
         self._tu->macros.push(decl)
 
         var unsafe *entry = kairo::std::create<MacroEntry>()
-        entry->decl       = decl
-        entry->storage    = storage
-        entry->body_len   = body_len
-        entry->name_sym   = self._sym->intern(TokenText::spelling(hdr.name, self._tcm))
+        entry->decl     = decl
+        entry->storage  = storage
+        entry->body_len = body_len
+        entry->name_sym = self._sym->intern(
+            TokenText::spelling(hdr.name, self._tcm),
+        )
+
         entry->scope      = *self._tracker->current_scope() // the entry keeps its own copy
         entry->source_fid = self._fid
         entry->visibility = vis
@@ -1371,9 +1433,11 @@ pub class PPWalker
             }
         }
 
-        result.found    = true
-        result.name     = name_tok
-        result.name_sym = self._sym->intern(TokenText::spelling(name_tok, self._tcm))
+        result.found = true
+        result.name  = name_tok
+        result.name_sym = self._sym->intern(
+            TokenText::spelling(name_tok, self._tcm),
+        )
 
         if path_toks.size() > 1 {
             result.is_qualified = true
@@ -1381,7 +1445,10 @@ pub class PPWalker
             for var k: usize = 0; k + 1 < path_toks.size(); ++k {
                 var seg = IdentifierToken()
                 seg.token = &null // peeked copy, not a source-owned pointer
-                seg.name  = self._sym->intern(TokenText::spelling(path_toks[k], self._tcm))
+                seg.name = self._sym->intern(
+                    TokenText::spelling(path_toks[k], self._tcm),
+                )
+
                 result.qualified.segments.push_back(seg)
             }
         }
@@ -1389,7 +1456,7 @@ pub class PPWalker
         n = bang_offset + 1 // past `!`
 
         /// ## check for argument list `(` ... `)`
-        var has_paren             = self._src->peek(n).kind == TokenKind::OpLParen
+        var has_paren = self._src->peek(n).kind == TokenKind::OpLParen
         var total_consumed: usize
 
         if has_paren {
@@ -1456,7 +1523,9 @@ pub class PPWalker
             total_consumed = bang_offset + 1 // just past `!`
         }
 
-        result.range = self._src->peek(0).range | self._src->peek(total_consumed - 1).range
+        result.range = self._src->peek(0).range | self._src->peek(
+            total_consumed - 1,
+        ).range
 
         /// ## commit: consume exactly what we detected
         for var k: usize = 0; k < total_consumed; ++k {
@@ -1482,7 +1551,9 @@ pub class PPWalker
                 return
             }
 
-            self._diag->report(DiagCode(code), site.start, msg).first(site)->remark(remark)->emit()
+            self._diag->report(DiagCode(code), site.start, msg).first(site)->remark(
+                remark,
+            )->emit()
 
             return
         }
@@ -1522,7 +1593,13 @@ pub class PPWalker
 
         var unsafe *b = self._try_builtin(inv)
         if b != &null {
-            self._push_splice(b, inv->name_sym, inv->range, unsafe &inv->parent_chain)
+            self._push_splice(
+                b,
+                inv->name_sym,
+                inv->range,
+                unsafe &inv->parent_chain,
+            )
+
             return
         }
 
@@ -1531,7 +1608,9 @@ pub class PPWalker
             // `import lib::getter` then `getter!`: the import named the
             // macro without its `!`. Said at the import, with the
             // `!` as the fix.
-            var hint = if (self._imports != &null) => (self._imports->bare_macro_import(inv->name_sym))
+            var hint = if (self._imports != &null) => (self._imports->bare_macro_import(
+                           inv->name_sym,
+                       ))
                        else => SourceRange()
             if hint.is_valid() {
                 var nm   = self._sym_name(inv->name_sym)
@@ -1543,7 +1622,10 @@ pub class PPWalker
                 )
 
                 b.first(site)
-                b.note(hint.start, f"'{nm}' without '!' imports a declaration; a macro is imported as '{nm}!'")->child_first(hint)
+                b.note(
+                    hint.start,
+                    f"'{nm}' without '!' imports a declaration; a macro is imported as '{nm}!'",
+                )->child_first(hint)
                 b.insert(hint.end, "!", f"import the macro '{nm}!'")
                 b.emit()
                 self._emit_poison(inv)
@@ -1676,7 +1758,12 @@ pub class PPWalker
 
         //    push; the walk re-enters the spliced body next loop turn, and any
         //    nested invocations inside it are found by _detect_invocation again.
-        self._push_splice(bound, entry->name_sym, inv->range, unsafe &inv->parent_chain)
+        self._push_splice(
+            bound,
+            entry->name_sym,
+            inv->range,
+            unsafe &inv->parent_chain,
+        )
     }
 
     priv fn _push_splice(self,
@@ -1712,7 +1799,12 @@ pub class PPWalker
         }
 
         var d0 = self._src->depth()
-        self._src->push_splice(src_buf, 0, SourceRange::invalid(), *parent_chain)
+        self._src->push_splice(
+            src_buf,
+            0,
+            SourceRange::invalid(),
+            *parent_chain,
+        )
 
         while self._src->depth() > d0 {
             var t = self._src->peek(0)
@@ -1747,7 +1839,11 @@ pub class PPWalker
 
         for var k: usize = 0; k < args.size(); ++k {
             if self._buf_has_invocation(args[k]) {
-                var unsafe *ex = self._expand_buffer(args[k], unsafe &inv->parent_chain)
+                var unsafe *ex = self._expand_buffer(
+                    args[k],
+                    unsafe &inv->parent_chain,
+                )
+
                 kairo::std::destroy(args[k])
                 args[k] = ex
             }
@@ -1797,8 +1893,11 @@ pub class PPWalker
         // reserved keys a u32 key would take from the SymbolID range.
         var bindings = llvm::SmallDenseMap<u64, unsafe *(TokenBuffer<512>), 8>()
         for var k: usize = 0; k < non_variadic_count; ++k {
-            var unsafe *p       = params->get(k)
-            var        name_sym = self._sym->intern(TokenText::spelling(p->name, self._tcm))
+            var unsafe *p = params->get(k)
+            var name_sym = self._sym->intern(
+                TokenText::spelling(p->name, self._tcm),
+            )
+
             if k < args.size() {
                 bindings[name_sym as u64] = args[k]
             } else if p->has_default {
@@ -1812,11 +1911,14 @@ pub class PPWalker
             }
         }
 
-        var variadic_name:    SymbolID = 0
-        var variadic_bindings          = cxx::std::vector<unsafe *(TokenBuffer<512>)>()
+        var variadic_name: SymbolID = 0
+        var variadic_bindings = cxx::std::vector<unsafe *(TokenBuffer<512>)>()
         if has_variadic {
             var unsafe *vp = params->get(variadic_idx)
-            variadic_name = self._sym->intern(TokenText::spelling(vp->name, self._tcm))
+            variadic_name = self._sym->intern(
+                TokenText::spelling(vp->name, self._tcm),
+            )
+
             for var k: usize = non_variadic_count; k < args.size(); ++k {
                 variadic_bindings.push_back(args[k])
             }
@@ -1871,7 +1973,12 @@ pub class PPWalker
                 if close != 0
                     && close + 1 < (e->body_len as usize)
                     && e->storage->get(close + 1)->kind == TokenKind::OpEllipsis
-                    && self._pattern_mentions_pack(e, i + 1, close, variadic_name) {
+                    && self._pattern_mentions_pack(
+                        e,
+                        i + 1,
+                        close,
+                        variadic_name,
+                    ) {
                     for var k: usize = 0; k < variadic_bindings.size(); ++k {
                         if k > 0 {
                             self._append_builtin_comma(output, invoke_loc)
@@ -1897,7 +2004,9 @@ pub class PPWalker
             }
 
             if tok->kind == TokenKind::LitIdentifier {
-                var tok_name = self._sym->intern(TokenText::spelling(*tok, self._tcm))
+                var tok_name = self._sym->intern(
+                    TokenText::spelling(*tok, self._tcm),
+                )
 
                 /// ### bare splat: `xs` `...`
                 if tok_name == variadic_name
@@ -1930,7 +2039,16 @@ pub class PPWalker
                 }
             }
 
-            output->append(self._subst_fstring(*tok, &*bindings, variadic_name, &null, anchor))
+            output->append(
+                self._subst_fstring(
+                    *tok,
+                    &*bindings,
+                    variadic_name,
+                    &null,
+                    anchor,
+                ),
+            )
+
             i += 1
         }
 
@@ -1996,7 +2114,9 @@ pub class PPWalker
             var unsafe *tok = e->storage->get(i)
 
             if tok->kind == TokenKind::LitIdentifier {
-                var tok_name = self._sym->intern(TokenText::spelling(*tok, self._tcm))
+                var tok_name = self._sym->intern(
+                    TokenText::spelling(*tok, self._tcm),
+                )
 
                 if tok_name == variadic_name {
                     for var j: usize = 0; j < element->size(); ++j {
@@ -2017,7 +2137,15 @@ pub class PPWalker
                 }
             }
 
-            output->append(self._subst_fstring(*tok, &*bindings, variadic_name, element, anchor))
+            output->append(
+                self._subst_fstring(
+                    *tok,
+                    &*bindings,
+                    variadic_name,
+                    element,
+                    anchor,
+                ),
+            )
         }
     }
 
@@ -2038,7 +2166,9 @@ pub class PPWalker
     /// table of the file that lexed it (\p tbl becomes that table); null
     /// otherwise. Adjacent literals join whatever their prefixes, so
     /// the holes can sit in any segment of the chain: `"a" f"{x}"` is one.
-    priv fn _fstring_data(self, tok: Token, @inout tbl: unsafe *ImmediateTable) -> unsafe *Immediate::StringData {
+    priv fn _fstring_data(self,
+                          tok:        Token,
+                          @inout tbl: unsafe *ImmediateTable) -> unsafe *Immediate::StringData {
         if tok.kind != TokenKind::LitString {
             return &null
         }
@@ -2131,7 +2261,9 @@ pub class PPWalker
         while seg != &null {
             var idx = self._fstring_slot(seg)
             if copies->size() > 0 {
-                self._imm->get<Immediate::StringData>((*copies)[copies->size() - 1])->next = idx
+                self._imm->get<Immediate::StringData>(
+                    (*copies)[copies->size() - 1],
+                )->next = idx
             }
 
             segs->push_back(seg)
@@ -2156,16 +2288,16 @@ pub class PPWalker
                            variadic_name:   SymbolID,
                            element:         unsafe *(TokenBuffer<512>),
                            anchor:          SourceRange) -> Token {
-        var tbl: unsafe *ImmediateTable = &null
-        var unsafe *d = self._fstring_data(tok, &tbl)
+        var        tbl: unsafe *ImmediateTable = &null
+        var unsafe *d                          = self._fstring_data(tok, &tbl)
         if d == &null {
             return tok
         }
 
-        var        same_tbl = tbl == self._imm
-        var        segs     = cxx::std::vector<unsafe *Immediate::StringData>()
-        var        copies   = cxx::std::vector<u32>()
-        var        idx      = self._fstring_chain(d, tbl, unsafe &segs, unsafe &copies)
+        var same_tbl = tbl == self._imm
+        var segs     = cxx::std::vector<unsafe *Immediate::StringData>()
+        var copies   = cxx::std::vector<u32>()
+        var idx      = self._fstring_chain(d, tbl, unsafe &segs, unsafe &copies)
         for var s: usize = 0; s < segs.size(); ++s {
             var unsafe *sd = segs[s]
             var unsafe *nd = self._imm->get<Immediate::StringData>(copies[s])
@@ -2177,7 +2309,10 @@ pub class PPWalker
                     for var k: usize = 0; k < src->size(); ++k {
                         var unsafe *ht = src->get(k)
                         if ht->kind == TokenKind::LitIdentifier {
-                            var nm = self._sym->intern(TokenText::spelling(*ht, self._tcm))
+                            var nm = self._sym->intern(
+                                TokenText::spelling(*ht, self._tcm),
+                            )
+
                             if element != &null && nm == variadic_name {
                                 for var j: usize = 0; j < element->size(); ++j {
                                     nb->append(*element->get(j))
@@ -2224,8 +2359,8 @@ pub class PPWalker
     /// lexed that no body rewrote (an argument from a macro of that file)
     /// is left to the parser (ASTContext::wrap_foreign_token).
     priv fn _expand_fstring(self, t: Token, chain: unsafe *cxx::std::vector<InvokeHop>) -> Token {
-        var tbl: unsafe *ImmediateTable = &null
-        var unsafe *d = self._fstring_data(t, &tbl)
+        var        tbl: unsafe *ImmediateTable = &null
+        var unsafe *d                          = self._fstring_data(t, &tbl)
         if d == &null {
             return t
         }
@@ -2234,9 +2369,9 @@ pub class PPWalker
             return t
         }
 
-        var from_body = chain != &null && chain->size() > 0
-        var any       = from_body
-        var unsafe *scan = d
+        var        from_body = chain != &null && chain->size() > 0
+        var        any       = from_body
+        var unsafe *scan     = d
         while scan != &null && !any {
             for var h: usize = 0; h < scan->exprs.size() && !any; ++h {
                 var unsafe *src = scan->exprs[h].0
@@ -2264,7 +2399,7 @@ pub class PPWalker
         var unsafe *pc    = if (chain != &null) => (chain) else => unsafe &empty
         var        segs   = cxx::std::vector<unsafe *Immediate::StringData>()
         var        copies = cxx::std::vector<u32>()
-        var        idx    = self._fstring_chain(d, tbl, unsafe &segs, unsafe &copies)
+        var idx = self._fstring_chain(d, tbl, unsafe &segs, unsafe &copies)
         for var s: usize = 0; s < segs.size(); ++s {
             var unsafe *sd = segs[s]
             for var h: usize = 0; h < sd->exprs.size(); ++h {
@@ -2291,7 +2426,9 @@ pub class PPWalker
                 }
 
                 // re-read: the walk above may have grown this table.
-                self._imm->get<Immediate::StringData>(copies[s])->exprs.push_back((nb, rng))
+                self._imm->get<Immediate::StringData>(copies[s])->exprs.push_back(
+                    (nb, rng),
+                )
             }
         }
 
@@ -2615,7 +2752,11 @@ pub class PPWalker
 
         // 2. expand invocations within it, in caller context
         if self._buf_has_invocation(run) {
-            var unsafe *ex = self._expand_buffer(run, unsafe &invoke->parent_chain)
+            var unsafe *ex = self._expand_buffer(
+                run,
+                unsafe &invoke->parent_chain,
+            )
+
             kairo::std::destroy(run)
             run = ex
         }
@@ -2979,7 +3120,10 @@ pub class PPWalker
                     continue
                 }
 
-                if self._sm->get_text(t->range) != TokenText::spelling(*t, self._tcm) {
+                if self._sm->get_text(t->range) != TokenText::spelling(
+                    *t,
+                    self._tcm,
+                ) {
                     source_backed = false
                     break
                 }
@@ -3001,7 +3145,9 @@ pub class PPWalker
 
         var text = string()
         if source_backed {
-            text = self._sm->get_text(SourceRange::from_bounds(head, last->range.end))
+            text = self._sm->get_text(
+                SourceRange::from_bounds(head, last->range.end),
+            )
         } else {
             for var i: usize = 0; i < invoke->arg_toks.size(); ++i {
                 if i > 0 {
@@ -3165,7 +3311,9 @@ pub class PPWalker
 
             if name_tok->kind == TokenKind::LitIdentifier {
                 var raw_name = *name_tok
-                var name_sym = self._sym->intern(self._builtin_token_text(name_tok))
+                var name_sym = self._sym->intern(
+                    self._builtin_token_text(name_tok),
+                )
 
                 var probe = Self::InvocationInfo()
                 probe.name         = *name_tok
@@ -3182,12 +3330,24 @@ pub class PPWalker
                     // from an ffi header), which only Sema can ask, after
                     // the headers are built. Passed on as written for the
                     // parser's DefinedExpr (Compiler/Spec/Eval.md#defined).
-                    self._defined_raw.insert(invoke->name.range.start.raw() as u64)
+                    self._defined_raw.insert(
+                        invoke->name.range.start.raw() as u64,
+                    )
+
                     out->append(invoke->name)
-                    out->append(self._punct(TokenKind::OpExclaim, invoke->name.range))
-                    out->append(self._punct(TokenKind::OpLParen, invoke->name.range))
+                    out->append(
+                        self._punct(TokenKind::OpExclaim, invoke->name.range),
+                    )
+
+                    out->append(
+                        self._punct(TokenKind::OpLParen, invoke->name.range),
+                    )
+
                     out->append(raw_name)
-                    out->append(self._punct(TokenKind::OpRParen, invoke->name.range))
+                    out->append(
+                        self._punct(TokenKind::OpRParen, invoke->name.range),
+                    )
+
                     return out
                 }
             }
@@ -3409,7 +3569,12 @@ pub class PPWalker
                    else if (level == DiagSeverity::Warning) => (DiagID::R010W)
                    else => DiagID::R010N
 
-        self._report_expand_err(code, invoke, message, "diagnostic emitted from this macro body")
+        self._report_expand_err(
+            code,
+            invoke,
+            message,
+            "diagnostic emitted from this macro body",
+        )
 
         return out
     }
@@ -3448,14 +3613,24 @@ pub class PPWalker
                     rel.segments.push_back(seg)
                 }
 
-                var unsafe *r = self._macros->find_same_fid(rel, inv.name_sym, self._fid)
+                var unsafe *r = self._macros->find_same_fid(
+                    rel,
+                    inv.name_sym,
+                    self._fid,
+                )
+
                 if r != &null {
                     return r
                 }
             }
 
             // exact scope
-            var unsafe *e = self._macros->find(inv.qualified, inv.name_sym, self._fid)
+            var unsafe *e = self._macros->find(
+                inv.qualified,
+                inv.name_sym,
+                self._fid,
+            )
+
             if e != &null {
                 return e
             }
@@ -3480,8 +3655,13 @@ pub class PPWalker
         // unqualified: current scope chain (same-fid, order irrelevant under
         // the two-phase-free single walk since defs before this point are the
         // only ones registered) -> named imports -> wildcards -> global
-        var        *scope = self._tracker->current_scope()
-        var unsafe *e     = self._macros->find_same_fid(*scope, inv.name_sym, self._fid)
+        var *scope = self._tracker->current_scope()
+        var unsafe *e = self._macros->find_same_fid(
+            *scope,
+            inv.name_sym,
+            self._fid,
+        )
+
         if e != &null {
             return e
         }
@@ -3500,7 +3680,12 @@ pub class PPWalker
 
         // the prelude's own `import builtin::*`, last of the imports
         if self._has_prelude {
-            var unsafe *pm = self._macros->find(self._prelude, inv.name_sym, self._fid)
+            var unsafe *pm = self._macros->find(
+                self._prelude,
+                inv.name_sym,
+                self._fid,
+            )
+
             if pm != &null {
                 return pm
             }

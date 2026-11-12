@@ -83,9 +83,13 @@ pub class MingwProvider derives SysrootProvider {
             return MingwProvider::_from_source(ctx, tables, dst, &out)
         }
 
-        var defs    = ctx->share_path(ctx->recipe.str("libc", "defs"))
-        var crt     = ctx->share_path(ctx->recipe.str("libc", "crt"))
-        var machine = ctx->recipe.expand("{per_arch.dlltool_machine}", &ctx->target)
+        var defs = ctx->share_path(ctx->recipe.str("libc", "defs"))
+        var crt  = ctx->share_path(ctx->recipe.str("libc", "crt"))
+        var machine = ctx->recipe.expand(
+            "{per_arch.dlltool_machine}",
+            &ctx->target,
+        )
+
         if LinkText::contains(machine, "{") {
             return out.refuse(
                 f"the mingw recipe has no [per_arch.dlltool_machine] for {ctx->target.arch}",
@@ -210,7 +214,10 @@ pub class MingwProvider derives SysrootProvider {
         for var i: CrtPair in t.install {
             var from = env.build + "/" + i.val
             if !LinkFS::is_file(from) {
-                return out.fail(f"{tpath}: [install] {i.key}: nothing built {i.val}", "")
+                return out.fail(
+                    f"{tpath}: [install] {i.key}: nothing built {i.val}",
+                    "",
+                )
             }
 
             if !SysRun::put_file(from, dst + "/" + i.key, true) {
@@ -234,7 +241,10 @@ pub class MingwProvider derives SysrootProvider {
                              env:        *CrtEnv,
                              @inout out: SysOutcome) -> bool {
         if ctx->ar.empty() {
-            return out.refuse("llvm-ar not found beside the toolchain or on PATH", "")
+            return out.refuse(
+                "llvm-ar not found beside the toolchain or on PATH",
+                "",
+            )
         }
 
         for var a: CrtArchive in t->archives {
@@ -258,7 +268,10 @@ pub class MingwProvider derives SysrootProvider {
             args.push_back("-l")
             args.push_back(o)
             if MingwProvider::dlltool(&args) != 0 {
-                return out.fail(f"dlltool -d {SysCrt::expand(env, a.def)} failed", "")
+                return out.fail(
+                    f"dlltool -d {SysCrt::expand(env, a.def)} failed",
+                    "",
+                )
             }
         }
 
@@ -337,6 +350,8 @@ pub class MingwProvider derives SysrootProvider {
             cargv.push_back(args[i].c_str())
         }
 
-        return llvm::dlltoolDriverMain(llvm::ArrayRef<kairo::std::ConstPtr<c_char>>(cargv))
+        return llvm::dlltoolDriverMain(
+            llvm::ArrayRef<kairo::std::ConstPtr<c_char>>(cargv),
+        )
     }
 }

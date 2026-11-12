@@ -94,7 +94,11 @@ pub class AllocSugarDesugar derives ASTWriter<AllocSugarDesugar> {
     }
 
     fn transform_attributed_expr(self, n: unsafe *AttributedExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<AllocSugarDesugar>::transform_attributed_expr(self, n)
+        var unsafe *out = ASTWriter<AllocSugarDesugar>::transform_attributed_expr(
+            self,
+            n,
+        )
+
         if out != (unsafe (n as unsafe *Expr)) || n->operand == &null || n->has_args {
             return out
         }
@@ -118,7 +122,12 @@ pub class AllocSugarDesugar derives ASTWriter<AllocSugarDesugar> {
         }
 
         if !is_create {
-            var unsafe *callee = NamedIdentExpr::create(self.sc->ctx, n->name.range, n->name)
+            var unsafe *callee = NamedIdentExpr::create(
+                self.sc->ctx,
+                n->name.range,
+                n->name,
+            )
+
             self._bind_callee(callee, false)
             var unsafe *dc = CallExpr::create(
                 self.sc->ctx,
@@ -147,7 +156,12 @@ pub class AllocSugarDesugar derives ASTWriter<AllocSugarDesugar> {
         ga[0].name       = &null
         ga[0].name_range = SourceRange::invalid()
         ga[0].ty         = ty
-        var unsafe *callee = NamedIdentExpr::create(self.sc->ctx, n->name.range, n->name)
+        var unsafe *callee = NamedIdentExpr::create(
+            self.sc->ctx,
+            n->name.range,
+            n->name,
+        )
+
         callee->generic_args.from_raw(ga, 1)
         self._bind_callee(callee, true)
         var unsafe *cc = CallExpr::create(self.sc->ctx, n->range, callee)
@@ -225,7 +239,10 @@ pub class AllocSugarDesugar derives ASTWriter<AllocSugarDesugar> {
             return &null
         }
 
-        var unsafe *buf = self.sc->ctx->alloc_array<ChainType::ChainSegment>(segs.size())
+        var unsafe *buf = self.sc->ctx->alloc_array<ChainType::ChainSegment>(
+            segs.size(),
+        )
+
         for var i: usize = 0; i < segs.size(); ++i {
             buf[i] = segs[i]
         }
@@ -242,7 +259,7 @@ pub class AllocSugarDesugar derives ASTWriter<AllocSugarDesugar> {
                   range:      SourceRange,
                   sep:        ChainType::SegmentSeparator) {
         var seg = ChainType::ChainSegment{}
-        seg.name          = NamedIdentExpr::create(self.sc->ctx, name.range, name)
+        seg.name = NamedIdentExpr::create(self.sc->ctx, name.range, name)
         seg.generic_args  = args
         seg.resolved_type = &null
         seg.resolved_decl = &null

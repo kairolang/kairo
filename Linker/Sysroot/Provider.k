@@ -152,12 +152,18 @@ pub class SysrootProvider {
                            ctx:        *StageCtx,
                            const dst:  string,
                            @inout out: SysOutcome) -> bool {
-        return out.refuse(f"the {self.id()} provider cannot build headers yet", "")
+        return out.refuse(
+            f"the {self.id()} provider cannot build headers yet",
+            "",
+        )
     }
 
     /// Stage libc-libs: libc, crt objects and import libraries into \p dst.
     pub virtual fn libs(self, ctx: *StageCtx, const dst: string, @inout out: SysOutcome) -> bool {
-        return out.refuse(f"the {self.id()} provider cannot build libraries yet", "")
+        return out.refuse(
+            f"the {self.id()} provider cannot build libraries yet",
+            "",
+        )
     }
 
     /// Anything besides the recipe, inputs and quirks that changes this

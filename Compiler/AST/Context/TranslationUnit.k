@@ -17,11 +17,11 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
-import AST::Context::DepLog::DepLog
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
 }
+import AST::Context::DepLog::DepLog
 import AST::Context::DisambigTable::{
     DisambigEntry,
     DisambigTable,
@@ -132,7 +132,9 @@ pub class ParentRef {
     fn as_hoisted(self) -> unsafe *DisambigEntry {
         eval if defined!(DEBUG) {
             if !(self.kind == ParentKind::Hoisted) {
-                kairo::std::ice_fail("assertion failed: self.kind == ParentKind::Hoisted")
+                kairo::std::ice_fail(
+                    "assertion failed: self.kind == ParentKind::Hoisted",
+                )
             }
         }
 
@@ -142,7 +144,9 @@ pub class ParentRef {
     fn as_expr(self) -> unsafe *Expr {
         eval if defined!(DEBUG) {
             if !(self.kind == ParentKind::Expr) {
-                kairo::std::ice_fail("assertion failed: self.kind == ParentKind::Expr")
+                kairo::std::ice_fail(
+                    "assertion failed: self.kind == ParentKind::Expr",
+                )
             }
         }
 
@@ -152,7 +156,9 @@ pub class ParentRef {
     fn as_stmt(self) -> unsafe *Stmt {
         eval if defined!(DEBUG) {
             if !(self.kind == ParentKind::Stmt) {
-                kairo::std::ice_fail("assertion failed: self.kind == ParentKind::Stmt")
+                kairo::std::ice_fail(
+                    "assertion failed: self.kind == ParentKind::Stmt",
+                )
             }
         }
 
@@ -162,7 +168,9 @@ pub class ParentRef {
     fn as_decl(self) -> unsafe *Decl {
         eval if defined!(DEBUG) {
             if !(self.kind == ParentKind::Decl) {
-                kairo::std::ice_fail("assertion failed: self.kind == ParentKind::Decl")
+                kairo::std::ice_fail(
+                    "assertion failed: self.kind == ParentKind::Decl",
+                )
             }
         }
 
@@ -172,7 +180,9 @@ pub class ParentRef {
     fn as_type(self) -> unsafe *Type {
         eval if defined!(DEBUG) {
             if !(self.kind == ParentKind::Type) {
-                kairo::std::ice_fail("assertion failed: self.kind == ParentKind::Type")
+                kairo::std::ice_fail(
+                    "assertion failed: self.kind == ParentKind::Type",
+                )
             }
         }
 
@@ -182,7 +192,9 @@ pub class ParentRef {
     fn as_tu(self) -> unsafe *TranslationUnit {
         eval if defined!(DEBUG) {
             if !(self.kind == ParentKind::TranslationUnit) {
-                kairo::std::ice_fail("assertion failed: self.kind == ParentKind::TranslationUnit")
+                kairo::std::ice_fail(
+                    "assertion failed: self.kind == ParentKind::TranslationUnit",
+                )
             }
         }
 
@@ -247,7 +259,7 @@ pub class TranslationUnit derives DeclContext {
     /// many errors those bodies held. When that is every error of the file,
     /// the file is checked without the bodies (Driver/CompilerRecovery.k).
     pub var recovered_bodies: ArenaList<unsafe *Decl>
-    pub var recovered_errors: u32 = 0
+    pub var recovered_errors: u32                     = 0
 
     pub var scope:          *DisambigTable
     pub var global_scope:   *GlobalDisambigTable
@@ -419,7 +431,9 @@ pub class TranslationUnit derives DeclContext {
     pub fn advance(self, to: TUStage) {
         eval if defined!(DEBUG) {
             if (to as u8) < (self._stage as u8) {
-                kairo::std::ice_fail(r"TranslationUnit: stage moved backward without a release")
+                kairo::std::ice_fail(
+                    r"TranslationUnit: stage moved backward without a release",
+                )
             }
         }
 

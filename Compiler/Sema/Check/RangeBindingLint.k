@@ -82,8 +82,8 @@ import Sema::Type::MemberTyping::{
 /// One candidate binding and what its references were.
 pub struct RangeBindCand {
     pub var decl: unsafe *VariableDecl = &null
-    pub var refs: usize                = 0 ///< references seen.
-    pub var oks:  usize                = 0 ///< references approved as reads.
+    pub var refs: usize                = 0     ///< references seen.
+    pub var oks:  usize                = 0     ///< references approved as reads.
 }
 
 ///
@@ -170,7 +170,7 @@ pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
         }
 
         var unsafe *ni = self._strip(e)
-        var key = ni as usize as u64
+        var        key = ni as usize as u64
         if self._approved.count(key) != 0 {
             return
         }
@@ -182,7 +182,10 @@ pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
     /// Registered before its scope's later statements are walked: the RAV
     /// visits a block's statements in order.
     fn visit_variable_decl(self, v: *VariableDecl) -> bool {
-        if v->is_poisoned() || v->is_implicit || v->storage != StorageClass::Var || v->init == &null {
+        if v->is_poisoned()
+            || v->is_implicit
+            || v->storage != StorageClass::Var
+            || v->init == &null {
             return true
         }
 
@@ -237,7 +240,10 @@ pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
         }
 
         var unsafe *st = ce->steps.get(0)
-        var unsafe *f  = if (st->resolved_decl != &null) => (dyn_cast<FunctionDecl>(st->resolved_decl)) else => &null
+        var unsafe *f = if (st->resolved_decl != &null) => (dyn_cast<FunctionDecl>(
+                            st->resolved_decl,
+                        ))
+                        else => &null
         if f == &null {
             return true
         }

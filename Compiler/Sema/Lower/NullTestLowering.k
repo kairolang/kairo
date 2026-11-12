@@ -91,7 +91,11 @@ pub class NullTestLowering derives ASTWriter<NullTestLowering> {
             return
         }
 
-        self._is_null = self.sc->nullable_member(AdtRole::IsNull, "NullTestLowering")
+        self._is_null = self.sc->nullable_member(
+            AdtRole::IsNull,
+            "NullTestLowering",
+        )
+
         if self._is_null == &null {
             kairo::std::ice_fail(
                 "NullTestLowering: the Nullable layout has no " + LowerTargets::nullable_is_null() + "(); EnumLayoutLowering::_nullable_surface mints it",
@@ -112,7 +116,10 @@ pub class NullTestLowering derives ASTWriter<NullTestLowering> {
             return self._lower(unsafe (n as unsafe *Expr), t)
         }
 
-        return ASTWriter<NullTestLowering>::transform_unary_operator_expr(self, n)
+        return ASTWriter<NullTestLowering>::transform_unary_operator_expr(
+            self,
+            n,
+        )
     }
 
     /// `x == null`, `null == x`, `x != null`, `null != x`.
@@ -122,7 +129,10 @@ pub class NullTestLowering derives ASTWriter<NullTestLowering> {
             return self._lower(unsafe (n as unsafe *Expr), t)
         }
 
-        return ASTWriter<NullTestLowering>::transform_binary_operator_expr(self, n)
+        return ASTWriter<NullTestLowering>::transform_binary_operator_expr(
+            self,
+            n,
+        )
     }
 
     /// \p n, the test \p t classified, as `x.is_null()` or `!x.is_null()`.
@@ -136,7 +146,14 @@ pub class NullTestLowering derives ASTWriter<NullTestLowering> {
         var unsafe *operand = self.dyn()->transform_expr(t.operand)
         var unsafe *_bool   = self.sc->builtin(BuiltinKind::Bool)
         var        args     = self.list_builder<unsafe *Expr>()
-        var unsafe *call    = self.synth.member_call(n->range, operand, self._is_null, &args, _bool)
+        var unsafe *call = self.synth.member_call(
+            n->range,
+            operand,
+            self._is_null,
+            &args,
+            _bool,
+        )
+
         if !t.present {
             call->adopt_sema(n)
             call->type_          = _bool

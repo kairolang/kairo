@@ -190,7 +190,10 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
             self.reads.push_back(u)
         }
 
-        return RecursiveASTVisitor<ScriptUseScan>::traverse_named_ident_expr(self, n)
+        return RecursiveASTVisitor<ScriptUseScan>::traverse_named_ident_expr(
+            self,
+            n,
+        )
     }
 
     /// A call of a named free function. One in a closure is not a call of
@@ -213,7 +216,11 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
 
     fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {
         self._closure += 1
-        var unsafe *out = RecursiveASTVisitor<ScriptUseScan>::traverse_closure_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<ScriptUseScan>::traverse_closure_expr(
+            self,
+            n,
+        )
+
         self._closure -= 1
         return out
     }
@@ -224,21 +231,33 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
     fn traverse_conditional_stmt(self,
                                  n: unsafe *Statements::ConditionalStmt) -> unsafe *Statements::ConditionalStmt {
         self._cond += 1
-        var unsafe *out = RecursiveASTVisitor<ScriptUseScan>::traverse_conditional_stmt(self, n)
+        var unsafe *out = RecursiveASTVisitor<ScriptUseScan>::traverse_conditional_stmt(
+            self,
+            n,
+        )
+
         self._cond -= 1
         return out
     }
 
     fn traverse_while_loop_stmt(self, n: *Statements::WhileLoopStmt) -> *Statements::WhileLoopStmt {
         self._cond += 1
-        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_while_loop_stmt(self, n)
+        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_while_loop_stmt(
+            self,
+            n,
+        )
+
         self._cond -= 1
         return out
     }
 
     fn traverse_loop_stmt(self, n: *Statements::LoopStmt) -> *Statements::LoopStmt {
         self._cond += 1
-        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_loop_stmt(self, n)
+        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_loop_stmt(
+            self,
+            n,
+        )
+
         self._cond -= 1
         return out
     }
@@ -246,7 +265,11 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
     fn traverse_ranged_for_stmt(self,
                                 n: unsafe *Statements::RangedForStmt) -> unsafe *Statements::RangedForStmt {
         self._cond += 1
-        var unsafe *out = RecursiveASTVisitor<ScriptUseScan>::traverse_ranged_for_stmt(self, n)
+        var unsafe *out = RecursiveASTVisitor<ScriptUseScan>::traverse_ranged_for_stmt(
+            self,
+            n,
+        )
+
         self._cond -= 1
         return out
     }
@@ -254,21 +277,33 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
     fn traverse_indexed_for_stmt(self,
                                  n: *Statements::IndexedForStmt) -> *Statements::IndexedForStmt {
         self._cond += 1
-        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_indexed_for_stmt(self, n)
+        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_indexed_for_stmt(
+            self,
+            n,
+        )
+
         self._cond -= 1
         return out
     }
 
     fn traverse_match_stmt(self, n: *Statements::MatchStmt) -> *Statements::MatchStmt {
         self._cond += 1
-        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_match_stmt(self, n)
+        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_match_stmt(
+            self,
+            n,
+        )
+
         self._cond -= 1
         return out
     }
 
     fn traverse_try_catch_stmt(self, n: *Statements::TryCatchStmt) -> *Statements::TryCatchStmt {
         self._cond += 1
-        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_try_catch_stmt(self, n)
+        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_try_catch_stmt(
+            self,
+            n,
+        )
+
         self._cond -= 1
         return out
     }
@@ -282,14 +317,22 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
 
     fn traverse_match_expr(self, n: *MatchExpr) -> *MatchExpr {
         self._cond += 1
-        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_match_expr(self, n)
+        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_match_expr(
+            self,
+            n,
+        )
+
         self._cond -= 1
         return out
     }
 
     fn traverse_try_catch_expr(self, n: *TryCatchExpr) -> *TryCatchExpr {
         self._cond += 1
-        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_try_catch_expr(self, n)
+        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_try_catch_expr(
+            self,
+            n,
+        )
+
         self._cond -= 1
         return out
     }
@@ -304,7 +347,11 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
             self._cond += 1
         }
 
-        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_binary_operator_expr(self, n)
+        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_binary_operator_expr(
+            self,
+            n,
+        )
+
         if is_short {
             self._cond -= 1
         }
@@ -316,20 +363,32 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
     // `if done { return } read(g)` the read does not run on every path.
 
     fn traverse_return_stmt(self, n: *Statements::ReturnStmt) -> *Statements::ReturnStmt {
-        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_return_stmt(self, n)
+        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_return_stmt(
+            self,
+            n,
+        )
+
         self._exited = true
         return out
     }
 
     fn traverse_panic_stmt(self, n: *Statements::PanicStmt) -> *Statements::PanicStmt {
-        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_panic_stmt(self, n)
+        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_panic_stmt(
+            self,
+            n,
+        )
+
         self._exited = true
         return out
     }
 
     fn traverse_jump_intrinsic_stmt(self,
                                     n: *Statements::JumpIntrinsicStmt) -> *Statements::JumpIntrinsicStmt {
-        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_jump_intrinsic_stmt(self, n)
+        var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_jump_intrinsic_stmt(
+            self,
+            n,
+        )
+
         self._exited = true
         return out
     }
@@ -808,8 +867,8 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         n->init_annotations(unsafe &self.ctx->ast_alloc)
         n->init_dc(DeclContextKind::Function, self.ctx, dc, n)
         n->init_redecl()
-        n->params          = create_empty_frozen_list<unsafe *ParamDecl>()
-        n->generic_params  = create_empty_frozen_list<unsafe *GenericParamDecl>()
+        n->params = create_empty_frozen_list<unsafe *ParamDecl>()
+        n->generic_params = create_empty_frozen_list<unsafe *GenericParamDecl>()
         n->op_token        = create_empty_frozen_list<Token>()
         n->spec_args       = create_empty_frozen_list<unsafe *Type>()
         n->abi             = AbiKind::None
@@ -863,8 +922,12 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
 
     /// A read of a deferred global, by where it is (file header).
     fn transform_named_ident_expr(self, n: unsafe *NamedIdentExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<ScriptLowering>::transform_named_ident_expr(self, n)
-        var        gi   = self._index_of(n->resolved_decl)
+        var unsafe *out = ASTWriter<ScriptLowering>::transform_named_ident_expr(
+            self,
+            n,
+        )
+
+        var gi = self._index_of(n->resolved_decl)
         if gi < 0 {
             return out
         }
@@ -898,7 +961,11 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
     fn transform_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *Expr {
         self._closure += 1
         self._closures.push_back(n)
-        var unsafe *out = ASTWriter<ScriptLowering>::transform_closure_expr(self, n)
+        var unsafe *out = ASTWriter<ScriptLowering>::transform_closure_expr(
+            self,
+            n,
+        )
+
         self._closures.pop_back()
         self._closure -= 1
         return out
@@ -1018,7 +1085,12 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         stmts.push(self._abort_unless(at, g, self._storage_use(g, at)))
         var unsafe *addr = self._addr(self._marked(n, g))
         stmts.push(Statements::ExpressionStmt::create(self.ctx, at, addr))
-        var unsafe *se = self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, addr->type_)
+        var unsafe *se = self.synth.stmt_expr(
+            unsafe (n as unsafe *Expr),
+            &stmts,
+            addr->type_,
+        )
+
         var unsafe *d = UnaryOperatorExpr::create(
             self.ctx,
             at,
@@ -1045,7 +1117,11 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         m->type_ = self.tu.pointee(n->type_)
         var unsafe *addr = self._addr(m)
         stmts.push(Statements::ExpressionStmt::create(self.ctx, at, addr))
-        return self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, n->type_)
+        return self.synth.stmt_expr(
+            unsafe (n as unsafe *Expr),
+            &stmts,
+            n->type_,
+        )
     }
 
     /// `&e`, typed `*T` with \p e's cv kept: a `const T` read is a

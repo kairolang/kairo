@@ -174,6 +174,7 @@ import Config::Target::TargetOptions
 import Diagnostic::BasicConsumer::BasicDiagConsumer
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
 import Diagnostic::Code::DiagCode
+import Diagnostic::Diagnostic::Diagnostic
 import Diagnostic::Engine::DiagEngine
 import Diagnostic::PrettyConsumer::PrettyDiagConsumer
 import Diagnostic::Registry::DiagID
@@ -186,23 +187,15 @@ import Driver::CompilerNative
 import Driver::CompilerRecovery
 import Driver::CompilerSetup
 import Driver::FrontendAction::FrontendAction
-import Diagnostic::Diagnostic::Diagnostic
-import Driver::ModuleRecords::ModuleRecords
-import Sema::Incremental::Plan::{
-    IncrPlan,
-    PlanModule,
-    incr_plan,
-    incr_plan_same_graph,
-    incr_plan_verify,
-}
-import Driver::TUResult::TUResult
-import Driver::TUStage::TUStage
 import Driver::InputKinds::{
     InputClass,
     InputKind,
 }
 import Driver::KairoIncludes::DriverIncludeSource
+import Driver::ModuleRecords::ModuleRecords
 import Driver::Progress::progress_finish
+import Driver::TUResult::TUResult
+import Driver::TUStage::TUStage
 import Interop::Clang::ClangBackend::{
     CLANG_STARTUP_GROUP,
     ClangBackend,
@@ -216,14 +209,20 @@ import Interop::Clang::HeaderSetCache::HeaderSetCache
 import Location::SourceManager::SourceManager
 import Preprocessor::Preprocessor::PreProcessor
 import Resolution::ImportProbe::ImportResolver
-import Support::ExitCodes::EXIT_FAILURE
-import std::io
 import Resolution::ModulePath::ModulePath
 import Sema::Foreign::BuiltinImport::BuiltinImport
 import Sema::Foreign::ForeignInstantiate::ForeignInstantiate
 import Sema::Foreign::ForeignRegistry::ForeignRegistry
 import Sema::Foreign::HeaderIndex::HeaderIndex
+import Sema::Incremental::Plan::{
+    IncrPlan,
+    PlanModule,
+    incr_plan,
+    incr_plan_same_graph,
+    incr_plan_verify,
+}
 import Sema::Type::PanicSets::PanicTypeIds
+import Support::ExitCodes::EXIT_FAILURE
 import Support::FileIO::Path::Path
 import Support::FileIO::VirtualFileManager::VirtualFileManager
 import Support::TimeReport::{
@@ -234,6 +233,7 @@ import Threading::ThreadPool::ThreadPool
 import Token::IdentifierToken::IdentifierToken
 import Token::TokenCacheManager::TokenCacheManager
 import std::c_char
+import std::io
 
 /// Shared resource hub for a single compilation.
 ///
@@ -285,9 +285,9 @@ pub class CompilerInstance {
     pub var incr: ModuleRecords
     /// Contexts a live check took out of the table when it re-checked their
     /// files (detach_for_refresh): kept until release_retired.
-    pub var retired: cxx::std::vector<unsafe *void>
-    prot var _obj_dir:       string                   = "" ///< where objects go; always set by _plan_outputs
-    prot var _obj_tmp:       bool                     = false ///< _obj_dir is a temp dir this run owns and removes
+    pub var  retired:  cxx::std::vector<unsafe *void>
+    prot var _obj_dir: string                         = "" ///< where objects go; always set by _plan_outputs
+    prot var _obj_tmp: bool                           = false ///< _obj_dir is a temp dir this run owns and removes
     /// A linking run whose --emit lists more than the object: the entry
     /// TUs' outputs are the user's, so they go beside the executable rather
     /// than into a temp _obj_dir (emit_beside).
@@ -366,7 +366,9 @@ pub class CompilerInstance {
         self._cmd = kairo::std::create<Command>(argc, argv, self._diag)
         register_kairo_flags(self._cmd)
         for var i: i32 = 0; i < argc; ++i {
-            self.incr_words.push_back(string(unsafe ((argv[i] as unsafe *const u8) as *const u8)))
+            self.incr_words.push_back(
+                string(unsafe ((argv[i] as unsafe *const u8) as *const u8)),
+            )
         }
 
         var inv = CompilerInvocation::from_args(
@@ -448,8 +450,10 @@ pub class CompilerInstance {
             self._diag,
         ) as *VirtualFileManager)
         self._pretty = unsafe (kairo::std::create<PrettyDiagConsumer>() as *PrettyDiagConsumer)
-        self._basic  = unsafe (kairo::std::create<BasicDiagConsumer>() as *BasicDiagConsumer)
-        self._diag->add_consumer(unsafe (self._pretty as unsafe *PrettyDiagConsumer)) // pretty is the default consumer
+        self._basic = unsafe (kairo::std::create<BasicDiagConsumer>() as *BasicDiagConsumer)
+        self._diag->add_consumer( // pretty is the default consumer
+            unsafe (self._pretty as unsafe *PrettyDiagConsumer),
+        )
     }
 
     /// Takes ownership of \p inv (by copy) and stands up everything whose
@@ -478,7 +482,9 @@ pub class CompilerInstance {
             want_threads = cap_threads
         }
 
-        self._pool = unsafe (kairo::std::create<ThreadPool>(want_threads as usize) as *ThreadPool)
+        self._pool = unsafe (kairo::std::create<ThreadPool>(
+            want_threads as usize,
+        ) as *ThreadPool)
 
         time_set_pool_size(self._pool->get_thread_count() as i32)
 
@@ -493,8 +499,13 @@ pub class CompilerInstance {
             self._diag,
         ) as *TokenCacheManager)
         self._g_scope = unsafe (kairo::std::create<GlobalDisambigTable>() as *GlobalDisambigTable)
-        self._basic->attach_source_manager(unsafe (self._sm as unsafe *SourceManager))
-        self._pretty->attach_source_manager(unsafe (self._sm as unsafe *SourceManager))
+        self._basic->attach_source_manager(
+            unsafe (self._sm as unsafe *SourceManager),
+        )
+
+        self._pretty->attach_source_manager(
+            unsafe (self._sm as unsafe *SourceManager),
+        )
     }
 
     /// # Destructor
@@ -585,7 +596,9 @@ pub class CompilerInstance {
         }
 
         if self._g_scope != &null {
-            kairo::std::destroy(unsafe (self._g_scope as unsafe *GlobalDisambigTable))
+            kairo::std::destroy(
+                unsafe (self._g_scope as unsafe *GlobalDisambigTable),
+            )
         }
 
         if self._tcm != &null {
@@ -598,13 +611,23 @@ pub class CompilerInstance {
         }
 
         if self._pretty != &null {
-            self._diag->remove_consumer(unsafe (self._pretty as unsafe *PrettyDiagConsumer))
-            kairo::std::destroy(unsafe (self._pretty as unsafe *PrettyDiagConsumer))
+            self._diag->remove_consumer(
+                unsafe (self._pretty as unsafe *PrettyDiagConsumer),
+            )
+
+            kairo::std::destroy(
+                unsafe (self._pretty as unsafe *PrettyDiagConsumer),
+            )
         }
 
         if self._basic != &null {
-            self._diag->remove_consumer(unsafe (self._basic as unsafe *BasicDiagConsumer))
-            kairo::std::destroy(unsafe (self._basic as unsafe *BasicDiagConsumer))
+            self._diag->remove_consumer(
+                unsafe (self._basic as unsafe *BasicDiagConsumer),
+            )
+
+            kairo::std::destroy(
+                unsafe (self._basic as unsafe *BasicDiagConsumer),
+            )
         }
 
         if self._sm != &null {
@@ -616,7 +639,9 @@ pub class CompilerInstance {
         }
 
         if self._vfm != &null {
-            kairo::std::destroy(unsafe (self._vfm as unsafe *VirtualFileManager))
+            kairo::std::destroy(
+                unsafe (self._vfm as unsafe *VirtualFileManager),
+            )
         }
 
         if self._pool != &null {
@@ -812,7 +837,9 @@ pub class CompilerInstance {
         }
 
         if self_->_g_scope != &null {
-            self_->_g_scope->drain_sinks_for_ice(unsafe (self_->_diag as unsafe *DiagEngine))
+            self_->_g_scope->drain_sinks_for_ice(
+                unsafe (self_->_diag as unsafe *DiagEngine),
+            )
         }
 
         self_->_diag->flush_consumers_for_ice()
@@ -843,7 +870,11 @@ pub class CompilerInstance {
     priv fn _add_root(self, @inout rb: ImportResolver::Builder, const spec: string) {
         var pos = kairo::std::to_std_string(spec).find(('=' as u8) as c_char)
         if pos != usize::MAX && !Path(spec).is_directory() {
-            var name = string(unsafe ((spec.raw() as unsafe *const u8) as *const u8), pos)
+            var name = string(
+                unsafe ((spec.raw() as unsafe *const u8) as *const u8),
+                pos,
+            )
+
             var dir = string(
                 unsafe (((spec.raw() as unsafe *const u8) + pos + 1) as *const u8),
                 spec.size() - pos - 1,
@@ -1005,7 +1036,9 @@ pub class CompilerInstance {
             // USE by whichever pass needs one, never here.
             var broot = self.invocation()->pp.builtins_dir
             if broot.empty() && !self.invocation()->target.resource_dir.empty() {
-                broot = (Path(self.invocation()->target.resource_dir) / ResourceLayout::builtin_subdir()).full_path()
+                broot = (Path(
+                    self.invocation()->target.resource_dir,
+                ) / ResourceLayout::builtin_subdir()).full_path()
             }
 
             if !broot.empty() {
@@ -1025,11 +1058,17 @@ pub class CompilerInstance {
             if !self.invocation()->pp.no_stdlib {
                 var sroot = self.invocation()->pp.std_dir
                 if sroot.empty() && !self.invocation()->target.resource_dir.empty() {
-                    sroot = (Path(self.invocation()->target.resource_dir) / ResourceLayout::std_subdir()).full_path()
+                    sroot = (Path(
+                        self.invocation()->target.resource_dir,
+                    ) / ResourceLayout::std_subdir()).full_path()
                 }
 
                 if !sroot.empty() {
-                    rb.add_include(Path(sroot), std_root_name(), std_root_spelling())
+                    rb.add_include(
+                        Path(sroot),
+                        std_root_name(),
+                        std_root_spelling(),
+                    )
                 }
             }
 
@@ -1121,7 +1160,7 @@ pub class CompilerInstance {
             self.invocation()->target.isize_is_fixed,
         )
 
-        self._g_scope->types()->pack_order     = unsafe (self._ptids as unsafe *PackSetOrder)
+        self._g_scope->types()->pack_order = unsafe (self._ptids as unsafe *PackSetOrder)
         self._g_scope->instances()->pack_order = unsafe (self._ptids as unsafe *PackSetOrder)
     }
 
@@ -1176,8 +1215,13 @@ pub class CompilerInstance {
             return "objects go to a temporary directory"
         }
 
-        if self.emits_beside_link() || fe->emit_asm || fe->emit_llvm_ir || fe->emit_llvm_bc
-            || fe->print_cg || fe->print_ir || fe->force_recompile {
+        if self.emits_beside_link()
+            || fe->emit_asm
+            || fe->emit_llvm_ir
+            || fe->emit_llvm_bc
+            || fe->print_cg
+            || fe->print_ir
+            || fe->force_recompile {
             return "an output other than objects"
         }
 
@@ -1222,14 +1266,23 @@ pub class CompilerInstance {
 
         var input = ""
         for *k in (*order) {
-            if k->cls != InputClass::LinkInput && k->cls != InputClass::Source && k->cls != InputClass::Header {
+            if k->cls != InputClass::LinkInput
+                && k->cls != InputClass::Source
+                && k->cls != InputClass::Header {
                 input = Path(k->path).full_path()
             }
         }
 
         var why = self._incr_ineligible(order)
         if why.empty()
-            && !self.incr.setup(self.invocation()->linker.cache_dir, self.incr_words, input, self._link_out, format, color) {
+            && !self.incr.setup(
+                self.invocation()->linker.cache_dir,
+                self.incr_words,
+                input,
+                self._link_out,
+                format,
+                color,
+            ) {
             why = "no --cache-dir"
         }
 
@@ -1245,7 +1298,7 @@ pub class CompilerInstance {
         // Only what the loop delivers is recorded: a diagnostic reported
         // before it (a flag warning, the library build) is reported live on
         // a hit run too.
-        self.incr.diag0  = if (basic) => (self._basic->count()) else => self._pretty->count()
+        self.incr.diag0 = if (basic) => (self._basic->count()) else => self._pretty->count()
         self.incr.warns0 = self._diag->warn_count()
         var hit = self.incr.check()
         if self.incr.print_status && !(hit && self.incr.verify) {
@@ -1317,7 +1370,9 @@ pub class CompilerInstance {
         var *now = &self.incr.mod_plan
         if now->empty() {
             if show {
-                io::println("incremental: plan: none (the run stopped before Sema)")
+                io::println(
+                    "incremental: plan: none (the run stopped before Sema)",
+                )
             }
 
             return true
@@ -1356,7 +1411,9 @@ pub class CompilerInstance {
 
         if !all.empty() {
             if show {
-                io::println(f"incremental: plan: re-check all {now->size()} modules ({all})")
+                io::println(
+                    f"incremental: plan: re-check all {now->size()} modules ({all})",
+                )
             }
 
             return true
@@ -1365,7 +1422,10 @@ pub class CompilerInstance {
         var plan = IncrPlan()
         incr_plan(&old, now, &edited, &self.incr.changed, &plan)
         if show {
-            io::println(f"incremental: plan: re-check {plan.mods.size()} of {now->size()} modules")
+            io::println(
+                f"incremental: plan: re-check {plan.mods.size()} of {now->size()} modules",
+            )
+
             var lines = cxx::std::vector<string>()
             for var i: usize = 0; i < plan.mods.size(); ++i {
                 lines.push_back(plan.mods[i] + ": " + plan.why[i])
@@ -1385,14 +1445,18 @@ pub class CompilerInstance {
         var holes = incr_plan_verify(&old, now, &plan, &first)
         if holes == 0 {
             if show {
-                io::println(f"incremental: plan: verified, {now->size() - plan.mods.size()} modules as recorded")
+                io::println(
+                    f"incremental: plan: verified, {now->size() - plan.mods.size()} modules as recorded",
+                )
             }
 
             return true
         }
 
         if show {
-            io::println(f"incremental: plan: verify FAILED: {first} ({holes} in all)")
+            io::println(
+                f"incremental: plan: verify FAILED: {first} ({holes} in all)",
+            )
         }
 
         self._diag->report(
@@ -1410,13 +1474,14 @@ pub class CompilerInstance {
             return
         }
 
-        var basic  = renders_through_basic(self.invocation()->diag.error_format)
-        var n1     = if (basic) => (self._basic->count()) else => self._pretty->count()
-        var text   = if (basic) => (self._basic->render_range(self.incr.diag0, n1)) else => self._pretty->render_range(self.incr.diag0, n1)
-        var warns  = self._diag->warn_count() - self.incr.warns0
-        var objs   = cxx::std::vector<string>()
-        var pth    = false
-        var done   = true
+        var basic = renders_through_basic(self.invocation()->diag.error_format)
+        var n1 = if (basic) => (self._basic->count()) else => self._pretty->count()
+        var text = if (basic) => (self._basic->render_range(self.incr.diag0, n1))
+                   else => self._pretty->render_range(self.incr.diag0, n1)
+        var warns = self._diag->warn_count() - self.incr.warns0
+        var objs  = cxx::std::vector<string>()
+        var pth   = false
+        var done  = true
         for *tr in result->tu_results {
             for *o in tr->objects {
                 objs.push_back(*o)
@@ -1497,7 +1562,9 @@ pub class CompilerInstance {
             var h    = ""
             var buf? = self._sm->get_buffer(fid as u32)
             if buf != null && buf.is_valid() {
-                h = kairo::std::from_std_string<string>(kairo::objcache_hash128_bytes(buf.data(), buf.size()))
+                h = kairo::std::from_std_string<string>(
+                    kairo::objcache_hash128_bytes(buf.data(), buf.size()),
+                )
             }
 
             self.incr.src_files.push_back(name)
@@ -1516,7 +1583,9 @@ pub class CompilerInstance {
     fn execute(self) -> BatchResult {
         eval if defined!(DEBUG) {
             if !(self._imp != &null) {
-                kairo::std::ice_fail(r"initialize() must be called before execute()")
+                kairo::std::ice_fail(
+                    r"initialize() must be called before execute()",
+                )
             }
         }
 
@@ -1560,7 +1629,9 @@ pub class CompilerInstance {
 
         // Before the library: its objects are cached by this bit too.
         self._settle_global_allocator()
-        if !self._link_out.empty() && self.invocation()->linker.kairo_lib && self._link_has_kairo() {
+        if !self._link_out.empty()
+            && self.invocation()->linker.kairo_lib
+            && self._link_has_kairo() {
             if !self._kairo_lib() {
                 result.aborted = true
                 return result

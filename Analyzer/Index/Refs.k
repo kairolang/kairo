@@ -12,19 +12,18 @@
 /// ------------------------------------------------------------------------ ///
 
 
-import Index::Snapshot::*
-import Protocol::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::AttrFacts::AttrFacts
 import AST::Context::ASTContext::ASTContext
-import AST::Context::ImportOverlay::{
-    ImportOverlay,
-    OverlayVisibility,
-}
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
+}
+import AST::Context::ImportOverlay::{
+    ImportOverlay,
+    OverlayVisibility,
 }
 import AST::Context::SymbolTable::{
     DeclName,
@@ -32,14 +31,14 @@ import AST::Context::SymbolTable::{
     SymbolTable,
 }
 import AST::Context::TranslationUnit::TranslationUnit
-import AST::AttrFacts::AttrFacts
 import AST::DeclFacts::{
     decl_extension_of,
     decl_is_ffi,
-    decl_pattern,
     decl_name_tok,
+    decl_pattern,
     decl_requires_clause,
 }
+import AST::LangItems::LangAttrs
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -62,15 +61,26 @@ import AST::Node::PrimaryExpressions::{
 import AST::Node::Program::TopLevelKind
 import AST::Node::Types
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
-import AST::LangItems::LangAttrs
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
+import Index::Bases::*
+import Index::CompletionItems::*
+import Index::Hovers::*
+import Index::Indexer::*
+import Index::Inlays::*
+import Index::Legend::*
+import Index::Macros::*
+import Index::Snapshot::*
+import Index::Tables::*
+import Index::Tokens::*
+import Index::Writer::*
 import Json::JsonWriter
 import Lexer::Immediate::ImmediateTable
 import Lexer::Lexer::Lexer
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Protocol::*
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
     SemaContext,
@@ -79,21 +89,11 @@ import Sema::SemaContext::{
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
-import Token::TokenText::TokenText
 import Token::TokenKind::{
     TokenKind,
     is_keyword,
 }
-import Index::Bases::*
-import Index::CompletionItems::*
-import Index::Hovers::*
-import Index::Indexer::*
-import Index::Inlays::*
-import Index::Legend::*
-import Index::Macros::*
-import Index::Tables::*
-import Index::Tokens::*
-import Index::Writer::*
+import Token::TokenText::TokenText
 
 extend IndexWalker {
     /// The type a constructor constructs, or null when \p d is not one. A
@@ -104,7 +104,9 @@ extend IndexWalker {
         }
 
         var unsafe *f = cast<Declarations::FunctionDecl>(d)
-        if f->is_operator || (!d->semantic_dc->is_type_scope()) || (!f->name.range.start.is_valid()) {
+        if f->is_operator
+            || (!d->semantic_dc->is_type_scope())
+            || (!f->name.range.start.is_valid()) {
             return &null
         }
 
@@ -250,11 +252,17 @@ extend IndexWalker {
         }
 
         if isa<Types::PointerType>(t) {
-            return self.type_decl_(cast<Types::PointerType>(t)->pointee, depth + 1)
+            return self.type_decl_(
+                cast<Types::PointerType>(t)->pointee,
+                depth + 1,
+            )
         }
 
         if isa<Types::NullableType>(t) {
-            return self.type_decl_(cast<Types::NullableType>(t)->inner, depth + 1)
+            return self.type_decl_(
+                cast<Types::NullableType>(t)->inner,
+                depth + 1,
+            )
         }
 
         if isa<RecordType>(t) {
@@ -287,7 +295,7 @@ extend IndexWalker {
             return
         }
 
-        var mods = self.mods_of_(d) | TM_DECLARATION() | TM_DEFINITION()
+        var mods    = self.mods_of_(d) | TM_DECLARATION() | TM_DEFINITION()
         var is_ctor = self.ctor_owner_(d) != &null
         if is_ctor {
             // Reads as the type it names, marked as a constructor.
@@ -298,8 +306,8 @@ extend IndexWalker {
         self.tok_(off, len, kind, mods)
 
         var r = RefRow{}
-        r.off     = off
-        r.len     = len
+        r.off = off
+        r.len = len
         // A constructor is a USE of the type's name, not its declaration:
         // "references, excluding the declaration" must list it.
         r.is_decl = !is_ctor
@@ -319,7 +327,8 @@ extend IndexWalker {
         var local = true
         if d->semantic_dc != &null {
             var k = d->semantic_dc->dc_kind
-            local = !((k == DeclContextKind::TranslationUnit) || (k == DeclContextKind::Module)
+            local = !((k == DeclContextKind::TranslationUnit)
+                || (k == DeclContextKind::Module)
                 || d->semantic_dc->is_type_scope())
         }
 
@@ -366,7 +375,10 @@ extend IndexWalker {
             return false
         }
 
-        var unsafe *cell = self.sc->tu->import_overlay->lookup_ident(self.ast_()->get_ident_imm(bound))
+        var unsafe *cell = self.sc->tu->import_overlay->lookup_ident(
+            self.ast_()->get_ident_imm(bound),
+        )
+
         if (cell == &null) || (cell->size() == 0) {
             return false
         }
@@ -393,7 +405,8 @@ extend IndexWalker {
 
         var a = lit[0]
         var z = lit[lit.size() - 1]
-        if ((a == ('"' as u8)) && (z == ('"' as u8))) || ((a == ('<' as u8)) && (z == ('>' as u8))) {
+        if ((a == ('"' as u8)) && (z == ('"' as u8)))
+            || ((a == ('<' as u8)) && (z == ('>' as u8))) {
             return lit.subslice(1, lit.size() - 2)
         }
 
@@ -416,12 +429,23 @@ extend IndexWalker {
         var n_seg = im->path_segments.size()
         for var i: usize = 0; i < n_seg; ++i {
             var t = im->path_segments[i]
-            if ((i + 1) == n_seg) && (!im->has_items) && (!im->is_wildcard) && (!im->last_seg_is_macro)
-                && self.import_name_(if (im->has_alias) => (im->alias) else => t, t) {
+            if ((i + 1) == n_seg)
+                && (!im->has_items)
+                && (!im->is_wildcard)
+                && (!im->last_seg_is_macro)
+                && self.import_name_(
+                    if (im->has_alias) => (im->alias) else => t,
+                    t,
+                ) {
                 continue
             }
 
-            self.tok_(self.own_off_(t.range.start), t.range.size() as u32, TT_NAMESPACE(), 0)
+            self.tok_(
+                self.own_off_(t.range.start),
+                t.range.size() as u32,
+                TT_NAMESPACE(),
+                0,
+            )
         }
 
         // `import a::b::{X, sub::Y as Z}`: the leading words of an item are
@@ -436,12 +460,25 @@ extend IndexWalker {
             var last = it.sub_path[it.sub_path.size() - 1]
             for var k: usize = 0; (k + 1) < it.sub_path.size(); ++k {
                 var t = it.sub_path[k]
-                self.tok_(self.own_off_(t.range.start), t.range.size() as u32, TT_NAMESPACE(), 0)
+                self.tok_(
+                    self.own_off_(t.range.start),
+                    t.range.size() as u32,
+                    TT_NAMESPACE(),
+                    0,
+                )
             }
 
-            if !self.import_name_(if (it.has_alias) => (it.alias) else => last, last) {
+            if !self.import_name_(
+                if (it.has_alias) => (it.alias) else => last,
+                last,
+            ) {
                 // A module brought in by name (`io::{fs}`).
-                self.tok_(self.own_off_(last.range.start), last.range.size() as u32, TT_NAMESPACE(), 0)
+                self.tok_(
+                    self.own_off_(last.range.start),
+                    last.range.size() as u32,
+                    TT_NAMESPACE(),
+                    0,
+                )
             }
         }
 
@@ -455,11 +492,14 @@ extend IndexWalker {
         // spelling, or the link would open the wrong file.
         if im->has_ffi_linkage() {
             if (im->resolved_fid != 0) && (im->resolved_fid != u32::MAX) {
-                var hoff   = self.own_off_(im->header.range.start)
-                var hlen   = im->header.range.size() as u32
-                var hdr    = self.unquote_(self.ast_()->get_spelling(im->header))
+                var hoff = self.own_off_(im->header.range.start)
+                var hlen = im->header.range.size() as u32
+                var hdr = self.unquote_(self.ast_()->get_spelling(im->header))
                 var target = self.sm->get_filename(im->resolved_fid)
-                if (hoff != u32::MAX) && (hlen > 0) && (!hdr.empty()) && target.ends_with("/" + hdr) {
+                if (hoff != u32::MAX)
+                    && (hlen > 0)
+                    && (!hdr.empty())
+                    && target.ends_with("/" + hdr) {
                     var row = LinkRow{}
                     row.off    = hoff
                     row.len    = hlen
@@ -472,11 +512,13 @@ extend IndexWalker {
         }
 
         // The path is a link to the file it resolved to.
-        if (im->import_kind == Declarations::ImportKind::Native) && (im->path_segments.size() > 0)
-            && (im->resolved_fid != 0) && (im->resolved_fid != u32::MAX) {
+        if (im->import_kind == Declarations::ImportKind::Native)
+            && (im->path_segments.size() > 0)
+            && (im->resolved_fid != 0)
+            && (im->resolved_fid != u32::MAX) {
             var first = im->path_segments[0].range.start
-            var last  = im->path_segments[im->path_segments.size() - 1].range.end
-            var off   = self.own_off_(first)
+            var last = im->path_segments[im->path_segments.size() - 1].range.end
+            var off    = self.own_off_(first)
             var target = self.sm->get_filename(im->resolved_fid)
             if (off != u32::MAX) && (!target.empty()) && (last.raw() > first.raw()) {
                 var row = LinkRow{}
@@ -506,7 +548,10 @@ extend IndexWalker {
             return false
         }
 
-        var unsafe *cell = d->semantic_dc->dc_symbols->lookup(DeclName::ident(ctx->get_ident_imm(f->name)))
+        var unsafe *cell = d->semantic_dc->dc_symbols->lookup(
+            DeclName::ident(ctx->get_ident_imm(f->name)),
+        )
+
         if cell == &null {
             return false
         }
@@ -520,8 +565,8 @@ extend IndexWalker {
             return
         }
 
-        var unsafe *f = cast<Declarations::FunctionDecl>(d)
-        var m: u32 = 0
+        var unsafe *f     = cast<Declarations::FunctionDecl>(d)
+        var        m: u32 = 0
         if f->where_lead != &null {
             m = m | TM_DISPATCHED()
         }
@@ -595,8 +640,8 @@ extend IndexWalker {
             return
         }
 
-        var unsafe *f = cast<Declarations::FunctionDecl>(d)
-        var skip: usize = 0
+        var unsafe *f          = cast<Declarations::FunctionDecl>(d)
+        var        skip: usize = 0
         if (f->params.size() > 0) && f->params[0]->is_self {
             skip = 1
         }
@@ -613,12 +658,17 @@ extend IndexWalker {
             }
 
             var hit = u->is_mode_marker
-            var pi = i + skip
-            if (!hit) && (pi < f->params.size()) && (u->operand != &null) && isa<NamedIdentExpr>(u->operand) {
+            var pi  = i + skip
+            if (!hit)
+                && (pi < f->params.size())
+                && (u->operand != &null)
+                && isa<NamedIdentExpr>(u->operand) {
                 var unsafe *pt = f->params[pi]->type_
                 var unsafe *v  = cast<NamedIdentExpr>(u->operand)->resolved_decl
-                hit = (pt != &null) && isa<Types::PointerType>(pt) && (v != &null)
-                   && ((self.mods_of_(v) & TM_MUTABLE()) != 0)
+                hit = (pt != &null)
+                    && isa<Types::PointerType>(pt)
+                    && (v != &null)
+                    && ((self.mods_of_(v) & TM_MUTABLE()) != 0)
             }
 
             if hit {
@@ -647,7 +697,8 @@ extend IndexWalker {
             m = TM_EXTENSION()
         }
 
-        if isa<Declarations::FunctionDecl>(d) && (cast<Declarations::FunctionDecl>(d)->where_lead != &null) {
+        if isa<Declarations::FunctionDecl>(d)
+            && (cast<Declarations::FunctionDecl>(d)->where_lead != &null) {
             m = m | TM_DISPATCHED()
         }
 
@@ -697,7 +748,9 @@ extend IndexWalker {
                 }
 
                 var d: unsafe *Decl = e->targets[k].decl
-                if (d == &null) && (e->targets[k].cell != &null) && (e->targets[k].cell->size() > 0) {
+                if (d == &null)
+                    && (e->targets[k].cell != &null)
+                    && (e->targets[k].cell->size() > 0) {
                     d = e->targets[k].cell->get(0)
                 }
 

@@ -53,11 +53,11 @@ import AST::Node::Types::{
     TypeExpr,
 }
 import Diagnostic::Code::DiagCode
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::{
     declared_here,
     named_declared_here,
 }
+import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
@@ -209,9 +209,11 @@ pub class GenericArgs {
                       else => f"'{nm}' is a type parameter; it takes a type, not a value"
             var b = self.sc->diag->report(DiagID::R060E, at.start, msg)
             b.first(at)
-            b.note(DiagCode(DiagID::R060N), gp->range.start, named_declared_here(nm))->child_first(
-                gp->range,
-            )
+            b.note(
+                DiagCode(DiagID::R060N),
+                gp->range.start,
+                named_declared_here(nm),
+            )->child_first(gp->range)
 
             b.emit()
         }
@@ -303,7 +305,12 @@ pub class GenericArgs {
                 && stand_in
                 && a->ty != &null
                 && (a->ty->is_dependent() || a->ty->is_instantiation_dependent()) {
-                cty = self.sc->types->generic_param(primary, gps[target]->index, false)
+                cty = self.sc->types->generic_param(
+                    primary,
+                    gps[target]->index,
+                    false,
+                )
+
                 self.inst_dependent = true
             }
 
@@ -392,7 +399,10 @@ pub class GenericArgs {
                     // later param, or has no canonical): stand in with the
                     // param itself, instantiation-dependent.
                     self.inst_dependent = true
-                    out->push_back(self.sc->types->generic_param(primary, gp->index, false))
+                    out->push_back(
+                        self.sc->types->generic_param(primary, gp->index, false),
+                    )
+
                     continue
                 }
 

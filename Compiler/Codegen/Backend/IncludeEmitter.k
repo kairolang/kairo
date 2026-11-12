@@ -80,9 +80,9 @@ import Support::FlagSet::FlagSet
 ///        scopes are the exception, built per plan; they are keyed by their
 ///        spelled name, which Pipeline.md invariant 24 makes the same text everywhere.
 pub class IncludedDecls {
-    pub var written:       FlagSet<HelperBlock, u16>     ///< InterfaceEmitter::written
-    pub var tid_seen:      cxx::std::vector<u64>         ///< InterfaceEmitter::tid_seen
-    pub var estr_seen:     cxx::std::vector<u64>         ///< InterfaceEmitter::estr_seen
+    pub var written:   FlagSet<HelperBlock, u16> ///< InterfaceEmitter::written
+    pub var tid_seen:  cxx::std::vector<u64>     ///< InterfaceEmitter::tid_seen
+    pub var estr_seen: cxx::std::vector<u64>     ///< InterfaceEmitter::estr_seen
     /// A decl or instance with its tier in the low bits (nodes are 8-aligned):
     /// `class X;` is not `class X { ... };`, and a Fwd entry must not keep
     /// a later include from defining X.
@@ -319,7 +319,11 @@ pub class IncludeEmitter {
         }
 
         var name = fe->getName()
-        var host = string(unsafe ((name.data() as unsafe *const u8) as *const u8), name.size())
+        var host = string(
+            unsafe ((name.data() as unsafe *const u8) as *const u8),
+            name.size(),
+        )
+
         return module_dir_of_path(host) == dir
     }
 
@@ -393,8 +397,8 @@ pub class IncludeEmitter {
             if (program) => (PlanMode::Preamble) else => PlanMode::Include,
         )
 
-        var unsafe *cgp   = unsafe &cg_own
-        var unsafe *plan  = unsafe &plan_own
+        var unsafe *cgp  = unsafe &cg_own
+        var unsafe *plan = unsafe &plan_own
         var        lease = PlanLease(pre, sink, ctx)
         if pre != &null {
             cgp  = pre->cg()
@@ -513,7 +517,10 @@ pub class IncludeEmitter {
             }
 
             for var i: usize = 0; i < bodies.size(); ++i {
-                _add_set(CXXSpell::tu_of(unsafe (bodies[i] as unsafe *Decl)), &sets)
+                _add_set(
+                    CXXSpell::tu_of(unsafe (bodies[i] as unsafe *Decl)),
+                    &sets,
+                )
             }
 
             for var i: usize = 0; i < sets.size(); ++i {

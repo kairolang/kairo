@@ -35,7 +35,9 @@ pub class Transport {
     priv var head_: usize  = 0  ///< bytes of buf_ already consumed
 
     fn Transport(self) {
-        unsafe { kals_stdio_binary() }
+        unsafe {
+            kals_stdio_binary()
+        }
     }
 
     /// True when a complete message is buffered (take() will return it).
@@ -58,7 +60,7 @@ pub class Transport {
         }
 
         var chunk: [u8; 65536]
-        var got: i64 = unsafe kals_stdin_read(unsafe &chunk[0], 65536)
+        var got:   i64         = unsafe kals_stdin_read(unsafe &chunk[0], 65536)
         if got <= 0 {
             self.closed = true
             return false
@@ -67,7 +69,11 @@ pub class Transport {
         // Compact before appending: without it the buffer keeps every message
         // of the session, and a long one is megabytes of consumed bytes.
         if self.head_ > 0 {
-            self.buf_  = self.buf_.subslice(self.head_, self.buf_.size() - self.head_)
+            self.buf_ = self.buf_.subslice(
+                self.head_,
+                self.buf_.size() - self.head_,
+            )
+
             self.head_ = 0
         }
 
@@ -81,7 +87,12 @@ pub class Transport {
     priv fn pump_(self) -> bool {
         var chunk: [u8; 65536]
         while true {
-            var got: i64 = unsafe kals_fd_read(self.fd_in, unsafe &chunk[0], 65536)
+            var got: i64 = unsafe kals_fd_read(
+                self.fd_in,
+                unsafe &chunk[0],
+                65536,
+            )
+
             if got == -2 {
                 break
             }
@@ -92,7 +103,11 @@ pub class Transport {
             }
 
             if self.head_ > 0 {
-                self.buf_  = self.buf_.subslice(self.head_, self.buf_.size() - self.head_)
+                self.buf_ = self.buf_.subslice(
+                    self.head_,
+                    self.buf_.size() - self.head_,
+                )
+
                 self.head_ = 0
             }
 
@@ -122,9 +137,16 @@ pub class Transport {
         while off < msg.size() {
             var w: i64 = 0
             if self.fd_out >= 0 {
-                w = unsafe kals_fd_write(self.fd_out, unsafe &msg.raw()[off], (msg.size() - off) as u64)
+                w = unsafe kals_fd_write(
+                    self.fd_out,
+                    unsafe &msg.raw()[off],
+                    (msg.size() - off) as u64,
+                )
             } else {
-                w = unsafe kals_stdout_write(unsafe &msg.raw()[off], (msg.size() - off) as u64)
+                w = unsafe kals_stdout_write(
+                    unsafe &msg.raw()[off],
+                    (msg.size() - off) as u64,
+                )
             }
 
             if w <= 0 {
@@ -141,7 +163,10 @@ pub class Transport {
     priv fn body_start_(const self) -> usize {
         var i = self.head_
         while (i + 3) < self.buf_.size() {
-            if (self.buf_[i] == ('\r' as u8)) && (self.buf_[i + 1] == ('\n' as u8)) && (self.buf_[i + 2] == ('\r' as u8)) && (self.buf_[i + 3] == ('\n' as u8)) {
+            if (self.buf_[i] == ('\r' as u8))
+                && (self.buf_[i + 1] == ('\n' as u8))
+                && (self.buf_[i + 2] == ('\r' as u8))
+                && (self.buf_[i + 3] == ('\n' as u8)) {
                 return i + 4
             }
 
@@ -161,9 +186,9 @@ pub class Transport {
 
         // Headers are ASCII lines; Content-Length is the only one that
         // matters (Content-Type is optional and always utf-8).
-        var name = "content-length:"
+        var name       = "content-length:"
         var len: usize = usize::MAX
-        var i = self.head_
+        var i          = self.head_
         while i < start {
             var m: usize = 0
             while (m < name.size()) && ((i + m) < start) {
@@ -186,7 +211,9 @@ pub class Transport {
                 }
 
                 var v: usize = 0
-                while (j < start) && (self.buf_[j] >= ('0' as u8)) && (self.buf_[j] <= ('9' as u8)) {
+                while (j < start)
+                    && (self.buf_[j] >= ('0' as u8))
+                    && (self.buf_[j] <= ('9' as u8)) {
                     v = (v * 10) + ((self.buf_[j] - 48) as usize)
                     j += 1
                 }

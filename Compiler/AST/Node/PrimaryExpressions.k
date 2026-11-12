@@ -109,8 +109,8 @@ pub class NamedIdentExpr derives Expr {
                          range: SourceRange,
                          name:  Token) -> unsafe *NamedIdentExpr {
         var unsafe *node = ctx->alloc<NamedIdentExpr>()
-        node->kind          = ExprKind::NamedIdentExpr
-        node->range         = range
+        node->kind  = ExprKind::NamedIdentExpr
+        node->range = range
         // A keyword from a macro body (`i32`, `bool`, `Self`) arrives as
         // TkMacroExpand, and its readers key by KIND: TypeResolve's
         // builtin_for_token found no `i32` in `fn get() -> i32` written in
@@ -463,7 +463,9 @@ pub class IntegerLiteralExpr derives Expr {
     fn get_body_range(self) -> SourceRange {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::get_body_range: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::get_body_range: imm pointer is null",
+                )
             }
         }
 
@@ -473,7 +475,9 @@ pub class IntegerLiteralExpr derives Expr {
     fn get_prefix_range(self) -> SourceRange {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::get_prefix_range: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::get_prefix_range: imm pointer is null",
+                )
             }
         }
 
@@ -483,7 +487,9 @@ pub class IntegerLiteralExpr derives Expr {
     fn get_suffix_range(self) -> SourceRange {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::get_suffix_range: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::get_suffix_range: imm pointer is null",
+                )
             }
         }
 
@@ -493,7 +499,9 @@ pub class IntegerLiteralExpr derives Expr {
     fn get_body_text(self) -> string {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::get_body_text: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::get_body_text: imm pointer is null",
+                )
             }
         }
 
@@ -503,7 +511,9 @@ pub class IntegerLiteralExpr derives Expr {
     fn get_prefix_text(self) -> string {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::get_prefix_text: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::get_prefix_text: imm pointer is null",
+                )
             }
         }
 
@@ -513,7 +523,9 @@ pub class IntegerLiteralExpr derives Expr {
     pub fn get_suffix_text(self) -> string {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::get_suffix_text: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::get_suffix_text: imm pointer is null",
+                )
             }
         }
 
@@ -523,7 +535,9 @@ pub class IntegerLiteralExpr derives Expr {
     pub fn get_value_lo(self) -> u64 {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::get_value_lo: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::get_value_lo: imm pointer is null",
+                )
             }
         }
 
@@ -533,7 +547,9 @@ pub class IntegerLiteralExpr derives Expr {
     pub fn get_value_hi(self) -> u64 {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::get_value_hi: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::get_value_hi: imm pointer is null",
+                )
             }
         }
 
@@ -543,7 +559,9 @@ pub class IntegerLiteralExpr derives Expr {
     fn get_big(self) -> unsafe *ImmBigInt {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::get_big: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::get_big: imm pointer is null",
+                )
             }
         }
 
@@ -553,7 +571,9 @@ pub class IntegerLiteralExpr derives Expr {
     pub fn get_bits(self) -> u16 {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::get_bits: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::get_bits: imm pointer is null",
+                )
             }
         }
 
@@ -563,7 +583,9 @@ pub class IntegerLiteralExpr derives Expr {
     fn get_base(self) -> u8 {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::get_base: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::get_base: imm pointer is null",
+                )
             }
         }
 
@@ -573,7 +595,9 @@ pub class IntegerLiteralExpr derives Expr {
     pub fn is_unsigned(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::is_unsigned: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::is_unsigned: imm pointer is null",
+                )
             }
         }
 
@@ -583,7 +607,9 @@ pub class IntegerLiteralExpr derives Expr {
     pub fn is_negative(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::is_negative: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::is_negative: imm pointer is null",
+                )
             }
         }
 
@@ -593,7 +619,9 @@ pub class IntegerLiteralExpr derives Expr {
     pub fn is_big(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::is_big: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::is_big: imm pointer is null",
+                )
             }
         }
 
@@ -619,7 +647,9 @@ pub class IntegerLiteralExpr derives Expr {
     pub fn has_suffix(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::has_suffix: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::has_suffix: imm pointer is null",
+                )
             }
         }
 
@@ -631,7 +661,9 @@ pub class IntegerLiteralExpr derives Expr {
     pub fn is_pointer_sized(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::is_pointer_sized: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::is_pointer_sized: imm pointer is null",
+                )
             }
         }
 
@@ -641,7 +673,9 @@ pub class IntegerLiteralExpr derives Expr {
     fn has_prefix(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"IntegerLiteralExpr::has_prefix: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"IntegerLiteralExpr::has_prefix: imm pointer is null",
+                )
             }
         }
 
@@ -714,7 +748,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn get_body_range(self) -> SourceRange {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::get_body_range: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::get_body_range: imm pointer is null",
+                )
             }
         }
 
@@ -724,7 +760,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn get_prefix_range(self) -> SourceRange {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::get_prefix_range: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::get_prefix_range: imm pointer is null",
+                )
             }
         }
 
@@ -734,7 +772,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn get_suffix_range(self) -> SourceRange {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::get_suffix_range: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::get_suffix_range: imm pointer is null",
+                )
             }
         }
 
@@ -744,7 +784,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn get_body_text(self) -> string {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::get_body_text: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::get_body_text: imm pointer is null",
+                )
             }
         }
 
@@ -754,7 +796,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn get_prefix_text(self) -> string {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::get_prefix_text: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::get_prefix_text: imm pointer is null",
+                )
             }
         }
 
@@ -764,7 +808,9 @@ pub class FloatingLiteralExpr derives Expr {
     pub fn get_suffix_text(self) -> string {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::get_suffix_text: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::get_suffix_text: imm pointer is null",
+                )
             }
         }
 
@@ -778,7 +824,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn get_bits(self) -> u32 {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::get_bits: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::get_bits: imm pointer is null",
+                )
             }
         }
 
@@ -788,7 +836,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn get_base(self) -> u8 {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::get_base: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::get_base: imm pointer is null",
+                )
             }
         }
 
@@ -801,7 +851,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn get_value_ieee(self) -> f64 {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::get_value_ieee: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::get_value_ieee: imm pointer is null",
+                )
             }
         }
 
@@ -811,7 +863,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn get_big_float(self) -> unsafe *ImmBigFloat {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::get_big_float: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::get_big_float: imm pointer is null",
+                )
             }
         }
 
@@ -821,7 +875,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn is_negative(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::is_negative: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::is_negative: imm pointer is null",
+                )
             }
         }
 
@@ -831,7 +887,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn is_hex(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::is_hex: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::is_hex: imm pointer is null",
+                )
             }
         }
 
@@ -841,7 +899,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn is_big(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::is_big: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::is_big: imm pointer is null",
+                )
             }
         }
 
@@ -851,7 +911,9 @@ pub class FloatingLiteralExpr derives Expr {
     fn has_exponent(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::has_exponent: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::has_exponent: imm pointer is null",
+                )
             }
         }
 
@@ -861,7 +923,9 @@ pub class FloatingLiteralExpr derives Expr {
     pub fn has_suffix(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"FloatingLiteralExpr::has_suffix: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"FloatingLiteralExpr::has_suffix: imm pointer is null",
+                )
             }
         }
 
@@ -994,7 +1058,9 @@ pub class StringLiteralExpr derives Expr {
     fn get_body_range(self) -> SourceRange {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"StringLiteralExpr::get_body_range: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"StringLiteralExpr::get_body_range: imm pointer is null",
+                )
             }
         }
 
@@ -1004,7 +1070,9 @@ pub class StringLiteralExpr derives Expr {
     fn get_body_text(self) -> string {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"StringLiteralExpr::get_body_text: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"StringLiteralExpr::get_body_text: imm pointer is null",
+                )
             }
         }
 
@@ -1014,7 +1082,9 @@ pub class StringLiteralExpr derives Expr {
     fn get_prefix(self) -> Token {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"StringLiteralExpr::get_prefix: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"StringLiteralExpr::get_prefix: imm pointer is null",
+                )
             }
         }
 
@@ -1024,7 +1094,9 @@ pub class StringLiteralExpr derives Expr {
     pub fn get_suffix(self) -> Token {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"StringLiteralExpr::get_suffix: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"StringLiteralExpr::get_suffix: imm pointer is null",
+                )
             }
         }
 
@@ -1034,7 +1106,9 @@ pub class StringLiteralExpr derives Expr {
     fn get_prefix_kind(self) -> FlagSet<Immediate::TextPrefixKind, u8> {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"StringLiteralExpr::get_prefix_kind: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"StringLiteralExpr::get_prefix_kind: imm pointer is null",
+                )
             }
         }
 
@@ -1044,7 +1118,9 @@ pub class StringLiteralExpr derives Expr {
     fn get_next(self) -> u32 {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"StringLiteralExpr::get_next: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"StringLiteralExpr::get_next: imm pointer is null",
+                )
             }
         }
 
@@ -1054,7 +1130,9 @@ pub class StringLiteralExpr derives Expr {
     pub fn has_next(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"StringLiteralExpr::has_next: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"StringLiteralExpr::has_next: imm pointer is null",
+                )
             }
         }
 
@@ -1064,7 +1142,9 @@ pub class StringLiteralExpr derives Expr {
     fn has_interpolation(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"StringLiteralExpr::has_interpolation: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"StringLiteralExpr::has_interpolation: imm pointer is null",
+                )
             }
         }
 
@@ -1074,7 +1154,9 @@ pub class StringLiteralExpr derives Expr {
     fn get_exprs(self) -> unsafe *llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4> {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"StringLiteralExpr::get_exprs: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"StringLiteralExpr::get_exprs: imm pointer is null",
+                )
             }
         }
 
@@ -1085,7 +1167,9 @@ pub class StringLiteralExpr derives Expr {
     pub fn get_holes(self) -> unsafe *llvm::SmallVector<Immediate::HoleSpec, 4> {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"StringLiteralExpr::get_holes: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"StringLiteralExpr::get_holes: imm pointer is null",
+                )
             }
         }
 
@@ -1095,7 +1179,9 @@ pub class StringLiteralExpr derives Expr {
     fn interpolation_count(self) -> usize {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"StringLiteralExpr::interpolation_count: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"StringLiteralExpr::interpolation_count: imm pointer is null",
+                )
             }
         }
 
@@ -1139,7 +1225,7 @@ pub class StringLiteralExpr derives Expr {
     /// The segment holding hole \p i of the whole chain; null past the last
     /// hole. hole_index gives the hole's index within it.
     pub fn hole_segment(self, i: usize) -> unsafe *Immediate::StringData {
-        var        k   = i
+        var        k    = i
         var unsafe *seg = self.imm
         while seg != &null {
             var n = seg->exprs.size()
@@ -1147,7 +1233,7 @@ pub class StringLiteralExpr derives Expr {
                 return seg
             }
 
-            k = k - n
+            k   = k - n
             seg = self.next_segment(seg)
         }
 
@@ -1156,7 +1242,7 @@ pub class StringLiteralExpr derives Expr {
 
     /// Hole \p i's index within its segment (hole_segment).
     pub fn hole_index(self, i: usize) -> usize {
-        var        k   = i
+        var        k    = i
         var unsafe *seg = self.imm
         while seg != &null {
             var n = seg->exprs.size()
@@ -1164,7 +1250,7 @@ pub class StringLiteralExpr derives Expr {
                 return k
             }
 
-            k = k - n
+            k   = k - n
             seg = self.next_segment(seg)
         }
 
@@ -1173,8 +1259,8 @@ pub class StringLiteralExpr derives Expr {
 
     /// Every segment's holes, counted: parallel to parts once parsed.
     pub fn hole_count(self) -> usize {
-        var        n: usize = 0
-        var unsafe *seg     = self.imm
+        var        n:   usize = 0
+        var unsafe *seg       = self.imm
         while seg != &null {
             n += seg->exprs.size()
             seg = self.next_segment(seg)
@@ -1186,7 +1272,7 @@ pub class StringLiteralExpr derives Expr {
     /// Hole \p i's spec and `=` facts, whichever segment it is in.
     pub fn hole_spec(self, i: usize) -> Immediate::HoleSpec {
         var unsafe *seg = self.hole_segment(i)
-        var        k   = self.hole_index(i)
+        var        k    = self.hole_index(i)
         if seg == &null {
             return Immediate::HoleSpec { spec: SourceRange::invalid(), doc: SourceRange::invalid() }
         }
@@ -1249,7 +1335,9 @@ pub class CharacterLiteralExpr derives Expr {
     fn get_body_range(self) -> SourceRange {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"CharacterLiteralExpr::get_body_range: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"CharacterLiteralExpr::get_body_range: imm pointer is null",
+                )
             }
         }
 
@@ -1259,7 +1347,9 @@ pub class CharacterLiteralExpr derives Expr {
     fn get_body_text(self) -> string {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"CharacterLiteralExpr::get_body_text: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"CharacterLiteralExpr::get_body_text: imm pointer is null",
+                )
             }
         }
 
@@ -1269,7 +1359,9 @@ pub class CharacterLiteralExpr derives Expr {
     fn get_prefix(self) -> Token {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"CharacterLiteralExpr::get_prefix: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"CharacterLiteralExpr::get_prefix: imm pointer is null",
+                )
             }
         }
 
@@ -1279,7 +1371,9 @@ pub class CharacterLiteralExpr derives Expr {
     fn get_suffix(self) -> Token {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"CharacterLiteralExpr::get_suffix: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"CharacterLiteralExpr::get_suffix: imm pointer is null",
+                )
             }
         }
 
@@ -1289,7 +1383,9 @@ pub class CharacterLiteralExpr derives Expr {
     fn get_prefix_kind(self) -> FlagSet<Immediate::TextPrefixKind, u8> {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"CharacterLiteralExpr::get_prefix_kind: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"CharacterLiteralExpr::get_prefix_kind: imm pointer is null",
+                )
             }
         }
 
@@ -1299,7 +1395,9 @@ pub class CharacterLiteralExpr derives Expr {
     fn get_next(self) -> u32 {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"CharacterLiteralExpr::get_next: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"CharacterLiteralExpr::get_next: imm pointer is null",
+                )
             }
         }
 
@@ -1309,7 +1407,9 @@ pub class CharacterLiteralExpr derives Expr {
     fn has_next(self) -> bool {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"CharacterLiteralExpr::has_next: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"CharacterLiteralExpr::has_next: imm pointer is null",
+                )
             }
         }
 
@@ -1331,7 +1431,9 @@ pub class CharacterLiteralExpr derives Expr {
     fn get_exprs(self) -> unsafe *llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4> {
         eval if defined!(DEBUG) {
             if !(self.imm != &null) {
-                kairo::std::ice_fail(r"CharacterLiteralExpr::get_exprs: imm pointer is null")
+                kairo::std::ice_fail(
+                    r"CharacterLiteralExpr::get_exprs: imm pointer is null",
+                )
             }
         }
 

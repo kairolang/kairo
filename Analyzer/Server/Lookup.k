@@ -29,27 +29,13 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
@@ -66,6 +52,20 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 /// \class LineShift
 /// \brief one buffer's lines against the text its (older) index was computed
@@ -79,14 +79,14 @@ import Server::Workers::*
 ///          Inactive: no shift is needed (the index is of this text) or none
 ///          is known; every line then maps to itself.
 pub class LineShift {
-    pub var active: bool   = false
-    pub var path:   string = ""          ///< the buffer
-    pub var entry:  usize  = usize::MAX  ///< the entry whose index the old text is
-    pub var changed_at: u64 = 0          ///< the buffer's last change: an index at least this new is of its current text
-    pub var pre:   i64 = 0
-    pub var suf:   i64 = 0
-    pub var old_n: i64 = 0
-    pub var new_n: i64 = 0
+    pub var active:     bool   = false
+    pub var path:       string = "" ///< the buffer
+    pub var entry:      usize  = usize::MAX ///< the entry whose index the old text is
+    pub var changed_at: u64    = 0 ///< the buffer's last change: an index at least this new is of its current text
+    pub var pre:        i64    = 0
+    pub var suf:        i64    = 0
+    pub var old_n:      i64    = 0
+    pub var new_n:      i64    = 0
 
     fn LineShift(self) = default
 
@@ -151,17 +151,23 @@ extend Server {
         }
 
         var *old = &self.entries[ei].idx
-        return self.keeps_old_(ei, doc, old, "unchecked") && self.keeps_old_(ei, doc, old, "partial")
+        return self.keeps_old_(ei, doc, old, "unchecked")
+            && self.keeps_old_(ei, doc, old, "partial")
     }
 
     /// No path of \p doc's list \p key has complete rows in entry \p ei's
     /// index \p old (rows there, and \p old not naming it either).
-    priv fn keeps_old_(self, ei: usize, doc: *const JsonDoc, old: *const JsonDoc, const key: string) -> bool {
+    priv fn keeps_old_(self,
+                       ei:        usize,
+                       doc:       *const JsonDoc,
+                       old:       *const JsonDoc,
+                       const key: string) -> bool {
         var u = doc->first(doc->get(doc->root, key))
         while u != JSON_NONE() {
             var path = doc->str(u)
             if (self.file_node(ei, path) != JSON_NONE())
-                && (!self.in_list_(old, "unchecked", path)) && (!self.in_list_(old, "partial", path)) {
+                && (!self.in_list_(old, "unchecked", path))
+                && (!self.in_list_(old, "partial", path)) {
                 return false
             }
 
@@ -180,7 +186,8 @@ extend Server {
             }
 
             var *s = &self.entries[ei].idx
-            if (s->count(s->get(s->root, SK_UNCHECKED)) > 0) || (s->count(s->get(s->root, SK_PARTIAL)) > 0) {
+            if (s->count(s->get(s->root, SK_UNCHECKED)) > 0)
+                || (s->count(s->get(s->root, SK_PARTIAL)) > 0) {
                 return true
             }
         }
@@ -195,7 +202,8 @@ extend Server {
 
             // Or by a run that indexed the file in part and was not
             // installed over complete rows (index_installs).
-            if self.docs.docs[di].syn.current(self.docs.docs[di].changed_at) && (!self.docs.docs[di].syn.parsed) {
+            if self.docs.docs[di].syn.current(self.docs.docs[di].changed_at)
+                && (!self.docs.docs[di].syn.parsed) {
                 return true
             }
         }
@@ -223,7 +231,7 @@ extend Server {
         }
 
         var *s = &self.entries[ei].idx
-        var f = s->first(s->get(s->root, SK_FILES))
+        var f  = s->first(s->get(s->root, SK_FILES))
         while f != JSON_NONE() {
             if s->get_str(f, SK_PATH) == path {
                 return f
@@ -237,7 +245,7 @@ extend Server {
 
     /// The \p n-th element of array node \p arr.
     fn nth(const self, s: *const JsonDoc, arr: u32, n: i64) -> u32 {
-        var c = s->first(arr)
+        var c      = s->first(arr)
         var k: i64 = 0
         while (c != JSON_NONE()) && (k < n) {
             c = s->next(c)
@@ -262,7 +270,7 @@ extend Server {
         e->ct_hi.clear()
         e->ct_data.clear()
         var *s = &e->idx
-        var f = s->first(s->get(s->root, SK_FILES))
+        var f  = s->first(s->get(s->root, SK_FILES))
         while f != JSON_NONE() {
             e->cf_node.push_back(f)
             e->cf_lo.push_back(e->cr_row.size())
@@ -282,7 +290,7 @@ extend Server {
             e->ct_lo.push_back(e->ct_data.size())
             // `panics` is in every snapshot; it is sent only to a client
             // that asked (initializationOptions.highlightPanics).
-            var t = s->first(s->get(f, SK_TOKENS))
+            var t         = s->first(s->get(f, SK_TOKENS))
             var at: usize = 0
             while t != JSON_NONE() {
                 var v = s->as_int(t)
@@ -318,8 +326,8 @@ extend Server {
         var k = self.cache_slot(ei, f)
         if k != usize::MAX {
             var e: *const Entry = &self.entries[ei]
-            var lo = e->cf_lo[k]
-            var hi = e->cf_hi[k]
+            var lo              = e->cf_lo[k]
+            var hi              = e->cf_hi[k]
             while lo < hi {
                 var mid = (lo + hi) / 2
                 if e->cr_line[mid] < line {
@@ -342,12 +350,14 @@ extend Server {
         }
 
         var s: *const JsonDoc = &self.entries[ei].idx
-        var r = s->first(s->get(f, SK_REFS))
+        var r                 = s->first(s->get(f, SK_REFS))
         while r != JSON_NONE() {
             var a = s->first(r)
             var b = s->next(a)
             var c = s->next(b)
-            if (s->as_int(a) == line) && (s->as_int(b) <= ch) && (ch <= (s->as_int(b) + s->as_int(c))) {
+            if (s->as_int(a) == line)
+                && (s->as_int(b) <= ch)
+                && (ch <= (s->as_int(b) + s->as_int(c))) {
                 return r
             }
 
@@ -363,15 +373,16 @@ extend Server {
     /// for that run, or another entry's run recorded it since).
     fn line_shift(self, ei: usize, di: usize) -> LineShift {
         var sh = LineShift()
-        if self.docs.docs[di].idx_entry.empty() || (self.docs.docs[di].idx_entry != self.entries[ei].entry)
+        if self.docs.docs[di].idx_entry.empty()
+            || (self.docs.docs[di].idx_entry != self.entries[ei].entry)
             || (self.docs.docs[di].idx_rev != self.entries[ei].idx_rev) {
             return sh
         }
 
         self.docs.docs[di].sync()
-        var *doc = &self.docs.docs[di]
-        var on = doc->idx_lines.line_count()
-        var nn = doc->lines.line_count()
+        var *doc       = &self.docs.docs[di]
+        var on         = doc->idx_lines.line_count()
+        var nn         = doc->lines.line_count()
         var pre: usize = 0
         while (pre < on) && (pre < nn) && self.same_line_(di, pre, pre) {
             pre += 1
@@ -380,7 +391,9 @@ extend Server {
         // Never past the prefix: `a` then `a` with one more `a` inserted
         // would otherwise count its lines twice.
         var suf: usize = 0
-        while ((pre + suf) < on) && ((pre + suf) < nn) && self.same_line_(di, on - 1 - suf, nn - 1 - suf) {
+        while ((pre + suf) < on)
+            && ((pre + suf) < nn)
+            && self.same_line_(di, on - 1 - suf, nn - 1 - suf) {
             suf += 1
         }
 
@@ -399,10 +412,10 @@ extend Server {
     /// the same bytes (line terminators aside).
     priv fn same_line_(self, di: usize, a: usize, b: usize) -> bool {
         var *doc = &self.docs.docs[di]
-        var a0 = doc->idx_lines.starts[a]
-        var ae  = doc->idx_lines.line_end(doc->idx_text, a)
-        var bs  = doc->lines.starts[b]
-        var be  = doc->lines.line_end(doc->text, b)
+        var a0   = doc->idx_lines.starts[a]
+        var ae   = doc->idx_lines.line_end(doc->idx_text, a)
+        var bs   = doc->lines.starts[b]
+        var be   = doc->lines.line_end(doc->text, b)
         if (ae - a0) != (be - bs) {
             return false
         }
@@ -437,7 +450,11 @@ extend Server {
 
     /// Line \p line of \p path as \p sh's entry's index has it, as entry \p e's
     /// index has it: -1 when \p e's index has no counterpart of the line.
-    fn shift_across(const self, sh: *const LineShift, e: usize, const path: string, line: i64) -> i64 {
+    fn shift_across(const self,
+                    sh:         *const LineShift,
+                    e:          usize,
+                    const path: string,
+                    line:       i64) -> i64 {
         if (!sh->active) || (path != sh->path) || (e == sh->entry) {
             return line
         }
@@ -502,9 +519,9 @@ extend Server {
                     continue
                 }
 
-                var uri   = self.uri_of(path)
+                var uri    = self.uri_of(path)
                 var opened = false
-                var r = o->first(o->get(of, SK_REFS))
+                var r      = o->first(o->get(of, SK_REFS))
                 while r != JSON_NONE() {
                     var fi = o->as_int(self.nth(o, r, REF_DEF_FILE))
                     var same = (fi >= 0)
@@ -512,11 +529,17 @@ extend Server {
                         && (o->as_int(self.nth(o, r, REF_DEF_CHAR)) == def_ch)
                         && (o->str(self.nth(o, o->get(of, SK_FILES), fi)) == def_path)
                     if same && (with_decl || (o->as_int(self.nth(o, r, REF_IS_DECL)) == 0)) {
-                        var line = self.shift_out(sh, ei, path, o->as_int(self.nth(o, r, REF_LINE)))
-                        var ch   = o->as_int(self.nth(o, r, REF_CHAR))
-                        var len  = o->as_int(self.nth(o, r, REF_LEN))
-                        var key  = f"{path}:{line}:{ch}"
-                        var dup  = line < 0 // no place on the buffer's lines
+                        var line = self.shift_out(
+                            sh,
+                            ei,
+                            path,
+                            o->as_int(self.nth(o, r, REF_LINE)),
+                        )
+
+                        var ch  = o->as_int(self.nth(o, r, REF_CHAR))
+                        var len = o->as_int(self.nth(o, r, REF_LEN))
+                        var key = f"{path}:{line}:{ch}"
+                        var dup = line < 0 // no place on the buffer's lines
                         for var k: usize = 0; k < seen.size(); ++k {
                             if seen[k] == key {
                                 dup = true

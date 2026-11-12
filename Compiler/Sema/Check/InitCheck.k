@@ -115,9 +115,10 @@ pub class FieldReadScan derives RecursiveASTVisitor<FieldReadScan> {
             )
 
             b.first(n->range)
-            b.note(read->range.start, f"'{other}' is declared here, without 'static'")->child_first(
-                read->range,
-            )
+            b.note(
+                read->range.start,
+                f"'{other}' is declared here, without 'static'",
+            )->child_first(read->range)
 
             b.emit()
             return true
@@ -128,7 +129,7 @@ pub class FieldReadScan derives RecursiveASTVisitor<FieldReadScan> {
         }
 
         if read->index < self._field->index {
-            var unsafe *odc   = self._field->semantic_dc
+            var unsafe *odc = self._field->semantic_dc
             var unsafe *owner = if (odc != &null) => (odc->owner_decl()) else => &null
             if owner == &null || decl_generic_params(owner).size() == 0 {
                 return true
@@ -227,7 +228,7 @@ pub class InitCheck derives RecursiveASTVisitor<InitCheck> {
             return true
         }
 
-        var unsafe *odc   = n->semantic_dc
+        var unsafe *odc = n->semantic_dc
         var unsafe *owner = if (odc != &null) => (odc->owner_decl()) else => &null
         if owner != &null && decl_is_instance(owner) {
             return true
@@ -358,7 +359,7 @@ pub class InitCheck derives RecursiveASTVisitor<InitCheck> {
             return
         }
 
-        var unsafe *odc   = f->semantic_dc
+        var unsafe *odc = f->semantic_dc
         var unsafe *owner = if (odc != &null) => (odc->owner_decl()) else => &null
         if owner != &null && decl_is_instance(owner) {
             return
@@ -429,9 +430,9 @@ pub class InitCheck derives RecursiveASTVisitor<InitCheck> {
     /// user-declared constructor, a defaulted or deleted transfer included,
     /// a non-aggregate, and EmitIR has no lowering from the braces to it.
     priv fn _first_ctor(self, d: unsafe *Decl) -> unsafe *FunctionDecl {
-        var        nm       = self._record_name(d)
-        var unsafe *ms      = self._methods(d)
-        var xfer: unsafe *FunctionDecl = &null
+        var        nm                         = self._record_name(d)
+        var unsafe *ms                        = self._methods(d)
+        var        xfer: unsafe *FunctionDecl = &null
         for var i: usize = 0; i < ms->size(); ++i {
             var unsafe *m = (*ms)[i]
             if !self._is_ctor(m, nm) {

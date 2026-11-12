@@ -337,7 +337,7 @@ pub class PanicTypeIds derives PackSetOrder {
 
                 // A raw `unsafe fn` is `::__kairo_raw_fn<R(A...)>` (CXXSpell).
                 var fv = if (f->is_raw) => (LowerTargets::raw_fn()) else => LowerTargets::fn_value()
-                var s  = "::" + fv + "<" + CXXSpell::call_conv_attr(f->call_conv) + r + "("
+                var s = "::" + fv + "<" + CXXSpell::call_conv_attr(f->call_conv) + r + "("
                 for var i: usize = 0; i < f->params.size(); ++i {
                     var p = self.spelling(f->params[i])
                     if p.size() == 0 {
@@ -606,15 +606,19 @@ pub class PanicSets {
             var unsafe *da = self.tu.record_decl(a)
             var unsafe *db = self.tu.record_decl(b)
             if da != &null {
-                bld.note(DiagCode(DiagID::SC223N), da->range.start, f"'{an}' declared here")->child_first(
-                    da->range,
-                )
+                bld.note(
+                    DiagCode(DiagID::SC223N),
+                    da->range.start,
+                    f"'{an}' declared here",
+                )->child_first(da->range)
             }
 
             if db != &null {
-                bld.note(DiagCode(DiagID::SC223N), db->range.start, f"'{bn}' declared here")->child_first(
-                    db->range,
-                )
+                bld.note(
+                    DiagCode(DiagID::SC223N),
+                    db->range.start,
+                    f"'{bn}' declared here",
+                )->child_first(db->range)
             }
 
             bld.emit()

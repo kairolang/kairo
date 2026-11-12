@@ -279,7 +279,7 @@ pub class EmitSink {
             // An emitter's own unanchored span is left alone: ending it here
             // would anchor the rest of it.
             if !attr_open && !self.is_unanchored() {
-                var gnu    = self._is_ident_start(c) && self._attr_word_at(text, i)
+                var gnu = self._is_ident_start(c) && self._attr_word_at(text, i)
                 var square = c == ('[' as u8) && i + 1 < n && text[i + 1] == ('[' as u8)
                 if gnu || square {
                     self.unanchored(true)

@@ -12,18 +12,17 @@
 /// ------------------------------------------------------------------------ ///
 
 
-import Index::Snapshot::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
-import AST::Context::ImportOverlay::{
-    ImportOverlay,
-    OverlayVisibility,
-}
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
+}
+import AST::Context::ImportOverlay::{
+    ImportOverlay,
+    OverlayVisibility,
 }
 import AST::Context::SymbolTable::{
     DeclName,
@@ -61,6 +60,16 @@ import AST::Node::Types
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
+import Index::Bases::*
+import Index::CompletionItems::*
+import Index::Hovers::*
+import Index::Indexer::*
+import Index::Inlays::*
+import Index::Legend::*
+import Index::Refs::*
+import Index::Snapshot::*
+import Index::Tokens::*
+import Index::Writer::*
 import Json::JsonWriter
 import Lexer::Immediate::ImmediateTable
 import Lexer::Lexer::Lexer
@@ -75,20 +84,11 @@ import Sema::SemaContext::{
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
-import Token::TokenText::TokenText
 import Token::TokenKind::{
     TokenKind,
     is_keyword,
 }
-import Index::Bases::*
-import Index::CompletionItems::*
-import Index::Hovers::*
-import Index::Indexer::*
-import Index::Inlays::*
-import Index::Legend::*
-import Index::Refs::*
-import Index::Tokens::*
-import Index::Writer::*
+import Token::TokenText::TokenText
 
 extend IndexWalker {
     /// Spacing for a spelled-back expansion: none inside `a.b`, `a::b`,
@@ -100,7 +100,12 @@ extend IndexWalker {
             return true
         }
 
-        if (cur == ")") || (cur == "]") || (cur == ",") || (cur == ";") || (cur == ".") || (cur == "::")
+        if (cur == ")")
+            || (cur == "]")
+            || (cur == ",")
+            || (cur == ";")
+            || (cur == ".")
+            || (cur == "::")
             || (cur == "?.") {
             return true
         }
@@ -112,8 +117,13 @@ extend IndexWalker {
         if (cur == "(") || (cur == "[") {
             // a call or an index: after a name or a closing bracket
             var c = prev[prev.size() - 1]
-            return ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || ((c >= ('0' as u8)) && (c <= ('9' as u8)))
-                || (c == ('_' as u8)) || (c == (')' as u8)) || (c == (']' as u8)) || (c == ('!' as u8))
+            return ((c >= ('a' as u8)) && (c <= ('z' as u8)))
+                || ((c >= ('A' as u8)) && (c <= ('Z' as u8)))
+                || ((c >= ('0' as u8)) && (c <= ('9' as u8)))
+                || (c == ('_' as u8))
+                || (c == (')' as u8))
+                || (c == (']' as u8))
+                || (c == ('!' as u8))
         }
 
         return false
@@ -143,9 +153,9 @@ extend IndexWalker {
             return
         }
 
-        var *ft = &self.files[0]
-        var i: usize = 0
-        var n = tb->size()
+        var *ft       = &self.files[0]
+        var i:  usize = 0
+        var n         = tb->size()
         while i < n {
             var tok = *tb->get(i)
             if (tok.kind as u32) != (TokenKind::TkMacroExpand as u32) {
@@ -160,13 +170,13 @@ extend IndexWalker {
                 continue
             }
 
-            var text:  string = ""
-            var prev:  string = ""
-            var depth: usize  = 0
-            var fresh_line = true
-            var gs = off as usize        // the group's range so far, in bytes
-            var ge = gs + len
-            var j = i
+            var text:      string = ""
+            var prev:      string = ""
+            var depth:     usize  = 0
+            var fresh_line        = true
+            var gs                = off as usize // the group's range so far, in bytes
+            var ge                = gs + len
+            var j                 = i
             while j < n {
                 var t = *tb->get(j)
                 if (t.kind as u32) != (TokenKind::TkMacroExpand as u32) {
@@ -194,8 +204,10 @@ extend IndexWalker {
 
                 j += 1
                 var u = self.ast_()->unwrap_token(t)
-                if (u.kind == TokenKind::TkWhitespace) || (u.kind == TokenKind::TkEof)
-                    || (u.kind == TokenKind::TkFileStart) || (u.kind == TokenKind::TkFileEnd) {
+                if (u.kind == TokenKind::TkWhitespace)
+                    || (u.kind == TokenKind::TkEof)
+                    || (u.kind == TokenKind::TkFileStart)
+                    || (u.kind == TokenKind::TkFileEnd) {
                     continue
                 }
 
@@ -240,13 +252,17 @@ extend IndexWalker {
                 ge = ft->text.size()
             }
 
-            var so   = gs
-            var eo   = ge
-            var line = ft->lines.line_of(so)
-            var el   = ft->lines.line_of(eo)
+            var so      = gs
+            var eo      = ge
+            var line    = ft->lines.line_of(so)
+            var el      = ft->lines.line_of(eo)
             var row_len = utf16_len(&ft->text, so, eo - so)
             if el != line {
-                row_len = utf16_len(&ft->text, so, ft->lines.line_end(ft->text, line) - so)
+                row_len = utf16_len(
+                    &ft->text,
+                    so,
+                    ft->lines.line_end(ft->text, line) - so,
+                )
             }
 
             w->begin_array()

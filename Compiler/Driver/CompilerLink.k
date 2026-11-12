@@ -86,7 +86,7 @@ extend CompilerInstance {
         var n_in = self.invocation()->input_files.size()
         for var i: usize = 0; i < n_in; ++i {
             var path_str = self.invocation()->input_files[i]
-            var k        = classify_input(path_str, self.invocation()->input_lang(i))
+            var k = classify_input(path_str, self.invocation()->input_lang(i))
             if k.cls == InputClass::Unsupported
                 || k.cls == InputClass::Unknown
                 || k.cls == InputClass::BadLanguage {
@@ -331,7 +331,9 @@ extend CompilerInstance {
         }
 
         var dir = Path::parent_of(self._link_out)
-        var name = if (self._kairo_inputs == 1) => (Path::stem_of(self._link_out))
+        var name = if (self._kairo_inputs == 1) => (Path::stem_of(
+                       self._link_out,
+                   ))
                    else => self.kairo_object_stem(stem)
         if dir.empty() {
             return name
@@ -535,7 +537,9 @@ extend CompilerInstance {
                     }
 
                     checked.insert(g as u64)
-                    if CompilerInstance::_file_sets_global_allocator(self._sm->get_filename(g)) {
+                    if CompilerInstance::_file_sets_global_allocator(
+                        self._sm->get_filename(g),
+                    ) {
                         pp->global_allocator_set = true
                         break
                     }
@@ -620,9 +624,11 @@ extend CompilerInstance {
             )
 
             d.first(r.global_alloc_at)
-            d.note(DiagCode(DiagID::SC138N), p.global_alloc_at.start, f"'{a}' sets it here")->child_first(
-                p.global_alloc_at,
-            )
+            d.note(
+                DiagCode(DiagID::SC138N),
+                p.global_alloc_at.start,
+                f"'{a}' sets it here",
+            )->child_first(p.global_alloc_at)
 
             d.emit()
         }
@@ -715,7 +721,10 @@ extend CompilerInstance {
         // the invocation stays what the user asked for.
         var lk_eff = self.invocation()->linker
         if self._backend != &null {
-            var wnorm = llvm::Triple::normalize(kairo::sref(self._backend->triple()))
+            var wnorm = llvm::Triple::normalize(
+                kairo::sref(self._backend->triple()),
+            )
+
             var wants = false
             for *tr in result.tu_results {
                 if tr->ffi_pthread {
@@ -824,7 +833,10 @@ extend CompilerInstance {
         }
 
         if res.ok {
-            kairo::Logger::info(kairo::Logger::Stage::Driver, f"linked {self._link_out}")
+            kairo::Logger::info(
+                kairo::Logger::Stage::Driver,
+                f"linked {self._link_out}",
+            )
         }
     }
 

@@ -143,8 +143,14 @@ pub class DirEntry {
             return &null
         }
 
-        var        category = self.ext_cfg->categorize(ext)
-        var unsafe *child   = kairo::std::create<DirEntry>(stem, full_path, ext, category)
+        var category = self.ext_cfg->categorize(ext)
+        var unsafe *child = kairo::std::create<DirEntry>(
+            stem,
+            full_path,
+            ext,
+            category,
+        )
+
         child->ext_cfg                  = self.ext_cfg
         self.children[kairo::sref(key)] = child
         return child
@@ -167,7 +173,12 @@ pub class DirEntry {
         // not two stats per entry. A missing directory just ends the loop.
         var self_path                      = unwrap!(self.fs_path).path_data
         var ec:       cxx::std::error_code
-        var it  = llvm::sys::fs::directory_iterator(llvm::Twine(kairo::sref(self_path)), &ec, true)
+        var it = llvm::sys::fs::directory_iterator(
+            llvm::Twine(kairo::sref(self_path)),
+            &ec,
+            true,
+        )
+
         var end = llvm::sys::fs::directory_iterator()
         for ; ec.value() == 0 && it != end; it.increment(&ec) {
             var fname = llvm::sys::path::filename(llvm::StringRef(it->path()))
@@ -186,7 +197,7 @@ pub class DirEntry {
             if etype == FileType::directory_file {
                 if self.children.find(kairo::sref(name_raw)) == self.children.end() {
                     var unsafe *c = kairo::std::create<DirEntry>(name_raw, true)
-                    c->fs_path                           = Path::from_known(full_raw, etype)
+                    c->fs_path = Path::from_known(full_raw, etype)
                     c->ext_cfg                           = self.ext_cfg
                     self.children[kairo::sref(name_raw)] = c
                 }
@@ -218,7 +229,13 @@ pub class DirEntry {
                     }
 
                     if self.children.find(kairo::sref(key)) == self.children.end() {
-                        var unsafe *c = kairo::std::create<DirEntry>(stem, full, ext, cat)
+                        var unsafe *c = kairo::std::create<DirEntry>(
+                            stem,
+                            full,
+                            ext,
+                            cat,
+                        )
+
                         c->ext_cfg                      = self.ext_cfg
                         self.children[kairo::sref(key)] = c
                     }
@@ -237,7 +254,13 @@ pub class DirEntry {
             return
         }
 
-        var unsafe *child = kairo::std::create<DirEntry>(stem, path, ext, category)
+        var unsafe *child = kairo::std::create<DirEntry>(
+            stem,
+            path,
+            ext,
+            category,
+        )
+
         child->ext_cfg                  = self.ext_cfg
         self.children[kairo::sref(key)] = child
     }
@@ -337,7 +360,10 @@ pub class DirEntry {
         keyed.reserve(self.children.size())
         for var it = self.children.begin(); it != self.children.end(); ++it {
             keyed.push_back(
-                cxx::std::pair<llvm::StringRef, unsafe *DirEntry>(it->getKey(), it->second),
+                cxx::std::pair<llvm::StringRef, unsafe *DirEntry>(
+                    it->getKey(),
+                    it->second,
+                ),
             )
         }
 

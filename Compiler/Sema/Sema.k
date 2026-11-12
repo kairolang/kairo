@@ -37,10 +37,11 @@ import AST::Context::ASTContext::ASTContext
 import AST::Context::DepLog::DepLogScope
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import Driver::TUStage::TUStage
+import Sema::Check::ArrayIndexCheck::ArrayIndexCheck
 import Sema::Check::AttributeCheck::AttributeCheck
 import Sema::Check::BaseInitCheck::BaseInitCheck
+import Sema::Check::CRTPHookCheck::CRTPHookCheck
 import Sema::Check::CallConvCheck::CallConvCheck
-import Sema::Check::FfiRefReturnCheck::FfiRefReturnCheck
 import Sema::Check::ClassAllocatorCheck::ClassAllocatorCheck
 import Sema::Check::ClassLifecycle::ClassLifecycle
 import Sema::Check::ClosureCaptures::ClosureCaptures
@@ -48,12 +49,11 @@ import Sema::Check::ConformanceChecking::ConformanceChecking
 import Sema::Check::ConstraintExtraction::ConstraintExtraction
 import Sema::Check::ControlFlowAnalysis::ControlFlowAnalysis
 import Sema::Check::CtorInitCheck::CtorInitCheck
-import Sema::Check::ArrayIndexCheck::ArrayIndexCheck
 import Sema::Check::EvalUsageChecking::EvalUsageChecking
 import Sema::Check::FeatureGateCheck::FeatureGateCheck
+import Sema::Check::FfiRefReturnCheck::FfiRefReturnCheck
 import Sema::Check::FlagGates::FlagGates
 import Sema::Check::FnPurityCheck::FnPurityCheck
-import Sema::Check::CRTPHookCheck::CRTPHookCheck
 import Sema::Check::ForCopyLint::ForCopyLint
 import Sema::Check::InitCheck::InitCheck
 import Sema::Check::InterfaceComposition::InterfaceComposition
@@ -162,7 +162,7 @@ pub enum SemaRun derives u8 {
 
 pub class Sema {
     pub var  sc:   SemaContext
-    priv var _run: SemaRun = SemaRun::Running
+    priv var _run: SemaRun     = SemaRun::Running
     /// sc.phase when the run stopped; read only once `_run` is Stopped.
     priv var _stop_phase: SemaPhase = SemaPhase::Parsed
     /// The driver runs a TU's typed checks up to ConformanceChecking on
@@ -226,7 +226,9 @@ pub class Sema {
     priv fn _advance_run(self, to: SemaRun) {
         eval if defined!(DEBUG) {
             if (to as u8) != (self._run as u8) + 1 || to == SemaRun::Stopped {
-                kairo::std::ice_fail(r"Sema: run state must advance one step at a time, and not past a stop")
+                kairo::std::ice_fail(
+                    r"Sema: run state must advance one step at a time, and not past a stop",
+                )
             }
         }
 
@@ -295,7 +297,9 @@ pub class Sema {
         }
 
         var after = self._arena_total()
-        io::eprintln(f"[stats] sema stage {stage}: ast arena +{after - before} B")
+        io::eprintln(
+            f"[stats] sema stage {stage}: ast arena +{after - before} B",
+        )
     }
 
     pub fn run_to(self, target: SemaPhase) -> bool {
@@ -303,7 +307,9 @@ pub class Sema {
         // so a continuation would run the next stage over its errors.
         if self._run == SemaRun::Stopped {
             eval if defined!(DEBUG) {
-                kairo::std::ice_fail(r"Sema: run_to on a run a hard stop ended (ask stopped() first)")
+                kairo::std::ice_fail(
+                    r"Sema: run_to on a run a hard stop ended (ask stopped() first)",
+                )
             }
 
             return false
@@ -313,9 +319,12 @@ pub class Sema {
         // TypesResolved until Conformance): asked for more than Typed in the
         // same call, the late checks would run before Conformance.
         eval if defined!(DEBUG) {
-            if self.split_conformance && self._run != SemaRun::FrontDone
+            if self.split_conformance
+                && self._run != SemaRun::FrontDone
                 && (target as u8) > (SemaPhase::Typed as u8) {
-                kairo::std::ice_fail(r"Sema: a split run is taken to Typed first, then continued")
+                kairo::std::ice_fail(
+                    r"Sema: a split run is taken to Typed first, then continued",
+                )
             }
         }
 
@@ -676,8 +685,11 @@ pub class Sema {
         // never reaches here (the lockstep asks first), one in T is after it.
         if self._run != SemaRun::Running {
             eval if defined!(DEBUG) {
-                if self._run == SemaRun::Stopped && (self._stop_phase as u8) < (SemaPhase::NamesResolved as u8) {
-                    kairo::std::ice_fail(r"Sema: T's pre-pass asked of a run stopped before N")
+                if self._run == SemaRun::Stopped
+                    && (self._stop_phase as u8) < (SemaPhase::NamesResolved as u8) {
+                    kairo::std::ice_fail(
+                        r"Sema: T's pre-pass asked of a run stopped before N",
+                    )
                 }
             }
 

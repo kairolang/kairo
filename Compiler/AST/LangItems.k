@@ -725,12 +725,7 @@ const FMT_DEBUG: u8 = 16
 ///   bits 32..52 fill codepoint (0 = ' ')   bits 53..54 align (FormatAlign)
 ///   bits 55..56 base (0 = 10, 1 = 16, 2 = 8, 3 = 2)   bits 57..61 FMT_* flags
 pub fn fmt_pack_spec(width: u64, prec1: u64, fill: u64, align: u64, base: u64, flags: u64) -> u64 {
-    return width
-        | prec1 << FMT_SHIFT_PREC
-        | fill << FMT_SHIFT_FILL
-        | align << FMT_SHIFT_ALIGN
-        | base << FMT_SHIFT_BASE
-        | flags << FMT_SHIFT_FLAGS
+    return width | prec1 << FMT_SHIFT_PREC | fill << FMT_SHIFT_FILL | align << FMT_SHIFT_ALIGN | base << FMT_SHIFT_BASE | flags << FMT_SHIFT_FLAGS
 }
 
 /// Where each field of the spec word starts (the layout above), and the
@@ -3401,7 +3396,9 @@ pub class LowerTargets {
     /// The C symbol of the global allocator's function \p k
     /// (`kairo_global_alloc`, ...): the prefix and A's member name.
     pub static fn global_alloc_symbol(k: GlobalAllocFn) -> string {
-        return LowerTargets::global_alloc_symbol_prefix() + AllocNames::global_alloc_member(k)
+        return LowerTargets::global_alloc_symbol_prefix() + AllocNames::global_alloc_member(
+            k,
+        )
     }
 
     /// The runtime's crash entry (Lib/rt/crash.h: message, its length, the

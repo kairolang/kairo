@@ -211,7 +211,11 @@ pub class PartitionQueue {
                     kairo::std::MemoryOrder::relaxed,
                 ) {
                     *out = cxx::std::move(cell->val)
-                    cell->seq.store(pos + self._cap, kairo::std::MemoryOrder::release)
+                    cell->seq.store(
+                        pos + self._cap,
+                        kairo::std::MemoryOrder::release,
+                    )
+
                     return true
                 }
             } else if dif < 0 {

@@ -456,7 +456,9 @@ pub class DisambigTable {
                         entry:      DisambigEntry) {
         eval if defined!(DEBUG) {
             if !entry.extended {
-                kairo::std::ice_fail(r"insert_extension: entry.extended must be true")
+                kairo::std::ice_fail(
+                    r"insert_extension: entry.extended must be true",
+                )
             }
         }
 
@@ -581,7 +583,10 @@ pub class DisambigTable {
                     f"{prefix}{connector}{name}  [{self._kind_str(vec[0].kind)}]{self._flags_str(&vec[0])}",
                 )
             } else {
-                io::println(f"{prefix}{connector}{name}  (overloaded x{vec.size()})")
+                io::println(
+                    f"{prefix}{connector}{name}  (overloaded x{vec.size()})",
+                )
+
                 for var i: usize = 0; i < vec.size(); ++i {
                     var sub_last      = i == vec.size() - 1
                     var sub_connector = (if (sub_last) => ("└── ") else => "├── ")

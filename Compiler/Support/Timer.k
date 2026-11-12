@@ -75,7 +75,10 @@ pub class Timer {
 
     pub inline fn elapsed_ns(self) -> i64 {
         var end = cxx::std::chrono::steady_clock::now()
-        var dur = cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(end - self._start)
+        var dur = cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
+            end - self._start,
+        )
+
         return dur.count()
     }
 

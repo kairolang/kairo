@@ -375,7 +375,9 @@ pub class LoopContextCheck derives RecursiveASTVisitor<LoopContextCheck> {
 
             if !self.stop {
                 if n->requires_clause != &null {
-                    n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause)
+                    n->requires_clause = self.dyn()->dispatch_expr(
+                        n->requires_clause,
+                    )
                 }
             }
 

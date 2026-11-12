@@ -110,35 +110,63 @@ pub class RequiresDesugar {
         match d->kind {
             case DeclKind::FunctionDecl {
                 var unsafe *n = cast<FunctionDecl>(d)
-                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._hoist_bounds(
+                    &n->generic_params,
+                    unsafe &n->requires_clause,
+                )
+
                 self._recurse_members(n)
             } case DeclKind::StructDecl {
                 var unsafe *n = cast<StructDecl>(d)
-                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._hoist_bounds(
+                    &n->generic_params,
+                    unsafe &n->requires_clause,
+                )
+
                 self._recurse_members(n)
                 self._recurse_methods(&n->methods)
             } case DeclKind::ClassDecl {
                 var unsafe *n = cast<ClassDecl>(d)
-                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._hoist_bounds(
+                    &n->generic_params,
+                    unsafe &n->requires_clause,
+                )
+
                 self._recurse_members(n)
                 self._recurse_methods(&n->methods)
             } case DeclKind::InterfaceDecl {
                 var unsafe *n = cast<InterfaceDecl>(d)
-                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._hoist_bounds(
+                    &n->generic_params,
+                    unsafe &n->requires_clause,
+                )
+
                 self._recurse_members(n)
                 self._recurse_methods(&n->methods)
             } case DeclKind::EnumDecl {
                 var unsafe *n = cast<EnumDecl>(d)
-                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._hoist_bounds(
+                    &n->generic_params,
+                    unsafe &n->requires_clause,
+                )
+
                 self._recurse_members(n)
             } case DeclKind::UnionDecl {
                 var unsafe *n = cast<UnionDecl>(d)
-                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._hoist_bounds(
+                    &n->generic_params,
+                    unsafe &n->requires_clause,
+                )
+
                 self._recurse_members(n)
                 self._recurse_methods(&n->methods)
             } case DeclKind::ExtensionDecl {
                 var unsafe *n = cast<ExtensionDecl>(d)
-                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._hoist_bounds(
+                    &n->generic_params,
+                    unsafe &n->requires_clause,
+                )
+
                 self._recurse_members(n)
                 self._recurse_methods(&n->methods)
             } case DeclKind::TypeAliasDecl {
@@ -146,7 +174,10 @@ pub class RequiresDesugar {
                 // the inline lists are uniformly empty. ConstraintExtraction
                 // owns the diagnostic. Aliases carry no DeclContext members.
                 var unsafe *n = cast<TypeAliasDecl>(d)
-                self._hoist_bounds(&n->generic_params, unsafe &n->requires_clause)
+                self._hoist_bounds(
+                    &n->generic_params,
+                    unsafe &n->requires_clause,
+                )
             } default { }
         }
     }
@@ -195,7 +226,10 @@ pub class RequiresDesugar {
                     continue
                 }
 
-                acc = self._conjoin(acc, self._make_constraint(gp, e->base, TokenKind::KwDerives))
+                acc = self._conjoin(
+                    acc,
+                    self._make_constraint(gp, e->base, TokenKind::KwDerives),
+                )
             }
 
             for var i: usize = 0; i < gp->impl_bounds.size(); i++ {
@@ -204,7 +238,10 @@ pub class RequiresDesugar {
                     continue
                 }
 
-                acc = self._conjoin(acc, self._make_constraint(gp, e->base, TokenKind::KwImpl))
+                acc = self._conjoin(
+                    acc,
+                    self._make_constraint(gp, e->base, TokenKind::KwImpl),
+                )
             }
 
             gp->impl_bounds    = FrozenList<InheritEdge>{}
@@ -220,8 +257,13 @@ pub class RequiresDesugar {
                              gp:   unsafe *GenericParamDecl,
                              base: unsafe *Type,
                              opr:  TokenKind) -> unsafe *Expr {
-        var unsafe *lhs   = NamedIdentExpr::create(self.ctx, gp->name.range, gp->name)
-        var        op_tok = Token(gp->name.range, opr)
+        var unsafe *lhs = NamedIdentExpr::create(
+            self.ctx,
+            gp->name.range,
+            gp->name,
+        )
+
+        var op_tok = Token(gp->name.range, opr)
         return (unsafe (ConstraintExpr::create(
             self.ctx,
             gp->name.range | base->range,
@@ -238,6 +280,12 @@ pub class RequiresDesugar {
         }
 
         var and_tok = Token(lhs->range | rhs->range, TokenKind::OpAmpAmp)
-        return ((BinaryOperatorExpr::create(self.ctx, lhs->range | rhs->range, lhs, rhs, and_tok)))
+        return ((BinaryOperatorExpr::create(
+            self.ctx,
+            lhs->range | rhs->range,
+            lhs,
+            rhs,
+            and_tok,
+        )))
     }
 }

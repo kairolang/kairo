@@ -176,7 +176,9 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
         var unsafe *g  = cast<GenericParamType>(canon_unqual(t->canonical))
         var        gps = decl_generic_params(g->owner)
         if (g->param_index as usize) < gps.size() {
-            return self._tu.decl_name(unsafe (gps[g->param_index as usize] as unsafe *Decl))
+            return self._tu.decl_name(
+                unsafe (gps[g->param_index as usize] as unsafe *Decl),
+            )
         }
 
         return "?"
@@ -197,7 +199,11 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
             f"'{nm}' is a type pack and stands for several types; {what} cannot have it as its type",
         )
 
-        d.first(b->range, "a pack is written expanded, as an argument: X<" + nm + "...>")
+        d.first(
+            b->range,
+            "a pack is written expanded, as an argument: X<" + nm + "...>",
+        )
+
         d.emit()
         if owner != &null {
             owner->poison()
@@ -219,7 +225,10 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
             self._check_type(n->type_, "a variable", n)
         }
 
-        return RecursiveASTVisitor<PackChecking>::traverse_variable_decl(self, n)
+        return RecursiveASTVisitor<PackChecking>::traverse_variable_decl(
+            self,
+            n,
+        )
     }
 
     fn traverse_function_decl(self, n: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
@@ -243,11 +252,18 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
                     continue
                 }
 
-                self._check_type(p->type_, "a parameter that is not a pack parameter", p)
+                self._check_type(
+                    p->type_,
+                    "a parameter that is not a pack parameter",
+                    p,
+                )
             }
         }
 
-        return RecursiveASTVisitor<PackChecking>::traverse_function_decl(self, n)
+        return RecursiveASTVisitor<PackChecking>::traverse_function_decl(
+            self,
+            n,
+        )
     }
 
     /// `@inout ...xs: T` / `@move ...xs: T`: a passing mode on a pack has no
@@ -259,7 +275,10 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
     /// meaning. No fix-it: dropping the mode is a different program
     /// (copies), not the one the author meant.
     priv fn _pack_mode(self, p: unsafe *ParamDecl) {
-        var mw = if (p->mode == ParamMode::Inout) => (LangAttrs::at(LangAttrs::param_inout())) else => LangAttrs::at(LangAttrs::param_move())
+        var mw = if (p->mode == ParamMode::Inout) => (LangAttrs::at(
+                     LangAttrs::param_inout(),
+                 ))
+                 else => LangAttrs::at(LangAttrs::param_move())
         var at = p->mode_range
         if !at.is_valid() {
             at = p->range
@@ -290,7 +309,11 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
     fn traverse_enum_variant_decl(self, n: *EnumVariantDecl) -> *EnumVariantDecl {
         var saved = self._in_variant
         self._in_variant = true
-        var *out = RecursiveASTVisitor<PackChecking>::traverse_enum_variant_decl(self, n)
+        var *out = RecursiveASTVisitor<PackChecking>::traverse_enum_variant_decl(
+            self,
+            n,
+        )
+
         self._in_variant = saved
         return out
     }
@@ -298,7 +321,7 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
     priv fn _enum_rules(self, en: unsafe *EnumDecl) {
         var first: unsafe *EnumVariantDecl = &null
         var bad                            = false
-        var en_nm                          = self._tu.decl_name(unsafe (en as unsafe *Decl))
+        var en_nm = self._tu.decl_name(unsafe (en as unsafe *Decl))
         for var i: usize = 0; i < en->variants.size(); ++i {
             var unsafe *v = en->variants[i]
             if v == &null {
@@ -340,7 +363,11 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
                     f"variant '{vn}' is followed by ... but has no payload, so there is nothing to expand",
                 )
 
-                d.first(v->pack_range, "one variant per element of a pack its payload names")
+                d.first(
+                    v->pack_range,
+                    "one variant per element of a pack its payload names",
+                )
+
                 d.remove(v->pack_range, "remove the ellipsis")
                 d.emit()
                 bad = true
@@ -365,7 +392,11 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
                     f"variant '{vn}' is followed by ..., but its payload names no type pack of '{en_nm}'",
                 )
 
-                d.first(v->pack_range, "this expands the variant once per element of a pack")
+                d.first(
+                    v->pack_range,
+                    "this expands the variant once per element of a pack",
+                )
+
                 d.remove(v->pack_range, "remove the ellipsis")
                 d.emit()
                 bad = true
@@ -387,7 +418,10 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
                     continue
                 }
 
-                var unsafe *g = dyn_cast<GenericParamType>(canon_unqual(f->type_->canonical))
+                var unsafe *g = dyn_cast<GenericParamType>(
+                    canon_unqual(f->type_->canonical),
+                )
+
                 if g != &null && g->is_pack {
                     continue
                 }
@@ -399,7 +433,11 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
                     f"field '{fnm}' of pack-expanded variant '{vn}' builds a type from the pack; only the pack itself as the field's type is supported yet",
                 )
 
-                d.first(f->type_->range, "write the pack as the whole type, as in 'e: E'")
+                d.first(
+                    f->type_->range,
+                    "write the pack as the whole type, as in 'e: E'",
+                )
+
                 d.emit()
                 shaped = true
             }
@@ -418,7 +456,10 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
                 )
 
                 d.first(v->pack_range)
-                d.note(first->pack_range.start, "the first one")->child_first(first->pack_range)
+                d.note(first->pack_range.start, "the first one")->child_first(
+                    first->pack_range,
+                )
+
                 d.emit()
                 bad = true
                 continue
@@ -426,14 +467,21 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
 
             first = v
             if i + 1 != en->variants.size() {
-                var nx = self._tu.decl_name(unsafe (en->variants[i + 1] as unsafe *Decl))
+                var nx = self._tu.decl_name(
+                    unsafe (en->variants[i + 1] as unsafe *Decl),
+                )
+
                 var d = self.sc->diag->report(
                     DiagID::SC205E,
                     v->range.start,
                     f"pack-expanded variant '{vn}' must be the last variant of '{en_nm}'",
                 )
 
-                d.first(v->range, "one variant per element: its size is the pack's")
+                d.first(
+                    v->range,
+                    "one variant per element: its size is the pack's",
+                )
+
                 d.note(
                     en->variants[i + 1]->range.start,
                     f"'{nx}' follows it, and its tag would move with the pack",
@@ -488,7 +536,7 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
         var        ok_pos = self._arg_ok == here
         self._arg_ok = &null
         var unsafe *opnd = n->operand
-        var unsafe *pk   = if (opnd != &null) => (self._type_pack_param(opnd)) else => &null
+        var unsafe *pk = if (opnd != &null) => (self._type_pack_param(opnd)) else => &null
         if !ok_pos {
             var d = self.sc->diag->report(
                 DiagID::SC206E,
@@ -540,7 +588,10 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
             return n
         }
 
-        return RecursiveASTVisitor<PackChecking>::traverse_ranged_for_stmt(self, n)
+        return RecursiveASTVisitor<PackChecking>::traverse_ranged_for_stmt(
+            self,
+            n,
+        )
     }
 
     fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
@@ -557,9 +608,10 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
         )
 
         d.first(n->range)
-        d.note((unsafe (p as unsafe *Decl))->range.start, "declared as a pack here")->child_first(
-            (unsafe (p as unsafe *Decl))->range,
-        )
+        d.note(
+            (unsafe (p as unsafe *Decl))->range.start,
+            "declared as a pack here",
+        )->child_first((unsafe (p as unsafe *Decl))->range)
 
         d.emit()
         n->poison()
@@ -573,7 +625,10 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
             return &null
         }
 
-        var unsafe *p = dyn_cast<ParamDecl>(cast<NamedIdentExpr>(u)->resolved_decl)
+        var unsafe *p = dyn_cast<ParamDecl>(
+            cast<NamedIdentExpr>(u)->resolved_decl,
+        )
+
         return if (param_is_type_pack(p)) => (p) else => &null
     }
 }

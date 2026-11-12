@@ -50,26 +50,31 @@ pub struct BuiltinRow {
 fn word_context(k: TokenKind) -> u32 {
     match k {
         // a statement
-        case TokenKind::KwReturn, TokenKind::KwBreak, TokenKind::KwContinue, TokenKind::KwWhile, TokenKind::KwFor,
-             TokenKind::KwLoop, TokenKind::KwAssert, TokenKind::KwDelete, TokenKind::KwYield, TokenKind::KwFinally,
-             TokenKind::KwCase, TokenKind::KwDefault, TokenKind::KwCatch {
+        case TokenKind::KwReturn,  TokenKind::KwBreak,  TokenKind::KwContinue,
+             TokenKind::KwWhile,   TokenKind::KwFor,    TokenKind::KwLoop,
+             TokenKind::KwAssert,  TokenKind::KwDelete, TokenKind::KwYield,
+             TokenKind::KwFinally, TokenKind::KwCase,   TokenKind::KwDefault,
+             TokenKind::KwCatch {
             return KC_STMT
-        // a statement or an expression
-        } case TokenKind::KwIf, TokenKind::KwElse, TokenKind::KwMatch, TokenKind::KwTry, TokenKind::KwPanic,
-               TokenKind::KwAwait, TokenKind::KwSpawn, TokenKind::KwThread {
+            // a statement or an expression
+        } case TokenKind::KwIf,    TokenKind::KwElse,  TokenKind::KwMatch, TokenKind::KwTry,
+               TokenKind::KwPanic, TokenKind::KwAwait, TokenKind::KwSpawn, TokenKind::KwThread {
             return KC_STMT | KC_EXPR
-        // a declaration, in a body or outside one
-        } case TokenKind::KwVar, TokenKind::KwFn, TokenKind::KwClass, TokenKind::KwStruct, TokenKind::KwEnum,
-               TokenKind::KwUnion, TokenKind::KwType, TokenKind::KwInterface, TokenKind::KwStatic, TokenKind::KwEval,
-               TokenKind::KwMacro, TokenKind::KwInline, TokenKind::KwAsync {
+            // a declaration, in a body or outside one
+        } case TokenKind::KwVar,    TokenKind::KwFn,    TokenKind::KwClass, TokenKind::KwStruct,
+               TokenKind::KwEnum,   TokenKind::KwUnion, TokenKind::KwType,  TokenKind::KwInterface,
+               TokenKind::KwStatic, TokenKind::KwEval,  TokenKind::KwMacro, TokenKind::KwInline,
+               TokenKind::KwAsync {
             return KC_STMT | KC_DECL
-        // a declaration outside a body
-        } case TokenKind::KwExtend, TokenKind::KwModule, TokenKind::KwTest, TokenKind::KwImport, TokenKind::KwFfi,
-               TokenKind::KwPub, TokenKind::KwPriv, TokenKind::KwProt, TokenKind::KwOverride, TokenKind::KwFinal,
-               TokenKind::KwVirtual, TokenKind::KwOp, TokenKind::KwDerives, TokenKind::KwImpl, TokenKind::KwWhere,
+            // a declaration outside a body
+        } case TokenKind::KwExtend,   TokenKind::KwModule,  TokenKind::KwTest,
+               TokenKind::KwImport,   TokenKind::KwFfi,     TokenKind::KwPub,
+               TokenKind::KwPriv,     TokenKind::KwProt,    TokenKind::KwOverride,
+               TokenKind::KwFinal,    TokenKind::KwVirtual, TokenKind::KwOp,
+               TokenKind::KwDerives,  TokenKind::KwImpl,    TokenKind::KwWhere,
                TokenKind::KwRequires {
             return KC_DECL
-        // a qualifier: before a declaration, in a type, before a parameter
+            // a qualifier: before a declaration, in a type, before a parameter
         } case TokenKind::KwConst {
             return KC_STMT | KC_DECL | KC_TYPE | KC_PARAM
         } case TokenKind::KwUnsafe {
@@ -80,12 +85,15 @@ fn word_context(k: TokenKind) -> u32 {
             return KC_EXPR | KC_PARAM
         } case TokenKind::BiSelf {
             return KC_EXPR | KC_TYPE
-        // values and operators that are words
-        } case TokenKind::KwTrue, TokenKind::KwFalse, TokenKind::LitNull, TokenKind::KwSizeOf, TokenKind::KwAlignOf,
-               TokenKind::KwTypeOf, TokenKind::KwAs, TokenKind::KwIn, TokenKind::KwAnd, TokenKind::KwAndEq,
-               TokenKind::KwBitand, TokenKind::KwBitor, TokenKind::KwCompl, TokenKind::KwNot, TokenKind::KwNotEq,
-               TokenKind::KwOr, TokenKind::KwOrEq, TokenKind::KwXor, TokenKind::KwXorEq, TokenKind::BiFile,
-               TokenKind::BiLine, TokenKind::BiColumn, TokenKind::BiFunction, TokenKind::BiModule {
+            // values and operators that are words
+        } case TokenKind::KwTrue,   TokenKind::KwFalse,    TokenKind::LitNull,
+               TokenKind::KwSizeOf, TokenKind::KwAlignOf,  TokenKind::KwTypeOf,
+               TokenKind::KwAs,     TokenKind::KwIn,       TokenKind::KwAnd,
+               TokenKind::KwAndEq,  TokenKind::KwBitand,   TokenKind::KwBitor,
+               TokenKind::KwCompl,  TokenKind::KwNot,      TokenKind::KwNotEq,
+               TokenKind::KwOr,     TokenKind::KwOrEq,     TokenKind::KwXor,
+               TokenKind::KwXorEq,  TokenKind::BiFile,     TokenKind::BiLine,
+               TokenKind::BiColumn, TokenKind::BiFunction, TokenKind::BiModule {
             return KC_EXPR
         } default {
             // A primitive type's name: a type, and in an expression the
@@ -102,8 +110,8 @@ fn word_context(k: TokenKind) -> u32 {
 /// Every word the lexer makes a token kind of, spelled by the compiler's
 /// table (Token/TokenKind.k), with where it can stand.
 pub fn language_words() -> [Word] {
-    var out: [Word]
-    var kinds = word_token_kinds()
+    var out:  [Word]
+    var kinds        = word_token_kinds()
     for var i: usize = 0; i < kinds.size(); ++i {
         var w = Word{}
         w.text = token_kind_to_readable_string(kinds[i])
@@ -119,7 +127,7 @@ pub fn language_words() -> [Word] {
 /// The attributes the compiler gives a meaning (AST/LangItems.k, LangAttrs).
 pub fn builtin_attributes() -> [BuiltinRow] {
     var out: [BuiltinRow]
-    var i: usize = 0
+    var i:   usize        = 0
     while true {
         var word = LangAttrs::known(i)
         if word.empty() {
@@ -152,7 +160,7 @@ pub fn builtin_attributes() -> [BuiltinRow] {
 /// The preprocessor's builtin macros and the parser's `name!` intrinsics.
 pub fn builtin_macros() -> [BuiltinRow] {
     var out: [BuiltinRow]
-    var i: usize = 0
+    var i:   usize        = 0
     while true {
         var word = LangMacros::known(i)
         if word.empty() {
@@ -225,20 +233,23 @@ pub fn usage_snippet(const usage: string) -> string {
             return usage
         }
 
-        return usage.subslice(0, sp + 1) + "${1:" + usage.subslice(sp + 1, usage.size() - sp - 1) + "}"
+        return usage.subslice(0, sp + 1) + "${1:" + usage.subslice(
+            sp + 1,
+            usage.size() - sp - 1,
+        ) + "}"
     }
 
-    var out = usage.subslice(0, open + 1)
-    var n: usize = 1
-    var p = open + 1
+    var out       = usage.subslice(0, open + 1)
+    var n:  usize = 1
+    var p         = open + 1
     while p < usage.size() {
         var e = p
         while (e < usage.size()) && (usage[e] != (',' as u8)) && (usage[e] != (')' as u8)) {
             e += 1
         }
 
-        var arg = usage.subslice(p, e - p)
-        var a: usize = 0
+        var arg       = usage.subslice(p, e - p)
+        var a:  usize = 0
         while (a < arg.size()) && (arg[a] == (' ' as u8)) {
             a += 1
         }

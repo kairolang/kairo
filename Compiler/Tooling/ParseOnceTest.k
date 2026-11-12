@@ -77,7 +77,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var inv = CompilerInvocation()
     for var i: i32 = 2; i < argc; ++i {
         inv.include_dirs.push_back(
-            string(unsafe ((argv[i] as unsafe *const u8) as *const u8), cxx::std::strlen(argv[i])),
+            string(
+                unsafe ((argv[i] as unsafe *const u8) as *const u8),
+                cxx::std::strlen(argv[i]),
+            ),
         )
     }
 

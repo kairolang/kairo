@@ -168,16 +168,16 @@ pub struct IncludeEdge {
 /// action's hook stands it down), and the set reports it at drain as R070,
 /// where the driver knows which Kairo files the compilation holds.
 pub struct KairoIncludeHit {
-    pub var spelled:   string ///< as written in the include: "buf.k".
-    pub var path:      string ///< clang's name for the .k (FileEntry name).
-    pub var real:      string ///< its real path, for identity checks.
+    pub var spelled: string ///< as written in the include: "buf.k".
+    pub var path:    string ///< clang's name for the .k (FileEntry name).
+    pub var real:    string ///< its real path, for identity checks.
     /// The header whose line it is, "" when the import itself names the .k
     /// (the set's main buffer includes it): then there is no header line,
     /// and the error is at the import.
     pub var header:    string
-    pub var offset:    u32    = 0 ///< the file name's byte offset in `header`.
-    pub var length:    u32    = 1
-    pub var nested:    bool   = false ///< `header` is not the one the import names, but reached from it.
+    pub var offset:    u32         = 0 ///< the file name's byte offset in `header`.
+    pub var length:    u32         = 1
+    pub var nested:    bool        = false ///< `header` is not the one the import names, but reached from it.
     pub var import_at: SourceRange ///< the `ffi import` string that reached it; invalid when unknown.
 }
 
@@ -247,7 +247,7 @@ pub class HeaderSet {
     /// Written once, by build() before its Building -> Built store; read
     /// after that (the build group joined, or an acquire of the state). A
     /// revive's re-parse never rewrites it.
-    pub var ok:       bool                                   = false
+    pub var ok: bool = false
 
     // Filled by index() on the driver thread.
     pub var indexed: bool = false
@@ -335,7 +335,9 @@ pub class HeaderSet {
     /// any state after it but Final, which no index asks about.
     pub fn is_built(self) -> bool {
         var s = self.state()
-        return s != HeaderSetState::Minted && s != HeaderSetState::Building && s != HeaderSetState::Final
+        return s != HeaderSetState::Minted
+            && s != HeaderSetState::Building
+            && s != HeaderSetState::Final
     }
 
     /// release_unused has run at some point, so `_macros` / `_macros_kept`
@@ -440,8 +442,11 @@ pub class HeaderSet {
     /// (release_unused) and only re-parsed if something asks for its AST.
     /// This set is a VIEW (one TU list) whose headers were parsed as
     /// part of the build's one shared set; null for a set parsed itself.
-    pub var  shared:       unsafe *HeaderSet     = &null
-    pub var  contributed:  kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(true)
+    pub var shared: unsafe *HeaderSet = &null
+    pub var contributed: kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(
+        true,
+    )
+
     priv var _be_saved:    unsafe *ClangBackend  = &null
     priv var _macros:      llvm::StringMap<bool> ///< release_unused's macro snapshot (names defined).
     priv var _macros_kept: bool                  = false
@@ -504,7 +509,9 @@ pub class HeaderSet {
         // Driver thread, while other groups' Sema runs: the same lock as
         // _revive, so a release and a revive of one set never interleave.
         var rlock = kairo::std::LockGuard(self._revive_mu)
-        if self.contributed.load(kairo::std::MemoryOrder::relaxed) || !self.ok || self._ci == &null {
+        if self.contributed.load(kairo::std::MemoryOrder::relaxed)
+            || !self.ok
+            || self._ci == &null {
             return
         }
 
@@ -582,6 +589,7 @@ pub class HeaderSet {
             HeaderSetState::Reviving,
             if (self._ci != &null) => (HeaderSetState::Live) else => (HeaderSetState::Dead),
         )
+
         kairo::header_set_revivals().fetch_add(1)
         kairo::Logger::info(
             kairo::Logger::Stage::Driver,
@@ -646,7 +654,10 @@ pub class HeaderSet {
         var        slock = kairo::std::LockGuard(self._sema_mu)
         var unsafe *a    = unsafe &self._ci->getASTContext()
         var unsafe *tu   = unsafe (a->getTranslationUnitDecl() as unsafe *clang::DeclContext)
-        var res = tu->lookup(clang::DeclarationName(unsafe &a->Idents.get(kairo::sref(name))))
+        var res = tu->lookup(
+            clang::DeclarationName(unsafe &a->Idents.get(kairo::sref(name))),
+        )
+
         for r in res {
             if !llvm::isa<clang::NamespaceDecl>(r) {
                 return true
@@ -795,7 +806,9 @@ pub class HeaderSet {
         }
 
         for var i: usize = 0; i < self.includes.size(); ++i {
-            self._out_edges[kairo::sref(self.includes[i].from_path)].push_back(i as u32)
+            self._out_edges[kairo::sref(self.includes[i].from_path)].push_back(
+                i as u32,
+            )
         }
 
         for var i: usize = 0; i < self.includes.size(); ++i {
@@ -980,7 +993,9 @@ pub class HeaderSet {
         // Own invocation: a COPY of the backend's, so LangOpts/target/header
         // search are byte-identical (the PCH reader validates them) and this
         // instance's Inputs/OutputFile edits touch nothing shared.
-        var inv = cxx::std::make_shared<clang::CompilerInvocation>(*be->invocation())
+        var inv = cxx::std::make_shared<clang::CompilerInvocation>(
+            *be->invocation(),
+        )
 
         self._main = cxx::std::string()
         self._main_locs.clear()
@@ -1109,7 +1124,11 @@ pub class HeaderSet {
             return false
         }
 
-        self._ci->getTarget().adjust(&self._ci->getDiagnostics(), &self._ci->getLangOpts(), &null)
+        self._ci->getTarget().adjust(
+            &self._ci->getDiagnostics(),
+            &self._ci->getLangOpts(),
+            &null,
+        )
 
         self._act       = kairo::std::create<HeaderSetAction>()
         self._act->_set = &self
@@ -1206,9 +1225,17 @@ pub class HeaderSet {
         }
 
         var hit = KairoIncludeHit{}
-        hit.spelled = string(unsafe ((file_name.data() as unsafe *const u8) as *const u8), file_name.size())
+        hit.spelled = string(
+            unsafe ((file_name.data() as unsafe *const u8) as *const u8),
+            file_name.size(),
+        )
+
         var name = file.getName()
-        hit.path = string(unsafe ((name.data() as unsafe *const u8) as *const u8), name.size())
+        hit.path = string(
+            unsafe ((name.data() as unsafe *const u8) as *const u8),
+            name.size(),
+        )
+
         hit.real = Path::real_path_of(hit.path)
 
         // Up the include stack to the set's main buffer, whose line names
@@ -1241,7 +1268,10 @@ pub class HeaderSet {
             var fe = csm->getFileEntryRefForID(from)
             if fe.has_value() {
                 var hn = fe->getName()
-                hit.header = string(unsafe ((hn.data() as unsafe *const u8) as *const u8), hn.size())
+                hit.header = string(
+                    unsafe ((hn.data() as unsafe *const u8) as *const u8),
+                    hn.size(),
+                )
             }
 
             hit.nested = depth > 1
@@ -1306,7 +1336,8 @@ pub class HeaderSet {
             var why = ""
             if !importer.empty() && importer == hit->real {
                 why = " (it is the file that imports this header)"
-            } else if sm->find_fid(Path(hit->path)) != none || sm->find_fid(Path(hit->real)) != none {
+            } else if sm->find_fid(Path(hit->path)) != none
+                || sm->find_fid(Path(hit->real)) != none {
                 why = " (it is already part of this compilation)"
             }
 
@@ -1316,7 +1347,11 @@ pub class HeaderSet {
                 // load_file builds the line index on the pool: a diagnostic
                 // rendered before it is done reads line 0, column 0.
                 sm->wait_for_line_index(kf)
-                at_line = sm->get_range(kf, hit->offset as usize, hit->length as usize)
+                at_line = sm->get_range(
+                    kf,
+                    hit->offset as usize,
+                    hit->length as usize,
+                )
             }
 
             var b = engine->report(
@@ -1326,7 +1361,10 @@ pub class HeaderSet {
             )
 
             if at_line.is_valid() {
-                b.first(at_line, "skipped: clang would read it as C++; the rest of the header is still imported")
+                b.first(
+                    at_line,
+                    "skipped: clang would read it as C++; the rest of the header is still imported",
+                )
             }
 
             if hit->import_at.is_valid() {
@@ -1370,7 +1408,11 @@ pub class HeaderSet {
     /// Not a _transition: every state may end here, and the end repeats it.
     fn release(self) {
         var rlock = kairo::std::LockGuard(self._revive_mu)
-        self._state.store(HeaderSetState::Final as u8, kairo::std::MemoryOrder::release)
+        self._state.store(
+            HeaderSetState::Final as u8,
+            kairo::std::MemoryOrder::release,
+        )
+
         self._teardown()
     }
 
@@ -1424,7 +1466,11 @@ override fn HeaderSetPPCallbacks::FileChanged(self,
     }
 
     var name = fe->getName()
-    var p    = string(unsafe ((name.data() as unsafe *const u8) as *const u8), name.size())
+    var p = string(
+        unsafe ((name.data() as unsafe *const u8) as *const u8),
+        name.size(),
+    )
+
     // A .k the hook stood down: nothing of it is in the AST, and as a
     // "header" it would get a Kairo fid and a place in every closure.
     if p == "<injected>" || name.ends_with(kairo::sref(r".k")) {
@@ -1464,17 +1510,32 @@ override fn HeaderSetPPCallbacks::InclusionDirective(
 
     var to = file->getName()
     if to.ends_with(kairo::sref(r".k")) {
-        self._set->record_kairo_include(self.csm, hash_loc, filename_range, file_name, *file)
+        self._set->record_kairo_include(
+            self.csm,
+            hash_loc,
+            filename_range,
+            file_name,
+            *file,
+        )
+
         return
     }
 
-    var e  = IncludeEdge{}
-    e.to_path = string(unsafe ((to.data() as unsafe *const u8) as *const u8), to.size())
+    var e = IncludeEdge{}
+    e.to_path = string(
+        unsafe ((to.data() as unsafe *const u8) as *const u8),
+        to.size(),
+    )
+
     var from_fid = self.csm->getFileID(hash_loc)
     var from_fe  = self.csm->getFileEntryRefForID(from_fid)
     if from_fe.has_value() {
         var fn_ = from_fe->getName()
-        e.from_path = string(unsafe ((fn_.data() as unsafe *const u8) as *const u8), fn_.size())
+        e.from_path = string(
+            unsafe ((fn_.data() as unsafe *const u8) as *const u8),
+            fn_.size(),
+        )
+
         if e.from_path == "<injected>" {
             e.from_path = ""
         }
@@ -1482,7 +1543,10 @@ override fn HeaderSetPPCallbacks::InclusionDirective(
 
     if e.from_path.size() == 0 {
         e.c_linkage = self._set->is_c_header(
-            string(unsafe ((file_name.data() as unsafe *const u8) as *const u8), file_name.size()),
+            string(
+                unsafe ((file_name.data() as unsafe *const u8) as *const u8),
+                file_name.size(),
+            ),
         )
     }
 
@@ -1520,6 +1584,9 @@ override fn HeaderSetAction::BeginSourceFileAction(self,
     var cb = cxx::std::make_unique<HeaderSetPPCallbacks>()
     cb->_set = self._set
     cb->csm  = unsafe &ci.getSourceManager()
-    ci.getPreprocessor().addPPCallbacks(cxx::std::unique_ptr<clang::PPCallbacks>(cb.release()))
+    ci.getPreprocessor().addPPCallbacks(
+        cxx::std::unique_ptr<clang::PPCallbacks>(cb.release()),
+    )
+
     return true
 }

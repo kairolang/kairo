@@ -177,7 +177,12 @@ pub class CaptureRewrite derives ASTWriter<CaptureRewrite> {
                 continue
             }
 
-            var unsafe *s = NamedIdentExpr::create(self.ctx, n->range, self.guard_self->name)
+            var unsafe *s = NamedIdentExpr::create(
+                self.ctx,
+                n->range,
+                self.guard_self->name,
+            )
+
             s->resolved_decl  = self.guard_self
             s->type_          = self.guard_ty
             s->value_category = Expr::ValueCategory::LValue
@@ -247,7 +252,11 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
     fn transform_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *Expr {
         self._fns.push_back(&null)
         self._cls.push_back(n)
-        var unsafe *out = ASTWriter<FinallyLowering>::transform_closure_expr(self, n)
+        var unsafe *out = ASTWriter<FinallyLowering>::transform_closure_expr(
+            self,
+            n,
+        )
+
         self._fns.pop_back()
         self._cls.pop_back()
         return out
@@ -365,9 +374,15 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
         rec->is_implicit = true
         var unsafe *rdc    = unsafe (rec as unsafe *DeclContext)
         var        no_args = cxx::std::vector<unsafe *Type>()
-        var unsafe *rec_ty = self.sc->types->record(unsafe (rec as unsafe *Decl), unsafe &no_args)
+        var unsafe *rec_ty = self.sc->types->record(
+            unsafe (rec as unsafe *Decl),
+            unsafe &no_args,
+        )
+
         if rec_ty == &null {
-            kairo::std::ice_fail("FinallyLowering: no canonical for the guard record")
+            kairo::std::ice_fail(
+                "FinallyLowering: no canonical for the guard record",
+            )
         }
 
         // Captures.
@@ -382,7 +397,7 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
             var        pointee: unsafe *Type = &null
             var        value:   unsafe *Expr = &null
             var        name                  = ""
-            var unsafe *view                 = self._closure_view(d, scan.free_at[i])
+            var unsafe *view = self._closure_view(d, scan.free_at[i])
             if view != &null {
                 // Held by pointer in an enclosing closure: the guard points
                 // at that pointer (In a closure, above).
@@ -447,11 +462,20 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
         no_impl.freeze_into(&rec->implements)
 
         // `fn op finally(self) { body }`, the body rewritten over its own `self`.
-        var unsafe *selfp = ParamDecl::create_self(self.ctx, at, self.synth.ident(at, "self"))
+        var unsafe *selfp = ParamDecl::create_self(
+            self.ctx,
+            at,
+            self.synth.ident(at, "self"),
+        )
+
         selfp->type_ = rec_ty
         var unsafe *dtor = FunctionDecl::create(self.ctx, at, Token(), rdc)
         self._home(unsafe (dtor as unsafe *Decl), rdc)
-        self._home(unsafe (selfp as unsafe *Decl), unsafe (dtor as unsafe *DeclContext))
+        self._home(
+            unsafe (selfp as unsafe *Decl),
+            unsafe (dtor as unsafe *DeclContext),
+        )
+
         dtor->is_operator = true
         var toks = self.list_builder<Token>()
         toks.push(self.synth.punct(at, TokenKind::KwFinally))
@@ -554,7 +578,9 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
 
     priv fn _self_pointee(self, f: unsafe *FunctionDecl, p: unsafe *ParamDecl) -> unsafe *Type {
         if p->type_ == &null || p->type_->canonical == &null {
-            kairo::std::ice_fail("FinallyLowering: untyped `self`; TypeResolution synthesizes it")
+            kairo::std::ice_fail(
+                "FinallyLowering: untyped `self`; TypeResolution synthesizes it",
+            )
         }
 
         var unsafe *c = canon_unqual(p->type_->canonical)

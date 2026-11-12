@@ -66,8 +66,8 @@ pub struct RoundTripStats {
 /// The first line two renderings differ at, for the error message.
 fn first_difference(const a: string, const b: string) -> string {
     var line: usize = 1
-    var ia: usize   = 0
-    var ib: usize   = 0
+    var ia:   usize = 0
+    var ib:   usize = 0
     while ia < a.size() || ib < b.size() {
         var ea = ia
         while ea < a.size() && a[ea] != ('\n' as u8) {
@@ -110,11 +110,11 @@ fn node_index(ar: unsafe *ASTArchive, @inout ids: {u64: u32}, p: unsafe *Decl) -
 /// Two symbol tables hold the same names, in the same order, each naming
 /// the same declarations (by node id). The empty string when they do, else
 /// what differs.
-fn symbols_differ(a:   unsafe *SymbolTable,
-                  b:   unsafe *SymbolTable,
-                  wa:  unsafe *ASTArchive,
+fn symbols_differ(a:         unsafe *SymbolTable,
+                  b:         unsafe *SymbolTable,
+                  wa:        unsafe *ASTArchive,
                   @inout ia: {u64: u32},
-                  wb:  unsafe *ASTArchive,
+                  wb:        unsafe *ASTArchive,
                   @inout ib: {u64: u32}) -> string {
     if a == &null || b == &null {
         if a == &null && b == &null {
@@ -163,9 +163,9 @@ pub class ASTRoundTrip {
     /// Serializes \p ctx's tree and replaces it with the tree read back.
     /// On failure the parsed tree is still the context's and \p err says
     /// what went wrong.
-    pub static fn replace(ctx:   unsafe *ASTContext,
-                          psym:  unsafe *PreprocessorSymbolTable,
-                          gs:    unsafe *GlobalDisambigTable,
+    pub static fn replace(ctx:          unsafe *ASTContext,
+                          psym:         unsafe *PreprocessorSymbolTable,
+                          gs:           unsafe *GlobalDisambigTable,
                           @inout stats: RoundTripStats,
                           @inout err:   string) -> bool {
         var unsafe *old = ctx->tu
@@ -187,7 +187,7 @@ pub class ASTRoundTrip {
         // there. Nothing the pipeline reaches through ctx->tu points at it.
         ctx->tu = &null
 
-        var r = ASTBinReader()
+        var r                           = ASTBinReader()
         var tu: unsafe *TranslationUnit = &null
         {
             var _tr = TimeRegion("Read")
@@ -211,9 +211,9 @@ pub class ASTRoundTrip {
     /// Serializes \p tu, reads it into a context of its own and compares.
     /// The parsed tree is untouched. False with \p err naming the first
     /// difference.
-    pub static fn verify(tu:    unsafe *TranslationUnit,
-                         psym:  unsafe *PreprocessorSymbolTable,
-                         gs:    unsafe *GlobalDisambigTable,
+    pub static fn verify(tu:           unsafe *TranslationUnit,
+                         psym:         unsafe *PreprocessorSymbolTable,
+                         gs:           unsafe *GlobalDisambigTable,
                          @inout stats: RoundTripStats,
                          @inout err:   string) -> bool {
         if tu == &null {
@@ -237,7 +237,13 @@ pub class ASTRoundTrip {
         // source text, a file cut short. Checked here, on every tree the
         // gate runs, because nothing else reads a damaged file.
         if ok {
-            ok = ASTRoundTrip::_refuses_damage(tu->ctx, unsafe &w, psym, gs, &err)
+            ok = ASTRoundTrip::_refuses_damage(
+                tu->ctx,
+                unsafe &w,
+                psym,
+                gs,
+                &err,
+            )
         }
 
         if ok {
@@ -273,23 +279,23 @@ pub class ASTRoundTrip {
     }
 
     /// True when a reader given \p bytes builds no tree.
-    priv static fn _refused(octx:  unsafe *ASTContext,
+    priv static fn _refused(octx:        unsafe *ASTContext,
                             const bytes: ByteWriter,
-                            len:   usize,
-                            psym:  unsafe *PreprocessorSymbolTable,
-                            gs:    unsafe *GlobalDisambigTable) -> bool {
-        var unsafe *c = ASTRoundTrip::_fresh_context(octx)
-        var r         = ASTBinReader()
-        var unsafe *t = r.read(bytes.bytes(), len, c, psym, gs)
-        var refused   = t == &null && c->tu == &null
+                            len:         usize,
+                            psym:        unsafe *PreprocessorSymbolTable,
+                            gs:          unsafe *GlobalDisambigTable) -> bool {
+        var unsafe *c      = ASTRoundTrip::_fresh_context(octx)
+        var        r       = ASTBinReader()
+        var unsafe *t      = r.read(bytes.bytes(), len, c, psym, gs)
+        var        refused = t == &null && c->tu == &null
         ASTRoundTrip::_drop_context(c)
         return refused
     }
 
-    priv static fn _refuses_damage(octx: unsafe *ASTContext,
-                                   w:    unsafe *ASTBinWriter,
-                                   psym: unsafe *PreprocessorSymbolTable,
-                                   gs:   unsafe *GlobalDisambigTable,
+    priv static fn _refuses_damage(octx:       unsafe *ASTContext,
+                                   w:          unsafe *ASTBinWriter,
+                                   psym:       unsafe *PreprocessorSymbolTable,
+                                   gs:         unsafe *GlobalDisambigTable,
                                    @inout err: string) -> bool {
         var _td = TimeRegion("Refuse")
         var len = w->out.size()
@@ -333,13 +339,13 @@ pub class ASTRoundTrip {
         stats.strings += w->ar.strings.size() as u64
     }
 
-    priv static fn _verify_in(tu:   unsafe *TranslationUnit,
-                              c2:   unsafe *ASTContext,
-                              w:    unsafe *ASTBinWriter,
-                              psym: unsafe *PreprocessorSymbolTable,
-                              gs:   unsafe *GlobalDisambigTable,
+    priv static fn _verify_in(tu:         unsafe *TranslationUnit,
+                              c2:         unsafe *ASTContext,
+                              w:          unsafe *ASTBinWriter,
+                              psym:       unsafe *PreprocessorSymbolTable,
+                              gs:         unsafe *GlobalDisambigTable,
                               @inout err: string) -> bool {
-        var r = ASTBinReader()
+        var r                            = ASTBinReader()
         var tu2: unsafe *TranslationUnit = &null
         {
             var _tr = TimeRegion("Read")
@@ -410,7 +416,15 @@ pub class ASTRoundTrip {
             return false
         }
 
-        var tu_diff = symbols_differ(tu->dc_symbols, tu2->dc_symbols, wa, &ia, wb, &ib)
+        var tu_diff = symbols_differ(
+            tu->dc_symbols,
+            tu2->dc_symbols,
+            wa,
+            &ia,
+            wb,
+            &ib,
+        )
+
         if !tu_diff.empty() {
             err = f"the reloaded TU's symbol table differs: {tu_diff}"
             return false
@@ -436,7 +450,9 @@ pub class ASTRoundTrip {
         }
 
         if tu->module_self != &null {
-            if tu->module_self->name.imm != tu2->module_self->name.imm || tu->module_self->dc_symbols != tu->dc_symbols || tu2->module_self->dc_symbols != tu2->dc_symbols {
+            if tu->module_self->name.imm != tu2->module_self->name.imm
+                || tu->module_self->dc_symbols != tu->dc_symbols
+                || tu2->module_self->dc_symbols != tu2->dc_symbols {
                 err = "the reloaded TU's own module declaration differs"
                 return false
             }
@@ -465,7 +481,15 @@ pub class ASTRoundTrip {
                 return false
             }
 
-            var diff = symbols_differ(s1->dc_symbols, s2->dc_symbols, wa, &ia, wb, &ib)
+            var diff = symbols_differ(
+                s1->dc_symbols,
+                s2->dc_symbols,
+                wa,
+                &ia,
+                wb,
+                &ib,
+            )
+
             if !diff.empty() {
                 err = f"node {i}: the reloaded scope's symbol table differs: {diff}"
                 return false

@@ -165,7 +165,13 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         }
 
         if kloc.is_valid() {
-            self._open = kairo::std::create<DiagBuilder>(self.sink, code, kloc.start, msg)
+            self._open = kairo::std::create<DiagBuilder>(
+                self.sink,
+                code,
+                kloc.start,
+                msg,
+            )
+
             self._open->first(kloc)
             self._apply_ranges_and_fixits(self._open, info)
             // stays open for trailing notes; emitted in _flush_open
@@ -233,7 +239,13 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         }
 
         var name = fe->getName()
-        var p = Path(string(unsafe ((name.data() as unsafe *const u8) as *const u8), name.size()))
+        var p = Path(
+            string(
+                unsafe ((name.data() as unsafe *const u8) as *const u8),
+                name.size(),
+            ),
+        )
+
         // Checked here: load_file reports a missing path as I005F itself.
         if !p.exists() || !p.is_regular_file() {
             return none
@@ -252,7 +264,9 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     priv fn _format(self, const info: clang::Diagnostic) -> string {
         var s: llvm::SmallString<256>
         info.FormatDiagnostic(&s)
-        return string(unsafe ((s.str().str().c_str() as unsafe *const u8) as *const u8))
+        return string(
+            unsafe ((s.str().str().c_str() as unsafe *const u8) as *const u8),
+        )
     }
 
     /// clang loc -> Kairo SourceRange via EXPANSION loc (never spelling loc:
@@ -270,7 +284,9 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             return SourceRange::invalid()
         }
 
-        var dec = info.getSourceManager().getDecomposedExpansionLoc(info.getLocation())
+        var dec = info.getSourceManager().getDecomposedExpansionLoc(
+            info.getLocation(),
+        )
 
         var *csm = &info.getSourceManager()
         // The set's own `#include` lines: the .k import that wrote them.
@@ -487,10 +503,15 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var unsafe *de = info.getDiags()
 
         if de != &null {
-            var wopt = de->getDiagnosticIDs()->getWarningOptionForDiag(info.getID())
+            var wopt = de->getDiagnosticIDs()->getWarningOptionForDiag(
+                info.getID(),
+            )
+
             if !wopt.empty() {
                 var num = clang_diag_number(
-                    string(unsafe ((wopt.str().c_str() as unsafe *const u8) as *const u8)),
+                    string(
+                        unsafe ((wopt.str().c_str() as unsafe *const u8) as *const u8),
+                    ),
                 )
 
                 if num != 0 {
@@ -598,7 +619,11 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             return false
         }
 
-        var cxx_v = string(unsafe ((data as unsafe *const u8) as *const u8), len as usize)
+        var cxx_v = string(
+            unsafe ((data as unsafe *const u8) as *const u8),
+            len as usize,
+        )
+
         return cxx_v == self.ksm->get_text(rr)
     }
 

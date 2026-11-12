@@ -30,19 +30,18 @@
 /// ------------------------------------------------------------------------ ///
 
 
-import Index::Snapshot::*
-import Protocol::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::AttrFacts::AttrFacts
 import AST::Context::ASTContext::ASTContext
-import AST::Context::ImportOverlay::{
-    ImportOverlay,
-    OverlayVisibility,
-}
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
+}
+import AST::Context::ImportOverlay::{
+    ImportOverlay,
+    OverlayVisibility,
 }
 import AST::Context::SymbolTable::{
     DeclName,
@@ -50,14 +49,14 @@ import AST::Context::SymbolTable::{
     SymbolTable,
 }
 import AST::Context::TranslationUnit::TranslationUnit
-import AST::AttrFacts::AttrFacts
 import AST::DeclFacts::{
     decl_extension_of,
     decl_is_ffi,
-    decl_pattern,
     decl_name_tok,
+    decl_pattern,
     decl_requires_clause,
 }
+import AST::LangItems::LangAttrs
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -76,25 +75,36 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions
+import AST::Node::Patterns::BindingPattern
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Patterns::BindingPattern
 import AST::Node::Program::TopLevelKind
 import AST::Node::Statements
 import AST::Node::Types
 import AST::OperatorFacts::OperatorFacts
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
-import AST::LangItems::LangAttrs
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
+import Index::Bases::*
+import Index::CompletionItems::*
+import Index::Hovers::*
+import Index::Inlays::*
+import Index::Legend::*
+import Index::Macros::*
+import Index::Refs::*
+import Index::Snapshot::*
+import Index::Tables::*
+import Index::Tokens::*
+import Index::Writer::*
 import Json::JsonWriter
 import Lexer::Immediate::ImmediateTable
 import Lexer::Lexer::Lexer
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Protocol::*
 import Sema::Resolve::AccessCheck::AccessCheck
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
@@ -105,28 +115,18 @@ import Sema::SemaContext::{
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
-import Token::TokenText::TokenText
 import Token::TokenKind::{
     TokenKind,
     is_keyword,
 }
-import Index::Bases::*
-import Index::CompletionItems::*
-import Index::Hovers::*
-import Index::Inlays::*
-import Index::Legend::*
-import Index::Macros::*
-import Index::Refs::*
-import Index::Tables::*
-import Index::Tokens::*
-import Index::Writer::*
+import Token::TokenText::TokenText
 
 /// \class IndexWalker
 /// \brief the walk over one TU.
 pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     pub var sc:  unsafe *SemaContext
     pub var sm:  unsafe *SourceManager
-    pub var fid: u32 = u32::MAX
+    pub var fid: u32                   = u32::MAX
 
     pub var toks:   [SemTok]
     pub var refs:   [RefRow]
@@ -156,8 +156,8 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     /// Parallel: the type a use named (`Pair<i64>`, `vector<i32>`, an
     /// alias's target) for a hover of that use, else null and the type is
     /// layout_decl_'s own; and how the line names it ("" for the decl's).
-    var layout_type_:  [unsafe *Type]
-    var layout_name_:  [string]
+    var layout_type_: [unsafe *Type]
+    var layout_name_: [string]
 
     /// The worker's: this file was named by the editor (an open buffer),
     /// not only found under the root.
@@ -209,12 +209,12 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     pub var facts: unsafe *ScopeFacts = &null
 
     var scope_fids_: [u32]
-    var scope_seen_: {u64: u32}  ///< a name's hash -> its first row
-    var t_fids_:     [u32]       ///< the files the table's rows name
-    var t_count_:    i64 = 0
-    var t_bases_:    [i64]       ///< TB_* rows, flat
+    var scope_seen_: {u64: u32} ///< a name's hash -> its first row
+    var t_fids_:     [u32] ///< the files the table's rows name
+    var t_count_:    i64                 = 0
+    var t_bases_:    [i64] ///< TB_* rows, flat
     var t_seen_:     {u64: u32}
-    var t_ac_:       unsafe *AccessCheck = &null  ///< while the table is built: reads a row's visibility
+    var t_ac_:       unsafe *AccessCheck = &null ///< while the table is built: reads a row's visibility
 
     // --- CompletionItems.k: a completion's access filter ------------------
 
@@ -282,7 +282,9 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         if keep_type_params {
             for var i: usize = 0; i < self.locals_.size(); ++i {
                 var unsafe *l = self.locals_[i]
-                if isa<Declarations::GenericParamDecl>(l) && (l->semantic_dc != &null) && l->semantic_dc->is_type_scope() {
+                if isa<Declarations::GenericParamDecl>(l)
+                    && (l->semantic_dc != &null)
+                    && l->semantic_dc->is_type_scope() {
                     kept.push_back(l)
                     at.push_back(self.locals_at_[i])
                 }
@@ -298,7 +300,8 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     fn in_function_(self, d: unsafe *Decl) -> bool {
         var unsafe *dc = d->semantic_dc
         while dc != &null {
-            if (dc->dc_kind == DeclContextKind::Function) || (dc->dc_kind == DeclContextKind::Lambda) {
+            if (dc->dc_kind == DeclContextKind::Function)
+                || (dc->dc_kind == DeclContextKind::Lambda) {
                 return true
             }
 
@@ -327,7 +330,10 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             // code point, which both corrupts the text and shifts
             // every offset after the first non-ASCII character.
             var view = self.sm->get_view(self.sm->get_range(fid, 0, size))
-            f.text = string(unsafe ((view.data() as unsafe *const u8) as *const u8), view.size())
+            f.text = string(
+                unsafe ((view.data() as unsafe *const u8) as *const u8),
+                view.size(),
+            )
         }
 
         f.lines.build(f.text)
@@ -438,7 +444,8 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
 
         if isa<Declarations::VariableDecl>(d) {
             var unsafe *v = cast<Declarations::VariableDecl>(d)
-            if (v->storage == Declarations::StorageClass::Const) || (v->storage == Declarations::StorageClass::Eval) {
+            if (v->storage == Declarations::StorageClass::Const)
+                || (v->storage == Declarations::StorageClass::Eval) {
                 m = m | TM_READONLY() | TM_CONSTANT()
             } else if v->const_binding {
                 m = m | TM_READONLY()
@@ -451,7 +458,8 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             }
         } else if isa<Declarations::FieldDecl>(d) {
             var unsafe *f = cast<Declarations::FieldDecl>(d)
-            if (f->storage == Declarations::StorageClass::Const) || (f->storage == Declarations::StorageClass::Eval) {
+            if (f->storage == Declarations::StorageClass::Const)
+                || (f->storage == Declarations::StorageClass::Eval) {
                 m = m | TM_READONLY() | TM_CONSTANT()
             }
 
@@ -634,16 +642,26 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
 
     /// Is \p d (of token kind \p kd) a type declared in the builtin library?
     fn builtin_type_(self, d: unsafe *Decl, kd: u32) -> bool {
-        if !((kd == TT_CLASS()) || (kd == TT_STRUCT()) || (kd == TT_ENUM()) || (kd == TT_INTERFACE())
-            || (kd == TT_UNION()) || (kd == TT_TYPE_ALIAS()) || (kd == TT_TYPE())) {
+        if !((kd == TT_CLASS())
+            || (kd == TT_STRUCT())
+            || (kd == TT_ENUM())
+            || (kd == TT_INTERFACE())
+            || (kd == TT_UNION())
+            || (kd == TT_TYPE_ALIAS())
+            || (kd == TT_TYPE())) {
             return false
         }
 
-        if (d == &null) || (!d->range.start.is_valid()) || (self.sc == &null) || (self.sc->g == &null) {
+        if (d == &null)
+            || (!d->range.start.is_valid())
+            || (self.sc == &null)
+            || (self.sc->g == &null) {
             return false
         }
 
-        return self.sc->g->is_builtin_fid(self.sm->resolve(d->range.start).fid as u32)
+        return self.sc->g->is_builtin_fid(
+            self.sm->resolve(d->range.start).fid as u32,
+        )
     }
 
     /// Records a use of \p d at \p tok: a token, and an edge to the declaration.
@@ -684,8 +702,10 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         // A function or a type declared at file, module or type level
         // starts a scope of its own: the locals of the one before it are
         // not in it. (A type parameter of an enclosing type still is.)
-        var outer = (d->semantic_dc == &null) || (d->semantic_dc->dc_kind == DeclContextKind::TranslationUnit)
-            || (d->semantic_dc->dc_kind == DeclContextKind::Module) || (d->semantic_dc->dc_kind == DeclContextKind::Extension)
+        var outer = (d->semantic_dc == &null)
+            || (d->semantic_dc->dc_kind == DeclContextKind::TranslationUnit)
+            || (d->semantic_dc->dc_kind == DeclContextKind::Module)
+            || (d->semantic_dc->dc_kind == DeclContextKind::Extension)
             || d->semantic_dc->is_type_scope()
         if isa<Declarations::FunctionDecl>(d) {
             self.cur_fn_ = cast<Declarations::FunctionDecl>(d)
@@ -693,12 +713,19 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             if outer {
                 self.leave_locals_(true)
             }
-        } else if outer && (self.context_of_decl_(d) != &null) && (!d->semantic_dc->is_type_scope()) {
+        } else if outer
+            && (self.context_of_decl_(d) != &null)
+            && (!d->semantic_dc->is_type_scope()) {
             self.cur_fn_ = &null
             self.cur_dc_ = d->semantic_dc
             self.leave_locals_(false)
-        } else if outer && (d->semantic_dc != &null) && (!d->is_implicit) && (!self.in_function_(d))
-            && (self.own_off_(self.ast_()->unwrap_token(decl_name_tok(d)).range.start) != u32::MAX) {
+        } else if outer
+            && (d->semantic_dc != &null)
+            && (!d->is_implicit)
+            && (!self.in_function_(d))
+            && (self.own_off_(
+                self.ast_()->unwrap_token(decl_name_tok(d)).range.start,
+            ) != u32::MAX) {
             // A field (or a file-level `var`) of THIS file after a method:
             // the walk has left that method. (A declaration of another file
             // met in a body, such as a library type's member a desugaring
@@ -763,7 +790,10 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     pub fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
         var unsafe *e = unsafe (n as unsafe *NamedIdentExpr)
         if self.is_marker_(e) {
-            self.complete_scope_(self.own_off_(self.ast_()->unwrap_token(e->name).range.start))
+            self.complete_scope_(
+                self.own_off_(self.ast_()->unwrap_token(e->name).range.start),
+            )
+
             return true
         }
 
@@ -791,9 +821,14 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
                 // constants and its extensions' statics. Its name
                 // binds to nothing, so neither a type nor a declaration
                 // says what is to the left.
-                if (i == 0) && (st->access_kind == ChainExpr::AccessKind::ColonColon) && (c->base != &null)
+                if (i == 0)
+                    && (st->access_kind == ChainExpr::AccessKind::ColonColon)
+                    && (c->base != &null)
                     && isa<NamedIdentExpr>(c->base) {
-                    var pb = builtin_for_token(cast<NamedIdentExpr>(c->base)->name.kind)
+                    var pb = builtin_for_token(
+                        cast<NamedIdentExpr>(c->base)->name.kind,
+                    )
+
                     if pb != BuiltinKind::COUNT {
                         self.complete_primitive_(pb)
                         continue
@@ -836,9 +871,16 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             if self.is_marker_(sg->name) {
                 if i > 0 {
                     var unsafe *prev = c->segments.get(i - 1)
-                    self.complete_member_(prev->resolved_type, prev->resolved_decl)
+                    self.complete_member_(
+                        prev->resolved_type,
+                        prev->resolved_decl,
+                    )
                 } else {
-                    self.complete_scope_(self.own_off_(self.ast_()->unwrap_token(sg->name->name).range.start))
+                    self.complete_scope_(
+                        self.own_off_(
+                            self.ast_()->unwrap_token(sg->name->name).range.start,
+                        ),
+                    )
                 }
 
                 continue
@@ -851,7 +893,11 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
                 // instance (`Pair<i64>`, `vector<i32>`) or an alias's
                 // target, its hover carries that type's layout.
                 if (i + 1 == c->segments.size()) && (self.refs.size() == before + 1) {
-                    var typed = self.hover_typed_(sg->resolved_decl, c->canonical)
+                    var typed = self.hover_typed_(
+                        sg->resolved_decl,
+                        c->canonical,
+                    )
+
                     if typed != u32::MAX {
                         self.refs[before].hover = typed
                     }
@@ -937,7 +983,10 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     pub fn visit_unsafe_expr(self, n: *Expressions::UnsafeExpr) -> bool {
         var unsafe *e = n->operand
         if (e != &null) && isa<Expressions::UnaryOperatorExpr>(e) {
-            self.op_mod_(cast<Expressions::UnaryOperatorExpr>(e)->op_token, TM_UNSAFE())
+            self.op_mod_(
+                cast<Expressions::UnaryOperatorExpr>(e)->op_token,
+                TM_UNSAFE(),
+            )
         }
 
         return true

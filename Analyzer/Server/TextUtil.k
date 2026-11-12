@@ -29,28 +29,14 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Resolution::ModulePath::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
+import Resolution::ModulePath::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
@@ -67,6 +53,20 @@ import Server::SignatureHelp::*
 import Server::Structure::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 /// Offset of \p needle in \p hay at or after \p from, or usize::MAX.
 pub fn find_from(const hay: string, const needle: string, from: usize) -> usize {
@@ -98,14 +98,24 @@ pub fn is_cxx_source(const path: string) -> bool {
     }
 
     var ext = lower(path.subslice(dot + 1, path.size() - dot - 1))
-    return (ext == "c") || (ext == "cc") || (ext == "cpp") || (ext == "cxx") || (ext == "c++") || (ext == "h")
-        || (ext == "hh") || (ext == "hpp") || (ext == "hxx") || (ext == "ipp") || (ext == "m") || (ext == "mm")
+    return (ext == "c")
+        || (ext == "cc")
+        || (ext == "cpp")
+        || (ext == "cxx")
+        || (ext == "c++")
+        || (ext == "h")
+        || (ext == "hh")
+        || (ext == "hpp")
+        || (ext == "hxx")
+        || (ext == "ipp")
+        || (ext == "m")
+        || (ext == "mm")
 }
 
 /// The quoted `#include "x.k"` names of a C or C++ text, as written.
 pub fn k_includes(const text: string) -> [string] {
     var out: [string]
-    var all = quoted_includes(text)
+    var all           = quoted_includes(text)
     for var i: usize = 0; i < all.size(); ++i {
         if all[i].ends_with(kairo_dot_ext()) {
             out.push_back(all[i])
@@ -120,8 +130,8 @@ pub fn k_includes(const text: string) -> [string] {
 /// Textual: a conditional block (`#ifdef __cplusplus`) is not evaluated.
 pub fn quoted_includes(const text: string) -> [string] {
     var out: [string]
-    var i: usize = 0
-    var n = text.size()
+    var i:   usize    = 0
+    var n             = text.size()
     while i < n {
         var p = i
         while (p < n) && ((text[p] == (' ' as u8)) || (text[p] == ('\t' as u8))) {
@@ -186,9 +196,12 @@ pub fn lower(const s: string) -> string {
 /// `priv` declarations are left out: an import cannot name them.
 pub fn top_level_names(const src: string) -> [string] {
     var out: [string]
-    var kws = keyword_list("fn class struct enum union interface type const var static eval macro module")
+    var kws = keyword_list(
+        "fn class struct enum union interface type const var static eval macro module",
+    )
+
     var i: usize = 0
-    var n = src.size()
+    var n        = src.size()
     while i < n {
         // one line, which must start in column 0 to be top level
         var le = i
@@ -196,8 +209,8 @@ pub fn top_level_names(const src: string) -> [string] {
             le += 1
         }
 
-        var p = i
-        var line = src.subslice(i, le - i)
+        var p      = i
+        var line   = src.subslice(i, le - i)
         var hidden = line.starts_with("priv ")
         if line.starts_with("pub ") || line.starts_with("prot ") || line.starts_with("priv ") {
             while (p < le) && (src[p] != (' ' as u8)) {
@@ -210,8 +223,11 @@ pub fn top_level_names(const src: string) -> [string] {
         // skip modifiers before the declaring keyword (`inline fn`, `unsafe fn`)
         for var m: usize = 0; m < 3; ++m {
             var rest = src.subslice(p, le - p)
-            if rest.starts_with("inline ") || rest.starts_with("unsafe ") || rest.starts_with("async ")
-                || rest.starts_with("final ") || rest.starts_with("virtual ") {
+            if rest.starts_with("inline ")
+                || rest.starts_with("unsafe ")
+                || rest.starts_with("async ")
+                || rest.starts_with("final ")
+                || rest.starts_with("virtual ") {
                 while (p < le) && (src[p] != (' ' as u8)) {
                     p += 1
                 }
@@ -225,7 +241,7 @@ pub fn top_level_names(const src: string) -> [string] {
             we += 1
         }
 
-        var word = src.subslice(p, we - p)
+        var word     = src.subslice(p, we - p)
         var declares = false
         for var k: usize = 0; k < kws.size(); ++k {
             if kws[k] == word {
@@ -274,8 +290,8 @@ pub fn top_level_names(const src: string) -> [string] {
 }
 
 pub fn keyword_list(const all: string) -> [string] {
-    var k: [string]
-    var cur = string()
+    var k:  [string]
+    var cur          = string()
     for var i: usize = 0; i < all.size(); ++i {
         if all[i] == (' ' as u8) {
             if !cur.empty() {
@@ -296,5 +312,9 @@ pub fn keyword_list(const all: string) -> [string] {
 }
 
 pub fn is_ident_byte(c: u8) -> bool {
-    return ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || ((c >= ('0' as u8)) && (c <= ('9' as u8))) || (c == ('_' as u8)) || (c >= 128)
+    return ((c >= ('a' as u8)) && (c <= ('z' as u8)))
+        || ((c >= ('A' as u8)) && (c <= ('Z' as u8)))
+        || ((c >= ('0' as u8)) && (c <= ('9' as u8)))
+        || (c == ('_' as u8))
+        || (c >= 128)
 }

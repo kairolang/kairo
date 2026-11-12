@@ -83,8 +83,8 @@ import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::ExpressionStmt
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::named_declared_here
+import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -114,7 +114,9 @@ pub fn base_init_is_ctor(f: unsafe *FunctionDecl) -> bool {
         return false
     }
 
-    return fc->get_spelling(f->name) == oc->get_spelling(decl_name_tok(dc->dc_owner))
+    return fc->get_spelling(f->name) == oc->get_spelling(
+        decl_name_tok(dc->dc_owner),
+    )
 }
 
 /// The constructor \p n calls BY NAME (`Animal::Animal(self, 4)`), or null.
@@ -279,12 +281,18 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
 
                 b.first(def->name.range, "base not initialized")
                 var hint = f"'{bname}' is a base here; call one of its constructors first in the body: '{bname}::{self._leaf(e->base)}(self, ...)'"
-                var unsafe *brd = self._tu.default_record(canon_unqual(e->base->canonical))
+                var unsafe *brd = self._tu.default_record(
+                    canon_unqual(e->base->canonical),
+                )
+
                 if brd != &null && !self._tu.declares_ctor(brd) {
                     hint = f"'{bname}' is a base here and declares no constructor to call; give it one, or make its implicit one possible"
                 }
 
-                b.note(DiagCode(DiagID::SC181N), e->range.start, hint)->child_first(e->range)
+                b.note(DiagCode(DiagID::SC181N), e->range.start, hint)->child_first(
+                    e->range,
+                )
+
                 b.emit()
             }
         }
@@ -447,7 +455,11 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
             self._lead(n)
         }
 
-        var unsafe *r = RecursiveASTVisitor<BaseInitCheck>::traverse_function_decl(self, n)
+        var unsafe *r = RecursiveASTVisitor<BaseInitCheck>::traverse_function_decl(
+            self,
+            n,
+        )
+
         self._ok = saved
         return r
     }

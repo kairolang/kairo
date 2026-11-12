@@ -101,15 +101,8 @@ import AST::EnumNiche::{
 import AST::Kind::DeclKind::DeclKind
 import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::{
-    ABORT_EXIT_CODE,
-    GlobalAllocFn,
-    LangMembers,
-    LowerTargets,
-    cxx_std_name,
-    entry_point_name,
-    fmt_put_name,
-    format_kind_of,
-    hex32,
+    ABORT_EXIT_CODE, GlobalAllocFn,  LangMembers, LowerTargets, cxx_std_name, entry_point_name,
+    fmt_put_name,    format_kind_of, hex32,
 }
 import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::{
@@ -316,7 +309,10 @@ pub class InterfaceEmitter {
         // a header that needs it may follow one that defined the guard
         // without it.
         if self._needs_new() {
-            self._cg->sink->system_header(self._tu_at(), LowerTargets::cxx_new_header())
+            self._cg->sink->system_header(
+                self._tu_at(),
+                LowerTargets::cxx_new_header(),
+            )
         }
 
         // A header carries the module's inline and template bodies too
@@ -418,11 +414,17 @@ pub class InterfaceEmitter {
         if !self.written.has(HelperBlock::FmtDyn) && self._plan->needs_fmt_dyn {
             self._cg->sink->unanchored(true)
             if header {
-                self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::fmt_dyn_guard())
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#ifndef " + LowerTargets::fmt_dyn_guard(),
+                )
             }
 
             if header {
-                self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::fmt_dyn_guard())
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#define " + LowerTargets::fmt_dyn_guard(),
+                )
             }
 
             self._cg->sink->spell(self._tu_at(), self._fmt_dyn_helper())
@@ -620,7 +622,11 @@ pub class InterfaceEmitter {
         // definition's own head, at global scope (EmitIR::_free_fn).
         if self._plan->main_friend != &null {
             var unsafe *mf = self._plan->main_friend
-            self._cg->sink->spell(self._fwd_at(mf), self._main_decl_text(mf, false))
+            self._cg->sink->spell(
+                self._fwd_at(mf),
+                self._main_decl_text(mf, false),
+            )
+
             self._cg->sink->brk()
         }
 
@@ -653,10 +659,16 @@ pub class InterfaceEmitter {
                 } // included.
 
                 if f->scope != &null {
-                    self._cg->sink->spell(self._at(f->decl), "struct " + f->scope->name + ";")
+                    self._cg->sink->spell(
+                        self._at(f->decl),
+                        "struct " + f->scope->name + ";",
+                    )
                 } else if f->witness != &null && f->is_concept {
                     // Guarded in a header, as the primary is: a definition.
-                    var g = LowerTargets::concept_guard(CXXSpell::_path_ident(f->witness->key))
+                    var g = LowerTargets::concept_guard(
+                        CXXSpell::_path_ident(f->witness->key),
+                    )
+
                     if header {
                         self._cg->sink->directive(self._tu_at(), "#ifndef " + g)
                     }
@@ -795,7 +807,10 @@ pub class InterfaceEmitter {
                 continue
             }
 
-            self._wrapped(unsafe (fe as unsafe *Decl), fn () { self._free_fn_decl(fe, &null) })
+            self._wrapped(
+                unsafe (fe as unsafe *Decl),
+                fn () { self._free_fn_decl(fe, &null) },
+            )
         }
 
         // tier 1
@@ -844,7 +859,10 @@ pub class InterfaceEmitter {
             if e->witness != &null {
                 // Written by every header that reaches it, so guarded there
                 // as a tuple record is: two headers in one C++ TU.
-                var g = LowerTargets::witness_guard(CXXSpell::_path_ident(e->witness->key))
+                var g = LowerTargets::witness_guard(
+                    CXXSpell::_path_ident(e->witness->key),
+                )
+
                 if header {
                     self._cg->sink->directive(self._tu_at(), "#ifndef " + g)
                 }
@@ -883,12 +901,16 @@ pub class InterfaceEmitter {
             if guard {
                 self._cg->sink->directive(
                     self._tu_at(),
-                    "#ifndef " + LowerTargets::tuple_guard(tup->tuple_arity as usize),
+                    "#ifndef " + LowerTargets::tuple_guard(
+                        tup->tuple_arity as usize,
+                    ),
                 )
 
                 self._cg->sink->directive(
                     self._tu_at(),
-                    "#define " + LowerTargets::tuple_guard(tup->tuple_arity as usize),
+                    "#define " + LowerTargets::tuple_guard(
+                        tup->tuple_arity as usize,
+                    ),
                 )
             }
 
@@ -1483,7 +1505,13 @@ pub class InterfaceEmitter {
                     continue
                 }
 
-                cur_access = self._access(cur_access, self._cxx_vis(nd), false, at)
+                cur_access = self._access(
+                    cur_access,
+                    self._cxx_vis(nd),
+                    false,
+                    at,
+                )
+
                 self._type_def(rep)
             }
 
@@ -1506,7 +1534,13 @@ pub class InterfaceEmitter {
                     continue
                 }
 
-                cur_access = self._access(cur_access, self._cxx_vis(nd), false, at)
+                cur_access = self._access(
+                    cur_access,
+                    self._cxx_vis(nd),
+                    false,
+                    at,
+                )
+
                 var us = self._spell->template_head(nd)
                 us += "using " + self._spell->leaf(nd) + " = " + self._spell->_type(
                     ta->aliased,
@@ -1645,11 +1679,19 @@ pub class InterfaceEmitter {
         cur_access = self._subscript_forwarders(d, methods, cur_access, at)
 
         if is_class {
-            cur_access = self._base_usings(cast<Declarations::ClassDecl>(d), cur_access, at)
+            cur_access = self._base_usings(
+                cast<Declarations::ClassDecl>(d),
+                cur_access,
+                at,
+            )
         }
 
         if is_class {
-            cur_access = self._edge_narrowing(cast<Declarations::ClassDecl>(d), cur_access, at)
+            cur_access = self._edge_narrowing(
+                cast<Declarations::ClassDecl>(d),
+                cur_access,
+                at,
+            )
         }
 
         // Each constructor that initializes a field in place: its slot record,
@@ -1793,7 +1835,10 @@ pub class InterfaceEmitter {
                 }
 
                 cur = self._access(cur, want, false, at)
-                self._cg->sink->spell(at, "using " + self._spell->_type(e->base) + "::" + nm + ";")
+                self._cg->sink->spell(
+                    at,
+                    "using " + self._spell->_type(e->base) + "::" + nm + ";",
+                )
             }
         }
 
@@ -1824,13 +1869,17 @@ pub class InterfaceEmitter {
         var        mine = cxx::std::vector<string>()
         for var i: usize = 0; i < d->fields.size(); ++i {
             if d->fields[i] != &null {
-                mine.push_back(self._spell->leaf(unsafe (d->fields[i] as unsafe *Decl)))
+                mine.push_back(
+                    self._spell->leaf(unsafe (d->fields[i] as unsafe *Decl)),
+                )
             }
         }
 
         for var i: usize = 0; i < d->methods.size(); ++i {
             if d->methods[i] != &null {
-                mine.push_back(self._spell->leaf(unsafe (d->methods[i] as unsafe *Decl)))
+                mine.push_back(
+                    self._spell->leaf(unsafe (d->methods[i] as unsafe *Decl)),
+                )
             }
         }
 
@@ -1848,7 +1897,15 @@ pub class InterfaceEmitter {
             var names = cxx::std::vector<string>()
             var acc   = cxx::std::vector<u8>()
             var seen  = cxx::std::vector<unsafe *Decl>()
-            self._edge_names(self._edge_decl(e), fid, unsafe &names, unsafe &acc, unsafe &seen, 0)
+            self._edge_names(
+                self._edge_decl(e),
+                fid,
+                unsafe &names,
+                unsafe &acc,
+                unsafe &seen,
+                0,
+            )
+
             var bs = self._spell->_type(e->base)
             for var k: usize = 0; k < names.size(); ++k {
                 var nm = names[k]
@@ -1970,7 +2027,14 @@ pub class InterfaceEmitter {
                 continue
             }
 
-            self._edge_names(self._edge_decl(e), fid, names, acc, seen, depth + 1)
+            self._edge_names(
+                self._edge_decl(e),
+                fid,
+                names,
+                acc,
+                seen,
+                depth + 1,
+            )
         }
     }
 
@@ -2045,7 +2109,14 @@ pub class InterfaceEmitter {
                 continue
             }
 
-            var r = self._base_method_named(self._edge_decl(e), nm, seen, depth + 1, fid)
+            var r = self._base_method_named(
+                self._edge_decl(e),
+                nm,
+                seen,
+                depth + 1,
+                fid,
+            )
+
             if r != 0 {
                 return r
             }
@@ -2126,8 +2197,8 @@ pub class InterfaceEmitter {
 
         for var i: usize = 0; i < ff.ifaces.size(); ++i {
             var unsafe *iface = ff.ifaces[i]
-            var        h      = "template <class " + LowerTargets::friend_tparam(0)
-            var        gps    = DeclFacts::decl_generic_params(iface)
+            var h   = "template <class " + LowerTargets::friend_tparam(0)
+            var gps = DeclFacts::decl_generic_params(iface)
             for var k: usize = 0; k < gps.size(); ++k {
                 h += ", class " + LowerTargets::friend_tparam(k + 1)
             }
@@ -2139,11 +2210,17 @@ pub class InterfaceEmitter {
         }
 
         for var i: usize = 0; i < ff.globals.size(); ++i {
-            self._cg->sink->spell(at, "friend " + self._spell->ginit_decl(ff.globals[i]) + ";")
+            self._cg->sink->spell(
+                at,
+                "friend " + self._spell->ginit_decl(ff.globals[i]) + ";",
+            )
         }
 
         if ff.main != &null {
-            self._cg->sink->spell(at, "friend " + self._main_decl_text(ff.main, true))
+            self._cg->sink->spell(
+                at,
+                "friend " + self._main_decl_text(ff.main, true),
+            )
         }
     }
 
@@ -2175,7 +2252,9 @@ pub class InterfaceEmitter {
 
         s += self._ret(f)
         s += " "
-        s += if (qualified) => (self._spell->qual_name(unsafe (f as unsafe *Decl)))
+        s += if (qualified) => (self._spell->qual_name(
+                 unsafe (f as unsafe *Decl),
+             ))
              else => self._fn_name(f)
         s += "("
         s += self._params(f, false, &null)
@@ -2249,7 +2328,11 @@ pub class InterfaceEmitter {
         var dat = self._at(d)
         self._cg->sink->spell(dat, nm + "(const " + nm + "&) = default;")
         self._cg->sink->spell(dat, nm + "(" + nm + "&&) = default;")
-        self._cg->sink->spell(dat, nm + "& operator=(const " + nm + "&) = default;")
+        self._cg->sink->spell(
+            dat,
+            nm + "& operator=(const " + nm + "&) = default;",
+        )
+
         self._cg->sink->spell(dat, nm + "& operator=(" + nm + "&&) = default;")
     }
 
@@ -2655,7 +2738,7 @@ pub class InterfaceEmitter {
             ne = " noexcept"
         }
 
-        var bare  = head + self._spell->param_decl(other, "", &null, d) + ")"
+        var bare = head + self._spell->param_decl(other, "", &null, d) + ")"
         var named = head + self._spell->param_decl(other, "o", &null, d) + ")" + ne
         // The constructor's own requires-clause, if it has one: the record's
         // explicit instantiation (`template class V<X>;`) instantiates every
@@ -2675,8 +2758,15 @@ pub class InterfaceEmitter {
                 // ADT's special members; the deleted one leaves an instance
                 // that fails the constraint unassignable by name.
                 var ok = self._rebuild_constraint(d)
-                self._cg->sink->spell(xat, named + " requires (" + ok + ")" + self._rebuild(d, x))
-                self._cg->sink->spell(xat, bare + " requires (!(" + ok + ")) = delete;")
+                self._cg->sink->spell(
+                    xat,
+                    named + " requires (" + ok + ")" + self._rebuild(d, x),
+                )
+
+                self._cg->sink->spell(
+                    xat,
+                    bare + " requires (!(" + ok + ")) = delete;",
+                )
             } default {
                 0
             }
@@ -2867,9 +2957,17 @@ pub class InterfaceEmitter {
             "template <class E> inline constexpr " + u + " " + LowerTargets::type_id() + " = " + ti + "<E>::value;",
         )
 
-        self._cg->sink->spell(at, "struct " + LowerTargets::unit_type() + " {};")
+        self._cg->sink->spell(
+            at,
+            "struct " + LowerTargets::unit_type() + " {};",
+        )
+
         var vs = LowerTargets::void_unit_trait()
-        self._cg->sink->spell(at, "template <class T> struct " + vs + " { using type = T; };")
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + vs + " { using type = T; };",
+        )
+
         self._cg->sink->spell(
             at,
             "template <> struct " + vs + "<void> { using type = " + LowerTargets::unit_type() + "; };",
@@ -2912,13 +3010,21 @@ pub class InterfaceEmitter {
         var tid = "::" + LowerTargets::type_id()
         var tp  = "template <class, class...> class P"
         self._cg->sink->spell(at, "template <class... E> struct " + tl + " {};")
-        self._cg->sink->spell(at, "template <class H, class L> struct " + cn + ";")
+        self._cg->sink->spell(
+            at,
+            "template <class H, class L> struct " + cn + ";",
+        )
+
         self._cg->sink->spell(
             at,
             "template <class H, class... R> struct " + cn + "<H, " + tl + "<R...>> { using type = " + tl + "<H, R...>; };",
         )
 
-        self._cg->sink->spell(at, "template <class X, class L> struct " + ins + ";")
+        self._cg->sink->spell(
+            at,
+            "template <class X, class L> struct " + ins + ";",
+        )
+
         self._cg->sink->spell(
             at,
             "template <int C, class X, class H, class... R> struct " + ia + ";",
@@ -2959,7 +3065,11 @@ pub class InterfaceEmitter {
             "template <class L, class X, class... E> struct " + so + "<L, X, E...> : " + so + "<typename " + ins + "<X, L>::type, E...> {};",
         )
 
-        self._cg->sink->spell(at, "template <" + tp + ", class T, class L> struct " + ap + ";")
+        self._cg->sink->spell(
+            at,
+            "template <" + tp + ", class T, class L> struct " + ap + ";",
+        )
+
         self._cg->sink->spell(
             at,
             "template <" + tp + ", class T, class... E> struct " + ap + "<P, T, " + tl + "<E...>> { using type = P<T, E...>; };",
@@ -2990,11 +3100,17 @@ pub class InterfaceEmitter {
         self.written.set(HelperBlock::RawSlot)
         var at = self._tu_at()
         if header {
-            self._cg->sink->directive(at, "#ifndef " + LowerTargets::raw_slot_guard())
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::raw_slot_guard(),
+            )
         }
 
         if header {
-            self._cg->sink->directive(at, "#define " + LowerTargets::raw_slot_guard())
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::raw_slot_guard(),
+            )
         }
 
         var bx = LowerTargets::raw_box()
@@ -3051,7 +3167,7 @@ pub class InterfaceEmitter {
             )
         }
 
-        var site                                          = self._spell->leaf(en->adt_site_field)
+        var site = self._spell->leaf(en->adt_site_field)
         var ok:     unsafe *Declarations::EnumVariantDecl = &null
         var err:    unsafe *Declarations::EnumVariantDecl = &null
         var errpos: usize                                 = 0
@@ -3132,11 +3248,17 @@ pub class InterfaceEmitter {
 
         var u = builtin_info(BuiltinKind::U32)->cxx
         if header {
-            self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::panic_site_guard())
+            self._cg->sink->directive(
+                self._tu_at(),
+                "#ifndef " + LowerTargets::panic_site_guard(),
+            )
         }
 
         if header {
-            self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::panic_site_guard())
+            self._cg->sink->directive(
+                self._tu_at(),
+                "#define " + LowerTargets::panic_site_guard(),
+            )
         }
 
         self._cg->sink->spell(
@@ -3174,17 +3296,17 @@ pub class InterfaceEmitter {
     /// whole, ` | `-separated. what() is built ONCE, when the exception is
     /// constructed, into a reference-counted buffer the copies share.
     priv fn _panic_api(self, en: unsafe *Declarations::EnumDecl, header: bool) {
-        var at                                         = self._tu_at()
-        var u                                          = builtin_info(BuiltinKind::U32)->cxx
-        var sz                                         = "decltype(sizeof(0))"
-        var st                                         = "::" + LowerTargets::panic_site_type()
-        var pn                                         = self._spell->qual_name(en)
-        var pt                                         = pn + "<T, E...>"
-        var tag                                        = LowerTargets::adt_tag_field()
-        var tt                                         = LowerTargets::adt_tag_type()
-        var get                                        = LowerTargets::adt_pack_get()
-        var px                                         = "::" + LowerTargets::panic_elem_index()
-        var tid                                        = "::" + LowerTargets::type_id()
+        var at = self._tu_at()
+        var u = builtin_info(BuiltinKind::U32)->cxx
+        var sz = "decltype(sizeof(0))"
+        var st = "::" + LowerTargets::panic_site_type()
+        var pn = self._spell->qual_name(en)
+        var pt = pn + "<T, E...>"
+        var tag = LowerTargets::adt_tag_field()
+        var tt = LowerTargets::adt_tag_type()
+        var get = LowerTargets::adt_pack_get()
+        var px = "::" + LowerTargets::panic_elem_index()
+        var tid = "::" + LowerTargets::type_id()
         var npos                                       = "static_cast<" + u + ">(-1)"
         var ok:  unsafe *Declarations::EnumVariantDecl = &null
         var err: unsafe *Declarations::EnumVariantDecl = &null
@@ -3214,13 +3336,13 @@ pub class InterfaceEmitter {
             unsafe (ok->payload[0] as unsafe *Decl),
         )
 
-        var        erm = self._spell->leaf(err->adt_member)
-        var        erf = self._spell->leaf(unsafe (err->payload[0] as unsafe *Decl))
-        var        api = LowerTargets::panic_api_ns()
-        var        im  = LowerTargets::panic_api_impl()
-        var        ss  = "::" + api + "::" + LowerTargets::panic_api_source_site()
-        var        b0  = LowerTargets::panic_sites_begin_sym()
-        var        b1  = LowerTargets::panic_sites_end_sym()
+        var erm = self._spell->leaf(err->adt_member)
+        var erf = self._spell->leaf(unsafe (err->payload[0] as unsafe *Decl))
+        var api = LowerTargets::panic_api_ns()
+        var im  = LowerTargets::panic_api_impl()
+        var ss  = "::" + api + "::" + LowerTargets::panic_api_source_site()
+        var b0  = LowerTargets::panic_sites_begin_sym()
+        var b1  = LowerTargets::panic_sites_end_sym()
         // Unresolved: no target read yet (a hand-built invocation), which
         // this has always treated as ELF.
         var        fmt = ObjectFormat::Unresolved
@@ -3230,11 +3352,17 @@ pub class InterfaceEmitter {
         }
 
         if header {
-            self._cg->sink->directive(at, "#ifndef " + LowerTargets::panic_api_guard())
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::panic_api_guard(),
+            )
         }
 
         if header {
-            self._cg->sink->directive(at, "#define " + LowerTargets::panic_api_guard())
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::panic_api_guard(),
+            )
         }
 
         self._site_type(header)
@@ -3317,9 +3445,9 @@ pub class InterfaceEmitter {
             var bld = LowerTargets::panic_api_build()
             var drp = LowerTargets::panic_api_drop()
             var th  = LowerTargets::panic_api_throw()
-            var nm  = "::" + LowerTargets::type_id_trait() + "<E>::" + LowerTargets::type_id_name()
-            var sd  = LangMembers::string_as_ptr() + "()"
-            var sl  = LangMembers::string_length() + "()"
+            var nm = "::" + LowerTargets::type_id_trait() + "<E>::" + LowerTargets::type_id_name()
+            var sd = LangMembers::string_as_ptr() + "()"
+            var sl = LangMembers::string_length() + "()"
             // No `: ::name` anywhere: a header's text sink writes no space
             // between tokens, and `:::` lexes as `::` `:`. The base is
             // default-built in the copy (std::exception holds nothing).
@@ -3397,11 +3525,17 @@ pub class InterfaceEmitter {
         var ip     = LowerTargets::nopanic_trait()
         var header = self._plan->mode() == PlanMode::Header
         if header {
-            self._cg->sink->directive(at, "#ifndef " + LowerTargets::nopanic_guard())
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::nopanic_guard(),
+            )
         }
 
         if header {
-            self._cg->sink->directive(at, "#define " + LowerTargets::nopanic_guard())
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::nopanic_guard(),
+            )
         }
 
         self._cg->sink->spell(
@@ -3409,8 +3543,16 @@ pub class InterfaceEmitter {
             "template <class T> struct " + ip + " { static constexpr bool value = false; };",
         )
 
-        self._cg->sink->spell(at, "template <class T> struct " + ip + "<T&> : " + ip + "<T> {};")
-        self._cg->sink->spell(at, "template <class T> struct " + ip + "<T&&> : " + ip + "<T> {};")
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + ip + "<T&> : " + ip + "<T> {};",
+        )
+
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + ip + "<T&&> : " + ip + "<T> {};",
+        )
+
         self._cg->sink->spell(
             at,
             "template <class T> struct " + ip + "<const T> : " + ip + "<T> {};",
@@ -3520,7 +3662,10 @@ pub class InterfaceEmitter {
         var        ps  = ""
         var unsafe *dc = unsafe (lay as unsafe *DeclContext)
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var unsafe *sd = dyn_cast<Declarations::StructDecl>(*dc->dc_decls.get(i))
+            var unsafe *sd = dyn_cast<Declarations::StructDecl>(
+                *dc->dc_decls.get(i),
+            )
+
             if sd == &null || !sd->is_adt_payload {
                 continue
             }
@@ -3560,7 +3705,10 @@ pub class InterfaceEmitter {
     /// The enum's type pack parameter, as its own body names it.
     priv fn _pack_name(self, en: unsafe *Declarations::EnumDecl) -> string {
         var unsafe *gp = en->generic_params[DeclFacts::adt_pack_param(en)]
-        return self._spell->tok_name(gp->name, CXXSpell::fid_of(unsafe (en as unsafe *Decl)))
+        return self._spell->tok_name(
+            gp->name,
+            CXXSpell::fid_of(unsafe (en as unsafe *Decl)),
+        )
     }
 
     /// The payload struct template of pack-expanded variant \p v, applied
@@ -3798,7 +3946,11 @@ pub class InterfaceEmitter {
             return
         }
 
-        self._cg->sink->spell(at, self._spell->template_head(d) + "struct " + nm + " {")
+        self._cg->sink->spell(
+            at,
+            self._spell->template_head(d) + "struct " + nm + " {",
+        )
+
         self._body_predicate_asserts(d)
 
         // A struct: public unless marked. Only the two helpers the special
@@ -3885,13 +4037,20 @@ pub class InterfaceEmitter {
 
                 self._cg->sink->spell(
                     f->name.range,
-                    "static constexpr bool " + fnm + " = " + self._adt_flag(lay, f, fnm) + ";",
+                    "static constexpr bool " + fnm + " = " + self._adt_flag(
+                        lay,
+                        f,
+                        fnm,
+                    ) + ";",
                 )
 
                 continue
             }
 
-            self._cg->sink->spell(f->name.range, self._spell->decl(f->type_, fnm, &null, d) + ";")
+            self._cg->sink->spell(
+                f->name.range,
+                self._spell->decl(f->type_, fnm, &null, d) + ";",
+            )
         }
 
         for var i: usize = 0; i < lay->methods.size(); ++i {
@@ -4037,7 +4196,11 @@ pub class InterfaceEmitter {
             self._type_def(CXXSpell::rep(nd))
         }
 
-        self._cg->sink->spell(at, self._spell->leaf(self._payload_struct_of(pv)) + " " + mem + ";")
+        self._cg->sink->spell(
+            at,
+            self._spell->leaf(self._payload_struct_of(pv)) + " " + mem + ";",
+        )
+
         // A generic ADT's flags, which the Nullable surface's constraints
         // read: true by the specialization's own constraint.
         for var i: usize = 0; i < lay->fields.size(); ++i {
@@ -4063,7 +4226,11 @@ pub class InterfaceEmitter {
 
             var mat = self._at(unsafe (m as unsafe *Decl))
             if Declarations::adt_role_is_nullable(m->adt_role) {
-                self._cg->sink->spell(mat, self._niche_nullable_member(en, m, nm, nt, mem, fnm, ft))
+                self._cg->sink->spell(
+                    mat,
+                    self._niche_nullable_member(en, m, nm, nt, mem, fnm, ft),
+                )
+
                 continue
             }
 
@@ -4095,19 +4262,31 @@ pub class InterfaceEmitter {
                     }
                 } case Declarations::AdtRole::CopyCtor {
                     if m->adt_form == Declarations::AdtForm::Trivial {
-                        self._cg->sink->spell(mat, nm + "(const " + nm + "&) = default;")
+                        self._cg->sink->spell(
+                            mat,
+                            nm + "(const " + nm + "&) = default;",
+                        )
                     }
                 } case Declarations::AdtRole::MoveCtor {
                     if m->adt_form == Declarations::AdtForm::Trivial {
-                        self._cg->sink->spell(mat, nm + "(" + nm + "&&) = default;")
+                        self._cg->sink->spell(
+                            mat,
+                            nm + "(" + nm + "&&) = default;",
+                        )
                     }
                 } case Declarations::AdtRole::CopyAssign {
                     if m->adt_form == Declarations::AdtForm::Trivial {
-                        self._cg->sink->spell(mat, nm + "& operator=(const " + nm + "&) = default;")
+                        self._cg->sink->spell(
+                            mat,
+                            nm + "& operator=(const " + nm + "&) = default;",
+                        )
                     }
                 } case Declarations::AdtRole::MoveAssign {
                     if m->adt_form == Declarations::AdtForm::Trivial {
-                        self._cg->sink->spell(mat, nm + "& operator=(" + nm + "&&) = default;")
+                        self._cg->sink->spell(
+                            mat,
+                            nm + "& operator=(" + nm + "&&) = default;",
+                        )
                     }
                 } case Declarations::AdtRole::Dtor {
                     if m->adt_form == Declarations::AdtForm::Trivial {
@@ -4120,7 +4299,10 @@ pub class InterfaceEmitter {
                             continue
                         }
 
-                        s += nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", " + f"{adt_niche_pattern_of(en, (k as u32))}" + ") ? " + tt + "::" + self._tag_leaf(en, en->variants[k]) + " : "
+                        s += nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", " + f"{adt_niche_pattern_of(en, (k as u32))}" + ") ? " + tt + "::" + self._tag_leaf(
+                            en,
+                            en->variants[k],
+                        ) + " : "
                     }
 
                     self._cg->sink->spell(
@@ -4136,7 +4318,13 @@ pub class InterfaceEmitter {
         // A struct: public throughout. The generic primary's partial
         // specialization gets them too, or C++ would find them only on the
         // instances it lays out tagged.
-        self._adt_factories(en, lay, nm, spec || CXXSpell::template_params(d).size() > 0)
+        self._adt_factories(
+            en,
+            lay,
+            nm,
+            spec || CXXSpell::template_params(d).size() > 0,
+        )
+
         self._cxx_alloc_ops(d, nm, at)
         self._cg->sink->spell(
             at,
@@ -4201,13 +4389,17 @@ pub class InterfaceEmitter {
         var unsafe *d  = unsafe (en as unsafe *Decl)
         var        nx  = self._adt_noexcept()
         var        val = LowerTargets::nullable_value()
-        var        nul = mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(0)} {}"
+        var nul = mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(0)} {}"
         match m->adt_role {
             case Declarations::AdtRole::NullDefault {
                 return nm + "()" + nx + " : " + nul
             } case Declarations::AdtRole::NullFrom {
                 if m->params.size() != 1 {
-                    self._ice(at, "InterfaceEmitter: Nullable(null_t) without its parameter")
+                    self._ice(
+                        at,
+                        "InterfaceEmitter: Nullable(null_t) without its parameter",
+                    )
+
                     return ""
                 }
 
@@ -4234,7 +4426,11 @@ pub class InterfaceEmitter {
             }
         }
 
-        self._ice(at, "InterfaceEmitter: a Nullable role with no niche rendering")
+        self._ice(
+            at,
+            "InterfaceEmitter: a Nullable role with no niche rendering",
+        )
+
         return ""
     }
 
@@ -4268,14 +4464,24 @@ pub class InterfaceEmitter {
         var ts = LowerTargets::niche_trait_test()
         var np = LowerTargets::niche_ctor_tag()
         if header {
-            self._cg->sink->directive(at, "#ifndef " + LowerTargets::niche_guard())
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::niche_guard(),
+            )
         }
 
         if header {
-            self._cg->sink->directive(at, "#define " + LowerTargets::niche_guard())
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::niche_guard(),
+            )
         }
 
-        self._cg->sink->spell(at, "struct " + np + " { explicit " + np + "() = default; };")
+        self._cg->sink->spell(
+            at,
+            "struct " + np + " { explicit " + np + "() = default; };",
+        )
+
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
@@ -4366,7 +4572,10 @@ pub class InterfaceEmitter {
         var        s   = ""
         var unsafe *dc = unsafe (lay as unsafe *DeclContext)
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            var unsafe *ps = dyn_cast<Declarations::StructDecl>(*dc->dc_decls.get(i))
+            var unsafe *ps = dyn_cast<Declarations::StructDecl>(
+                *dc->dc_decls.get(i),
+            )
+
             if ps == &null || !ps->is_adt_payload {
                 continue
             }
@@ -4481,7 +4690,9 @@ pub class InterfaceEmitter {
 
                 for var k: usize = 0; k < en->variants.size() && k < tag->variants.size(); ++k {
                     if en->variants[k] == v {
-                        return self._spell->leaf(unsafe (tag->variants[k] as unsafe *Decl))
+                        return self._spell->leaf(
+                            unsafe (tag->variants[k] as unsafe *Decl),
+                        )
                     }
                 }
             }
@@ -4553,7 +4764,7 @@ pub class InterfaceEmitter {
                 }
 
                 var unsafe *v = en->variants[m->adt_variant as usize]
-                var        vt = "::" + LowerTargets::adt_variant_tag() + f"<{m->adt_variant}>"
+                var vt = "::" + LowerTargets::adt_variant_tag() + f"<{m->adt_variant}>"
                 if en->adt_tag_member != &null {
                     // The common prefix: the tag goes in with the payload, or
                     // alone into the tag-only member. `constexpr`: every
@@ -4575,7 +4786,16 @@ pub class InterfaceEmitter {
                         )
                     }
 
-                    return "constexpr " + self._field_ctor(en, v, nm, vt, "", nx, false, tv + ", ")
+                    return "constexpr " + self._field_ctor(
+                        en,
+                        v,
+                        nm,
+                        vt,
+                        "",
+                        nx,
+                        false,
+                        tv + ", ",
+                    )
                 }
 
                 var init = tag + "(" + tt + "::" + self._tag_leaf(en, v) + ")" + site_init
@@ -4615,9 +4835,27 @@ pub class InterfaceEmitter {
                 ) + "(static_cast<F&&>(f)()) {}"
                 match v->adt_ctor {
                     case Declarations::AdtCtorForm::Fields {
-                        return self._field_ctor(en, v, nm, vt, init, nx, false, "")
+                        return self._field_ctor(
+                            en,
+                            v,
+                            nm,
+                            vt,
+                            init,
+                            nx,
+                            false,
+                            "",
+                        )
                     } case Declarations::AdtCtorForm::Both {
-                        return self._field_ctor(en, v, nm, vt, init, nx, true, "") + " " + lam
+                        return self._field_ctor(
+                            en,
+                            v,
+                            nm,
+                            vt,
+                            init,
+                            nx,
+                            true,
+                            "",
+                        ) + " " + lam
                     } default {
                         0
                     }
@@ -4665,7 +4903,10 @@ pub class InterfaceEmitter {
                     }
 
                     var mem = self._spell->leaf(v->adt_member)
-                    s += " case " + tt + "::" + self._tag_leaf(en, v) + ": " + mem + ".~" + self._payload_leaf(v) + "(); break;"
+                    s += " case " + tt + "::" + self._tag_leaf(
+                        en,
+                        v,
+                    ) + ": " + mem + ".~" + self._payload_leaf(v) + "(); break;"
                 }
 
                 return s + " default: " + self._pack_default(en, ds, "") + "break; } }"
@@ -4680,7 +4921,10 @@ pub class InterfaceEmitter {
                     }
 
                     var mem = self._spell->leaf(v->adt_member)
-                    s += " case " + tt + "::" + self._tag_leaf(en, v) + ": new (&" + mem + ") " + self._payload_leaf(
+                    s += " case " + tt + "::" + self._tag_leaf(
+                        en,
+                        v,
+                    ) + ": new (&" + mem + ") " + self._payload_leaf(
                         v,
                     ) + "(static_cast<O&&>(o)." + mem + "); break;"
                 }
@@ -4721,7 +4965,7 @@ pub class InterfaceEmitter {
             return ""
         }
 
-        var u   = builtin_info(BuiltinKind::U32)->cxx
+        var u = builtin_info(BuiltinKind::U32)->cxx
         var tag = "static_cast<" + u + ">(" + LowerTargets::adt_tag_field() + ")"
         var mem = self._spell->leaf(v->adt_member)
         var arg = if (from.size() > 0) => (", " + from + mem) else => ""
@@ -4890,7 +5134,10 @@ pub class InterfaceEmitter {
                 body = nm + "(" + tag + ", [&]()" + nx + " -> " + p + " { return { " + vals + " }; })"
             }
 
-            self._cg->sink->spell(v->name.range, head + ps + ")" + nx + " { return " + body + "; }")
+            self._cg->sink->spell(
+                v->name.range,
+                head + ps + ")" + nx + " { return " + body + "; }",
+            )
         }
     }
 
@@ -4945,16 +5192,22 @@ pub class InterfaceEmitter {
             return
         }
 
-        var z   = LowerTargets::cxx_size_t()
-        var av  = "::" + cxx_std_name() + "::" + LowerTargets::cxx_align_val_t()
-        var nt  = "const ::" + cxx_std_name() + "::" + LowerTargets::cxx_nothrow_t() + "&"
+        var z  = LowerTargets::cxx_size_t()
+        var av = "::" + cxx_std_name() + "::" + LowerTargets::cxx_align_val_t()
+        var nt = "const ::" + cxx_std_name() + "::" + LowerTargets::cxx_nothrow_t() + "&"
         var x   = LowerTargets::attr_exclude_from_instantiation() + "static "
         var got = "::" + LowerTargets::cxx_alloc_got()
         // The allocator: always the program's global one. A class cannot
         // declare its own (SC149E), so there is nothing to route to.
-        var alloc_fn = "::" + LowerTargets::global_alloc_symbol(GlobalAllocFn::Alloc)
-        var free_fn  = "::" + LowerTargets::global_alloc_symbol(GlobalAllocFn::Free)
-        var one      = "alignof(" + nm + ")"
+        var alloc_fn = "::" + LowerTargets::global_alloc_symbol(
+            GlobalAllocFn::Alloc,
+        )
+
+        var free_fn = "::" + LowerTargets::global_alloc_symbol(
+            GlobalAllocFn::Free,
+        )
+
+        var one = "alignof(" + nm + ")"
         var arr = "(alignof(" + nm + ") > 2 * sizeof(void*) ? alignof(" + nm + ") : 2 * sizeof(void*))"
         var forms: cxx::std::vector<string>
         for var k: usize = 0; k < 2; ++k {
@@ -4976,7 +5229,9 @@ pub class InterfaceEmitter {
                 x + "void* " + fnm + "(" + z + " n, " + av + " a, " + nt + ") noexcept { return " + got + "(" + alloc_fn + "(n ? n : 1, static_cast<" + z + ">(a)), true); }",
             )
 
-            forms.push_back(x + "void* " + fnm + "(" + z + ", void* p) noexcept { return p; }")
+            forms.push_back(
+                x + "void* " + fnm + "(" + z + ", void* p) noexcept { return p; }",
+            )
         }
 
         for var k: usize = 0; k < 2; ++k {
@@ -5008,11 +5263,17 @@ pub class InterfaceEmitter {
         var at = self._tu_at()
         var z  = LowerTargets::cxx_size_t()
         if header {
-            self._cg->sink->directive(at, "#ifndef " + LowerTargets::cxx_alloc_guard())
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::cxx_alloc_guard(),
+            )
         }
 
         if header {
-            self._cg->sink->directive(at, "#define " + LowerTargets::cxx_alloc_guard())
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::cxx_alloc_guard(),
+            )
         }
 
         self._cg->sink->spell(
@@ -5023,13 +5284,17 @@ pub class InterfaceEmitter {
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            "extern \"C\" unsigned char* " + LowerTargets::global_alloc_symbol(GlobalAllocFn::Alloc) + "(" + z + " size, " + z + " align) noexcept;",
+            "extern \"C\" unsigned char* " + LowerTargets::global_alloc_symbol(
+                GlobalAllocFn::Alloc,
+            ) + "(" + z + " size, " + z + " align) noexcept;",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            "extern \"C\" void " + LowerTargets::global_alloc_symbol(GlobalAllocFn::Free) + "(unsigned char* ptr, " + z + " size, " + z + " align) noexcept;",
+            "extern \"C\" void " + LowerTargets::global_alloc_symbol(
+                GlobalAllocFn::Free,
+            ) + "(unsigned char* ptr, " + z + " size, " + z + " align) noexcept;",
         )
 
         self._cg->sink->brk()
@@ -5108,7 +5373,9 @@ pub class InterfaceEmitter {
         taken.push_back(mk)
         var gps = CXXSpell::template_params(d)
         for var i: usize = 0; i < gps.size(); ++i {
-            taken.push_back(self._spell->tok_name(gps[i]->name, CXXSpell::fid_of(d)))
+            taken.push_back(
+                self._spell->tok_name(gps[i]->name, CXXSpell::fid_of(d)),
+            )
         }
 
         // Every member the record is written with: its nested types and
@@ -5271,9 +5538,9 @@ pub class InterfaceEmitter {
                              en:       unsafe *Declarations::EnumDecl,
                              m:        unsafe *Declarations::FunctionDecl,
                              const nm: string) -> string {
-        var at                                          = self._at(unsafe (m as unsafe *Decl))
-        var tag                                         = LowerTargets::adt_tag_field()
-        var tt                                          = LowerTargets::adt_tag_type()
+        var at = self._at(unsafe (m as unsafe *Decl))
+        var tag = LowerTargets::adt_tag_field()
+        var tt = LowerTargets::adt_tag_type()
         var some: unsafe *Declarations::EnumVariantDecl = &null
         var none: unsafe *Declarations::EnumVariantDecl = &null
         for var i: usize = 0; i < en->variants.size(); ++i {
@@ -5314,7 +5581,11 @@ pub class InterfaceEmitter {
                 return nm + "()" + nx + null_init
             } case Declarations::AdtRole::NullFrom {
                 if m->params.size() != 1 {
-                    self._ice(at, "InterfaceEmitter: Nullable(null_t) without its parameter")
+                    self._ice(
+                        at,
+                        "InterfaceEmitter: Nullable(null_t) without its parameter",
+                    )
+
                     return ""
                 }
 
@@ -5396,7 +5667,7 @@ pub class InterfaceEmitter {
                 }
 
                 var next: usize = 0
-                var s           = " = " + self._elems_braced(f, at, unsafe &next)
+                var s = " = " + self._elems_braced(f, at, unsafe &next)
                 if next != f->init_elems.size() {
                     self._ice(
                         f->name.range,
@@ -5635,14 +5906,24 @@ pub class InterfaceEmitter {
     priv fn _ctor_slot_helpers(self, header: bool) {
         var at = self._tu_at()
         if header {
-            self._cg->sink->directive(at, "#ifndef " + LowerTargets::ctor_slot_guard())
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::ctor_slot_guard(),
+            )
         }
 
         if header {
-            self._cg->sink->directive(at, "#define " + LowerTargets::ctor_slot_guard())
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::ctor_slot_guard(),
+            )
         }
 
-        self._cg->sink->spell(at, "template <class T> using " + LowerTargets::lref() + " = T&;")
+        self._cg->sink->spell(
+            at,
+            "template <class T> using " + LowerTargets::lref() + " = T&;",
+        )
+
         self._cg->sink->brk()
         var sl = LowerTargets::ctor_slot()
         var sz = builtin_info(BuiltinKind::USize)->cxx
@@ -5733,17 +6014,27 @@ pub class InterfaceEmitter {
         var at = self._tu_at()
         var fv = LowerTargets::fn_value()
         if header {
-            self._cg->sink->directive(at, "#ifndef " + LowerTargets::fn_value_guard())
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::fn_value_guard(),
+            )
         }
 
         if header {
-            self._cg->sink->directive(at, "#define " + LowerTargets::fn_value_guard())
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::fn_value_guard(),
+            )
         }
 
         self._cg->sink->spell(at, "template <class S> class " + fv + ";")
         self._cg->sink->brk()
         // A raw `unsafe fn`: the plain function pointer, as one name.
-        self._cg->sink->spell(at, "template <class S> using " + LowerTargets::raw_fn() + " = S*;")
+        self._cg->sink->spell(
+            at,
+            "template <class S> using " + LowerTargets::raw_fn() + " = S*;",
+        )
+
         self._cg->sink->brk()
         // The call path is a Kairo frame: noexcept unless -funwind, as the
         // closures it holds are.
@@ -5817,7 +6108,8 @@ pub class InterfaceEmitter {
         t += " " + LowerTargets::attr_always_inline() + "R operator()(A... a) const" + nx + " { if (__o) { return __t->call(__o, static_cast<A&&>(a)...); } return __f(static_cast<A&&>(a)...); }"
         // A held C++ function converts back to itself: whatever calls it
         // through the C pointer type is C++, not a noexcept Kairo frame.
-        var raw_back = (if (nx.size() > 0) => (" if (__t == &__raw_ops) { return reinterpret_cast<__ptr>(__o); }") else => "")
+        var raw_back = (if (nx.size() > 0) => (" if (__t == &__raw_ops) { return reinterpret_cast<__ptr>(__o); }")
+                        else => "")
         t += " operator __ptr() const noexcept { if (__o) {" + raw_back + " " + LowerTargets::clang_trap() + "(); } return __f; }"
         t += " };"
         self._cg->sink->spell(at, t)
@@ -5853,7 +6145,10 @@ pub class InterfaceEmitter {
             ) + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&;",
         )
 
-        self._cg->sink->spell(at, ce + self._spell->leaf(owner) + "(" + ci + "& " + sa + ps + ");")
+        self._cg->sink->spell(
+            at,
+            ce + self._spell->leaf(owner) + "(" + ci + "& " + sa + ps + ");",
+        )
     }
 
     /// `, __kairo_lref<P> p` per parameter but `self`, in order.
@@ -5872,7 +6167,10 @@ pub class InterfaceEmitter {
                 &null,
                 owner,
             ) + "> "
-            s += self._spell->tok_name(p->name, CXXSpell::fid_of(unsafe (m as unsafe *Decl)))
+            s += self._spell->tok_name(
+                p->name,
+                CXXSpell::fid_of(unsafe (m as unsafe *Decl)),
+            )
         }
 
         return s
@@ -5945,7 +6243,10 @@ pub class InterfaceEmitter {
             s += "const "
         }
 
-        var nm = self._owner_qual(owner) + "::" + self._spell->leaf(unsafe (f as unsafe *Decl))
+        var nm = self._owner_qual(owner) + "::" + self._spell->leaf(
+            unsafe (f as unsafe *Decl),
+        )
+
         s += self._spell->decl(f->type_, nm)
         if f->init_fold == Declarations::FieldFold::None {
             if f->init != &null {
@@ -6156,7 +6457,13 @@ pub class InterfaceEmitter {
 
             s += self._spell->member_requires(m, d)
             s += ";"
-            acc = self._access(acc, self._cxx_vis(unsafe (m as unsafe *Decl)), false, at)
+            acc = self._access(
+                acc,
+                self._cxx_vis(unsafe (m as unsafe *Decl)),
+                false,
+                at,
+            )
+
             self._cg->sink->spell(at, s)
         }
 
@@ -6168,7 +6475,10 @@ pub class InterfaceEmitter {
     /// `extern` declaration precedes its definition, and a `pub const` has to
     /// be reachable from every module that imports it.
     priv fn _global_var_decl(self, v: unsafe *Declarations::VariableDecl) {
-        self._cg->sink->spell(self._at(v), "extern " + self._spell->global_var(v) + ";")
+        self._cg->sink->spell(
+            self._at(v),
+            "extern " + self._spell->global_var(v) + ";",
+        )
     }
 
     priv fn _free_fn_decl(self,
@@ -6188,8 +6498,14 @@ pub class InterfaceEmitter {
                     continue
                 }
 
-                var unsafe *th = cast<Declarations::FunctionDecl>(p->default_thunk)
-                self._cg->sink->spell(self._at(f), self._free_fn_text(th, &null))
+                var unsafe *th = cast<Declarations::FunctionDecl>(
+                    p->default_thunk,
+                )
+
+                self._cg->sink->spell(
+                    self._at(f),
+                    self._free_fn_text(th, &null),
+                )
             }
         }
 
@@ -6266,7 +6582,10 @@ pub class InterfaceEmitter {
         self._cg->sink->spell(at, "struct " + sc->name + " {")
         for var i: usize = 0; i < sc->members.size(); ++i {
             var unsafe *m = sc->members[i]
-            self._cg->sink->spell(self._at(m), self._free_fn_text(m, sc->exts[i]))
+            self._cg->sink->spell(
+                self._at(m),
+                self._free_fn_text(m, sc->exts[i]),
+            )
         }
 
         self._cg->sink->spell(at, "};")
@@ -6307,7 +6626,8 @@ pub class InterfaceEmitter {
         }
 
         if isa<FunctionPointerType>(c) {
-            return !(cast<FunctionPointerType>(c)->is_raw || cast<FunctionPointerType>(c)->is_unprototyped)
+            return !(cast<FunctionPointerType>(c)->is_raw
+                || cast<FunctionPointerType>(c)->is_unprototyped)
         }
 
         return true
@@ -6449,7 +6769,10 @@ pub class InterfaceEmitter {
                 }
 
                 if ext == &null {
-                    self._ice(p->range, "InterfaceEmitter: `self` outside a type or extension")
+                    self._ice(
+                        p->range,
+                        "InterfaceEmitter: `self` outside a type or extension",
+                    )
                 }
 
                 if !first {
@@ -6564,7 +6887,9 @@ pub class InterfaceEmitter {
             return false
         }
 
-        return self._spell->leaf(unsafe (m as unsafe *Decl)) == self._spell->leaf(owner)
+        return self._spell->leaf(unsafe (m as unsafe *Decl)) == self._spell->leaf(
+            owner,
+        )
     }
 
     priv fn _body_suffix(self, f: unsafe *Declarations::FunctionDecl) -> string {
@@ -6894,7 +7219,10 @@ pub class InterfaceEmitter {
         }
 
         var unsafe *pv = en->variants[adt_niche_payload_variant(en) as usize]
-        var        ps  = x + "::" + LowerTargets::adt_payload_type(self._spell->leaf(pv))
+        var ps = x + "::" + LowerTargets::adt_payload_type(
+            self._spell->leaf(pv),
+        )
+
         self._cg->sink->spell(
             self._at(d),
             "static_assert(sizeof(" + x + ") == sizeof(" + ps + ") && __is_standard_layout(" + x + "));",

@@ -209,7 +209,10 @@ pub class HashSink derives EmitSink {
         }
 
         var chunk = self._acc + self._buf
-        self._acc = kairo::std::from_std_string<string>(kairo::objcache_hash128(kairo::sref(chunk)))
+        self._acc = kairo::std::from_std_string<string>(
+            kairo::objcache_hash128(kairo::sref(chunk)),
+        )
+
         self._buf = ""
     }
 

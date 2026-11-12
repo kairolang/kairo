@@ -156,8 +156,8 @@ import AST::VisibilityFacts::{
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Config::ResourceLayout::ResourceLayout
 import Diagnostic::Code::DiagCode
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::named_declared_here
+import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::{
@@ -515,7 +515,9 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         self._assert_entry(tu)
 
-        self._self_imm = self.sc->imm_table()->intern_ident_copy(token_kind_to_readable_string(TokenKind::KwSelf))
+        self._self_imm = self.sc->imm_table()->intern_ident_copy(
+            token_kind_to_readable_string(TokenKind::KwSelf),
+        )
 
         self._validate_decls(tu) // N(a)
         self._bind(tu)           // N(b)
@@ -536,7 +538,9 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         // 2. the overlay exists and is frozen (phase I ran to completion).
         if tu->import_overlay == &null {
-            kairo::std::ice_fail("NameResolution: tu->import_overlay is null (phase I did not run)")
+            kairo::std::ice_fail(
+                "NameResolution: tu->import_overlay is null (phase I did not run)",
+            )
         }
 
         if !tu->import_overlay->is_frozen() {
@@ -548,7 +552,9 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         // 4. the shared lookup core is wired to THIS TU. A stale NameLookup
         //    would silently answer with another TU's overlay.
         if self.sc->lookup.tu != tu {
-            kairo::std::ice_fail("NameResolution: sc->lookup is not initialized with this TU")
+            kairo::std::ice_fail(
+                "NameResolution: sc->lookup is not initialized with this TU",
+            )
         }
 
         // 5. there is a program to walk.
@@ -565,16 +571,22 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         for var i: usize = 0; i < tu->out_of_line.size(); ++i {
             var unsafe *d = *tu->out_of_line.get(i)
             if d == &null {
-                kairo::std::ice_fail("NameResolution: null entry in tu->out_of_line")
+                kairo::std::ice_fail(
+                    "NameResolution: null entry in tu->out_of_line",
+                )
             }
 
             var unsafe *f = dyn_cast<Declarations::FunctionDecl>(d)
             if f == &null {
-                kairo::std::ice_fail("NameResolution: non-FunctionDecl in tu->out_of_line")
+                kairo::std::ice_fail(
+                    "NameResolution: non-FunctionDecl in tu->out_of_line",
+                )
             }
 
             if !f->is_out_of_line() {
-                kairo::std::ice_fail("NameResolution: out_of_line entry has no Class:: qualifier")
+                kairo::std::ice_fail(
+                    "NameResolution: out_of_line entry has no Class:: qualifier",
+                )
             }
         }
     }
@@ -971,7 +983,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         for var i: usize = 0; i < cell.cell->size(); ++i {
-            var unsafe *m = dyn_cast<Declarations::FunctionDecl>(cell.cell->get(i))
+            var unsafe *m = dyn_cast<Declarations::FunctionDecl>(
+                cell.cell->get(i),
+            )
+
             if m == &null {
                 continue
             }
@@ -1028,7 +1043,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return
         }
 
-        if !ResourceLayout::is_std_file(ci, self.sc->ctx->sm->get_filename(self.sc->ctx->fid)) {
+        if !ResourceLayout::is_std_file(
+            ci,
+            self.sc->ctx->sm->get_filename(self.sc->ctx->fid),
+        ) {
             return
         }
 
@@ -1406,7 +1424,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
             var b = self.sc->diag->report(DiagID::R063E, d->range.start, msg)
             b.first(d->range)
-            b.note(DiagCode(DiagID::R063N), ref_d->range.start, nmsg)->child_first(ref_d->range)
+            b.note(DiagCode(DiagID::R063N), ref_d->range.start, nmsg)->child_first(
+                ref_d->range,
+            )
+
             // Only where the declaration starts with its keyword: a leading
             // `final` or `abstract` would put the edit on the wrong word.
             var kr = SourceRange::from_bounds(d->range.start, kw.size() as u32)
@@ -1540,7 +1561,9 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     /// name, not a local. Error home for "outside a type body" in EXPRESSION
     /// position is here; type position is T's.
     priv fn _bind_self_type(self, n: unsafe *NamedIdentExpr) -> bool {
-        var imm = self.sc->imm_table()->intern_ident_copy(token_kind_to_readable_string(TokenKind::BiSelf)) // trace label only; never a lookup key.
+        var imm = self.sc->imm_table()->intern_ident_copy( // trace label only; never a lookup key.
+            token_kind_to_readable_string(TokenKind::BiSelf),
+        )
 
         var unsafe *dc = self.cur_dc
         while dc != &null && !(dc->is_type_scope() && dc->owner_decl() != &null) {
@@ -1607,7 +1630,12 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             // diagnostic. Emitted separately it sorts by its own location, and
             // since the previous declaration is EARLIER in the file it renders
             // ahead of the error it is explaining.
-            var b = self.sc->diag->report(DiagID::R029E, d->range.start, f"'{name}' {what}")
+            var b = self.sc->diag->report(
+                DiagID::R029E,
+                d->range.start,
+                f"'{name}' {what}",
+            )
+
             b.first(d->range)
             b.note(
                 DiagCode(DiagID::R029N),
@@ -1626,7 +1654,11 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 && isa<Declarations::VariableDecl>(prev) {
                 var fresh = self._free_name(dc, name)
                 if !fresh.empty() {
-                    b.fix(dv->name.range, fresh, f"rename this one to '{fresh}'")
+                    b.fix(
+                        dv->name.range,
+                        fresh,
+                        f"rename this one to '{fresh}'",
+                    )
                 }
             }
 
@@ -1700,11 +1732,16 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             // spelling the empty token ICE'd in a debug build, so every
             // `fn T::op [] (...)` failed there): its key is token kinds,
             // which in_scope compares across TUs as they are.
-            var        key   = self._member_key(f, home)
-            var        ml    = MemberLookup(self.sc)
-            var        nm    = if (f->is_operator) => ("op " + OperatorFacts::symbol(f))
-                               else => self.sc->ctx->get_spelling(f->name)
-            var unsafe *cell = ml.in_scope(home, key, if (f->is_operator) => ("") else => nm)
+            var key = self._member_key(f, home)
+            var ml  = MemberLookup(self.sc)
+            var nm = if (f->is_operator) => ("op " + OperatorFacts::symbol(f))
+                     else => self.sc->ctx->get_spelling(f->name)
+            var unsafe *cell = ml.in_scope(
+                home,
+                key,
+                if (f->is_operator) => ("") else => nm,
+            )
+
             if cell == &null {
                 self.sc->diag->report(
                     DiagID::R031E,
@@ -1742,7 +1779,9 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                     oc = self.sc->ctx
                 }
 
-                if oc->get_spelling(decl_name_tok(owner)) == self.sc->ctx->get_spelling(f->name) {
+                if oc->get_spelling(decl_name_tok(owner)) == self.sc->ctx->get_spelling(
+                    f->name,
+                ) {
                     return DeclName::ctor()
                 }
             }
@@ -1817,7 +1856,11 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                     return &null
                 }
 
-                var sr = self.sc->lookup.qualified_step(cur, DeclName::ident(sim))
+                var sr = self.sc->lookup.qualified_step(
+                    cur,
+                    DeclName::ident(sim),
+                )
+
                 if !sr.found() {
                     var snm = self.sc->ctx->get_spelling(st->name->name)
                     self.sc->diag->report(
@@ -1892,7 +1935,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         var r = self._lookup_unqualified(self.cur_dc, imm)
         if !r.found() && self._ext_target != &null {
-            r = self.sc->lookup.in_context(self._ext_target, DeclName::ident(imm))
+            r = self.sc->lookup.in_context(
+                self._ext_target,
+                DeclName::ident(imm),
+            )
         }
 
         if !r.found() {
@@ -2086,7 +2132,11 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 continue
             }
 
-            self._declare_local(self._name_imm(gp->name), unsafe (gp as unsafe *Decl), gp->range)
+            self._declare_local(
+                self._name_imm(gp->name),
+                unsafe (gp as unsafe *Decl),
+                gp->range,
+            )
         }
 
         for var i: usize = 0; i < n->params.size(); ++i {
@@ -2095,12 +2145,20 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 continue
             }
 
-            self._declare_local(self._name_imm(p->name), unsafe (p as unsafe *Decl), p->range)
+            self._declare_local(
+                self._name_imm(p->name),
+                unsafe (p as unsafe *Decl),
+                p->range,
+            )
         }
 
         self._join_block = n->body_block
         self._fn_depth += 1
-        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_function_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_function_decl(
+            self,
+            n,
+        )
+
         self._fn_depth -= 1
 
         self.sc->trace.close_scope()
@@ -2127,8 +2185,13 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         var unsafe *imms = self.sc->ctx->get_imm_table()
-        var        sp    = if (imms != &null) => (imms->get_ident(imm)) else => ""
-        return self.sc->lookup.unqualified_out_of_line(from, name, sp, self._ool_lexical)
+        var sp = if (imms != &null) => (imms->get_ident(imm)) else => ""
+        return self.sc->lookup.unqualified_out_of_line(
+            from,
+            name,
+            sp,
+            self._ool_lexical,
+        )
     }
 
     fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {
@@ -2139,14 +2202,24 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         var unsafe *saved_join = self._join_block
 
         self.locals.push_back(LocalScope())
-        self.sc->trace.open_scope(TraceScopeKind::Closure, &null, n->range, self.cur_dc)
+        self.sc->trace.open_scope(
+            TraceScopeKind::Closure,
+            &null,
+            n->range,
+            self.cur_dc,
+        )
+
         for var i: usize = 0; i < n->generic_params.size(); ++i {
             var unsafe *gp = n->generic_params[i]
             if gp == &null {
                 continue
             }
 
-            self._declare_local(self._name_imm(gp->name), unsafe (gp as unsafe *Decl), gp->range)
+            self._declare_local(
+                self._name_imm(gp->name),
+                unsafe (gp as unsafe *Decl),
+                gp->range,
+            )
         }
 
         for var i: usize = 0; i < n->params.size(); ++i {
@@ -2155,12 +2228,20 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 continue
             }
 
-            self._declare_local(self._name_imm(p->name), unsafe (p as unsafe *Decl), p->range)
+            self._declare_local(
+                self._name_imm(p->name),
+                unsafe (p as unsafe *Decl),
+                p->range,
+            )
         }
 
         self._join_block = n->body_block
         self._fn_depth += 1
-        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_closure_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_closure_expr(
+            self,
+            n,
+        )
+
         self._fn_depth -= 1
 
         self.sc->trace.close_scope()
@@ -2184,10 +2265,19 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         if push {
             self.locals.push_back(LocalScope())
-            self.sc->trace.open_scope(TraceScopeKind::Block, &null, n->range, self.cur_dc)
+            self.sc->trace.open_scope(
+                TraceScopeKind::Block,
+                &null,
+                n->range,
+                self.cur_dc,
+            )
         }
 
-        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_compound_stmt(self, n)
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_compound_stmt(
+            self,
+            n,
+        )
+
         if push {
             self.sc->trace.close_scope()
             self.locals.pop_back()
@@ -2224,7 +2314,11 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 continue
             }
 
-            self._declare_local(self._name_imm(gp->name), unsafe (gp as unsafe *Decl), gp->range)
+            self._declare_local(
+                self._name_imm(gp->name),
+                unsafe (gp as unsafe *Decl),
+                gp->range,
+            )
         }
 
         return true
@@ -2246,11 +2340,21 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         var unsafe *saved = self.cur_dc
-        var        pushed = self._open_type_generics(n, n->generic_params, n->range, saved)
+        var pushed = self._open_type_generics(
+            n,
+            n->generic_params,
+            n->range,
+            saved,
+        )
+
         self.cur_dc = unsafe (n as unsafe *DeclContext)
         var saved_depth = self._fn_depth
         self._fn_depth = 0 // a type body is not executable code.
-        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_class_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_class_decl(
+            self,
+            n,
+        )
+
         self._fn_depth = saved_depth
         self.cur_dc    = saved
         self._close_type_generics(pushed)
@@ -2264,11 +2368,21 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         var unsafe *saved = self.cur_dc
-        var        pushed = self._open_type_generics(n, n->generic_params, n->range, saved)
+        var pushed = self._open_type_generics(
+            n,
+            n->generic_params,
+            n->range,
+            saved,
+        )
+
         self.cur_dc = unsafe (n as unsafe *DeclContext)
         var saved_depth = self._fn_depth
         self._fn_depth = 0 // a type body is not executable code.
-        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_struct_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_struct_decl(
+            self,
+            n,
+        )
+
         self._fn_depth = saved_depth
         self.cur_dc    = saved
         self._close_type_generics(pushed)
@@ -2282,11 +2396,21 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         var unsafe *saved = self.cur_dc
-        var        pushed = self._open_type_generics(n, n->generic_params, n->range, saved)
+        var pushed = self._open_type_generics(
+            n,
+            n->generic_params,
+            n->range,
+            saved,
+        )
+
         self.cur_dc = unsafe (n as unsafe *DeclContext)
         var saved_depth = self._fn_depth
         self._fn_depth = 0 // a type body is not executable code.
-        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_union_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_union_decl(
+            self,
+            n,
+        )
+
         self._fn_depth = saved_depth
         self.cur_dc    = saved
         self._close_type_generics(pushed)
@@ -2300,11 +2424,21 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         var unsafe *saved = self.cur_dc
-        var        pushed = self._open_type_generics(n, n->generic_params, n->range, saved)
+        var pushed = self._open_type_generics(
+            n,
+            n->generic_params,
+            n->range,
+            saved,
+        )
+
         self.cur_dc = unsafe (n as unsafe *DeclContext)
         var saved_depth = self._fn_depth
         self._fn_depth = 0 // a type body is not executable code.
-        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_enum_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_enum_decl(
+            self,
+            n,
+        )
+
         self._fn_depth = saved_depth
         self.cur_dc    = saved
         self._close_type_generics(pushed)
@@ -2318,11 +2452,21 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         var unsafe *saved = self.cur_dc
-        var        pushed = self._open_type_generics(n, n->generic_params, n->range, saved)
+        var pushed = self._open_type_generics(
+            n,
+            n->generic_params,
+            n->range,
+            saved,
+        )
+
         self.cur_dc = unsafe (n as unsafe *DeclContext)
         var saved_depth = self._fn_depth
         self._fn_depth = 0 // a type body is not executable code.
-        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_interface_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_interface_decl(
+            self,
+            n,
+        )
+
         self._fn_depth = saved_depth
         self.cur_dc    = saved
         self._close_type_generics(pushed)
@@ -2335,14 +2479,24 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return n
         }
 
-        var unsafe *saved     = self.cur_dc
-        var        pushed     = self._open_type_generics(n, n->generic_params, n->range, saved)
+        var unsafe *saved = self.cur_dc
+        var pushed = self._open_type_generics(
+            n,
+            n->generic_params,
+            n->range,
+            saved,
+        )
+
         var unsafe *saved_ext = self._ext_target
         self._ext_target = self._extension_target_dc(n, saved)
         self.cur_dc      = unsafe (n as unsafe *DeclContext)
         var saved_depth = self._fn_depth
         self._fn_depth = 0 // a type body is not executable code.
-        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_extension_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_extension_decl(
+            self,
+            n,
+        )
+
         self._fn_depth   = saved_depth
         self.cur_dc      = saved
         self._ext_target = saved_ext
@@ -2357,8 +2511,18 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return n
         }
 
-        var        pushed = self._open_type_generics(n, n->generic_params, n->range, self.cur_dc)
-        var unsafe *out   = RecursiveASTVisitor<NameResolution>::traverse_type_alias_decl(self, n)
+        var pushed = self._open_type_generics(
+            n,
+            n->generic_params,
+            n->range,
+            self.cur_dc,
+        )
+
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_type_alias_decl(
+            self,
+            n,
+        )
+
         self._close_type_generics(pushed)
         return out
     }
@@ -2376,7 +2540,11 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             self.cur_dc = n
         }
 
-        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_module_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_module_decl(
+            self,
+            n,
+        )
+
         self.cur_dc = saved
         return out
     }
@@ -2392,7 +2560,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return n
         }
 
-        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_variable_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_variable_decl(
+            self,
+            n,
+        )
 
         // Only body locals go on the stack. A file/type-scope `var` was
         // keyed into a real SymbolTable at parse time and is found by the
@@ -2445,7 +2616,12 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 // reorders top-level diagnostics into source order and carries
                 // children along with their parent, so a sibling note that
                 // points BACKWARDS renders ahead of the error it explains.
-                var b = self.sc->diag->report(DiagID::R029E, at.start, f"redefinition of '{nm}'")
+                var b = self.sc->diag->report(
+                    DiagID::R029E,
+                    at.start,
+                    f"redefinition of '{nm}'",
+                )
+
                 b.first(at)
                 if prev != &null {
                     b.note(
@@ -2599,11 +2775,17 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         self.locals.push_back(LocalScope())
-        self.sc->trace.open_scope(TraceScopeKind::ForBody, &null, n->range, self.cur_dc)
+        self.sc->trace.open_scope(
+            TraceScopeKind::ForBody,
+            &null,
+            n->range,
+            self.cur_dc,
+        )
+
         self._declare_bindings(&n->bindings)
         var unsafe *saved_join = self._join_block
         self._join_block = n->body
-        n->body = self.dyn()->traverse_block(n->body)
+        n->body          = self.dyn()->traverse_block(n->body)
         self._join_block = saved_join
         self.sc->trace.close_scope()
         self.locals.pop_back()
@@ -2622,7 +2804,13 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         self.locals.push_back(LocalScope())
-        self.sc->trace.open_scope(TraceScopeKind::ForBody, &null, n->range, self.cur_dc)
+        self.sc->trace.open_scope(
+            TraceScopeKind::ForBody,
+            &null,
+            n->range,
+            self.cur_dc,
+        )
+
         if n->init != &null {
             n->init = self.dyn()->dispatch_stmt(n->init)
         }
@@ -2637,7 +2825,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         var unsafe *saved_join = self._join_block
         self._join_block = n->body
-        n->body = self.dyn()->traverse_block(n->body)
+        n->body          = self.dyn()->traverse_block(n->body)
         self._join_block = saved_join
         self.sc->trace.close_scope()
         self.locals.pop_back()
@@ -2659,11 +2847,17 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         self.locals.push_back(LocalScope())
-        self.sc->trace.open_scope(TraceScopeKind::ContextBinding, &null, n->range, self.cur_dc)
+        self.sc->trace.open_scope(
+            TraceScopeKind::ContextBinding,
+            &null,
+            n->range,
+            self.cur_dc,
+        )
+
         self._declare_bindings(&n->bindings)
         var unsafe *saved_join = self._join_block
         self._join_block = n->body
-        n->body = self.dyn()->traverse_block(n->body)
+        n->body          = self.dyn()->traverse_block(n->body)
         self._join_block = saved_join
         self.sc->trace.close_scope()
         self.locals.pop_back()
@@ -2711,7 +2905,13 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             }
 
             self.locals.push_back(LocalScope())
-            self.sc->trace.open_scope(TraceScopeKind::CatchArm, &null, arm->range, self.cur_dc)
+            self.sc->trace.open_scope(
+                TraceScopeKind::CatchArm,
+                &null,
+                arm->range,
+                self.cur_dc,
+            )
+
             self._declare_binder_decl(arm->decl)
             var unsafe *saved_join = self._join_block
             self._join_block = arm->body
@@ -2752,7 +2952,13 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             }
 
             self.locals.push_back(LocalScope())
-            self.sc->trace.open_scope(TraceScopeKind::CatchArm, &null, arm->range, self.cur_dc)
+            self.sc->trace.open_scope(
+                TraceScopeKind::CatchArm,
+                &null,
+                arm->range,
+                self.cur_dc,
+            )
+
             self._declare_binder_decl(arm->decl)
             if arm->body != &null {
                 self.dyn()->dispatch_expr(arm->body)
@@ -2775,7 +2981,13 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         self.locals.push_back(LocalScope())
-        self.sc->trace.open_scope(TraceScopeKind::MatchArm, &null, mc->range, self.cur_dc)
+        self.sc->trace.open_scope(
+            TraceScopeKind::MatchArm,
+            &null,
+            mc->range,
+            self.cur_dc,
+        )
+
         for var i: usize = 0; i < mc->patterns.size(); ++i {
             if self.stop {
                 break
@@ -3012,7 +3224,9 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         if e.decl == &null {
-            self.sc->diag->report(DiagID::R057E, n->range.start, e.why).first(n->range)->emit()
+            self.sc->diag->report(DiagID::R057E, n->range.start, e.why).first(
+                n->range,
+            )->emit()
             n->poison()
             return true
         }
@@ -3074,7 +3288,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
             b.first(n->range)
             if self._in_pattern_head {
-                b.note(n->range.start, f"to bind the matched value to a new name, write 'var {nm}'")
+                b.note(
+                    n->range.start,
+                    f"to bind the matched value to a new name, write 'var {nm}'",
+                )
             }
 
             MemberLookup::note_failed_headers(self.sc, &b, n->range)
@@ -3161,7 +3378,12 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         if !h.from_local && !h.via_overlay && h.decl != &null && !own_bound {
             var unsafe *so = self._self_owner()
             if MemberLookup::is_member_type_of(h.decl, so) {
-                MemberLookup::warn_unqualified_member_type(self.sc, n->range, h.decl, so)
+                MemberLookup::warn_unqualified_member_type(
+                    self.sc,
+                    n->range,
+                    h.decl,
+                    so,
+                )
             }
         }
 
@@ -3472,9 +3694,11 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         b.first(n->range)
         if d != &null {
-            b.note(DiagCode(DiagID::R049N), d->range.start, named_declared_here(nm))->child_first(
-                d->range,
-            )
+            b.note(
+                DiagCode(DiagID::R049N),
+                d->range.start,
+                named_declared_here(nm),
+            )->child_first(d->range)
         }
 
         b.insert(n->range.start, pfx, f"qualify with '{pfx}'")
@@ -3589,7 +3813,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         b.first(n->range)
         if d != &null && d->range.is_valid() {
             var nt = decl_name_tok(d).range
-            b.note(DiagCode(DiagID::R047N), nt.start, named_declared_here(nm))->child_first(nt)
+            b.note(DiagCode(DiagID::R047N), nt.start, named_declared_here(nm))->child_first(
+                nt,
+            )
+
             var wr = d->visibility_range()
             if wr.is_valid() {
                 b.fix(wr, "pub", f"make '{nm}' public")
@@ -3627,7 +3854,11 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         // Base first, so the base's own `use` row lands before the steps that
         // hang off it and the section reads left-to-right like the source.
-        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_chain_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_chain_expr(
+            self,
+            n,
+        )
+
         if !self.sc->trace.enabled {
             return out
         }
@@ -3836,27 +4067,39 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         if isa<Declarations::ClassDecl>(d) {
-            return self.sc->ctx->get_ident_imm(cast<Declarations::ClassDecl>(d)->name)
+            return self.sc->ctx->get_ident_imm(
+                cast<Declarations::ClassDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::StructDecl>(d) {
-            return self.sc->ctx->get_ident_imm(cast<Declarations::StructDecl>(d)->name)
+            return self.sc->ctx->get_ident_imm(
+                cast<Declarations::StructDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::UnionDecl>(d) {
-            return self.sc->ctx->get_ident_imm(cast<Declarations::UnionDecl>(d)->name)
+            return self.sc->ctx->get_ident_imm(
+                cast<Declarations::UnionDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::InterfaceDecl>(d) {
-            return self.sc->ctx->get_ident_imm(cast<Declarations::InterfaceDecl>(d)->name)
+            return self.sc->ctx->get_ident_imm(
+                cast<Declarations::InterfaceDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::EnumDecl>(d) {
-            return self.sc->ctx->get_ident_imm(cast<Declarations::EnumDecl>(d)->name)
+            return self.sc->ctx->get_ident_imm(
+                cast<Declarations::EnumDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::ModuleDecl>(d) {
-            return self.sc->ctx->get_ident_imm(cast<Declarations::ModuleDecl>(d)->name)
+            return self.sc->ctx->get_ident_imm(
+                cast<Declarations::ModuleDecl>(d)->name,
+            )
         }
 
         return u32::MAX

@@ -647,7 +647,10 @@ pub fn null_root_decl(e: unsafe *Expr) -> unsafe *Decl {
         }
 
         if isa<Expressions::SubscriptExpr>(x) {
-            x = null_flow_strip_parens(cast<Expressions::SubscriptExpr>(x)->base)
+            x = null_flow_strip_parens(
+                cast<Expressions::SubscriptExpr>(x)->base,
+            )
+
             continue
         }
 
@@ -841,7 +844,10 @@ pub fn null_closure_places(c:        unsafe *Expressions::ClosureExpr,
 
         var k = null_carrier_find(*carriers, d)
         if k >= 0 {
-            null_places_union(unsafe &out, unsafe &(*carriers)[k as usize].places)
+            null_places_union(
+                unsafe &out,
+                unsafe &(*carriers)[k as usize].places,
+            )
         }
     }
 
@@ -878,7 +884,10 @@ pub fn null_closure_places(c:        unsafe *Expressions::ClosureExpr,
 
             var k = null_carrier_find(*carriers, d)
             if k >= 0 {
-                null_places_union(unsafe &out, unsafe &(*carriers)[k as usize].places)
+                null_places_union(
+                    unsafe &out,
+                    unsafe &(*carriers)[k as usize].places,
+                )
             }
         }
     }
@@ -1188,7 +1197,10 @@ pub fn null_scan_rhs_value(rhs: unsafe *Expr) -> bool {
     }
 
     if isa<Expressions::CallExpr>(x) {
-        var unsafe *callee = null_flow_strip_parens(cast<Expressions::CallExpr>(x)->callee)
+        var unsafe *callee = null_flow_strip_parens(
+            cast<Expressions::CallExpr>(x)->callee,
+        )
+
         if callee == &null {
             return false
         }
@@ -1439,7 +1451,11 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
             }
 
             if p->size() == q->size() {
-                self._set(i, if (value) => (NULL_SCAN_VALUE) else => NULL_SCAN_LOST, at)
+                self._set(
+                    i,
+                    if (value) => (NULL_SCAN_VALUE) else => NULL_SCAN_LOST,
+                    at,
+                )
             } else {
                 self._set(i, NULL_SCAN_LOST, at)
             }
@@ -1542,7 +1558,10 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         }
 
         if isa<Expressions::ClosureExpr>(x) {
-            return null_closure_places(cast<Expressions::ClosureExpr>(x), unsafe &self.carriers)
+            return null_closure_places(
+                cast<Expressions::ClosureExpr>(x),
+                unsafe &self.carriers,
+            )
         }
 
         if isa<Expressions::TypeCastExpr>(x) {
@@ -1843,7 +1862,10 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
                 var known_const = if (last->resolved_decl != &null) => (null_scan_const_method(
                                       last->resolved_decl,
                                   ))
-                                  else => null_scan_cell_const(last->candidate_cell)
+                                  else => null_scan_cell_const(
+                                      last->candidate_cell,
+                                  )
+
                 if last->access_kind == ChainExpr::AccessKind::Dot && !known_const {
                     var q = if (k == 1) => (null_place_of(c->base))
                             else => null_chain_place(c, k - 2)
@@ -2099,7 +2121,12 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
                 self.st = null_scan_join(&s1, &self.st)
             } case StmtKind::WhileLoopStmt {
                 var unsafe *w = cast<Statements::WhileLoopStmt>(s)
-                self._nested(w->cond, unsafe (w->body as unsafe *Stmt), &null, true)
+                self._nested(
+                    w->cond,
+                    unsafe (w->body as unsafe *Stmt),
+                    &null,
+                    true,
+                )
             } case StmtKind::LoopStmt {
                 self._nested(
                     &null,
@@ -2602,7 +2629,9 @@ pub class NullnessFlow {
             if o != &null
                 && isa<Expressions::UnaryOperatorExpr>(o)
                 && cast<Expressions::UnaryOperatorExpr>(o)->op_token.kind == TokenKind::OpStar {
-                return self.carry_of(cast<Expressions::UnaryOperatorExpr>(o)->operand)
+                return self.carry_of(
+                    cast<Expressions::UnaryOperatorExpr>(o)->operand,
+                )
             }
 
             return self._carried(null_root_decl(u->operand))
@@ -2743,7 +2772,10 @@ pub class NullnessFlow {
             k = ((self._carriers.size() - 1) as i64)
         }
 
-        null_places_union(unsafe &self._carriers[k as usize].places, unsafe &set)
+        null_places_union(
+            unsafe &self._carriers[k as usize].places,
+            unsafe &set,
+        )
     }
 
     /// Where a write to \p target lands, when \p target is no place.
@@ -2782,7 +2814,7 @@ pub class NullnessFlow {
             }
 
             if isa<Expressions::SubscriptExpr>(x) {
-                var unsafe *b  = cast<Expressions::SubscriptExpr>(x)->base
+                var unsafe *b = cast<Expressions::SubscriptExpr>(x)->base
                 var unsafe *bt = if (b != &null) => (canon_unqual(b->type_)) else => &null
                 if bt != &null && isa<PointerType>(bt) {
                     return self._via(b)
@@ -2893,7 +2925,13 @@ pub class NullnessFlow {
 
         for var i: usize = 0; i < self._escapes.size(); ++i {
             var *e = &self._escapes[i]
-            null_env_weaken_under(&self.env, unsafe &e->place, false, NullWhy::Escaped, e->at)
+            null_env_weaken_under(
+                &self.env,
+                unsafe &e->place,
+                false,
+                NullWhy::Escaped,
+                e->at,
+            )
         }
 
         // A copy of a pointer capture (`var p = x; *p = v`) is no carrier, so
@@ -2980,7 +3018,12 @@ pub class NullnessFlow {
         }
 
         // `var p = &x`, `var clear = fn ()|*x| { ... }`: a carrier (3.7).
-        self._carry_into(unsafe (v as unsafe *Decl), v->init, v->type_->canonical)
+        self._carry_into(
+            unsafe (v as unsafe *Decl),
+            v->init,
+            v->type_->canonical,
+        )
+
         if !null_flow_type_is_nullable(v->type_->canonical) {
             return
         }
@@ -3565,7 +3608,7 @@ pub class NullnessFlow {
             return false
         }
 
-        var end  = if (i == 0) => (c->base->range.end) else => c->steps.get(i - 1)->range.end
+        var end = if (i == 0) => (c->base->range.end) else => c->steps.get(i - 1)->range.end
         var r    = SourceRange(c->range.start, end)
         var text = self.sc->ctx->get_spelling(r)
         var b = self.sc->diag->report(

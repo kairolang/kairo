@@ -108,8 +108,16 @@ pub class NarrowedAccessLowering derives ASTWriter<NarrowedAccessLowering> {
             return
         }
 
-        self._ref  = self.sc->nullable_member(AdtRole::ValueRef, "NarrowedAccessLowering")
-        self._cref = self.sc->nullable_member(AdtRole::ValueCref, "NarrowedAccessLowering")
+        self._ref = self.sc->nullable_member(
+            AdtRole::ValueRef,
+            "NarrowedAccessLowering",
+        )
+
+        self._cref = self.sc->nullable_member(
+            AdtRole::ValueCref,
+            "NarrowedAccessLowering",
+        )
+
         if self._ref == &null || self._cref == &null {
             kairo::std::ice_fail(
                 "NarrowedAccessLowering: the Nullable layout has no " + LowerTargets::nullable_value() + "(); EnumLayoutLowering::_nullable_surface mints it",
@@ -122,7 +130,11 @@ pub class NarrowedAccessLowering derives ASTWriter<NarrowedAccessLowering> {
     /// # the rewrites
 
     fn transform_named_ident_expr(self, n: unsafe *NamedIdentExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<NarrowedAccessLowering>::transform_named_ident_expr(self, n)
+        var unsafe *out = ASTWriter<NarrowedAccessLowering>::transform_named_ident_expr(
+            self,
+            n,
+        )
+
         if n->narrowed_from == &null || n->is_poisoned() {
             return out
         }
@@ -137,7 +149,11 @@ pub class NarrowedAccessLowering derives ASTWriter<NarrowedAccessLowering> {
     /// `*x` through a closure's pointer capture (Compiler/Spec/Nullables.md#aliases-and-closures): the
     /// dereference is the place, so it is the receiver, `(*x).__value()`.
     fn transform_unary_operator_expr(self, n: unsafe *UnaryOperatorExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<NarrowedAccessLowering>::transform_unary_operator_expr(self, n)
+        var unsafe *out = ASTWriter<NarrowedAccessLowering>::transform_unary_operator_expr(
+            self,
+            n,
+        )
+
         if n->narrowed_from == &null || n->is_poisoned() {
             return out
         }
@@ -158,7 +174,11 @@ pub class NarrowedAccessLowering derives ASTWriter<NarrowedAccessLowering> {
     /// step splits the chain: the path through it becomes the receiver of
     /// `__value()`, and the steps after it continue from that call.
     fn transform_chain_expr(self, n: unsafe *ChainExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<NarrowedAccessLowering>::transform_chain_expr(self, n)
+        var unsafe *out = ASTWriter<NarrowedAccessLowering>::transform_chain_expr(
+            self,
+            n,
+        )
+
         if n->is_poisoned() {
             return out
         }

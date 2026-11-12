@@ -324,12 +324,23 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
             if cd != &null {
                 var bt: unsafe *Type = &null
-                var unsafe *base = panic_overridden_at(unsafe &self.tu, cd, f, unsafe &bt)
+                var unsafe *base = panic_overridden_at(
+                    unsafe &self.tu,
+                    cd,
+                    f,
+                    unsafe &bt,
+                )
+
                 if base != &null {
                     // A generic base's result at the arguments this class
                     // derives it at: `B<i32>`'s `Panic<T, T>` is
                     // `Panic<i32, i32>`, the type C++ has in B<int>'s vtable.
-                    var unsafe *br = self._through(f->range, self._result_of(base), bt)
+                    var unsafe *br = self._through(
+                        f->range,
+                        self._result_of(base),
+                        bt,
+                    )
+
                     if br != &null {
                         return self._store(f, br)
                     }
@@ -342,8 +353,8 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         // requirement's type, and its `requires` test names that exact
         // member pointer type, so a smaller set (even none) cannot change it.
         // A generic interface's at the row's arguments.
-        var        row: unsafe *ConformanceRow = &null
-        var unsafe *req                        = self._requirement_of(f, unsafe &row)
+        var row: unsafe *ConformanceRow = &null
+        var unsafe *req = self._requirement_of(f, unsafe &row)
         if req != &null {
             var unsafe *qr = self._through(
                 f->range,
@@ -361,8 +372,13 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             return &null
         }
 
-        var        at = if (f->name.range.is_valid()) => (f->name.range) else => f->range
-        var unsafe *r = PanicSets(self.sc).form(at, self._value_type(f->return_type), unsafe &set)
+        var at = if (f->name.range.is_valid()) => (f->name.range) else => f->range
+        var unsafe *r = PanicSets(self.sc).form(
+            at,
+            self._value_type(f->return_type),
+            unsafe &set,
+        )
+
         if r == &null {
             return &null
         }
@@ -478,7 +494,12 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             els.push_back(canon_unqual(args[i]))
         }
 
-        var unsafe *r = PanicSets(self.sc).form(at, canon_unqual(args[0]), unsafe &els)
+        var unsafe *r = PanicSets(self.sc).form(
+            at,
+            canon_unqual(args[0]),
+            unsafe &els,
+        )
+
         return if (r != &null) => (r) else => t
     }
 
@@ -702,7 +723,11 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         var        sb  = self._copy_bars
         var        se  = self._copy_exits
         self._enter(r, self._value_type(n->return_type))
-        var unsafe *out = ASTWriter<PanicLowering>::transform_closure_expr(self, n)
+        var unsafe *out = ASTWriter<PanicLowering>::transform_closure_expr(
+            self,
+            n,
+        )
+
         if r != &null {
             self._end_void(n->body_block)
         }
@@ -771,13 +796,21 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         if n->value != &null && self._targets.size() == 1 {
             var pc = self._as_call(n->value)
             if pc.call != &null
-                && canon_unqual(self._value_of(pc.rc)) == canon_unqual(self._fn_t)
+                && canon_unqual(self._value_of(pc.rc)) == canon_unqual(
+                    self._fn_t,
+                )
                 && !self.tu.is_void(self._fn_t) {
                 ASTWriter<PanicLowering>::transform_call_expr(self, pc.call)
                 self._retype(pc)
                 var unsafe *c = unsafe (pc.call as unsafe *Expr)
                 n->value = if (pc.rc == self._fn_r) => (c)
-                           else => self._fwd(at, Expressions::PanicOp::FwdAll, self._fn_r, c)
+                           else => self._fwd(
+                               at,
+                               Expressions::PanicOp::FwdAll,
+                               self._fn_r,
+                               c,
+                           )
+
                 return self._one_stmt(n)
             }
         }
@@ -852,7 +885,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         // (C++'s implicit move); into a `try`'s slot control goes on, and
         // the local with it: copied.
         var unsafe *pv = if (tg.slot == &null) => (self._moved_local(payload)) else => payload
-        var unsafe *v  = self.q.panic_err(at, tg.type_, x, site, pv)
+        var unsafe *v = self.q.panic_err(at, tg.type_, x, site, pv)
         if tg.slot == &null {
             out.push_back(ReturnStmt::create(self.ctx, at, v))
             return out
@@ -874,7 +907,11 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             }
         }
 
-        var unsafe *out = ASTWriter<PanicLowering>::transform_variant_init_expr(self, n)
+        var unsafe *out = ASTWriter<PanicLowering>::transform_variant_init_expr(
+            self,
+            n,
+        )
+
         if !leaves || n->type_ == &null {
             return out
         }
@@ -893,7 +930,11 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                     continue
                 }
 
-                bound[i] = self._bound(n->fields[i]->range, n->fields[i], unsafe &stmts)
+                bound[i] = self._bound(
+                    n->fields[i]->range,
+                    n->fields[i],
+                    unsafe &stmts,
+                )
             }
         }
 
@@ -985,7 +1026,11 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
     fn transform_binary_operator_expr(self,
                                       n: unsafe *Expressions::BinaryOperatorExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<PanicLowering>::transform_binary_operator_expr(self, n)
+        var unsafe *out = ASTWriter<PanicLowering>::transform_binary_operator_expr(
+            self,
+            n,
+        )
+
         // A tag `==` binds no operator; `===`'s `==` is CoalesceLowering's
         // (PanicEffectChecking reports a panicking one).
         if out != (unsafe (n as unsafe *Expr))
@@ -999,7 +1044,11 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
     fn transform_unary_operator_expr(self,
                                      n: unsafe *Expressions::UnaryOperatorExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<PanicLowering>::transform_unary_operator_expr(self, n)
+        var unsafe *out = ASTWriter<PanicLowering>::transform_unary_operator_expr(
+            self,
+            n,
+        )
+
         if out != n {
             return out
         }
@@ -1009,7 +1058,11 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
     fn transform_assign_operator_expr(self,
                                       n: unsafe *Expressions::AssignOperatorExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<PanicLowering>::transform_assign_operator_expr(self, n)
+        var unsafe *out = ASTWriter<PanicLowering>::transform_assign_operator_expr(
+            self,
+            n,
+        )
+
         if out != n {
             return out
         }
@@ -1018,7 +1071,11 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     }
 
     fn transform_subscript_expr(self, n: unsafe *Expressions::SubscriptExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<PanicLowering>::transform_subscript_expr(self, n)
+        var unsafe *out = ASTWriter<PanicLowering>::transform_subscript_expr(
+            self,
+            n,
+        )
+
         if out != n {
             return out
         }
@@ -1087,15 +1144,27 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         }
 
         if isa<Expressions::ParenExpr>(e) {
-            return self._swap_in(unsafe &cast<Expressions::ParenExpr>(e)->inner, from, to)
+            return self._swap_in(
+                unsafe &cast<Expressions::ParenExpr>(e)->inner,
+                from,
+                to,
+            )
         }
 
         if isa<Expressions::UnaryOperatorExpr>(e) {
-            return self._swap_in(unsafe &cast<Expressions::UnaryOperatorExpr>(e)->operand, from, to)
+            return self._swap_in(
+                unsafe &cast<Expressions::UnaryOperatorExpr>(e)->operand,
+                from,
+                to,
+            )
         }
 
         if isa<Expressions::TypeCastExpr>(e) {
-            return self._swap_in(unsafe &cast<Expressions::TypeCastExpr>(e)->operand, from, to)
+            return self._swap_in(
+                unsafe &cast<Expressions::TypeCastExpr>(e)->operand,
+                from,
+                to,
+            )
         }
 
         if isa<Expressions::BinaryOperatorExpr>(e) {
@@ -1108,7 +1177,11 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         }
 
         if isa<Expressions::AssignOperatorExpr>(e) {
-            return self._swap_in(unsafe &cast<Expressions::AssignOperatorExpr>(e)->rhs, from, to)
+            return self._swap_in(
+                unsafe &cast<Expressions::AssignOperatorExpr>(e)->rhs,
+                from,
+                to,
+            )
         }
 
         if isa<Expressions::StmtExpr>(e) {
@@ -1120,11 +1193,18 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             for var i: usize = 0; i < body->body.size(); ++i {
                 var unsafe *st = body->body[i]
                 if isa<ExpressionStmt>(st) {
-                    if self._swap_in(unsafe &cast<ExpressionStmt>(st)->expr, from, to) {
+                    if self._swap_in(
+                        unsafe &cast<ExpressionStmt>(st)->expr,
+                        from,
+                        to,
+                    ) {
                         return true
                     }
                 } else if isa<DeclStmt>(st) {
-                    var unsafe *vd = dyn_cast<VariableDecl>(cast<DeclStmt>(st)->decl)
+                    var unsafe *vd = dyn_cast<VariableDecl>(
+                        cast<DeclStmt>(st)->decl,
+                    )
+
                     if vd != &null && self._swap_in(unsafe &vd->init, from, to) {
                         return true
                     }
@@ -1146,8 +1226,15 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
         ASTWriter<PanicLowering>::transform_call_expr(self, pc.call)
         self._retype(pc)
-        var        lb = self.list_builder<unsafe *Stmt>()
-        var unsafe *h = self.synth.bind(n->range, "p", pc.rc, pc.call, unsafe &lb)
+        var lb = self.list_builder<unsafe *Stmt>()
+        var unsafe *h = self.synth.bind(
+            n->range,
+            "p",
+            pc.rc,
+            pc.call,
+            unsafe &lb,
+        )
+
         if pc.fails {
             lb.push(self._test_deliver(n->range, h))
         }
@@ -1175,7 +1262,10 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             return self.synth.stmt_expr(orig, &lb, vt)
         }
 
-        lb.push(ExpressionStmt::create(self.ctx, at, self._read_value(at, h, vt)))
+        lb.push(
+            ExpressionStmt::create(self.ctx, at, self._read_value(at, h, vt)),
+        )
+
         return self.synth.stmt_expr(orig, &lb, vt)
     }
 
@@ -1210,7 +1300,10 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                 return r
             }
 
-            var unsafe *fp = dyn_cast<FunctionPointerType>(canon_unqual(ce->type_))
+            var unsafe *fp = dyn_cast<FunctionPointerType>(
+                canon_unqual(ce->type_),
+            )
+
             if fp == &null {
                 return r
             }
@@ -1249,8 +1342,8 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
         self._dep(rc)
         var set = cxx::std::vector<unsafe *Type>()
-        r.call  = c
-        r.rc    = rc
+        r.call = c
+        r.rc   = rc
         r.fails = panic_call_set(unsafe &self.tu, f, c, recv, unsafe &set) == PanicKnown::Set
         return r
     }
@@ -1304,9 +1397,9 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             )
         }
 
-        var        tg                = self._targets[self._targets.size() - 1]
-        var unsafe *use              = self.synth.use_of(h, at, Expr::ValueCategory::LValue)
-        var        v:   unsafe *Expr = &null
+        var tg = self._targets[self._targets.size() - 1]
+        var unsafe *use = self.synth.use_of(h, at, Expr::ValueCategory::LValue)
+        var v: unsafe *Expr = &null
         if canon_unqual(h->type_) == canon_unqual(tg.type_) {
             v = self._rref(at, use, tg.type_)
         } else {
@@ -1335,7 +1428,10 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                      v:          unsafe *Expr,
                      @inout out: cxx::std::vector<unsafe *Stmt>) {
         var tg = self._targets[t]
-        out.push_back(ExpressionStmt::create(self.ctx, at, self._slot_put(at, tg.slot, v)))
+        out.push_back(
+            ExpressionStmt::create(self.ctx, at, self._slot_put(at, tg.slot, v)),
+        )
+
         var unsafe *j      = JumpIntrinsicStmt::create(self.ctx, at, tg.label)
         var        crossed = false
         for var c: usize = 0; c < self._copy_bars.size(); ++c {
@@ -1438,8 +1534,21 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
             var jv = cxx::std::vector<unsafe *Stmt>()
             jv.push_back(j)
-            var unsafe *cond = self.synth.use_of(tg.efj, at, Expr::ValueCategory::LValue)
-            out.push_back(ConditionalStmt::create(self.ctx, at, cond, self._block(at, jv), &null))
+            var unsafe *cond = self.synth.use_of(
+                tg.efj,
+                at,
+                Expr::ValueCategory::LValue,
+            )
+
+            out.push_back(
+                ConditionalStmt::create(
+                    self.ctx,
+                    at,
+                    cond,
+                    self._block(at, jv),
+                    &null,
+                ),
+            )
         }
 
         self._copy_exits = keep
@@ -1492,7 +1601,10 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                 self._cxx_depth += 1
             }
 
-            var unsafe *only = self.transform_stmt_scalar(unsafe (n->try_body as unsafe *Stmt))
+            var unsafe *only = self.transform_stmt_scalar(
+                unsafe (n->try_body as unsafe *Stmt),
+            )
+
             if cxx_v.size() > 0 {
                 self._cxx_depth -= 1
             }
@@ -1534,7 +1646,10 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             }
 
             var errv = cxx::std::vector<unsafe *Stmt>()
-            errv.push_back(self._dispatch(at, h, &arms, &null, unsafe &n->reach))
+            errv.push_back(
+                self._dispatch(at, h, &arms, &null, unsafe &n->reach),
+            )
+
             lb.push(
                 unsafe (ConditionalStmt::create(self.ctx, at, self._ok(at, h), self._block(at, okv), self._block(at, errv)) as unsafe *Stmt),
             )
@@ -1559,7 +1674,10 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             self._cxx_depth += 1
         }
 
-        var unsafe *body = self.transform_stmt_scalar(unsafe (n->try_body as unsafe *Stmt))
+        var unsafe *body = self.transform_stmt_scalar(
+            unsafe (n->try_body as unsafe *Stmt),
+        )
+
         if cxx_v.size() > 0 {
             self._cxx_depth -= 1
         }
@@ -1580,10 +1698,19 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         }
 
         lb.push(body)
-        lb.push(unsafe (JumpIntrinsicStmt::create(self.ctx, at, done) as unsafe *Stmt))
-        lb.push(unsafe (LabelIntrinsicStmt::create(self.ctx, at, tg.label) as unsafe *Stmt))
+        lb.push(
+            unsafe (JumpIntrinsicStmt::create(self.ctx, at, done) as unsafe *Stmt),
+        )
+
+        lb.push(
+            unsafe (LabelIntrinsicStmt::create(self.ctx, at, tg.label) as unsafe *Stmt),
+        )
+
         lb.push(self._catch_block(at, slot, st, unsafe &arms, &null))
-        lb.push(unsafe (LabelIntrinsicStmt::create(self.ctx, at, done) as unsafe *Stmt))
+        lb.push(
+            unsafe (LabelIntrinsicStmt::create(self.ctx, at, done) as unsafe *Stmt),
+        )
+
         var unsafe *blk = CompoundStmt::create(self.ctx, at)
         lb.freeze_into(&blk->body)
         out.push_back(unsafe (blk as unsafe *Stmt))
@@ -1615,10 +1742,10 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             return self.transform_expr(n->try_expr)
         }
 
-        var unsafe *t                         = self._value_type(n->type_)
-        var unsafe *orig                      = unsafe (n as unsafe *Expr)
-        var        lb                         = self.list_builder<unsafe *Stmt>()
-        var        res:  unsafe *VariableDecl = &null
+        var unsafe *t    = self._value_type(n->type_)
+        var unsafe *orig = unsafe (n as unsafe *Expr)
+        var lb                        = self.list_builder<unsafe *Stmt>()
+        var res: unsafe *VariableDecl = &null
         if !self.tu.is_void(t) {
             res = self._raw(at, "r", t, &lb)
         }
@@ -1635,10 +1762,19 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                     unsafe (ExpressionStmt::create(self.ctx, at, self._slot_put(at, res, v)) as unsafe *Stmt),
                 )
             } else {
-                bv.push_back(unsafe (ExpressionStmt::create(self.ctx, at, v) as unsafe *Stmt))
+                bv.push_back(
+                    unsafe (ExpressionStmt::create(self.ctx, at, v) as unsafe *Stmt),
+                )
             }
 
-            lb.push(self._cxx_try(at, unsafe (self._block(at, bv) as unsafe *Stmt), &cxx_v, res))
+            lb.push(
+                self._cxx_try(
+                    at,
+                    unsafe (self._block(at, bv) as unsafe *Stmt),
+                    &cxx_v,
+                    res,
+                ),
+            )
         } else if cxx_v.size() == 0 && pc.call != &null && self._sites_in_expr(n->try_expr) == 1 {
             // Direct: the operand IS the one call that can panic.
             ASTWriter<PanicLowering>::transform_call_expr(self, pc.call)
@@ -1695,21 +1831,36 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                     unsafe (ExpressionStmt::create(self.ctx, at, self._slot_put(at, res, v)) as unsafe *Stmt),
                 )
             } else {
-                bv.push_back(unsafe (ExpressionStmt::create(self.ctx, at, v) as unsafe *Stmt))
+                bv.push_back(
+                    unsafe (ExpressionStmt::create(self.ctx, at, v) as unsafe *Stmt),
+                )
             }
 
-            bv.push_back(unsafe (JumpIntrinsicStmt::create(self.ctx, at, done) as unsafe *Stmt))
+            bv.push_back(
+                unsafe (JumpIntrinsicStmt::create(self.ctx, at, done) as unsafe *Stmt),
+            )
+
             var unsafe *bs = unsafe (self._block(at, bv) as unsafe *Stmt)
-            lb.push(if (cxx_v.size() > 0) => (self._cxx_try(at, bs, &cxx_v, res)) else => bs)
+            lb.push(
+                if (cxx_v.size() > 0) => (self._cxx_try(at, bs, &cxx_v, res)) else => bs,
+            )
+
             // A C++ arm ends below its `try`, not at the jump inside it: on
             // to the value, past the dispatch.
             if cxx_v.size() > 0 {
-                lb.push(unsafe (JumpIntrinsicStmt::create(self.ctx, at, done) as unsafe *Stmt))
+                lb.push(
+                    unsafe (JumpIntrinsicStmt::create(self.ctx, at, done) as unsafe *Stmt),
+                )
             }
 
-            lb.push(unsafe (LabelIntrinsicStmt::create(self.ctx, at, tg.label) as unsafe *Stmt))
+            lb.push(
+                unsafe (LabelIntrinsicStmt::create(self.ctx, at, tg.label) as unsafe *Stmt),
+            )
+
             lb.push(self._catch_block(at, slot, st, unsafe &arms, res))
-            lb.push(unsafe (LabelIntrinsicStmt::create(self.ctx, at, done) as unsafe *Stmt))
+            lb.push(
+                unsafe (LabelIntrinsicStmt::create(self.ctx, at, done) as unsafe *Stmt),
+            )
         }
 
         if res != &null {
@@ -1967,13 +2118,24 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             if bt != &null
                 && self.q.panic_adt(bt) != &null
                 && self.tu.record_args(self.tu.as_value(bt)).size() > 1 {
-                var unsafe *use = self.synth.use_of(h, at, Expr::ValueCategory::LValue)
+                var unsafe *use = self.synth.use_of(
+                    h,
+                    at,
+                    Expr::ValueCategory::LValue,
+                )
+
                 vd->init = if (canon_unqual(bt) == canon_unqual(h->type_)) => (self._rref(
                                at,
                                use,
                                bt,
                            ))
-                           else => self._fwd(at, Expressions::PanicOp::Fwd, canon_unqual(bt), use)
+                           else => self._fwd(
+                               at,
+                               Expressions::PanicOp::Fwd,
+                               canon_unqual(bt),
+                               use,
+                           )
+
                 vd->storage = StorageClass::Var
                 stmts.push_back(
                     unsafe (DeclStmt::create(self.ctx, a->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
@@ -2000,7 +2162,9 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         ph.holder = holder
         self._holders.push_back(ph)
         if a->sbody != &null {
-            out.push_back(self.transform_stmt_scalar(unsafe (a->sbody as unsafe *Stmt)))
+            out.push_back(
+                self.transform_stmt_scalar(unsafe (a->sbody as unsafe *Stmt)),
+            )
         } else if a->ebody != &null {
             var unsafe *se = dyn_cast<Expressions::StmtExpr>(a->ebody)
             if se != &null && se->is_jump {
@@ -2194,7 +2358,14 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                  which: Expressions::PanicOp,
                  to:    unsafe *Type,
                  v:     unsafe *Expr) -> unsafe *Expr {
-        var unsafe *p = Expressions::PanicOpExpr::create(self.ctx, at, which, v, &null)
+        var unsafe *p = Expressions::PanicOpExpr::create(
+            self.ctx,
+            at,
+            which,
+            v,
+            &null,
+        )
+
         p->type_          = to
         p->value_category = Expr::ValueCategory::RValue
         return p
@@ -2204,7 +2375,9 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     priv fn _value_of(self, rc: unsafe *Type) -> unsafe *Type {
         var args = self.tu.record_args(self.tu.as_value(rc))
         if args.size() == 0 {
-            kairo::std::ice_fail("PanicLowering: a panic result with no value type")
+            kairo::std::ice_fail(
+                "PanicLowering: a panic result with no value type",
+            )
         }
 
         return canon_unqual(args[0])
@@ -2225,7 +2398,10 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     }
 
     priv fn _ok(self, at: SourceRange, h: unsafe *VariableDecl) -> unsafe *Expr {
-        return self.q.panic_is_ok(at, self.synth.use_of(h, at, Expr::ValueCategory::LValue))
+        return self.q.panic_is_ok(
+            at,
+            self.synth.use_of(h, at, Expr::ValueCategory::LValue),
+        )
     }
 
     priv fn _not(self, at: SourceRange, e: unsafe *Expr) -> unsafe *Expr {
@@ -2293,7 +2469,12 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             return v
         }
 
-        return self.synth.cast_to(v->range, v, want, Expressions::CastMode::Default)
+        return self.synth.cast_to(
+            v->range,
+            v,
+            want,
+            Expressions::CastMode::Default,
+        )
     }
 
     /// A local or by-value parameter named whole, moved: it is the value's
@@ -2523,7 +2704,7 @@ pub class PanicInstances {
                    d:   *Deduction,
                    own: bool) {
         var unsafe *h = panic_home(f)
-        var        at = if (e->use_at.start.is_valid()) => (e->use_at) else => f->range
+        var at = if (e->use_at.start.is_valid()) => (e->use_at) else => f->range
         if own && h->panic_result != &null {
             var unsafe *r = self._at(e, at, h->panic_result, d)
             if r != &null {
@@ -2567,7 +2748,12 @@ pub class PanicInstances {
             els.push_back(canon_unqual(args[i]))
         }
 
-        var unsafe *r = PanicSets(self.sc).form(at, canon_unqual(args[0]), unsafe &els)
+        var unsafe *r = PanicSets(self.sc).form(
+            at,
+            canon_unqual(args[0]),
+            unsafe &els,
+        )
+
         if r == &null {
             return &null
         }

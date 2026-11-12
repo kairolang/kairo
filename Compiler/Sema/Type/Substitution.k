@@ -188,7 +188,11 @@ pub class Substitution {
                 }
             }
 
-            if !self.bind(fr, i as u32, self.sc->types->generic_param(tr, i as u32, false)) {
+            if !self.bind(
+                fr,
+                i as u32,
+                self.sc->types->generic_param(tr, i as u32, false),
+            ) {
                 return false
             }
         }
@@ -243,7 +247,11 @@ pub class Substitution {
                 }
             }
 
-            if !self.bind(from, i as u32, self.sc->types->generic_param(to, i as u32, false)) {
+            if !self.bind(
+                from,
+                i as u32,
+                self.sc->types->generic_param(to, i as u32, false),
+            ) {
                 return false
             }
         }
@@ -449,7 +457,10 @@ pub class Substitution {
                     return &null
                 }
 
-                return self.sc->types->pointer(p, cast<PointerType>(t)->is_unsafe)
+                return self.sc->types->pointer(
+                    p,
+                    cast<PointerType>(t)->is_unsafe,
+                )
             } case TypeKind::CXXLValueRefType {
                 // An imported template's `const T&` / `T&` (std::max,
                 // std::forward's result). Without these two arms the
@@ -457,14 +468,20 @@ pub class Substitution {
                 // with no diagnostic, and a `var x = std::max(a, b)` reached
                 // codegen with no type (I011W, then an EmitIR gate ICE on
                 // the first member access through it).
-                var unsafe *r = self.substitute(cast<CXXLValueRefType>(t)->referee)
+                var unsafe *r = self.substitute(
+                    cast<CXXLValueRefType>(t)->referee,
+                )
+
                 if r == &null {
                     return &null
                 }
 
                 return self.sc->types->cxx_lref(r)
             } case TypeKind::CXXRValueRefType {
-                var unsafe *r = self.substitute(cast<CXXRValueRefType>(t)->referee)
+                var unsafe *r = self.substitute(
+                    cast<CXXRValueRefType>(t)->referee,
+                )
+
                 if r == &null {
                     return &null
                 }
@@ -604,7 +621,11 @@ pub class Substitution {
                     var unsafe *pg = dyn_cast<GenericParamType>(r->args[i])
                     if pg != &null && pg->is_pack {
                         var els = cxx::std::vector<unsafe *Type>()
-                        if !self.pack_elems(pg->owner, pg->param_index, unsafe &els) {
+                        if !self.pack_elems(
+                            pg->owner,
+                            pg->param_index,
+                            unsafe &els,
+                        ) {
                             return &null
                         }
 
@@ -631,11 +652,18 @@ pub class Substitution {
                     args.push_back(a)
                 }
 
-                var unsafe *primary = NameLookup::representative(self.tu.pattern_of(r->decl))
+                var unsafe *primary = NameLookup::representative(
+                    self.tu.pattern_of(r->decl),
+                )
+
                 // Seen through its enclosing instance: never a registry entry,
                 // the enclosing instance's instantiation is the member's.
                 if outer != &null {
-                    return self.sc->types->record_in(primary, unsafe &args, outer)
+                    return self.sc->types->record_in(
+                        primary,
+                        unsafe &args,
+                        outer,
+                    )
                 }
 
                 // An imported template over a member type still named as its
@@ -683,7 +711,13 @@ pub class Substitution {
                 }
 
                 var ce = ConstEval(self.sc)
-                return ce.value_node(v->vop, v->vtok, v->vdecl, unsafe &ops, v->vty)
+                return ce.value_node(
+                    v->vop,
+                    v->vtok,
+                    v->vdecl,
+                    unsafe &ops,
+                    v->vty,
+                )
             } case TypeKind::AssocType {
                 // `T::Node` under T := C is C's Node: the instance fact,
                 // computed from the conformer's declared alias (Compiler/Spec/Generics.md#decisions),
@@ -755,7 +789,9 @@ pub class Substitution {
                 return &null
             }
 
-            own.push_back(self.sc->types->generic_param(o, i as u32, gps[i]->is_pack))
+            own.push_back(
+                self.sc->types->generic_param(o, i as u32, gps[i]->is_pack),
+            )
         }
 
         var unsafe *ot = self.sc->types->record(o, unsafe &own)
@@ -798,7 +834,13 @@ pub class Substitution {
                 var args    = cxx::std::vector<unsafe *Type>()
                 var changed = false
                 for var i: usize = 0; i < r->args.size(); ++i {
-                    var unsafe *a = self.replace_self(r->args[i], iface, with, own)
+                    var unsafe *a = self.replace_self(
+                        r->args[i],
+                        iface,
+                        with,
+                        own,
+                    )
+
                     if a != r->args[i] {
                         changed = true
                     }
@@ -824,7 +866,10 @@ pub class Substitution {
                     return self.sc->types->record(r->decl, unsafe &args)
                 }
 
-                var unsafe *primary = NameLookup::representative(self.tu.pattern_of(r->decl))
+                var unsafe *primary = NameLookup::representative(
+                    self.tu.pattern_of(r->decl),
+                )
+
                 var unsafe *e = self.sc->instances->instance_for(
                     primary,
                     unsafe &args,
@@ -844,11 +889,11 @@ pub class Substitution {
                 return if (i == nt->inner) => (t) else => self.sc->types->nullable(i)
             } case TypeKind::VectorType {
                 var unsafe *vt = cast<VectorType>(t)
-                var unsafe *i  = self.replace_self(vt->element, iface, with, own)
+                var unsafe *i = self.replace_self(vt->element, iface, with, own)
                 return if (i == vt->element) => (t) else => self.tu.vector_of(i)
             } case TypeKind::SetType {
                 var unsafe *st = cast<SetType>(t)
-                var unsafe *i  = self.replace_self(st->element, iface, with, own)
+                var unsafe *i = self.replace_self(st->element, iface, with, own)
                 return if (i == st->element) => (t) else => self.tu.set_of(i)
             } case TypeKind::MapType {
                 var unsafe *mt = cast<MapType>(t)
@@ -869,7 +914,13 @@ pub class Substitution {
                 var        ms      = cxx::std::vector<ParamMode>()
                 var        changed = false
                 for var i: usize = 0; i < f->params.size(); ++i {
-                    var unsafe *p = self.replace_self(f->params[i], iface, with, own)
+                    var unsafe *p = self.replace_self(
+                        f->params[i],
+                        iface,
+                        with,
+                        own,
+                    )
+
                     if p != f->params[i] {
                         changed = true
                     }
@@ -912,7 +963,13 @@ pub class Substitution {
                 var        args = cxx::std::vector<unsafe *Type>()
                 var        same = b == a->base
                 for var k: usize = 0; k < a->args.size(); ++k {
-                    var unsafe *x = self.replace_self(a->args[k], iface, with, own)
+                    var unsafe *x = self.replace_self(
+                        a->args[k],
+                        iface,
+                        with,
+                        own,
+                    )
+
                     if x != a->args[k] {
                         same = false
                     }
@@ -924,7 +981,13 @@ pub class Substitution {
                     return t
                 }
 
-                var unsafe *w = self.assoc_witness(b, a->iface, a->assoc, unsafe &args)
+                var unsafe *w = self.assoc_witness(
+                    b,
+                    a->iface,
+                    a->assoc,
+                    unsafe &args,
+                )
+
                 return if (w != &null) => (w) else => t
             } default {
                 return t
@@ -1013,7 +1076,12 @@ pub class Substitution {
         var        ml    = MemberLookup(self.sc)
         ml.index_extensions()
         var cands = cxx::std::vector<unsafe *Decl>()
-        ml.lookup(x, DeclName::ident(imms->intern_ident_copy(nm)), unsafe &cands)
+        ml.lookup(
+            x,
+            DeclName::ident(imms->intern_ident_copy(nm)),
+            unsafe &cands,
+        )
+
         for var i: usize = 0; i < cands.size(); ++i {
             var unsafe *ta = dyn_cast<TypeAliasDecl>(cands[i])
             if ta == &null || ta->is_associated || ta->is_poisoned() {
@@ -1038,7 +1106,10 @@ pub class Substitution {
                     s.bind_from_record(x)
                 }
 
-                var unsafe *tr = NameLookup::representative(unsafe (ta as unsafe *Decl))
+                var unsafe *tr = NameLookup::representative(
+                    unsafe (ta as unsafe *Decl),
+                )
+
                 for var k: usize = 0; k < nargs && k < arity; ++k {
                     s.bind(tr, k as u32, (*args)[k])
                 }
@@ -1076,8 +1147,14 @@ pub class Substitution {
         // requirement its default (`interface D derives G { type Node = i64
         // }`); InterfaceComposition kept it on D's composed requirement.
         // Its `Self::...` are D's Self (or any interface between D and G).
-        var homes              = cxx::std::vector<unsafe *Decl>()
-        var d:    unsafe *Type = self._derived_default(x, req, unsafe &ml, unsafe &homes)
+        var homes = cxx::std::vector<unsafe *Decl>()
+        var d: unsafe *Type = self._derived_default(
+            x,
+            req,
+            unsafe &ml,
+            unsafe &homes,
+        )
+
         if d == &null {
             if td->aliased == &null || td->aliased->canonical == &null {
                 return &null
@@ -1128,7 +1205,13 @@ pub class Substitution {
                   iface: unsafe *Type,
                   req:   unsafe *Decl,
                   args:  unsafe *cxx::std::vector<unsafe *Type> = &null) -> unsafe *Type {
-        var unsafe *t = self.sc->types->assoc(base, iface, NameLookup::representative(req), args)
+        var unsafe *t = self.sc->types->assoc(
+            base,
+            iface,
+            NameLookup::representative(req),
+            args,
+        )
+
         if t != &null {
             self.bound_ifaces(t)
         }
@@ -1187,7 +1270,14 @@ pub class Substitution {
         }
 
         var ready = true
-        out = self.clause_bounds(ta, a->base, a->iface, unsafe &args, unsafe &ready)
+        out = self.clause_bounds(
+            ta,
+            a->base,
+            a->iface,
+            unsafe &args,
+            unsafe &ready,
+        )
+
         self.sc->assoc_busy.erase(key)
         // An unresolved clause (T reaching it before the interface's own
         // walk) is not cached: the next asker computes it again.
@@ -1265,7 +1355,7 @@ pub class Substitution {
             if r->is_dependent() && home != &null {
                 var s = Substitution(self.sc)
                 s.keep_unbound = true
-                r              = canon_unqual(s.replace_self(r, home, base, true))
+                r = canon_unqual(s.replace_self(r, home, base, true))
                 var unsafe *idecl = self.tu.record_decl(iface)
                 if idecl != &null && NameLookup::representative(self.tu.pattern_of(idecl)) == home {
                     s.bind_from_record(iface)
@@ -1433,7 +1523,10 @@ pub class Substitution {
             var ms = cxx::std::vector<unsafe *FunctionDecl>()
             if idecl->compose_state == 2 {
                 for var j: usize = 0; j < idecl->requirements.size(); ++j {
-                    var unsafe *m = dyn_cast<FunctionDecl>(idecl->requirements.get(j)->decl)
+                    var unsafe *m = dyn_cast<FunctionDecl>(
+                        idecl->requirements.get(j)->decl,
+                    )
+
                     if m != &null {
                         ms.push_back(m)
                     }
@@ -1529,7 +1622,9 @@ pub class Substitution {
         for var i: usize = 0; i < ifaces.size(); ++i {
             var unsafe *idd = self.tu.record_decl(ifaces[i])
             var unsafe *id = if (idd != &null) => (dyn_cast<InterfaceDecl>(
-                                 NameLookup::representative(self.tu.pattern_of(idd)),
+                                 NameLookup::representative(
+                                     self.tu.pattern_of(idd),
+                                 ),
                              ))
                              else => &null
             if id == &null || id->compose_state != 2 {
@@ -1668,7 +1763,10 @@ pub class Substitution {
                 continue
             }
 
-            var unsafe *bd = self.tu.record_decl(canon_unqual(e->base->canonical))
+            var unsafe *bd = self.tu.record_decl(
+                canon_unqual(e->base->canonical),
+            )
+
             if bd != &null {
                 self._iface_closure(self.tu.pattern_of(bd), out, depth + 1)
             }
@@ -1695,7 +1793,10 @@ pub class Substitution {
             var unsafe *body = self.sc->record_body(x)
             if body != &null
                 && NameLookup::representative(body) != pat
-                && self._impl_list_reaches(NameLookup::representative(body), want) {
+                && self._impl_list_reaches(
+                    NameLookup::representative(body),
+                    want,
+                ) {
                 return true
             }
 
@@ -1761,7 +1862,10 @@ pub class Substitution {
             return false
         }
 
-        var unsafe *id = dyn_cast<InterfaceDecl>(NameLookup::representative(self.tu.pattern_of(d)))
+        var unsafe *id = dyn_cast<InterfaceDecl>(
+            NameLookup::representative(self.tu.pattern_of(d)),
+        )
+
         if id == &null {
             return false
         }
@@ -1776,7 +1880,11 @@ pub class Substitution {
                 continue
             }
 
-            if self._iface_reaches(canon_unqual(e->base->canonical), want, depth + 1) {
+            if self._iface_reaches(
+                canon_unqual(e->base->canonical),
+                want,
+                depth + 1,
+            ) {
                 return true
             }
         }
@@ -1823,7 +1931,12 @@ pub class Substitution {
             }
 
             var cands = cxx::std::vector<unsafe *Decl>()
-            ml->lookup(rec, DeclName::op_name(TokenKind::OpArrow), unsafe &cands)
+            ml->lookup(
+                rec,
+                DeclName::op_name(TokenKind::OpArrow),
+                unsafe &cands,
+            )
+
             var pick: unsafe *FunctionDecl = &null
             for var i: usize = 0; i < cands.size(); ++i {
                 var unsafe *f = dyn_cast<FunctionDecl>(cands[i])
@@ -1845,7 +1958,11 @@ pub class Substitution {
                 return &null
             }
 
-            var unsafe *rt = self.member_through(rec, pick->return_type->canonical)
+            var unsafe *rt = self.member_through(
+                rec,
+                pick->return_type->canonical,
+            )
+
             if rt == &null {
                 return &null
             }
@@ -1890,7 +2007,9 @@ pub class Substitution {
 
         var unsafe *ra = cast<RecordType>(a)
         var unsafe *rb = cast<RecordType>(b)
-        if NameLookup::representative(ra->decl) != NameLookup::representative(rb->decl) {
+        if NameLookup::representative(ra->decl) != NameLookup::representative(
+            rb->decl,
+        ) {
             return false
         }
 

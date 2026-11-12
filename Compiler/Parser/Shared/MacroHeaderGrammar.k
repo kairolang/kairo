@@ -70,7 +70,12 @@ pub class <T: type> MacroHeaderGrammar {
 
         // `!` required. canonical.
         if self.mhd()->ig_kind() != TokenKind::OpExclaim {
-            self.mhd()->ig_err(hdr.name.range, "expected '!' after macro name", DiagID::S037E)
+            self.mhd()->ig_err(
+                hdr.name.range,
+                "expected '!' after macro name",
+                DiagID::S037E,
+            )
+
             return hdr
         }
 

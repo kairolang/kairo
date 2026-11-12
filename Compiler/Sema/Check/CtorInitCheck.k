@@ -633,7 +633,11 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     fn traverse_function_decl(self, n: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
         var unsafe *saved = self._fn
         self._fn = n
-        var unsafe *r = RecursiveASTVisitor<CtorInitCheck>::traverse_function_decl(self, n)
+        var unsafe *r = RecursiveASTVisitor<CtorInitCheck>::traverse_function_decl(
+            self,
+            n,
+        )
+
         self._fn = saved
         return r
     }
@@ -774,7 +778,9 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             return false
         }
 
-        return self._tu.decl_name(unsafe (f as unsafe *Decl)) == self._tu.decl_name(dc->dc_owner)
+        return self._tu.decl_name(unsafe (f as unsafe *Decl)) == self._tu.decl_name(
+            dc->dc_owner,
+        )
     }
 
     /// Analyze one constructor body; true when it was split (facts written).
@@ -1093,7 +1099,9 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             }
 
             slots.push_back(fd)
-            dense.push_back((self._st.dead || self._st.fields[i] == FieldInit::Yes) as u8)
+            dense.push_back(
+                (self._st.dead || self._st.fields[i] == FieldInit::Yes) as u8,
+            )
         }
 
         for var i: usize = 0; i < crossing.size(); ++i {
@@ -1104,7 +1112,12 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         f->ci_split = ((frontier + 1) as u32)
         f->ci_index = index
         f->ci_slots.from_vec(unsafe &slots, self.sc->ctx)
-        f->ci_dense.from_buf(unsafe (dense.data() as unsafe *bool), dense.size(), self.sc->ctx)
+        f->ci_dense.from_buf(
+            unsafe (dense.data() as unsafe *bool),
+            dense.size(),
+            self.sc->ctx,
+        )
+
         return true
     }
 
@@ -1241,15 +1254,30 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 self._scan_expr(rf->iterable)
                 self._loop(rf->body)
             } case StmtKind::TryCatchStmt {
-                self._gate(s->range, "'try' before a constructor's " + self._last())
+                self._gate(
+                    s->range,
+                    "'try' before a constructor's " + self._last(),
+                )
             } case StmtKind::FinallyStmt {
-                self._gate(s->range, "'finally' before a constructor's " + self._last())
+                self._gate(
+                    s->range,
+                    "'finally' before a constructor's " + self._last(),
+                )
             } case StmtKind::InlineBlockStmt {
-                self._gate(s->range, "an 'inline' block before a constructor's " + self._last())
+                self._gate(
+                    s->range,
+                    "an 'inline' block before a constructor's " + self._last(),
+                )
             } case StmtKind::LabelIntrinsicStmt {
-                self._gate(s->range, "'label!' before a constructor's " + self._last())
+                self._gate(
+                    s->range,
+                    "'label!' before a constructor's " + self._last(),
+                )
             } case StmtKind::JumpIntrinsicStmt {
-                self._gate(s->range, "'jump!' before a constructor's " + self._last())
+                self._gate(
+                    s->range,
+                    "'jump!' before a constructor's " + self._last(),
+                )
             } default {
                 self._scan_stmt(s)
             }
@@ -1283,13 +1311,17 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         // A body that may run assigns maybe: what it assigned is at least
         // Maybe after the loop, and nothing more.
         for var i: usize = 0; i < self._st.fields.size(); ++i {
-            if !after.dead && after.fields[i] != FieldInit::No && self._st.fields[i] == FieldInit::No {
+            if !after.dead
+                && after.fields[i] != FieldInit::No
+                && self._st.fields[i] == FieldInit::No {
                 self._st.fields[i] = FieldInit::Maybe
             }
         }
 
         for var i: usize = 0; i < self._st.elems.size(); ++i {
-            if !after.dead && after.elems[i] != FieldInit::No && self._st.elems[i] == FieldInit::No {
+            if !after.dead
+                && after.elems[i] != FieldInit::No
+                && self._st.elems[i] == FieldInit::No {
                 self._st.elems[i] = FieldInit::Maybe
             }
         }
@@ -1308,11 +1340,17 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         }
 
         for var i: usize = 0; i < self._st.fields.size(); ++i {
-            self._st.fields[i] = field_init_meet(self._st.fields[i], other.fields[i])
+            self._st.fields[i] = field_init_meet(
+                self._st.fields[i],
+                other.fields[i],
+            )
         }
 
         for var i: usize = 0; i < self._st.elems.size(); ++i {
-            self._st.elems[i] = field_init_meet(self._st.elems[i], other.elems[i])
+            self._st.elems[i] = field_init_meet(
+                self._st.elems[i],
+                other.elems[i],
+            )
         }
     }
 
@@ -1452,7 +1490,9 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 b.first(at)
                 var prev = self._assigned_at[i]
                 if prev.is_valid() {
-                    b.note(prev.start, "initialized here first")->child_first(prev)
+                    b.note(prev.start, "initialized here first")->child_first(
+                        prev,
+                    )
                 }
 
                 b.emit()
@@ -1513,9 +1553,10 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     continue
                 }
 
-                b.note(self._first_at[j].start, f"'{nm}' is first assigned here")->child_first(
-                    self._first_at[j],
-                )
+                b.note(
+                    self._first_at[j].start,
+                    f"'{nm}' is first assigned here",
+                )->child_first(self._first_at[j])
 
                 break
             }
@@ -1666,7 +1707,11 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             b.first(at)
             var prev = self._eat[self._ebase[i] + k]
             if prev.is_valid() {
-                b.note(DiagCode(DiagID::SC176N), prev.start, "initialized here first")->child_first(prev)
+                b.note(
+                    DiagCode(DiagID::SC176N),
+                    prev.start,
+                    "initialized here first",
+                )->child_first(prev)
             }
 
             b.emit()
@@ -1923,7 +1968,9 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             )->child_first(pw.at)
             var how = self._part_note(fd)
             if how.size() > 0 {
-                b.note(DiagCode(DiagID::SC173N), pw.at.start, how)->child_first(pw.at)
+                b.note(DiagCode(DiagID::SC173N), pw.at.start, how)->child_first(
+                    pw.at,
+                )
             }
         }
 
@@ -1988,7 +2035,9 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 continue
             }
 
-            var n = cast<FixedArrayType>(canon_unqual(fields[i]->type_->canonical))->size_bits
+            var n = cast<FixedArrayType>(
+                canon_unqual(fields[i]->type_->canonical),
+            )->size_bits
             self._ebase.push_back(next)
             self._elen.push_back(n)
             next += n
@@ -2076,7 +2125,10 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         } else if a->element != &null
             && canon_unqual(a->element) != &null
             && canon_unqual(a->element)->kind == TypeKind::FixedArrayType {
-            self._gate(at, "initializing an array field of arrays in its constructor")
+            self._gate(
+                at,
+                "initializing an array field of arrays in its constructor",
+            )
         }
     }
 
@@ -2086,7 +2138,10 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     }
 
     priv fn _last(self) -> string {
-        return self._t("last const field assignment", "last field initialization")
+        return self._t(
+            "last const field assignment",
+            "last field initialization",
+        )
     }
 
     priv fn _has_required(self, fields: FrozenList<unsafe *FieldDecl>) -> bool {
@@ -2104,7 +2159,12 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             return
         }
 
-        var b = self.sc->diag->report(DiagID::SC116E, at.start, f"{what} is not yet supported")
+        var b = self.sc->diag->report(
+            DiagID::SC116E,
+            at.start,
+            f"{what} is not yet supported",
+        )
+
         b.first(at)
         b.emit()
         self._failed = true

@@ -56,7 +56,7 @@ pub class PreprocessorOptions {
     /// # source limits
 
     pub var max_file_size_mb: i32 = DEFAULT_MAX_FILE_SIZE_MB ///< --cmax-file-size-mb
-    pub var max_token_count:  i32 = DEFAULT_MAX_TOKEN_COUNT ///< --cmax-token-count; 0 = unlimited
+    pub var max_token_count:  i32 = DEFAULT_MAX_TOKEN_COUNT  ///< --cmax-token-count; 0 = unlimited
     // max-string-length is a lexer concern (string literal length), not a PP one;
     // no LexerOptions plumbing exists yet, so there's no flag for it here.
     /// # macro system limits
@@ -121,11 +121,11 @@ pub class PreprocessorOptions {
         o.preserve_comments  = args.get_bool("preserve-comments")
         o.macro_debug_filter = args.get_string("macro-debug-filter")
         o.prelude_path       = args.get_string("prelude")
-        o.no_prelude         = args.get_bool("no-prelude") || args.get_bool("freestanding")
-        o.builtins_dir       = args.get_string("builtins-dir")
-        o.no_builtins        = args.get_bool("no-builtins")
-        o.std_dir            = args.get_string("std-dir")
-        o.no_stdlib          = args.get_bool("no-stdlib") || args.get_bool("freestanding")
+        o.no_prelude = args.get_bool("no-prelude") || args.get_bool("freestanding")
+        o.builtins_dir = args.get_string("builtins-dir")
+        o.no_builtins  = args.get_bool("no-builtins")
+        o.std_dir      = args.get_string("std-dir")
+        o.no_stdlib = args.get_bool("no-stdlib") || args.get_bool("freestanding")
 
         for *s in *args.get_list("define") {
             o.defines.push_back(*s)

@@ -75,7 +75,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,    BuiltinKind,       BuiltinType, QualifiedType, RecordType, builtin_for_token,
+    AssocType,       BuiltinKind,        BuiltinType,  QualifiedType, RecordType, builtin_for_token,
     canon_has_const, canon_has_volatile, canon_unqual,
 }
 import AST::Node::Casting::{
@@ -101,16 +101,15 @@ import AST::Node::Types::{
     CXXLValueRefType, CXXRValueRefType, ChainType, FunctionPointerType, GenericParamType, MapType,
     NullableType,     PointerType,      SetType,   VectorType,
 }
-import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import AST::VisibilityFacts::{
     same_module,
     tu_module_dir,
 }
+import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
-import Support::FileIO::Path::Path
 import Sema::Resolve::GenericArgs::GenericArgs
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
@@ -122,6 +121,7 @@ import Sema::SemaContext::{
 import Sema::Type::ArgumentDeduction::Deduction
 import Sema::Type::Substitution::Substitution
 import Sema::Type::TypeUtil::TypeUtil
+import Support::FileIO::Path::Path
 import Token::Token::Token
 import Token::TokenKind::{
     TokenKind,
@@ -184,7 +184,10 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// here. Idempotent: run() calls it too, and calling it twice costs an
     /// intern hit and a re-index, not correctness.
     fn prepare(self) {
-        self._self_imm = self.sc->imm_table()->intern_ident_copy(token_kind_to_readable_string(TokenKind::KwSelf))
+        self._self_imm = self.sc->imm_table()->intern_ident_copy(
+            token_kind_to_readable_string(TokenKind::KwSelf),
+        )
+
         self.ml.index_extensions()
     }
 
@@ -228,7 +231,10 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         // Base + generic args first (nested chains inside args bind too).
-        var unsafe *out = RecursiveASTVisitor<ChainBinding>::traverse_chain_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<ChainBinding>::traverse_chain_expr(
+            self,
+            n,
+        )
 
         var a = self._anchor_of_base(n)
         for var i: usize = 0; i < n->steps.size(); ++i {
@@ -238,7 +244,12 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             }
 
             if st->resolved_decl != &null { // idempotent re-run.
-                a = self._anchor_after(st->resolved_decl, st, self._through_of(a, st))
+                a = self._anchor_after(
+                    st->resolved_decl,
+                    st,
+                    self._through_of(a, st),
+                )
+
                 continue
             }
 
@@ -310,7 +321,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 // primitive declares (extends.mdx: an extension adds static
                 // functions to any type it can extend). Only a `::` step this
                 // TU can see an extension member for; anything else is the
-                // R024E below (P325).
+                // R024E below.
                 var unsafe *pt = self._primitive_static_head(id, n)
                 if pt != &null {
                     a.kind = AnchorKind::Type
@@ -363,16 +374,20 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// types this expression afterwards and owns any arity error, so a list
     /// that does not apply leaves the step to inference.
     priv fn _anchor_of_generic_head(self, id: unsafe *NamedIdentExpr) -> Anchor {
-        return self._anchor_of_generic(id->resolved_decl, &id->generic_args, id->range)
+        return self._anchor_of_generic(
+            id->resolved_decl,
+            &id->generic_args,
+            id->range,
+        )
     }
 
     /// The instance a record named with explicit args denotes, as a head
     /// (`Box<i32>::make()`) or as a `::` step (`ns::Box<i32>::make()`,
-    /// `cxx::std::is_same<A, B>::value`). The step form used to anchor the
-    /// PATTERN: a member the pattern declares outright still bound, but one
-    /// only the instance has -- through a base that depends on the args,
-    /// `is_same<A, B> : integral_constant<bool, __is_same(A, B)>` -- was
-    /// R025E "no member named 'value'", and nothing was ever filled.
+    /// `cxx::std::is_same<A, B>::value`). The step form anchors the
+    /// INSTANCE, not the pattern: a member only the instance has -- through
+    /// a base that depends on the args,
+    /// `is_same<A, B> : integral_constant<bool, __is_same(A, B)>` -- is not
+    /// visible on the pattern and would be R025E "no member named 'value'".
     priv fn _anchor_of_generic(self,
                                d:     unsafe *Decl,
                                gargs: *FrozenList<ChainType::GenericArg>,
@@ -600,7 +615,11 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 var args = cxx::std::vector<unsafe *Type>()
                 a.kind = AnchorKind::Value
                 a.decl = d
-                a.ty   = self.sc->types->record(NameLookup::representative(ed), unsafe &args)
+                a.ty = self.sc->types->record(
+                    NameLookup::representative(ed),
+                    unsafe &args,
+                )
+
                 if self._generic_count(ed) > 0 {
                     a.kind = AnchorKind::Dependent
                 }
@@ -705,7 +724,9 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 continue
             }
 
-            args.push_back(self.sc->types->generic_param(canon, gp->index, gp->is_pack))
+            args.push_back(
+                self.sc->types->generic_param(canon, gp->index, gp->is_pack),
+            )
         }
 
         a.ty = self.sc->types->record(canon, unsafe &args)
@@ -907,11 +928,16 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
             if a.kind == AnchorKind::Module {
                 // Search every scope the anchor denotes and union the hits.
-                var cands                        = cxx::std::vector<unsafe *Decl>()
+                var cands = cxx::std::vector<unsafe *Decl>()
                 var nhit:   usize                = 0
                 var frozen: unsafe *OverloadCell = &null
                 for var si: usize = 0; si < a.scopes.size(); ++si {
-                    var unsafe *cell = self.ml.in_scope(a.scopes[si], name, spelled)
+                    var unsafe *cell = self.ml.in_scope(
+                        a.scopes[si],
+                        name,
+                        spelled,
+                    )
+
                     if cell == &null {
                         continue
                     }
@@ -947,7 +973,11 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                     // are part of its surface too, and they live in its
                     // OVERLAY rather than that table (Compiler/Spec/Imports.md#re-exports).
                     for var si: usize = 0; si < a.scopes.size(); ++si {
-                        var unsafe *rx = self.ml.reexport_lookup(a.scopes[si], spelled)
+                        var unsafe *rx = self.ml.reexport_lookup(
+                            a.scopes[si],
+                            spelled,
+                        )
+
                         if rx == &null {
                             continue
                         }
@@ -976,7 +1006,12 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 if cands.empty() {
                     var mn = if (a.decl == &null) => ("the global scope")
                              else => f"module '{self._decl_name_str(a.decl)}'"
-                    self._err_contained(DiagID::R025E, at, f"no member named '{spelled}' in {mn}")
+                    self._err_contained(
+                        DiagID::R025E,
+                        at,
+                        f"no member named '{spelled}' in {mn}",
+                    )
+
                     st->name->poison()
                     self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
                     var r = Anchor()
@@ -1012,7 +1047,14 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
             if cands.empty() {
                 var dn = self._decl_name_str(a.decl)
-                self._err_member_miss(at, f"no member named '{spelled}' in '{dn}'", a.ty, name, spelled, dn)
+                self._err_member_miss(
+                    at,
+                    f"no member named '{spelled}' in '{dn}'",
+                    a.ty,
+                    name,
+                    spelled,
+                    dn,
+                )
 
                 st->name->poison()
                 self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
@@ -1065,18 +1107,32 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 || st->access_kind == ChainExpr::AccessKind::Arrow) {
             var unsafe *vc = canon_unqual(self.ml.peel_ref(a.ty))
             if vc != &null && isa<NullableType>(vc) {
-                // A member an `extend T?` declares is the NULLABLE's own
-                // (P325-1, decided 2026-11-12): `self` is the `T?`, so the
+                // A member an `extend T?` declares is the NULLABLE's own:
+                // `self` is the `T?`, so the
                 // call reads no value and is legal null or not. It binds
                 // here, on the nullable, before any narrowing could make it
                 // a lookup in T; MemberTyping leaves such a step alone
                 // (binds_nullable_member).
                 var ncands = cxx::std::vector<unsafe *Decl>()
                 if !vc->is_dependent() && self.ml.lookup(vc, name, unsafe &ncands) {
-                    return self._commit(st, loc, unsafe &ncands, &null, &null, vc)
+                    return self._commit(
+                        st,
+                        loc,
+                        unsafe &ncands,
+                        &null,
+                        &null,
+                        vc,
+                    )
                 }
 
-                self._record(loc, MemberOutcome::NeedsInference, &null, 0, a.decl)
+                self._record(
+                    loc,
+                    MemberOutcome::NeedsInference,
+                    &null,
+                    0,
+                    a.decl,
+                )
+
                 self.n_inference += 1
                 var r = Anchor()
                 r.kind = AnchorKind::NeedsInference
@@ -1101,7 +1157,11 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                     "'->' requires a pointer on its left; use '.' for a value",
                 )
             } else if !arrow && isa<PointerType>(pre) {
-                self._err(DiagID::R027E, at, "'.' cannot be applied to a pointer; use '->'")
+                self._err(
+                    DiagID::R027E,
+                    at,
+                    "'.' cannot be applied to a pointer; use '->'",
+                )
             } else {
                 var r = Anchor()
                 r.kind = AnchorKind::Errored
@@ -1134,7 +1194,15 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         self.ml.lookup(ty, name, unsafe &cands)
         if cands.empty() {
             var tn = self._type_name_str(ty)
-            self._err_member_miss(at, f"no member named '{spelled}' in '{tn}'", ty, name, spelled, tn)
+            self._err_member_miss(
+                at,
+                f"no member named '{spelled}' in '{tn}'",
+                ty,
+                name,
+                spelled,
+                tn,
+            )
+
             st->name->poison()
             self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
             var r = Anchor()
@@ -1179,7 +1247,10 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             // A record's `op ->` (a C++ iterator's, a smart pointer's): the
             // member is read from what it points to. Null when it has none.
             if !isa<PointerType>(ty) {
-                return Substitution(self.sc).arrow_target(self.ml.peel_ref(a.ty), &self.ml)
+                return Substitution(self.sc).arrow_target(
+                    self.ml.peel_ref(a.ty),
+                    &self.ml,
+                )
             }
 
             return self.ml.peel_ref(cast<PointerType>(ty)->pointee)
@@ -1193,7 +1264,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     }
 
     /// \p st is bound to a member an `extend T?` declares: a member of the
-    /// nullable itself, so a `.` on it reads no value (P325-1). MemberTyping
+    /// nullable itself, so a `.` on it reads no value. MemberTyping
     /// asks before it narrows a nullable receiver or reports it unchecked.
     fn binds_nullable_member(self, st: unsafe *ChainExpr::Step) -> bool {
         if st == &null {
@@ -1205,11 +1276,16 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             d = st->candidate_cell->get(0)
         }
 
-        if d == &null || d->semantic_dc == &null || d->semantic_dc->dc_kind != DeclContextKind::Extension {
+        if d == &null
+            || d->semantic_dc == &null
+            || d->semantic_dc->dc_kind != DeclContextKind::Extension {
             return false
         }
 
-        var unsafe *x = dyn_cast<Declarations::ExtensionDecl>(d->semantic_dc->owner_decl())
+        var unsafe *x = dyn_cast<Declarations::ExtensionDecl>(
+            d->semantic_dc->owner_decl(),
+        )
+
         return x != &null
             && x->target != &null
             && x->target->canonical != &null
@@ -1220,7 +1296,10 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// \p st: is the step a member of `extend T?`? A step this binder left
     /// unbound (a field path, `h.n.f()`) is bound here first, on the
     /// nullable, when such an extension declares the name.
-    fn nullable_member_step(self, chain: unsafe *ChainExpr, st: unsafe *ChainExpr::Step, cur: unsafe *Type) -> bool {
+    fn nullable_member_step(self,
+                            chain: unsafe *ChainExpr,
+                            st:    unsafe *ChainExpr::Step,
+                            cur:   unsafe *Type) -> bool {
         if st == &null || cur == &null {
             return false
         }
@@ -1229,7 +1308,10 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             return self.binds_nullable_member(st)
         }
 
-        if st->name == &null || st->name->is_poisoned() || st->is_operator() || st->is_tuple_index() {
+        if st->name == &null
+            || st->name->is_poisoned()
+            || st->is_operator()
+            || st->is_tuple_index() {
             return false
         }
 
@@ -1264,8 +1346,11 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         if isa<RecordType>(t) {
-            var unsafe *rt        = cast<RecordType>(t)
-            var unsafe *null_decl = self.sc->well_known->get(WellKnownType::Nullable)
+            var unsafe *rt = cast<RecordType>(t)
+            var unsafe *null_decl = self.sc->well_known->get(
+                WellKnownType::Nullable,
+            )
+
             if null_decl != &null && rt->decl == null_decl && rt->args.size() == 1 {
                 return rt->args[0]
             }
@@ -1341,7 +1426,14 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
             if !distinct {
                 st->resolved_decl = sole
-                self._record(loc, MemberOutcome::Bound, sole, 1, self._home_of(sole))
+                self._record(
+                    loc,
+                    MemberOutcome::Bound,
+                    sole,
+                    1,
+                    self._home_of(sole),
+                )
+
                 self.n_bound += 1
                 return self._anchor_after(sole, st, through)
             }
@@ -1363,7 +1455,14 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             if all_mod {
                 var unsafe *md = NameLookup::representative((*cands)[0])
                 st->resolved_decl = md
-                self._record(loc, MemberOutcome::Bound, md, 1, self._home_of(md))
+                self._record(
+                    loc,
+                    MemberOutcome::Bound,
+                    md,
+                    1,
+                    self._home_of(md),
+                )
+
                 self.n_bound += 1
                 var ma = Anchor()
                 ma.kind = AnchorKind::Module
@@ -1385,9 +1484,11 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             b.first(st->name->range)
             for var i: usize = 0; i < n; ++i {
                 var unsafe *d = (*cands)[i]
-                b.note(DiagCode(DiagID::R028N), d->range.start, "candidate declared here")->child_first(
-                    d->range,
-                )
+                b.note(
+                    DiagCode(DiagID::R028N),
+                    d->range.start,
+                    "candidate declared here",
+                )->child_first(d->range)
             }
 
             b.emit()
@@ -1542,7 +1643,10 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
     fn traverse_conditional_stmt(self, n: unsafe *ConditionalStmt) -> unsafe *ConditionalStmt {
         if n == &null || !n->is_eval {
-            return RecursiveASTVisitor<ChainBinding>::traverse_conditional_stmt(self, n)
+            return RecursiveASTVisitor<ChainBinding>::traverse_conditional_stmt(
+                self,
+                n,
+            )
         }
 
         if self.dyn()->walkup_conditional_stmt(n) == false {
@@ -1657,7 +1761,10 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             return
         }
 
-        var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(id->resolved_decl)
+        var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+            id->resolved_decl,
+        )
+
         if gp == &null {
             return
         }
@@ -1726,7 +1833,9 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
         var unsafe *gp = self._param_of(a.ty)
         var        b   = Self::ParamBounds()
-        var unsafe *assoc = if (a.ty != &null) => (dyn_cast<AssocType>(canon_unqual(a.ty)))
+        var unsafe *assoc = if (a.ty != &null) => (dyn_cast<AssocType>(
+                                canon_unqual(a.ty),
+                            ))
                             else => &null
         if gp == &null && assoc != &null {
             // `x.show()` on `x: T::Item`, and `T::Item::make()`: the
@@ -1776,7 +1885,14 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 return r0
             }
 
-            return self._bind_through_bounds(st, a, unsafe &b, TypeUtil(self.sc).str(a.ty), at, loc)
+            return self._bind_through_bounds(
+                st,
+                a,
+                unsafe &b,
+                TypeUtil(self.sc).str(a.ty),
+                at,
+                loc,
+            )
         }
 
         if gp == &null {
@@ -1874,7 +1990,11 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         for var i: usize = 0; i < b->bases.size(); ++i {
-            self.ml.lookup(self.sc->types->record(b->bases[i], unsafe &empty), name, unsafe &cands)
+            self.ml.lookup(
+                self.sc->types->record(b->bases[i], unsafe &empty),
+                name,
+                unsafe &cands,
+            )
         }
 
         // `T::Name` names the bounds' statics and nested types only: static
@@ -1915,6 +2035,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 at,
                 f"no member named '{spelled}' in the bounds of '{pname}'",
             )
+
             st->name->poison()
             self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
             var r = Anchor()
@@ -2032,7 +2153,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// it is silent downstream, so the damage is fenced off and the stage gate
     /// (Sema::_hard_stop) must not stop the TU. Stopping hid every later,
     /// independent miss -- `make().dump()` after a `t.dump()` -- because
-    /// call-result steps only bind in the expression typer (P808).
+    /// call-result steps only bind in the expression typer.
     priv fn _err_contained(self, id: DiagID, at: SourceRange, const msg: string) {
         self.sc->contained_errors += 1
         self._err(id, at, msg)
@@ -2043,14 +2164,14 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// extension-visibility rule (MemberLookup::extension_visible), so say
     /// which file and offer the import.
     priv fn _err_member_miss(self,
-                             at:          SourceRange,
-                             const msg:   string,
-                             ty:          unsafe *Type,
-                             name:        DeclName,
+                             at:            SourceRange,
+                             const msg:     string,
+                             ty:            unsafe *Type,
+                             name:          DeclName,
                              const spelled: string,
-                             const tn:    string) {
+                             const tn:      string) {
         self.sc->contained_errors += 1
-        self.n_errored            += 1
+        self.n_errored += 1
         var b = self.sc->diag->report(DiagID::R025E, at.start, msg)
         b.first(at)
         var e: unsafe *Declarations::ExtensionDecl = &null
@@ -2066,30 +2187,43 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 e->range.start,
                 f"an extension of '{tn}' in '{file}' declares '{spelled}'; import it to use it",
             )
+
             // A file of another module is offered only through what that
             // module exports (imports.mdx, Re-export Pattern: its module.k's
             // `pub import`s): the module itself when they reach the file,
             // nothing when they do not, since the file is then an
-            // implementation detail of the module (P945).
-            var        efid     = sm->get_fid(e->range.start) as u32
-            var unsafe *etu     = self._tu_of_fid(efid)
-            var unsafe *tu      = self.sc->tu
-            var        emod     = tu_module_dir(etu)
+            // implementation detail of the module.
+            var        efid = sm->get_fid(e->range.start) as u32
+            var unsafe *etu = self._tu_of_fid(efid)
+            var unsafe *tu  = self.sc->tu
+            var        emod = tu_module_dir(etu)
             if emod.size() > 0 && tu != &null && !same_module(etu, tu) {
                 var mname = Path(emod).filename()
                 var mfile = emod + "/module.k"
                 if self._pub_reaches(sm->find_fid(Path(mfile)) as u32, efid) {
-                    var mp = self._import_spelling(Path(sm->get_filename(at.start)), Path(emod + ".k"))
+                    var mp = self._import_spelling(
+                        Path(sm->get_filename(at.start)),
+                        Path(emod + ".k"),
+                    )
+
                     if mp.size() > 0 {
                         self._insert_import(&b, tu, f"import self::{mp}")
                     } else {
-                        b.note(f"module '{mname}' exports '{file}'; import the module to use it")
+                        b.note(
+                            f"module '{mname}' exports '{file}'; import the module to use it",
+                        )
                     }
                 } else {
-                    b.note(f"'{file}' is not exported by module '{mname}': its module.k does not `pub import` it")
+                    b.note(
+                        f"'{file}' is not exported by module '{mname}': its module.k does not `pub import` it",
+                    )
                 }
             } else {
-                var mp = self._import_spelling(Path(sm->get_filename(at.start)), epath)
+                var mp = self._import_spelling(
+                    Path(sm->get_filename(at.start)),
+                    epath,
+                )
+
                 if mp.size() > 0 && tu != &null {
                     self._insert_import(&b, tu, f"import self::{mp}")
                 }
@@ -2165,8 +2299,8 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// add_implicit_import), whose range is the file's first byte, so the
     /// insertion landed at the end of line 1, inside a header comment.
     priv fn _insert_import(self, b: *DiagBuilder, tu: unsafe *TranslationUnit, const line: string) {
-        var unsafe *sm = self.sc->ctx->sm
-        var        fid = tu->fid
+        var unsafe *sm         = self.sc->ctx->sm
+        var        fid         = tu->fid
         var        best: usize = 0
         var        found       = false
         for var i: usize = 0; i < tu->imports.size(); ++i {
@@ -2187,7 +2321,9 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             // An ImportDecl's range may stop at its keyword: take its end
             // when that is later in the same file.
             var end = sm->get_offset(d->range.start)
-            if d->range.end.is_valid() && sm->same_file(d->range.start, d->range.end) && sm->get_offset(d->range.end) > end {
+            if d->range.end.is_valid()
+                && sm->same_file(d->range.start, d->range.end)
+                && sm->get_offset(d->range.end) > end {
                 end = sm->get_offset(d->range.end)
             }
 
@@ -2201,7 +2337,11 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             var at  = sm->get_loc(fid, best)
             var col = sm->get_line_col(at).column
             var bol = best + 1 - col
-            var eol = sm->get_loc(fid, bol + sm->get_full_line(sm->get_loc(fid, bol)).size())
+            var eol = sm->get_loc(
+                fid,
+                bol + sm->get_full_line(sm->get_loc(fid, bol)).size(),
+            )
+
             b->insert(eol, "\n" + line, f"add \x27{line}\x27")
             return
         }
@@ -2209,13 +2349,13 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         // No import: past the comment lines the file opens with, when a
         // blank line ends them (a header); a block that runs straight into
         // a declaration is its doc comment, so the import goes above it.
-        var size        = sm->get_file_size(fid)
-        var off: usize  = 0
-        var after: usize = 0
-        var comments    = false
+        var size           = sm->get_file_size(fid)
+        var off:     usize = 0
+        var after:   usize = 0
+        var comments       = false
         while off < size {
-            var text = sm->get_full_line(sm->get_loc(fid, off))
-            var k: usize = 0
+            var text       = sm->get_full_line(sm->get_loc(fid, off))
+            var k:   usize = 0
             while k < text.size() && (text[k] == (' ' as u8) || text[k] == ('\t' as u8)) {
                 ++k
             }
@@ -2235,7 +2375,12 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         if comments {
-            b->insert(sm->get_loc(fid, after), "\n\n" + line, f"add \x27{line}\x27")
+            b->insert(
+                sm->get_loc(fid, after),
+                "\n\n" + line,
+                f"add \x27{line}\x27",
+            )
+
             return
         }
 
@@ -2246,10 +2391,10 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// "" when it is not under it (then no fix-it: a search-root spelling
     /// would be a guess).
     priv fn _import_spelling(self, const from: Path, const to: Path) -> string {
-        var here = Path(from.parent_path())
-        var rel  = to.relative_to(here)
-        var o: string = ""
-        var n  = rel.size()
+        var here        = Path(from.parent_path())
+        var rel         = to.relative_to(here)
+        var o:   string = ""
+        var n           = rel.size()
         if n > 2 && rel[n - 2] == ('.' as u8) && rel[n - 1] == ('k' as u8) {
             n = n - 2
         }
@@ -2332,13 +2477,17 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
     /// The builtin type \p id names when \p n's first step is a `::` to a
     /// member an extension of it declares, visible here; null otherwise.
-    priv fn _primitive_static_head(self, id: unsafe *NamedIdentExpr, n: unsafe *ChainExpr) -> unsafe *Type {
+    priv fn _primitive_static_head(self,
+                                   id: unsafe *NamedIdentExpr,
+                                   n:  unsafe *ChainExpr) -> unsafe *Type {
         if n->steps.size() == 0 {
             return &null
         }
 
         var unsafe *st0 = n->steps.get(0)
-        if st0 == &null || st0->name == &null || st0->access_kind != ChainExpr::AccessKind::ColonColon {
+        if st0 == &null
+            || st0->name == &null
+            || st0->access_kind != ChainExpr::AccessKind::ColonColon {
             return &null
         }
 
@@ -2348,7 +2497,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         var unsafe *bt = self.sc->builtin(bk)
-        var imm = self._name_imm(st0->name->name)
+        var        imm = self._name_imm(st0->name->name)
         if bt == &null || imm == u32::MAX {
             return &null
         }
@@ -2413,11 +2562,15 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         if isa<Declarations::EnumVariantDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::EnumVariantDecl>(d)->name)
+            return ctx->get_spelling(
+                cast<Declarations::EnumVariantDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::GenericParamDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::GenericParamDecl>(d)->name)
+            return ctx->get_spelling(
+                cast<Declarations::GenericParamDecl>(d)->name,
+            )
         }
 
         return "<decl>"

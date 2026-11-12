@@ -181,7 +181,9 @@ pub fn lex_file(ci:  unsafe *CompilerInstance,
         // A string chain's later segments stay in the gap after its head,
         // where _chain_end finds them: the head at its own length.
         var end = t.range.start.raw() + chain_head_len(imm, t, t.range.size())
-        out->push_back(RawTok { kind: t.kind, start: t.range.start.raw(), end: end })
+        out->push_back(
+            RawTok { kind: t.kind, start: t.range.start.raw(), end: end },
+        )
     }
 
     lx->close()
@@ -375,7 +377,10 @@ pub class Formatter {
             )
 
             var unsafe *p = view.data()
-            self.src = string(unsafe ((p as unsafe *const u8) as *const u8), view.size())
+            self.src = string(
+                unsafe ((p as unsafe *const u8) as *const u8),
+                view.size(),
+            )
         }
 
         // Our own line table: the source manager's is not part of its API,
@@ -1063,7 +1068,9 @@ pub class Formatter {
 
             return k == TokenKind::TkNewLine
                 || k == TokenKind::AtComment
-                    && self._line(self.toks[j].start) != self._line(self.toks[i].start)
+                    && self._line(self.toks[j].start) != self._line(
+                        self.toks[i].start,
+                    )
         }
 
         return true
@@ -1509,7 +1516,9 @@ pub class Formatter {
             return
         }
 
-        els->push_back(Elem { start: self._decl_start(d), end: d->range.end.raw(), decl: d })
+        els->push_back(
+            Elem { start: self._decl_start(d), end: d->range.end.raw(), decl: d },
+        )
     }
 
     priv fn _push_stmt(self, s: unsafe *Stmt, els: unsafe *cxx::std::vector<Elem>) {
@@ -1734,7 +1743,10 @@ pub class Formatter {
                 }
 
                 if es->empty() && opener != 0 && cl == opener && cl == ce && r->head.is_empty() {
-                    r->head = Doc::line_suffix(Doc::text(" " + self._text(t.start, t.end)))
+                    r->head = Doc::line_suffix(
+                        Doc::text(" " + self._text(t.start, t.end)),
+                    )
+
                     continue
                 }
 
@@ -1996,7 +2008,9 @@ pub class Formatter {
         // stable sort of the Kairo imports by key
         var keys = cxx::std::vector<string>()
         for var x: usize = 0; x < kai.size(); ++x {
-            keys.push_back(self.import_key(self.imps[(*es)[kai[x]].imp as usize]))
+            keys.push_back(
+                self.import_key(self.imps[(*es)[kai[x]].imp as usize]),
+            )
         }
 
         for var x: usize = 1; x < kai.size(); ++x {
@@ -2015,7 +2029,14 @@ pub class Formatter {
         var parts = cxx::std::vector<Doc>()
         var first = true
         for var x: usize = 0; x < ffis.size(); ++x {
-            self._import_unit(es, lead[ffis[x] - i], ffis[x], unsafe &parts, first)
+            self._import_unit(
+                es,
+                lead[ffis[x] - i],
+                ffis[x],
+                unsafe &parts,
+                first,
+            )
+
             first = false
         }
 
@@ -2024,7 +2045,14 @@ pub class Formatter {
         }
 
         for var x: usize = 0; x < kai.size(); ++x {
-            self._import_unit(es, lead[kai[x] - i], kai[x], unsafe &parts, first)
+            self._import_unit(
+                es,
+                lead[kai[x] - i],
+                kai[x],
+                unsafe &parts,
+                first,
+            )
+
             first = false
         }
 
@@ -2231,7 +2259,10 @@ pub class Formatter {
                 if k == last {
                     c = Doc::concat2(c, Doc::text(semi))
                     if !cmts && e->cmt.size() > 0 {
-                        c = Doc::concat2(c, Doc::line_suffix(Doc::text(" " + e->cmt)))
+                        c = Doc::concat2(
+                            c,
+                            Doc::line_suffix(Doc::text(" " + e->cmt)),
+                        )
                     }
                 }
 
@@ -2245,7 +2276,11 @@ pub class Formatter {
             }
         }
 
-        return Doc::table(cells, (ROW_COLS() + 1) as i32, Formatter::_row_seps())
+        return Doc::table(
+            cells,
+            (ROW_COLS() + 1) as i32,
+            Formatter::_row_seps(),
+        )
     }
 
     /// Rule 11.4 inside a row run: align the trailing comments when every
@@ -2307,7 +2342,10 @@ pub class Formatter {
                 break
             }
 
-            var w = Renderer::flat_width(unsafe &e->doc) + width_of(self._semi_of(e))
+            var w = Renderer::flat_width(unsafe &e->doc) + width_of(
+                self._semi_of(e),
+            )
+
             if w >= Renderer::unfittable() || w > room {
                 break
             }
@@ -2531,7 +2569,12 @@ pub class Formatter {
         )
 
         if oneline && l.can_oneline && l.head.is_empty() && rules().oneline_type_bodies {
-            var flat = Doc::concat3(open, Doc::text(" "), Doc::concat2(l.oneline, Doc::text(" }")))
+            var flat = Doc::concat3(
+                open,
+                Doc::text(" "),
+                Doc::concat2(l.oneline, Doc::text(" }")),
+            )
+
             // the one-line form, unless it overflows: then the broken one
             if !flat.hard {
                 return Doc::choice(flat, broken)
@@ -2590,13 +2633,22 @@ pub class Formatter {
             return self._hb(a, blk)
         }
 
-        var written = self._trimmed(a, if p < self.toks.size() => self.toks[p].end else => cs)
+        var written = self._trimmed(
+            a,
+            if p < self.toks.size() => self.toks[p].end else => cs,
+        )
+
         if !Formatter::_same_words(written, kw) {
             return self._hb(a, blk)
         }
 
         var c = self.fxc(cond, true, PCtx { kind: 4, prec: 0, right: false })
-        return Doc::concat4(Doc::text(kw + " "), c, Doc::text(" "), self._block(blk))
+        return Doc::concat4(
+            Doc::text(kw + " "),
+            c,
+            Doc::text(" "),
+            self._block(blk),
+        )
     }
 
     /// \p a equals \p b once runs of whitespace are one space.
@@ -2664,10 +2716,28 @@ pub class Formatter {
                 && !self._wrapped(x) {
                 var unsafe *a = cast<AssignOperatorExpr>(x)
                 if self._tok(a->op_token) == "=" {
-                    var c0  = self._calls
-                    var lhs = self.fxc(a->lhs, true, PCtx { kind: 1, prec: 1, right: false })
-                    var rhs = self.fxc(a->rhs, true, PCtx { kind: 1, prec: 1, right: true })
-                    self._fill_row(e, ROW_ASSIGN(), lhs, Doc::nothing(), Doc::nothing(), rhs)
+                    var c0 = self._calls
+                    var lhs = self.fxc(
+                        a->lhs,
+                        true,
+                        PCtx { kind: 1, prec: 1, right: false },
+                    )
+
+                    var rhs = self.fxc(
+                        a->rhs,
+                        true,
+                        PCtx { kind: 1, prec: 1, right: true },
+                    )
+
+                    self._fill_row(
+                        e,
+                        ROW_ASSIGN(),
+                        lhs,
+                        Doc::nothing(),
+                        Doc::nothing(),
+                        rhs,
+                    )
+
                     e->capped = self._calls != c0
                     return Doc::concat3(lhs, Doc::text(" = "), rhs)
                 }
@@ -2839,7 +2909,13 @@ pub class Formatter {
 
                 self._ungroup_next = chain
                 var h = if ec->is_eval => self._hb(prev, ec->then_)
-                        else => self._cond_hb(prev, "else if", ec->cond, ec->then_)
+                        else => self._cond_hb(
+                            prev,
+                            "else if",
+                            ec->cond,
+                            ec->then_,
+                        )
+
                 d   = Doc::concat3(d, Doc::text(" "), h)
                 cur = ec
                 continue
@@ -2847,7 +2923,12 @@ pub class Formatter {
 
             if isa<CompoundStmt>(el) {
                 self._ungroup_next = chain
-                d = Doc::concat3(d, Doc::text(" "), self._hb(prev, cast<CompoundStmt>(el)))
+                d = Doc::concat3(
+                    d,
+                    Doc::text(" "),
+                    self._hb(prev, cast<CompoundStmt>(el)),
+                )
+
                 break
             }
 
@@ -3015,7 +3096,14 @@ pub class Formatter {
         var parts = cxx::std::vector<Doc>()
         parts.push_back(Doc::text("case "))
         parts.push_back(
-            Doc::list("", "", keys, vals, Doc::nothing(), LIST_CASEGRID() | LIST_FORCE()),
+            Doc::list(
+                "",
+                "",
+                keys,
+                vals,
+                Doc::nothing(),
+                LIST_CASEGRID() | LIST_FORCE(),
+            ),
         )
 
         if !tail.is_empty() {
@@ -3192,7 +3280,11 @@ pub class Formatter {
         }
 
         if isa<ModuleDecl>(d) {
-            self._push_dc(unsafe (cast<ModuleDecl>(d) as unsafe *DeclContext), unsafe &els)
+            self._push_dc(
+                unsafe (cast<ModuleDecl>(d) as unsafe *DeclContext),
+                unsafe &els,
+            )
+
             return self._aggregate(st, en, unsafe &els, false)
         }
 
@@ -3318,7 +3410,14 @@ pub class Formatter {
                     Doc::nothing(),
                 )
             } else {
-                self._fill_row(e, ROW_DECL(), kw, Doc::text(name + ":"), tyd, ini)
+                self._fill_row(
+                    e,
+                    ROW_DECL(),
+                    kw,
+                    Doc::text(name + ":"),
+                    tyd,
+                    ini,
+                )
             }
 
             if e != &null {
@@ -3450,7 +3549,7 @@ pub class Formatter {
             flags |= LIST_FALLBACK()
         }
 
-        var fd  = Doc::concat3(Doc::text("("), Doc::concat(flat), Doc::text(")"))
+        var fd = Doc::concat3(Doc::text("("), Doc::concat(flat), Doc::text(")"))
         var lst = Doc::list("(", ")", keys, vals, fd, flags)
         var hd  = Doc::concat2(self._span(st, self.toks[o].start), lst)
 
@@ -3712,7 +3811,12 @@ pub class Formatter {
                         Doc::concat2(val, Doc::text(e->sep)),
                     )
 
-                    return Doc::concat4(key, Doc::text(" = "), val, Doc::text(e->sep))
+                    return Doc::concat4(
+                        key,
+                        Doc::text(" = "),
+                        val,
+                        Doc::text(e->sep),
+                    )
                 }
             }
         }
@@ -3807,7 +3911,7 @@ pub class Formatter {
     }
 
     priv fn _parens_needed(self, e: unsafe *Expr, pc: PCtx) -> bool {
-        var p      = self._prec_of(e)
+        var p = self._prec_of(e)
         var prefix = isa<UnaryOperatorExpr>(e) && !cast<UnaryOperatorExpr>(e)->is_postfix()
 
         if pc.kind == 0 {
@@ -4312,7 +4416,10 @@ pub class Formatter {
 
         if isa<NamedArgExpr>(e) {
             var unsafe *na = cast<NamedArgExpr>(e)
-            return Doc::concat2(Doc::text(self._tok(na->name) + ": "), self.fx(na->value, false))
+            return Doc::concat2(
+                Doc::text(self._tok(na->name) + ": "),
+                self.fx(na->value, false),
+            )
         }
 
         if isa<SubscriptExpr>(e) {
@@ -4328,7 +4435,13 @@ pub class Formatter {
             }
 
             var ok = false
-            var ix = self._slot_expr(s->index, self.toks[o].end, self.toks[c].start, unsafe &ok)
+            var ix = self._slot_expr(
+                s->index,
+                self.toks[o].end,
+                self.toks[c].start,
+                unsafe &ok,
+            )
+
             return Doc::concat4(
                 self.fxc(s->base, true, PCtx { kind: 3, prec: 0, right: false }),
                 Doc::text("["),
@@ -4344,7 +4457,13 @@ pub class Formatter {
                 xs.push_back(l->elements[i])
             }
 
-            return self._seq(e, TokenKind::OpLSquare, TokenKind::OpRSquare, xs, LIST_GRID())
+            return self._seq(
+                e,
+                TokenKind::OpLSquare,
+                TokenKind::OpRSquare,
+                xs,
+                LIST_GRID(),
+            )
         }
 
         if isa<TupleLiteralExpr>(e) {
@@ -4355,7 +4474,13 @@ pub class Formatter {
             }
 
             // (no one-element tuples: `(x,)` is S054E, so no comma is ever kept flat)
-            return self._seq(e, TokenKind::OpLParen, TokenKind::OpRParen, xs, LIST_GRID())
+            return self._seq(
+                e,
+                TokenKind::OpLParen,
+                TokenKind::OpRParen,
+                xs,
+                LIST_GRID(),
+            )
         }
 
         if isa<NamedInitializerExpr>(e) {
@@ -4395,7 +4520,12 @@ pub class Formatter {
                 var ok  = false
                 var val = Doc::nothing()
                 if self.toks[nm].start == starts[i] && self._kind_at(co) == TokenKind::OpColon {
-                    val = self._slot_expr(f->value, self.toks[co].end, hi[i], unsafe &ok)
+                    val = self._slot_expr(
+                        f->value,
+                        self.toks[co].end,
+                        hi[i],
+                        unsafe &ok,
+                    )
                 }
 
                 if ok {
@@ -4420,7 +4550,11 @@ pub class Formatter {
 
             flat.push_back(Doc::text(" }"))
             return Doc::concat3(
-                self.fxc(ni->type_expr, true, PCtx { kind: 3, prec: 0, right: false }),
+                self.fxc(
+                    ni->type_expr,
+                    true,
+                    PCtx { kind: 3, prec: 0, right: false },
+                ),
                 Doc::text(" "),
                 Doc::list("{", "}", keys, vals, Doc::concat(flat), LIST_KEYS()),
             )
@@ -4431,7 +4565,11 @@ pub class Formatter {
             var        _op = self._tok(u->op_token)
             if u->is_postfix() {
                 return Doc::concat2(
-                    self.fxc(u->operand, true, PCtx { kind: 3, prec: 0, right: false }),
+                    self.fxc(
+                        u->operand,
+                        true,
+                        PCtx { kind: 3, prec: 0, right: false },
+                    ),
                     Doc::text(_op),
                 )
             }
@@ -4446,7 +4584,11 @@ pub class Formatter {
 
             return Doc::concat2(
                 Doc::text(_op),
-                self.fxc(u->operand, true, PCtx { kind: 2, prec: 0, right: false }),
+                self.fxc(
+                    u->operand,
+                    true,
+                    PCtx { kind: 2, prec: 0, right: false },
+                ),
             )
         }
 
@@ -4463,7 +4605,11 @@ pub class Formatter {
             var unsafe *r  = cast<RangeExpr>(e)
             var        _op = if r->is_inclusive => "..=" else => ".."
             return Doc::concat3(
-                self.fxc(r->begin, true, PCtx { kind: 1, prec: 3, right: false }),
+                self.fxc(
+                    r->begin,
+                    true,
+                    PCtx { kind: 1, prec: 3, right: false },
+                ),
                 Doc::text(_op),
                 self.fxc(r->end, true, PCtx { kind: 1, prec: 3, right: true }),
             )
@@ -4476,7 +4622,11 @@ pub class Formatter {
             }
 
             return Doc::concat3(
-                self.fxc(c->operand, true, PCtx { kind: 4, prec: 0, right: false }),
+                self.fxc(
+                    c->operand,
+                    true,
+                    PCtx { kind: 4, prec: 0, right: false },
+                ),
                 Doc::text(" as "),
                 self._type_doc(c->target),
             )
@@ -4530,7 +4680,11 @@ pub class Formatter {
         if isa<EvalExpr>(e) {
             return Doc::concat2(
                 Doc::text("eval "),
-                self.fxc(cast<EvalExpr>(e)->operand, true, PCtx { kind: 4, prec: 0, right: false }),
+                self.fxc(
+                    cast<EvalExpr>(e)->operand,
+                    true,
+                    PCtx { kind: 4, prec: 0, right: false },
+                ),
             )
         }
 
@@ -4733,7 +4887,10 @@ pub class Formatter {
         parts.push_back(Doc::concat(tail))
         var body = Doc::concat(parts)
         if x->else_ifs.size() > 0 {
-            body = Doc::concat2(Doc::if_break(Doc::text("     "), Doc::nothing()), body)
+            body = Doc::concat2(
+                Doc::if_break(Doc::text("     "), Doc::nothing()),
+                body,
+            )
         }
 
         return Doc::group(Doc::align(body))
@@ -4884,7 +5041,11 @@ pub class Formatter {
 
         return Doc::concat5(
             Doc::text("match "),
-            self.fxc(x->scrutinee, true, PCtx { kind: 4, prec: 0, right: false }),
+            self.fxc(
+                x->scrutinee,
+                true,
+                PCtx { kind: 4, prec: 0, right: false },
+            ),
             Doc::text(" {"),
             Doc::indent(Doc::concat(rows)),
             Doc::concat2(Doc::hardline(), Doc::text("}")),
@@ -4991,7 +5152,9 @@ pub class Formatter {
 
         var parts = cxx::std::vector<Doc>()
         if c->base != &null {
-            parts.push_back(self.fxc(c->base, true, PCtx { kind: 3, prec: 0, right: false }))
+            parts.push_back(
+                self.fxc(c->base, true, PCtx { kind: 3, prec: 0, right: false }),
+            )
         }
 
         for var i: usize = 0; i < c->steps.size(); ++i {
@@ -5081,7 +5244,12 @@ pub class Formatter {
                     var        val = Doc::nothing()
                     if self.toks[nm].start == na->name.range.start.raw()
                         && self._kind_at(co) == TokenKind::OpColon {
-                        val = self._slot_expr(na->value, self.toks[co].end, hi[i], unsafe &ok)
+                        val = self._slot_expr(
+                            na->value,
+                            self.toks[co].end,
+                            hi[i],
+                            unsafe &ok,
+                        )
                     }
 
                     if ok {
@@ -5109,8 +5277,13 @@ pub class Formatter {
 
         // the callee, then whatever sits between it and the `(` (generic
         // arguments the chain did not take), as written
-        var callee = self.fxc(c->callee, true, PCtx { kind: 3, prec: 0, right: false })
-        var mid    = self._span(self._ee(c->callee), self.toks[lp].start)
+        var callee = self.fxc(
+            c->callee,
+            true,
+            PCtx { kind: 3, prec: 0, right: false },
+        )
+
+        var mid = self._span(self._ee(c->callee), self.toks[lp].start)
         if mid.hard {
             return self._ev(c)
         }
@@ -5119,7 +5292,15 @@ pub class Formatter {
             return Doc::concat3(callee, mid, Doc::text("()"))
         }
 
-        var lst = Doc::list("(", ")", keys, vals, Doc::concat(flat), LIST_KEYS())
+        var lst = Doc::list(
+            "(",
+            ")",
+            keys,
+            vals,
+            Doc::concat(flat),
+            LIST_KEYS(),
+        )
+
         lst.num = self.set.call_width
         return Doc::concat3(callee, mid, lst)
     }
@@ -5156,12 +5337,22 @@ pub class Formatter {
             for var i: usize = 1; i < xs.size(); ++i {
                 tail.push_back(Doc::line())
                 tail.push_back(Doc::text(ops[i - 1] + " "))
-                tail.push_back(self.fxc(xs[i], true, PCtx { kind: 1, prec: p, right: true }))
+                tail.push_back(
+                    self.fxc(
+                        xs[i],
+                        true,
+                        PCtx { kind: 1, prec: p, right: true },
+                    ),
+                )
             }
 
             return Doc::group(
                 Doc::concat2(
-                    self.fxc(xs[0], true, PCtx { kind: 1, prec: p, right: false }),
+                    self.fxc(
+                        xs[0],
+                        true,
+                        PCtx { kind: 1, prec: p, right: false },
+                    ),
                     Doc::indent(Doc::concat(tail)),
                 ),
             )

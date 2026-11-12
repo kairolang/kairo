@@ -177,7 +177,11 @@ pub class TupleRecords {
         // own (InterfaceEmitter::_tu_at).
         var at = SourceRange::invalid()
         if ctx->sm != &null {
-            at = if (ctx->sm->get_file_size(ctx->fid) > 0) => (ctx->sm->get_range(ctx->fid, 0, 1))
+            at = if (ctx->sm->get_file_size(ctx->fid) > 0) => (ctx->sm->get_range(
+                     ctx->fid,
+                     0,
+                     1,
+                 ))
                  else => ctx->sm->get_range(ctx->fid, 0, 0)
         }
 

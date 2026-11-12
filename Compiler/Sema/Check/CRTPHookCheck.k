@@ -122,7 +122,7 @@ pub struct CRTPCall {
 /// \brief Every `R()->name(args)` call shape in the bodies it walks.
 ///
 pub class CRTPCallScan derives RecursiveASTVisitor<CRTPCallScan> {
-    pub var ctx:   unsafe *ASTContext = &null
+    pub var ctx:   unsafe *ASTContext         = &null
     pub var calls: cxx::std::vector<CRTPCall>
 
     pub fn scan(self, m: unsafe *FunctionDecl) {
@@ -149,7 +149,7 @@ pub class CRTPCallScan derives RecursiveASTVisitor<CRTPCallScan> {
             return true
         }
 
-        var via = ""
+        var        via = ""
         var unsafe *ic = dyn_cast<ChainExpr>(inner->callee)
         if ic != &null && ic->steps.size() > 0 {
             var unsafe *last = ic->steps.get(ic->steps.size() - 1)
@@ -220,7 +220,13 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         }
 
         var bases = cxx::std::vector<unsafe *ClassDecl>()
-        self._bases(unsafe (n as unsafe *ClassDecl), unsafe (n as unsafe *ClassDecl), unsafe &bases, 0)
+        self._bases(
+            unsafe (n as unsafe *ClassDecl),
+            unsafe (n as unsafe *ClassDecl),
+            unsafe &bases,
+            0,
+        )
+
         if bases.empty() {
             return true
         }
@@ -238,15 +244,26 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
 
         for var i: usize = 0; i < n->methods.size(); ++i {
             var unsafe *m = n->methods[i]
-            if m == &null || m->is_poisoned() || (!m->is_method()) || m->is_operator
-                || m->generic_params.size() > 0 || self._dependent_sig(m) {
+            if m == &null
+                || m->is_poisoned()
+                || (!m->is_method())
+                || m->is_operator
+                || m->generic_params.size() > 0
+                || self._dependent_sig(m) {
                 continue
             }
 
             var name  = self._name(unsafe (m as unsafe *Decl))
             var arity = m->params.size() - 1
             var call  = CRTPCall{}
-            if !self._hook_call(unsafe (n as unsafe *ClassDecl), &bases, &dyns, name, arity, &call) {
+            if !self._hook_call(
+                unsafe (n as unsafe *ClassDecl),
+                &bases,
+                &dyns,
+                name,
+                arity,
+                &call,
+            ) {
                 continue
             }
 
@@ -264,9 +281,9 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
     /// base is kept too: it may declare the hook a generic base above it
     /// calls.
     priv fn _bases(self,
-                   root: unsafe *ClassDecl,
-                   cd:   unsafe *ClassDecl,
-                   out:  unsafe *cxx::std::vector<unsafe *ClassDecl>,
+                   root:  unsafe *ClassDecl,
+                   cd:    unsafe *ClassDecl,
+                   out:   unsafe *cxx::std::vector<unsafe *ClassDecl>,
                    depth: u32) {
         if cd == &null || depth > 32 {
             return
@@ -278,7 +295,10 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
                 continue
             }
 
-            var unsafe *rt = dyn_cast<RecordType>(canon_unqual(e->base->canonical))
+            var unsafe *rt = dyn_cast<RecordType>(
+                canon_unqual(e->base->canonical),
+            )
+
             if rt == &null {
                 continue
             }
@@ -312,7 +332,10 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
     /// Some argument of the base instance \p rt is \p root itself or a type
     /// parameter: the shape a dyn method can cast `self` down to.
     priv fn _crtp_args(self, root: unsafe *ClassDecl, rt: unsafe *RecordType) -> bool {
-        var unsafe *want = NameLookup::representative(unsafe (root as unsafe *Decl))
+        var unsafe *want = NameLookup::representative(
+            unsafe (root as unsafe *Decl),
+        )
+
         for var i: usize = 0; i < rt->args.size(); ++i {
             var unsafe *a = canon_unqual(rt->args[i])
             if a == &null {
@@ -442,12 +465,15 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
                    arity:      usize,
                    call:       *CRTPCall) {
         var pick: unsafe *FunctionDecl = &null
-        var any = false
+        var any                        = false
         for var i: usize = 0; i < bases->size(); ++i {
             var unsafe *bd = (*bases)[i]
             for var j: usize = 0; j < bd->methods.size(); ++j {
                 var unsafe *b = bd->methods[j]
-                if b == &null || (!b->is_method()) || b->is_operator || b->generic_params.size() > 0
+                if b == &null
+                    || (!b->is_method())
+                    || b->is_operator
+                    || b->generic_params.size() > 0
                     || b->params.size() != arity + 1
                     || self._name(unsafe (b as unsafe *Decl)) != name {
                     continue
@@ -474,7 +500,9 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         var mname = self._owner_name(m)
         var why   = "the parameter types differ"
         if self._same_params(m, pick) {
-            why = if (self._self_const(pick)) => ("the base's takes 'const self' and this one 'self'")
+            why = if (self._self_const(
+                      pick,
+                  )) => ("the base's takes 'const self' and this one 'self'")
                   else => "the base's takes 'self' and this one 'const self'"
         }
 
@@ -488,14 +516,21 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         for var i: usize = 1; i < m->params.size(); ++i {
             var unsafe *mp = m->params[i]
             var unsafe *bp = pick->params[i]
-            if (!self._cxx_same(mp->type_->canonical, bp->type_->canonical)) || mp->mode != bp->mode {
-                w.second(mp->type_->range, f"'{self._tu.str(bp->type_->canonical)}' in the base")
+            if (!self._cxx_same(mp->type_->canonical, bp->type_->canonical))
+                || mp->mode != bp->mode {
+                w.second(
+                    mp->type_->range,
+                    f"'{self._tu.str(bp->type_->canonical)}' in the base",
+                )
             }
         }
 
         if self._self_const(m) != self._self_const(pick) {
-            w.second(m->params[0]->range, if (self._self_const(pick)) => ("the base's hook takes 'const self'")
-                                          else => "the base's hook takes 'self'")
+            w.second(
+                m->params[0]->range,
+                if (self._self_const(pick)) => ("the base's hook takes 'const self'")
+                else => "the base's hook takes 'self'",
+            )
         }
 
         if self._qual_only(m, pick) {
@@ -507,14 +542,26 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
                 }
 
                 var core = self._core_spelling(mp->type_)
-                w.fix(mp->type_->range, self._spell_like(bp->type_->canonical, core), "take the base hook's parameter type")
+                w.fix(
+                    mp->type_->range,
+                    self._spell_like(bp->type_->canonical, core),
+                    "take the base hook's parameter type",
+                )
             }
         }
 
-        w.note(DiagCode(DiagID::SC278N), pick->name.range.start,
-            f"the hook '{owner}' calls; to replace it, take exactly its parameters")
-        w.note(DiagCode(DiagID::SC278N), call->at.start,
-            f"called here through '{call->via}()'; with both overloads visible it picks '{owner}::{name}'")
+        w.note(
+            DiagCode(DiagID::SC278N),
+            pick->name.range.start,
+            f"the hook '{owner}' calls; to replace it, take exactly its parameters",
+        )
+
+        w.note(
+            DiagCode(DiagID::SC278N),
+            call->at.start,
+            f"called here through '{call->via}()'; with both overloads visible it picks '{owner}::{name}'",
+        )
+
         w.emit()
     }
 
@@ -532,7 +579,8 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
                 return true // unresolved: never claim a difference.
             }
 
-            if pa->mode != pb->mode || (!self._cxx_same(pa->type_->canonical, pb->type_->canonical)) {
+            if pa->mode != pb->mode
+                || (!self._cxx_same(pa->type_->canonical, pb->type_->canonical)) {
                 return false
             }
         }
@@ -545,7 +593,8 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         for var i: usize = 1; i < a->params.size(); ++i {
             var unsafe *pa = a->params[i]
             var unsafe *pb = b->params[i]
-            if pa->mode != pb->mode || (!self._cxx_same(pa->type_->canonical, pb->type_->canonical)) {
+            if pa->mode != pb->mode
+                || (!self._cxx_same(pa->type_->canonical, pb->type_->canonical)) {
                 return false
             }
         }
@@ -603,10 +652,10 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
             }
 
             differs = true
-            var da: u32 = 0
-            var db: u32 = 0
-            var unsafe *ca = self._core(ta, &da)
-            var unsafe *cb = self._core(tb, &db)
+            var        da: u32 = 0
+            var        db: u32 = 0
+            var unsafe *ca     = self._core(ta, &da)
+            var unsafe *cb     = self._core(tb, &db)
             if ca == &null || ca != cb || da != db || da == 0 {
                 return false
             }
@@ -631,7 +680,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
             var unsafe *pt = dyn_cast<PointerType>(u)
             if pt != &null {
                 (*depth) = (*depth) + 1
-                u = canon_unqual(pt->pointee)
+                u        = canon_unqual(pt->pointee)
                 continue
             }
 
@@ -666,14 +715,18 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
 
         var unsafe *ctx = self.sc->ctx
         if w == &null || ctx == &null || (!w->range.is_valid()) {
-            return self._tu.str(canon_unqual(self._core(written->canonical, &n)))
+            return self._tu.str(
+                canon_unqual(self._core(written->canonical, &n)),
+            )
         }
 
         var text = ctx->get_spelling(w->range)
         // A written `const T` pointee keeps its qualifier in the text; the
         // base's constness is spelled by _spell_like.
         if text.starts_with("const ") {
-            return ctx->get_spelling(SourceRange(w->range.start.with_offset(6), w->range.end))
+            return ctx->get_spelling(
+                SourceRange(w->range.start.with_offset(6), w->range.end),
+            )
         }
 
         return text
@@ -681,7 +734,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
 
     /// The canonical \p t spelled around \p core (its innermost record).
     priv fn _spell_like(self, t: unsafe *Type, const core: string) -> string {
-        var unsafe *u = canon_unqual(t)
+        var unsafe *u  = canon_unqual(t)
         var unsafe *nt = dyn_cast<NullableType>(u)
         if nt != &null {
             return self._spell_like(nt->inner, core) + "?"
@@ -709,7 +762,9 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
 
     priv fn _self_const(self, f: unsafe *FunctionDecl) -> bool {
         var unsafe *p = f->params[0]
-        return p != &null && p->type_ != &null && p->type_->canonical != &null
+        return p != &null
+            && p->type_ != &null
+            && p->type_->canonical != &null
             && canon_has_const(p->type_->canonical)
     }
 

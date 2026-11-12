@@ -690,7 +690,12 @@ pub class FlagGates derives RecursiveASTVisitor<FlagGates> {
                    got:        usize,
                    cap:        i32,
                    const flag: string) {
-        var b = self.sc->diag->report(DiagID::SC199E, at.start, f"{what} ({got}, limit {cap})")
+        var b = self.sc->diag->report(
+            DiagID::SC199E,
+            at.start,
+            f"{what} ({got}, limit {cap})",
+        )
+
         b.first(at, "over the limit")
         b.note(f"limit set by {flag}; 0 removes it")
         b.emit()

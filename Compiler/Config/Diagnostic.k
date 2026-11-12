@@ -91,9 +91,9 @@ pub class DiagnosticOptions {
     pub var format_known: bool        = true
     /// # budget limits (from --c* config flags)
 
-    pub var max_errors:        i32 = DEFAULT_MAX_ERRORS ///< 0 = unlimited
-    pub var max_warnings:      i32 = DEFAULT_MAX_WARNINGS ///< 0 = unlimited
-    pub var max_notes:         i32 = DEFAULT_MAX_NOTES ///< 0 = unlimited
+    pub var max_errors:        i32 = DEFAULT_MAX_ERRORS             ///< 0 = unlimited
+    pub var max_warnings:      i32 = DEFAULT_MAX_WARNINGS           ///< 0 = unlimited
+    pub var max_notes:         i32 = DEFAULT_MAX_NOTES              ///< 0 = unlimited
     pub var max_context_lines: i32 = DEFAULT_MAX_DIAG_CONTEXT_LINES
     pub var max_suggestions:   i32 = DEFAULT_MAX_SUGGESTION_COUNT
     pub var tab_width:         i32 = DEFAULT_TAB_WIDTH

@@ -250,7 +250,10 @@ pub class NameLookup {
             var unsafe *cell = home->import_overlay->lookup_ident(name.payload)
             if cell != &null {
                 if home->import_overlay->uses != &null {
-                    home->import_overlay->uses->record(name.payload, self.use_at)
+                    home->import_overlay->uses->record(
+                        name.payload,
+                        self.use_at,
+                    )
                 }
 
                 var r = SemaLookupResult{}

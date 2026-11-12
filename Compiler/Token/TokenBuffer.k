@@ -59,12 +59,15 @@ pub class <eval CHUNK_SIZE: usize> TokenBuffer {
     ///   _chunk_capacity  entries the _chunks table itself can hold. Doubles.
     ///
     /// Invariant: _chunk_count <= _chunk_alloced <= _chunk_capacity.
-    var _allocator:      ArenaAllocator  = ArenaAllocator(2048 * sizeof (Self::TokenPtr))
+    var _allocator: ArenaAllocator = ArenaAllocator(
+        2048 * sizeof (Self::TokenPtr),
+    )
+
     var _chunks:         Self::ChunkBuff = &null // array of chunk descriptors
-    var _chunk_count:    usize           = 0 // chunks in use
-    var _chunk_alloced:  usize           = 0 // chunks with a live base
-    var _chunk_capacity: usize           = 0 // entries the table can hold
-    var _total_length:   usize           = 0 // number of tokens in all chunks
+    var _chunk_count:    usize           = 0     // chunks in use
+    var _chunk_alloced:  usize           = 0     // chunks with a live base
+    var _chunk_capacity: usize           = 0     // entries the table can hold
+    var _total_length:   usize           = 0     // number of tokens in all chunks
 
     // Move-only. A copy would share _chunks with the source and leave both
     // pointing into one arena. Prefix `delete fn` and `op =` are the
@@ -293,7 +296,9 @@ pub class <eval CHUNK_SIZE: usize> TokenBuffer {
 
     fn op [] (const self, index: usize) -> *Token {
         if index >= self._total_length {
-            kairo::std::ice_fail("TokenBuffer::operator[] - index out of bounds")
+            kairo::std::ice_fail(
+                "TokenBuffer::operator[] - index out of bounds",
+            )
         }
 
         var chunk_index  = index / CHUNK_SIZE

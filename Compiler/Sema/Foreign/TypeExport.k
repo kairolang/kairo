@@ -120,8 +120,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,          ClassDecl,  EnumDecl,     FieldDecl, FnBodyKind, FunctionDecl, GenericParamDecl, StructDecl,
-    TransferKind,     UnionDecl,
+    AbiKind,    ClassDecl,    EnumDecl,  FieldDecl, FnBodyKind, FunctionDecl, GenericParamDecl,
+    StructDecl, TransferKind, UnionDecl,
 }
 import AST::Node::Types::{
     CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
@@ -305,7 +305,11 @@ pub class TypeExport {
             }
 
             if at->is_incomplete || extent == 0 {
-                return self.cctx->getIncompleteArrayType(el, clang::ArraySizeModifier::Normal, 0)
+                return self.cctx->getIncompleteArrayType(
+                    el,
+                    clang::ArraySizeModifier::Normal,
+                    0,
+                )
             }
 
             return self.cctx->getConstantArrayType(
@@ -322,7 +326,7 @@ pub class TypeExport {
         if isa<FunctionPointerType>(t) {
             var unsafe *ft = cast<FunctionPointerType>(t)
             var        ret = self.cctx->VoidTy
-            var        rq  = clang::QualType::getFromOpaquePtr((ret).getAsOpaquePtr())
+            var rq = clang::QualType::getFromOpaquePtr((ret).getAsOpaquePtr())
             if ft->return_type != &null {
                 rq = self.to_clang(ft->return_type)
                 if rq.isNull() {
@@ -331,7 +335,9 @@ pub class TypeExport {
             }
 
             if ft->is_unprototyped {
-                return self.cctx->getPointerType(self.cctx->getFunctionNoProtoType(rq))
+                return self.cctx->getPointerType(
+                    self.cctx->getFunctionNoProtoType(rq),
+                )
             }
 
             var ps: llvm::SmallVector<clang::QualType, 8>
@@ -429,7 +435,10 @@ pub class TypeExport {
         if a.getKind() == clang::TemplateArgument::Type {
             var qt = a.getAsType()
             ali.addArgument(
-                clang::TemplateArgumentLoc(a, self.cctx->getTrivialTypeSourceInfo(qt, loc)),
+                clang::TemplateArgumentLoc(
+                    a,
+                    self.cctx->getTrivialTypeSourceInfo(qt, loc),
+                ),
             )
 
             return true
@@ -445,7 +454,10 @@ pub class TypeExport {
         }
 
         var unsafe *e = er.get()
-        ali.addArgument(clang::TemplateArgumentLoc(clang::TemplateArgument(e, false), e))
+        ali.addArgument(
+            clang::TemplateArgumentLoc(clang::TemplateArgument(e, false), e),
+        )
+
         return true
     }
 
@@ -573,7 +585,10 @@ pub class TypeExport {
             }
         }
 
-        var unsafe *nt = llvm::dyn_cast<clang::NonTypeTemplateParmDecl>(tpl->getParam(k as u32))
+        var unsafe *nt = llvm::dyn_cast<clang::NonTypeTemplateParmDecl>(
+            tpl->getParam(k as u32),
+        )
+
         if nt == &null {
             return clang::QualType()
         }
@@ -581,7 +596,10 @@ pub class TypeExport {
         var pt = nt->getType().getCanonicalType()
         if pt->isDependentType() {
             // `template <class T, T v>`: the type is an earlier argument.
-            var unsafe *tp = llvm::dyn_cast<clang::TemplateTypeParmType>(pt.getTypePtr())
+            var unsafe *tp = llvm::dyn_cast<clang::TemplateTypeParmType>(
+                pt.getTypePtr(),
+            )
+
             if tp == &null || tp->getDepth() != 0 {
                 return clang::QualType()
             }
@@ -616,7 +634,10 @@ pub class TypeExport {
 
         // A partial specialization M2-style repointing never happens for a
         // clang instance, but a pattern's stamp can still be one.
-        var unsafe *ps = llvm::dyn_cast<clang::ClassTemplatePartialSpecializationDecl>(cd)
+        var unsafe *ps = llvm::dyn_cast<clang::ClassTemplatePartialSpecializationDecl>(
+            cd,
+        )
+
         if ps != &null {
             return ps->getSpecializedTemplate()
         }
@@ -642,7 +663,10 @@ pub class TypeExport {
         // already stamped with its ClassTemplateSpecializationDecl.
         var unsafe *cd = decl_clang(d)
         if cd != &null && decl_origin_set(d) == self.set {
-            var unsafe *tag = llvm::dyn_cast<clang::TagDecl>(unsafe (cd as unsafe *clang::Decl))
+            var unsafe *tag = llvm::dyn_cast<clang::TagDecl>(
+                unsafe (cd as unsafe *clang::Decl),
+            )
+
             if tag != &null {
                 return clang::QualType::getFromOpaquePtr(
                     (self.cctx->getCanonicalTagType(tag)).getAsOpaquePtr(),
@@ -947,16 +971,22 @@ pub class TypeExport {
             return &null
         }
 
-        var        ofile = string(unsafe ((opl.getFilename() as unsafe *const u8) as *const u8))
-        var        *nsm  = &self.cctx->getSourceManager()
-        var unsafe *dc   = first->getDeclContext()
+        var ofile = string(
+            unsafe ((opl.getFilename() as unsafe *const u8) as *const u8),
+        )
+
+        var        *nsm = &self.cctx->getSourceManager()
+        var unsafe *dc  = first->getDeclContext()
         // The name through THIS set's identifier table: a DeclarationName
         // of the other AST never matches here.
         var nsr: llvm::StringRef = nd->getName()
         var res = dc->lookup(
             clang::DeclarationName(
                 self._ident(
-                    string(unsafe ((nsr.data() as unsafe *const u8) as *const u8), nsr.size()),
+                    string(
+                        unsafe ((nsr.data() as unsafe *const u8) as *const u8),
+                        nsr.size(),
+                    ),
                 ),
             ),
         )
@@ -976,7 +1006,9 @@ pub class TypeExport {
                 continue
             }
 
-            if string(unsafe ((npl.getFilename() as unsafe *const u8) as *const u8)) == ofile {
+            if string(
+                unsafe ((npl.getFilename() as unsafe *const u8) as *const u8),
+            ) == ofile {
                 return cand
             }
         }
@@ -1022,7 +1054,10 @@ pub class TypeExport {
 
                 var rsr: llvm::StringRef = orec->getName()
                 names.push_back(
-                    string(unsafe ((rsr.data() as unsafe *const u8) as *const u8), rsr.size()),
+                    string(
+                        unsafe ((rsr.data() as unsafe *const u8) as *const u8),
+                        rsr.size(),
+                    ),
                 )
 
                 dc = dc->getParent()
@@ -1035,7 +1070,10 @@ pub class TypeExport {
 
             var sr: llvm::StringRef = ns->getName()
             names.push_back(
-                string(unsafe ((sr.data() as unsafe *const u8) as *const u8), sr.size()),
+                string(
+                    unsafe ((sr.data() as unsafe *const u8) as *const u8),
+                    sr.size(),
+                ),
             )
 
             dc = dc->getParent()
@@ -1043,7 +1081,10 @@ pub class TypeExport {
 
         var unsafe *cur = unsafe (self.cctx->getTranslationUnitDecl() as unsafe *clang::DeclContext)
         for var i: usize = names.size(); i > 0; --i {
-            var res = cur->lookup(clang::DeclarationName(self._ident(names[i - 1])))
+            var res = cur->lookup(
+                clang::DeclarationName(self._ident(names[i - 1])),
+            )
+
             var next: unsafe *clang::DeclContext = &null
             for r in res {
                 var unsafe *rns = llvm::dyn_cast<clang::NamespaceDecl>(r)
@@ -1075,7 +1116,10 @@ pub class TypeExport {
         var res = cur->lookup(
             clang::DeclarationName(
                 self._ident(
-                    string(unsafe ((nsr.data() as unsafe *const u8) as *const u8), nsr.size()),
+                    string(
+                        unsafe ((nsr.data() as unsafe *const u8) as *const u8),
+                        nsr.size(),
+                    ),
                 ),
             ),
         )
@@ -1298,9 +1342,9 @@ pub class TypeExport {
         var        loc = clang::SourceLocation()
         var unsafe *dc = unsafe (self.cctx->getTranslationUnitDecl() as unsafe *clang::DeclContext)
         for var i: usize = 0; i < segs.size(); ++i {
-            var unsafe *ii                              = self._ident((segs)[i])
-            var        res                              = dc->lookup(clang::DeclarationName(ii))
-            var        ns: unsafe *clang::NamespaceDecl = &null
+            var unsafe *ii = self._ident((segs)[i])
+            var res = dc->lookup(clang::DeclarationName(ii))
+            var ns: unsafe *clang::NamespaceDecl = &null
             if !res.empty() {
                 ns = llvm::dyn_cast<clang::NamespaceDecl>(res.front())
                 if ns == &null {
@@ -1380,7 +1424,9 @@ pub class TypeExport {
         if vptr {
             self._add_field(
                 rd,
-                clang::QualType::getFromOpaquePtr((self.cctx->VoidPtrTy).getAsOpaquePtr()),
+                clang::QualType::getFromOpaquePtr(
+                    (self.cctx->VoidPtrTy).getAsOpaquePtr(),
+                ),
                 n,
             )
 
@@ -1409,7 +1455,9 @@ pub class TypeExport {
             // `op []` then came from the unfilled pattern, its result stayed
             // dependent, and `self.children[name]` was an ICE.
             if ft.isNull() && (fields)[i] != &null && isa<PointerType>(canon_unqual((fields)[i])) {
-                ft = clang::QualType::getFromOpaquePtr((self.cctx->VoidPtrTy).getAsOpaquePtr())
+                ft = clang::QualType::getFromOpaquePtr(
+                    (self.cctx->VoidPtrTy).getAsOpaquePtr(),
+                )
             }
 
             // A field of a C++ type this set cannot see (a `set<string>` from
@@ -1523,7 +1571,10 @@ pub class TypeExport {
                 body = MIRROR_DEFAULTED
             }
 
-            var st  = clang::QualType::getFromOpaquePtr((self.cctx->getCanonicalTagType(rd)).getAsOpaquePtr())
+            var st = clang::QualType::getFromOpaquePtr(
+                (self.cctx->getCanonicalTagType(rd)).getAsOpaquePtr(),
+            )
+
             var ref = clang::QualType()
             var mv  = m->transfer == TransferKind::Move
             if mv {
@@ -1569,7 +1620,11 @@ pub class TypeExport {
 
         var epi = clang::FunctionProtoType::ExtProtoInfo()
         epi.ExceptionSpec.Type = clang::EST_BasicNoexcept
-        return self.cctx->getFunctionType(ret, llvm::ArrayRef<clang::QualType>(ps), epi)
+        return self.cctx->getFunctionType(
+            ret,
+            llvm::ArrayRef<clang::QualType>(ps),
+            epi,
+        )
     }
 
     /// The one parameter of a mirrored member, of type \p t, owned by \p f.
@@ -1630,9 +1685,15 @@ pub class TypeExport {
                          body:    u8,
                          trivial: bool) {
         var loc = clang::SourceLocation()
-        var vt  = clang::QualType::getFromOpaquePtr((self.cctx->VoidTy).getAsOpaquePtr())
-        var ft  = self._mirror_fn_type(vt, param)
-        var nm  = self.cctx->DeclarationNames.getCXXConstructorName(self.cctx->getCanonicalTagType(rd))
+        var vt = clang::QualType::getFromOpaquePtr(
+            (self.cctx->VoidTy).getAsOpaquePtr(),
+        )
+
+        var ft = self._mirror_fn_type(vt, param)
+        var nm = self.cctx->DeclarationNames.getCXXConstructorName(
+            self.cctx->getCanonicalTagType(rd),
+        )
+
         var unsafe *c = clang::CXXConstructorDecl::Create(
             &*self.cctx,
             rd,
@@ -1661,15 +1722,21 @@ pub class TypeExport {
                            body:    u8,
                            trivial: bool) {
         var loc = clang::SourceLocation()
-        var rt  = self.cctx->getLValueReferenceType(
-            clang::QualType::getFromOpaquePtr((self.cctx->getCanonicalTagType(rd)).getAsOpaquePtr()),
+        var rt = self.cctx->getLValueReferenceType(
+            clang::QualType::getFromOpaquePtr(
+                (self.cctx->getCanonicalTagType(rd)).getAsOpaquePtr(),
+            ),
         )
-        var ft  = self._mirror_fn_type(rt, param)
+
+        var ft = self._mirror_fn_type(rt, param)
         var unsafe *m = clang::CXXMethodDecl::Create(
             &*self.cctx,
             rd,
             loc,
-            clang::DeclarationNameInfo(self.cctx->DeclarationNames.getCXXOperatorName(clang::OO_Equal), loc),
+            clang::DeclarationNameInfo(
+                self.cctx->DeclarationNames.getCXXOperatorName(clang::OO_Equal),
+                loc,
+            ),
             ft,
             self.cctx->getTrivialTypeSourceInfo(ft, loc),
             clang::SC_None,
@@ -1903,8 +1970,7 @@ pub class TypeExport {
             // Mid-definition: a field of d reached d again (`next: *S`). A
             // pointer to it only needs the name; a by-value cycle is
             // TypeCycleCheck's error, not ours.
-            var ours = prev->isBeingDefined()
-                || self._ours((TypeImport::usr_of(prev)).str(), d)
+            var ours = prev->isBeingDefined() || self._ours((TypeImport::usr_of(prev)).str(), d)
             if !ours { // a header's own `stem::S`.
                 return clang::QualType()
             }
@@ -1914,7 +1980,16 @@ pub class TypeExport {
             )
         }
 
-        var unsafe *rd = clang::CXXRecordDecl::Create(*self.cctx, tk, dc, loc, loc, lii, &null)
+        var unsafe *rd = clang::CXXRecordDecl::Create(
+            *self.cctx,
+            tk,
+            dc,
+            loc,
+            loc,
+            lii,
+            &null,
+        )
+
         rd->setImplicit(true)
         if owner != &null {
             rd->setAccess(clang::AS_public)
@@ -2019,7 +2094,10 @@ pub class TypeExport {
 
     /// \p d declares a virtual (or override, or pure) method itself.
     priv fn _own_virtual(self, d: unsafe *Decl) -> bool {
-        var unsafe *cd = dyn_cast<ClassDecl>(NameLookup::representative(decl_pattern(d)))
+        var unsafe *cd = dyn_cast<ClassDecl>(
+            NameLookup::representative(decl_pattern(d)),
+        )
+
         if cd == &null {
             return false
         }
@@ -2090,7 +2168,10 @@ pub class TypeExport {
             return true
         }
 
-        var unsafe *cd = dyn_cast<ClassDecl>(NameLookup::representative(decl_pattern(d)))
+        var unsafe *cd = dyn_cast<ClassDecl>(
+            NameLookup::representative(decl_pattern(d)),
+        )
+
         if cd == &null {
             return false
         }
@@ -2170,7 +2251,10 @@ pub class TypeExport {
         var unsafe *lii = self._ident(leaf)
         var        res  = dc->lookup(clang::DeclarationName(lii))
         if !res.empty() {
-            var unsafe *prev = llvm::dyn_cast<clang::ClassTemplateDecl>(res.front())
+            var unsafe *prev = llvm::dyn_cast<clang::ClassTemplateDecl>(
+                res.front(),
+            )
+
             if prev == &null { // a header's own `stem::G`, not a template.
                 return &null
             }
@@ -2186,8 +2270,8 @@ pub class TypeExport {
         var unsafe *tu = self.cctx->getTranslationUnitDecl()
         var params: llvm::SmallVector<unsafe *clang::NamedDecl, 8>
         var unsafe *tu_ctx = CXXSpell::tu_of(prim)->ctx
-        var        cg      = CodegenContext(tu_ctx, &null, self.psym, self.instances)
-        var        sp      = CXXSpell(unsafe &cg)
+        var cg = CodegenContext(tu_ctx, &null, self.psym, self.instances)
+        var sp = CXXSpell(unsafe &cg)
         for var i: usize = 0; i < gps.size(); ++i {
             // A parameter named in a macro body is a TkMacroExpand token,
             // whose imm is not an index into the declaring file's table:
@@ -2236,7 +2320,16 @@ pub class TypeExport {
             &null,
         )
 
-        var unsafe *pat = clang::CXXRecordDecl::Create(*self.cctx, tk, dc, loc, loc, lii, &null)
+        var unsafe *pat = clang::CXXRecordDecl::Create(
+            *self.cctx,
+            tk,
+            dc,
+            loc,
+            loc,
+            lii,
+            &null,
+        )
+
         var unsafe *ct = clang::ClassTemplateDecl::Create(
             &*self.cctx,
             dc,
@@ -2311,7 +2404,13 @@ pub class TypeExport {
             if decl_generic_params(prim)[i]->is_const_param {
                 // A value argument: a clang integral of the parameter's type.
                 // qs keeps a placeholder so the parameter indices still line up.
-                var va = self.to_clang_arg_of(ct->getTemplateParameters(), i, a, &targs)
+                var va = self.to_clang_arg_of(
+                    ct->getTemplateParameters(),
+                    i,
+                    a,
+                    &targs,
+                )
+
                 if va.isNull() {
                     return clang::QualType()
                 }
@@ -2446,7 +2545,7 @@ pub class TypeExport {
     /// A new, empty record mid-definition, in no scope.
     pub fn twin_begin(self, is_union: bool) -> unsafe *clang::CXXRecordDecl {
         var loc = clang::SourceLocation()
-        var tk  = if (is_union) => (clang::TagTypeKind::Union) else => clang::TagTypeKind::Struct
+        var tk = if (is_union) => (clang::TagTypeKind::Union) else => clang::TagTypeKind::Struct
         var unsafe *tu = unsafe (self.cctx->getTranslationUnitDecl() as unsafe *clang::DeclContext)
         var unsafe *rd = clang::CXXRecordDecl::Create(
             *self.cctx,
@@ -2488,7 +2587,10 @@ pub class TypeExport {
                     virt[i] != 0,
                     true,
                     clang::AS_public,
-                    self.cctx->getTrivialTypeSourceInfo(qs[i], clang::SourceLocation()),
+                    self.cctx->getTrivialTypeSourceInfo(
+                        qs[i],
+                        clang::SourceLocation(),
+                    ),
                     clang::SourceLocation(),
                 ),
             )
@@ -2554,7 +2656,10 @@ pub class TypeExport {
             &*self.cctx,
             rd,
             loc,
-            clang::DeclarationNameInfo(clang::DeclarationName(self._ident(LowerTargets::layout_vf())), loc),
+            clang::DeclarationNameInfo(
+                clang::DeclarationName(self._ident(LowerTargets::layout_vf())),
+                loc,
+            ),
             ft,
             self.cctx->getTrivialTypeSourceInfo(ft, loc),
             clang::SC_None,
@@ -2576,7 +2681,10 @@ pub class TypeExport {
     pub fn twin_user_dtor(self, rd: unsafe *clang::CXXRecordDecl) {
         var loc = clang::SourceLocation()
         var ft  = self._twin_fn_type()
-        var nm  = self.cctx->DeclarationNames.getCXXDestructorName(self.cctx->getCanonicalTagType(rd))
+        var nm = self.cctx->DeclarationNames.getCXXDestructorName(
+            self.cctx->getCanonicalTagType(rd),
+        )
+
         var unsafe *dd = clang::CXXDestructorDecl::Create(
             &*self.cctx,
             rd,
@@ -2596,7 +2704,10 @@ pub class TypeExport {
 
     /// Complete \p rd, with the record's `@packed` / `@align(N)` as the
     /// GNU attributes AttrFacts::record_attr writes.
-    pub fn twin_end(self, rd: unsafe *clang::CXXRecordDecl, packed: bool, align: u64) -> clang::QualType {
+    pub fn twin_end(self,
+                    rd:     unsafe *clang::CXXRecordDecl,
+                    packed: bool,
+                    align:  u64) -> clang::QualType {
         if packed {
             rd->addAttr(clang::PackedAttr::CreateImplicit(&*self.cctx))
         }
@@ -2610,7 +2721,9 @@ pub class TypeExport {
             return clang::QualType()
         }
 
-        return clang::QualType::getFromOpaquePtr((self.cctx->getCanonicalTagType(rd)).getAsOpaquePtr())
+        return clang::QualType::getFromOpaquePtr(
+            (self.cctx->getCanonicalTagType(rd)).getAsOpaquePtr(),
+        )
     }
 
     /// A non-POD record of \p size bytes aligned to \p align: an ADT or a
@@ -2624,8 +2737,11 @@ pub class TypeExport {
         }
 
         var unsafe *rd = self.twin_begin(false)
-        var elem = clang::QualType::getFromOpaquePtr((self.cctx->CharTy).getAsOpaquePtr())
-        var arr  = self.cctx->getConstantArrayType(
+        var elem = clang::QualType::getFromOpaquePtr(
+            (self.cctx->CharTy).getAsOpaquePtr(),
+        )
+
+        var arr = self.cctx->getConstantArrayType(
             elem,
             llvm::APInt(64, size),
             &null,
@@ -2652,10 +2768,15 @@ pub class TypeExport {
         }
 
         if isa<PointerType>(c) || isa<FunctionPointerType>(c) {
-            return clang::QualType::getFromOpaquePtr((self.cctx->VoidPtrTy).getAsOpaquePtr())
+            return clang::QualType::getFromOpaquePtr(
+                (self.cctx->VoidPtrTy).getAsOpaquePtr(),
+            )
         }
 
-        var ch = clang::QualType::getFromOpaquePtr((self.cctx->CharTy).getAsOpaquePtr())
+        var ch = clang::QualType::getFromOpaquePtr(
+            (self.cctx->CharTy).getAsOpaquePtr(),
+        )
+
         if isa<CXXLValueRefType>(c) {
             return self.cctx->getLValueReferenceType(ch)
         }
@@ -2774,7 +2895,10 @@ pub class TypeExport {
 
     priv fn _twin_fn_type(self) -> clang::QualType {
         var ps: llvm::SmallVector<clang::QualType, 1>
-        var vt = clang::QualType::getFromOpaquePtr((self.cctx->VoidTy).getAsOpaquePtr())
+        var vt = clang::QualType::getFromOpaquePtr(
+            (self.cctx->VoidTy).getAsOpaquePtr(),
+        )
+
         return self.cctx->getFunctionType(
             vt,
             llvm::ArrayRef<clang::QualType>(ps),
@@ -2784,7 +2908,10 @@ pub class TypeExport {
 
     /// GNU `aligned(N)`, as AttrFacts writes it, on a record or a field.
     priv fn _twin_aligned(self, n: u64) -> unsafe *clang::AlignedAttr {
-        var it = clang::QualType::getFromOpaquePtr((self.cctx->IntTy).getAsOpaquePtr())
+        var it = clang::QualType::getFromOpaquePtr(
+            (self.cctx->IntTy).getAsOpaquePtr(),
+        )
+
         var unsafe *lit = clang::IntegerLiteral::Create(
             *self.cctx,
             llvm::APInt(32, n),
@@ -2792,7 +2919,11 @@ pub class TypeExport {
             clang::SourceLocation(),
         )
 
-        return clang::AlignedAttr::CreateImplicit(&*self.cctx, true, unsafe (lit as unsafe *void))
+        return clang::AlignedAttr::CreateImplicit(
+            &*self.cctx,
+            true,
+            unsafe (lit as unsafe *void),
+        )
     }
 
     priv fn _ident(self, const s: string) -> unsafe *clang::IdentifierInfo {
@@ -2824,27 +2955,49 @@ pub class TypeExport {
 
         match k {
             case BuiltinKind::Void {
-                return clang::QualType::getFromOpaquePtr((self.cctx->VoidTy).getAsOpaquePtr())
+                return clang::QualType::getFromOpaquePtr(
+                    (self.cctx->VoidTy).getAsOpaquePtr(),
+                )
             } case BuiltinKind::Bool {
-                return clang::QualType::getFromOpaquePtr((self.cctx->BoolTy).getAsOpaquePtr())
+                return clang::QualType::getFromOpaquePtr(
+                    (self.cctx->BoolTy).getAsOpaquePtr(),
+                )
             } case BuiltinKind::Char {
-                return clang::QualType::getFromOpaquePtr((self.cctx->Char32Ty).getAsOpaquePtr())
+                return clang::QualType::getFromOpaquePtr(
+                    (self.cctx->Char32Ty).getAsOpaquePtr(),
+                )
             } case BuiltinKind::CChar {
-                return clang::QualType::getFromOpaquePtr((self.cctx->CharTy).getAsOpaquePtr())
+                return clang::QualType::getFromOpaquePtr(
+                    (self.cctx->CharTy).getAsOpaquePtr(),
+                )
             } case BuiltinKind::CWChar {
-                return clang::QualType::getFromOpaquePtr((self.cctx->WCharTy).getAsOpaquePtr())
+                return clang::QualType::getFromOpaquePtr(
+                    (self.cctx->WCharTy).getAsOpaquePtr(),
+                )
             } case BuiltinKind::CChar16 {
-                return clang::QualType::getFromOpaquePtr((self.cctx->Char16Ty).getAsOpaquePtr())
+                return clang::QualType::getFromOpaquePtr(
+                    (self.cctx->Char16Ty).getAsOpaquePtr(),
+                )
             } case BuiltinKind::CChar8 {
-                return clang::QualType::getFromOpaquePtr((self.cctx->Char8Ty).getAsOpaquePtr())
+                return clang::QualType::getFromOpaquePtr(
+                    (self.cctx->Char8Ty).getAsOpaquePtr(),
+                )
             } case BuiltinKind::F16 {
-                return clang::QualType::getFromOpaquePtr((self.cctx->Float16Ty).getAsOpaquePtr())
+                return clang::QualType::getFromOpaquePtr(
+                    (self.cctx->Float16Ty).getAsOpaquePtr(),
+                )
             } case BuiltinKind::BF16 {
-                return clang::QualType::getFromOpaquePtr((self.cctx->BFloat16Ty).getAsOpaquePtr())
+                return clang::QualType::getFromOpaquePtr(
+                    (self.cctx->BFloat16Ty).getAsOpaquePtr(),
+                )
             } case BuiltinKind::F32 {
-                return clang::QualType::getFromOpaquePtr((self.cctx->FloatTy).getAsOpaquePtr())
+                return clang::QualType::getFromOpaquePtr(
+                    (self.cctx->FloatTy).getAsOpaquePtr(),
+                )
             } case BuiltinKind::F64 {
-                return clang::QualType::getFromOpaquePtr((self.cctx->DoubleTy).getAsOpaquePtr())
+                return clang::QualType::getFromOpaquePtr(
+                    (self.cctx->DoubleTy).getAsOpaquePtr(),
+                )
             }
 
             // The format's address, compared as a pointer (as TypeImport
@@ -2872,7 +3025,9 @@ pub class TypeExport {
                     return ld
                 }
 
-                return clang::QualType::getFromOpaquePtr((self.cctx->Float128Ty).getAsOpaquePtr())
+                return clang::QualType::getFromOpaquePtr(
+                    (self.cctx->Float128Ty).getAsOpaquePtr(),
+                )
             } default { // never, byte, f8*, f256+: no import produces them.
                 return clang::QualType()
             }

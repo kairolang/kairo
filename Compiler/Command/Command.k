@@ -229,7 +229,9 @@ pub class Command {
                                  min:    i32,
                                  max:    i32) -> unsafe *Self {
         assert static T == FlagKind::I32, r"i32 bounds requires FlagKind::I32"
-        return self.define(FlagDef::i32_b(key, short_, long_, help, dfl, min, max))
+        return self.define(
+            FlagDef::i32_b(key, short_, long_, help, dfl, min, max),
+        )
     }
 
     fn <eval T: FlagKind> define(self,
@@ -241,7 +243,9 @@ pub class Command {
                                  min:    f64,
                                  max:    f64) -> unsafe *Self {
         assert static T == FlagKind::F64, r"f64 bounds requires FlagKind::F64"
-        return self.define(FlagDef::f64_b(key, short_, long_, help, dfl, min, max))
+        return self.define(
+            FlagDef::f64_b(key, short_, long_, help, dfl, min, max),
+        )
     }
 
 
@@ -1110,9 +1114,17 @@ pub class Command {
 
                     if j < elen { // '--flag=value'
                         if def->kind == FlagKind::Bool {
-                            self._apply_bool_value(def, elem.subslice(j + 1, elem.size()), &result)
+                            self._apply_bool_value(
+                                def,
+                                elem.subslice(j + 1, elem.size()),
+                                &result,
+                            )
                         } else {
-                            self._apply(def, elem.subslice(j + 1, elem.size()), &result)
+                            self._apply(
+                                def,
+                                elem.subslice(j + 1, elem.size()),
+                                &result,
+                            )
                         }
                     } else if def->kind == FlagKind::Bool {
                         self._apply(def, "", &result)
@@ -1132,7 +1144,10 @@ pub class Command {
 
                     // try feature flag: -funsafe  -fno-unsafe
                     if def == &null && name.length() > 4 && name.starts_with("fno-") {
-                        var unsafe *feat = self._find_feature(name.subslice(4, name.size()))
+                        var unsafe *feat = self._find_feature(
+                            name.subslice(4, name.size()),
+                        )
+
                         if feat != &null {
                             if j < elen {
                                 self._reject_feature_value(
@@ -1152,7 +1167,10 @@ pub class Command {
                     }
 
                     if def == &null && name.length() > 1 && name[0] == ('f' as u8) {
-                        var unsafe *feat = self._find_feature(name.subslice(1, name.size()))
+                        var unsafe *feat = self._find_feature(
+                            name.subslice(1, name.size()),
+                        )
+
                         if feat != &null {
                             if j < elen {
                                 self._reject_feature_value(
@@ -1227,7 +1245,11 @@ pub class Command {
                         } else {
                             // remaining chars are the inline value, or next element
                             if j + 1 < elen {
-                                self._apply(def, elem.subslice(j + 1, elem.size()), &result)
+                                self._apply(
+                                    def,
+                                    elem.subslice(j + 1, elem.size()),
+                                    &result,
+                                )
                             } else {
                                 pending = def
                                 gstate  = Self::GlobalState::AwaitValue
@@ -1312,7 +1334,11 @@ pub class Command {
                             j += 1
                         } else {
                             if j + 1 < elen {
-                                self._apply(def, elem.subslice(j + 1, elem.size()), &result)
+                                self._apply(
+                                    def,
+                                    elem.subslice(j + 1, elem.size()),
+                                    &result,
+                                )
                             } else {
                                 pending = def
                                 gstate  = Self::GlobalState::AwaitValue

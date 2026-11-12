@@ -132,7 +132,9 @@ pub class AttrFacts {
 
     /// The N of \p d's `@align(N)`, or 0 when it has none (or an invalid one).
     pub static fn align_of(d: unsafe *Decl, local: unsafe *ImmediateTable = &null) -> u64 {
-        return AttrFacts::align_value(AttrFacts::find(d, LangAttrs::align(), local))
+        return AttrFacts::align_value(
+            AttrFacts::find(d, LangAttrs::align(), local),
+        )
     }
 
     /// The C++ attribute a record definition carries between its class-key

@@ -54,13 +54,8 @@ import AST::Context::SymbolTable::{
 }
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
-    decl_bases,
-    decl_generic_params,
-    decl_in_generic_owner,
-    decl_is_instance,
-    decl_pattern,
-    decl_requires_clause,
-    decl_spec_args,
+    decl_bases,   decl_generic_params,  decl_in_generic_owner, decl_is_instance,
+    decl_pattern, decl_requires_clause, decl_spec_args,
 }
 import AST::Kind::TypeKind::TypeKind
 import AST::Mixin::Annotation::VisibilityKind
@@ -129,8 +124,8 @@ pub fn incr_json(const s: string) -> string {
 /// Source text with every run of whitespace as one space and none at the
 /// ends: re-indenting a declaration must not move its hash.
 pub fn incr_norm(const s: string) -> string {
-    var o:     string = ""
-    var space         = false
+    var o:    string = ""
+    var space        = false
     for var i: usize = 0; i < s.size(); ++i {
         var c = s[i]
         if c == (' ' as u8) || c == (9 as u8) || c == (10 as u8) || c == (13 as u8) {
@@ -152,7 +147,9 @@ pub fn incr_norm(const s: string) -> string {
 /// xxh3-128 as 32 hex digits: the hash the object cache and the AST
 /// serializer use.
 pub fn incr_hash(const s: string) -> string {
-    return kairo::std::from_std_string<string>(kairo::objcache_hash128(kairo::sref(s)))
+    return kairo::std::from_std_string<string>(
+        kairo::objcache_hash128(kairo::sref(s)),
+    )
 }
 
 /// The text of [a, b) in \p ctx's sources, or "" when the bounds are not an
@@ -203,9 +200,9 @@ pub fn incr_module(ctx: unsafe *ASTContext, psym: unsafe *PreprocessorSymbolTabl
         return out
     }
 
-    var        path         = ctx->sm->get_filename(ctx->fid)
-    var lo: usize = 0
-    var hi        = path.size()
+    var path       = ctx->sm->get_filename(ctx->fid)
+    var lo:  usize = 0
+    var hi         = path.size()
     for var i: usize = 0; i < path.size(); ++i {
         if path[i] == ('/' as u8) || path[i] == ('\\' as u8) {
             lo = i + 1
@@ -293,8 +290,7 @@ pub fn incr_decl_key_name(ctx: unsafe *ASTContext, d: unsafe *Decl) -> string {
 fn _incr_seg(ctx: unsafe *ASTContext, d: unsafe *Decl) -> string {
     if isa<Declarations::ExtensionDecl>(d) {
         var unsafe *e = cast<Declarations::ExtensionDecl>(d)
-        var        t  = if (e->target != &null) => (incr_range_text(ctx, e->target->range))
-                        else => ""
+        var t = if (e->target != &null) => (incr_range_text(ctx, e->target->range)) else => ""
         return "ext:" + t
     }
 
@@ -398,9 +394,9 @@ pub fn incr_decl_id(d_in: unsafe *Decl, psym: unsafe *PreprocessorSymbolTable) -
         return "c++:" + sema_dump_decl_name(ctx, d)
     }
 
-    var        chain          = _incr_seg(ctx, d)
-    var unsafe *self_mod      = unsafe (ctx->tu->module_self as unsafe *Decl)
-    var        dc: unsafe *DeclContext = d->semantic_dc
+    var        chain                         = _incr_seg(ctx, d)
+    var unsafe *self_mod                     = unsafe (ctx->tu->module_self as unsafe *Decl)
+    var        dc:       unsafe *DeclContext = d->semantic_dc
     if dc == &null {
         dc = d->lexical_dc
     }
@@ -445,11 +441,11 @@ pub fn incr_scope_id(dc: unsafe *DeclContext, psym: unsafe *PreprocessorSymbolTa
 /// \class FileFacts
 /// \brief What phase 1 knows about one file, as the strings the dumps print.
 pub class FileFacts {
-    pub var fid:    u32    = 0
+    pub var fid:      u32    = 0
     pub var mod_path: string = ""
-    pub var path:   string = "" ///< absolute; the dump writes it relative to its root.
-    pub var phase:  string = ""
-    pub var hash:   string = "" ///< I(m).
+    pub var path:     string = "" ///< absolute; the dump writes it relative to its root.
+    pub var phase:    string = ""
+    pub var hash:     string = "" ///< I(m).
     /// Hash of the file's macro definitions, or "". A macro is expanded in
     /// the importer before it is parsed, so no declaration row can stand for
     /// it: a change here re-checks every file the macros reach.
@@ -470,7 +466,7 @@ pub class FileFacts {
     /// The TU's own diagnostics as the run rendered them, in delivery
     /// order, and the files they name a position in besides this one. The
     /// driver fills both when it drains the TU's sink.
-    pub var diag:       string = ""
+    pub var diag:       string                   = ""
     pub var diag_files: cxx::std::vector<string>
 }
 
@@ -484,18 +480,18 @@ pub class FileFacts {
 ///          reports it, and overload resolution ranks a `priv` candidate
 ///          before access is checked, so both are facts an importer reads.
 pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
-    pub var sc:   unsafe *SemaContext
-    pub var ctx:  unsafe *ASTContext
-    pub var psym: unsafe *PreprocessorSymbolTable
-    priv var _tu:   TypeUtil
-    priv var _out:  unsafe *FileFacts = &null
-    priv var _ids:  llvm::DenseMap<u64, u32>
-    priv var _idv:  cxx::std::vector<string>
+    pub var  sc:   unsafe *SemaContext
+    pub var  ctx:  unsafe *ASTContext
+    pub var  psym: unsafe *PreprocessorSymbolTable
+    priv var _tu:  TypeUtil
+    priv var _out: unsafe *FileFacts               = &null
+    priv var _ids: llvm::DenseMap<u64, u32>
+    priv var _idv: cxx::std::vector<string>
     /// DeclIds of the records the type strings of the entry being built
     /// name: its `refs`, which is what closes a layout row over the layouts
     /// it contains by value.
-    priv var _refs: cxx::std::vector<string>
-    priv var _rows: llvm::StringMap<u8>
+    priv var _refs:  cxx::std::vector<string>
+    priv var _rows:  llvm::StringMap<u8>
     priv var _lines: cxx::std::vector<string> ///< `id\tI\tbody`, what I(m) hashes.
 
     pub fn IncrFacts(self, sc: unsafe *SemaContext, psym: unsafe *PreprocessorSymbolTable) {
@@ -511,10 +507,10 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             return
         }
 
-        self._out   = out
-        out->fid    = self.ctx->fid
+        self._out     = out
+        out->fid      = self.ctx->fid
         out->mod_path = incr_module(self.ctx, self.psym)
-        out->phase  = sema_dump_phase_str(self.sc->phase)
+        out->phase    = sema_dump_phase_str(self.sc->phase)
         if self.ctx->sm != &null {
             out->path = self.ctx->sm->get_filename(self.ctx->fid)
         }
@@ -588,7 +584,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
                 }
             }
 
-llvm::sort(out->rows.begin(), out->rows.end())
+            llvm::sort(out->rows.begin(), out->rows.end())
         }
     }
 
@@ -682,25 +678,65 @@ llvm::sort(out->rows.begin(), out->rows.end())
 
                 self._records(r->outer, ids, depth + 1, decls)
             } case TypeKind::QualifiedType {
-                self._records(cast<QualifiedType>(c)->inner, ids, depth + 1, decls)
+                self._records(
+                    cast<QualifiedType>(c)->inner,
+                    ids,
+                    depth + 1,
+                    decls,
+                )
             } case TypeKind::PointerType {
-                self._records(cast<Types::PointerType>(c)->pointee, ids, depth + 1, decls)
+                self._records(
+                    cast<Types::PointerType>(c)->pointee,
+                    ids,
+                    depth + 1,
+                    decls,
+                )
             } case TypeKind::NullableType {
-                self._records(cast<Types::NullableType>(c)->inner, ids, depth + 1, decls)
+                self._records(
+                    cast<Types::NullableType>(c)->inner,
+                    ids,
+                    depth + 1,
+                    decls,
+                )
             } case TypeKind::FixedArrayType {
-                self._records(cast<Types::FixedArrayType>(c)->element, ids, depth + 1, decls)
+                self._records(
+                    cast<Types::FixedArrayType>(c)->element,
+                    ids,
+                    depth + 1,
+                    decls,
+                )
             } case TypeKind::VectorType {
-                self._records(cast<Types::VectorType>(c)->element, ids, depth + 1, decls)
+                self._records(
+                    cast<Types::VectorType>(c)->element,
+                    ids,
+                    depth + 1,
+                    decls,
+                )
             } case TypeKind::SetType {
-                self._records(cast<Types::SetType>(c)->element, ids, depth + 1, decls)
+                self._records(
+                    cast<Types::SetType>(c)->element,
+                    ids,
+                    depth + 1,
+                    decls,
+                )
             } case TypeKind::MapType {
                 var unsafe *m = cast<Types::MapType>(c)
                 self._records(m->key, ids, depth + 1, decls)
                 self._records(m->value, ids, depth + 1, decls)
             } case TypeKind::CXXLValueRefType {
-                self._records(cast<Types::CXXLValueRefType>(c)->referee, ids, depth + 1, decls)
+                self._records(
+                    cast<Types::CXXLValueRefType>(c)->referee,
+                    ids,
+                    depth + 1,
+                    decls,
+                )
             } case TypeKind::CXXRValueRefType {
-                self._records(cast<Types::CXXRValueRefType>(c)->referee, ids, depth + 1, decls)
+                self._records(
+                    cast<Types::CXXRValueRefType>(c)->referee,
+                    ids,
+                    depth + 1,
+                    decls,
+                )
             } case TypeKind::FunctionPointerType {
                 var unsafe *f = cast<Types::FunctionPointerType>(c)
                 for var i: usize = 0; i < f->params.size(); ++i {
@@ -770,7 +806,9 @@ llvm::sort(out->rows.begin(), out->rows.end())
         }
 
         llvm::sort(names.begin(), names.end())
-        var s = "{\"scope\": " + incr_json(scope) + ", \"ext\": " + incr_json(ext) + ", \"names\": ["
+        var s = "{\"scope\": " + incr_json(scope) + ", \"ext\": " + incr_json(
+            ext,
+        ) + ", \"names\": ["
         for var i: usize = 0; i < names.size(); ++i {
             if i > 0 {
                 s += ", "
@@ -810,9 +848,9 @@ llvm::sort(out->rows.begin(), out->rows.end())
 
     priv fn _extension_in(self, d: unsafe *Decl) {
         if isa<Declarations::ExtensionDecl>(d) {
-            var unsafe *e   = cast<Declarations::ExtensionDecl>(d)
-            var        ext  = "type:?"
-            var unsafe *c   = self._canon(e->target)
+            var unsafe *e  = cast<Declarations::ExtensionDecl>(d)
+            var        ext = "type:?"
+            var unsafe *c  = self._canon(e->target)
             if c != &null {
                 if isa<QualifiedType>(c) {
                     c = self._canon(cast<QualifiedType>(c)->inner)
@@ -832,7 +870,10 @@ llvm::sort(out->rows.begin(), out->rows.end())
         }
 
         if isa<Declarations::ModuleDecl>(d) {
-            self._extensions(unsafe (cast<Declarations::ModuleDecl>(d) as unsafe *DeclContext))
+            self._extensions(
+                unsafe (cast<Declarations::ModuleDecl>(d) as unsafe *DeclContext),
+            )
+
             return
         }
 
@@ -876,7 +917,10 @@ llvm::sort(out->rows.begin(), out->rows.end())
     /// parameter's and the return's canonical type, the solved panic set,
     /// the modifiers and the generator bits.
     priv fn _fn_sig(self, f: unsafe *Declarations::FunctionDecl) -> string {
-        var s = incr_norm(incr_text(self.ctx, f->range.start, self._body_start(f)))
+        var s = incr_norm(
+            incr_text(self.ctx, f->range.start, self._body_start(f)),
+        )
+
         s += f"|m{f->modifiers as u16}|k{f->body_kind as u8}|t{f->transfer as u8}|c{f->call_conv}"
         s += f"|g{f->is_generator as u8}{f->has_yield as u8}{f->is_noreturn as u8}{f->is_variadic as u8}{f->no_unwind as u8}"
         for var i: usize = 0; i < f->params.size(); ++i {
@@ -913,17 +957,22 @@ llvm::sort(out->rows.begin(), out->rows.end())
     }
 
     priv fn _field(self, fd: unsafe *Declarations::FieldDecl) -> string {
-        return sema_dump_decl_name(self.ctx, fd) + "|" + self._vis(fd) + f"|s{fd->storage as u8}|" + incr_range_text(
-            self.ctx,
-            fd->range,
-        ) + "|" + self._tstr(fd->type_)
+        return sema_dump_decl_name(self.ctx, fd) + "|" + self._vis(
+            fd,
+        ) + f"|s{fd->storage as u8}|" + incr_range_text(self.ctx, fd->range) + "|" + self._tstr(
+            fd->type_,
+        )
     }
 
-    priv fn _edges(self, const tag: string, @inout edges: FrozenList<Declarations::InheritEdge>) -> string {
+    priv fn _edges(self,
+                   const tag:    string,
+                   @inout edges: FrozenList<Declarations::InheritEdge>) -> string {
         var s: string = ""
         for var i: usize = 0; i < edges.size(); ++i {
             var e = edges[i]
-            s += "|" + tag + f"{e.visibility}{e.is_virtual as u8}:" + self._tstr(e.base)
+            s += "|" + tag + f"{e.visibility}{e.is_virtual as u8}:" + self._tstr(
+                e.base,
+            )
         }
 
         return s
@@ -938,8 +987,8 @@ llvm::sort(out->rows.begin(), out->rows.end())
     /// row's business and is not here: adding one must not invalidate every
     /// file that holds a value of the type.
     priv fn _layout(self, d: unsafe *Decl) -> string {
-        var s:  string = ""
-        var gp         = decl_generic_params(d)
+        var s: string = ""
+        var gp        = decl_generic_params(d)
         for var i: usize = 0; i < gp.size(); ++i {
             if gp[i] != &null {
                 s += "|g:" + incr_range_text(self.ctx, gp[i]->range)
@@ -1005,10 +1054,14 @@ llvm::sort(out->rows.begin(), out->rows.end())
             }
 
             var by_role = m->is_operator
-                          || m->body_kind == Declarations::FnBodyKind::Virtual
-                          || m->body_kind == Declarations::FnBodyKind::Default
-                          || m->body_kind == Declarations::FnBodyKind::Delete
-                          || sema_dump_decl_name(self.ctx, m) == sema_dump_decl_name(self.ctx, d)
+                || m->body_kind == Declarations::FnBodyKind::Virtual
+                || m->body_kind == Declarations::FnBodyKind::Default
+                || m->body_kind == Declarations::FnBodyKind::Delete
+                || sema_dump_decl_name(self.ctx, m) == sema_dump_decl_name(
+                    self.ctx,
+                    d,
+                )
+
             if by_role {
                 s += "|m:" + self._fn_sig(m)
             }
@@ -1018,7 +1071,10 @@ llvm::sort(out->rows.begin(), out->rows.end())
     }
 
     priv fn _variant(self, v: unsafe *Declarations::EnumVariantDecl) -> string {
-        var s = incr_range_text(self.ctx, v->range) + f"|{v->value.ok as u8}{v->value.neg as u8}:{v->value.mag}"
+        var s = incr_range_text(
+            self.ctx,
+            v->range,
+        ) + f"|{v->value.ok as u8}{v->value.neg as u8}:{v->value.mag}"
         for var i: usize = 0; i < v->payload.size(); ++i {
             if v->payload[i] != &null {
                 s += "," + self._tstr(v->payload[i]->type_)
@@ -1029,10 +1085,14 @@ llvm::sort(out->rows.begin(), out->rows.end())
     }
 
     /// One exported declaration: its row in the interface.
-    priv fn _entry(self, d: unsafe *Decl, const scope: string, const name: string, const ext: string) {
+    priv fn _entry(self,
+                   d:           unsafe *Decl,
+                   const scope: string,
+                   const name:  string,
+                   const ext:   string) {
         self._refs.clear()
-        var kind  = sema_dump_kind_str(d->kind)
-        var facts = kind + "|" + name + "|" + self._vis(d)
+        var kind         = sema_dump_kind_str(d->kind)
+        var facts        = kind + "|" + name + "|" + self._vis(d)
         var body: string = ""
         if isa<Declarations::FunctionDecl>(d) {
             var unsafe *f = cast<Declarations::FunctionDecl>(d)
@@ -1047,25 +1107,30 @@ llvm::sort(out->rows.begin(), out->rows.end())
             // The initializer is in the text: an importer folds a constant
             // through it.
             var unsafe *v = cast<Declarations::VariableDecl>(d)
-            facts += f"|s{v->storage as u8}{v->const_binding as u8}|" + incr_range_text(self.ctx, v->range) + "|" + self._tstr(
-                v->type_,
-            )
+            facts += f"|s{v->storage as u8}{v->const_binding as u8}|" + incr_range_text(
+                self.ctx,
+                v->range,
+            ) + "|" + self._tstr(v->type_)
         } else if isa<Declarations::FieldDecl>(d) {
             facts += "|" + self._field(cast<Declarations::FieldDecl>(d))
         } else if isa<Declarations::EnumVariantDecl>(d) {
             facts += "|" + self._variant(cast<Declarations::EnumVariantDecl>(d))
         } else if isa<Declarations::TypeAliasDecl>(d) {
             var unsafe *a = cast<Declarations::TypeAliasDecl>(d)
-            facts += "|" + incr_range_text(self.ctx, a->range) + "|" + self._tstr(a->aliased)
+            facts += "|" + incr_range_text(self.ctx, a->range) + "|" + self._tstr(
+                a->aliased,
+            )
         } else if !isa<Declarations::ModuleDecl>(d) {
             facts += self._layout(d)
         }
 
-        var id  = self._id(d)
-        var ih  = incr_hash(facts)
-        var row = "{\"id\": " + incr_json(id) + ", \"scope\": " + incr_json(scope) + ", \"name\": " + incr_json(
-            name,
-        ) + ", \"kind\": " + incr_json(kind) + ", \"I\": " + incr_json(ih) + ", \"body\": " + incr_json(body)
+        var id = self._id(d)
+        var ih = incr_hash(facts)
+        var row = "{\"id\": " + incr_json(id) + ", \"scope\": " + incr_json(
+            scope,
+        ) + ", \"name\": " + incr_json(name) + ", \"kind\": " + incr_json(
+            kind,
+        ) + ", \"I\": " + incr_json(ih) + ", \"body\": " + incr_json(body)
         if ext.size() > 0 {
             row += ", \"ext\": " + incr_json(ext)
         }
@@ -1095,6 +1160,7 @@ llvm::sort(out->rows.begin(), out->rows.end())
         self._out->plain_decls.push_back(
             id + "\t" + scope + "\t" + name + "\t" + ih + "\t" + body + "\t" + ext + "\t" + prefs,
         )
+
         self._lines.push_back(id + "\t" + ih + "\t" + body)
     }
 
@@ -1147,11 +1213,12 @@ llvm::sort(out->rows.begin(), out->rows.end())
             return
         }
 
-        var m     = f->modifiers as u16
-        var reads = (Declarations::FnModifier::IsInline as u16) | (Declarations::FnModifier::IsEval as u16) | (
-            Declarations::FnModifier::IsConstexpr as u16
-        )
-        if (m & reads) != 0 || decl_generic_params(d).size() > 0 || decl_in_generic_owner(d) || decl_is_instance(d) {
+        var m = f->modifiers as u16
+        var reads = (Declarations::FnModifier::IsInline as u16) | (Declarations::FnModifier::IsEval as u16) | (Declarations::FnModifier::IsConstexpr as u16)
+        if (m & reads) != 0
+            || decl_generic_params(d).size() > 0
+            || decl_in_generic_owner(d)
+            || decl_is_instance(d) {
             self._row("body", d)
         }
     }
@@ -1198,7 +1265,11 @@ llvm::sort(out->rows.begin(), out->rows.end())
             return n
         }
 
-        var unsafe *out = RecursiveASTVisitor<IncrFacts>::traverse_chain_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<IncrFacts>::traverse_chain_expr(
+            self,
+            n,
+        )
+
         for var i: usize = 0; i < n->steps.size(); ++i {
             var unsafe *st = n->steps.get(i)
             if st == &null {
@@ -1247,17 +1318,17 @@ fn _incr_unique(@inout v: cxx::std::vector<string>) {
 }
 
 fn _incr_name_row(const mod_name: string, const scope: string, const name: string) -> string {
-    return "{\"module\": " + incr_json(mod_name) + ", \"scope\": " + incr_json(scope) + ", \"name\": " + incr_json(
-        name,
-    ) + "}"
+    return "{\"module\": " + incr_json(mod_name) + ", \"scope\": " + incr_json(
+        scope,
+    ) + ", \"name\": " + incr_json(name) + "}"
 }
 
 /// The files whose file scope \p tu's overlay can hold names of: everything
 /// it imports, and from there on only what is re-exported.
 fn _incr_surface(tu:   unsafe *TranslationUnit,
-                      g:    unsafe *GlobalDisambigTable,
-                      psym: unsafe *PreprocessorSymbolTable,
-                      out:  unsafe *cxx::std::vector<string>) {
+                 g:    unsafe *GlobalDisambigTable,
+                 psym: unsafe *PreprocessorSymbolTable,
+                 out:  unsafe *cxx::std::vector<string>) {
     var seen  = llvm::DenseSet<u64>()
     var work  = cxx::std::vector<unsafe *TranslationUnit>()
     var first = true
@@ -1275,7 +1346,10 @@ fn _incr_surface(tu:   unsafe *TranslationUnit,
         }
 
         for var i: usize = 0; i < cur->imports.size(); ++i {
-            var unsafe *imp = dyn_cast<Declarations::ImportDecl>(*cur->imports.get(i))
+            var unsafe *imp = dyn_cast<Declarations::ImportDecl>(
+                *cur->imports.get(i),
+            )
+
             if imp == &null || imp->resolved_fid == 0 {
                 continue
             }
@@ -1307,11 +1381,11 @@ fn _incr_surface(tu:   unsafe *TranslationUnit,
 
 /// Turns \p tu's raw DepLog into rows. \p overlays maps an overlay's address
 /// to the TU it belongs to (the log holds the address only).
-pub fn incr_resolve_deps(tu:        unsafe *TranslationUnit,
-                         g:         unsafe *GlobalDisambigTable,
-                         psym:      unsafe *PreprocessorSymbolTable,
-                         overlays:  unsafe *llvm::DenseMap<u64, unsafe *TranslationUnit>,
-                         out:       unsafe *FileDeps) {
+pub fn incr_resolve_deps(tu:       unsafe *TranslationUnit,
+                         g:        unsafe *GlobalDisambigTable,
+                         psym:     unsafe *PreprocessorSymbolTable,
+                         overlays: unsafe *llvm::DenseMap<u64, unsafe *TranslationUnit>,
+                         out:      unsafe *FileDeps) {
     if tu == &null || out == &null {
         return
     }
@@ -1336,11 +1410,18 @@ pub fn incr_resolve_deps(tu:        unsafe *TranslationUnit,
         name.kind    = (((key >> 32 & 0xFF) as u8) as DeclNameKind)
         name.payload = ((key & 0xFFFFFFFF) as u32)
         out->names.push_back(
-            _incr_name_row(incr_module(src->ctx, psym), incr_scope_id(dc, psym), incr_key_name(src->ctx, name)),
+            _incr_name_row(
+                incr_module(src->ctx, psym),
+                incr_scope_id(dc, psym),
+                incr_key_name(src->ctx, name),
+            ),
         )
 
         out->plain_names.push_back(
-            incr_module(src->ctx, psym) + "\t" + incr_scope_id(dc, psym) + "\t" + incr_key_name(src->ctx, name),
+            incr_module(src->ctx, psym) + "\t" + incr_scope_id(dc, psym) + "\t" + incr_key_name(
+                src->ctx,
+                name,
+            ),
         )
     }
 
@@ -1353,11 +1434,18 @@ pub fn incr_resolve_deps(tu:        unsafe *TranslationUnit,
         }
 
         out->names.push_back(
-            _incr_name_row(incr_module(src->ctx, psym), incr_scope_id(dc, psym), log->spelled_names[i]),
+            _incr_name_row(
+                incr_module(src->ctx, psym),
+                incr_scope_id(dc, psym),
+                log->spelled_names[i],
+            ),
         )
 
         out->plain_names.push_back(
-            incr_module(src->ctx, psym) + "\t" + incr_scope_id(dc, psym) + "\t" + log->spelled_names[i],
+            incr_module(src->ctx, psym) + "\t" + incr_scope_id(
+                dc,
+                psym,
+            ) + "\t" + log->spelled_names[i],
         )
     }
 
@@ -1378,7 +1466,9 @@ pub fn incr_resolve_deps(tu:        unsafe *TranslationUnit,
             continue
         }
 
-        out->overlay.push_back(incr_module(home->ctx, psym) + "\t" + imms->get_ident(key))
+        out->overlay.push_back(
+            incr_module(home->ctx, psym) + "\t" + imms->get_ident(key),
+        )
 
         // A hit also reads what it found, under the DECLARED name: the key
         // may be an import alias, which the sources' name sets do not hold.
@@ -1390,7 +1480,11 @@ pub fn incr_resolve_deps(tu:        unsafe *TranslationUnit,
         for var j: usize = 0; j < cell->size(); ++j {
             var unsafe *d    = cell->get(j)
             var unsafe *dctx = NameLookup::ctx_of(d)
-            if d == &null || dctx == &null || dctx->tu == &null || dctx->tu == tu || dctx->tu->is_foreign {
+            if d == &null
+                || dctx == &null
+                || dctx->tu == &null
+                || dctx->tu == tu
+                || dctx->tu->is_foreign {
                 continue
             }
 
@@ -1400,11 +1494,18 @@ pub fn incr_resolve_deps(tu:        unsafe *TranslationUnit,
             }
 
             out->names.push_back(
-                _incr_name_row(incr_module(dctx, psym), incr_scope_id(sdc, psym), incr_decl_key_name(dctx, d)),
+                _incr_name_row(
+                    incr_module(dctx, psym),
+                    incr_scope_id(sdc, psym),
+                    incr_decl_key_name(dctx, d),
+                ),
             )
 
             out->plain_names.push_back(
-                incr_module(dctx, psym) + "\t" + incr_scope_id(sdc, psym) + "\t" + incr_decl_key_name(dctx, d),
+                incr_module(dctx, psym) + "\t" + incr_scope_id(
+                    sdc,
+                    psym,
+                ) + "\t" + incr_decl_key_name(dctx, d),
             )
         }
     }

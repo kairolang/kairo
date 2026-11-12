@@ -198,7 +198,11 @@ pub class ConstEval {
             } else if vk == ValueOp::Cast {
                 var unsafe *u = self.tu.as_value(ty)
                 if u != &null && self.tu.is_integer(u) {
-                    r = self.wrap(vals[0], self.tu.int_bits(u), self.tu.is_signed_int(u))
+                    r = self.wrap(
+                        vals[0],
+                        self.tu.int_bits(u),
+                        self.tu.is_signed_int(u),
+                    )
                 }
             } else {
                 r = self._fold_binary(tok, vals[0], vals[1])
@@ -639,7 +643,10 @@ pub class ConstEval {
         if isa<UnaryOperatorExpr>(e) {
             var unsafe *u = cast<UnaryOperatorExpr>(e)
             if !u->is_prefix() || u->resolved_op != &null {
-                return self._fail(e, "this operator is not evaluated at compile time")
+                return self._fail(
+                    e,
+                    "this operator is not evaluated at compile time",
+                )
             }
 
             var k     = u->op_token.kind
@@ -647,7 +654,10 @@ pub class ConstEval {
             var isnot = k == TokenKind::OpTilde || k == TokenKind::KwCompl
             var ispos = k == TokenKind::OpPlus
             if !isneg && !isnot && !ispos {
-                return self._fail(e, "this operator is not evaluated at compile time")
+                return self._fail(
+                    e,
+                    "this operator is not evaluated at compile time",
+                )
             }
 
             var inner = self._eval(u->operand, depth)
@@ -758,7 +768,10 @@ pub class ConstEval {
     priv fn _binary(self, b: unsafe *BinaryOperatorExpr, depth: u32) -> IntConst {
         var unsafe *e = unsafe (b as unsafe *Expr)
         if b->resolved_op != &null {
-            return self._fail(e, "a user operator is not evaluated at compile time")
+            return self._fail(
+                e,
+                "a user operator is not evaluated at compile time",
+            )
         }
 
         var k = b->op_token.kind
@@ -899,7 +912,10 @@ pub class ConstEval {
     priv fn _cast(self, c: unsafe *TypeCastExpr, depth: u32) -> IntConst {
         var unsafe *e = unsafe (c as unsafe *Expr)
         if c->resolved_op != &null || c->resolved_ctor != &null {
-            return self._fail(e, "a user conversion is not evaluated at compile time")
+            return self._fail(
+                e,
+                "a user conversion is not evaluated at compile time",
+            )
         }
 
         var t: unsafe *Type = c->type_
@@ -909,7 +925,10 @@ pub class ConstEval {
 
         var unsafe *u = self.tu.as_value(t)
         if u == &null || !self.tu.is_integer(u) {
-            return self._fail(e, "only a cast to an integer type is evaluated at compile time")
+            return self._fail(
+                e,
+                "only a cast to an integer type is evaluated at compile time",
+            )
         }
 
         var v = self._eval(c->operand, depth)
@@ -952,13 +971,21 @@ pub class ConstEval {
             }
 
             if vd->init == &null || depth > 8 {
-                return self._fail(at, f"'{nm}' has no initializer that evaluates", d)
+                return self._fail(
+                    at,
+                    f"'{nm}' has no initializer that evaluates",
+                    d,
+                )
             }
 
             var c = self._eval(vd->init, depth + 1)
             if !c.ok {
                 // The init sits elsewhere: point at the name, not inside it.
-                self._blame(at, f"the initializer of '{nm}' does not evaluate", d)
+                self._blame(
+                    at,
+                    f"the initializer of '{nm}' does not evaluate",
+                    d,
+                )
 
                 return c
             }
@@ -983,12 +1010,20 @@ pub class ConstEval {
         if fd != &null && fd->is_eval() {
             var fnm = self.tu.decl_name(d)
             if fd->init == &null || depth > 8 {
-                return self._fail(at, f"'{fnm}' has no initializer that evaluates", d)
+                return self._fail(
+                    at,
+                    f"'{fnm}' has no initializer that evaluates",
+                    d,
+                )
             }
 
             var fc = self._eval(fd->init, depth + 1)
             if !fc.ok {
-                self._blame(at, f"the initializer of '{fnm}' does not evaluate", d)
+                self._blame(
+                    at,
+                    f"the initializer of '{fnm}' does not evaluate",
+                    d,
+                )
 
                 return fc
             }
@@ -1020,7 +1055,9 @@ pub class ConstEval {
     priv fn _variant(self, at: unsafe *Expr, v: unsafe *EnumVariantDecl) -> IntConst {
         var        nm   = self.tu.decl_name(unsafe (v as unsafe *Decl))
         var unsafe *vdc = v->semantic_dc
-        var unsafe *owner = if (vdc != &null) => (dyn_cast<EnumDecl>(vdc->owner_decl()))
+        var unsafe *owner = if (vdc != &null) => (dyn_cast<EnumDecl>(
+                                vdc->owner_decl(),
+                            ))
                             else => &null
         var same = self._en != &null && owner != &null
         if same {

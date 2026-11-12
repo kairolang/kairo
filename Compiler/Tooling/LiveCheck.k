@@ -28,7 +28,6 @@
 
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
-
 ffi "c++" import "cstdio"
 ffi "c++" import "cstdlib"
 ffi "c++" import "csignal"
@@ -39,12 +38,12 @@ ffi "c++" import "llvm/ADT/STLExtras.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
 
+import API::FS::LinkFS
+import AST::Context::ASTContext::ASTContext
 import Config::Diagnostic::renders_through_basic
 import Diagnostic::Diagnostic::Diagnostic
 import Diagnostic::FileDiagnostics::FileDiagConsumer
 import Diagnostic::Severity::DiagSeverity
-import AST::Context::ASTContext::ASTContext
-
 import Driver::CompilerGraph
 import Driver::CompilerInstance::CompilerInstance
 import Driver::CompilerRecovery
@@ -52,7 +51,6 @@ import Driver::FrontendAction::FrontendAction
 import Driver::TUStage::TUStage
 import Resolution::ModulePath::ModulePath
 import Support::FileIO::Path::Path
-import API::FS::LinkFS
 import Tooling::ParseAPI::{
     _apply_stop_at,
     release_all,
@@ -66,7 +64,9 @@ const LIVE_TRIM_BYTES: usize = 64 * 1024 * 1024
 
 fn _live_us() -> i64 {
     var t = cxx::std::chrono::steady_clock::now()
-    return cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(t.time_since_epoch()).count() as i64
+    return cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(
+        t.time_since_epoch(),
+    ).count() as i64
 }
 
 pub class LiveCheck {
@@ -137,13 +137,13 @@ pub class LiveCheck {
     /// diagnostics of the refused file are in file_diags(), without an owner.
     pub var aside: bool = false
 
-    priv var _words:   cxx::std::vector<string>
-    priv var _ci:      unsafe *CompilerInstance = &null
-    priv var _fd:      unsafe *FileDiagConsumer = &null
-    priv var _action:  unsafe *FrontendAction   = &null
-    priv var _pre:     usize                    = 0 ///< console diagnostics from before the check
-    priv var _q:       cxx::std::vector<u32>        ///< two_tier: files queued, in Sema's order
-    priv var _edited:  cxx::std::vector<u32>        ///< two_tier: files edited since the queue was last empty
+    priv var _words:  cxx::std::vector<string>
+    priv var _ci:     unsafe *CompilerInstance = &null
+    priv var _fd:     unsafe *FileDiagConsumer = &null
+    priv var _action: unsafe *FrontendAction   = &null
+    priv var _pre:    usize                    = 0 ///< console diagnostics from before the check
+    priv var _q:      cxx::std::vector<u32> ///< two_tier: files queued, in Sema's order
+    priv var _edited: cxx::std::vector<u32> ///< two_tier: files edited since the queue was last empty
     /// The files the last refresh re-checked, by name (empty after a full
     /// check: every file was).
     pub var rechecked: cxx::std::vector<string>
@@ -199,7 +199,7 @@ pub class LiveCheck {
     /// names no entry; the diagnostics say which.
     pub fn replace_file(self, const path: string) -> bool {
         var why = "re-checking in place is not built"
-        self.detail = ""
+        self.detail         = ""
         self.dropped_bodies = false
         self.rechecked.clear()
         if self.in_place {
@@ -218,7 +218,7 @@ pub class LiveCheck {
 
                     if why.empty() {
                         self.pending = self._q.size()
-                        self.why     = f"{self.rechecked.size()} of {self.files} files, {self.pending} pending"
+                        self.why = f"{self.rechecked.size()} of {self.files} files, {self.pending} pending"
                     }
                 } else {
                     why = self._refresh(path)
@@ -247,9 +247,14 @@ pub class LiveCheck {
     /// checked without the bodies they are in; those bodies are dropped and
     /// the diagnostics given to their files. Otherwise why not.
     priv fn _admit_bodies(self, const group: cxx::std::vector<u32>, n0: usize) -> string {
-        var broken = cxx::std::vector<u32>()
+        var broken     = cxx::std::vector<u32>()
         var owned: u32 = 0
-        if !self._ci->admit_bodies_in_place(self._ci->global_scope(), group, &broken, &owned) {
+        if !self._ci->admit_bodies_in_place(
+            self._ci->global_scope(),
+            group,
+            &broken,
+            &owned,
+        ) {
             return "a syntax error outside a function body"
         }
 
@@ -296,7 +301,7 @@ pub class LiveCheck {
 
     /// The files of an import edge list, as fids, sorted.
     priv fn _imports_of(self, fid: u32) -> cxx::std::vector<u32> {
-        var out = cxx::std::vector<u32>()
+        var        out  = cxx::std::vector<u32>()
         var unsafe *ctx = self._ci->global_scope()->get_context(fid)
         if ctx == &null || ctx->tu == &null {
             return out
@@ -334,7 +339,8 @@ pub class LiveCheck {
             return "the pretty renderer coalesces across files"
         }
 
-        if self._ci->invocation()->pp.prelude_path.size() > 0 || self._ci->invocation()->pp.force_includes.size() > 0 {
+        if self._ci->invocation()->pp.prelude_path.size() > 0
+            || self._ci->invocation()->pp.force_includes.size() > 0 {
             return "--prelude or --force-include"
         }
 
@@ -535,10 +541,10 @@ pub class LiveCheck {
     /// check, with the instance possibly left half-refreshed: the caller
     /// replaces it.
     priv fn _refresh(self, const path: string) -> string {
-        var fid: u32 = u32::MAX
-        var set   = cxx::std::vector<u32>()
-        var names = cxx::std::vector<string>()
-        var no    = self._plan(path, &fid, &set, &names)
+        var fid:  u32 = u32::MAX
+        var set       = cxx::std::vector<u32>()
+        var names     = cxx::std::vector<string>()
+        var no        = self._plan(path, &fid, &set, &names)
         if !no.empty() {
             return no
         }
@@ -549,7 +555,9 @@ pub class LiveCheck {
         for var f: u32 in set {
             old_headers.push_back(self._action->header_set_of(f))
             old_imports.push_back(self._imports_of(f))
-            mods.push_back(self._ci->global_scope()->get_context(f)->module_base)
+            mods.push_back(
+                self._ci->global_scope()->get_context(f)->module_base,
+            )
         }
 
         var n0 = self._forget(names)
@@ -559,7 +567,7 @@ pub class LiveCheck {
         var rs = self._action->retract(set)
         self.dropped_instances = rs.dropped
         self.rearmed_instances = rs.rearmed
-        self.fills_owned = rs.fills_owned
+        self.fills_owned       = rs.fills_owned
         if self.strict_cxx && rs.fills_owned > 0 {
             self.detail = f"{rs.fills_owned} such instances"
             return "a C++ template instance was first filled for an edited file"
@@ -611,7 +619,8 @@ pub class LiveCheck {
 
         for var i: usize = 0; i < set.size(); ++i {
             var now = self._imports_of(set[i])
-            if now.size() != old_imports[i].size() || self._ci->unresolved_import_count(set[i]) > 0 {
+            if now.size() != old_imports[i].size()
+                || self._ci->unresolved_import_count(set[i]) > 0 {
                 return "an import was added or removed"
             }
 
@@ -632,7 +641,7 @@ pub class LiveCheck {
             return moved
         }
 
-        self.why = f"{set.size()} of {self.files} files"
+        self.why       = f"{set.size()} of {self.files} files"
         self.rechecked = names
         self._self_check()
         self._release_retired()
@@ -647,7 +656,10 @@ pub class LiveCheck {
         }
 
         var bad = self._action->verify_retired()
-        io::eprintln(f"[live] self-check: {bad} of the purged stores' entries name a replaced tree ({self._ci->retired.size()} replaced trees held, {self._ci->retired_bytes() / 1048576} MB)")
+        io::eprintln(
+            f"[live] self-check: {bad} of the purged stores' entries name a replaced tree ({self._ci->retired.size()} replaced trees held, {self._ci->retired_bytes() / 1048576} MB)",
+        )
+
         self._mem_report("re-check done")
     }
 
@@ -685,7 +697,10 @@ pub class LiveCheck {
         }
 
         if dbg {
-            io::eprintln(f"[live] {n} replaced trees freed ({bytes / 1048576} MB of arena blocks); swept {swept}")
+            io::eprintln(
+                f"[live] {n} replaced trees freed ({bytes / 1048576} MB of arena blocks); swept {swept}",
+            )
+
             self._mem_report("replaced trees freed")
         }
 
@@ -700,22 +715,73 @@ pub class LiveCheck {
             var unsafe *c = self._ci->global_scope()->get_context(f)
             if c != &null {
                 var nm = "the tree of " + self._ci->sm()->get_filename(f)
-                c->ranges_into(unsafe &where_, where_.label(kairo::std::to_std_string(nm)))
+                c->ranges_into(
+                    unsafe &where_,
+                    where_.label(kairo::std::to_std_string(nm)),
+                )
             }
         }
 
-        self._ci->global_scope()->types()->ranges_into(unsafe &where_, where_.label(kairo::std::to_std_string("the canonical types")))
-        self._ci->global_scope()->instances()->ranges_into(unsafe &where_, where_.label(kairo::std::to_std_string("the instantiation registry")))
-        where_.add(unsafe (self._ci as unsafe *const void), sizeof(CompilerInstance), where_.label(kairo::std::to_std_string("the CompilerInstance")))
-        where_.add(unsafe (self._action as unsafe *const void), sizeof(FrontendAction), where_.label(kairo::std::to_std_string("the FrontendAction")))
-        where_.add(unsafe (self._fd as unsafe *const void), sizeof(FileDiagConsumer), where_.label(kairo::std::to_std_string("the FileDiagConsumer")))
-        where_.add(unsafe (self._ci->sm() as unsafe *const void), 256, where_.label(kairo::std::to_std_string("the SourceManager")))
-        where_.add(unsafe (self._ci->diag() as unsafe *const void), 256, where_.label(kairo::std::to_std_string("the DiagEngine")))
-        where_.add(unsafe (self._ci->pp() as unsafe *const void), 256, where_.label(kairo::std::to_std_string("the Preprocessor")))
-        where_.add(unsafe (self._ci->global_scope() as unsafe *const void), 256, where_.label(kairo::std::to_std_string("the GlobalDisambigTable")))
+        self._ci->global_scope()->types()->ranges_into(
+            unsafe &where_,
+            where_.label(kairo::std::to_std_string("the canonical types")),
+        )
+
+        self._ci->global_scope()->instances()->ranges_into(
+            unsafe &where_,
+            where_.label(
+                kairo::std::to_std_string("the instantiation registry"),
+            ),
+        )
+
+        where_.add(
+            unsafe (self._ci as unsafe *const void),
+            sizeof(CompilerInstance),
+            where_.label(kairo::std::to_std_string("the CompilerInstance")),
+        )
+
+        where_.add(
+            unsafe (self._action as unsafe *const void),
+            sizeof(FrontendAction),
+            where_.label(kairo::std::to_std_string("the FrontendAction")),
+        )
+
+        where_.add(
+            unsafe (self._fd as unsafe *const void),
+            sizeof(FileDiagConsumer),
+            where_.label(kairo::std::to_std_string("the FileDiagConsumer")),
+        )
+
+        where_.add(
+            unsafe (self._ci->sm() as unsafe *const void),
+            256,
+            where_.label(kairo::std::to_std_string("the SourceManager")),
+        )
+
+        where_.add(
+            unsafe (self._ci->diag() as unsafe *const void),
+            256,
+            where_.label(kairo::std::to_std_string("the DiagEngine")),
+        )
+
+        where_.add(
+            unsafe (self._ci->pp() as unsafe *const void),
+            256,
+            where_.label(kairo::std::to_std_string("the Preprocessor")),
+        )
+
+        where_.add(
+            unsafe (self._ci->global_scope() as unsafe *const void),
+            256,
+            where_.label(kairo::std::to_std_string("the GlobalDisambigTable")),
+        )
+
         where_.seal()
         var total: usize = 0
-        var rep = kairo::std::from_std_string<string>(kairo::heap_scan_report(dead, own, where_, 60, &total))
+        var rep = kairo::std::from_std_string<string>(
+            kairo::heap_scan_report(dead, own, where_, 60, &total),
+        )
+
         self.dangling += total
         io::eprint(f"[live] heap scan: {rep}")
 
@@ -733,22 +799,28 @@ pub class LiveCheck {
     pub var freed_bytes: usize = 0
     pub var dangling:    usize = 0
 
-    priv var _census: kairo::HeapCensus
-    priv var _rss_kib: u64 = 0
+    priv var _census:  kairo::HeapCensus
+    priv var _rss_kib: u64               = 0
 
     /// KAIRO_LIVE_DEBUG: where the process's memory is, and what moved
     /// since the last line.
     priv fn _mem_report(self, const what: string) {
         var now = kairo::HeapCensus()
         kairo::heap_census(&now)
-        var rss = kairo::resident_kib() as u64
+        var rss       = kairo::resident_kib() as u64
         var rb: usize = 0
         var rn: usize = 0
         kairo::GlobalRecycler::instance().stats(&rn, &rb)
         var d_use = ((now.in_use as i64) - (self._census.in_use as i64)) / 1024
         var d_rss = (rss as i64) - (self._rss_kib as i64)
-        io::eprintln(f"[live] memory, {what}: resident {rss / 1024} MB ({d_rss} KB since), heap in use {now.in_use / 1048576} MB ({d_use} KB since) of {now.committed / 1048576} MB in pages, arena blocks recycled {rb / 1048576} MB; replaced trees: {if (self._ci != &null) => (self._ci->retired_profile()) else => "none"}")
-        var delta = kairo::std::from_std_string<string>(kairo::heap_census_delta(self._census, now, 14))
+        io::eprintln(
+            f"[live] memory, {what}: resident {rss / 1024} MB ({d_rss} KB since), heap in use {now.in_use / 1048576} MB ({d_use} KB since) of {now.committed / 1048576} MB in pages, arena blocks recycled {rb / 1048576} MB; replaced trees: {if (self._ci != &null) => (self._ci->retired_profile()) else => "none"}",
+        )
+
+        var delta = kairo::std::from_std_string<string>(
+            kairo::heap_census_delta(self._census, now, 14),
+        )
+
         io::eprint(f"{delta}")
         self._census  = now
         self._rss_kib = rss
@@ -819,8 +891,8 @@ pub class LiveCheck {
     /// order, and takes them off the queue. \p edited: the file whose text
     /// changed (u32::MAX for a background slice).
     priv fn _tier_redo(self, target: u32, edited: u32) -> string {
-        var group = self._action->order_of(self._closure(target))
-        var names = cxx::std::vector<string>()
+        var group       = self._action->order_of(self._closure(target))
+        var names       = cxx::std::vector<string>()
         var old_imports = cxx::std::vector<cxx::std::vector<u32>>()
         var old_headers = cxx::std::vector<unsafe *void>()
         var mods        = cxx::std::vector<ModulePath>()
@@ -901,7 +973,8 @@ pub class LiveCheck {
             }
 
             var now = self._imports_of(group[i])
-            if now.size() != old_imports[i].size() || self._ci->unresolved_import_count(group[i]) > 0 {
+            if now.size() != old_imports[i].size()
+                || self._ci->unresolved_import_count(group[i]) > 0 {
                 return "an import was added or removed"
             }
 
@@ -942,12 +1015,12 @@ pub class LiveCheck {
 
     /// The first tier of an edit of \p path.
     priv fn _tier_begin(self, const path: string) -> string {
-        var fid: u32 = u32::MAX
-        var set   = cxx::std::vector<u32>()
-        var names = cxx::std::vector<string>()
-        var dbg   = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
-        var t0    = _live_us()
-        var no    = self._plan(path, &fid, &set, &names)
+        var fid:  u32 = u32::MAX
+        var set       = cxx::std::vector<u32>()
+        var names     = cxx::std::vector<string>()
+        var dbg       = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
+        var t0        = _live_us()
+        var no        = self._plan(path, &fid, &set, &names)
         if !no.empty() {
             return no
         }
@@ -958,7 +1031,7 @@ pub class LiveCheck {
         var t2 = _live_us()
         self.dropped_instances = rs.dropped
         self.rearmed_instances = rs.rearmed
-        self.fills_owned = rs.fills_owned
+        self.fills_owned       = rs.fills_owned
         if self.strict_cxx && rs.fills_owned > 0 {
             self.detail = f"{rs.fills_owned} such instances"
             return "a C++ template instance was first filled for an edited file"
@@ -982,7 +1055,9 @@ pub class LiveCheck {
         var t3  = _live_us()
         var out = self._tier_redo(fid, fid)
         if dbg {
-            io::eprintln(f"[live] first tier of {set.size()}: plan {t1 - t0} us, retract {t2 - t1} us, queue {t3 - t2} us, re-check {_live_us() - t3} us")
+            io::eprintln(
+                f"[live] first tier of {set.size()}: plan {t1 - t0} us, retract {t2 - t1} us, queue {t3 - t2} us, re-check {_live_us() - t3} us",
+            )
         }
 
         return out
@@ -1049,7 +1124,13 @@ pub class LiveCheck {
                     var ok   = true
                     while ok && cxx::std::getenv(r"KAIRO_LIVE_PREFER_UNORDERED") == &null {
                         var first = cxx::std::vector<u32>()
-                        ok = self._action->prefer_first_users(want, self._q, self._edited, &first)
+                        ok = self._action->prefer_first_users(
+                            want,
+                            self._q,
+                            self._edited,
+                            &first,
+                        )
+
                         if first.empty() {
                             break
                         }
@@ -1071,8 +1152,11 @@ pub class LiveCheck {
                     }
 
                     if cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null {
-                        var how = if (ok) => (f"{want.size()} queued files are its") else => "an instance it names has no first user yet, the queue's order stands"
-                        io::eprintln(f"[live] prefer {Path(prefer[i]).filename()}: {how}; next in order is {Path(self._ci->sm()->get_filename(self._q[0])).filename()}")
+                        var how = if (ok) => (f"{want.size()} queued files are its")
+                                  else => "an instance it names has no first user yet, the queue's order stands"
+                        io::eprintln(
+                            f"[live] prefer {Path(prefer[i]).filename()}: {how}; next in order is {Path(self._ci->sm()->get_filename(self._q[0])).filename()}",
+                        )
                     }
 
                     if !ok {
@@ -1131,9 +1215,9 @@ pub class LiveCheck {
     /// cleared (or the file never had one), and for a buffer nothing
     /// changed (an importer of the edited file) the bytes it has.
     priv fn _reread(self, fid: u32, const name: string, edited: bool) -> bool {
-        var k = self._slot(name)
-        var next: unsafe *string = &null
-        var from_disk = false
+        var k                        = self._slot(name)
+        var next:     unsafe *string = &null
+        var from_disk                = false
         if k != usize::MAX && self._ov_next[k] != &null {
             next = self._ov_next[k]
         } else if k != usize::MAX && self._ov_cur[k] != &null {
@@ -1156,7 +1240,14 @@ pub class LiveCheck {
         }
 
         var unsafe *bytes = unsafe ((next->raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
-        var ok = self._ci->detach_for_refresh(fid, bytes, next->size(), false, true)
+        var ok = self._ci->detach_for_refresh(
+            fid,
+            bytes,
+            next->size(),
+            false,
+            true,
+        )
+
         if !ok {
             if from_disk {
                 kairo::std::destroy(next)
@@ -1368,7 +1459,9 @@ pub class LiveCheck {
             var rb: usize = 0
             var rn: usize = 0
             kairo::GlobalRecycler::instance().stats(&rn, &rb)
-            io::eprintln(f"[live] before the old instance goes: resident {kairo::resident_kib() / 1024} MB, heap in use {kairo::heap_in_use_kib() / 1024} MB, arena blocks recycled {rb / 1048576} MB")
+            io::eprintln(
+                f"[live] before the old instance goes: resident {kairo::resident_kib() / 1024} MB, heap in use {kairo::heap_in_use_kib() / 1024} MB, arena blocks recycled {rb / 1048576} MB",
+            )
         }
 
         self._drop()
@@ -1376,7 +1469,10 @@ pub class LiveCheck {
             var rb: usize = 0
             var rn: usize = 0
             kairo::GlobalRecycler::instance().stats(&rn, &rb)
-            io::eprintln(f"[live] after it went: resident {kairo::resident_kib() / 1024} MB, heap in use {kairo::heap_in_use_kib() / 1024} MB, arena blocks recycled {rb / 1048576} MB")
+            io::eprintln(
+                f"[live] after it went: resident {kairo::resident_kib() / 1024} MB, heap in use {kairo::heap_in_use_kib() / 1024} MB, arena blocks recycled {rb / 1048576} MB",
+            )
+
             self._ci = &null
             self._mem_report("the old instance destroyed")
         }
@@ -1432,7 +1528,11 @@ pub class LiveCheck {
             }
 
             var unsafe *bytes = unsafe ((self._ov_cur[i]->raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
-            self._ci->sm()->stage_overlay(Path(self._ov_path[i]), bytes, self._ov_cur[i]->size())
+            self._ci->sm()->stage_overlay(
+                Path(self._ov_path[i]),
+                bytes,
+                self._ov_cur[i]->size(),
+            )
         }
 
         self._ci->invocation()->frontend.sema_observer = self.observer

@@ -82,8 +82,8 @@ import AST::Context::InstantiationRegistry::{
     InstantiationRegistry,
 }
 import AST::DeclFacts::{
-    decl_clang,             decl_cxx_spelling, decl_fill_failed,  decl_foreign_fill,
-    decl_instantiated_from, decl_origin_fid,   decl_origin_set,   decl_publish_fill,
+    decl_clang,             decl_cxx_spelling, decl_fill_failed, decl_foreign_fill,
+    decl_instantiated_from, decl_origin_fid,   decl_origin_set,  decl_publish_fill,
     decl_set_imported,
 }
 import AST::Mixin::TemplateParams::ForeignFill
@@ -218,10 +218,15 @@ pub class ForeignInstantiate {
         self._active.push_back(shell)
         // Every registry request the fill makes is recorded on the shell's
         // entry, for a TU earlier in import order that comes later.
-        var unsafe *fe   = self._instances->entry_of(shell)
-        var unsafe *prev = self._instances->begin_fill(fe, fid, unsafe (alt as unsafe *void))
-        var        why   = string()
-        var        r     = self._fill_locked(shell, sink, fid, alt, unsafe &why)
+        var unsafe *fe = self._instances->entry_of(shell)
+        var unsafe *prev = self._instances->begin_fill(
+            fe,
+            fid,
+            unsafe (alt as unsafe *void),
+        )
+
+        var why = string()
+        var r   = self._fill_locked(shell, sink, fid, alt, unsafe &why)
         self._instances->end_fill(fe, prev)
         self._active.pop_back()
         if r == FillResult::Filled {
@@ -367,9 +372,14 @@ pub class ForeignInstantiate {
             return r
         }
 
-        var        first = *why
-        var        ax    = TypeExport(alt->ast(), alt->sema(), unsafe (alt as unsafe *void))
-        var unsafe *act  = ax.refind_template(ct)
+        var first = *why
+        var ax = TypeExport(
+            alt->ast(),
+            alt->sema(),
+            unsafe (alt as unsafe *void),
+        )
+
+        var unsafe *act = ax.refind_template(ct)
         if act == &null {
             return r
         }
@@ -586,7 +596,7 @@ pub class ForeignInstantiate {
         // this shell inside the fill, so `const vector&` is this instance.
         var own_usr: llvm::StringMap<unsafe *Decl>
         var variant: unsafe *llvm::StringMap<unsafe *Decl> = &null
-        var spec_usr                               = TypeImport::usr_of(spec)
+        var spec_usr = TypeImport::usr_of(spec)
         if !spec_usr.empty() {
             var unsafe *owner = self._reg->find((spec_usr).str())
             if owner != &null && owner != shell {
@@ -596,13 +606,22 @@ pub class ForeignInstantiate {
             }
         }
 
-        di.begin_fill(t, NameLookup::context_of(shell), unsafe (spec as unsafe *clang::Decl), variant)
+        di.begin_fill(
+            t,
+            NameLookup::context_of(shell),
+            unsafe (spec as unsafe *clang::Decl),
+            variant,
+        )
 
         var pairs = cxx::std::vector<(unsafe *void, unsafe *Decl)>()
         self._hindex->walk_declare(spec, &di, &pairs)
         self._complete_nested(csema, cctx, &di, &pairs)
         for var i: usize = 0; i < pairs.size(); ++i {
-            di.define(unsafe (pairs[i].0 as unsafe *clang::Decl), pairs[i].1, unsafe &ti)
+            di.define(
+                unsafe (pairs[i].0 as unsafe *clang::Decl),
+                pairs[i].1,
+                unsafe &ti,
+            )
         }
 
         di.define_instance(spec, shell, unsafe &ti)
@@ -612,13 +631,18 @@ pub class ForeignInstantiate {
         //    USR to it so a later import naming the spec finds this node.
         var usr = TypeImport::usr_of(spec)
         var sp = ti.spelling(
-            clang::QualType::getFromOpaquePtr((cctx->getCanonicalTagType(spec)).getAsOpaquePtr()),
+            clang::QualType::getFromOpaquePtr(
+                (cctx->getCanonicalTagType(spec)).getAsOpaquePtr(),
+            ),
         )
 
         decl_set_imported(
             shell,
             unsafe (spec as unsafe *void),
-            string(unsafe ((usr.data() as unsafe *const u8) as *const u8), usr.size()),
+            string(
+                unsafe ((usr.data() as unsafe *const u8) as *const u8),
+                usr.size(),
+            ),
             sp,
             unsafe (hs as unsafe *void),
             t->fid,
@@ -762,7 +786,12 @@ pub class ForeignInstantiate {
             return r
         }
 
-        var        ax    = TypeExport(alt->ast(), alt->sema(), unsafe (alt as unsafe *void))
+        var ax = TypeExport(
+            alt->ast(),
+            alt->sema(),
+            unsafe (alt as unsafe *void),
+        )
+
         var unsafe *aftd = ax.refind_function_template(ftd)
         if aftd == &null {
             return r
@@ -912,8 +941,11 @@ pub class ForeignInstantiate {
                 continue
             }
 
-            var unsafe *qspec = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(qrd)
-            var unsafe *qdef  = qrd->getDefinition()
+            var unsafe *qspec = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(
+                qrd,
+            )
+
+            var unsafe *qdef = qrd->getDefinition()
             if qdef == &null && qspec != &null {
                 // An implicit instance is complete when its template's pattern
                 // is defined: clang instantiates it on demand.
@@ -1161,11 +1193,11 @@ pub class ForeignInstantiate {
             return &null
         }
 
-        var        lock  = kairo::std::LockGuard(self._mu)
+        var        lock   = kairo::std::LockGuard(self._mu)
         var unsafe *csema = hs->sema()
-        var        slock = kairo::std::LockGuard(*hs->sema_lock())
-        var *diags = &csema->getDiagnostics()
-        var was    = diags->getSuppressAllDiagnostics()
+        var        slock  = kairo::std::LockGuard(*hs->sema_lock())
+        var        *diags = &csema->getDiagnostics()
+        var        was    = diags->getSuppressAllDiagnostics()
         diags->setSuppressAllDiagnostics(true)
         var trap = clang::DiagnosticErrorTrap(&*diags)
         var bad  = csema->DeduceReturnType(fd, fd->getLocation(), false)
@@ -1221,11 +1253,11 @@ pub class ForeignInstantiate {
             return false
         }
 
-        var        lock  = kairo::std::LockGuard(self._mu)
+        var        lock   = kairo::std::LockGuard(self._mu)
         var unsafe *cctx  = hs->ast()
         var unsafe *csema = hs->sema()
-        var        slock = kairo::std::LockGuard(*hs->sema_lock())
-        var tx = TypeExport(cctx, csema, unsafe (hs as unsafe *void))
+        var        slock  = kairo::std::LockGuard(*hs->sema_lock())
+        var        tx     = TypeExport(cctx, csema, unsafe (hs as unsafe *void))
         tx.reg       = self._reg
         tx.psym      = self.psym
         tx.instances = self._instances

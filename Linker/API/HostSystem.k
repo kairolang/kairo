@@ -195,7 +195,9 @@ pub class HostSystem {
                 panic PkgConfigError { message: f"{prog_name} was not found on PATH" }
             }
 
-            prog = string(unsafe ((found.get().c_str() as unsafe *const u8) as *const u8))
+            prog = string(
+                unsafe ((found.get().c_str() as unsafe *const u8) as *const u8),
+            )
         } else if !LinkFS::is_file(prog_name) {
             panic PkgConfigError { message: f"{prog_name} does not exist" }
         }
@@ -234,15 +236,22 @@ pub class HostSystem {
         var nerr = kairo::std::to_std_string(err_path)
         var redir: cxx::std::vector<cxx::std::optional<llvm::StringRef>>
         redir.push_back(cxx::std::optional<llvm::StringRef>(cxx::std::nullopt))
-        redir.push_back(cxx::std::optional<llvm::StringRef>(llvm::StringRef(nout)))
-        redir.push_back(cxx::std::optional<llvm::StringRef>(llvm::StringRef(nerr)))
+        redir.push_back(
+            cxx::std::optional<llvm::StringRef>(llvm::StringRef(nout)),
+        )
+
+        redir.push_back(
+            cxx::std::optional<llvm::StringRef>(llvm::StringRef(nerr)),
+        )
 
         var emsg:  cxx::std::string
         var failed                  = false
         var rc = llvm::sys::ExecuteAndWait(
             refs[0],
             llvm::ArrayRef<llvm::StringRef>(refs),
-            cxx::std::optional<llvm::ArrayRef<llvm::StringRef>>(cxx::std::nullopt),
+            cxx::std::optional<llvm::ArrayRef<llvm::StringRef>>(
+                cxx::std::nullopt,
+            ),
             llvm::ArrayRef<cxx::std::optional<llvm::StringRef>>(redir),
             0,
             0,

@@ -123,7 +123,11 @@ pub class ExprBodyDesugar derives ASTWriter<ExprBodyDesugar> {
     }
 
     fn transform_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<ExprBodyDesugar>::transform_closure_expr(self, n)
+        var unsafe *out = ASTWriter<ExprBodyDesugar>::transform_closure_expr(
+            self,
+            n,
+        )
+
         if n->body_expr == &null {
             return out
         }

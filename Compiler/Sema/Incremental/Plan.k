@@ -105,12 +105,12 @@ fn plan_num(const s: string) -> usize {
 ///          then `diag <bytes>`, the diagnostics as the run rendered them,
 ///          and `end`.
 pub class PlanModule {
-    pub var name:   string = ""
-    pub var path:   string = ""
-    pub var hash:   string = "" ///< I(m)
-    pub var macros: string = ""
-    pub var decls:  cxx::std::vector<string>
-    pub var scopes: cxx::std::vector<string>
+    pub var name:    string                   = ""
+    pub var path:    string                   = ""
+    pub var hash:    string                   = "" ///< I(m)
+    pub var macros:  string                   = ""
+    pub var decls:   cxx::std::vector<string>
+    pub var scopes:  cxx::std::vector<string>
     pub var surface: cxx::std::vector<string>
     pub var names:   cxx::std::vector<string>
     pub var overlay: cxx::std::vector<string>
@@ -323,7 +323,11 @@ class PlanIndex {
         for var mi: usize = 0; mi < mods->size(); ++mi {
             var *m = &(*mods)[mi]
             self.modules.push_back(m->name)
-            self.macros.try_emplace(kairo::sref(m->name), self.macros_v.size() as u32)
+            self.macros.try_emplace(
+                kairo::sref(m->name),
+                self.macros_v.size() as u32,
+            )
+
             self.macros_v.push_back(m->macros)
             self.surf.slot(m->name)
             for var s: string in m->surface {
@@ -360,7 +364,11 @@ class PlanIndex {
                 if !f[1].empty() {
                     var it = self.ext_of.find(kairo::sref(f[0]))
                     if it == self.ext_of.end() {
-                        self.ext_of.try_emplace(kairo::sref(f[0]), self.ext_of_v.size() as u32)
+                        self.ext_of.try_emplace(
+                            kairo::sref(f[0]),
+                            self.ext_of_v.size() as u32,
+                        )
+
                         self.ext_of_v.push_back(f[1])
                     } else {
                         self.ext_of_v[it->second as usize] = f[1]
@@ -587,9 +595,9 @@ class PlanDiff {
 /// \brief The modules to re-check, in the order the rules found them, each
 ///        with the first rule that names it.
 pub class IncrPlan {
-    pub var mods: cxx::std::vector<string>
-    pub var why:  cxx::std::vector<string>
-    priv var _in: llvm::StringSet<llvm::MallocAllocator>
+    pub var  mods: cxx::std::vector<string>
+    pub var  why:  cxx::std::vector<string>
+    priv var _in:  llvm::StringSet<llvm::MallocAllocator>
 
     pub fn IncrPlan(self) = default
 
@@ -609,7 +617,8 @@ pub class IncrPlan {
 }
 
 /// The modules of \p a and \p b are the same set.
-pub fn incr_plan_same_graph(a: *cxx::std::vector<PlanModule>, b: *cxx::std::vector<PlanModule>) -> bool {
+pub fn incr_plan_same_graph(a: *cxx::std::vector<PlanModule>,
+                            b: *cxx::std::vector<PlanModule>) -> bool {
     if a->size() != b->size() {
         return false
     }
@@ -774,7 +783,8 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                     reason = "R3 signature of " + id
                 } else if part == "layout" && d.layout.contains(kairo::sref(id)) {
                     reason = "R3 layout of " + id
-                } else if part == "body" && (d.body.contains(kairo::sref(id)) || d.sig.contains(kairo::sref(id))) {
+                } else if part == "body"
+                    && (d.body.contains(kairo::sref(id)) || d.sig.contains(kairo::sref(id))) {
                     reason = "R3 body of " + id
                 }
 
@@ -901,21 +911,29 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                     continue
                 }
 
-                var id          = r.subslice(5, r.size() - 5)
-                var cut: usize  = 0
+                var id         = r.subslice(5, r.size() - 5)
+                var cut: usize = 0
                 while cut < id.size() && id[cut] != ('#' as u8) {
                     cut += 1
                 }
 
                 var home = id.subslice(0, cut)
                 if out->has(home) {
-                    out->add(f->name, "R5 body of " + id + " in re-checked " + home)
+                    out->add(
+                        f->name,
+                        "R5 body of " + id + " in re-checked " + home,
+                    )
+
                     grew = true
                     break
                 }
 
                 if names_body.contains(kairo::sref(home)) {
-                    out->add(f->name, "R6 body of " + id + ", whose file names a changed body")
+                    out->add(
+                        f->name,
+                        "R6 body of " + id + ", whose file names a changed body",
+                    )
+
                     grew = true
                     break
                 }
@@ -953,9 +971,9 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
 ///
 /// \return the number of modules for which that is false; \p first names
 ///         the first, with what differs.
-pub fn incr_plan_verify(old:   *cxx::std::vector<PlanModule>,
-                        now:   *cxx::std::vector<PlanModule>,
-                        plan:  *IncrPlan,
+pub fn incr_plan_verify(old:          *cxx::std::vector<PlanModule>,
+                        now:          *cxx::std::vector<PlanModule>,
+                        plan:         *IncrPlan,
                         @inout first: string) -> usize {
     var at = llvm::StringMap<u32>()
     for var i: usize = 0; i < now->size(); ++i {
@@ -976,7 +994,9 @@ pub fn incr_plan_verify(old:   *cxx::std::vector<PlanModule>,
 
         var *b   = &(*now)[it->second as usize]
         var what = ""
-        if a->macros != b->macros || a->decls.size() != b->decls.size() || a->scopes.size() != b->scopes.size() {
+        if a->macros != b->macros
+            || a->decls.size() != b->decls.size()
+            || a->scopes.size() != b->scopes.size() {
             what = "interface"
         }
 

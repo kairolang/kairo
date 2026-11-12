@@ -29,29 +29,14 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Resolution::ModulePath::*
-import Tuning::*
-import WorkerArgs::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
+import Resolution::ModulePath::*
 import Server::CodeActions::*
 import Server::Completion::*
 import Server::Diagnostics::*
@@ -68,11 +53,26 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import WorkerArgs::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 /// The '\n'-terminated words of \p text.
 fn split_lines_(const text: string) -> [string] {
     var out: [string]
-    var at: usize = 0
+    var at:  usize    = 0
     while at < text.size() {
         var nl = find_from(text, "\n", at)
         if nl == usize::MAX {
@@ -89,7 +89,7 @@ fn split_lines_(const text: string) -> [string] {
 /// \p rel as a clangd PathMatch regex that matches only itself.
 fn path_regex_(const rel: string) -> string {
     var out: string = ""
-    var meta = ".^$|()[]{}*+?\\"
+    var meta        = ".^$|()[]{}*+?\\"
     for var i: usize = 0; i < rel.size(); ++i {
         var one = rel.subslice(i, 1)
         if find_from(meta, one, 0) != usize::MAX {
@@ -127,7 +127,7 @@ fn yaml_value_(const line: string, const key: string) -> string {
     }
 
     var out: string = ""
-    var i = at + key.size() + 5
+    var i           = at + key.size() + 5
     while i < line.size() {
         if line[i] == ('\'' as u8) {
             if ((i + 1) < line.size()) && (line[i + 1] == ('\'' as u8)) {
@@ -156,7 +156,10 @@ extend Server {
     }
 
     fn bridge_dir_(const self) -> string {
-        return Path::join_str(Path::join_str(self.bridge_root_(), ".kairo"), "clangd")
+        return Path::join_str(
+            Path::join_str(self.bridge_root_(), ".kairo"),
+            "clangd",
+        )
     }
 
     /// The text of \p path: its open buffer, else the disk.
@@ -176,14 +179,17 @@ extend Server {
     /// compile_commands.json (the root's, or build/'s), else every C/C++
     /// file under the root (build trees and dot-directories skipped).
     fn bridge_sources_(self) -> [string] {
-        var out: [string]
-        var r = self.bridge_root_()
+        var out:   [string]
+        var r               = self.bridge_root_()
         var cands: [string]
         cands.push_back(Path::join_str(r, "compile_commands.json"))
-        cands.push_back(Path::join_str(Path::join_str(r, "build"), "compile_commands.json"))
+        cands.push_back(
+            Path::join_str(Path::join_str(r, "build"), "compile_commands.json"),
+        )
+
         for var c: usize = 0; c < cands.size(); ++c {
             var text: string = ""
-            var doc = JsonDoc()
+            var doc          = JsonDoc()
             if (!LinkFS::read(cands[c], &text)) || (!doc.parse(text)) {
                 continue
             }
@@ -233,7 +239,10 @@ extend Server {
 
         var subs: [string]
         for var name: string in LinkFS::list_dir(dir) {
-            if name.empty() || (name[0] == ('.' as u8)) || (name == "build") || (name == "node_modules") {
+            if name.empty()
+                || (name[0] == ('.' as u8))
+                || (name == "build")
+                || (name == "node_modules") {
                 continue
             }
 
@@ -282,12 +291,12 @@ extend Server {
     /// followed.
     fn bridge_closure_(self,
                        const src: string,
-                       ks: *string,
-                       seen: *string,
-                       budget: *usize,
-                       memo: *{string: usize},
-                       m_k: *[string],
-                       m_h: *[string]) {
+                       ks:        *string,
+                       seen:      *string,
+                       budget:    *usize,
+                       memo:      *{string: usize},
+                       m_k:       *[string],
+                       m_h:       *[string]) {
         var st_f: [string]
         var st_d: [u32]
         st_f.push_back(src)
@@ -297,7 +306,7 @@ extend Server {
             var d = st_d[st_d.size() - 1]
             st_f.pop_back()
             st_d.pop_back()
-            var at = usize::MAX
+            var at  = usize::MAX
             var hit = memo->get(f)
             if hit != null {
                 at = *hit
@@ -310,9 +319,9 @@ extend Server {
                     *budget = *budget - 1
                 }
 
-                var kj: string = ""
-                var hj: string = ""
-                var names = quoted_includes(self.text_of_(f))
+                var kj:   string = ""
+                var hj:   string = ""
+                var names        = quoted_includes(self.text_of_(f))
                 for var i: usize = 0; i < names.size(); ++i {
                     var r = self.bridge_resolve_(f, names[i])
                     if r.empty() {
@@ -361,7 +370,7 @@ extend Server {
     /// files changed.
     fn bridge_scan_(self) {
         self.br_rescan = false
-        var srcs = self.bridge_sources_()
+        var srcs            = self.bridge_sources_()
         var found: [string]
         // A scan reads every source, and a large project has tens of
         // thousands: the `.k` files of a source nobody reported changed,
@@ -369,14 +378,21 @@ extend Server {
         // (kept in scan order, which a database keeps stable).
         var inc_of:  [string]
         var seen_of: [string]
-        var budget: usize = BRIDGE_INCLUDE_MAX_READS
-        var memo: {string: usize}
-        var m_k: [string]
-        var m_h: [string]
+        var budget:  usize           = BRIDGE_INCLUDE_MAX_READS
+        var memo:    {string: usize}
+        var m_k:     [string]
+        var m_h:     [string]
         for var i: usize = 0; i < srcs.size(); ++i {
-            var known = (i < self.br_src.size()) && (self.br_src[i] == srcs[i]) && (i < self.br_src_seen.size())
+            var known = (i < self.br_src.size())
+                && (self.br_src[i] == srcs[i])
+                && (i < self.br_src_seen.size())
             for var q: usize = 0; known && (q < self.br_changed.size()); ++q {
-                if (self.br_changed[q] == srcs[i]) || (find_from(self.br_src_seen[i], self.br_changed[q] + "\n", 0) != usize::MAX) {
+                if (self.br_changed[q] == srcs[i])
+                    || (find_from(
+                        self.br_src_seen[i],
+                        self.br_changed[q] + "\n",
+                        0,
+                    ) != usize::MAX) {
                     known = false
                 }
             }
@@ -387,14 +403,25 @@ extend Server {
             } else {
                 var ks:   string = ""
                 var seen: string = ""
-                self.bridge_closure_(srcs[i], &ks, &seen, &budget, &memo, &m_k, &m_h)
+                self.bridge_closure_(
+                    srcs[i],
+                    &ks,
+                    &seen,
+                    &budget,
+                    &memo,
+                    &m_k,
+                    &m_h,
+                )
+
                 inc_of.push_back(ks)
                 seen_of.push_back(seen)
             }
         }
 
         if budget == 0 {
-            self.trace(f"bridge: the header scan stopped at {BRIDGE_INCLUDE_MAX_READS} reads")
+            self.trace(
+                f"bridge: the header scan stopped at {BRIDGE_INCLUDE_MAX_READS} reads",
+            )
         }
 
         self.br_src      = srcs
@@ -416,7 +443,7 @@ extend Server {
 
             var incs = split_lines_(inc_of[i])
             for var k: usize = 0; k < incs.size(); ++k {
-                var p = incs[k]
+                var p  = incs[k]
                 var at = usize::MAX
                 for var q: usize = 0; q < found.size(); ++q {
                     if found[q] == p {
@@ -475,7 +502,10 @@ extend Server {
         self.br_rank    = rank
         self.br_cxx_w   = cxx_w
         self.br_c_w     = c_w
-        self.trace(f"bridge: {found.size()} included .k file(s) in {srcs.size()} C/C++ source(s)")
+        self.trace(
+            f"bridge: {found.size()} included .k file(s) in {srcs.size()} C/C++ source(s)",
+        )
+
         self.bridge_overlay_()
     }
 
@@ -486,9 +516,9 @@ extend Server {
     /// included files the one the user is looking at must not wait for the
     /// rest.
     fn bridge_next_(self) -> usize {
-        var best = usize::MAX
+        var best             = usize::MAX
         var best_rank: usize = 0
-        var top = self.br_recent.size() + 1 // above any source's recency
+        var top              = self.br_recent.size() + 1 // above any source's recency
         for var b: usize = 0; b < self.br_files.size(); ++b {
             if (!self.br_dirty[b]) || self.br_running[b] {
                 continue
@@ -502,7 +532,7 @@ extend Server {
             }
 
             if (best == usize::MAX) || (r > best_rank) {
-                best = b
+                best      = b
                 best_rank = r
             }
         }
@@ -529,8 +559,8 @@ extend Server {
     /// headers an earlier session wrote: stale but present until each
     /// file's job regenerates it.
     fn bridge_overlay_(self) {
-        var dir = self.bridge_dir_()
-        var ov  = Path::join_str(dir, "overlay.yaml")
+        var dir             = self.bridge_dir_()
+        var ov              = Path::join_str(dir, "overlay.yaml")
         var names: [string]
         var hdrs:  [string]
         for var b: usize = 0; b < self.br_files.size(); ++b {
@@ -575,10 +605,10 @@ extend Server {
             var j = i
             while (j > 0) && (names[j] < names[j - 1]) {
                 var n = names[j]
-                names[j] = names[j - 1]
+                names[j]     = names[j - 1]
                 names[j - 1] = n
                 var h = hdrs[j]
-                hdrs[j] = hdrs[j - 1]
+                hdrs[j]     = hdrs[j - 1]
                 hdrs[j - 1] = h
                 j -= 1
             }
@@ -590,8 +620,12 @@ extend Server {
                 y += ",\n"
             }
 
-            y += "    { \x27type\x27: \x27file\x27, \x27name\x27: " + yaml_word_(names[q]) + ", "
-            y += "\x27external-contents\x27: " + yaml_word_(hdrs[q]) + ", \x27use-external-name\x27: false }"
+            y += "    { \x27type\x27: \x27file\x27, \x27name\x27: " + yaml_word_(
+                names[q],
+            ) + ", "
+            y += "\x27external-contents\x27: " + yaml_word_(
+                hdrs[q],
+            ) + ", \x27use-external-name\x27: false }"
         }
 
         y += "\n  ]\n}\n"
@@ -623,11 +657,11 @@ extend Server {
     /// lose kcc's words until its own comes round); with none at all it is
     /// left out.
     fn bridge_includers_(self, words: *[string]) -> [string] {
-        var out:   [string]
-        var r    = self.bridge_root_()
-        var rr   = Path::real_path_of(r)
-        var any_cxx: string = ""
-        var any_c:   string = ""
+        var out:     [string]
+        var r                 = self.bridge_root_()
+        var rr                = Path::real_path_of(r)
+        var any_cxx: string   = ""
+        var any_c:   string   = ""
         for var b: usize = 0; b < self.br_files.size(); ++b {
             if any_cxx.empty() {
                 any_cxx = self.br_cxx_w[b]
@@ -669,9 +703,9 @@ extend Server {
                 continue
             }
 
-            var is_c = p.ends_with(".c") || p.ends_with(".m")
-            var w: string = ""
-            var ks = split_lines_(self.br_src_inc[i])
+            var is_c        = p.ends_with(".c") || p.ends_with(".m")
+            var w:   string = ""
+            var ks          = split_lines_(self.br_src_inc[i])
             for var k: usize = 0; w.empty() && (k < ks.size()); ++k {
                 for var b: usize = 0; w.empty() && (b < self.br_files.size()); ++b {
                     if self.br_files[b] == ks[k] {
@@ -711,10 +745,12 @@ extend Server {
     /// because kcc's words carry its `-std` and standard library, which a C
     /// source or a C++ file built by another compiler must not get.
     fn bridge_fragment_(self, const ov: string, all_words: *[string]) -> string {
-        var y = "CompileFlags:\n  Add: [-ivfsoverlay, " + yaml_word_(ov) + ", " + yaml_word_("-I" + self.bridge_dir_()) + "]\n"
+        var y = "CompileFlags:\n  Add: [-ivfsoverlay, " + yaml_word_(ov) + ", " + yaml_word_(
+            "-I" + self.bridge_dir_(),
+        ) + "]\n"
         var words: [string]
-        var inc = self.bridge_includers_(&words)
-        var sets: [string]
+        var inc             = self.bridge_includers_(&words)
+        var sets:  [string]
         for var q: usize = 0; q < words.size(); ++q {
             var dup = false
             for var g: usize = 0; g < sets.size(); ++g {
@@ -769,10 +805,10 @@ extend Server {
     /// not at all when every flag word is already in the file.
     fn bridge_clangd_(self, const ov: string) {
         var marker = "# Written by kals, the Kairo language server: clangd reads Kairo headers through it. Remove this line to keep your own edits."
-        var ws: [string]
-        var frag = self.bridge_fragment_(ov, &ws)
-        var path = Path::join_str(self.bridge_root_(), ".clangd")
-        var old: string = ""
+        var ws:  [string]
+        var frag          = self.bridge_fragment_(ov, &ws)
+        var path          = Path::join_str(self.bridge_root_(), ".clangd")
+        var old: string   = ""
         if LinkFS::read(path, &old) && (!old.starts_with(marker)) {
             var have = find_from(old, ov, 0) != usize::MAX
             for var k: usize = 0; have && (k < ws.size()); ++k {
@@ -784,7 +820,11 @@ extend Server {
             }
 
             self.br_said = frag
-            self.say(MSG_INFO, "the C/C++ files include Kairo files; for clangd to resolve them, add to " + path + ":\n" + frag)
+            self.say(
+                MSG_INFO,
+                "the C/C++ files include Kairo files; for clangd to resolve them, add to " + path + ":\n" + frag,
+            )
+
             return
         }
 
@@ -808,11 +848,11 @@ extend Server {
 
         self.docs.sync_all()
         var j = Job()
-        j.kind  = JobKind::Header
-        j.path  = self.br_files[b]
-        j.out   = self.scratch(".json")
-        j.log   = self.scratch(".log")
-        j.rev   = self.rev
+        j.kind       = JobKind::Header
+        j.path       = self.br_files[b]
+        j.out        = self.scratch(".json")
+        j.log        = self.scratch(".log")
+        j.rev        = self.rev
         j.started_ms = now_ms()
 
         var argv: [string]
@@ -884,14 +924,14 @@ extend Server {
 
         self.br_running[b] = false
         var text: string = ""
-        var doc = JsonDoc()
+        var doc          = JsonDoc()
         if !(LinkFS::read(j->out, &text) && doc.parse(text) && doc.get_bool(doc.root, SK_OK)) {
             self.trace(f"bridge: header job failed rc={rc} " + j->path)
             return // the last good header stays
         }
 
         var deps: string = ""
-        var x = doc.first(doc.get(doc.root, SK_DEPS))
+        var x            = doc.first(doc.get(doc.root, SK_DEPS))
         while x != JSON_NONE() {
             deps += doc.str(x)
             deps += "\n"
@@ -899,7 +939,11 @@ extend Server {
         }
 
         self.br_deps[b] = deps
-        var h = Path::join_str(self.bridge_dir_(), doc.get_str(doc.root, SK_HEADER))
+        var h = Path::join_str(
+            self.bridge_dir_(),
+            doc.get_str(doc.root, SK_HEADER),
+        )
+
         if LinkFS::is_file(h) {
             self.br_hdr[b] = h
         }
@@ -907,7 +951,7 @@ extend Server {
         // kcc's words for a C++ and for a C source that includes this
         // file: per file, since entries' flags differ.
         var cxx: string = ""
-        var a = doc.first(doc.get(doc.root, SK_CXX_FLAGS))
+        var a           = doc.first(doc.get(doc.root, SK_CXX_FLAGS))
         while a != JSON_NONE() {
             cxx += doc.str(a) + "\n"
             a = doc.next(a)

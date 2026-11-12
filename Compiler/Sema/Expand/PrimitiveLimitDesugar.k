@@ -111,7 +111,11 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
     }
 
     fn transform_chain_expr(self, n: unsafe *ChainExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<PrimitiveLimitDesugar>::transform_chain_expr(self, n)
+        var unsafe *out = ASTWriter<PrimitiveLimitDesugar>::transform_chain_expr(
+            self,
+            n,
+        )
+
         if n->base == &null || !isa<NamedIdentExpr>(n->base) || n->steps.size() == 0 {
             return out
         }
@@ -146,7 +150,10 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
             return out
         }
 
-        var k = PrimitiveLimits::of_name(self.sc->ctx->get_spelling(st->name->name))
+        var k = PrimitiveLimits::of_name(
+            self.sc->ctx->get_spelling(st->name->name),
+        )
+
         if k == PrimLimit::None { // ChainBinding: "no member".
             return out
         }
@@ -216,7 +223,10 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
             return
         }
 
-        var k = PrimitiveLimits::of_name(self.sc->ctx->get_spelling(s1->name->name))
+        var k = PrimitiveLimits::of_name(
+            self.sc->ctx->get_spelling(s1->name->name),
+        )
+
         if k == PrimLimit::None {
             return
         }
@@ -237,7 +247,12 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
         var name = PrimitiveLimits::name_of(k)
         if !PrimitiveLimits::exists(b, k) {
             var why = self._why_missing(b, k)
-            var d   = self.sc->diag->report(DiagID::R024E, range.start, f"'{sp}' has no '{name}'")
+            var d = self.sc->diag->report(
+                DiagID::R024E,
+                range.start,
+                f"'{sp}' has no '{name}'",
+            )
+
             d.first(range)
             if why != "" {
                 d.note(range.start, why)
@@ -281,7 +296,11 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
             return &null
         }
 
-        return self._int(range, rk, PrimitiveLimits::int_value(b, k, width, storage))
+        return self._int(
+            range,
+            rk,
+            PrimitiveLimits::int_value(b, k, width, storage),
+        )
     }
 
     /// The note under "'T' has no 'X'": why the format lacks it.

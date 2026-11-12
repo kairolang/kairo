@@ -351,7 +351,9 @@ pub fn panic_lifecycle_fn(tu: unsafe *TypeUtil, f: unsafe *Declarations::Functio
         return false
     }
 
-    return tu->decl_name(unsafe (f as unsafe *Decl)) == tu->decl_name(dc->dc_owner)
+    return tu->decl_name(unsafe (f as unsafe *Decl)) == tu->decl_name(
+        dc->dc_owner,
+    )
 }
 
 /// One function's own set, a `where` member's included (its body's).
@@ -498,7 +500,10 @@ pub fn panic_call_receiver(tu: unsafe *TypeUtil,
             var unsafe *last = ch->steps.get(n - 1)
             if last->access_kind != ChainExpr::AccessKind::ColonColon {
                 if n >= 2 {
-                    return panic_recv_value(tu, ch->steps.get(n - 2)->resolved_type)
+                    return panic_recv_value(
+                        tu,
+                        ch->steps.get(n - 2)->resolved_type,
+                    )
                 }
 
                 if ch->base != &null {
@@ -555,7 +560,10 @@ pub fn panic_base_at(tu:    unsafe *TypeUtil,
         return &null
     }
 
-    var unsafe *cd = cast<Declarations::ClassDecl>(NameLookup::representative(body))
+    var unsafe *cd = cast<Declarations::ClassDecl>(
+        NameLookup::representative(body),
+    )
+
     for var i: usize = 0; i < cd->derives_list.size(); ++i {
         var unsafe *e = cd->derives_list.get(i)
         if e == &null || e->base == &null || e->base->canonical == &null {
@@ -600,14 +608,22 @@ pub fn panic_bind_self(tu: unsafe *TypeUtil, d: unsafe *Deduction, owner_in: uns
 
         if gp->is_pack {
             if !d->pack_open(owner, gp->index) {
-                d->push_pack(owner, gp->index, tu->sc->types->generic_param(owner, gp->index, true))
+                d->push_pack(
+                    owner,
+                    gp->index,
+                    tu->sc->types->generic_param(owner, gp->index, true),
+                )
             }
 
             continue
         }
 
         if d->lookup(owner, gp->index) == &null {
-            d->bind(owner, gp->index, tu->sc->types->generic_param(owner, gp->index, false))
+            d->bind(
+                owner,
+                gp->index,
+                tu->sc->types->generic_param(owner, gp->index, false),
+            )
         }
     }
 }
@@ -1386,7 +1402,13 @@ pub class PanicWalk derives RecursiveASTVisitor<PanicWalk> {
 
         var unsafe *f = self._callee_fn(n)
         if f != &null {
-            self._call(n->range, f, n, panic_call_receiver(unsafe &self.tu, n, f))
+            self._call(
+                n->range,
+                f,
+                n,
+                panic_call_receiver(unsafe &self.tu, n, f),
+            )
+
             return true
         }
 
@@ -1405,27 +1427,52 @@ pub class PanicWalk derives RecursiveASTVisitor<PanicWalk> {
     }
 
     fn visit_unary_operator_expr(self, n: *UnaryOperatorExpr) -> bool {
-        self._op(unsafe (n as unsafe *Expr), n->resolved_op, self._type_of(n->operand))
+        self._op(
+            unsafe (n as unsafe *Expr),
+            n->resolved_op,
+            self._type_of(n->operand),
+        )
+
         return true
     }
 
     fn visit_binary_operator_expr(self, n: *BinaryOperatorExpr) -> bool {
-        self._op(unsafe (n as unsafe *Expr), n->resolved_op, self._type_of(n->lhs))
+        self._op(
+            unsafe (n as unsafe *Expr),
+            n->resolved_op,
+            self._type_of(n->lhs),
+        )
+
         return true
     }
 
     fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
-        self._op(unsafe (n as unsafe *Expr), n->resolved_op, self._type_of(n->lhs))
+        self._op(
+            unsafe (n as unsafe *Expr),
+            n->resolved_op,
+            self._type_of(n->lhs),
+        )
+
         return true
     }
 
     fn visit_subscript_expr(self, n: *SubscriptExpr) -> bool {
-        self._op(unsafe (n as unsafe *Expr), n->resolved_op, self._type_of(n->base))
+        self._op(
+            unsafe (n as unsafe *Expr),
+            n->resolved_op,
+            self._type_of(n->base),
+        )
+
         return true
     }
 
     fn visit_type_cast_expr(self, n: *TypeCastExpr) -> bool {
-        self._op(unsafe (n as unsafe *Expr), n->resolved_op, self._type_of(n->operand))
+        self._op(
+            unsafe (n as unsafe *Expr),
+            n->resolved_op,
+            self._type_of(n->operand),
+        )
+
         return true
     }
 
@@ -1859,7 +1906,12 @@ pub class EffectTable {
         for var i: usize = from; i < self.entries.size(); ++i {
             var e = self.entries[i]
             if e.fd != &null {
-                panic_store_fn(sc->ctx, e.fd, unsafe &empty, Declarations::PanicSetState::Final)
+                panic_store_fn(
+                    sc->ctx,
+                    e.fd,
+                    unsafe &empty,
+                    Declarations::PanicSetState::Final,
+                )
             }
 
             if e.ce != &null {
@@ -1932,7 +1984,12 @@ pub class EffectTable {
 
                 changed = true
                 if e.fd != &null {
-                    panic_store_fn(e.sc->ctx, e.fd, unsafe &cur, Declarations::PanicSetState::Final)
+                    panic_store_fn(
+                        e.sc->ctx,
+                        e.fd,
+                        unsafe &cur,
+                        Declarations::PanicSetState::Final,
+                    )
                 } else {
                     e.ce->panic_eff.from_vec(unsafe &cur, e.sc->ctx)
                 }

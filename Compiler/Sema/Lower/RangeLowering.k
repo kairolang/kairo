@@ -79,7 +79,11 @@ pub class RangeLowering derives ASTWriter<RangeLowering> {
     }
 
     fn transform_range_expr(self, n: unsafe *RangeExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<RangeLowering>::transform_range_expr(self, n)
+        var unsafe *out = ASTWriter<RangeLowering>::transform_range_expr(
+            self,
+            n,
+        )
+
         if n->is_poisoned() || n->type_ == &null {
             return out
         }
@@ -99,7 +103,9 @@ pub class RangeLowering derives ASTWriter<RangeLowering> {
         }
 
         if self.sc->well_known->get(k) == &null {
-            kairo::std::ice_fail(f"RangeLowering: the '{to_string(k)}' lang item is unbound")
+            kairo::std::ice_fail(
+                f"RangeLowering: the '{to_string(k)}' lang item is unbound",
+            )
         }
 
         var        at     = n->range

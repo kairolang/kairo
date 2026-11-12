@@ -121,7 +121,10 @@ pub class MuslProvider derives SysrootProvider {
 
         var inc = dst + "/include"
         if !MuslProvider::install_headers(src, ma, inc) {
-            return out.fail(f"musl install-headers ARCH={ma} into {inc} failed", "")
+            return out.fail(
+                f"musl install-headers ARCH={ma} into {inc} failed",
+                "",
+            )
         }
 
         for var u: string in ctx->recipe.list("libc", "uapi") {
@@ -153,8 +156,14 @@ pub class MuslProvider derives SysrootProvider {
         }
 
         if !LinkFS::write(gen + "/alltypes.h", MuslProvider::alltypes(src, ma))
-            || !LinkFS::write(gen + "/syscall.h", MuslProvider::syscall_h(src, ma)) {
-            return out.fail(f"cannot write the generated headers under {gen}", "")
+            || !LinkFS::write(
+                gen + "/syscall.h",
+                MuslProvider::syscall_h(src, ma),
+            ) {
+            return out.fail(
+                f"cannot write the generated headers under {gen}",
+                "",
+            )
         }
 
         var ver = ""
@@ -262,7 +271,10 @@ pub class MuslProvider derives SysrootProvider {
                 }
 
                 if !LinkFS::is_file(from) {
-                    return out.fail(f"musl: no crt object {stem} for ARCH={ma}", "")
+                    return out.fail(
+                        f"musl: no crt object {stem} for ARCH={ma}",
+                        "",
+                    )
                 }
 
                 if !SysRun::put_file(from, lib + "/" + name, false) {
@@ -291,7 +303,11 @@ pub class MuslProvider derives SysrootProvider {
             if LinkFS::is_dir(p) {
                 for var m: string in LinkFS::list_dir(p) {
                     if LinkText::ends_with(m, ".h") && LinkFS::is_file(p + "/" + m) {
-                        if !SysRun::put_file(p + "/" + m, inc + "/" + n + "/" + m, false) {
+                        if !SysRun::put_file(
+                            p + "/" + m,
+                            inc + "/" + n + "/" + m,
+                            false,
+                        ) {
                             return false
                         }
                     }
@@ -304,8 +320,14 @@ pub class MuslProvider derives SysrootProvider {
         }
 
         LinkFS::make_dirs(inc + "/bits")
-        if !LinkFS::write(inc + "/bits/alltypes.h", MuslProvider::alltypes(src, ma))
-            || !LinkFS::write(inc + "/bits/syscall.h", MuslProvider::syscall_h(src, ma)) {
+        if !LinkFS::write(
+            inc + "/bits/alltypes.h",
+            MuslProvider::alltypes(src, ma),
+        )
+            || !LinkFS::write(
+                inc + "/bits/syscall.h",
+                MuslProvider::syscall_h(src, ma),
+            ) {
             return false
         }
 
@@ -387,7 +409,10 @@ pub class MuslProvider derives SysrootProvider {
         for var d: string in dirs {
             for var n: string in LinkFS::list_dir(src + "/" + d) {
                 if LinkText::ends_with(n, ".c") && LinkFS::is_file(src + "/" + d + "/" + n) {
-                    base_objs.push_back(d + "/" + LinkText::slice(n, 0, n.size() - 2))
+                    base_objs.push_back(
+                        d + "/" + LinkText::slice(n, 0, n.size() - 2),
+                    )
+
                     base_srcs.push_back(d + "/" + n)
                 }
             }
@@ -406,7 +431,9 @@ pub class MuslProvider derives SysrootProvider {
                 for var i: usize = 0; i < arch_objs.size(); ++i {
                     if arch_objs[i] == stem {
                         dup = true
-                        if rank < MuslProvider::_ext_rank(LinkFS::filename(arch_srcs[i])) {
+                        if rank < MuslProvider::_ext_rank(
+                            LinkFS::filename(arch_srcs[i]),
+                        ) {
                             arch_srcs[i] = ad + "/" + n
                         }
                     }
@@ -511,7 +538,10 @@ pub class MuslProvider derives SysrootProvider {
 
         src = ctx->share + "/musl"
         if !LinkFS::is_dir(src + "/arch/" + ma) || !LinkFS::is_file(src + "/VERSION") {
-            return out.refuse(f"share input {src} is not a musl source tree with arch/{ma}", "")
+            return out.refuse(
+                f"share input {src} is not a musl source tree with arch/{ma}",
+                "",
+            )
         }
 
         return true

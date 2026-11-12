@@ -86,15 +86,15 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Statements::ReturnStmt
-import AST::ParamMode::ParamMode
 import AST::Node::Program::TopLevelKind
+import AST::Node::Statements::ReturnStmt
 import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
     PointerType,
 }
 import AST::OperatorFacts::OperatorFacts
+import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::DiagBuilder::DiagBuilder
@@ -194,7 +194,11 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
             "'ffi::ref' and 'ffi::mref' are not types: they may only be the whole return type of a definition of a function C++ declares returning a reference",
         )
 
-        b.first(t->range, "nothing can hold a reference; a pointer ('*T') is the Kairo spelling of an alias")
+        b.first(
+            t->range,
+            "nothing can hold a reference; a pointer ('*T') is the Kairo spelling of an alias",
+        )
+
         b.emit()
         self._degrade(t)
         return true
@@ -229,7 +233,11 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
             f"'{nm}' cannot return 'ffi::ref' / 'ffi::mref': {why}",
         )
 
-        b.first(rt->range, "only a definition of a C++-declared function or an override of a C++ virtual returns a reference")
+        b.first(
+            rt->range,
+            "only a definition of a C++-declared function or an override of a C++ virtual returns a reference",
+        )
+
         b.emit()
         self._degrade(rt)
         return true
@@ -248,7 +256,8 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
             var unsafe *first = n->first_decl()
             if first != &null && first != n && decl_is_imported(unsafe (first as unsafe *Decl)) {
                 var unsafe *owner = first->semantic_dc
-                if owner != &null && owner->dc_owner != &null
+                if owner != &null
+                    && owner->dc_owner != &null
                     && decl_generic_params(owner->dc_owner).size() > 0 {
                     return "a member of a C++ class template cannot spell a C++ reference return yet"
                 }
@@ -259,8 +268,8 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
             return "it defines a function Kairo declares, not one C++ declares"
         }
 
-        var unsafe *dc = n->semantic_dc
-        var cd: unsafe *ClassDecl = &null
+        var unsafe *dc                   = n->semantic_dc
+        var        cd: unsafe *ClassDecl = &null
         if dc != &null && dc->dc_owner != &null {
             cd = dyn_cast<ClassDecl>(dc->dc_owner)
         }
@@ -357,7 +366,8 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
 
         var unsafe *mp = self._tu.pointee(mu)
         var unsafe *bp = self._tu.pointee(bu)
-        if mp != &null && bp != &null
+        if mp != &null
+            && bp != &null
             && self._tu.record_decl(mp) != &null
             && self._tu.record_decl(bp) != &null {
             return true
@@ -385,7 +395,8 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         }
 
         var cxx_ref = is_cxx_ref_canonical(bc)
-        var mine    = m->return_type != &null && (is_ffi_ref_spelled(m->return_type) || is_cxx_ref_canonical(mc))
+        var mine = m->return_type != &null
+            && (is_ffi_ref_spelled(m->return_type) || is_cxx_ref_canonical(mc))
         if (!cxx_ref) && (!mine) && self._plain_return_agrees(mc, bc) {
             return
         }
@@ -406,7 +417,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
             have = self.sc->ctx->get_spelling(m->return_type->range)
         }
 
-        var at   = if (m->return_type != &null) => (m->return_type->range) else => m->name.range
+        var at = if (m->return_type != &null) => (m->return_type->range) else => m->name.range
         var b = self.sc->diag->report(
             DiagID::SC294E,
             at.start,
@@ -414,12 +425,20 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         )
 
         b.first(at)
-        self._return_fixit(unsafe &b, m, bc, want, "as the C++ declaration does")
+        self._return_fixit(
+            unsafe &b,
+            m,
+            bc,
+            want,
+            "as the C++ declaration does",
+        )
+
         b.note(
             DiagCode(DiagID::SC294N),
             base->range.start,
             "the C++ virtual it overrides, whose return it must match",
         )
+
         b.child_first(base->range)
         b.emit()
         // Judged here; visit_type must not report it a second time when the
@@ -433,18 +452,21 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
     /// after the parameters (and a `panic` specifier, which comes first)
     /// when \p m has none.
     priv fn _return_fixit(self,
-                          b:         unsafe *DiagBuilder,
-                          m:         unsafe *FunctionDecl,
-                          bc:        unsafe *Type,
+                          b:          unsafe *DiagBuilder,
+                          m:          unsafe *FunctionDecl,
+                          bc:         unsafe *Type,
                           const want: string,
                           const why:  string) {
-        var bvoid   = bc == &null || self._tu.is_void(bc)
+        var bvoid = bc == &null || self._tu.is_void(bc)
         var written = m->return_type != &null && m->return_type->range.is_valid()
-        var after   = if (m->panic_range.is_valid()) => (m->panic_range) else => m->params_end
+        var after = if (m->panic_range.is_valid()) => (m->panic_range) else => m->params_end
         if written && bvoid {
             if after.is_valid() {
                 b->remove(
-                    SourceRange::from_bounds(after.end, m->return_type->range.end),
+                    SourceRange::from_bounds(
+                        after.end,
+                        m->return_type->range.end,
+                    ),
                     f"return nothing, {why}",
                 )
             }
@@ -502,8 +524,8 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
             return false
         }
 
-        var mq = canon_quals(mp)
-        var bq = canon_quals(bp)
+        var        mq   = canon_quals(mp)
+        var        bq   = canon_quals(bp)
         var unsafe *mpu = canon_unqual(mp)
         var unsafe *bpu = canon_unqual(bp)
         if self._tu.record_decl(mpu) == &null || self._tu.record_decl(bpu) == &null {
@@ -519,7 +541,9 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         return mpu == bpu || Substitution(self.sc).derives_from(mpu, bpu)
     }
 
-    priv fn _check_kairo_override_return(self, m: unsafe *FunctionDecl, base: unsafe *FunctionDecl) {
+    priv fn _check_kairo_override_return(self,
+                                         m:    unsafe *FunctionDecl,
+                                         base: unsafe *FunctionDecl) {
         // \p base has \p m's `self` constness: the base walk compares it
         // (overridden_at), since a `const self` beside a plain-`self`
         // virtual is another method (classes-inheritance.mdx).
@@ -551,7 +575,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         }
 
         var at = if (m->return_type != &null) => (m->return_type->range) else => m->name.range
-        var b  = self.sc->diag->report(
+        var b = self.sc->diag->report(
             DiagID::SC297E,
             at.start,
             f"'{nm}' returns '{have}', but the virtual it overrides returns '{want}'",
@@ -562,13 +586,22 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
             want = self._tu.return_fix(m->return_type, bc)
         }
 
-        self._return_fixit(unsafe &b, m, bc, want, "as the overridden method does")
-        var bat = if (base->return_type != &null) => (base->return_type->range) else => base->name.range
+        self._return_fixit(
+            unsafe &b,
+            m,
+            bc,
+            want,
+            "as the overridden method does",
+        )
+
+        var bat = if (base->return_type != &null) => (base->return_type->range)
+                  else => base->name.range
         b.note(
             DiagCode(DiagID::SC297N),
             bat.start,
             "the virtual it overrides, whose return it must match",
         )
+
         b.child_first(bat)
         b.emit()
         m->poison()
@@ -606,7 +639,8 @@ pub fn ref_return_local_root(e: unsafe *Expr) -> unsafe *Decl {
             var unsafe *ch = cast<ChainExpr>(x)
             for var i: usize = 0; i < ch->steps.size(); ++i {
                 var k = ch->steps.get(i)->access_kind
-                if k == ChainExpr::AccessKind::Arrow || k == ChainExpr::AccessKind::QuestionArrow
+                if k == ChainExpr::AccessKind::Arrow
+                    || k == ChainExpr::AccessKind::QuestionArrow
                     || k == ChainExpr::AccessKind::ColonColon {
                     return &null
                 }
@@ -634,7 +668,8 @@ pub fn ref_return_local_root(e: unsafe *Expr) -> unsafe *Decl {
 /// reached through it is not part of the object that holds it.
 fn reaches_out(t: unsafe *Type) -> bool {
     var unsafe *c = canon_unqual(t)
-    return c != &null && (isa<PointerType>(c) || isa<CXXLValueRefType>(c) || isa<CXXRValueRefType>(c))
+    return c != &null
+        && (isa<PointerType>(c) || isa<CXXLValueRefType>(c) || isa<CXXRValueRefType>(c))
 }
 
 /// \p d when it is storage that ends with the call: a local (not
@@ -685,7 +720,7 @@ pub fn check_ref_return_value(sc:       unsafe *SemaContext,
     }
 
     var cat = v->value_category
-    var ok  = cat == Expr::ValueCategory::LValue
+    var ok = cat == Expr::ValueCategory::LValue
         || (isa<CXXRValueRefType>(dc) && cat == Expr::ValueCategory::XValue)
     if !ok {
         var b = sc->diag->report(
@@ -694,7 +729,11 @@ pub fn check_ref_return_value(sc:       unsafe *SemaContext,
             "a reference return returns a place, and this is a temporary: the caller would be left a reference to nothing",
         )
 
-        b.first(v->range, "return a variable, a field or an element that outlives the call")
+        b.first(
+            v->range,
+            "return a variable, a field or an element that outlives the call",
+        )
+
         b.emit()
         return
     }
@@ -714,7 +753,12 @@ pub fn check_ref_return_value(sc:       unsafe *SemaContext,
     )
 
     b.first(v->range, "returned by reference")
-    b.note(DiagCode(DiagID::SC295N), loc->range.start, f"'{nm}' is declared here and ends with the call")
+    b.note(
+        DiagCode(DiagID::SC295N),
+        loc->range.start,
+        f"'{nm}' is declared here and ends with the call",
+    )
+
     b.child_first(loc->range)
     b.emit()
 }

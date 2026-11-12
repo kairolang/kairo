@@ -79,12 +79,12 @@ ffi "c++" import "memory"
 ffi "c++" import "cstring"
 
 import AST::Context::ASTContext::ASTContext
-import AST::Context::DepLog::dep_log_current
 import AST::Context::CanonicalTypes::{
     canon_hash_ptr,
     canon_hash_u64,
 }
 import AST::Context::DeclContext::DeclContextKind
+import AST::Context::DepLog::dep_log_current
 import AST::DeclFacts::{
     PackSetOrder, decl_dedup_pack_args, decl_generic_params, decl_is_imported, decl_pack_set_at,
     decl_pattern, decl_requires_clause, decl_spec_args,
@@ -556,7 +556,16 @@ pub class InstantiationRegistry {
             return &null
         }
 
-        var unsafe *e = self._new_entry(primary, *args, node, false, fid, kr, ks)
+        var unsafe *e = self._new_entry(
+            primary,
+            *args,
+            node,
+            false,
+            fid,
+            kr,
+            ks,
+        )
+
         self._table[h].push_back(e)
         self._by_node[node as usize as u64] = e
         self._select_into(e)
@@ -1297,7 +1306,12 @@ pub class InstantiationRegistry {
                     return pf->return_type == af->return_type
                 }
 
-                return self._match(pf->return_type, af->return_type, spec, binds)
+                return self._match(
+                    pf->return_type,
+                    af->return_type,
+                    spec,
+                    binds,
+                )
             } case TypeKind::RecordType {
                 // `Box<P>` against `Box<i32>`: the same template (an instance
                 // node and an explicit spec both lead back to the primary),
@@ -1349,7 +1363,10 @@ pub class InstantiationRegistry {
 
         var unsafe *row = self._row_copy(r)
         self._rows[self._row_hash(r->conformer, r->iface)].push_back(row)
-        self._rows_by_conformer[self._conformer_hash(r->conformer)].push_back(row)
+        self._rows_by_conformer[self._conformer_hash(r->conformer)].push_back(
+            row,
+        )
+
         return row
     }
 
@@ -1363,7 +1380,7 @@ pub class InstantiationRegistry {
         }
 
         var rlock = kairo::std::SharedLock(self._mu)
-        var it    = self._rows_by_conformer.find(self._conformer_hash(conformer))
+        var it = self._rows_by_conformer.find(self._conformer_hash(conformer))
         if it == self._rows_by_conformer.end() {
             return
         }
@@ -1425,7 +1442,11 @@ pub class InstantiationRegistry {
 
     /// Caller holds the lock.
     priv fn _row_copy(self, r: unsafe *ConformanceRow) -> unsafe *ConformanceRow {
-        var mem: unsafe *void = self._arena.alloc(sizeof(ConformanceRow), alignof(ConformanceRow))
+        var mem: unsafe *void = self._arena.alloc(
+            sizeof(ConformanceRow),
+            alignof(ConformanceRow),
+        )
+
         var unsafe *row = kairo::construct_at<ConformanceRow>(mem)
         row->conformer  = r->conformer
         row->iface      = r->iface
@@ -1589,7 +1610,7 @@ pub class InstantiationRegistry {
             return false
         }
 
-        var lock = kairo::std::LockGuard(self._mu)
+        var        lock = kairo::std::LockGuard(self._mu)
         var unsafe *bit = self._latch(e, l)
         if *bit {
             return false
@@ -1650,8 +1671,12 @@ pub class InstantiationRegistry {
         }
     }
 
-    priv fn _decl_dead(self, d: unsafe *Decl, dead: unsafe *kairo::AddrRanges, shells: unsafe *llvm::DenseSet<u64>) -> bool {
-        return d != &null && (dead->has(unsafe (d as unsafe *const void)) || shells->contains(d as usize as u64))
+    priv fn _decl_dead(self,
+                       d:      unsafe *Decl,
+                       dead:   unsafe *kairo::AddrRanges,
+                       shells: unsafe *llvm::DenseSet<u64>) -> bool {
+        return d != &null
+            && (dead->has(unsafe (d as unsafe *const void)) || shells->contains(d as usize as u64))
     }
 
     priv fn _row_dead(self,
@@ -1660,11 +1685,14 @@ pub class InstantiationRegistry {
                       types:  unsafe *llvm::DenseSet<u64>,
                       shells: unsafe *llvm::DenseSet<u64>,
                       rows:   unsafe *llvm::DenseSet<u64>) -> bool {
-        if types->contains(r->conformer as usize as u64) || types->contains(r->iface as usize as u64) {
+        if types->contains(r->conformer as usize as u64)
+            || types->contains(r->iface as usize as u64) {
             return true
         }
 
-        if self._decl_dead(r->iface_decl, dead, shells) || self._decl_dead(r->declared, dead, shells) || self._decl_dead(r->hidden, dead, shells) {
+        if self._decl_dead(r->iface_decl, dead, shells)
+            || self._decl_dead(r->declared, dead, shells)
+            || self._decl_dead(r->hidden, dead, shells) {
             return true
         }
 
@@ -1704,10 +1732,13 @@ pub class InstantiationRegistry {
             }
         }
 
-        return (r->covered_by != &null && rows->contains(r->covered_by as usize as u64)) || (r->clash != &null && rows->contains(r->clash as usize as u64))
+        return (r->covered_by != &null && rows->contains(r->covered_by as usize as u64))
+            || (r->clash != &null && rows->contains(r->clash as usize as u64))
     }
 
-    priv fn _rows_filter(self, l: unsafe *cxx::std::vector<unsafe *ConformanceRow>, rows: unsafe *llvm::DenseSet<u64>) {
+    priv fn _rows_filter(self,
+                         l:    unsafe *cxx::std::vector<unsafe *ConformanceRow>,
+                         rows: unsafe *llvm::DenseSet<u64>) {
         var b = cxx::std::vector<unsafe *ConformanceRow>()
         for var k: usize = 0; k < l->size(); ++k {
             if !rows->contains((*l)[k] as usize as u64) {
@@ -1738,7 +1769,10 @@ pub class InstantiationRegistry {
     ///                   tables, so the re-check builds them from the new
     ///                   text, and nothing is cleared yet (a queued file's
     ///                   old tree may hold one until its turn).
-    pub fn sweep_dead(self, dead: unsafe *kairo::AddrRanges, types: unsafe *llvm::DenseSet<u64>, rows_only: bool) -> usize {
+    pub fn sweep_dead(self,
+                      dead:      unsafe *kairo::AddrRanges,
+                      types:     unsafe *llvm::DenseSet<u64>,
+                      rows_only: bool) -> usize {
         var lock   = kairo::std::LockGuard(self._mu)
         var shells = llvm::DenseSet<u64>()
         for var i: usize = 0; i < self._dropped.size(); ++i {
@@ -1784,7 +1818,13 @@ pub class InstantiationRegistry {
                     continue
                 }
 
-                if self._row_dead(all[i], dead, types, unsafe &shells, unsafe &rows) {
+                if self._row_dead(
+                    all[i],
+                    dead,
+                    types,
+                    unsafe &shells,
+                    unsafe &rows,
+                ) {
                     rows.insert(all[i] as usize as u64)
                     grew = true
                 }
@@ -1812,7 +1852,8 @@ pub class InstantiationRegistry {
         // A declared list is keyed by the declaring declaration's address.
         var keys = cxx::std::vector<u64>()
         for var it = self._declared.begin(); it != self._declared.end(); ++it {
-            if dead->has(unsafe ((it->first as usize) as unsafe *const void)) || shells.contains(it->first) {
+            if dead->has(unsafe ((it->first as usize) as unsafe *const void))
+                || shells.contains(it->first) {
                 keys.push_back(it->first)
             }
         }
@@ -2029,7 +2070,9 @@ pub class InstantiationRegistry {
             // used, and from where (relive_log).
             if self.relive_log != &null {
                 self.relive_log->push_back(e)
-                self.relive_at->push_back(if (via != &null) => (via->use_at) else => at)
+                self.relive_at->push_back(
+                    if (via != &null) => (via->use_at) else => at,
+                )
             }
 
             return false
@@ -2090,7 +2133,9 @@ pub class InstantiationRegistry {
     priv fn _check_live(self, e: unsafe *InstanceEntry) {
         eval if defined!(DEBUG) {
             if (e->depth == 0) != (e->liveness == InstLiveness::Minted) {
-                kairo::std::ice_fail(r"InstantiationRegistry: an entry's liveness and depth disagree")
+                kairo::std::ice_fail(
+                    r"InstantiationRegistry: an entry's liveness and depth disagree",
+                )
             }
         }
     }
@@ -2125,7 +2170,10 @@ pub class InstantiationRegistry {
     }
 
     priv fn _conformer_hash(self, conformer: unsafe *Type) -> u64 {
-        return canon_hash_ptr(0, unsafe (canon_unqual(conformer) as unsafe *void)) >> 1 // as _row_hash.
+        return canon_hash_ptr( // as _row_hash.
+            0,
+            unsafe (canon_unqual(conformer) as unsafe *void),
+        ) >> 1
     }
 
     /// Under the lock (either mode).
@@ -2211,7 +2259,11 @@ pub class InstantiationRegistry {
                        fid:         u32,
                        kr:          u64,
                        ks:          u64) -> unsafe *InstanceEntry {
-        var mem: unsafe *void = self._arena.alloc(sizeof(InstanceEntry), alignof(InstanceEntry))
+        var mem: unsafe *void = self._arena.alloc(
+            sizeof(InstanceEntry),
+            alignof(InstanceEntry),
+        )
+
         var unsafe *e = kairo::construct_at<InstanceEntry>(mem)
         e->primary     = primary
         e->decl        = decl
@@ -2519,7 +2571,11 @@ pub class InstantiationRegistry {
         n->is_implicit        = true
         n->lexical_dc         = p->semantic_dc
         n->semantic_dc        = p->semantic_dc
-        n->generic_params.from_raw(unsafe (&null as unsafe *(unsafe *GenericParamDecl)), 0)
+        n->generic_params.from_raw(
+            unsafe (&null as unsafe *(unsafe *GenericParamDecl)),
+            0,
+        )
+
         n->spec_args.from_raw(unsafe (&null as unsafe *(unsafe *Type)), 0)
         n->requires_clause   = &null
         n->spec_kind         = SpecKind::Instantiated
@@ -2534,9 +2590,20 @@ pub class InstantiationRegistry {
         if isa<ClassDecl>(primary) {
             var unsafe *p = cast<ClassDecl>(primary)
             var unsafe *n = self._alloc<ClassDecl>()
-            self._shell<ClassDecl>(n, p, DeclKind::ClassDecl, DeclContextKind::Class, ctx)
+            self._shell<ClassDecl>(
+                n,
+                p,
+                DeclKind::ClassDecl,
+                DeclContextKind::Class,
+                ctx,
+            )
+
             n->fields.from_raw(unsafe (&null as unsafe *(unsafe *FieldDecl)), 0)
-            n->methods.from_raw(unsafe (&null as unsafe *(unsafe *FunctionDecl)), 0)
+            n->methods.from_raw(
+                unsafe (&null as unsafe *(unsafe *FunctionDecl)),
+                0,
+            )
+
             n->derives_list.from_raw(&null, 0)
             n->implements.from_raw(&null, 0)
             n->is_final    = p->is_final
@@ -2547,9 +2614,20 @@ pub class InstantiationRegistry {
         if isa<StructDecl>(primary) {
             var unsafe *p = cast<StructDecl>(primary)
             var unsafe *n = self._alloc<StructDecl>()
-            self._shell<StructDecl>(n, p, DeclKind::StructDecl, DeclContextKind::Struct, ctx)
+            self._shell<StructDecl>(
+                n,
+                p,
+                DeclKind::StructDecl,
+                DeclContextKind::Struct,
+                ctx,
+            )
+
             n->fields.from_raw(unsafe (&null as unsafe *(unsafe *FieldDecl)), 0)
-            n->methods.from_raw(unsafe (&null as unsafe *(unsafe *FunctionDecl)), 0)
+            n->methods.from_raw(
+                unsafe (&null as unsafe *(unsafe *FunctionDecl)),
+                0,
+            )
+
             n->implements.from_raw(&null, 0)
             return n
         }
@@ -2557,9 +2635,20 @@ pub class InstantiationRegistry {
         if isa<UnionDecl>(primary) {
             var unsafe *p = cast<UnionDecl>(primary)
             var unsafe *n = self._alloc<UnionDecl>()
-            self._shell<UnionDecl>(n, p, DeclKind::UnionDecl, DeclContextKind::Union, ctx)
+            self._shell<UnionDecl>(
+                n,
+                p,
+                DeclKind::UnionDecl,
+                DeclContextKind::Union,
+                ctx,
+            )
+
             n->fields.from_raw(unsafe (&null as unsafe *(unsafe *FieldDecl)), 0)
-            n->methods.from_raw(unsafe (&null as unsafe *(unsafe *FunctionDecl)), 0)
+            n->methods.from_raw(
+                unsafe (&null as unsafe *(unsafe *FunctionDecl)),
+                0,
+            )
+
             n->is_anonymous = p->is_anonymous
             return n
         }
@@ -2567,8 +2656,19 @@ pub class InstantiationRegistry {
         if isa<EnumDecl>(primary) {
             var unsafe *p = cast<EnumDecl>(primary)
             var unsafe *n = self._alloc<EnumDecl>()
-            self._shell<EnumDecl>(n, p, DeclKind::EnumDecl, DeclContextKind::Enum, ctx)
-            n->variants.from_raw(unsafe (&null as unsafe *(unsafe *EnumVariantDecl)), 0)
+            self._shell<EnumDecl>(
+                n,
+                p,
+                DeclKind::EnumDecl,
+                DeclContextKind::Enum,
+                ctx,
+            )
+
+            n->variants.from_raw(
+                unsafe (&null as unsafe *(unsafe *EnumVariantDecl)),
+                0,
+            )
+
             n->underlying = p->underlying
             n->is_adt     = p->is_adt
             n->is_open    = p->is_open
@@ -2586,7 +2686,11 @@ pub class InstantiationRegistry {
                 ctx,
             )
 
-            n->methods.from_raw(unsafe (&null as unsafe *(unsafe *FunctionDecl)), 0)
+            n->methods.from_raw(
+                unsafe (&null as unsafe *(unsafe *FunctionDecl)),
+                0,
+            )
+
             n->derives_list.from_raw(&null, 0)
             return n
         }

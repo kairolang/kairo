@@ -81,7 +81,10 @@ pub struct Parsed {
 }
 
 fn std_to_string(s: cxx::std::string) -> string {
-    return string(unsafe ((s.data() as unsafe *const u8) as *const u8), s.size())
+    return string(
+        unsafe ((s.data() as unsafe *const u8) as *const u8),
+        s.size(),
+    )
 }
 
 fn diag_line(d: ToolDiag) -> string {
@@ -580,8 +583,15 @@ fn verify(ci:       unsafe *CompilerInstance,
         *why = "not idempotent: formatting the output changes it again"
         var unsafe *dir = cxx::std::getenv(r"KFMT_REFUSED_DIR")
         if dir != &null {
-            var d = string(unsafe ((dir as unsafe *const u8) as *const u8), cxx::std::strlen(dir))
-            Path::write_file(Path::join_str(d, Path::filename_of(name) + ".kfmt-again"), again)
+            var d = string(
+                unsafe ((dir as unsafe *const u8) as *const u8),
+                cxx::std::strlen(dir),
+            )
+
+            Path::write_file(
+                Path::join_str(d, Path::filename_of(name) + ".kfmt-again"),
+                again,
+            )
         }
 
         return false
@@ -646,15 +656,33 @@ fn format_one_file(ci:    unsafe *CompilerInstance,
     release_all(ci, TUStage::Lexing)
 
     var why: string = ""
-    if !verify(ci, name, sig, ta, fmt.file_dir, roots, out, set, unsafe &buf, unsafe &why) {
+    if !verify(
+        ci,
+        name,
+        sig,
+        ta,
+        fmt.file_dir,
+        roots,
+        out,
+        set,
+        unsafe &buf,
+        unsafe &why,
+    ) {
         io::eprintln(f"kfmt: {name}: refused, {why}; left unchanged")
         // A developer aid, not a knob: $KFMT_REFUSED_DIR gets the refused
         // output, so a kfmt bug can be read off a diff. Its own suffix, so
         // pointing the variable at a source directory overwrites nothing.
         var unsafe *dir = cxx::std::getenv(r"KFMT_REFUSED_DIR")
         if dir != &null {
-            var d = string(unsafe ((dir as unsafe *const u8) as *const u8), cxx::std::strlen(dir))
-            Path::write_file(Path::join_str(d, Path::filename_of(name) + ".kfmt-refused"), out)
+            var d = string(
+                unsafe ((dir as unsafe *const u8) as *const u8),
+                cxx::std::strlen(dir),
+            )
+
+            Path::write_file(
+                Path::join_str(d, Path::filename_of(name) + ".kfmt-refused"),
+                out,
+            )
         }
 
         return 2
@@ -793,7 +821,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             } else if ind == "spaces" {
                 set.use_tabs = false
             } else {
-                io::eprintln(f"kfmt: --indent takes spaces or tabs, not '{ind}\x27")
+                io::eprintln(
+                    f"kfmt: --indent takes spaces or tabs, not '{ind}\x27",
+                )
+
                 return 1
             }
 
@@ -815,7 +846,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             }
 
             if !ok || v < 1 || v > 16 {
-                io::eprintln(f"kfmt: --tab-size takes a number from 1 to 16, not '{ts}\x27")
+                io::eprintln(
+                    f"kfmt: --tab-size takes a number from 1 to 16, not '{ts}\x27",
+                )
+
                 return 1
             }
 
@@ -889,7 +923,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var files = cxx::std::vector<string>()
     for var x: usize = 0; x < inputs.size(); ++x {
         var target_path = inputs[x]
-        var path        = cxx::std::filesystem::path(kairo::sref(target_path).str())
+        var path = cxx::std::filesystem::path(kairo::sref(target_path).str())
         if !cxx::std::filesystem::exists(path) {
             io::eprintln(f"kfmt: path does not exist: {target_path}")
             return 1
@@ -902,7 +936,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
                     continue
                 }
 
-                var ext = std_to_string(entry.path().extension().generic_string())
+                var ext = std_to_string(
+                    entry.path().extension().generic_string(),
+                )
+
                 if ext != ".k" {
                     continue
                 }
@@ -939,7 +976,9 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
     if mode != FmtMode::Stdout {
         var what = if mode == FmtMode::Write => "reformatted" else => "would change"
-        io::eprintln(f"kfmt: {files.size()} file(s): {changed} {what}, {failed} refused")
+        io::eprintln(
+            f"kfmt: {files.size()} file(s): {changed} {what}, {failed} refused",
+        )
     }
 
     if failed > 0 {

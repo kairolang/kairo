@@ -205,7 +205,11 @@ pub class ArenaAllocator {
 
     pub fn <T, A0, A1> alloc_init(self, a0: A0, a1: A1) -> unsafe *T {
         var mem: unsafe *void = self.alloc(sizeof(T), alignof(T))
-        return kairo::construct_at<T>(mem, cxx::std::move(a0), cxx::std::move(a1))
+        return kairo::construct_at<T>(
+            mem,
+            cxx::std::move(a0),
+            cxx::std::move(a1),
+        )
     }
 
     /// Every block's address range, into \p out under \p label (a live
@@ -219,7 +223,11 @@ pub class ArenaAllocator {
     /// Each block's own record (it names the block), into \p out.
     pub fn records_into(self, out: unsafe *kairo::AddrRanges, label: u32) {
         for var unsafe *b = self.head; b != &null; b = b->next {
-            out->add(unsafe (b as unsafe *const void), sizeof(kairo::ArenaBlock), label)
+            out->add(
+                unsafe (b as unsafe *const void),
+                sizeof(kairo::ArenaBlock),
+                label,
+            )
         }
     }
 
@@ -227,7 +235,11 @@ pub class ArenaAllocator {
     /// live check's quarantine), and whatever still reads it reads this.
     pub fn poison(self, fill: u8) {
         for var unsafe *b = self.head; b != &null; b = b->next {
-            cxx::std::memset(unsafe (b->ptr as unsafe *void), fill as i32, b->capacity)
+            cxx::std::memset(
+                unsafe (b->ptr as unsafe *void),
+                fill as i32,
+                b->capacity,
+            )
         }
     }
 

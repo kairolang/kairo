@@ -79,27 +79,12 @@ ffi "c++" import "Native/KShims.hh"
 
 import API::FS::LinkFS
 import Diagnostic::FileDiagnostics::FileDiagConsumer
-import Index::Snapshot::{
-    SK_DEPS,
-    SK_CXX_FLAGS,
-    SK_C_FLAGS,
-    SK_DIAGNOSTICS,
-    SK_FILES,
-    SK_OK,
-    SK_PARTIAL,
-    SK_PATH,
-    SK_RUN_US,
-    SK_TABLES,
-    SK_TABLES_ALL,
-    SK_TABLES_SEQ,
-    SK_TIMING,
-    SK_UNCHECKED,
-    SK_UNIT_FIDS,
-    SK_WALK_US,
-    SK_WIDE,
-    SK_WRITE_US,
-}
 import Driver::CompilerNative::*
+import Index::Snapshot::{
+    SK_CXX_FLAGS, SK_C_FLAGS, SK_DEPS,   SK_DIAGNOSTICS, SK_FILES,      SK_OK,     SK_PARTIAL,
+    SK_PATH,      SK_RUN_US,  SK_TABLES, SK_TABLES_ALL,  SK_TABLES_SEQ, SK_TIMING, SK_UNCHECKED,
+    SK_UNIT_FIDS, SK_WALK_US, SK_WIDE,   SK_WRITE_US,
+}
 import Index::Worker::{
     DiagCollector,
     IndexObserver,
@@ -123,7 +108,10 @@ import WorkerArgs::*
 
 fn live_us() -> i64 {
     var t = cxx::std::chrono::steady_clock::now()
-    var d = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(t.time_since_epoch())
+    var d = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(
+        t.time_since_epoch(),
+    )
+
     return d.count() as i64
 }
 
@@ -139,19 +127,19 @@ fn live_has(list: *const [string], const s: string) -> bool {
 
 /// One request, or several joined (LiveReq::join).
 class LiveReq {
-    pub var id:         i64    = -1
-    pub var out:        string = ""
+    pub var id:         i64      = -1
+    pub var out:        string   = ""
     pub var open_paths: [string]
     pub var open_files: [string]
     pub var changed:    [string]
-    pub var progress:   string = ""
+    pub var progress:   string   = ""
     /// Buffers tried and not kept, the files their texts are in, where the
     /// copy writes what it found, and how that went ("" when none was asked
     /// for; "ok"; "unsupported": no copy of a process here; "failed").
     pub var aside_paths: [string]
     pub var aside_files: [string]
-    pub var aside_out:   string = ""
-    pub var aside:       string = ""
+    pub var aside_out:   string   = ""
+    pub var aside:       string   = ""
     /// Nothing but its asides (a completion): no buffer is brought up to
     /// date, nothing is kept, and it is neither joined with a request nor
     /// takes one's place.
@@ -197,8 +185,8 @@ class LiveState {
 ///
 /// \return whether any row of those owners is another than it was.
 fn live_render(st: *LiveState, live: *LiveCheck, all: bool, owners: *const [string]) -> bool {
-    var unsafe *fd = live->file_diags()
-    var before: string = ""
+    var unsafe *fd            = live->file_diags()
+    var        before: string = ""
     for var i: usize = 0; i < st->d_owner.size(); ++i {
         if all || st->d_owner[i].empty() || live_has(owners, st->d_owner[i]) {
             before += st->d_owner[i] + "\n" + st->d_rows[i] + "\n"
@@ -302,9 +290,9 @@ fn live_snapshot(st:    *LiveState,
                  names: *const [string],
                  took:  i64,
                  have:  u64) -> string {
-    var narrow = st->deps.size() <= WIDE_INDEX_LIMIT
-    var files: string = ""
-    var nfiles: usize = 0
+    var narrow         = st->deps.size() <= WIDE_INDEX_LIMIT
+    var files:  string = ""
+    var nfiles: usize  = 0
     for var pass: usize = 0; pass < 2; ++pass {
         for var i: usize = 0; i < obs->k_paths.size(); ++i {
             var named = live_has(names, obs->k_paths[i])
@@ -313,7 +301,8 @@ fn live_snapshot(st:    *LiveState,
                 continue
             }
 
-            if (!named) && ((!narrow) || st->root.empty() || (!obs->k_paths[i].starts_with(st->root))) {
+            if (!named)
+                && ((!narrow) || st->root.empty() || (!obs->k_paths[i].starts_with(st->root))) {
                 continue
             }
 
@@ -327,7 +316,7 @@ fn live_snapshot(st:    *LiveState,
     }
 
     var diags: string = ""
-    var nd: usize = 0
+    var nd:    usize  = 0
     for var i: usize = 0; i < st->d_owner.size(); ++i {
         if st->d_count[i] == 0 {
             continue
@@ -347,7 +336,7 @@ fn live_snapshot(st:    *LiveState,
     w.field_raw(SK_FILES, "[" + files + "]")
     w.field_bool(SK_WIDE, narrow)
     var tables: string = ""
-    var nt: usize = 0
+    var nt:     usize  = 0
     for var i: usize = 0; i < obs->t_paths.size(); ++i {
         if obs->t_seq[i] <= have {
             continue
@@ -481,7 +470,6 @@ fn live_take(t: *Transport, r: *LiveReq, asks: *[LiveReq]) {
             r->aside_files.push_back(d.get_str(s, RQ_FILE))
             s = d.next(s)
         }
-
     }
 }
 
@@ -497,7 +485,11 @@ fn live_fail(t: *Transport, id: i64, const why: string) {
 
 /// One request: the buffers brought up to date, the check or the
 /// re-checks, the snapshot written, the answer sent.
-fn live_step(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *LiveReq, t: *Transport) {
+fn live_step(st:   *LiveState,
+             live: *LiveCheck,
+             obs:  unsafe *IndexObserver,
+             r:    *LiveReq,
+             t:    *Transport) {
     var t0 = live_us()
 
     // The buffers: one whose text is not the one held is a change, whether
@@ -570,32 +562,38 @@ fn live_step(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *L
     st->held_paths = hp
     st->held_texts = ht
     obs->begin_step(obs->seq + 1)
-    obs->named     = r->open_paths
-    obs->progress  = r->progress
-    obs->checked   = 0
+    obs->named    = r->open_paths
+    obs->progress = r->progress
+    obs->checked  = 0
     obs->unchecked.clear()
     obs->partial.clear()
 
-    var full = false
-    var mode: string = "refresh"
-    var why:  string = "nothing changed"
+    var full                = false
+    var mode:      string   = "refresh"
+    var why:       string   = "nothing changed"
     var rechecked: [string]
     if !st->checked {
         if (!live->check()) || (live->ci() == &null) {
-            live_fail(t, r->id, "the compile command was rejected: check its flags in kairo_compile.json")
+            live_fail(
+                t,
+                r->id,
+                "the compile command was rejected: check its flags in kairo_compile.json",
+            )
+
             return
         }
 
         st->checked = true
-        full = true
-        mode = live->mode
-        why  = live->why
+        full        = true
+        mode        = live->mode
+        why         = live->why
     } else {
         // A buffer of the graph that has no rows (it is outside the root
         // and was not open when its file was last checked) is checked
         // again to be walked.
         for var k: usize = 0; k < r->open_paths.size(); ++k {
-            if live_has(&st->deps, r->open_paths[k]) && (!live_has(&obs->k_paths, r->open_paths[k]))
+            if live_has(&st->deps, r->open_paths[k])
+                && (!live_has(&obs->k_paths, r->open_paths[k]))
                 && (!live_has(&changed, r->open_paths[k])) {
                 changed.push_back(r->open_paths[k])
             }
@@ -610,7 +608,12 @@ fn live_step(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *L
             }
 
             if !live->replace_file(changed[k]) {
-                live_fail(t, r->id, "the compile command was rejected: check its flags in kairo_compile.json")
+                live_fail(
+                    t,
+                    r->id,
+                    "the compile command was rejected: check its flags in kairo_compile.json",
+                )
+
                 st->checked = false
                 return
             }
@@ -633,7 +636,20 @@ fn live_step(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *L
     }
 
     r->aside = live_aside(st, live, obs, r)
-    live_finish(st, live, obs, r, t, full, mode, why, &rechecked, false, r->out, t0)
+    live_finish(
+        st,
+        live,
+        obs,
+        r,
+        t,
+        full,
+        mode,
+        why,
+        &rechecked,
+        false,
+        r->out,
+        t0,
+    )
 }
 
 /// The buffers of \p r that are tried and not kept, in a copy of this
@@ -672,15 +688,17 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
     // This copy's re-check makes trees of its own: no fact of the
     // process it was copied from is its.
     obs->facts.clear()
-    obs->named        = r->aside_paths
-    obs->progress     = ""
+    obs->named    = r->aside_paths
+    obs->progress = ""
     var states: [string]
     var whys:   [string]
-    var stopped = false
+    var stopped          = false
     for var k: usize = 0; k < r->aside_paths.size(); ++k {
         var text: string = ""
         whys.push_back("")
-        if stopped || (!live_has(&st->deps, r->aside_paths[k])) || (!LinkFS::read(r->aside_files[k], &text)) {
+        if stopped
+            || (!live_has(&st->deps, r->aside_paths[k]))
+            || (!LinkFS::read(r->aside_files[k], &text)) {
             states.push_back(AS_NONE)
             continue
         }
@@ -699,13 +717,18 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
             // errors of its own, it declares a specialization, ...) the
             // diagnostics the copy holds are the KEPT text's, at that
             // text's positions: nothing was found out about this one.
-            states.push_back(if (live->overlay_pending(r->aside_paths[k])) => AS_NONE else => AS_UNCHECKED)
+            states.push_back(
+                if (live->overlay_pending(r->aside_paths[k])) => AS_NONE else => AS_UNCHECKED,
+            )
+
             whys[k] = live->why
             stopped = true
             continue
         }
 
-        states.push_back(if (live->dropped_bodies) => AS_PARTIAL else => AS_CHECKED)
+        states.push_back(
+            if (live->dropped_bodies) => AS_PARTIAL else => AS_CHECKED,
+        )
     }
 
     obs->flush()
@@ -747,8 +770,8 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
 
     // The files' own diagnostics, and what the parser said of one that was
     // refused (no file owns those).
-    var diags: string = ""
-    var unsafe *fd = live->file_diags()
+    var        diags: string = ""
+    var unsafe *fd           = live->file_diags()
     if (fd != &null) && (live->ci() != &null) {
         var unsafe *col = kairo::std::create<DiagCollector>(live->ci()->sm())
         for var i: usize = 0; i < fd->diags.size(); ++i {
@@ -784,22 +807,27 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
 /// The end of a step, first tier or slice: the rows and diagnostics of
 /// what was re-checked replace the kept ones, the snapshot is written to
 /// \p out and the answer sent.
-fn live_finish(st:        *LiveState,
-               live:      *LiveCheck,
-               obs:       unsafe *IndexObserver,
-               r:         *LiveReq,
-               t:         *Transport,
-               full_in:   bool,
+fn live_finish(st:         *LiveState,
+               live:       *LiveCheck,
+               obs:        unsafe *IndexObserver,
+               r:          *LiveReq,
+               t:          *Transport,
+               full_in:    bool,
                const mode: string,
                const why:  string,
-               rechecked: *const [string],
-               bg:        bool,
-               const out: string,
-               t0:        i64) {
+               rechecked:  *const [string],
+               bg:         bool,
+               const out:  string,
+               t0:         i64) {
     var full = full_in
     obs->flush()
     if live->ci() == &null {
-        live_fail(t, r->id, "the compile command was rejected: check its flags in kairo_compile.json")
+        live_fail(
+            t,
+            r->id,
+            "the compile command was rejected: check its flags in kairo_compile.json",
+        )
+
         st->checked = false
         return
     }
@@ -885,7 +913,7 @@ fn live_finish(st:        *LiveState,
     }
 
     var diags_moved = live_render(st, live, full, rechecked)
-    var took = live_us() - t0
+    var took        = live_us() - t0
 
     // Did this step re-check a buffer the editor holds? Its rows changed
     // with no edit of its own: the server asks the editor to draw it again.
@@ -922,7 +950,11 @@ fn live_finish(st:        *LiveState,
 
     w.field(RP_MODE, mode)
     w.field(RP_WHY, why)
-    w.field_uint(RP_RECHECKED, if (full) => (st->deps.size()) else => (rechecked->size()))
+    w.field_uint(
+        RP_RECHECKED,
+        if (full) => (st->deps.size()) else => (rechecked->size()),
+    )
+
     w.field_uint(RP_PENDING, live->pending)
     w.field_bool(RP_TOUCHED, touched || full)
     w.field_uint(RP_FILES, st->deps.size())
@@ -942,8 +974,13 @@ fn live_finish(st:        *LiveState,
 /// One slice of the second tier: up to LIVE_SLICE_FILES queued files, in
 /// the order Sema runs them (with LIVE_PREFER_OPEN, the editor's buffers
 /// and what they import first).
-fn live_slice(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *LiveReq, t: *Transport, seq: u64) {
-    var t0 = live_us()
+fn live_slice(st:   *LiveState,
+              live: *LiveCheck,
+              obs:  unsafe *IndexObserver,
+              r:    *LiveReq,
+              t:    *Transport,
+              seq:  u64) {
+    var t0                               = live_us()
     var prefer: cxx::std::vector<string>
     if LIVE_PREFER_OPEN {
         for var k: usize = 0; k < r->open_paths.size(); ++k {
@@ -965,15 +1002,28 @@ fn live_slice(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *
 
     // A slice that could not be re-checked in place re-checked everything.
     var full = live->mode == "full"
-    live_finish(st, live, obs, r, t, full, live->mode, live->why, &rechecked, true, r->out + f".{seq}", t0)
+    live_finish(
+        st,
+        live,
+        obs,
+        r,
+        t,
+        full,
+        live->mode,
+        live->why,
+        &rechecked,
+        true,
+        r->out + f".{seq}",
+        t0,
+    )
 }
 
 /// \brief `kals --worker --index-server [--cwd <dir>] [--root <dir>] --
 ///        <kairo args> <entry>`. Exits at EOF.
 pub fn index_server_main(@inout args: [string]) -> i32 {
-    var st = LiveState()
+    var st                              = LiveState()
     var words: cxx::std::vector<string>
-    var i: usize = 1
+    var i:     usize                    = 1
     while i < args.size() {
         var a = args[i]
         if a == WA_END {
@@ -1027,8 +1077,8 @@ pub fn index_server_main(@inout args: [string]) -> i32 {
 
     // The test knob of the per-run worker (Worker.k): each request takes
     // at least this long, so a test can order a change inside it.
-    var delay_ms: i32 = 0
-    var unsafe *delay = cxx::std::getenv(r"KALS_DEBUG_INDEX_DELAY_MS")
+    var        delay_ms: i32 = 0
+    var unsafe *delay        = cxx::std::getenv(r"KALS_DEBUG_INDEX_DELAY_MS")
     if delay != &null {
         delay_ms = cxx::std::atoi(delay)
     }
@@ -1041,13 +1091,15 @@ pub fn index_server_main(@inout args: [string]) -> i32 {
         slice_delay_ms = cxx::std::atoi(sdelay)
     }
 
-    var t = Transport()
-    var draining = LiveReq() // the request whose importers are queued (id < 0: none)
-    var slices: u64 = 0
+    var t            = Transport()
+    var draining     = LiveReq()   // the request whose importers are queued (id < 0: none)
+    var slices:  u64 = 0
     while !t.closed {
         if (draining.id >= 0) && st.checked && (live.pending > 0) {
             // Between slices: a request pre-empts what is queued.
-            if !t.wait(if (slice_delay_ms > 0) => (slice_delay_ms) else => (0 as i32)) {
+            if !t.wait(
+                if (slice_delay_ms > 0) => (slice_delay_ms) else => (0 as i32),
+            ) {
                 slices += 1
                 live_slice(&st, &live, obs, &draining, &t, slices)
                 continue
@@ -1056,11 +1108,14 @@ pub fn index_server_main(@inout args: [string]) -> i32 {
             continue
         }
 
-        var r = LiveReq()
+        var r               = LiveReq()
         var asks: [LiveReq]
         live_take(&t, &r, &asks)
         if (r.id >= 0) && (delay_ms > 0) {
-            cxx::std::this_thread::sleep_for(cxx::std::chrono::milliseconds(delay_ms))
+            cxx::std::this_thread::sleep_for(
+                cxx::std::chrono::milliseconds(delay_ms),
+            )
+
             // What arrived meanwhile replaces it, as a change during a
             // per-run worker's run kills that run.
             live_take(&t, &r, &asks)
@@ -1070,7 +1125,7 @@ pub fn index_server_main(@inout args: [string]) -> i32 {
         // importers waits for them and goes on).
         for var q: usize = 0; q < asks.size(); ++q {
             var how = live_aside(&st, &live, obs, &asks[q])
-            var aw = JsonWriter()
+            var aw  = JsonWriter()
             aw.begin_object()
             aw.field_int(RP_ID, asks[q].id)
             aw.field_bool(RP_OK, true)

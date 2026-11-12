@@ -118,8 +118,16 @@ pub class LabelLowering derives ASTWriter<LabelLowering> {
         var name = self.sc->ctx->get_spelling(n->label)
         var e    = LoopLabel{}
         e.name = name
-        e.brk  = self.synth.ident(n->label.range, LowerTargets::loop_break(self._count, name))
-        e.cont = self.synth.ident(n->label.range, LowerTargets::loop_continue(self._count, name))
+        e.brk = self.synth.ident(
+            n->label.range,
+            LowerTargets::loop_break(self._count, name),
+        )
+
+        e.cont = self.synth.ident(
+            n->label.range,
+            LowerTargets::loop_continue(self._count, name),
+        )
+
         self._count += 1
         self._push(e)
 
@@ -134,7 +142,9 @@ pub class LabelLowering derives ASTWriter<LabelLowering> {
         var out = cxx::std::vector<unsafe *Stmt>()
         out.push_back(inner)
         if top.brk_used {
-            out.push_back(LabelIntrinsicStmt::create(self.ctx, n->range, top.brk))
+            out.push_back(
+                LabelIntrinsicStmt::create(self.ctx, n->range, top.brk),
+            )
         }
 
         return out
@@ -147,7 +157,9 @@ pub class LabelLowering derives ASTWriter<LabelLowering> {
 
         var i = self._find(n->label)
         self._loops[i].brk_used = true
-        return self._one_stmt(JumpIntrinsicStmt::create(self.ctx, n->range, self._loops[i].brk))
+        return self._one_stmt(
+            JumpIntrinsicStmt::create(self.ctx, n->range, self._loops[i].brk),
+        )
     }
 
     fn transform_continue_stmt(self, n: unsafe *ContinueStmt) -> cxx::std::vector<unsafe *Stmt> {
@@ -157,7 +169,9 @@ pub class LabelLowering derives ASTWriter<LabelLowering> {
 
         var i = self._find(n->label)
         self._loops[i].cont_used = true
-        return self._one_stmt(JumpIntrinsicStmt::create(self.ctx, n->range, self._loops[i].cont))
+        return self._one_stmt(
+            JumpIntrinsicStmt::create(self.ctx, n->range, self._loops[i].cont),
+        )
     }
 
     /// # helpers

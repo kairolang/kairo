@@ -29,27 +29,13 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
@@ -66,6 +52,20 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 extend Server {
     /// The signatures of the function whose argument list the cursor is in.
@@ -85,7 +85,7 @@ extend Server {
         }
 
         var *text = &self.docs.docs[i].text
-        var pos = d->get(params, K_POSITION)
+        var pos   = d->get(params, K_POSITION)
         var at = self.docs.docs[i].lines.offset(
             *text,
             d->get_int(pos, K_LINE) as usize,
@@ -133,7 +133,7 @@ extend Server {
                     // The signature is the code block's one line, after its
                     // head (attributes, visibility, modifiers): from `fn`.
                     var ls: usize = 9
-                    var le = ls
+                    var le        = ls
                     while (le < md.size()) && (md[le] != ('\n' as u8)) {
                         le += 1
                     }
@@ -150,7 +150,7 @@ extend Server {
 
                     if at != usize::MAX {
                         var label = md.subslice(ls + at, le - ls - at)
-                        var cut = find_from(label, "  //", 0)
+                        var cut   = find_from(label, "  //", 0)
                         if cut != usize::MAX {
                             label = label.subslice(0, cut)
                         }
@@ -173,7 +173,9 @@ extend Server {
                             labels.push_back(label)
                             var sep = find_from(md, "\n---\n\n", 0)
                             if sep != usize::MAX {
-                                docs.push_back(md.subslice(sep + 6, md.size() - sep - 6))
+                                docs.push_back(
+                                    md.subslice(sep + 6, md.size() - sep - 6),
+                                )
                             } else {
                                 docs.push_back("")
                             }
@@ -196,7 +198,10 @@ extend Server {
                 var needle = "fn " + name + "("
                 for var fidx: usize = 0; (fidx < self.entries[ei].files.size()) && (labels.size() < MAX_SIGNATURES); ++fidx {
                     var src: string = ""
-                    var di = self.docs.index_of_path(self.entries[ei].files[fidx])
+                    var di = self.docs.index_of_path(
+                        self.entries[ei].files[fidx],
+                    )
+
                     if di != usize::MAX {
                         src = self.docs.docs[di].text
                     } else if !LinkFS::read(self.entries[ei].files[fidx], &src) {
@@ -213,7 +218,7 @@ extend Server {
                         from = hit + needle.size()
                         // The signature runs to the body, an `=`, a `where`
                         // / `requires` clause, or the end of the line.
-                        var e2 = hit
+                        var e2           = hit
                         var depth: usize = 0
                         while e2 < src.size() {
                             var ch = src[e2]
@@ -221,7 +226,10 @@ extend Server {
                                 depth += 1
                             } else if (ch == (')' as u8)) && (depth > 0) {
                                 depth -= 1
-                            } else if (depth == 0) && ((ch == ('{' as u8)) || (ch == ('\n' as u8)) || (ch == ('=' as u8))) {
+                            } else if (depth == 0)
+                                && ((ch == ('{' as u8))
+                                    || (ch == ('\n' as u8))
+                                    || (ch == ('=' as u8))) {
                                 break
                             }
 
@@ -229,7 +237,7 @@ extend Server {
                         }
 
                         var label = src.subslice(hit, e2 - hit)
-                        var cut = find_from(label, " where ", 0)
+                        var cut   = find_from(label, " where ", 0)
                         if cut == usize::MAX {
                             cut = find_from(label, " requires ", 0)
                         }
@@ -264,8 +272,8 @@ extend Server {
         }
 
         var active_sig: usize = 0
-        var picked = false
-        var w = JsonWriter()
+        var picked            = false
+        var w                 = JsonWriter()
         w.begin_object()
         w.key("signatures")
         w.begin_array()
@@ -285,16 +293,17 @@ extend Server {
             // leading `self` is not something the caller writes.
             w.key("parameters")
             w.begin_array()
-            var lp = find_from(labels[q], "(", 0)
+            var lp           = find_from(labels[q], "(", 0)
             var count: usize = 0
             if lp != usize::MAX {
                 var depth: usize = 0
-                var start = lp + 1
+                var start        = lp + 1
                 for var c: usize = lp + 1; c < labels[q].size(); ++c {
                     var ch = labels[q][c]
                     if (ch == ('(' as u8)) || (ch == ('[' as u8)) || (ch == ('<' as u8)) {
                         depth += 1
-                    } else if ((ch == (')' as u8)) || (ch == (']' as u8)) || (ch == ('>' as u8))) && (depth > 0) {
+                    } else if ((ch == (')' as u8)) || (ch == (']' as u8)) || (ch == ('>' as u8)))
+                        && (depth > 0) {
                         // `->` is not a closing angle bracket.
                         if !((ch == ('>' as u8)) && (c > 0) && (labels[q][c - 1] == ('-' as u8))) {
                             depth -= 1

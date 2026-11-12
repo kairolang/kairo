@@ -237,11 +237,23 @@ pub fn _fx_reverse_rows() -> cxx::std::vector<RevRow> {
     _fx_row(&r, "-funroll-loops", "-funroll-loops", RevShape::Flag)
     _fx_row(&r, "-fno-unroll-loops", "-fno-unroll-loops", RevShape::Flag)
     _fx_row(&r, "-ffunction-sections", "-ffunction-sections", RevShape::Flag)
-    _fx_row(&r, "-fno-function-sections", "-fno-function-sections", RevShape::Flag)
+    _fx_row(
+        &r,
+        "-fno-function-sections",
+        "-fno-function-sections",
+        RevShape::Flag,
+    )
+
     _fx_row(&r, "-fdata-sections", "-fdata-sections", RevShape::Flag)
     _fx_row(&r, "-fno-data-sections", "-fno-data-sections", RevShape::Flag)
     _fx_row(&r, "-fomit-frame-pointer", "-fomit-frame-pointer", RevShape::Flag)
-    _fx_row(&r, "-fno-omit-frame-pointer", "-fno-omit-frame-pointer", RevShape::Flag)
+    _fx_row(
+        &r,
+        "-fno-omit-frame-pointer",
+        "-fno-omit-frame-pointer",
+        RevShape::Flag,
+    )
+
     _fx_row(&r, "-ffast-math", "-ffast-math", RevShape::Flag)
     _fx_row(&r, "-fno-fast-math", "-fno-fast-math", RevShape::Flag)
     _fx_row(&r, "-fvectorize", "-fvectorize", RevShape::Flag)
@@ -249,14 +261,44 @@ pub fn _fx_reverse_rows() -> cxx::std::vector<RevRow> {
     _fx_row(&r, "-fsplit-stack", "-fsplit-stack", RevShape::Flag)
     _fx_row(&r, "-fstack-protector", "-fstack-protector", RevShape::Flag)
     _fx_row(&r, "-fno-stack-protector", "-fno-stack-protector", RevShape::Flag)
-    _fx_row(&r, "-fstack-protector-strong", "--stack-protector=strong", RevShape::Flag)
-    _fx_row(&r, "-fstack-protector-all", "--stack-protector=all", RevShape::Flag)
+    _fx_row(
+        &r,
+        "-fstack-protector-strong",
+        "--stack-protector=strong",
+        RevShape::Flag,
+    )
+
+    _fx_row(
+        &r,
+        "-fstack-protector-all",
+        "--stack-protector=all",
+        RevShape::Flag,
+    )
+
     _fx_row(&r, "-fstack-clash-protection", "--stack-clash", RevShape::Flag)
     _fx_row(&r, "-fcf-protection=", "--cf-protection=", RevShape::Value)
     _fx_row(&r, "-fcf-protection", "--cf-protection=full", RevShape::Flag)
-    _fx_row(&r, "-fzero-call-used-regs=", "--zero-call-used-regs=", RevShape::Value)
-    _fx_row(&r, "-ftrivial-auto-var-init=", "--trivial-auto-var-init=", RevShape::Value)
-    _fx_row(&r, "-fdelete-null-pointer-checks", "-fdelete-null-pointer-checks", RevShape::Flag)
+    _fx_row(
+        &r,
+        "-fzero-call-used-regs=",
+        "--zero-call-used-regs=",
+        RevShape::Value,
+    )
+
+    _fx_row(
+        &r,
+        "-ftrivial-auto-var-init=",
+        "--trivial-auto-var-init=",
+        RevShape::Value,
+    )
+
+    _fx_row(
+        &r,
+        "-fdelete-null-pointer-checks",
+        "-fdelete-null-pointer-checks",
+        RevShape::Flag,
+    )
+
     _fx_row(
         &r,
         "-fno-delete-null-pointer-checks",
@@ -266,8 +308,20 @@ pub fn _fx_reverse_rows() -> cxx::std::vector<RevRow> {
 
     _fx_row(&r, "-ftls-model=", "--tls-model=", RevShape::Value)
     _fx_row(&r, "-fvisibility=", "--visibility=", RevShape::Value)
-    _fx_row(&r, "-fvisibility-inlines-hidden", "-fvisibility-inlines-hidden", RevShape::Flag)
-    _fx_row(&r, "-fno-visibility-inlines-hidden", "-fno-visibility-inlines-hidden", RevShape::Flag)
+    _fx_row(
+        &r,
+        "-fvisibility-inlines-hidden",
+        "-fvisibility-inlines-hidden",
+        RevShape::Flag,
+    )
+
+    _fx_row(
+        &r,
+        "-fno-visibility-inlines-hidden",
+        "-fno-visibility-inlines-hidden",
+        RevShape::Flag,
+    )
+
     _fx_row(&r, "-fplt", "-fplt", RevShape::Flag)
     _fx_row(&r, "-fno-plt", "-fno-plt", RevShape::Flag)
     _fx_row(&r, "-mred-zone", "-fred-zone", RevShape::Flag)
@@ -278,7 +332,13 @@ pub fn _fx_reverse_rows() -> cxx::std::vector<RevRow> {
     _fx_row(&r, "-fno-PIC", "-fno-pic", RevShape::Flag)
     _fx_row(&r, "-fno-pic", "-fno-pic", RevShape::Flag)
     _fx_row(&r, "-fwrapv", "--signed-wrap", RevShape::Flag)
-    _fx_row(&r, "-finstrument-functions", "--instrument-functions", RevShape::Flag)
+    _fx_row(
+        &r,
+        "-finstrument-functions",
+        "--instrument-functions",
+        RevShape::Flag,
+    )
+
     _fx_row(&r, "-mno-implicit-float", "--no-implicit-float", RevShape::Flag)
     _fx_row(&r, "-msoft-float", "-fsoft-float", RevShape::Flag)
     _fx_row(&r, "-ffp-model=", "--fp-model=", RevShape::Value)
@@ -287,7 +347,13 @@ pub fn _fx_reverse_rows() -> cxx::std::vector<RevRow> {
     _fx_row(&r, "-fpass-plugin=", "--pass-plugin=", RevShape::Value)
     _fx_row(&r, "-ffile-prefix-map=", "--remap-path-prefix=", RevShape::Value)
     _fx_row(&r, "-fdebug-prefix-map=", "--debug-prefix-map=", RevShape::Value)
-    _fx_row(&r, "-fcoverage-prefix-map=", "--coverage-prefix-map=", RevShape::Value)
+    _fx_row(
+        &r,
+        "-fcoverage-prefix-map=",
+        "--coverage-prefix-map=",
+        RevShape::Value,
+    )
+
     _fx_row(&r, "-mllvm", "--mllvm=", RevShape::Value)
     /// ### warnings
     _fx_row(&r, "-w", "-w", RevShape::Flag)
@@ -468,7 +534,9 @@ pub class FlagTranslator {
         // doesn't map to a CodeView CPUType". The sysroot keeps its armv7 name.
         if triple.starts_with("arm")
             && !triple.starts_with("arm64")
-            && !(cxx::std::string::npos == kairo::std::to_std_string(triple).find(r"-windows")) {
+            && !(cxx::std::string::npos == kairo::std::to_std_string(triple).find(
+                r"-windows",
+            )) {
             return "thumb" + string(
                 unsafe (((triple.raw() as unsafe *const u8) + 3) as *const u8),
                 triple.size() - 3,
@@ -824,7 +892,10 @@ pub class FlagTranslator {
         /// exceptions on for C++ by itself, so it needs both directions.
         var hosted = !(lg.freestanding || cgo.kernel_mode)
         if hosted && triple.size() > 0 {
-            var etri = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
+            var etri = llvm::Triple(
+                llvm::Triple::normalize(kairo::sref(triple)),
+            )
+
             if etri.getOS() == llvm::Triple::UnknownOS {
                 hosted = false
             }
@@ -984,7 +1055,10 @@ pub class FlagTranslator {
                 _fx_push2(&o, "-mrelocation-model", "pic")
                 _fx_push2(&o, "-pic-level", f"{tgt.pic_level}")
             } else {
-                _fx_push(&o, if (tgt.pic_level == 1) => ("-fpic") else => "-fPIC")
+                _fx_push(
+                    &o,
+                    if (tgt.pic_level == 1) => ("-fpic") else => "-fPIC",
+                )
             }
         }
 
@@ -1434,7 +1508,7 @@ pub class FlagTranslator {
                               @inout kairo_out:  cxx::std::vector<string>,
                               @inout clang_only: cxx::std::vector<string>,
                               @inout error:      string) -> bool {
-        var rows                                                  = _fx_reverse_rows()
+        var rows = _fx_reverse_rows()
         var cargv: cxx::std::vector<kairo::std::ConstPtr<c_char>>
         for var i: usize = 0; i < argv.size(); ++i {
             cargv.push_back(argv[i].c_str())
@@ -1465,12 +1539,18 @@ pub class FlagTranslator {
             var unsafe *a  = *it
             var        opt = a->getOption()
             var        psr = opt.getPrefixedName()
-            var pname = string(unsafe ((psr.data() as unsafe *const u8) as *const u8), psr.size())
-            var nval  = a->getNumValues()
+            var pname = string(
+                unsafe ((psr.data() as unsafe *const u8) as *const u8),
+                psr.size(),
+            )
+
+            var nval = a->getNumValues()
 
             if opt.getKind() == llvm::opt::Option::InputClass {
                 kairo_out.push_back(
-                    string(unsafe ((a->getValue(0) as unsafe *const u8) as *const u8)),
+                    string(
+                        unsafe ((a->getValue(0) as unsafe *const u8) as *const u8),
+                    ),
                 )
 
                 ++it
@@ -1483,8 +1563,13 @@ pub class FlagTranslator {
             // stays clang's: the C/C++ inputs still get it, kairo's own code
             // keeps its own.
             if pname == "-std=" {
-                var v      = string(unsafe ((a->getValue(0) as unsafe *const u8) as *const u8))
-                var is_cxx = !(cxx::std::string::npos == kairo::std::to_std_string(v).find(r"++"))
+                var v = string(
+                    unsafe ((a->getValue(0) as unsafe *const u8) as *const u8),
+                )
+
+                var is_cxx = !(cxx::std::string::npos == kairo::std::to_std_string(
+                    v,
+                ).find(r"++"))
                 if is_cxx && _fx_known_cxx_std(v) {
                     kairo_out.push_back(f"--cxx-std={v}")
                 } else if !is_cxx && _fx_known_c_std(v) {
@@ -1501,7 +1586,10 @@ pub class FlagTranslator {
             // bulk switches kairo spells (--Wall ...) are kairo's, the rest
             // name clang warning groups and stay clang's.
             if pname == "-W" && nval > 0 {
-                var w = string(unsafe ((a->getValue(0) as unsafe *const u8) as *const u8))
+                var w = string(
+                    unsafe ((a->getValue(0) as unsafe *const u8) as *const u8),
+                )
+
                 if w == "all" || w == "extra" || w == "pedantic" || w == "error" {
                     kairo_out.push_back(f"--W{w}")
                     ++it
@@ -1551,7 +1639,9 @@ pub class FlagTranslator {
                 } else {
                     var v = ""
                     if nval > 0 {
-                        v = string(unsafe ((a->getValue(0) as unsafe *const u8) as *const u8))
+                        v = string(
+                            unsafe ((a->getValue(0) as unsafe *const u8) as *const u8),
+                        )
                     }
 
                     if row->shape == RevShape::ValueSep {
@@ -1571,7 +1661,9 @@ pub class FlagTranslator {
                 a->render(args, &rendered)
                 for var k: usize = 0; k < rendered.size(); ++k {
                     clang_only.push_back(
-                        string(unsafe ((rendered[k] as unsafe *const u8) as *const u8)),
+                        string(
+                            unsafe ((rendered[k] as unsafe *const u8) as *const u8),
+                        ),
                     )
                 }
             }

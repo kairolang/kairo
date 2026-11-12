@@ -83,7 +83,10 @@ class CxxKeywordSpellings {
 
         var ids = clang::IdentifierTable(lo)
         for var k: u32 = 0; k < ((clang::tok::NUM_TOKENS as u16) as u32); ++k {
-            var unsafe *s = clang::tok::getKeywordSpelling(((k as u16) as clang::tok::TokenKind))
+            var unsafe *s = clang::tok::getKeywordSpelling(
+                ((k as u16) as clang::tok::TokenKind),
+            )
+
             if s == &null {
                 continue
             }
@@ -138,7 +141,7 @@ pub class CxxKeywordSet {
             // the right string tier, no transcode.
             var unsafe *r = unsafe (sp.data() as kairo::std::ConstPtr<u8>)
             var        l  = sp.size()
-            var        i  = imms->find_ident(r, l, ((compute_hash(r, l)) as u32))
+            var i = imms->find_ident(r, l, ((compute_hash(r, l)) as u32))
             if i != ((-1) as i32 as u32) {
                 self._idx.insert(i)
             }

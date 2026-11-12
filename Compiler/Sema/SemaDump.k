@@ -523,7 +523,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             fname = self.ctx->sm->get_filename(self.fid)
         }
 
-        self._p.paint(Color::NodeKind, f"===== SEMA fid {self.fid}: {fname} =====")
+        self._p.paint(
+            Color::NodeKind,
+            f"===== SEMA fid {self.fid}: {fname} =====",
+        )
+
         self._p.newline()
         self._p.paint(Color::Dim, "phase: ")
         self._p.paint(Color::Keyword, sema_dump_phase_str(self.sc->phase))
@@ -614,7 +618,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     /// injection put the right things in the right scope is not checkable at
     /// all. This is the section you read to answer "what does Foo contain".
     priv fn _dump_symbol_tables(self, tu: unsafe *TranslationUnit) {
-        self._p.paint(Color::NodeKind, "-- scope symbol tables (what each scope declares) --")
+        self._p.paint(
+            Color::NodeKind,
+            "-- scope symbol tables (what each scope declares) --",
+        )
+
         self._p.newline()
         var n = self._tables_in(tu, "<tu>")
         if n == 0 {
@@ -672,9 +680,18 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
                     f"{sema_dump_decl_name(self.ctx, d)}: category={sema_dump_category_str(f->category)}",
                 )
 
-                self._p.put(f" trivial_copy={sema_dump_tri_str(f->trivially_copyable)}")
-                self._p.put(f" trivial_dtor={sema_dump_tri_str(f->trivial_dtor)}")
-                self._p.put(f" destructible={sema_dump_tri_str(f->destructible)}")
+                self._p.put(
+                    f" trivial_copy={sema_dump_tri_str(f->trivially_copyable)}",
+                )
+
+                self._p.put(
+                    f" trivial_dtor={sema_dump_tri_str(f->trivial_dtor)}",
+                )
+
+                self._p.put(
+                    f" destructible={sema_dump_tri_str(f->destructible)}",
+                )
+
                 self._p.newline()
             }
 
@@ -717,12 +734,19 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
                     self._p.paint(Color::Ident, self._pad(name, 12))
                     if cell->size() == 1 {
                         self._p.paint(Color::Operator, "-> ")
-                        self._p.put(sema_dump_decl_brief(self.ctx, cell->get(0)))
+                        self._p.put(
+                            sema_dump_decl_brief(self.ctx, cell->get(0)),
+                        )
+
                         self._p.newline()
                     } else {
                         // The full listing is the chains section's job; here
                         // just say the name is plural so the count adds up.
-                        self._p.paint(Color::Dim, f"   [{cell->size()} decls   see chains below]")
+                        self._p.paint(
+                            Color::Dim,
+                            f"   [{cell->size()} decls   see chains below]",
+                        )
+
                         self._p.newline()
                     }
                 }
@@ -800,7 +824,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     /// # section 2: redecl chains / overload sets
 
     priv fn _dump_chains(self, tu: unsafe *TranslationUnit) {
-        self._p.paint(Color::NodeKind, "-- multi-decl names (overload sets / redecl chains) --")
+        self._p.paint(
+            Color::NodeKind,
+            "-- multi-decl names (overload sets / redecl chains) --",
+        )
+
         self._p.newline()
         self._chains_in(tu, "<tu>")
     }
@@ -892,11 +920,20 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
                     // One cell holding both: overloads, one of which has
                     // its own redeclaration chain. Says so rather than
                     // picking a label that is half wrong.
-                    self._p.paint(Color::Dim, f"   [overload set x{cell->size()}, partly chained]")
+                    self._p.paint(
+                        Color::Dim,
+                        f"   [overload set x{cell->size()}, partly chained]",
+                    )
                 } else if linked {
-                    self._p.paint(Color::Dim, f"   [redecl chain x{cell->size()}]")
+                    self._p.paint(
+                        Color::Dim,
+                        f"   [redecl chain x{cell->size()}]",
+                    )
                 } else {
-                    self._p.paint(Color::Dim, f"   [overload set x{cell->size()}]")
+                    self._p.paint(
+                        Color::Dim,
+                        f"   [overload set x{cell->size()}]",
+                    )
                 }
 
                 self._p.newline()
@@ -997,7 +1034,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
             self._p.paint(Color::Tree, "  ")
             self._p.paint(Color::Ident, sema_dump_decl_name(self.ctx, d))
-            self._p.paint(Color::Dim, f"  @ {sema_dump_loc(self.ctx, d->range.start)}")
+            self._p.paint(
+                Color::Dim,
+                f"  @ {sema_dump_loc(self.ctx, d->range.start)}",
+            )
+
             self._p.put("  ")
             if d->semantic_dc == &null {
                 // N(a) diagnosed this; the row records WHY the body will not
@@ -1042,7 +1083,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     /// exists nowhere on the AST   the shadowed decl is never
     /// consulted   so this section is the only place it can be seen.
     priv fn _dump_scopes(self) {
-        self._p.paint(Color::NodeKind, "-- lexical scopes (declarations & shadowing) --")
+        self._p.paint(
+            Color::NodeKind,
+            "-- lexical scopes (declarations & shadowing) --",
+        )
+
         self._p.newline()
 
         var *tr = &self.sc->trace
@@ -1057,7 +1102,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         }
 
         if tr->rows.empty() {
-            self._p.paint(Color::Dim, "  (no lexical scopes: nothing with a body in this TU)")
+            self._p.paint(
+                Color::Dim,
+                "  (no lexical scopes: nothing with a body in this TU)",
+            )
+
             self._p.newline()
             return
         }
@@ -1126,12 +1175,20 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         self._trace_indent(r->depth)
         self._p.paint(Color::Operator, "use     ")
         self._p.paint(Color::Ident, self._pad(self._imm_name(r->name), 12))
-        self._p.paint(Color::Dim, self._pad(f"@ {sema_dump_loc(self.ctx, r->at.start)}", 10))
+        self._p.paint(
+            Color::Dim,
+            self._pad(f"@ {sema_dump_loc(self.ctx, r->at.start)}", 10),
+        )
+
         self._p.put(" ")
 
         if r->via == TraceVia::Miss {
             self._p.paint(Color::Error, "<UNRESOLVED>")
-            self._p.paint(Color::Dim, "  (diagnosed: no such name in any scope)")
+            self._p.paint(
+                Color::Dim,
+                "  (diagnosed: no such name in any scope)",
+            )
+
             self._p.newline()
             return
         }
@@ -1220,7 +1277,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         }
 
         self._p.paint(Color::Ident, self._pad(txt, 12))
-        self._p.paint(Color::Dim, self._pad(f"@ {sema_dump_loc(self.ctx, r->at.start)}", 10))
+        self._p.paint(
+            Color::Dim,
+            self._pad(f"@ {sema_dump_loc(self.ctx, r->at.start)}", 10),
+        )
+
         self._p.put(" ")
 
         var unsafe *mr = self.sc->trace.member_result_for(r->at.start.id)
@@ -1232,7 +1293,10 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
                     "<deferred: needs the scope named by the base   ChainBinding>",
                 )
             } else {
-                self._p.paint(Color::Dim, "<deferred: needs the type of the base   ChainBinding>")
+                self._p.paint(
+                    Color::Dim,
+                    "<deferred: needs the type of the base   ChainBinding>",
+                )
             }
 
             self._p.newline()
@@ -1250,7 +1314,9 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
                 owner = self._tu.str(xd->target)
             }
 
-            _where = f"  [member of {owner}]" + self._clang_fill_note(mr->found_in)
+            _where = f"  [member of {owner}]" + self._clang_fill_note(
+                mr->found_in,
+            )
         }
 
         match mr->outcome {
@@ -1265,9 +1331,15 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
                     f"{mr->ncand} candidate(s), awaiting overload resolution{_where}",
                 )
             } case MemberOutcome::NeedsInference {
-                self._p.paint(Color::Dim, "<deferred: base type is inferred   TypeInference>")
+                self._p.paint(
+                    Color::Dim,
+                    "<deferred: base type is inferred   TypeInference>",
+                )
             } case MemberOutcome::Dependent {
-                self._p.paint(Color::Dim, "<dependent: rooted in a generic parameter   M2>")
+                self._p.paint(
+                    Color::Dim,
+                    "<dependent: rooted in a generic parameter   M2>",
+                )
             } case MemberOutcome::Errored {
                 self._p.paint(Color::Error, "<UNRESOLVED>")
                 self._p.paint(Color::Dim, "  (diagnosed)")
@@ -1309,12 +1381,19 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return
         }
 
-        self._p.paint(Color::Attr, f"  (shadows {sema_dump_decl_brief(self.ctx, r->shadowed)}")
+        self._p.paint(
+            Color::Attr,
+            f"  (shadows {sema_dump_decl_brief(self.ctx, r->shadowed)}",
+        )
+
         // Where the loser lived. A named scope beats the bare source word:
         // "in Counter" answers the follow-up question that "via scope" only
         // raises.
         if r->shadowed_via == TraceVia::Scope {
-            self._p.paint(Color::Attr, f" in {self._dc_label(r->shadowed_found_in)}")
+            self._p.paint(
+                Color::Attr,
+                f" in {self._dc_label(r->shadowed_found_in)}",
+            )
         } else if r->shadowed_via == TraceVia::Overlay {
             self._p.paint(Color::Attr, " from an import")
         } else if r->shadowed_via == TraceVia::Local {
@@ -1446,7 +1525,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         var nm = self.ctx->get_spelling(n->name)
         self._p.paint(Color::Tree, "    ")
         self._p.paint(Color::Ident, self._pad(nm, 12))
-        self._p.paint(Color::Dim, self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10))
+        self._p.paint(
+            Color::Dim,
+            self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10),
+        )
+
         self._p.put(" ")
 
         // The trace row for this exact use, when N recorded one. Its absence
@@ -1471,7 +1554,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             self._n_deferred += 1
             var unsafe *cell = n->candidate_cell
             self._p.paint(Color::Operator, "-> ")
-            self._p.paint(Color::Dim, f"{cell->size()} candidate(s), awaiting overload resolution")
+            self._p.paint(
+                Color::Dim,
+                f"{cell->size()} candidate(s), awaiting overload resolution",
+            )
+
             if tr != &null {
                 self._p.paint(Color::Dim, f"  [{self._via_label(tr)}]")
             }
@@ -1492,7 +1579,10 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
                 // deferred node (statement binder) or an N bug.
                 // Either way the reader needs to see it.
                 self._p.paint(Color::Error, "<UNBOUND>")
-                self._p.paint(Color::Dim, "  (no diagnostic  deferred or a bug)")
+                self._p.paint(
+                    Color::Dim,
+                    "  (no diagnostic  deferred or a bug)",
+                )
             }
 
             self._p.newline()
@@ -1541,7 +1631,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         // Through sema_dump_decl_name, not get_spelling(n->name): an operator
         // has no name token, and spelling the empty one asserts in debug.
         self._scope = f"{self._scope}::{sema_dump_decl_name(self.ctx, n)}"
-        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_function_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_function_decl(
+            self,
+            n,
+        )
+
         self._scope = saved
         return out
     }
@@ -1554,7 +1648,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
         var saved = self._scope
         self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
-        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_class_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_class_decl(
+            self,
+            n,
+        )
+
         self._scope = saved
         return out
     }
@@ -1567,7 +1665,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
         var saved = self._scope
         self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
-        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_struct_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_struct_decl(
+            self,
+            n,
+        )
+
         self._scope = saved
         return out
     }
@@ -1580,7 +1682,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
         var saved = self._scope
         self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
-        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_enum_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_enum_decl(
+            self,
+            n,
+        )
+
         self._scope = saved
         return out
     }
@@ -1593,7 +1699,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
         var saved = self._scope
         self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
-        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_union_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_union_decl(
+            self,
+            n,
+        )
+
         self._scope = saved
         return out
     }
@@ -1606,7 +1716,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
         var saved = self._scope
         self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
-        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_interface_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_interface_decl(
+            self,
+            n,
+        )
+
         self._scope = saved
         return out
     }
@@ -1622,7 +1736,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
         var saved = self._scope
         self._scope = f"{self._scope}::<closure @ {sema_dump_loc(self.ctx, n->range.start)}>"
-        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_closure_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_closure_expr(
+            self,
+            n,
+        )
+
         self._scope = saved
         return out
     }
@@ -1635,7 +1753,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
         var saved = self._scope
         self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
-        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_module_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_module_decl(
+            self,
+            n,
+        )
+
         self._scope = saved
         return out
     }
@@ -1647,7 +1769,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return n
         }
 
-        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_chain_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_chain_expr(
+            self,
+            n,
+        )
+
         if self._expr_mode {
             return out
         }
@@ -1679,7 +1805,10 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             self._p.paint(Color::Ident, self._pad(nm, 12))
             self._p.paint(
                 Color::Dim,
-                self._pad(f"@ {sema_dump_loc(self.ctx, st->name->range.start)}", 10),
+                self._pad(
+                    f"@ {sema_dump_loc(self.ctx, st->name->range.start)}",
+                    10,
+                ),
             )
 
             self._p.put(" ")
@@ -1754,7 +1883,10 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             self._p.newline()
         } else {
             self._p.paint(Color::Tree, "  ")
-            self._p.put(f"{self._n_ex_typed} typed, {self._n_ex_unknown} unknown, ")
+            self._p.put(
+                f"{self._n_ex_typed} typed, {self._n_ex_unknown} unknown, ",
+            )
+
             if self._n_ex_err > 0 {
                 self._p.paint(Color::Error, f"{self._n_ex_err} errored")
             } else {
@@ -1775,7 +1907,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         self._p.paint(Color::NodeKind, "-- inferred decls --")
         self._p.newline()
         if self._inferred.size() == 0 {
-            self._p.paint(Color::Dim, "  (none: every declaration wrote its own type)")
+            self._p.paint(
+                Color::Dim,
+                "  (none: every declaration wrote its own type)",
+            )
+
             self._p.newline()
             return
         }
@@ -1797,7 +1933,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
         self._p.paint(Color::Tree, "    ")
         self._p.paint(Color::Ident, self._pad(expr_kind_name(n->kind), 24))
-        self._p.paint(Color::Dim, self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10))
+        self._p.paint(
+            Color::Dim,
+            self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10),
+        )
+
         self._p.put(" : ")
 
         if n->is_poisoned() {
@@ -1832,7 +1972,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         // written as, which VariantInitLowering replaces.
         var unsafe *vd = variant_decl_of(n)
         if vd != &null {
-            self._p.paint(Color::Dim, "  [variant=" + self._variant_name(vd) + "]")
+            self._p.paint(
+                Color::Dim,
+                "  [variant=" + self._variant_name(vd) + "]",
+            )
+
             return
         }
 
@@ -1931,7 +2075,12 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
         if isa<MatchExpr>(n) {
             var unsafe *m = cast<MatchExpr>(n)
-            self._note_match_facts(m->is_exhaustive, m->covering_arm, m->open_tail, m->null_arm)
+            self._note_match_facts(
+                m->is_exhaustive,
+                m->covering_arm,
+                m->open_tail,
+                m->null_arm,
+            )
         }
     }
 
@@ -1945,7 +2094,10 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         var e  = if (exhaustive) => ("1") else => "0"
         var o  = if (open_tail) => ("1") else => "0"
         var na = if (null_arm) => (" null_arm=1") else => ""
-        self._p.paint(Color::Dim, f"  [exhaustive={e} covering_arm={covering} open_tail={o}{na}]")
+        self._p.paint(
+            Color::Dim,
+            f"  [exhaustive={e} covering_arm={covering} open_tail={o}{na}]",
+        )
     }
 
     /// `Enum::Variant` for \p v.
@@ -1969,8 +2121,18 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         self._scope_header()
         self._p.paint(Color::Tree, "    ")
         self._p.paint(Color::Ident, self._pad("MatchStmt", 24))
-        self._p.paint(Color::Dim, self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10))
-        self._note_match_facts(n->is_exhaustive, n->covering_arm, n->open_tail, n->null_arm)
+        self._p.paint(
+            Color::Dim,
+            self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10),
+        )
+
+        self._note_match_facts(
+            n->is_exhaustive,
+            n->covering_arm,
+            n->open_tail,
+            n->null_arm,
+        )
+
         self._p.newline()
         self._dump_decision(n->decision)
         return true
@@ -2005,8 +2167,16 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
         self._scope_header()
         self._p.paint(Color::Tree, "    ")
-        self._p.paint(Color::Ident, self._pad(sema_dump_pattern_kind_str(n->kind), 24))
-        self._p.paint(Color::Dim, self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10))
+        self._p.paint(
+            Color::Ident,
+            self._pad(sema_dump_pattern_kind_str(n->kind), 24),
+        )
+
+        self._p.paint(
+            Color::Dim,
+            self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10),
+        )
+
         if n->field_decl != &null {
             self._p.paint(Color::Dim, "  [field=")
             self._p.put(self._tu.decl_name(n->field_decl))
@@ -2109,7 +2279,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             }
 
             if isa<Declarations::ModuleDecl>(d) {
-                self._dump_compositions((cast<Declarations::ModuleDecl>(d)), false)
+                self._dump_compositions(
+                    (cast<Declarations::ModuleDecl>(d)),
+                    false,
+                )
+
                 continue
             }
 
@@ -2194,7 +2368,10 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         if steps > 0 {
             self._p.paint(Color::Tree, "  ")
             self._p.put(f"{steps} chain step(s): {self._n_step_bound} bound, ")
-            self._p.put(f"{self._n_step_cands} overload sets, {self._n_step_open} open")
+            self._p.put(
+                f"{self._n_step_cands} overload sets, {self._n_step_open} open",
+            )
+
             if self._n_step_err > 0 {
                 self._p.paint(Color::Error, f", {self._n_step_err} unresolved")
             }

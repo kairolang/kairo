@@ -95,7 +95,7 @@ pub class KairoIncludeScan {
             }
 
             var angled = false
-            var name   = self._include_name(text, unsafe &dirs[i], unsafe &angled)
+            var name = self._include_name(text, unsafe &dirs[i], unsafe &angled)
             if name.empty() {
                 continue
             }

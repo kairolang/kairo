@@ -21,8 +21,8 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/KLog.hh"
 ffi "c++" import "vector"
 
-import AST::Context::ASTContext::ASTContext
 import API::Text::LinkText
+import AST::Context::ASTContext::ASTContext
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import Driver::CompilerInstance::CompilerInstance
 import Driver::InputKinds::{
@@ -112,7 +112,10 @@ extend CompilerInstance {
 
             if LinkText::starts_with(w, "-I") {
                 out.push_back(
-                    string(unsafe (((w.raw() as unsafe *const u8) + 2) as *const u8), w.size() - 2),
+                    string(
+                        unsafe (((w.raw() as unsafe *const u8) + 2) as *const u8),
+                        w.size() - 2,
+                    ),
                 )
             }
         }
@@ -146,7 +149,10 @@ extend CompilerInstance {
 
             if LinkText::starts_with(w, "-iquote") {
                 quote.push_back(
-                    string(unsafe (((w.raw() as unsafe *const u8) + 7) as *const u8), w.size() - 7),
+                    string(
+                        unsafe (((w.raw() as unsafe *const u8) + 7) as *const u8),
+                        w.size() - 7,
+                    ),
                 )
 
                 continue
@@ -154,7 +160,10 @@ extend CompilerInstance {
 
             if LinkText::starts_with(w, "-I") {
                 angle.push_back(
-                    string(unsafe (((w.raw() as unsafe *const u8) + 2) as *const u8), w.size() - 2),
+                    string(
+                        unsafe (((w.raw() as unsafe *const u8) + 2) as *const u8),
+                        w.size() - 2,
+                    ),
                 )
 
                 continue
@@ -451,7 +460,12 @@ extend CompilerInstance {
     /// \param reread when \p bytes is null: re-read the disk (a mapped
     ///               file); false keeps the bytes the file has (a buffer
     ///               whose text did not change).
-    pub fn detach_for_refresh(self, fid: u32, bytes: kairo::std::ConstPtr<u8>, size: usize, reread: bool, given: bool) -> bool {
+    pub fn detach_for_refresh(self,
+                              fid:    u32,
+                              bytes:  kairo::std::ConstPtr<u8>,
+                              size:   usize,
+                              reread: bool,
+                              given:  bool) -> bool {
         if self.is_foreign_fid(fid) {
             return false
         }
@@ -502,7 +516,10 @@ extend CompilerInstance {
 
     /// The arena blocks of the kept contexts, into \p out: one label per
     /// file when \p named (a debug line's), else all under label 0.
-    pub fn retired_ranges(self, out: unsafe *kairo::AddrRanges, own: unsafe *kairo::AddrRanges, named: bool) {
+    pub fn retired_ranges(self,
+                          out:   unsafe *kairo::AddrRanges,
+                          own:   unsafe *kairo::AddrRanges,
+                          named: bool) {
         var all = out->label(kairo::std::to_std_string("a replaced tree"))
         for var i: usize = 0; i < self.retired.size(); ++i {
             var unsafe *c = unsafe (self.retired[i] as unsafe *ASTContext)
@@ -512,7 +529,9 @@ extend CompilerInstance {
 
             var l = all
             if named && self._sm != &null {
-                l = out->label(kairo::std::to_std_string(self._sm->get_filename(c->fid)))
+                l = out->label(
+                    kairo::std::to_std_string(self._sm->get_filename(c->fid)),
+                )
             }
 
             c->ranges_into(out, l)
@@ -571,13 +590,13 @@ extend CompilerInstance {
                 continue
             }
 
-            pp  += c->pp_alloc.profile().bytes_allocated
-            ix  += c->index_alloc.profile().bytes_allocated
+            pp += c->pp_alloc.profile().bytes_allocated
+            ix += c->index_alloc.profile().bytes_allocated
             ast += c->ast_alloc.profile().bytes_allocated
             sem += c->sema_alloc.profile().bytes_allocated
             scr += c->scratch_alloc.profile().bytes_allocated
-            st  += c->string_alloc.profile().bytes_allocated
-            cg  += c->codegen_alloc.profile().bytes_allocated
+            st += c->string_alloc.profile().bytes_allocated
+            cg += c->codegen_alloc.profile().bytes_allocated
         }
 
         return f"ast {ast / 1024} KB, sema {sem / 1024} KB, pp {pp / 1024} KB, index {ix / 1024} KB, strings {st / 1024} KB, scratch {scr / 1024} KB, codegen {cg / 1024} KB"
@@ -696,7 +715,7 @@ extend CompilerInstance {
             gs->finish_index(fid)
         }
 
-        var        parser     = ASTParse(ctx, &null, gs, ASTParse::ParseMode::Full)
+        var parser = ASTParse(ctx, &null, gs, ASTParse::ParseMode::Full)
         var unsafe *parsed_tu = parser.parse()
         ctx->tu = parsed_tu
 
@@ -707,7 +726,7 @@ extend CompilerInstance {
     ///        which the full parse of every file that imports it reads. A
     ///        caller re-parsing several files indexes all of them first.
     pub fn index_one(self, fid: u32) -> bool {
-        var unsafe *gs = unsafe (self._g_scope as unsafe *GlobalDisambigTable)
+        var unsafe *gs   = unsafe (self._g_scope as unsafe *GlobalDisambigTable)
         var unsafe *ictx = gs->begin_index(fid)
         if ictx == &null {
             return false

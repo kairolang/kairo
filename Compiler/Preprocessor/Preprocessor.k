@@ -52,11 +52,11 @@ import Preprocessor::DepScanner::{
     DepGraph,
     DepScanner,
 }
+import Preprocessor::FileImportIndex::FileImportIndex
 import Preprocessor::MacroTable::{
     MacroEntry,
     MacroTable,
 }
-import Preprocessor::FileImportIndex::FileImportIndex
 import Preprocessor::PPWalker::PPWalker
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Preprocessor::TokenSource::TokenSource
@@ -94,8 +94,6 @@ pub struct PrelexedFile {
     var tokens: unsafe *cxx::std::vector<Token>
 }
 
-//  Batch driver replaces the old PreProcessor::preprocess phases
-
 pub class PreProcessor {
     priv var _sym:      unsafe *PreprocessorSymbolTable
     priv var _macros:   unsafe *MacroTable
@@ -104,7 +102,7 @@ pub class PreProcessor {
     priv var _diag:     *DiagEngine
     priv var _pool:     *ThreadPool
     priv var _resolver: *ImportResolver
-    priv var _gscope:   *GlobalDisambigTable ///< owns per-fid ASTContext/TU now
+    priv var _gscope:   *GlobalDisambigTable ///< owns per-fid ASTContext/TU
     priv var _inv:      unsafe *CompilerInvocation
     priv var _headers:  unsafe *HeaderSetCache          = &null ///< borrowed from CompilerInstance; handed to every walker.
     priv var _opts:     PreprocessorOptions
@@ -189,7 +187,7 @@ pub class PreProcessor {
 
             var name:  string
             var value: string
-            var eq            = kairo::std::to_std_string(raw).find(('=' as u8) as c_char)
+            var eq = kairo::std::to_std_string(raw).find(('=' as u8) as c_char)
             if eq != cxx::std::string::npos {
                 name  = raw.subslice(0, eq)
                 value = raw.subslice(eq + 1, raw.size())
@@ -199,8 +197,8 @@ pub class PreProcessor {
             }
 
             if name.empty() {
-                // "=VALUE" and "" used to be skipped silently, so a typo'd -D
-                // looked accepted and the macro just never existed.
+                // An empty name is diagnosed: skipping it would make a typo'd
+                // -D look accepted while the macro never existed.
                 self._diag->report(
                     DiagID::U006E,
                     f"invalid -D argument '{raw}': expected NAME or NAME=VALUE with a non-empty NAME",
@@ -209,7 +207,10 @@ pub class PreProcessor {
             }
 
             self._define_storage.push_back(kairo::std::to_std_string(value))
-            self._register_define(name, self._define_storage[self._define_storage.size() - 1])
+            self._register_define(
+                name,
+                self._define_storage[self._define_storage.size() - 1],
+            )
         }
     }
 
@@ -290,7 +291,12 @@ pub class PreProcessor {
             name_tok.range = SourceRange::invalid()
             name_tok.imm   = imm->intern_ident_copy(name)
 
-            var unsafe *decl = MacroDecl::create(ctx, SourceRange::invalid(), name_tok)
+            var unsafe *decl = MacroDecl::create(
+                ctx,
+                SourceRange::invalid(),
+                name_tok,
+            )
+
             decl->accepts_params = false
 
             var unsafe *entry = kairo::std::create<MacroEntry>()
@@ -450,7 +456,7 @@ pub class PreProcessor {
         // will not help. NOT lex time   see Lexer::next, which bills "Lex".
         var lexer:  unsafe *Lexer                   = &null
         var replay: unsafe *cxx::std::vector<Token> = &null
-        var pit                                     = self._prelexed.find(fid as u64)
+        var pit = self._prelexed.find(fid as u64)
         if pit != self._prelexed.end() {
             // Opened, lexed and its macros registered by _prelex_cycles.
             lexer  = pit->second.lexer
@@ -484,8 +490,11 @@ pub class PreProcessor {
         // ModuleDecl name token needs an imm, and the two are different name
         // domains (see ASTContext::module_leaf_imm).
         if ctx->module_leaf_imm == u32::MAX && ctx->module_base.segments.size() > 0 {
-            var        *segs = &ctx->module_base.segments
-            var unsafe *leaf = self._sym->resolve((*segs)[segs->size() - 1].name)
+            var *segs = &ctx->module_base.segments
+            var unsafe *leaf = self._sym->resolve(
+                (*segs)[segs->size() - 1].name,
+            )
+
             var unsafe *imms = ctx->get_imm_table()
             if leaf != &null && imms != &null {
                 ctx->module_leaf_imm = imms->intern_ident_copy(*leaf)
@@ -494,7 +503,13 @@ pub class PreProcessor {
 
         var unsafe *tu = ctx->tu
         if tu == &null {
-            tu = ctx->alloc_init_pp_cleanup<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope)
+            tu = ctx->alloc_init_pp_cleanup<TranslationUnit>(
+                ctx,
+                fid,
+                ctx->hoisted,
+                self._gscope,
+            )
+
             ctx->tu = tu
         }
 
@@ -799,7 +814,10 @@ pub class PreProcessor {
         if n == 1 {
             // A file sees its own declarations without importing itself, so
             // the import does nothing but close the cycle: drop it.
-            b.remove(at, "remove the import; a file sees its own declarations without one")
+            b.remove(
+                at,
+                "remove the import; a file sees its own declarations without one",
+            )
         } else {
             b.note(
                 "move the declarations the modules share into a third module that each of them imports",
@@ -932,18 +950,49 @@ pub class PreProcessor {
             }
         }
 
-        // `f256` / `f512` (P723): num/f256_t.k and num/f512_t.k, which the
+        // `f256` / `f512`: num/f256_t.k and num/f512_t.k, which the
         // builtin root does not re-export, for the files that name one;
         // `f128`: num/f128_ext.k, its methods (sqrt and fma run the engine);
         // `f8e4m3` / `f8e5m2`: std/rt/Float8.k, their classes.
         self._wide_imports.clear()
         if !self._opts.no_prelude && self._opts.prelude_path.size() == 0 {
-            self._add_wide_floats(&scanner, &graph, builtin_root_name(), "num", "f256_t", graph.f256_users)
-            self._add_wide_floats(&scanner, &graph, builtin_root_name(), "num", "f512_t", graph.f512_users)
-            self._add_wide_floats(&scanner, &graph, builtin_root_name(), "num", "f128_ext", graph.f128_users)
-            // `f8e4m3` / `f8e5m2`: std/rt/Float8.k (P942), from std, which
+            self._add_wide_floats(
+                &scanner,
+                &graph,
+                builtin_root_name(),
+                "num",
+                "f256_t",
+                graph.f256_users,
+            )
+
+            self._add_wide_floats(
+                &scanner,
+                &graph,
+                builtin_root_name(),
+                "num",
+                "f512_t",
+                graph.f512_users,
+            )
+
+            self._add_wide_floats(
+                &scanner,
+                &graph,
+                builtin_root_name(),
+                "num",
+                "f128_ext",
+                graph.f128_users,
+            )
+
+            // `f8e4m3` / `f8e5m2`: std/rt/Float8.k, from std, which
             // a builtin file cannot import either.
-            self._add_wide_floats(&scanner, &graph, std_root_spelling(), "rt", "Float8", graph.f8_users)
+            self._add_wide_floats(
+                &scanner,
+                &graph,
+                std_root_spelling(),
+                "rt",
+                "Float8",
+                graph.f8_users,
+            )
         }
 
         // The macro prelude needs the builtin root WALKED before any file
@@ -983,7 +1032,7 @@ pub class PreProcessor {
         // The scan resolved every import through the same resolver, so its
         // directory sweeps found nearly every module-name collision there
         // is; reported here, before the walk, they would otherwise go to
-        // whichever walk of the first wave asked first (P956).
+        // whichever walk of the first wave asked first.
         FileImportIndex::report_collisions(self._resolver, self._diag)
 
         var executor          = WaveExecutor(self._pool)
@@ -1031,8 +1080,8 @@ pub class PreProcessor {
         // A file the waves never reached was never walked, so it is never
         // parsed or compiled. The scan drops (and reports) every edge that
         // would close a cycle, so this is a scanner bug if it fires -- but it
-        // is reported, not ignored: dropping a file and exiting 0 is how an
-        // import cycle used to lose both of its files without a word.
+        // is reported, not ignored: dropping a file and exiting 0 would lose
+        // both files of an import cycle without a word.
         if dispatched < graph.all_fids.size() {
             var lost = ""
             for fid in graph.all_fids {

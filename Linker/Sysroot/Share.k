@@ -167,7 +167,12 @@ pub class SysRecipe {
         for var i: usize = 0; i < self.per_arch_keys.size(); ++i {
             var dot = LinkText::find(self.per_arch_keys[i], ".", 0)
             var v   = LinkText::slice(self.per_arch_keys[i], 0, dot)
-            var a   = LinkText::slice(self.per_arch_keys[i], dot + 1, self.per_arch_keys[i].size())
+            var a = LinkText::slice(
+                self.per_arch_keys[i],
+                dot + 1,
+                self.per_arch_keys[i].size(),
+            )
+
             if a == t->arch {
                 s = SysUtil::fill(s, "per_arch." + v, self.per_arch_vals[i])
             }
@@ -360,7 +365,7 @@ pub class QuirkSet {
 
             var probe_ok = true
             for var p: string in q.match_probe {
-                var neg  = LinkText::starts_with(p, "!")
+                var neg = LinkText::starts_with(p, "!")
                 var fact = if (neg) => (LinkText::slice(p, 1, p.size())) else => p
                 if SysUtil::contains(&probe, fact) == neg {
                     probe_ok = false
@@ -552,7 +557,10 @@ pub class ShareTree {
     /// runtimes/REVISION, trimmed; "" when absent.
     pub fn revision(self) -> string {
         var text = ""
-        if !LinkFS::read(LinkText::join(self.input_path("runtimes"), "REVISION"), &text) {
+        if !LinkFS::read(
+            LinkText::join(self.input_path("runtimes"), "REVISION"),
+            &text,
+        ) {
             return ""
         }
 

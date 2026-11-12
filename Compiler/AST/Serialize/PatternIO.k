@@ -94,7 +94,10 @@ fn io_pattern_base(ar: unsafe *ASTArchive, p: unsafe *Pattern) {
         ar->sema_null<Decl>(p->field_decl, "Pattern::field_decl")
         ar->sema_is(p->pack_index == -1, "Pattern::pack_index")
         if p->kind != PatternKind::RecoveryPattern {
-            ar->sema_is(p->recovery_kind == PatternKind::RecoveryPattern, "Pattern::recovery_kind")
+            ar->sema_is(
+                p->recovery_kind == PatternKind::RecoveryPattern,
+                "Pattern::recovery_kind",
+            )
         }
     }
 }
@@ -111,7 +114,8 @@ fn io_binding_pattern(ar: unsafe *ASTArchive, n: unsafe *Patterns::BindingPatter
     ar->decl<Decl>(&n->decl)
 }
 
-fn io_tuple_destructure_pattern(ar: unsafe *ASTArchive, n: unsafe *Patterns::TupleDestructurePattern) {
+fn io_tuple_destructure_pattern(ar: unsafe *ASTArchive,
+                                n:  unsafe *Patterns::TupleDestructurePattern) {
     ar->pattern_list<Pattern>(&n->elements)
 }
 
@@ -160,20 +164,35 @@ pub fn pattern_io(ar: unsafe *ASTArchive, p: unsafe *Pattern) {
         case PatternKind::WildcardPattern {
             // no fields of its own
         } case PatternKind::LiteralPattern {
-            io_literal_pattern(ar, unsafe (p as unsafe *Patterns::LiteralPattern))
+            io_literal_pattern(
+                ar,
+                unsafe (p as unsafe *Patterns::LiteralPattern),
+            )
         } case PatternKind::BindingPattern {
-            io_binding_pattern(ar, unsafe (p as unsafe *Patterns::BindingPattern))
+            io_binding_pattern(
+                ar,
+                unsafe (p as unsafe *Patterns::BindingPattern),
+            )
         } case PatternKind::TupleDestructurePattern {
-            io_tuple_destructure_pattern(ar, unsafe (p as unsafe *Patterns::TupleDestructurePattern))
+            io_tuple_destructure_pattern(
+                ar,
+                unsafe (p as unsafe *Patterns::TupleDestructurePattern),
+            )
         } case PatternKind::ConstructorPattern {
-            io_constructor_pattern(ar, unsafe (p as unsafe *Patterns::ConstructorPattern))
+            io_constructor_pattern(
+                ar,
+                unsafe (p as unsafe *Patterns::ConstructorPattern),
+            )
         } case PatternKind::UnresolvedConstructorPattern {
             io_unresolved_constructor_pattern(
                 ar,
                 unsafe (p as unsafe *Patterns::UnresolvedConstructorPattern),
             )
         } case PatternKind::AlternationPattern {
-            io_alternation_pattern(ar, unsafe (p as unsafe *Patterns::AlternationPattern))
+            io_alternation_pattern(
+                ar,
+                unsafe (p as unsafe *Patterns::AlternationPattern),
+            )
         } case PatternKind::RangePattern {
             io_range_pattern(ar, unsafe (p as unsafe *Patterns::RangePattern))
         } case PatternKind::SlicePattern {

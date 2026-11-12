@@ -139,7 +139,10 @@ extend CompilerInstance {
 
         if self._backend == &null {
             self._rt_started = false
-            self._diag->report(DiagID::I004F, "cannot compile the runtime: no clang backend").emit()
+            self._diag->report(
+                DiagID::I004F,
+                "cannot compile the runtime: no clang backend",
+            ).emit()
             return false
         }
 
@@ -151,7 +154,12 @@ extend CompilerInstance {
         // would shadow a user's own copy).
         var extra = cxx::std::vector<string>()
         extra.push_back("-I")
-        extra.push_back(Path::join_str(self._runtime_root(), ResourceLayout::mimalloc_include_subdir()))
+        extra.push_back(
+            Path::join_str(
+                self._runtime_root(),
+                ResourceLayout::mimalloc_include_subdir(),
+            ),
+        )
 
         // Side by side on the pool: each file is its own CompilerInstance
         // (ClangBackend::run_native) printing into its own log. The
@@ -169,7 +177,9 @@ extend CompilerInstance {
         var fp = ""
         if !cache.empty() {
             fp = kairo::std::from_std_string<string>(
-                llvm::utohexstr(llvm::xxh3_64bits(kairo::sref(self._rt_fingerprint()))),
+                llvm::utohexstr(
+                    llvm::xxh3_64bits(kairo::sref(self._rt_fingerprint())),
+                ),
             )
         }
 
@@ -200,7 +210,9 @@ extend CompilerInstance {
                 // compiler rebuild or a Lib/rt edit replaces the entry
                 // rather than adding one per build.
                 var slot = kairo::std::from_std_string<string>(
-                    llvm::utohexstr(llvm::xxh3_64bits(kairo::sref(exe + "\n" + key))),
+                    llvm::utohexstr(
+                        llvm::xxh3_64bits(kairo::sref(exe + "\n" + key)),
+                    ),
                 )
 
                 entry = cache + "/" + stem + "-" + slot + "-" + fp + ".o"
@@ -210,7 +222,11 @@ extend CompilerInstance {
                         f"runtime cache bypassed (--force-recompile): {entry}",
                     )
                 } else if CompilerInstance::_rt_cache_fetch(entry, obj) {
-                    kairo::Logger::info(kairo::Logger::Stage::Driver, f"runtime cache hit: {entry}")
+                    kairo::Logger::info(
+                        kairo::Logger::Stage::Driver,
+                        f"runtime cache hit: {entry}",
+                    )
+
                     self._rt_used.push_back(entry)
                     hit = true
                 } else {
@@ -282,14 +298,20 @@ extend CompilerInstance {
             }
 
             if !self._rt_ents[i].empty() {
-                if CompilerInstance::_rt_cache_store(self._rt_objs[i], self._rt_ents[i]) {
+                if CompilerInstance::_rt_cache_store(
+                    self._rt_objs[i],
+                    self._rt_ents[i],
+                ) {
                     stored = true
                     self._rt_used.push_back(self._rt_ents[i])
                 }
             }
 
             self._native_objs.push_back(self._rt_objs[i])
-            kairo::Logger::info(kairo::Logger::Stage::Driver, f"emitted object {self._rt_objs[i]}")
+            kairo::Logger::info(
+                kairo::Logger::Stage::Driver,
+                f"emitted object {self._rt_objs[i]}",
+            )
         }
 
         if stored {
@@ -356,7 +378,10 @@ extend CompilerInstance {
             return cxx::std::vector<string>()
         }
 
-        return self._native_words_for(self._backend, classify_input("input.cc", ""))
+        return self._native_words_for(
+            self._backend,
+            classify_input("input.cc", ""),
+        )
     }
 
     /// \brief cxx_driver_words for a C input (`.c`): the C set kcc compiles
@@ -369,7 +394,10 @@ extend CompilerInstance {
             return cxx::std::vector<string>()
         }
 
-        return self._native_words_for(self._backend, classify_input("input.c", ""))
+        return self._native_words_for(
+            self._backend,
+            classify_input("input.c", ""),
+        )
     }
 
     priv fn _native_jobs(self) -> unsafe *ClangJobs {
@@ -575,7 +603,10 @@ extend CompilerInstance {
                 ok = one && ok
                 if one && kind == EmitKind::Obj {
                     self._native_objs.push_back(out)
-                    kairo::Logger::info(kairo::Logger::Stage::Driver, f"emitted object {out}")
+                    kairo::Logger::info(
+                        kairo::Logger::Stage::Driver,
+                        f"emitted object {out}",
+                    )
                 }
             }
         }
@@ -591,7 +622,9 @@ extend CompilerInstance {
     prot fn _runtime_root(self) -> string {
         var broot = self.invocation()->pp.builtins_dir
         if broot.empty() && !self.invocation()->target.resource_dir.empty() {
-            broot = (Path(self.invocation()->target.resource_dir) / ResourceLayout::builtin_subdir()).full_path()
+            broot = (Path(
+                self.invocation()->target.resource_dir,
+            ) / ResourceLayout::builtin_subdir()).full_path()
         }
 
         if broot.empty() {
@@ -613,9 +646,14 @@ extend CompilerInstance {
             return out
         }
 
-        var root                      = Path::join_str(rroot, ResourceLayout::rt_subdir())
-        var ec:  cxx::std::error_code
-        var it  = llvm::sys::fs::directory_iterator(llvm::Twine(kairo::sref(root)), &ec, true)
+        var root = Path::join_str(rroot, ResourceLayout::rt_subdir())
+        var ec: cxx::std::error_code
+        var it = llvm::sys::fs::directory_iterator(
+            llvm::Twine(kairo::sref(root)),
+            &ec,
+            true,
+        )
+
         var end = llvm::sys::fs::directory_iterator()
 
         for ; ec.value() == 0 && it != end; it.increment(&ec) {
@@ -627,7 +665,10 @@ extend CompilerInstance {
             // The same classifier as a command-line input: rt holds C and
             // C++ only, and a stray header or README must not compile.
             var k = classify_input(
-                string(unsafe ((p.data() as unsafe *const u8) as *const u8), p.size()),
+                string(
+                    unsafe ((p.data() as unsafe *const u8) as *const u8),
+                    p.size(),
+                ),
                 "",
             )
 
@@ -681,12 +722,20 @@ extend CompilerInstance {
 
                 var p = it->path()
                 out.push_back(
-                    string(unsafe ((p.data() as unsafe *const u8) as *const u8), p.size()),
+                    string(
+                        unsafe ((p.data() as unsafe *const u8) as *const u8),
+                        p.size(),
+                    ),
                 )
             }
         }
 
-        llvm::sort(out.begin(), out.end(), fn (const a: string, const b: string) || -> bool = a < b)
+        llvm::sort(
+            out.begin(),
+            out.end(),
+            fn (const a: string, const b: string) || -> bool = a < b,
+        )
+
         return out
     }
 

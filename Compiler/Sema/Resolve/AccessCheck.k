@@ -208,28 +208,44 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
     fn traverse_function_decl(self, n: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
         self._fns.push_back(n)
-        var unsafe *r = RecursiveASTVisitor<AccessCheck>::traverse_function_decl(self, n)
+        var unsafe *r = RecursiveASTVisitor<AccessCheck>::traverse_function_decl(
+            self,
+            n,
+        )
+
         self._fns.pop_back()
         return r
     }
 
     fn traverse_class_decl(self, n: unsafe *ClassDecl) -> unsafe *ClassDecl {
         self._recs.push_back(n)
-        var unsafe *r = RecursiveASTVisitor<AccessCheck>::traverse_class_decl(self, n)
+        var unsafe *r = RecursiveASTVisitor<AccessCheck>::traverse_class_decl(
+            self,
+            n,
+        )
+
         self._recs.pop_back()
         return r
     }
 
     fn traverse_struct_decl(self, n: unsafe *StructDecl) -> unsafe *StructDecl {
         self._recs.push_back(n)
-        var unsafe *r = RecursiveASTVisitor<AccessCheck>::traverse_struct_decl(self, n)
+        var unsafe *r = RecursiveASTVisitor<AccessCheck>::traverse_struct_decl(
+            self,
+            n,
+        )
+
         self._recs.pop_back()
         return r
     }
 
     fn traverse_union_decl(self, n: unsafe *UnionDecl) -> unsafe *UnionDecl {
         self._recs.push_back(n)
-        var unsafe *r = RecursiveASTVisitor<AccessCheck>::traverse_union_decl(self, n)
+        var unsafe *r = RecursiveASTVisitor<AccessCheck>::traverse_union_decl(
+            self,
+            n,
+        )
+
         self._recs.pop_back()
         return r
     }
@@ -260,10 +276,15 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             if dc->dc_kind == DeclContextKind::Extension {
                 var unsafe *ext = dyn_cast<ExtensionDecl>(dc->owner_decl())
                 if ext != &null && ext->target != &null && ext->target->canonical != &null {
-                    var unsafe *rd  = self._tu.record_decl(canon_unqual(ext->target->canonical))
+                    var unsafe *rd = self._tu.record_decl(
+                        canon_unqual(ext->target->canonical),
+                    )
+
                     var unsafe *tgt = if (rd != &null) => (self._rep(rd)) else => &null
                     if tgt != &null
-                        && NameLookup::tu_of(dc) == NameLookup::tu_of(NameLookup::context_of(tgt)) {
+                        && NameLookup::tu_of(dc) == NameLookup::tu_of(
+                            NameLookup::context_of(tgt),
+                        ) {
                         out.push_back(tgt)
                     }
                 }
@@ -282,7 +303,9 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             return &null
         }
 
-        return NameLookup::representative(decl_pattern(NameLookup::representative(d)))
+        return NameLookup::representative(
+            decl_pattern(NameLookup::representative(d)),
+        )
     }
 
     /// # the references
@@ -368,7 +391,12 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             return true
         }
 
-        self._check(n->resolved_op, n->op_token.range, self._type_of(n->operand))
+        self._check(
+            n->resolved_op,
+            n->op_token.range,
+            self._type_of(n->operand),
+        )
+
         return true
     }
 
@@ -607,7 +635,10 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             return true
         }
 
-        var unsafe *rd = self._tu.record_decl(canon_unqual(self._tu.as_value(self._strip(through))))
+        var unsafe *rd = self._tu.record_decl(
+            canon_unqual(self._tu.as_value(self._strip(through))),
+        )
+
         if rd == &null {
             return true
         }
@@ -664,7 +695,10 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                 return &null
             }
 
-            var unsafe *rd = self._tu.record_decl(canon_unqual(ext->target->canonical))
+            var unsafe *rd = self._tu.record_decl(
+                canon_unqual(ext->target->canonical),
+            )
+
             if rd == &null {
                 return &null
             }
@@ -774,9 +808,11 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         var tok_r   = self._name_range(d)
         var written = d->visibility_range()
         if written.is_valid() {
-            b.note(DiagCode(DiagID::SC242N), tok_r.start, f"'{nm}' is declared {word} here")->child_first(
-                tok_r,
-            )
+            b.note(
+                DiagCode(DiagID::SC242N),
+                tok_r.start,
+                f"'{nm}' is declared {word} here",
+            )->child_first(tok_r)
         } else {
             b.note(
                 DiagCode(DiagID::SC242N),
@@ -893,7 +929,10 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             return
         }
 
-        var unsafe *rd = self._tu.record_decl(canon_unqual(self._tu.as_value(self._strip(through))))
+        var unsafe *rd = self._tu.record_decl(
+            canon_unqual(self._tu.as_value(self._strip(through))),
+        )
+
         if rd == &null {
             return
         }
@@ -906,7 +945,14 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         var seen    = cxx::std::vector<unsafe *Decl>()
         var path    = cxx::std::vector<unsafe *InheritEdge>()
         var holders = cxx::std::vector<unsafe *Decl>()
-        if !self._path(from, owner, unsafe &path, unsafe &holders, unsafe &seen, 0) {
+        if !self._path(
+            from,
+            owner,
+            unsafe &path,
+            unsafe &holders,
+            unsafe &seen,
+            0,
+        ) {
             return
         }
 
@@ -919,8 +965,8 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
             var unsafe *holder = holders[i]
             var        users   = self._use_classes()
-            var unsafe *htu    = NameLookup::tu_of(NameLookup::context_of(holder))
-            var        ok      = htu == self.sc->tu || ev == 2 && same_module(htu, self.sc->tu)
+            var unsafe *htu = NameLookup::tu_of(NameLookup::context_of(holder))
+            var ok = htu == self.sc->tu || ev == 2 && same_module(htu, self.sc->tu)
             for var k: usize = 0; k < users.size() && !ok; ++k {
                 if users[k] == holder {
                     ok = true
@@ -1145,15 +1191,18 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             return
         }
 
-        var unsafe *rd = self._tu.record_decl(canon_unqual(ext->target->canonical))
+        var unsafe *rd = self._tu.record_decl(
+            canon_unqual(ext->target->canonical),
+        )
+
         var unsafe *tgt = if (rd != &null) => (self._rep(rd)) else => &null
-        var seen = cxx::std::vector<unsafe *Decl>()
+        var        seen = cxx::std::vector<unsafe *Decl>()
         if tgt == &null || tgt == owner || !self._derives(tgt, owner, unsafe &seen, 0) {
             return
         }
 
-        var tn  = self._tu.decl_name(tgt)
-        var dir = tu_module_dir(home)
+        var tn    = self._tu.decl_name(tgt)
+        var dir   = tu_module_dir(home)
         var reach = f"the file that declares '{on}', which has no module.k above it"
         if !dir.empty() {
             reach = f"a file of the module '{on}' is declared in, rooted at '{dir}' (the directory of its module.k)"

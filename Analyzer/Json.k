@@ -44,20 +44,20 @@ pub fn JSON_NONE() -> u32 {
 /// `next`; an object member carries its key in `key`.
 pub struct JsonNode {
     var kind:  JsonKind = JsonKind::Null
-    var flag:  bool     = false     ///< Bool: the value. Number: true when integral.
+    var flag:  bool     = false          ///< Bool: the value. Number: true when integral.
     var num:   f64      = 0.0
     var ival:  i64      = 0
-    var text:  string   = ""        ///< String: the decoded value.
-    var key:   string   = ""        ///< set when this node is an object member
-    var first: u32      = u32::MAX  ///< first child (Array, Object)
-    var next:  u32      = u32::MAX  ///< next sibling
-    var count: u32      = 0         ///< number of children
+    var text:  string   = ""             ///< String: the decoded value.
+    var key:   string   = ""             ///< set when this node is an object member
+    var first: u32      = u32::MAX       ///< first child (Array, Object)
+    var next:  u32      = u32::MAX       ///< next sibling
+    var count: u32      = 0              ///< number of children
 }
 
 pub class JsonDoc {
     pub var nodes: [JsonNode]
-    pub var root:  u32    = u32::MAX
-    pub var error: string = ""       ///< empty when the parse succeeded
+    pub var root:  u32        = u32::MAX
+    pub var error: string     = ""       ///< empty when the parse succeeded
 
     priv var src_: string = ""
     priv var pos_: usize  = 0
@@ -271,7 +271,10 @@ pub class JsonDoc {
     priv fn ws_(self) {
         while self.pos_ < self.src_.size() {
             var c = self.src_[self.pos_]
-            if (c != (' ' as u8)) && (c != ('\t' as u8)) && (c != ('\n' as u8)) && (c != ('\r' as u8)) {
+            if (c != (' ' as u8))
+                && (c != ('\t' as u8))
+                && (c != ('\n' as u8))
+                && (c != ('\r' as u8)) {
                 return
             }
 
@@ -541,8 +544,11 @@ pub class JsonDoc {
                 var cp = self.hex4_()
                 // A high surrogate is half a character: its low half follows
                 // as a second \u escape, and the pair is ONE code point.
-                if (cp >= 0xD800) && (cp <= 0xDBFF) && ((self.pos_ + 1) < self.src_.size())
-                    && (self.src_[self.pos_] == ('\\' as u8)) && (self.src_[self.pos_ + 1] == ('u' as u8)) {
+                if (cp >= 0xD800)
+                    && (cp <= 0xDBFF)
+                    && ((self.pos_ + 1) < self.src_.size())
+                    && (self.src_[self.pos_] == ('\\' as u8))
+                    && (self.src_[self.pos_ + 1] == ('u' as u8)) {
                     self.pos_ += 2
                     var lo = self.hex4_()
                     cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)
@@ -560,9 +566,9 @@ pub class JsonDoc {
     }
 
     priv fn number_(self) -> u32 {
-        var n     = self.new_(JsonKind::Number)
-        var neg   = false
-        var whole = true
+        var n         = self.new_(JsonKind::Number)
+        var neg       = false
+        var whole     = true
         var mant: f64 = 0.0
         var ival: i64 = 0
 
@@ -571,7 +577,9 @@ pub class JsonDoc {
             self.pos_ += 1
         }
 
-        while (self.pos_ < self.src_.size()) && (self.src_[self.pos_] >= ('0' as u8)) && (self.src_[self.pos_] <= ('9' as u8)) {
+        while (self.pos_ < self.src_.size())
+            && (self.src_[self.pos_] >= ('0' as u8))
+            && (self.src_[self.pos_] <= ('9' as u8)) {
             var d = (self.src_[self.pos_] - 48) as i64
             ival = (ival * 10) + d
             mant = (mant * 10.0) + (d as f64)
@@ -582,24 +590,31 @@ pub class JsonDoc {
             whole = false
             self.pos_ += 1
             var scale: f64 = 0.1
-            while (self.pos_ < self.src_.size()) && (self.src_[self.pos_] >= ('0' as u8)) && (self.src_[self.pos_] <= ('9' as u8)) {
+            while (self.pos_ < self.src_.size())
+                && (self.src_[self.pos_] >= ('0' as u8))
+                && (self.src_[self.pos_] <= ('9' as u8)) {
                 mant  = mant + (((self.src_[self.pos_] - 48) as f64) * scale)
                 scale = scale * 0.1
                 self.pos_ += 1
             }
         }
 
-        if (self.pos_ < self.src_.size()) && ((self.src_[self.pos_] == ('e' as u8)) || (self.src_[self.pos_] == ('E' as u8))) {
+        if (self.pos_ < self.src_.size())
+            && ((self.src_[self.pos_] == ('e' as u8)) || (self.src_[self.pos_] == ('E' as u8))) {
             whole = false
             self.pos_ += 1
             var eneg = false
-            if (self.pos_ < self.src_.size()) && ((self.src_[self.pos_] == ('-' as u8)) || (self.src_[self.pos_] == ('+' as u8))) {
+            if (self.pos_ < self.src_.size())
+                && ((self.src_[self.pos_] == ('-' as u8))
+                    || (self.src_[self.pos_] == ('+' as u8))) {
                 eneg = self.src_[self.pos_] == ('-' as u8)
                 self.pos_ += 1
             }
 
             var ex: i32 = 0
-            while (self.pos_ < self.src_.size()) && (self.src_[self.pos_] >= ('0' as u8)) && (self.src_[self.pos_] <= ('9' as u8)) {
+            while (self.pos_ < self.src_.size())
+                && (self.src_[self.pos_] >= ('0' as u8))
+                && (self.src_[self.pos_] <= ('9' as u8)) {
                 ex = (ex * 10) + ((self.src_[self.pos_] - 48) as i32)
                 self.pos_ += 1
             }

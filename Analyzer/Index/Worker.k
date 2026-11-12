@@ -46,8 +46,8 @@ ffi "c++" import "thread"
 import API::FS::LinkFS
 import Diagnostic::Consumer::DiagConsumer
 import Diagnostic::Diagnostic::{
-    Diagnostic,
     DiagLabel,
+    Diagnostic,
     FixKind,
 }
 import Diagnostic::Severity::DiagSeverity
@@ -59,16 +59,13 @@ import Driver::CompilerGraph
 import Driver::CompilerInstance::CompilerInstance
 import Driver::CompilerNative
 import Driver::TUStage::TUStage
-import Index::Snapshot::*
-import Index::WorkerKeys::*
-import Index::Indexer::IndexWalker
 import Index::Hovers
+import Index::Indexer::IndexWalker
+import Index::Snapshot::*
 import Index::Tables
-import Index::Writer
 import Index::Tokens::lexical_tokens
-import Protocol::*
-import Tuning::WIDE_INDEX_LIMIT
-import WorkerArgs::*
+import Index::WorkerKeys::*
+import Index::Writer
 import Json::{
     JsonDoc,
     JsonWriter,
@@ -77,6 +74,7 @@ import JsonRpc::Transport
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Protocol::*
 import Resolution::ModulePath::{
     ModulePath,
     header_path_of,
@@ -88,10 +86,15 @@ import Tooling::ParseAPI::{
     parse_file,
 }
 import Tooling::SemaObserver::SemaObserver
+import Tuning::WIDE_INDEX_LIMIT
+import WorkerArgs::*
 
 fn worker_us() -> i64 {
     var t = cxx::std::chrono::steady_clock::now()
-    var d = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(t.time_since_epoch())
+    var d = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(
+        t.time_since_epoch(),
+    )
+
     return d.count() as i64
 }
 
@@ -101,7 +104,7 @@ pub class IndexObserver derives SemaObserver {
     /// Files to index: an absolute path prefix, and paths named outright (the
     /// editor's open buffers). Everything else in the graph, the standard
     /// library above all, is only ever a jump TARGET and needs no index.
-    pub var root:  string = ""
+    pub var root:  string   = ""
     pub var named: [string]
 
     /// The files' objects, comma-joined: Sema may check TUs on several
@@ -135,7 +138,7 @@ pub class IndexObserver derives SemaObserver {
     /// KEPT, by path, and replaced when the file is walked again, instead
     /// of joined into `out` / `rest`. The process outlives a check, and a
     /// re-check walks only the files it re-checked.
-    pub var keep:     bool = false
+    pub var keep:     bool     = false
     pub var k_paths:  [string]
     pub var k_blocks: [string]
 
@@ -144,9 +147,9 @@ pub class IndexObserver derives SemaObserver {
     /// by path, each with the step that walked it (`seq`, which the worker
     /// sets before a step), so a snapshot carries the ones its reader has
     /// not got (LiveWorker.k).
-    pub var tables:      string = ""
-    pub var table_count: usize  = 0
-    pub var seq:         u64    = 0
+    pub var tables:      string   = ""
+    pub var table_count: usize    = 0
+    pub var seq:         u64      = 0
     pub var t_paths:     [string]
     pub var t_blocks:    [string]
     pub var t_seq:       [u64]
@@ -195,14 +198,14 @@ pub class IndexObserver derives SemaObserver {
             return
         }
 
-        var fid  = sc->ctx->fid
-        var path = sc->ctx->sm->get_filename(fid)
+        var fid   = sc->ctx->fid
+        var path  = sc->ctx->sm->get_filename(fid)
         var named = self.is_named_(path)
         if (!named) && (self.root.empty() || (!path.starts_with(self.root))) {
             // Outside what is indexed (the library): no rows, but its
             // declarations are what the indexed files name and complete.
             if (!sc->ctx->syntax_skipped) && (!sc->tu->is_foreign) {
-                var tw0 = worker_us()
+                var        tw0 = worker_us()
                 var unsafe *tw = kairo::std::create<IndexWalker>(sc)
                 tw->run_table(fid)
                 var table: string = tw->table
@@ -231,7 +234,7 @@ pub class IndexObserver derives SemaObserver {
             self.partial.push_back(path)
         }
 
-        var t0 = worker_us()
+        var        t0      = worker_us()
         var unsafe *walker = kairo::std::create<IndexWalker>(sc)
         walker->facts = unsafe &self.facts
         walker->run(fid)
@@ -254,7 +257,7 @@ pub class IndexObserver derives SemaObserver {
             var lock = kairo::std::LockGuard(self.mu_)
             for var i: usize = 0; i < self.held_.size(); ++i {
                 if self.held_[i]->sc == sc {
-                    walker = self.held_[i]
+                    walker        = self.held_[i]
                     self.held_[i] = self.held_[self.held_.size() - 1]
                     self.held_.pop_back()
                     break
@@ -292,7 +295,7 @@ pub class IndexObserver derives SemaObserver {
                 self.tables += ","
             }
 
-            self.tables      += table
+            self.tables += table
             self.table_count += 1
             return
         }
@@ -312,10 +315,10 @@ pub class IndexObserver derives SemaObserver {
 
     priv fn finish_(self, walker: unsafe *IndexWalker) {
         var t1 = worker_us()
-        var w = JsonWriter()
+        var w  = JsonWriter()
         walker->write(&w)
-        var named = walker->named_
-        var wpath = walker->path_
+        var named         = walker->named_
+        var wpath         = walker->path_
         var table: string = walker->table
         kairo::std::destroy(walker)
         var t2 = worker_us()
@@ -341,14 +344,14 @@ pub class IndexObserver derives SemaObserver {
                 self.out += ","
             }
 
-            self.out   += w.out
+            self.out += w.out
             self.count += 1
         } else {
             if self.rest_count > 0 {
                 self.rest += ","
             }
 
-            self.rest       += w.out
+            self.rest += w.out
             self.rest_count += 1
         }
     }
@@ -399,7 +402,10 @@ pub class DiagCollector derives DiagConsumer {
             // code point, which both corrupts the text and shifts
             // every offset after the first non-ASCII character.
             var view = self.sm_->get_view(self.sm_->get_range(fid, 0, size))
-            f.text = string(unsafe ((view.data() as unsafe *const u8) as *const u8), view.size())
+            f.text = string(
+                unsafe ((view.data() as unsafe *const u8) as *const u8),
+                view.size(),
+            )
         }
 
         f.lines.build(f.text)
@@ -440,7 +446,14 @@ pub class DiagCollector derives DiagConsumer {
 
         var *lm = &self.files_[fi].lines
         var *tx = &self.files_[fi].text
-        write_lsp_range(w, lm->line_of(so) as i64, lm->character(*tx, so, false) as i64, lm->line_of(eo) as i64, lm->character(*tx, eo, false) as i64)
+        write_lsp_range(
+            w,
+            lm->line_of(so) as i64,
+            lm->character(*tx, so, false) as i64,
+            lm->line_of(eo) as i64,
+            lm->character(*tx, eo, false) as i64,
+        )
+
         return fi
     }
 
@@ -448,7 +461,8 @@ pub class DiagCollector derives DiagConsumer {
     /// else the point it was reported at.
     priv fn span_(self, d: unsafe *Diagnostic) -> SourceRange {
         for var i: usize = 0; i < d->labels.size(); ++i {
-            if (d->labels[i].style == DiagLabel::Style::Primary) && d->labels[i].range.start.is_valid() {
+            if (d->labels[i].style == DiagLabel::Style::Primary)
+                && d->labels[i].range.start.is_valid() {
                 return d->labels[i].range
             }
         }
@@ -499,7 +513,7 @@ pub class DiagCollector derives DiagConsumer {
             return
         }
 
-        var sev = diag->code.severity()
+        var sev        = diag->code.severity()
         var lsp: usize = 0
         if (sev == DiagSeverity::Error) || (sev == DiagSeverity::Fatal) {
             lsp = DS_ERROR
@@ -533,7 +547,7 @@ pub class DiagCollector derives DiagConsumer {
         w.begin_object()
 
         var path: string = ""
-        var dw = JsonWriter()
+        var dw           = JsonWriter()
         dw.begin_object()
         if diag->has_loc && diag->loc.is_valid() {
             var rw = JsonWriter()
@@ -551,7 +565,7 @@ pub class DiagCollector derives DiagConsumer {
         dw.field(K_CODE, diag->code as string)
         dw.field(K_SOURCE, "kairo")
 
-        var msg = diag->message
+        var msg     = diag->message
         var related = JsonWriter()
         related.begin_array()
         var nrel: usize = 0
@@ -566,7 +580,12 @@ pub class DiagCollector derives DiagConsumer {
                 var rw = JsonWriter()
                 var fi = self.range_(&rw, self.span_(c), true)
                 related.key(K_LOCATION)
-                write_lsp_location_raw(&related, path_to_uri(self.files_[fi].path), rw.out)
+                write_lsp_location_raw(
+                    &related,
+                    path_to_uri(self.files_[fi].path),
+                    rw.out,
+                )
+
                 related.field(K_MESSAGE, c->message)
                 related.end_object()
                 nrel += 1
@@ -582,7 +601,8 @@ pub class DiagCollector derives DiagConsumer {
         // terminal prints under the caret; an editor has no caret line, so
         // it joins the message.
         for var i: usize = 0; i < diag->labels.size(); ++i {
-            if (diag->labels[i].style == DiagLabel::Style::Primary) && (!diag->labels[i].text.empty()) {
+            if (diag->labels[i].style == DiagLabel::Style::Primary)
+                && (!diag->labels[i].text.empty()) {
                 msg += "\n"
                 msg += diag->labels[i].text
                 break
@@ -608,7 +628,7 @@ pub class DiagCollector derives DiagConsumer {
             self.out += ","
         }
 
-        self.out   += w.out
+        self.out += w.out
         self.count += 1
     }
 }
@@ -729,7 +749,10 @@ fn syntax_answer(const file:   string,
     var size = ci->sm()->get_file_size(fid)
     if size > 0 {
         var view = ci->sm()->get_view(ci->sm()->get_range(fid, 0, size))
-        ft.text = string(unsafe ((view.data() as unsafe *const u8) as *const u8), view.size())
+        ft.text = string(
+            unsafe ((view.data() as unsafe *const u8) as *const u8),
+            view.size(),
+        )
     }
 
     ft.lines.build(ft.text)
@@ -819,7 +842,7 @@ fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
             var txt: [string]
             txt.push_back(texts[k])
             var body = syntax_answer(files[k], &real, &txt, &words)
-            var idn = ids[k]
+            var idn  = ids[k]
             // `{"id":N,` spliced before the answer's own members.
             var msg: string = "{\"" + RP_ID + "\":"
             msg += f"{idn}"
@@ -840,7 +863,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
     if args[0] == WA_SYNTAX_SERVER {
         var base: cxx::std::vector<string>
-        var i: usize = 1
+        var i:    usize                    = 1
         if (i < args.size()) && (args[i] == WA_END) {
             i += 1
         }
@@ -853,13 +876,13 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         return syntax_server_main(&base)
     }
 
-    var out_path = args[0]
-    var root: string = ""
-    var syntax_file: string = ""
-    var progress: string = ""
-    var as_module = false
-    var real: [string]
-    var tmps: [string]
+    var out_path              = args[0]
+    var root:        string   = ""
+    var syntax_file: string   = ""
+    var progress:    string   = ""
+    var as_module             = false
+    var real:        [string]
+    var tmps:        [string]
     // The one C++ container in the Analyzer: CompilerInstance's word
     // constructor takes a std::vector, and that signature is the compiler's.
     var words: cxx::std::vector<string>
@@ -962,7 +985,10 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     }
 
     if !ci->args_ok() {
-        return worker_fail(out_path, "the compile command was rejected: check its flags in kairo_compile.json")
+        return worker_fail(
+            out_path,
+            "the compile command was rejected: check its flags in kairo_compile.json",
+        )
     }
 
     var inputs = ci->invocation()->input_files
@@ -999,11 +1025,15 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         // minted ahead of every file of the graph, and whatever is ordered
         // by file id came out in another order than the compiler's
         // (Tooling::LiveCheck does the same; IncrementalSema.md, "Buffers").
-        ci->sm()->stage_overlay(Path(real[k]), bytes, held[held.size() - 1].size())
+        ci->sm()->stage_overlay(
+            Path(real[k]),
+            bytes,
+            held[held.size() - 1].size(),
+        )
     }
 
     var t_run = worker_us()
-    var opts = ParseOptions{}
+    var opts  = ParseOptions{}
     opts.stop_at       = TUStage::Sema
     opts.capture_diags = false
     opts.as_module     = as_module
@@ -1045,7 +1075,11 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     if as_module {
         // Where EmitCXXHeader put the entry's header under --emit-headers,
         // by the emitter's own rule.
-        w.field(SK_HEADER, header_path_of(ci->imp()->input_module_path(Path(inputs[0]))))
+        w.field(
+            SK_HEADER,
+            header_path_of(ci->imp()->input_module_path(Path(inputs[0]))),
+        )
+
         w.field_int(SK_ERRORS, collector->errors as i64)
     }
 

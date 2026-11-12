@@ -134,7 +134,10 @@ pub class CodegenPCH {
 
         // A COPY of the backend's invocation, as for every phase-A set: the
         // PCH reader rejects one whose options differ from the TU's.
-        var inv = cxx::std::make_shared<clang::CompilerInvocation>(*be->invocation())
+        var inv = cxx::std::make_shared<clang::CompilerInvocation>(
+            *be->invocation(),
+        )
+
         var buf = llvm::MemoryBuffer::getMemBuffer(
             llvm::StringRef(self._text.data(), self._text.size()),
             kairo::sref(r"<kairo-codegen-hdrs>"),
@@ -194,7 +197,11 @@ pub class CodegenPCH {
                    be:    unsafe *ClangBackend,
                    input: clang::FrontendInputFile) -> bool {
         ci->setVirtualFileSystem(be->vfs())
-        ci->createDiagnostics(kairo::std::create<clang::IgnoringDiagConsumer>(), true)
+        ci->createDiagnostics(
+            kairo::std::create<clang::IgnoringDiagConsumer>(),
+            true,
+        )
+
         if !ci->hasDiagnostics() {
             return false
         }

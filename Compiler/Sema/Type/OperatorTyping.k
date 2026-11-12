@@ -108,13 +108,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind,
-    QUAL_CONST,
-    RecordType,
-    canon_has_const,
-    canon_quals,
-    canon_unqual,
-    is_c_character,
+    BuiltinKind, QUAL_CONST, RecordType, canon_has_const, canon_quals, canon_unqual, is_c_character,
 }
 import AST::Node::Casting::{
     cast,
@@ -122,8 +116,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtRole,      ClassDecl, EnumDecl, ExtensionDecl, FieldDecl, FunctionDecl, ParamDecl, StorageClass,
-    StructDecl,   UnionDecl, VariableDecl,
+    AdtRole,      ClassDecl,  EnumDecl,  ExtensionDecl, FieldDecl, FunctionDecl, ParamDecl,
+    StorageClass, StructDecl, UnionDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr, BinaryOperatorExpr, OpRewrite, SubscriptExpr, TypeCastExpr, TypeOfExpr,
@@ -142,8 +136,8 @@ import AST::Node::Types::{
     NullableType,
 }
 import AST::OperatorFacts::OperatorFacts
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::named_declared_here
+import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstEval::ConstEval
 import Sema::Type::Conversion::ImplicitRank
@@ -237,15 +231,25 @@ pub class <T: type> OperatorTyping {
                 msg = f"shift count {val} is negative; a constant count of a '{tn}' shift must be in 0..{w}"
             }
 
-            var b = self.dyn()->sc->diag->report(DiagID::SC262E, rhs->range.start, msg)
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC262E,
+                rhs->range.start,
+                msg,
+            )
+
             b.first(rhs->range, f"this count is {val}")
-            var named = dyn_cast<NamedIdentExpr>(self.dyn()->tu.strip_parens(rhs))
+            var named = dyn_cast<NamedIdentExpr>(
+                self.dyn()->tu.strip_parens(rhs),
+            )
+
             if named != &null
                 && named->resolved_decl != &null
                 && named->resolved_decl->range.is_valid() {
                 b.note(
                     named->resolved_decl->range.start,
-                    named_declared_here(self.dyn()->tu.decl_name(named->resolved_decl)),
+                    named_declared_here(
+                        self.dyn()->tu.decl_name(named->resolved_decl),
+                    ),
                 )
             }
 
@@ -403,7 +407,10 @@ pub class <T: type> OperatorTyping {
             return true
         }
 
-        var pname = self.dyn()->tu.head_spelling(if (gl != &null) => (lt) else => rt)
+        var pname = self.dyn()->tu.head_spelling(
+            if (gl != &null) => (lt) else => rt,
+        )
+
         self.dyn()->needs_bound(
             n,
             gp,
@@ -582,7 +589,11 @@ pub class <T: type> OperatorTyping {
         }
 
         if recv_ty != &null {
-            self.dyn()->ml.lookup(self.dyn()->tu.strip_nullable(recv_ty), name, cands)
+            self.dyn()->ml.lookup(
+                self.dyn()->tu.strip_nullable(recv_ty),
+                name,
+                cands,
+            )
         }
 
         // A C++ hidden friend sits in its class's table but is no member: it
@@ -591,7 +602,12 @@ pub class <T: type> OperatorTyping {
         self._move_friends(&*cands, frees)
         if other != &null && self.dyn()->tu.record_decl(other) != &null {
             var theirs = cxx::std::vector<unsafe *Decl>()
-            self.dyn()->ml.lookup(self.dyn()->tu.strip_nullable(other), name, &theirs)
+            self.dyn()->ml.lookup(
+                self.dyn()->tu.strip_nullable(other),
+                name,
+                &theirs,
+            )
+
             for var i: usize = 0; i < theirs.size(); ++i {
                 var unsafe *f = dyn_cast<FunctionDecl>(theirs[i])
                 if f == &null || f->is_method() {
@@ -837,7 +853,15 @@ pub class <T: type> OperatorTyping {
         var name  = DeclName::op_name(k0, k1)
         var cands = cxx::std::vector<unsafe *Decl>()
         var frees = cxx::std::vector<unsafe *Decl>()
-        self._gather(name, recv_ty, other, want_postfix, unsafe &cands, unsafe &frees)
+        self._gather(
+            name,
+            recv_ty,
+            other,
+            want_postfix,
+            unsafe &cands,
+            unsafe &frees,
+        )
+
         if cands.size() == 0 && frees.size() == 0 {
             return &null
         }
@@ -890,7 +914,12 @@ pub class <T: type> OperatorTyping {
             return &null
         }
 
-        self.dyn()->finish_call_args(r.decl, if (r.via_free) => (&fargs) else => &margs, &r)
+        self.dyn()->finish_call_args(
+            r.decl,
+            if (r.via_free) => (&fargs) else => &margs,
+            &r,
+        )
+
         var rt = self.dyn()->call_result_type(r.decl, &r)
         self._record(n, r.decl, r.via_free, r.instance)
         return rt
@@ -929,8 +958,8 @@ pub class <T: type> OperatorTyping {
     /// chain is typed bottom-up here instead, in the order the recursion would
     /// have: each node's own typing then finds its left operand done.
     priv fn _prewarm_left_spine(self, n: unsafe *BinaryOperatorExpr, expected: unsafe *Type) {
-        var spine = cxx::std::vector<unsafe *Expr>()
-        var unsafe *cur = n->lhs
+        var        spine = cxx::std::vector<unsafe *Expr>()
+        var unsafe *cur  = n->lhs
         while cur != &null && isa<BinaryOperatorExpr>(cur) && !self.dyn()->is_memoized(cur) {
             var ck = cast<BinaryOperatorExpr>(cur)->op_token.kind
             if !(self._is_arith(ck) || self._is_bitwise(ck)) {
@@ -1071,20 +1100,37 @@ pub class <T: type> OperatorTyping {
         // read (`v[0] - 1` with `v[0]: u32&`) is a u32, and handed the
         // reference the literal stayed i32 and the pair did not unify.
         if l_lit && !r_lit {
-            rt = self.dyn()->type_of(n->rhs, self.cast_operand_expected(n->rhs, pass_down))
+            rt = self.dyn()->type_of(
+                n->rhs,
+                self.cast_operand_expected(n->rhs, pass_down),
+            )
+
             lt = self.dyn()->type_of(
                 n->lhs,
-                self._context_left_down(k, numeric_ctx, self._ref_value(rt), lhs_down),
+                self._context_left_down(
+                    k,
+                    numeric_ctx,
+                    self._ref_value(rt),
+                    lhs_down,
+                ),
             )
         } else if r_lit && !l_lit {
-            lt = self.dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, lhs_down))
+            lt = self.dyn()->type_of(
+                n->lhs,
+                self.cast_operand_expected(n->lhs, lhs_down),
+            )
+
             rt = self.dyn()->type_of(
                 n->rhs,
                 if (numeric_ctx) => (self._ref_value(lt))
                 else => self._coalesce_down(k, lt, pass_down),
             )
         } else {
-            lt = self.dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, lhs_down))
+            lt = self.dyn()->type_of(
+                n->lhs,
+                self.cast_operand_expected(n->lhs, lhs_down),
+            )
+
             rt = self.dyn()->type_of(
                 n->rhs,
                 self.cast_operand_expected(
@@ -1121,8 +1167,15 @@ pub class <T: type> OperatorTyping {
         // read, so neither narrowing nor the nullness error below applies,
         // as `x.m()` on an `extend T?` method reads none (MemberLookup.md).
         if self._reads_operands(k) && self.dyn()->tu.nullable_inner(lt) != &null {
-            var        claimed = false
-            var unsafe *own    = self._nullable_own_op(n, k, lt, rt, unsafe &claimed)
+            var claimed = false
+            var unsafe *own = self._nullable_own_op(
+                n,
+                k,
+                lt,
+                rt,
+                unsafe &claimed,
+            )
+
             if claimed {
                 return own
             }
@@ -1247,8 +1300,15 @@ pub class <T: type> OperatorTyping {
         // by sizeof T itself, so a generic body needs no instantiation to
         // type it. Any other shape falls through untouched.
         if self.dyn()->tu.pointee(lt) != &null && (self._is_arith(k) || self._is_relational(k)) {
-            var        claimed = false
-            var unsafe *pt     = self._type_pointer_op(n, k, lt, rt, unsafe &claimed)
+            var claimed = false
+            var unsafe *pt = self._type_pointer_op(
+                n,
+                k,
+                lt,
+                rt,
+                unsafe &claimed,
+            )
+
             if claimed {
                 return pt
             }
@@ -1302,7 +1362,11 @@ pub class <T: type> OperatorTyping {
                 return direct
             }
 
-            var j = self.dyn()->conv.join(inner, self.dyn()->tu.strip_nullable(rt))
+            var j = self.dyn()->conv.join(
+                inner,
+                self.dyn()->tu.strip_nullable(rt),
+            )
+
             if j == &null {
                 self.dyn()->fail(
                     n,
@@ -1545,7 +1609,12 @@ pub class <T: type> OperatorTyping {
 
         if self._is_shift(k) {
             if !self.dyn()->tu.is_integer(lt) || !self.dyn()->tu.is_integer(rt) {
-                self.dyn()->fail(n, DiagID::SC067E, "shift operands must be integers")
+                self.dyn()->fail(
+                    n,
+                    DiagID::SC067E,
+                    "shift operands must be integers",
+                )
+
                 return &null
             }
 
@@ -1639,7 +1708,11 @@ pub class <T: type> OperatorTyping {
             var a   = cxx::std::vector<*Type>()
             var ord = self.dyn()->tu.lang_record(WellKnownType::Ordering, &a)
             if ord == &null {
-                self.dyn()->missing_lang_item(n, to_string(WellKnownType::Ordering))
+                self.dyn()->missing_lang_item(
+                    n,
+                    to_string(WellKnownType::Ordering),
+                )
+
                 return &null
             }
 
@@ -1716,7 +1789,10 @@ pub class <T: type> OperatorTyping {
             return d
         }
 
-        var inner = self.dyn()->tu.nullable_inner(self.dyn()->tu.as_value(other))
+        var inner = self.dyn()->tu.nullable_inner(
+            self.dyn()->tu.as_value(other),
+        )
+
         if inner == &null || inner->is_dependent() {
             return d
         }
@@ -1764,10 +1840,10 @@ pub class <T: type> OperatorTyping {
         }
 
         *claimed = true
-        var unsafe *inner  = cast<NullableType>(vc)->inner
-        var        theirs  = cxx::std::vector<unsafe *Decl>()
-        var        tfrees  = cxx::std::vector<unsafe *Decl>()
-        var        builtin = inner != &null && self.dyn()->tu.kind_of(inner) != BuiltinKind::COUNT
+        var unsafe *inner = cast<NullableType>(vc)->inner
+        var        theirs = cxx::std::vector<unsafe *Decl>()
+        var        tfrees = cxx::std::vector<unsafe *Decl>()
+        var builtin = inner != &null && self.dyn()->tu.kind_of(inner) != BuiltinKind::COUNT
         // T "has" the operator when it declares it or one type_binary
         // derives it from: `<` from `op <=>`, `+` from `op +=`.
         var ks = cxx::std::vector<TokenKind>()
@@ -1794,14 +1870,17 @@ pub class <T: type> OperatorTyping {
         if builtin || theirs.size() > 0 || tfrees.size() > 0 {
             var sym = self._label(n->op_token)
             var ts  = self.dyn()->tu.str(vc)
-            var b   = self.dyn()->sc->diag->report(
+            var b = self.dyn()->sc->diag->report(
                 DiagID::SC001E,
                 n->range.start,
                 f"'{sym}' on '{ts}' is ambiguous: '{ts}' declares it, and '{self.dyn()->tu.str(inner)}' has one too; which one a nullable operand calls is not decided yet",
             )
 
             b.first(n->range)
-            b.note(own[0]->range.start, f"declared on '{ts}' here")->child_first(own[0]->range)
+            b.note(own[0]->range.start, f"declared on '{ts}' here")->child_first(
+                own[0]->range,
+            )
+
             b.emit()
             self.dyn()->poison_only(n)
             return &null
@@ -1810,7 +1889,15 @@ pub class <T: type> OperatorTyping {
         var args = cxx::std::vector<ArgInfo>()
         args.push_back(self.dyn()->arg_info(n->rhs))
         var unsafe *rcv = self._receiver_of(n->lhs)
-        var r = self.dyn()->ovl.resolve(&own, &args, true, n->range, self._label(n->op_token), rcv)
+        var r = self.dyn()->ovl.resolve(
+            &own,
+            &args,
+            true,
+            n->range,
+            self._label(n->op_token),
+            rcv,
+        )
+
         if r.outcome == OvlOutcome::Dependent {
             self.dyn()->mark_unknown(n)
             return &null
@@ -1830,7 +1917,9 @@ pub class <T: type> OperatorTyping {
     /// \p d is a member of an `extend T?` block (ChainBinding::
     /// binds_nullable_member's test, on a decl).
     priv fn _of_nullable_extension(self, d: unsafe *Decl) -> bool {
-        if d == &null || d->semantic_dc == &null || d->semantic_dc->dc_kind != DeclContextKind::Extension {
+        if d == &null
+            || d->semantic_dc == &null
+            || d->semantic_dc->dc_kind != DeclContextKind::Extension {
             return false
         }
 
@@ -1911,7 +2000,10 @@ pub class <T: type> OperatorTyping {
         )
 
         self._gather(
-            DeclName::op_name(TokenKind::OpLessEqualGreater, TokenKind::TkUnknown),
+            DeclName::op_name(
+                TokenKind::OpLessEqualGreater,
+                TokenKind::TkUnknown,
+            ),
             t,
             t,
             -1,
@@ -2187,7 +2279,10 @@ pub class <T: type> OperatorTyping {
             var sp = self.dyn()->sc->ctx->get_spelling(x->range)
             b.fix(n->range, f"!{sp}?", f"test '{sp}' for null")
         } else {
-            b.note(n->range.start, "to test for null, write '!x?' (or 'x == null')")
+            b.note(
+                n->range.start,
+                "to test for null, write '!x?' (or 'x == null')",
+            )
         }
 
         b.emit()
@@ -2500,7 +2595,12 @@ pub class <T: type> OperatorTyping {
                 return ut
             }
 
-            self.dyn()->fail(n, DiagID::SC066E, f"no 'op ^^' on '{self.dyn()->tu.str(lt)}'")
+            self.dyn()->fail(
+                n,
+                DiagID::SC066E,
+                f"no 'op ^^' on '{self.dyn()->tu.str(lt)}'",
+            )
+
             return &null
         }
 
@@ -2543,7 +2643,14 @@ pub class <T: type> OperatorTyping {
         var fargs = cxx::std::vector<ArgInfo>()
         fargs.push_back(self._typed_arg(n->lhs, lt))
         fargs.push_back(self._typed_arg(n->rhs, rt))
-        var r = self.dyn()->ovl.resolve(&cands, &fargs, false, n->range, "op ^^")
+        var r = self.dyn()->ovl.resolve(
+            &cands,
+            &fargs,
+            false,
+            n->range,
+            "op ^^",
+        )
+
         if r.outcome == OvlOutcome::Dependent {
             self.dyn()->mark_unknown(n)
             return &null
@@ -2579,7 +2686,9 @@ pub class <T: type> OperatorTyping {
                                      && !self.dyn()->tu.is_builtin(
                                          expected,
                                          BuiltinKind::Void,
-                                     )) => (self.dyn()->sc->types->nullable(canon_unqual(expected)))
+                                     )) => (self.dyn()->sc->types->nullable(
+                                     canon_unqual(expected),
+                                 ))
                                  else => &null
         var ot = self.dyn()->type_of(n->operand, want)
         if self.dyn()->propagate(n, n->operand) {
@@ -2617,7 +2726,9 @@ pub class <T: type> OperatorTyping {
     /// that leaves `x` alone.
     priv fn _not_nullable_unwrap(self, n: *UnwrapExpr, ot: *Type) {
         var x = self.dyn()->tu.strip_parens(n->operand)
-        var id = if (x != &null && isa<NamedIdentExpr>(x)) => (cast<NamedIdentExpr>(x))
+        var id = if (x != &null && isa<NamedIdentExpr>(x)) => (cast<NamedIdentExpr>(
+                     x,
+                 ))
                  else => &null
         var text = self.dyn()->sc->ctx->get_spelling(n->operand->range)
         var b = self.dyn()->sc->diag->report(
@@ -2634,8 +2745,16 @@ pub class <T: type> OperatorTyping {
             )
         }
 
-        b.remove(SourceRange(n->range.start, n->operand->range.start), "use the value as it is")
-        b.remove(SourceRange(n->operand->range.end, n->range.end), "use the value as it is")
+        b.remove(
+            SourceRange(n->range.start, n->operand->range.start),
+            "use the value as it is",
+        )
+
+        b.remove(
+            SourceRange(n->operand->range.end, n->range.end),
+            "use the value as it is",
+        )
+
         b.emit()
         n->poison()
     }
@@ -2898,7 +3017,12 @@ pub class <T: type> OperatorTyping {
                 return self._unary_bits(n, ot)
             } case TokenKind::OpAmp {
                 if !self.dyn()->is_lvalue(n->operand) {
-                    self.dyn()->fail(n, DiagID::SC069E, "cannot take the address of a temporary")
+                    self.dyn()->fail(
+                        n,
+                        DiagID::SC069E,
+                        "cannot take the address of a temporary",
+                    )
+
                     return &null
                 }
 
@@ -2928,7 +3052,12 @@ pub class <T: type> OperatorTyping {
                 }
 
                 if self.dyn()->tu.is_void(p) {
-                    self.dyn()->fail(n, DiagID::SC070E, "cannot dereference '*void'")
+                    self.dyn()->fail(
+                        n,
+                        DiagID::SC070E,
+                        "cannot dereference '*void'",
+                    )
+
                     return &null
                 }
 
@@ -3027,7 +3156,9 @@ pub class <T: type> OperatorTyping {
         }
 
         var x = self.dyn()->tu.strip_parens(other)
-        var id = if (x != &null && isa<NamedIdentExpr>(x)) => (cast<NamedIdentExpr>(x))
+        var id = if (x != &null && isa<NamedIdentExpr>(x)) => (cast<NamedIdentExpr>(
+                     x,
+                 ))
                  else => &null
         var what = if (id == &null) => ("the operand")
                    else => f"'{self.dyn()->sc->ctx->get_spelling(id->name)}'"
@@ -3081,7 +3212,9 @@ pub class <T: type> OperatorTyping {
         }
 
         var x = self.dyn()->tu.strip_parens(n->operand)
-        var id = if (x != &null && isa<NamedIdentExpr>(x)) => (cast<NamedIdentExpr>(x))
+        var id = if (x != &null && isa<NamedIdentExpr>(x)) => (cast<NamedIdentExpr>(
+                     x,
+                 ))
                  else => &null
         var what = if (id == &null) => ("the operand")
                    else => f"'{self.dyn()->sc->ctx->get_spelling(id->name)}'"
@@ -3150,11 +3283,20 @@ pub class <T: type> OperatorTyping {
             }
 
             if !self.dyn()->is_lvalue(n->operand) {
-                self.dyn()->fail(n, DiagID::SC071E, "'++'/'--' require an assignable operand")
+                self.dyn()->fail(
+                    n,
+                    DiagID::SC071E,
+                    "'++'/'--' require an assignable operand",
+                )
+
                 return &null
             }
 
-            if self._reject_const_write(unsafe (n as unsafe *Expr), n->operand, "increment or decrement") {
+            if self._reject_const_write(
+                unsafe (n as unsafe *Expr),
+                n->operand,
+                "increment or decrement",
+            ) {
                 return &null
             }
 
@@ -3188,11 +3330,20 @@ pub class <T: type> OperatorTyping {
         }
 
         if !self.dyn()->is_lvalue(n->operand) {
-            self.dyn()->fail(n, DiagID::SC071E, "'++'/'--' require an assignable operand")
+            self.dyn()->fail(
+                n,
+                DiagID::SC071E,
+                "'++'/'--' require an assignable operand",
+            )
+
             return &null
         }
 
-        if self._reject_const_write(unsafe (n as unsafe *Expr), n->operand, "increment or decrement") {
+        if self._reject_const_write(
+            unsafe (n as unsafe *Expr),
+            n->operand,
+            "increment or decrement",
+        ) {
             return &null
         }
 
@@ -3226,7 +3377,9 @@ pub class <T: type> OperatorTyping {
             return false
         }
 
-        if self.dyn()->tu.decl_name(fd) != self.dyn()->tu.decl_name(dc->dc_owner) {
+        if self.dyn()->tu.decl_name(fd) != self.dyn()->tu.decl_name(
+            dc->dc_owner,
+        ) {
             return false
         }
 
@@ -3301,7 +3454,7 @@ pub class <T: type> OperatorTyping {
             return &null
         }
 
-        var unsafe *d  = self._assigned_decl(cur)
+        var unsafe *d = self._assigned_decl(cur)
         var unsafe *vd = if (d != &null) => (dyn_cast<VariableDecl>(d)) else => &null
         var unsafe *pd = if (d != &null) => (dyn_cast<ParamDecl>(d)) else => &null
         if (vd != &null && vd->is_const()) || (pd != &null && pd->is_const) {
@@ -3403,7 +3556,12 @@ pub class <T: type> OperatorTyping {
         }
 
         if !n->is_poisoned() {
-            var b = self.dyn()->sc->diag->report(DiagID::SC071E, n->range.start, msg)
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC071E,
+                n->range.start,
+                msg,
+            )
+
             b.first(lhs->range)
             if at.is_valid() {
                 var why = "declared const here"
@@ -3418,8 +3576,10 @@ pub class <T: type> OperatorTyping {
             // `*const T`, and that declaration is why.
             var unsafe *sx = dyn_cast<SubscriptExpr>(x)
             if (!at.is_valid()) && sx != &null && sx->resolved_op != &null {
-                b.note(sx->resolved_op->range.start, "\x27op []\x27 returns a const place here")
-                    ->child_first(sx->resolved_op->range)
+                b.note(
+                    sx->resolved_op->range.start,
+                    "\x27op []\x27 returns a const place here",
+                )->child_first(sx->resolved_op->range)
             }
 
             // `const n = ...` -> `var n = ...` is the one-token edit; a
@@ -3428,7 +3588,11 @@ pub class <T: type> OperatorTyping {
                 && vd != &null
                 && vd->storage == StorageClass::Const
                 && vd->storage_kw.is_valid() {
-                b.fix(vd->storage_kw, "var", "declare it with \x27var\x27 to make it assignable")
+                b.fix(
+                    vd->storage_kw,
+                    "var",
+                    "declare it with \x27var\x27 to make it assignable",
+                )
             }
 
             b.emit()
@@ -3479,7 +3643,10 @@ pub class <T: type> OperatorTyping {
             // left side: left untyped it goes out as `nullptr`, which
             // converts to the member's pointer in each instance. Typed
             // against nothing it would be SC076E.
-            var nl = dyn_cast<NullLiteralExpr>(self.dyn()->tu.strip_parens(n->rhs))
+            var nl = dyn_cast<NullLiteralExpr>(
+                self.dyn()->tu.strip_parens(n->rhs),
+            )
+
             if nl != &null && nl->is_ref {
                 self.dyn()->mark_unknown(n->rhs)
             } else {
@@ -3496,7 +3663,12 @@ pub class <T: type> OperatorTyping {
         lt = self.dyn()->tu.as_value(lt)
 
         if !self.dyn()->is_lvalue(n->lhs) {
-            self.dyn()->fail(n, DiagID::SC071E, "left side of assignment is not assignable")
+            self.dyn()->fail(
+                n,
+                DiagID::SC071E,
+                "left side of assignment is not assignable",
+            )
+
             self.dyn()->type_of(n->rhs, &null)
             return &null
         }
@@ -3632,7 +3804,13 @@ pub class <T: type> OperatorTyping {
                 return &null
             }
 
-            self.dyn()->needs_bound(n, cg, false, self._compound_msg(n, lt, base))
+            self.dyn()->needs_bound(
+                n,
+                cg,
+                false,
+                self._compound_msg(n, lt, base),
+            )
+
             return &null
         }
 
@@ -3650,7 +3828,12 @@ pub class <T: type> OperatorTyping {
 
         if self._is_shift(base) {
             if !self.dyn()->tu.is_integer(lt) || !self.dyn()->tu.is_integer(rt) {
-                self.dyn()->fail(n, DiagID::SC067E, "shift-assignment operands must be integers")
+                self.dyn()->fail(
+                    n,
+                    DiagID::SC067E,
+                    "shift-assignment operands must be integers",
+                )
+
                 return &null
             }
 
@@ -3774,7 +3957,13 @@ pub class <T: type> OperatorTyping {
                     return &null
                 }
 
-                self.dyn()->needs_bound(n, cg, true, self._compound_msg(n, lt, base))
+                self.dyn()->needs_bound(
+                    n,
+                    cg,
+                    true,
+                    self._compound_msg(n, lt, base),
+                )
+
                 return &null
             }
 

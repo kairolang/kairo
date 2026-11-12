@@ -164,7 +164,10 @@ pub class LinkABI {
 
             // The convention both use, if one is shared; else the first's.
             var both = first.bits & n.bits
-            var nm   = LinkABI::_conv_name(if (both != 0) => (both) else => first.bits)
+            var nm = LinkABI::_conv_name(
+                if (both != 0) => (both) else => first.bits,
+            )
+
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -295,8 +298,9 @@ pub class LinkABI {
             var major = ((data[i + m + 2]) as u32)
             // A record of a version this linker does not know, or bytes that
             // only look like the magic, are not a note.
-            var all_bits = call_conv_note_bit(CALL_CONV_PRESERVE_MOST) | call_conv_note_bit(CALL_CONV_PRESERVE_ALL)
-                | call_conv_note_bit(CALL_CONV_PRESERVE_NONE)
+            var all_bits = call_conv_note_bit(CALL_CONV_PRESERVE_MOST) | call_conv_note_bit(
+                CALL_CONV_PRESERVE_ALL,
+            ) | call_conv_note_bit(CALL_CONV_PRESERVE_NONE)
             if ver != ABI_NOTE_KIND_CONV || bits == 0 || bits > all_bits || major == 0 {
                 continue
             }

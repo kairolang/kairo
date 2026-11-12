@@ -224,8 +224,8 @@ import AST::Node::Types::{
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
 import Diagnostic::Code::DiagCode
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::previously_declared_here
+import Diagnostic::Registry::DiagID
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -741,7 +741,9 @@ pub class RedeclMerge {
                     oc = self.sc->ctx
                 }
 
-                if oc->get_spelling(decl_name_tok(owner)) == self.sc->ctx->get_spelling(f->name) {
+                if oc->get_spelling(decl_name_tok(owner)) == self.sc->ctx->get_spelling(
+                    f->name,
+                ) {
                     return DeclName::ctor()
                 }
             }
@@ -1022,7 +1024,10 @@ pub class RedeclMerge {
         }
 
         var sub = Substitution(self.sc)
-        if !sub.bind_redecl(unsafe (a as unsafe *Decl), unsafe (b as unsafe *Decl)) {
+        if !sub.bind_redecl(
+            unsafe (a as unsafe *Decl),
+            unsafe (b as unsafe *Decl),
+        ) {
             return t
         }
 
@@ -1048,7 +1053,10 @@ pub class RedeclMerge {
         }
 
         var sub = Substitution(self.sc)
-        if !sub.bind_redecl(unsafe (prev as unsafe *Decl), unsafe (cur as unsafe *Decl)) {
+        if !sub.bind_redecl(
+            unsafe (prev as unsafe *Decl),
+            unsafe (cur as unsafe *Decl),
+        ) {
             return ""
         }
 
@@ -1061,11 +1069,23 @@ pub class RedeclMerge {
             var ka = cxx::std::vector<u8>()
             var tb = cxx::std::vector<unsafe *Type>()
             var kb = cxx::std::vector<u8>()
-            if !self._param_bounds(&ca, prev->generic_params[i], &null, &ta, &ka) {
+            if !self._param_bounds(
+                &ca,
+                prev->generic_params[i],
+                &null,
+                &ta,
+                &ka,
+            ) {
                 continue
             }
 
-            if !self._param_bounds(&cb, cur->generic_params[i], unsafe &sub, &tb, &kb) {
+            if !self._param_bounds(
+                &cb,
+                cur->generic_params[i],
+                unsafe &sub,
+                &tb,
+                &kb,
+            ) {
                 continue
             }
 
@@ -1213,7 +1233,7 @@ pub class RedeclMerge {
 
         if isa<CXXLValueRefType>(c) {
             var unsafe *r = cast<CXXLValueRefType>(c)->referee
-            out.ty   = canon_unqual(r)
+            out.ty = canon_unqual(r)
             out.mode = if (canon_has_const(r)) => (ParamMode::Value) else => ParamMode::Inout
             return out
         }
@@ -1645,6 +1665,7 @@ pub class RedeclMerge {
                 decl_at.start,
                 "the C++ declaration, whose return it must match",
             )
+
             b.child_first(decl_at)
             b.emit()
             cur->poison()
@@ -1928,7 +1949,9 @@ pub class RedeclMerge {
         // canonical = the definition if the chain has one, else the first
         // link (which retarget_canonical leaves as-is via first_decl).
         var unsafe *def = prev->definition()
-        prev->retarget_canonical(if (def != &null) => (def) else => prev->first_decl())
+        prev->retarget_canonical(
+            if (def != &null) => (def) else => prev->first_decl(),
+        )
     }
 
     /// # inline needs a body

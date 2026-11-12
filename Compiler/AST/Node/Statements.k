@@ -216,9 +216,23 @@ pub fn ffi_lang_of(const word: string) -> FFILang {
         return FFILang::C
     }
 
-    if s == "cpp" || s == "cxx" || s == "c++" || s == "cc" || s == "cp" || s == "h" || s == "hpp"
-        || s == "hxx" || s == "h++" || s == "hh" || s == "inl" || s == "tcc" || s == "ipp"
-        || s == "ixx" || s == "cppm" || s == "cxxm" || s == "ccm" {
+    if s == "cpp"
+        || s == "cxx"
+        || s == "c++"
+        || s == "cc"
+        || s == "cp"
+        || s == "h"
+        || s == "hpp"
+        || s == "hxx"
+        || s == "h++"
+        || s == "hh"
+        || s == "inl"
+        || s == "tcc"
+        || s == "ipp"
+        || s == "ixx"
+        || s == "cppm"
+        || s == "cxxm"
+        || s == "ccm" {
         return FFILang::Cpp
     }
 
@@ -774,8 +788,8 @@ pub class SwitchDispatchStmt derives Stmt {
 ///        that is no such `eval if`, and one decided only per instance.
 pub enum EvalTaken derives u8 {
     Undecided = 0,
-    Then,          ///< the else side was dropped.
-    Else,          ///< the then branch was emptied.
+    Then, ///< the else side was dropped.
+    Else, ///< the then branch was emptied.
 }
 
 ///

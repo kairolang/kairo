@@ -83,10 +83,10 @@ fn cache_record_magic() -> string {
 /// bound every cache applies through cache_evict_to_cap.
 pub struct CacheEntryStat {
     pub var path:   string
-    pub var at:     u64  = 0 ///< mtime: when it was stored (a library: last used).
-    pub var bytes:  u64  = 0
-    pub var pinned: bool = false ///< this run fetched or stored it: never evicted.
-    pub var tree:   bool = false ///< a directory: removed with remove_tree.
+    pub var at:     u64    = 0     ///< mtime: when it was stored (a library: last used).
+    pub var bytes:  u64    = 0
+    pub var pinned: bool   = false ///< this run fetched or stored it: never evicted.
+    pub var tree:   bool   = false ///< a directory: removed with remove_tree.
 }
 
 /// \brief while \p entries (one cache's entries left after its age bound,
@@ -98,7 +98,10 @@ pub struct CacheEntryStat {
 /// \details Removing an entry cannot break a parallel build sharing the
 ///          cache: every reader copies an entry out, or finds it gone and
 ///          rebuilds it.
-pub fn cache_evict_to_cap(@inout entries: cxx::std::vector<CacheEntryStat>, total: u64, cap: u64, now: u64) {
+pub fn cache_evict_to_cap(@inout entries: cxx::std::vector<CacheEntryStat>,
+                          total:          u64,
+                          cap:            u64,
+                          now:            u64) {
     if total <= cap {
         return
     }
@@ -210,7 +213,9 @@ pub class ObjectCache {
 
     /// xxh3-128 of \p s, 32 hex digits.
     pub static fn hash(const s: string) -> string {
-        return kairo::std::from_std_string<string>(kairo::objcache_hash128(kairo::sref(s)))
+        return kairo::std::from_std_string<string>(
+            kairo::objcache_hash128(kairo::sref(s)),
+        )
     }
 
     /// \brief what the run's TUs share: the header files of the graph (by
@@ -255,7 +260,12 @@ pub class ObjectCache {
         }
 
         var *pp = &paths
-        llvm::sort(ix.begin(), ix.end(), fn (a: usize, b: usize) |pp| -> bool = (*pp)[a] < (*pp)[b])
+        llvm::sort(
+            ix.begin(),
+            ix.end(),
+            fn (a: usize, b: usize) |pp| -> bool = (*pp)[a] < (*pp)[b],
+        )
+
         for var r: usize = 0; r < ix.size(); ++r {
             var p      = paths[ix[r]]
             var at     = seen.find(kairo::sref(p))
@@ -325,7 +335,9 @@ pub class ObjectCache {
                     placed[h]        = (1 as u8)
                     self._hdr_pos[h] = (self._prefix.size() as u32)
                     run = ObjectCache::hash(
-                        run + "\n" + self._hdr_path[h] + " " + self._content_of(h),
+                        run + "\n" + self._hdr_path[h] + " " + self._content_of(
+                            h,
+                        ),
                     )
 
                     self._prefix.push_back(run)
@@ -666,8 +678,8 @@ pub class ObjectCache {
         var now = (cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
             cxx::std::chrono::system_clock::now().time_since_epoch(),
         ).count() as u64)
-        var objs  = self.dir + "/objects"
-        var kept  = cxx::std::vector<CacheEntryStat>()
+        var objs       = self.dir + "/objects"
+        var kept       = cxx::std::vector<CacheEntryStat>()
         var total: u64 = 0
         for var name: string in LinkFS::list_dir(objs) {
             var p       = objs + "/" + name
@@ -682,7 +694,10 @@ pub class ObjectCache {
             if !partial {
                 var bytes = LinkFS::size(p)
                 var used  = self._used.contains(kairo::sref(p))
-                kept.push_back(CacheEntryStat { path: p, at: last, bytes: bytes, pinned: used })
+                kept.push_back(
+                    CacheEntryStat { path: p, at: last, bytes: bytes, pinned: used },
+                )
+
                 total += bytes
             }
         }
@@ -724,7 +739,10 @@ pub class ObjectCache {
             return ""
         }
 
-        var r = kairo::std::from_std_string<string>(kairo::objcache_record(kairo::sref(path)))
+        var r = kairo::std::from_std_string<string>(
+            kairo::objcache_record(kairo::sref(path)),
+        )
+
         if !r.starts_with(cache_record_magic() + "\n") {
             return ""
         }
@@ -817,7 +835,10 @@ pub class ObjectCache {
     priv fn _fingerprint(self,
                          be:   unsafe *ClangBackend,
                          args: *cxx::std::vector<string>) -> string {
-        var ver  = string(unsafe ((kairo::version_string() as unsafe *const u8) as *const u8))
+        var ver = string(
+            unsafe ((kairo::version_string() as unsafe *const u8) as *const u8),
+        )
+
         var core = ObjectCache::_version_core(ver)
         var out  = fingerprint_schema_key() + f" {CACHE_SCHEMA}\n"
         out += fingerprint_version_key() + " " + core + "\n"

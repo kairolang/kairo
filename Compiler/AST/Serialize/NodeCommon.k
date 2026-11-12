@@ -31,16 +31,24 @@ pub fn <N: type> io_annotations(ar: unsafe *ASTArchive, n: unsafe *N) {
     ar->flag(has)
     if !has {
         eval if defined!(DEBUG) {
-            ar->sema_is(n->presence.bits == 0, "Annotation::presence without entries")
+            ar->sema_is(
+                n->presence.bits == 0,
+                "Annotation::presence without entries",
+            )
         }
 
         return
     }
 
-    var count        = ar->len_(n->annotations.size())
-    var derived: u8  = 0
+    var count       = ar->len_(n->annotations.size())
+    var derived: u8 = 0
     for var i: usize = 0; i < count; ++i {
-        var e = AnnotationEntry(AnnotationKind::Attribute, u32::MAX, SourceRange::invalid())
+        var e = AnnotationEntry(
+            AnnotationKind::Attribute,
+            u32::MAX,
+            SourceRange::invalid(),
+        )
+
         if !ar->reading() {
             e = *n->annotations.get(i)
         }
@@ -50,7 +58,10 @@ pub fn <N: type> io_annotations(ar: unsafe *ASTArchive, n: unsafe *N) {
         ar->range(&e.range)
         ar->expr_list<Expr>(&e.args)
         eval if defined!(DEBUG) {
-            ar->sema_null<void>(unsafe (e.resolved_decl as unsafe *void), "AnnotationEntry::resolved_decl")
+            ar->sema_null<void>(
+                unsafe (e.resolved_decl as unsafe *void),
+                "AnnotationEntry::resolved_decl",
+            )
         }
 
         derived = derived | ((1 as u8) << (e.kind as u8))
@@ -60,6 +71,9 @@ pub fn <N: type> io_annotations(ar: unsafe *ASTArchive, n: unsafe *N) {
     }
 
     eval if defined!(DEBUG) {
-        ar->sema_is(n->presence.bits == derived, "Annotation::presence differs from its entries")
+        ar->sema_is(
+            n->presence.bits == derived,
+            "Annotation::presence differs from its entries",
+        )
     }
 }

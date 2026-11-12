@@ -12,6 +12,6 @@
 /// ------------------------------------------------------------------------ ///
 
 fn main() -> i32 {
-    std::print("Kairo Package Manager!");
-    return 0;
+    std::print("Kairo Package Manager!")
+    return 0
 }

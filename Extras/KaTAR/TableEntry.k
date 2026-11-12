@@ -11,10 +11,10 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "string";
+ffi "c++" import "string"
 
 pub struct TableEntry {
-    pub var filename: cxx::std::string;   // UTF-8 bytes
-    pub var offset:   usize;            // byte offset into data section
-    pub var length:   usize;            // byte length of file contents
+    pub var filename: cxx::std::string // UTF-8 bytes
+    pub var offset:   usize            // byte offset into data section
+    pub var length:   usize            // byte length of file contents
 }

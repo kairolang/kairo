@@ -147,7 +147,9 @@ pub class ClangLocMap {
 
     fn ClangLocMap(self, ksm: unsafe *SourceManager) {
         if ksm == &null {
-            kairo::std::ice_fail("ClangLocMap: a valid Kairo SourceManager is required")
+            kairo::std::ice_fail(
+                "ClangLocMap: a valid Kairo SourceManager is required",
+            )
         }
 
         self._ksm = ksm
@@ -226,7 +228,9 @@ pub class ClangLocMap {
                 }
             }
 
-            self._sloc.push_back(self._csm->getLocForStartOfFile(cfid).getRawEncoding())
+            self._sloc.push_back(
+                self._csm->getLocForStartOfFile(cfid).getRawEncoding(),
+            )
         }
 
         self._n     = n
@@ -256,7 +260,11 @@ pub class ClangLocMap {
         // is opened then.
         var fref = fm->getFileRef(kairo::sref(path), false)
         if fref as bool {
-            return self._csm->createFileID(*fref, clang::SourceLocation(), clang::SrcMgr::C_User)
+            return self._csm->createFileID(
+                *fref,
+                clang::SourceLocation(),
+                clang::SrcMgr::C_User,
+            )
         }
 
         // No FileEntry: synthetic buffer. Own the narrow name for the clang
@@ -269,7 +277,10 @@ pub class ClangLocMap {
         var name = llvm::StringSaver(&self._names).save(kairo::sref(path))
 
         var bref = llvm::MemoryBufferRef(
-            llvm::StringRef(unsafe (hview.data as kairo::std::ConstPtr<c_char>), hview.size),
+            llvm::StringRef(
+                unsafe (hview.data as kairo::std::ConstPtr<c_char>),
+                hview.size,
+            ),
             name,
         )
 
@@ -295,7 +306,9 @@ pub class ClangLocMap {
             return clang::SourceLocation()
         }
 
-        return clang::SourceLocation::getFromRawEncoding(self._sloc[res.fid] + (res.offset as u32))
+        return clang::SourceLocation::getFromRawEncoding(
+            self._sloc[res.fid] + (res.offset as u32),
+        )
     }
 
     /// Kairo range -> clang CharSourceRange. Kairo ranges are half-open byte
@@ -416,7 +429,12 @@ pub class ClangLocMap {
 
         var name = fe->getName()
         return self._ksm->find_fid(
-            Path(string(unsafe ((name.data() as unsafe *const u8) as *const u8), name.size())),
+            Path(
+                string(
+                    unsafe ((name.data() as unsafe *const u8) as *const u8),
+                    name.size(),
+                ),
+            ),
         )
     }
 
@@ -434,7 +452,9 @@ pub class ClangLocMap {
             return clang::FileID()
         }
 
-        return self._csm->getFileID(clang::SourceLocation::getFromRawEncoding(self._sloc[kfid]))
+        return self._csm->getFileID(
+            clang::SourceLocation::getFromRawEncoding(self._sloc[kfid]),
+        )
     }
 
     /// # Introspection
@@ -493,7 +513,10 @@ pub class ClangLocMap {
     /// they stand, and seeing by how much is what tells you the size of the
     /// filler buffer that would force it constant.
     fn dump(self) {
-        io::println(f"=== ClangLocMap: {self._n} fid(s), clang block base {self.block_base()} ===")
+        io::println(
+            f"=== ClangLocMap: {self._n} fid(s), clang block base {self.block_base()} ===",
+        )
+
         io::println("  fid  kairo_base   clang_base        delta  size  path")
 
         for var i: usize = 0; i < self._n; ++i {
@@ -507,7 +530,9 @@ pub class ClangLocMap {
             )
         }
 
-        io::println("==========================================================")
+        io::println(
+            "==========================================================",
+        )
     }
 
     /// # Self-check

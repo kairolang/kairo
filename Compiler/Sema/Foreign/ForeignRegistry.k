@@ -53,9 +53,9 @@ pub class ForeignRegistry {
     /// mapping treat specially: `T?`, which is `::builtin::Nullable<T>` to
     /// C++ (nullable_lang). Null until the driver binds it; a `T?` argument
     /// then has no phase-A spelling, as before.
-    pub var well_known: unsafe *WellKnownDecls = &null
-    priv var _orphans: llvm::StringSet<llvm::MallocAllocator> ///< see forget() and adopt().
-    pub var adopted:   cxx::std::vector<unsafe *Decl>
+    pub var  well_known: unsafe *WellKnownDecls                 = &null
+    priv var _orphans:   llvm::StringSet<llvm::MallocAllocator> ///< see forget() and adopt().
+    pub var  adopted:    cxx::std::vector<unsafe *Decl>
 
     fn ForeignRegistry(self) {
         self._by_usr = llvm::StringMap<unsafe *Decl>(4096)
@@ -110,7 +110,9 @@ pub class ForeignRegistry {
     ///       containers has hundreds of thousands, and copying them was
     ///       most of a retraction): valid until the table changes, which
     ///       forget() does.
-    pub fn entries(self, usrs: unsafe *cxx::std::vector<llvm::StringRef>, decls: unsafe *cxx::std::vector<unsafe *Decl>) {
+    pub fn entries(self,
+                   usrs:  unsafe *cxx::std::vector<llvm::StringRef>,
+                   decls: unsafe *cxx::std::vector<unsafe *Decl>) {
         var rlock = kairo::std::SharedLock(self._mu)
         usrs->reserve(self._by_usr.size() as usize)
         decls->reserve(self._by_usr.size() as usize)
@@ -231,7 +233,11 @@ pub class ForeignRegistry {
         }
 
         var lock = kairo::std::LockGuard(self._mu)
-        var r    = self._opaque_qt.try_emplace(opaque, cxx::std::vector<unsafe *void>())
+        var r = self._opaque_qt.try_emplace(
+            opaque,
+            cxx::std::vector<unsafe *void>(),
+        )
+
         var *row = &r.first->second
         for var i: usize = 0; i + 1 < row->size(); i += 2 {
             if (*row)[i] == cctx {

@@ -29,22 +29,22 @@ ffi "c++" import "chrono"
 import DocumentStore::DocumentStore
 import Index::Snapshot::SK_OK
 import Index::WorkerKeys::*
-import Protocol::*
-import Tuning::*
-import WorkerArgs::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import std::io
+import Protocol::*
 import Server::Diagnostics::*
+import Server::LiveIndex::*
 import Server::Output::*
 import Server::Scheduling::*
 import Server::Server::*
 import Server::Workers::*
-import Server::LiveIndex::*
+import Tuning::*
+import WorkerArgs::*
+import std::io
 
 extend Server {
     /// The loop's wait: true when an editor message is buffered (take() it).
@@ -55,11 +55,11 @@ extend Server {
         // The pipes worth waking for: the syntax worker's while a pass is
         // in flight, and each live index worker's while it owes an answer.
         var fds: [i32; 30]
-        var n: i32 = 0
-        var syn = self.syn.busy()
+        var n:   i32       = 0
+        var syn            = self.syn.busy()
         if syn {
             fds[0] = self.syn.t.fd_in
-            n = 1
+            n      = 1
         }
 
         var live = false
@@ -109,24 +109,33 @@ extend Server {
         }
 
         // '\n'-separated words: the shim's argv (kals_child_spawn).
-        var words = self.exe + "\n" + WA_WORKER + "\n" + WA_SYNTAX_SERVER + "\n" + WA_END
-        var to_child: i32 = -1
+        var words           = self.exe + "\n" + WA_WORKER + "\n" + WA_SYNTAX_SERVER + "\n" + WA_END
+        var to_child:   i32 = -1
         var from_child: i32 = -1
-        var pid: i64 = -1
+        var pid:        i64 = -1
         if !self.debug_refuse_("syntax-server") {
-            pid = unsafe kals_child_spawn(unsafe &words.raw()[0], words.size() as u64, unsafe &to_child, unsafe &from_child)
+            pid = unsafe kals_child_spawn(
+                unsafe &words.raw()[0],
+                words.size() as u64,
+                unsafe &to_child,
+                unsafe &from_child,
+            )
         }
 
         if pid < 0 {
             self.syn.state = SynWorker::Failed
-            self.say(MSG_LOG, "syntax worker unavailable here: syntax passes run as a process each")
+            self.say(
+                MSG_LOG,
+                "syntax worker unavailable here: syntax passes run as a process each",
+            )
+
             return false
         }
 
-        self.syn.pid    = pid
-        self.syn.passes = 0
-        self.syn.state  = SynWorker::Idle
-        self.syn.t      = Transport()
+        self.syn.pid      = pid
+        self.syn.passes   = 0
+        self.syn.state    = SynWorker::Idle
+        self.syn.t        = Transport()
         self.syn.t.fd_in  = from_child
         self.syn.t.fd_out = to_child
         self.trace(f"syntax worker started pid={pid}")
@@ -138,7 +147,12 @@ extend Server {
             return
         }
 
-        unsafe kals_child_stop(self.syn.pid, self.syn.t.fd_out, self.syn.t.fd_in)
+        unsafe kals_child_stop(
+            self.syn.pid,
+            self.syn.t.fd_out,
+            self.syn.t.fd_in,
+        )
+
         self.syn.pid   = -1
         self.syn.state = SynWorker::NotRunning
     }
@@ -151,10 +165,17 @@ extend Server {
         var was  = self.syn.busy()
         self.syntax_stop()
         self.syn.restarts += 1
-        self.say(MSG_WARNING, "syntax worker " + why + ": restarted; this pass runs as a process")
+        self.say(
+            MSG_WARNING,
+            "syntax worker " + why + ": restarted; this pass runs as a process",
+        )
+
         if self.syn.restarts >= SYNTAX_SERVER_MAX_RESTARTS {
             self.syn.state = SynWorker::Failed
-            self.say(MSG_WARNING, "syntax worker keeps failing: a process per pass for the rest of the session")
+            self.say(
+                MSG_WARNING,
+                "syntax worker keeps failing: a process per pass for the rest of the session",
+            )
         } else {
             self.syntax_spawn() // now, so its start overlaps the fallback pass
         }
@@ -239,11 +260,14 @@ extend Server {
             return // superseded inside the worker, or a reply to a lost request
         }
 
-        self.syn.state   = SynWorker::Idle
+        self.syn.state = SynWorker::Idle
         self.syn.passes += 1
         var took = now_ms() - self.syn.sent_ms
         var di   = self.docs.index_of_path(self.syn.path)
-        self.trace(f"syntax done (worker) rev={self.syn.rev} {took} ms " + self.syn.path)
+        self.trace(
+            f"syntax done (worker) rev={self.syn.rev} {took} ms " + self.syn.path,
+        )
+
         if di != usize::MAX {
             self.docs.docs[di].syn.finish()
             // A stale answer is dropped (land_syntax), and the pass for the
@@ -258,7 +282,10 @@ extend Server {
         // Recycled between requests (a pass leaks about 0.4 MB).
         var rss: i64 = unsafe kals_child_rss_mb(self.syn.pid)
         if (self.syn.passes >= SYNTAX_SERVER_MAX_PASSES) || (rss > SYNTAX_SERVER_MAX_RSS_MB) {
-            self.trace(f"syntax worker recycled after {self.syn.passes} passes, {rss} MB")
+            self.trace(
+                f"syntax worker recycled after {self.syn.passes} passes, {rss} MB",
+            )
+
             self.syntax_stop()
             self.syntax_spawn()
         }

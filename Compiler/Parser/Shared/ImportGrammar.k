@@ -251,7 +251,10 @@ pub class <T: type> ImportGrammar {
         }
 
         if !spec.has_alias && !spec.has_items && !spec.is_wildcard && spec.segments.size() > 0 {
-            self._check_bound_word(spec.segments[spec.segments.size() - 1], last_kind)
+            self._check_bound_word(
+                spec.segments[spec.segments.size() - 1],
+                last_kind,
+            )
         }
 
         spec.range = start | last
@@ -302,7 +305,7 @@ pub class <T: type> ImportGrammar {
             // named item: ident (:: ident)* !? (as alias !?)?
             var item       = ImportSpecItem()
             var item_start = self.igd()->ig_tok().range
-            var item_kind = self.igd()->ig_kind() // the last sub-path segment's resolved kind
+            var item_kind  = self.igd()->ig_kind()      // the last sub-path segment's resolved kind
             item.sub_path.push_back(self.igd()->ig_tok())
             *last = self.igd()->ig_tok().range
             self.igd()->ig_bump()
@@ -343,7 +346,10 @@ pub class <T: type> ImportGrammar {
             }
 
             if !item.has_alias {
-                self._check_bound_word(item.sub_path[item.sub_path.size() - 1], item_kind)
+                self._check_bound_word(
+                    item.sub_path[item.sub_path.size() - 1],
+                    item_kind,
+                )
             }
 
             item.range = item_start | *last
@@ -351,6 +357,10 @@ pub class <T: type> ImportGrammar {
         }
 
         // EOF before `}`
-        self.igd()->ig_err(open, "expected '}' to close the selective import list", DiagID::S051E)
+        self.igd()->ig_err(
+            open,
+            "expected '}' to close the selective import list",
+            DiagID::S051E,
+        )
     }
 }

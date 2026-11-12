@@ -48,14 +48,36 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
+import Protocol::*
+import Server::ClangdBridge::*
+import Server::CodeActions::*
+import Server::Completion::*
+import Server::CompletionWords::{
+    BuiltinRow,
+    Word,
+}
+import Server::Diagnostics::*
+import Server::Features::*
+import Server::Formatting::*
+import Server::IndexCompletion::*
+import Server::Lifecycle::*
+import Server::LiveIndex::*
+import Server::Lookup::*
+import Server::Navigation::*
+import Server::Output::*
+import Server::Scheduling::*
+import Server::SignatureHelp::*
+import Server::Structure::*
+import Server::SyntaxWorker::*
+import Server::TextUtil::*
+import Server::Tokens::*
+import Server::Workers::*
 import Support::FileIO::Path::Path
 import TextScan::{
     InterfacePlan,
@@ -64,34 +86,12 @@ import TextScan::{
     interface_for,
     spans,
 }
+import Tuning::*
 import Workspace::CompileCommandsLoader::{
     Project,
     project_file_name,
 }
 import std::io
-import Server::ClangdBridge::*
-import Server::CodeActions::*
-import Server::Completion::*
-import Server::CompletionWords::{
-    BuiltinRow,
-    Word,
-}
-import Server::IndexCompletion::*
-import Server::Diagnostics::*
-import Server::Features::*
-import Server::Formatting::*
-import Server::Lifecycle::*
-import Server::Lookup::*
-import Server::Navigation::*
-import Server::Output::*
-import Server::Scheduling::*
-import Server::SignatureHelp::*
-import Server::Structure::*
-import Server::TextUtil::*
-import Server::Tokens::*
-import Server::Workers::*
-import Server::SyntaxWorker::*
-import Server::LiveIndex::*
 
 pub fn server_main(const self_path: string) -> i32 {
     var unsafe *s = kairo::std::create<Server>()
@@ -126,24 +126,24 @@ pub class Server {
     pub var docs:    DocumentStore
     pub var project: Project
 
-    pub var entries: [Entry]
-    pub var entry_seq: u64 = 0  ///< the last Entry::id handed out
-    pub var jobs:    [Job]
-    pub var parked:  [Parked]
+    pub var entries:   [Entry]
+    pub var entry_seq: u64      = 0 ///< the last Entry::id handed out
+    pub var jobs:      [Job]
+    pub var parked:    [Parked]
 
-    pub var exe:  string = ""  ///< this binary: workers are started from it
-    pub var tmp:  string = ""  ///< scratch directory, removed at exit
-    pub var root: string = ""  ///< workspace folder
+    pub var exe:  string = "" ///< this binary: workers are started from it
+    pub var tmp:  string = "" ///< scratch directory, removed at exit
+    pub var root: string = "" ///< workspace folder
 
-    pub var rev:  u64 = 1      ///< bumped on every change to any buffer or file
-    pub var seq:  u64 = 0      ///< names scratch files and outgoing requests
+    pub var rev: u64 = 1 ///< bumped on every change to any buffer or file
+    pub var seq: u64 = 0 ///< names scratch files and outgoing requests
 
-    pub var session:         Session = Session::AwaitInit
-    pub var quit:            bool = false
-    pub var exit_code:       i32  = 1
-    pub var refresh_tokens:  bool = false  ///< client honours semanticTokens/refresh
-    pub var refresh_inlays:  bool = false
-    pub var highlight_panics: bool = false ///< initializationOptions.highlightPanics: send `panics`
+    pub var session:          Session = Session::AwaitInit
+    pub var quit:             bool    = false
+    pub var exit_code:        i32     = 1
+    pub var refresh_tokens:   bool    = false ///< client honours semanticTokens/refresh
+    pub var refresh_inlays:   bool    = false
+    pub var highlight_panics: bool    = false ///< initializationOptions.highlightPanics: send `panics`
 
     /// Scratch files a finished worker may still have open; removed once no
     /// worker is running.
@@ -154,25 +154,25 @@ pub class Server {
     /// files its last check read ("\n"-joined: an edit to any of them, a
     /// module it re-exports from included, regenerates it), and whether it
     /// is due.
-    pub var br_files:   [string]
-    pub var br_hdr:     [string]
-    pub var br_deps:    [string]
-    pub var br_dirty:   [bool]
-    pub var br_running: [bool]
-    pub var br_rescan:  bool   = false  ///< a C/C++ source changed: find the includes again
-    pub var br_told:    [string]        ///< C/C++ sources the editor reported (watched files)
-    pub var br_changed: [string]        ///< sources to read again on the next scan
-    pub var br_src:     [string]        ///< the last scan's sources, in order
-    pub var br_src_inc: [string]        ///< and the `.k` includes of each, '\n'-terminated
-    pub var watch_ok:   bool   = false  ///< the client takes a dynamic didChangeWatchedFiles registration
-    pub var br_ov_mtime: u64   = 0      ///< overlay.yaml's mtime when this process last wrote or read it
-    pub var br_ov_check_ms: i64 = 0     ///< when overlay.yaml was last looked at for another process's write
-    pub var br_rank:    [usize]         ///< per row: how recently a source including it was reported (0: never)
-    pub var br_recent:  [string]        ///< C/C++ sources reported changed, most recent last (BRIDGE_RECENT_SOURCES)
-    pub var br_cxx_w:   [string]        ///< per row: kcc's driver words for a C++ source including it ('\n'-terminated)
-    pub var br_c_w:     [string]        ///< per row: the same for a C source (P861)
-    pub var br_src_seen: [string]       ///< per source: the headers its last scan read, '\n'-terminated
-    pub var br_said:    string = ""     ///< the .clangd lines last suggested to the user (said once)
+    pub var br_files:       [string]
+    pub var br_hdr:         [string]
+    pub var br_deps:        [string]
+    pub var br_dirty:       [bool]
+    pub var br_running:     [bool]
+    pub var br_rescan:      bool     = false ///< a C/C++ source changed: find the includes again
+    pub var br_told:        [string] ///< C/C++ sources the editor reported (watched files)
+    pub var br_changed:     [string] ///< sources to read again on the next scan
+    pub var br_src:         [string] ///< the last scan's sources, in order
+    pub var br_src_inc:     [string] ///< and the `.k` includes of each, '\n'-terminated
+    pub var watch_ok:       bool     = false ///< the client takes a dynamic didChangeWatchedFiles registration
+    pub var br_ov_mtime:    u64      = 0 ///< overlay.yaml's mtime when this process last wrote or read it
+    pub var br_ov_check_ms: i64      = 0 ///< when overlay.yaml was last looked at for another process's write
+    pub var br_rank:        [usize] ///< per row: how recently a source including it was reported (0: never)
+    pub var br_recent:      [string] ///< C/C++ sources reported changed, most recent last (BRIDGE_RECENT_SOURCES)
+    pub var br_cxx_w:       [string] ///< per row: kcc's driver words for a C++ source including it ('\n'-terminated)
+    pub var br_c_w:         [string] ///< per row: the same for a C source
+    pub var br_src_seen:    [string] ///< per source: the headers its last scan read, '\n'-terminated
+    pub var br_said:        string   = "" ///< the .clangd lines last suggested to the user (said once)
 
     /// The two debounces, in milliseconds since the last change to any
     /// buffer: a syntax-only pass of each edited buffer after syntax_ms
@@ -181,16 +181,16 @@ pub class Server {
     /// after debounce_ms (`debounceMs`). The syntax pass parses one file and so
     /// lands well before the run does; its errors and lexical tokens are what
     /// the editor shows meanwhile.
-    pub var syn:     SyntaxChild    ///< the persistent syntax worker (SyntaxWorker.k)
-    pub var syn_seq: i64 = 0        ///< ids of its requests
+    pub var syn:     SyntaxChild     ///< the persistent syntax worker (SyntaxWorker.k)
+    pub var syn_seq: i64         = 0 ///< ids of its requests
 
     /// An entry's graph is kept checked in a process that stays up and an
     /// edit is re-checked in place (LiveIndex.k). The default; off with
     /// initializationOptions.liveCheck: false or KALS_LIVE_CHECK=0, and
     /// then every run is a process.
-    pub var live_on:  bool = true
+    pub var live_on:  bool        = true
     pub var lives:    [LiveChild]
-    pub var live_seq: i64  = 0
+    pub var live_seq: i64         = 0
 
     pub var debounce_ms:    i64 = DEBOUNCE_MS
     pub var syntax_ms:      i64 = SYNTAX_DEBOUNCE_MS
@@ -203,7 +203,7 @@ pub class Server {
     /// always runs alone (see can_start).
     pub var max_index: usize = MAX_INDEX_WORKERS
 
-    pub var refreshed_rev: u64 = 0  ///< the revision the last refresh request was sent for
+    pub var refreshed_rev: u64 = 0 ///< the revision the last refresh request was sent for
 
     /// The last completion list's documentation, by label: handed out one
     /// item at a time on completionItem/resolve, so a list of hundreds does
@@ -227,9 +227,9 @@ pub class Server {
     /// buffer, language and directory typed it was made for, when, and the
     /// candidates. A path is typed a letter at a time and a client that
     /// asks at each gets the listing it was just given.
-    pub var hdr_key:   string = ""
-    pub var hdr_ms:    i64    = 0
-    pub var hdr_cands: [Cand]
+    pub var hdr_key:    string       = ""
+    pub var hdr_ms:     i64          = 0
+    pub var hdr_cands:  [Cand]
     pub var words:      [Word]
     pub var attr_rows:  [BuiltinRow]
     pub var macro_rows: [BuiltinRow]
@@ -239,7 +239,7 @@ pub class Server {
     pub var tok_uri:  [string]
     pub var tok_id:   [u64]
     pub var tok_data: [[i64]]
-    pub var tok_seq:  u64 = 0
+    pub var tok_seq:  u64      = 0
 
     pub var trace_buf:   string = ""
     pub var trace_dirty: bool   = false
@@ -275,13 +275,21 @@ pub class Server {
         for var q: usize = 0; q < self.parked.size(); ++q {
             var pd = JsonDoc()
             if pd.parse(self.parked[q].msg) {
-                self.respond_error(pd.dump(pd.get(pd.root, K_ID)), ERR_REQUEST_CANCELLED, "cancelled: the server is shutting down")
+                self.respond_error(
+                    pd.dump(pd.get(pd.root, K_ID)),
+                    ERR_REQUEST_CANCELLED,
+                    "cancelled: the server is shutting down",
+                )
             }
         }
 
         self.parked.clear()
         if !self.comp_wait_id.empty() {
-            self.respond_error(self.comp_wait_id, ERR_REQUEST_CANCELLED, "cancelled: the server is shutting down")
+            self.respond_error(
+                self.comp_wait_id,
+                ERR_REQUEST_CANCELLED,
+                "cancelled: the server is shutting down",
+            )
         }
 
         self.comp_wait    = ""
@@ -289,16 +297,29 @@ pub class Server {
         for var q: usize = 0; q < self.jobs.size(); ++q {
             unsafe kals_kill(self.jobs[q].pi.Pid as i64)
             var emsg: cxx::std::string
-            llvm::sys::Wait(self.jobs[q].pi, cxx::std::optional<u32>(cxx::std::nullopt), unsafe &emsg)
+            llvm::sys::Wait(
+                self.jobs[q].pi,
+                cxx::std::optional<u32>(cxx::std::nullopt),
+                unsafe &emsg,
+            )
+
             if (self.jobs[q].kind == JobKind::Complete) && (!self.jobs[q].cancelled) {
-                self.respond_error(self.jobs[q].id, ERR_REQUEST_CANCELLED, "cancelled: the server is shutting down")
+                self.respond_error(
+                    self.jobs[q].id,
+                    ERR_REQUEST_CANCELLED,
+                    "cancelled: the server is shutting down",
+                )
             }
 
             if !self.jobs[q].progress.empty() {
                 self.progress(self.jobs[q].progress, "end", "", -1)
             }
 
-            self.trace(f"stopped job rev={self.jobs[q].rev} kind=" + job_kind_name(self.jobs[q].kind))
+            self.trace(
+                f"stopped job rev={self.jobs[q].rev} kind=" + job_kind_name(
+                    self.jobs[q].kind,
+                ),
+            )
         }
 
         self.jobs.clear()
@@ -307,7 +328,12 @@ pub class Server {
         // stopping the worker would hand it to a process of its own.
         for var k: usize = 0; k < self.lives.size(); ++k {
             for var q: usize = 0; q < self.lives[k].asks.size(); ++q {
-                self.respond_error(self.lives[k].asks[q].lsp_id, ERR_REQUEST_CANCELLED, "cancelled: the server is shutting down")
+                self.respond_error(
+                    self.lives[k].asks[q].lsp_id,
+                    ERR_REQUEST_CANCELLED,
+                    "cancelled: the server is shutting down",
+                )
+
                 self.garbage.push_back(self.lives[k].asks[q].out)
                 self.garbage.push_back(self.lives[k].asks[q].marked)
             }
@@ -361,7 +387,11 @@ pub class Server {
 
         if (self.session == Session::AwaitInit) && (method != M_INITIALIZE) {
             if has_id {
-                self.respond_error(id, ERR_SERVER_NOT_INITIALIZED, "the server is not initialized: send initialize first")
+                self.respond_error(
+                    id,
+                    ERR_SERVER_NOT_INITIALIZED,
+                    "the server is not initialized: send initialize first",
+                )
             }
 
             return
@@ -369,14 +399,23 @@ pub class Server {
 
         if self.session == Session::ShutDown {
             if has_id {
-                self.respond_error(id, ERR_INVALID_REQUEST, "the server is shut down: only exit is taken")
+                self.respond_error(
+                    id,
+                    ERR_INVALID_REQUEST,
+                    "the server is shut down: only exit is taken",
+                )
             }
 
             return
         }
 
         if (method == M_INITIALIZE) && (self.session != Session::AwaitInit) {
-            self.respond_error(id, ERR_INVALID_REQUEST, "initialize may only be sent once")
+            self.respond_error(
+                id,
+                ERR_INVALID_REQUEST,
+                "initialize may only be sent once",
+            )
+
             return
         }
 
@@ -386,7 +425,7 @@ pub class Server {
             // thing to read.
             var td = d.get(d.get(params, K_CAPABILITIES), K_TEXT_DOCUMENT)
             var have: string = "client textDocument capabilities:"
-            var c = d.first(td)
+            var c            = d.first(td)
             while c != JSON_NONE() {
                 have += " "
                 have += d.key(c)
@@ -413,9 +452,15 @@ pub class Server {
             }
 
             if self.project.path.empty() {
-                self.say(MSG_INFO, "no kairo_compile.json found: each file is checked on its own")
+                self.say(
+                    MSG_INFO,
+                    "no kairo_compile.json found: each file is checked on its own",
+                )
             } else {
-                self.say(MSG_INFO, f"project {self.project.path}: {self.project.entries.size()} entry point(s)")
+                self.say(
+                    MSG_INFO,
+                    f"project {self.project.path}: {self.project.entries.size()} entry point(s)",
+                )
             }
 
             return
@@ -430,7 +475,12 @@ pub class Server {
 
         if method == M_DID_OPEN {
             var td = d.get(params, K_TEXT_DOCUMENT)
-            var i  = self.docs.open(d.get_str(td, K_URI), d.get_int(td, K_VERSION), d.get_str(td, K_TEXT))
+            var i = self.docs.open(
+                d.get_str(td, K_URI),
+                d.get_int(td, K_VERSION),
+                d.get_str(td, K_TEXT),
+            )
+
             self.docs.docs[i].path = Path::real_path_of(self.docs.docs[i].path)
             // A buffer opened with the text its entry's last run read from
             // the disk, and indexed by that run, changes nothing the
@@ -442,7 +492,11 @@ pub class Server {
                 self.docs.docs[i].changed_ms = now_ms()
                 // That run read the disk, which is this text (unchanged_on_disk_
                 // compared them): the index's text for the buffer's later edits.
-                self.docs.docs[i].set_indexed(self.docs.docs[i].text, self.entries[oei].idx_rev, self.entries[oei].entry)
+                self.docs.docs[i].set_indexed(
+                    self.docs.docs[i].text,
+                    self.entries[oei].idx_rev,
+                    self.entries[oei].entry,
+                )
             } else {
                 self.touch(self.docs.docs[i].path)
             }
@@ -455,7 +509,13 @@ pub class Server {
             var td = d.get(params, K_TEXT_DOCUMENT)
             var i  = self.docs.index_of(d.get_str(td, K_URI))
             if i != usize::MAX {
-                self.docs.change(i, d.get_int(td, K_VERSION), &d, d.get(params, K_CONTENT_CHANGES))
+                self.docs.change(
+                    i,
+                    d.get_int(td, K_VERSION),
+                    &d,
+                    d.get(params, K_CONTENT_CHANGES),
+                )
+
                 self.touch(self.docs.docs[i].path)
             }
 
@@ -499,7 +559,7 @@ pub class Server {
         }
 
         if method == M_DID_CHANGE_WATCHED {
-            var c = d.first(d.get(params, K_CHANGES))
+            var c      = d.first(d.get(params, K_CHANGES))
             var reload = false
             while c != JSON_NONE() {
                 var path = self.path_of(d.get_str(c, K_URI))
@@ -551,14 +611,20 @@ pub class Server {
         }
 
         if (method == M_INCOMING_CALLS) || (method == M_OUTGOING_CALLS) {
-            self.calls(&d, d.get(params, K_ITEM), method == M_INCOMING_CALLS, id)
+            self.calls(
+                &d,
+                d.get(params, K_ITEM),
+                method == M_INCOMING_CALLS,
+                id,
+            )
+
             return
         }
 
         if (method == M_SUPERTYPES) || (method == M_SUBTYPES) {
             var item = d.get(params, K_ITEM)
             var sel  = d.get(d.get(item, K_SELECTION_RANGE), K_START)
-            var w = JsonWriter()
+            var w    = JsonWriter()
             w.begin_array()
             var nosh = LineShift() // an item from an answer already placed
             self.related_types(
@@ -584,10 +650,12 @@ pub class Server {
         if method == M_COMPLETION_RESOLVE {
             // The item comes back as it was sent; its documentation is added
             // when the last list had some for that label.
-            var out = d.dump(params)
+            var out   = d.dump(params)
             var label = d.get_str(params, K_LABEL)
             for var q: usize = 0; q < self.item_labels.size(); ++q {
-                if (self.item_labels[q] == label) && (out.size() > 1) && (d.get(params, K_DOCUMENTATION) == JSON_NONE()) {
+                if (self.item_labels[q] == label)
+                    && (out.size() > 1)
+                    && (d.get(params, K_DOCUMENTATION) == JSON_NONE()) {
                     var dw = JsonWriter()
                     dw.begin_object()
                     dw.field(K_KIND, MARKUP_MARKDOWN)
@@ -599,7 +667,9 @@ pub class Server {
             }
 
             // An item answered from the index says where it is declared.
-            if (d.get(params, K_DOCUMENTATION) == JSON_NONE()) && (d.get(params, K_DATA) != JSON_NONE()) && (out.size() > 1) {
+            if (d.get(params, K_DOCUMENTATION) == JSON_NONE())
+                && (d.get(params, K_DATA) != JSON_NONE())
+                && (out.size() > 1) {
                 var doc = self.resolve_doc_(&d, params)
                 if !doc.empty() {
                     var dw = JsonWriter()
@@ -638,7 +708,7 @@ pub class Server {
             // is answered "cancelled" now rather than computed later, and a
             // completion still running is disowned (its worker finishes and
             // is ignored; a process cannot be recalled mid-compile).
-            var want = d.dump(d.get(params, K_ID))
+            var want           = d.dump(d.get(params, K_ID))
             var kept: [Parked]
             for var q: usize = 0; q < self.parked.size(); ++q {
                 var pd = JsonDoc()
@@ -651,7 +721,9 @@ pub class Server {
 
             self.parked = kept
             for var q: usize = 0; q < self.jobs.size(); ++q {
-                if (self.jobs[q].kind == JobKind::Complete) && (self.jobs[q].id == want) && (!self.jobs[q].cancelled) {
+                if (self.jobs[q].kind == JobKind::Complete)
+                    && (self.jobs[q].id == want)
+                    && (!self.jobs[q].cancelled) {
                     self.jobs[q].cancelled = true
                     self.respond_error(want, ERR_REQUEST_CANCELLED, "cancelled")
                 }
@@ -698,13 +770,39 @@ pub class Server {
             var w = JsonWriter()
             w.begin_object()
             if self.entries[sei].has_idx {
-                w.field_raw(SK_FILES, self.entries[sei].idx.dump(self.entries[sei].idx.get(self.entries[sei].idx.root, SK_FILES)))
+                w.field_raw(
+                    SK_FILES,
+                    self.entries[sei].idx.dump(
+                        self.entries[sei].idx.get(
+                            self.entries[sei].idx.root,
+                            SK_FILES,
+                        ),
+                    ),
+                )
             } else {
                 w.field_raw(SK_FILES, "[]")
             }
 
-            w.field_raw(SK_DIAGNOSTICS, self.entries[sei].snap.dump(self.entries[sei].snap.get(self.entries[sei].snap.root, SK_DIAGNOSTICS)))
-            w.field_raw(SK_DEPS, self.entries[sei].snap.dump(self.entries[sei].snap.get(self.entries[sei].snap.root, SK_DEPS)))
+            w.field_raw(
+                SK_DIAGNOSTICS,
+                self.entries[sei].snap.dump(
+                    self.entries[sei].snap.get(
+                        self.entries[sei].snap.root,
+                        SK_DIAGNOSTICS,
+                    ),
+                ),
+            )
+
+            w.field_raw(
+                SK_DEPS,
+                self.entries[sei].snap.dump(
+                    self.entries[sei].snap.get(
+                        self.entries[sei].snap.root,
+                        SK_DEPS,
+                    ),
+                ),
+            )
+
             w.end_object()
             self.respond(id, w.out)
             return
@@ -714,7 +812,11 @@ pub class Server {
             return // progress, and notifications we do not use
         }
 
-        self.respond_error(id, ERR_METHOD_NOT_FOUND, "method not found: " + method)
+        self.respond_error(
+            id,
+            ERR_METHOD_NOT_FOUND,
+            "method not found: " + method,
+        )
     }
 
     fn run(self) -> i32 {
@@ -750,7 +852,9 @@ pub class Server {
             var now = now_ms()
             for var q: usize = 0; q < self.jobs.size(); ++q {
                 var je = self.entry_by_id(self.jobs[q].entry_id)
-                if (self.jobs[q].kind == JobKind::Index) && (je != usize::MAX) && (!self.entries[je].slow)
+                if (self.jobs[q].kind == JobKind::Index)
+                    && (je != usize::MAX)
+                    && (!self.entries[je].slow)
                     && ((now - self.jobs[q].started_ms) > SLOW_RUN_MS) {
                     self.entries[je].slow = true
                     self.retry_parked(false)
@@ -771,7 +875,8 @@ pub class Server {
                 // 190 MB in a debug build), and a change that touches many
                 // buffers (a rename) must not start one per buffer.
                 for var k: usize = 0; k < self.docs.docs.size(); ++k {
-                    if self.docs.docs[k].syn_due() && (self.running(JobKind::Syntax) < MAX_SYNTAX_PASSES) {
+                    if self.docs.docs[k].syn_due()
+                        && (self.running(JobKind::Syntax) < MAX_SYNTAX_PASSES) {
                         self.start_syntax(k)
                     }
                 }
@@ -785,8 +890,11 @@ pub class Server {
             // file listing several entries must not start them all at once.
             if (now - self.last_change_ms) >= self.debounce_ms {
                 for var i: usize = 0; i < self.entries.size(); ++i {
-                    if (!self.entries[i].dirty) || self.entries[i].entry.empty()
-                        || ((now - self.last_change_ms) < self.debounce_of(self.entries[i].slow)) {
+                    if (!self.entries[i].dirty)
+                        || self.entries[i].entry.empty()
+                        || ((now - self.last_change_ms) < self.debounce_of(
+                            self.entries[i].slow,
+                        )) {
                         continue
                     }
 
@@ -819,9 +927,12 @@ pub class Server {
 
             // Another kals on this root (a second editor) rewrites
             // overlay.yaml from what it knows: merge this one's entries back.
-            if (!self.br_files.empty()) && ((now - self.br_ov_check_ms) >= BRIDGE_OVERLAY_CHECK_MS) {
+            if (!self.br_files.empty())
+                && ((now - self.br_ov_check_ms) >= BRIDGE_OVERLAY_CHECK_MS) {
                 self.br_ov_check_ms = now
-                if LinkFS::mtime(Path::join_str(self.bridge_dir_(), "overlay.yaml")) != self.br_ov_mtime {
+                if LinkFS::mtime(
+                    Path::join_str(self.bridge_dir_(), "overlay.yaml"),
+                ) != self.br_ov_mtime {
                     self.bridge_overlay_()
                 }
             }

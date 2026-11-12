@@ -811,13 +811,21 @@ pub class Conversion {
         }
 
         var cands = cxx::std::vector<unsafe *Decl>()
-        self._ml.lookup(fu, DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), unsafe &cands)
+        self._ml.lookup(
+            fu,
+            DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown),
+            unsafe &cands,
+        )
+
         if cands.size() == 0 {
             return &null
         }
 
-        var unsafe *pat = NameLookup::representative(self.tu.pattern_of(self.tu.record_decl(fu)))
-        var        args = self.tu.record_args(fu)
+        var unsafe *pat = NameLookup::representative(
+            self.tu.pattern_of(self.tu.record_decl(fu)),
+        )
+
+        var args = self.tu.record_args(fu)
         for var i: usize = 0; i < cands.size(); ++i {
             var unsafe *f = dyn_cast<FunctionDecl>(cands[i])
             if f == &null || f->is_poisoned() || !OperatorFacts::is_implicit_conv(f) {
@@ -832,7 +840,12 @@ pub class Conversion {
                 continue
             }
 
-            if self._same_through(canon_unqual(f->return_type->canonical), tq, pat, unsafe &args) {
+            if self._same_through(
+                canon_unqual(f->return_type->canonical),
+                tq,
+                pat,
+                unsafe &args,
+            ) {
                 return f
             }
         }
@@ -858,10 +871,18 @@ pub class Conversion {
         }
 
         var cands = cxx::std::vector<unsafe *Decl>()
-        self._ml.lookup(fu, DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), unsafe &cands)
+        self._ml.lookup(
+            fu,
+            DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown),
+            unsafe &cands,
+        )
+
         for var i: usize = 0; i < cands.size(); ++i {
             var unsafe *f = dyn_cast<FunctionDecl>(cands[i])
-            if f == &null || f->is_poisoned() || (!f->is_imported()) || (f->ffi_explicit && (!any_explicit)) {
+            if f == &null
+                || f->is_poisoned()
+                || (!f->is_imported())
+                || (f->ffi_explicit && (!any_explicit)) {
                 continue
             }
 
@@ -924,12 +945,19 @@ pub class Conversion {
                 return false
             }
 
-            return self._same_through(canon_unqual(pattern), canon_unqual(concrete), owner, args)
+            return self._same_through(
+                canon_unqual(pattern),
+                canon_unqual(concrete),
+                owner,
+                args,
+            )
         }
 
         if isa<PointerType>(pattern) {
             if !isa<PointerType>(concrete)
-                || self.tu.is_unsafe_ptr(pattern) != self.tu.is_unsafe_ptr(concrete) {
+                || self.tu.is_unsafe_ptr(pattern) != self.tu.is_unsafe_ptr(
+                    concrete,
+                ) {
                 return false
             }
 

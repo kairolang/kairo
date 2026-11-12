@@ -585,11 +585,11 @@ pub class FunctionDecl
     /// function is its signature alone. Nothing may be inferred from the
     /// body it no longer has (its panics, purity, constant value): a
     /// question that needs the body has no answer, and nothing is reported.
-    pub var body_recovered:  bool                     = false
-    pub var is_operator:     bool                     = false ///< `fn op <x>`.
-    pub var op_token:        FrozenList<Token> ///< the operator token(s) when is_operator; empty otherwise (see `name`).
-    pub var is_variadic:     bool                     = false ///< trailing `...name: T` pack param.
-    pub var is_noreturn:     bool                     = false ///< return type is `!`.
+    pub var body_recovered: bool              = false
+    pub var is_operator:    bool              = false ///< `fn op <x>`.
+    pub var op_token:       FrozenList<Token> ///< the operator token(s) when is_operator; empty otherwise (see `name`).
+    pub var is_variadic:    bool              = false ///< trailing `...name: T` pack param.
+    pub var is_noreturn:    bool              = false ///< return type is `!`.
     /// A Kairo definition of a C++-declared function that returns `T&` /
     /// `const T&` -- an override of an imported virtual, or an out-of-line
     /// definition of an imported member -- written `-> *T` / `-> *const T`
@@ -597,15 +597,15 @@ pub class FunctionDecl
     /// return type is spelled `T&`, `return &x` returns `x`, and a Kairo
     /// call takes the reference's address back (OperatorFacts::returns_place).
     /// Writers: RedeclMerge (out-of-line), CallConvCheck (override).
-    pub var cxx_ref_return: bool         = false
+    pub var cxx_ref_return: bool = false
     /// Overrides a base's virtual without being written `override`: a
     /// derived method of the same parameters overrides it (classes-
     /// inheritance.mdx). Codegen spells `override` on it, as on a written
     /// one, so clang never warns that one member of a class is marked
     /// `override` and another is not (C505W, which the user cannot act on).
     /// Writer: CallConvCheck.
-    pub var overrides_virtual: bool = false
-    pub var transfer:       TransferKind = TransferKind::NotTransfer ///< @copy/@move on a transfer ctor.
+    pub var overrides_virtual: bool         = false
+    pub var transfer:          TransferKind = TransferKind::NotTransfer ///< @copy/@move on a transfer ctor.
     /// Written `-> yield T`: a C++ coroutine. Writer: X (StmtTyping::
     /// traverse_function_decl), before the body is typed. The WRITTEN
     /// qualifier, never the canonical: a spelled-out `-> Yield<T>` is an

@@ -29,28 +29,14 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Resolution::ModulePath::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
+import Resolution::ModulePath::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
@@ -67,6 +53,20 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 extend Server {
     /// Can entry \p ei (usize::MAX: none known yet) answer a request now?
@@ -129,13 +129,17 @@ extend Server {
         // editor's colours drifting for as long as the code is broken).
         if method.starts_with(M_SEMANTIC_TOKENS_PREFIX) {
             var ldi = self.docs.index_of_path(path)
-            if (ldi != usize::MAX) && self.docs.docs[ldi].syn.current(self.docs.docs[ldi].changed_at)
+            if (ldi != usize::MAX)
+                && self.docs.docs[ldi].syn.current(
+                    self.docs.docs[ldi].changed_at,
+                )
                 && (!self.docs.docs[ldi].syn.parsed) {
                 var lei = self.entry_of(path)
                 // Fresh FOR THIS FILE: an index of a graph with syntax errors
                 // is current but may have no rows for the broken file
                 // (`unchecked`, section 9), and that file still wants colour.
-                var idx_fresh = (lei != usize::MAX) && self.entries[lei].has_idx
+                var idx_fresh = (lei != usize::MAX)
+                    && self.entries[lei].has_idx
                     && (self.entries[lei].idx_rev >= self.docs.docs[ldi].changed_at)
                     && (self.file_node(lei, path) != JSON_NONE())
                 if !idx_fresh {
@@ -157,7 +161,14 @@ extend Server {
                         }
                     }
 
-                    self.send_tokens(&d, params, id, method, &self.docs.docs[ldi].syn.tokens)
+                    self.send_tokens(
+                        &d,
+                        params,
+                        id,
+                        method,
+                        &self.docs.docs[ldi].syn.tokens,
+                    )
+
                     return true
                 }
             }
@@ -165,7 +176,7 @@ extend Server {
 
         // Which entry answers: found, or a run of one started, here (a
         // request is what starts the analysis of a file no entry holds yet).
-        var ei = self.ensure_entry(path)
+        var ei  = self.ensure_entry(path)
         var can = self.answerability(ei, path)
         if can != Answer::Fresh {
             // "Answer from the last snapshot" needs a last snapshot. Until
@@ -207,13 +218,24 @@ extend Server {
 
         if (method == M_CODE_ACTION) && (ei != usize::MAX) && self.entries[ei].has_snap {
             // Macro actions carry positions: only from an index of this text.
-            var mf = JSON_NONE()
+            var mf  = JSON_NONE()
             var mdi = self.docs.index_of_path(path)
-            if (f != JSON_NONE()) && ((mdi == usize::MAX) || (self.entries[ei].idx_rev >= self.docs.docs[mdi].changed_at)) {
+            if (f != JSON_NONE())
+                && ((mdi == usize::MAX)
+                    || (self.entries[ei].idx_rev >= self.docs.docs[mdi].changed_at)) {
                 mf = f
             }
 
-            self.code_action(&d, params, id, &self.entries[ei].snap, path, ei, mf)
+            self.code_action(
+                &d,
+                params,
+                id,
+                &self.entries[ei].snap,
+                path,
+                ei,
+                mf,
+            )
+
             return true
         }
 
@@ -224,10 +246,14 @@ extend Server {
                 self.respond(id, "{\"data\":[]}")
             } else if (method == M_SEMANTIC_TOKENS_RANGE) {
                 self.respond(id, "{\"data\":[]}")
-            } else if (method == M_HOVER) || (method == M_DEFINITION)
-                || (method == M_PREPARE_CALL_HIERARCHY) || (method == M_PREPARE_TYPE_HIERARCHY)
-                || (method == M_RENAME) || (method == M_PREPARE_RENAME)
-                || (method == M_TYPE_DEFINITION) || (method == M_DECLARATION) {
+            } else if (method == M_HOVER)
+                || (method == M_DEFINITION)
+                || (method == M_PREPARE_CALL_HIERARCHY)
+                || (method == M_PREPARE_TYPE_HIERARCHY)
+                || (method == M_RENAME)
+                || (method == M_PREPARE_RENAME)
+                || (method == M_TYPE_DEFINITION)
+                || (method == M_DECLARATION) {
                 self.respond(id, "null")
             } else {
                 self.respond(id, "[]")
@@ -255,12 +281,17 @@ extend Server {
         // and only what stays right on the shared lines: rename and the
         // hierarchy items do not (a rename's edits would miss the uses in
         // the changed middle, and an item is asked about again later).
-        var di = self.docs.index_of_path(path)
-        var sh = LineShift()
+        var di    = self.docs.index_of_path(path)
+        var sh    = LineShift()
         var stale = (di != usize::MAX) && (self.entries[ei].idx_rev < self.docs.docs[di].changed_at)
-        if stale && ((method == M_HOVER) || (method == M_DEFINITION) || (method == M_DECLARATION)
-            || (method == M_TYPE_DEFINITION) || (method == M_IMPLEMENTATION)
-            || (method == M_REFERENCES) || (method == M_DOCUMENT_HIGHLIGHT)) {
+        if stale
+            && ((method == M_HOVER)
+                || (method == M_DEFINITION)
+                || (method == M_DECLARATION)
+                || (method == M_TYPE_DEFINITION)
+                || (method == M_IMPLEMENTATION)
+                || (method == M_REFERENCES)
+                || (method == M_DOCUMENT_HIGHLIGHT)) {
             sh = self.line_shift(ei, di)
             var spos = d.get(params, K_POSITION)
             stale = (!sh.active) || (sh.to_old(d.get_int(spos, K_LINE)) < 0)
@@ -274,7 +305,8 @@ extend Server {
         // no other's, where ContentModified left it to each editor how
         // long it kept which of them. The editor is told to ask again when
         // an index of this text lands.
-        var is_tokens = (method == M_SEMANTIC_TOKENS_FULL) || (method == M_SEMANTIC_TOKENS_DELTA)
+        var is_tokens = (method == M_SEMANTIC_TOKENS_FULL)
+            || (method == M_SEMANTIC_TOKENS_DELTA)
             || (method == M_SEMANTIC_TOKENS_RANGE)
         //
         // Only when no index of this text is about to land: the buffer does
@@ -283,10 +315,11 @@ extend Server {
         // editor keeps what it has for those few milliseconds, as before: a
         // mapped answer there would turn the names of the line being typed
         // lexical on every keystroke.
-        var syn_now = (di != usize::MAX) && self.docs.docs[di].syn.current(self.docs.docs[di].changed_at)
+        var syn_now = (di != usize::MAX)
+            && self.docs.docs[di].syn.current(self.docs.docs[di].changed_at)
         var settled = (can == Answer::Fresh) || (syn_now && (!self.docs.docs[di].syn.parsed))
         if stale && settled && (is_tokens || (method == M_INLAY_HINT) || (method == M_CODE_LENS)) {
-            sh = self.line_shift(ei, di)
+            sh    = self.line_shift(ei, di)
             stale = (!sh.active) || (is_tokens && (!syn_now))
             if !stale {
                 self.entries[ei].owe_refresh = true
@@ -296,15 +329,27 @@ extend Server {
         }
 
         if stale {
-            if (method == M_HOVER) || (method == M_DEFINITION)
-                || (method == M_DECLARATION) || (method == M_TYPE_DEFINITION)
-                || (method == M_PREPARE_RENAME) || (method == M_RENAME)
-                || (method == M_IMPLEMENTATION) || (method == M_PREPARE_CALL_HIERARCHY)
+            if (method == M_HOVER)
+                || (method == M_DEFINITION)
+                || (method == M_DECLARATION)
+                || (method == M_TYPE_DEFINITION)
+                || (method == M_PREPARE_RENAME)
+                || (method == M_RENAME)
+                || (method == M_IMPLEMENTATION)
+                || (method == M_PREPARE_CALL_HIERARCHY)
                 || (method == M_PREPARE_TYPE_HIERARCHY) {
                 // Asked for by hand at a position: no answer beats a wrong one.
                 self.respond(id, "null")
             } else if (method == M_CODE_ACTION) {
-                self.code_action(&d, params, id, &self.entries[ei].snap, path, ei, JSON_NONE())
+                self.code_action(
+                    &d,
+                    params,
+                    id,
+                    &self.entries[ei].snap,
+                    path,
+                    ei,
+                    JSON_NONE(),
+                )
             } else {
                 self.respond_error(id, ERR_CONTENT_MODIFIED, "content modified")
             }
@@ -317,14 +362,18 @@ extend Server {
         var line = sh.to_old(d.get_int(pos, K_LINE)) // inactive: the line itself
         var ch   = d.get_int(pos, K_CHARACTER)
 
-        if (method == M_SEMANTIC_TOKENS_FULL) || (method == M_SEMANTIC_TOKENS_DELTA)
+        if (method == M_SEMANTIC_TOKENS_FULL)
+            || (method == M_SEMANTIC_TOKENS_DELTA)
             || (method == M_SEMANTIC_TOKENS_RANGE) {
             var now: [i64]
-            var k = self.cache_slot(ei, f)
+            var k          = self.cache_slot(ei, f)
             if sh.active && (k != usize::MAX) {
                 now = self.merged_tokens(ei, k, di, &sh)
             } else if k != usize::MAX {
-                now.reserve(self.entries[ei].ct_hi[k] - self.entries[ei].ct_lo[k])
+                now.reserve(
+                    self.entries[ei].ct_hi[k] - self.entries[ei].ct_lo[k],
+                )
+
                 for var q = self.entries[ei].ct_lo[k]; q < self.entries[ei].ct_hi[k]; ++q {
                     now.push_back(self.entries[ei].ct_data[q])
                 }
@@ -396,7 +445,16 @@ extend Server {
         if method == M_CODE_ACTION {
             // Fix-its belong to the CURRENT diagnostics, not to the last
             // run that happened to index.
-            self.code_action(&d, params, id, &self.entries[ei].snap, path, ei, f)
+            self.code_action(
+                &d,
+                params,
+                id,
+                &self.entries[ei].snap,
+                path,
+                ei,
+                f,
+            )
+
             return true
         }
 
@@ -406,10 +464,10 @@ extend Server {
             // On a macro invocation the question is what it turns into; the
             // names inside it are the expansion's, at the invocation's place.
             var mrow = self.macro_at(s, f, line, ch)
-            var ml0 = s->as_int(self.nth(s, mrow, MACRO_LINE))
-            var me0 = s->as_int(self.nth(s, mrow, MACRO_END_LINE))
-            var ml  = sh.to_new(ml0)
-            var me  = sh.to_new(me0)
+            var ml0  = s->as_int(self.nth(s, mrow, MACRO_LINE))
+            var me0  = s->as_int(self.nth(s, mrow, MACRO_END_LINE))
+            var ml   = sh.to_new(ml0)
+            var me   = sh.to_new(me0)
             if (mrow != JSON_NONE()) && (!sh.kept(ml0, me0)) {
                 // An invocation the edits cut through: what it expands to now
                 // is not known.
@@ -424,10 +482,21 @@ extend Server {
                 mw.begin_object()
                 mw.field(K_KIND, MARKUP_MARKDOWN)
                 var mtext = s->str(self.nth(s, mrow, MACRO_TEXT))
-                mw.field(K_VALUE, "**Expands to**\n\n```kairo\n" + mtext + "\n```")
+                mw.field(
+                    K_VALUE,
+                    "**Expands to**\n\n```kairo\n" + mtext + "\n```",
+                )
+
                 mw.end_object()
                 mw.key(K_RANGE)
-                write_lsp_range(&mw, ml, s->as_int(self.nth(s, mrow, MACRO_CHAR)), me, s->as_int(self.nth(s, mrow, MACRO_END_CHAR)))
+                write_lsp_range(
+                    &mw,
+                    ml,
+                    s->as_int(self.nth(s, mrow, MACRO_CHAR)),
+                    me,
+                    s->as_int(self.nth(s, mrow, MACRO_END_CHAR)),
+                )
+
                 mw.end_object()
                 self.respond(id, mw.out)
                 return true
@@ -447,7 +516,18 @@ extend Server {
             w.field(K_VALUE, s->str(self.nth(s, s->get(f, SK_HOVERS), h)))
             w.end_object()
             w.key(K_RANGE)
-            self.write_range(&w, self.shift_out(&sh, ei, path, s->as_int(self.nth(s, row, REF_LINE))), s->as_int(self.nth(s, row, REF_CHAR)), s->as_int(self.nth(s, row, REF_LEN)))
+            self.write_range(
+                &w,
+                self.shift_out(
+                    &sh,
+                    ei,
+                    path,
+                    s->as_int(self.nth(s, row, REF_LINE)),
+                ),
+                s->as_int(self.nth(s, row, REF_CHAR)),
+                s->as_int(self.nth(s, row, REF_LEN)),
+            )
+
             w.end_object()
             self.respond(id, w.out)
             return true
@@ -457,8 +537,11 @@ extend Server {
             var fi = s->as_int(self.nth(s, row, REF_DEF_FILE))
             var k  = s->as_int(self.nth(s, row, REF_KIND))
             var is_fn = (k == (TT_FUNCTION() as i64)) || (k == (TT_METHOD() as i64))
-            var is_ty = (k == (TT_CLASS() as i64)) || (k == (TT_ENUM() as i64)) || (k == (TT_INTERFACE() as i64)) ||
-                (k == (TT_STRUCT() as i64)) || (k == (TT_UNION() as i64))
+            var is_ty = (k == (TT_CLASS() as i64))
+                || (k == (TT_ENUM() as i64))
+                || (k == (TT_INTERFACE() as i64))
+                || (k == (TT_STRUCT() as i64))
+                || (k == (TT_UNION() as i64))
             var call = method == M_PREPARE_CALL_HIERARCHY
             if (row == JSON_NONE()) || (fi < 0) || (call && (!is_fn)) || ((!call) && (!is_ty)) {
                 self.respond(id, "null")
@@ -469,7 +552,15 @@ extend Server {
             w.begin_array()
             self.hierarchy_item(
                 &w,
-                self.name_in_hover(s->str(self.nth(s, s->get(f, SK_HOVERS), s->as_int(self.nth(s, row, REF_HOVER))))),
+                self.name_in_hover(
+                    s->str(
+                        self.nth(
+                            s,
+                            s->get(f, SK_HOVERS),
+                            s->as_int(self.nth(s, row, REF_HOVER)),
+                        ),
+                    ),
+                ),
                 if call => SYM_FUNCTION else => SYM_CLASS,
                 s->str(self.nth(s, s->get(f, SK_FILES), fi)),
                 s->as_int(self.nth(s, row, REF_DEF_LINE)),
@@ -514,8 +605,18 @@ extend Server {
             while l != JSON_NONE() {
                 w.begin_object()
                 w.key(K_RANGE)
-                self.write_range(&w, s->as_int(self.nth(s, l, LINK_LINE)), s->as_int(self.nth(s, l, LINK_CHAR)), s->as_int(self.nth(s, l, LINK_LEN)))
-                w.field(K_TARGET, self.uri_of(s->str(self.nth(s, l, LINK_TARGET))))
+                self.write_range(
+                    &w,
+                    s->as_int(self.nth(s, l, LINK_LINE)),
+                    s->as_int(self.nth(s, l, LINK_CHAR)),
+                    s->as_int(self.nth(s, l, LINK_LEN)),
+                )
+
+                w.field(
+                    K_TARGET,
+                    self.uri_of(s->str(self.nth(s, l, LINK_TARGET))),
+                )
+
                 w.end_object()
                 l = s->next(l)
             }
@@ -531,26 +632,42 @@ extend Server {
             // Nor while an index holds a file a syntax error left without
             // rows (section 9): the uses there are unknown, and a rename
             // would miss them without saying so.
-            if (row == JSON_NONE()) || (s->as_int(self.nth(s, row, REF_DEF_FILE)) < 0) || self.any_incomplete_index() {
+            if (row == JSON_NONE())
+                || (s->as_int(self.nth(s, row, REF_DEF_FILE)) < 0)
+                || self.any_incomplete_index() {
                 self.respond(id, "null")
                 return true
             }
 
             var w = JsonWriter()
-            self.write_range(&w, s->as_int(self.nth(s, row, REF_LINE)), s->as_int(self.nth(s, row, REF_CHAR)), s->as_int(self.nth(s, row, REF_LEN)))
+            self.write_range(
+                &w,
+                s->as_int(self.nth(s, row, REF_LINE)),
+                s->as_int(self.nth(s, row, REF_CHAR)),
+                s->as_int(self.nth(s, row, REF_LEN)),
+            )
+
             self.respond(id, w.out)
             return true
         }
 
         if method == M_TYPE_DEFINITION {
             var ti = s->as_int(self.nth(s, row, REF_TYPE_FILE))
-            if (row == JSON_NONE()) || (ti < 0) || (self.nth(s, row, REF_TYPE_FILE) == JSON_NONE()) {
+            if (row == JSON_NONE())
+                || (ti < 0)
+                || (self.nth(s, row, REF_TYPE_FILE) == JSON_NONE()) {
                 self.respond(id, "null")
                 return true
             }
 
             var tpath = s->str(self.nth(s, s->get(f, SK_FILES), ti))
-            var tl = self.shift_out(&sh, ei, tpath, s->as_int(self.nth(s, row, REF_TYPE_LINE)))
+            var tl = self.shift_out(
+                &sh,
+                ei,
+                tpath,
+                s->as_int(self.nth(s, row, REF_TYPE_LINE)),
+            )
+
             if tl < 0 {
                 self.respond(id, "null") // declared in the changed middle
                 return true
@@ -560,7 +677,13 @@ extend Server {
             w.begin_object()
             w.field(K_URI, self.uri_of(tpath))
             w.key(K_RANGE)
-            self.write_range(&w, tl, s->as_int(self.nth(s, row, REF_TYPE_CHAR)), s->as_int(self.nth(s, row, REF_TYPE_LEN)))
+            self.write_range(
+                &w,
+                tl,
+                s->as_int(self.nth(s, row, REF_TYPE_CHAR)),
+                s->as_int(self.nth(s, row, REF_TYPE_LEN)),
+            )
+
             w.end_object()
             self.respond(id, w.out)
             return true
@@ -575,11 +698,16 @@ extend Server {
                 var l = s->first(s->get(f, SK_LINKS))
                 while l != JSON_NONE() {
                     var lc = s->as_int(self.nth(s, l, LINK_CHAR))
-                    if (s->as_int(self.nth(s, l, LINK_LINE)) == line) && (lc <= ch)
+                    if (s->as_int(self.nth(s, l, LINK_LINE)) == line)
+                        && (lc <= ch)
                         && (ch <= (lc + s->as_int(self.nth(s, l, LINK_LEN)))) {
                         var lw = JsonWriter()
                         lw.begin_object()
-                        lw.field(K_URI, self.uri_of(s->str(self.nth(s, l, LINK_TARGET))))
+                        lw.field(
+                            K_URI,
+                            self.uri_of(s->str(self.nth(s, l, LINK_TARGET))),
+                        )
+
                         lw.key(K_RANGE)
                         self.write_range(&lw, 0, 0, 0)
                         lw.end_object()
@@ -595,7 +723,13 @@ extend Server {
             }
 
             var dpath = s->str(self.nth(s, s->get(f, SK_FILES), fi))
-            var dl = self.shift_out(&sh, ei, dpath, s->as_int(self.nth(s, row, REF_DEF_LINE)))
+            var dl = self.shift_out(
+                &sh,
+                ei,
+                dpath,
+                s->as_int(self.nth(s, row, REF_DEF_LINE)),
+            )
+
             if dl < 0 {
                 self.respond(id, "null") // declared in the changed middle
                 return true
@@ -605,7 +739,13 @@ extend Server {
             w.begin_object()
             w.field(K_URI, self.uri_of(dpath))
             w.key(K_RANGE)
-            self.write_range(&w, dl, s->as_int(self.nth(s, row, REF_DEF_CHAR)), s->as_int(self.nth(s, row, REF_DEF_LEN)))
+            self.write_range(
+                &w,
+                dl,
+                s->as_int(self.nth(s, row, REF_DEF_CHAR)),
+                s->as_int(self.nth(s, row, REF_DEF_LEN)),
+            )
+
             w.end_object()
             self.respond(id, w.out)
             return true
@@ -624,7 +764,11 @@ extend Server {
         }
 
         if method == M_REFERENCES {
-            var with_decl = d.get_bool(d.get(params, "context"), "includeDeclaration")
+            var with_decl = d.get_bool(
+                d.get(params, "context"),
+                "includeDeclaration",
+            )
+
             var w = JsonWriter()
             w.begin_array()
             if row != JSON_NONE() {
@@ -646,14 +790,30 @@ extend Server {
             w.begin_object()
             w.key(K_CHANGES)
             w.begin_object()
-            self.uses(s, f, row, &w, 2, "", d.get_str(params, K_NEW_NAME), true, &sh)
+            self.uses(
+                s,
+                f,
+                row,
+                &w,
+                2,
+                "",
+                d.get_str(params, K_NEW_NAME),
+                true,
+                &sh,
+            )
+
             w.end_object()
             w.end_object()
             self.respond(id, w.out)
             return true
         }
 
-        self.respond_error(id, ERR_METHOD_NOT_FOUND, "method not found: " + method)
+        self.respond_error(
+            id,
+            ERR_METHOD_NOT_FOUND,
+            "method not found: " + method,
+        )
+
         return true
     }
 }

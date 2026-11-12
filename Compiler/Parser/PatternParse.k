@@ -251,7 +251,10 @@ pub class <T: type> PatternParse {
                 start.start,
                 "expected a binding name after 'var'/'const' in pattern",
             ).first(start)->emit()
-            return (BindingPattern::create_error(self.dyn()->ctx, start | self.dyn()->prev().range))
+            return (BindingPattern::create_error(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+            ))
         }
 
         var name = self.dyn()->current()
@@ -278,7 +281,7 @@ pub class <T: type> PatternParse {
         // bind to (BindingPattern::decl). Patterns.k cannot construct this
         // itself without importing Declarations.k.
         var storage = if (is_const) => (StorageClass::Const) else => StorageClass::Var
-        var vd      = VariableDecl::create(self.dyn()->ctx, bp->range, name, storage)
+        var vd = VariableDecl::create(self.dyn()->ctx, bp->range, name, storage)
         vd->type_ = ty
         bp->decl  = vd
         return bp
@@ -524,7 +527,11 @@ pub class <T: type> PatternParse {
 
         // bare literal value
         if self._is_literal_expr(lead) || self._is_negated_literal(lead) {
-            return (LiteralPattern::create(self.dyn()->ctx, start | self.dyn()->prev().range, lead))
+            return (LiteralPattern::create(
+                self.dyn()->ctx,
+                start | self.dyn()->prev().range,
+                lead,
+            ))
         }
 
         // bare (nullary) path constructor / name
@@ -593,9 +600,9 @@ pub class <T: type> PatternParse {
         }
 
         var hi = self.dyn()->parse_expr(
-            self.dyn()->stop_on(T::ExprStopKind::StopComma).plus(T::ExprStopKind::StopBrace).plus(
-                T::ExprStopKind::NoStructLiteral,
-            ),
+            self.dyn()->stop_on(T::ExprStopKind::StopComma).plus(
+                T::ExprStopKind::StopBrace,
+            ).plus(T::ExprStopKind::NoStructLiteral),
         )
 
         if hi == &null || is_recovery(hi) {
@@ -621,7 +628,12 @@ pub class <T: type> PatternParse {
                 has_parens,
             )
 
-            node->subpatterns.from_buf(subs.data(), subs.size(), self.dyn()->ctx)
+            node->subpatterns.from_buf(
+                subs.data(),
+                subs.size(),
+                self.dyn()->ctx,
+            )
+
             return node
         }
 

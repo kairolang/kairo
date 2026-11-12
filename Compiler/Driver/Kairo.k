@@ -51,8 +51,8 @@ ffi "c++" import "cstring"
 ffi "c++" import "cstdio"
 
 import Diagnostic::Registry::DiagID
-import Driver::CompilerInfo
 import Driver::BatchResult::BatchResult
+import Driver::CompilerInfo
 import Driver::CompilerInstance::CompilerInstance
 import Driver::Progress::progress_configure
 import Driver::Runtime::init_runtime
@@ -61,8 +61,6 @@ import Support::ExitCodes::{
     EXIT_OK,
 }
 import Support::FileIO::Path::Path
-import Support::Tuning::WORKER_STACK_BYTES
-import Tooling::IncrReplay::incr_replay_main
 import Support::TimeReport::{
     TimeRegion,
     time_enable,
@@ -70,6 +68,8 @@ import Support::TimeReport::{
     time_print,
     time_write_trace,
 }
+import Support::Tuning::WORKER_STACK_BYTES
+import Tooling::IncrReplay::incr_replay_main
 import std::c_char
 import std::env
 import std::io
@@ -172,7 +172,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
 
     finally {
-        kairo::Logger::set_dump_path(Path::join_str(Path::parent_of(env::exe_path()), "kairo.log"))
+        kairo::Logger::set_dump_path(
+            Path::join_str(Path::parent_of(env::exe_path()), "kairo.log"),
+        )
+
         kairo::Logger::dump_to_file()
         kairo::Logger::shutdown()
         kairo::GlobalRecycler::shutdown_allocator_runtime()
@@ -253,7 +256,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
     // auto stays off under --verbose: the log lines would share the pinned
     // line's row.
-    if !progress_configure(ci->invocation()->args.get_string("progress"), fe_time.verbose) {
+    if !progress_configure(
+        ci->invocation()->args.get_string("progress"),
+        fe_time.verbose,
+    ) {
         ci->diag()->report(
             DiagID::U001E,
             f"invalid --progress value '{ci->invocation()->args.get_string("progress")}'; expected one of: auto, always, never, lines",
@@ -282,7 +288,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
         if !fe_time.stats_file.empty() {
             if !_time_print_to(fe_time.stats_file) {
-                io::eprintln(f"error [U023E]: cannot write statistics to '{fe_time.stats_file}'")
+                io::eprintln(
+                    f"error [U023E]: cannot write statistics to '{fe_time.stats_file}'",
+                )
+
                 out_failed = true
             }
         }
@@ -291,7 +300,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             if time_write_trace(fe_time.time_trace) {
                 io::eprintln(f"time trace written to '{fe_time.time_trace}'")
             } else {
-                io::eprintln(f"error [U023E]: cannot write time trace to '{fe_time.time_trace}'")
+                io::eprintln(
+                    f"error [U023E]: cannot write time trace to '{fe_time.time_trace}'",
+                )
+
                 // A bare --time-trace names no path at all; that was never a
                 // write failure, so it keeps its old exit status.
                 if !fe_time.time_trace.empty() {

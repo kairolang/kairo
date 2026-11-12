@@ -142,12 +142,12 @@ import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::{
     declared_here,
     named_declared_here,
     previously_declared_here,
 }
+import Diagnostic::Registry::DiagID
 import Lexer::Immediate::Immediate
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
@@ -330,7 +330,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         eval if defined!(DEBUG) {
             if !(self.sc->types != &null) {
-                kairo::std::ice_fail(r"TypeResolution: canonical store not wired")
+                kairo::std::ice_fail(
+                    r"TypeResolution: canonical store not wired",
+                )
             }
         }
 
@@ -369,7 +371,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return e
         }
 
-        var unsafe *out = RecursiveASTVisitor<TypeResolution>::dispatch_type(self, e)
+        var unsafe *out = RecursiveASTVisitor<TypeResolution>::dispatch_type(
+            self,
+            e,
+        )
+
         self.resolve(out)
         return out
     }
@@ -507,7 +513,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return
         }
 
-        n->canonical = self.sc->types->pointer(n->pointee->canonical, n->is_unsafe)
+        n->canonical = self.sc->types->pointer(
+            n->pointee->canonical,
+            n->is_unsafe,
+        )
     }
 
     priv fn _resolve_nullable(self, n: unsafe *NullableType) {
@@ -566,7 +575,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         var args = cxx::std::vector<unsafe *Type>()
         args.push_back(n->element->canonical)
-        n->canonical = self._lang_record(n, WellKnownType::HashSet, unsafe &args)
+        n->canonical = self._lang_record(
+            n,
+            WellKnownType::HashSet,
+            unsafe &args,
+        )
     }
 
     priv fn _resolve_cxx_lref(self, n: unsafe *CXXLValueRefType) {
@@ -577,7 +590,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         // A reference has no cv of its own: `const T&` qualifies the
         // referee. The written qualifier lands there, and resolve()'s
         // central wrap skips reference kinds so it is not applied twice.
-        var unsafe *referee = self.sc->types->qualified(n->referee->canonical, self._canon_quals(n))
+        var unsafe *referee = self.sc->types->qualified(
+            n->referee->canonical,
+            self._canon_quals(n),
+        )
+
         n->canonical = self.sc->types->cxx_lref(referee)
     }
 
@@ -586,7 +603,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return
         }
 
-        var unsafe *referee = self.sc->types->qualified(n->referee->canonical, self._canon_quals(n))
+        var unsafe *referee = self.sc->types->qualified(
+            n->referee->canonical,
+            self._canon_quals(n),
+        )
+
         n->canonical = self.sc->types->cxx_rref(referee)
     }
 
@@ -616,7 +637,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         var args = cxx::std::vector<unsafe *Type>()
         args.push_back(n->key->canonical)
         args.push_back(n->value->canonical)
-        n->canonical = self._lang_record(n, WellKnownType::HashMap, unsafe &args)
+        n->canonical = self._lang_record(
+            n,
+            WellKnownType::HashMap,
+            unsafe &args,
+        )
     }
 
     priv fn _resolve_tuple(self, n: unsafe *TupleType) {
@@ -688,7 +713,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
             var sargs = cxx::std::vector<unsafe *Type>()
             sargs.push_back(elem)
-            n->canonical = self._lang_record(n, WellKnownType::Slice, unsafe &sargs)
+            n->canonical = self._lang_record(
+                n,
+                WellKnownType::Slice,
+                unsafe &sargs,
+            )
+
             return
         }
 
@@ -729,7 +759,13 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             // it.
             var unsafe *vx = self._value_expr(n->size_expr)
             if vx == &null {
-                self._report_value(n->size_expr, unsafe &ce, c, "an array length")
+                self._report_value(
+                    n->size_expr,
+                    unsafe &ce,
+                    c,
+                    "an array length",
+                )
+
                 n->poison()
                 return
             }
@@ -813,7 +849,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             )
 
             b.remove(
-                SourceRange::from_bounds(self._with_vis(k->range.start), k->range.end),
+                SourceRange::from_bounds(
+                    self._with_vis(k->range.start),
+                    k->range.end,
+                ),
                 f"and remove it from the class",
             )
         }
@@ -873,7 +912,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         if lit != &null && isa<BooleanLiteralExpr>(lit) && !lit->is_poisoned() {
             var one = cast<BooleanLiteralExpr>(lit)->value
-            n->canonical = self.sc->types->value_arg(false, if (one) => (1 as u64) else => (0))
+            n->canonical = self.sc->types->value_arg(
+                false,
+                if (one) => (1 as u64) else => (0),
+            )
+
             return
         }
 
@@ -895,7 +938,13 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         // instance's identity is the interned expression (Compiler/Spec/Eval.md#value-nodes).
         var unsafe *vx = self._value_expr(n->expr)
         if vx == &null {
-            self._report_value(n->expr, unsafe &ce, c, "a generic value argument")
+            self._report_value(
+                n->expr,
+                unsafe &ce,
+                c,
+                "a generic value argument",
+            )
+
             n->poison()
             return
         }
@@ -978,7 +1027,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             }
 
             if sl->imm == &null || sl->is_format() {
-                return self._vx_fail(e, "an f-string is not computed at compile time")
+                return self._vx_fail(
+                    e,
+                    "an f-string is not computed at compile time",
+                )
             }
 
             var unsafe *st = ce.tu.string_type()
@@ -1112,7 +1164,13 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
             var ops = cxx::std::vector<unsafe *Type>()
             ops.push_back(x)
-            return ce.value_node(ValueOp::Cast, TokenKind::TkUnknown, &null, unsafe &ops, ut)
+            return ce.value_node(
+                ValueOp::Cast,
+                TokenKind::TkUnknown,
+                &null,
+                unsafe &ops,
+                ut,
+            )
         }
 
         if isa<CallExpr>(e) {
@@ -1134,12 +1192,21 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 }
 
                 self._vx_in_call -= 1
-                return ce.value_node(ValueOp::Call, TokenKind::TkUnknown, rec, unsafe &cargs, &null)
+                return ce.value_node(
+                    ValueOp::Call,
+                    TokenKind::TkUnknown,
+                    rec,
+                    unsafe &cargs,
+                    &null,
+                )
             }
 
             var unsafe *f = self._vx_callee(call)
             if f == &null {
-                return self._vx_fail(e, "the function this calls is not known here")
+                return self._vx_fail(
+                    e,
+                    "the function this calls is not known here",
+                )
             }
 
             // An initializer read through its eval binding (_vx_name) may be
@@ -1167,7 +1234,13 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 }
 
                 self._vx_in_call -= 1
-                return ce.value_node(ValueOp::Call, TokenKind::TkUnknown, own, unsafe &oargs, &null)
+                return ce.value_node(
+                    ValueOp::Call,
+                    TokenKind::TkUnknown,
+                    own,
+                    unsafe &oargs,
+                    &null,
+                )
             }
 
             if !f->is_eval() {
@@ -1252,12 +1325,18 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 )
             }
 
-            return self.sc->types->value_expr(ValueOp::Decl, TokenKind::TkUnknown, d, &null, &null)
+            return self.sc->types->value_expr(
+                ValueOp::Decl,
+                TokenKind::TkUnknown,
+                d,
+                &null,
+                &null,
+            )
         }
 
         var unsafe *vd = dyn_cast<Declarations::VariableDecl>(d)
         var unsafe *fd = dyn_cast<Declarations::FieldDecl>(d)
-        var        ev  = vd != &null && vd->is_eval() || fd != &null && fd->is_eval()
+        var ev = vd != &null && vd->is_eval() || fd != &null && fd->is_eval()
         if !ev {
             return self._vx_fail(
                 e,
@@ -1276,7 +1355,13 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return seen
         }
 
-        return self.sc->types->value_expr(ValueOp::Decl, TokenKind::TkUnknown, d, &null, &null)
+        return self.sc->types->value_expr(
+            ValueOp::Decl,
+            TokenKind::TkUnknown,
+            d,
+            &null,
+            &null,
+        )
     }
 
     /// Bound while _vx_through reads an initializer: how deep, so `eval A =
@@ -1570,9 +1655,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             )
 
             b.first(at)
-            b.note(DiagCode(DiagID::SC192N), f->range.start, named_declared_here(nm))->child_first(
-                f->name.range,
-            )
+            b.note(
+                DiagCode(DiagID::SC192N),
+                f->range.start,
+                named_declared_here(nm),
+            )->child_first(f->name.range)
 
             if !self._foreign(f)
                 && !f->is_implicit
@@ -1797,16 +1884,24 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 continue
             }
 
-            p->type_->canonical = self.sc->types->fn_with_raw(p->type_->canonical, true)
+            p->type_->canonical = self.sc->types->fn_with_raw(
+                p->type_->canonical,
+                true,
+            )
         }
 
         if n->return_type != &null && n->return_type->canonical != &null {
-            n->return_type->canonical = self.sc->types->fn_with_raw(n->return_type->canonical, true)
+            n->return_type->canonical = self.sc->types->fn_with_raw(
+                n->return_type->canonical,
+                true,
+            )
         }
     }
 
     priv fn _resolve_opaque(self, n: unsafe *OpaqueFFIType) {
-        n->canonical = self.sc->types->opaque(self.sc->imm_table()->get_ident(n->name))
+        n->canonical = self.sc->types->opaque(
+            self.sc->imm_table()->get_ident(n->name),
+        )
     }
 
     priv fn _resolve_subst(self, n: unsafe *SubstGenericParamType) {
@@ -1975,7 +2070,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 continue
             }
 
-            args.push_back(self.sc->types->generic_param(canon, gp->index, gp->is_pack))
+            args.push_back(
+                self.sc->types->generic_param(canon, gp->index, gp->is_pack),
+            )
         }
 
         return self.sc->types->record(canon, unsafe &args)
@@ -2015,7 +2112,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return self.sc->types->record(canon, unsafe &args)
         }
 
-        return self.sc->types->record(NameLookup::representative(primary), unsafe &args)
+        return self.sc->types->record(
+            NameLookup::representative(primary),
+            unsafe &args,
+        )
     }
 
     /// # Generic params
@@ -2227,10 +2327,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         fix += "; see --explain P003E"
 
-        self.sc->diag->report(DiagID::P003E, ct->range.start, msg).first(ct->range)->note(
-            ct->range.start,
-            why,
-        )->note(ct->range.start, fix)->emit()
+        self.sc->diag->report(DiagID::P003E, ct->range.start, msg).first(
+            ct->range,
+        )->note(ct->range.start, why)->note(ct->range.start, fix)->emit()
         return false
     }
 
@@ -2292,8 +2391,14 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 seg0->name->range.start,
                 "unknown type name 'f8'",
             )
+
             b.first(seg0->name->range)
-            b.fix(seg0->name->range, "f8e4m3", "an 8-bit float names its format: 'f8e4m3' or 'f8e5m2'")
+            b.fix(
+                seg0->name->range,
+                "f8e4m3",
+                "an 8-bit float names its format: 'f8e4m3' or 'f8e5m2'",
+            )
+
             b.emit()
             ct->poison()
             return
@@ -2399,7 +2504,8 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     // The spelled head, for --dump-import-uses (NameLookup::use_at).
                     var saved_at = self.sc->lookup.use_at
                     self.sc->lookup.use_at = seg0->name->range.start.id
-                    var unsafe *from = if rooted => (unsafe (self.sc->tu as unsafe *DeclContext)) else => self.cur_dc
+                    var unsafe *from = if rooted => (unsafe (self.sc->tu as unsafe *DeclContext))
+                                       else => self.cur_dc
                     var r = self._lookup_unqualified(from, imm)
                     self.sc->lookup.use_at = saved_at
                     // An `extend` body's DeclContext parents to the TU, so the
@@ -2410,18 +2516,27 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     // target (traverse_extension_decl pushed it); for a class
                     // body this is a no-op, the DC chain answered first.
                     if !r.found() && !rooted {
-                        r = self._lookup_in_selfs(imm, self.sc->ctx->get_spelling(tok))
+                        r = self._lookup_in_selfs(
+                            imm,
+                            self.sc->ctx->get_spelling(tok),
+                        )
                     }
 
                     if !r.found() {
                         var nm = self.sc->ctx->get_spelling(tok)
-                        var b  = self.sc->diag->report(
+                        var b = self.sc->diag->report(
                             DiagID::R021E,
                             seg0->name->range.start,
                             f"unknown type name '{nm}'",
                         )
+
                         b.first(seg0->name->range)
-                        MemberLookup::note_failed_headers(self.sc, &b, seg0->name->range)
+                        MemberLookup::note_failed_headers(
+                            self.sc,
+                            &b,
+                            seg0->name->range,
+                        )
+
                         b.emit()
                         ct->poison()
                         return
@@ -2456,7 +2571,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                         var        c   = ce.eval_decl(at, r.cell->get(0))
                         if c.ok && !c.overflow && ce.const_decl == &null {
                             seg0->resolved_decl = r.cell->get(0)
-                            ct->canonical       = self.sc->types->value_arg(c.neg, c.mag)
+                            ct->canonical = self.sc->types->value_arg(
+                                c.neg,
+                                c.mag,
+                            )
+
                             return
                         }
 
@@ -2474,7 +2593,13 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                             }
                         }
 
-                        self._bad_value(at, unsafe &ce, c, "a generic value argument")
+                        self._bad_value(
+                            at,
+                            unsafe &ce,
+                            c,
+                            "a generic value argument",
+                        )
+
                         ct->poison()
                         return
                     }
@@ -2539,7 +2664,16 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 var bx0 = cxx::std::vector<unsafe *ConstraintExpr>()
                 TypeUtil(self.sc).assoc_own_bounds(ta0, &bx0)
                 var bt0 = Substitution(self.sc).bound_ifaces(at0)
-                self._assoc_through(ct, at0, TypeUtil(self.sc).str(at0), bx0, bt0, ta0->range, i)
+                self._assoc_through(
+                    ct,
+                    at0,
+                    TypeUtil(self.sc).str(at0),
+                    bx0,
+                    bt0,
+                    ta0->range,
+                    i,
+                )
+
                 return
             }
 
@@ -2610,7 +2744,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                             return
                         }
 
-                        var sspell0 = self.sc->ctx->get_spelling(seg->name->name)
+                        var sspell0 = self.sc->ctx->get_spelling(
+                            seg->name->name,
+                        )
+
                         var sr0 = self.sc->lookup.in_context(
                             scope0,
                             DeclName::ident(simm0),
@@ -2629,8 +2766,14 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                         }
 
                         if !sr0.found() {
-                            var snm0 = self.sc->ctx->get_spelling(seg->name->name)
-                            var pnm0 = self.sc->ctx->get_spelling(prev->name->name)
+                            var snm0 = self.sc->ctx->get_spelling(
+                                seg->name->name,
+                            )
+
+                            var pnm0 = self.sc->ctx->get_spelling(
+                                prev->name->name,
+                            )
+
                             self.sc->diag->report(
                                 DiagID::R025E,
                                 seg->name->range.start,
@@ -2670,18 +2813,25 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             // member the class plainly declares as missing.
             if isa<Declarations::TypeAliasDecl>(cur) && !self._foreign(cur) {
                 var unsafe *ac = canon_unqual(
-                    self._expand_alias(cast<Declarations::TypeAliasDecl>(cur), seg->range),
+                    self._expand_alias(
+                        cast<Declarations::TypeAliasDecl>(cur),
+                        seg->range,
+                    ),
                 )
 
                 if ac != &null && isa<RecordType>(ac) {
                     var unsafe *ad = cast<RecordType>(ac)->decl
                     // A Kairo primary only: an imported template's instance
                     // is filled by clang (_scope_of), never read off a pattern.
-                    var unsafe *apat = if (ad != &null) => (decl_instantiated_from(ad))
+                    var unsafe *apat = if (ad != &null) => (decl_instantiated_from(
+                                           ad,
+                                       ))
                                        else => &null
                     if apat != &null
                         && decl_is_instance(ad)
-                        && !MemberLookup::primary_is_imported(NameLookup::representative(apat))
+                        && !MemberLookup::primary_is_imported(
+                            NameLookup::representative(apat),
+                        )
                         && MemberLookup::unfilled(ad) {
                         var unsafe *abody = self.sc->record_body(ac)
                         if abody != &null && abody != ad {
@@ -2720,7 +2870,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             // without it `lib::Aaa` silently resolved to whichever of lib's
             // decls happened to share this TU's index for `Aaa`.
             var sspell = self.sc->ctx->get_spelling(seg->name->name)
-            var sr     = self.sc->lookup.in_context(scope, DeclName::ident(simm), sspell)
+            var sr = self.sc->lookup.in_context(
+                scope,
+                DeclName::ident(simm),
+                sspell,
+            )
+
             // `Self::Node` inside `interface Big derives Graph`: an associated
             // type is a member of every interface that derives its own.
             if !sr.found() && isa<Declarations::InterfaceDecl>(cur) && mods.size() <= 1 {
@@ -2748,7 +2903,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 && mods.size() <= 1
                 && isa<Declarations::ClassDecl>(cur)
                 && decl_is_imported(cur) {
-                sr = self._in_foreign_bases(cast<Declarations::ClassDecl>(cur), simm, sspell, 0)
+                sr = self._in_foreign_bases(
+                    cast<Declarations::ClassDecl>(cur),
+                    simm,
+                    sspell,
+                    0,
+                )
             }
 
             var next_mods = cxx::std::vector<unsafe *DeclContext>()
@@ -2758,7 +2918,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 // the ForeignRegistry (or RedeclMerge). An all-module hit
                 // carries its own reopenings on to the next segment.
                 for var m: usize = 0; m < mods.size(); ++m {
-                    var hit = self.sc->lookup.in_context(mods[m], DeclName::ident(simm), sspell)
+                    var hit = self.sc->lookup.in_context(
+                        mods[m],
+                        DeclName::ident(simm),
+                        sspell,
+                    )
+
                     if !hit.found() {
                         continue
                     }
@@ -2961,7 +3126,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         var nm = self.sc->ctx->get_spelling(td->name)
         // A generic associated type is named with its arguments
         // (`Self::Map<K>`), exactly its own arity.
-        if !self._check_arity(unsafe (td as unsafe *Decl), td->generic_params, seg, ct) {
+        if !self._check_arity(
+            unsafe (td as unsafe *Decl),
+            td->generic_params,
+            seg,
+            ct,
+        ) {
             return &null
         }
 
@@ -2994,7 +3164,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
             var hn = "its interface"
             if home != &null && isa<Declarations::InterfaceDecl>(home) {
-                hn = self.sc->ctx->get_spelling(cast<Declarations::InterfaceDecl>(home)->name)
+                hn = self.sc->ctx->get_spelling(
+                    cast<Declarations::InterfaceDecl>(home)->name,
+                )
             }
 
             var b = self.sc->diag->report(
@@ -3022,7 +3194,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             )
 
             b.first(seg->range)
-            b.note(td->range.start, named_declared_here(nm))->child_first(td->range)
+            b.note(td->range.start, named_declared_here(nm))->child_first(
+                td->range,
+            )
+
             b.emit()
             ct->poison()
             return &null
@@ -3071,8 +3246,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return &null
         }
 
-        var unsafe *home = NameLookup::representative((req->semantic_dc)->owner_decl())
-        var unsafe *qr   = canon_unqual(q)
+        var unsafe *home = NameLookup::representative(
+            (req->semantic_dc)->owner_decl(),
+        )
+
+        var unsafe *qr = canon_unqual(q)
         if !isa<RecordType>(qr) {
             return &null
         }
@@ -3136,7 +3314,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         )
 
         b.first(at)
-        b.note(DiagCode(DiagID::SC116N), td->range.start, declared_here())->child_first(td->range)
+        b.note(DiagCode(DiagID::SC116N), td->range.start, declared_here())->child_first(
+            td->range,
+        )
+
         b.emit()
         ct->poison()
     }
@@ -3150,7 +3331,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return &null
         }
 
-        var unsafe *id = dyn_cast<Declarations::InterfaceDecl>((td->semantic_dc)->owner_decl())
+        var unsafe *id = dyn_cast<Declarations::InterfaceDecl>(
+            (td->semantic_dc)->owner_decl(),
+        )
+
         if id == &null {
             return &null
         }
@@ -3181,7 +3365,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             }
 
             var unsafe *bd = dyn_cast<Declarations::InterfaceDecl>(
-                NameLookup::representative(decl_pattern(cast<RecordType>(bt)->decl)),
+                NameLookup::representative(
+                    decl_pattern(cast<RecordType>(bt)->decl),
+                ),
             )
 
             var unsafe *inh = self._find_assoc(bd, imm, sp, 0)
@@ -3229,9 +3415,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         var b = self.sc->diag->report(DiagID::SC170E, td->name.range.start, why)
         b.first(td->name.range)
-        b.note(inh->range.start, "the inherited associated type is declared here")->child_first(
-            inh->range,
-        )
+        b.note(
+            inh->range.start,
+            "the inherited associated type is declared here",
+        )->child_first(inh->range)
 
         // Restating it, or restating a default it has: the line says nothing
         // the inherited declaration does not, or contradicts it.
@@ -3287,7 +3474,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         var conj = cxx::std::vector<unsafe *ConstraintExpr>()
         if owner != &null {
-            self._param_conjuncts(decl_requires_clause(owner), gp, owner, unsafe &conj)
+            self._param_conjuncts(
+                decl_requires_clause(owner),
+                gp,
+                owner,
+                unsafe &conj,
+            )
         }
 
         var bounds = cxx::std::vector<unsafe *ConstraintExpr>()
@@ -3317,7 +3509,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             }
         }
 
-        var unsafe *base = self.sc->types->generic_param(owner, gp->index, gp->is_pack)
+        var unsafe *base = self.sc->types->generic_param(
+            owner,
+            gp->index,
+            gp->is_pack,
+        )
+
         return self._assoc_through(
             ct,
             base,
@@ -3386,7 +3583,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 }
 
                 var unsafe *bd = dyn_cast<Declarations::InterfaceDecl>(
-                    NameLookup::representative(decl_pattern(cast<RecordType>(bt)->decl)),
+                    NameLookup::representative(
+                        decl_pattern(cast<RecordType>(bt)->decl),
+                    ),
                 )
 
                 if bd == &null {
@@ -3419,13 +3618,17 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 )
 
                 b.first(seg->name->range)
-                b.note(DiagCode(DiagID::R028N), hit->range.start, "one is declared here")->child_first(
-                    hit->range,
-                )
+                b.note(
+                    DiagCode(DiagID::R028N),
+                    hit->range.start,
+                    "one is declared here",
+                )->child_first(hit->range)
 
-                b.note(DiagCode(DiagID::R028N), td->range.start, "another is declared here")->child_first(
-                    td->range,
-                )
+                b.note(
+                    DiagCode(DiagID::R028N),
+                    td->range.start,
+                    "another is declared here",
+                )->child_first(td->range)
 
                 b.emit()
                 ct->poison()
@@ -3454,7 +3657,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     }
                 } else {
                     for var k: usize = 0; k < bexprs.size(); ++k {
-                        b.note(bexprs[k]->range.start, "bound here")->child_first(bexprs[k]->range)
+                        b.note(bexprs[k]->range.start, "bound here")->child_first(
+                            bexprs[k]->range,
+                        )
                     }
                 }
 
@@ -3465,7 +3670,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
             // A generic associated type takes exactly its own arity, and a
             // plain one none (GenericArgs' arity error, as any template).
-            if !self._check_arity(unsafe (hit as unsafe *Decl), hit->generic_params, seg, ct) {
+            if !self._check_arity(
+                unsafe (hit as unsafe *Decl),
+                hit->generic_params,
+                seg,
+                ct,
+            ) {
                 return true
             }
 
@@ -3484,8 +3694,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             }
 
             seg->resolved_decl = unsafe (hit as unsafe *Decl)
-            var        tu  = TypeUtil(self.sc)
-            var unsafe *ai = tu.assoc_iface(hit_iface, unsafe (hit as unsafe *Decl))
+            var tu = TypeUtil(self.sc)
+            var unsafe *ai = tu.assoc_iface(
+                hit_iface,
+                unsafe (hit as unsafe *Decl),
+            )
+
             // Inherited from a GENERIC interface: its instance as the bound
             // sees it, walked on the derives edges (T runs before
             // InterfaceComposition composes the lists).
@@ -3615,7 +3829,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         // The clause is the OWNER's (its representative's), whose parameter
         // objects need not be the ones the walk is in (another redecl's):
         // the same position among the owner's own parameters is the same T.
-        var unsafe *g2 = dyn_cast<Declarations::GenericParamDecl>(id->resolved_decl)
+        var unsafe *g2 = dyn_cast<Declarations::GenericParamDecl>(
+            id->resolved_decl,
+        )
+
         if g2 == &null || g2->index != gp->index || owner == &null {
             return
         }
@@ -3648,7 +3865,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         if r.found() {
             for var k: usize = 0; k < r.cell->size(); ++k {
-                var unsafe *ta = dyn_cast<Declarations::TypeAliasDecl>(r.cell->get(k))
+                var unsafe *ta = dyn_cast<Declarations::TypeAliasDecl>(
+                    r.cell->get(k),
+                )
+
                 if ta == &null || !ta->is_associated {
                     continue
                 }
@@ -3677,7 +3897,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             }
 
             var unsafe *bd = dyn_cast<Declarations::InterfaceDecl>(
-                NameLookup::representative(decl_pattern(cast<RecordType>(bt)->decl)),
+                NameLookup::representative(
+                    decl_pattern(cast<RecordType>(bt)->decl),
+                ),
             )
 
             var unsafe *f = self._find_assoc(bd, imm, spelling, depth + 1)
@@ -3932,7 +4154,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             MemberLookup::ensure_filled(self.sc, bd)
             var unsafe *bdc = NameLookup::context_of(bd)
             if bdc != &null {
-                var hit = self.sc->lookup.in_context(bdc, DeclName::ident(simm), spelling)
+                var hit = self.sc->lookup.in_context(
+                    bdc,
+                    DeclName::ident(simm),
+                    spelling,
+                )
+
                 if hit.found() {
                     return hit
                 }
@@ -4040,7 +4267,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         /// ### module: a scope, never a type
         if isa<Declarations::ModuleDecl>(d) {
-            var nm = self.sc->ctx->get_spelling(cast<Declarations::ModuleDecl>(d)->name)
+            var nm = self.sc->ctx->get_spelling(
+                cast<Declarations::ModuleDecl>(d)->name,
+            )
 
             // `cxx` is the C++ std overlay, whose ONE member is `std`
             // (Compiler/Spec/Interop.md#ffi-imports). Naming it alone denotes nothing, and the
@@ -4071,7 +4300,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         /// inside the interface the type is abstract.
         if isa<Declarations::TypeAliasDecl>(d)
             && cast<Declarations::TypeAliasDecl>(d)->is_associated {
-            return self._assoc_in_iface(ct, cast<Declarations::TypeAliasDecl>(d), seg)
+            return self._assoc_in_iface(
+                ct,
+                cast<Declarations::TypeAliasDecl>(d),
+                seg,
+            )
         }
 
         /// ### alias
@@ -4261,7 +4494,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         var ded    = Deduction(self.sc, &null)
         var owners = cxx::std::vector<unsafe *Decl>()
         owners.push_back(td)
-        var unsafe *rep = NameLookup::representative(unsafe (td as unsafe *Decl))
+        var unsafe *rep = NameLookup::representative(
+            unsafe (td as unsafe *Decl),
+        )
+
         if rep != td {
             owners.push_back(rep)
         }
@@ -4309,7 +4545,13 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                          seg: unsafe *ChainType::ChainSegment,
                          ct:  unsafe *ChainType) -> bool {
         var ga = GenericArgs(self.sc)
-        if ga.check_arity(d, self._decl_name_str(d), gps, seg->generic_args.size(), seg->range) {
+        if ga.check_arity(
+            d,
+            self._decl_name_str(d),
+            gps,
+            seg->generic_args.size(),
+            seg->range,
+        ) {
             return true
         }
 
@@ -4658,7 +4900,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         // The narrowing edit is the safe one to offer: widening the target
         // publishes a second entity, which is a decision only its author makes.
         if td->visibility_range().is_valid() {
-            b.fix(td->visibility_range(), tw, f"make the alias {tw}, matching '{tnm}'")
+            b.fix(
+                td->visibility_range(),
+                tw,
+                f"make the alias {tw}, matching '{tnm}'",
+            )
         }
 
         b.emit()
@@ -4687,7 +4933,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     var unsafe *seg = ct->segments.get(i)
                     self._consider_vis(seg->resolved_decl, worst, worst_rank)
                     for var j: usize = 0; j < seg->generic_args.size(); ++j {
-                        self._narrowest_in_type(seg->generic_args.get(j)->ty, worst, worst_rank)
+                        self._narrowest_in_type(
+                            seg->generic_args.get(j)->ty,
+                            worst,
+                            worst_rank,
+                        )
                     }
                 }
             } case TypeKind::RecordType {
@@ -4697,9 +4947,17 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     self._narrowest_in_type(*rt->args.get(i), worst, worst_rank)
                 }
             } case TypeKind::PointerType {
-                self._narrowest_in_type(cast<PointerType>(t)->pointee, worst, worst_rank)
+                self._narrowest_in_type(
+                    cast<PointerType>(t)->pointee,
+                    worst,
+                    worst_rank,
+                )
             } case TypeKind::NullableType {
-                self._narrowest_in_type(cast<NullableType>(t)->inner, worst, worst_rank)
+                self._narrowest_in_type(
+                    cast<NullableType>(t)->inner,
+                    worst,
+                    worst_rank,
+                )
             }
 
             // These three stay even though `[T]`, `{T}` and `{K: V}` now
@@ -4708,33 +4966,65 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             // above never sees them, so dropping these let `pub type L = [P]`
             // leak a priv P without a word.
             case TypeKind::VectorType {
-                self._narrowest_in_type(cast<VectorType>(t)->element, worst, worst_rank)
+                self._narrowest_in_type(
+                    cast<VectorType>(t)->element,
+                    worst,
+                    worst_rank,
+                )
             } case TypeKind::SetType {
-                self._narrowest_in_type(cast<SetType>(t)->element, worst, worst_rank)
+                self._narrowest_in_type(
+                    cast<SetType>(t)->element,
+                    worst,
+                    worst_rank,
+                )
             } case TypeKind::MapType {
                 var unsafe *mt = cast<MapType>(t)
                 self._narrowest_in_type(mt->key, worst, worst_rank)
                 self._narrowest_in_type(mt->value, worst, worst_rank)
             } case TypeKind::FixedArrayType {
-                self._narrowest_in_type(cast<FixedArrayType>(t)->element, worst, worst_rank)
+                self._narrowest_in_type(
+                    cast<FixedArrayType>(t)->element,
+                    worst,
+                    worst_rank,
+                )
             } case TypeKind::TupleType {
                 var unsafe *tt = cast<TupleType>(t)
                 for var i: usize = 0; i < tt->elements.size(); ++i {
-                    self._narrowest_in_type(*tt->elements.get(i), worst, worst_rank)
+                    self._narrowest_in_type(
+                        *tt->elements.get(i),
+                        worst,
+                        worst_rank,
+                    )
                 }
             } case TypeKind::FunctionPointerType {
                 var unsafe *ft = cast<FunctionPointerType>(t)
                 for var i: usize = 0; i < ft->params.size(); ++i {
-                    self._narrowest_in_type(*ft->params.get(i), worst, worst_rank)
+                    self._narrowest_in_type(
+                        *ft->params.get(i),
+                        worst,
+                        worst_rank,
+                    )
                 }
 
                 self._narrowest_in_type(ft->return_type, worst, worst_rank)
             } case TypeKind::CXXLValueRefType {
-                self._narrowest_in_type(cast<CXXLValueRefType>(t)->referee, worst, worst_rank)
+                self._narrowest_in_type(
+                    cast<CXXLValueRefType>(t)->referee,
+                    worst,
+                    worst_rank,
+                )
             } case TypeKind::CXXRValueRefType {
-                self._narrowest_in_type(cast<CXXRValueRefType>(t)->referee, worst, worst_rank)
+                self._narrowest_in_type(
+                    cast<CXXRValueRefType>(t)->referee,
+                    worst,
+                    worst_rank,
+                )
             } case TypeKind::QualifiedType {
-                self._narrowest_in_type(cast<QualifiedType>(t)->inner, worst, worst_rank)
+                self._narrowest_in_type(
+                    cast<QualifiedType>(t)->inner,
+                    worst,
+                    worst_rank,
+                )
             } default { }
         }
     }
@@ -4822,7 +5112,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             pushed = true
         }
 
-        var unsafe *r = RecursiveASTVisitor<TypeResolution>::traverse_ranged_for_stmt(self, n)
+        var unsafe *r = RecursiveASTVisitor<TypeResolution>::traverse_ranged_for_stmt(
+            self,
+            n,
+        )
+
         if pushed {
             self._ef_binds.pop_back()
         }
@@ -4834,7 +5128,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                            n: unsafe *Declarations::FieldDecl) -> unsafe *Declarations::FieldDecl {
         var unsafe *saved = self._cur_field
         self._cur_field = n
-        var unsafe *r = RecursiveASTVisitor<TypeResolution>::traverse_field_decl(self, n)
+        var unsafe *r = RecursiveASTVisitor<TypeResolution>::traverse_field_decl(
+            self,
+            n,
+        )
+
         self._cur_field = saved
         return r
     }
@@ -4863,7 +5161,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         if n->semantic_dc != &null && n->semantic_dc != n->lexical_dc {
             var unsafe *home = n->semantic_dc
             if home->is_type_scope() && home->owner_decl() != &null {
-                var unsafe *hs = self._self_of_scope(NameLookup::representative(home->owner_decl()))
+                var unsafe *hs = self._self_of_scope(
+                    NameLookup::representative(home->owner_decl()),
+                )
+
                 if hs != &null {
                     self._selfs.push_back(hs)
                     pushed_self = true
@@ -4882,13 +5183,21 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         // #68: spec args on a `<> f<...>` head are types to resolve; on a
         // Primary-classified head with NO bound params they DECLARE params
         // and must not be looked up. Pre-mark them done so dispatch skips.
-        self._premark_primary_spec_args(n->spec_kind, n->generic_params, n->spec_args)
+        self._premark_primary_spec_args(
+            n->spec_kind,
+            n->generic_params,
+            n->spec_args,
+        )
 
         if n->is_eval() {
             self._eval_fns += 1
         }
 
-        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_function_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_function_decl(
+            self,
+            n,
+        )
+
         if n->is_eval() {
             self._eval_fns -= 1
         }
@@ -4923,8 +5232,13 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         var unsafe *imms = self.sc->ctx->get_imm_table()
-        var        sp    = if (imms != &null) => (imms->get_ident(imm)) else => ""
-        return self.sc->lookup.unqualified_out_of_line(from, name, sp, self._ool_lexical)
+        var sp = if (imms != &null) => (imms->get_ident(imm)) else => ""
+        return self.sc->lookup.unqualified_out_of_line(
+            from,
+            name,
+            sp,
+            self._ool_lexical,
+        )
     }
 
     fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {
@@ -4933,7 +5247,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         self._push_frame(&null, n->generic_params)
-        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_closure_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_closure_expr(
+            self,
+            n,
+        )
+
         self._pop_frame()
         return out
     }
@@ -4948,8 +5266,17 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         self.cur_dc = unsafe (n as unsafe *DeclContext)
         self._selfs.push_back(self._self_record(NameLookup::representative(n)))
         self._push_frame(NameLookup::representative(n), n->generic_params)
-        self._premark_primary_spec_args(n->spec_kind, n->generic_params, n->spec_args)
-        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_class_decl(self, n)
+        self._premark_primary_spec_args(
+            n->spec_kind,
+            n->generic_params,
+            n->spec_args,
+        )
+
+        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_class_decl(
+            self,
+            n,
+        )
+
         self._refine_spec_kind(n, n->generic_params, n->spec_args)
         // A Primary the parser could not tell from a spec (#68) is only
         // classified now. Register it late; a use that already minted an
@@ -4976,8 +5303,17 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         self.cur_dc = unsafe (n as unsafe *DeclContext)
         self._selfs.push_back(self._self_record(NameLookup::representative(n)))
         self._push_frame(NameLookup::representative(n), n->generic_params)
-        self._premark_primary_spec_args(n->spec_kind, n->generic_params, n->spec_args)
-        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_struct_decl(self, n)
+        self._premark_primary_spec_args(
+            n->spec_kind,
+            n->generic_params,
+            n->spec_args,
+        )
+
+        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_struct_decl(
+            self,
+            n,
+        )
+
         self._refine_spec_kind(n, n->generic_params, n->spec_args)
         // A Primary the parser could not tell from a spec (#68) is only
         // classified now. Register it late; a use that already minted an
@@ -5004,8 +5340,17 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         self.cur_dc = unsafe (n as unsafe *DeclContext)
         self._selfs.push_back(self._self_record(NameLookup::representative(n)))
         self._push_frame(NameLookup::representative(n), n->generic_params)
-        self._premark_primary_spec_args(n->spec_kind, n->generic_params, n->spec_args)
-        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_union_decl(self, n)
+        self._premark_primary_spec_args(
+            n->spec_kind,
+            n->generic_params,
+            n->spec_args,
+        )
+
+        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_union_decl(
+            self,
+            n,
+        )
+
         self._refine_spec_kind(n, n->generic_params, n->spec_args)
         // A Primary the parser could not tell from a spec (#68) is only
         // classified now. Register it late; a use that already minted an
@@ -5032,7 +5377,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         self.cur_dc = unsafe (n as unsafe *DeclContext)
         self._selfs.push_back(self._self_record(NameLookup::representative(n)))
         self._push_frame(NameLookup::representative(n), n->generic_params)
-        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_interface_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_interface_decl(
+            self,
+            n,
+        )
+
         self._pop_frame()
         self._selfs.pop_back()
         self.cur_dc = saved
@@ -5049,7 +5398,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         self.cur_dc = unsafe (n as unsafe *DeclContext)
         self._selfs.push_back(self._self_record(NameLookup::representative(n)))
         self._push_frame(NameLookup::representative(n), n->generic_params)
-        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_enum_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_enum_decl(
+            self,
+            n,
+        )
+
         self._check_enum_underlying(n)
         self._merge_enum_open(n)
         self._pop_frame()
@@ -5088,7 +5441,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         self.cur_dc = n
-        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_extension_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_extension_decl(
+            self,
+            n,
+        )
 
         if pushed {
             self._selfs.pop_back()
@@ -5121,7 +5477,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         var        nullable = false
         if isa<NullableType>(c) && cast<NullableType>(c)->inner != &null {
             var unsafe *inner = cast<NullableType>(c)->inner
-            c        = canon_unqual(if (inner->canonical != &null) => (inner->canonical) else => inner)
+            c = canon_unqual(
+                if (inner->canonical != &null) => (inner->canonical) else => inner,
+            )
+
             nullable = true
         }
 
@@ -5129,17 +5488,18 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         var msg  = ""
         var what = ""
         if isa<PointerType>(c) {
-            msg  = "a pointer type cannot be extended; extend the type it points to, and call those members through the pointer with '->'"
+            msg = "a pointer type cannot be extended; extend the type it points to, and call those members through the pointer with '->'"
             what = "pointer target"
         } else if isa<FunctionPointerType>(c) {
-            id   = DiagID::SC283E
-            msg  = "a function type cannot be extended; write a free function that takes the function as a parameter, or wrap it in a struct or class and extend that"
+            id = DiagID::SC283E
+            msg = "a function type cannot be extended; write a free function that takes the function as a parameter, or wrap it in a struct or class and extend that"
             what = "function type target"
         } else if isa<GenericParamType>(c) || isa<SubstGenericParamType>(c) {
             id = DiagID::SC284E
             var sp    = self.sc->ctx->get_spelling(t->range)
             var every = if (nullable) => ("every nullable type") else => "every type"
-            var whom  = if (nullable) => ("a nullable of a bare type parameter") else => "a bare type parameter"
+            var whom = if (nullable) => ("a nullable of a bare type parameter")
+                       else => "a bare type parameter"
             msg = f"ambiguous extend: '{sp}' is {whom}, so this would add members to {every}; extend a named type or a generic type such as '[T]' or 'Box<T>', or write a free generic function"
             what = f"matches {every}"
         } else {
@@ -5180,7 +5540,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         // "not an instance this extension applies to"), and on a library
         // container's nullable (`[i32]?`) the emitted operator meets an
         // incomplete Vector<int> in clang. Both stay refused.
-        var tu     = TypeUtil(self.sc)
+        var tu = TypeUtil(self.sc)
         var record = inner != &null
             && isa<RecordType>(inner)
             && n->generic_params.size() == 0
@@ -5250,7 +5610,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// (extends.mdx: "a generic `[T; N]` extension ... not supported yet").
     priv fn _reject_generic_array_target(self, n: unsafe *Declarations::ExtensionDecl) {
         var unsafe *t = n->target
-        if t == &null || t->canonical == &null || n->is_poisoned() || n->generic_params.size() == 0 {
+        if t == &null
+            || t->canonical == &null
+            || n->is_poisoned()
+            || n->generic_params.size() == 0 {
             return
         }
 
@@ -5290,7 +5653,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             self.cur_dc = n
         }
 
-        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_module_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_module_decl(
+            self,
+            n,
+        )
+
         self.cur_dc = saved
         return out
     }
@@ -5503,7 +5870,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             // imported const method's `this` pointee is. Overload resolution
             // ranks the receiver on it ([over.match.funcs]/4).
             if st->canonical != &null && p->is_const {
-                st->canonical = self.sc->types->qualified(st->canonical, QUAL_CONST)
+                st->canonical = self.sc->types->qualified(
+                    st->canonical,
+                    QUAL_CONST,
+                )
             }
 
             if st->canonical == &null {
@@ -5629,7 +5999,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         var unsafe *def = n->definition()
         if def != &null && def->is_adt {
             if n->is_open {
-                var k  = self.sc->imm_table()->find_ident(LangAttrs::open_enum())
+                var k = self.sc->imm_table()->find_ident(LangAttrs::open_enum())
                 var ar = if (k != u32::MAX) => (n->attribute_range(k)) else => n->range
                 if !ar.is_valid() {
                     ar = n->range
@@ -5643,7 +6013,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 )
 
                 b.first(ar)
-                b.note(def->name.range.start, "its definition has payload variants")
+                b.note(
+                    def->name.range.start,
+                    "its definition has payload variants",
+                )
+
                 b.remove(ar, "remove " + an)
                 b.emit()
                 n->is_open = false
@@ -5674,7 +6048,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         if isa<BuiltinType>(c) && builtin_info(cast<BuiltinType>(c)->builtin)->is_integer() {
             if n->is_adt {
-                self._check_adt_tag_fits(n, builtin_info(cast<BuiltinType>(c)->builtin))
+                self._check_adt_tag_fits(
+                    n,
+                    builtin_info(cast<BuiltinType>(c)->builtin),
+                )
             }
 
             return
@@ -5734,39 +6111,57 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         if isa<Declarations::ClassDecl>(d) {
-            return self.sc->ctx->get_spelling(cast<Declarations::ClassDecl>(d)->name)
+            return self.sc->ctx->get_spelling(
+                cast<Declarations::ClassDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::StructDecl>(d) {
-            return self.sc->ctx->get_spelling(cast<Declarations::StructDecl>(d)->name)
+            return self.sc->ctx->get_spelling(
+                cast<Declarations::StructDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::UnionDecl>(d) {
-            return self.sc->ctx->get_spelling(cast<Declarations::UnionDecl>(d)->name)
+            return self.sc->ctx->get_spelling(
+                cast<Declarations::UnionDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::InterfaceDecl>(d) {
-            return self.sc->ctx->get_spelling(cast<Declarations::InterfaceDecl>(d)->name)
+            return self.sc->ctx->get_spelling(
+                cast<Declarations::InterfaceDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::EnumDecl>(d) {
-            return self.sc->ctx->get_spelling(cast<Declarations::EnumDecl>(d)->name)
+            return self.sc->ctx->get_spelling(
+                cast<Declarations::EnumDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::TypeAliasDecl>(d) {
-            return self.sc->ctx->get_spelling(cast<Declarations::TypeAliasDecl>(d)->name)
+            return self.sc->ctx->get_spelling(
+                cast<Declarations::TypeAliasDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::ModuleDecl>(d) {
-            return self.sc->ctx->get_spelling(cast<Declarations::ModuleDecl>(d)->name)
+            return self.sc->ctx->get_spelling(
+                cast<Declarations::ModuleDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::FunctionDecl>(d) {
-            return self.sc->ctx->get_spelling(cast<Declarations::FunctionDecl>(d)->name)
+            return self.sc->ctx->get_spelling(
+                cast<Declarations::FunctionDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::GenericParamDecl>(d) {
-            return self.sc->ctx->get_spelling(cast<Declarations::GenericParamDecl>(d)->name)
+            return self.sc->ctx->get_spelling(
+                cast<Declarations::GenericParamDecl>(d)->name,
+            )
         }
 
         return "<decl>"
@@ -5804,7 +6199,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 continue
             }
 
-            var r = self.sc->lookup.in_context(dc, DeclName::ident(imm), spelling)
+            var r = self.sc->lookup.in_context(
+                dc,
+                DeclName::ident(imm),
+                spelling,
+            )
+
             if r.found() {
                 return r
             }
@@ -5895,7 +6295,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         self.ltypes.push_back(LocalTypeFrame())
-        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_compound_stmt(self, n)
+        var unsafe *out = RecursiveASTVisitor<TypeResolution>::traverse_compound_stmt(
+            self,
+            n,
+        )
+
         self.ltypes.pop_back()
         return out
     }
@@ -6084,7 +6488,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             // instance's args as the instance is minted. Never a
             // RecordType::decl. The representative, because its params'
             // GenericParamType owner is, and matching binds by owner.
-            self.sc->instances->register_partial(primary, NameLookup::representative(d))
+            self.sc->instances->register_partial(
+                primary,
+                NameLookup::representative(d),
+            )
+
             return
         }
 
@@ -6208,7 +6616,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         if isa<UnaryOperatorExpr>(rc) {
-            return self._has_conformance_conjunct(cast<UnaryOperatorExpr>(rc)->operand)
+            return self._has_conformance_conjunct(
+                cast<UnaryOperatorExpr>(rc)->operand,
+            )
         }
 
         return false
@@ -6244,8 +6654,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// _settle_once, which calls back with the log unset).
     pub fn report_selection(self, e: unsafe *InstanceEntry, at: SourceRange) {
         if self.sc->once_log != &null {
-            var amb = e->ambiguous_a != &null && !self.sc->instances->taken(e, InstanceLatch::Ambiguity)
-            var und = e->undecided != &null && !self.sc->instances->taken(e, InstanceLatch::Undecided)
+            var amb = e->ambiguous_a != &null
+                && !self.sc->instances->taken(e, InstanceLatch::Ambiguity)
+            var und = e->undecided != &null
+                && !self.sc->instances->taken(e, InstanceLatch::Undecided)
             if amb || und {
                 var m = OnceMention{}
                 m.sc    = self.sc
@@ -6334,8 +6746,13 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         var unsafe *lex = d->lexical_dc
         if lex != &null && NameLookup::tu_of(scope) != NameLookup::tu_of(lex) {
             var unsafe *imms = self.sc->ctx->get_imm_table()
-            var        sp    = if (imms != &null) => (imms->get_ident(imm)) else => ""
-            r = self.sc->lookup.unqualified_out_of_line(scope, DeclName::ident(imm), sp, lex)
+            var sp = if (imms != &null) => (imms->get_ident(imm)) else => ""
+            r = self.sc->lookup.unqualified_out_of_line(
+                scope,
+                DeclName::ident(imm),
+                sp,
+                lex,
+            )
         } else {
             r = self.sc->lookup.unqualified(scope, DeclName::ident(imm))
         }
@@ -6382,7 +6799,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
             both = a->is_this_definition && b->is_this_definition
             var unsafe *def = a->definition()
-            a->retarget_canonical(if (def != &null) => (def) else => a->first_decl())
+            a->retarget_canonical(
+                if (def != &null) => (def) else => a->first_decl(),
+            )
         } else if isa<Declarations::StructDecl>(prev) {
             var unsafe *a = cast<Declarations::StructDecl>(prev)
             var unsafe *b = cast<Declarations::StructDecl>(cur)
@@ -6392,7 +6811,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
             both = a->is_this_definition && b->is_this_definition
             var unsafe *def = a->definition()
-            a->retarget_canonical(if (def != &null) => (def) else => a->first_decl())
+            a->retarget_canonical(
+                if (def != &null) => (def) else => a->first_decl(),
+            )
         } else if isa<Declarations::UnionDecl>(prev) {
             var unsafe *a = cast<Declarations::UnionDecl>(prev)
             var unsafe *b = cast<Declarations::UnionDecl>(cur)
@@ -6402,7 +6823,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
             both = a->is_this_definition && b->is_this_definition
             var unsafe *def = a->definition()
-            a->retarget_canonical(if (def != &null) => (def) else => a->first_decl())
+            a->retarget_canonical(
+                if (def != &null) => (def) else => a->first_decl(),
+            )
         } else {
             return
         }

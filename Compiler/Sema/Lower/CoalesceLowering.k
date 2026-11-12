@@ -146,7 +146,11 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
     /// `x ?? y`, its operands lowered first (`a ?? b ?? c` is `a ?? (b ?? c)`,
     /// and `x?.m ?? y` holds an expansion of its own on the left).
     fn transform_binary_operator_expr(self, n: unsafe *BinaryOperatorExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<CoalesceLowering>::transform_binary_operator_expr(self, n)
+        var unsafe *out = ASTWriter<CoalesceLowering>::transform_binary_operator_expr(
+            self,
+            n,
+        )
+
         if n->op_token.kind == TokenKind::OpEqualEqualEqual {
             return self._identity(n, out)
         }
@@ -172,9 +176,16 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
             return out
         }
 
-        var        stmts = self.list_builder<unsafe *Stmt>()
-        var        opd   = self._operand(n->lhs, unsafe &stmts, "coal")
-        var unsafe *ie   = self._select(n->range, opd.#test, opd.value, n->rhs, n->type_)
+        var stmts = self.list_builder<unsafe *Stmt>()
+        var opd   = self._operand(n->lhs, unsafe &stmts, "coal")
+        var unsafe *ie = self._select(
+            n->range,
+            opd.#test,
+            opd.value,
+            n->rhs,
+            n->type_,
+        )
+
         return self._wrap(n, opd, unsafe &stmts, ie)
     }
 
@@ -199,12 +210,25 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
             return out
         }
 
-        var        deref = self.tu.identity_derefs(lt, rt)
-        var        stmts = self.list_builder<unsafe *Stmt>()
-        var        tests = cxx::std::vector<unsafe *Expr>()
-        var        bound = false
-        var unsafe *lv   = self._identity_side(n->lhs, deref, unsafe &stmts, &tests, unsafe &bound)
-        var unsafe *rv   = self._identity_side(n->rhs, deref, unsafe &stmts, &tests, unsafe &bound)
+        var deref = self.tu.identity_derefs(lt, rt)
+        var stmts = self.list_builder<unsafe *Stmt>()
+        var tests = cxx::std::vector<unsafe *Expr>()
+        var bound = false
+        var unsafe *lv = self._identity_side(
+            n->lhs,
+            deref,
+            unsafe &stmts,
+            &tests,
+            unsafe &bound,
+        )
+
+        var unsafe *rv = self._identity_side(
+            n->rhs,
+            deref,
+            unsafe &stmts,
+            &tests,
+            unsafe &bound,
+        )
 
         var unsafe *eq = BinaryOperatorExpr::create(
             self.ctx,
@@ -234,7 +258,11 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         }
 
         stmts.push(ExpressionStmt::create(self.ctx, n->range, cond))
-        return self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, n->type_)
+        return self.synth.stmt_expr(
+            unsafe (n as unsafe *Expr),
+            &stmts,
+            n->type_,
+        )
     }
 
     /// One operand of `===`: its test (when nullable) pushed on \p tests, and
@@ -340,7 +368,11 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
     /// The value form: `if x? => match <x> { arms } else A` (a value arm is
     /// always `=> expr`, S073E). An if-expression, as `??` is.
     fn transform_match_expr(self, n: unsafe *MatchExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<CoalesceLowering>::transform_match_expr(self, n)
+        var unsafe *out = ASTWriter<CoalesceLowering>::transform_match_expr(
+            self,
+            n,
+        )
+
         if !n->null_arm
             || n->scrutinee == &null
             || n->scrutinee->is_poisoned()
@@ -372,7 +404,14 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
             blk = CompoundStmt::create(self.ctx, arm0->range)
             if arm0->expression != &null {
                 var b = self.list_builder<unsafe *Stmt>()
-                b.push(ExpressionStmt::create(self.ctx, arm0->range, arm0->expression))
+                b.push(
+                    ExpressionStmt::create(
+                        self.ctx,
+                        arm0->range,
+                        arm0->expression,
+                    ),
+                )
+
                 b.freeze_into(&blk->body)
             }
         }
@@ -402,7 +441,11 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
     /// `x?.m`, a field path through one or more `?.` / `?->` steps. Its base
     /// is lowered first; the steps name fields, never calls.
     fn transform_chain_expr(self, n: unsafe *ChainExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<CoalesceLowering>::transform_chain_expr(self, n)
+        var unsafe *out = ASTWriter<CoalesceLowering>::transform_chain_expr(
+            self,
+            n,
+        )
+
         if !n->has_optional_chaining() || n->is_poisoned() || n->type_ == &null {
             return out
         }
@@ -473,12 +516,18 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
             var qa = st.access_kind == ChainExpr::AccessKind::QuestionArrow
             if qd || qa {
                 if i == 0 {
-                    tests.push_back(self._test(st.range, self._base_read(c, bvd, false)))
+                    tests.push_back(
+                        self._test(st.range, self._base_read(c, bvd, false)),
+                    )
+
                     base_marked = true
                 } else {
                     var unsafe *held = acc[i - 1].resolved_type
                     tests.push_back(
-                        self._test(st.range, self._prefix(c, bvd, base_marked, acc, i, held)),
+                        self._test(
+                            st.range,
+                            self._prefix(c, bvd, base_marked, acc, i, held),
+                        ),
                     )
 
                     acc[i - 1].narrowed_from = held
@@ -497,8 +546,16 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
             then_ty = acc[acc.size() - 1].resolved_type
         }
 
-        var unsafe *path              = self._prefix(c, bvd, base_marked, acc, acc.size(), then_ty)
-        var        then: unsafe *Expr = path
+        var unsafe *path = self._prefix(
+            c,
+            bvd,
+            base_marked,
+            acc,
+            acc.size(),
+            then_ty,
+        )
+
+        var then: unsafe *Expr = path
         if call != &null {
             path->type_          = c->type_
             path->value_category = c->value_category
@@ -521,7 +578,10 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
             var        body = self.list_builder<unsafe *Stmt>()
             body.push(ExpressionStmt::create(self.ctx, orig->range, then))
             body.freeze_into(&blk->body)
-            stmts.push(ConditionalStmt::create(self.ctx, orig->range, cond, blk, &null))
+            stmts.push(
+                ConditionalStmt::create(self.ctx, orig->range, cond, blk, &null),
+            )
+
             return self.synth.stmt_expr(orig, &stmts, ty)
         }
 
@@ -550,9 +610,15 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
                        marked: bool) -> unsafe *Expr {
         var e: unsafe *Expr = &null
         if bvd != &null {
-            e = self.synth.use_of(bvd, c->base->range, Expr::ValueCategory::LValue)
+            e = self.synth.use_of(
+                bvd,
+                c->base->range,
+                Expr::ValueCategory::LValue,
+            )
         } else {
-            e = self._copy_name(cast<NamedIdentExpr>(self.tu.strip_parens(c->base)))
+            e = self._copy_name(
+                cast<NamedIdentExpr>(self.tu.strip_parens(c->base)),
+            )
         }
 
         if marked {
@@ -581,9 +647,14 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
             return base
         }
 
-        var        end   = (acc)[k - 1].range.end
-        var unsafe *pc   = ChainExpr::create(self.ctx, SourceRange(c->range.start, end), base)
-        var        steps = ListBuilder<ChainExpr::Step>(self.ctx)
+        var end = (acc)[k - 1].range.end
+        var unsafe *pc = ChainExpr::create(
+            self.ctx,
+            SourceRange(c->range.start, end),
+            base,
+        )
+
+        var steps = ListBuilder<ChainExpr::Step>(self.ctx)
         for var i: usize = 0; i < k; ++i {
             steps.push((acc)[i])
         }
@@ -623,7 +694,11 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
     /// bound once and its value moved out. `m` is the whole message, built
     /// here: "unwrap!(x) on null at file.k:12:9" and a newline.
     fn transform_unwrap_expr(self, n: unsafe *UnwrapExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<CoalesceLowering>::transform_unwrap_expr(self, n)
+        var unsafe *out = ASTWriter<CoalesceLowering>::transform_unwrap_expr(
+            self,
+            n,
+        )
+
         if n->is_poisoned()
             || n->type_ == &null
             || n->operand == &null
@@ -639,7 +714,12 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         if opd.decl == &null {
             var unsafe *addr = self.synth.addr_of(opd.value)
             stmts.push(ExpressionStmt::create(self.ctx, n->range, addr))
-            var unsafe *se = self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, addr->type_)
+            var unsafe *se = self.synth.stmt_expr(
+                unsafe (n as unsafe *Expr),
+                &stmts,
+                addr->type_,
+            )
+
             var unsafe *d = UnaryOperatorExpr::create(
                 self.ctx,
                 n->range,
@@ -655,7 +735,11 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         }
 
         stmts.push(ExpressionStmt::create(self.ctx, n->range, opd.value))
-        return self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, canon_unqual(inner))
+        return self.synth.stmt_expr(
+            unsafe (n as unsafe *Expr),
+            &stmts,
+            canon_unqual(inner),
+        )
     }
 
     /// `if !test? { unwrap_failed("<message>", <len>) }` for \p n.
@@ -719,7 +803,12 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
                          inner: unsafe *Type) -> unsafe *Expr {
         if isa<NamedIdentExpr>(x) {
             var unsafe *src = cast<NamedIdentExpr>(x)
-            var unsafe *id  = NamedIdentExpr::create(self.ctx, x->range, src->name)
+            var unsafe *id = NamedIdentExpr::create(
+                self.ctx,
+                x->range,
+                src->name,
+            )
+
             id->resolved_decl = src->resolved_decl
             id->adopt_sema(x)
             id->narrowed_from  = nt
@@ -731,7 +820,9 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         var unsafe *c    = cast<ChainExpr>(x)
         var unsafe *base = c->base
         if base != &null && isa<NamedIdentExpr>(self.tu.strip_parens(base)) {
-            base = self._copy_name(cast<NamedIdentExpr>(self.tu.strip_parens(base)))
+            base = self._copy_name(
+                cast<NamedIdentExpr>(self.tu.strip_parens(base)),
+            )
         }
 
         var unsafe *cc   = ChainExpr::create(self.ctx, x->range, base)
@@ -788,7 +879,14 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
                     then:  unsafe *Expr,
                     other: unsafe *Expr,
                     ty:    unsafe *Type) -> unsafe *Expr {
-        var unsafe *ie = IfExpr::create(self.ctx, at, self._test(at, #test), then, other)
+        var unsafe *ie = IfExpr::create(
+            self.ctx,
+            at,
+            self._test(at, #test),
+            then,
+            other,
+        )
+
         ie->type_          = ty
         ie->value_category = Expr::ValueCategory::RValue
         return ie

@@ -123,7 +123,10 @@ pub class ClangJobs {
         return self._drive(&words, false, true)
     }
 
-    priv fn _drive(self, @inout words: cxx::std::vector<string>, execute: bool, query: bool = false) -> bool {
+    priv fn _drive(self,
+                   @inout words: cxx::std::vector<string>,
+                   execute:      bool,
+                   query:        bool = false) -> bool {
         self.error = ""
         self._be->startup()
         if !self._be->ready() {
@@ -132,16 +135,21 @@ pub class ClangJobs {
 
         var owned: llvm::BumpPtrAllocator ///< argv bytes; see ClangBackend::_owned
         var argv:  cxx::std::vector<kairo::std::ConstPtr<c_char>>
-        argv.push_back(llvm::StringSaver(&owned).save(kairo::sref(self._clang_exe)).data())
+        argv.push_back(
+            llvm::StringSaver(&owned).save(kairo::sref(self._clang_exe)).data(),
+        )
+
         for *w in words {
-            argv.push_back(llvm::StringSaver(&owned).save(kairo::sref(*w)).data())
+            argv.push_back(
+                llvm::StringSaver(&owned).save(kairo::sref(*w)).data(),
+            )
         }
 
         var unsafe *diags = self._be->arg_diags()
         var        title  = "kairo"
         // A local: the Driver keeps this StringRef, and a temporary from
         // triple() dangled (a query prints paths built from it, as garbage).
-        var        triple = self._be->triple()
+        var triple = self._be->triple()
         var drv = clang::driver::Driver(
             kairo::sref(self._clang_exe),
             kairo::sref(triple),
@@ -181,7 +189,7 @@ pub class ClangJobs {
             // Copied: the job's list is const, and the bytes stay owned by
             // the Compilation, which outlives this loop.
             var cc1: cxx::std::vector<kairo::std::ConstPtr<c_char>>
-            var n                                                   = cmd->getArguments().size()
+            var n = cmd->getArguments().size()
             var first = if (n > 0) => (string(
                             unsafe ((cmd->getArguments()[0] as unsafe *const u8) as *const u8),
                         ))
@@ -226,7 +234,9 @@ pub class ClangJobs {
             if !execute {
                 var line = "clang -cc1"
                 for var k: usize = 0; k < cc1.size(); ++k {
-                    line = line + " " + string(unsafe ((cc1[k] as unsafe *const u8) as *const u8))
+                    line = line + " " + string(
+                        unsafe ((cc1[k] as unsafe *const u8) as *const u8),
+                    )
                 }
 
                 self.planned.push_back(line)
@@ -255,8 +265,15 @@ pub class ClangJobs {
     /// with the "clang -cc1as" prefix, as clang prints them.
     priv fn _cc1as(self, const args: cxx::std::vector<kairo::std::ConstPtr<c_char>>) -> bool {
         var owned: llvm::BumpPtrAllocator ///< a NUL-terminated argv0
-        var unsafe *argv0 = llvm::StringSaver(&owned).save(kairo::sref(self._clang_exe)).data()
-        var        rc     = cc1as_main(llvm::ArrayRef<unsafe *const c_char>(args), argv0, &null)
+        var unsafe *argv0 = llvm::StringSaver(&owned).save(
+            kairo::sref(self._clang_exe),
+        ).data()
+        var rc = cc1as_main(
+            llvm::ArrayRef<unsafe *const c_char>(args),
+            argv0,
+            &null,
+        )
+
         if rc != 0 {
             self.error = "the assembler (clang -cc1as) failed"
             return false
@@ -272,7 +289,10 @@ pub class ClangJobs {
         var none   = llvm::ArrayRef<cxx::std::optional<llvm::StringRef>>()
         var rc     = cmd->Execute(none, unsafe &msg, unsafe &failed)
         if failed || rc != 0 {
-            var exe = string(unsafe ((cmd->getExecutable() as unsafe *const u8) as *const u8))
+            var exe = string(
+                unsafe ((cmd->getExecutable() as unsafe *const u8) as *const u8),
+            )
+
             var why = kairo::std::from_std_string<string>(msg)
             self.error = if (failed) => (f"could not run '{exe}': {why}")
                          else => (f"'{exe}' failed (exit {rc})")
@@ -315,7 +335,10 @@ pub class ClangJobs {
         }
 
         for var k: usize = 1; k < n; ++k {
-            var a = string(unsafe ((cmd->getArguments()[k] as unsafe *const u8) as *const u8))
+            var a = string(
+                unsafe ((cmd->getArguments()[k] as unsafe *const u8) as *const u8),
+            )
+
             var pair = a == "-c-isystem"
                 || a == "-cxx-isystem"
                 || a == "-objc-isystem"

@@ -29,27 +29,13 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
 import Server::ClangdBridge::*
 import Server::Completion::*
 import Server::Diagnostics::*
@@ -66,6 +52,20 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 extend Server {
     /// Quick fixes: the compiler's fix-its for the diagnostics the requested
@@ -91,7 +91,7 @@ extend Server {
             var ds   = s->get_int(s->get(dr, K_START), K_LINE)
             var de   = s->get_int(s->get(dr, K_END), K_LINE)
             if (s->get_str(x, SK_PATH) == path) && (ds <= re) && (de >= rs) {
-                var fix = s->first(s->get(x, SK_FIXES))
+                var fix   = s->first(s->get(x, SK_FIXES))
                 var first = true
                 while fix != JSON_NONE() {
                     w.begin_object()
@@ -109,7 +109,12 @@ extend Server {
                     while e != JSON_NONE() {
                         w.key(self.uri_of(s->get_str(e, SK_PATH)))
                         w.begin_array()
-                        write_lsp_text_edit_raw(&w, s->dump(s->get(e, K_RANGE)), s->get_str(e, K_NEW_TEXT))
+                        write_lsp_text_edit_raw(
+                            &w,
+                            s->dump(s->get(e, K_RANGE)),
+                            s->get_str(e, K_NEW_TEXT),
+                        )
+
                         w.end_array()
                         e = s->next(e)
                     }
@@ -129,10 +134,10 @@ extend Server {
         // that text (an edit: works in any client).
         if (mf != JSON_NONE()) && (ei < self.entries.size()) && self.entries[ei].has_idx {
             var *xs = &self.entries[ei].idx
-            var cs = d->get_int(d->get(rr, K_START), K_CHARACTER)
-            var ce = d->get_int(d->get(rr, K_END), K_CHARACTER)
+            var cs  = d->get_int(d->get(rr, K_START), K_CHARACTER)
+            var ce  = d->get_int(d->get(rr, K_END), K_CHARACTER)
             var uri = self.uri_of(path)
-            var m = xs->first(xs->get(mf, SK_MACROS))
+            var m   = xs->first(xs->get(mf, SK_MACROS))
             while m != JSON_NONE() {
                 var ml = xs->as_int(self.nth(xs, m, MACRO_LINE))
                 var mc = xs->as_int(self.nth(xs, m, MACRO_CHAR))
@@ -143,7 +148,7 @@ extend Server {
                 var after  = (rs > el) || ((rs == el) && (cs > ec))
                 if (!before) && (!after) {
                     var text = xs->str(self.nth(xs, m, MACRO_TEXT))
-                    var rw = JsonWriter()
+                    var rw   = JsonWriter()
                     write_lsp_range(&rw, ml, mc, el, ec)
 
                     w.begin_object()
@@ -219,7 +224,12 @@ extend Server {
     /// conformance `class Name impl I`), as one edit. The plan comes from the
     /// buffer's text (TextScan::interface_for); the snapshot only says whether
     /// `IName` is taken, in which case it is `NameInterface`.
-    fn interface_action_(self, d: *const JsonDoc, params: u32, s: *const JsonDoc, const path: string, w: *JsonWriter) {
+    fn interface_action_(self,
+                         d:          *const JsonDoc,
+                         params:     u32,
+                         s:          *const JsonDoc,
+                         const path: string,
+                         w:          *JsonWriter) {
         self.docs.sync_all()
         var di = self.docs.index_of_path(path)
         if di == usize::MAX {
@@ -227,8 +237,14 @@ extend Server {
         }
 
         var *text = &self.docs.docs[di].text
-        var st = d->get(d->get(params, K_RANGE), K_START)
-        var at = self.docs.docs[di].lines.offset(*text, d->get_int(st, K_LINE) as usize, d->get_int(st, K_CHARACTER) as usize, false)
+        var st    = d->get(d->get(params, K_RANGE), K_START)
+        var at = self.docs.docs[di].lines.offset(
+            *text,
+            d->get_int(st, K_LINE) as usize,
+            d->get_int(st, K_CHARACTER) as usize,
+            false,
+        )
+
         var plan = interface_for(*text, at, "")
         if !plan.ok {
             return
@@ -238,10 +254,14 @@ extend Server {
         var taken = self.snapshot_declares_(s, iname)
         if !taken {
             var spaced = "interface " + iname
-            var k = text->rfind(spaced)
+            var k      = text->rfind(spaced)
             while (k != usize::MAX) && (!taken) {
                 var e = k + spaced.size()
-                if (e >= text->size()) || ((*text)[e] == (' ' as u8)) || ((*text)[e] == ('{' as u8)) || ((*text)[e] == ('<' as u8)) || ((*text)[e] == ('\n' as u8)) {
+                if (e >= text->size())
+                    || ((*text)[e] == (' ' as u8))
+                    || ((*text)[e] == ('{' as u8))
+                    || ((*text)[e] == ('<' as u8))
+                    || ((*text)[e] == ('\n' as u8)) {
                     taken = true
                 }
 
@@ -255,7 +275,7 @@ extend Server {
 
         if taken {
             iname = plan.name + "Interface"
-            plan = interface_for(*text, at, iname)
+            plan  = interface_for(*text, at, iname)
             if !plan.ok {
                 return
             }
@@ -290,10 +310,10 @@ extend Server {
     fn macro_at(const self, s: *const JsonDoc, f: u32, line: i64, ch: i64) -> u32 {
         var m = s->first(s->get(f, SK_MACROS))
         while m != JSON_NONE() {
-            var ml = s->as_int(self.nth(s, m, MACRO_LINE))
-            var mc = s->as_int(self.nth(s, m, MACRO_CHAR))
-            var el = s->as_int(self.nth(s, m, MACRO_END_LINE))
-            var ec = s->as_int(self.nth(s, m, MACRO_END_CHAR))
+            var ml          = s->as_int(self.nth(s, m, MACRO_LINE))
+            var mc          = s->as_int(self.nth(s, m, MACRO_CHAR))
+            var el          = s->as_int(self.nth(s, m, MACRO_END_LINE))
+            var ec          = s->as_int(self.nth(s, m, MACRO_END_CHAR))
             var after_start = (line > ml) || ((line == ml) && (ch >= mc))
             var before_end  = (line < el) || ((line == el) && (ch <= ec))
             if after_start && before_end {
@@ -367,7 +387,9 @@ extend Server {
             bases = impls
         }
 
-        if (bases != usize::MAX) && (!line.starts_with("fn ")) && (find_from(line, " fn ", 0) == usize::MAX) {
+        if (bases != usize::MAX)
+            && (!line.starts_with("fn "))
+            && (find_from(line, " fn ", 0) == usize::MAX) {
             line = line.subslice(0, bases)
         }
 

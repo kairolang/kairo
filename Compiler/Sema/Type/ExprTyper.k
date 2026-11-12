@@ -558,7 +558,7 @@ pub class ExprTyper
                 var k = key
                 if self._typeexp.find(k) == self._typeexp.end()
                     && self._modexp.find(k) == self._modexp.end() {
-                    var ci       = self._chains.find(k)
+                    var ci = self._chains.find(k)
                     var callable = ci != self._chains.end() && ci->second->callable_cands.size() > 0
                     if !callable {
                         // Every arm ends typed, poisoned (with its diagnostic) or
@@ -631,39 +631,83 @@ pub class ExprTyper
     priv fn _dispatch(self, e: unsafe *Expr, expected: unsafe *Type) -> unsafe *Type {
         match e->kind {
             case ExprKind::IntegerLiteralExpr {
-                return self.type_int_literal(cast<IntegerLiteralExpr>(e), expected, false)
+                return self.type_int_literal(
+                    cast<IntegerLiteralExpr>(e),
+                    expected,
+                    false,
+                )
             } case ExprKind::FloatingLiteralExpr {
-                return self.type_float_literal(cast<FloatingLiteralExpr>(e), expected)
+                return self.type_float_literal(
+                    cast<FloatingLiteralExpr>(e),
+                    expected,
+                )
             } case ExprKind::StringLiteralExpr {
-                return self.type_string_literal(cast<StringLiteralExpr>(e), expected)
+                return self.type_string_literal(
+                    cast<StringLiteralExpr>(e),
+                    expected,
+                )
             } case ExprKind::CharacterLiteralExpr {
-                return self.type_char_literal(cast<CharacterLiteralExpr>(e), expected)
+                return self.type_char_literal(
+                    cast<CharacterLiteralExpr>(e),
+                    expected,
+                )
             } case ExprKind::BooleanLiteralExpr {
-                return self.type_bool_literal(cast<BooleanLiteralExpr>(e), expected)
+                return self.type_bool_literal(
+                    cast<BooleanLiteralExpr>(e),
+                    expected,
+                )
             } case ExprKind::NullLiteralExpr {
-                return self.type_null_literal(cast<NullLiteralExpr>(e), expected)
+                return self.type_null_literal(
+                    cast<NullLiteralExpr>(e),
+                    expected,
+                )
             } case ExprKind::ListLiteralExpr {
-                return self.type_list_literal(cast<Expressions::ListLiteralExpr>(e), expected)
+                return self.type_list_literal(
+                    cast<Expressions::ListLiteralExpr>(e),
+                    expected,
+                )
             } case ExprKind::TupleLiteralExpr {
-                return self.type_tuple_literal(cast<Expressions::TupleLiteralExpr>(e), expected)
+                return self.type_tuple_literal(
+                    cast<Expressions::TupleLiteralExpr>(e),
+                    expected,
+                )
             } case ExprKind::SetLiteralExpr {
-                return self.type_set_literal(cast<Expressions::SetLiteralExpr>(e), expected)
+                return self.type_set_literal(
+                    cast<Expressions::SetLiteralExpr>(e),
+                    expected,
+                )
             } case ExprKind::MapLiteralExpr {
-                return self.type_map_literal(cast<Expressions::MapLiteralExpr>(e), expected)
+                return self.type_map_literal(
+                    cast<Expressions::MapLiteralExpr>(e),
+                    expected,
+                )
             } case ExprKind::NamedInitializerExpr {
-                return self.type_named_init(cast<Expressions::NamedInitializerExpr>(e), expected)
+                return self.type_named_init(
+                    cast<Expressions::NamedInitializerExpr>(e),
+                    expected,
+                )
             } case ExprKind::AnonInitializerExpr {
-                return self.type_anon_init(cast<Expressions::AnonInitializerExpr>(e), expected)
+                return self.type_anon_init(
+                    cast<Expressions::AnonInitializerExpr>(e),
+                    expected,
+                )
             } case ExprKind::ChainExpr {
                 return self.type_chain(cast<ChainExpr>(e), expected)
             } case ExprKind::CallExpr {
                 // Any call may write any global (Compiler/Spec/Nullables.md#globals). After the
                 // call: its own arguments were read before it ran.
-                var unsafe *ct = self.type_call(cast<Expressions::CallExpr>(e), expected)
+                var unsafe *ct = self.type_call(
+                    cast<Expressions::CallExpr>(e),
+                    expected,
+                )
+
                 self.flow.after_call(e->range)
                 return ct
             } case ExprKind::SubscriptExpr {
-                return self.type_subscript(cast<Expressions::SubscriptExpr>(e), expected)
+                return self.type_subscript(
+                    cast<Expressions::SubscriptExpr>(e),
+                    expected,
+                )
             } case ExprKind::NamedIdentExpr {
                 return self._type_ident(cast<NamedIdentExpr>(e), expected)
             } case ExprKind::UnaryOperatorExpr {
@@ -675,7 +719,12 @@ pub class ExprTyper
                 }
 
                 if un->resolved_op != &null { // a user operator is a call.
-                    self.flow.operator_call(un->resolved_op, un->operand, e->range)
+                    self.flow.operator_call(
+                        un->resolved_op,
+                        un->operand,
+                        e->range,
+                    )
+
                     self.flow.after_call(e->range)
                 }
 
@@ -713,17 +762,35 @@ pub class ExprTyper
             } case ExprKind::IfExpr {
                 return self.type_if_expr(cast<Expressions::IfExpr>(e), expected)
             } case ExprKind::TryCatchExpr {
-                return self.type_try_expr(cast<Expressions::TryCatchExpr>(e), expected)
+                return self.type_try_expr(
+                    cast<Expressions::TryCatchExpr>(e),
+                    expected,
+                )
             } case ExprKind::MatchExpr {
-                return self.type_match_expr(cast<Expressions::MatchExpr>(e), expected)
+                return self.type_match_expr(
+                    cast<Expressions::MatchExpr>(e),
+                    expected,
+                )
             } case ExprKind::RangeExpr {
-                return self.type_range(cast<Expressions::RangeExpr>(e), expected)
+                return self.type_range(
+                    cast<Expressions::RangeExpr>(e),
+                    expected,
+                )
             } case ExprKind::ClosureExpr {
-                return self.type_closure(cast<Expressions::ClosureExpr>(e), expected)
+                return self.type_closure(
+                    cast<Expressions::ClosureExpr>(e),
+                    expected,
+                )
             } case ExprKind::AwaitExpr {
-                return self.type_await(cast<Expressions::AwaitExpr>(e), expected)
+                return self.type_await(
+                    cast<Expressions::AwaitExpr>(e),
+                    expected,
+                )
             } case ExprKind::UnwrapExpr {
-                return self.type_unwrap(cast<Expressions::UnwrapExpr>(e), expected)
+                return self.type_unwrap(
+                    cast<Expressions::UnwrapExpr>(e),
+                    expected,
+                )
             }
 
             // EvalIfFolding folded every one; a bool if one is ever left.
@@ -741,31 +808,70 @@ pub class ExprTyper
                 self.mark_unknown(e)
                 return &null
             } case ExprKind::SpawnExpr {
-                return self.type_spawn(e, cast<Expressions::SpawnExpr>(e)->operand, expected)
+                return self.type_spawn(
+                    e,
+                    cast<Expressions::SpawnExpr>(e)->operand,
+                    expected,
+                )
             } case ExprKind::ThreadExpr {
-                return self.type_spawn(e, cast<Expressions::ThreadExpr>(e)->operand, expected)
+                return self.type_spawn(
+                    e,
+                    cast<Expressions::ThreadExpr>(e)->operand,
+                    expected,
+                )
             } case ExprKind::SizeOfExpr {
-                return self.type_sizeof(cast<Expressions::SizeOfExpr>(e), expected)
+                return self.type_sizeof(
+                    cast<Expressions::SizeOfExpr>(e),
+                    expected,
+                )
             } case ExprKind::AlignOfExpr {
-                return self.type_alignof(cast<Expressions::AlignOfExpr>(e), expected)
+                return self.type_alignof(
+                    cast<Expressions::AlignOfExpr>(e),
+                    expected,
+                )
             } case ExprKind::TypeTraitExpr {
-                return self.type_type_trait(cast<Expressions::TypeTraitExpr>(e), expected)
+                return self.type_type_trait(
+                    cast<Expressions::TypeTraitExpr>(e),
+                    expected,
+                )
             } case ExprKind::CxxNewExpr {
-                return self.type_cxx_new(cast<Expressions::CxxNewExpr>(e), expected)
+                return self.type_cxx_new(
+                    cast<Expressions::CxxNewExpr>(e),
+                    expected,
+                )
             } case ExprKind::TypeOfExpr {
-                return self.type_typeof(cast<Expressions::TypeOfExpr>(e), expected)
+                return self.type_typeof(
+                    cast<Expressions::TypeOfExpr>(e),
+                    expected,
+                )
             } case ExprKind::EvalExpr {
                 return self.type_eval(cast<Expressions::EvalExpr>(e), expected)
             } case ExprKind::UnsafeExpr {
-                return self.type_unsafe(cast<Expressions::UnsafeExpr>(e), expected)
+                return self.type_unsafe(
+                    cast<Expressions::UnsafeExpr>(e),
+                    expected,
+                )
             } case ExprKind::StmtExpr {
-                return self.type_stmt_expr(cast<Expressions::StmtExpr>(e), expected)
+                return self.type_stmt_expr(
+                    cast<Expressions::StmtExpr>(e),
+                    expected,
+                )
             } case ExprKind::DeleteExpr {
-                return self.type_delete(cast<Expressions::DeleteExpr>(e), expected)
+                return self.type_delete(
+                    cast<Expressions::DeleteExpr>(e),
+                    expected,
+                )
             } case ExprKind::TypeCastExpr {
-                return self.type_cast(cast<Expressions::TypeCastExpr>(e), expected)
+                return self.type_cast(
+                    cast<Expressions::TypeCastExpr>(e),
+                    expected,
+                )
             } case ExprKind::PackExpansionExpr {
-                self.type_of(cast<Expressions::PackExpansionExpr>(e)->operand, &null)
+                self.type_of(
+                    cast<Expressions::PackExpansionExpr>(e)->operand,
+                    &null,
+                )
+
                 self.mark_unknown(e)
                 return &null
             } case ExprKind::ImplicitBoundaryCastExpr {
@@ -908,7 +1014,7 @@ pub class ExprTyper
                 return f->type_->canonical
             } case DeclKind::EnumVariantDecl {
                 var unsafe *edc = d->semantic_dc
-                var unsafe *ed  = if (edc != &null) => (edc->owner_decl()) else => &null
+                var unsafe *ed = if (edc != &null) => (edc->owner_decl()) else => &null
                 if ed == &null {
                     self.mark_unknown(n)
                     return &null
@@ -946,7 +1052,10 @@ pub class ExprTyper
                 // Short of that it stays a callable, which only a callee
                 // reads (propagate rejects it as an operand).
                 if !f->is_method() {
-                    return self.generic_fn_value_type(f, unsafe &n->generic_args)
+                    return self.generic_fn_value_type(
+                        f,
+                        unsafe &n->generic_args,
+                    )
                 }
 
                 return &null
@@ -1005,7 +1114,12 @@ pub class ExprTyper
                 return &null
             } default {
                 if self.tu.is_type_decl(d) {
-                    var unsafe *t = self.type_from_type_decl(d, n->generic_args, n)
+                    var unsafe *t = self.type_from_type_decl(
+                        d,
+                        n->generic_args,
+                        n,
+                    )
+
                     if t == &null {
                         return &null
                     }
@@ -1014,7 +1128,12 @@ pub class ExprTyper
                     return &null
                 }
 
-                self.fail(n, DiagID::SC094E, f"'{self.tu.decl_name(d)}' is not a value")
+                self.fail(
+                    n,
+                    DiagID::SC094E,
+                    f"'{self.tu.decl_name(d)}' is not a value",
+                )
+
                 return &null
             }
         }
@@ -1228,7 +1347,13 @@ pub class ExprTyper
             // constructor went unselected and `&null` had no pointer type.
             var gps = td->generic_params
             var ga  = GenericArgs(self.sc)
-            if !ga.check_arity(d, self.tu.decl_name(d), gps, gargs.size(), at->range) {
+            if !ga.check_arity(
+                d,
+                self.tu.decl_name(d),
+                gps,
+                gargs.size(),
+                at->range,
+            ) {
                 self.poison_only(at)
                 return &null
             }
@@ -1292,7 +1417,13 @@ pub class ExprTyper
         var        dep  = false
         if gargs.size() > 0 {
             var ga = GenericArgs(self.sc)
-            if !ga.check_arity(rep, self.tu.decl_name(rep), gps, gargs.size(), at->range) {
+            if !ga.check_arity(
+                rep,
+                self.tu.decl_name(rep),
+                gps,
+                gargs.size(),
+                at->range,
+            ) {
                 self.poison_only(at)
                 return &null
             }
@@ -1324,7 +1455,9 @@ pub class ExprTyper
                 }
 
                 dep = true
-                args.push_back(self.sc->types->generic_param(rep, gp->index, gp->is_pack))
+                args.push_back(
+                    self.sc->types->generic_param(rep, gp->index, gp->is_pack),
+                )
             }
         }
 
@@ -1365,7 +1498,10 @@ pub class ExprTyper
             // names its builtin.
             var unsafe *id = dyn_cast<NamedIdentExpr>(e)
             if id != &null && is_annotation(id->name.kind) && !id->is_poisoned() {
-                var unsafe *b = self.tu.builtin(builtin_for_token(id->name.kind))
+                var unsafe *b = self.tu.builtin(
+                    builtin_for_token(id->name.kind),
+                )
+
                 if b != &null {
                     self.note_type_expr(e, b)
                 }
@@ -1415,7 +1551,7 @@ pub class ExprTyper
         }
 
         var t: unsafe *Type = &null
-        var it = self._typeexp.find(e as usize as u64)
+        var it              = self._typeexp.find(e as usize as u64)
         if it != self._typeexp.end() {
             t = it->second
         } else {
@@ -1534,7 +1670,11 @@ pub class ExprTyper
         // PanicEffectChecking rejects such a function used as a value.
         var pset = cxx::std::vector<unsafe *Type>()
         if f->is_panic() {
-            canonical_set(unsafe &self.tu, &panic_home(f)->panic_set, unsafe &pset)
+            canonical_set(
+                unsafe &self.tu,
+                &panic_home(f)->panic_set,
+                unsafe &pset,
+            )
         }
 
         // A named function is a function pointer: the raw `unsafe fn`, which
@@ -1624,7 +1764,11 @@ pub class ExprTyper
         var pset0 = cxx::std::vector<unsafe *Type>()
         var pset  = cxx::std::vector<unsafe *Type>()
         if f->is_panic() {
-            canonical_set(unsafe &self.tu, &panic_home(f)->panic_set, unsafe &pset0)
+            canonical_set(
+                unsafe &self.tu,
+                &panic_home(f)->panic_set,
+                unsafe &pset0,
+            )
         }
 
         for var i: usize = 0; i < pset0.size(); ++i {
@@ -1683,7 +1827,9 @@ pub class ExprTyper
             msg = f"'{text}' names an overloaded function, not a value; call it"
         }
 
-        self.sc->diag->report(DiagID::SC094E, child->range.start, msg).first(child->range)->emit()
+        self.sc->diag->report(DiagID::SC094E, child->range.start, msg).first(
+            child->range,
+        )->emit()
         child->poison()
         return true
     }
@@ -1903,7 +2049,11 @@ pub class ExprTyper
             )
 
             b.first(e->range)
-            b.note(e->range.start, f"the value has {fcs}; the target type has {tcs}")
+            b.note(
+                e->range.start,
+                f"the value has {fcs}; the target type has {tcs}",
+            )
+
             b.emit()
             e->poison()
             return false
@@ -1949,7 +2099,11 @@ pub class ExprTyper
                 // C++ constructor takes.
                 var sl = self.tu.c_string_literal(e)
                 if sl != &null {
-                    var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+                    var unsafe *cc = self.sc->types->qualified(
+                        self.tu.builtin(BuiltinKind::CChar),
+                        QUAL_CONST,
+                    )
+
                     sl->c_string = self.sc->types->pointer(cc, true)
                 }
 
@@ -1957,7 +2111,7 @@ pub class ExprTyper
             }
 
             var tn = self.tu.str(to)
-            var b  = self.sc->diag->report(
+            var b = self.sc->diag->report(
                 DiagID::SC028E,
                 e->range.start,
                 f"cannot convert '{self.tu.str(from)}' to '{tn}'",
@@ -1987,8 +2141,8 @@ pub class ExprTyper
         var hint = ""
         // A C++ `u64&` reads as its referee: kind_of sees a reference,
         // not a builtin, and the lossy-conversion hint was never chosen.
-        var fk   = self.tu.kind_of(self.tu.as_value(from))
-        var tk   = self.tu.kind_of(to)
+        var fk = self.tu.kind_of(self.tu.as_value(from))
+        var tk = self.tu.kind_of(to)
         if fk != BuiltinKind::COUNT && tk != BuiltinKind::COUNT {
             match self.conv.classify(fk, tk) {
                 case ConvClass::E {
@@ -2027,7 +2181,10 @@ pub class ExprTyper
             } else if fd != &null
                 && td != &null
                 && fd != td
-                && Substitution(self.sc).derives_from(self.tu.pointee(to), self.tu.pointee(from)) {
+                && Substitution(self.sc).derives_from(
+                    self.tu.pointee(to),
+                    self.tu.pointee(from),
+                ) {
                 hint = "; a base-to-derived pointer needs an explicit 'as'"
             }
         }
@@ -2072,14 +2229,20 @@ pub class ExprTyper
             return ""
         }
 
-        var src: unsafe *Type = fv
-        var cat               = e->value_category
-        var lit_n: u64        = 0
+        var src:   unsafe *Type = fv
+        var cat                 = e->value_category
+        var lit_n: u64          = 0
         if lit {
-            var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
-            src   = self.sc->types->pointer(cc, true)
-            cat   = Expr::ValueCategory::RValue
-            lit_n = LowerSynth(self.sc).c_literal_extent(self.tu.c_string_literal(e))
+            var unsafe *cc = self.sc->types->qualified(
+                self.tu.builtin(BuiltinKind::CChar),
+                QUAL_CONST,
+            )
+
+            src = self.sc->types->pointer(cc, true)
+            cat = Expr::ValueCategory::RValue
+            lit_n = LowerSynth(self.sc).c_literal_extent(
+                self.tu.c_string_literal(e),
+            )
         }
 
         var unsafe *d = self.tu.record_decl(tu)

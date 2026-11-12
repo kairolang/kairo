@@ -106,8 +106,8 @@ import AST::Node::Types::{
 }
 import AST::ParamMode::ParamMode
 import Diagnostic::Code::DiagCode
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::declared_here
+import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Check::CaptureAnalysis::FreeVarScan
 import Sema::Check::EffectPropagation::canonical_set
@@ -172,7 +172,11 @@ pub class <T: type> ControlTyping {
     }
 
     fn require_bool(self, e: unsafe *Expr, const what: string) -> bool {
-        var t = self.dyn()->type_of(e, self.dyn()->tu.builtin(BuiltinKind::Bool))
+        var t = self.dyn()->type_of(
+            e,
+            self.dyn()->tu.builtin(BuiltinKind::Bool),
+        )
+
         if t == &null {
             return !e->is_poisoned()
         }
@@ -212,15 +216,30 @@ pub class <T: type> ControlTyping {
                 self.dyn()->tu.builtin(BuiltinKind::Bool),
                 true,
             ) != &null {
-            var b = self.dyn()->sc->diag->report(DiagID::SC084E, e->range.start, f"{what} must be 'bool', not '{ts}'")
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC084E,
+                e->range.start,
+                f"{what} must be 'bool', not '{ts}'",
+            )
+
             b.first(e->range)
-            b.insert(e->range.end, " as bool", "convert through the C++ class operator bool")
+            b.insert(
+                e->range.end,
+                " as bool",
+                "convert through the C++ class operator bool",
+            )
+
             b.emit()
             e->poison()
             return false
         }
 
-        self.dyn()->fail(e, DiagID::SC084E, f"{what} must be 'bool', not '{ts}'")
+        self.dyn()->fail(
+            e,
+            DiagID::SC084E,
+            f"{what} must be 'bool', not '{ts}'",
+        )
+
         return false
     }
 
@@ -274,7 +293,10 @@ pub class <T: type> ControlTyping {
             if self._dependent_null_arm(arm->body, expected, acc, dep_seen) {
                 dep_seen = true
             } else {
-                at = self._arm_value(arm->body, if (expected != &null) => (expected) else => acc)
+                at = self._arm_value(
+                    arm->body,
+                    if (expected != &null) => (expected) else => acc,
+                )
             }
 
             if at == &null && !arm->body->is_poisoned() {
@@ -284,13 +306,16 @@ pub class <T: type> ControlTyping {
             var arm_end = self.dyn()->flow.env
             out  = self.dyn()->flow.join(&out, &arm_end)
             rest = ac.f
-            ok   = self._join_into(unsafe &acc, at, arm->body, "this 'else if' branch") && ok
+            ok = self._join_into(unsafe &acc, at, arm->body, "this 'else if' branch") && ok
         }
 
         self.dyn()->flow.env = rest
         var et: unsafe *Type = &null
         if !self._dependent_null_arm(n->else_expr, expected, acc, dep_seen) {
-            et = self._arm_value(n->else_expr, if (expected != &null) => (expected) else => acc)
+            et = self._arm_value(
+                n->else_expr,
+                if (expected != &null) => (expected) else => acc,
+            )
         }
 
         var else_end = self.dyn()->flow.env
@@ -439,9 +464,16 @@ pub class <T: type> ControlTyping {
                 pad = pad + " "
             }
 
-            b.insert(first->range.start, "case null { }\n" + pad, "answer null in the first arm")
+            b.insert(
+                first->range.start,
+                "case null { }\n" + pad,
+                "answer null in the first arm",
+            )
         } else {
-            b.note(first->range.start, "add 'case null => <value>' as the first arm")
+            b.note(
+                first->range.start,
+                "add 'case null => <value>' as the first arm",
+            )
         }
 
         b.emit()
@@ -521,7 +553,13 @@ pub class <T: type> ControlTyping {
             return st
         }
 
-        self.dyn()->flow.put_state(&self.dyn()->flow.env, scrutinee, Nullness::NonNull, mc->range)
+        self.dyn()->flow.put_state(
+            &self.dyn()->flow.env,
+            scrutinee,
+            Nullness::NonNull,
+            mc->range,
+        )
+
         return inner
     }
 
@@ -615,7 +653,9 @@ pub class <T: type> ControlTyping {
             return &null
         }
 
-        if dyn_cast<EnumDecl>(self.dyn()->tu.pattern_of(cast<RecordType>(u)->decl)) == &null {
+        if dyn_cast<EnumDecl>(
+            self.dyn()->tu.pattern_of(cast<RecordType>(u)->decl),
+        ) == &null {
             return &null
         }
 
@@ -631,7 +671,14 @@ pub class <T: type> ControlTyping {
         var ok                = true
         // As the statement form (StmtTyping::traverse_match_stmt).
         var entry = self.dyn()->flow.env
-        n->null_arm = self.match_null_first(n->scrutinee, &n->cases, st, n->range, false)
+        n->null_arm = self.match_null_first(
+            n->scrutinee,
+            &n->cases,
+            st,
+            n->range,
+            false,
+        )
+
         var bad_null = self.match_null_missed(n->null_arm, st)
         var fl       = self.dyn()->flow.dead_env()
         for var i: usize = 0; i < n->cases.size(); ++i {
@@ -641,7 +688,15 @@ pub class <T: type> ControlTyping {
                 fl = self.dyn()->flow.join(&fl, &end)
             }
 
-            var col = self.match_arm_enter(n->null_arm, n->scrutinee, mc, i, st, &entry)
+            var col = self.match_arm_enter(
+                n->null_arm,
+                n->scrutinee,
+                mc,
+                i,
+                st,
+                &entry,
+            )
+
             for var j: usize = 0; j < mc->patterns.size(); ++j {
                 self.dyn()->type_pattern(mc->patterns[j], col)
             }
@@ -713,7 +768,10 @@ pub class <T: type> ControlTyping {
 
                     if ft == &null {
                         var a = cxx::std::vector<*Type>()
-                        ft = self.dyn()->tu.lang_record(WellKnownType::Panic, &a)
+                        ft = self.dyn()->tu.lang_record(
+                            WellKnownType::Panic,
+                            &a,
+                        )
                     }
 
                     if ft != &null {
@@ -765,10 +823,10 @@ pub class <T: type> ControlTyping {
             return &null
         }
 
-        var bt:   unsafe *Type = &null
-        var et:   unsafe *Type = &null
-        var b_lit              = n->begin != &null && self.dyn()->is_untyped_literal(n->begin)
-        var e_lit              = n->end != &null && self.dyn()->is_untyped_literal(n->end)
+        var bt: unsafe *Type = &null
+        var et: unsafe *Type = &null
+        var b_lit = n->begin != &null && self.dyn()->is_untyped_literal(n->begin)
+        var e_lit = n->end != &null && self.dyn()->is_untyped_literal(n->end)
         // An index range's literal bounds are usize, not i32: every `op []`
         // taking a range takes `Range<usize>` (and the open forms), and a
         // `Range<i32>` from `s[1..3]` would match none of them. Only a
@@ -875,7 +933,11 @@ pub class <T: type> ControlTyping {
 
         if !self.dyn()->tu.is_lang(ot, WellKnownType::Future) {
             if self.dyn()->sc->well_known->get(WellKnownType::Future) == &null {
-                self.dyn()->missing_lang_item(n, to_string(WellKnownType::Future))
+                self.dyn()->missing_lang_item(
+                    n,
+                    to_string(WellKnownType::Future),
+                )
+
                 return &null
             }
 
@@ -959,7 +1021,10 @@ pub class <T: type> ControlTyping {
                 self.dyn()->push_null_target(p->default_val, p->type_, p)
                 self.dyn()->type_of(p->default_val, p->type_->canonical)
                 self.dyn()->pop_null_target()
-                self.dyn()->check_convertible(p->default_val, p->type_->canonical)
+                self.dyn()->check_convertible(
+                    p->default_val,
+                    p->type_->canonical,
+                )
             }
         }
 
@@ -1030,7 +1095,14 @@ pub class <T: type> ControlTyping {
         // widens to a `fn` value anywhere else (Conversion's fn rung). A
         // `var` it initializes is a `fn` value (StmtTyping::_fn_value_decay).
         var raw = self._captures_nothing(n)
-        return self.dyn()->sc->types->func(&params, &modes, canon_unqual(ret), panics, &pset, raw)
+        return self.dyn()->sc->types->func(
+            &params,
+            &modes,
+            canon_unqual(ret),
+            panics,
+            &pset,
+            raw,
+        )
     }
 
     /// \p n's free bindings (FreeVarScan, the scan ClosureCaptures decides
@@ -1093,12 +1165,20 @@ pub class <T: type> ControlTyping {
                 return &null
             }
 
-            var v = dyn_cast<EnumVariantDecl>(self.dyn()->_head_decl(n->type_expr))
+            var v = dyn_cast<EnumVariantDecl>(
+                self.dyn()->_head_decl(n->type_expr),
+            )
+
             if v != &null {
                 return self._type_variant_head(n, v)
             }
 
-            self.dyn()->fail(n, DiagID::SC088E, "initializer head does not name a type")
+            self.dyn()->fail(
+                n,
+                DiagID::SC088E,
+                "initializer head does not name a type",
+            )
+
             return &null
         }
 
@@ -1154,7 +1234,12 @@ pub class <T: type> ControlTyping {
         }
 
         if d == &null {
-            self.dyn()->fail(n, DiagID::SC088E, f"'{self.dyn()->tu.str(rec)}' is not an aggregate")
+            self.dyn()->fail(
+                n,
+                DiagID::SC088E,
+                f"'{self.dyn()->tu.str(rec)}' is not an aggregate",
+            )
+
             return &null
         }
 
@@ -1179,7 +1264,12 @@ pub class <T: type> ControlTyping {
             var unsafe *f      = fields.get(i)
             var        spelled = self.dyn()->sc->ctx->get_spelling(f->name)
             var        imm     = self.dyn()->sc->ctx->get_ident_imm(f->name)
-            var cell = self.dyn()->sc->lookup.in_context(dc, DeclName::ident(imm), spelled)
+            var cell = self.dyn()->sc->lookup.in_context(
+                dc,
+                DeclName::ident(imm),
+                spelled,
+            )
+
             var fd: unsafe *FieldDecl = &null
             if cell.found() {
                 fd = dyn_cast<FieldDecl>(cell.first())
@@ -1413,7 +1503,9 @@ pub class <T: type> ControlTyping {
         var nm               = self.dyn()->sc->ctx->get_spelling(n->dotted_name)
         var st: unsafe *Type = &null
         if expected != &null {
-            st = canon_unqual(self.dyn()->tu.strip_nullable(self.dyn()->tu.as_value(expected)))
+            st = canon_unqual(
+                self.dyn()->tu.strip_nullable(self.dyn()->tu.as_value(expected)),
+            )
         }
 
         if st == &null {
@@ -1456,7 +1548,14 @@ pub class <T: type> ControlTyping {
             return &null
         }
 
-        return self._check_variant(n, en, idx as usize, st, n->has_braces, n->fields)
+        return self._check_variant(
+            n,
+            en,
+            idx as usize,
+            st,
+            n->has_braces,
+            n->fields,
+        )
     }
 
     /// Check one variant construction, written as \p n, and record it: the
@@ -1480,8 +1579,11 @@ pub class <T: type> ControlTyping {
                            braces: bool,
                            fields: FrozenList<Expressions::InitField>) -> unsafe *Type {
         var unsafe *v = en->variants[idx]
-        var        nm = self.dyn()->tu.decl_name(en) + "::" + self.dyn()->tu.decl_name(v)
-        var        np = v->payload.size()
+        var nm = self.dyn()->tu.decl_name(en) + "::" + self.dyn()->tu.decl_name(
+            v,
+        )
+
+        var np = v->payload.size()
 
         if np == 0 && braces {
             self._type_fields_unknown(fields)
@@ -1526,7 +1628,11 @@ pub class <T: type> ControlTyping {
                     f"building pack-expanded variant '{nm}' at a type that depends on a generic parameter is not supported yet",
                 )
 
-                b.first(n->range, "which element this builds is known only per instance")
+                b.first(
+                    n->range,
+                    "which element this builds is known only per instance",
+                )
+
                 b.note(
                     DiagCode(DiagID::SC116N),
                     v->range.start,
@@ -1546,7 +1652,10 @@ pub class <T: type> ControlTyping {
                 )
 
                 b.first(n->range)
-                b.note(v->range.start, "one variant per element of the pack")->child_first(v->range)
+                b.note(v->range.start, "one variant per element of the pack")->child_first(
+                    v->range,
+                )
+
                 b.emit()
                 self.dyn()->poison_only(n)
                 return &null
@@ -1762,11 +1871,17 @@ pub class <T: type> ControlTyping {
                 var what = self.dyn()->tu.str(vals[0]->type_)
                 var msg = if (hits == 0) => (f"no '{nm}' of '{self.dyn()->tu.str(rec)}' holds a '{what}'")
                           else => f"a '{what}' fits more than one '{nm}' of '{self.dyn()->tu.str(rec)}'; the payload's type must pick one"
-                var b = self.dyn()->sc->diag->report(DiagID::SC256E, vals[0]->range.start, msg)
-                b.first(vals[0]->range, "the payload's type picks the variant")
-                b.note(v->range.start, f"its variants here: {ve->describe(rec, v)}")->child_first(
-                    v->range,
+                var b = self.dyn()->sc->diag->report(
+                    DiagID::SC256E,
+                    vals[0]->range.start,
+                    msg,
                 )
+
+                b.first(vals[0]->range, "the payload's type picks the variant")
+                b.note(
+                    v->range.start,
+                    f"its variants here: {ve->describe(rec, v)}",
+                )->child_first(v->range)
 
                 b.emit()
                 return -1
@@ -1929,7 +2044,10 @@ pub class <T: type> ControlTyping {
             && t != &null
             && self.dyn()->tu.pointee(t) != &null
             && !self.dyn()->tu.is_unsafe_ptr(t) {
-            return self.dyn()->sc->types->pointer(self.dyn()->tu.pointee(t), true)
+            return self.dyn()->sc->types->pointer(
+                self.dyn()->tu.pointee(t),
+                true,
+            )
         }
 
         return t
@@ -2062,7 +2180,11 @@ pub class <T: type> ControlTyping {
             }
 
             elem = et->canonical
-            var ct = self.dyn()->type_of(n->count, self.dyn()->tu.builtin(BuiltinKind::USize))
+            var ct = self.dyn()->type_of(
+                n->count,
+                self.dyn()->tu.builtin(BuiltinKind::USize),
+            )
+
             if self.dyn()->propagate(n, n->count) {
                 return &null
             }

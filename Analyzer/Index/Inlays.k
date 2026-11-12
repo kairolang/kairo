@@ -12,19 +12,17 @@
 /// ------------------------------------------------------------------------ ///
 
 
-import Index::Snapshot::*
-import Protocol::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
-import AST::Context::ImportOverlay::{
-    ImportOverlay,
-    OverlayVisibility,
-}
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
+}
+import AST::Context::ImportOverlay::{
+    ImportOverlay,
+    OverlayVisibility,
 }
 import AST::Context::SymbolTable::{
     DeclName,
@@ -62,12 +60,23 @@ import AST::Node::Types
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
+import Index::Bases::*
+import Index::CompletionItems::*
+import Index::Hovers::*
+import Index::Indexer::*
+import Index::Legend::*
+import Index::Macros::*
+import Index::Refs::*
+import Index::Snapshot::*
+import Index::Tokens::*
+import Index::Writer::*
 import Json::JsonWriter
 import Lexer::Immediate::ImmediateTable
 import Lexer::Lexer::Lexer
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Protocol::*
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
     SemaContext,
@@ -76,20 +85,11 @@ import Sema::SemaContext::{
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
-import Token::TokenText::TokenText
 import Token::TokenKind::{
     TokenKind,
     is_keyword,
 }
-import Index::Bases::*
-import Index::CompletionItems::*
-import Index::Hovers::*
-import Index::Indexer::*
-import Index::Legend::*
-import Index::Macros::*
-import Index::Refs::*
-import Index::Tokens::*
-import Index::Writer::*
+import Token::TokenText::TokenText
 
 extend IndexWalker {
     /// `name:` before each argument of a call to \p d, as an editor shows a
@@ -137,7 +137,8 @@ extend IndexWalker {
                 continue
             }
 
-            if isa<NamedIdentExpr>(arg) && (self.ast_()->get_spelling(cast<NamedIdentExpr>(arg)->name) == pn) {
+            if isa<NamedIdentExpr>(arg)
+                && (self.ast_()->get_spelling(cast<NamedIdentExpr>(arg)->name) == pn) {
                 continue
             }
 

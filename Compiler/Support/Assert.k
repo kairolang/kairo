@@ -64,7 +64,9 @@ pub class Assert {
             const s = cxx::std::chrono::steady_clock::now()
             dummy = s.time_since_epoch().count() // force materialization
             const e = cxx::std::chrono::steady_clock::now()
-            total += cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(e - s)
+            total += cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
+                e - s,
+            )
         }
 
         return total.count() / iterations
@@ -79,7 +81,9 @@ pub class Assert {
         }
 
         const end = cxx::std::chrono::steady_clock::now()
-        const dur = cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(end - start)
+        const dur = cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
+            end - start,
+        )
 
         const ns = (dur.count() as u64) / (iters as u64) - (self.overhead_ns as u64)
         const us = (ns as f64) / 1000.0

@@ -350,7 +350,14 @@ pub fn _amt_mode_choices() -> cxx::std::vector<string> {
 pub fn register_kairo_flags(cmd: unsafe *Command) {
     //  IDENTITY
 
-    cmd->define<FlagKind::Bool>("help", "h", "help", "show this help message and exit", false)
+    cmd->define<FlagKind::Bool>(
+        "help",
+        "h",
+        "help",
+        "show this help message and exit",
+        false,
+    )
+
     cmd->define<FlagKind::Bool>(
         "help-hidden",
         "",
@@ -359,7 +366,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         false,
     )
 
-    cmd->define<FlagKind::Bool>("version", "V", "version", "print compiler version and exit", false)
+    cmd->define<FlagKind::Bool>(
+        "version",
+        "V",
+        "version",
+        "print compiler version and exit",
+        false,
+    )
+
     cmd->define<FlagKind::String>(
         "explain",
         "",
@@ -813,7 +827,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "",
     )
 
-    cmd->define<FlagKind::String>("host", "", "host", "host triple (defaults to native)", "")
+    cmd->define<FlagKind::String>(
+        "host",
+        "",
+        "host",
+        "host triple (defaults to native)",
+        "",
+    )
+
     cmd->define<FlagKind::String>(
         "march",
         "",
@@ -838,7 +859,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "",
     )
 
-    cmd->define<FlagKind::String>("mabi", "", "mabi", "target ABI (e.g. lp64d, ilp32, eabihf)", "")
+    cmd->define<FlagKind::String>(
+        "mabi",
+        "",
+        "mabi",
+        "target ABI (e.g. lp64d, ilp32, eabihf)",
+        "",
+    )
+
     cmd->define<FlagKind::String>(
         "mfeatures",
         "",
@@ -855,7 +883,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         false,
     )
 
-    cmd->define<FlagKind::Bool>("m64", "", "m64", "force 64-bit code generation", false)
+    cmd->define<FlagKind::Bool>(
+        "m64",
+        "",
+        "m64",
+        "force 64-bit code generation",
+        false,
+    )
+
     cmd->define<FlagKind::Bool>(
         "native",
         "",
@@ -1208,7 +1243,11 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "verify all interface impl T declarations are fully satisfied (on)",
     )
 
-    cmd->define<FlagKind::Feature>("const-checks", "strict const correctness enforcement (on)")
+    cmd->define<FlagKind::Feature>(
+        "const-checks",
+        "strict const correctness enforcement (on)",
+    )
+
     cmd->define<FlagKind::Feature>(
         "overflow-checks",
         "integer overflow checking - on in debug, off in release by default",
@@ -1219,11 +1258,16 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "treat nullable pointer dereference as a hard error",
     )
 
-    cmd->define<FlagKind::Feature>("implicit-conv", "allow implicit type conversions (on)")
+    cmd->define<FlagKind::Feature>(
+        "implicit-conv",
+        "allow implicit type conversions (on)",
+    )
+
     cmd->define<FlagKind::Feature>(
         "cxx-implicit-conv",
         "at a call into C++, apply the implicit conversions C++ would (off: write 'as T')",
     )
+
     cmd->define<FlagKind::Feature>("rtti", "runtime type information (on)")
     cmd->define<FlagKind::Feature>(
         "union-inference",
@@ -1283,25 +1327,53 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
 
     // codegen / optimization (off by default unless noted) -----------------
     cmd->define<FlagKind::Feature>("inline", "function inlining (on)")
-    cmd->define<FlagKind::Feature>("force-inline", "honour @force_inline() directives (on)")
+    cmd->define<FlagKind::Feature>(
+        "force-inline",
+        "honour @force_inline() directives (on)",
+    )
+
     cmd->define<FlagKind::Feature>("tail-call", "tail call optimization")
-    cmd->define<FlagKind::Feature>("dead-code-elim", "dead code elimination (on)")
+    cmd->define<FlagKind::Feature>(
+        "dead-code-elim",
+        "dead code elimination (on)",
+    )
+
     cmd->define<FlagKind::Feature>(
         "vectorize",
         "auto-vectorisation (loop + SLP); on at every level above -O0",
     )
 
     cmd->define<FlagKind::Feature>("unroll-loops", "loop unrolling")
-    cmd->define<FlagKind::Feature>("merge-functions", "merge identical functions (ICF)")
-    cmd->define<FlagKind::Feature>("function-sections", "place each function in its own section")
-    cmd->define<FlagKind::Feature>("data-sections", "place each variable in its own section")
-    cmd->define<FlagKind::Feature>("omit-frame-pointer", "omit frame pointer in leaf functions")
+    cmd->define<FlagKind::Feature>(
+        "merge-functions",
+        "merge identical functions (ICF)",
+    )
+
+    cmd->define<FlagKind::Feature>(
+        "function-sections",
+        "place each function in its own section",
+    )
+
+    cmd->define<FlagKind::Feature>(
+        "data-sections",
+        "place each variable in its own section",
+    )
+
+    cmd->define<FlagKind::Feature>(
+        "omit-frame-pointer",
+        "omit frame pointer in leaf functions",
+    )
+
     cmd->define<FlagKind::Feature>(
         "fast-math",
         "aggressive floating-point optimisations (may break IEEE754 compliance)",
     )
 
-    cmd->define<FlagKind::Feature>("export-all", "export all top-level symbols by default")
+    cmd->define<FlagKind::Feature>(
+        "export-all",
+        "export all top-level symbols by default",
+    )
+
     cmd->define<FlagKind::Feature>(
         "shared-header-set",
         "parse the build's C++ header lists once, as one union, instead of once per list (on)",
@@ -1320,7 +1392,11 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "position-independent executable (a link-time choice; code generation is unchanged)",
     )
 
-    cmd->define<FlagKind::Feature>("split-stack", "segmented stack (for green-thread runtimes)")
+    cmd->define<FlagKind::Feature>(
+        "split-stack",
+        "segmented stack (for green-thread runtimes)",
+    )
+
     cmd->define<FlagKind::Feature>(
         "trap-unreachable",
         "lower unreachable to a hardware trap instruction rather than UB",
@@ -1352,7 +1428,11 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
 
     // instrumentation
-    cmd->define<FlagKind::Feature>("coverage", "source-level coverage instrumentation")
+    cmd->define<FlagKind::Feature>(
+        "coverage",
+        "source-level coverage instrumentation",
+    )
+
     cmd->define<FlagKind::Feature>(
         "profile-generate",
         "PGO instrumentation pass (generates .profraw)",
@@ -1427,11 +1507,26 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "WASM threads: link with --shared-memory (needs +atomics in the objects)",
     )
 
-    cmd->define<FlagKind::Feature>("wasm-tail-calls", "enable WASM tail calls proposal")
+    cmd->define<FlagKind::Feature>(
+        "wasm-tail-calls",
+        "enable WASM tail calls proposal",
+    )
+
     cmd->define<FlagKind::Feature>("wasm-simd", "enable WASM SIMD proposal")
-    cmd->define<FlagKind::Feature>("wasm-sign-ext", "enable WASM sign extension operators proposal")
-    cmd->define<FlagKind::Feature>("wasm-reference-types", "enable WASM reference types proposal")
-    cmd->define<FlagKind::Feature>("wasm-exceptions", "enable WASM exception handling proposal")
+    cmd->define<FlagKind::Feature>(
+        "wasm-sign-ext",
+        "enable WASM sign extension operators proposal",
+    )
+
+    cmd->define<FlagKind::Feature>(
+        "wasm-reference-types",
+        "enable WASM reference types proposal",
+    )
+
+    cmd->define<FlagKind::Feature>(
+        "wasm-exceptions",
+        "enable WASM exception handling proposal",
+    )
 
     //  DEFINES & CONFIG FLAGS
 
@@ -1514,8 +1609,22 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         false,
     )
 
-    cmd->define<FlagKind::Bool>("Werror", "", "Werror", "treat all warnings as errors", false)
-    cmd->define<FlagKind::Bool>("nowarn", "w", "", "suppress all warnings", false)
+    cmd->define<FlagKind::Bool>(
+        "Werror",
+        "",
+        "Werror",
+        "treat all warnings as errors",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "nowarn",
+        "w",
+        "",
+        "suppress all warnings",
+        false,
+    )
+
     cmd->define<FlagKind::StringList>(
         "warn",
         "W",
@@ -2445,6 +2554,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "with --emit-headers: put #line directives naming the Kairo source in each header (for the language server)",
         false,
     )
+
     cmd->mark_hidden("emit-headers-line-directives")
 
     // The same, with each declaration on the PHYSICAL line it has in the .k
@@ -2458,6 +2568,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "with --emit-headers: lay each header out on its Kairo lines, with #line directives (for the language server)",
         false,
     )
+
     cmd->mark_hidden("emit-headers-layout")
 
     // The language server's index run: syntax errors do not stop the graph
@@ -2470,6 +2581,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "type-check the files syntax errors leave sound, for a tool's index; the diagnostics and the failure are unchanged",
         false,
     )
+
     cmd->mark_hidden("check-past-syntax-errors")
 
     cmd->define<FlagKind::Bool>(
@@ -3366,10 +3478,38 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
 pub fn register_test_flags(cmd: *Command) {
     // general
     //          Flag Type        Key             Short  Long           Description                                        Default
-    cmd->define<FlagKind::Bool>("help", "h", "help", "show this help and exit", false)
-    cmd->define<FlagKind::Bool>("version", "", "version", "print compiler version and exit", false)
-    cmd->define<FlagKind::Bool>("verbose", "v", "verbose", "enable verbose output", false)
-    cmd->define<FlagKind::Bool>("quiet", "", "quiet", "suppress all non-error output", false)
+    cmd->define<FlagKind::Bool>(
+        "help",
+        "h",
+        "help",
+        "show this help and exit",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "version",
+        "",
+        "version",
+        "print compiler version and exit",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "verbose",
+        "v",
+        "verbose",
+        "enable verbose output",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "quiet",
+        "",
+        "quiet",
+        "suppress all non-error output",
+        false,
+    )
+
     cmd->define<FlagKind::String>(
         "explain",
         "",
@@ -3397,9 +3537,29 @@ pub fn register_test_flags(cmd: *Command) {
         false,
     )
 
-    cmd->define<FlagKind::Bool>("emit-asm", "S", "emit-asm", "emit assembly output", false)
-    cmd->define<FlagKind::Bool>("preprocess", "E", "preprocess", "run preprocessor only", false)
-    cmd->define<FlagKind::String>("emit", "", "emit", "emit IR type (ast|ir|llvm|asm|obj)", "obj")
+    cmd->define<FlagKind::Bool>(
+        "emit-asm",
+        "S",
+        "emit-asm",
+        "emit assembly output",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "preprocess",
+        "E",
+        "preprocess",
+        "run preprocessor only",
+        false,
+    )
+
+    cmd->define<FlagKind::String>(
+        "emit",
+        "",
+        "emit",
+        "emit IR type (ast|ir|llvm|asm|obj)",
+        "obj",
+    )
 
     // include / link
     cmd->define<FlagKind::PathList>(
@@ -3416,8 +3576,21 @@ pub fn register_test_flags(cmd: *Command) {
         "add directory to library search path",
     )
 
-    cmd->define<FlagKind::PathList>("link-libs", "l", "link", "link against library")
-    cmd->define<FlagKind::String>("sysroot", "", "sysroot", "override sysroot", "")
+    cmd->define<FlagKind::PathList>(
+        "link-libs",
+        "l",
+        "link",
+        "link against library",
+    )
+
+    cmd->define<FlagKind::String>(
+        "sysroot",
+        "",
+        "sysroot",
+        "override sysroot",
+        "",
+    )
+
     cmd->define<FlagKind::String>(
         "resource-dir",
         "",
@@ -3426,9 +3599,29 @@ pub fn register_test_flags(cmd: *Command) {
         "",
     )
 
-    cmd->define<FlagKind::String>("prelude", "", "prelude", "path to custom prelude file", "")
-    cmd->define<FlagKind::Bool>("no-prelude", "", "no-prelude", "disable implicit prelude", false)
-    cmd->define<FlagKind::Bool>("no-stdlib", "", "no-stdlib", "disable standard library", false)
+    cmd->define<FlagKind::String>(
+        "prelude",
+        "",
+        "prelude",
+        "path to custom prelude file",
+        "",
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "no-prelude",
+        "",
+        "no-prelude",
+        "disable implicit prelude",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "no-stdlib",
+        "",
+        "no-stdlib",
+        "disable standard library",
+        false,
+    )
 
     // target
     cmd->define<FlagKind::String>(
@@ -3440,24 +3633,73 @@ pub fn register_test_flags(cmd: *Command) {
     )
 
     cmd->define<FlagKind::String>("host", "", "host", "host triple", "")
-    cmd->define<FlagKind::String>("march", "", "march", "target architecture", "")
+    cmd->define<FlagKind::String>(
+        "march",
+        "",
+        "march",
+        "target architecture",
+        "",
+    )
+
     cmd->define<FlagKind::String>("mcpu", "", "mcpu", "target CPU", "")
     cmd->define<FlagKind::String>("mabi", "", "mabi", "target ABI", "")
     cmd->define<FlagKind::String>("mtune", "", "mtune", "tune for CPU", "")
 
     // optimization
     cmd->define(
-        FlagDef::str_c("opt", "O", "", "optimization level", "0", _opt_level_choices(), "1"),
+        FlagDef::str_c(
+            "opt",
+            "O",
+            "",
+            "optimization level",
+            "0",
+            _opt_level_choices(),
+            "1",
+        ),
     )
 
     cmd->define<FlagKind::Bool>("debug", "g", "", "emit debug symbols", false)
-    cmd->define<FlagKind::Bool>("no-debug", "", "g0", "strip debug symbols", false)
+    cmd->define<FlagKind::Bool>(
+        "no-debug",
+        "",
+        "g0",
+        "strip debug symbols",
+        false,
+    )
 
     // warnings
-    cmd->define<FlagKind::Bool>("nowarn", "w", "", "suppress all warnings", false)
-    cmd->define<FlagKind::Bool>("wall", "", "Wall", "enable common warnings", false)
-    cmd->define<FlagKind::Bool>("wextra", "", "Wextra", "enable extra warnings", false)
-    cmd->define<FlagKind::Bool>("werror", "", "Werror", "treat warnings as errors", false)
+    cmd->define<FlagKind::Bool>(
+        "nowarn",
+        "w",
+        "",
+        "suppress all warnings",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "wall",
+        "",
+        "Wall",
+        "enable common warnings",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "wextra",
+        "",
+        "Wextra",
+        "enable extra warnings",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "werror",
+        "",
+        "Werror",
+        "treat warnings as errors",
+        false,
+    )
+
     cmd->define<FlagKind::String>(
         "diag-format",
         "",
@@ -3467,7 +3709,11 @@ pub fn register_test_flags(cmd: *Command) {
     )
 
     // language features  (-f{name} / -fno-{name}, query via get_feature) ----
-    cmd->define<FlagKind::Feature>("unsafe", "allow unsafe operations (-funsafe / -fno-unsafe)")
+    cmd->define<FlagKind::Feature>(
+        "unsafe",
+        "allow unsafe operations (-funsafe / -fno-unsafe)",
+    )
+
     cmd->define<FlagKind::Feature>(
         "exceptions",
         "enable C++ style exceptions (-fexceptions / -fno-exceptions)",
@@ -3483,7 +3729,11 @@ pub fn register_test_flags(cmd: *Command) {
         "strict null pointer checks (-fstrict-null / -fno-strict-null)",
     )
 
-    cmd->define<FlagKind::Feature>("inline", "function inlining (-finline / -fno-inline)")
+    cmd->define<FlagKind::Feature>(
+        "inline",
+        "function inlining (-finline / -fno-inline)",
+    )
+
     cmd->define<FlagKind::Feature>(
         "const-checks",
         "const correctness checks (-fconst-checks / -fno-const-checks)",
@@ -3504,8 +3754,18 @@ pub fn register_test_flags(cmd: *Command) {
         "union type inference (-funion-inference / -fno-union-inference)",
     )
 
-    cmd->define<FlagKind::Feature>("export", "module export (-fexport / -fno-export)")
-    cmd->define<FlagKind::String>("std", "", "std", "language standard (e.g. kairo25)", "")
+    cmd->define<FlagKind::Feature>(
+        "export",
+        "module export (-fexport / -fno-export)",
+    )
+
+    cmd->define<FlagKind::String>(
+        "std",
+        "",
+        "std",
+        "language standard (e.g. kairo25)",
+        "",
+    )
 
     // hardening
     cmd->define<FlagKind::StringList>(
@@ -3531,8 +3791,22 @@ pub fn register_test_flags(cmd: *Command) {
         false,
     )
 
-    cmd->define<FlagKind::Bool>("pie", "", "fPIE", "build position-independent executable", false)
-    cmd->define<FlagKind::Bool>("pic", "", "fPIC", "build position-independent code", false)
+    cmd->define<FlagKind::Bool>(
+        "pie",
+        "",
+        "fPIE",
+        "build position-independent executable",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "pic",
+        "",
+        "fPIC",
+        "build position-independent code",
+        false,
+    )
+
     cmd->define<FlagKind::Bool>(
         "fast-math",
         "",
@@ -3541,14 +3815,38 @@ pub fn register_test_flags(cmd: *Command) {
         false,
     )
 
-    cmd->define<FlagKind::Bool>("no-rtti", "", "fno-rtti-data", "disable RTTI data", false)
+    cmd->define<FlagKind::Bool>(
+        "no-rtti",
+        "",
+        "fno-rtti-data",
+        "disable RTTI data",
+        false,
+    )
 
     // pass-through
-    cmd->define<FlagKind::StringList>("xcxx", "", "Xcxx", "pass flag directly to C++ backend")
-    cmd->define<FlagKind::StringList>("xlinker", "", "Xlinker", "pass flag directly to linker")
+    cmd->define<FlagKind::StringList>(
+        "xcxx",
+        "",
+        "Xcxx",
+        "pass flag directly to C++ backend",
+    )
+
+    cmd->define<FlagKind::StringList>(
+        "xlinker",
+        "",
+        "Xlinker",
+        "pass flag directly to linker",
+    )
 
     // misc
-    cmd->define<FlagKind::Bool>("save-temps", "", "save-temps", "keep intermediate files", false)
+    cmd->define<FlagKind::Bool>(
+        "save-temps",
+        "",
+        "save-temps",
+        "keep intermediate files",
+        false,
+    )
+
     cmd->define<FlagKind::Bool>(
         "coverage",
         "",
@@ -3557,8 +3855,23 @@ pub fn register_test_flags(cmd: *Command) {
         false,
     )
 
-    cmd->define<FlagKind::Bool>("dump-passes", "", "dump-passes", "dump optimization passes", false)
-    cmd->define<FlagKind::F64>("threshold", "", "threshold", "inlining threshold", 1.0, 0.0, 1.0)
+    cmd->define<FlagKind::Bool>(
+        "dump-passes",
+        "",
+        "dump-passes",
+        "dump optimization passes",
+        false,
+    )
+
+    cmd->define<FlagKind::F64>(
+        "threshold",
+        "",
+        "threshold",
+        "inlining threshold",
+        1.0,
+        0.0,
+        1.0,
+    )
 
     // config flags  (--c{key}=value, query via get_cfg_*) ------------------
     cmd->define_cfg<FlagKind::I32>(
@@ -3593,7 +3906,14 @@ pub fn register_test_flags(cmd: *Command) {
         64i32,
     )
 
-    cmd->define_cfg<FlagKind::F64>("inline-cost", "inliner cost threshold", 1.0, 0.0, 100.0)
+    cmd->define_cfg<FlagKind::F64>(
+        "inline-cost",
+        "inliner cost threshold",
+        1.0,
+        0.0,
+        100.0,
+    )
+
     cmd->define_cfg<FlagKind::String>(
         "error-format",
         "error output format (pretty|json|clang)",
@@ -3603,7 +3923,10 @@ pub fn register_test_flags(cmd: *Command) {
     cmd->define_cfg<FlagKind::Bool>("color", "force colored output", true)
 
     // positional files (must be last)
-    cmd->define<FlagKind::PathList>("files", "or run command with --help to see usage")
+    cmd->define<FlagKind::PathList>(
+        "files",
+        "or run command with --help to see usage",
+    )
 }
 
 pub fn Test() -> i32 {
@@ -4114,7 +4437,10 @@ pub fn Test() -> i32 {
         "cross-compile",
         "pass",
         fn () -> string {
-            var r = cmd_p->parse_string("--target=aarch64-linux-gnu --march=armv8-a -O2 -g main.k")
+            var r = cmd_p->parse_string(
+                "--target=aarch64-linux-gnu --march=armv8-a -O2 -g main.k",
+            )
+
             if r.get_string("target") != "aarch64-linux-gnu" {
                 return "target"
             }
@@ -4174,7 +4500,10 @@ pub fn Test() -> i32 {
         "asan build",
         "pass",
         fn () -> string {
-            var r = cmd_p->parse_string("-fsanitize=address -fno-omit-frame-pointer -g main.k")
+            var r = cmd_p->parse_string(
+                "-fsanitize=address -fno-omit-frame-pointer -g main.k",
+            )
+
             if r.get_list("sanitize")->size() == 0 {
                 return "sanitize list empty"
             }
@@ -4386,7 +4715,10 @@ pub fn Test() -> i32 {
         "multiple features in one invocation",
         "pass",
         fn () -> string {
-            var r = cmd_p->parse_string("-funsafe -fno-exceptions -fstrict-null main.k")
+            var r = cmd_p->parse_string(
+                "-funsafe -fno-exceptions -fstrict-null main.k",
+            )
+
             if r.get_feature("unsafe") != 1 {
                 return "unsafe"
             }

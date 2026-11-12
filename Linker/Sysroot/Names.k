@@ -328,7 +328,7 @@ pub class SysNames {
         var ver     = ""
         var spelled = SysNames::split_glibc(input, &ver)
         var glibc   = if (ver.empty()) => (glibc_default) else => ver
-        var named   = if (ver.empty()) => (spelled) else => spelled + "-glibc" + ver
+        var named = if (ver.empty()) => (spelled) else => spelled + "-glibc" + ver
         if LinkText::ends_with(input, "-glibc") {
             why = f"\x27{input}\x27 names no glibc version after -glibc"
             return false
@@ -602,7 +602,7 @@ pub class SysNames {
             rt = "aarch64"
         } else if cpu == "arm" {
             var skip: usize = if (LinkText::starts_with(arch, "thumb")) => (5) else => 3
-            var sub         = LinkText::slice(arch, skip, arch.size())
+            var sub = LinkText::slice(arch, skip, arch.size())
             if os == "windows" {
                 rt = "arm"
             } else if LinkText::starts_with(sub, "v6") {

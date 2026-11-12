@@ -252,7 +252,9 @@ pub class <T> TypeQual {
     fn address_space(const self) -> AddressSpace {
         eval if defined!(DEBUG) {
             if !self.has_address_space() {
-                kairo::std::ice_fail(r"address_space() called on TypeQual without address space")
+                kairo::std::ice_fail(
+                    r"address_space() called on TypeQual without address space",
+                )
             }
         }
 
@@ -413,7 +415,9 @@ pub class <T> TypeQual {
         if self.ext == &null {
             eval if defined!(DEBUG) {
                 if !(new_ext != &null) {
-                    kairo::std::ice_fail(r"Must provide ExtQuals node for initial assignment")
+                    kairo::std::ice_fail(
+                        r"Must provide ExtQuals node for initial assignment",
+                    )
                 }
             }
 
@@ -506,7 +510,9 @@ pub class <T> TypeQual {
     fn op | (const self, const other: TypeQual<T>) -> TypeQual<T> {
         eval if defined!(DEBUG) {
             if !(!self.has_ext_quals() && !other.has_ext_quals()) {
-                kairo::std::ice_fail(r"use merge_with() when address spaces may be involved")
+                kairo::std::ice_fail(
+                    r"use merge_with() when address spaces may be involved",
+                )
             }
         }
 

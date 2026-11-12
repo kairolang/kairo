@@ -50,19 +50,19 @@ pub fn project_file_name() -> string {
 
 /// One entry point and the command that compiles it.
 pub class ProjectEntry {
-    pub var entry: string = ""                ///< absolute path
-    pub var dir:   string = ""                ///< absolute working directory
-    pub var args:  [string]   ///< without the entry itself
+    pub var entry: string   = "" ///< absolute path
+    pub var dir:   string   = "" ///< absolute working directory
+    pub var args:  [string]      ///< without the entry itself
 
     fn ProjectEntry(self) = default
 }
 
 pub class Project {
-    pub var path:         string = ""  ///< the project file, or "" when there is none
-    pub var dir:          string = ""  ///< its directory: the root files are indexed under
+    pub var path:         string         = "" ///< the project file, or "" when there is none
+    pub var dir:          string         = "" ///< its directory: the root files are indexed under
     pub var entries:      [ProjectEntry]
     pub var default_args: [string]
-    pub var error:        string = ""  ///< why the file could not be used, for the editor
+    pub var error:        string         = "" ///< why the file could not be used, for the editor
 
     fn Project(self) = default
 
@@ -119,7 +119,7 @@ pub class Project {
 
         var e = doc.first(doc.get(doc.root, "entries"))
         while e != JSON_NONE() {
-            var pe = ProjectEntry()
+            var pe      = ProjectEntry()
             var rel_dir = doc.get_str(e, "directory")
             pe.dir = self.dir
             if !rel_dir.empty() {
@@ -129,7 +129,7 @@ pub class Project {
             var entry = doc.get_str(e, "entry")
             if entry.empty() {
                 self.error = self.path + ": an entry has no \"entry\" file"
-                e = doc.next(e)
+                e          = doc.next(e)
                 continue
             }
 

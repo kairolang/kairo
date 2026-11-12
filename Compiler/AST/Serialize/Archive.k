@@ -64,22 +64,9 @@ import AST::Serialize::ByteBuffer::{
     ByteWriter,
 }
 import AST::Serialize::Format::{
-    CAT_DECL,
-    CAT_EXPR,
-    CAT_PATTERN,
-    CAT_STMT,
-    CAT_TYPE,
-    PAY_CHAR,
-    PAY_EXPANSION,
-    PAY_FLOAT,
-    PAY_INT,
-    PAY_STRING,
-    TOK_EXPANDED,
-    TOK_IDENT,
-    TOK_LITERAL,
-    TOK_NONE,
-    TOK_NUMBER,
-    TOK_SENTINEL,
+    CAT_DECL,   CAT_EXPR,     CAT_PATTERN, CAT_STMT,     CAT_TYPE,  PAY_CHAR,    PAY_EXPANSION,
+    PAY_FLOAT,  PAY_INT,      PAY_STRING,  TOK_EXPANDED, TOK_IDENT, TOK_LITERAL, TOK_NONE,
+    TOK_NUMBER, TOK_SENTINEL,
 }
 import AST::Serialize::StringTable::StringTable
 import Lexer::ImmBig::{
@@ -112,10 +99,10 @@ pub struct NodeSlot {
 /// target). Identified by what is the same on every machine: its module
 /// path, its file name and its bytes.
 pub struct FileEntry {
-    pub var name: string ///< module path, `::`-joined; empty for a pathless file.
-    pub var base: string ///< file name, no directories.
+    pub var name: string            ///< module path, `::`-joined; empty for a pathless file.
+    pub var base: string            ///< file name, no directories.
     pub var size: u64    = 0
-    pub var hash: string ///< xxh3-128 of its bytes, 32 hex digits.
+    pub var hash: string            ///< xxh3-128 of its bytes, 32 hex digits.
     pub var fid:  u32    = u32::MAX ///< this process's fid; never written.
 }
 
@@ -137,14 +124,14 @@ pub enum ArchiveMode derives u8 {
 pub class ASTArchive {
     //  mode and environment
 
-    priv var _mode: ArchiveMode = ArchiveMode::Unbound
-    pub var ctx:     unsafe *ASTContext               = &null
-    pub var tu:      unsafe *TranslationUnit          = &null
-    pub var sm:      unsafe *SourceManager            = &null
-    pub var tcm:     unsafe *TokenCacheManager        = &null
-    pub var psym:    unsafe *PreprocessorSymbolTable  = &null
-    pub var gs:      unsafe *GlobalDisambigTable      = &null
-    pub var fid:     u32                              = 0
+    priv var _mode: ArchiveMode                     = ArchiveMode::Unbound
+    pub var  ctx:   unsafe *ASTContext              = &null
+    pub var  tu:    unsafe *TranslationUnit         = &null
+    pub var  sm:    unsafe *SourceManager           = &null
+    pub var  tcm:   unsafe *TokenCacheManager       = &null
+    pub var  psym:  unsafe *PreprocessorSymbolTable = &null
+    pub var  gs:    unsafe *GlobalDisambigTable     = &null
+    pub var  fid:   u32                             = 0
 
     /// Raw id of this file's offset 0, and its size: a location inside
     /// [base, base + size] is this file's without asking the SourceManager.
@@ -195,9 +182,9 @@ pub class ASTArchive {
     pub var nodes:    [NodeSlot]
     var     node_ids: {u64: u32}
 
-    var payload_ids:  {u64: u32}
-    var payload_imm:  [u32]
-    var payload_cls:  [u8]
+    var payload_ids: {u64: u32}
+    var payload_imm: [u32]
+    var payload_cls: [u8]
 
     //  hooks into the node files (set by the serializer)
 
@@ -244,7 +231,9 @@ pub class ASTArchive {
     priv fn _begin(self, to: ArchiveMode) {
         eval if defined!(DEBUG) {
             if self._mode != ArchiveMode::Unbound {
-                kairo::std::ice_fail(r"ASTArchive: an archive is single-use; this one already ran")
+                kairo::std::ice_fail(
+                    r"ASTArchive: an archive is single-use; this one already ran",
+                )
             }
         }
 
@@ -257,14 +246,14 @@ pub class ASTArchive {
                 ctx:  unsafe *ASTContext,
                 psym: unsafe *PreprocessorSymbolTable,
                 gs:   unsafe *GlobalDisambigTable) {
-        self.ctx  = ctx
-        self.sm   = ctx->sm
-        self.tcm  = ctx->tcm
-        self.psym = psym
-        self.gs   = gs
-        self.fid  = ctx->fid
-        self.self_base = self.sm->get_loc(self.fid, 0).raw()
-        self.self_size = self.sm->get_file_size(self.fid) as u64
+        self.ctx          = ctx
+        self.sm           = ctx->sm
+        self.tcm          = ctx->tcm
+        self.psym         = psym
+        self.gs           = gs
+        self.fid          = ctx->fid
+        self.self_base    = self.sm->get_loc(self.fid, 0).raw()
+        self.self_size    = self.sm->get_file_size(self.fid) as u64
         self.files[0].fid = self.fid
     }
 
@@ -320,7 +309,9 @@ pub class ASTArchive {
         // both sections.
         eval if defined!(DEBUG) {
             if self.wtop != 0 {
-                kairo::std::ice_fail(r"ASTArchive: tree_bytes with a payload stream still open")
+                kairo::std::ice_fail(
+                    r"ASTArchive: tree_bytes with a payload stream still open",
+                )
             }
         }
 
@@ -365,7 +356,7 @@ pub class ASTArchive {
                 self.rbit_n   = 8
             }
 
-            v = (self.rbit_acc & 1) != 0
+            v             = (self.rbit_acc & 1) != 0
             self.rbit_acc = self.rbit_acc >> 1
             self.rbit_n -= 1
             return
@@ -457,14 +448,28 @@ pub class ASTArchive {
         if !self.reading() {
             if sizeof(E) == 1 {
                 var b: u8 = 0
-                cxx::std::memcpy(unsafe ((unsafe &b) as unsafe *void), unsafe ((unsafe &e) as unsafe *const void), 1)
+                cxx::std::memcpy(
+                    unsafe ((unsafe &b) as unsafe *void),
+                    unsafe ((unsafe &e) as unsafe *const void),
+                    1,
+                )
+
                 v = b as u32
             } else if sizeof(E) == 2 {
                 var h: u16 = 0
-                cxx::std::memcpy(unsafe ((unsafe &h) as unsafe *void), unsafe ((unsafe &e) as unsafe *const void), 2)
+                cxx::std::memcpy(
+                    unsafe ((unsafe &h) as unsafe *void),
+                    unsafe ((unsafe &e) as unsafe *const void),
+                    2,
+                )
+
                 v = h as u32
             } else {
-                cxx::std::memcpy(unsafe ((unsafe &v) as unsafe *void), unsafe ((unsafe &e) as unsafe *const void), 4)
+                cxx::std::memcpy(
+                    unsafe ((unsafe &v) as unsafe *void),
+                    unsafe ((unsafe &e) as unsafe *const void),
+                    4,
+                )
             }
 
             self.put(v as u64)
@@ -474,12 +479,24 @@ pub class ASTArchive {
         v = self.get() as u32
         if sizeof(E) == 1 {
             var b = v as u8
-            cxx::std::memcpy(unsafe ((unsafe &e) as unsafe *void), unsafe ((unsafe &b) as unsafe *const void), 1)
+            cxx::std::memcpy(
+                unsafe ((unsafe &e) as unsafe *void),
+                unsafe ((unsafe &b) as unsafe *const void),
+                1,
+            )
         } else if sizeof(E) == 2 {
             var h = v as u16
-            cxx::std::memcpy(unsafe ((unsafe &e) as unsafe *void), unsafe ((unsafe &h) as unsafe *const void), 2)
+            cxx::std::memcpy(
+                unsafe ((unsafe &e) as unsafe *void),
+                unsafe ((unsafe &h) as unsafe *const void),
+                2,
+            )
         } else {
-            cxx::std::memcpy(unsafe ((unsafe &e) as unsafe *void), unsafe ((unsafe &v) as unsafe *const void), 4)
+            cxx::std::memcpy(
+                unsafe ((unsafe &e) as unsafe *void),
+                unsafe ((unsafe &v) as unsafe *const void),
+                4,
+            )
         }
     }
 
@@ -523,7 +540,10 @@ pub class ASTArchive {
         }
 
         for var i: usize = 0; i < fctx->module_base.segments.size(); ++i {
-            var unsafe *seg = self.psym->resolve(fctx->module_base.segments[i].name)
+            var unsafe *seg = self.psym->resolve(
+                fctx->module_base.segments[i].name,
+            )
+
             if i > 0 {
                 out += "::"
             }
@@ -615,7 +635,10 @@ pub class ASTArchive {
         }
 
         var want = self.files[idx as usize].base
-        self.fail(f"a file the serialized AST depends on is not loaded or has changed: {want}")
+        self.fail(
+            f"a file the serialized AST depends on is not loaded or has changed: {want}",
+        )
+
         return self.fid
     }
 
@@ -682,7 +705,9 @@ pub class ASTArchive {
 
         if cls == 2 {
             var rel = self.get_s()
-            return SourceLocation::from_raw(((self.self_base as i64) + rel) as u32)
+            return SourceLocation::from_raw(
+                ((self.self_base as i64) + rel) as u32,
+            )
         }
 
         if cls == 3 {
@@ -712,7 +737,11 @@ pub class ASTArchive {
             var v   = self.get()
             var tag = v & 3
             if tag == 0 {
-                r = SourceRange(SourceLocation::from_raw(0), SourceLocation::from_raw(0))
+                r = SourceRange(
+                    SourceLocation::from_raw(0),
+                    SourceLocation::from_raw(0),
+                )
+
                 return
             }
 
@@ -737,7 +766,11 @@ pub class ASTArchive {
                 var len = self.get()
                 if self.failed || off > self.sm->get_file_size(f) {
                     self.fail("range outside its file")
-                    r = SourceRange(SourceLocation::from_raw(0), SourceLocation::from_raw(0))
+                    r = SourceRange(
+                        SourceLocation::from_raw(0),
+                        SourceLocation::from_raw(0),
+                    )
+
                     return
                 }
 
@@ -764,9 +797,9 @@ pub class ASTArchive {
         }
 
         if s != 0 && s != 0xFFFFFFFF && e != 0xFFFFFFFF && e >= s {
-            var len    = (e - s) as u64
-            var mine   = self._in_self(s)
-            var other  = u32::MAX
+            var len           = (e - s) as u64
+            var mine          = self._in_self(s)
+            var other         = u32::MAX
             var offset: usize = 0
             if !mine {
                 var res = self.sm->resolve(r.start)
@@ -835,11 +868,12 @@ pub class ASTArchive {
                     break
                 }
 
-                if (d->len as usize) == s.size() && cxx::std::memcmp(
-                    unsafe (d->ptr as unsafe *const void),
-                    unsafe (raw as unsafe *const void),
-                    s.size(),
-                ) == 0 {
+                if (d->len as usize) == s.size()
+                    && cxx::std::memcmp(
+                        unsafe (d->ptr as unsafe *const void),
+                        unsafe (raw as unsafe *const void),
+                        s.size(),
+                    ) == 0 {
                     return at
                 }
 
@@ -918,12 +952,18 @@ pub class ASTArchive {
                     return
                 }
 
-                t.imm = self._intern_in(self._home_of(t.range.start), self.strings.get(id))
+                t.imm = self._intern_in(
+                    self._home_of(t.range.start),
+                    self.strings.get(id),
+                )
             } else if (tag == TOK_EXPANDED && is_exp) || (tag == TOK_LITERAL && lit_cls != 0) {
                 var p    = self.get() as usize
                 var want = if (is_exp) => PAY_EXPANSION else => lit_cls
                 if p >= self.payload_imm.size() || self.payload_cls[p] != want {
-                    self.fail("token payload index out of range or of the wrong class")
+                    self.fail(
+                        "token payload index out of range or of the wrong class",
+                    )
+
                     t.imm = u32::MAX
                     return
                 }
@@ -1067,7 +1107,12 @@ pub class ASTArchive {
         var hi: u64 = 0
         if !self.reading() {
             var unsafe *src = unsafe ((unsafe &d->value_ieee) as unsafe *const u8)
-            cxx::std::memcpy(unsafe ((unsafe &lo) as unsafe *void), unsafe (src as unsafe *const void), 8)
+            cxx::std::memcpy(
+                unsafe ((unsafe &lo) as unsafe *void),
+                unsafe (src as unsafe *const void),
+                8,
+            )
+
             cxx::std::memcpy(
                 unsafe ((unsafe &hi) as unsafe *void),
                 unsafe ((src + 8) as unsafe *const void),
@@ -1079,7 +1124,12 @@ pub class ASTArchive {
         self.num64(&hi)
         if self.reading() {
             var unsafe *dst = unsafe ((unsafe &d->value_ieee) as unsafe *u8)
-            cxx::std::memcpy(unsafe (dst as unsafe *void), unsafe ((unsafe &lo) as unsafe *const void), 8)
+            cxx::std::memcpy(
+                unsafe (dst as unsafe *void),
+                unsafe ((unsafe &lo) as unsafe *const void),
+                8,
+            )
+
             cxx::std::memcpy(
                 unsafe ((dst + 8) as unsafe *void),
                 unsafe ((unsafe &hi) as unsafe *const void),
@@ -1104,9 +1154,11 @@ pub class ASTArchive {
 
     /// The token run of one f-string hole: its tokens and the range of the
     /// braces around it.
-    priv fn _io_hole_runs(self,
-                          @inout exprs: llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4>,
-                          @inout holes: llvm::SmallVector<Immediate::HoleSpec, 4>) {
+    priv fn _io_hole_runs(
+        self,
+        @inout exprs: llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4>,
+        @inout holes: llvm::SmallVector<Immediate::HoleSpec, 4>,
+    ) {
         var n = self.len_(exprs.size() as usize)
         for var i: usize = 0; i < n; ++i {
             var rng: SourceRange
@@ -1223,13 +1275,18 @@ pub class ASTArchive {
             if self.reading() {
                 var p = self.get() as usize
                 if p >= self.payload_imm.size() || self.payload_cls[p] != PAY_EXPANSION {
-                    self.fail("payload index out of range or of the wrong class")
+                    self.fail(
+                        "payload index out of range or of the wrong class",
+                    )
+
                     d->parent_idx = u32::MAX
                 } else {
                     d->parent_idx = self.payload_imm[p]
                 }
             } else {
-                self.put(self._payload_ref(PAY_EXPANSION, home, d->parent_idx) as u64)
+                self.put(
+                    self._payload_ref(PAY_EXPANSION, home, d->parent_idx) as u64,
+                )
             }
         } else if self.reading() {
             d->parent_idx = u32::MAX
@@ -1237,8 +1294,8 @@ pub class ASTArchive {
 
         // macro_name is a preprocessor SymbolID: another per-process table.
         // 0 and u32::MAX both mean "none" to its readers and are kept apart.
-        var name_cls: u8 = 0
-        var name: string
+        var name_cls: u8     = 0
+        var name:     string
         if !self.reading() {
             if d->macro_name == u32::MAX {
                 name_cls = 1
@@ -1249,7 +1306,9 @@ pub class ASTArchive {
                 }
 
                 if sp == &null {
-                    self.fail("macro expansion names a symbol the preprocessor table does not have")
+                    self.fail(
+                        "macro expansion names a symbol the preprocessor table does not have",
+                    )
                 } else {
                     name_cls = 2
                     name     = *sp
@@ -1270,7 +1329,9 @@ pub class ASTArchive {
             } else if self.psym != &null {
                 d->macro_name = self.psym->intern(name)
             } else {
-                self.fail("no preprocessor symbol table to restore a macro name into")
+                self.fail(
+                    "no preprocessor symbol table to restore a macro name into",
+                )
             }
         }
     }
@@ -1369,8 +1430,8 @@ pub class ASTArchive {
             }
 
             self.last_off = 0
-            var cls  = self.get() as u8
-            var home = self.file_fid(self.get() as u32)
+            var        cls  = self.get() as u8
+            var        home = self.file_fid(self.get() as u32)
             var unsafe *tbl = self.table_of(home)
             if tbl == &null {
                 self.fail("no immediate table for a payload's file")
@@ -1394,7 +1455,10 @@ pub class ASTArchive {
                         return
                     }
 
-                    imm = tbl->intern_bytes_copy(unsafe (p as kairo::std::ConstPtr<u8>), n)
+                    imm = tbl->intern_bytes_copy(
+                        unsafe (p as kairo::std::ConstPtr<u8>),
+                        n,
+                    )
                 } else {
                     imm = tbl->create<Immediate::StringData>()
                 }
@@ -1405,7 +1469,10 @@ pub class ASTArchive {
                 self._io_char(tbl->get<Immediate::CharData>(imm), home)
             } else if cls == PAY_EXPANSION {
                 imm = tbl->create<Immediate::MacroExpansionInfo>()
-                self._io_expansion(tbl->get<Immediate::MacroExpansionInfo>(imm), home)
+                self._io_expansion(
+                    tbl->get<Immediate::MacroExpansionInfo>(imm),
+                    home,
+                )
             } else {
                 self.fail("unknown payload class")
                 return
@@ -1508,8 +1575,8 @@ pub class ASTArchive {
     /// and the parser builds it without recursion.
     pub fn expr_begin(self, @inout p: unsafe *Expr) -> bool {
         if self.reading() {
-            var q: unsafe *void = &null
-            var fresh = self._begin_read(CAT_EXPR, &q)
+            var q:    unsafe *void = &null
+            var fresh              = self._begin_read(CAT_EXPR, &q)
             p = unsafe (q as unsafe *Expr)
             return fresh
         }
@@ -1685,7 +1752,9 @@ pub class ASTArchive {
 
                 p = self.dc_hook(owner)
                 if p == &null {
-                    self.fail("scope reference to a declaration that is not a scope")
+                    self.fail(
+                        "scope reference to a declaration that is not a scope",
+                    )
                 }
             }
 
@@ -1704,7 +1773,10 @@ pub class ASTArchive {
 
         var unsafe *owner = p->dc_owner
         if owner == &null {
-            self.fail("a DeclContext of another translation unit is reachable from the tree")
+            self.fail(
+                "a DeclContext of another translation unit is reachable from the tree",
+            )
+
             self.put(0)
             return
         }
@@ -1814,7 +1886,9 @@ pub class ASTArchive {
         }
 
         if p != &null {
-            self.fail(f"slot the serializer skips is set on a parsed tree: {what}")
+            self.fail(
+                f"slot the serializer skips is set on a parsed tree: {what}",
+            )
         }
     }
 
@@ -1824,7 +1898,9 @@ pub class ASTArchive {
         }
 
         if v != 0 {
-            self.fail(f"slot the serializer skips is set on a parsed tree: {what}")
+            self.fail(
+                f"slot the serializer skips is set on a parsed tree: {what}",
+            )
         }
     }
 
@@ -1834,7 +1910,9 @@ pub class ASTArchive {
         }
 
         if v {
-            self.fail(f"slot the serializer skips is set on a parsed tree: {what}")
+            self.fail(
+                f"slot the serializer skips is set on a parsed tree: {what}",
+            )
         }
     }
 
@@ -1845,7 +1923,9 @@ pub class ASTArchive {
         }
 
         if !ok {
-            self.fail(f"slot the serializer skips is set on a parsed tree: {what}")
+            self.fail(
+                f"slot the serializer skips is set on a parsed tree: {what}",
+            )
         }
     }
 }

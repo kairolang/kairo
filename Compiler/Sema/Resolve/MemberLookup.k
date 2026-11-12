@@ -89,13 +89,13 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations
-import AST::VisibilityFacts::reexports_to
 import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
     NullableType,
     PointerType,
 }
+import AST::VisibilityFacts::reexports_to
 import Diagnostic::Code::DiagCode
 import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
@@ -110,7 +110,9 @@ import Token::TokenKind::TokenKind
 /// builtin file, one it imports or one those re-export (all three
 /// SemaContext::sees_extension_file), or the file that declares the
 /// extended record: an extension written beside its type travels with it.
-pub fn extension_visible(sc: unsafe *SemaContext, e: unsafe *Declarations::ExtensionDecl, efid: u32) -> bool {
+pub fn extension_visible(sc:   unsafe *SemaContext,
+                         e:    unsafe *Declarations::ExtensionDecl,
+                         efid: u32) -> bool {
     if sc == &null || sc->sees_extension_file(efid) {
         return true
     }
@@ -179,7 +181,7 @@ pub class MemberLookup {
     /// checked after this one): matched by the target's spelled leaf, so
     /// the note does not depend on check order either.
     priv var _hidden_unresolved: cxx::std::vector<unsafe *Declarations::ExtensionDecl>
-    priv var _indexed: bool = false
+    priv var _indexed:           bool                                                  = false
     /// This TU's spelling of the name the current lookup() is walking. See
     /// in_scope: a foreign scope's table cannot be probed with our imm.
     priv var _cur_spelling: string = ""
@@ -303,7 +305,11 @@ pub class MemberLookup {
 
         // Extensions may sit inside modules and visibility groups.
         if isa<Declarations::ModuleDecl>(d) {
-            self._index_dc(unsafe (cast<Declarations::ModuleDecl>(d) as unsafe *DeclContext), fid)
+            self._index_dc(
+                unsafe (cast<Declarations::ModuleDecl>(d) as unsafe *DeclContext),
+                fid,
+            )
+
             return
         }
 
@@ -327,7 +333,7 @@ pub class MemberLookup {
     }
 
     pub fn extensions_of_decl(self,
-                          d: unsafe *Decl) -> unsafe *cxx::std::vector<unsafe *Declarations::ExtensionDecl> {
+                              d: unsafe *Decl) -> unsafe *cxx::std::vector<unsafe *Declarations::ExtensionDecl> {
         self.index_extensions()
         var it = self._ext_by_decl.find(d as usize as u64)
         if it == self._ext_by_decl.end() {
@@ -346,7 +352,10 @@ pub class MemberLookup {
     static fn _type_key(c: unsafe *Type) -> u64 {
         if c != &null && isa<NullableType>(c) && cast<NullableType>(c)->inner != &null {
             var unsafe *inner = cast<NullableType>(c)->inner
-            var unsafe *ic    = canon_unqual(if (inner->canonical != &null) => (inner->canonical) else => inner)
+            var unsafe *ic = canon_unqual(
+                if (inner->canonical != &null) => (inner->canonical) else => inner,
+            )
+
             if ic != &null && isa<RecordType>(ic) && cast<RecordType>(ic)->decl != &null {
                 var unsafe *d = cast<RecordType>(ic)->decl
                 if decl_is_instance(d) && decl_instantiated_from(d) != &null {
@@ -363,7 +372,7 @@ pub class MemberLookup {
     /// The `extend` blocks of non-record canonical \p c this TU sees (the
     /// language server lists a primitive's statics from them), or null.
     pub fn extensions_of_type(self,
-                          c: unsafe *Type) -> unsafe *cxx::std::vector<unsafe *Declarations::ExtensionDecl> {
+                              c: unsafe *Type) -> unsafe *cxx::std::vector<unsafe *Declarations::ExtensionDecl> {
         self.index_extensions()
         var it = self._ext_by_type.find(MemberLookup::_type_key(c))
         if it == self._ext_by_type.end() {
@@ -375,7 +384,9 @@ pub class MemberLookup {
 
     /// An extension of \p c this TU does not see that declares \p name, or
     /// null: the lookup's miss is then "import it", not "no such member".
-    fn hidden_extension(self, c_in: unsafe *Type, name: DeclName) -> unsafe *Declarations::ExtensionDecl {
+    fn hidden_extension(self,
+                        c_in: unsafe *Type,
+                        name: DeclName) -> unsafe *Declarations::ExtensionDecl {
         self.index_extensions()
         var unsafe *c = canon_unqual(c_in)
         if c == &null {
@@ -400,7 +411,11 @@ pub class MemberLookup {
         if hit != end {
             for var i: usize = 0; i < hit->second.size(); ++i {
                 var unsafe *e = hit->second[i]
-                if self.in_scope(unsafe (e as unsafe *DeclContext), name, spelled) != &null {
+                if self.in_scope(
+                    unsafe (e as unsafe *DeclContext),
+                    name,
+                    spelled,
+                ) != &null {
                     return e
                 }
             }
@@ -449,7 +464,12 @@ pub class MemberLookup {
             return
         }
 
-        var unsafe *cell = self.in_scope(unsafe (e as unsafe *DeclContext), name, self._spell(name))
+        var unsafe *cell = self.in_scope(
+            unsafe (e as unsafe *DeclContext),
+            name,
+            self._spell(name),
+        )
+
         if cell == &null {
             return
         }
@@ -610,7 +630,10 @@ pub class MemberLookup {
 
         var surface = false
         for var i: usize = 0; i < entry->targets.size(); ++i {
-            var unsafe *o = dyn_cast<Declarations::ImportDecl>(entry->targets[i].origin)
+            var unsafe *o = dyn_cast<Declarations::ImportDecl>(
+                entry->targets[i].origin,
+            )
+
             if o == &null {
                 continue
             }
@@ -749,7 +772,7 @@ pub class MemberLookup {
             && (self._cur_spelling.size() > 0 || name.is_op()) {
             var merged = false
             var *us    = &cast<Declarations::ClassDecl>(d)->ffi_usings
-            var want   = if (!name.is_op()) => (self._cur_spelling) else => "operator"
+            var want = if (!name.is_op()) => (self._cur_spelling) else => "operator"
             for var i: usize = 0; i < us->size(); ++i {
                 if (*us)[i] == want {
                     merged = true
@@ -873,7 +896,10 @@ pub class MemberLookup {
             return
         }
 
-        b->note(at.start, "the C++ headers this file imports did not compile (see clang's errors), so no name from them is visible")
+        b->note(
+            at.start,
+            "the C++ headers this file imports did not compile (see clang's errors), so no name from them is visible",
+        )
     }
 
     /// True when \p d is an instance whose primary came from a C++ header --

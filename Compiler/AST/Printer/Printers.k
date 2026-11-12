@@ -201,7 +201,11 @@ pub class ASTPrinter {
         }
 
         if debug {
-            d.p.paint(Color::Dim, f"-- {tu->error_count} error(s), {tu->warn_count} warning(s) --")
+            d.p.paint(
+                Color::Dim,
+                f"-- {tu->error_count} error(s), {tu->warn_count} warning(s) --",
+            )
+
             d.p.newline()
         }
 

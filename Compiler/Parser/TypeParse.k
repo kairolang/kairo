@@ -310,7 +310,14 @@ pub class <T: type> TypeParse {
                                 brace_depth:     i32  = 0,
                                 stop_at_newline: bool = false) -> bool {
         var before = self.dyn()->c_idx
-        self._sync_type(ctx, paren_depth, square_depth, brace_depth, stop_at_newline)
+        self._sync_type(
+            ctx,
+            paren_depth,
+            square_depth,
+            brace_depth,
+            stop_at_newline,
+        )
+
         var k = self.dyn()->ig_kind()
         if self.dyn()->is_eof()
             || ((k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare)
@@ -444,8 +451,7 @@ pub class <T: type> TypeParse {
             self.dyn()->diag->report(
                 DiagID::S069E,
                 mr.start,
-                f"a passing mode is not part of a type; write it on the parameter ('{LangAttrs::at(LangAttrs::param_inout())} x: T'); "
-                    + f"in a function pointer type the mode goes before the parameter type ('fn({LangAttrs::at(LangAttrs::param_inout())} T)')",
+                f"a passing mode is not part of a type; write it on the parameter ('{LangAttrs::at(LangAttrs::param_inout())} x: T'); " + f"in a function pointer type the mode goes before the parameter type ('fn({LangAttrs::at(LangAttrs::param_inout())} T)')",
             ).first(mr)->emit()
         }
 
@@ -615,7 +621,9 @@ pub class <T: type> TypeParse {
         // a bare value is still an error, so the diagnostic below stands.
         if gen_arg {
             return self._parse_type_expr(
-                self.dyn()->stop_on(T::ExprStopKind::StopAngle).plus(T::ExprStopKind::StopComma),
+                self.dyn()->stop_on(T::ExprStopKind::StopAngle).plus(
+                    T::ExprStopKind::StopComma,
+                ),
             )
         }
 
@@ -657,7 +665,7 @@ pub class <T: type> TypeParse {
         self.dyn()->advance() // `::`
 
         var unsafe *nt = self.dyn()->current_ptr()
-        var nm         = ""
+        var        nm  = ""
         if nt != &null && nt->kind == TokenKind::LitIdentifier {
             nm = self.dyn()->ctx->get_spelling(*nt)
         }
@@ -704,12 +712,22 @@ pub class <T: type> TypeParse {
         }
 
         if nm == "mref" {
-            var unsafe *rr = Types::CXXRValueRefType::create(self.dyn()->ctx, full, args[0].ty)
+            var unsafe *rr = Types::CXXRValueRefType::create(
+                self.dyn()->ctx,
+                full,
+                args[0].ty,
+            )
+
             rr->ffi_spelled = true
             return rr
         }
 
-        var unsafe *lr = Types::CXXLValueRefType::create(self.dyn()->ctx, full, args[0].ty)
+        var unsafe *lr = Types::CXXLValueRefType::create(
+            self.dyn()->ctx,
+            full,
+            args[0].ty,
+        )
+
         lr->ffi_spelled = true
         return lr
     }
@@ -744,7 +762,12 @@ pub class <T: type> TypeParse {
             return Types::TypeOfType::create_error(self.dyn()->ctx, start_range)
         }
 
-        var ty = Types::TypeOfType::create(self.dyn()->ctx, start_range | inner->range, inner)
+        var ty = Types::TypeOfType::create(
+            self.dyn()->ctx,
+            start_range | inner->range,
+            inner,
+        )
+
         return ty
     }
 
@@ -1091,7 +1114,12 @@ pub class <T: type> TypeParse {
         self.dyn()->advance(T::SkipNL::Before) // consume `]`
         var full_range = start_range | self.dyn()->prev().range
 
-        var st = Types::VectorType::create(self.dyn()->ctx, full_range, elem_type)
+        var st = Types::VectorType::create(
+            self.dyn()->ctx,
+            full_range,
+            elem_type,
+        )
+
         Types::propagate_flags(st, elem_type)
         return st
     }
@@ -1203,14 +1231,24 @@ pub class <T: type> TypeParse {
         var full_range = start_range | self.dyn()->prev().range
 
         if is_error {
-            var err_at = Types::FixedArrayType::create_error(self.dyn()->ctx, full_range)
+            var err_at = Types::FixedArrayType::create_error(
+                self.dyn()->ctx,
+                full_range,
+            )
+
             err_at->element   = elem_type
             err_at->size_expr = size_expr
             Types::propagate_flags(err_at, elem_type)
             return err_at
         }
 
-        var at = Types::FixedArrayType::create(self.dyn()->ctx, full_range, elem_type, size_expr)
+        var at = Types::FixedArrayType::create(
+            self.dyn()->ctx,
+            full_range,
+            elem_type,
+            size_expr,
+        )
+
         Types::propagate_flags(at, elem_type)
         return at
     }
@@ -1280,7 +1318,11 @@ pub class <T: type> TypeParse {
         if is_recovery(key_type) {
             self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1, true)
 
-            var err = Types::SetType::create_error(self.dyn()->ctx, start_range | key_type->range)
+            var err = Types::SetType::create_error(
+                self.dyn()->ctx,
+                start_range | key_type->range,
+            )
+
             Types::propagate_flags(err, key_type)
 
             return err
@@ -1325,7 +1367,12 @@ pub class <T: type> TypeParse {
 
             // FIXME: instead of having a custom node for set types, we could
             // directly desugar into kairo::core::Set<T> here in the parser.
-            var st = Types::SetType::create(self.dyn()->ctx, full_range, key_type)
+            var st = Types::SetType::create(
+                self.dyn()->ctx,
+                full_range,
+                key_type,
+            )
+
             return st
         }
 
@@ -1338,7 +1385,10 @@ pub class <T: type> TypeParse {
 
         self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1, true)
 
-        return Types::SetType::create_error(self.dyn()->ctx, start_range | self.dyn()->prev().range)
+        return Types::SetType::create_error(
+            self.dyn()->ctx,
+            start_range | self.dyn()->prev().range,
+        )
     }
 
     /// \details completes the parsing of a map type literal `{K: V}`
@@ -1384,7 +1434,11 @@ pub class <T: type> TypeParse {
         if self.dyn()->check(TokenKind::TkCodeComplete) {
             self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
             self.dyn()->advance(T::SkipNL::After) // consume code complete token and any newlines after it
-            var err = Types::MapType::create_error(self.dyn()->ctx, start_range | sep_range)
+            var err = Types::MapType::create_error(
+                self.dyn()->ctx,
+                start_range | sep_range,
+            )
+
             Types::propagate_flags(err, key_type)
             return err
         }
@@ -1410,7 +1464,11 @@ pub class <T: type> TypeParse {
 
         if is_recovery(val_type) {
             self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
-            var err = Types::MapType::create_error(self.dyn()->ctx, start_range | val_type->range)
+            var err = Types::MapType::create_error(
+                self.dyn()->ctx,
+                start_range | val_type->range,
+            )
+
             Types::propagate_flags(err, key_type)
             Types::propagate_flags(err, val_type)
             return err
@@ -1483,7 +1541,13 @@ pub class <T: type> TypeParse {
             return err
         }
 
-        var mt = Types::MapType::create(self.dyn()->ctx, full_range, key_type, val_type)
+        var mt = Types::MapType::create(
+            self.dyn()->ctx,
+            full_range,
+            key_type,
+            val_type,
+        )
+
         return mt
     }
 
@@ -1529,17 +1593,28 @@ pub class <T: type> TypeParse {
                 "expected type after '*'",
             ).first(start_range)->emit()
 
-            return Types::PointerType::create_error(self.dyn()->ctx, start_range)
+            return Types::PointerType::create_error(
+                self.dyn()->ctx,
+                start_range,
+            )
         }
 
         var end_range = if (pointee != &null) => (pointee->range) else => start_range
         if is_recovery(pointee) {
-            var err_pt = Types::PointerType::create_error(self.dyn()->ctx, start_range | end_range)
+            var err_pt = Types::PointerType::create_error(
+                self.dyn()->ctx,
+                start_range | end_range,
+            )
+
             Types::propagate_flags(err_pt, pointee)
             return err_pt
         }
 
-        var pty = Types::PointerType::create(self.dyn()->ctx, start_range | end_range, pointee)
+        var pty = Types::PointerType::create(
+            self.dyn()->ctx,
+            start_range | end_range,
+            pointee,
+        )
 
         return pty
     }
@@ -1637,11 +1712,17 @@ pub class <T: type> TypeParse {
         var fn_cc: u8 = 0
         if self.dyn()->check(TokenKind::OpAt) && self.dyn()->check_peek(TokenKind::LitIdentifier) {
             var an = self.dyn()->ctx->hoisted->intern_tok(self.dyn()->peek())
-            if an == self.dyn()->ctx->hoisted->intern(LangAttrs::preserve_most()) {
+            if an == self.dyn()->ctx->hoisted->intern(
+                LangAttrs::preserve_most(),
+            ) {
                 fn_cc = 1
-            } else if an == self.dyn()->ctx->hoisted->intern(LangAttrs::preserve_all()) {
+            } else if an == self.dyn()->ctx->hoisted->intern(
+                LangAttrs::preserve_all(),
+            ) {
                 fn_cc = 2
-            } else if an == self.dyn()->ctx->hoisted->intern(LangAttrs::preserve_none()) {
+            } else if an == self.dyn()->ctx->hoisted->intern(
+                LangAttrs::preserve_none(),
+            ) {
                 fn_cc = 3
             }
 
@@ -1703,11 +1784,21 @@ pub class <T: type> TypeParse {
             return_type,
         )
 
-        fpt->params.from_buf(param_types.data(), param_types.size(), self.dyn()->ctx)
+        fpt->params.from_buf(
+            param_types.data(),
+            param_types.size(),
+            self.dyn()->ctx,
+        )
+
         // Always, even when empty: TypeResolution ICEs on a count mismatch.
         // The create_error / create_unprototyped nodes populate neither, so
         // they are parallel at zero.
-        fpt->modes.from_buf(param_modes.data(), param_modes.size(), self.dyn()->ctx)
+        fpt->modes.from_buf(
+            param_modes.data(),
+            param_modes.size(),
+            self.dyn()->ctx,
+        )
+
         fpt->panic_set.from_buf(pset.data(), pset.size(), self.dyn()->ctx)
         fpt->call_conv = fn_cc
         for var i: usize = 0; i < (pset.size() as usize); ++i {
@@ -1874,7 +1965,13 @@ pub class <T: type> TypeParse {
                     "unexpected '=' in function pointer type parameter list, default values are not allowed here",
                 )
 
-                if self._sync_type_progress(Self::TypeSyncCtx::Paren, 0, 0, 0, true) {
+                if self._sync_type_progress(
+                    Self::TypeSyncCtx::Paren,
+                    0,
+                    0,
+                    0,
+                    true,
+                ) {
                     return
                 }
 
@@ -1933,7 +2030,10 @@ pub class <T: type> TypeParse {
                 start_range.start,
                 "expected type parameter name after '...' for variadic pack type",
             ).first(start_range)->emit()
-            return Types::VariadicPackType::create_error(self.dyn()->ctx, start_range)
+            return Types::VariadicPackType::create_error(
+                self.dyn()->ctx,
+                start_range,
+            )
         }
 
         var unsafe *chain = self._parse_qual_type()
@@ -1944,7 +2044,10 @@ pub class <T: type> TypeParse {
                 start_range.start,
                 "expected type after '...' for variadic pack type",
             ).first(start_range)->emit()
-            return Types::VariadicPackType::create_error(self.dyn()->ctx, start_range)
+            return Types::VariadicPackType::create_error(
+                self.dyn()->ctx,
+                start_range,
+            )
         }
 
         if is_recovery(chain) {
@@ -1993,7 +2096,12 @@ pub class <T: type> TypeParse {
             true   // is_pack
         )
 
-        var vpt = Types::VariadicPackType::create(self.dyn()->ctx, start_range | chain->range, gpt)
+        var vpt = Types::VariadicPackType::create(
+            self.dyn()->ctx,
+            start_range | chain->range,
+            gpt,
+        )
+
         return vpt
     }
 
@@ -2022,7 +2130,10 @@ pub class <T: type> TypeParse {
                 "unexpected '...' after type in pack expansion type, '...' can only "
                 "appear once in a pack expansion type declaration",
             ).first(ty->range)->emit()
-            return Types::PackExpansionType::create_error(self.dyn()->ctx, ty->range)
+            return Types::PackExpansionType::create_error(
+                self.dyn()->ctx,
+                ty->range,
+            )
         }
 
         if isa<Types::VariadicPackType>(ty) { // `...T...` is not valid syntax
@@ -2032,10 +2143,18 @@ pub class <T: type> TypeParse {
                 "unexpected '...' before type in pack expansion type, '...' can only "
                 "appear once in a pack expansion type declaration",
             ).first(ty->range)->emit()
-            return Types::PackExpansionType::create_error(self.dyn()->ctx, ty->range)
+            return Types::PackExpansionType::create_error(
+                self.dyn()->ctx,
+                ty->range,
+            )
         }
 
-        var pt = Types::PackExpansionType::create(self.dyn()->ctx, ty->range | end_range, ty)
+        var pt = Types::PackExpansionType::create(
+            self.dyn()->ctx,
+            ty->range | end_range,
+            ty,
+        )
+
         return pt
     }
 
@@ -2098,7 +2217,10 @@ pub class <T: type> TypeParse {
                 break
             }
 
-            var next_seg = self._parse_chain_segment(Types::ChainType::SegmentSeparator::ColonColon)
+            var next_seg = self._parse_chain_segment(
+                Types::ChainType::SegmentSeparator::ColonColon,
+            )
+
             if next_seg.name == &null {
                 break
             }
@@ -2146,7 +2268,12 @@ pub class <T: type> TypeParse {
             var generic_args: kairo::std::StackBuf<Types::ChainType::GenericArg, 4>
             self._parse_generic_args(unsafe &generic_args)
 
-            result.generic_args.from_buf(generic_args.data(), generic_args.size(), self.dyn()->ctx)
+            result.generic_args.from_buf(
+                generic_args.data(),
+                generic_args.size(),
+                self.dyn()->ctx,
+            )
+
             result.range = id_range | self.dyn()->prev().range
 
             if !generic_args.is_empty() {
@@ -2240,7 +2367,12 @@ pub class <T: type> TypeParse {
                 self.dyn()->advance()                 // consume identifier
                 self.dyn()->advance(T::SkipNL::After) // consume `:`
 
-                arg.name       = NamedIdentExpr::create(self.dyn()->ctx, name_range, *name_ptr)
+                arg.name = NamedIdentExpr::create(
+                    self.dyn()->ctx,
+                    name_range,
+                    *name_ptr,
+                )
+
                 arg.name_range = name_range
             }
 
@@ -2425,7 +2557,9 @@ pub class <T: type> TypeParse {
     ///         parsed.
     inline fn _parse_const_expr(self) -> unsafe *Expr {
         var expr = self.dyn()->parse_expr(
-            self.dyn()->stop_on(T::ExprStopKind::StopSquare).plus(T::ExprStopKind::StopComma),
+            self.dyn()->stop_on(T::ExprStopKind::StopSquare).plus(
+                T::ExprStopKind::StopComma,
+            ),
         )
 
         if expr == &null {
@@ -2493,7 +2627,11 @@ pub class <T: type> TypeParse {
         }
 
         if is_recovery(ty) {
-            var err_nt = Types::NullableType::create_error(self.dyn()->ctx, ty->range | end_range)
+            var err_nt = Types::NullableType::create_error(
+                self.dyn()->ctx,
+                ty->range | end_range,
+            )
+
             Types::propagate_flags(err_nt, ty)
             return err_nt
         }
@@ -2518,7 +2656,12 @@ pub class <T: type> TypeParse {
             b.emit()
         }
 
-        var nt = Types::NullableType::create(self.dyn()->ctx, ty->range | end_range, ty)
+        var nt = Types::NullableType::create(
+            self.dyn()->ctx,
+            ty->range | end_range,
+            ty,
+        )
+
         return nt
     }
 }

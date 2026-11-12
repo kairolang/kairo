@@ -73,8 +73,8 @@ ffi "c++" import "Native/Types.hh" // kairo::std::ice_fail
 ffi "c++" import "vector"
 
 import AST::Context::DeclContext::DeclContextKind
-import AST::Context::SymbolTable::DeclName
 import AST::Context::InstantiationRegistry::InstanceEntry
+import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_extension_of,
     decl_generic_params,
@@ -115,13 +115,13 @@ import AST::Node::Expressions::{
 }
 import AST::Node::Types::{
     CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
-    NullableType,     OpaqueFFIType,    PointerType,        TypeExpr,
+    NullableType,     OpaqueFFIType,    PointerType,    TypeExpr,
 }
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
-import Diagnostic::Registry::DiagID
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::declared_here
+import Diagnostic::Registry::DiagID
+import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Sema::Lower::LowerSynth::LowerSynth
@@ -391,15 +391,15 @@ pub enum Verdict derives u8 {
 }
 
 pub class Candidate {
-    pub var f:       unsafe *FunctionDecl = &null
-    priv var _verdict: Verdict = Verdict::Viable
-    pub var rank:    u8                   = CAND_EXACT ///< CAND_EXACT / CAND_CONVERTED / CAND_USER_CONV.
-    pub var generic: bool                 = false
-    pub var free:    bool                 = false ///< from resolve_mixed's free list: judged with no receiver.
+    pub var  f:        unsafe *FunctionDecl = &null
+    priv var _verdict: Verdict              = Verdict::Viable
+    pub var  rank:     u8                   = CAND_EXACT ///< CAND_EXACT / CAND_CONVERTED / CAND_USER_CONV.
+    pub var  generic:  bool                 = false
+    pub var  free:     bool                 = false ///< from resolve_mixed's free list: judged with no receiver.
     /// Judged in defer mode: a dependent parameter or argument is viable and
     /// unranked instead of unified. Set before _judge, read by it.
-    pub var defer: bool = false
-    pub var reason:  string = ""
+    pub var defer:  bool   = false
+    pub var reason: string = ""
     /// An edit that would make this candidate viable, inserted at `fix_at`;
     /// "" for none. Set for a C string parameter: the reinterpretation of
     /// a byte pointer, or `.c_str()` on a string that is no literal.
@@ -407,7 +407,7 @@ pub class Candidate {
     pub var fix_at:   SourceLocation
     /// fix_text closes a parenthesis opened at `fix_open` (an argument
     /// that binds looser than the `as` appended to it).
-    pub var fix_paren: bool = false
+    pub var fix_paren: bool           = false
     pub var fix_open:  SourceLocation
     /// Which placement rule rejected this candidate, or SC001E (never emitted from here; a pure "no specific rule" sentinel) for anything
     /// else. `_report_no_viable` promotes it to the real diagnostic when there
@@ -426,7 +426,7 @@ pub class Candidate {
     /// None not judged (no receiver object known). recv_const is the
     /// OBJECT's constness.
     pub var recv_bind:  RefBind = RefBind::None
-    pub var recv_const: bool = false
+    pub var recv_const: bool    = false
     /// The implicit object parameter's own cv (QUAL_CONST / QUAL_VOLATILE),
     /// for the [over.ics.rank]/3.2.6 tie-break; set with recv_bind.
     pub var recv_quals: u8 = 0
@@ -446,9 +446,9 @@ pub class Candidate {
     pub var clang_convs: cxx::std::vector<usize>
     /// Without the flag: the record a C++ user-defined conversion would
     /// have reached ("" none), and how, for the note on the argument.
-    pub var uconv_to:  string = ""
-    pub var uconv_via: string = ""
-    pub var ded:            Deduction
+    pub var uconv_to:  string    = ""
+    pub var uconv_via: string    = ""
+    pub var ded:       Deduction
     /// An imported template's return type as clang's specialization has it,
     /// when Kairo's import of the declared one is opaque; else null.
     /// Written by _clang_substitute.
@@ -481,7 +481,9 @@ pub class Candidate {
 
         eval if defined!(DEBUG) {
             if self._verdict != Verdict::Viable && self._verdict != v {
-                kairo::std::ice_fail(r"OverloadResolution: a candidate given two viable-but verdicts")
+                kairo::std::ice_fail(
+                    r"OverloadResolution: a candidate given two viable-but verdicts",
+                )
             }
         }
 
@@ -659,7 +661,17 @@ pub class OverloadResolution {
                         at:           SourceRange,
                         const name:   string,
                         receiver:     unsafe *Type) -> OvlResult {
-        return self.resolve_mixed(cands, args, has_receiver, &null, &null, at, name, receiver, true)
+        return self.resolve_mixed(
+            cands,
+            args,
+            has_receiver,
+            &null,
+            &null,
+            at,
+            name,
+            receiver,
+            true,
+        )
     }
 
     /// One overload set drawn from two argument shapes. \p members are judged
@@ -688,7 +700,16 @@ pub class OverloadResolution {
         }
 
         var cs = cxx::std::vector<Candidate>()
-        self._collect(unsafe &cs, members, margs, has_receiver, receiver, false, false)
+        self._collect(
+            unsafe &cs,
+            members,
+            margs,
+            has_receiver,
+            receiver,
+            false,
+            false,
+        )
+
         if fargs != &null {
             self._collect(unsafe &cs, frees, fargs, false, &null, true, false)
         }
@@ -765,7 +786,17 @@ pub class OverloadResolution {
         }
 
         var cs = cxx::std::vector<Candidate>()
-        self._collect(unsafe &cs, members, margs, has_receiver, receiver, false, defer, qualifier)
+        self._collect(
+            unsafe &cs,
+            members,
+            margs,
+            has_receiver,
+            receiver,
+            false,
+            defer,
+            qualifier,
+        )
+
         if fargs != &null {
             self._collect(unsafe &cs, frees, fargs, false, &null, true, defer)
         }
@@ -773,9 +804,11 @@ pub class OverloadResolution {
         self._hide(unsafe &cs)
 
         if cs.size() == 0 {
-            self.sc->diag->report(DiagID::SC062E, at.start, f"'{name}' is not callable").first(
-                at,
-            )->emit()
+            self.sc->diag->report(
+                DiagID::SC062E,
+                at.start,
+                f"'{name}' is not callable",
+            ).first(at)->emit()
             out.outcome = OvlOutcome::Empty
             return out
         }
@@ -912,7 +945,15 @@ pub class OverloadResolution {
         }
 
         if winners.size() > 1 {
-            self._report_ambiguous(unsafe &cs, unsafe &winners, margs, fargs, at, name)
+            self._report_ambiguous(
+                unsafe &cs,
+                unsafe &winners,
+                margs,
+                fargs,
+                at,
+                name,
+            )
+
             out.outcome = OvlOutcome::Ambiguous
             return out
         }
@@ -1546,7 +1587,10 @@ pub class OverloadResolution {
             return &null
         }
 
-        var unsafe *want = NameLookup::representative(self.tu.pattern_of(pr->decl))
+        var unsafe *want = NameLookup::representative(
+            self.tu.pattern_of(pr->decl),
+        )
+
         if NameLookup::representative(self.tu.pattern_of(ar->decl)) == want {
             return &null
         }
@@ -1836,12 +1880,18 @@ pub class OverloadResolution {
                 continue
             }
 
-            var unsafe *r = dyn_cast<RecordType>(canon_unqual(e->base->canonical))
+            var unsafe *r = dyn_cast<RecordType>(
+                canon_unqual(e->base->canonical),
+            )
+
             if r == &null || r->decl == &null {
                 continue
             }
 
-            var unsafe *bd = NameLookup::representative(self.tu.pattern_of(r->decl))
+            var unsafe *bd = NameLookup::representative(
+                self.tu.pattern_of(r->decl),
+            )
+
             if bd == base {
                 return true
             }
@@ -1896,7 +1946,8 @@ pub class OverloadResolution {
         }
 
         if isa<CXXLValueRefType>(pt) {
-            return if (canon_has_const(cast<CXXLValueRefType>(pt)->referee)) => (RefBind::ConstLRef) else => RefBind::LRef
+            return if (canon_has_const(cast<CXXLValueRefType>(pt)->referee)) => (RefBind::ConstLRef)
+                   else => RefBind::LRef
         }
 
         return RefBind::None
@@ -2082,7 +2133,11 @@ pub class OverloadResolution {
                 && (to_clang || self._forwards_cstr(c->f, a, c->judged[order[j]].target)) {
                 // What EmitIR writes: the literal's bytes, which C++ reads
                 // as `const char[N]` decayed (CallTyping, user_convs).
-                var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+                var unsafe *cc = self.sc->types->qualified(
+                    self.tu.builtin(BuiltinKind::CChar),
+                    QUAL_CONST,
+                )
+
                 t = self.sc->types->pointer(cc, true)
             } else if a->lit != LitKind::None {
                 // A literal takes the type it was ranked at: its default
@@ -2266,8 +2321,8 @@ pub class OverloadResolution {
                 return true
             }
 
-            var unsafe *ca      = canon_unqual(a)
-            var        is_value = isa<TypeExpr>(ca) && cast<TypeExpr>(ca)->is_value
+            var unsafe *ca = canon_unqual(a)
+            var is_value = isa<TypeExpr>(ca) && cast<TypeExpr>(ca)->is_value
             if isa<GenericParamType>(ca) {
                 var unsafe *g = cast<GenericParamType>(ca)
                 var        ps = decl_generic_params(g->owner)
@@ -2405,7 +2460,9 @@ pub class OverloadResolution {
             c->reject()
             // An operator has no name token to spell (TokenText::resolve
             // asserts on its empty one): its symbol, `op +=`.
-            var nm = if (c->f->is_operator) => ("op " + OperatorFacts::symbol(c->f))
+            var nm = if (c->f->is_operator) => ("op " + OperatorFacts::symbol(
+                         c->f,
+                     ))
                      else => self.tu.decl_name(c->f)
             c->reason = f"'{nm}' is not const; it cannot be called on a const object"
             return
@@ -2425,7 +2482,9 @@ pub class OverloadResolution {
 
         var rvalue = self.recv_cat == Expr::ValueCategory::RValue
             || self.recv_cat == Expr::ValueCategory::XValue
-        var mname = if (c->f->is_operator) => ("op " + OperatorFacts::symbol(c->f))
+        var mname = if (c->f->is_operator) => ("op " + OperatorFacts::symbol(
+                        c->f,
+                    ))
                     else => self.tu.decl_name(c->f)
         if rq == 1 && rvalue && (sq & QUAL_CONST) == 0 {
             c->reject()
@@ -2605,7 +2664,15 @@ pub class OverloadResolution {
                 // is no argument count at which a positional reaches one, so
                 // without this the user gets a conversion error naming the
                 // pack and no hint that the parameter they wanted exists.
-                var kw = self._keyword_only_meant(c, a, unsafe &params, pack_at, nparams, receiver)
+                var kw = self._keyword_only_meant(
+                    c,
+                    a,
+                    unsafe &params,
+                    pack_at,
+                    nparams,
+                    receiver,
+                )
+
                 if kw != usize::MAX {
                     c->reject()
                     c->reason_code = DiagID::SC018E
@@ -2679,7 +2746,7 @@ pub class OverloadResolution {
             var pn = self.tu.param_name(params[j])
             c->reason_code = DiagID::SC021E
             c->reject()
-            c->reason      = f"missing argument for parameter '{pn}'"
+            c->reason = f"missing argument for parameter '{pn}'"
             return
         }
 
@@ -2729,7 +2796,8 @@ pub class OverloadResolution {
                 continue
             }
 
-            var p: unsafe *ParamDecl = if (pi != ARG_PACK_TAIL) => (params[pi]) else => params[pack_at]
+            var p: unsafe *ParamDecl = if (pi != ARG_PACK_TAIL) => (params[pi])
+                                       else => params[pack_at]
             var pt: unsafe *Type = &null
             if p->type_ != &null {
                 pt = p->type_->canonical
@@ -2845,8 +2913,11 @@ pub class OverloadResolution {
                 // `char` is the natural spelling, a byte pointer the alias.
                 var unsafe *lp = self.tu.pointee(canon_unqual(pt))
                 c->judged[i].int_kind = if (lp != &null
-                                 && self.tu.is_builtin(canon_unqual(lp), BuiltinKind::CChar)) => (1)
-                             else => 2
+                                            && self.tu.is_builtin(
+                                                canon_unqual(lp),
+                                                BuiltinKind::CChar,
+                                            )) => (1)
+                                        else => 2
             } else {
                 r = self._rank_arg(c, ra, rt, pi == ARG_PACK_TAIL, mode)
             }
@@ -2874,9 +2945,9 @@ pub class OverloadResolution {
             // Kairo-side rules and has no say here). Below every standard
             // conversion, as C++ ranks it. Without the flag the reason says
             // which conversion C++ would have used.
-            var uto: unsafe *Type = &null
-            var        uvia = ""
-            var        cxx_conv = self.sc->cxx_implicit_conv_on()
+            var uto:     unsafe *Type = &null
+            var uvia                  = ""
+            var cxx_conv              = self.sc->cxx_implicit_conv_on()
             if r == ImplicitRank::None && mode != ParamMode::Inout {
                 uto = self._cxx_conv_target(f, a, pt)
                 if uto != &null {
@@ -2898,7 +2969,10 @@ pub class OverloadResolution {
                 && (!a->marked)
                 && has_opaque_ffi(pt)
                 && (self.tu.c_string_literal(a->expr) != &null
-                    || (a->ty != &null && self._is_cxx_record(canon_unqual(self.tu.as_value(a->ty))))) {
+                    || (a->ty != &null
+                        && self._is_cxx_record(
+                            canon_unqual(self.tu.as_value(a->ty)),
+                        ))) {
                 c->user_convs.push_back(i)
                 c->clang_convs.push_back(i)
                 if c->rank < CAND_USER_CONV {
@@ -2918,14 +2992,16 @@ pub class OverloadResolution {
             }
 
             if r == ImplicitRank::None {
-                var pn  = self.tu.param_name(p)
+                var pn = self.tu.param_name(p)
                 var got = if (a->ty != &null) => (self.tu.str(a->ty)) else => "<literal>"
                 if a->lit == LitKind::Variant {
                     got = "." + a->lit_name
                 }
 
                 if mode == ParamMode::Inout {
-                    var iv = if (a->marked && a->inner_ty != &null) => (self.tu.str(a->inner_ty))
+                    var iv = if (a->marked && a->inner_ty != &null) => (self.tu.str(
+                                 a->inner_ty,
+                             ))
                              else => got
                     c->reject()
                     c->reason = f"parameter '{pn}' is {LangAttrs::quoted(LangAttrs::param_inout())} and needs a mutable lvalue of type '{self.tu.str(pt)}'; got '{iv}'"
@@ -2958,6 +3034,7 @@ pub class OverloadResolution {
                         c->fix_open  = a->range.start
                     }
                 }
+
                 // A C string parameter takes C chars only: bytes (`*u8`,
                 // a string's `data`) or i8s become them by reinterpreting
                 // the pointer, which is the edit, inside `unsafe`.
@@ -3010,7 +3087,8 @@ pub class OverloadResolution {
 
             // An `@inout` binding IS a `T&` binding for the reference tiebreak.
             if r == ImplicitRank::Exact {
-                c->judged[i].bind = if (mode == ParamMode::Inout) => (RefBind::LRef) else => self._bind_kind(rt)
+                c->judged[i].bind = if (mode == ParamMode::Inout) => (RefBind::LRef)
+                                    else => self._bind_kind(rt)
             }
 
             // A reference reached through a conversion binds the converted
@@ -3279,7 +3357,11 @@ pub class OverloadResolution {
                 if self._forwards_cstr(c->f, a, pt) {
                     // `args: T&&...` of a C++ template: a literal element is
                     // a C string, as for a single forwarding reference.
-                    var unsafe *pc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+                    var unsafe *pc = self.sc->types->qualified(
+                        self.tu.builtin(BuiltinKind::CChar),
+                        QUAL_CONST,
+                    )
+
                     et = self.sc->types->pointer(pc, true)
                 } else if a->lit != LitKind::None {
                     et = self._literal_default(a, pg)
@@ -3311,7 +3393,11 @@ pub class OverloadResolution {
                 // `fn <T> f(x: T)` with `f(10)`: T := the literal's default.
                 var unsafe *def = self._literal_default(a, pt)
                 if self._forwards_cstr(c->f, a, pt) {
-                    var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+                    var unsafe *cc = self.sc->types->qualified(
+                        self.tu.builtin(BuiltinKind::CChar),
+                        QUAL_CONST,
+                    )
+
                     def = self.sc->types->pointer(cc, true)
                 }
 
@@ -3353,8 +3439,8 @@ pub class OverloadResolution {
             var rvalue = a->cat == Expr::ValueCategory::RValue
                 || a->cat == Expr::ValueCategory::XValue
             if isa<CXXRValueRefType>(pc) {
-                var unsafe *rr        = cast<CXXRValueRefType>(pc)->referee
-                var        forwarding = isa<GenericParamType>(rr) && canon_quals(rr) == 0
+                var unsafe *rr = cast<CXXRValueRefType>(pc)->referee
+                var forwarding = isa<GenericParamType>(rr) && canon_quals(rr) == 0
                 if lvalue && !forwarding {
                     return ImplicitRank::None
                 }
@@ -3415,7 +3501,12 @@ pub class OverloadResolution {
         var rel =      if (vr == ImplicitRank::Exact) => (RefRel::Same)
                   else if (vr == ImplicitRank::Converted) => (RefRel::Converts)
                   else => RefRel::None
-        return self.conv->ref_binding(pt, Expr::ValueCategory::RValue, false, rel)
+        return self.conv->ref_binding(
+            pt,
+            Expr::ValueCategory::RValue,
+            false,
+            rel,
+        )
     }
 
     priv fn _rank_literal(self, a: *ArgInfo, pt: unsafe *Type) -> ImplicitRank {
@@ -3460,7 +3551,9 @@ pub class OverloadResolution {
                 // A raw function pointer holds the null address too (a C
                 // callback parameter takes `&null`).
                 var unsafe *fpt = canon_unqual(target)
-                if fpt != &null && isa<FunctionPointerType>(fpt) && cast<FunctionPointerType>(fpt)->is_raw {
+                if fpt != &null
+                    && isa<FunctionPointerType>(fpt)
+                    && cast<FunctionPointerType>(fpt)->is_raw {
                     return ImplicitRank::Converted
                 }
 
@@ -3477,7 +3570,10 @@ pub class OverloadResolution {
                     return ImplicitRank::None
                 }
 
-                var unsafe *en = cast<EnumDecl>(self.tu.pattern_of(self.tu.record_decl(et)))
+                var unsafe *en = cast<EnumDecl>(
+                    self.tu.pattern_of(self.tu.record_decl(et)),
+                )
+
                 for var i: usize = 0; i < en->variants.size(); ++i {
                     var unsafe *v = en->variants[i]
                     if v != &null && self.tu.decl_name(unsafe (v as unsafe *Decl)) == a->lit_name {
@@ -3686,7 +3782,9 @@ pub class OverloadResolution {
     /// for (an array when it asks for nothing).
     priv fn _list_default(self, lo: usize, n: usize, pt: unsafe *Type) -> unsafe *Type {
         var unsafe *target = canon_unqual(self.tu.strip_nullable(pt))
-        var ept: unsafe *Type = if (target != &null) => (self.tu.container_elem(target))
+        var ept: unsafe *Type = if (target != &null) => (self.tu.container_elem(
+                                    target,
+                                ))
                                 else => &null
         var e: unsafe *Type = &null
         for var i: usize = 0; i < n; ++i {
@@ -3701,7 +3799,7 @@ pub class OverloadResolution {
                 sub.lit_hi   = el->lit_hi
                 sub.lit_big  = el->lit_big
                 sub.lit_bits = el->lit_bits
-            sub.lit_bits = el->lit_bits
+                sub.lit_bits = el->lit_bits
                 sub.lit_neg  = el->lit_neg
                 sub.lit_name = el->lit_name
                 t            = self._literal_default(&sub, ept)
@@ -3784,7 +3882,9 @@ pub class OverloadResolution {
         // there would be a builtin::string no formatter knows.
         if u != &null && isa<CXXLValueRefType>(u) {
             var unsafe *lr = cast<CXXLValueRefType>(u)->referee
-            return lr != &null && isa<GenericParamType>(canon_unqual(lr)) && canon_quals(lr) == QUAL_CONST
+            return lr != &null
+                && isa<GenericParamType>(canon_unqual(lr))
+                && canon_quals(lr) == QUAL_CONST
         }
 
         if u == &null || (!isa<CXXRValueRefType>(u)) {
@@ -3816,7 +3916,11 @@ pub class OverloadResolution {
         }
 
         if self._forwards_cstr(c->f, a, pt) {
-            var unsafe *fc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+            var unsafe *fc = self.sc->types->qualified(
+                self.tu.builtin(BuiltinKind::CChar),
+                QUAL_CONST,
+            )
+
             return self.sc->types->pointer(fc, true)
         }
 
@@ -3829,7 +3933,11 @@ pub class OverloadResolution {
             return a->ty
         }
 
-        var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
+        var unsafe *cc = self.sc->types->qualified(
+            self.tu.builtin(BuiltinKind::CChar),
+            QUAL_CONST,
+        )
+
         return self.sc->types->pointer(cc, true)
     }
 
@@ -3837,7 +3945,10 @@ pub class OverloadResolution {
     /// parameter \p pt of the imported callee \p f, or null: \p pt by
     /// value, `const T&` or `T&&` (a temporary binds neither `T&` nor a
     /// Kairo `@inout`), T a C++ class.
-    priv fn _cxx_conv_target(self, f: unsafe *FunctionDecl, a: *ArgInfo, pt: unsafe *Type) -> unsafe *Type {
+    priv fn _cxx_conv_target(self,
+                             f:  unsafe *FunctionDecl,
+                             a:  *ArgInfo,
+                             pt: unsafe *Type) -> unsafe *Type {
         if f == &null || (!f->is_imported()) || a->marked || pt == &null || pt->is_dependent() {
             return &null
         }
@@ -3885,7 +3996,7 @@ pub class OverloadResolution {
     /// takes.
     priv fn _cxx_conv_via(self, f: unsafe *FunctionDecl, a: *ArgInfo, to: unsafe *Type) -> string {
         var unsafe *from = if (a->ty != &null) => (self.tu.as_value(a->ty)) else => &null
-        var        lit   = self.tu.c_string_literal(a->expr) != &null
+        var lit = self.tu.c_string_literal(a->expr) != &null
         if from != &null && (!lit) {
             var unsafe *cop = self.conv->cxx_conversion_op(from, to)
             if cop != &null {
@@ -3912,14 +4023,20 @@ pub class OverloadResolution {
             return ""
         }
 
-        var src: unsafe *Type = &null
-        var cat               = a->cat
-        var lit_n: u64        = 0
+        var src:   unsafe *Type = &null
+        var cat                 = a->cat
+        var lit_n: u64          = 0
         if lit {
-            var unsafe *cc = self.sc->types->qualified(self.tu.builtin(BuiltinKind::CChar), QUAL_CONST)
-            src   = self.sc->types->pointer(cc, true)
-            cat   = Expr::ValueCategory::RValue
-            lit_n = LowerSynth(self.sc).c_literal_extent(self.tu.c_string_literal(a->expr))
+            var unsafe *cc = self.sc->types->qualified(
+                self.tu.builtin(BuiltinKind::CChar),
+                QUAL_CONST,
+            )
+
+            src = self.sc->types->pointer(cc, true)
+            cat = Expr::ValueCategory::RValue
+            lit_n = LowerSynth(self.sc).c_literal_extent(
+                self.tu.c_string_literal(a->expr),
+            )
         } else {
             var unsafe *fu = canon_unqual(from)
             if fu == &null || (!isa<RecordType>(fu)) {
@@ -3946,7 +4063,11 @@ pub class OverloadResolution {
     /// _cxx_conv_via's own search: a non-template constructor of exactly one
     /// parameter, judged on the builtin lattice. Kept ahead of clang: it
     /// needs no header set, so it also answers where none is reachable.
-    priv fn _cxx_ctor_by_hand(self, a: *ArgInfo, from: unsafe *Type, lit: bool, to: unsafe *Type) -> string {
+    priv fn _cxx_ctor_by_hand(self,
+                              a:    *ArgInfo,
+                              from: unsafe *Type,
+                              lit:  bool,
+                              to:   unsafe *Type) -> string {
         var unsafe *body = self.sc->body_of(self.tu.record_decl(to))
         var unsafe *dc   = NameLookup::context_of(body)
         if dc == &null {
@@ -3960,12 +4081,15 @@ pub class OverloadResolution {
 
         for var i: usize = 0; i < cell.cell->size(); ++i {
             var unsafe *k = dyn_cast<FunctionDecl>(cell.cell->get(i))
-            if k == &null || k->is_poisoned() || k->ffi_explicit || k->transfer != TransferKind::NotTransfer {
+            if k == &null
+                || k->is_poisoned()
+                || k->ffi_explicit
+                || k->transfer != TransferKind::NotTransfer {
                 continue
             }
 
-            var nreal: usize               = 0
-            var only:  unsafe *ParamDecl   = &null
+            var nreal: usize             = 0
+            var only:  unsafe *ParamDecl = &null
             for var j: usize = 0; j < k->params.size(); ++j {
                 if k->params[j] != &null && (!k->params[j]->is_self) {
                     nreal += 1
@@ -3989,7 +4113,10 @@ pub class OverloadResolution {
                     qv = cast<CXXRValueRefType>(qv)->referee
                 }
 
-                ok = self.conv->implicit_builtin(canon_unqual(from), canon_unqual(qv)) != ImplicitRank::None
+                ok = self.conv->implicit_builtin(
+                    canon_unqual(from),
+                    canon_unqual(qv),
+                ) != ImplicitRank::None
             }
 
             if ok {
@@ -4056,9 +4183,17 @@ pub class OverloadResolution {
         if cs->size() == 1 {
             var *only = &(*cs)[0]
             if only->reason_code != DiagID::SC001E {
-                var sb = self.sc->diag->report(only->reason_code, at.start, only->reason)
+                var sb = self.sc->diag->report(
+                    only->reason_code,
+                    at.start,
+                    only->reason,
+                )
+
                 sb.first(at)
-                sb.note(only->f->range.start, declared_here())->child_first(only->f->range)
+                sb.note(only->f->range.start, declared_here())->child_first(
+                    only->f->range,
+                )
+
                 sb.emit()
                 return
             }
@@ -4075,8 +4210,8 @@ pub class OverloadResolution {
         // record: the note names how, and `as` is the edit. Several (each
         // overload reachable by its own conversion): the note lists them and
         // no edit is offered, since which one is meant is the user's call.
-        var utargets = cxx::std::vector<string>()
-        var ufirst: usize = usize::MAX
+        var utargets       = cxx::std::vector<string>()
+        var ufirst:  usize = usize::MAX
         for var i: usize = 0; i < cs->size(); ++i {
             var *c = &(*cs)[i]
             if c->uconv_to == "" {
@@ -4104,7 +4239,10 @@ pub class OverloadResolution {
         var fixed        = utargets.size() > 1
         for var i: usize = 0; i < cs->size() && shown < 6; ++i {
             var *c = &(*cs)[i]
-            b.note(c->f->range.start, f"candidate not viable: {c->reason}")->child_first(c->f->range)
+            b.note(c->f->range.start, f"candidate not viable: {c->reason}")->child_first(
+                c->f->range,
+            )
+
             // One edit per call: two candidates' casts cannot both apply.
             if !fixed && c->fix_text != "" {
                 var why = if (c->fix_text == ".c_str()") => ("pass the string's NUL-terminated bytes")
@@ -4253,7 +4391,9 @@ pub class OverloadResolution {
         b.first(at)
         for var i: usize = 0; i < winners->size() && i < 6; ++i {
             var *c = &(*cs)[(((*winners)[i]))]
-            b.note(c->f->range.start, "candidate declared here")->child_first(c->f->range)
+            b.note(c->f->range.start, "candidate declared here")->child_first(
+                c->f->range,
+            )
         }
 
         var spelled = self._variant_spellings(&*cs, *winners, margs, fargs)

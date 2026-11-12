@@ -171,7 +171,10 @@ pub class ModulePinCheck {
 
         b.first(tu->pin_range, "not a module.k")
         // Concatenated, not an f-string: the braces are the block form's.
-        b.note("to declare a module here, use the block form `module " + name + " { ... }`")
+        b.note(
+            "to declare a module here, use the block form `module " + name + " { ... }`",
+        )
+
         b.insert(
             tu->pin_range.end,
             " { }",

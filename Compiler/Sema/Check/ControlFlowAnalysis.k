@@ -98,9 +98,9 @@ import Token::Token::Token
 /// barrier: no `break` in it can leave a loop outside it.
 class LoopExitFinder derives RecursiveASTVisitor<LoopExitFinder> {
     var sc:    unsafe *SemaContext
-    var label: u32  ///< imm of the inspected loop's label, or u32::MAX.
-    var depth: u32  = 0
-    var found: bool = false
+    var label: u32                         ///< imm of the inspected loop's label, or u32::MAX.
+    var depth: u32                 = 0
+    var found: bool                = false
 
     fn LoopExitFinder(self, sc: unsafe *SemaContext, label: u32) {
         self.sc    = sc
@@ -200,11 +200,17 @@ pub class FallThrough {
             } case StmtKind::JumpIntrinsicStmt {
                 return false
             } case StmtKind::CompoundStmt {
-                return self.block_falls_through(cast<Statements::CompoundStmt>(s))
+                return self.block_falls_through(
+                    cast<Statements::CompoundStmt>(s),
+                )
             } case StmtKind::UnsafeBlockStmt {
-                return self.block_falls_through(cast<Statements::UnsafeBlockStmt>(s)->body)
+                return self.block_falls_through(
+                    cast<Statements::UnsafeBlockStmt>(s)->body,
+                )
             } case StmtKind::ContextBindingStmt {
-                return self.block_falls_through(cast<Statements::ContextBindingStmt>(s)->body)
+                return self.block_falls_through(
+                    cast<Statements::ContextBindingStmt>(s)->body,
+                )
             } case StmtKind::ExpressionStmt {
                 return !self.diverges(cast<Statements::ExpressionStmt>(s)->expr)
             } case StmtKind::ConditionalStmt {
@@ -480,7 +486,7 @@ pub class ControlFlowAnalysis derives RecursiveASTVisitor<ControlFlowAnalysis> {
 
             var        item = *items->get(i)
             var unsafe *v   = rules->binding_of(item)
-            var        code = item.get_kind() != TopLevelKind::Decl && v == &null
+            var code = item.get_kind() != TopLevelKind::Decl && v == &null
             if v != &null && rules->defers(v) {
                 code = true
             }
@@ -693,7 +699,10 @@ pub class ControlFlowAnalysis derives RecursiveASTVisitor<ControlFlowAnalysis> {
                 stop = stop.with_offset(1)
             }
 
-            b.remove(SourceRange(region.start, stop), "remove the unreachable code")
+            b.remove(
+                SourceRange(region.start, stop),
+                "remove the unreachable code",
+            )
         }
 
         b.emit()
@@ -750,11 +759,17 @@ pub class ControlFlowAnalysis derives RecursiveASTVisitor<ControlFlowAnalysis> {
             case StmtKind::LabelIntrinsicStmt {
                 return true
             } case StmtKind::CompoundStmt {
-                return self._block_contains_label(cast<Statements::CompoundStmt>(s))
+                return self._block_contains_label(
+                    cast<Statements::CompoundStmt>(s),
+                )
             } case StmtKind::UnsafeBlockStmt {
-                return self._block_contains_label(cast<Statements::UnsafeBlockStmt>(s)->body)
+                return self._block_contains_label(
+                    cast<Statements::UnsafeBlockStmt>(s)->body,
+                )
             } case StmtKind::ContextBindingStmt {
-                return self._block_contains_label(cast<Statements::ContextBindingStmt>(s)->body)
+                return self._block_contains_label(
+                    cast<Statements::ContextBindingStmt>(s)->body,
+                )
             } case StmtKind::ConditionalStmt {
                 var unsafe *c = cast<Statements::ConditionalStmt>(s)
                 if self._block_contains_label(c->then_) {
@@ -785,15 +800,25 @@ pub class ControlFlowAnalysis derives RecursiveASTVisitor<ControlFlowAnalysis> {
 
                 return false
             } case StmtKind::LabeledStmt {
-                return self._contains_label(cast<Statements::LabeledStmt>(s)->inner)
+                return self._contains_label(
+                    cast<Statements::LabeledStmt>(s)->inner,
+                )
             } case StmtKind::LoopStmt {
-                return self._block_contains_label(cast<Statements::LoopStmt>(s)->body)
+                return self._block_contains_label(
+                    cast<Statements::LoopStmt>(s)->body,
+                )
             } case StmtKind::WhileLoopStmt {
-                return self._block_contains_label(cast<Statements::WhileLoopStmt>(s)->body)
+                return self._block_contains_label(
+                    cast<Statements::WhileLoopStmt>(s)->body,
+                )
             } case StmtKind::IndexedForStmt {
-                return self._block_contains_label(cast<Statements::IndexedForStmt>(s)->body)
+                return self._block_contains_label(
+                    cast<Statements::IndexedForStmt>(s)->body,
+                )
             } case StmtKind::RangedForStmt {
-                return self._block_contains_label(cast<Statements::RangedForStmt>(s)->body)
+                return self._block_contains_label(
+                    cast<Statements::RangedForStmt>(s)->body,
+                )
             } default {
                 return false
             }

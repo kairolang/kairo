@@ -61,7 +61,9 @@ pub class TopLevelItem {
     pub inline fn as_decl(self) -> unsafe *Decl {
         eval if defined!(DEBUG) {
             if !(self.kind == TopLevelKind::Decl) {
-                kairo::std::ice_fail("assertion failed: self.kind == TopLevelKind::Decl")
+                kairo::std::ice_fail(
+                    "assertion failed: self.kind == TopLevelKind::Decl",
+                )
             }
         }
 
@@ -71,7 +73,9 @@ pub class TopLevelItem {
     pub inline fn as_stmt(self) -> unsafe *Stmt {
         eval if defined!(DEBUG) {
             if !(self.kind == TopLevelKind::Stmt) {
-                kairo::std::ice_fail("assertion failed: self.kind == TopLevelKind::Stmt")
+                kairo::std::ice_fail(
+                    "assertion failed: self.kind == TopLevelKind::Stmt",
+                )
             }
         }
 
@@ -81,7 +85,9 @@ pub class TopLevelItem {
     pub inline fn as_expr(self) -> unsafe *Expr {
         eval if defined!(DEBUG) {
             if !(self.kind == TopLevelKind::Expr) {
-                kairo::std::ice_fail("assertion failed: self.kind == TopLevelKind::Expr")
+                kairo::std::ice_fail(
+                    "assertion failed: self.kind == TopLevelKind::Expr",
+                )
             }
         }
 

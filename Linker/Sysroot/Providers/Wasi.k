@@ -53,7 +53,10 @@ pub class WasiProvider derives SysrootProvider {
                             const dst:  string,
                             @inout out: SysOutcome) -> bool {
         if ctx->inputs.empty() {
-            return out.refuse(f"the {ctx->target.recipe} recipe names no input to bundle", "")
+            return out.refuse(
+                f"the {ctx->target.recipe} recipe names no input to bundle",
+                "",
+            )
         }
 
         var base = ctx->inputs[0]
@@ -63,7 +66,11 @@ pub class WasiProvider derives SysrootProvider {
                 return out.refuse(f"share input {from} missing", "")
             }
 
-            if !ctx->materialise(from, dst + "/" + ctx->recipe.str("bundle_layout", k), &out) {
+            if !ctx->materialise(
+                from,
+                dst + "/" + ctx->recipe.str("bundle_layout", k),
+                &out,
+            ) {
                 return false
             }
         }
@@ -136,13 +143,20 @@ pub class WasiProvider derives SysrootProvider {
             }
         }
 
-        if !LinkFS::write(env.sysroot + "/SYSROOT.toml", ctx->recipe.render_toml(&ctx->target)) {
+        if !LinkFS::write(
+            env.sysroot + "/SYSROOT.toml",
+            ctx->recipe.render_toml(&ctx->target),
+        ) {
             return out.fail(f"cannot write {env.sysroot}/SYSROOT.toml", "")
         }
 
         // Where the table's link lines look for it: libc.so names it, the
         // other shared libraries find it through -L.
-        var bn = ctx->recipe.expand(ctx->recipe.str("", "builtins_name"), &ctx->target)
+        var bn = ctx->recipe.expand(
+            ctx->recipe.str("", "builtins_name"),
+            &ctx->target,
+        )
+
         var rt = ctx->product("builtins") + "/" + bn
         var rd = env.sysroot + "/compiler-rt/lib/" + t.clang_triple
         if !LinkFS::is_file(rt) || !SysRun::put_file(rt, rd + "/libclang_rt.builtins.a", true) {
@@ -199,7 +213,10 @@ pub class WasiProvider derives SysrootProvider {
             if SysRun::run(&argv, log) != 0 {
                 var text = ""
                 LinkFS::read(log, &text)
-                return out.fail(f"{l.out}: link failed: {SysCrt::first_error(text)}", f"log: {log}")
+                return out.fail(
+                    f"{l.out}: link failed: {SysCrt::first_error(text)}",
+                    f"log: {log}",
+                )
             }
 
             // Later links take -lc and crt1-reactor.o from {sysroot}.
@@ -208,7 +225,10 @@ pub class WasiProvider derives SysrootProvider {
 
         for var i: CrtPair in t.install {
             if !LinkFS::is_file(env.sysroot + "/" + i.key) {
-                return out.fail(f"{t.path}: [install] {i.key}: nothing built {i.val}", "")
+                return out.fail(
+                    f"{t.path}: [install] {i.key}: nothing built {i.val}",
+                    "",
+                )
             }
         }
 

@@ -266,10 +266,17 @@ pub class Deduction derives Substitution {
             }
 
             if isa<CXXLValueRefType>(param) {
-                return self._unify_referee(cast<CXXLValueRefType>(param)->referee, a)
+                return self._unify_referee(
+                    cast<CXXLValueRefType>(param)->referee,
+                    a,
+                )
             }
 
-            var rr = self._unify_referee(cast<CXXRValueRefType>(param)->referee, a)
+            var rr = self._unify_referee(
+                cast<CXXRValueRefType>(param)->referee,
+                a,
+            )
+
             return if (rr != ImplicitRank::None) => (ImplicitRank::Converted)
                    else => ImplicitRank::None
         }
@@ -302,10 +309,13 @@ pub class Deduction derives Substitution {
                 var unsafe *ppe = cast<PointerType>(param)->pointee
                 var unsafe *ape = cast<PointerType>(arg)->pointee
                 if top && isa<QualifiedType>(ppe) {
-                    var        pq    = cast<QualifiedType>(ppe)->quals
-                    var        aq    = canon_quals(ape)
+                    var pq = cast<QualifiedType>(ppe)->quals
+                    var aq = canon_quals(ape)
                     var unsafe *rest = self.sc->types->qualified(canon_unqual(ape), (aq & ~pq))
-                    var r = self._inner(self.unify(cast<QualifiedType>(ppe)->inner, rest, false))
+                    var r = self._inner(
+                        self.unify(cast<QualifiedType>(ppe)->inner, rest, false),
+                    )
+
                     if r == ImplicitRank::None {
                         return r
                     }
@@ -332,7 +342,11 @@ pub class Deduction derives Substitution {
                 )
             } case TypeKind::SetType {
                 return self._inner(
-                    self.unify(cast<SetType>(param)->element, cast<SetType>(arg)->element, false),
+                    self.unify(
+                        cast<SetType>(param)->element,
+                        cast<SetType>(arg)->element,
+                        false,
+                    ),
                 )
             } case TypeKind::FixedArrayType {
                 var unsafe *pa = cast<FixedArrayType>(param)
@@ -345,7 +359,9 @@ pub class Deduction derives Substitution {
                     // from another argument, and the substituted parameter
                     // type is checked against this one after (Compiler/Spec/Eval.md#value-nodes).
                     if isa<TypeExpr>(pa->extent_param) {
-                        return self._inner(self.unify(pa->element, aa->element, false))
+                        return self._inner(
+                            self.unify(pa->element, aa->element, false),
+                        )
                     }
 
                     var unsafe *g = dyn_cast<GenericParamType>(pa->extent_param)
@@ -353,12 +369,18 @@ pub class Deduction derives Substitution {
                         return ImplicitRank::None
                     }
 
-                    var unsafe *v = self.sc->types->value_arg(false, aa->size_bits as u64)
+                    var unsafe *v = self.sc->types->value_arg(
+                        false,
+                        aa->size_bits as u64,
+                    )
+
                     if !self.bind(g->owner, g->param_index, v) {
                         return ImplicitRank::None
                     }
 
-                    return self._inner(self.unify(pa->element, aa->element, false))
+                    return self._inner(
+                        self.unify(pa->element, aa->element, false),
+                    )
                 }
 
                 if pa->extent_param != aa->extent_param || pa->size_bits != aa->size_bits {
@@ -404,14 +426,22 @@ pub class Deduction derives Substitution {
                     return ImplicitRank::Exact
                 }
 
-                return self._inner(self.unify(pf->return_type, af->return_type, false))
+                return self._inner(
+                    self.unify(pf->return_type, af->return_type, false),
+                )
             } case TypeKind::RecordType {
                 var unsafe *pr = cast<RecordType>(param)
                 var unsafe *ar = cast<RecordType>(arg)
                 // `Foo<T>` against `Foo<i32>`: the arg's decl is an instance of
                 // the param's pattern (or the pattern itself for a dependent arg).
-                var unsafe *ppat = NameLookup::representative(self.tu.pattern_of(pr->decl))
-                var unsafe *apat = NameLookup::representative(self.tu.pattern_of(ar->decl))
+                var unsafe *ppat = NameLookup::representative(
+                    self.tu.pattern_of(pr->decl),
+                )
+
+                var unsafe *apat = NameLookup::representative(
+                    self.tu.pattern_of(ar->decl),
+                )
+
                 if ppat != apat {
                     return ImplicitRank::None
                 }
@@ -442,7 +472,11 @@ pub class Deduction derives Substitution {
                         }
 
                         var have = cxx::std::vector<unsafe *Type>()
-                        if self.pack_elems(pg->owner, pg->param_index, unsafe &have) {
+                        if self.pack_elems(
+                            pg->owner,
+                            pg->param_index,
+                            unsafe &have,
+                        ) {
                             if have.size() != ar->args.size() - i {
                                 return ImplicitRank::None
                             }
@@ -458,7 +492,11 @@ pub class Deduction derives Substitution {
 
                         self.open_pack(pg->owner, pg->param_index)
                         for var k: usize = i; k < ar->args.size(); ++k {
-                            self.push_pack(pg->owner, pg->param_index, ar->args[k])
+                            self.push_pack(
+                                pg->owner,
+                                pg->param_index,
+                                ar->args[k],
+                            )
                         }
 
                         return ImplicitRank::Exact
@@ -485,7 +523,9 @@ pub class Deduction derives Substitution {
                 // from: both are the caller's own already.
                 var unsafe *pa = cast<AssocType>(param)
                 var unsafe *aa = cast<AssocType>(arg)
-                if NameLookup::representative(pa->assoc) != NameLookup::representative(aa->assoc) {
+                if NameLookup::representative(pa->assoc) != NameLookup::representative(
+                    aa->assoc,
+                ) {
                     return ImplicitRank::None
                 }
 
@@ -659,12 +699,18 @@ pub class Deduction derives Substitution {
             return &null
         }
 
-        var unsafe *qi = dyn_cast<InterfaceDecl>(NameLookup::representative(self.tu.pattern_of(qd)))
+        var unsafe *qi = dyn_cast<InterfaceDecl>(
+            NameLookup::representative(self.tu.pattern_of(qd)),
+        )
+
         if qi == &null {
             return &null
         }
 
-        var unsafe *home = NameLookup::representative((f->semantic_dc)->owner_decl())
+        var unsafe *home = NameLookup::representative(
+            (f->semantic_dc)->owner_decl(),
+        )
+
         if home == qi {
             return qr
         }

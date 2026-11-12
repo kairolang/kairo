@@ -305,9 +305,9 @@ var _FILE_RANK: cxx::std::vector<u32> = cxx::std::vector<u32>()
 /// The import graph (set_graph): per Kairo module fid, its import edge
 /// targets in declaration order (empty for any other file), and the
 /// prelude's fid (0: none).
-var _G_EDGES:   cxx::std::vector<cxx::std::vector<u32>> = cxx::std::vector<cxx::std::vector<u32>>()
-var _G_IS_MOD:  cxx::std::vector<u8>                    = cxx::std::vector<u8>()
-var _G_PRELUDE: u32                                     = 0
+var _G_EDGES: cxx::std::vector<cxx::std::vector<u32>> = cxx::std::vector<cxx::std::vector<u32>>()
+var _G_IS_MOD:  cxx::std::vector<u8> = cxx::std::vector<u8>()
+var _G_PRELUDE: u32                  = 0
 /// InstanceEntry (by address) -> the fid of its codegen home (assign_homes).
 /// An instance not in it keeps InstanceEntry::home_fid.
 var _HOMES: llvm::DenseMap<u64, u32> = llvm::DenseMap<u64, u32>()
@@ -783,11 +783,11 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         // once each. The name: the primary's module and place in its file,
         // and the arguments as the user with the least module path spells
         // them with sizes folded (tier 3's key), so it is no fact of the graph.
-        var gname    = cxx::std::vector<string>()
-        var gcand    = cxx::std::vector<cxx::std::vector<usize>>()
+        var gname = cxx::std::vector<string>()
+        var gcand = cxx::std::vector<cxx::std::vector<usize>>()
         var gmembers = cxx::std::vector<cxx::std::vector<unsafe *InstanceEntry>>()
-        var gdef     = cxx::std::vector<u32>()
-        var by_name  = llvm::StringMap<u32>()
+        var gdef    = cxx::std::vector<u32>()
+        var by_name = llvm::StringMap<u32>()
         for var n: usize = 0; n < order.size(); ++n {
             var unsafe *ie = order[n]
             var        hit = at.find(ie->home_fid as u64)
@@ -939,7 +939,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
         self._home = tu->fid
         if self._cg->instances == &null {
-            kairo::std::ice_fail("EmitPlan: no InstantiationRegistry on the CodegenContext")
+            kairo::std::ice_fail(
+                "EmitPlan: no InstantiationRegistry on the CodegenContext",
+            )
         }
 
         if !self._escaping_probe && !tu->cxx_escaping_done && CXXSpell::is_entry_tu(tu) {
@@ -1031,7 +1033,13 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// and the TU is marked done once the set is whole; nothing in planning
     /// reads is_anon.
     fn _find_escaping(self, tu: unsafe *TranslationUnit) {
-        var hcg   = CodegenContext(self._cg->ctx, &null, self._cg->psym, self._cg->instances)
+        var hcg = CodegenContext(
+            self._cg->ctx,
+            &null,
+            self._cg->psym,
+            self._cg->instances,
+        )
+
         var hplan = EmitPlan(unsafe &hcg, PlanMode::Header)
         hplan.legacy_roots    = true
         hplan._escaping_probe = true
@@ -1120,12 +1128,17 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
         for var i: usize = 0; i < self.entries.size(); ++i {
             var *e = &self.entries[i]
-            if e->own || e->decl == &null || e->scope != &null || e->witness != &null
-                || e->inst != &null || e->eval_item != &null {
+            if e->own
+                || e->decl == &null
+                || e->scope != &null
+                || e->witness != &null
+                || e->inst != &null
+                || e->eval_item != &null {
                 continue
             }
 
-            if (!isa<Declarations::FunctionDecl>(e->decl)) && (!isa<Declarations::VariableDecl>(e->decl)) {
+            if (!isa<Declarations::FunctionDecl>(e->decl))
+                && (!isa<Declarations::VariableDecl>(e->decl)) {
                 continue
             }
 
@@ -1160,7 +1173,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     pub fn is_empty(self) -> bool {
         eval if defined!(DEBUG) {
             if !self._ran {
-                kairo::std::ice_fail(r"EmitPlan::is_empty before run(): not run is not empty")
+                kairo::std::ice_fail(
+                    r"EmitPlan::is_empty before run(): not run is not empty",
+                )
             }
         }
 
@@ -1181,7 +1196,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 continue
             }
 
-            if CXXSpell::fid_of(unsafe (s->anchor as unsafe *Decl)) != CXXSpell::fid_of(c) {
+            if CXXSpell::fid_of(unsafe (s->anchor as unsafe *Decl)) != CXXSpell::fid_of(
+                c,
+            ) {
                 continue
             }
 
@@ -1458,7 +1475,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             // d's own scopes are friend_scopes_of's, qualified and admitted.
             var unsafe *c = canon_unqual(e->target->canonical)
             if isa<RecordType>(c)
-                && self._scope_key(cast<RecordType>(c)->decl) == self._scope_key(d) {
+                && self._scope_key(cast<RecordType>(c)->decl) == self._scope_key(
+                    d,
+                ) {
                 return
             }
 
@@ -1605,11 +1624,20 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             } case TypeKind::PointerType {
                 return self._ff_nested(cast<PointerType>(c)->pointee, depth + 1)
             } case TypeKind::CXXLValueRefType {
-                return self._ff_nested(cast<CXXLValueRefType>(c)->referee, depth + 1)
+                return self._ff_nested(
+                    cast<CXXLValueRefType>(c)->referee,
+                    depth + 1,
+                )
             } case TypeKind::CXXRValueRefType {
-                return self._ff_nested(cast<CXXRValueRefType>(c)->referee, depth + 1)
+                return self._ff_nested(
+                    cast<CXXRValueRefType>(c)->referee,
+                    depth + 1,
+                )
             } case TypeKind::FixedArrayType {
-                return self._ff_nested(cast<FixedArrayType>(c)->element, depth + 1)
+                return self._ff_nested(
+                    cast<FixedArrayType>(c)->element,
+                    depth + 1,
+                )
             } case TypeKind::NullableType {
                 return self._ff_nested(cast<NullableType>(c)->inner, depth + 1)
             } case TypeKind::TupleType {
@@ -1674,7 +1702,11 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         }
 
         var unsafe *id = dyn_cast<Declarations::InterfaceDecl>(
-            CXXSpell::rep(DeclFacts::decl_pattern(CXXSpell::rep(cast<RecordType>(c)->decl))),
+            CXXSpell::rep(
+                DeclFacts::decl_pattern(
+                    CXXSpell::rep(cast<RecordType>(c)->decl),
+                ),
+            ),
         )
 
         if id == &null {
@@ -1843,7 +1875,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 // The anchor is an ExtensionDecl, which has no name of its own.
                 for var k: usize = 0; k < e->scope->ns.size(); ++k {
                     nm += "::"
-                    nm += if (k == 0) => (CXXSpell::kairo_top_of(e->scope->ns[k]))
+                    nm += if (k == 0) => (CXXSpell::kairo_top_of(
+                              e->scope->ns[k],
+                          ))
                           else => e->scope->ns[k]
                 }
 
@@ -1989,7 +2023,8 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
         // A hidden decl another file's header names is a root of its own
         // header (_BORROWED); everything else hidden stays out.
-        if self._mode != PlanMode::Preamble && self._hidden(d)
+        if self._mode != PlanMode::Preamble
+            && self._hidden(d)
             && !(self._mode == PlanMode::Header && EmitPlan::_is_borrowed(d)) {
             return
         }
@@ -2078,7 +2113,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// and TU B's the five it calls, two definitions of one class.
     fn _scope_for(self, x: unsafe *Declarations::ExtensionDecl, reach: bool) -> usize {
         if x == &null || x->target == &null || x->target->canonical == &null {
-            kairo::std::ice_fail("EmitPlan: extension with an unresolved target reached codegen")
+            kairo::std::ice_fail(
+                "EmitPlan: extension with an unresolved target reached codegen",
+            )
         }
 
         var ns   = self._spell.scope_ns(x)
@@ -2138,7 +2175,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         }
 
         if self._scopes[k].anchor == &null {
-            self._ice(x->range, "EmitPlan: an extension's own file does not contain it")
+            self._ice(
+                x->range,
+                "EmitPlan: an extension's own file does not contain it",
+            )
         }
 
         // A static member's signature names its types and lays none out; the
@@ -2408,7 +2448,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// lays them out); a concept conjoins its bases' concepts, so their
     /// primaries come first.
     fn _witness_primary(self, iface_in: unsafe *Decl) -> usize {
-        var unsafe *iface = CXXSpell::rep(DeclFacts::decl_pattern(CXXSpell::rep(iface_in)))
+        var unsafe *iface = CXXSpell::rep(
+            DeclFacts::decl_pattern(CXXSpell::rep(iface_in)),
+        )
+
         for var i: usize = 0; i < self._witnesses.size(); ++i {
             if self._witnesses[i].iface == iface && self._witnesses[i].row == &null {
                 return i
@@ -2526,7 +2569,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             // A partial specialization names the conformer's template, which
             // _witness_dep leaves alone as dependent: the primary must be
             // declared, and is defined first, as a full specialization's is.
-            var unsafe *cd = self.layout_decl(cast<RecordType>(row->conformer)->decl)
+            var unsafe *cd = self.layout_decl(
+                cast<RecordType>(row->conformer)->decl,
+            )
+
             if cd != &null && !DeclFacts::decl_is_imported(cd) {
                 var unsafe *o = self._outermost_type(cd)
                 self._admit(o, PlanNeed::Complete)
@@ -2616,7 +2662,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return
         }
 
-        var unsafe *kc = canon_unqual(if (k->canonical != &null) => (k->canonical) else => k)
+        var unsafe *kc = canon_unqual(
+            if (k->canonical != &null) => (k->canonical) else => k,
+        )
+
         if !isa<RecordType>(kc) {
             return
         }
@@ -2665,7 +2714,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         // Keyed with usize / isize folded, as a row's specialization is: one
         // C++ class per C++ type.
         self._spell.fold_sizes = true
-        var key = LowerTargets::cxx_std_hash() + "<" + self._spell._type(row->conformer) + ">"
+        var key = LowerTargets::cxx_std_hash() + "<" + self._spell._type(
+            row->conformer,
+        ) + ">"
         self._spell.fold_sizes = false
         for var i: usize = 0; i < self._witnesses.size(); ++i {
             if self._witnesses[i].std_hash && self._witnesses[i].key == key {
@@ -2725,8 +2776,11 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
         // Not in the escaping probe: its answer is what ordinary codegen puts
         // in an anonymous namespace, which no header concerns.
-        var own_deferred = self._mode != PlanMode::Preamble && (!self._escaping_probe) && CXXSpell::defers_bounds(f)
-                        && CXXSpell::fid_of(f) == self._home && CXXSpell::template_params(f).size() > 0
+        var own_deferred = self._mode != PlanMode::Preamble
+            && (!self._escaping_probe)
+            && CXXSpell::defers_bounds(f)
+            && CXXSpell::fid_of(f) == self._home
+            && CXXSpell::template_params(f).size() > 0
         if (!own_deferred) && (self._spell.requires_clause(f).size() == 0) {
             return
         }
@@ -2734,7 +2788,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         var        cs = cxx::std::vector<unsafe *ConstraintExpr>()
         var unsafe *x = DeclFacts::decl_extension_of(f)
         if x != &null {
-            CXXSpell::impl_bounds(DeclFacts::decl_requires_clause(x), unsafe &cs)
+            CXXSpell::impl_bounds(
+                DeclFacts::decl_requires_clause(x),
+                unsafe &cs,
+            )
         }
 
         CXXSpell::impl_bounds(DeclFacts::decl_requires_clause(f), unsafe &cs)
@@ -3050,7 +3107,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
                 self._type_items(f->return_type, unsafe &seeds)
             } else if isa<Declarations::VariableDecl>(d) {
-                self._type_items(cast<Declarations::VariableDecl>(d)->type_, unsafe &seeds)
+                self._type_items(
+                    cast<Declarations::VariableDecl>(d)->type_,
+                    unsafe &seeds,
+                )
             }
 
             if seeds.size() == 0 {
@@ -3106,7 +3166,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                     continue
                 }
 
-                var unsafe *y = dyn_cast<Declarations::FunctionDecl>(self._en_val[i])
+                var unsafe *y = dyn_cast<Declarations::FunctionDecl>(
+                    self._en_val[i],
+                )
+
                 if y == &null || (unsafe (y as unsafe *Decl)) == x {
                     continue
                 }
@@ -3699,7 +3762,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                     // scope, not an object.
                     if s->access_kind != ChainExpr::AccessKind::ColonColon {
                         if i > 0 {
-                            self._admit_receiver(c->steps.get(i - 1)->resolved_type)
+                            self._admit_receiver(
+                                c->steps.get(i - 1)->resolved_type,
+                            )
                         } else if c->base != &null {
                             self._admit_receiver(c->base->type_)
                         }
@@ -3711,13 +3776,19 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 }
             } case ExprKind::ClosureExpr {
                 // A panicking closure's lambda returns its Panic result.
-                self._admit_type(cast<ClosureExpr>(e)->panic_result, PlanNeed::Complete)
+                self._admit_type(
+                    cast<ClosureExpr>(e)->panic_result,
+                    PlanNeed::Complete,
+                )
             } case ExprKind::StringLiteralExpr {
                 // A byte literal C++ reads at compile time (Compiler/Spec/Eval.md#strings-at-compile-time): a long
                 // one is a named array this plan's interface defines.
                 var unsafe *sl = cast<StringLiteralExpr>(e)
                 if sl->const_eval && sl->imm != &null && sl->imm->has_owned_text() {
-                    self.note_eval_str(sl->imm->owned_ptr, sl->imm->owned_len as usize)
+                    self.note_eval_str(
+                        sl->imm->owned_ptr,
+                        sl->imm->owned_len as usize,
+                    )
                 }
             } case ExprKind::ConstraintExpr {
                 // `eval if A impl I` in a body is I's concept (EmitIR::_constraint),
@@ -3727,9 +3798,13 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                     && ce->rhs != &null
                     && ce->rhs->canonical != &null
                     && isa<RecordType>(canon_unqual(ce->rhs->canonical)) {
-                    var unsafe *cd = cast<RecordType>(canon_unqual(ce->rhs->canonical))->decl
+                    var unsafe *cd = cast<RecordType>(
+                        canon_unqual(ce->rhs->canonical),
+                    )->decl
                     if isa<Declarations::InterfaceDecl>(
-                        CXXSpell::rep(DeclFacts::decl_pattern(CXXSpell::rep(cd))),
+                        CXXSpell::rep(
+                            DeclFacts::decl_pattern(CXXSpell::rep(cd)),
+                        ),
                     ) {
                         self._admit(cd, PlanNeed::Complete)
                     }
@@ -3737,12 +3812,21 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             } case ExprKind::SizeOfExpr {
                 // The operand is laid out, not just named: Complete, whatever
                 // visit_type (Fwd, for a type merely spelled) would say.
-                self._admit_type(cast<SizeOfExpr>(e)->type_arg, PlanNeed::Complete)
+                self._admit_type(
+                    cast<SizeOfExpr>(e)->type_arg,
+                    PlanNeed::Complete,
+                )
             } case ExprKind::AlignOfExpr {
-                self._admit_type(cast<AlignOfExpr>(e)->type_arg, PlanNeed::Complete)
+                self._admit_type(
+                    cast<AlignOfExpr>(e)->type_arg,
+                    PlanNeed::Complete,
+                )
             } case ExprKind::TypeTraitExpr {
                 // clang's trivially-* builtins need the type complete, as sizeof does.
-                self._admit_type(cast<TypeTraitExpr>(e)->type_arg, PlanNeed::Complete)
+                self._admit_type(
+                    cast<TypeTraitExpr>(e)->type_arg,
+                    PlanNeed::Complete,
+                )
             } case ExprKind::BinaryOperatorExpr {
                 // `typeof T == U`: `__is_same` only names its types.
                 var unsafe *bo = cast<BinaryOperatorExpr>(e)
@@ -3762,7 +3846,11 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
                 // `Box<int>::zero()`: the member is looked up in the class, so
                 // the instance is complete here, and homed like any named one.
-                self._admit_type(cast<CallExpr>(e)->qualifier, PlanNeed::Complete)
+                self._admit_type(
+                    cast<CallExpr>(e)->qualifier,
+                    PlanNeed::Complete,
+                )
+
                 // `I::m(x)` on a concrete x: its row rides on the call.
                 var unsafe *wr = cast<CallExpr>(e)->witness_row
                 if wr != &null {
@@ -3869,9 +3957,15 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                     self.needs_raw_slot = true
                 }
 
-                self._admit_type(cast<Declarations::VariableDecl>(d)->type_, PlanNeed::Complete)
+                self._admit_type(
+                    cast<Declarations::VariableDecl>(d)->type_,
+                    PlanNeed::Complete,
+                )
             } case DeclKind::FieldDecl {
-                self._admit_type(cast<Declarations::FieldDecl>(d)->type_, PlanNeed::Complete)
+                self._admit_type(
+                    cast<Declarations::FieldDecl>(d)->type_,
+                    PlanNeed::Complete,
+                )
             } case DeclKind::ParamDecl {
                 var unsafe *p = cast<Declarations::ParamDecl>(d)
                 self._admit_type(
@@ -3893,7 +3987,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                     self.needs_nopanic = true
                 }
             } case DeclKind::TypeAliasDecl {
-                self._admit_type(cast<Declarations::TypeAliasDecl>(d)->aliased, PlanNeed::Complete)
+                self._admit_type(
+                    cast<Declarations::TypeAliasDecl>(d)->aliased,
+                    PlanNeed::Complete,
+                )
             } default { }
         }
 
@@ -3934,7 +4031,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return
         }
 
-        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
         if c != &null && isa<PointerType>(c) {
             c = canon_unqual(cast<PointerType>(c)->pointee)
         }
@@ -3951,7 +4051,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return
         }
 
-        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
         if c == &null || !isa<PointerType>(c) {
             return
         }
@@ -3961,7 +4064,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return
         }
 
-        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(CXXSpell::rep(cast<RecordType>(p)->decl))
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(
+            CXXSpell::rep(cast<RecordType>(p)->decl),
+        )
+
         if cd != &null && cd->has_bases() {
             self._admit_type(p, PlanNeed::Complete)
         }
@@ -3974,7 +4080,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return false
         }
 
-        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
         if c == &null {
             return false
         }
@@ -4003,7 +4112,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return
         }
 
-        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
         if c == &null {
             return
         }
@@ -4169,7 +4281,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             }
 
             if e == &null {
-                self._ice(c->range, "EmitPlan: instance shell with no registry entry")
+                self._ice(
+                    c->range,
+                    "EmitPlan: instance shell with no registry entry",
+                )
             }
 
             self._admit_instance(e, need)
@@ -4442,9 +4557,15 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             } case TypeKind::PointerType {
                 self._admit_type(cast<PointerType>(c)->pointee, PlanNeed::Fwd)
             } case TypeKind::CXXLValueRefType {
-                self._admit_type(cast<CXXLValueRefType>(c)->referee, PlanNeed::Fwd)
+                self._admit_type(
+                    cast<CXXLValueRefType>(c)->referee,
+                    PlanNeed::Fwd,
+                )
             } case TypeKind::CXXRValueRefType {
-                self._admit_type(cast<CXXRValueRefType>(c)->referee, PlanNeed::Fwd)
+                self._admit_type(
+                    cast<CXXRValueRefType>(c)->referee,
+                    PlanNeed::Fwd,
+                )
             }
 
             // `T?` is its record to C++ (NullableTypeLowering), held by value.
@@ -4457,7 +4578,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             // arguments (a tuple's elements are by value, so at \p need).
             case TypeKind::FixedArrayType {
                 self._admit_type(cast<FixedArrayType>(c)->element, need)
-                self._admit_type(cast<FixedArrayType>(c)->extent_param, PlanNeed::Fwd)
+                self._admit_type(
+                    cast<FixedArrayType>(c)->extent_param,
+                    PlanNeed::Fwd,
+                )
             }
 
             // A computed value (Compiler/Spec/Eval.md#value-nodes) names what C++ computes it from:
@@ -4558,7 +4682,11 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         // `extern T x;` only names T; the defining TU's own walk (visit_decl)
         // asks for Complete where the definition lays it out.
         if isa<Declarations::VariableDecl>(d) {
-            self._admit_type(cast<Declarations::VariableDecl>(d)->type_, PlanNeed::Fwd)
+            self._admit_type(
+                cast<Declarations::VariableDecl>(d)->type_,
+                PlanNeed::Fwd,
+            )
+
             return
         }
 
@@ -4966,7 +5094,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         if f->type_ != &null && f->type_->canonical != &null {
             var unsafe *c = canon_unqual(f->type_->canonical)
             if isa<RecordType>(c) {
-                u = dyn_cast<Declarations::UnionDecl>(CXXSpell::rep(cast<RecordType>(c)->decl))
+                u = dyn_cast<Declarations::UnionDecl>(
+                    CXXSpell::rep(cast<RecordType>(c)->decl),
+                )
             }
         }
 
@@ -5106,7 +5236,11 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
             // An anonymous union's members are stored in the record by value.
             if f->is_anonymous_union {
-                if self._fields_reach_param(&self.anon_union_of(f)->fields, prim, idx) {
+                if self._fields_reach_param(
+                    &self.anon_union_of(f)->fields,
+                    prim,
+                    idx,
+                ) {
                     return true
                 }
 
@@ -5133,9 +5267,17 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
         match c->kind {
             case TypeKind::QualifiedType {
-                return self._type_reaches_param(cast<QualifiedType>(c)->inner, prim, idx)
+                return self._type_reaches_param(
+                    cast<QualifiedType>(c)->inner,
+                    prim,
+                    idx,
+                )
             } case TypeKind::NullableType {
-                return self._type_reaches_param(cast<NullableType>(c)->lowered, prim, idx)
+                return self._type_reaches_param(
+                    cast<NullableType>(c)->lowered,
+                    prim,
+                    idx,
+                )
             } case TypeKind::GenericParamType {
                 var unsafe *g = cast<GenericParamType>(c)
                 // Both through layout_decl: walking an ADT's record, \p prim is
@@ -5171,7 +5313,11 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
                 return false
             } case TypeKind::FixedArrayType {
-                return self._type_reaches_param(cast<FixedArrayType>(c)->element, prim, idx)
+                return self._type_reaches_param(
+                    cast<FixedArrayType>(c)->element,
+                    prim,
+                    idx,
+                )
             } default {
                 return false
             }
@@ -5196,7 +5342,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
         // The closure is done: _scopes no longer grows, so entries may point in.
         for var i: usize = 0; i < self._scopes.size(); ++i {
-            var e = self._entry(self._scopes[i].anchor, PlanNeed::Fwd, PlanTier::FwdDecls)
+            var e = self._entry(
+                self._scopes[i].anchor,
+                PlanNeed::Fwd,
+                PlanTier::FwdDecls,
+            )
+
             e.scope = unsafe &self._scopes[i]
             t0.push_back(e)
         }
@@ -5208,7 +5359,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 continue
             }
 
-            var e = self._entry(self._witnesses[i].iface, PlanNeed::Fwd, PlanTier::FwdDecls)
+            var e = self._entry(
+                self._witnesses[i].iface,
+                PlanNeed::Fwd,
+                PlanTier::FwdDecls,
+            )
+
             e.witness = unsafe &self._witnesses[i]
             e.own     = true // written wherever it is needed; one text everywhere (§7b.6).
             t0.push_back(e)
@@ -5239,7 +5395,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 continue
             }
 
-            var e = self._entry(self._witnesses[i].iface, PlanNeed::Fwd, PlanTier::FwdDecls)
+            var e = self._entry(
+                self._witnesses[i].iface,
+                PlanNeed::Fwd,
+                PlanTier::FwdDecls,
+            )
+
             e.witness    = unsafe &self._witnesses[i]
             e.is_concept = true
             e.own        = true
@@ -5264,7 +5425,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 continue
             }
 
-            var e = self._entry(self._witnesses[i].iface, PlanNeed::Fwd, PlanTier::FwdDecls)
+            var e = self._entry(
+                self._witnesses[i].iface,
+                PlanNeed::Fwd,
+                PlanTier::FwdDecls,
+            )
+
             e.witness = unsafe &self._witnesses[i]
             e.own     = true
             self.entries.push_back(e)
@@ -5282,7 +5448,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 continue
             }
 
-            t1.push_back(self._entry(d, PlanNeed::Complete, PlanTier::Definitions))
+            t1.push_back(
+                self._entry(d, PlanNeed::Complete, PlanTier::Definitions),
+            )
         }
 
         // Every scope a preamble touches is defined (its members' out-of-line
@@ -5293,13 +5461,23 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 continue
             }
 
-            var e = self._entry(self._scopes[i].anchor, PlanNeed::Complete, PlanTier::Definitions)
+            var e = self._entry(
+                self._scopes[i].anchor,
+                PlanNeed::Complete,
+                PlanTier::Definitions,
+            )
+
             e.scope = unsafe &self._scopes[i]
             t1.push_back(e)
         }
 
         for var i: usize = 0; i < self._witnesses.size(); ++i {
-            var e = self._entry(self._witnesses[i].iface, PlanNeed::Complete, PlanTier::Definitions)
+            var e = self._entry(
+                self._witnesses[i].iface,
+                PlanNeed::Complete,
+                PlanTier::Definitions,
+            )
+
             e.witness = unsafe &self._witnesses[i]
             e.own     = true
             t1.push_back(e)
@@ -5309,7 +5487,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         // records its definition needs complete, before the records whose
         // types evaluate it.
         for var i: usize = 0; i < self.early.size(); ++i {
-            var e = self._entry(self.early[i], PlanNeed::Complete, PlanTier::Definitions)
+            var e = self._entry(
+                self.early[i],
+                PlanNeed::Complete,
+                PlanTier::Definitions,
+            )
+
             e.eval_item = self.early[i]
             t1.push_back(e)
         }
@@ -5344,7 +5527,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         for var i: usize = 0; i < self._insts.size(); ++i {
             var unsafe *ie   = self._insts[i]
             var unsafe *prim = CXXSpell::rep(ie->primary)
-            var        e     = self._entry(prim, PlanNeed::Complete, PlanTier::Instantiations)
+            var e = self._entry(
+                prim,
+                PlanNeed::Complete,
+                PlanTier::Instantiations,
+            )
+
             // The codegen home (assign_homes), graph-independent; home_fid
             // when the driver set none.
             var hf = EmitPlan::home_of(ie)
@@ -5456,7 +5644,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return a == b
         }
 
-        return res->root_for_dir(sm->get_file_dir(a)) == res->root_for_dir(sm->get_file_dir(b))
+        return res->root_for_dir(sm->get_file_dir(a)) == res->root_for_dir(
+            sm->get_file_dir(b),
+        )
     }
 
     fn _same_ns_vec(self,
@@ -5711,8 +5901,11 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                     continue
                 }
 
-                var unsafe *prim = CXXSpell::rep(DeclFacts::decl_instantiated_from(d))
-                var        at    = usize::MAX
+                var unsafe *prim = CXXSpell::rep(
+                    DeclFacts::decl_instantiated_from(d),
+                )
+
+                var at = usize::MAX
                 for var j: usize = i + 1; j < v.size(); ++j {
                     if (v)[j].scope == &null && (v)[j].witness == &null && (v)[j].decl == prim {
                         at = j
@@ -5790,7 +5983,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 continue
             }
 
-            row.direct.insert(CXXSpell::rep(cast<RecordType>(c)->decl) as usize as u64)
+            row.direct.insert(
+                CXXSpell::rep(cast<RecordType>(c)->decl) as usize as u64,
+            )
         }
 
         {
@@ -6042,7 +6237,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                                 continue
                             }
 
-                            var unsafe *vc = canon_unqual(gp->value_type->canonical)
+                            var unsafe *vc = canon_unqual(
+                                gp->value_type->canonical,
+                            )
+
                             if !isa<RecordType>(vc) {
                                 continue
                             }
@@ -6081,21 +6279,56 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         var d1 = depth + (1 as u32)
         match c->kind {
             case TypeKind::QualifiedType {
-                return self._type_names_vp(cast<QualifiedType>(c)->inner, dep, d1, nested)
+                return self._type_names_vp(
+                    cast<QualifiedType>(c)->inner,
+                    dep,
+                    d1,
+                    nested,
+                )
             } case TypeKind::PointerType {
-                return self._type_names_vp(cast<PointerType>(c)->pointee, dep, d1, nested)
+                return self._type_names_vp(
+                    cast<PointerType>(c)->pointee,
+                    dep,
+                    d1,
+                    nested,
+                )
             } case TypeKind::CXXLValueRefType {
-                return self._type_names_vp(cast<CXXLValueRefType>(c)->referee, dep, d1, nested)
+                return self._type_names_vp(
+                    cast<CXXLValueRefType>(c)->referee,
+                    dep,
+                    d1,
+                    nested,
+                )
             } case TypeKind::CXXRValueRefType {
-                return self._type_names_vp(cast<CXXRValueRefType>(c)->referee, dep, d1, nested)
+                return self._type_names_vp(
+                    cast<CXXRValueRefType>(c)->referee,
+                    dep,
+                    d1,
+                    nested,
+                )
             } case TypeKind::NullableType {
-                return self._type_names_vp(cast<NullableType>(c)->lowered, dep, d1, nested)
+                return self._type_names_vp(
+                    cast<NullableType>(c)->lowered,
+                    dep,
+                    d1,
+                    nested,
+                )
             } case TypeKind::FixedArrayType {
-                return self._type_names_vp(cast<FixedArrayType>(c)->element, dep, d1, nested)
+                return self._type_names_vp(
+                    cast<FixedArrayType>(c)->element,
+                    dep,
+                    d1,
+                    nested,
+                )
             } case TypeKind::TupleType {
                 var unsafe *tp = cast<TupleType>(c)
                 for var i: usize = 0; i < tp->elements.size(); ++i {
-                    if self._type_names_vp(*tp->elements.get(i), dep, d1, nested) {
+                    if self._type_names_vp(
+                        *tp->elements.get(i),
+                        dep,
+                        d1,
+                        nested,
+                    ) {
                         return true
                     }
                 }
@@ -6115,7 +6348,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 var unsafe *d = CXXSpell::rep(r->decl)
                 if d != &null
                     && !nested
-                    && self.value_param_record(CXXSpell::rep(DeclFacts::decl_pattern(d)), dep) {
+                    && self.value_param_record(
+                        CXXSpell::rep(DeclFacts::decl_pattern(d)),
+                        dep,
+                    ) {
                     return true
                 }
 
@@ -6249,7 +6485,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 ///          A null plan leases nothing: the fill planned on its own context,
 ///          which dies with it.
 pub class PlanLease {
-    priv var _plan:  unsafe *EmitPlan = &null
+    priv var _plan:  unsafe *EmitPlan            = &null
     priv var _saved: cxx::std::vector<PlanEntry>
 
     fn PlanLease(self, plan: unsafe *EmitPlan, sink: unsafe *EmitSink, ctx: unsafe *ASTContext) {

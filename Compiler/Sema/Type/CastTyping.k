@@ -108,11 +108,11 @@ import AST::Node::Types::{
     FunctionPointerType,
     GenericParamType,
 }
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::{
     declared_here,
     named_declared_here,
 }
+import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstEval::ConstEval
 import Sema::Resolve::NameLookup::NameLookup
@@ -125,8 +125,8 @@ import Sema::Type::OverloadResolution::{
     OvlOutcome,
 }
 import Sema::Type::Substitution::Substitution
-import Token::TokenKind::TokenKind
 import Support::Ascii::is_blank
+import Token::TokenKind::TokenKind
 
 // TODO(DUCK-GENERIC): T uses arg_info, conv, defer_enum_cast, fail, finish_call_args, fn_return_type, in_unsafe, mark_unknown, ml, needs_bound, note_panic_site, ovl, ... (17). Stage 0 was duck-typed; bound it or keep `: type`.
 pub class <T: type> CastTyping {
@@ -139,8 +139,8 @@ pub class <T: type> CastTyping {
 
     /// One of \p a, \p b is an f8 format and the other f256 or f512.
     priv fn _f8_wide_pair(self, a: unsafe *Type, b: unsafe *Type) -> bool {
-        var ka = self.dyn()->tu.kind_of(canon_unqual(a))
-        var kb = self.dyn()->tu.kind_of(canon_unqual(b))
+        var ka  = self.dyn()->tu.kind_of(canon_unqual(a))
+        var kb  = self.dyn()->tu.kind_of(canon_unqual(b))
         var f8a = ka == BuiltinKind::F8E4M3 || ka == BuiltinKind::F8E5M2
         var f8b = kb == BuiltinKind::F8E4M3 || kb == BuiltinKind::F8E5M2
         var wa  = ka == BuiltinKind::F256 || ka == BuiltinKind::F512
@@ -162,7 +162,7 @@ pub class <T: type> CastTyping {
             return &null
         }
 
-        var mode              = n->mode
+        var mode = n->mode
         var target_unsafe_ptr = mode == CastMode::Unsafe || self.dyn()->tu.is_unsafe_ptr(target)
 
         // The literal-takes-the-type rule applies through a cast too: `10 as u8`
@@ -568,7 +568,9 @@ pub class <T: type> CastTyping {
 
         // T? as T: no collapsing cast.
         if self.dyn()->tu.nullable_inner(src) != &null
-            && self.dyn()->tu.strip_nullable(src) == self.dyn()->tu.strip_nullable(target) {
+            && self.dyn()->tu.strip_nullable(src) == self.dyn()->tu.strip_nullable(
+                target,
+            ) {
             self.dyn()->sc->diag->report(
                 DiagID::SC029E,
                 n->range.start,
@@ -614,7 +616,12 @@ pub class <T: type> CastTyping {
 
         if ted != &null && sk != BuiltinKind::COUNT {
             if ted->is_adt {
-                self.dyn()->fail(n, DiagID::SC092E, "an integer cannot be cast to an ADT enum")
+                self.dyn()->fail(
+                    n,
+                    DiagID::SC092E,
+                    "an integer cannot be cast to an ADT enum",
+                )
+
                 return &null
             }
 
@@ -644,8 +651,15 @@ pub class <T: type> CastTyping {
 
                 b.first(n->range)
                 if n->operand != &null {
-                    var _op = self.dyn()->sc->ctx->get_spelling(n->operand->range)
-                    b.fix(n->operand->range, f"({_op} as {u})", f"cast to '{u}' first")
+                    var _op = self.dyn()->sc->ctx->get_spelling(
+                        n->operand->range,
+                    )
+
+                    b.fix(
+                        n->operand->range,
+                        f"({_op} as {u})",
+                        f"cast to '{u}' first",
+                    )
                 }
 
                 b.emit()
@@ -749,7 +763,15 @@ pub class <T: type> CastTyping {
 
             if exact.size() > 0 {
                 var args = cxx::std::vector<ArgInfo>()
-                var r    = self.dyn()->ovl.resolve(&exact, &args, true, n->range, "op as", src)
+                var r = self.dyn()->ovl.resolve(
+                    &exact,
+                    &args,
+                    true,
+                    n->range,
+                    "op as",
+                    src,
+                )
+
                 if r.outcome == OvlOutcome::Dependent {
                     self.dyn()->mark_unknown(n)
                     return &null
@@ -767,12 +789,19 @@ pub class <T: type> CastTyping {
         }
 
         // 5d. a converting constructor on the target
-        var td2 = self.dyn()->tu.record_decl(self.dyn()->tu.strip_nullable(target))
+        var td2 = self.dyn()->tu.record_decl(
+            self.dyn()->tu.strip_nullable(target),
+        )
+
         if td2 != &null {
             var body = self.dyn()->sc->body_of(td2) // a partial spec's ctors for an instance it was selected for.
             var dc   = NameLookup::context_of(body)
             if dc != &null {
-                var cell = self.dyn()->sc->lookup.in_context(dc, DeclName::ctor())
+                var cell = self.dyn()->sc->lookup.in_context(
+                    dc,
+                    DeclName::ctor(),
+                )
+
                 if cell.found() {
                     var ctors = cxx::std::vector<*Decl>()
                     for var i: usize = 0; i < cell.cell->size(); ++i {
@@ -843,7 +872,10 @@ pub class <T: type> CastTyping {
                         // choice, and OperatorLowering turns the cast into the
                         // construction it is.
                         n->resolved_ctor = r.decl
-                        r.ded.bind_from_record(self.dyn()->tu.strip_nullable(target))
+                        r.ded.bind_from_record(
+                            self.dyn()->tu.strip_nullable(target),
+                        )
+
                         self.dyn()->finish_call_args(r.decl, &args, &r)
                         return target
                     }
@@ -949,7 +981,11 @@ pub class <T: type> CastTyping {
         )
 
         if !self.dyn()->tu.is_foreign(d) {
-            b.insert(en->range.start, LangAttrs::at(LangAttrs::open_enum()) + " ", f"declare '{nm}' {LangAttrs::quoted(LangAttrs::open_enum())} to let it hold any '{u}'")
+            b.insert(
+                en->range.start,
+                LangAttrs::at(LangAttrs::open_enum()) + " ",
+                f"declare '{nm}' {LangAttrs::quoted(LangAttrs::open_enum())} to let it hold any '{u}'",
+            )
         }
 
         b.emit()
@@ -1159,7 +1195,12 @@ pub class <T: type> CastTyping {
 
         b.first(n->range, "asserting downcast")
         b.note(td->range.start, named_declared_here(dn))
-        b.insert(n->range.end, "?", "make it the checked downcast, null on a miss")
+        b.insert(
+            n->range.end,
+            "?",
+            "make it the checked downcast, null on a miss",
+        )
+
         b.emit()
     }
 
@@ -1220,7 +1261,10 @@ pub class <T: type> CastTyping {
         // implicit literal path range-checks, the cast does not. The same for
         // byte: `0x1FF as byte` truncates where `var b: byte = 0x1FF` is an error.
         if (self.dyn()->tu.is_builtin(canon_unqual(target), BuiltinKind::Char)
-            || self.dyn()->tu.is_builtin(canon_unqual(target), BuiltinKind::Byte))
+            || self.dyn()->tu.is_builtin(
+                canon_unqual(target),
+                BuiltinKind::Byte,
+            ))
             && isa<IntegerLiteralExpr>(self.dyn()->tu.strip_parens(n->operand)) {
             return
         }
@@ -1246,14 +1290,20 @@ pub class <T: type> CastTyping {
                 e -= 1
             }
 
-            if e >= 3 && head[e - 1] == ('s' as u8) && head[e - 2] == ('a' as u8) && is_blank(head[e - 3]) {
+            if e >= 3
+                && head[e - 1] == ('s' as u8)
+                && head[e - 2] == ('a' as u8)
+                && is_blank(head[e - 3]) {
                 e -= 2
                 while e > 0 && is_blank(head[e - 1]) {
                     e -= 1
                 }
 
                 b.remove(
-                    SourceRange::from_bounds(n->range.start.advance(e), n->range.end),
+                    SourceRange::from_bounds(
+                        n->range.start.advance(e),
+                        n->range.end,
+                    ),
                     "remove the cast",
                 )
             }

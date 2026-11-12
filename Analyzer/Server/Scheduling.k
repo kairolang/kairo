@@ -30,28 +30,14 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Resolution::ModulePath::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
+import Resolution::ModulePath::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
@@ -60,6 +46,7 @@ import Server::Diagnostics::*
 import Server::Features::*
 import Server::Formatting::*
 import Server::Lifecycle::*
+import Server::LiveIndex::*
 import Server::Lookup::*
 import Server::Navigation::*
 import Server::Output::*
@@ -69,13 +56,26 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
-import Server::LiveIndex::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 /// What a worker process in flight is for. A job's kind never changes; the
 /// fields of Job each kind uses are marked with it.
 pub enum JobKind derives u8 {
-    Index,     ///< a run of an entry (`kals --worker`): its snapshot
-    Complete,  ///< a completion request's run on a marked copy of the buffer
+    Index,    ///< a run of an entry (`kals --worker`): its snapshot
+    Complete, ///< a completion request's run on a marked copy of the buffer
 
     /// A syntax-only pass over one buffer (`kals --worker ... --syntax-only`):
     /// its parse errors and lexical tokens, long before the Sema run lands.
@@ -107,11 +107,11 @@ pub fn job_kind_name(k: JobKind) -> string {
 /// Whether an entry can answer a request now (Server::answerability;
 /// LanguageServer.md section 9).
 pub enum Answer derives u8 {
-    Fresh,          ///< its last run is of the current text: answer
-    StaleSlow,      ///< a run is due or running, and runs are slow: answer from the last index
-    StaleWaitable,  ///< a run is due or running, and fast: park the request
-    FirstPending,   ///< no index yet, and its first is due or running: wait for it
-    NoEntry,        ///< no entry can hold the file (not a Kairo file): park, then answer empty
+    Fresh,         ///< its last run is of the current text: answer
+    StaleSlow,     ///< a run is due or running, and runs are slow: answer from the last index
+    StaleWaitable, ///< a run is due or running, and fast: park the request
+    FirstPending,  ///< no index yet, and its first is due or running: wait for it
+    NoEntry,       ///< no entry can hold the file (not a Kairo file): park, then answer empty
 }
 
 /// What Server::launch_job did with a worker. A start function makes its
@@ -125,14 +125,20 @@ pub enum LaunchResult derives u8 {
 /// Milliseconds on a monotonic clock: debounce deadlines and run lengths.
 pub fn now_ms() -> i64 {
     var t = cxx::std::chrono::steady_clock::now()
-    var d = cxx::std::chrono::duration_cast<cxx::std::chrono::milliseconds>(t.time_since_epoch())
+    var d = cxx::std::chrono::duration_cast<cxx::std::chrono::milliseconds>(
+        t.time_since_epoch(),
+    )
+
     return d.count() as i64
 }
 
 /// Microseconds on the same clock: the install timers (trace `install`).
 pub fn now_us() -> i64 {
     var t = cxx::std::chrono::steady_clock::now()
-    var d = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(t.time_since_epoch())
+    var d = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(
+        t.time_since_epoch(),
+    )
+
     return d.count() as i64
 }
 
@@ -154,15 +160,15 @@ pub class SyntaxChild {
     /// and spawned again or Failed past SYNTAX_SERVER_MAX_RESTARTS.
     /// Failed is for the session: the per-process path takes every pass.
     pub var state:    SynWorker = SynWorker::NotRunning
-    pub var pid:      i64  = -1     ///< Idle and Busy: the process
-    pub var t:        Transport     ///< over its pipes (fd_in, fd_out)
-    pub var passes:   u64  = 0      ///< answers since it started: it is recycled (Tuning.k)
-    pub var restarts: u64  = 0      ///< deaths and timeouts: past the cap, the per-process path only
+    pub var pid:      i64       = -1 ///< Idle and Busy: the process
+    pub var t:        Transport ///< over its pipes (fd_in, fd_out)
+    pub var passes:   u64       = 0 ///< answers since it started: it is recycled (Tuning.k)
+    pub var restarts: u64       = 0 ///< deaths and timeouts: past the cap, the per-process path only
 
     /// Busy only: the request in flight.
-    pub var id:      i64    = 0     ///< its id
-    pub var path:    string = ""    ///< its buffer
-    pub var rev:     u64    = 0     ///< the server revision it saw
+    pub var id:      i64    = 0  ///< its id
+    pub var path:    string = "" ///< its buffer
+    pub var rev:     u64    = 0  ///< the server revision it saw
     pub var sent_ms: i64    = 0
 
     fn SyntaxChild(self) = default
@@ -184,9 +190,9 @@ pub class SyntaxChild {
 /// A request sent to a live index worker and not answered yet.
 pub class LiveSent {
     pub var id:  i64    = 0
-    pub var rev: u64    = 0     ///< the server revision it saw
-    pub var out: string = ""    ///< where its snapshot is written
-    pub var ms:  i64    = 0     ///< now_ms() when it was sent
+    pub var rev: u64    = 0  ///< the server revision it saw
+    pub var out: string = "" ///< where its snapshot is written
+    pub var ms:  i64    = 0  ///< now_ms() when it was sent
 
     /// The buffers it was sent, as Job::text_paths / texts.
     pub var text_paths: [string]
@@ -206,7 +212,7 @@ pub class LiveSent {
     /// texts were sent to be tried and not kept (LiveIndex.k, "aside"),
     /// and the worker wrote what that gave to `aside_out`.
     pub var aside_paths: [string]
-    pub var aside_out:   string = ""
+    pub var aside_out:   string   = ""
 
     fn LiveSent(self) = default
 }
@@ -232,50 +238,50 @@ pub class LiveAsk {
 /// A live index worker (`kals --worker --index-server`, LiveIndex.k): one
 /// process holding one entry's checked graph.
 pub class LiveChild {
-    pub var entry:    string = ""    ///< the entry file it holds
-    pub var pid:      i64    = -1    ///< -1: not running
-    pub var t:        Transport      ///< over its pipes
-    pub var steps:    u64    = 0     ///< answers since it started
-    pub var restarts: u64    = 0     ///< deaths and timeouts
-    pub var failed:   bool   = false ///< no pipes here, or it keeps dying: a process per run
-    pub var base_rss: i64    = -1    ///< resident MB after its first check
-    pub var rss:      i64    = -1    ///< resident MB after its last answer
-    pub var last_ms:  i64    = 0     ///< now_ms() of its last answer
+    pub var entry:    string    = ""    ///< the entry file it holds
+    pub var pid:      i64       = -1    ///< -1: not running
+    pub var t:        Transport         ///< over its pipes
+    pub var steps:    u64       = 0     ///< answers since it started
+    pub var restarts: u64       = 0     ///< deaths and timeouts
+    pub var failed:   bool      = false ///< no pipes here, or it keeps dying: a process per run
+    pub var base_rss: i64       = -1    ///< resident MB after its first check
+    pub var rss:      i64       = -1    ///< resident MB after its last answer
+    pub var last_ms:  i64       = 0     ///< now_ms() of its last answer
 
     /// The next run of the entry is a process: the worker died on, or
     /// could not take, the text as it stands.
     pub var skip_once: bool = false
 
-    pub var sent: [LiveSent]         ///< in flight, oldest first
-    pub var asks: [LiveAsk]          ///< completion requests it has not answered
+    pub var sent: [LiveSent] ///< in flight, oldest first
+    pub var asks: [LiveAsk]  ///< completion requests it has not answered
 
     fn LiveChild(self) = default
 }
 
 /// A worker process in flight.
 pub class Job {
-    pub var kind:   JobKind = JobKind::Index
+    pub var kind: JobKind = JobKind::Index
 
     /// Index, Complete: the Entry::id it runs for. An id, not an
     /// index into Server::entries: load_project rebuilds that list while
     /// jobs are in flight, and a result whose entry is gone is dropped
     /// (Server::entry_by_id) instead of landing in whichever entry took
     /// its old place.
-    pub var entry_id: u64  = 0
-    pub var pi:     llvm::sys::ProcessInfo
-    pub var out:    string = ""     ///< the JSON the worker writes
-    pub var log:    string = ""     ///< its stdout and stderr
-    pub var rev:    u64    = 0      ///< server revision the run saw
-    pub var id:     string = ""     ///< Complete: the request id, as JSON
-    pub var path:   string = ""     ///< Complete: the buffer completed in
-    pub var member: bool   = false  ///< Complete: after `.`, `->` or `::`
-    pub var marked: string = ""     ///< Complete: the marked copy of the buffer
-    pub var edit:   string = ""     ///< Complete: the range an accepted item replaces, as JSON
-    pub var cancelled: bool = false ///< Complete: already answered "cancelled"; drop the result
-    pub var how:    string = HOW_RUN ///< Complete: what computed it (M_KALS_COMPLETED)
-    pub var t0_us:  i64    = 0      ///< Complete: now_us() when the request arrived
-    pub var started_ms: i64 = 0
-    pub var rooted: bool = true    ///< Index: run with `--root` (worker_argv)
+    pub var entry_id:   u64                    = 0
+    pub var pi:         llvm::sys::ProcessInfo
+    pub var out:        string                 = "" ///< the JSON the worker writes
+    pub var log:        string                 = "" ///< its stdout and stderr
+    pub var rev:        u64                    = 0 ///< server revision the run saw
+    pub var id:         string                 = "" ///< Complete: the request id, as JSON
+    pub var path:       string                 = "" ///< Complete: the buffer completed in
+    pub var member:     bool                   = false ///< Complete: after `.`, `->` or `::`
+    pub var marked:     string                 = "" ///< Complete: the marked copy of the buffer
+    pub var edit:       string                 = "" ///< Complete: the range an accepted item replaces, as JSON
+    pub var cancelled:  bool                   = false ///< Complete: already answered "cancelled"; drop the result
+    pub var how:        string                 = HOW_RUN ///< Complete: what computed it (M_KALS_COMPLETED)
+    pub var t0_us:      i64                    = 0 ///< Complete: now_us() when the request arrived
+    pub var started_ms: i64                    = 0
+    pub var rooted:     bool                   = true ///< Index: run with `--root` (worker_argv)
 
     /// Index: killed because its entry changed under it (touch). Its
     /// result is dropped, and its exit is not a crash to report.
@@ -298,7 +304,7 @@ pub class Job {
     /// and were not sent to be kept (LiveSent::aside_paths). The worker's
     /// rows for them are of the last text that did.
     pub var held_paths: [string]
-    pub var l_aside:    string = ""  ///< how the buffers tried aside went, comma-joined
+    pub var l_aside:    string   = "" ///< how the buffers tried aside went, comma-joined
 
     /// Index: the answer of a live index worker, installed through
     /// finish_index like a run's output: what the worker did (`full`: the
@@ -317,12 +323,12 @@ pub class Job {
 pub class Entry {
     /// Stable for the life of the entry, never reused (Server::entry_seq):
     /// what a job names its entry by. 0 is no entry.
-    pub var id:    u64    = 0
+    pub var id: u64 = 0
 
     /// The entry file. Empty: retired (an ad-hoc entry a project entry now
     /// answers for, Server::retire_); it keeps its place in the list.
-    pub var entry: string = ""
-    pub var dir:   string = ""
+    pub var entry: string   = ""
+    pub var dir:   string   = ""
     pub var args:  [string]
 
     /// A file no project entry reaches, checked as its own entry.
@@ -333,8 +339,8 @@ pub class Entry {
 
     /// The last run's output: what the diagnostics are read from.
     pub var snap:     JsonDoc
-    pub var has_snap: bool = false
-    pub var snap_rev: u64  = 0   ///< revision `snap` was computed at
+    pub var has_snap: bool    = false
+    pub var snap_rev: u64     = 0     ///< revision `snap` was computed at
 
     /// The last run's output THAT INDEXED FILES. A buffer that stops parsing
     /// (every half-typed line) gets diagnostics and no index; replacing the
@@ -342,15 +348,15 @@ pub class Entry {
     /// jump on each keystroke, so the last good one stays until a run
     /// produces another.
     pub var idx:     JsonDoc
-    pub var has_idx: bool = false
-    pub var idx_rev: u64  = 0   ///< revision `idx` was computed at
-    pub var ran:      bool = false  ///< a run finished, with or without a snapshot
-    pub var rooted:   bool = true   ///< the last worker_argv passed `--root`
+    pub var has_idx: bool    = false
+    pub var idx_rev: u64     = 0     ///< revision `idx` was computed at
+    pub var ran:     bool    = false ///< a run finished, with or without a snapshot
+    pub var rooted:  bool    = true  ///< the last worker_argv passed `--root`
 
     pub var dirty:      bool = true
     pub var running:    bool = false
-    pub var change_rev: u64  = 0   ///< revision of the last change that touches it
-    pub var done_rev:   u64  = 0   ///< revision its snapshot was computed at
+    pub var change_rev: u64  = 0     ///< revision of the last change that touches it
+    pub var done_rev:   u64  = 0     ///< revision its snapshot was computed at
 
     /// URIs that currently show diagnostics from this entry, so the ones a
     /// new run no longer reports can be cleared.
@@ -384,7 +390,7 @@ pub class Entry {
     /// walked since `tb_have`, the `tablesSeq` of the last one installed
     /// (0: none, so the next brings them all).
     pub var tb:      DeclTables
-    pub var tb_have: u64 = 0
+    pub var tb_have: u64        = 0
 
     pub var cf_node: [u32]
     pub var cf_lo:   [usize]
@@ -421,7 +427,7 @@ pub class Entry {
 /// A request waiting for a fresh snapshot.
 pub class Parked {
     pub var msg:   string = ""
-    pub var since: i64    = 0   ///< now_ms() when it was parked
+    pub var since: i64    = 0  ///< now_ms() when it was parked
 
     fn Parked(self) = default
 }
@@ -462,7 +468,10 @@ extend Server {
 
             if (id == 0) || (self.jobs[q].entry_id == id) {
                 self.jobs[q].stale = true
-                self.trace(f"index disowned entry_id={self.jobs[q].entry_id} rev={self.jobs[q].rev}")
+                self.trace(
+                    f"index disowned entry_id={self.jobs[q].entry_id} rev={self.jobs[q].rev}",
+                )
+
                 unsafe kals_kill(self.jobs[q].pi.Pid as i64)
             }
         }
@@ -518,7 +527,7 @@ extend Server {
     /// How much of \p a and \p b's directory prefix is shared: the entry
     /// nearest a file in the tree is the likeliest to import it.
     fn shared_prefix(const self, const a: string, const b: string) -> usize {
-        var n: usize = 0
+        var n:    usize = 0
         var last: usize = 0
         while (n < a.size()) && (n < b.size()) && (a[n] == b[n]) {
             if a[n] == ('/' as u8) {
@@ -544,7 +553,11 @@ extend Server {
                 continue
             }
 
-            var root = Path::absolute_if_exists(self.entries[ei].args[a + 1], self.entries[ei].dir)
+            var root = Path::absolute_if_exists(
+                self.entries[ei].args[a + 1],
+                self.entries[ei].dir,
+            )
+
             if !root.ends_with("/") {
                 root = root + "/"
             }
@@ -578,7 +591,7 @@ extend Server {
         }
 
         // Is a candidate already being tried?
-        var best = usize::MAX
+        var best              = usize::MAX
         var best_score: usize = 0
         for var i: usize = 0; i < self.entries.size(); ++i {
             if self.entries[i].adhoc || self.entries[i].ran || self.entries[i].entry.empty() {
@@ -625,9 +638,12 @@ extend Server {
     /// buffer, a file the last run did not index, an entry not yet run).
     fn unchanged_on_disk_(self, di: usize) -> usize {
         var path = self.docs.docs[di].path
-        var ei = self.entry_of(path)
-        if (ei == usize::MAX) || (!self.entries[ei].fresh()) || (!self.entries[ei].has_idx)
-            || (self.entries[ei].idx_rev == 0) || (self.entries[ei].idx_rev < self.entries[ei].done_rev) {
+        var ei   = self.entry_of(path)
+        if (ei == usize::MAX)
+            || (!self.entries[ei].fresh())
+            || (!self.entries[ei].has_idx)
+            || (self.entries[ei].idx_rev == 0)
+            || (self.entries[ei].idx_rev < self.entries[ei].done_rev) {
             return usize::MAX
         }
 
@@ -687,10 +703,15 @@ extend Server {
             }
 
             var je = self.entry_by_id(self.jobs[q].entry_id)
-            if (je != usize::MAX) && self.entries[je].ran && self.entries[je].slow
+            if (je != usize::MAX)
+                && self.entries[je].ran
+                && self.entries[je].slow
                 && self.entries[je].holds(path) {
                 self.jobs[q].stale = true
-                self.trace(f"index kill entry={self.entries[je].entry} rev={self.jobs[q].rev}")
+                self.trace(
+                    f"index kill entry={self.entries[je].entry} rev={self.jobs[q].rev}",
+                )
+
                 unsafe kals_kill(self.jobs[q].pi.Pid as i64)
             }
         }
@@ -718,7 +739,7 @@ extend Server {
             }
 
             var recent: [string]
-            var from: usize = 0
+            var from:   usize    = 0
             if (others.size() + 1) > BRIDGE_RECENT_SOURCES {
                 from = others.size() + 1 - BRIDGE_RECENT_SOURCES
             }
@@ -732,7 +753,8 @@ extend Server {
         }
 
         for var b: usize = 0; b < self.br_files.size(); ++b {
-            if (self.br_files[b] == path) || (find_from(self.br_deps[b], path + "\n", 0) != usize::MAX) {
+            if (self.br_files[b] == path)
+                || (find_from(self.br_deps[b], path + "\n", 0) != usize::MAX) {
                 self.br_dirty[b] = true
             }
         }
@@ -749,9 +771,9 @@ extend Server {
         // the loop would spin at 1 ms turns for the whole of that run. A
         // deadline already passed is started on this turn, so it is not one
         // either.
-        var best: i64 = IDLE_WAIT_MS
-        var since = now_ms() - self.last_change_ms
-        var syn_due = false
+        var best:   i64 = IDLE_WAIT_MS
+        var since       = now_ms() - self.last_change_ms
+        var syn_due     = false
         for var k: usize = 0; k < self.docs.docs.size(); ++k {
             if self.docs.docs[k].syn_due() {
                 syn_due = true
@@ -767,7 +789,9 @@ extend Server {
 
         var run_due = false
         for var k: usize = 0; k < self.entries.size(); ++k {
-            if self.entries[k].dirty && (!self.entries[k].running) && (!self.entries[k].entry.empty())
+            if self.entries[k].dirty
+                && (!self.entries[k].running)
+                && (!self.entries[k].entry.empty())
                 && self.can_start(k) {
                 run_due = true
             }

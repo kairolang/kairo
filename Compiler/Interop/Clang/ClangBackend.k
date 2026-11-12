@@ -240,7 +240,11 @@ pub class CodegenMounts {
         }
 
         self._shared = self.layer()
-        kairo::shared_layer_sync_cwd(self._shared, llvm::vfs::getRealFileSystem())
+        kairo::shared_layer_sync_cwd(
+            self._shared,
+            llvm::vfs::getRealFileSystem(),
+        )
+
         self._state = MountState::Frozen
     }
 
@@ -275,7 +279,11 @@ pub class CodegenMounts {
                 false,
             )
 
-            mem->addFile(llvm::Twine(kairo::sref(self.pch_paths[i])), 0, cxx::std::move(buf))
+            mem->addFile(
+                llvm::Twine(kairo::sref(self.pch_paths[i])),
+                0,
+                cxx::std::move(buf),
+            )
         }
 
         for var i: usize = 0; i < self.text_paths.size(); ++i {
@@ -284,7 +292,11 @@ pub class CodegenMounts {
                 llvm::Twine(kairo::sref(self.text_paths[i])),
             )
 
-            mem->addFile(llvm::Twine(kairo::sref(self.text_paths[i])), 0, cxx::std::move(buf))
+            mem->addFile(
+                llvm::Twine(kairo::sref(self.text_paths[i])),
+                0,
+                cxx::std::move(buf),
+            )
         }
 
         return mem
@@ -334,7 +346,9 @@ pub class ClangBackend {
 
     fn ClangBackend(self, ksm: unsafe *SourceManager, const cfg: ClangBackendConfig) {
         if ksm == &null {
-            kairo::std::ice_fail("ClangBackend: a valid Kairo SourceManager is required")
+            kairo::std::ice_fail(
+                "ClangBackend: a valid Kairo SourceManager is required",
+            )
         }
 
         self._ksm    = ksm
@@ -511,7 +525,10 @@ pub class ClangBackend {
             var dbg = false
             var cov = false
             for var i: usize = 0; i < argv.size(); ++i {
-                var a = string(unsafe ((argv[i] as unsafe *const u8) as *const u8))
+                var a = string(
+                    unsafe ((argv[i] as unsafe *const u8) as *const u8),
+                )
+
                 if a.starts_with("-debug-info-kind=") {
                     dbg = true
                 }
@@ -522,7 +539,10 @@ pub class ClangBackend {
             }
 
             for var i: usize = 0; i < argv.size(); ++i {
-                var a = string(unsafe ((argv[i] as unsafe *const u8) as *const u8))
+                var a = string(
+                    unsafe ((argv[i] as unsafe *const u8) as *const u8),
+                )
+
                 if !dbg && a.starts_with("-fdebug-compilation-dir") {
                     continue
                 }
@@ -541,7 +561,9 @@ pub class ClangBackend {
         // built with (its -O is not the user's, see above).
         var line = "cc1"
         for var i: usize = 0; i < argv.size(); ++i {
-            line += " " + string(unsafe ((argv[i] as unsafe *const u8) as *const u8))
+            line += " " + string(
+                unsafe ((argv[i] as unsafe *const u8) as *const u8),
+            )
         }
 
         kairo::Logger::info(kairo::Logger::Stage::Driver, line)
@@ -581,9 +603,13 @@ pub class ClangBackend {
         var text: cxx::std::string
         var ok                     = false
         {
-            var        os      = llvm::raw_string_ostream(&text)
-            var        printer = clang::TextDiagnosticPrinter(&os, &inv.get()->getDiagnosticOpts())
-            var unsafe *ci     = kairo::std::create<clang::CompilerInstance>(inv)
+            var os = llvm::raw_string_ostream(&text)
+            var printer = clang::TextDiagnosticPrinter(
+                &os,
+                &inv.get()->getDiagnosticOpts(),
+            )
+
+            var unsafe *ci = kairo::std::create<clang::CompilerInstance>(inv)
             ci->setVirtualFileSystem(self._vfs)
             ci->createDiagnostics(unsafe &printer, false)
             if ci->hasDiagnostics() {
@@ -605,7 +631,11 @@ pub class ClangBackend {
             os.flush()
         }
 
-        (log) += string(unsafe ((text.data() as unsafe *const u8) as *const u8), text.size())
+        (log) += string(
+            unsafe ((text.data() as unsafe *const u8) as *const u8),
+            text.size(),
+        )
+
         return ok
     }
 
@@ -623,14 +653,18 @@ pub class ClangBackend {
         )
 
         if m->state() == MountState::Released {
-            kairo::std::ice_fail("ClangBackend::codegen_vfs after CodegenMounts::release()")
+            kairo::std::ice_fail(
+                "ClangBackend::codegen_vfs after CodegenMounts::release()",
+            )
         }
 
         if m->state() == MountState::Frozen {
             overlay->pushOverlay(kairo::shared_layer_view(m->shared_layer()))
         } else {
             var mem = m->layer()
-            overlay->pushOverlay(llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(mem))
+            overlay->pushOverlay(
+                llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(mem),
+            )
         }
 
         var fs: llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> = llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(
@@ -683,7 +717,9 @@ pub class ClangBackend {
         self._shared_argv(unsafe &argv)
         var out = cxx::std::vector<string>()
         for var i: usize = 0; i < argv.size(); ++i {
-            out.push_back(string(unsafe ((argv[i] as unsafe *const u8) as *const u8)))
+            out.push_back(
+                string(unsafe ((argv[i] as unsafe *const u8) as *const u8)),
+            )
         }
 
         for *inc in self._cfg.includes {
@@ -697,7 +733,9 @@ pub class ClangBackend {
     priv fn _arg(self,
                  @inout argv: cxx::std::vector<kairo::std::ConstPtr<c_char>>,
                  const s:     string) {
-        argv.push_back(llvm::StringSaver(&self._owned).save(kairo::sref(s)).data())
+        argv.push_back(
+            llvm::StringSaver(&self._owned).save(kairo::sref(s)).data(),
+        )
     }
 
     /// \brief the cc1 arguments clang's own driver derives from the triple
@@ -732,7 +770,7 @@ pub class ClangBackend {
     priv fn _probe_cc1(self) -> cxx::std::vector<string> {
         var owned: llvm::BumpPtrAllocator ///< argv bytes, for this call (see _owned).
         var dargv: cxx::std::vector<kairo::std::ConstPtr<c_char>>
-        var words                                                 = cxx::std::vector<string>()
+        var words = cxx::std::vector<string>()
         words.push_back("clang")
         words.push_back("--target=" + self._clang_triple())
         words.push_back(f"-std={self._cfg.cxx_std}")
@@ -741,7 +779,11 @@ pub class ClangBackend {
         }
 
         var macro_triple = self._clang_triple()
-        var macro_info   = FlagTranslator::macros_for(self._cfg.debug_macros, macro_triple)
+        var macro_info = FlagTranslator::macros_for(
+            self._cfg.debug_macros,
+            macro_triple,
+        )
+
         for var w: string in FlagTranslator::debug_driver(self._cfg.debug_info, self._cfg.dwarf_version,
                                                       macro_info, self._cfg.embed_source) {
             words.push_back(w)
@@ -752,17 +794,26 @@ pub class ClangBackend {
         words.push_back("c++")
         words.push_back("-")
         for *w in words {
-            dargv.push_back(llvm::StringSaver(&owned).save(kairo::sref(*w)).data())
+            dargv.push_back(
+                llvm::StringSaver(&owned).save(kairo::sref(*w)).data(),
+            )
         }
 
         var cc1:  cxx::std::vector<cxx::std::string>
         var opts: clang::CreateInvocationOptions
         opts.CC1Args = unsafe &cc1
-        var inv = clang::createInvocation(llvm::ArrayRef<unsafe *const c_char>(dargv), opts)
+        var inv = clang::createInvocation(
+            llvm::ArrayRef<unsafe *const c_char>(dargv),
+            opts,
+        )
+
         var out = cxx::std::vector<string>()
         for var i: usize = 0; i < cc1.size(); ++i {
             out.push_back(
-                string(unsafe ((cc1[i].data() as unsafe *const u8) as *const u8), cc1[i].size()),
+                string(
+                    unsafe ((cc1[i].data() as unsafe *const u8) as *const u8),
+                    cc1[i].size(),
+                ),
             )
         }
 
@@ -839,10 +890,10 @@ pub class ClangBackend {
     ///          copies this invocation, and the header-set PCH reader rejects
     ///          a predefines mismatch.
     pub fn sysroot_words(self, is_c: bool, sp: ClangSpelling) -> cxx::std::vector<string> {
-        var o        = cxx::std::vector<string>()
-        var cc1      = sp == ClangSpelling::CC1
-        var sr       = self._cfg.sysroot
-        var rd       = self._cfg.resource_dir
+        var o   = cxx::std::vector<string>()
+        var cc1 = sp == ClangSpelling::CC1
+        var sr  = self._cfg.sysroot
+        var rd  = self._cfg.resource_dir
         var declared = !self._cfg.include_dirs.empty() || !self._cfg.cxx_include_dirs.empty()
         o.push_back(if (cc1) => ("-nostdsysteminc") else => "-nostdlibinc")
         o.push_back("-nostdinc++")
@@ -1027,7 +1078,10 @@ pub class ClangBackend {
         // only what no one takes the address of; Config/Linker.k turns ICF
         // on above -O0): where clang's own driver emits it, ELF and COFF
         // minus Android, NetBSD, PS4 and VE. Harmless without ICF.
-        var tri = llvm::Triple(llvm::Triple::normalize(kairo::sref(self._cfg.triple)))
+        var tri = llvm::Triple(
+            llvm::Triple::normalize(kairo::sref(self._cfg.triple)),
+        )
+
         if (tri.isOSBinFormatELF() || tri.isOSBinFormatCOFF())
             && !tri.isAndroid()
             && !tri.isOSNetBSD()
@@ -1100,7 +1154,12 @@ pub class ClangBackend {
         // exit(1), here on a pool thread, for a mistyped --mllvm word.
         var        ov  = "kairo"
         var unsafe *es = unsafe &llvm::errs()
-        if !llvm::cl::ParseCommandLineOptions(av.size() as i32, av.data(), kairo::sref(ov), es) {
+        if !llvm::cl::ParseCommandLineOptions(
+            av.size() as i32,
+            av.data(),
+            kairo::sref(ov),
+            es,
+        ) {
             kairo::Logger::error(
                 kairo::Logger::Stage::Driver,
                 "ClangBackend: an --mllvm word was not accepted by LLVM",
@@ -1125,7 +1184,10 @@ pub class ClangBackend {
         )
 
         self._mem = llvm::makeIntrusiveRefCnt<llvm::vfs::InMemoryFileSystem>()
-        overlay->pushOverlay(llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(self._mem))
+        overlay->pushOverlay(
+            llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(self._mem),
+        )
+
         self._vfs = llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(overlay)
         self._printer = kairo::std::create<clang::TextDiagnosticPrinter>(
             llvm::errs(),
@@ -1205,7 +1267,11 @@ pub class ClangBackend {
             return
         }
 
-        self._ci->getTarget().adjust(&self._ci->getDiagnostics(), &self._ci->getLangOpts(), &null)
+        self._ci->getTarget().adjust(
+            &self._ci->getDiagnostics(),
+            &self._ci->getLangOpts(),
+            &null,
+        )
 
         // Persistent FileManager + SourceManager: the whole point. Header
         // ContentCaches and Kairo fid buffers load once for the batch.

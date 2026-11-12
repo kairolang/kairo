@@ -66,18 +66,8 @@ import AST::Serialize::ExprIO::{
     expr_io,
 }
 import AST::Serialize::Format::{
-    AST_FORMAT_VERSION,
-    AST_MAGIC,
-    CAT_DECL,
-    CAT_EXPR,
-    CAT_PATTERN,
-    CAT_STMT,
-    CAT_TYPE,
-    SEC_END,
-    SEC_FILES,
-    SEC_PAYLOADS,
-    SEC_STRINGS,
-    SEC_TREE,
+    AST_FORMAT_VERSION, AST_MAGIC, CAT_DECL,     CAT_EXPR,    CAT_PATTERN, CAT_STMT, CAT_TYPE,
+    SEC_END,            SEC_FILES, SEC_PAYLOADS, SEC_STRINGS, SEC_TREE,
 }
 import AST::Serialize::PatternIO::{
     pattern_alloc,
@@ -94,9 +84,9 @@ import AST::Serialize::TypeIO::{
 import Driver::TUStage::TUStage
 import Parser::ASTParse::ASTParse
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
+import Support::Ascii::hex_value
 import Token::Token::Token
 import std::c_char
-import Support::Ascii::hex_value
 
 //  the archive's hooks
 
@@ -223,8 +213,8 @@ fn io_tu(ar: unsafe *ASTArchive, tu: unsafe *TranslationUnit) {
     ar->decl_arena_list(&tu->dc_decls)
 
     // The program: its top-level items, in source order.
-    var unsafe *prog = tu->program
-    var have: usize = 0
+    var unsafe *prog       = tu->program
+    var        have: usize = 0
     if prog != &null {
         have = prog->items.size()
     }
@@ -281,16 +271,39 @@ fn io_tu(ar: unsafe *ASTArchive, tu: unsafe *TranslationUnit) {
 
     eval if defined!(DEBUG) {
         ar->sema_zero(tu->tu_attrs.size() as u64, "TranslationUnit::tu_attrs")
-        ar->sema_zero(tu->body_ranges.size() as u64, "TranslationUnit::body_ranges")
-        ar->sema_null<void>(unsafe (tu->import_overlay as unsafe *void), "TranslationUnit::import_overlay")
+        ar->sema_zero(
+            tu->body_ranges.size() as u64,
+            "TranslationUnit::body_ranges",
+        )
+
+        ar->sema_null<void>(
+            unsafe (tu->import_overlay as unsafe *void),
+            "TranslationUnit::import_overlay",
+        )
+
         ar->sema_null<Decl>(tu->cxx_module, "TranslationUnit::cxx_module")
         ar->sema_false(tu->is_foreign, "TranslationUnit::is_foreign")
         ar->sema_false(tu->has_eval_string, "TranslationUnit::has_eval_string")
         ar->sema_false(tu->no_extensions, "TranslationUnit::no_extensions")
-        ar->sema_zero(tu->cxx_escaping.size() as u64, "TranslationUnit::cxx_escaping")
-        ar->sema_false(tu->cxx_escaping_done, "TranslationUnit::cxx_escaping_done")
-        ar->sema_zero(tu->panic_sites.size() as u64, "TranslationUnit::panic_sites")
-        ar->sema_zero(tu->module_path.segments.size() as u64, "TranslationUnit::module_path")
+        ar->sema_zero(
+            tu->cxx_escaping.size() as u64,
+            "TranslationUnit::cxx_escaping",
+        )
+
+        ar->sema_false(
+            tu->cxx_escaping_done,
+            "TranslationUnit::cxx_escaping_done",
+        )
+
+        ar->sema_zero(
+            tu->panic_sites.size() as u64,
+            "TranslationUnit::panic_sites",
+        )
+
+        ar->sema_zero(
+            tu->module_path.segments.size() as u64,
+            "TranslationUnit::module_path",
+        )
     }
 }
 
@@ -310,12 +323,19 @@ priv fn put_hash(@inout w: ByteWriter, const hex: string) {
 }
 
 priv fn get_hash(@inout r: ByteReader) -> string {
-    var digits      = "0123456789abcdef"
-    var out: string = ""
+    var digits        = "0123456789abcdef"
+    var out:   string = ""
     for var i: usize = 0; i < 16; ++i {
         var b = r.get_u8()
-        out += string(unsafe ((digits.raw() + ((b >> 4) as usize)) as *const u8), 1)
-        out += string(unsafe ((digits.raw() + ((b & 15) as usize)) as *const u8), 1)
+        out += string(
+            unsafe ((digits.raw() + ((b >> 4) as usize)) as *const u8),
+            1,
+        )
+
+        out += string(
+            unsafe ((digits.raw() + ((b & 15) as usize)) as *const u8),
+            1,
+        )
     }
 
     return out
@@ -330,7 +350,12 @@ priv fn put_section(@inout out: ByteWriter, id: u8, const body: ByteWriter) {
 /// Writes \p w's bytes to \p path, truncating. False on failure.
 pub fn write_ast_file(const path: string, const w: ByteWriter) -> bool {
     var ec: cxx::std::error_code
-    var os = llvm::raw_fd_ostream(kairo::sref(path), &ec, llvm::sys::fs::OF_None)
+    var os = llvm::raw_fd_ostream(
+        kairo::sref(path),
+        &ec,
+        llvm::sys::fs::OF_None,
+    )
+
     if ec.value() != 0 {
         return false
     }
@@ -375,7 +400,10 @@ pub class ASTBinWriter {
         // they are: a release build does not pay for either.
         eval if defined!(DEBUG) {
             if (tu->stage() as u8) > (TUStage::Parsing as u8) {
-                self.ar.fail("the translation unit has been through Sema; only a parsed tree can be serialized")
+                self.ar.fail(
+                    "the translation unit has been through Sema; only a parsed tree can be serialized",
+                )
+
                 return false
             }
         }
@@ -460,7 +488,10 @@ pub class ASTBinReader {
         }
 
         if ctx->hoisted == &null {
-            ar->fail("the context to deserialize into has no index (Parse.Index has not run)")
+            ar->fail(
+                "the context to deserialize into has no index (Parse.Index has not run)",
+            )
+
             return &null
         }
 
@@ -474,7 +505,10 @@ pub class ASTBinReader {
 
         var version = hdr.get_u32le()
         if version != AST_FORMAT_VERSION {
-            ar->fail(f"serialized AST is format version {version}, this compiler reads {AST_FORMAT_VERSION}")
+            ar->fail(
+                f"serialized AST is format version {version}, this compiler reads {AST_FORMAT_VERSION}",
+            )
+
             return &null
         }
 
@@ -551,7 +585,13 @@ pub class ASTBinReader {
             return &null
         }
 
-        var unsafe *tu = ctx->alloc_init_pp<TranslationUnit>(ctx, ctx->fid, ctx->hoisted, gs)
+        var unsafe *tu = ctx->alloc_init_pp<TranslationUnit>(
+            ctx,
+            ctx->fid,
+            ctx->hoisted,
+            gs,
+        )
+
         ar->tu = tu
 
         ar->begin_read(unsafe (data + tree_at), tree_len)

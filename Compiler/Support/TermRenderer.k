@@ -239,7 +239,10 @@ pub class TermRenderer {
 
             var heading_level = self.heading_level(trimmed)
             if heading_level > 0 {
-                var heading_text = self.trim(self.after_prefix(trimmed, heading_level))
+                var heading_text = self.trim(
+                    self.after_prefix(trimmed, heading_level),
+                )
+
                 match heading_level {
                     case 1 {
                         out += self.style(self.BOLD + self.UNDERLINE)
@@ -284,7 +287,12 @@ pub class TermRenderer {
                     pad += " "
                 }
 
-                out += self.wrap_inline(content, pad.length() as u32, "  " + num_prefix)
+                out += self.wrap_inline(
+                    content,
+                    pad.length() as u32,
+                    "  " + num_prefix,
+                )
+
                 i += 1
                 continue
             }
@@ -462,7 +470,9 @@ pub class TermRenderer {
                 var close = self.find_char(text, '`' as u8, i + 1)
                 if close > i {
                     var code_text = text.subslice(i + 1, close - i - 1)
-                    var styled    = self.style(self.CYAN) + code_text + self.style(self.RESET)
+                    var styled = self.style(self.CYAN) + code_text + self.style(
+                        self.RESET,
+                    )
 
                     if col + self.display_width(code_text) + 2 > self._width && col > indent {
                         out += "\n" + pad
@@ -602,7 +612,10 @@ pub class TermRenderer {
             // line comment
             if c == ('/' as u8) && i + 1 < n && line[i + 1] == ('/' as u8) {
                 var rest = line.subslice(i, n - i)
-                out += self.style(self.HL_COMMENT) + rest + self.style(self.RESET)
+                out += self.style(self.HL_COMMENT) + rest + self.style(
+                    self.RESET,
+                )
+
                 i = n
                 continue
             }
@@ -616,7 +629,10 @@ pub class TermRenderer {
 
                 var end = if (j + 1 < n) => (j + 2) else => n
                 var seg = line.subslice(i, end - i)
-                out += self.style(self.HL_COMMENT) + seg + self.style(self.RESET)
+                out += self.style(self.HL_COMMENT) + seg + self.style(
+                    self.RESET,
+                )
+
                 i = end
                 continue
             }
@@ -703,7 +719,10 @@ pub class TermRenderer {
                 }
 
                 var seg = line.subslice(i, j - i)
-                out += self.style(self.HL_ATTRIBUTE) + seg + self.style(self.RESET)
+                out += self.style(self.HL_ATTRIBUTE) + seg + self.style(
+                    self.RESET,
+                )
+
                 i = j
                 continue
             }
@@ -728,13 +747,21 @@ pub class TermRenderer {
                 var kind = self.word_kind(word)
 
                 if self.is_value_word(kind) {
-                    out += self.style(self.HL_NUMBER) + word + self.style(self.RESET)
+                    out += self.style(self.HL_NUMBER) + word + self.style(
+                        self.RESET,
+                    )
                 } else if self.is_keyword(word, kind) {
-                    out += self.style(self.HL_KEYWORD) + word + self.style(self.RESET)
+                    out += self.style(self.HL_KEYWORD) + word + self.style(
+                        self.RESET,
+                    )
                 } else if is_call {
-                    out += self.style(self.HL_FUNC) + word + self.style(self.RESET)
+                    out += self.style(self.HL_FUNC) + word + self.style(
+                        self.RESET,
+                    )
                 } else if self.is_upper(c) {
-                    out += self.style(self.HL_TYPE) + word + self.style(self.RESET)
+                    out += self.style(self.HL_TYPE) + word + self.style(
+                        self.RESET,
+                    )
                 } else {
                     out += word
                 }
@@ -788,7 +815,9 @@ pub class TermRenderer {
             return clang::Language::CXX
         }
 
-        return clang::FrontendOptions::getInputKindForExtension(kairo::sref(tag)).getLanguage()
+        return clang::FrontendOptions::getInputKindForExtension(
+            kairo::sref(tag),
+        ).getLanguage()
     }
 
     /// One line of a clang language, lexed by clang's raw lexer under that
@@ -811,7 +840,14 @@ pub class TermRenderer {
             std_kind = clang::LangStandard::lang_gnucxx26
         }
 
-        clang::LangOptions::setLangDefaults(&lo, lang, llvm::Triple(), &incs, std_kind)
+        clang::LangOptions::setLangDefaults(
+            &lo,
+            lang,
+            llvm::Triple(),
+            &incs,
+            std_kind,
+        )
+
         var ids  = clang::IdentifierTable(lo)
         var objc = lang == clang::Language::ObjC || lang == clang::Language::ObjCXX
 
@@ -856,7 +892,10 @@ pub class TermRenderer {
                     if kind == clang::tok::raw_identifier {
                         var *ai = &ids.get(tok.getRawIdentifier())
                         if ai->getObjCKeywordID() != clang::tok::objc_not_keyword {
-                            out += self.style(self.HL_KEYWORD) + "@" + text + self.style(self.RESET)
+                            out += self.style(self.HL_KEYWORD) + "@" + text + self.style(
+                                self.RESET,
+                            )
+
                             first = false
                             if last {
                                 break
@@ -867,7 +906,10 @@ pub class TermRenderer {
                     } else if clang::tok::isLiteral(kind) {
                         var hl = if (kind == clang::tok::numeric_constant) => (self.HL_NUMBER)
                                  else => self.HL_STRING
-                        out += self.style(hl) + "@" + text + self.style(self.RESET)
+                        out += self.style(hl) + "@" + text + self.style(
+                            self.RESET,
+                        )
+
                         first = false
                         if last {
                             break
@@ -883,13 +925,22 @@ pub class TermRenderer {
             out += gap
 
             if kind == clang::tok::comment {
-                out += self.style(self.HL_COMMENT) + text + self.style(self.RESET)
+                out += self.style(self.HL_COMMENT) + text + self.style(
+                    self.RESET,
+                )
             } else if kind == clang::tok::numeric_constant {
-                out += self.style(self.HL_NUMBER) + text + self.style(self.RESET)
+                out += self.style(self.HL_NUMBER) + text + self.style(
+                    self.RESET,
+                )
             } else if clang::tok::isLiteral(kind) {
-                out += self.style(self.HL_STRING) + text + self.style(self.RESET)
+                out += self.style(self.HL_STRING) + text + self.style(
+                    self.RESET,
+                )
             } else if kind == clang::tok::hash && first {
-                out += self.style(self.HL_KEYWORD) + text + self.style(self.RESET)
+                out += self.style(self.HL_KEYWORD) + text + self.style(
+                    self.RESET,
+                )
+
                 directive = true
                 first     = false
                 if last {
@@ -901,7 +952,10 @@ pub class TermRenderer {
                 held_at = true
             } else if kind == clang::tok::raw_identifier {
                 if directive {
-                    out += self.style(self.HL_KEYWORD) + text + self.style(self.RESET)
+                    out += self.style(self.HL_KEYWORD) + text + self.style(
+                        self.RESET,
+                    )
+
                     // The raw lexer splits `<a/b.h>` into punctuation: the
                     // header name is the rest of the line.
                     if text == "include"

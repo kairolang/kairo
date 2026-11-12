@@ -126,39 +126,69 @@ pub class <D: type> RecursiveASTVisitor {
             } case TypeKind::TypeExpr {
                 return self.dyn()->traverse_type_expr(cast<Types::TypeExpr>(e))
             } case TypeKind::TupleType {
-                return self.dyn()->traverse_tuple_type(cast<Types::TupleType>(e))
+                return self.dyn()->traverse_tuple_type(
+                    cast<Types::TupleType>(e),
+                )
             } case TypeKind::ChainType {
-                return self.dyn()->traverse_chain_type(cast<Types::ChainType>(e))
+                return self.dyn()->traverse_chain_type(
+                    cast<Types::ChainType>(e),
+                )
             } case TypeKind::VectorType {
-                return self.dyn()->traverse_vector_type(cast<Types::VectorType>(e))
+                return self.dyn()->traverse_vector_type(
+                    cast<Types::VectorType>(e),
+                )
             } case TypeKind::PointerType {
-                return self.dyn()->traverse_pointer_type(cast<Types::PointerType>(e))
+                return self.dyn()->traverse_pointer_type(
+                    cast<Types::PointerType>(e),
+                )
             } case TypeKind::TypeOfType {
-                return self.dyn()->traverse_type_of_type(cast<Types::TypeOfType>(e))
+                return self.dyn()->traverse_type_of_type(
+                    cast<Types::TypeOfType>(e),
+                )
             } case TypeKind::InferredType {
-                return self.dyn()->traverse_inferred_type(cast<Types::InferredType>(e))
+                return self.dyn()->traverse_inferred_type(
+                    cast<Types::InferredType>(e),
+                )
             } case TypeKind::RecordType {
                 return self.dyn()->traverse_record_type(cast<RecordType>(e))
             } case TypeKind::BuiltinType {
                 return self.dyn()->traverse_builtin_type(cast<BuiltinType>(e))
             } case TypeKind::NullableType {
-                return self.dyn()->traverse_nullable_type(cast<Types::NullableType>(e))
+                return self.dyn()->traverse_nullable_type(
+                    cast<Types::NullableType>(e),
+                )
             } case TypeKind::OpaqueFFIType {
-                return self.dyn()->traverse_opaque_ffi_type(cast<Types::OpaqueFFIType>(e))
+                return self.dyn()->traverse_opaque_ffi_type(
+                    cast<Types::OpaqueFFIType>(e),
+                )
             } case TypeKind::QualifiedType {
-                return self.dyn()->traverse_qualified_type(cast<QualifiedType>(e))
+                return self.dyn()->traverse_qualified_type(
+                    cast<QualifiedType>(e),
+                )
             } case TypeKind::FixedArrayType {
-                return self.dyn()->traverse_fixed_array_type(cast<Types::FixedArrayType>(e))
+                return self.dyn()->traverse_fixed_array_type(
+                    cast<Types::FixedArrayType>(e),
+                )
             } case TypeKind::VariadicPackType {
-                return self.dyn()->traverse_variadic_pack_type(cast<Types::VariadicPackType>(e))
+                return self.dyn()->traverse_variadic_pack_type(
+                    cast<Types::VariadicPackType>(e),
+                )
             } case TypeKind::GenericParamType {
-                return self.dyn()->traverse_generic_param_type(cast<Types::GenericParamType>(e))
+                return self.dyn()->traverse_generic_param_type(
+                    cast<Types::GenericParamType>(e),
+                )
             } case TypeKind::PackExpansionType {
-                return self.dyn()->traverse_pack_expansion_type(cast<Types::PackExpansionType>(e))
+                return self.dyn()->traverse_pack_expansion_type(
+                    cast<Types::PackExpansionType>(e),
+                )
             } case TypeKind::CXXLValueRefType {
-                return self.dyn()->traverse_cxxl_value_ref_type(cast<Types::CXXLValueRefType>(e))
+                return self.dyn()->traverse_cxxl_value_ref_type(
+                    cast<Types::CXXLValueRefType>(e),
+                )
             } case TypeKind::CXXRValueRefType {
-                return self.dyn()->traverse_cxxr_value_ref_type(cast<Types::CXXRValueRefType>(e))
+                return self.dyn()->traverse_cxxr_value_ref_type(
+                    cast<Types::CXXRValueRefType>(e),
+                )
             } case TypeKind::FunctionPointerType {
                 return self.dyn()->traverse_function_pointer_type(
                     cast<Types::FunctionPointerType>(e),
@@ -173,7 +203,9 @@ pub class <D: type> RecursiveASTVisitor {
                 self.dyn()->visit_type(e)
                 return e
             } case TypeKind::TypeKindCount {
-                kairo::std::ice_fail("TypeKind::TypeKindCount reached RAV - this is a bug")
+                kairo::std::ice_fail(
+                    "TypeKind::TypeKindCount reached RAV - this is a bug",
+                )
             }
         }
     }
@@ -785,33 +817,57 @@ pub class <D: type> RecursiveASTVisitor {
 
         match e->kind {
             case ExprKind::IntegerLiteralExpr {
-                return self.dyn()->traverse_integer_literal_expr(cast<IntegerLiteralExpr>(e))
+                return self.dyn()->traverse_integer_literal_expr(
+                    cast<IntegerLiteralExpr>(e),
+                )
             } case ExprKind::FloatingLiteralExpr {
-                return self.dyn()->traverse_floating_literal_expr(cast<FloatingLiteralExpr>(e))
+                return self.dyn()->traverse_floating_literal_expr(
+                    cast<FloatingLiteralExpr>(e),
+                )
             } case ExprKind::StringLiteralExpr {
-                return self.dyn()->traverse_string_literal_expr(cast<StringLiteralExpr>(e))
+                return self.dyn()->traverse_string_literal_expr(
+                    cast<StringLiteralExpr>(e),
+                )
             } case ExprKind::CharacterLiteralExpr {
-                return self.dyn()->traverse_character_literal_expr(cast<CharacterLiteralExpr>(e))
+                return self.dyn()->traverse_character_literal_expr(
+                    cast<CharacterLiteralExpr>(e),
+                )
             } case ExprKind::BooleanLiteralExpr {
-                return self.dyn()->traverse_boolean_literal_expr(cast<BooleanLiteralExpr>(e))
+                return self.dyn()->traverse_boolean_literal_expr(
+                    cast<BooleanLiteralExpr>(e),
+                )
             } case ExprKind::NullLiteralExpr {
-                return self.dyn()->traverse_null_literal_expr(cast<NullLiteralExpr>(e))
+                return self.dyn()->traverse_null_literal_expr(
+                    cast<NullLiteralExpr>(e),
+                )
             } case ExprKind::ListLiteralExpr {
-                return self.dyn()->traverse_list_literal_expr(cast<Expressions::ListLiteralExpr>(e))
+                return self.dyn()->traverse_list_literal_expr(
+                    cast<Expressions::ListLiteralExpr>(e),
+                )
             } case ExprKind::InitListExpr {
-                return self.dyn()->traverse_init_list_expr(cast<Expressions::InitListExpr>(e))
+                return self.dyn()->traverse_init_list_expr(
+                    cast<Expressions::InitListExpr>(e),
+                )
             } case ExprKind::StmtExpr {
-                return self.dyn()->traverse_stmt_expr(cast<Expressions::StmtExpr>(e))
+                return self.dyn()->traverse_stmt_expr(
+                    cast<Expressions::StmtExpr>(e),
+                )
             } case ExprKind::VariantInitExpr {
-                return self.dyn()->traverse_variant_init_expr(cast<Expressions::VariantInitExpr>(e))
+                return self.dyn()->traverse_variant_init_expr(
+                    cast<Expressions::VariantInitExpr>(e),
+                )
             } case ExprKind::TupleLiteralExpr {
                 return self.dyn()->traverse_tuple_literal_expr(
                     cast<Expressions::TupleLiteralExpr>(e),
                 )
             } case ExprKind::SetLiteralExpr {
-                return self.dyn()->traverse_set_literal_expr(cast<Expressions::SetLiteralExpr>(e))
+                return self.dyn()->traverse_set_literal_expr(
+                    cast<Expressions::SetLiteralExpr>(e),
+                )
             } case ExprKind::MapLiteralExpr {
-                return self.dyn()->traverse_map_literal_expr(cast<Expressions::MapLiteralExpr>(e))
+                return self.dyn()->traverse_map_literal_expr(
+                    cast<Expressions::MapLiteralExpr>(e),
+                )
             } case ExprKind::NamedInitializerExpr {
                 return self.dyn()->traverse_named_initializer_expr(
                     cast<Expressions::NamedInitializerExpr>(e),
@@ -823,11 +879,17 @@ pub class <D: type> RecursiveASTVisitor {
             } case ExprKind::ChainExpr {
                 return self.dyn()->traverse_chain_expr(cast<ChainExpr>(e))
             } case ExprKind::CallExpr {
-                return self.dyn()->traverse_call_expr(cast<Expressions::CallExpr>(e))
+                return self.dyn()->traverse_call_expr(
+                    cast<Expressions::CallExpr>(e),
+                )
             } case ExprKind::SubscriptExpr {
-                return self.dyn()->traverse_subscript_expr(cast<Expressions::SubscriptExpr>(e))
+                return self.dyn()->traverse_subscript_expr(
+                    cast<Expressions::SubscriptExpr>(e),
+                )
             } case ExprKind::NamedIdentExpr {
-                return self.dyn()->traverse_named_ident_expr(cast<NamedIdentExpr>(e))
+                return self.dyn()->traverse_named_ident_expr(
+                    cast<NamedIdentExpr>(e),
+                )
             } case ExprKind::UnaryOperatorExpr {
                 return self.dyn()->traverse_unary_operator_expr(
                     cast<Expressions::UnaryOperatorExpr>(e),
@@ -849,68 +911,120 @@ pub class <D: type> RecursiveASTVisitor {
                     cast<Expressions::DerivesRelationExpr>(e),
                 )
             } case ExprKind::IfExpr {
-                return self.dyn()->traverse_if_expr(cast<Expressions::IfExpr>(e))
+                return self.dyn()->traverse_if_expr(
+                    cast<Expressions::IfExpr>(e),
+                )
             } case ExprKind::TryCatchExpr {
-                return self.dyn()->traverse_try_catch_expr(cast<Expressions::TryCatchExpr>(e))
+                return self.dyn()->traverse_try_catch_expr(
+                    cast<Expressions::TryCatchExpr>(e),
+                )
             } case ExprKind::MatchExpr {
-                return self.dyn()->traverse_match_expr(cast<Expressions::MatchExpr>(e))
+                return self.dyn()->traverse_match_expr(
+                    cast<Expressions::MatchExpr>(e),
+                )
             } case ExprKind::RangeExpr {
-                return self.dyn()->traverse_range_expr(cast<Expressions::RangeExpr>(e))
+                return self.dyn()->traverse_range_expr(
+                    cast<Expressions::RangeExpr>(e),
+                )
             } case ExprKind::ClosureExpr {
-                return self.dyn()->traverse_closure_expr(cast<Expressions::ClosureExpr>(e))
+                return self.dyn()->traverse_closure_expr(
+                    cast<Expressions::ClosureExpr>(e),
+                )
             } case ExprKind::AwaitExpr {
-                return self.dyn()->traverse_await_expr(cast<Expressions::AwaitExpr>(e))
+                return self.dyn()->traverse_await_expr(
+                    cast<Expressions::AwaitExpr>(e),
+                )
             } case ExprKind::UnwrapExpr {
-                return self.dyn()->traverse_unwrap_expr(cast<Expressions::UnwrapExpr>(e))
+                return self.dyn()->traverse_unwrap_expr(
+                    cast<Expressions::UnwrapExpr>(e),
+                )
             } case ExprKind::DefinedExpr {
-                return self.dyn()->traverse_defined_expr(cast<Expressions::DefinedExpr>(e))
+                return self.dyn()->traverse_defined_expr(
+                    cast<Expressions::DefinedExpr>(e),
+                )
             } case ExprKind::AttributedExpr {
-                return self.dyn()->traverse_attributed_expr(cast<Expressions::AttributedExpr>(e))
+                return self.dyn()->traverse_attributed_expr(
+                    cast<Expressions::AttributedExpr>(e),
+                )
             } case ExprKind::PanicOpExpr {
-                return self.dyn()->traverse_panic_op_expr(cast<Expressions::PanicOpExpr>(e))
+                return self.dyn()->traverse_panic_op_expr(
+                    cast<Expressions::PanicOpExpr>(e),
+                )
             } case ExprKind::TypeTraitExpr {
-                return self.dyn()->traverse_type_trait_expr(cast<Expressions::TypeTraitExpr>(e))
+                return self.dyn()->traverse_type_trait_expr(
+                    cast<Expressions::TypeTraitExpr>(e),
+                )
             } case ExprKind::CxxNewExpr {
-                return self.dyn()->traverse_cxx_new_expr(cast<Expressions::CxxNewExpr>(e))
+                return self.dyn()->traverse_cxx_new_expr(
+                    cast<Expressions::CxxNewExpr>(e),
+                )
             } case ExprKind::SpawnExpr {
-                return self.dyn()->traverse_spawn_expr(cast<Expressions::SpawnExpr>(e))
+                return self.dyn()->traverse_spawn_expr(
+                    cast<Expressions::SpawnExpr>(e),
+                )
             } case ExprKind::ThreadExpr {
-                return self.dyn()->traverse_thread_expr(cast<Expressions::ThreadExpr>(e))
+                return self.dyn()->traverse_thread_expr(
+                    cast<Expressions::ThreadExpr>(e),
+                )
             } case ExprKind::ConstraintExpr {
-                return self.dyn()->traverse_constraint_expr(cast<Expressions::ConstraintExpr>(e))
+                return self.dyn()->traverse_constraint_expr(
+                    cast<Expressions::ConstraintExpr>(e),
+                )
             } case ExprKind::SizeOfExpr {
-                return self.dyn()->traverse_size_of_expr(cast<Expressions::SizeOfExpr>(e))
+                return self.dyn()->traverse_size_of_expr(
+                    cast<Expressions::SizeOfExpr>(e),
+                )
             } case ExprKind::AlignOfExpr {
-                return self.dyn()->traverse_align_of_expr(cast<Expressions::AlignOfExpr>(e))
+                return self.dyn()->traverse_align_of_expr(
+                    cast<Expressions::AlignOfExpr>(e),
+                )
             } case ExprKind::TypeOfExpr {
-                return self.dyn()->traverse_type_of_expr(cast<Expressions::TypeOfExpr>(e))
+                return self.dyn()->traverse_type_of_expr(
+                    cast<Expressions::TypeOfExpr>(e),
+                )
             } case ExprKind::EvalExpr {
-                return self.dyn()->traverse_eval_expr(cast<Expressions::EvalExpr>(e))
+                return self.dyn()->traverse_eval_expr(
+                    cast<Expressions::EvalExpr>(e),
+                )
             } case ExprKind::UnsafeExpr {
-                return self.dyn()->traverse_unsafe_expr(cast<Expressions::UnsafeExpr>(e))
+                return self.dyn()->traverse_unsafe_expr(
+                    cast<Expressions::UnsafeExpr>(e),
+                )
             } case ExprKind::DeleteExpr {
-                return self.dyn()->traverse_delete_expr(cast<Expressions::DeleteExpr>(e))
+                return self.dyn()->traverse_delete_expr(
+                    cast<Expressions::DeleteExpr>(e),
+                )
             } case ExprKind::PackExpansionExpr {
                 return self.dyn()->traverse_pack_expansion_expr(
                     cast<Expressions::PackExpansionExpr>(e),
                 )
             } case ExprKind::TypeCastExpr {
-                return self.dyn()->traverse_type_cast_expr(cast<Expressions::TypeCastExpr>(e))
+                return self.dyn()->traverse_type_cast_expr(
+                    cast<Expressions::TypeCastExpr>(e),
+                )
             } case ExprKind::ImplicitBoundaryCastExpr {
                 return self.dyn()->traverse_implicit_boundary_cast_expr(
                     cast<Expressions::ImplicitBoundaryCastExpr>(e),
                 )
             } case ExprKind::ParenExpr {
-                return self.dyn()->traverse_paren_expr(cast<Expressions::ParenExpr>(e))
+                return self.dyn()->traverse_paren_expr(
+                    cast<Expressions::ParenExpr>(e),
+                )
             } case ExprKind::VerbatimExpr {
-                return self.dyn()->traverse_verbatim_expr(cast<Expressions::VerbatimExpr>(e))
+                return self.dyn()->traverse_verbatim_expr(
+                    cast<Expressions::VerbatimExpr>(e),
+                )
             } case ExprKind::NamedArgExpr {
-                return self.dyn()->traverse_named_arg_expr(cast<Expressions::NamedArgExpr>(e))
+                return self.dyn()->traverse_named_arg_expr(
+                    cast<Expressions::NamedArgExpr>(e),
+                )
             } case ExprKind::RecoveryExpr {
                 self.dyn()->visit_expr(e)
                 return e
             } case ExprKind::ExprKindCount {
-                kairo::std::ice_fail("ExprKindCount reached RAV in Stage 1 - driver bail failed")
+                kairo::std::ice_fail(
+                    "ExprKindCount reached RAV in Stage 1 - driver bail failed",
+                )
             }
         }
     }
@@ -2451,21 +2565,37 @@ pub class <D: type> RecursiveASTVisitor {
 
         match s->kind {
             case StmtKind::CompoundStmt {
-                return self.dyn()->traverse_compound_stmt(cast<Statements::CompoundStmt>(s))
+                return self.dyn()->traverse_compound_stmt(
+                    cast<Statements::CompoundStmt>(s),
+                )
             } case StmtKind::ExpressionStmt {
-                return self.dyn()->traverse_expression_stmt(cast<Statements::ExpressionStmt>(s))
+                return self.dyn()->traverse_expression_stmt(
+                    cast<Statements::ExpressionStmt>(s),
+                )
             } case StmtKind::DeclStmt {
-                return self.dyn()->traverse_decl_stmt(cast<Statements::DeclStmt>(s))
+                return self.dyn()->traverse_decl_stmt(
+                    cast<Statements::DeclStmt>(s),
+                )
             } case StmtKind::ReturnStmt {
-                return self.dyn()->traverse_return_stmt(cast<Statements::ReturnStmt>(s))
+                return self.dyn()->traverse_return_stmt(
+                    cast<Statements::ReturnStmt>(s),
+                )
             } case StmtKind::BreakStmt {
-                return self.dyn()->traverse_break_stmt(cast<Statements::BreakStmt>(s))
+                return self.dyn()->traverse_break_stmt(
+                    cast<Statements::BreakStmt>(s),
+                )
             } case StmtKind::ContinueStmt {
-                return self.dyn()->traverse_continue_stmt(cast<Statements::ContinueStmt>(s))
+                return self.dyn()->traverse_continue_stmt(
+                    cast<Statements::ContinueStmt>(s),
+                )
             } case StmtKind::PanicStmt {
-                return self.dyn()->traverse_panic_stmt(cast<Statements::PanicStmt>(s))
+                return self.dyn()->traverse_panic_stmt(
+                    cast<Statements::PanicStmt>(s),
+                )
             } case StmtKind::YieldStmt {
-                return self.dyn()->traverse_yield_stmt(cast<Statements::YieldStmt>(s))
+                return self.dyn()->traverse_yield_stmt(
+                    cast<Statements::YieldStmt>(s),
+                )
             } case StmtKind::RuntimeAssertStmt {
                 return self.dyn()->traverse_runtime_assert_stmt(
                     cast<Statements::RuntimeAssertStmt>(s),
@@ -2483,25 +2613,45 @@ pub class <D: type> RecursiveASTVisitor {
                     cast<Statements::JumpIntrinsicStmt>(s),
                 )
             } case StmtKind::ConditionalStmt {
-                return self.dyn()->traverse_conditional_stmt(cast<Statements::ConditionalStmt>(s))
+                return self.dyn()->traverse_conditional_stmt(
+                    cast<Statements::ConditionalStmt>(s),
+                )
             } case StmtKind::WhileLoopStmt {
-                return self.dyn()->traverse_while_loop_stmt(cast<Statements::WhileLoopStmt>(s))
+                return self.dyn()->traverse_while_loop_stmt(
+                    cast<Statements::WhileLoopStmt>(s),
+                )
             } case StmtKind::LoopStmt {
-                return self.dyn()->traverse_loop_stmt(cast<Statements::LoopStmt>(s))
+                return self.dyn()->traverse_loop_stmt(
+                    cast<Statements::LoopStmt>(s),
+                )
             } case StmtKind::RangedForStmt {
-                return self.dyn()->traverse_ranged_for_stmt(cast<Statements::RangedForStmt>(s))
+                return self.dyn()->traverse_ranged_for_stmt(
+                    cast<Statements::RangedForStmt>(s),
+                )
             } case StmtKind::IndexedForStmt {
-                return self.dyn()->traverse_indexed_for_stmt(cast<Statements::IndexedForStmt>(s))
+                return self.dyn()->traverse_indexed_for_stmt(
+                    cast<Statements::IndexedForStmt>(s),
+                )
             } case StmtKind::MatchStmt {
-                return self.dyn()->traverse_match_stmt(cast<Statements::MatchStmt>(s))
+                return self.dyn()->traverse_match_stmt(
+                    cast<Statements::MatchStmt>(s),
+                )
             } case StmtKind::LabeledStmt {
-                return self.dyn()->traverse_labeled_stmt(cast<Statements::LabeledStmt>(s))
+                return self.dyn()->traverse_labeled_stmt(
+                    cast<Statements::LabeledStmt>(s),
+                )
             } case StmtKind::TryCatchStmt {
-                return self.dyn()->traverse_try_catch_stmt(cast<Statements::TryCatchStmt>(s))
+                return self.dyn()->traverse_try_catch_stmt(
+                    cast<Statements::TryCatchStmt>(s),
+                )
             } case StmtKind::FinallyStmt {
-                return self.dyn()->traverse_finally_stmt(cast<Statements::FinallyStmt>(s))
+                return self.dyn()->traverse_finally_stmt(
+                    cast<Statements::FinallyStmt>(s),
+                )
             } case StmtKind::UnsafeBlockStmt {
-                return self.dyn()->traverse_unsafe_block_stmt(cast<Statements::UnsafeBlockStmt>(s))
+                return self.dyn()->traverse_unsafe_block_stmt(
+                    cast<Statements::UnsafeBlockStmt>(s),
+                )
             } case StmtKind::ContextBindingStmt {
                 return self.dyn()->traverse_context_binding_stmt(
                     cast<Statements::ContextBindingStmt>(s),
@@ -2511,9 +2661,13 @@ pub class <D: type> RecursiveASTVisitor {
                     cast<Statements::DestructuringDeclStmt>(s),
                 )
             } case StmtKind::InlineBlockStmt {
-                return self.dyn()->traverse_inline_block_stmt(cast<Statements::InlineBlockStmt>(s))
+                return self.dyn()->traverse_inline_block_stmt(
+                    cast<Statements::InlineBlockStmt>(s),
+                )
             } case StmtKind::EvalBlockStmt {
-                return self.dyn()->traverse_eval_block_stmt(cast<Statements::EvalBlockStmt>(s))
+                return self.dyn()->traverse_eval_block_stmt(
+                    cast<Statements::EvalBlockStmt>(s),
+                )
             } case StmtKind::SwitchDispatchStmt {
                 return self.dyn()->traverse_switch_dispatch_stmt(
                     cast<Statements::SwitchDispatchStmt>(s),
@@ -2522,7 +2676,9 @@ pub class <D: type> RecursiveASTVisitor {
                 self.dyn()->visit_stmt(s)
                 return s
             } case StmtKind::StmtKindCount {
-                kairo::std::ice_fail("StmtKindCount reached RAV in Stage 1 - this is a bug")
+                kairo::std::ice_fail(
+                    "StmtKindCount reached RAV in Stage 1 - this is a bug",
+                )
             }
         }
     }
@@ -3249,60 +3405,96 @@ pub class <D: type> RecursiveASTVisitor {
 
         match d->kind {
             case DeclKind::FunctionDecl {
-                return self.dyn()->traverse_function_decl(cast<Declarations::FunctionDecl>(d))
+                return self.dyn()->traverse_function_decl(
+                    cast<Declarations::FunctionDecl>(d),
+                )
             } case DeclKind::VariableDecl {
-                return self.dyn()->traverse_variable_decl(cast<Declarations::VariableDecl>(d))
+                return self.dyn()->traverse_variable_decl(
+                    cast<Declarations::VariableDecl>(d),
+                )
             } case DeclKind::FieldDecl {
-                return self.dyn()->traverse_field_decl(cast<Declarations::FieldDecl>(d))
+                return self.dyn()->traverse_field_decl(
+                    cast<Declarations::FieldDecl>(d),
+                )
             } case DeclKind::ParamDecl {
-                return self.dyn()->traverse_param_decl(cast<Declarations::ParamDecl>(d))
+                return self.dyn()->traverse_param_decl(
+                    cast<Declarations::ParamDecl>(d),
+                )
             } case DeclKind::GenericParamDecl {
                 return self.dyn()->traverse_generic_param_decl(
                     cast<Declarations::GenericParamDecl>(d),
                 )
             } case DeclKind::StructDecl {
-                return self.dyn()->traverse_struct_decl(cast<Declarations::StructDecl>(d))
+                return self.dyn()->traverse_struct_decl(
+                    cast<Declarations::StructDecl>(d),
+                )
             } case DeclKind::ClassDecl {
-                return self.dyn()->traverse_class_decl(cast<Declarations::ClassDecl>(d))
+                return self.dyn()->traverse_class_decl(
+                    cast<Declarations::ClassDecl>(d),
+                )
             } case DeclKind::InterfaceDecl {
-                return self.dyn()->traverse_interface_decl(cast<Declarations::InterfaceDecl>(d))
+                return self.dyn()->traverse_interface_decl(
+                    cast<Declarations::InterfaceDecl>(d),
+                )
             } case DeclKind::ExtensionDecl {
-                return self.dyn()->traverse_extension_decl(cast<Declarations::ExtensionDecl>(d))
+                return self.dyn()->traverse_extension_decl(
+                    cast<Declarations::ExtensionDecl>(d),
+                )
             } case DeclKind::EnumDecl {
-                return self.dyn()->traverse_enum_decl(cast<Declarations::EnumDecl>(d))
+                return self.dyn()->traverse_enum_decl(
+                    cast<Declarations::EnumDecl>(d),
+                )
             } case DeclKind::EnumVariantDecl {
                 return self.dyn()->traverse_enum_variant_decl(
                     cast<Declarations::EnumVariantDecl>(d),
                 )
             } case DeclKind::UnionDecl {
-                return self.dyn()->traverse_union_decl(cast<Declarations::UnionDecl>(d))
+                return self.dyn()->traverse_union_decl(
+                    cast<Declarations::UnionDecl>(d),
+                )
             } case DeclKind::TypeAliasDecl {
-                return self.dyn()->traverse_type_alias_decl(cast<Declarations::TypeAliasDecl>(d))
+                return self.dyn()->traverse_type_alias_decl(
+                    cast<Declarations::TypeAliasDecl>(d),
+                )
             } case DeclKind::ModuleDecl {
-                return self.dyn()->traverse_module_decl(cast<Declarations::ModuleDecl>(d))
+                return self.dyn()->traverse_module_decl(
+                    cast<Declarations::ModuleDecl>(d),
+                )
             } case DeclKind::ImportDecl {
-                return self.dyn()->traverse_import_decl(cast<Declarations::ImportDecl>(d))
+                return self.dyn()->traverse_import_decl(
+                    cast<Declarations::ImportDecl>(d),
+                )
             } case DeclKind::VisibilityGroupDecl {
                 return self.dyn()->traverse_visibility_group_decl(
                     cast<Declarations::VisibilityGroupDecl>(d),
                 )
             } case DeclKind::EvalBlockDecl {
-                return self.dyn()->traverse_eval_block_decl(cast<Declarations::EvalBlockDecl>(d))
+                return self.dyn()->traverse_eval_block_decl(
+                    cast<Declarations::EvalBlockDecl>(d),
+                )
             } case DeclKind::TestDecl {
-                return self.dyn()->traverse_test_decl(cast<Declarations::TestDecl>(d))
+                return self.dyn()->traverse_test_decl(
+                    cast<Declarations::TestDecl>(d),
+                )
             } case DeclKind::MacroDecl {
-                return self.dyn()->traverse_macro_decl(cast<Declarations::MacroDecl>(d))
+                return self.dyn()->traverse_macro_decl(
+                    cast<Declarations::MacroDecl>(d),
+                )
             } case DeclKind::ProcedureMacroDecl {
                 return self.dyn()->traverse_procedure_macro_decl(
                     cast<Declarations::ProcedureMacroDecl>(d),
                 )
             } case DeclKind::FFIBlockDecl {
-                return self.dyn()->traverse_ffi_block_decl(cast<Declarations::FFIBlockDecl>(d))
+                return self.dyn()->traverse_ffi_block_decl(
+                    cast<Declarations::FFIBlockDecl>(d),
+                )
             } case DeclKind::RecoveryDecl {
                 self.dyn()->visit_decl(d)
                 return d
             } case DeclKind::DeclKindCount {
-                kairo::std::ice_fail("DeclKindCount reached RAV in Stage 1 - this is a bug")
+                kairo::std::ice_fail(
+                    "DeclKindCount reached RAV in Stage 1 - this is a bug",
+                )
             }
         }
     }
@@ -4300,23 +4492,33 @@ pub class <D: type> RecursiveASTVisitor {
 
         match p->kind {
             case PatternKind::WildcardPattern {
-                return self.dyn()->traverse_wildcard_pattern(cast<WildcardPattern>(p))
+                return self.dyn()->traverse_wildcard_pattern(
+                    cast<WildcardPattern>(p),
+                )
             } case PatternKind::LiteralPattern {
-                return self.dyn()->traverse_literal_pattern(cast<LiteralPattern>(p))
+                return self.dyn()->traverse_literal_pattern(
+                    cast<LiteralPattern>(p),
+                )
             } case PatternKind::BindingPattern {
-                return self.dyn()->traverse_binding_pattern(cast<BindingPattern>(p))
+                return self.dyn()->traverse_binding_pattern(
+                    cast<BindingPattern>(p),
+                )
             } case PatternKind::TupleDestructurePattern {
                 return self.dyn()->traverse_tuple_destructure_pattern(
                     cast<TupleDestructurePattern>(p),
                 )
             } case PatternKind::ConstructorPattern {
-                return self.dyn()->traverse_constructor_pattern(cast<ConstructorPattern>(p))
+                return self.dyn()->traverse_constructor_pattern(
+                    cast<ConstructorPattern>(p),
+                )
             } case PatternKind::UnresolvedConstructorPattern {
                 return self.dyn()->traverse_unresolved_constructor_pattern(
                     cast<UnresolvedConstructorPattern>(p),
                 )
             } case PatternKind::AlternationPattern {
-                return self.dyn()->traverse_alternation_pattern(cast<AlternationPattern>(p))
+                return self.dyn()->traverse_alternation_pattern(
+                    cast<AlternationPattern>(p),
+                )
             } case PatternKind::RangePattern {
                 return self.dyn()->traverse_range_pattern(cast<RangePattern>(p))
             } case PatternKind::SlicePattern {
@@ -4325,7 +4527,9 @@ pub class <D: type> RecursiveASTVisitor {
                 self.dyn()->visit_pattern(p)
                 return p
             } case PatternKind::PatternKindCount {
-                kairo::std::ice_fail("PatternKindCount reached RAV in Stage 1 - this is a bug")
+                kairo::std::ice_fail(
+                    "PatternKindCount reached RAV in Stage 1 - this is a bug",
+                )
             }
         }
     }

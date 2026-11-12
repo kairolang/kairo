@@ -243,7 +243,8 @@ pub class ScriptRules {
             return false
         }
 
-        var unsafe *et = if (a->element->canonical != &null) => (a->element->canonical) else => a->element
+        var unsafe *et = if (a->element->canonical != &null) => (a->element->canonical)
+                         else => a->element
         for var i: usize = 0; i < l->elements.size(); ++i {
             if !self.constant(l->elements[i], et) {
                 return false

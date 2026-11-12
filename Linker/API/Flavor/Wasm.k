@@ -57,7 +57,10 @@ pub class WasmArgs {
         var *o    = job.opts
 
         if job.output.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "link: no output path"))
+            msgs.push_back(
+                LinkDiag::make(LinkSeverity::Error, "link: no output path"),
+            )
+
             return false
         }
 
@@ -385,7 +388,13 @@ pub class WasmArgs {
         }
 
         if name.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"-l {spec}: no library name"))
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    f"-l {spec}: no library name",
+                ),
+            )
+
             return
         }
 

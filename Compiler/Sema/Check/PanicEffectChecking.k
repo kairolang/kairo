@@ -142,8 +142,8 @@ import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Config::ResourceLayout::ResourceLayout
 import Diagnostic::Code::DiagCode
 import Diagnostic::DiagBuilder::DiagBuilder
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::named_declared_here
+import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Sema::Check::ClassLifecycle::{
@@ -275,7 +275,10 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 } else if item.get_kind() == TopLevelKind::Expr {
                     w.walk_expr(item.as_expr())
                 } else {
-                    var unsafe *vd = dyn_cast<Declarations::VariableDecl>(item.as_decl())
+                    var unsafe *vd = dyn_cast<Declarations::VariableDecl>(
+                        item.as_decl(),
+                    )
+
                     if vd != &null && vd->init != &null {
                         w.walk_expr(vd->init)
                     }
@@ -325,7 +328,10 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             self._structural_rows(e)
             var unsafe *prim = e->primary
             if isa<Declarations::FunctionDecl>(prim) {
-                var unsafe *h = panic_home(cast<Declarations::FunctionDecl>(prim))
+                var unsafe *h = panic_home(
+                    cast<Declarations::FunctionDecl>(prim),
+                )
+
                 if h->panic_arms.size() == 0 {
                     continue
                 }
@@ -381,8 +387,14 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
 
             self._rows_done.insert(key)
             for var i: usize = 0; i < row->witnesses.size() && i < row->reqs.size(); ++i {
-                var unsafe *w = dyn_cast<Declarations::FunctionDecl>(row->witnesses[i])
-                var unsafe *q = dyn_cast<Declarations::FunctionDecl>(row->reqs[i])
+                var unsafe *w = dyn_cast<Declarations::FunctionDecl>(
+                    row->witnesses[i],
+                )
+
+                var unsafe *q = dyn_cast<Declarations::FunctionDecl>(
+                    row->reqs[i],
+                )
+
                 if w == &null || q == &null || w == q {
                     continue
                 }
@@ -396,7 +408,13 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                     continue
                 }
 
-                var kb = panic_set_through(unsafe &self._tu, q, through, unsafe &b)
+                var kb = panic_set_through(
+                    unsafe &self._tu,
+                    q,
+                    through,
+                    unsafe &b,
+                )
+
                 if kb == PanicKnown::Unknown {
                     continue
                 }
@@ -417,14 +435,18 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 var xs    = self._tu.str(row->conformer)
                 var is    = self._tu.str(row->iface)
                 var qn    = self._qual_name(q)
-                var at    = if (e->use_at.start.is_valid()) => (e->use_at) else => w->range
+                var at = if (e->use_at.start.is_valid()) => (e->use_at) else => w->range
                 var bld = self.sc->diag->report(
                     DiagID::SC208E,
                     at.start,
                     f"'{xs}' does not meet '{is}' here: {names} {verb} not in the panic set of '{qn}', which '{self._qual_name(w)}' implements",
                 )
 
-                bld.first(at, f"'{self._inst_name(e)}' needs '{xs}' to implement '{is}'")
+                bld.first(
+                    at,
+                    f"'{self._inst_name(e)}' needs '{xs}' to implement '{is}'",
+                )
+
                 var wat = if (w->panic_range.is_valid()) => (w->panic_range)
                           else => self._name_range(w)
                 bld.note(
@@ -528,7 +550,13 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                         continue
                     }
 
-                    self._instance_dup(e, ta, h->panic_arm_at[a], h->panic_arm_at[b])
+                    self._instance_dup(
+                        e,
+                        ta,
+                        h->panic_arm_at[a],
+                        h->panic_arm_at[b],
+                    )
+
                     done = true
                 }
             }
@@ -570,7 +598,10 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             first.start,
             f"this arm catches '{nm}' at these arguments",
         )->child_first(first)
-        b.note(DiagCode(DiagID::SC209N), second.start, "and so does this one")->child_first(second)
+        b.note(DiagCode(DiagID::SC209N), second.start, "and so does this one")->child_first(
+            second,
+        )
+
         ConformanceChecking(self.sc).chain_notes(unsafe &b, e)
         b.emit()
     }
@@ -600,7 +631,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
     fn traverse_function_decl(self,
                               f: unsafe *Declarations::FunctionDecl) -> unsafe *Declarations::FunctionDecl {
         self._fn_stack.push_back(f)
-        var unsafe *r = RecursiveASTVisitor<PanicEffectChecking>::traverse_function_decl(self, f)
+        var unsafe *r = RecursiveASTVisitor<PanicEffectChecking>::traverse_function_decl(
+            self,
+            f,
+        )
+
         self._fn_stack.pop_back()
         return r
     }
@@ -669,7 +704,10 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             && !self._arm_decls.contains(v as usize as u64)
             && v->type_ != &null
             && v->type_->canonical != &null {
-            var unsafe *rd = self._tu.record_decl(canon_unqual(v->type_->canonical))
+            var unsafe *rd = self._tu.record_decl(
+                canon_unqual(v->type_->canonical),
+            )
+
             if rd != &null && PanicSets(self.sc).is_panic(rd) {
                 self._gate(v->name.range, "a stored panic result")
                 return true
@@ -716,7 +754,14 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         var w = PanicWalk(self.sc)
         w.keep_sites = true
         w.walk_expr(p->default_val)
-        self._judge(&w, PanicBody::Param, &null, &null, unsafe (p as unsafe *Decl))
+        self._judge(
+            &w,
+            PanicBody::Param,
+            &null,
+            &null,
+            unsafe (p as unsafe *Decl),
+        )
+
         return true
     }
 
@@ -737,7 +782,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         }
 
         if n->payload->type_ != &null {
-            self._check_payload(n->payload->type_, n->payload->range, "panicked")
+            self._check_payload(
+                n->payload->type_,
+                n->payload->range,
+                "panicked",
+            )
         }
 
         return true
@@ -757,7 +806,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             if arm->filter != &null
                 && arm->filter->canonical != &null
                 && !self._is_cxx_type(arm->filter->canonical) {
-                self._check_payload(arm->filter->canonical, arm->filter->range, "caught")
+                self._check_payload(
+                    arm->filter->canonical,
+                    arm->filter->range,
+                    "caught",
+                )
             }
         }
 
@@ -803,9 +856,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         )
 
         w.first(kw, "registered here, after the 'try'")
-        w.note(DiagCode(DiagID::SC211N), end, "it runs here, when this block is left")->child_first(
-            SourceRange::from_bounds(end, 1 as u32),
-        )
+        w.note(
+            DiagCode(DiagID::SC211N),
+            end,
+            "it runs here, when this block is left",
+        )->child_first(SourceRange::from_bounds(end, 1 as u32))
 
         w.note(
             DiagCode(DiagID::SC211N),
@@ -834,7 +889,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             if arm->filter != &null
                 && arm->filter->canonical != &null
                 && !self._is_cxx_type(arm->filter->canonical) {
-                self._check_payload(arm->filter->canonical, arm->filter->range, "caught")
+                self._check_payload(
+                    arm->filter->canonical,
+                    arm->filter->range,
+                    "caught",
+                )
             }
         }
 
@@ -917,9 +976,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
 
         b.first(at)
         if d != &null && d->range.is_valid() {
-            b.note(DiagCode(DiagID::SC212N), d->range.start, named_declared_here(nm))->child_first(
-                d->range,
-            )
+            b.note(
+                DiagCode(DiagID::SC212N),
+                d->range.start,
+                named_declared_here(nm),
+            )->child_first(d->range)
         }
 
         b.emit()
@@ -977,9 +1038,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             )
 
             b.first(at)
-            b.note(DiagCode(DiagID::SC214N), f->range.start, named_declared_here(nm))->child_first(
-                self._name_range(f),
-            )
+            b.note(
+                DiagCode(DiagID::SC214N),
+                f->range.start,
+                named_declared_here(nm),
+            )->child_first(self._name_range(f))
 
             b.remove(f->panic_range, "remove 'panic'")
             b.emit()
@@ -993,11 +1056,18 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         if life.size() > 0 {
             var why = if (life == "a destructor") => ("it runs on every exit from the object's scope, where nothing could take an error")
                       else => "an object is either built whole or not at all"
-            var b = self.sc->diag->report(DiagID::SC215E, at.start, f"{life} cannot panic: " + why)
-            b.first(at)
-            b.note(DiagCode(DiagID::SC215N), f->range.start, named_declared_here(nm))->child_first(
-                self._name_range(f),
+            var b = self.sc->diag->report(
+                DiagID::SC215E,
+                at.start,
+                f"{life} cannot panic: " + why,
             )
+
+            b.first(at)
+            b.note(
+                DiagCode(DiagID::SC215N),
+                f->range.start,
+                named_declared_here(nm),
+            )->child_first(self._name_range(f))
 
             if self._is_ctor(f) {
                 b.note(
@@ -1022,9 +1092,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             )
 
             b.first(at)
-            b.note(DiagCode(DiagID::SC215N), f->range.start, named_declared_here(nm))->child_first(
-                self._name_range(f),
-            )
+            b.note(
+                DiagCode(DiagID::SC215N),
+                f->range.start,
+                named_declared_here(nm),
+            )->child_first(self._name_range(f))
 
             b.remove(f->panic_range, "remove 'panic'")
             b.emit()
@@ -1082,7 +1154,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             b.first(at)
             var rt = if (f->return_type != &null) => (f->return_type->range)
                      else => self._name_range(f)
-            b.note(DiagCode(DiagID::SC116N), rt.start, "its result names 'Self' here")->child_first(rt)
+            b.note(
+                DiagCode(DiagID::SC116N),
+                rt.start,
+                "its result names 'Self' here",
+            )->child_first(rt)
             b.emit()
             return
         }
@@ -1179,7 +1255,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         if inferred != &null {
             self._write_set_fix(&b, pr, inferred)
         } else {
-            b.note(DiagCode(DiagID::SC218N), at.start, "there is no body to infer it from")
+            b.note(
+                DiagCode(DiagID::SC218N),
+                at.start,
+                "there is no body to infer it from",
+            )
         }
 
         b.emit()
@@ -1248,8 +1328,14 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 continue
             }
 
-            var        bt:   unsafe *Type = &null
-            var unsafe *base              = panic_overridden_at(unsafe &self._tu, cd, m, unsafe &bt)
+            var bt: unsafe *Type = &null
+            var unsafe *base = panic_overridden_at(
+                unsafe &self._tu,
+                cd,
+                m,
+                unsafe &bt,
+            )
+
             if base == &null {
                 continue
             }
@@ -1293,8 +1379,14 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             }
 
             for var i: usize = 0; i < row->witnesses.size() && i < row->reqs.size(); ++i {
-                var unsafe *w = dyn_cast<Declarations::FunctionDecl>(row->witnesses[i])
-                var unsafe *q = dyn_cast<Declarations::FunctionDecl>(row->reqs[i])
+                var unsafe *w = dyn_cast<Declarations::FunctionDecl>(
+                    row->witnesses[i],
+                )
+
+                var unsafe *q = dyn_cast<Declarations::FunctionDecl>(
+                    row->reqs[i],
+                )
+
                 if w == &null || q == &null || w == q {
                     continue
                 }
@@ -1364,7 +1456,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         d.first(at)
         var sat = if (sup->panic_range.is_valid()) => (sup->panic_range)
                   else => self._name_range(sup)
-        d.note(DiagCode(DiagID::SC208N), sup->range.start, named_declared_here(sn))->child_first(sat)
+        d.note(
+            DiagCode(DiagID::SC208N),
+            sup->range.start,
+            named_declared_here(sn),
+        )->child_first(sat)
         // A set naming its own parameters, read at arguments, has no
         // spelling to add to: the base's or interface's list is written in
         // its parameters, not in these arguments.
@@ -1410,7 +1506,13 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
 
         for var i: usize = 0; i < self._met_fn.size(); ++i {
             if self._met_fn[i] == w {
-                self._two_sets(w, self._met_sup[i], self._met_at[i], sup, through)
+                self._two_sets(
+                    w,
+                    self._met_sup[i],
+                    self._met_at[i],
+                    sup,
+                    through,
+                )
             }
         }
 
@@ -1633,9 +1735,13 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         )
 
         b.first(at)
-        var pr  = if (h->panic_range.is_valid()) => (h->panic_range) else => f->panic_range
+        var pr = if (h->panic_range.is_valid()) => (h->panic_range) else => f->panic_range
         var nat = if (pr.is_valid()) => (pr) else => self._name_range(f)
-        b.note(DiagCode(DiagID::SC219N), f->range.start, named_declared_here(nm))->child_first(nat)
+        b.note(
+            DiagCode(DiagID::SC219N),
+            f->range.start,
+            named_declared_here(nm),
+        )->child_first(nat)
         var unsafe *inf = self._fn_inferred(f)
         if inf != &null {
             self._write_set_fix(&b, pr, inf)
@@ -1668,7 +1774,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             )
 
             b.first(at)
-            b.note(DiagCode(DiagID::SC214N), c->range.start, "the closure is here")->child_first(c->range)
+            b.note(
+                DiagCode(DiagID::SC214N),
+                c->range.start,
+                "the closure is here",
+            )->child_first(c->range)
             b.remove(c->panic_range, "remove 'panic'")
             b.emit()
             return
@@ -1718,7 +1828,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             }
 
             if t->canonical->is_dependent() || t->canonical->is_instantiation_dependent() {
-                self._gate(t->range, "a 'fn' type's panic set that depends on a generic parameter")
+                self._gate(
+                    t->range,
+                    "a 'fn' type's panic set that depends on a generic parameter",
+                )
+
                 return true
             }
         }
@@ -1769,7 +1883,9 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             }
 
             if OperatorFacts::is_implicit_conv(f) {
-                return "an " + LangAttrs::quoted(LangAttrs::implicit_conversion()) + " conversion"
+                return "an " + LangAttrs::quoted(
+                    LangAttrs::implicit_conversion(),
+                ) + " conversion"
             }
         }
 
@@ -1786,11 +1902,18 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             return false
         }
 
-        return self._tu.decl_name(unsafe (f as unsafe *Decl)) == self._tu.decl_name(dc->dc_owner)
+        return self._tu.decl_name(unsafe (f as unsafe *Decl)) == self._tu.decl_name(
+            dc->dc_owner,
+        )
     }
 
     priv fn _gate(self, at: SourceRange, const what: string) {
-        var b = self.sc->diag->report(DiagID::SC116E, at.start, f"{what} is not yet supported")
+        var b = self.sc->diag->report(
+            DiagID::SC116E,
+            at.start,
+            f"{what} is not yet supported",
+        )
+
         b.first(at)
         b.emit()
     }
@@ -1918,7 +2041,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         if f != &null && f->is_panic() && kind == PanicBody::Fn {
             if f->has_panic_set() {
                 declared = true
-                if !canonical_set(unsafe &self._tu, &f->panic_set, unsafe &allowed) {
+                if !canonical_set(
+                    unsafe &self._tu,
+                    &f->panic_set,
+                    unsafe &allowed,
+                ) {
                     return
                 }
             } else {
@@ -1929,7 +2056,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         if c != &null && self._closure_panics(c) {
             if c->panic_set.size() > 0 {
                 declared = true
-                if !canonical_set(unsafe &self._tu, &c->panic_set, unsafe &allowed) {
+                if !canonical_set(
+                    unsafe &self._tu,
+                    &c->panic_set,
+                    unsafe &allowed,
+                ) {
                     return
                 }
             } else {
@@ -2001,7 +2132,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
 
                 b.first(filt->range)
                 var rj = self._arm_range(t, j)
-                b.note(DiagCode(DiagID::SC209N), rj.start, "the first arm is here")->child_first(rj)
+                b.note(
+                    DiagCode(DiagID::SC209N),
+                    rj.start,
+                    "the first arm is here",
+                )->child_first(rj)
                 b.remove(ar, "remove this arm")
                 b.emit()
                 dup = true
@@ -2029,7 +2164,10 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
 
             var why = "nothing in this 'try' can panic"
             if t->reach.size() > 0 {
-                why = "this 'try' may panic only with " + pset_names(&self._tu, unsafe &t->reach)
+                why = "this 'try' may panic only with " + pset_names(
+                    &self._tu,
+                    unsafe &t->reach,
+                )
             }
 
             var w = self.sc->diag->report(
@@ -2131,7 +2269,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             f"'catch' of the C++ exception '{nm}' in a build without C++ exceptions (-fno-exceptions, or a target with no OS)",
         )
 
-        b.first(filt->range, "a C++ type outside the panic set: this arm catches a C++ exception")
+        b.first(
+            filt->range,
+            "a C++ type outside the panic set: this arm catches a C++ exception",
+        )
+
         var unsafe *d = self._tu.record_decl(c)
         if d != &null && d->range.is_valid() {
             b.note(
@@ -2252,7 +2394,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         var names = pset_names(&self._tu, missing)
         var head  = ""
         var what  = self._site_what(s)
-        var nh    = if (missing->size() == 1) => ("is not handled") else => "are not handled"
+        var nh = if (missing->size() == 1) => ("is not handled") else => "are not handled"
         if kind == PanicBody::Main {
             head = f"a panic cannot reach 'main': {what} {names}, which {nh}"
         } else if kind == PanicBody::Script {
@@ -2282,7 +2424,11 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 f"mark '{self._fn_name(f)}' 'panic' to propagate it",
             )
         } else if kind == PanicBody::Closure && c != &null && c->params_end.is_valid() {
-            b.insert(c->params_end.end, " panic", "mark the closure 'panic' to propagate it")
+            b.insert(
+                c->params_end.end,
+                " panic",
+                "mark the closure 'panic' to propagate it",
+            )
         }
 
         // Handle it here: a call becomes `try call catch => crash!()`. Only a

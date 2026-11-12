@@ -29,28 +29,14 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Resolution::ModulePath::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
+import Resolution::ModulePath::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
@@ -67,6 +53,20 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 extend Server {
     /// A `}` was typed: put it in the column of the line that opened its
@@ -82,7 +82,7 @@ extend Server {
         }
 
         var *text = &self.docs.docs[i].text
-        var pos = d->get(params, K_POSITION)
+        var pos   = d->get(params, K_POSITION)
         var at = self.docs.docs[i].lines.offset(
             *text,
             d->get_int(pos, K_LINE) as usize,
@@ -96,7 +96,10 @@ extend Server {
         }
 
         var close = at - 1
-        var ls = self.docs.docs[i].lines.starts[self.docs.docs[i].lines.line_of(close)]
+        var ls = self.docs.docs[i].lines.starts[self.docs.docs[i].lines.line_of(
+            close,
+        )]
+
         // Only when the brace is the first thing on its line.
         for var p: usize = ls; p < close; ++p {
             if ((*text)[p] != (' ' as u8)) && ((*text)[p] != ('\t' as u8)) {
@@ -105,7 +108,7 @@ extend Server {
             }
         }
 
-        var sp = spans(*text)
+        var sp   = spans(*text)
         var open = usize::MAX
         for var k: usize = 0; k < sp.size(); ++k {
             if (sp[k].kind == 0) && (sp[k].close == close) {
@@ -118,9 +121,13 @@ extend Server {
             return
         }
 
-        var os = self.docs.docs[i].lines.starts[self.docs.docs[i].lines.line_of(open)]
+        var os = self.docs.docs[i].lines.starts[self.docs.docs[i].lines.line_of(
+            open,
+        )]
+
         var oe = os
-        while (oe < text->size()) && (((*text)[oe] == (' ' as u8)) || ((*text)[oe] == ('\t' as u8))) {
+        while (oe < text->size())
+            && (((*text)[oe] == (' ' as u8)) || ((*text)[oe] == ('\t' as u8))) {
             oe += 1
         }
 
@@ -155,7 +162,12 @@ extend Server {
 
         var kfmt = self.tool("kfmt")
         if kfmt.empty() {
-            self.respond_error(id, ERR_REQUEST_FAILED, "kfmt was not found beside kals or on PATH")
+            self.respond_error(
+                id,
+                ERR_REQUEST_FAILED,
+                "kfmt was not found beside kals or on PATH",
+            )
+
             return
         }
 
@@ -170,7 +182,7 @@ extend Server {
         var rc = self.run_and_wait(&argv, out)
 
         var text: string = ""
-        var read = LinkFS::read(out, &text)
+        var read         = LinkFS::read(out, &text)
         Path::remove_file(src)
         Path::remove_file(out)
 
@@ -186,8 +198,17 @@ extend Server {
                 why = why.subslice(src.size(), why.size() - src.size())
             }
 
-            self.say(MSG_WARNING, "kfmt did not format " + self.docs.docs[i].path + why)
-            self.respond_error(id, ERR_REQUEST_FAILED, "kfmt did not format this file" + why)
+            self.say(
+                MSG_WARNING,
+                "kfmt did not format " + self.docs.docs[i].path + why,
+            )
+
+            self.respond_error(
+                id,
+                ERR_REQUEST_FAILED,
+                "kfmt did not format this file" + why,
+            )
+
             return
         }
 
@@ -241,7 +262,10 @@ extend Server {
             var lo = d->get_int(d->get(rr, K_START), K_LINE) as usize
             var hi = d->get_int(d->get(rr, K_END), K_LINE) as usize
             var el = self.docs.docs[i].lines.line_of(a)
-            var eh = self.docs.docs[i].lines.line_of(if oe > a => (oe - 1) else => a)
+            var eh = self.docs.docs[i].lines.line_of(
+                if oe > a => (oe - 1) else => a,
+            )
+
             if (el < lo) || (eh > hi) {
                 self.respond(id, "[]")
                 return

@@ -126,7 +126,11 @@ pub class ShorthandLint derives RecursiveASTVisitor<ShorthandLint> {
             return n
         }
 
-        var unsafe *out = RecursiveASTVisitor<ShorthandLint>::traverse_variable_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<ShorthandLint>::traverse_variable_decl(
+            self,
+            n,
+        )
+
         self._check(n)
         return out
     }

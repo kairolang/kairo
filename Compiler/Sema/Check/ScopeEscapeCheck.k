@@ -199,7 +199,11 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
         var        s_sdepth = self._scope_depth
         var unsafe *s_svar  = self._scope_var
         self._depth += 1
-        var unsafe *out = RecursiveASTVisitor<ScopeEscapeCheck>::traverse_compound_stmt(self, n)
+        var unsafe *out = RecursiveASTVisitor<ScopeEscapeCheck>::traverse_compound_stmt(
+            self,
+            n,
+        )
+
         // The block's locals die with it; so does a scope it opened.
         while self._local_depth.size() > 0
             && self._local_depth[self._local_depth.size() - 1] >= self._depth {
@@ -220,7 +224,11 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
             return n
         }
 
-        var unsafe *out = RecursiveASTVisitor<ScopeEscapeCheck>::traverse_variable_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<ScopeEscapeCheck>::traverse_variable_decl(
+            self,
+            n,
+        )
+
         if self._depth == 0 { // a global: no block owns it.
             return out
         }
@@ -383,7 +391,9 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
                 )
 
                 if last != &null && self._is_global(last) {
-                    return "is stored to the static variable '" + self._tu.decl_name(last) + "'"
+                    return "is stored to the static variable '" + self._tu.decl_name(
+                        last,
+                    ) + "'"
                 }
             }
 

@@ -193,7 +193,10 @@ pub class GlibcProvider derives SysrootProvider {
             var ab = ""
             var co = ""
             if !LinkFS::read(abi + "/" + l.stem + ".abilist", &ab) {
-                return out.refuse(f"share input {abi}/{l.stem}.abilist missing", "")
+                return out.refuse(
+                    f"share input {abi}/{l.stem}.abilist missing",
+                    "",
+                )
             }
 
             LinkFS::read(abi + "/" + l.stem + ".compat", &co)
@@ -242,7 +245,10 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         if !jobs.wait_all() {
-            return out.fail(f"glibc stub compile failed, see {jobs.failed_log}", "")
+            return out.fail(
+                f"glibc stub compile failed, see {jobs.failed_log}",
+                "",
+            )
         }
 
         var links = SysJobs()
@@ -263,7 +269,13 @@ pub class GlibcProvider derives SysrootProvider {
             }
 
             argv.push_back("-o")
-            argv.push_back(lib + "/" + GlibcProvider::file_name(&l, ctx->target.libc_version))
+            argv.push_back(
+                lib + "/" + GlibcProvider::file_name(
+                    &l,
+                    ctx->target.libc_version,
+                ),
+            )
+
             argv.push_back(dir + "/stub.o")
             if !links.add(&argv, f"{ctx->log_dir}/stub-{l.stem}.ld.log") {
                 break
@@ -271,7 +283,10 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         if !links.wait_all() {
-            return out.fail(f"glibc stub link failed, see {links.failed_log}", "")
+            return out.fail(
+                f"glibc stub link failed, see {links.failed_log}",
+                "",
+            )
         }
 
         LinkFS::remove_tree(work)
@@ -345,7 +360,10 @@ pub class GlibcProvider derives SysrootProvider {
 
         var text = ""
         if !LinkFS::read(hroot + "/index.toml", &text) || !LinkFS::is_dir(hroot + "/generic") {
-            return out.refuse(f"share input {hroot} lacks index.toml or generic/", "")
+            return out.refuse(
+                f"share input {hroot} lacks index.toml or generic/",
+                "",
+            )
         }
 
         var arches = cxx::std::vector<string>()
@@ -362,12 +380,18 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         if !SysUtil::contains(&arches, arch) {
-            return out.refuse(f"share input {hroot} has no headers for {arch}", "")
+            return out.refuse(
+                f"share input {hroot} has no headers for {arch}",
+                "",
+            )
         }
 
         var ma = ctx->recipe.expand("{per_arch.multiarch}", &ctx->target)
         if LinkText::contains(ma, "{") {
-            return out.refuse(f"the glibc recipe has no [per_arch.multiarch] for {arch}", "")
+            return out.refuse(
+                f"the glibc recipe has no [per_arch.multiarch] for {arch}",
+                "",
+            )
         }
 
         var inc = dst + "/include"
@@ -402,7 +426,10 @@ pub class GlibcProvider derives SysrootProvider {
 
         var ft = ""
         if !LinkFS::read(fh, &ft) {
-            return out.refuse(f"share input {hroot}: no features.h for {arch}", "")
+            return out.refuse(
+                f"share input {hroot}: no features.h for {arch}",
+                "",
+            )
         }
 
         var v     = ctx->target.libc_version
@@ -421,7 +448,10 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         if hits != 1 {
-            return out.fail(f"{fh}: expected one #define __GLIBC_MINOR__, found {hits}", "")
+            return out.fail(
+                f"{fh}: expected one #define __GLIBC_MINOR__, found {hits}",
+                "",
+            )
         }
 
         // A materialised file may be a hard link into the share: replace it,
@@ -463,7 +493,12 @@ pub class GlibcProvider derives SysrootProvider {
             var l = GlibcLib{}
             l.stem = stem
             l.soname = if (stem == "ld") => (row.ld)
-                       else => GlibcProvider::_lookup(&row.so_keys, &row.so_vals, stem)
+                       else => GlibcProvider::_lookup(
+                           &row.so_keys,
+                           &row.so_vals,
+                           stem,
+                       )
+
             var syms = cxx::std::vector<GlibcSym>()
             var file = ab + "/" + row.abi + "/" + stem
             if LinkFS::is_file(file + ".abilist") {
@@ -489,7 +524,10 @@ pub class GlibcProvider derives SysrootProvider {
             }
 
             if l.soname.empty() {
-                return out.refuse(f"share input {ab}/targets.toml names no soname for {stem}", "")
+                return out.refuse(
+                    f"share input {ab}/targets.toml names no soname for {stem}",
+                    "",
+                )
             }
 
             libs.push_back(l)
@@ -575,7 +613,10 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         if !jobs.wait_all() {
-            return out.fail(f"glibc start-file compile failed, see {jobs.failed_log}", "")
+            return out.fail(
+                f"glibc start-file compile failed, see {jobs.failed_log}",
+                "",
+            )
         }
 
         for var i: usize = 0; i < t.links.size(); ++i {
@@ -677,16 +718,25 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         if !toml.error.empty() {
-            return out.refuse(f"share input {ab}/targets.toml: {toml.error}", "")
+            return out.refuse(
+                f"share input {ab}/targets.toml: {toml.error}",
+                "",
+            )
         }
 
         if row.abi.empty() || row.ld.empty() {
-            return out.refuse(f"glibc has no port for {arch} (share input {ab}/targets.toml)", "")
+            return out.refuse(
+                f"glibc has no port for {arch} (share input {ab}/targets.toml)",
+                "",
+            )
         }
 
         var v = ctx->target.libc_version
         if !row.floor.empty() && SysUtil::version_less(v, row.floor) {
-            return out.refuse(f"glibc {v} predates the {arch} port (first release {row.floor})", "")
+            return out.refuse(
+                f"glibc {v} predates the {arch} port (first release {row.floor})",
+                "",
+            )
         }
 
         return true
@@ -743,8 +793,8 @@ pub class GlibcProvider derives SysrootProvider {
     pub static fn in_ranges(const spec: string, const v: string) -> bool {
         for var r: string in SysUtil::split(spec, (',' as u8)) {
             var dash = LinkText::find(r, "-", 0)
-            var lo   = if (dash < r.size()) => (LinkText::slice(r, 0, dash)) else => r
-            var hi   = if (dash < r.size()) => (LinkText::slice(r, dash + 1, r.size())) else => ""
+            var lo = if (dash < r.size()) => (LinkText::slice(r, 0, dash)) else => r
+            var hi = if (dash < r.size()) => (LinkText::slice(r, dash + 1, r.size())) else => ""
             if SysUtil::version_less(v, lo) {
                 continue
             }

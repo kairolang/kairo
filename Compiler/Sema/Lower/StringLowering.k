@@ -93,7 +93,11 @@ pub class StringLowering derives ASTWriter<StringLowering> {
     }
 
     fn transform_string_literal_expr(self, n: unsafe *StringLiteralExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<StringLowering>::transform_string_literal_expr(self, n)
+        var unsafe *out = ASTWriter<StringLowering>::transform_string_literal_expr(
+            self,
+            n,
+        )
+
         if n->is_format() {
             kairo::std::ice_fail(
                 "StringLowering: f-string survived FStringLowering; check Sema::_stage_lowerings order",
@@ -126,7 +130,11 @@ pub class StringLowering derives ASTWriter<StringLowering> {
         self._collect(n, unsafe &bytes)
         var cp = LowerSynth::cp_count(bytes)
 
-        var unsafe *u8t = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST)
+        var unsafe *u8t = self.sc->types->qualified(
+            self.sc->builtin(BuiltinKind::U8),
+            QUAL_CONST,
+        )
+
         var unsafe *pu8 = self.sc->types->pointer(u8t)
 
         // A literal at a C string parameter: the static bytes ARE
@@ -135,7 +143,10 @@ pub class StringLowering derives ASTWriter<StringLowering> {
         // same cast the constructor's `data` takes.
         if n->c_string != &null {
             var unsafe *ct = n->c_string
-            if self.tu.is_builtin(canon_unqual(self.tu.pointee(ct)), BuiltinKind::CChar) {
+            if self.tu.is_builtin(
+                canon_unqual(self.tu.pointee(ct)),
+                BuiltinKind::CChar,
+            ) {
                 return self.synth.bytes_literal(n->range, unsafe &bytes, ct)
             }
 
@@ -147,7 +158,7 @@ pub class StringLowering derives ASTWriter<StringLowering> {
             )
         }
 
-        var unsafe *lit  = self.synth.bytes_literal(n->range, unsafe &bytes, pu8)
+        var unsafe *lit = self.synth.bytes_literal(n->range, unsafe &bytes, pu8)
         var unsafe *data = lit
         if n->const_eval {
             // C++ reads it at compile time (Compiler/Spec/Eval.md#strings-at-compile-time): the bytes become
@@ -162,8 +173,18 @@ pub class StringLowering derives ASTWriter<StringLowering> {
 
         var args = self.list_builder<unsafe *Expr>()
         args.push(data)
-        args.push(self.synth.int_literal(n->range, bytes.size() as u64, BuiltinKind::USize))
-        args.push(self.synth.int_literal(n->range, cp as u64, BuiltinKind::USize))
+        args.push(
+            self.synth.int_literal(
+                n->range,
+                bytes.size() as u64,
+                BuiltinKind::USize,
+            ),
+        )
+
+        args.push(
+            self.synth.int_literal(n->range, cp as u64, BuiltinKind::USize),
+        )
+
         return self.synth.ctor_call(
             n->range,
             n->string_ctor,
@@ -176,9 +197,15 @@ pub class StringLowering derives ASTWriter<StringLowering> {
     /// `operator""_x(<bytes>, <len>)`: C++'s own explicit spelling of what
     /// `"..."_x` means, so the emitter needs nothing new. The first parameter
     /// is the C string (`const char *`), cast as a C string argument is.
-    priv fn _udl_call(self, n: unsafe *StringLiteralExpr, bytes: unsafe *cxx::std::vector<u8>) -> unsafe *Expr {
-        var unsafe *f   = cast<FunctionDecl>(n->udl_op)
-        var unsafe *u8t = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST)
+    priv fn _udl_call(self,
+                      n:     unsafe *StringLiteralExpr,
+                      bytes: unsafe *cxx::std::vector<u8>) -> unsafe *Expr {
+        var unsafe *f = cast<FunctionDecl>(n->udl_op)
+        var unsafe *u8t = self.sc->types->qualified(
+            self.sc->builtin(BuiltinKind::U8),
+            QUAL_CONST,
+        )
+
         var unsafe *pu8 = self.sc->types->pointer(u8t)
         var unsafe *pt  = f->params[0]->type_->canonical
         var unsafe *arg = self.synth.cast_to(
@@ -187,13 +214,24 @@ pub class StringLowering derives ASTWriter<StringLowering> {
             pt,
             CastMode::Unsafe,
         )
-        if self.tu.is_builtin(canon_unqual(self.tu.pointee(pt)), BuiltinKind::CChar) {
+
+        if self.tu.is_builtin(
+            canon_unqual(self.tu.pointee(pt)),
+            BuiltinKind::CChar,
+        ) {
             arg = self.synth.bytes_literal(n->range, bytes, pt)
         }
 
         var args = self.list_builder<unsafe *Expr>()
         args.push(arg)
-        args.push(self.synth.int_literal(n->range, bytes->size() as u64, BuiltinKind::USize))
+        args.push(
+            self.synth.int_literal(
+                n->range,
+                bytes->size() as u64,
+                BuiltinKind::USize,
+            ),
+        )
+
         return self.synth.free_call(n->range, n->udl_op, unsafe &args, n->type_)
     }
 

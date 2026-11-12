@@ -223,7 +223,9 @@ pub class TokenStreamPrinter {
         }
 
         io::println(f"{out}")
-        io::println("// =========================================================")
+        io::println(
+            "// =========================================================",
+        )
     }
 
     priv static fn _pad(indent: usize) -> string {
@@ -243,8 +245,13 @@ pub class TokenStreamPrinter {
     ///
     /// Columns: index, clang kind, family, Kairo span [fid:off, len), text.
     static fn print_tokens(sink: unsafe *TokenSink, const path: string) {
-        io::println(f"============== CODEGEN TOKEN STREAM: {path} ==============")
-        io::println(f"-- {sink->token_count()} token(s), {sink->pending_count()} divergent --")
+        io::println(
+            f"============== CODEGEN TOKEN STREAM: {path} ==============",
+        )
+
+        io::println(
+            f"-- {sink->token_count()} token(s), {sink->pending_count()} divergent --",
+        )
 
         var n = sink->token_count()
         for var i: usize = 0; i < n; ++i {
@@ -254,7 +261,7 @@ pub class TokenStreamPrinter {
             )
 
             var family: string = if (sink->is_divergent(i)) => ("DIVERGENT") else => "borrowed "
-            var spell          = TokenStreamPrinter::spelling(sink, i)
+            var spell = TokenStreamPrinter::spelling(sink, i)
 
             var koff: u32 = sink->kairo_offset(i)
             var klen: u32 = (t->getLength())
@@ -272,7 +279,9 @@ pub class TokenStreamPrinter {
 
             var kf            = sink->kairo_fid(i)
             var off_s: string = if (koff == u32::MAX) => ("     ?") else => f"{koff}"
-            io::println(f"{i}  {kind_name}  {family}  [{kf}:{off_s}, {klen})  \"{spell}\"")
+            io::println(
+                f"{i}  {kind_name}  {family}  [{kf}:{off_s}, {klen})  \"{spell}\"",
+            )
         }
 
         io::println("=========================================================")

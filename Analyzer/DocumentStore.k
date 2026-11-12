@@ -1,5 +1,3 @@
-
-
 import Json::*
 import Protocol::*
 
@@ -42,7 +40,7 @@ pub fn uri_to_path(const uri: string) -> string {
 
 /// \brief filesystem path -> `file://` URI. Inverse of uri_to_path.
 pub fn path_to_uri(const path: string) -> string {
-    var hex = "0123456789ABCDEF"
+    var hex         = "0123456789ABCDEF"
     var out: string = "file://"
     if (path.size() >= 2) && (path[1] == (':' as u8)) {
         out.push_back('/' as u8)
@@ -56,8 +54,15 @@ pub fn path_to_uri(const path: string) -> string {
             continue
         }
 
-        var plain = ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || ((c >= ('0' as u8)) && (c <= ('9' as u8)))
-            || (c == ('/' as u8)) || (c == ('-' as u8)) || (c == ('.' as u8)) || (c == ('_' as u8)) || (c == ('~' as u8)) || (c == (':' as u8))
+        var plain = ((c >= ('a' as u8)) && (c <= ('z' as u8)))
+            || ((c >= ('A' as u8)) && (c <= ('Z' as u8)))
+            || ((c >= ('0' as u8)) && (c <= ('9' as u8)))
+            || (c == ('/' as u8))
+            || (c == ('-' as u8))
+            || (c == ('.' as u8))
+            || (c == ('_' as u8))
+            || (c == ('~' as u8))
+            || (c == (':' as u8))
         if plain {
             out.push_back(c)
         } else {
@@ -94,8 +99,8 @@ pub fn hex_val(c: u8) -> u32 {
 ///          Every position that crosses the protocol goes through here, in
 ///          one direction or the other; nothing else in the server converts.
 pub class LineMap {
-    pub var starts: [usize]       ///< byte offset of each line's first byte
-    pub var size:   usize = 0
+    pub var starts: [usize]     ///< byte offset of each line's first byte
+    pub var size:   usize   = 0
 
     fn LineMap(self) = default
 
@@ -130,7 +135,7 @@ pub class LineMap {
     /// 0-based line holding byte \p off.
     fn line_of(const self, off: usize) -> usize {
         var lo: usize = 0
-        var hi = self.starts.size()
+        var hi        = self.starts.size()
         while (lo + 1) < hi {
             var mid = (lo + hi) / 2
             if self.starts[mid] <= off {
@@ -163,7 +168,7 @@ pub class LineMap {
 
         var units: usize = 0
         while (i < end) && (units < character) {
-            var c = text[i]
+            var c        = text[i]
             var n: usize = 1
             var u: usize = 1
             if c >= 0xF0 {
@@ -175,7 +180,7 @@ pub class LineMap {
                 n = 2
             }
 
-            i     += n
+            i += n
             units += u
         }
 
@@ -198,16 +203,16 @@ pub class LineMap {
         while (i < off) && (i < text.size()) {
             var c = text[i]
             if c >= 0xF0 {
-                i     += 4
+                i += 4
                 units += 2
             } else if c >= 0xE0 {
-                i     += 3
+                i += 3
                 units += 1
             } else if c >= 0xC0 {
-                i     += 2
+                i += 2
                 units += 1
             } else {
-                i     += 1
+                i += 1
                 units += 1
             }
         }
@@ -220,9 +225,8 @@ pub class LineMap {
 /// \brief a buffer's bytes and line starts, editable in time proportional to
 ///        the edit.
 ///
-/// \details A didChange used to rebuild the whole string and its line table:
-///          on a 1 MB file that is a megabyte copied and scanned per
-///          keystroke. Here both the bytes and the line starts are gap
+/// \details A whole-string rebuild per didChange would copy and scan the file
+///          on every keystroke (a megabyte for a 1 MB file). Here both the bytes and the line starts are gap
 ///          buffers. Edits cluster where the cursor is, so moving a gap is
 ///          short; an edit costs its own size, the lines it adds or removes,
 ///          and the distance from the previous edit.
@@ -239,11 +243,11 @@ pub class LineMap {
 ///          entries it crosses.
 pub class GapText {
     priv var buf: [u8]
-    priv var gs:  usize = 0
-    priv var ge:  usize = 0
+    priv var gs:  usize   = 0
+    priv var ge:  usize   = 0
     priv var ls:  [usize]
-    priv var lgs: usize = 0
-    priv var lge: usize = 0
+    priv var lgs: usize   = 0
+    priv var lge: usize   = 0
 
     pub var size: usize = 0
 
@@ -320,7 +324,7 @@ pub class GapText {
     /// 0-based line holding byte \p off.
     fn line_of(const self, off: usize) -> usize {
         var lo: usize = 0
-        var hi = self.line_count()
+        var hi        = self.line_count()
         while (lo + 1) < hi {
             var mid = (lo + hi) / 2
             if self.start(mid) <= off {
@@ -351,7 +355,7 @@ pub class GapText {
 
         var units: usize = 0
         while (i < end) && (units < character) {
-            var c = self.at(i)
+            var c        = self.at(i)
             var n: usize = 1
             var u: usize = 1
             if c >= 0xF0 {
@@ -363,7 +367,7 @@ pub class GapText {
                 n = 2
             }
 
-            i     += n
+            i += n
             units += u
         }
 
@@ -394,12 +398,22 @@ pub class GapText {
     priv fn move_gap_(self, pos: usize) {
         if pos < self.gs {
             var n = self.gs - pos
-            __builtin_move_mem(unsafe &self.buf[self.ge - n], unsafe &self.buf[pos], n)
+            __builtin_move_mem(
+                unsafe &self.buf[self.ge - n],
+                unsafe &self.buf[pos],
+                n,
+            )
+
             self.gs = pos
             self.ge -= n
         } else if pos > self.gs {
             var n = pos - self.gs
-            __builtin_move_mem(unsafe &self.buf[self.gs], unsafe &self.buf[self.ge], n)
+            __builtin_move_mem(
+                unsafe &self.buf[self.gs],
+                unsafe &self.buf[self.ge],
+                n,
+            )
+
             self.gs += n
             self.ge += n
         }
@@ -411,16 +425,20 @@ pub class GapText {
             return
         }
 
-        var tail    = self.buf.size() - self.ge
-        var new_cap = (self.buf.size() * 2) + need + 4096
-        var nb: [u8]
+        var tail         = self.buf.size() - self.ge
+        var new_cap      = (self.buf.size() * 2) + need + 4096
+        var nb:     [u8]
         nb.resize(new_cap)
         if self.gs > 0 {
             __builtin_copy(unsafe &nb[0], unsafe &self.buf[0], self.gs)
         }
 
         if tail > 0 {
-            __builtin_copy(unsafe &nb[new_cap - tail], unsafe &self.buf[self.ge], tail)
+            __builtin_copy(
+                unsafe &nb[new_cap - tail],
+                unsafe &self.buf[self.ge],
+                tail,
+            )
         }
 
         self.buf = nb
@@ -450,9 +468,9 @@ pub class GapText {
             return
         }
 
-        var tail    = self.ls.size() - self.lge
-        var new_cap = (self.ls.size() * 2) + need + 256
-        var nl: [usize]
+        var tail            = self.ls.size() - self.lge
+        var new_cap         = (self.ls.size() * 2) + need + 256
+        var nl:     [usize]
         nl.resize(new_cap)
         for var i: usize = 0; i < self.lgs; ++i {
             nl[i] = self.ls[i]
@@ -497,8 +515,8 @@ pub class GapText {
             self.buf[self.gs + i] = insert[i]
         }
 
-        self.gs   += insert.size()
-        self.size  = self.size - (e - s) + insert.size()
+        self.gs += insert.size()
+        self.size = self.size - (e - s) + insert.size()
 
         var nl: usize = 0
         for var i: usize = 0; i < insert.size(); ++i {
@@ -535,16 +553,16 @@ pub enum SynReq derives u8 {
 ///          (an answer for an older text has the old text's positions).
 pub class SyntaxState {
     pub var req:     SynReq = SynReq::Idle
-    pub var started: u64    = 0     ///< the buffer's changed_at the newest pass was started for (0: none)
+    pub var started: u64    = 0 ///< the buffer's changed_at the newest pass was started for (0: none)
 
     /// The last pass that landed (valid when `landed`): the server
     /// revision it saw, whether the text parsed, its diagnostics (LSP
     /// Diagnostic objects, comma-joined) and its lexical tokens.
-    pub var landed: bool   = false
-    pub var at:     u64    = 0
-    pub var parsed: bool   = true
+    pub var landed: bool = false
+    pub var at:     u64  = 0
+    pub var parsed: bool = true
     /// `parsed` is of the file ALONE: it invokes macros of other files,
-    /// whose expansion the pass did not see (SK_UNSURE, P977).
+    /// whose expansion the pass did not see (SK_UNSURE).
     pub var unsure: bool   = false
     pub var diags:  string = ""
     pub var tokens: [i64]
@@ -590,7 +608,13 @@ pub class SyntaxState {
     }
 
     /// Lands an answer; false (nothing changes) when accepts() refuses it.
-    fn land(self, rev: u64, changed_at: u64, parsed: bool, unsure: bool, const diags: string, @inout tokens: [i64]) -> bool {
+    fn land(self,
+            rev:           u64,
+            changed_at:    u64,
+            parsed:        bool,
+            unsure:        bool,
+            const diags:   string,
+            @inout tokens: [i64]) -> bool {
         if !self.accepts(rev, changed_at) {
             return false
         }
@@ -614,13 +638,13 @@ pub class SyntaxState {
 ///          them current, and only those requests call it, so a keystroke
 ///          never pays for the whole document.
 pub class Document {
-    pub var uri:     string  = ""
-    pub var path:    string  = ""
-    pub var version: i64     = 0
-    pub var buf:     GapText
-    pub var text:    string  = ""
-    pub var lines:   LineMap
-    pub var text_rev: u64    = u64::MAX  ///< revision `text` was materialised at
+    pub var uri:      string  = ""
+    pub var path:     string  = ""
+    pub var version:  i64     = 0
+    pub var buf:      GapText
+    pub var text:     string  = ""
+    pub var lines:    LineMap
+    pub var text_rev: u64     = u64::MAX ///< revision `text` was materialised at
 
     /// Its syntax-only pass (Server/Diagnostics.k, Server/SyntaxWorker.k):
     /// the request in flight and the last result that landed.
@@ -639,7 +663,7 @@ pub class Document {
     /// The server's revision counter when this buffer last changed: a
     /// snapshot computed at or after it has this buffer's exact positions.
     pub var changed_at: u64 = 0
-    pub var changed_ms: i64 = 0  ///< wall time of that change (now_ms): the publish coalescing
+    pub var changed_ms: i64 = 0 ///< wall time of that change (now_ms): the publish coalescing
 
     pub var tmp_path: string = ""
     pub var tmp_rev:  u64    = 0
@@ -656,10 +680,10 @@ pub class Document {
     /// it (Server::line_shift; LanguageServer.md section 9). Valid only for
     /// the index of `idx_entry` computed at `idx_rev`: an empty entry means
     /// no such text is known, and the requests answer as on any stale index.
-    pub var idx_text:  string = ""
+    pub var idx_text:  string  = ""
     pub var idx_lines: LineMap
-    pub var idx_rev:   u64    = 0
-    pub var idx_entry: string = ""
+    pub var idx_rev:   u64     = 0
+    pub var idx_entry: string  = ""
 
     /// What a live index worker found when it tried this buffer's text
     /// without keeping it (Server/LiveIndex.k: a buffer that does not
@@ -673,15 +697,15 @@ pub class Document {
     pub var held_tmp: string = ""
     pub var held_rev: u64    = 0
 
-    pub var side_has:   bool   = false
-    pub var side_at:    u64    = 0
+    pub var side_has: bool = false
+    pub var side_at:  u64  = 0
     /// A text whose syntax pass was `unsure` is tried aside first; when the
     /// copy checks it whole (`checked`), the text as changed at this
-    /// revision is sent to be kept (LiveIndex.k, P977). 0: none yet.
-    pub var probe_ok_at: u64   = 0
-    pub var side_state: string = ""
-    pub var side_diags: string = ""
-    pub var side_n:     usize  = 0
+    /// revision is sent to be kept (LiveIndex.k). 0: none yet.
+    pub var probe_ok_at: u64    = 0
+    pub var side_state:  string = ""
+    pub var side_diags:  string = ""
+    pub var side_n:      usize  = 0
 
     fn side_current(const self) -> bool {
         return self.side_has && (self.side_at >= self.changed_at)
@@ -705,7 +729,7 @@ pub class Document {
     /// Records \p text as what entry \p entry's index of revision \p rev
     /// read for this buffer.
     fn set_indexed(self, const text: string, rev: u64, const entry: string) {
-        self.idx_text  = text
+        self.idx_text = text
         self.idx_lines.build(text)
         self.idx_rev   = rev
         self.idx_entry = entry

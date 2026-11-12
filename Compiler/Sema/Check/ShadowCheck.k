@@ -185,7 +185,9 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             return
         }
 
-        self._self_imm = self.sc->imm_table()->intern_ident_copy(token_kind_to_readable_string(TokenKind::KwSelf))
+        self._self_imm = self.sc->imm_table()->intern_ident_copy(
+            token_kind_to_readable_string(TokenKind::KwSelf),
+        )
 
         var *items = &tu->program->items
         for var i: usize = 0; i < items->size(); ++i {
@@ -331,7 +333,10 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
         }
 
         self._join_block = n->body_block
-        var unsafe *out = RecursiveASTVisitor<ShadowCheck>::traverse_function_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<ShadowCheck>::traverse_function_decl(
+            self,
+            n,
+        )
 
         self._frames.pop_back()
         self._join_block = saved_join
@@ -356,7 +361,10 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
         }
 
         self._join_block = n->body_block
-        var unsafe *out = RecursiveASTVisitor<ShadowCheck>::traverse_closure_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<ShadowCheck>::traverse_closure_expr(
+            self,
+            n,
+        )
 
         self._frames.pop_back()
         self._join_block = saved_join
@@ -377,7 +385,11 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             self._frames.push_back(ShadowFrame())
         }
 
-        var unsafe *out = RecursiveASTVisitor<ShadowCheck>::traverse_compound_stmt(self, n)
+        var unsafe *out = RecursiveASTVisitor<ShadowCheck>::traverse_compound_stmt(
+            self,
+            n,
+        )
+
         if push {
             self._frames.pop_back()
         }
@@ -392,7 +404,11 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
             return n
         }
 
-        var unsafe *out = RecursiveASTVisitor<ShadowCheck>::traverse_variable_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<ShadowCheck>::traverse_variable_decl(
+            self,
+            n,
+        )
+
         if !self._frames.empty() {
             self._declare(self._name_imm(n->name), n, n->range)
         }
@@ -419,7 +435,7 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
         self._declare_bindings(&n->bindings)
         var unsafe *saved_join = self._join_block
         self._join_block = n->body
-        n->body = self.dyn()->traverse_block(n->body)
+        n->body          = self.dyn()->traverse_block(n->body)
         self._join_block = saved_join
         self._frames.pop_back()
         return n
@@ -449,7 +465,7 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
 
         var unsafe *saved_join = self._join_block
         self._join_block = n->body
-        n->body = self.dyn()->traverse_block(n->body)
+        n->body          = self.dyn()->traverse_block(n->body)
         self._join_block = saved_join
         self._frames.pop_back()
         return n
@@ -473,7 +489,7 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
         self._declare_bindings(&n->bindings)
         var unsafe *saved_join = self._join_block
         self._join_block = n->body
-        n->body = self.dyn()->traverse_block(n->body)
+        n->body          = self.dyn()->traverse_block(n->body)
         self._join_block = saved_join
         self._frames.pop_back()
         return n

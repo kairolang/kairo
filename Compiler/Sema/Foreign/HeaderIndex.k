@@ -153,7 +153,14 @@ pub class HeaderIndex {
                          hs:   unsafe *HeaderSet,
                          kctx: unsafe *ASTContext,
                          fid:  u32) -> TypeImport {
-        return TypeImport(self._g->types(), self._g->instances(), self._reg, hs->ast(), kctx, fid)
+        return TypeImport(
+            self._g->types(),
+            self._g->instances(),
+            self._reg,
+            hs->ast(),
+            kctx,
+            fid,
+        )
     }
 
     /// The one entry point. Idempotent per set.
@@ -247,7 +254,11 @@ pub class HeaderIndex {
         var pairs = cxx::std::vector<(unsafe *void, unsafe *Decl)>() // (clang::Decl*, Kairo decl) for pass 2.
         self.walk_declare(hs->ast()->getTranslationUnitDecl(), &di, &pairs)
         for var i: usize = 0; i < pairs.size(); ++i {
-            di.define(unsafe (pairs[i].0 as unsafe *clang::Decl), pairs[i].1, unsafe &ti)
+            di.define(
+                unsafe (pairs[i].0 as unsafe *clang::Decl),
+                pairs[i].1,
+                unsafe &ti,
+            )
         }
 
         // 3. freeze what this set created.
@@ -260,7 +271,10 @@ pub class HeaderIndex {
             }
 
             if t->tu->dc_symbols == &null { // a header that declared nothing at file scope still needs a table.
-                var unsafe *tbl = t->ctx->alloc_init_cleanup<SymbolTable>(t->ctx)
+                var unsafe *tbl = t->ctx->alloc_init_cleanup<SymbolTable>(
+                    t->ctx,
+                )
+
                 tbl->freeze()
                 t->tu->set_symbols(tbl)
             }
@@ -269,7 +283,11 @@ pub class HeaderIndex {
             t->frozen = true
         }
 
-        hs->contributed.store(fresh.size() > 0 || di.n_declared > 0, kairo::std::MemoryOrder::relaxed)
+        hs->contributed.store(
+            fresh.size() > 0 || di.n_declared > 0,
+            kairo::std::MemoryOrder::relaxed,
+        )
+
         kairo::Logger::info(
             kairo::Logger::Stage::Driver,
             f"HeaderIndex: {fresh.size()} new header TU(s), {di.n_declared} decl(s) declared, {di.n_defined} defined, {di.n_skipped} skipped, {ti.n_opaque} opaque type(s)",
@@ -302,7 +320,13 @@ pub class HeaderIndex {
 
         var unsafe *tu = ctx->tu
         if tu == &null {
-            tu = ctx->alloc_init_pp_cleanup<TranslationUnit>(ctx, fid, ctx->hoisted, self._g)
+            tu = ctx->alloc_init_pp_cleanup<TranslationUnit>(
+                ctx,
+                fid,
+                ctx->hoisted,
+                self._g,
+            )
+
             tu->is_foreign = true // spec: new flag; _sema and _parse skip it.
             ctx->tu        = tu
         }
@@ -342,7 +366,13 @@ pub class HeaderIndex {
         var start = self._sm->get_loc(t->fid, 0)
         var at    = SourceRange(start, start)
         var tok   = t->ctx->make_token(at, TokenKind::LitIdentifier, ident)
-        var unsafe *m = ModuleDecl::create(t->ctx, at, tok, unsafe (t->tu as unsafe *DeclContext))
+        var unsafe *m = ModuleDecl::create(
+            t->ctx,
+            at,
+            tok,
+            unsafe (t->tu as unsafe *DeclContext),
+        )
+
         m->set_symbols(t->tu->dc_symbols)
         m->is_implicit = true
         m->mark_definition()
@@ -427,7 +457,7 @@ pub class HeaderIndex {
                     // is a DeclContext too, and its decls() are the function's
                     // locals and parameters: walking it filed every local of
                     // every inline libc++ template (`__i`, `__c`) as a global.
-                    var unsafe *td  = llvm::cast<clang::TemplateDecl>(d)->getTemplatedDecl()
+                    var unsafe *td = llvm::cast<clang::TemplateDecl>(d)->getTemplatedDecl()
                     var unsafe *tdc = llvm::dyn_cast<clang::DeclContext>(td)
                     if tdc != &null && llvm::isa<clang::RecordDecl>(td) {
                         self.walk_declare(tdc, di, &out)
@@ -458,7 +488,10 @@ pub class HeaderIndex {
                                 continue
                             }
 
-                            out.push_back((unsafe (parts[i] as unsafe *void), ks))
+                            out.push_back(
+                                (unsafe (parts[i] as unsafe *void), ks),
+                            )
+
                             self.walk_declare(parts[i], di, &out)
                         }
                     }
@@ -500,7 +533,9 @@ pub class HeaderIndex {
                     var        before = di->n_declared
                     var unsafe *kt    = di->declare_using(sh)
                     if kt != &null && di->n_declared != before {
-                        out.push_back((unsafe (sh->getTargetDecl() as unsafe *void), kt))
+                        out.push_back(
+                            (unsafe (sh->getTargetDecl() as unsafe *void), kt),
+                        )
                     }
                 }
 

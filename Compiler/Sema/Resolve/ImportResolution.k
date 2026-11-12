@@ -70,7 +70,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, EnumDecl,     FunctionDecl, ImportDecl, MacroDecl, ModuleDecl, StructDecl,
+    ClassDecl,     EnumDecl,  FunctionDecl, ImportDecl, MacroDecl, ModuleDecl, StructDecl,
     TypeAliasDecl, UnionDecl, VariableDecl,
 }
 import AST::VisibilityFacts::{
@@ -200,11 +200,15 @@ pub class ImportResolution {
         // Refolding -> Frozen under readers in other groups).
         eval if defined!(DEBUG) {
             if (self.sc->phase as u8) < (SemaPhase::ImportsResolved as u8) {
-                kairo::std::ice_fail(r"ImportResolution::refold_reexports before phase I")
+                kairo::std::ice_fail(
+                    r"ImportResolution::refold_reexports before phase I",
+                )
             }
 
             if (self.sc->phase as u8) > (SemaPhase::ImportsResolved as u8) {
-                kairo::std::ice_fail(r"ImportResolution::refold_reexports on a TU past phase I")
+                kairo::std::ice_fail(
+                    r"ImportResolution::refold_reexports on a TU past phase I",
+                )
             }
         }
 
@@ -525,7 +529,10 @@ pub class ImportResolution {
                 return &null
             }
 
-            var unsafe *dc = NameLookup::context_of(NameLookup::representative(d))
+            var unsafe *dc = NameLookup::context_of(
+                NameLookup::representative(d),
+            )
+
             if dc == &null {
                 // FIXME(diag-table)
                 self.sc->diag->report(
@@ -561,7 +568,10 @@ pub class ImportResolution {
 
             b.first(at)
             if prev == &null && self._declares_macro(src_tu, name) {
-                b.note(f"'{name}!' is a macro there; a macro is imported with its '!'")
+                b.note(
+                    f"'{name}!' is a macro there; a macro is imported with its '!'",
+                )
+
                 b.insert(at.end, "!", f"import the macro '{name}!'")
             }
 
@@ -601,7 +611,7 @@ pub class ImportResolution {
         // Not a race: src_tu is an import, whose group finished all of
         // its Sema before this group's front was queued (_sema_parallel's
         // maxdep), or this group's own cycle member, run on this thread.
-        self._flush_merged() // the source may be the overlay being built.
+        self._flush_merged()                 // the source may be the overlay being built.
         var key = src_imms->find_ident(name) // probe only; never intern.
         if key == u32::MAX {
             return &null
@@ -733,8 +743,8 @@ pub class ImportResolution {
             // DeclImport::_bind_named): no source spells it, so it has no
             // business in an importer's overlay.
             // Scanned in place: a std::string copy per row was the cost.
-            var unsafe *sp     = unsafe (spelling.raw() as kairo::std::ConstPtr<u8>)
-            var        spaced = false
+            var unsafe *sp = unsafe (spelling.raw() as kairo::std::ConstPtr<u8>)
+            var spaced = false
             for var k: usize = 0; k < spelling.size(); ++k {
                 if sp[k] == (' ' as u8) {
                     spaced = true
@@ -1008,14 +1018,22 @@ pub class ImportResolution {
                     }
 
                     var unsafe *hsyms = src->symbols()
-                    var unsafe *imms  = self.sc->ctx->tcm->get_imm_table_for_fid(fid)
+                    var unsafe *imms = self.sc->ctx->tcm->get_imm_table_for_fid(
+                        fid,
+                    )
+
                     if hsyms == &null || imms == &null {
                         continue
                     }
 
                     if pass == 0 {
                         for var k: usize = 0; k < hidden_keys.size(); ++k {
-                            var unsafe *c = SymbolTable::lookup_foreign(hsyms, imms, hidden_keys[k])
+                            var unsafe *c = SymbolTable::lookup_foreign(
+                                hsyms,
+                                imms,
+                                hidden_keys[k],
+                            )
+
                             if c != &null && c->size() > 0 && decl_is_ffi_tag(c->get(0)) {
                                 return c->get(0)
                             }
@@ -1063,7 +1081,12 @@ pub class ImportResolution {
             return
         }
 
-        var unsafe *cell = SymbolTable::lookup_foreign(syms, imms, cxx_std_name())
+        var unsafe *cell = SymbolTable::lookup_foreign(
+            syms,
+            imms,
+            cxx_std_name(),
+        )
+
         if cell == &null {
             return
         }
@@ -1120,8 +1143,11 @@ pub class ImportResolution {
         tok.range = at
         tok.imm   = self.sc->imm_table()->intern_ident_copy(cxx_root_name())
 
-        var unsafe *tbl = self.sc->ctx->alloc_init_cleanup<SymbolTable>(self.sc->ctx)
-        var        skey = self.sc->imm_table()->intern_ident_copy(cxx_std_name())
+        var unsafe *tbl = self.sc->ctx->alloc_init_cleanup<SymbolTable>(
+            self.sc->ctx,
+        )
+
+        var skey = self.sc->imm_table()->intern_ident_copy(cxx_std_name())
         for var i: usize = 0; i < std_mods.size(); ++i {
             tbl->append_ident(skey, std_mods[i])
         }
@@ -1431,7 +1457,7 @@ pub class ImportResolution {
     /// header over a name nothing used. Docs (c-cpp-calling, R016E)
     /// put a foreign collision at the use, so it goes there.
     priv fn _collision_is_ffi_only(self, entry: unsafe *OverlayEntry) -> bool {
-        var any_ffi = false
+        var any_ffi     = false
         var any_prelude = false
         for var i: usize = 0; i < entry->targets.size(); ++i {
             var t = entry->targets[i]
@@ -1587,7 +1613,9 @@ pub class ImportResolution {
             return ""
         }
 
-        return self.sc->ctx->get_spelling(id->path_segments[id->path_segments.size() - 1])
+        return self.sc->ctx->get_spelling(
+            id->path_segments[id->path_segments.size() - 1],
+        )
     }
 
     /// A cell is a function set iff every decl in it is a FunctionDecl. A mixed

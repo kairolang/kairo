@@ -60,7 +60,10 @@ pub class MachOArgs {
         var *o    = job.opts
 
         if job.output.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "link: no output path"))
+            msgs.push_back(
+                LinkDiag::make(LinkSeverity::Error, "link: no output path"),
+            )
+
             return false
         }
 
@@ -326,7 +329,10 @@ pub class MachOArgs {
 
         if !o->emulation.empty() {
             msgs.push_back(
-                LinkDiag::make(LinkSeverity::Warning, "--emulation is ELF-only; ignored"),
+                LinkDiag::make(
+                    LinkSeverity::Warning,
+                    "--emulation is ELF-only; ignored",
+                ),
             )
         }
 
@@ -357,7 +363,13 @@ pub class MachOArgs {
         }
 
         if name.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"-l {spec}: no library name"))
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    f"-l {spec}: no library name",
+                ),
+            )
+
             return
         }
 

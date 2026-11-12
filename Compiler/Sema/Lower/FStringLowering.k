@@ -57,14 +57,8 @@ ffi "c++" import "vector"
 
 import AST::Kind::ExprKind::to_string
 import AST::LangItems::{
-    FormatKind,
-    LowerTargets,
-    WellKnownType,
-    fmt_spec_base,
-    fmt_spec_fill,
-    fmt_spec_prec1,
-    fmt_spec_width,
-    to_string,
+    FormatKind,     LowerTargets, WellKnownType, fmt_spec_base, fmt_spec_fill, fmt_spec_prec1,
+    fmt_spec_width, to_string,
 }
 import AST::Node::Base::{
     Decl,
@@ -134,7 +128,11 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
 
     fn transform_string_literal_expr(self, n: unsafe *StringLiteralExpr) -> unsafe *Expr {
         // Holes first: an f-string inside a hole lowers inside its parent.
-        var unsafe *out = ASTWriter<FStringLowering>::transform_string_literal_expr(self, n)
+        var unsafe *out = ASTWriter<FStringLowering>::transform_string_literal_expr(
+            self,
+            n,
+        )
+
         if !n->is_format() {
             return out
         }
@@ -144,7 +142,9 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
         }
 
         if n->imm == &null {
-            kairo::std::ice_fail("FStringLowering: f-string with no immediate data")
+            kairo::std::ice_fail(
+                "FStringLowering: f-string with no immediate data",
+            )
         }
 
         if n->parts.size() == 0 {
@@ -168,9 +168,15 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
 
         var unsafe *str_t  = self.tu.string_type()
         var        no_args = cxx::std::vector<unsafe *Type>()
-        var unsafe *buf_t  = self.tu.lang_record(WellKnownType::FmtBuf, unsafe &no_args)
+        var unsafe *buf_t = self.tu.lang_record(
+            WellKnownType::FmtBuf,
+            unsafe &no_args,
+        )
+
         if str_t == &null || buf_t == &null {
-            kairo::std::ice_fail("FStringLowering: string / FmtBuf lang items unbound")
+            kairo::std::ice_fail(
+                "FStringLowering: string / FmtBuf lang items unbound",
+            )
         }
 
         var unsafe *usize_t = self.sc->builtin(BuiltinKind::USize)
@@ -202,9 +208,16 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
                 // `(e).repr()` / `(e).op as()`: a string, bound.
                 var unsafe *recv = ParenExpr::create(self.ctx, at, e)
                 recv->adopt_sema(e)
-                var        none  = self.list_builder<unsafe *Expr>()
-                var unsafe *call = self.synth.member_call(at, recv, h->conv, &none, str_t)
-                var unsafe *vd   = self.synth.local(at, "arg", str_t, call)
+                var none = self.list_builder<unsafe *Expr>()
+                var unsafe *call = self.synth.member_call(
+                    at,
+                    recv,
+                    h->conv,
+                    &none,
+                    str_t,
+                )
+
+                var unsafe *vd = self.synth.local(at, "arg", str_t, call)
                 stmts.push(
                     unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
                 )
@@ -224,7 +237,13 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
                 // The value's address: its own if it has one, a local's if not.
                 var unsafe *obj = e
                 if !e->is_lvalue() {
-                    var unsafe *vd = self.synth.local(at, "arg", self.tu.as_value(e->type_), e)
+                    var unsafe *vd = self.synth.local(
+                        at,
+                        "arg",
+                        self.tu.as_value(e->type_),
+                        e,
+                    )
+
                     stmts.push(
                         unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
                     )
@@ -232,11 +251,22 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
                     obj = self.synth.use_of(vd, at, Expr::ValueCategory::LValue)
                 }
 
-                arg = self.synth.cast_to(at, self.synth.addr_of(obj), usize_t, CastMode::Unsafe)
+                arg = self.synth.cast_to(
+                    at,
+                    self.synth.addr_of(obj),
+                    usize_t,
+                    CastMode::Unsafe,
+                )
             } else {
                 arg = e
                 if !LowerSynth::pure(e) {
-                    var unsafe *vd = self.synth.local(at, "arg", self.tu.as_value(e->type_), e)
+                    var unsafe *vd = self.synth.local(
+                        at,
+                        "arg",
+                        self.tu.as_value(e->type_),
+                        e,
+                    )
+
                     stmts.push(
                         unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
                     )
@@ -260,12 +290,21 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
         // 2. The buffer, sized once: the static bound plus every string's len.
         var text = cxx::std::vector<u8>()
         self._collect_text(n, unsafe &text, unsafe &bound) // adds every literal byte to the bound too.
-        var cap: unsafe *Expr = self.synth.int_literal(n->range, bound, BuiltinKind::USize)
+        var cap: unsafe *Expr = self.synth.int_literal(
+            n->range,
+            bound,
+            BuiltinKind::USize,
+        )
+
         for var i: usize = 0; i < lens.size(); ++i {
             var none = self.list_builder<unsafe *Expr>()
             var unsafe *len = self.synth.member_call(
                 n->range,
-                self.synth.use_of(lens[i], n->range, Expr::ValueCategory::LValue),
+                self.synth.use_of(
+                    lens[i],
+                    n->range,
+                    Expr::ValueCategory::LValue,
+                ),
                 n->fmt_len,
                 &none,
                 usize_t,
@@ -330,11 +369,18 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
                 var vargs = self.list_builder<unsafe *Expr>()
                 vargs.push(
                     self.synth.addr_of(
-                        self.synth.use_of(buf, e->range, Expr::ValueCategory::LValue),
+                        self.synth.use_of(
+                            buf,
+                            e->range,
+                            Expr::ValueCategory::LValue,
+                        ),
                     ),
                 )
 
-                vargs.push(self.synth.int_literal(e->range, h->spec, BuiltinKind::U64))
+                vargs.push(
+                    self.synth.int_literal(e->range, h->spec, BuiltinKind::U64),
+                )
+
                 var unsafe *vput = self.synth.member_call(
                     e->range,
                     args[i],
@@ -353,10 +399,19 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
                 var name = cxx::std::vector<u8>()
                 LowerSynth::push_string(self._ptr_name(h, e), &name)
                 pargs.push(self._bytes_arg(e->range, unsafe &name))
-                pargs.push(self.synth.int_literal(e->range, name.size() as u64, BuiltinKind::USize))
+                pargs.push(
+                    self.synth.int_literal(
+                        e->range,
+                        name.size() as u64,
+                        BuiltinKind::USize,
+                    ),
+                )
             }
 
-            pargs.push(self.synth.int_literal(e->range, h->spec, BuiltinKind::U64))
+            pargs.push(
+                self.synth.int_literal(e->range, h->spec, BuiltinKind::U64),
+            )
+
             var unsafe *put = self.synth.member_call(
                 e->range,
                 self.synth.use_of(buf, e->range, Expr::ValueCategory::LValue),
@@ -382,7 +437,11 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
         )
 
         stmts.push(ExpressionStmt::create(self.ctx, n->range, fin))
-        return self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, n->type_)
+        return self.synth.stmt_expr(
+            unsafe (n as unsafe *Expr),
+            &stmts,
+            n->type_,
+        )
     }
 
     /// `::__kairo_fmt_put(buf, arg, name, len, 0)` for a deferred hole
@@ -403,7 +462,10 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
         cargs.push(self.synth.use_of(buf, at, Expr::ValueCategory::LValue))
         cargs.push(arg)
         cargs.push(self._bytes_arg(at, unsafe &name))
-        cargs.push(self.synth.int_literal(at, name.size() as u64, BuiltinKind::USize))
+        cargs.push(
+            self.synth.int_literal(at, name.size() as u64, BuiltinKind::USize),
+        )
+
         cargs.push(self.synth.int_literal(at, h->spec, BuiltinKind::U64))
         var unsafe *callee = NamedIdentExpr::create(
             self.ctx,
@@ -442,7 +504,14 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
 
         var args = self.list_builder<unsafe *Expr>()
         args.push(self._bytes_arg(n->range, text))
-        args.push(self.synth.int_literal(n->range, text->size() as u64, BuiltinKind::USize))
+        args.push(
+            self.synth.int_literal(
+                n->range,
+                text->size() as u64,
+                BuiltinKind::USize,
+            ),
+        )
+
         args.push(
             self.synth.int_literal(
                 n->range,
@@ -467,7 +536,10 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
     /// `const char*`, the parameter is `const unsigned char*`.
     priv fn _bytes_arg(self, at: SourceRange, bytes: unsafe *cxx::std::vector<u8>) -> unsafe *Expr {
         var unsafe *pu8 = self.sc->types->pointer(
-            self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST),
+            self.sc->types->qualified(
+                self.sc->builtin(BuiltinKind::U8),
+                QUAL_CONST,
+            ),
         )
 
         return self.synth.cast_to(
@@ -486,7 +558,10 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
     ///   the segments with no hole are text whole.
 
     /// Hole \p i's segment; \p k becomes its index within that segment.
-    priv fn _seg(self, n: unsafe *StringLiteralExpr, i: usize, @inout k: usize) -> unsafe *Immediate::StringData {
+    priv fn _seg(self,
+                 n:        unsafe *StringLiteralExpr,
+                 i:        usize,
+                 @inout k: usize) -> unsafe *Immediate::StringData {
         k = n->hole_index(i)
         var unsafe *seg = n->hole_segment(i)
         if seg == &null {
@@ -524,7 +599,10 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
             return SourceRange::invalid()
         }
 
-        return SourceRange::from_bounds(SourceLocation::from_raw(a), SourceLocation::from_raw(b))
+        return SourceRange::from_bounds(
+            SourceLocation::from_raw(a),
+            SourceLocation::from_raw(b),
+        )
     }
 
     /// The literal bytes before hole \p i, decoded, then the hole's own
@@ -535,9 +613,9 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
                          n:   unsafe *StringLiteralExpr,
                          i:   usize,
                          out: unsafe *cxx::std::vector<u8>) {
-        var        k: usize = 0
-        var unsafe *seg     = self._seg(n, i, &k)
-        var        from     = seg->body.start.raw()
+        var        k:   usize = 0
+        var unsafe *seg       = self._seg(n, i, &k)
+        var        from       = seg->body.start.raw()
         if k > 0 {
             from = self._close(seg, k - 1) + 1
         } else {
@@ -545,7 +623,13 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
             if i > 0 {
                 var pk: usize = 0
                 s = self._seg(n, i - 1, &pk)
-                self._decode(n, s, self._range(self._close(s, pk) + 1, s->body.end.raw()), out)
+                self._decode(
+                    n,
+                    s,
+                    self._range(self._close(s, pk) + 1, s->body.end.raw()),
+                    out,
+                )
+
                 s = n->next_segment(s)
             }
 
@@ -565,9 +649,14 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
                         n:       unsafe *StringLiteralExpr,
                         out:     unsafe *cxx::std::vector<u8>,
                         consume: bool) {
-        var        k: usize = 0
-        var unsafe *seg     = self._seg(n, n->parts.size() - 1, &k)
-        self._decode(n, seg, self._range(self._close(seg, k) + 1, seg->body.end.raw()), out)
+        var        k:   usize = 0
+        var unsafe *seg       = self._seg(n, n->parts.size() - 1, &k)
+        self._decode(
+            n,
+            seg,
+            self._range(self._close(seg, k) + 1, seg->body.end.raw()),
+            out,
+        )
 
         var unsafe *s = n->next_segment(seg)
         while s != &null {

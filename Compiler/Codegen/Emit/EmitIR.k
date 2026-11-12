@@ -87,6 +87,14 @@ ffi "c++" import "Native/KShims.hh"
 ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "vector"
 
+import API::LinkABI::{
+    ABI_ALLOC_INLINES_SYSTEM,
+    ABI_ALLOC_SETS_GLOBAL,
+    ABI_NOTE_KIND_ALLOC,
+    ABI_NOTE_KIND_CONV,
+    abi_note_magic,
+    call_conv_note_bit,
+}
 import AST::ASTSupport::{
     FrozenList,
     create_empty_frozen_list,
@@ -100,8 +108,9 @@ import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::OverloadCell
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
-    decl_cxx_spelling, decl_extension_of, decl_fold_pin, decl_generic_params, decl_is_imported,      decl_is_instance,
-    decl_name_tok,     decl_pattern,  param_is_type_pack,  param_type_pack_param, place_has_const_root,
+    decl_cxx_spelling,  decl_extension_of,     decl_fold_pin,        decl_generic_params,
+    decl_is_imported,   decl_is_instance,      decl_name_tok,        decl_pattern,
+    param_is_type_pack, param_type_pack_param, place_has_const_root,
 }
 import AST::Kind::DeclKind::{
     DeclKind,
@@ -119,14 +128,6 @@ import AST::Kind::TypeKind::{
     TypeKind,
     to_string,
 }
-import API::LinkABI::{
-    ABI_ALLOC_INLINES_SYSTEM,
-    ABI_ALLOC_SETS_GLOBAL,
-    ABI_NOTE_KIND_ALLOC,
-    ABI_NOTE_KIND_CONV,
-    abi_note_magic,
-    call_conv_note_bit,
-}
 import AST::LangItems::{
     ABORT_EXIT_CODE,
     AllocNames,
@@ -142,7 +143,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType, BuiltinKind, BuiltinType, RecordType, builtin_info, canon_has_const, canon_quals,
+    AssocType,    BuiltinKind, BuiltinType, RecordType, builtin_info, canon_has_const, canon_quals,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -151,10 +152,10 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtCtorForm,   ClassDecl,  EnumDecl,     ExtensionDecl,       FFIBlockDecl,  FieldDecl,
-    FieldFold,     FnBodyKind, FunctionDecl, GenericParamDecl,    GenericParamKindBound,
-    InterfaceDecl, ModuleDecl, ParamDecl,    StorageClass,        StructDecl,
-    TypeAliasDecl, UnionDecl,  VariableDecl, VisibilityGroupDecl,
+    AdtCtorForm,           ClassDecl,     EnumDecl,   ExtensionDecl, FFIBlockDecl,
+    FieldDecl,             FieldFold,     FnBodyKind, FunctionDecl,  GenericParamDecl,
+    GenericParamKindBound, InterfaceDecl, ModuleDecl, ParamDecl,     StorageClass,
+    StructDecl,            TypeAliasDecl, UnionDecl,  VariableDecl,  VisibilityGroupDecl,
 }
 import AST::Node::Expressions::{
     AlignOfExpr,          AnonInitializerExpr,      AssignOperatorExpr, BinaryOperatorExpr,
@@ -172,11 +173,11 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
-    BindingShorthand,
-    BreakStmt,          CompoundStmt,   ConditionalStmt, ContinueStmt,      DeclStmt,
-    ExpressionStmt,     IndexedForStmt, IterKind,        JumpIntrinsicStmt, LabelIntrinsicStmt,
-    LoopStmt,           RangedForStmt,  ReturnStmt,      RuntimeAssertStmt, StaticAssertStmt,
-    SwitchDispatchStmt, TryCatchStmt,   UnsafeBlockStmt, WhileLoopStmt,     YieldStmt,
+    BindingShorthand,   BreakStmt,          CompoundStmt,   ConditionalStmt, ContinueStmt,
+    DeclStmt,           ExpressionStmt,     IndexedForStmt, IterKind,        JumpIntrinsicStmt,
+    LabelIntrinsicStmt, LoopStmt,           RangedForStmt,  ReturnStmt,      RuntimeAssertStmt,
+    StaticAssertStmt,   SwitchDispatchStmt, TryCatchStmt,   UnsafeBlockStmt, WhileLoopStmt,
+    YieldStmt,
 }
 import AST::Node::Types::{
     CXXLValueRefType, CXXRValueRefType, ChainType,   FixedArrayType, FunctionPointerType,
@@ -430,15 +431,33 @@ pub class EmitIR {
         var p   = "unsigned char * "
         // Each forwarder: the C symbol, and A's function of the same row.
         var s_alloc = LowerTargets::global_alloc_symbol(GlobalAllocFn::Alloc)
-        var m_alloc = a + "::" + AllocNames::global_alloc_member(GlobalAllocFn::Alloc)
-        var s_free  = LowerTargets::global_alloc_symbol(GlobalAllocFn::Free)
-        var m_free  = a + "::" + AllocNames::global_alloc_member(GlobalAllocFn::Free)
-        var s_rsz   = LowerTargets::global_alloc_symbol(GlobalAllocFn::Resize)
-        var m_rsz   = a + "::" + AllocNames::global_alloc_member(GlobalAllocFn::Resize)
-        var s_real  = LowerTargets::global_alloc_symbol(GlobalAllocFn::Realloc)
-        var m_real  = a + "::" + AllocNames::global_alloc_member(GlobalAllocFn::Realloc)
-        var s_zero  = LowerTargets::global_alloc_symbol(GlobalAllocFn::AllocZeroed)
-        var m_zero  = a + "::" + AllocNames::global_alloc_member(GlobalAllocFn::AllocZeroed)
+        var m_alloc = a + "::" + AllocNames::global_alloc_member(
+            GlobalAllocFn::Alloc,
+        )
+
+        var s_free = LowerTargets::global_alloc_symbol(GlobalAllocFn::Free)
+        var m_free = a + "::" + AllocNames::global_alloc_member(
+            GlobalAllocFn::Free,
+        )
+
+        var s_rsz = LowerTargets::global_alloc_symbol(GlobalAllocFn::Resize)
+        var m_rsz = a + "::" + AllocNames::global_alloc_member(
+            GlobalAllocFn::Resize,
+        )
+
+        var s_real = LowerTargets::global_alloc_symbol(GlobalAllocFn::Realloc)
+        var m_real = a + "::" + AllocNames::global_alloc_member(
+            GlobalAllocFn::Realloc,
+        )
+
+        var s_zero = LowerTargets::global_alloc_symbol(
+            GlobalAllocFn::AllocZeroed,
+        )
+
+        var m_zero = a + "::" + AllocNames::global_alloc_member(
+            GlobalAllocFn::AllocZeroed,
+        )
+
         self._cg->sink->spell(
             at,
             pre + p + s_alloc + "(" + sz + " size, " + sz + " align) noexcept { return " + m_alloc + "(size, align); }",
@@ -616,7 +635,10 @@ pub class EmitIR {
     /// (dependencies first), each in its namespace (Compiler/Spec/Eval.md#eval-bindings).
     priv fn _eval_vars(self, const list: cxx::std::vector<unsafe *VariableDecl>) {
         for var i: usize = 0; i < list.size(); ++i {
-            if !self._marked(unsafe (list[i] as unsafe *Decl), BodyMark::EarlyVar) {
+            if !self._marked(
+                unsafe (list[i] as unsafe *Decl),
+                BodyMark::EarlyVar,
+            ) {
                 self._global_var(list[i])
             }
         }
@@ -718,7 +740,10 @@ pub class EmitIR {
         }
 
         if d->kind == DeclKind::RecoveryDecl {
-            self._ice(d->range, "EmitIR: poisoned decl reached codegen; sema gate failure")
+            self._ice(
+                d->range,
+                "EmitIR: poisoned decl reached codegen; sema gate failure",
+            )
         }
 
         if d->is_poisoned() {
@@ -814,7 +839,10 @@ pub class EmitIR {
 
                 self._global_var(cast<VariableDecl>(d))
             } default {
-                self._ice(d->range, f"EmitIR: decl kind {to_string(d->kind)} has no body to emit")
+                self._ice(
+                    d->range,
+                    f"EmitIR: decl kind {to_string(d->kind)} has no body to emit",
+                )
             }
         }
     }
@@ -919,7 +947,11 @@ pub class EmitIR {
         var n: u32 = 0
         var ns     = self._spell.ns_segments(d)
         if ns.size() > 0 {
-            self._cg->sink->spell(at, "namespace " + self._spell.ns_join(&ns) + " {")
+            self._cg->sink->spell(
+                at,
+                "namespace " + self._spell.ns_join(&ns) + " {",
+            )
+
             n += 1
         }
 
@@ -1125,7 +1157,10 @@ pub class EmitIR {
     /// result or operand (`Slice<T>`, `Range<usize>`) is complete, and with
     /// \p m's own inline-ness and owner template head, so it is wherever
     /// \p m's definition is.
-    priv fn _subscript_forwarder_def(self, m: unsafe *FunctionDecl, owner: unsafe *Decl, at: SourceRange) {
+    priv fn _subscript_forwarder_def(self,
+                                     m:     unsafe *FunctionDecl,
+                                     owner: unsafe *Decl,
+                                     at:    SourceRange) {
         if !self._spell.subscript_forwarded(m) {
             return
         }
@@ -1167,7 +1202,12 @@ pub class EmitIR {
             args += "static_cast<decltype(" + nm + ")&&>(" + nm + ")"
         }
 
-        self._cg->sink->spell(at, head + " { return " + self._spell.leaf(unsafe (m as unsafe *Decl)) + "(" + args + "); }")
+        self._cg->sink->spell(
+            at,
+            head + " { return " + self._spell.leaf(
+                unsafe (m as unsafe *Decl),
+            ) + "(" + args + "); }",
+        )
     }
 
     /// A Kairo definition of a function C++ declares (`fn W::at`, `fn
@@ -1189,10 +1229,10 @@ pub class EmitIR {
         }
 
         var unsafe *cxx = f->first_decl()
-        var at          = CXXSpell::at(unsafe (f as unsafe *Decl))
+        var        at   = CXXSpell::at(unsafe (f as unsafe *Decl))
         // The C++ name as imported; qual_name would go through CXXSpell::rep,
         // which is this Kairo definition, and spell it under the module.
-        var nm          = decl_cxx_spelling(unsafe (cxx as unsafe *Decl))
+        var nm = decl_cxx_spelling(unsafe (cxx as unsafe *Decl))
         if nm.starts_with("::") {
             nm = nm.subslice(2, nm.size())
         }
@@ -1210,7 +1250,9 @@ pub class EmitIR {
             prev = if (cut2 != usize::MAX) => (outer.subslice(cut2 + 2, outer.size())) else => outer
         }
 
-        if last.starts_with("~") || last == prev || decl_generic_params(unsafe (f as unsafe *Decl)).size() > 0
+        if last.starts_with("~")
+            || last == prev
+            || decl_generic_params(unsafe (f as unsafe *Decl)).size() > 0
             || nm.rfind("<") != usize::MAX {
             return
         }
@@ -1218,21 +1260,25 @@ pub class EmitIR {
         // The declarator-id is parenthesized (as InterfaceEmitter's explicit
         // instances): after a class return type, `W ::W::at` would lex as
         // one nested-name-specifier.
-        var head = self._ret(f) + " (" + nm + ")("
-        var fp: usize = 0
-        var first = true
+        var head        = self._ret(f) + " (" + nm + ")("
+        var fp:   usize = 0
+        var first       = true
         for var i: usize = 0; i < f->params.size(); ++i {
             var unsafe *p = f->params[i]
             if p == &null || p->is_self {
                 continue
             }
 
-            while fp < cxx->params.size() && (cxx->params[fp] == &null || cxx->params[fp]->is_self) {
+            while fp < cxx->params.size()
+                && (cxx->params[fp] == &null || cxx->params[fp]->is_self) {
                 fp += 1
             }
 
             if fp >= cxx->params.size() {
-                self._ice(f->range, "EmitIR: a definition of a C++ function has more parameters than its declaration")
+                self._ice(
+                    f->range,
+                    "EmitIR: a definition of a C++ function has more parameters than its declaration",
+                )
             }
 
             if !first {
@@ -1242,8 +1288,12 @@ pub class EmitIR {
             first = false
             head += self._spell.decl(
                 cxx->params[fp]->type_,
-                self._spell.tok_name(p->name, CXXSpell::fid_of(unsafe (f as unsafe *Decl))),
+                self._spell.tok_name(
+                    p->name,
+                    CXXSpell::fid_of(unsafe (f as unsafe *Decl)),
+                ),
             )
+
             fp += 1
         }
 
@@ -1295,7 +1345,7 @@ pub class EmitIR {
 
             var q  = self._owner_qual(owner)
             var nm = q + "::" + self._spell.leaf(unsafe (f as unsafe *Decl))
-            var s  = self._owner_template_head(owner) + "inline constexpr const "
+            var s = self._owner_template_head(owner) + "inline constexpr const "
             s += self._spell.decl(f->type_, nm)
             s += " = " + q + "::" + self._spell.leaf(m) + "();"
             self._cg->sink->spell(at, s)
@@ -1400,7 +1450,11 @@ pub class EmitIR {
         // Cast, not `return __kairo_s;`: since C++23 a returned rvalue
         // reference parameter is an xvalue (P2266), which the `&` return
         // type cannot bind.
-        self._cg->sink->spell(pre->range, "return static_cast<" + ci + "&>(" + sa + ");")
+        self._cg->sink->spell(
+            pre->range,
+            "return static_cast<" + ci + "&>(" + sa + ");",
+        )
+
         self._cg->sink->synth_at_end(pre->range, clang::tok::r_brace)
         self._ci_pre = false
         self._cg->sink->brk()
@@ -1423,7 +1477,7 @@ pub class EmitIR {
             h += if (first) => (" : ") else => ", "
             first = false
             var take = sa + "." + self._slot_name(i) + "." + LowerTargets::ctor_slot_take() + "()"
-            var ext  = self._array_extent(f->type_)
+            var ext = self._array_extent(f->type_)
             if ext == usize::MAX {
                 h += self._spell.leaf(unsafe (f as unsafe *Decl)) + "(" + take + ")"
             } else {
@@ -1478,7 +1532,10 @@ pub class EmitIR {
 
         // The constructor Kairo declared: fill a fresh slot record, then
         // delegate. The temporary lives to the end of this mem-initializer.
-        var pub_h = oh + inl + q + "::" + leaf + "(" + self._params_text(m, &null) + ")"
+        var pub_h = oh + inl + q + "::" + leaf + "(" + self._params_text(
+            m,
+            &null,
+        ) + ")"
         if m->no_unwind {
             pub_h += " noexcept"
         }
@@ -1568,7 +1625,10 @@ pub class EmitIR {
         )
 
         if v->init == &null {
-            self._cg->sink->spell(v->name.range, self._spell._type(v->type_) + "{}")
+            self._cg->sink->spell(
+                v->name.range,
+                self._spell._type(v->type_) + "{}",
+            )
         } else {
             self._value(v->init, v->type_)
         }
@@ -1602,7 +1662,10 @@ pub class EmitIR {
             }
 
             s += ", ::" + LowerTargets::lref() + "<" + self._spell.param_type(p) + "> "
-            s += self._spell.tok_name(p->name, CXXSpell::fid_of(unsafe (m as unsafe *Decl)))
+            s += self._spell.tok_name(
+                p->name,
+                CXXSpell::fid_of(unsafe (m as unsafe *Decl)),
+            )
         }
 
         return s
@@ -1720,7 +1783,10 @@ pub class EmitIR {
             first = false
             s += self._spell.param_decl(
                 p,
-                self._spell.tok_name(p->name, CXXSpell::fid_of(unsafe (f as unsafe *Decl))),
+                self._spell.tok_name(
+                    p->name,
+                    CXXSpell::fid_of(unsafe (f as unsafe *Decl)),
+                ),
             )
         }
 
@@ -1792,7 +1858,10 @@ pub class EmitIR {
         if egen {
             var unsafe *et = self._yield_elem(f)
             if et == &null {
-                self._ice(f->range, "EmitIR: an eval generator with no element type")
+                self._ice(
+                    f->range,
+                    "EmitIR: an eval generator with no element type",
+                )
             }
 
             self._cg->sink->spell(
@@ -1825,7 +1894,10 @@ pub class EmitIR {
         // the emitter already spelled `co_return`) may have none. X's
         // has_yield says which; EmitIR does not walk the body to find out.
         if egen {
-            self._cg->sink->spell(b->range, "return " + LowerTargets::eval_yield_buf() + ";")
+            self._cg->sink->spell(
+                b->range,
+                "return " + LowerTargets::eval_yield_buf() + ";",
+            )
         } else if f->is_generator && !f->has_yield {
             self._cg->sink->spell(b->range, "co_return;")
         }
@@ -1867,7 +1939,10 @@ pub class EmitIR {
                                  which: u8,
                                  b:     unsafe *CompoundStmt) {
         if f->params.size() != 1 || f->generic_params.size() != 1 || f->params[0] == &null {
-            self._ice(f->range, "EmitIR: a dynamic-layout intrinsic is not fn <T>(p: *T)")
+            self._ice(
+                f->range,
+                "EmitIR: a dynamic-layout intrinsic is not fn <T>(p: *T)",
+            )
         }
 
         var p = self._spell.tok_name(
@@ -1917,7 +1992,10 @@ pub class EmitIR {
         }
 
         if s->kind == StmtKind::RecoveryStmt {
-            self._ice(s->range, "EmitIR: poisoned stmt reached codegen; sema gate failure")
+            self._ice(
+                s->range,
+                "EmitIR: poisoned stmt reached codegen; sema gate failure",
+            )
         }
 
         match s->kind {
@@ -1989,7 +2067,10 @@ pub class EmitIR {
                     self._cxx_dependent_for(rf)
                 } else {
                     if !rf->is_eval {
-                        self._ice(s->range, "EmitIR: ranged for; IterLowering owns it")
+                        self._ice(
+                            s->range,
+                            "EmitIR: ranged for; IterLowering owns it",
+                        )
                     }
 
                     self._eval_for(rf)
@@ -1999,7 +2080,10 @@ pub class EmitIR {
             } case StmtKind::TryCatchStmt {
                 var unsafe *t = cast<TryCatchStmt>(s)
                 if !t->cxx {
-                    self._ice(s->range, "EmitIR: try/catch; PanicLowering owns it")
+                    self._ice(
+                        s->range,
+                        "EmitIR: try/catch; PanicLowering owns it",
+                    )
                 }
 
                 self._cxx_try(t)
@@ -2014,14 +2098,20 @@ pub class EmitIR {
             } case StmtKind::StaticAssertStmt {
                 self._static_assert(cast<StaticAssertStmt>(s))
             } case StmtKind::ContextBindingStmt {
-                self._ice(s->range, "EmitIR: context binding; ContextLowering owns it")
+                self._ice(
+                    s->range,
+                    "EmitIR: context binding; ContextLowering owns it",
+                )
             } case StmtKind::DestructuringDeclStmt {
                 self._ice(
                     s->range,
                     "EmitIR: destructuring; TupleLowering owns a tuple's, FeatureGateCheck rejects a struct's",
                 )
             } case StmtKind::LabeledStmt {
-                self._ice(s->range, "EmitIR: labeled loop; the label lowering owns it")
+                self._ice(
+                    s->range,
+                    "EmitIR: labeled loop; the label lowering owns it",
+                )
             } case StmtKind::LabelIntrinsicStmt {
                 var unsafe *n = cast<LabelIntrinsicStmt>(s)
                 self._name(n->name)
@@ -2047,7 +2137,10 @@ pub class EmitIR {
             } case StmtKind::SwitchDispatchStmt {
                 self._switch_dispatch(cast<SwitchDispatchStmt>(s))
             } case StmtKind::InlineBlockStmt {
-                self._ice(s->range, "EmitIR: inline foreign block; not emitted yet")
+                self._ice(
+                    s->range,
+                    "EmitIR: inline foreign block; not emitted yet",
+                )
             } case StmtKind::EvalBlockStmt {
                 self._ice(
                     s->range,
@@ -2076,10 +2169,17 @@ pub class EmitIR {
             // local without one is value-initialized there.
             var unsafe *vd = dyn_cast<VariableDecl>(a->decl)
             if vd != &null {
-                self._cg->sink->spell(vd->name.range, self._spell._type(vd->type_))
+                self._cg->sink->spell(
+                    vd->name.range,
+                    self._spell._type(vd->type_),
+                )
+
                 self._name(vd->name)
             } else {
-                self._cg->sink->spell(a->range, self._spell._type(a->filter->canonical) + "&")
+                self._cg->sink->spell(
+                    a->range,
+                    self._spell._type(a->filter->canonical) + "&",
+                )
             }
 
             self._cg->sink->spell(a->range, ")")
@@ -2167,7 +2267,9 @@ pub class EmitIR {
 
             self._cg->sink->spell(
                 n->name.range,
-                "::" + LowerTargets::raw_slot() + "<" + self._spell._type(n->type_) + ">",
+                "::" + LowerTargets::raw_slot() + "<" + self._spell._type(
+                    n->type_,
+                ) + ">",
             )
 
             self._name(n->name)
@@ -2184,7 +2286,11 @@ pub class EmitIR {
                 )
             }
 
-            self._cg->sink->spell(n->name.range, if (n->place_ref) => ("auto&&") else => "auto")
+            self._cg->sink->spell(
+                n->name.range,
+                if (n->place_ref) => ("auto&&") else => "auto",
+            )
+
             self._name(n->name)
             self._cg->sink->spell(n->name.range, " = (")
             self.emit(n->init)
@@ -2370,8 +2476,8 @@ pub class EmitIR {
         // `inline` (Compiler/Spec/Eval.md#eval-bindings): every TU that reads an eval binding
         // writes this same definition (EmitPlan::visible_eval_vars), since
         // an `extern const` is no constant expression to an importer.
-        var head              = if (n->is_eval()) => ("inline constexpr ") else => ""
-        var c:   unsafe *Type = &null
+        var head = if (n->is_eval()) => ("inline constexpr ") else => ""
+        var c: unsafe *Type = &null
         if n->type_->canonical != &null {
             c = canon_unqual(n->type_->canonical)
         }
@@ -2454,7 +2560,9 @@ pub class EmitIR {
         }
 
         var unsafe *c = canon_unqual(rt->canonical)
-        return c != &null && isa<BuiltinType>(c) && cast<BuiltinType>(c)->builtin == BuiltinKind::Void
+        return c != &null
+            && isa<BuiltinType>(c)
+            && cast<BuiltinType>(c)->builtin == BuiltinKind::Void
     }
 
     /// A valueless return from the function being emitted, as C++ text.
@@ -2486,7 +2594,11 @@ pub class EmitIR {
         // Out of an `eval for` copy: the function's return slot, then stop
         // the fold; the code after the expansion returns (Compiler/Spec/Eval.md#eval-for).
         if self._ef_depth > 0 {
-            self._cg->sink->spell(n->range, "{ " + LowerTargets::eval_for_ret_flag() + " = true;")
+            self._cg->sink->spell(
+                n->range,
+                "{ " + LowerTargets::eval_for_ret_flag() + " = true;",
+            )
+
             if n->value != &null {
                 // Built in place, once: a copy's `return` stops every fold
                 // out to the function, so no slot is filled twice.
@@ -2514,7 +2626,11 @@ pub class EmitIR {
 
         // An eval generator's `return` hands back what it yielded.
         if self._cur_fn != &null && self._cur_fn->is_generator && self._cur_fn->is_eval() {
-            self._cg->sink->spell(n->range, "return " + LowerTargets::eval_yield_buf() + ";")
+            self._cg->sink->spell(
+                n->range,
+                "return " + LowerTargets::eval_yield_buf() + ";",
+            )
+
             return
         }
 
@@ -2522,7 +2638,10 @@ pub class EmitIR {
         // sequence: `co_return;`. A plain `return` in a coroutine is ill-formed.
         if self._cur_fn != &null && self._cur_fn->is_generator {
             if n->value != &null {
-                self._ice(n->range, "EmitIR: generator 'return' with a value; X gate failure")
+                self._ice(
+                    n->range,
+                    "EmitIR: generator 'return' with a value; X gate failure",
+                )
             }
 
             self._cg->sink->spell(n->range, "co_return")
@@ -2575,7 +2694,10 @@ pub class EmitIR {
     /// prvalue overload.
     priv fn _yield(self, n: unsafe *YieldStmt) {
         if self._cur_fn == &null || !self._cur_fn->is_generator {
-            self._ice(n->range, "EmitIR: yield outside a generator; X gate failure")
+            self._ice(
+                n->range,
+                "EmitIR: yield outside a generator; X gate failure",
+            )
         }
 
         if n->value == &null {
@@ -2607,7 +2729,9 @@ pub class EmitIR {
         var unsafe *vt   = n->value->type_
         if n->value->value_category == Expr::ValueCategory::LValue
             && vt != &null
-            && (canon_has_const(vt) || place_has_const_root(n->value) || self._const_place_call(n->value))
+            && (canon_has_const(vt)
+                || place_has_const_root(n->value)
+                || self._const_place_call(n->value))
             && (!self._needs_cast(n->value, elem, &null)) {
             var yv = LowerTargets::yield_value_tmp()
             self._cg->sink->spell(n->range, "{ auto " + yv + " = (")
@@ -2644,7 +2768,10 @@ pub class EmitIR {
             return false
         }
 
-        var unsafe *pt = cast<PointerType>(canon_unqual(f->return_type->canonical))
+        var unsafe *pt = cast<PointerType>(
+            canon_unqual(f->return_type->canonical),
+        )
+
         if canon_has_const(pt->pointee) {
             return true
         }
@@ -2700,7 +2827,10 @@ pub class EmitIR {
                     inner.push_back(t[i])
                 }
 
-                self._cg->sink->spell(n->range, ", " + CXXSpell::c_string(inner))
+                self._cg->sink->spell(
+                    n->range,
+                    ", " + CXXSpell::c_string(inner),
+                )
             }
         }
 
@@ -2730,7 +2860,10 @@ pub class EmitIR {
             return ""
         }
 
-        var unsafe *tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid())
+        var unsafe *tbl = self._cg->ctx->tcm->get_imm_table_for_fid(
+            self._owning_fid(),
+        )
+
         if tbl == &null {
             return ""
         }
@@ -2806,7 +2939,10 @@ pub class EmitIR {
         var        at    = n->range
         var unsafe *elem = n->iter_elem
         if elem == &null {
-            self._ice(at, "EmitIR: an eval for with no element type; X gate failure")
+            self._ice(
+                at,
+                "EmitIR: an eval for with no element type; X gate failure",
+            )
         }
 
         if n->bindings.size() != 1 {
@@ -2833,7 +2969,11 @@ pub class EmitIR {
 
         self._cg->sink->spell(at, "{")
         if outer {
-            self._cg->sink->spell(at, "bool " + LowerTargets::eval_for_ret_flag() + " = false;")
+            self._cg->sink->spell(
+                at,
+                "bool " + LowerTargets::eval_for_ret_flag() + " = false;",
+            )
+
             if has_val {
                 self._cg->sink->spell(at, self._ef_slot_decl(rt))
             }
@@ -2846,9 +2986,17 @@ pub class EmitIR {
             gk = self._ef_gens
             self._ef_gens += 1
             var gn = LowerTargets::eval_for_gen_n(gk)
-            self._cg->sink->spell(at, "static constexpr " + sz + " " + gn + " = (")
+            self._cg->sink->spell(
+                at,
+                "static constexpr " + sz + " " + gn + " = (",
+            )
+
             self.emit(n->iterable)
-            self._cg->sink->spell(at, ")." + LowerTargets::eval_buf_count() + ";")
+            self._cg->sink->spell(
+                at,
+                ")." + LowerTargets::eval_buf_count() + ";",
+            )
+
             self._cg->sink->spell(
                 at,
                 "static constexpr auto " + LowerTargets::eval_for_gen(
@@ -2871,13 +3019,23 @@ pub class EmitIR {
         )
 
         // The binding: a constant in each copy.
-        var nm = if (vd != &null) => (self._spell.tok_name(vd->name, self._owning_fid()))
+        var nm = if (vd != &null) => (self._spell.tok_name(
+                     vd->name,
+                     self._owning_fid(),
+                 ))
                  else => LowerTargets::eval_for_unused()
-        self._cg->sink->spell(at, "[[maybe_unused]] constexpr " + et + " " + nm + " = ")
+        self._cg->sink->spell(
+            at,
+            "[[maybe_unused]] constexpr " + et + " " + nm + " = ",
+        )
+
         if is_range {
             self._cg->sink->spell(at, "static_cast<" + et + ">((")
             self.emit(n->ev_lo)
-            self._cg->sink->spell(at, ") + static_cast<" + et + ">(" + I + "));")
+            self._cg->sink->spell(
+                at,
+                ") + static_cast<" + et + ">(" + I + "));",
+            )
         } else if is_gen {
             self._cg->sink->spell(
                 at,
@@ -2912,11 +3070,17 @@ pub class EmitIR {
             self.emit(n->ev_hi)
             self._cg->sink->spell(at, ") - (")
             self.emit(n->ev_lo)
-            self._cg->sink->spell(at, ")" + (if (n->ev_incl) => (" + 1") else => "") + ")")
+            self._cg->sink->spell(
+                at,
+                ")" + (if (n->ev_incl) => (" + 1") else => "") + ")",
+            )
         } else if is_gen {
             self._cg->sink->spell(at, LowerTargets::eval_for_gen_n(gk))
         } else {
-            var unsafe *arr = dyn_cast<FixedArrayType>(canon_unqual(n->iterable->type_))
+            var unsafe *arr = dyn_cast<FixedArrayType>(
+                canon_unqual(n->iterable->type_),
+            )
+
             if arr == &null {
                 self._ice(
                     at,
@@ -2924,7 +3088,9 @@ pub class EmitIR {
                 )
             }
 
-            var ext = if (arr->extent_param != &null) => (self._spell._type(arr->extent_param))
+            var ext = if (arr->extent_param != &null) => (self._spell._type(
+                          arr->extent_param,
+                      ))
                       else => f"{arr->size_bits}"
             self._cg->sink->spell(at, ext)
         }
@@ -2939,7 +3105,10 @@ pub class EmitIR {
                     "if (" + flag + ") { return " + LowerTargets::eval_for_ret_val() + "." + LowerTargets::ctor_slot_take() + "(); }",
                 )
             } else {
-                self._cg->sink->spell(at, "if (" + flag + ") { " + self._bare_return() + " }")
+                self._cg->sink->spell(
+                    at,
+                    "if (" + flag + ") { " + self._bare_return() + " }",
+                )
             }
         } else {
             self._cg->sink->spell(at, "if (" + flag + ") { return false; }")
@@ -2966,9 +3135,9 @@ pub class EmitIR {
     /// several plain names a structured binding; the shapes StmtTyping lets
     /// through.
     priv fn _cxx_dependent_for(self, n: unsafe *RangedForStmt) {
-        var at = n->range
-        var s  = self._cg->sink
-        var nb = n->bindings.size()
+        var at   = n->range
+        var s    = self._cg->sink
+        var nb   = n->bindings.size()
         var el   = LowerTargets::range_elem()
         var head = "auto&& " + el
         var ptr  = ""
@@ -2995,7 +3164,10 @@ pub class EmitIR {
                 if b->is_discard || b->decl == &null {
                     head = head + LowerTargets::unused_binding(i)
                 } else {
-                    head = head + self._spell.tok_name(b->decl->name, self._owning_fid())
+                    head = head + self._spell.tok_name(
+                        b->decl->name,
+                        self._owning_fid(),
+                    )
                 }
             }
 
@@ -3018,7 +3190,10 @@ pub class EmitIR {
     priv fn _pack_for(self, n: unsafe *RangedForStmt) {
         var at = n->range
         if n->bindings.size() != 1 {
-            self._ice(at, "EmitIR: a for over a pack with other than one binding; X gate failure")
+            self._ice(
+                at,
+                "EmitIR: a for over a pack with other than one binding; X gate failure",
+            )
         }
 
         var unsafe *pk = dyn_cast<NamedIdentExpr>(n->iterable)
@@ -3029,9 +3204,9 @@ pub class EmitIR {
             )
         }
 
-        var unsafe *vd                = dyn_cast<VariableDecl>(n->bindings[0].decl)
-        var        outer              = self._ef_depth == 0
-        var        rt:   unsafe *Type = &null
+        var unsafe *vd = dyn_cast<VariableDecl>(n->bindings[0].decl)
+        var outer              = self._ef_depth == 0
+        var rt:   unsafe *Type = &null
         if self._cur_fn != &null && !self._cur_fn->is_noreturn {
             rt = self._cur_fn->return_type
         }
@@ -3044,15 +3219,26 @@ pub class EmitIR {
 
         self._cg->sink->spell(at, "{")
         if outer {
-            self._cg->sink->spell(at, "bool " + LowerTargets::eval_for_ret_flag() + " = false;")
+            self._cg->sink->spell(
+                at,
+                "bool " + LowerTargets::eval_for_ret_flag() + " = false;",
+            )
+
             if has_val {
                 self._cg->sink->spell(at, self._ef_slot_decl(rt))
             }
         }
 
-        var nm = if (vd != &null) => (self._spell.tok_name(vd->name, self._owning_fid()))
+        var nm = if (vd != &null) => (self._spell.tok_name(
+                     vd->name,
+                     self._owning_fid(),
+                 ))
                  else => LowerTargets::eval_for_unused()
-        self._cg->sink->spell(at, "(void)(... && [&]([[maybe_unused]] auto& " + nm + ") -> bool {")
+        self._cg->sink->spell(
+            at,
+            "(void)(... && [&]([[maybe_unused]] auto& " + nm + ") -> bool {",
+        )
+
         // The element's type, for a witness call through its bound
         // (_witness_member): the pack's canonical, matched against Self.
         var        pt: unsafe *Type = &null
@@ -3087,7 +3273,10 @@ pub class EmitIR {
                     "if (" + flag + ") { return " + LowerTargets::eval_for_ret_val() + "." + LowerTargets::ctor_slot_take() + "(); }",
                 )
             } else {
-                self._cg->sink->spell(at, "if (" + flag + ") { " + self._bare_return() + " }")
+                self._cg->sink->spell(
+                    at,
+                    "if (" + flag + ") { " + self._bare_return() + " }",
+                )
             }
         } else {
             self._cg->sink->spell(at, "if (" + flag + ") { return false; }")
@@ -3169,10 +3358,17 @@ pub class EmitIR {
 
     priv fn _for(self, n: unsafe *IndexedForStmt) {
         if n->is_eval {
-            self._ice(n->range, "EmitIR: a C-style eval for; EvalUsageChecking rejects it")
+            self._ice(
+                n->range,
+                "EmitIR: a C-style eval for; EvalUsageChecking rejects it",
+            )
         }
 
-        self._cg->sink->spell(SourceRange::from_bounds(n->range.start, 3 as u32), "for (")
+        self._cg->sink->spell(
+            SourceRange::from_bounds(n->range.start, 3 as u32),
+            "for (",
+        )
+
         if n->init != &null {
             var unsafe *ds = dyn_cast<DeclStmt>(n->init)
             if ds == &null {
@@ -3211,11 +3407,17 @@ pub class EmitIR {
         }
 
         if e->kind == ExprKind::RecoveryExpr {
-            self._ice(e->range, "EmitIR: poisoned expr reached codegen; sema gate failure")
+            self._ice(
+                e->range,
+                "EmitIR: poisoned expr reached codegen; sema gate failure",
+            )
         }
 
         if e->is_poisoned() {
-            self._ice(e->range, "EmitIR: poisoned expr reached codegen; sema gate failure")
+            self._ice(
+                e->range,
+                "EmitIR: poisoned expr reached codegen; sema gate failure",
+            )
         }
 
         match e->kind {
@@ -3257,7 +3459,7 @@ pub class EmitIR {
                 }
             } case ExprKind::BinaryOperatorExpr {
                 var unsafe *bn = cast<BinaryOperatorExpr>(e)
-                var        bw  = self._duck_operand(bn->lhs) || self._duck_operand(bn->rhs)
+                var bw = self._duck_operand(bn->lhs) || self._duck_operand(bn->rhs)
                 if bw {
                     self._nopanic_open(e->range)
                 }
@@ -3298,13 +3500,17 @@ pub class EmitIR {
             } case ExprKind::AlignOfExpr {
                 self._cg->sink->spell(
                     e->range,
-                    "alignof(" + self._spell._type(cast<AlignOfExpr>(e)->type_arg) + ")",
+                    "alignof(" + self._spell._type(
+                        cast<AlignOfExpr>(e)->type_arg,
+                    ) + ")",
                 )
             } case ExprKind::TypeTraitExpr {
                 var unsafe *tt = cast<TypeTraitExpr>(e)
                 self._cg->sink->spell(
                     e->range,
-                    type_trait_cxx(tt->fact) + "(" + self._spell._type(tt->type_arg) + ")",
+                    type_trait_cxx(tt->fact) + "(" + self._spell._type(
+                        tt->type_arg,
+                    ) + ")",
                 )
             } case ExprKind::DeleteExpr {
                 // `@cxx::delete p` / `@cxx::delete [] p`: C++'s own delete. A
@@ -3319,11 +3525,17 @@ pub class EmitIR {
             } case ExprKind::SubscriptExpr {
                 self._subscript(cast<SubscriptExpr>(e))
             } case ExprKind::NamedArgExpr {
-                self._ice(e->range, "EmitIR: named argument; CallLowering owns it")
+                self._ice(
+                    e->range,
+                    "EmitIR: named argument; CallLowering owns it",
+                )
             } case ExprKind::MatchExpr {
                 self._ice(e->range, "EmitIR: match MatchLowering left in place")
             } case ExprKind::TryCatchExpr {
-                self._ice(e->range, "EmitIR: try expression; PanicLowering owns it")
+                self._ice(
+                    e->range,
+                    "EmitIR: try expression; PanicLowering owns it",
+                )
             } case ExprKind::RangeExpr {
                 self._ice(
                     e->range,
@@ -3347,7 +3559,10 @@ pub class EmitIR {
             } case ExprKind::SpawnExpr {
                 self._ice(e->range, "EmitIR: spawn; the async lowering owns it")
             } case ExprKind::ThreadExpr {
-                self._ice(e->range, "EmitIR: thread; the async lowering owns it")
+                self._ice(
+                    e->range,
+                    "EmitIR: thread; the async lowering owns it",
+                )
             }
 
             // `eval e`: computed by C++ at compile time, in place (Compiler/Spec/Eval.md
@@ -3363,7 +3578,10 @@ pub class EmitIR {
             case ExprKind::PackExpansionExpr {
                 self._pack_expansion(cast<PackExpansionExpr>(e))
             } case ExprKind::ListLiteralExpr {
-                self._ice(e->range, "EmitIR: list literal; ListLiteralLowering owns it")
+                self._ice(
+                    e->range,
+                    "EmitIR: list literal; ListLiteralLowering owns it",
+                )
             } case ExprKind::InitListExpr {
                 self._init_list(cast<InitListExpr>(e), false)
             } case ExprKind::VariantInitExpr {
@@ -3379,17 +3597,32 @@ pub class EmitIR {
                     self._cg->sink->spell(e->range, ")")
                 }
             } case ExprKind::SetLiteralExpr {
-                self._ice(e->range, "EmitIR: set literal; the container migration owns it")
+                self._ice(
+                    e->range,
+                    "EmitIR: set literal; the container migration owns it",
+                )
             } case ExprKind::MapLiteralExpr {
-                self._ice(e->range, "EmitIR: map literal; the container migration owns it")
+                self._ice(
+                    e->range,
+                    "EmitIR: map literal; the container migration owns it",
+                )
             } case ExprKind::TupleLiteralExpr {
-                self._ice(e->range, "EmitIR: tuple literal; TupleLowering owns it")
+                self._ice(
+                    e->range,
+                    "EmitIR: tuple literal; TupleLowering owns it",
+                )
             } case ExprKind::TypeOfExpr {
                 self._ice(e->range, "EmitIR: typeof; TypeQueryLowering owns it")
             } case ExprKind::ImplConformanceExpr {
-                self._ice(e->range, "EmitIR: impl test; TypeQueryLowering owns it")
+                self._ice(
+                    e->range,
+                    "EmitIR: impl test; TypeQueryLowering owns it",
+                )
             } case ExprKind::DerivesRelationExpr {
-                self._ice(e->range, "EmitIR: derives test; TypeQueryLowering owns it")
+                self._ice(
+                    e->range,
+                    "EmitIR: derives test; TypeQueryLowering owns it",
+                )
             } case ExprKind::ConstraintExpr {
                 self._constraint(cast<ConstraintExpr>(e))
             } case ExprKind::VerbatimExpr {
@@ -3421,17 +3654,29 @@ pub class EmitIR {
         }
 
         if c->rhs == &null || c->rhs->canonical == &null {
-            self._ice(e->range, "EmitIR: an 'impl' test whose interface did not resolve")
+            self._ice(
+                e->range,
+                "EmitIR: an 'impl' test whose interface did not resolve",
+            )
         }
 
         var unsafe *rhs = canon_unqual(c->rhs->canonical)
         if !isa<RecordType>(rhs) {
-            self._ice(e->range, "EmitIR: an 'impl' test against a type that is not an interface")
+            self._ice(
+                e->range,
+                "EmitIR: an 'impl' test against a type that is not an interface",
+            )
         }
 
-        var unsafe *idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast<RecordType>(rhs)->decl)))
+        var unsafe *idecl = CXXSpell::rep(
+            decl_pattern(CXXSpell::rep(cast<RecordType>(rhs)->decl)),
+        )
+
         if !isa<InterfaceDecl>(idecl) {
-            self._ice(e->range, "EmitIR: an 'impl' test against a type that is not an interface")
+            self._ice(
+                e->range,
+                "EmitIR: an 'impl' test against a type that is not an interface",
+            )
         }
 
         var unsafe *gp = CXXSpell::_bound_param(c)
@@ -3445,7 +3690,10 @@ pub class EmitIR {
         var subj = self._spell.tparam_name(gp, CXXSpell::rep(gp->owner))
         self._cg->sink->spell(
             e->range,
-            "(" + self._spell.concept_name(idecl) + self._spell.witness_args(subj, rhs) + ")",
+            "(" + self._spell.concept_name(idecl) + self._spell.witness_args(
+                subj,
+                rhs,
+            ) + ")",
         )
     }
 
@@ -3469,7 +3717,10 @@ pub class EmitIR {
         }
 
         if CXXSpell::forwarding_pack(p) && !n->reread {
-            var unsafe *g = cast<GenericParamType>(canon_unqual(p->type_->canonical))
+            var unsafe *g = cast<GenericParamType>(
+                canon_unqual(p->type_->canonical),
+            )
+
             self._cg->sink->spell(
                 n->range,
                 "static_cast<" + self._spell.pack_param_name(g) + "&&>(",
@@ -3587,7 +3838,11 @@ pub class EmitIR {
         if subst != &null
             && canon_unqual(w) != &null
             && canon_unqual(w)->kind == TypeKind::GenericParamType {
-            var unsafe *s = self._spell.subst_for(cast<GenericParamType>(canon_unqual(w)), subst)
+            var unsafe *s = self._spell.subst_for(
+                cast<GenericParamType>(canon_unqual(w)),
+                subst,
+            )
+
             if s != &null {
                 w = s
             }
@@ -3604,7 +3859,9 @@ pub class EmitIR {
         // A reference bound to its own referee (`const T& x = path`): no conversion.
         var unsafe *wu = canon_unqual(w)
         if wu != &null && isa<CXXLValueRefType>(wu) {
-            if canon_unqual(have) == canon_unqual(cast<CXXLValueRefType>(wu)->referee) {
+            if canon_unqual(have) == canon_unqual(
+                cast<CXXLValueRefType>(wu)->referee,
+            ) {
                 return false
             }
         }
@@ -3614,7 +3871,9 @@ pub class EmitIR {
         if wu != &null
             && isa<CXXRValueRefType>(wu)
             && e->value_category == Expr::ValueCategory::RValue {
-            if canon_unqual(have) == canon_unqual(cast<CXXRValueRefType>(wu)->referee) {
+            if canon_unqual(have) == canon_unqual(
+                cast<CXXRValueRefType>(wu)->referee,
+            ) {
                 return false
             }
         }
@@ -3705,7 +3964,13 @@ pub class EmitIR {
                 "[](auto&& " + hv + ")" + nx + " -> " + nt + " { if (" + hv + "." + LowerTargets::nullable_is_null() + "()) { return " + nt + "(); } return ",
             )
 
-            self._fn_effect_wrap(e, w, h, hv + "." + LowerTargets::nullable_value() + "()")
+            self._fn_effect_wrap(
+                e,
+                w,
+                h,
+                hv + "." + LowerTargets::nullable_value() + "()",
+            )
+
             self._cg->sink->spell(e->range, "; }(")
             self.emit(e)
             self._cg->sink->spell(e->range, ")")
@@ -3801,7 +4066,11 @@ pub class EmitIR {
 
         var wspell = self._spell._type(want)
         if w->is_raw {
-            self._cg->sink->spell(e->range, "static_cast<" + wspell + ">(" + adapt + ")")
+            self._cg->sink->spell(
+                e->range,
+                "static_cast<" + wspell + ">(" + adapt + ")",
+            )
+
             return true
         }
 
@@ -3917,7 +4186,7 @@ pub class EmitIR {
         var ps = ""
         var fa = ""
         for var i: usize = 0; i < w->params.size(); ++i {
-            var m  = if (i < w->modes.size()) => (w->modes[i]) else => ParamMode::Value
+            var m = if (i < w->modes.size()) => (w->modes[i]) else => ParamMode::Value
             var an = LowerTargets::panic_wrap_arg(i)
             if i > 0 {
                 ps += ", "
@@ -4011,7 +4280,11 @@ pub class EmitIR {
             return
         }
 
-        self._cg->sink->spell(e->range, kind + "<" + self._spell._type(t, subst) + ">(")
+        self._cg->sink->spell(
+            e->range,
+            kind + "<" + self._spell._type(t, subst) + ">(",
+        )
+
         self.emit(e)
         self._cg->sink->spell(e->range, ")")
     }
@@ -4025,12 +4298,18 @@ pub class EmitIR {
         }
 
         if n->has_next() {
-            self._ice(n->range, "EmitIR: multi-part string literal; StringLowering owns it")
+            self._ice(
+                n->range,
+                "EmitIR: multi-part string literal; StringLowering owns it",
+            )
         }
 
         var unsafe *c = canon_unqual(n->type_)
         if c == &null || c->kind != TypeKind::PointerType {
-            self._ice(n->range, "EmitIR: string literal typed `string`; StringLowering owns it")
+            self._ice(
+                n->range,
+                "EmitIR: string literal typed `string`; StringLowering owns it",
+            )
         }
 
         if n->imm == &null || !n->imm->has_owned_text() {
@@ -4052,7 +4331,10 @@ pub class EmitIR {
             if len > LowerTargets::eval_str_inline_max() {
                 self._cg->sink->spell(
                     n->range,
-                    "::" + LowerTargets::eval_str_hashed(LowerTargets::eval_str_hash(p, len), len),
+                    "::" + LowerTargets::eval_str_hashed(
+                        LowerTargets::eval_str_hash(p, len),
+                        len,
+                    ),
                 )
 
                 return
@@ -4122,7 +4404,10 @@ pub class EmitIR {
         }
 
         if d == &null {
-            self._ice(n->range, "EmitIR: unbound name reached codegen; NameResolution gate failure")
+            self._ice(
+                n->range,
+                "EmitIR: unbound name reached codegen; NameResolution gate failure",
+            )
         }
 
         // A slot of a split constructor: a carried local in either half, a
@@ -4173,7 +4458,11 @@ pub class EmitIR {
         // reads are rewritten by ScriptLowering into a checked place, whose
         // inner name is the value and must stay so.
         if n->capture_ptr {
-            self._cg->sink->spell(n->range, "(&" + self._spell.qual_name(d) + ")")
+            self._cg->sink->spell(
+                n->range,
+                "(&" + self._spell.qual_name(d) + ")",
+            )
+
             return
         }
 
@@ -4208,7 +4497,10 @@ pub class EmitIR {
         for var i: usize = 0; i < gl->size(); ++i {
             var unsafe *ga = gl->get(i)
             if ga->ty == &null || ga->ty->canonical == &null {
-                self._ice(f->range, "EmitIR: a written generic argument with no type")
+                self._ice(
+                    f->range,
+                    "EmitIR: a written generic argument with no type",
+                )
             }
 
             v.push_back(ga->ty->canonical)
@@ -4321,7 +4613,10 @@ pub class EmitIR {
             // `template` when the qualifier is dependent.
             var wa = ""
             if k + 1 == n->steps.size() {
-                wa = self._written_args_str(st->resolved_decl, unsafe &st->generic_args)
+                wa = self._written_args_str(
+                    st->resolved_decl,
+                    unsafe &st->generic_args,
+                )
             }
 
             if st->witness_iface != &null {
@@ -4355,14 +4650,20 @@ pub class EmitIR {
                     ) + wa,
                 )
             } else {
-                self._cg->sink->spell(st->range, self._spell.qual_name(st->resolved_decl) + wa)
+                self._cg->sink->spell(
+                    st->range,
+                    self._spell.qual_name(st->resolved_decl) + wa,
+                )
             }
 
             is_ptr = self._type_is_pointer(st->resolved_type)
             i      = k + 1
         } else {
             if n->base == &null {
-                self._ice(n->range, "EmitIR: global-root chain with no `::` step")
+                self._ice(
+                    n->range,
+                    "EmitIR: global-root chain with no `::` step",
+                )
             }
 
             // `self.x` is `this->x`: the base is the pointer, not _name's
@@ -4426,7 +4727,10 @@ pub class EmitIR {
 
             if st->access_kind == ChainExpr::AccessKind::QuestionDot
                 || st->access_kind == ChainExpr::AccessKind::QuestionArrow {
-                self._ice(st->range, "EmitIR: optional chaining; CoalesceLowering owns it")
+                self._ice(
+                    st->range,
+                    "EmitIR: optional chaining; CoalesceLowering owns it",
+                )
             }
 
             if st->is_operator() {
@@ -4443,13 +4747,20 @@ pub class EmitIR {
                     onm = "operator " + self._spell._type(st->resolved_type)
                 }
 
-                self._cg->sink->spell(st->range, (if (is_ptr) => ("->") else => ".") + onm)
+                self._cg->sink->spell(
+                    st->range,
+                    (if (is_ptr) => ("->") else => ".") + onm,
+                )
+
                 is_ptr = false
                 continue
             }
 
             if st->is_tuple_index() {
-                self._ice(st->range, "EmitIR: tuple index step; TupleLowering owns it")
+                self._ice(
+                    st->range,
+                    "EmitIR: tuple index step; TupleLowering owns it",
+                )
             }
 
             if self._is_extension_member(st->resolved_decl) {
@@ -4466,7 +4777,10 @@ pub class EmitIR {
             }
 
             if st->resolved_decl == &null {
-                self._ice(st->range, "EmitIR: unbound member step reached codegen; gate failure")
+                self._ice(
+                    st->range,
+                    "EmitIR: unbound member step reached codegen; gate failure",
+                )
             }
 
             // A written `->` on a record (Sema accepts it only through the
@@ -4843,7 +5157,10 @@ pub class EmitIR {
             return &null
         }
 
-        var unsafe *c = canon_unqual(if (pt->canonical != &null) => (pt->canonical) else => pt)
+        var unsafe *c = canon_unqual(
+            if (pt->canonical != &null) => (pt->canonical) else => pt,
+        )
+
         if c == &null || !isa<RecordType>(c) || !c->is_dependent() {
             return &null
         }
@@ -4876,7 +5193,10 @@ pub class EmitIR {
 
             var unsafe *ga = st->generic_args.get(i)
             if ga->ty == &null {
-                self._ice(st->range, "EmitIR: a dependent member's generic argument with no type")
+                self._ice(
+                    st->range,
+                    "EmitIR: a dependent member's generic argument with no type",
+                )
             }
 
             s += self._spell._type(ga->ty)
@@ -4990,7 +5310,11 @@ pub class EmitIR {
         // template picks the put at each instance. Its callee is a
         // placeholder bound to nothing; the arguments go as written.
         if n->fmt_dyn {
-            self._cg->sink->spell(n->callee->range, "::" + LowerTargets::fmt_dyn())
+            self._cg->sink->spell(
+                n->callee->range,
+                "::" + LowerTargets::fmt_dyn(),
+            )
+
             self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren)
             self._args(n, &null, true, &null)
             self._cg->sink->synth_at_end(n->range, clang::tok::r_paren)
@@ -5087,7 +5411,10 @@ pub class EmitIR {
             self._fn_value_args(n, fv)
             self._cg->sink->synth_at_end(n->range, clang::tok::r_paren)
             if never {
-                self._cg->sink->spell(n->range, ", " + LowerTargets::clang_unreachable() + "())")
+                self._cg->sink->spell(
+                    n->range,
+                    ", " + LowerTargets::clang_unreachable() + "())",
+                )
             }
 
             return
@@ -5131,7 +5458,11 @@ pub class EmitIR {
 
                 self.emit(n->callee)
                 self._arg_dep_step = &null
-                self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren)
+                self._cg->sink->synth_at_end(
+                    n->callee->range,
+                    clang::tok::l_paren,
+                )
+
                 self._args(n, &null, true, &null)
                 self._cg->sink->synth_at_end(n->range, clang::tok::r_paren)
                 if nw {
@@ -5141,11 +5472,14 @@ pub class EmitIR {
                 return
             }
 
-            self._ice(n->range, "EmitIR: unbound callee reached codegen; ExprTyper gate failure")
+            self._ice(
+                n->range,
+                "EmitIR: unbound callee reached codegen; ExprTyper gate failure",
+            )
         }
 
-        var unsafe *ch                           = dyn_cast<ChainExpr>(n->callee)
-        var        last: unsafe *ChainExpr::Step = &null
+        var unsafe *ch = dyn_cast<ChainExpr>(n->callee)
+        var last: unsafe *ChainExpr::Step = &null
         if ch != &null && ch->steps.size() > 0 {
             last = ch->steps.get(ch->steps.size() - 1)
         }
@@ -5200,7 +5534,11 @@ pub class EmitIR {
         if f != &null
             && (f->lowers_to_assume || xf != &null && xf->lowers_to_assume)
             && n->args.size() == 1 {
-            self._cg->sink->spell(n->callee->range, LowerTargets::clang_assume() + "(")
+            self._cg->sink->spell(
+                n->callee->range,
+                LowerTargets::clang_assume() + "(",
+            )
+
             self._args(n, f, false, inst)
             self._cg->sink->spell(n->range, ")")
             return
@@ -5222,7 +5560,11 @@ pub class EmitIR {
             && self._infix_operator(f->op_token[0].kind) {
             self._cg->sink->spell(n->range, "(")
             self._arg(n->args[0], f->params[0], inst)
-            self._cg->sink->spell(n->range, " " + self._cg->ctx->get_spelling(f->op_token[0]) + " ")
+            self._cg->sink->spell(
+                n->range,
+                " " + self._cg->ctx->get_spelling(f->op_token[0]) + " ",
+            )
+
             self._arg(n->args[1], f->params[1], inst)
             self._cg->sink->spell(n->range, ")")
             return
@@ -5259,7 +5601,9 @@ pub class EmitIR {
             self._cg->sink->spell(n->args[0]->range, ").")
             var unsafe *qt = n->qualifier
             if qt == &null
-                && CXXSpell::template_params(CXXSpell::rep((f->semantic_dc)->dc_owner)).size() > 0 {
+                && CXXSpell::template_params(
+                    CXXSpell::rep((f->semantic_dc)->dc_owner),
+                ).size() > 0 {
                 qt = self._qualifying_instance(n->args[0], f)
             }
 
@@ -5269,7 +5613,9 @@ pub class EmitIR {
                 // the object's base list (`IntBox derives Box<i32>`).
                 var s = self._spell._type(qt) + "::"
                 if inst != &null && f->generic_params.size() > 0 {
-                    s += "template " + self._spell.leaf(callee) + self._spell.args_str(inst->args)
+                    s += "template " + self._spell.leaf(callee) + self._spell.args_str(
+                        inst->args,
+                    )
                 } else {
                     s += self._spell.leaf(callee)
                 }
@@ -5290,7 +5636,10 @@ pub class EmitIR {
         // class template instance that _is_ctor's name match misses.
         if self._is_ctor(f) || self._is_type_decl(callee) || assoc_ctor || n->ctor_decl != &null {
             if n->type_ == &null {
-                self._ice_untyped(n, "EmitIR: untyped constructor call; ExprTyper gate failure")
+                self._ice_untyped(
+                    n,
+                    "EmitIR: untyped constructor call; ExprTyper gate failure",
+                )
             }
 
             // An elaborated tag (`struct ::stat`, hidden by a function of the
@@ -5316,7 +5665,10 @@ pub class EmitIR {
             if f->generic_params.size() > 0 && inst != &null {
                 ta = self._spell.args_str(inst->args)
             } else if inst == &null {
-                ta = self._written_args_str(callee, self._written_list(n->callee))
+                ta = self._written_args_str(
+                    callee,
+                    self._written_list(n->callee),
+                )
             }
 
             self._cg->sink->spell(
@@ -5329,7 +5681,11 @@ pub class EmitIR {
             // owner's arguments are spelled.
             var s = self._spell._type(n->qualifier) + "::"
             var wq = if (inst != &null) => ("")
-                     else => self._written_args_str(callee, self._written_list(n->callee))
+                     else => self._written_args_str(
+                         callee,
+                         self._written_list(n->callee),
+                     )
+
             if inst != &null && f != &null && f->generic_params.size() > 0 {
                 if n->qualifier->is_dependent() {
                     s += "template "
@@ -5442,7 +5798,11 @@ pub class EmitIR {
                                    const ta: string) {
         var is_ptr    = self._chain_prefix(ch, ch->steps.size() - 1)
         var sep_arrow = is_ptr || last->access_kind == ChainExpr::AccessKind::Arrow // `op ->`, as _chain_prefix
-        self._cg->sink->spell(last->range, (if (sep_arrow) => ("->") else => ".") + "template ")
+        self._cg->sink->spell(
+            last->range,
+            (if (sep_arrow) => ("->") else => ".") + "template ",
+        )
+
         self._name(last->name->name)
         self._cg->sink->spell(last->range, ta)
     }
@@ -5466,7 +5826,11 @@ pub class EmitIR {
     /// stays a prvalue, never moved (a RAII guard's move may be deleted).
     priv fn _nopanic_open_of(self, at: SourceRange, const ty: string) {
         self._cg->sink->unanchored(true)
-        self._cg->sink->spell(at, "(::" + LowerTargets::nopanic_of() + "<" + ty + ">()")
+        self._cg->sink->spell(
+            at,
+            "(::" + LowerTargets::nopanic_of() + "<" + ty + ">()",
+        )
+
         self._cg->sink->unanchored(false)
         self._cg->sink->synth_at_start(at, clang::tok::comma)
     }
@@ -5780,10 +6144,16 @@ pub class EmitIR {
                             const targs: string) -> string {
         var unsafe *wi = canon_unqual(wi0)
         if wi == &null || !isa<RecordType>(wi) {
-            self._ice(f->range, "EmitIR: a witness that is not an interface instance")
+            self._ice(
+                f->range,
+                "EmitIR: a witness that is not an interface instance",
+            )
         }
 
-        var unsafe *idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast<RecordType>(wi)->decl)))
+        var unsafe *idecl = CXXSpell::rep(
+            decl_pattern(CXXSpell::rep(cast<RecordType>(wi)->decl)),
+        )
+
         // A pack element (`for x in xs` over `...xs: T`) as Self is the
         // element's own type, read off the binding _pack_for opened
         // (`__remove_cvref(decltype(x))`). Not `T...`, the type speller's
@@ -5806,7 +6176,10 @@ pub class EmitIR {
             subj = self._spell._type(me)
         }
 
-        var s = self._spell.witness_name(idecl) + self._spell.witness_args(subj, wi) + "::"
+        var s = self._spell.witness_name(idecl) + self._spell.witness_args(
+            subj,
+            wi,
+        ) + "::"
         if targs.size() > 0 {
             return s + "template " + self._spell.witness_member_name(f) + targs
         }
@@ -5817,7 +6190,7 @@ pub class EmitIR {
     /// The generic arguments written on a plain callee (`f<A>` or
     /// `ns::f<A>`), as canonicals in order; empty when none were written.
     priv fn _written_targs(self, c: unsafe *Expr) -> cxx::std::vector<unsafe *Type> {
-        var out                                           = cxx::std::vector<unsafe *Type>()
+        var out = cxx::std::vector<unsafe *Type>()
         var gl: unsafe *FrozenList<ChainType::GenericArg> = &null
         if isa<NamedIdentExpr>(c) {
             gl = unsafe &cast<NamedIdentExpr>(c)->generic_args
@@ -5835,7 +6208,10 @@ pub class EmitIR {
         for var i: usize = 0; i < gl->size(); ++i {
             var unsafe *ga = gl->get(i)
             if ga->ty == &null || ga->ty->canonical == &null {
-                self._ice(c->range, "EmitIR: a written generic argument with no type")
+                self._ice(
+                    c->range,
+                    "EmitIR: a written generic argument with no type",
+                )
             }
 
             out.push_back(ga->ty->canonical)
@@ -5909,7 +6285,10 @@ pub class EmitIR {
 
             var first: usize = if (skip_object) => (1) else => 0
             if i > first {
-                self._cg->sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma)
+                self._cg->sink->synth_at_end(
+                    n->args[i - 1]->range,
+                    clang::tok::comma,
+                )
             }
 
             if pk != usize::MAX && i >= pk && i < pk + run {
@@ -5929,7 +6308,10 @@ pub class EmitIR {
 
             var alias = self._alias_ptr_spelling(f, p, a)
             if alias.size() > 0 {
-                self._cg->sink->spell(a->range, "reinterpret_cast<" + alias + ">(")
+                self._cg->sink->spell(
+                    a->range,
+                    "reinterpret_cast<" + alias + ">(",
+                )
             }
 
             self._arg(a, p, inst)
@@ -6018,7 +6400,11 @@ pub class EmitIR {
         }
 
         var rr = if (p->mode == ParamMode::Move) => ("&&") else => ""
-        self._cg->sink->spell(a->range, "static_cast<" + self._spell._type(els[k]) + rr + ">(")
+        self._cg->sink->spell(
+            a->range,
+            "static_cast<" + self._spell._type(els[k]) + rr + ">(",
+        )
+
         self.emit(a)
         self._cg->sink->spell(a->range, ")")
     }
@@ -6121,7 +6507,10 @@ pub class EmitIR {
         for var i: usize = 0; i < n->args.size(); ++i {
             var unsafe *a = n->args[i]
             if i > 0 {
-                self._cg->sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma)
+                self._cg->sink->synth_at_end(
+                    n->args[i - 1]->range,
+                    clang::tok::comma,
+                )
             }
 
             if i >= f->params.size() {
@@ -6143,7 +6532,11 @@ pub class EmitIR {
             }
 
             if m == ParamMode::Move && a->is_lvalue() {
-                self._cg->sink->spell(a->range, "static_cast<" + self._spell._type(pt) + "&&>(")
+                self._cg->sink->spell(
+                    a->range,
+                    "static_cast<" + self._spell._type(pt) + "&&>(",
+                )
+
                 self.emit(a)
                 self._cg->sink->spell(a->range, ")")
                 continue
@@ -6180,7 +6573,10 @@ pub class EmitIR {
         }
 
         if n->generic_params.size() > 0 {
-            self._ice(n->range, "EmitIR: a generic closure; FeatureGateCheck rejects it")
+            self._ice(
+                n->range,
+                "EmitIR: a generic closure; FeatureGateCheck rejects it",
+            )
         }
 
         var fp: unsafe *FunctionPointerType = &null
@@ -6192,7 +6588,10 @@ pub class EmitIR {
         }
 
         if fp == &null {
-            self._ice_untyped(n, "EmitIR: a closure with no fn type; ExprTyper gate failure")
+            self._ice_untyped(
+                n,
+                "EmitIR: a closure with no fn type; ExprTyper gate failure",
+            )
         }
 
         var caps = self._capture_list(n)
@@ -6203,7 +6602,10 @@ pub class EmitIR {
                 head += ", "
             }
 
-            head += self._spell.param_decl(p, self._spell.tok_name(p->name, self._owning_fid()))
+            head += self._spell.param_decl(
+                p,
+                self._spell.tok_name(p->name, self._owning_fid()),
+            )
         }
 
         head += ")"
@@ -6229,7 +6631,9 @@ pub class EmitIR {
 
         head += " -> " + ret
 
-        var wrap = "::" + LowerTargets::fn_value() + "<" + self._spell.fn_signature(fp) + ">"
+        var wrap = "::" + LowerTargets::fn_value() + "<" + self._spell.fn_signature(
+            fp,
+        ) + ">"
         // A raw closure (it captures nothing: ControlTyping::type_closure)
         // is the function pointer `+[]` gives, with no `fn` value around it.
         if fp->is_raw {
@@ -6257,7 +6661,7 @@ pub class EmitIR {
         var        sl     = self._ef_loops
         var        sn     = self._ns_init
         self._closure  = n
-        self._ef_depth = 0 // a closure's statements are its own, not a copy's.
+        self._ef_depth = 0     // a closure's statements are its own, not a copy's.
         self._ef_loops = 0
         self._ns_init  = false // a closure in a global's initializer has a function body.
         self.emit_block(n->body_block)
@@ -6321,7 +6725,10 @@ pub class EmitIR {
                         self._capture_type(d),
                     ) + "*>(" + src + ")"
                 } default {
-                    self._ice(n->range, "EmitIR: a capture mode with no spelling")
+                    self._ice(
+                        n->range,
+                        "EmitIR: a capture mode with no spelling",
+                    )
                 }
             }
         }
@@ -6357,7 +6764,10 @@ pub class EmitIR {
         }
 
         if t == &null || t->canonical == &null {
-            self._ice(d->range, "EmitIR: a captured binding with no type; X gate failure")
+            self._ice(
+                d->range,
+                "EmitIR: a captured binding with no type; X gate failure",
+            )
         }
 
         return canon_unqual(t->canonical)
@@ -6393,7 +6803,10 @@ pub class EmitIR {
         var unsafe *ni = dyn_cast<NamedIdentExpr>(c)
         if ni != &null {
             if ni->resolved_decl == &null && ni->candidate_cell != &null {
-                self._ice(ni->range, "EmitIR: unpromoted callee; ExprTyper gate failure")
+                self._ice(
+                    ni->range,
+                    "EmitIR: unpromoted callee; ExprTyper gate failure",
+                )
             }
 
             return ni->resolved_decl
@@ -6408,7 +6821,10 @@ pub class EmitIR {
                     return &null
                 }
 
-                self._ice(c->range, "EmitIR: unpromoted callee step; ExprTyper gate failure")
+                self._ice(
+                    c->range,
+                    "EmitIR: unpromoted callee step; ExprTyper gate failure",
+                )
             }
 
             return last->resolved_decl
@@ -6465,7 +6881,12 @@ pub class EmitIR {
 
     /// An untyped \p e reached codegen: I011W at its source (CodegenICE).
     priv fn _ice_untyped(self, e: unsafe *Expr, const msg: string) {
-        codegen_ice(self._cg->ctx, DiagID::I011W, e->range, f"{msg} ({to_string(e->kind)})")
+        codegen_ice(
+            self._cg->ctx,
+            DiagID::I011W,
+            e->range,
+            f"{msg} ({to_string(e->kind)})",
+        )
     }
 
     /// ICE naming the Kairo source at \p at (CodegenICE).
@@ -6529,7 +6950,11 @@ pub class EmitIR {
                 )
             }
 
-            self._cg->sink->spell(t.range, self._int_text(n->type_, hi, n->get_value_lo(), false))
+            self._cg->sink->spell(
+                t.range,
+                self._int_text(n->type_, hi, n->get_value_lo(), false),
+            )
+
             return
         }
 
@@ -6544,16 +6969,25 @@ pub class EmitIR {
         if wrapped {
             d = n->imm
         } else {
-            var unsafe *tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid())
+            var unsafe *tbl = self._cg->ctx->tcm->get_imm_table_for_fid(
+                self._owning_fid(),
+            )
+
             if tbl == &null {
-                self._ice(t.range, "EmitIR: no immediate table for the file that owns this body")
+                self._ice(
+                    t.range,
+                    "EmitIR: no immediate table for the file that owns this body",
+                )
             }
 
             d = tbl->get<Immediate::IntData>(t.imm)
         }
 
         if d == &null && wrapped {
-            self._ice(t.range, "EmitIR: a macro-expanded integer literal has no immediate data")
+            self._ice(
+                t.range,
+                "EmitIR: a macro-expanded integer literal has no immediate data",
+            )
         }
 
         if d == &null {
@@ -6575,7 +7009,11 @@ pub class EmitIR {
         // IntData flag bit 3: a Kairo suffix (`0xFFu8`).
         var suffixed = (d->flags & 8) != 0 || is_byte
         if suffixed && n->type_ != &null {
-            self._cg->sink->spell(t.range, self._int_text(n->type_, 0, d->value_lo, false))
+            self._cg->sink->spell(
+                t.range,
+                self._int_text(n->type_, 0, d->value_lo, false),
+            )
+
             return
         }
 
@@ -6714,7 +7152,10 @@ pub class EmitIR {
         if n->limit != (0 as u8) {
             var unsafe *c0 = canon_unqual(n->type_)
             if c0 == &null || !isa<BuiltinType>(c0) {
-                self._ice(t.range, "EmitIR: a primitive limit literal is not typed as its builtin")
+                self._ice(
+                    t.range,
+                    "EmitIR: a primitive limit literal is not typed as its builtin",
+                )
             }
 
             var text = PrimitiveLimits::float_cxx(
@@ -6723,7 +7164,10 @@ pub class EmitIR {
             )
 
             if text == "" {
-                self._ice(t.range, "EmitIR: a primitive limit literal names no float limit")
+                self._ice(
+                    t.range,
+                    "EmitIR: a primitive limit literal names no float limit",
+                )
             }
 
             self._cg->sink->spell(t.range, text)
@@ -6738,10 +7182,16 @@ pub class EmitIR {
         if wrapped {
             d = n->imm
             if d == &null || !d->body.is_valid() {
-                self._ice(t.range, "EmitIR: a macro-expanded float literal has no immediate data")
+                self._ice(
+                    t.range,
+                    "EmitIR: a macro-expanded float literal has no immediate data",
+                )
             }
         } else {
-            var unsafe *tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid())
+            var unsafe *tbl = self._cg->ctx->tcm->get_imm_table_for_fid(
+                self._owning_fid(),
+            )
+
             if tbl != &null {
                 d = tbl->get<Immediate::FloatData>(t.imm)
             }
@@ -6819,7 +7269,11 @@ pub class EmitIR {
                 digits += "Q"
             } case BuiltinKind::BF16 {
                 digits += "f"
-                self._cg->sink->spell(t.range, f"static_cast<{self._spell._type(n->type_)}>(")
+                self._cg->sink->spell(
+                    t.range,
+                    f"static_cast<{self._spell._type(n->type_)}>(",
+                )
+
                 self._cg->sink->create_int(t.range, &digits)
                 self._cg->sink->spell(t.range, ")")
                 return
@@ -6858,11 +7312,18 @@ pub class EmitIR {
     priv fn _f8_lit(self, at: SourceRange, ty: unsafe *Type, digits: *string, e5m2: bool) {
         var b: i32 = 0
         unsafe {
-            b = kairo::f8_literal_bits(unsafe (digits->as_ptr() as unsafe *const u8), digits->size(), e5m2) as i32
+            b = kairo::f8_literal_bits(
+                unsafe (digits->as_ptr() as unsafe *const u8),
+                digits->size(),
+                e5m2,
+            ) as i32
         }
 
         if b < 0 {
-            self._ice(at, "EmitIR: an f8 literal whose digits APFloat does not read")
+            self._ice(
+                at,
+                "EmitIR: an f8 literal whose digits APFloat does not read",
+            )
         }
 
         self._cg->sink->spell(at, self._spell._type(ty) + f"::from_bits({b})")
@@ -6934,10 +7395,17 @@ pub class EmitIR {
         self._cur_fn  = m
         self._cur_ext = &null
         for var i: usize = 0; i < k; ++i {
-            var unsafe *f   = self._base_init_ctor((*stmts)[i])
-            var unsafe *n   = cast<CallExpr>(cast<ExpressionStmt>((*stmts)[i])->expr)
-            var        lead = if (i > 0) => (", ") else => (if (colon) => (" : ") else => ": ")
-            self._cg->sink->spell(n->range, lead + self._base_init_type(owner, f, n->range) + "(")
+            var unsafe *f = self._base_init_ctor((*stmts)[i])
+            var unsafe *n = cast<CallExpr>(
+                cast<ExpressionStmt>((*stmts)[i])->expr,
+            )
+
+            var lead = if (i > 0) => (", ") else => (if (colon) => (" : ") else => ": ")
+            self._cg->sink->spell(
+                n->range,
+                lead + self._base_init_type(owner, f, n->range) + "(",
+            )
+
             self._args(n, f, false, n->instance, true)
             self._cg->sink->spell(n->range, ")")
         }
@@ -6956,8 +7424,11 @@ pub class EmitIR {
             return &null
         }
 
-        var unsafe *want = CXXSpell::rep(decl_pattern(CXXSpell::rep((f->semantic_dc)->dc_owner)))
-        var unsafe *r    = dyn_cast<RecordType>(canon_unqual(obj->type_))
+        var unsafe *want = CXXSpell::rep(
+            decl_pattern(CXXSpell::rep((f->semantic_dc)->dc_owner)),
+        )
+
+        var unsafe *r = dyn_cast<RecordType>(canon_unqual(obj->type_))
         if r == &null || r->decl == &null {
             return &null
         }
@@ -6982,10 +7453,19 @@ pub class EmitIR {
                             owner: unsafe *Decl,
                             f:     unsafe *FunctionDecl,
                             at:    SourceRange) -> string {
-        var unsafe *dc   = f->semantic_dc
-        var unsafe *want = CXXSpell::rep(decl_pattern(CXXSpell::rep(dc->dc_owner)))
-        var        seen  = cxx::std::vector<unsafe *Decl>()
-        var unsafe *t    = self._base_edge_to(CXXSpell::rep(owner), want, unsafe &seen, 0)
+        var unsafe *dc = f->semantic_dc
+        var unsafe *want = CXXSpell::rep(
+            decl_pattern(CXXSpell::rep(dc->dc_owner)),
+        )
+
+        var seen = cxx::std::vector<unsafe *Decl>()
+        var unsafe *t = self._base_edge_to(
+            CXXSpell::rep(owner),
+            want,
+            unsafe &seen,
+            0,
+        )
+
         if t == &null {
             self._ice(
                 at,
@@ -7019,7 +7499,10 @@ pub class EmitIR {
                 continue
             }
 
-            var unsafe *r = dyn_cast<RecordType>(canon_unqual(e->base->canonical))
+            var unsafe *r = dyn_cast<RecordType>(
+                canon_unqual(e->base->canonical),
+            )
+
             if r == &null || r->decl == &null {
                 continue
             }
@@ -7035,7 +7518,10 @@ pub class EmitIR {
                 continue
             }
 
-            var unsafe *r = dyn_cast<RecordType>(canon_unqual(e->base->canonical))
+            var unsafe *r = dyn_cast<RecordType>(
+                canon_unqual(e->base->canonical),
+            )
+
             if r == &null || r->decl == &null {
                 continue
             }
@@ -7065,7 +7551,9 @@ pub class EmitIR {
             return false
         }
 
-        return self._spell.leaf(f) == self._spell.leaf(CXXSpell::rep(dc->dc_owner))
+        return self._spell.leaf(f) == self._spell.leaf(
+            CXXSpell::rep(dc->dc_owner),
+        )
     }
 
     /// ## Operators
@@ -7166,7 +7654,9 @@ pub class EmitIR {
         }
 
         var unsafe *c = CXXSpell::strip_ref(t)
-        return c != &null && isa<BuiltinType>(c) && cast<BuiltinType>(c)->builtin == BuiltinKind::Bool
+        return c != &null
+            && isa<BuiltinType>(c)
+            && cast<BuiltinType>(c)->builtin == BuiltinKind::Bool
     }
 
     priv fn _signed_int(self, t: unsafe *Type) -> bool {
@@ -7241,7 +7731,10 @@ pub class EmitIR {
             return &null
         }
 
-        var unsafe *fd = dyn_cast<FieldDecl>(c->steps.get(c->steps.size() - 1)->resolved_decl)
+        var unsafe *fd = dyn_cast<FieldDecl>(
+            c->steps.get(c->steps.size() - 1)->resolved_decl,
+        )
+
         if fd == &null || !fd->is_bitfield {
             return &null
         }
@@ -7443,12 +7936,18 @@ pub class EmitIR {
             if rem {
                 s->spell(at, self._scs(tt, "0"))
             } else {
-                s->spell(at, self._scs(tt, self._scs(uu, "0") + " - " + self._scs(uu, a)))
+                s->spell(
+                    at,
+                    self._scs(tt, self._scs(uu, "0") + " - " + self._scs(uu, a)),
+                )
             }
 
             s->spell(
                 at,
-                "; } } return " + self._scs(tt, a + (if (rem) => (" % ") else => " / ") + b) + "; ",
+                "; } } return " + self._scs(
+                    tt,
+                    a + (if (rem) => (" % ") else => " / ") + b,
+                ) + "; ",
             )
 
             return
@@ -7467,9 +7966,16 @@ pub class EmitIR {
                 "constexpr auto " + rr + " = (" + bits + " > 128) ? " + bits + " : ((" + bits + " > 64) ? 128 : ((" + bits + " < 32) ? 32 : " + bits + ")); ",
             )
 
-            var mask = "(" + self._scs(uu, b) + " & " + self._scs(uu, rr + " - 1") + ")"
+            var mask = "(" + self._scs(uu, b) + " & " + self._scs(
+                uu,
+                rr + " - 1",
+            ) + ")"
             if k == TokenKind::OpLessLess {
-                s->spell(at, "return static_cast<" + tt + ">(" + self._scs(uu, a))
+                s->spell(
+                    at,
+                    "return static_cast<" + tt + ">(" + self._scs(uu, a),
+                )
+
                 s->punct(at, clang::tok::lessless)
                 s->spell(at, mask + "); ")
                 return
@@ -7490,7 +7996,10 @@ pub class EmitIR {
                   else => (if (k == TokenKind::OpMinus) => ("-") else => "*")
         s->spell(
             at,
-            "return " + self._scs(tt, self._scs(uu, a) + " " + sym + " " + self._scs(uu, b)) + "; ",
+            "return " + self._scs(
+                tt,
+                self._scs(uu, a) + " " + sym + " " + self._scs(uu, b),
+            ) + "; ",
         )
     }
 
@@ -7803,10 +8312,10 @@ pub class EmitIR {
                         b:      fn(),
                         t:      unsafe *Type,
                         proven: bool) {
-        var        ts    = self._spell._type(CXXSpell::strip_ref(t))
-        var        u     = self._spell.wrap_carrier(t)
-        var unsafe *s    = self._cg->sink
-        var        arith = k == TokenKind::OpGreaterGreater && self._signed_int(t)
+        var        ts = self._spell._type(CXXSpell::strip_ref(t))
+        var        u  = self._spell.wrap_carrier(t)
+        var unsafe *s = self._cg->sink
+        var arith = k == TokenKind::OpGreaterGreater && self._signed_int(t)
         if !proven {
             self._warn_unproven_shift(at, t)
         }
@@ -7847,7 +8356,11 @@ pub class EmitIR {
     priv fn _cxx_new(self, n: unsafe *CxxNewExpr) {
         var s = self._cg->sink
         if n->is_array() {
-            s->spell(n->range, "(new " + self._spell._type(n->elem_type()) + "[")
+            s->spell(
+                n->range,
+                "(new " + self._spell._type(n->elem_type()) + "[",
+            )
+
             self.emit(n->count)
             s->spell(n->range, "])")
             return
@@ -7861,7 +8374,11 @@ pub class EmitIR {
             self._ice(n->range, "EmitIR: '@cxx::new' not typed as a pointer")
         }
 
-        s->spell(n->range, "(new " + self._spell._type(cast<PointerType>(c)->pointee) + "(")
+        s->spell(
+            n->range,
+            "(new " + self._spell._type(cast<PointerType>(c)->pointee) + "(",
+        )
+
         self.emit(n->init)
         s->spell(n->range, "))")
     }
@@ -7961,7 +8478,10 @@ pub class EmitIR {
         self._form_value(at)
         if self._signed_int(t) {
             if rem {
-                s->spell(at, "(" + tb + " == -1) ? static_cast<" + ts + ">(0) : ")
+                s->spell(
+                    at,
+                    "(" + tb + " == -1) ? static_cast<" + ts + ">(0) : ",
+                )
             } else {
                 s->spell(
                     at,
@@ -7970,7 +8490,11 @@ pub class EmitIR {
             }
         }
 
-        s->spell(at, "static_cast<" + ts + ">(" + ta + " " + sym + " " + tb + ");")
+        s->spell(
+            at,
+            "static_cast<" + ts + ">(" + ta + " " + sym + " " + tb + ");",
+        )
+
         self._form_close(at)
         self._bind_depth = d
     }
@@ -7986,8 +8510,10 @@ pub class EmitIR {
         }
 
         var b = cast<BuiltinType>(c)->builtin
-        return b == BuiltinKind::F256 || b == BuiltinKind::F512
-            || b == BuiltinKind::F8E4M3 || b == BuiltinKind::F8E5M2
+        return b == BuiltinKind::F256
+            || b == BuiltinKind::F512
+            || b == BuiltinKind::F8E4M3
+            || b == BuiltinKind::F8E5M2
     }
 
     /// `place OP= v` on an f256 / f512: `place = place OP v`, the place
@@ -8003,7 +8529,10 @@ pub class EmitIR {
         } else if k == TokenKind::OpSlash {
             sym = "/"
         } else if k != TokenKind::OpPlus {
-            self._ice(at, "EmitIR: an f256 / f512 compound assignment with no class operator")
+            self._ice(
+                at,
+                "EmitIR: an f256 / f512 compound assignment with no class operator",
+            )
         }
 
         if self._is_local_place(n->lhs) {
@@ -8115,7 +8644,13 @@ pub class EmitIR {
                 n->no_wrap,
             )
         } else {
-            self._op_form(at, k, fn () { s->spell(at, p) }, fn () { self._value(n->rhs, t) }, t)
+            self._op_form(
+                at,
+                k,
+                fn () { s->spell(at, p) },
+                fn () { self._value(n->rhs, t) },
+                t,
+            )
         }
 
         s->spell(at, ";")
@@ -8151,14 +8686,29 @@ pub class EmitIR {
             s->spell(at, "(")
             self.emit(n->operand)
             s->spell(at, " = ")
-            self._op_form(at, k, fn () { self.emit(n->operand) }, fn () { s->spell(at, "1") }, t)
+            self._op_form(
+                at,
+                k,
+                fn () { self.emit(n->operand) },
+                fn () { s->spell(at, "1") },
+                t,
+            )
+
             s->spell(at, ")")
             return
         }
 
         var unsafe *bf = self._bitfield_chain(self._strip(n->operand))
         if bf != &null {
-            self._bitfield_form(n, bf, k, fn () { s->spell(at, "1") }, t, n->is_postfix())
+            self._bitfield_form(
+                n,
+                bf,
+                k,
+                fn () { s->spell(at, "1") },
+                t,
+                n->is_postfix(),
+            )
+
             return
         }
 
@@ -8179,7 +8729,14 @@ pub class EmitIR {
             s->spell(at, "; ")
             self.emit(n->operand)
             s->spell(at, " = ")
-            self._op_form(at, k, fn () { self.emit(n->operand) }, fn () { s->spell(at, "1") }, t)
+            self._op_form(
+                at,
+                k,
+                fn () { self.emit(n->operand) },
+                fn () { s->spell(at, "1") },
+                t,
+            )
+
             s->spell(at, "; ")
             self._form_value(at)
             s->spell(at, o + ";")
@@ -8192,7 +8749,14 @@ pub class EmitIR {
             }
 
             s->spell(at, p + " = ")
-            self._op_form(at, k, fn () { s->spell(at, p) }, fn () { s->spell(at, "1") }, t)
+            self._op_form(
+                at,
+                k,
+                fn () { s->spell(at, p) },
+                fn () { s->spell(at, "1") },
+                t,
+            )
+
             s->spell(at, ";")
             if !stmt {
                 s->spell(at, " ")
@@ -8220,7 +8784,11 @@ pub class EmitIR {
         }
 
         if n->materialize {
-            self._cg->sink->spell(n->range, "::" + LowerTargets::tmp_addr() + "(")
+            self._cg->sink->spell(
+                n->range,
+                "::" + LowerTargets::tmp_addr() + "(",
+            )
+
             self.emit(n->operand)
             self._cg->sink->spell(n->range, ")")
             return
@@ -8255,7 +8823,10 @@ pub class EmitIR {
         var incdec = k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus
         var negnot = n->is_prefix() && (k == TokenKind::OpMinus || k == TokenKind::OpTilde)
         if n->no_wrap && (!(incdec || negnot) || !self._wraps(n->operand->type_)) {
-            self._ice(n->range, "EmitIR: no_wrap on an operator that has no wrap form")
+            self._ice(
+                n->range,
+                "EmitIR: no_wrap on an operator that has no wrap form",
+            )
         }
 
         if !n->no_wrap && incdec && self._wraps(n->operand->type_) {
@@ -8361,7 +8932,11 @@ pub class EmitIR {
             var neg = if (n->op_token.kind != TokenKind::OpEqualEqual) => ("!") else => ""
             var ls  = self._spell._type(n->type_cmp_lhs)
             var rs  = self._spell._type(n->type_cmp_rhs)
-            self._cg->sink->spell(n->range, "(" + neg + "__is_same(" + ls + ", " + rs + "))")
+            self._cg->sink->spell(
+                n->range,
+                "(" + neg + "__is_same(" + ls + ", " + rs + "))",
+            )
+
             return
         }
 
@@ -8412,7 +8987,10 @@ pub class EmitIR {
             var nw_ok = ints
                 && (k == TokenKind::OpPlus || k == TokenKind::OpMinus || k == TokenKind::OpStar)
             if !nw_ok {
-                self._ice(n->range, "EmitIR: no_wrap on an operator that has no wrap form")
+                self._ice(
+                    n->range,
+                    "EmitIR: no_wrap on an operator that has no wrap form",
+                )
             }
         } else if ints && self._has_wrap_form(k, n->type_) {
             self._op_form(
@@ -8432,7 +9010,12 @@ pub class EmitIR {
                 || k == TokenKind::OpSlash
                 || k == TokenKind::OpPercent
                 || shift) {
-            self._dep_binary(n->range, k, fn () { self.emit(n->lhs) }, fn () { self.emit(n->rhs) })
+            self._dep_binary(
+                n->range,
+                k,
+                fn () { self.emit(n->lhs) },
+                fn () { self.emit(n->rhs) },
+            )
 
             return
         }
@@ -8448,7 +9031,11 @@ pub class EmitIR {
             // from, and C++ has no such `operator+`.
             var unsafe *s = self._cg->sink
             // Parenthesized: as a subscript index, `v[[](...)]` opens a C++ attribute.
-            s->spell(n->range, "([](auto&& __ka, auto&& __kb) { if constexpr (requires { __ka ")
+            s->spell(
+                n->range,
+                "([](auto&& __ka, auto&& __kb) { if constexpr (requires { __ka ",
+            )
+
             s->create(n->op_token)
             s->spell(n->range, " __kb; }) { return (__ka ")
             s->create(n->op_token)
@@ -8478,8 +9065,9 @@ pub class EmitIR {
             var unsafe *s = self._cg->sink
             s->spell(
                 n->range,
-                "([](auto __kr) { return static_cast<" + self._spell._type(n->type_) +
-                    ">((__kr > 0) - (__kr < 0)); }((",
+                "([](auto __kr) { return static_cast<" + self._spell._type(
+                    n->type_,
+                ) + ">((__kr > 0) - (__kr < 0)); }((",
             )
 
             self.emit(n->lhs)
@@ -8872,7 +9460,10 @@ pub class EmitIR {
             && n->target->canonical != &null
             && n->operand->type_ != &null
             && isa<FunctionPointerType>(canon_unqual(n->operand->type_)) {
-            var unsafe *tfn = self._nullable_inner(canon_unqual(n->target->canonical))
+            var unsafe *tfn = self._nullable_inner(
+                canon_unqual(n->target->canonical),
+            )
+
             if tfn == &null {
                 tfn = canon_unqual(n->target->canonical)
             }
@@ -9006,7 +9597,10 @@ pub class EmitIR {
             )
 
             if bridge {
-                self._cg->sink->spell(n->operand->range, "(const volatile void *)(")
+                self._cg->sink->spell(
+                    n->operand->range,
+                    "(const volatile void *)(",
+                )
             }
 
             self.emit(n->operand)
@@ -9033,15 +9627,23 @@ pub class EmitIR {
         // into it is a C++ error. A closed enum's check has already
         // wrapped the operand (OperatorLowering), so it still runs first.
         if kind == "static_cast" && n->target != &null && n->target->canonical != &null {
-            var unsafe *inner = self._nullable_inner(canon_unqual(n->target->canonical))
-            var into_enum = inner != &null && self._is_plain_enum(inner)
+            var unsafe *inner = self._nullable_inner(
+                canon_unqual(n->target->canonical),
+            )
+
+            var into_enum = inner != &null
+                && self._is_plain_enum(inner)
                 && self._type_is_builtin_int(n->operand->type_)
-            var from_enum = inner != &null && self._is_plain_enum(n->operand->type_)
+            var from_enum = inner != &null
+                && self._is_plain_enum(n->operand->type_)
                 && self._type_is_builtin_int(inner)
             if into_enum || from_enum {
                 self._cg->sink->spell(
                     n->operand->range,
-                    "static_cast<" + self._spell._type(n->target, &null) + ">(static_cast<" + self._spell._type(inner, &null) + ">(",
+                    "static_cast<" + self._spell._type(
+                        n->target,
+                        &null,
+                    ) + ">(static_cast<" + self._spell._type(inner, &null) + ">(",
                 )
 
                 self.emit(n->operand)
@@ -9059,7 +9661,10 @@ pub class EmitIR {
             return false
         }
 
-        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
         if c == &null || c->kind != TypeKind::RecordType {
             return false
         }
@@ -9156,7 +9761,10 @@ pub class EmitIR {
             return false
         }
 
-        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
         if c == &null || c->kind != TypeKind::PointerType {
             return false
         }
@@ -9178,7 +9786,10 @@ pub class EmitIR {
             return false
         }
 
-        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
         if c == &null || c->kind != TypeKind::PointerType {
             return false
         }
@@ -9191,7 +9802,10 @@ pub class EmitIR {
         // `self.v[i]` on a `vector<T>`: the operator was left to each
         // instance, so clang resolves `operator[]` as written.
         if self._record_operand(n->base) && !self._dependent_foreign_type(n->base->type_) {
-            self._ice(n->range, "EmitIR: `[]` on a record; OperatorLowering owns it")
+            self._ice(
+                n->range,
+                "EmitIR: `[]` on a record; OperatorLowering owns it",
+            )
         }
 
         self.emit(n->base)
@@ -9241,16 +9855,26 @@ pub class EmitIR {
         }
 
         var cap = if (self._ns_init) => ("[]") else => "[&]"
-        self._cg->sink->spell(e->range, cap + "() -> " + self._spell._type(t) + " { ")
+        self._cg->sink->spell(
+            e->range,
+            cap + "() -> " + self._spell._type(t) + " { ",
+        )
+
         var saved = self._ns_init
         self._ns_init = false
         self.emit(e)
         self._ns_init = saved
-        self._cg->sink->spell(e->range, "; " + LowerTargets::clang_unreachable() + "(); }()")
+        self._cg->sink->spell(
+            e->range,
+            "; " + LowerTargets::clang_unreachable() + "(); }()",
+        )
     }
 
     priv fn _is_never_type(self, t: unsafe *Type) -> bool {
-        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
         if c == &null || !isa<BuiltinType>(c) {
             return false
         }
@@ -9289,7 +9913,9 @@ pub class EmitIR {
         if bare {
             self._cg->sink->spell(n->range, "{")
         } else {
-            var ext = if (at->extent_param != &null) => (self._spell._type(at->extent_param))
+            var ext = if (at->extent_param != &null) => (self._spell._type(
+                          at->extent_param,
+                      ))
                       else => f"{at->size_bits}"
             self._cg->sink->spell(
                 n->range,
@@ -9451,11 +10077,17 @@ pub class EmitIR {
                 self._cg->sink->spell(n->range, "}")
             } case PanicOp::SlotTake {
                 if n->slot == &null {
-                    self._ice(n->range, "EmitIR: a slot take with no slot; PanicLowering mints it")
+                    self._ice(
+                        n->range,
+                        "EmitIR: a slot take with no slot; PanicLowering mints it",
+                    )
                 }
 
                 self.emit(n->slot)
-                self._cg->sink->spell(n->range, "." + LowerTargets::raw_take() + "()")
+                self._cg->sink->spell(
+                    n->range,
+                    "." + LowerTargets::raw_take() + "()",
+                )
             }
 
             // A dependent set's test and read (Compiler/Spec/Panic.md#generic-bodies): the C++ view's
@@ -9533,9 +10165,9 @@ pub class EmitIR {
             )
         }
 
-        var unsafe *v  = en->variants[n->variant as usize]
-        var        t   = self._spell._type(n->type_)
-        var        tag = "::" + LowerTargets::adt_variant_tag() + "<" + f"{n->variant}" + ">{}"
+        var unsafe *v = en->variants[n->variant as usize]
+        var        t  = self._spell._type(n->type_)
+        var tag = "::" + LowerTargets::adt_variant_tag() + "<" + f"{n->variant}" + ">{}"
         if v->payload.size() == 0 {
             self._cg->sink->spell(n->range, t + "(" + tag + ")")
             return
@@ -9555,8 +10187,11 @@ pub class EmitIR {
             return
         }
 
-        var leaf = LowerTargets::adt_payload_type(self._spell.leaf(unsafe (v as unsafe *Decl)))
-        var pt   = self._spell.dependent_member_type(n->type_, leaf)
+        var leaf = LowerTargets::adt_payload_type(
+            self._spell.leaf(unsafe (v as unsafe *Decl)),
+        )
+
+        var pt = self._spell.dependent_member_type(n->type_, leaf)
         // A pack-expanded variant's element K: the constructor takes the
         // variant's tag, then K's, and the payload is the member template at
         // the element (InterfaceEmitter writes both). Always at a concrete
@@ -9681,7 +10316,10 @@ pub class EmitIR {
         // A member type of a duck parameter (`T::Guard`) has no canonical until
         // an instance names T; it is spelled as written (CXXSpell::dependent_member).
         if t->canonical == &null && self._spell.dependent_member(t).size() == 0 {
-            self._ice(t->range, "EmitIR: unresolved type reached codegen; sema gate failure")
+            self._ice(
+                t->range,
+                "EmitIR: unresolved type reached codegen; sema gate failure",
+            )
         }
 
         self._cg->sink->spell(t->range, self._spell._type(t))

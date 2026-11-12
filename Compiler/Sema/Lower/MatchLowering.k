@@ -461,7 +461,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         self._labels = cxx::std::vector<Token>()
         self._queued = cxx::std::vector<u8>()
         for var i: usize = 0; i < nn; ++i {
-            self._labels.push_back(self._name(LowerTargets::match_node(self._n, i)))
+            self._labels.push_back(
+                self._name(LowerTargets::match_node(self._n, i)),
+            )
+
             self._queued.push_back(0)
         }
 
@@ -504,7 +507,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             for var i: usize = 0; i < tl->elements.size(); ++i {
                 var child: i32 = -1
                 if occ >= 0 {
-                    child = self._find_occ_field(occ as u32, self.tu.tuple_field(tt, i))
+                    child = self._find_occ_field(
+                        occ as u32,
+                        self.tu.tuple_field(tt, i),
+                    )
                 }
 
                 self._bind_scrutinee(tl->elements[i], child, pre)
@@ -523,7 +529,9 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         var unsafe *vt = canon_unqual(self._referee(e->type_))
         var unsafe *lt = vt
         if self._is_class(vt) && e->is_lvalue() {
-            lt = self.sc->types->cxx_lref(self.sc->types->qualified(vt, QUAL_CONST))
+            lt = self.sc->types->cxx_lref(
+                self.sc->types->qualified(vt, QUAL_CONST),
+            )
         }
 
         var unsafe *vd = VariableDecl::create(
@@ -578,7 +586,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             return false
         }
 
-        var unsafe *en = dyn_cast<EnumDecl>(self.tu.pattern_of(cast<RecordType>(t)->decl))
+        var unsafe *en = dyn_cast<EnumDecl>(
+            self.tu.pattern_of(cast<RecordType>(t)->decl),
+        )
+
         if en != &null {
             return en->is_adt
         }
@@ -645,7 +656,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                     return false
                 }
 
-                return self.layout.has_payload(self._enum_at(d.parent as u32), d.index)
+                return self.layout.has_payload(
+                    self._enum_at(d.parent as u32),
+                    d.index,
+                )
             } default { // the root of a tuple literal: never bound, its elements are.
                 return false
             }
@@ -765,7 +779,9 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 s.var_ = VariableDecl::create(
                     self.ctx,
                     self._at,
-                    self._name(LowerTargets::match_slot(self._n, self._slots.size())),
+                    self._name(
+                        LowerTargets::match_slot(self._n, self._slots.size()),
+                    ),
                     StorageClass::Var,
                 )
 
@@ -832,7 +848,11 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             out.push_back(
                 self._expr_stmt(
                     self._assign(
-                        self.synth.use_of(s, self._at, Expr::ValueCategory::LValue),
+                        self.synth.use_of(
+                            s,
+                            self._at,
+                            Expr::ValueCategory::LValue,
+                        ),
                         self.synth.addr_of(self._occ(b.occ)),
                     ),
                 ),
@@ -872,7 +892,9 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             }
         }
 
-        kairo::std::ice_fail("MatchLowering: a binder its representative path does not bind")
+        kairo::std::ice_fail(
+            "MatchLowering: a binder its representative path does not bind",
+        )
     }
 
     /// The arm's binder declarations, in the mode each was written with.
@@ -885,7 +907,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             var unsafe *vt = self._binder_type(vd)
             vd->init = self._binder_init(arm, vd)
             if b.pat->is_const {
-                vd->type_   = self.sc->types->cxx_lref(self.sc->types->qualified(vt, QUAL_CONST))
+                vd->type_ = self.sc->types->cxx_lref(
+                    self.sc->types->qualified(vt, QUAL_CONST),
+                )
+
                 vd->storage = StorageClass::Var // the `const` is in the type; a keyword too would be `const const`.
             } else {
                 vd->type_ = vt
@@ -943,7 +968,9 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     priv fn _arm_value(self, arm: u32) -> unsafe *Expr {
         var unsafe *mc = self._cases->get(arm as usize)
         if mc->expression == &null {
-            kairo::std::ice_fail("MatchLowering: a value-form arm with no expression")
+            kairo::std::ice_fail(
+                "MatchLowering: a value-form arm with no expression",
+            )
         }
 
         var stmts = cxx::std::vector<unsafe *Stmt>()
@@ -983,7 +1010,12 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 return e
             }
 
-            return self.synth.cast_to(e->range, e, self.sc->types->cxx_rref(vt), CastMode::Default)
+            return self.synth.cast_to(
+                e->range,
+                e,
+                self.sc->types->cxx_rref(vt),
+                CastMode::Default,
+            )
         }
 
         return e
@@ -1088,7 +1120,9 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         }
 
         if reached.size() == 0 {
-            kairo::std::ice_fail("MatchLowering: a value-form match no arm of which is reached")
+            kairo::std::ice_fail(
+                "MatchLowering: a value-form match no arm of which is reached",
+            )
         }
 
         if reached.size() == 1 {
@@ -1120,7 +1154,11 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     priv fn _is_arm(self, k: u32) -> unsafe *Expr {
         return self._eq(
-            self.synth.use_of(self._arm_ix, self._at, Expr::ValueCategory::LValue),
+            self.synth.use_of(
+                self._arm_ix,
+                self._at,
+                Expr::ValueCategory::LValue,
+            ),
             self.synth.int_literal(self._at, k, BuiltinKind::U32),
         )
     }
@@ -1189,7 +1227,11 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             out->push_back(
                 self._expr_stmt(
                     self._assign(
-                        self.synth.use_of(self._arm_ix, self._at, Expr::ValueCategory::LValue),
+                        self.synth.use_of(
+                            self._arm_ix,
+                            self._at,
+                            Expr::ValueCategory::LValue,
+                        ),
                         self.synth.int_literal(self._at, arm, BuiltinKind::U32),
                     ),
                 ),
@@ -1219,8 +1261,16 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             out->push_back(
                 self._expr_stmt(
                     self._assign(
-                        self.synth.use_of(self._cont, self._at, Expr::ValueCategory::LValue),
-                        self.synth.int_literal(self._at, j as u64, BuiltinKind::U32),
+                        self.synth.use_of(
+                            self._cont,
+                            self._at,
+                            Expr::ValueCategory::LValue,
+                        ),
+                        self.synth.int_literal(
+                            self._at,
+                            j as u64,
+                            BuiltinKind::U32,
+                        ),
                     ),
                 ),
             )
@@ -1244,7 +1294,11 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             take.push_back(
                 self._expr_stmt(
                     self._assign(
-                        self.synth.use_of(self._arm_ix, self._at, Expr::ValueCategory::LValue),
+                        self.synth.use_of(
+                            self._arm_ix,
+                            self._at,
+                            Expr::ValueCategory::LValue,
+                        ),
                         self.synth.int_literal(self._at, arm, BuiltinKind::U32),
                     ),
                 ),
@@ -1283,16 +1337,28 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             var cases = cxx::std::vector<DispatchCase>()
             for var j: usize = 0; j + 1 < a->guards.size(); ++j {
                 var c = DispatchCase{}
-                c.lo     = self.synth.int_literal(self._at, j as u64, BuiltinKind::U32)
-                c.hi     = &null
-                c.target = self._target(self._t->nodes[a->guards[j] as usize].other)
+                c.lo = self.synth.int_literal(
+                    self._at,
+                    j as u64,
+                    BuiltinKind::U32,
+                )
+
+                c.hi = &null
+                c.target = self._target(
+                    self._t->nodes[a->guards[j] as usize].other,
+                )
+
                 cases.push_back(c)
             }
 
             var last = self._t->nodes[a->guards[a->guards.size() - 1] as usize].other
             out->push_back(
                 self._dispatch(
-                    self.synth.use_of(self._cont, self._at, Expr::ValueCategory::LValue),
+                    self.synth.use_of(
+                        self._cont,
+                        self._at,
+                        Expr::ValueCategory::LValue,
+                    ),
                     cases,
                     last,
                     false,
@@ -1413,7 +1479,12 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             }
 
             self._if_goto(
-                self.layout.variant_test(self._at, self._occ(n.occ), en, e.index),
+                self.layout.variant_test(
+                    self._at,
+                    self._occ(n.occ),
+                    en,
+                    e.index,
+                ),
                 e.child as i32,
                 &*out,
             )
@@ -1445,7 +1516,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             return self.layout.tag_case(self._at, ty, en, index)
         }
 
-        return self._decl_ref(unsafe (en->variants[index as usize] as unsafe *Decl), ty)
+        return self._decl_ref(
+            unsafe (en->variants[index as usize] as unsafe *Decl),
+            ty,
+        )
     }
 
     /// Strings: `switch (s.len)` into one bucket per length, each a run of
@@ -1469,7 +1543,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 lens.push_back(b.size())
                 bucket.push_back(
                     self._name(
-                        LowerTargets::match_node(self._n, self._t->nodes.size() + self._buckets),
+                        LowerTargets::match_node(
+                            self._n,
+                            self._t->nodes.size() + self._buckets,
+                        ),
                     ),
                 )
 
@@ -1480,7 +1557,12 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         var cases = cxx::std::vector<DispatchCase>()
         for var j: usize = 0; j < lens.size(); ++j {
             var c = DispatchCase{}
-            c.lo     = self.synth.int_literal(self._at, lens[j] as u64, BuiltinKind::USize)
+            c.lo = self.synth.int_literal(
+                self._at,
+                lens[j] as u64,
+                BuiltinKind::USize,
+            )
+
             c.hi     = &null
             c.target = bucket[j]
             if lens[j] == 0 {
@@ -1501,7 +1583,11 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
         out->push_back(
             self._dispatch(
-                self._string_call(n.occ, LangMembers::string_length(), self._usize()),
+                self._string_call(
+                    n.occ,
+                    LangMembers::string_length(),
+                    self._usize(),
+                ),
                 cases,
                 n.other,
                 false,
@@ -1522,7 +1608,11 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                     continue
                 }
 
-                self._if_goto(self._memcmp_eq(n.occ, unsafe &b), e.child as i32, &*out)
+                self._if_goto(
+                    self._memcmp_eq(n.occ, unsafe &b),
+                    e.child as i32,
+                    &*out,
+                )
             }
 
             out->push_back(self._jump(self._target(n.other)))
@@ -1575,7 +1665,12 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             } case CtorKind::Variant {
                 var unsafe *en = self._enum_at(occ)
                 if en->is_adt {
-                    return self.layout.variant_test(self._at, self._occ(occ), en, e.index)
+                    return self.layout.variant_test(
+                        self._at,
+                        self._occ(occ),
+                        en,
+                        e.index,
+                    )
                 }
 
                 return self._eq(
@@ -1608,8 +1703,16 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             }
 
             var unsafe *len = self._eq(
-                self._string_call(occ, LangMembers::string_length(), self._usize()),
-                self.synth.int_literal(self._at, b.size() as u64, BuiltinKind::USize),
+                self._string_call(
+                    occ,
+                    LangMembers::string_length(),
+                    self._usize(),
+                ),
+                self.synth.int_literal(
+                    self._at,
+                    b.size() as u64,
+                    BuiltinKind::USize,
+                ),
             )
 
             if b.size() == 0 {
@@ -1635,7 +1738,11 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 var unsafe *r              = cast<RangePattern>(p)
                 var        c: unsafe *Expr = &null
                 if r->lo != &null {
-                    c = self._cmp(self._occ(occ), r->lo, TokenKind::OpGreaterEqual)
+                    c = self._cmp(
+                        self._occ(occ),
+                        r->lo,
+                        TokenKind::OpGreaterEqual,
+                    )
                 }
 
                 if r->hi != &null {
@@ -1650,15 +1757,23 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
                 return c
             } case PatternKind::ConstructorPattern {
-                return self._eq(self._occ(occ), self._decl_ref(p->resolved_decl, t))
+                return self._eq(
+                    self._occ(occ),
+                    self._decl_ref(p->resolved_decl, t),
+                )
             } case PatternKind::UnresolvedConstructorPattern {
-                return self._eq(self._occ(occ), self._decl_ref(p->resolved_decl, t))
+                return self._eq(
+                    self._occ(occ),
+                    self._decl_ref(p->resolved_decl, t),
+                )
             } default {
                 0
             }
         }
 
-        kairo::std::ice_fail("MatchLowering: an opaque pattern kind with no test")
+        kairo::std::ice_fail(
+            "MatchLowering: an opaque pattern kind with no test",
+        )
     }
 
     /// A literal or constant head on a record column: the `==` X typed for
@@ -1707,15 +1822,28 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     priv fn _memcmp_eq(self, occ: u32, bytes: unsafe *cxx::std::vector<u8>) -> unsafe *Expr {
         var unsafe *f = self._builtin(LowerTargets::clang_memcmp())
         var unsafe *pu8 = self.sc->types->pointer(
-            self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST),
+            self.sc->types->qualified(
+                self.sc->builtin(BuiltinKind::U8),
+                QUAL_CONST,
+            ),
         )
 
         var args = self.list_builder<unsafe *Expr>()
         args.push(self._string_call(occ, LangMembers::string_as_ptr(), pu8))
         args.push(self.synth.bytes_literal(self._at, bytes, pu8))
-        args.push(self.synth.int_literal(self._at, bytes->size() as u64, BuiltinKind::USize))
+        args.push(
+            self.synth.int_literal(
+                self._at,
+                bytes->size() as u64,
+                BuiltinKind::USize,
+            ),
+        )
+
         var unsafe *call = self._call(f, &args)
-        return self._eq(call, self.synth.int_literal(self._at, 0, BuiltinKind::I32))
+        return self._eq(
+            call,
+            self.synth.int_literal(self._at, 0, BuiltinKind::I32),
+        )
     }
 
     /// `s.name()`, a no-argument string accessor.
@@ -1780,7 +1908,12 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     priv fn _occ(self, o: u32) -> unsafe *Expr {
         var unsafe *local = self._locals[o as usize]
         if local != &null {
-            var unsafe *use = self.synth.use_of(local, self._at, Expr::ValueCategory::LValue)
+            var unsafe *use = self.synth.use_of(
+                local,
+                self._at,
+                Expr::ValueCategory::LValue,
+            )
+
             use->type_ = canon_unqual(self._referee(local->type_))
             return use
         }
@@ -1866,7 +1999,15 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                      @inout out: cxx::std::vector<unsafe *Stmt>) {
         var take = cxx::std::vector<unsafe *Stmt>()
         take.push_back(self._jump(self._target(child)))
-        out.push_back(ConditionalStmt::create(self.ctx, self._at, c, self._block(&take), &null))
+        out.push_back(
+            ConditionalStmt::create(
+                self.ctx,
+                self._at,
+                c,
+                self._block(&take),
+                &null,
+            ),
+        )
     }
 
     /// `switch (v) { case ...: goto ...; default: goto <other>; }`; a
@@ -1932,7 +2073,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         var unsafe *callee = NamedIdentExpr::create(
             self.ctx,
             self._at,
-            self.synth.ident(self._at, self.tu.decl_name(unsafe (f as unsafe *Decl))),
+            self.synth.ident(
+                self._at,
+                self.tu.decl_name(unsafe (f as unsafe *Decl)),
+            ),
         )
 
         callee->resolved_decl = unsafe (f as unsafe *Decl)
@@ -1948,13 +2092,17 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     priv fn _lang_member(self, k: WellKnownType, const name: string) -> unsafe *Decl {
         var unsafe *d = self.sc->well_known->get(k)
         if d == &null {
-            kairo::std::ice_fail(f"MatchLowering: the '{to_string(k)}' lang item is unbound")
+            kairo::std::ice_fail(
+                f"MatchLowering: the '{to_string(k)}' lang item is unbound",
+            )
         }
 
         var unsafe *body = self.tu.pattern_of(NameLookup::representative(d))
         var unsafe *dc   = NameLookup::context_of(body)
         if dc == &null {
-            kairo::std::ice_fail(f"MatchLowering: '{to_string(k)}' has no scope")
+            kairo::std::ice_fail(
+                f"MatchLowering: '{to_string(k)}' has no scope",
+            )
         }
 
         var imm  = self.sc->imm_table()->intern_ident_copy(name)

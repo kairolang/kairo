@@ -199,7 +199,10 @@ pub class ScopeTracker {
             var t     = src->peek(0)
             var ident = IdentifierToken()
             ident.token = &null // stream token is a copy; spelling is what's used
-            ident.name  = self._sym_table->intern(TokenText::spelling(t, self._tcm))
+            ident.name = self._sym_table->intern(
+                TokenText::spelling(t, self._tcm),
+            )
+
             path.segments.push_back(ident)
             emit(src->next())
 

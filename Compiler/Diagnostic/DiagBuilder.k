@@ -537,7 +537,7 @@ pub class DiagBuilder {
 
         if self._diag->children.size() > 0 {
             var unsafe *child = self._diag->children[self._diag->children.size() - 1]
-            var        label  = DiagLabel{}
+            var label = DiagLabel{}
             label.range = range
             label.text  = text
             label.style = DiagLabel::Style::Primary
@@ -559,7 +559,7 @@ pub class DiagBuilder {
 
         if self._diag->children.size() > 0 {
             var unsafe *child = self._diag->children[self._diag->children.size() - 1]
-            var        label  = DiagLabel{}
+            var label = DiagLabel{}
             label.range = range
             label.text  = text
             label.style = DiagLabel::Style::Secondary
@@ -584,7 +584,7 @@ pub class DiagBuilder {
 
         if self._diag->children.size() > 0 {
             var unsafe *child = self._diag->children[self._diag->children.size() - 1]
-            var        f      = FixIt{}
+            var f = FixIt{}
             f.range       = range
             f.replacement = replacement
             f.message     = msg

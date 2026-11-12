@@ -157,7 +157,7 @@ pub class FileImportIndex {
 
             // always record the module alias too (Foo::{...} still allows Foo::x)
             self.module_aliases[self._sym->intern(segs[segs.size() - 1]) as u64] = rr.full_scope
-            id->resolved_fid                                                     = rr.target_fid
+            id->resolved_fid   = rr.target_fid
             id->file_seg_count = (rr.seg_count as u32)
 
             for var i: usize = 0; i < id->items.size(); ++i {
@@ -176,7 +176,7 @@ pub class FileImportIndex {
                 var item_scope = rr.source_scope
                 for var s: usize = 0; it.sub_path.size() > 0 && s + 1 < it.sub_path.size(); ++s {
                     var seg_id = IdentifierToken()
-                    seg_id.name  = self._sym->intern(self._spell(it.sub_path[s]))
+                    seg_id.name = self._sym->intern(self._spell(it.sub_path[s]))
                     seg_id.token = &null
                     item_scope.segments.push_back(seg_id)
                 }
@@ -232,7 +232,7 @@ pub class FileImportIndex {
         // `import Foo::mac` reaching past the file: a symbol path, which
         // may have meant the macro `mac!`.
         if rr.seg_count < segs.size() {
-            var last = id->path_segments[id->path_segments.size() - 1]
+            var last       = id->path_segments[id->path_segments.size() - 1]
             var item_scope = rr.source_scope
             item_scope.segments.pop_back()
             var bi = Self::BareItem{}
@@ -242,7 +242,9 @@ pub class FileImportIndex {
             self._bare.push_back(bi)
         }
 
-        var alias_key = if (id->has_alias) => (self._sym->intern(self._spell(id->alias)))
+        var alias_key = if (id->has_alias) => (self._sym->intern(
+                            self._spell(id->alias),
+                        ))
                         else => self._sym->intern(segs[segs.size() - 1])
         self.module_aliases[alias_key as u64] = rr.full_scope
         id->resolved_fid                      = rr.target_fid
@@ -265,7 +267,10 @@ pub class FileImportIndex {
 
     /// A braced item without `!` (`import Foo::{a::mac}`), recorded as
     /// a BareItem under \p base plus every segment but its last.
-    priv fn _note_bare(self, const base: ModulePath, const sub: FrozenList<Token>, at: SourceRange) {
+    priv fn _note_bare(self,
+                       const base: ModulePath,
+                       const sub:  FrozenList<Token>,
+                       at:         SourceRange) {
         if sub.size() == 0 {
             return
         }
@@ -279,7 +284,7 @@ pub class FileImportIndex {
         }
 
         var last = sub[sub.size() - 1]
-        var bi = Self::BareItem{}
+        var bi   = Self::BareItem{}
         bi.name  = self._sym->intern(self._spell(last))
         bi.scope = scope
         bi.at    = last.range
@@ -370,7 +375,9 @@ pub class FileImportIndex {
         var in_dir = id->import_kind != ImportKind::Native
         var anchor = self._dir
         if id->import_kind == ImportKind::ModuleRelative {
-            var mdir = if (self._has_dir) => (module_dir_at_or_above(self._dir.full_path()))
+            var mdir = if (self._has_dir) => (module_dir_at_or_above(
+                           self._dir.full_path(),
+                       ))
                        else => ""
             if mdir.empty() {
                 self._no_module_root(id, segs)
@@ -421,7 +428,11 @@ pub class FileImportIndex {
             if in_dir {
                 rr = self._res->resolve_module_in(try_segs, dir)
             } else {
-                rr = self._res->resolve_module_rel(try_segs, self._dir, self._has_dir)
+                rr = self._res->resolve_module_rel(
+                    try_segs,
+                    self._dir,
+                    self._has_dir,
+                )
             }
 
             if rr.found {
@@ -496,7 +507,12 @@ pub class FileImportIndex {
         )
 
         b.first(id->range)
-        b.insert(first.start, "self::", "import it from this file\x27s directory")
+        b.insert(
+            first.start,
+            "self::",
+            "import it from this file\x27s directory",
+        )
+
         b.emit()
     }
 

@@ -35,7 +35,9 @@ pub inline fn is_digit(c: u8) -> bool {
 }
 
 pub inline fn is_hex_digit(c: u8) -> bool {
-    return is_digit(c) || (c >= ('a' as u8) && c <= ('f' as u8)) || (c >= ('A' as u8) && c <= ('F' as u8))
+    return is_digit(c)
+        || (c >= ('a' as u8) && c <= ('f' as u8))
+        || (c >= ('A' as u8) && c <= ('F' as u8))
 }
 
 /// The value of hex digit \p c, either case; 0 for a byte that is not one.

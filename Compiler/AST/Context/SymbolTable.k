@@ -336,7 +336,11 @@ pub class SymbolTable {
         // no cooperation from the forty-odd callers (AST/Context/DepLog.k).
         var unsafe *deps = dep_log_current()
         if deps != &null {
-            deps->probe(self._dep_root(), (unsafe ((&self) as unsafe *void)) as usize as u64, name.as_key())
+            deps->probe(
+                self._dep_root(),
+                (unsafe ((&self) as unsafe *void)) as usize as u64,
+                name.as_key(),
+            )
         }
 
         var unsafe *it = self._cells.find(name.as_key())
@@ -414,7 +418,10 @@ pub class SymbolTable {
         // `cxx::std::#thread`. Only on a miss, so a Kairo name declared with
         // the `#` keeps it, and a C or C++ name can never contain one.
         if spelling.size() > 1 && spelling[0] == ('#' as u8) {
-            src_imm = src_imms->find_ident(spelling.subslice(1, spelling.size() - 1))
+            src_imm = src_imms->find_ident(
+                spelling.subslice(1, spelling.size() - 1),
+            )
+
             if src_imm != ((-1) as i32 as u32) {
                 return tbl->lookup_ident(src_imm)
             }

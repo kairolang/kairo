@@ -40,13 +40,8 @@ ffi "c++" import "chrono"
 import API::EnvNames::EnvNames
 import API::FS::*
 import Driver::CacheFormat::{
-    CACHE_SCHEMA,
-    INCR_SEMA_SCHEMA,
-    cache_dir_name,
-    fingerprint_prefix,
-    fingerprint_schema_key,
-    fingerprint_version_key,
-    incr_run_header,
+    CACHE_SCHEMA,           INCR_SEMA_SCHEMA,        cache_dir_name,  fingerprint_prefix,
+    fingerprint_schema_key, fingerprint_version_key, incr_run_header,
 }
 import Driver::ObjectCache::ObjectCache
 import Sema::Incremental::Plan::PlanModule
@@ -101,19 +96,19 @@ pub class ModuleRecords {
     pub var dir: string = ""
 
     /// What the hit run replays, loaded by check().
-    pub var old_diag:    string = ""
-    pub var old_warns:   u32    = 0
-    pub var old_pthread: bool   = false
+    pub var old_diag:    string                   = ""
+    pub var old_warns:   u32                      = 0
+    pub var old_pthread: bool                     = false
     pub var old_objects: cxx::std::vector<string>
-    pub var old_mods:    cxx::std::vector<string> ///< "<module>\t<O keys>\t<I(m)>", sorted
+    pub var old_mods:    cxx::std::vector<string>         ///< "<module>\t<O keys>\t<I(m)>", sorted
     /// What a miss leaves for the re-check plan (Sema/Incremental/Plan.k).
     /// \c plan_base: the only inputs that moved are Kairo sources of the
     /// recorded graph (\c changed, their paths), so the stored rows can say
     /// which modules they reach. Otherwise \c plan_all says why every
     /// module is re-checked: the fallbacks, one per kind of input the rows
     /// cannot see (Compiler/Spec/IncrementalSema.md#phase-3).
-    pub var plan_base: bool   = false
-    pub var plan_all:  string = ""
+    pub var plan_base: bool                     = false
+    pub var plan_all:  string                   = ""
     pub var changed:   cxx::std::vector<string>
     /// The recorded run reported an error: its records are a baseline for
     /// the plan and never a hit (an error is not replayed).
@@ -129,16 +124,16 @@ pub class ModuleRecords {
     pub var mod_hash:  cxx::std::vector<string> ///< I(m), parallel
     pub var mod_json:  cxx::std::vector<string> ///< the record body, parallel
     pub var mod_plan:  cxx::std::vector<PlanModule> ///< the plan record, parallel
-    pub var errors:    bool = false ///< this run reported an error
+    pub var errors:    bool                         = false ///< this run reported an error
     pub var keys:      cxx::std::vector<string> ///< "<module>\t<O(m)>" per codegen job
     pub var hdr_files: cxx::std::vector<string> ///< every header-set file path
     pub var src_files: cxx::std::vector<string> ///< every SourceManager file path
     pub var src_hash:  cxx::std::vector<string> ///< parallel: hash of the bytes the run read ("" = hash the disk)
     pub var roots:     cxx::std::vector<string> ///< the import search roots
     pub var objects:   cxx::std::vector<string>
-    pub var pthread:   bool                     = false
-    pub var diag:      string                   = ""
-    pub var warns:     u32                      = 0
+    pub var pthread:   bool                         = false
+    pub var diag:      string                       = ""
+    pub var warns:     u32                          = 0
 
     priv var _f_lines:  string = "" ///< F_sema's parts, one per line
     priv var _manifest: string = ""
@@ -148,7 +143,7 @@ pub class ModuleRecords {
     /// The manifest as check() parsed it, for the refresh a touched-but-same
     /// file triggers (its new mtime goes back in, so the next hit is a stat).
     priv var _lines:     cxx::std::vector<string>
-    priv var _refreshed: bool = false
+    priv var _refreshed: bool                     = false
 
     fn ModuleRecords(self) = default
 
@@ -177,8 +172,12 @@ pub class ModuleRecords {
         var args = ""
         for var i: usize = 1; i < words.size(); ++i {
             var w = words[i]
-            if w == "--incremental-sema" || w == "--incr-verify" || w == "--print-incr-status"
-                || w == "--incr-paranoid" || w == "--time-passes" || w == "--print-incr-plan" {
+            if w == "--incremental-sema"
+                || w == "--incr-verify"
+                || w == "--print-incr-status"
+                || w == "--incr-paranoid"
+                || w == "--time-passes"
+                || w == "--print-incr-plan" {
                 continue
             }
 
@@ -190,9 +189,14 @@ pub class ModuleRecords {
             envs += n + "=" + LinkFS::env(n) + "\n"
         }
 
-        var ver = string(unsafe ((kairo::version_string() as unsafe *const u8) as *const u8))
+        var ver = string(
+            unsafe ((kairo::version_string() as unsafe *const u8) as *const u8),
+        )
+
         self._f_lines = fingerprint_schema_key() + f" {INCR_SEMA_SCHEMA}.{CACHE_SCHEMA}\n"
-        self._f_lines += fingerprint_version_key() + " " + ObjectCache::clean(ver) + "\n"
+        self._f_lines += fingerprint_version_key() + " " + ObjectCache::clean(
+            ver,
+        ) + "\n"
         self._f_lines += "f.args " + ObjectCache::hash(args) + "\n"
         self._f_lines += "f.cwd " + ObjectCache::hash(Path::cwd().path_data) + "\n"
         self._f_lines += "f.env " + ObjectCache::hash(envs) + "\n"
@@ -206,9 +210,11 @@ pub class ModuleRecords {
             self._exe = env::exe_path()
         }
 
-        self.dir       = cache_dir + "/" + cache_dir_name() + "/mod"
-        self._manifest = self.dir + "/run-" + ObjectCache::hash(input + "\n" + output) + ".txt"
-        self.on        = true
+        self.dir = cache_dir + "/" + cache_dir_name() + "/mod"
+        self._manifest = self.dir + "/run-" + ObjectCache::hash(
+            input + "\n" + output,
+        ) + ".txt"
+        self.on = true
         return true
     }
 
@@ -235,7 +241,7 @@ pub class ModuleRecords {
         }
 
         {
-            var p = at + 6
+            var p      = at + 6
             var n: u64 = 0
             while p < text.size() && text[p] != ('\n' as u8) {
                 n = n * 10 + ((text[p] - ('0' as u8)) as u64)
@@ -281,7 +287,11 @@ pub class ModuleRecords {
                         self.status = "miss: " + part + " changed"
                     }
 
-                    self.plan_all = self.status.subslice(6, self.status.size() - 6)
+                    self.plan_all = self.status.subslice(
+                        6,
+                        self.status.size() - 6,
+                    )
+
                     return false
                 }
             }
@@ -328,7 +338,9 @@ pub class ModuleRecords {
                 }
 
                 if l.starts_with("obj ") {
-                    self.old_objects.push_back(ModuleRecords::_field_rest(self._lines[i], 4))
+                    self.old_objects.push_back(
+                        ModuleRecords::_field_rest(self._lines[i], 4),
+                    )
                 }
             } else if l.starts_with("dir ") {
                 var h = ModuleRecords::_field(l, 1)
@@ -345,7 +357,9 @@ pub class ModuleRecords {
                 nmods += 1
                 self.old_mods.push_back(l.subslice(4, l.size() - 4))
             } else if l.starts_with("warns ") {
-                self.old_warns = (ModuleRecords::_num(l.subslice(6, l.size() - 6)) as u32)
+                self.old_warns = (ModuleRecords::_num(
+                    l.subslice(6, l.size() - 6),
+                ) as u32)
             } else if l.starts_with("pthread ") {
                 self.old_pthread = l == "pthread 1"
             } else if l == "errors 1" {
@@ -406,7 +420,10 @@ pub class ModuleRecords {
             body += l + "\n"
         }
 
-        self._publish(self._manifest, body + f"diag {self.old_diag.size()}\n" + self.old_diag + "\nend\n")
+        self._publish(
+            self._manifest,
+            body + f"diag {self.old_diag.size()}\n" + self.old_diag + "\nend\n",
+        )
     }
 
     /// \brief the records of a run whose Sema ran: one per module first,
@@ -448,7 +465,7 @@ pub class ModuleRecords {
         }
 
         llvm::sort(all.begin(), all.end())
-        var dirs = llvm::StringSet<llvm::MallocAllocator>()
+        var dirs     = llvm::StringSet<llvm::MallocAllocator>()
         var dir_list = cxx::std::vector<string>()
         for var e: string in all {
             var tab = ModuleRecords::_find(e, "\t")
@@ -478,7 +495,10 @@ pub class ModuleRecords {
             var ks   = ""
             for var k: string in self.keys {
                 if k.starts_with(name + "\t") {
-                    ks += (if (ks.empty()) => ("") else => ",") + k.subslice(name.size() + 1, k.size() - name.size() - 1)
+                    ks += (if (ks.empty()) => ("") else => ",") + k.subslice(
+                        name.size() + 1,
+                        k.size() - name.size() - 1,
+                    )
                 }
             }
 
@@ -486,7 +506,9 @@ pub class ModuleRecords {
                 ks = "-"
             }
 
-            var rec = "{\"version\": 1, \"module\": " + ModuleRecords::_json(name) + ", \"objects\": " + ModuleRecords::_json(ks) + ",\n" + self.mod_json[i] + "}\n"
+            var rec = "{\"version\": 1, \"module\": " + ModuleRecords::_json(
+                name,
+            ) + ", \"objects\": " + ModuleRecords::_json(ks) + ",\n" + self.mod_json[i] + "}\n"
             var rp = self.dir + "/" + ObjectCache::hash(name) + ".json"
             if !self._publish(rp, rec) {
                 return false
@@ -495,7 +517,10 @@ pub class ModuleRecords {
             // The same facts as the lines the plan reads, and the module's
             // own diagnostics (Sema/Incremental/Plan.k).
             if i < self.mod_plan.size()
-                && !self._publish(self._plan_path(name), self.mod_plan[i].render()) {
+                && !self._publish(
+                    self._plan_path(name),
+                    self.mod_plan[i].render(),
+                ) {
                 return false
             }
 
@@ -534,7 +559,10 @@ pub class ModuleRecords {
             var ks   = ""
             for var k: string in self.keys {
                 if k.starts_with(name + "\t") {
-                    ks += (if (ks.empty()) => ("") else => ",") + k.subslice(name.size() + 1, k.size() - name.size() - 1)
+                    ks += (if (ks.empty()) => ("") else => ",") + k.subslice(
+                        name.size() + 1,
+                        k.size() - name.size() - 1,
+                    )
                 }
             }
 
@@ -567,7 +595,10 @@ pub class ModuleRecords {
     /// before the run started gets mtime 0, which check() never trusts: an
     /// edit made during the run, or in the same clock tick as the record,
     /// would otherwise keep the old stat and be a hit forever.
-    priv fn _file_line(self, const kind: string, const p: string, const read_hash: string) -> string {
+    priv fn _file_line(self,
+                       const kind:      string,
+                       const p:         string,
+                       const read_hash: string) -> string {
         var mt: u64 = 0
         var sz: u64 = 0
         if !ModuleRecords::_stat(p, &mt, &sz) {
@@ -610,7 +641,7 @@ pub class ModuleRecords {
 
         var mt: u64 = 0
         var sz: u64 = 0
-        var ok  = ModuleRecords::_stat(p, &mt, &sz)
+        var ok      = ModuleRecords::_stat(p, &mt, &sz)
         if sh == "missing" {
             if ok {
                 return "added: " + p
@@ -638,7 +669,7 @@ pub class ModuleRecords {
         // Same bytes, new stat: a touch. Written back by refresh().
         var slack: u64 = 2000000000
         if mt + slack < ModuleRecords::_now() && mt != smt {
-            self._lines[i] = kind + f" {mt} {sz} " + sh + " " + p
+            self._lines[i]  = kind + f" {mt} {sz} " + sh + " " + p
             self._refreshed = true
         }
 
@@ -651,9 +682,9 @@ pub class ModuleRecords {
     /// them can shadow, collide with or (foo.k beside foo/module.k) change
     /// a resolution with no source edited.
     priv fn _dirs_of(self,
-                     const p:  string,
-                     set:      unsafe *llvm::StringSet<llvm::MallocAllocator>,
-                     list:     unsafe *cxx::std::vector<string>) {
+                     const p: string,
+                     set:     unsafe *llvm::StringSet<llvm::MallocAllocator>,
+                     list:    unsafe *cxx::std::vector<string>) {
         var own = LinkFS::parent(p)
         ModuleRecords::_add_dir(own, set, list)
         var best = ""
@@ -689,9 +720,9 @@ pub class ModuleRecords {
         }
     }
 
-    priv static fn _add_dir(const d:  string,
-                            set:      unsafe *llvm::StringSet<llvm::MallocAllocator>,
-                            list:     unsafe *cxx::std::vector<string>) {
+    priv static fn _add_dir(const d: string,
+                            set:     unsafe *llvm::StringSet<llvm::MallocAllocator>,
+                            list:    unsafe *cxx::std::vector<string>) {
         if d.empty() || set->contains(kairo::sref(d)) {
             return
         }
@@ -745,7 +776,10 @@ pub class ModuleRecords {
     }
 
     priv static fn _hash_file(const p: string) -> string {
-        var h = kairo::std::from_std_string<string>(kairo::objcache_file_hash(kairo::sref(p)))
+        var h = kairo::std::from_std_string<string>(
+            kairo::objcache_file_hash(kairo::sref(p)),
+        )
+
         if h.empty() {
             return "missing"
         }
@@ -792,7 +826,7 @@ pub class ModuleRecords {
 
     /// Space-separated field \p k of \p l.
     priv static fn _field(const l: string, k: usize) -> string {
-        var n: usize = 0
+        var n:     usize = 0
         var start: usize = 0
         for var i: usize = 0; i <= l.size(); ++i {
             if i == l.size() || l[i] == (' ' as u8) {

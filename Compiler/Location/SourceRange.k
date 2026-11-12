@@ -109,7 +109,10 @@ pub class SourceRange {
     }
 
     pub static fn invalid() -> SourceRange {
-        return SourceRange::from_bounds(SourceLocation::invalid(), SourceLocation::invalid())
+        return SourceRange::from_bounds(
+            SourceLocation::invalid(),
+            SourceLocation::invalid(),
+        )
     }
 
     ///

@@ -35,13 +35,19 @@ pub class BundleProvider derives SysrootProvider {
                             const dst:  string,
                             @inout out: SysOutcome) -> bool {
         if ctx->inputs.empty() {
-            return out.refuse(f"the {ctx->target.recipe} recipe names no input to bundle", "")
+            return out.refuse(
+                f"the {ctx->target.recipe} recipe names no input to bundle",
+                "",
+            )
         }
 
         var base = ctx->inputs[0]
         var keys = ctx->recipe.keys_of("bundle_layout")
         if keys.empty() {
-            return out.refuse(f"the {ctx->target.recipe} recipe has no [bundle_layout]", "")
+            return out.refuse(
+                f"the {ctx->target.recipe} recipe has no [bundle_layout]",
+                "",
+            )
         }
 
         for var k: string in keys {

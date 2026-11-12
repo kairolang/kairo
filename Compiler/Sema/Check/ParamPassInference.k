@@ -310,7 +310,11 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         }
 
         self._ret.push_back(n->return_type)
-        var unsafe *out = RecursiveASTVisitor<ParamPassInference>::traverse_function_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<ParamPassInference>::traverse_function_decl(
+            self,
+            n,
+        )
+
         self._ret.pop_back()
         // Decide this function's candidates, then drop them: a reference to
         // one can only be in its own body.
@@ -337,7 +341,11 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     fn traverse_closure_expr(self,
                              n: unsafe *Expressions::ClosureExpr) -> unsafe *Expressions::ClosureExpr {
         self._closures += 1
-        var unsafe *out = RecursiveASTVisitor<ParamPassInference>::traverse_closure_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<ParamPassInference>::traverse_closure_expr(
+            self,
+            n,
+        )
+
         self._closures -= 1
         return out
     }
@@ -390,7 +398,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         // alone is a signature the declaration does not match, which C++
         // rejects as an out-of-line definition of nothing.
         for var i: usize = 0; i < links.size(); ++i {
-            var unsafe *q  = links[i]
+            var unsafe *q = links[i]
             var        at = q->name.range.start
             if at == p->name.range.start {
                 continue
@@ -861,7 +869,9 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
                 }
 
                 var unsafe *bt = if (se->base != &null
-                                     && se->base->type_ != &null) => (canon_unqual(se->base->type_))
+                                     && se->base->type_ != &null) => (canon_unqual(
+                                     se->base->type_,
+                                 ))
                                  else => &null
                 if bt == &null {
                     return &null
@@ -974,7 +984,10 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             return false
         }
 
-        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
         return c != &null && (isa<CXXLValueRefType>(c) || isa<CXXRValueRefType>(c))
     }
 
@@ -1024,7 +1037,9 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         if isa<CXXLValueRefType>(c) {
             var unsafe *ref = cast<CXXLValueRefType>(c)->referee
             return ref != &null
-                && canon_has_const(if (ref->canonical != &null) => (ref->canonical) else => ref)
+                && canon_has_const(
+                    if (ref->canonical != &null) => (ref->canonical) else => ref,
+                )
         }
 
         return true
@@ -1037,7 +1052,9 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         }
 
         if isa<NamedIdentExpr>(x) {
-            return dyn_cast<FunctionDecl>(cast<NamedIdentExpr>(x)->resolved_decl)
+            return dyn_cast<FunctionDecl>(
+                cast<NamedIdentExpr>(x)->resolved_decl,
+            )
         }
 
         if isa<ChainExpr>(x) {
@@ -1046,7 +1063,9 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
                 return &null
             }
 
-            return dyn_cast<FunctionDecl>(ce->steps.get(ce->steps.size() - 1)->resolved_decl)
+            return dyn_cast<FunctionDecl>(
+                ce->steps.get(ce->steps.size() - 1)->resolved_decl,
+            )
         }
 
         return &null
@@ -1055,8 +1074,8 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     /// # approving nodes
 
     fn visit_call_expr(self, n: *Expressions::CallExpr) -> bool {
-        var unsafe *f      = self._callee_decl(n->callee)
-        var        is_ctor = n->ctor_decl != &null && isa<FunctionDecl>(n->ctor_decl)
+        var unsafe *f = self._callee_decl(n->callee)
+        var is_ctor = n->ctor_decl != &null && isa<FunctionDecl>(n->ctor_decl)
         if is_ctor {
             f = cast<FunctionDecl>(n->ctor_decl)
         }
@@ -1126,7 +1145,10 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
 
         // Through a `fn` value: the type's parameters.
         if n->callee != &null && n->callee->type_ != &null {
-            var unsafe *t = canon_unqual(self._tu.strip_nullable(n->callee->type_))
+            var unsafe *t = canon_unqual(
+                self._tu.strip_nullable(n->callee->type_),
+            )
+
             if t != &null && isa<FunctionPointerType>(t) {
                 var unsafe *fp = cast<FunctionPointerType>(t)
                 for var i: usize = 0; i < n->args.size(); ++i {

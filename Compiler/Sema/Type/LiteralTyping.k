@@ -35,9 +35,9 @@ import AST::Context::DeclContext::DeclContext
 import AST::Context::SymbolTable::DeclName
 import AST::Kind::ExprKind::to_string
 import AST::LangItems::{
-    FMT_ALT,    FMT_DEBUG,         FMT_SIGN_PLUS, FMT_UPPER,     FMT_ZERO,     FormatAlign,
-    FormatKind, LangMembers,       WellKnownType, fmt_pack_spec, fmt_put_name, format_kind_of,
-    fmt_spec_flags, to_string,  tuple_record_name,
+    FMT_ALT,        FMT_DEBUG,   FMT_SIGN_PLUS,     FMT_UPPER,     FMT_ZERO,     FormatAlign,
+    FormatKind,     LangMembers, WellKnownType,     fmt_pack_spec, fmt_put_name, fmt_spec_flags,
+    format_kind_of, to_string,   tuple_record_name,
 }
 import AST::Node::Base::{
     Decl,
@@ -137,12 +137,12 @@ pub class <T: type> LiteralTyping {
                 return false
             }
 
-            a->lit     = LitKind::Int
-            a->lit_lo  = n->get_value_lo()
-            a->lit_hi  = n->get_value_hi()
-            a->lit_big = n->is_big()
+            a->lit      = LitKind::Int
+            a->lit_lo   = n->get_value_lo()
+            a->lit_hi   = n->get_value_hi()
+            a->lit_big  = n->is_big()
             a->lit_bits = n->big_bits()
-            a->lit_neg = neg
+            a->lit_neg  = neg
             return true
         }
 
@@ -183,11 +183,11 @@ pub class <T: type> LiteralTyping {
             return false
         }
 
-        a->lit     = LitKind::Int
-        a->lit_neg = false
-        a->lit_lo  = (v as u64)
-        a->lit_hi  = 0
-        a->lit_big = false
+        a->lit      = LitKind::Int
+        a->lit_neg  = false
+        a->lit_lo   = (v as u64)
+        a->lit_hi   = 0
+        a->lit_big  = false
         a->lit_bits = 0
         return true
     }
@@ -383,7 +383,12 @@ pub class <T: type> LiteralTyping {
                         expected: unsafe *Type,
                         negative: bool) -> unsafe *Type {
         if n->imm == &null {
-            self.dyn()->fail(n, DiagID::SC073E, "integer literal has no immediate data")
+            self.dyn()->fail(
+                n,
+                DiagID::SC073E,
+                "integer literal has no immediate data",
+            )
+
             return &null
         }
 
@@ -623,7 +628,12 @@ pub class <T: type> LiteralTyping {
                           n:        unsafe *FloatingLiteralExpr,
                           expected: unsafe *Type) -> unsafe *Type {
         if n->imm == &null {
-            self.dyn()->fail(n, DiagID::SC073E, "float literal has no immediate data")
+            self.dyn()->fail(
+                n,
+                DiagID::SC073E,
+                "float literal has no immediate data",
+            )
+
             return &null
         }
 
@@ -767,7 +777,12 @@ pub class <T: type> LiteralTyping {
         }
 
         if n->imm == &null {
-            self.dyn()->fail(n, DiagID::SC073E, "format string literal has no immediate data")
+            self.dyn()->fail(
+                n,
+                DiagID::SC073E,
+                "format string literal has no immediate data",
+            )
+
             return &null
         }
 
@@ -811,7 +826,12 @@ pub class <T: type> LiteralTyping {
 
                         e.first(seg->suffix.range, f"'{b}' here")
                         e.second(first->suffix.range, f"'{a}' here")
-                        e.note(DiagID::SC277N, first->suffix.range.start, f"'{a}' is spelled here; keep one suffix, on any segment")
+                        e.note(
+                            DiagID::SC277N,
+                            first->suffix.range.start,
+                            f"'{a}' is spelled here; keep one suffix, on any segment",
+                        )
+
                         e.emit()
                         return false
                     }
@@ -830,8 +850,8 @@ pub class <T: type> LiteralTyping {
             return true
         }
 
-        var sfx  = n->ctx->get_spelling(first->suffix.range)
-        var w    = self.dyn()->sc->diag->report(
+        var sfx = n->ctx->get_spelling(first->suffix.range)
+        var w = self.dyn()->sc->diag->report(
             DiagID::SC276W,
             first->suffix.range.start,
             f"the literal suffix '{sfx}' applies to the whole string joined from these {segs} segments, not only to the segment it is written on",
@@ -840,10 +860,16 @@ pub class <T: type> LiteralTyping {
         w.first(first->suffix.range, f"suffix of all {segs} segments")
         var joined = self._join_chain(n, last, sfx)
         if !joined.empty() {
-            var at = SourceRange(self._segment_start(n->imm), self._segment_end(last))
+            var at = SourceRange(
+                self._segment_start(n->imm),
+                self._segment_end(last),
+            )
+
             w.fix(at, joined, "join the segments into one literal")
         } else {
-            w.fix("write the string as one literal, with the suffix after its closing quote")
+            w.fix(
+                "write the string as one literal, with the suffix after its closing quote",
+            )
         }
 
         w.emit()
@@ -860,7 +886,7 @@ pub class <T: type> LiteralTyping {
                         last:      unsafe *Immediate::StringData,
                         const sfx: string) -> string {
         var unsafe *head = n->imm
-        var        body = ""
+        var        body  = ""
         var unsafe *seg  = head
         while seg != &null {
             if seg->has_owned_text() || (!seg->body.is_valid()) {
@@ -882,12 +908,14 @@ pub class <T: type> LiteralTyping {
             var text = n->ctx->get_spelling(seg->body)
             if (!head->prefix_kind.has(Immediate::TextPrefixKind::Raw))
                 && self._open_octal(body)
-                && text.size() > 0 && text[0] >= ('0' as u8) && text[0] <= ('7' as u8) {
+                && text.size() > 0
+                && text[0] >= ('0' as u8)
+                && text[0] <= ('7' as u8) {
                 return ""
             }
 
             body = body + text
-            seg = n->next_segment(seg)
+            seg  = n->next_segment(seg)
         }
 
         var pre = ""
@@ -901,21 +929,34 @@ pub class <T: type> LiteralTyping {
     /// \p seg is written `"..."`: one quote on each side of its body. Read
     /// at the closing side, which a triple-quoted body ends in three of: the
     /// byte before a head's opening quote may be the start of the file.
-    priv fn _single_quoted(self, n: unsafe *StringLiteralExpr, seg: unsafe *Immediate::StringData) -> bool {
-        var open  = n->ctx->get_spelling(SourceRange::from_bounds(seg->body.start.with_offset(-1), 1u32))
-        var close = n->ctx->get_spelling(SourceRange::from_bounds(seg->body.end, 2u32))
-        return open.size() == 1 && open[0] == ('"' as u8) && close.size() >= 1
-            && close[0] == ('"' as u8) && (close.size() == 1 || close[1] != ('"' as u8))
+    priv fn _single_quoted(self,
+                           n:   unsafe *StringLiteralExpr,
+                           seg: unsafe *Immediate::StringData) -> bool {
+        var open = n->ctx->get_spelling(
+            SourceRange::from_bounds(seg->body.start.with_offset(-1), 1u32),
+        )
+
+        var close = n->ctx->get_spelling(
+            SourceRange::from_bounds(seg->body.end, 2u32),
+        )
+
+        return open.size() == 1
+            && open[0] == ('"' as u8)
+            && close.size() >= 1
+            && close[0] == ('"' as u8)
+            && (close.size() == 1 || close[1] != ('"' as u8))
     }
 
     /// \p text ends in an octal escape of fewer than three digits: a
     /// backslash an even run of backslashes does not escape, then one or two
     /// of 0-7.
     priv fn _open_octal(self, const text: string) -> bool {
-        var n      = text.size()
+        var n             = text.size()
         var digits: usize = 0
-        while digits < 3 && digits < n
-            && text[n - 1 - digits] >= ('0' as u8) && text[n - 1 - digits] <= ('7' as u8) {
+        while digits < 3
+            && digits < n
+            && text[n - 1 - digits] >= ('0' as u8)
+            && text[n - 1 - digits] <= ('7' as u8) {
             digits = digits + 1
         }
 
@@ -923,7 +964,7 @@ pub class <T: type> LiteralTyping {
             return false
         }
 
-        var k      = n - 1 - digits
+        var k              = n - 1 - digits
         var slashes: usize = 0
         while slashes <= k && text[k - slashes] == ('\\' as u8) {
             slashes = slashes + 1
@@ -970,8 +1011,11 @@ pub class <T: type> LiteralTyping {
             return &null
         }
 
-        var imm = self.dyn()->sc->imm_table()->intern_ident_copy("operator\"\"" + sfx)
-        var r   = self.dyn()->sc->lookup.unqualified(
+        var imm = self.dyn()->sc->imm_table()->intern_ident_copy(
+            "operator\"\"" + sfx,
+        )
+
+        var r = self.dyn()->sc->lookup.unqualified(
             unsafe (self.dyn()->sc->tu as unsafe *DeclContext),
             DeclName::ident(imm),
         )
@@ -1035,7 +1079,9 @@ pub class <T: type> LiteralTyping {
             // (`run(&null, 3)` for a C `run(cb_t, int)`); `pointee` of a
             // function pointer is empty, so it is asked for by shape.
             var unsafe *fpt = canon_unqual(expected)
-            if fpt != &null && isa<FunctionPointerType>(fpt) && cast<FunctionPointerType>(fpt)->is_raw {
+            if fpt != &null
+                && isa<FunctionPointerType>(fpt)
+                && cast<FunctionPointerType>(fpt)->is_raw {
                 return expected
             }
 
@@ -1125,7 +1171,9 @@ pub class <T: type> LiteralTyping {
             b.note(w->range.start, f"{who} {what} '{ts}' here; {why}")
             b.insert(w->range.end, "?", f"make the pointer nullable: '{ts}?'")
         } else {
-            b.note(f"'{ts}' is a safe pointer, which always points at something; {why}")
+            b.note(
+                f"'{ts}' is a safe pointer, which always points at something; {why}",
+            )
         }
 
         b.emit()
@@ -1169,7 +1217,7 @@ pub class <T: type> LiteralTyping {
     }
 
     fn type_list_literal(self, n: unsafe *ListLiteralExpr, expected: unsafe *Type) -> unsafe *Type {
-        var ex                         = canon_unqual(self.dyn()->tu.strip_nullable(expected))
+        var ex = canon_unqual(self.dyn()->tu.strip_nullable(expected))
         var elem_expected              = self.dyn()->tu.container_elem(ex)
         var elem:         unsafe *Type = elem_expected
         var hole:         unsafe *Expr = &null
@@ -1231,7 +1279,12 @@ pub class <T: type> LiteralTyping {
         if ex != &null && isa<FixedArrayType>(ex) && !cast<FixedArrayType>(ex)->is_incomplete {
             var at = cast<FixedArrayType>(ex)
             if count == 0 {
-                self.dyn()->fail(n, DiagID::SC079E, "an array literal needs at least one element")
+                self.dyn()->fail(
+                    n,
+                    DiagID::SC079E,
+                    "an array literal needs at least one element",
+                )
+
                 return &null
             }
 
@@ -1271,7 +1324,11 @@ pub class <T: type> LiteralTyping {
             }
 
             if n->owner_ctor == &null {
-                self.dyn()->missing_lang_item(n, to_string(WellKnownType::Vector))
+                self.dyn()->missing_lang_item(
+                    n,
+                    to_string(WellKnownType::Vector),
+                )
+
                 return &null
             }
 
@@ -1324,10 +1381,22 @@ pub class <T: type> LiteralTyping {
             return false
         }
 
-        n->fmt_ctor   = self._lang_ctor(WellKnownType::FmtBuf, 1, false)
-        n->fmt_text   = self._lang_method(WellKnownType::FmtBuf, LangMembers::fmtbuf_text())
-        n->fmt_finish = self._lang_method(WellKnownType::FmtBuf, LangMembers::fmtbuf_finish())
-        n->fmt_len    = self._lang_method(WellKnownType::String, LangMembers::string_length())
+        n->fmt_ctor = self._lang_ctor(WellKnownType::FmtBuf, 1, false)
+        n->fmt_text = self._lang_method(
+            WellKnownType::FmtBuf,
+            LangMembers::fmtbuf_text(),
+        )
+
+        n->fmt_finish = self._lang_method(
+            WellKnownType::FmtBuf,
+            LangMembers::fmtbuf_finish(),
+        )
+
+        n->fmt_len = self._lang_method(
+            WellKnownType::String,
+            LangMembers::string_length(),
+        )
+
         if n->fmt_ctor == &null
             || n->fmt_text == &null
             || n->fmt_finish == &null
@@ -1339,7 +1408,7 @@ pub class <T: type> LiteralTyping {
         var ok  = true
         var out = cxx::std::vector<FormatHole>()
         for var i: usize = 0; i < n->parts.size(); ++i {
-            var unsafe *e  = n->parts[i]
+            var unsafe *e = n->parts[i]
             var        t  = self.dyn()->type_of(e, &null)
             var        hs = n->hole_spec(i)
             if e->is_poisoned() {
@@ -1415,8 +1484,10 @@ pub class <T: type> LiteralTyping {
             // every program; f8's are in std), so the hole calls the class's fmt_put_ on the
             // value. Its lang item is bound: the file names the type, so it
             // imports the class's file (Preprocessor::_add_wide_floats).
-            if h.kind == FormatKind::F256 || h.kind == FormatKind::F512
-                || h.kind == FormatKind::F8E4M3 || h.kind == FormatKind::F8E5M2 {
+            if h.kind == FormatKind::F256
+                || h.kind == FormatKind::F512
+                || h.kind == FormatKind::F8E4M3
+                || h.kind == FormatKind::F8E5M2 {
                 var wk = WellKnownType::F512
                 if h.kind == FormatKind::F256 {
                     wk = WellKnownType::F256
@@ -1438,7 +1509,11 @@ pub class <T: type> LiteralTyping {
                 continue
             }
 
-            h.put = self._lang_method(WellKnownType::FmtBuf, fmt_put_name(h.kind))
+            h.put = self._lang_method(
+                WellKnownType::FmtBuf,
+                fmt_put_name(h.kind),
+            )
+
             if h.put == &null {
                 // FIXME(CONST-EVAL-FOLD): put_f80 is out of the builtin root until
                 // it can be declared per target; every other row is always there.
@@ -1449,7 +1524,10 @@ pub class <T: type> LiteralTyping {
                         "an 'f80' value cannot be formatted yet; convert it with 'as f64' first",
                     )
                 } else {
-                    self.dyn()->missing_lang_item(n, to_string(WellKnownType::FmtBuf))
+                    self.dyn()->missing_lang_item(
+                        n,
+                        to_string(WellKnownType::FmtBuf),
+                    )
                 }
 
                 ok = false
@@ -1645,7 +1723,10 @@ pub class <T: type> LiteralTyping {
             scopes.push_back(v)
         }
 
-        var imm   = self.dyn()->sc->imm_table()->intern_ident_copy(LangMembers::repr())
+        var imm = self.dyn()->sc->imm_table()->intern_ident_copy(
+            LangMembers::repr(),
+        )
+
         var cands = cxx::std::vector<unsafe *Decl>()
         for var k: usize = 0; k < scopes.size(); ++k {
             self.dyn()->ml.lookup(scopes[k], DeclName::ident(imm), &cands)
@@ -1710,8 +1791,13 @@ pub class <T: type> LiteralTyping {
             return &null
         }
 
-        var imm  = self.dyn()->sc->imm_table()->intern_ident_copy(name)
-        var cell = self.dyn()->sc->lookup.in_context(dc, DeclName::ident(imm), name)
+        var imm = self.dyn()->sc->imm_table()->intern_ident_copy(name)
+        var cell = self.dyn()->sc->lookup.in_context(
+            dc,
+            DeclName::ident(imm),
+            name,
+        )
+
         if !cell.found() {
             return &null
         }
@@ -1795,7 +1881,13 @@ pub class <T: type> LiteralTyping {
         }
 
         if kind == FormatKind::Ptr {
-            return self._spec_error(n, at, spelled, t, "a pointer takes no format spec")
+            return self._spec_error(
+                n,
+                at,
+                spelled,
+                t,
+                "a pointer takes no format spec",
+            )
         }
 
         var width:   u64   = 0
@@ -1821,7 +1913,13 @@ pub class <T: type> LiteralTyping {
             flags |= (FMT_SIGN_PLUS)
             i += 1
         } else if i < len && p[i] == ('-' as u8) {
-            return self._spec_error(n, at, spelled, t, "'-' is the default sign; remove it")
+            return self._spec_error(
+                n,
+                at,
+                spelled,
+                t,
+                "'-' is the default sign; remove it",
+            )
         }
 
         if i < len && p[i] == ('#' as u8) {
@@ -1837,7 +1935,13 @@ pub class <T: type> LiteralTyping {
         while i < len && p[i] >= ('0' as u8) && p[i] <= ('9' as u8) {
             width = width * 10 + ((p[i] - ('0' as u8)) as u64)
             if width > 0xFFFF {
-                return self._spec_error(n, at, spelled, t, "width is limited to 65535")
+                return self._spec_error(
+                    n,
+                    at,
+                    spelled,
+                    t,
+                    "width is limited to 65535",
+                )
             }
 
             i += 1
@@ -1850,7 +1954,13 @@ pub class <T: type> LiteralTyping {
             while i < len && p[i] >= ('0' as u8) && p[i] <= ('9' as u8) {
                 prec = prec * 10 + ((p[i] - ('0' as u8)) as u64)
                 if prec > 0xFFFE {
-                    return self._spec_error(n, at, spelled, t, "precision is limited to 65534")
+                    return self._spec_error(
+                        n,
+                        at,
+                        spelled,
+                        t,
+                        "precision is limited to 65534",
+                    )
                 }
 
                 i += 1
@@ -1858,7 +1968,13 @@ pub class <T: type> LiteralTyping {
             }
 
             if digits == 0 {
-                return self._spec_error(n, at, spelled, t, "'.' must be followed by a precision")
+                return self._spec_error(
+                    n,
+                    at,
+                    spelled,
+                    t,
+                    "'.' must be followed by a precision",
+                )
             }
 
             prec1 = prec + 1
@@ -1918,18 +2034,36 @@ pub class <T: type> LiteralTyping {
             }
 
             if type_ch == ('e' as u8) || type_ch == ('E' as u8) {
-                return self._spec_error(n, at, spelled, t, "'e' applies to floats")
+                return self._spec_error(
+                    n,
+                    at,
+                    spelled,
+                    t,
+                    "'e' applies to floats",
+                )
             }
         } else if is_float {
             if type_ch == ('x' as u8)
                 || type_ch == ('X' as u8)
                 || type_ch == ('o' as u8)
                 || type_ch == ('b' as u8) {
-                return self._spec_error(n, at, spelled, t, "an integer base applies to integers")
+                return self._spec_error(
+                    n,
+                    at,
+                    spelled,
+                    t,
+                    "an integer base applies to integers",
+                )
             }
 
             if (flags & (FMT_ALT as u64)) != 0 {
-                return self._spec_error(n, at, spelled, t, "'#' applies to integers")
+                return self._spec_error(
+                    n,
+                    at,
+                    spelled,
+                    t,
+                    "'#' applies to integers",
+                )
             }
         } else if kind == FormatKind::Byte {
             if prec1 != 0
@@ -2043,7 +2177,10 @@ pub class <T: type> LiteralTyping {
             return canon_unqual(target)
         }
 
-        var elem_expected = self.dyn()->tu.container_elem(self.dyn()->tu.strip_nullable(expected))
+        var elem_expected = self.dyn()->tu.container_elem(
+            self.dyn()->tu.strip_nullable(expected),
+        )
+
         var elem: unsafe *Type = elem_expected
         var hole: unsafe *Expr = &null
         for var i: usize = 0; i < n->elements.size(); ++i {
@@ -2063,7 +2200,12 @@ pub class <T: type> LiteralTyping {
 
             var j = self.dyn()->conv.join(elem, t)
             if j == &null {
-                self.dyn()->fail(n->elements[i], DiagID::SC077E, "set elements do not share a type")
+                self.dyn()->fail(
+                    n->elements[i],
+                    DiagID::SC077E,
+                    "set elements do not share a type",
+                )
+
                 self.dyn()->poison_only(n)
                 return &null
             }
@@ -2124,7 +2266,12 @@ pub class <T: type> LiteralTyping {
             } else if kt != &null {
                 var j = self.dyn()->conv.join(k, kt)
                 if j == &null {
-                    self.dyn()->fail(en->key, DiagID::SC077E, "map keys do not share a type")
+                    self.dyn()->fail(
+                        en->key,
+                        DiagID::SC077E,
+                        "map keys do not share a type",
+                    )
+
                     self.dyn()->poison_only(n)
                     return &null
                 }
@@ -2137,7 +2284,12 @@ pub class <T: type> LiteralTyping {
             } else if vt != &null {
                 var j = self.dyn()->conv.join(v, vt)
                 if j == &null {
-                    self.dyn()->fail(en->value, DiagID::SC077E, "map values do not share a type")
+                    self.dyn()->fail(
+                        en->value,
+                        DiagID::SC077E,
+                        "map values do not share a type",
+                    )
+
                     self.dyn()->poison_only(n)
                     return &null
                 }
@@ -2186,7 +2338,12 @@ pub class <T: type> LiteralTyping {
             return
         }
 
-        self.dyn()->fail(child, DiagID::SC077E, "this element has no value type")
+        self.dyn()->fail(
+            child,
+            DiagID::SC077E,
+            "this element has no value type",
+        )
+
         self.dyn()->poison_only(n)
     }
 

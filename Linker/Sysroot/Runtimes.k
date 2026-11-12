@@ -115,8 +115,16 @@ pub class SysRuntimes {
             return false
         }
 
-        var rl   = ctx->recipe.expand(ctx->recipe.str("", "resource_layout"), &ctx->target)
-        var bn   = ctx->recipe.expand(ctx->recipe.str("", "builtins_name"), &ctx->target)
+        var rl = ctx->recipe.expand(
+            ctx->recipe.str("", "resource_layout"),
+            &ctx->target,
+        )
+
+        var bn = ctx->recipe.expand(
+            ctx->recipe.str("", "builtins_name"),
+            &ctx->target,
+        )
+
         var dest = rl + "/" + bn
         if env.target.list("archives", dest).empty() {
             return out.fail(
@@ -125,7 +133,13 @@ pub class SysRuntimes {
             )
         }
 
-        if !SysRuntimes::_archive(ctx, &env, dest, ctx->stage + "/out/" + bn, &out) {
+        if !SysRuntimes::_archive(
+            ctx,
+            &env,
+            dest,
+            ctx->stage + "/out/" + bn,
+            &out,
+        ) {
             return false
         }
 
@@ -184,8 +198,16 @@ pub class SysRuntimes {
         // Anything the table builds that no gather item takes would be
         // dropped without a word: the builtins archive is the builtins
         // stage's, every other one must be gathered.
-        var rl = ctx->recipe.expand(ctx->recipe.str("", "resource_layout"), &ctx->target)
-        var bn = ctx->recipe.expand(ctx->recipe.str("", "builtins_name"), &ctx->target)
+        var rl = ctx->recipe.expand(
+            ctx->recipe.str("", "resource_layout"),
+            &ctx->target,
+        )
+
+        var bn = ctx->recipe.expand(
+            ctx->recipe.str("", "builtins_name"),
+            &ctx->target,
+        )
+
         for var a: string in env.target.keys_of("archives") {
             if a != rl + "/" + bn && !SysUtil::contains(&done, a) {
                 return out.fail(
@@ -350,7 +372,14 @@ pub class SysRuntimes {
         if with_build && !bkey.empty() {
             var man = f"{env.trees}/build/{bkey}.toml"
             var gen = f"{env.trees}/build/{bkey}"
-            if !SysRuntimes::_materialise(man, gen, env.src, env.build, true, &out) {
+            if !SysRuntimes::_materialise(
+                man,
+                gen,
+                env.src,
+                env.build,
+                true,
+                &out,
+            ) {
                 return false
             }
         }
@@ -609,7 +638,10 @@ pub class SysRuntimes {
             for var i: usize = 1; i < members.size(); ++i {
                 if members[i] == members[i - 1] {
                     jobs.wait_all()
-                    return out.refuse(f"{tpath}: member {members[i]} is named twice", "")
+                    return out.refuse(
+                        f"{tpath}: member {members[i]} is named twice",
+                        "",
+                    )
                 }
             }
         }
@@ -658,7 +690,10 @@ pub class SysRuntimes {
             objs.push_back(o)
         }
 
-        var norm = llvm::Triple::normalize(kairo::sref(ctx->target.clang_triple))
+        var norm = llvm::Triple::normalize(
+            kairo::sref(ctx->target.clang_triple),
+        )
+
         var tt   = llvm::Triple(norm)
         var coff = tt.isOSBinFormatCOFF()
         LinkFS::make_dirs(LinkFS::parent(to))
@@ -673,7 +708,10 @@ pub class SysRuntimes {
     priv static fn _headers(env: *RtEnv, const to: string, @inout out: SysOutcome) -> bool {
         var key = env->target.str("", "headers")
         if key.empty() {
-            return out.fail("the runtimes recipe has headers_dest but no headers key", "")
+            return out.fail(
+                "the runtimes recipe has headers_dest but no headers key",
+                "",
+            )
         }
 
         LinkFS::remove_tree(to)

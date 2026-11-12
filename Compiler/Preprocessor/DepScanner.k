@@ -74,7 +74,7 @@ pub class DepGraph {
     /// the suffix), one set each. Their classes (num/f256_t.k, f512_t.k)
     /// and the engine under them are four large builtin files, so the root
     /// does not re-export them: the preprocessor adds them to the graph
-    /// only for a program that has one of these (P723), as alloc.k for
+    /// only for a program that has one of these, as alloc.k for
     /// `@create`.
     pub var f256_users: cxx::std::set<u32>
     pub var f512_users: cxx::std::set<u32>
@@ -83,7 +83,7 @@ pub class DepGraph {
     pub var f128_users: cxx::std::set<u32>
     /// Files that name `f8e4m3` or `f8e5m2` (the keyword; neither has a
     /// literal suffix): std/rt/Float8.k, the two classes C++ spells them as,
-    /// is added for them the same way (P942).
+    /// is added for them the same way.
     pub var f8_users: cxx::std::set<u32>
 
     fn add_node(self, fid: u32, const path: ModulePath) {
@@ -286,7 +286,10 @@ pub class DepScanner {
             } else if k == TokenKind::AtF8E4M3 || k == TokenKind::AtF8E5M2 {
                 graph->f8_users.insert(fid)
             } else if k == TokenKind::LitFloat || k == TokenKind::LitInt {
-                var w = DepScanner::_wide_float_suffix(TokenText::spelling(src.peek(0), self._tcm))
+                var w = DepScanner::_wide_float_suffix(
+                    TokenText::spelling(src.peek(0), self._tcm),
+                )
+
                 if w == 256 {
                     graph->f256_users.insert(fid)
                 } else if w == 512 {
@@ -451,7 +454,13 @@ pub class DepScanner {
         if spec.kind == ImportKind::Native {
             dep = self._resolve_place(segs, false, from_dir, from_dir, has_dir)
             if dep.fid == u32::MAX && has_dir {
-                dep = self._resolve_place(segs, true, from_dir, from_dir, has_dir)
+                dep = self._resolve_place(
+                    segs,
+                    true,
+                    from_dir,
+                    from_dir,
+                    has_dir,
+                )
             }
         } else if has_dir {
             var anchor = from_dir
@@ -477,7 +486,7 @@ pub class DepScanner {
         // is an error (modules.mdx, Circular Dependencies), which the
         // preprocessor reports from `cycles`. The edge stays out so the
         // waves still walk every file: with it, each file on the cycle waits
-        // on another, none is ever walked, and the cycle used to vanish
+        // on another, none is ever walked, and the cycle would vanish
         // from the build with exit 0 -- no error, and no file to point one at.
         if self._visiting.contains(dep.fid as u64) {
             var cyc = cxx::std::vector<u32>()
@@ -524,8 +533,15 @@ pub class DepScanner {
         // rule. With only the full path (and one segment off a plain path)
         // the walk still found a shorter prefix -- `import Dg::Dg::*` beside
         // Dg.k, the R068E sibling case -- and loaded that file itself, mid
-        // walk, while lex workers read the file table unlocked (P918).
-        var dep  = self.resolve_segments(segments, in_dir, dir, from_dir, has_from)
+        // walk, while lex workers read the file table unlocked.
+        var dep = self.resolve_segments(
+            segments,
+            in_dir,
+            dir,
+            from_dir,
+            has_from,
+        )
+
         var tail = segments
         while dep.fid == u32::MAX && tail.size() > 1 {
             tail.pop_back()
@@ -552,7 +568,11 @@ pub class DepScanner {
         if in_dir {
             rr = self._resolver->resolve_module_in(segments, dir)
         } else {
-            rr = self._resolver->resolve_module_rel(segments, from_dir, has_from)
+            rr = self._resolver->resolve_module_rel(
+                segments,
+                from_dir,
+                has_from,
+            )
         }
 
         if !rr.found {

@@ -160,9 +160,11 @@ pub class <T: type> StmtParse {
                       scope_kind: ScopeKind = ScopeKind::Block) -> unsafe *Statements::CompoundStmt {
         if !self.dyn()->check(TokenKind::OpLBrace) {
             var r = self.dyn()->current_ptr()->range
-            self.dyn()->diag->report(DiagID::S056E, r.start, "expected '{' to begin a block").first(
-                r,
-            )->emit()
+            self.dyn()->diag->report(
+                DiagID::S056E,
+                r.start,
+                "expected '{' to begin a block",
+            ).first(r)->emit()
             return Statements::CompoundStmt::create_error(self.dyn()->ctx, r)
         }
 
@@ -199,8 +201,8 @@ pub class <T: type> StmtParse {
                 continue
             }
 
-            var before = self.dyn()->c_idx
-            var unsafe *s = self.parse_stmt()
+            var        before = self.dyn()->c_idx
+            var unsafe *s     = self.parse_stmt()
             if s == &null {
                 break // EOF mid-statement
             }
@@ -247,7 +249,11 @@ pub class <T: type> StmtParse {
         self.dyn()->exit_scope()
         self.dyn()->exit_depth()
 
-        var block = Statements::CompoundStmt::create(self.dyn()->ctx, full_range)
+        var block = Statements::CompoundStmt::create(
+            self.dyn()->ctx,
+            full_range,
+        )
+
         block->body.from_buf(stmts.data(), stmts.size(), self.dyn()->ctx)
         return block
     }
@@ -281,7 +287,9 @@ pub class <T: type> StmtParse {
             self.dyn()->diag->report(
                 DiagID::S051E,
                 lparen.start,
-                "expected ')' to close " + LangAttrs::quoted(LangAttrs::assume()),
+                "expected ')' to close " + LangAttrs::quoted(
+                    LangAttrs::assume(),
+                ),
             ).first(lparen)->emit()
             return self._error_stmt(at_r | self.dyn()->prev().range)
         }
@@ -306,7 +314,9 @@ pub class <T: type> StmtParse {
             var b = self.dyn()->diag->report(
                 DiagID::SC148E,
                 at_r.start,
-                LangAttrs::at(LangAttrs::assume()) + " is a statement of its own; it does not attach to what follows on its line",
+                LangAttrs::at(
+                    LangAttrs::assume(),
+                ) + " is a statement of its own; it does not attach to what follows on its line",
             )
 
             b.first(full)
@@ -318,7 +328,10 @@ pub class <T: type> StmtParse {
         var nt = Token()
         nt.kind  = TokenKind::LitIdentifier
         nt.range = name_r
-        nt.imm   = self.dyn()->ctx->hoisted->intern(to_string(WellKnownType::Assume))
+        nt.imm = self.dyn()->ctx->hoisted->intern(
+            to_string(WellKnownType::Assume),
+        )
+
         var callee = NamedIdentExpr::create(self.dyn()->ctx, name_r, nt)
         var ce     = CallExpr::create(self.dyn()->ctx, full, callee)
         ce->args.from_buf(args.data(), args.size(), self.dyn()->ctx)
@@ -534,7 +547,11 @@ pub class <T: type> StmtParse {
                         }
 
                         self._attach_local_decl(d)
-                        return Statements::DeclStmt::create(self.dyn()->ctx, d->range, d)
+                        return Statements::DeclStmt::create(
+                            self.dyn()->ctx,
+                            d->range,
+                            d,
+                        )
                     }
                 }
 
@@ -566,7 +583,11 @@ pub class <T: type> StmtParse {
                         }
 
                         self._attach_local_decl(d)
-                        return Statements::DeclStmt::create(self.dyn()->ctx, d->range, d)
+                        return Statements::DeclStmt::create(
+                            self.dyn()->ctx,
+                            d->range,
+                            d,
+                        )
                     }
                 }
 
@@ -603,7 +624,11 @@ pub class <T: type> StmtParse {
                 }
 
                 self._attach_local_decl(d)
-                return Statements::DeclStmt::create(self.dyn()->ctx, d->range, d)
+                return Statements::DeclStmt::create(
+                    self.dyn()->ctx,
+                    d->range,
+                    d,
+                )
             }
         }
 
@@ -666,7 +691,12 @@ pub class <T: type> StmtParse {
             return self._parse_context_binding(lhs, start_range)
         }
 
-        var es = Statements::ExpressionStmt::create(self.dyn()->ctx, lhs->range, lhs)
+        var es = Statements::ExpressionStmt::create(
+            self.dyn()->ctx,
+            lhs->range,
+            lhs,
+        )
+
         return es
     }
 
@@ -720,8 +750,19 @@ pub class <T: type> StmtParse {
         var unsafe *body = self.parse_compound()
         var        full  = start_range | body->range
 
-        var node = Statements::ContextBindingStmt::create(self.dyn()->ctx, full, value, body)
-        node->bindings.from_buf(bindings.data(), bindings.size(), self.dyn()->ctx)
+        var node = Statements::ContextBindingStmt::create(
+            self.dyn()->ctx,
+            full,
+            value,
+            body,
+        )
+
+        node->bindings.from_buf(
+            bindings.data(),
+            bindings.size(),
+            self.dyn()->ctx,
+        )
+
         return node
     }
 
@@ -1004,7 +1045,13 @@ pub class <T: type> StmtParse {
         // xs` body that mentions `x` reported unresolved-ident. Built last so
         // the range and the `: T` ascription are final.
         var storage = if (result.is_const) => (StorageClass::Const) else => StorageClass::Var
-        var bvd     = VariableDecl::create(self.dyn()->ctx, result.range, *id_ptr, storage)
+        var bvd = VariableDecl::create(
+            self.dyn()->ctx,
+            result.range,
+            *id_ptr,
+            storage,
+        )
+
         bvd->type_  = result.type_
         result.decl = bvd
 
@@ -1026,11 +1073,17 @@ pub class <T: type> StmtParse {
 
         // peek past the keyword
         if self.dyn()->check_peek(TokenKind::OpLParen) {
-            return self._parse_destructure(is_const, Statements::DestructureKind::Tuple)
+            return self._parse_destructure(
+                is_const,
+                Statements::DestructureKind::Tuple,
+            )
         }
 
         if self.dyn()->check_peek(TokenKind::OpLBrace) {
-            return self._parse_destructure(is_const, Statements::DestructureKind::Struct)
+            return self._parse_destructure(
+                is_const,
+                Statements::DestructureKind::Struct,
+            )
         }
 
         // plain decl
@@ -1166,7 +1219,11 @@ pub class <T: type> StmtParse {
             is_const,
         )
 
-        node->bindings.from_buf(bindings.data(), bindings.size(), self.dyn()->ctx)
+        node->bindings.from_buf(
+            bindings.data(),
+            bindings.size(),
+            self.dyn()->ctx,
+        )
 
         self.dyn()->exit_depth()
         return node
@@ -1200,7 +1257,12 @@ pub class <T: type> StmtParse {
         }
 
         self._attach_local_decl(decl)
-        var ds = Statements::DeclStmt::create(self.dyn()->ctx, decl->range, decl)
+        var ds = Statements::DeclStmt::create(
+            self.dyn()->ctx,
+            decl->range,
+            decl,
+        )
+
         return ds
     }
 
@@ -1238,7 +1300,10 @@ pub class <T: type> StmtParse {
         // start a statement inside it, so `if a` newline `+ b == c {` is one
         // condition, as it is inside parentheses.
         self.dyn()->nl_push()
-        var cond = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+        var cond = self.dyn()->parse_expr(
+            self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral),
+        )
+
         self.dyn()->nl_pop()
         if cond == &null || is_recovery(cond) {
             self._sync_stmt(Self::StmtSyncCtx::Block, 0)
@@ -1260,7 +1325,12 @@ pub class <T: type> StmtParse {
                     "expected '{' after 'else if' condition; a statement 'if' chain cannot continue with '=>' arms",
                 ).first(arrow)->emit()
                 // still consume the value-form arms, so they cannot cascade.
-                self.dyn()->_finish_if_expr(start_range, cond, self.dyn()->no_stop())
+                self.dyn()->_finish_if_expr(
+                    start_range,
+                    cond,
+                    self.dyn()->no_stop(),
+                )
+
                 self.dyn()->exit_depth()
                 return (Statements::ConditionalStmt::create_error(
                     self.dyn()->ctx,
@@ -1268,9 +1338,18 @@ pub class <T: type> StmtParse {
                 ))
             }
 
-            var value = self.dyn()->_finish_if_expr(start_range, cond, self.dyn()->no_stop())
+            var value = self.dyn()->_finish_if_expr(
+                start_range,
+                cond,
+                self.dyn()->no_stop(),
+            )
+
             self.dyn()->exit_depth()
-            return Statements::ExpressionStmt::create(self.dyn()->ctx, value->range, value)
+            return Statements::ExpressionStmt::create(
+                self.dyn()->ctx,
+                value->range,
+                value,
+            )
         }
 
         if !self.dyn()->check(TokenKind::OpLBrace) {
@@ -1307,11 +1386,17 @@ pub class <T: type> StmtParse {
                 var b = self.dyn()->diag->report(
                     DiagID::S081E,
                     at_r.start,
-                    "only " + LangAttrs::at(LangAttrs::likely()) + " / " + LangAttrs::at(LangAttrs::unlikely()) + " may precede 'else'",
+                    "only " + LangAttrs::at(LangAttrs::likely()) + " / " + LangAttrs::at(
+                        LangAttrs::unlikely(),
+                    ) + " may precede 'else'",
                 )
 
                 b.first(at_r)
-                b.remove(at_r | self.dyn()->prev().range, "remove the attribute")
+                b.remove(
+                    at_r | self.dyn()->prev().range,
+                    "remove the attribute",
+                )
+
                 b.emit()
             } else {
                 else_hint = (hint_kind as u8)
@@ -1375,7 +1460,10 @@ pub class <T: type> StmtParse {
 
         // as an if head (_parse_conditional): the head ends at `{`.
         self.dyn()->nl_push()
-        var cond = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+        var cond = self.dyn()->parse_expr(
+            self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral),
+        )
+
         self.dyn()->nl_pop()
         if cond == &null || is_recovery(cond) {
             self._sync_stmt(Self::StmtSyncCtx::Block, 0)
@@ -1429,7 +1517,12 @@ pub class <T: type> StmtParse {
 
         var unsafe *body = self.parse_compound()
 
-        var node = Statements::LoopStmt::create(self.dyn()->ctx, start_range | body->range, body)
+        var node = Statements::LoopStmt::create(
+            self.dyn()->ctx,
+            start_range | body->range,
+            body,
+        )
+
         return node
     }
 
@@ -1456,7 +1549,10 @@ pub class <T: type> StmtParse {
 
         self.dyn()->advance(T::SkipNL::After) // consume `for`
 
-        self.dyn()->enter_scope(ScopeKind::ForLoop, self.dyn()->scope.current_dc())
+        self.dyn()->enter_scope(
+            ScopeKind::ForLoop,
+            self.dyn()->scope.current_dc(),
+        )
 
         // Disambiguate ranged vs C-style.
         // C-style begins with a decl that has an `=` initializer and uses `;`
@@ -1516,7 +1612,11 @@ pub class <T: type> StmtParse {
                 is_eval,
             )
 
-            node->bindings.from_buf(bindings.data(), bindings.size(), self.dyn()->ctx)
+            node->bindings.from_buf(
+                bindings.data(),
+                bindings.size(),
+                self.dyn()->ctx,
+            )
 
             self.dyn()->exit_scope()
             self.dyn()->exit_depth()
@@ -1602,7 +1702,10 @@ pub class <T: type> StmtParse {
 
         self.dyn()->advance(T::SkipNL::After) // consume `;`
 
-        var update = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+        var update = self.dyn()->parse_expr(
+            self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral),
+        )
+
         if update == &null || is_recovery(update) {
             self._sync_stmt(Self::StmtSyncCtx::Block, 0)
             self.dyn()->exit_scope()
@@ -1659,11 +1762,19 @@ pub class <T: type> StmtParse {
 
         var core = self._parse_match_core(start_range)
         if !core.ok {
-            return Statements::MatchStmt::create_error(self.dyn()->ctx, core.range)
+            return Statements::MatchStmt::create_error(
+                self.dyn()->ctx,
+                core.range,
+            )
         }
 
         if core.form == MatchForm::AllValue {
-            var me = MatchExpr::create(self.dyn()->ctx, core.range, core.scrutinee)
+            var me = MatchExpr::create(
+                self.dyn()->ctx,
+                core.range,
+                core.scrutinee,
+            )
+
             me->cases = core.cases
             return unsafe (Statements::ExpressionStmt::create(self.dyn()->ctx, core.range, unsafe (me as unsafe *Expr)) as unsafe *Stmt)
         }
@@ -1686,10 +1797,18 @@ pub class <T: type> StmtParse {
             )
 
             b.emit()
-            return Statements::MatchStmt::create_error(self.dyn()->ctx, core.range)
+            return Statements::MatchStmt::create_error(
+                self.dyn()->ctx,
+                core.range,
+            )
         }
 
-        var node = Statements::MatchStmt::create(self.dyn()->ctx, core.range, core.scrutinee)
+        var node = Statements::MatchStmt::create(
+            self.dyn()->ctx,
+            core.range,
+            core.scrutinee,
+        )
+
         node->cases = core.cases
         return node
     }
@@ -1853,9 +1972,9 @@ pub class <T: type> StmtParse {
         result.expression = &null
         result.is_default = false
 
-        var start_range                                   = self.dyn()->current_ptr()->range
-        var pats:       kairo::std::StackBuf<*Pattern, 4>
-        var after:      string                            = "pattern"
+        var start_range = self.dyn()->current_ptr()->range
+        var pats:  kairo::std::StackBuf<*Pattern, 4>
+        var after: string                            = "pattern"
 
         if self.dyn()->check(TokenKind::KwDefault) {
             // default arm: patterns left empty
@@ -1924,7 +2043,9 @@ pub class <T: type> StmtParse {
         // value arm; the next `case`, `default` or the closing `}` ends it.
         var value: unsafe *Expr = &null
         if self.dyn()->_skip_nl_if_next(TokenKind::OpFatArrow) {
-            value = self.dyn()->_parse_arm_value(self.dyn()->stop_on(T::ExprStopKind::StopBrace))
+            value = self.dyn()->_parse_arm_value(
+                self.dyn()->stop_on(T::ExprStopKind::StopBrace),
+            )
         } else {
             value = self.dyn()->_expect_arrow_recover(
                 after,
@@ -1968,7 +2089,12 @@ pub class <T: type> StmtParse {
             || self.dyn()->check(TokenKind::TkNewLine)
             || self.dyn()->check(TokenKind::OpSemicolon)
             || self.dyn()->check(TokenKind::OpRBrace) {
-            var node = Statements::ReturnStmt::create(self.dyn()->ctx, start_range, &null)
+            var node = Statements::ReturnStmt::create(
+                self.dyn()->ctx,
+                start_range,
+                &null,
+            )
+
             return node
         }
 
@@ -2008,7 +2134,13 @@ pub class <T: type> StmtParse {
             return node
         }
 
-        var node = Statements::BreakStmt::create(self.dyn()->ctx, start_range, false, Token())
+        var node = Statements::BreakStmt::create(
+            self.dyn()->ctx,
+            start_range,
+            false,
+            Token(),
+        )
+
         return node
     }
 
@@ -2031,7 +2163,13 @@ pub class <T: type> StmtParse {
             return node
         }
 
-        var node = Statements::ContinueStmt::create(self.dyn()->ctx, start_range, false, Token())
+        var node = Statements::ContinueStmt::create(
+            self.dyn()->ctx,
+            start_range,
+            false,
+            Token(),
+        )
+
         return node
     }
 
@@ -2082,7 +2220,12 @@ pub class <T: type> StmtParse {
             ))
         }
 
-        var node = Statements::YieldStmt::create(self.dyn()->ctx, start_range | value->range, value)
+        var node = Statements::YieldStmt::create(
+            self.dyn()->ctx,
+            start_range | value->range,
+            value,
+        )
+
         return node
     }
 
@@ -2102,7 +2245,10 @@ pub class <T: type> StmtParse {
             self.dyn()->advance(T::SkipNL::After) // consume `static`
         }
 
-        var cond = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::StopComma))
+        var cond = self.dyn()->parse_expr(
+            self.dyn()->stop_on(T::ExprStopKind::StopComma),
+        )
+
         if cond == &null || is_recovery(cond) {
             self.dyn()->diag->report(
                 DiagID::S052E,
@@ -2201,7 +2347,12 @@ pub class <T: type> StmtParse {
         }
 
         var full = start_range | self.dyn()->prev().range
-        var node = Statements::TryCatchStmt::create(self.dyn()->ctx, full, try_body)
+        var node = Statements::TryCatchStmt::create(
+            self.dyn()->ctx,
+            full,
+            try_body,
+        )
+
         node->arms.from_buf(arms.data(), arms.size(), self.dyn()->ctx)
         return node
     }
@@ -2227,7 +2378,12 @@ pub class <T: type> StmtParse {
             var id_ptr   = self.dyn()->current_ptr()
             var id_range = id_ptr->range
             self.dyn()->advance() // consume identifier
-            result.binding = NamedIdentExpr::create(self.dyn()->ctx, id_range, *id_ptr)
+            result.binding = NamedIdentExpr::create(
+                self.dyn()->ctx,
+                id_range,
+                *id_ptr,
+            )
+
             // The caught error is a declaration; see CatchArm::decl.
             result.decl = VariableDecl::create(
                 self.dyn()->ctx,
@@ -2287,7 +2443,12 @@ pub class <T: type> StmtParse {
 
         var unsafe *body = self.parse_compound()
 
-        var node = Statements::FinallyStmt::create(self.dyn()->ctx, start_range | body->range, body)
+        var node = Statements::FinallyStmt::create(
+            self.dyn()->ctx,
+            start_range | body->range,
+            body,
+        )
+
         return node
     }
 
@@ -2380,7 +2541,11 @@ pub class <T: type> StmtParse {
             full_range = start_range | self.dyn()->prev().range
         }
 
-        var node = Statements::EvalBlockStmt::create(self.dyn()->ctx, full_range)
+        var node = Statements::EvalBlockStmt::create(
+            self.dyn()->ctx,
+            full_range,
+        )
+
         node->body.from_buf(decls.data(), decls.size(), self.dyn()->ctx)
         return node
     }
@@ -2451,7 +2616,12 @@ pub class <T: type> StmtParse {
         var end = self.dyn()->current_ptr()->range
         self.dyn()->advance() // consume `)`
 
-        var node = Statements::LabelIntrinsicStmt::create(self.dyn()->ctx, start_range | end, name)
+        var node = Statements::LabelIntrinsicStmt::create(
+            self.dyn()->ctx,
+            start_range | end,
+            name,
+        )
+
         return node
     }
 
@@ -2519,7 +2689,12 @@ pub class <T: type> StmtParse {
         var end = self.dyn()->current_ptr()->range
         self.dyn()->advance() // consume `)`
 
-        var node = Statements::JumpIntrinsicStmt::create(self.dyn()->ctx, start_range | end, target)
+        var node = Statements::JumpIntrinsicStmt::create(
+            self.dyn()->ctx,
+            start_range | end,
+            target,
+        )
+
         return node
     }
 

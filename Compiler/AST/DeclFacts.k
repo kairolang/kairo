@@ -542,9 +542,14 @@ pub fn decl_publish_fill(d: unsafe *Decl, f: ForeignFill) {
     }
 
     eval if defined!(DEBUG) {
-        var old = (__builtin_atomic_load(unsafe (s as *const u8), MemoryOrder::Relaxed) as ForeignFill)
+        var old = (__builtin_atomic_load(
+            unsafe (s as *const u8),
+            MemoryOrder::Relaxed,
+        ) as ForeignFill)
         if old != ForeignFill::Shell || f == ForeignFill::Shell {
-            kairo::std::ice_fail("decl_publish_fill: a ForeignFill leaves Shell once, for Filled or FailedSticky")
+            kairo::std::ice_fail(
+                "decl_publish_fill: a ForeignFill leaves Shell once, for Filled or FailedSticky",
+            )
         }
     }
 
@@ -1612,14 +1617,20 @@ pub fn place_has_const_root(e: unsafe *Expr) -> bool {
 
         if isa<SubscriptExpr>(x) {
             var unsafe *sx = cast<SubscriptExpr>(x)
-            var unsafe *opf = dyn_cast<Declarations::FunctionDecl>(sx->resolved_op)
+            var unsafe *opf = dyn_cast<Declarations::FunctionDecl>(
+                sx->resolved_op,
+            )
+
             if opf != &null {
                 var unsafe *rt = opf->return_type
                 if rt == &null || rt->canonical == &null {
                     return false
                 }
 
-                var unsafe *pt = dyn_cast<PointerType>(canon_unqual(rt->canonical))
+                var unsafe *pt = dyn_cast<PointerType>(
+                    canon_unqual(rt->canonical),
+                )
+
                 if pt == &null {
                     return false
                 }
@@ -1641,7 +1652,9 @@ pub fn place_has_const_root(e: unsafe *Expr) -> bool {
             }
 
             var unsafe *bt = if (sx->base != &null) => (sx->base->type_) else => &null
-            if bt == &null || bt->canonical == &null || !isa<FixedArrayType>(canon_unqual(bt->canonical)) {
+            if bt == &null
+                || bt->canonical == &null
+                || !isa<FixedArrayType>(canon_unqual(bt->canonical)) {
                 return false
             }
 
@@ -1660,7 +1673,10 @@ pub fn place_has_const_root(e: unsafe *Expr) -> bool {
                 return false
             }
 
-            var unsafe *fd = dyn_cast<Declarations::FieldDecl>(st->resolved_decl)
+            var unsafe *fd = dyn_cast<Declarations::FieldDecl>(
+                st->resolved_decl,
+            )
+
             if fd == &null || fd->is_static() {
                 return false
             }

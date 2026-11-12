@@ -26,10 +26,10 @@ import Json::{
 /// \brief one file's declarations (Index/Tables.k writes them, Snapshot.k
 ///        names the columns), a column per array: a row is an index.
 pub class DeclTable {
-    pub var path:    string = ""
-    pub var mod:     string = ""   ///< the file's module directory, "" for none
-    pub var builtin: bool   = false
-    pub var files:   [string]      ///< what `tfile` and a base's file index
+    pub var path:    string   = ""
+    pub var mod:     string   = ""    ///< the file's module directory, "" for none
+    pub var builtin: bool     = false
+    pub var files:   [string]         ///< what `tfile` and a base's file index
 
     pub var name:   [string]
     pub var kind:   [i64]
@@ -42,7 +42,7 @@ pub class DeclTable {
     pub var detail: [string]
     pub var tfile:  [i64]
     pub var toff:   [i64]
-    pub var efile:  [i64]  ///< DC_EFILE: what a subscript of the value is, as `tfile`
+    pub var efile:  [i64]    ///< DC_EFILE: what a subscript of the value is, as `tfile`
     pub var eoff:   [i64]
 
     /// TB_* rows, four numbers each.
@@ -121,12 +121,18 @@ pub class DeclTable {
             c = d->next(c)
             self.toff.push_back(d->as_int(c))
             c = d->next(c)
-            self.efile.push_back(if (c == JSON_NONE()) => (-1 as i64) else => (d->as_int(c)))
+            self.efile.push_back(
+                if (c == JSON_NONE()) => (-1 as i64) else => (d->as_int(c)),
+            )
+
             if c != JSON_NONE() {
                 c = d->next(c)
             }
 
-            self.eoff.push_back(if (c == JSON_NONE()) => (-1 as i64) else => (d->as_int(c)))
+            self.eoff.push_back(
+                if (c == JSON_NONE()) => (-1 as i64) else => (d->as_int(c)),
+            )
+
             if off >= 0 {
                 self.by_off[off as u64] = (self.name.size() - 1) as u32
             }
@@ -169,7 +175,7 @@ pub class DeclTables {
     /// Every DF_EXT row, as (table << 32) | row: the `extend` blocks of the
     /// graph. Found again after a merge (few, and a scan of flags).
     var exts_:       [u64]
-    var exts_stale_: bool = true
+    var exts_stale_: bool  = true
 
     pub fn DeclTables(self) = default
 
@@ -216,10 +222,10 @@ pub class DeclTables {
             // would otherwise lose its own names until it is checked
             // again. A file that LEFT the graph loses its table.
             var deps: {u64: u32}
-            var dn = d->first(d->get(d->root, SK_DEPS))
+            var dn               = d->first(d->get(d->root, SK_DEPS))
             while dn != JSON_NONE() {
                 deps[fnv1a(d->str(dn))] = 1
-                dn = d->next(dn)
+                dn                      = d->next(dn)
             }
 
             var kept: [DeclTable]
@@ -241,7 +247,7 @@ pub class DeclTables {
         }
 
         var n: usize = 0
-        var x = d->first(arr)
+        var x        = d->first(arr)
         while x != JSON_NONE() {
             var nt = DeclTable()
             nt.read(d, x)
@@ -317,14 +323,15 @@ pub class DeclTables {
             return false
         }
 
-        var *tb = &self.t[d.t]
-        var b: usize = 0
+        var *tb       = &self.t[d.t]
+        var b:  usize = 0
         while (b + 3) < tb->bases.size() {
             // TB_ROW, TB_FILE, TB_OFF, TB_VIS
             if tb->bases[b] == d.r {
                 var to = self.follow(d.t, tb->bases[b + 1], tb->bases[b + 2])
                 if to.t != usize::MAX {
-                    if ((to.t == base.t) && (to.r == base.r)) || self.derives_from(to, base, depth + 1) {
+                    if ((to.t == base.t) && (to.r == base.r))
+                        || self.derives_from(to, base, depth + 1) {
                         return true
                     }
                 }

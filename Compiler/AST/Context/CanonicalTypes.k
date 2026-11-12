@@ -99,12 +99,12 @@ import AST::Node::Types::{
 import AST::ParamMode::ParamMode
 import Location::SourceRange::SourceRange
 import Memory::ArenaAllocator::ArenaAllocator
-import Support::FlagSet::FlagSet
 import Support::EvalHash::{
     GOLDEN_RATIO_MIX,
     SPLITMIX64_MUL1,
     SPLITMIX64_MUL2,
 }
+import Support::FlagSet::FlagSet
 import Token::TokenKind::TokenKind
 
 /// \brief 64-bit mixer (splitmix64 finalizer). Used to fold component pointers
@@ -393,7 +393,9 @@ pub class CanonicalTypeStore {
             for var i: usize = 0; i < n; ++i {
                 if (*args)[i]->in_generic_owner() {
                     ty->type_flags.set(Type::TypeFlags::IsDependent)
-                    ty->type_flags.set(Type::TypeFlags::IsInstantiationDependent)
+                    ty->type_flags.set(
+                        Type::TypeFlags::IsInstantiationDependent,
+                    )
                 }
             }
         }
@@ -434,7 +436,9 @@ pub class CanonicalTypeStore {
         }
 
         if (q & ~(QUAL_CONST | QUAL_VOLATILE)) != 0 {
-            kairo::std::ice_fail("CanonicalTypeStore::qualified: bit outside const/volatile")
+            kairo::std::ice_fail(
+                "CanonicalTypeStore::qualified: bit outside const/volatile",
+            )
         }
 
         var h = canon_hash_u64(0, (TypeKind::QualifiedType as u8))
@@ -901,7 +905,9 @@ pub class CanonicalTypeStore {
         }
 
         if modes != &null && modes->size() != n {
-            kairo::std::ice_fail("CanonicalTypeStore::func: modes not parallel to params")
+            kairo::std::ice_fail(
+                "CanonicalTypeStore::func: modes not parallel to params",
+            )
         }
 
         var ns: usize = 0
@@ -925,8 +931,20 @@ pub class CanonicalTypeStore {
         h = canon_hash_u64(h, if (raw) => (1 as u64) else => (0))
         h = canon_hash_u64(h, cc)
 
-        var        lock = kairo::std::LockGuard(self._mu)
-        var unsafe *hit = self._probe_func(h, params, modes, n, ret, panics, pset, ns, raw, cc)
+        var lock = kairo::std::LockGuard(self._mu)
+        var unsafe *hit = self._probe_func(
+            h,
+            params,
+            modes,
+            n,
+            ret,
+            panics,
+            pset,
+            ns,
+            raw,
+            cc,
+        )
+
         if hit != &null {
             return hit
         }
@@ -1716,8 +1734,8 @@ pub class CanonicalTypeStore {
     /// its bucket array in address order), each read front to back. That
     /// visits a few buckets instead of every canonical per TU.
     pub fn nullables(self) -> cxx::std::vector<unsafe *NullableType> {
-        var out  = cxx::std::vector<unsafe *NullableType>()
-        var lock = kairo::std::LockGuard(self._mu)
+        var out     = cxx::std::vector<unsafe *NullableType>()
+        var lock    = kairo::std::LockGuard(self._mu)
         var keep    = cxx::std::vector<unsafe *NullableType>()
         var buckets = cxx::std::vector<usize>()
         for var i: usize = 0; i < self._pending_nullables.size(); ++i {
@@ -1784,18 +1802,26 @@ pub class CanonicalTypeStore {
     /// Does \p c itself name something of a dead tree: a declaration (or an
     /// expression) whose address is in \p dead, or a dropped instance's node
     /// (\p shells)? These are the kinds whose KEY holds such an address.
-    priv fn _names_dead(self, c: unsafe *Type, dead: unsafe *kairo::AddrRanges, shells: unsafe *llvm::DenseSet<u64>) -> bool {
+    priv fn _names_dead(self,
+                        c:      unsafe *Type,
+                        dead:   unsafe *kairo::AddrRanges,
+                        shells: unsafe *llvm::DenseSet<u64>) -> bool {
         match c->kind {
             case TypeKind::RecordType {
                 var unsafe *d = cast<RecordType>(c)->decl
-                return d != &null && (dead->has(unsafe (d as unsafe *const void)) || shells->contains(d as usize as u64))
+                return d != &null
+                    && (dead->has(unsafe (d as unsafe *const void))
+                        || shells->contains(d as usize as u64))
             } case TypeKind::GenericParamType {
                 var unsafe *g = cast<GenericParamType>(c)
-                if g->owner != &null && (dead->has(unsafe (g->owner as unsafe *const void)) || shells->contains(g->owner as usize as u64)) {
+                if g->owner != &null
+                    && (dead->has(unsafe (g->owner as unsafe *const void))
+                        || shells->contains(g->owner as usize as u64)) {
                     return true
                 }
 
-                return g->param_name != &null && dead->has(unsafe (g->param_name as unsafe *const void))
+                return g->param_name != &null
+                    && dead->has(unsafe (g->param_name as unsafe *const void))
             } case TypeKind::AssocType {
                 var unsafe *a = cast<AssocType>(c)->assoc
                 return a != &null && dead->has(unsafe (a as unsafe *const void))
@@ -1808,7 +1834,8 @@ pub class CanonicalTypeStore {
                 return t->expr != &null && dead->has(unsafe (t->expr as unsafe *const void))
             } case TypeKind::FixedArrayType {
                 var unsafe *f = cast<FixedArrayType>(c)
-                return f->size_expr != &null && dead->has(unsafe (f->size_expr as unsafe *const void))
+                return f->size_expr != &null
+                    && dead->has(unsafe (f->size_expr as unsafe *const void))
             } default {
                 return false
             }

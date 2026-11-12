@@ -283,7 +283,14 @@ pub class <T: type> ExprParse {
                                 brace_depth:     i32  = 0,
                                 stop_at_newline: bool = false) -> bool {
         var before = self.dyn()->c_idx
-        self._sync_expr(ctx, paren_depth, square_depth, brace_depth, stop_at_newline)
+        self._sync_expr(
+            ctx,
+            paren_depth,
+            square_depth,
+            brace_depth,
+            stop_at_newline,
+        )
+
         if self.dyn()->is_eof() || self._at_owned_closer() {
             return true
         }
@@ -444,7 +451,11 @@ pub class <T: type> ExprParse {
                 }
 
                 // right-associative: recurse at same precedence
-                rhs = self._parse_expr_prec(rhs, ((prec as u8) - 1) as u8 as Self::Precedence, stop)
+                rhs = self._parse_expr_prec(
+                    rhs,
+                    ((prec as u8) - 1) as u8 as Self::Precedence,
+                    stop,
+                )
 
                 lhs = Expressions::AssignOperatorExpr::create(
                     self.dyn()->ctx,
@@ -473,7 +484,12 @@ pub class <T: type> ExprParse {
                 }
 
                 // right-associative: recurse at prec - 1
-                rhs = self._parse_expr_prec(rhs, ((prec as u8) - 1) as u8 as Self::Precedence, stop)
+                rhs = self._parse_expr_prec(
+                    rhs,
+                    ((prec as u8) - 1) as u8 as Self::Precedence,
+                    stop,
+                )
+
                 self._warn_open_operand(rhs)
 
                 lhs = Expressions::BinaryOperatorExpr::create(
@@ -502,7 +518,12 @@ pub class <T: type> ExprParse {
                 }
 
                 // right-associative: recurse at prec - 1
-                rhs = self._parse_expr_prec(rhs, ((prec as u8) - 1) as u8 as Self::Precedence, stop)
+                rhs = self._parse_expr_prec(
+                    rhs,
+                    ((prec as u8) - 1) as u8 as Self::Precedence,
+                    stop,
+                )
+
                 self._warn_open_operand(rhs)
                 lhs = Expressions::BinaryOperatorExpr::create(
                     self.dyn()->ctx,
@@ -603,7 +624,12 @@ pub class <T: type> ExprParse {
                     base,
                 )
 
-                ce->steps.from_buf(chain_steps.data(), chain_steps.size(), self.dyn()->ctx)
+                ce->steps.from_buf(
+                    chain_steps.data(),
+                    chain_steps.size(),
+                    self.dyn()->ctx,
+                )
+
                 return ce
             }
         }
@@ -1029,7 +1055,10 @@ pub class <T: type> ExprParse {
                 at_range.start,
                 "expected attribute name after '@'",
             ).first(at_range)->emit()
-            return Expressions::AttributedExpr::create_error(self.dyn()->ctx, at_range)
+            return Expressions::AttributedExpr::create_error(
+                self.dyn()->ctx,
+                at_range,
+            )
         }
 
         var name_tok = self.dyn()->current()
@@ -1043,19 +1072,29 @@ pub class <T: type> ExprParse {
         // its callee spelled with the attribute's own token. Without this the
         // `<` would be read as the operand and fail as "expected an
         // expression".
-        var attr_nm  = self.dyn()->ctx->get_spelling(name_tok)
+        var attr_nm = self.dyn()->ctx->get_spelling(name_tok)
         var is_alloc = attr_nm == LangAttrs::create() || attr_nm == LangAttrs::destroy()
         if is_alloc {
             self.dyn()->tu->has_alloc_sugar = true
         }
 
         if is_alloc && self.dyn()->check(TokenKind::OpLess) {
-            var callee = NamedIdentExpr::create(self.dyn()->ctx, name_tok.range, name_tok)
+            var callee = NamedIdentExpr::create(
+                self.dyn()->ctx,
+                name_tok.range,
+                name_tok,
+            )
+
             var gargs: kairo::std::StackBuf<ChainType::GenericArg, 4>
             self.dyn()->_parse_generic_args(&gargs)
             self.dyn()->forgive_close()
 
-            callee->generic_args.from_buf(gargs.data(), gargs.size(), self.dyn()->ctx)
+            callee->generic_args.from_buf(
+                gargs.data(),
+                gargs.size(),
+                self.dyn()->ctx,
+            )
+
             callee->range = name_tok.range | self.dyn()->prev().range
             if !self.dyn()->check(TokenKind::OpLParen) {
                 self.dyn()->diag->report(
@@ -1090,7 +1129,12 @@ pub class <T: type> ExprParse {
                 ).first(lp)->emit()
             }
 
-            var call = Expressions::CallExpr::create(self.dyn()->ctx, callee->range | end_r, callee)
+            var call = Expressions::CallExpr::create(
+                self.dyn()->ctx,
+                callee->range | end_r,
+                callee,
+            )
+
             call->args.from_buf(cargs.data(), cargs.size(), self.dyn()->ctx)
             var gae = Expressions::AttributedExpr::create(
                 self.dyn()->ctx,
@@ -1159,7 +1203,10 @@ pub class <T: type> ExprParse {
                 head.start,
                 f"expected an expression after '@{nm}'; an attribute in an expression applies to the expression that follows it",
             ).first(head)->emit()
-            return Expressions::AttributedExpr::create_error(self.dyn()->ctx, head)
+            return Expressions::AttributedExpr::create_error(
+                self.dyn()->ctx,
+                head,
+            )
         }
 
         var ae = Expressions::AttributedExpr::create(
@@ -1209,7 +1256,10 @@ pub class <T: type> ExprParse {
                     lsq.start,
                     f"expected the element type after '{LangAttrs::cxx_new_form()} ['; the array form is '{LangAttrs::cxx_new_form()} [T; n]'",
                 ).first(head | lsq)->emit()
-                return Expressions::CxxNewExpr::create_error(self.dyn()->ctx, head)
+                return Expressions::CxxNewExpr::create_error(
+                    self.dyn()->ctx,
+                    head,
+                )
             }
 
             if !self.dyn()->check(TokenKind::OpSemicolon) {
@@ -1218,7 +1268,10 @@ pub class <T: type> ExprParse {
                     ty->range.start,
                     f"expected ';' and the element count after the type; the array form is '{LangAttrs::cxx_new_form()} [T; n]'",
                 ).first(ty->range)->emit()
-                return Expressions::CxxNewExpr::create_error(self.dyn()->ctx, head | ty->range)
+                return Expressions::CxxNewExpr::create_error(
+                    self.dyn()->ctx,
+                    head | ty->range,
+                )
             }
 
             self.dyn()->advance(T::SkipNL::After) // `;`
@@ -1229,7 +1282,10 @@ pub class <T: type> ExprParse {
                     head.start,
                     f"expected the element count in '{LangAttrs::cxx_new_form()} [T; n]'",
                 ).first(head)->emit()
-                return Expressions::CxxNewExpr::create_error(self.dyn()->ctx, head)
+                return Expressions::CxxNewExpr::create_error(
+                    self.dyn()->ctx,
+                    head,
+                )
             }
 
             var end_r = cnt->range
@@ -1244,8 +1300,18 @@ pub class <T: type> ExprParse {
                 ).first(lsq)->emit()
             }
 
-            var sz = Expressions::SizeOfExpr::create(self.dyn()->ctx, ty->range, ty)
-            return Expressions::CxxNewExpr::create_array(self.dyn()->ctx, head | end_r, sz, cnt)
+            var sz = Expressions::SizeOfExpr::create(
+                self.dyn()->ctx,
+                ty->range,
+                ty,
+            )
+
+            return Expressions::CxxNewExpr::create_array(
+                self.dyn()->ctx,
+                head | end_r,
+                sz,
+                cnt,
+            )
         }
 
         // `@cxx::new T(args)`: the construction as Kairo types it.
@@ -1262,7 +1328,11 @@ pub class <T: type> ExprParse {
             )
         }
 
-        return Expressions::CxxNewExpr::create(self.dyn()->ctx, head | init->range, init)
+        return Expressions::CxxNewExpr::create(
+            self.dyn()->ctx,
+            head | init->range,
+            init,
+        )
     }
 
     /// `delete` already consumed: the optional `[]` and the operand.
@@ -1295,7 +1365,10 @@ pub class <T: type> ExprParse {
                 kw_range.start,
                 "expected expression after 'delete'",
             ).first(kw_range)->emit()
-            return Expressions::DeleteExpr::create_error(self.dyn()->ctx, kw_range)
+            return Expressions::DeleteExpr::create_error(
+                self.dyn()->ctx,
+                kw_range,
+            )
         }
 
         var unsafe *de = Expressions::DeleteExpr::create(
@@ -1335,7 +1408,11 @@ pub class <T: type> ExprParse {
             self.dyn()->advance() // consume &
             var null_range = self.dyn()->current_ptr()->range
             self.dyn()->advance() // consume null
-            return NullLiteralExpr::create(self.dyn()->ctx, amp_range | null_range, true)
+            return NullLiteralExpr::create(
+                self.dyn()->ctx,
+                amp_range | null_range,
+                true,
+            )
         }
 
         /// # prefix unary operators
@@ -1408,7 +1485,10 @@ pub class <T: type> ExprParse {
                     kw_range.start,
                     "expected expression after 'await'",
                 ).first(kw_range)->emit()
-                return Expressions::AwaitExpr::create_error(self.dyn()->ctx, kw_range)
+                return Expressions::AwaitExpr::create_error(
+                    self.dyn()->ctx,
+                    kw_range,
+                )
             }
 
             return Expressions::AwaitExpr::create(
@@ -1429,7 +1509,10 @@ pub class <T: type> ExprParse {
                     kw_range.start,
                     "expected expression after 'spawn'",
                 ).first(kw_range)->emit()
-                return Expressions::SpawnExpr::create_error(self.dyn()->ctx, kw_range)
+                return Expressions::SpawnExpr::create_error(
+                    self.dyn()->ctx,
+                    kw_range,
+                )
             }
 
             return Expressions::SpawnExpr::create(
@@ -1450,7 +1533,10 @@ pub class <T: type> ExprParse {
                     kw_range.start,
                     "expected expression after 'thread'",
                 ).first(kw_range)->emit()
-                return Expressions::ThreadExpr::create_error(self.dyn()->ctx, kw_range)
+                return Expressions::ThreadExpr::create_error(
+                    self.dyn()->ctx,
+                    kw_range,
+                )
             }
 
             return Expressions::ThreadExpr::create(
@@ -1471,7 +1557,10 @@ pub class <T: type> ExprParse {
                     kw_range.start,
                     "expected expression after 'eval'",
                 ).first(kw_range)->emit()
-                return Expressions::EvalExpr::create_error(self.dyn()->ctx, kw_range)
+                return Expressions::EvalExpr::create_error(
+                    self.dyn()->ctx,
+                    kw_range,
+                )
             }
 
             return Expressions::EvalExpr::create(
@@ -1492,7 +1581,10 @@ pub class <T: type> ExprParse {
                     kw_range.start,
                     "expected expression after 'unsafe'",
                 ).first(kw_range)->emit()
-                return Expressions::UnsafeExpr::create_error(self.dyn()->ctx, kw_range)
+                return Expressions::UnsafeExpr::create_error(
+                    self.dyn()->ctx,
+                    kw_range,
+                )
             }
 
             return Expressions::UnsafeExpr::create(
@@ -1513,9 +1605,17 @@ pub class <T: type> ExprParse {
                 (if (arr) => (f"Kairo has no 'delete' expression; memory from C++'s 'new T[n]' is freed with '{LangAttrs::cxx_delete_form()} [] p'") else => f"Kairo has no 'delete' expression; '{LangAttrs::at(LangAttrs::destroy())} p' runs the destructor and frees the memory through the allocator that {LangAttrs::quoted(LangAttrs::create())} took it from"))
             b.first(kw_range)
             if arr {
-                b.fix(kw_range, LangAttrs::cxx_delete_form(), "free C++ array memory with C++'s delete[]")
+                b.fix(
+                    kw_range,
+                    LangAttrs::cxx_delete_form(),
+                    "free C++ array memory with C++'s delete[]",
+                )
             } else {
-                b.fix(kw_range, LangAttrs::at(LangAttrs::destroy()), "write " + LangAttrs::quoted(LangAttrs::destroy()))
+                b.fix(
+                    kw_range,
+                    LangAttrs::at(LangAttrs::destroy()),
+                    "write " + LangAttrs::quoted(LangAttrs::destroy()),
+                )
             }
 
             b.emit()
@@ -1559,7 +1659,10 @@ pub class <T: type> ExprParse {
                 kw_range.start,
                 "expected type after 'sizeof'",
             ).first(kw_range)->emit()
-            return Expressions::SizeOfExpr::create_error(self.dyn()->ctx, kw_range)
+            return Expressions::SizeOfExpr::create_error(
+                self.dyn()->ctx,
+                kw_range,
+            )
         }
 
         if has_paren {
@@ -1597,7 +1700,10 @@ pub class <T: type> ExprParse {
                 kw_range.start,
                 "expected type after 'alignof'",
             ).first(kw_range)->emit()
-            return Expressions::AlignOfExpr::create_error(self.dyn()->ctx, kw_range)
+            return Expressions::AlignOfExpr::create_error(
+                self.dyn()->ctx,
+                kw_range,
+            )
         }
 
         if has_paren {
@@ -1652,7 +1758,9 @@ pub class <T: type> ExprParse {
         // the type and `typeof x + 1` is not `typeof (x + 1)`.
         var operand: unsafe *Expr = &null
         if has_paren {
-            operand = self.parse_expr(self.stop_on(Self::ExprStopKind::StopParen))
+            operand = self.parse_expr(
+                self.stop_on(Self::ExprStopKind::StopParen),
+            )
         } else {
             operand = self.parse_typeof_operand()
         }
@@ -1663,7 +1771,10 @@ pub class <T: type> ExprParse {
                 kw_range.start,
                 "expected expression after 'typeof'",
             ).first(kw_range)->emit()
-            return Expressions::TypeOfExpr::create_error(self.dyn()->ctx, kw_range)
+            return Expressions::TypeOfExpr::create_error(
+                self.dyn()->ctx,
+                kw_range,
+            )
         }
 
         if has_paren {
@@ -1747,14 +1858,20 @@ pub class <T: type> ExprParse {
 
         self.dyn()->advance(T::SkipNL::After) // consume `(`
 
-        var unsafe *operand = self.parse_expr(self.stop_on(Self::ExprStopKind::StopParen))
+        var unsafe *operand = self.parse_expr(
+            self.stop_on(Self::ExprStopKind::StopParen),
+        )
+
         if operand == &null {
             self.dyn()->diag->report(
                 DiagID::S052E,
                 kw_range.start,
                 "expected expression inside 'unwrap!(...)'",
             ).first(kw_range)->emit()
-            return Expressions::UnwrapExpr::create_error(self.dyn()->ctx, kw_range)
+            return Expressions::UnwrapExpr::create_error(
+                self.dyn()->ctx,
+                kw_range,
+            )
         }
 
         if !self.dyn()->check(TokenKind::OpRParen) {
@@ -1763,7 +1880,10 @@ pub class <T: type> ExprParse {
                 kw_range.start,
                 "expected ')' to close 'unwrap!(...)'",
             ).first(kw_range | operand->range)->emit()
-            return Expressions::UnwrapExpr::create_error(self.dyn()->ctx, kw_range | operand->range)
+            return Expressions::UnwrapExpr::create_error(
+                self.dyn()->ctx,
+                kw_range | operand->range,
+            )
         }
 
         self.dyn()->advance() // consume `)`
@@ -1779,8 +1899,11 @@ pub class <T: type> ExprParse {
     ///  Grammar:  ('is_trivially_copyable' | 'is_trivially_destructible') '!' '(' type ')'
     inline fn _parse_type_trait_intrinsic(self) -> unsafe *Expr {
         var kw_range = self.dyn()->current_ptr()->range
-        var fact = Expressions::type_trait_of(self.dyn()->ctx->get_spelling(self.dyn()->current()))
-        var nm   = Expressions::type_trait_spelling(fact)
+        var fact = Expressions::type_trait_of(
+            self.dyn()->ctx->get_spelling(self.dyn()->current()),
+        )
+
+        var nm = Expressions::type_trait_spelling(fact)
         self.dyn()->advance() // consume the name
         self.dyn()->advance() // consume `!`
         if !self.dyn()->check(TokenKind::OpLParen) {
@@ -2287,10 +2410,13 @@ pub class <T: type> ExprParse {
             return 0
         }
 
-        var between = ctx->sm->get_text(SourceRange::from_bounds(s.end, i.start))
-        var len     = between.length()
-        var data    = between.raw()
-        var nl      = false
+        var between = ctx->sm->get_text(
+            SourceRange::from_bounds(s.end, i.start),
+        )
+
+        var len  = between.length()
+        var data = between.raw()
+        var nl   = false
         for var k: usize = 0; k < len; ++k {
             var c = data[k]
             if c == ('\n' as u8) || c == ('\r' as u8) {
@@ -2449,13 +2575,20 @@ pub class <T: type> ExprParse {
         var ll_range = ll_ptr->range             // saved for restore on rollback
 
         // first column: the `<` operator; second column: generic opener.
-        var lt_range = SourceRange::from_bounds(ll_range.start, ll_range.start.with_offset(1))
-        var op_tok   = Token(lt_range, TokenKind::OpLess)
+        var lt_range = SourceRange::from_bounds(
+            ll_range.start,
+            ll_range.start.with_offset(1),
+        )
+
+        var op_tok = Token(lt_range, TokenKind::OpLess)
 
         // rewrite the buffer token to the leftover `<` (second column) so the
         // generic-args parser consumes it as the opener.
-        ll_ptr->kind  = TokenKind::OpLess
-        ll_ptr->range = SourceRange::from_bounds(ll_range.start.with_offset(1), ll_range.end)
+        ll_ptr->kind = TokenKind::OpLess
+        ll_ptr->range = SourceRange::from_bounds(
+            ll_range.start.with_offset(1),
+            ll_range.end,
+        )
 
         var t = ASTTentativeGuard(self.dyn())
         var generic_args: kairo::std::StackBuf<ChainType::GenericArg, 4>
@@ -2481,7 +2614,12 @@ pub class <T: type> ExprParse {
                 || k == TokenKind::TkEof {
                 var ops: kairo::std::StackBuf<Token, 3>
                 ops.push_back(op_tok)
-                result->op_tokens.from_buf(ops.data(), ops.size(), self.dyn()->ctx)
+                result->op_tokens.from_buf(
+                    ops.data(),
+                    ops.size(),
+                    self.dyn()->ctx,
+                )
+
                 result->generic_args.from_buf(
                     generic_args.data(),
                     generic_args.size(),
@@ -2574,7 +2712,12 @@ pub class <T: type> ExprParse {
             end_range = self.dyn()->prev().range
         }
 
-        var ce = Expressions::CallExpr::create(self.dyn()->ctx, callee->range | end_range, callee)
+        var ce = Expressions::CallExpr::create(
+            self.dyn()->ctx,
+            callee->range | end_range,
+            callee,
+        )
+
         ce->args.from_buf(args.data(), args.size(), self.dyn()->ctx)
         return ce
     }
@@ -2622,7 +2765,9 @@ pub class <T: type> ExprParse {
                 self.dyn()->advance(T::SkipNL::After) // consume `:`
 
                 var unsafe *value = self.parse_expr(
-                    self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopParen),
+                    self.stop_on(Self::ExprStopKind::StopComma).plus(
+                        Self::ExprStopKind::StopParen,
+                    ),
                 )
 
                 if value == &null {
@@ -2655,7 +2800,9 @@ pub class <T: type> ExprParse {
             } else {
                 // positional argument
                 var unsafe *arg = self.parse_expr(
-                    self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopParen),
+                    self.stop_on(Self::ExprStopKind::StopComma).plus(
+                        Self::ExprStopKind::StopParen,
+                    ),
                 )
 
                 if arg == &null || is_recovery(arg) {
@@ -2776,7 +2923,10 @@ pub class <T: type> ExprParse {
         // bracket-delimited like an argument list: `]` ends the index, not
         // a newline. Popped before `]`, so its trailing newline stays.
         self.dyn()->nl_push()
-        var unsafe *index = self.parse_expr(self.stop_on(Self::ExprStopKind::StopSquare))
+        var unsafe *index = self.parse_expr(
+            self.stop_on(Self::ExprStopKind::StopSquare),
+        )
+
         self.dyn()->nl_pop()
 
         if index == &null {
@@ -3198,6 +3348,7 @@ pub class <T: type> ExprParse {
         } else {
             keep = Self::_ends_enclosing(resolved.kind)
         }
+
         if !keep {
             self.dyn()->advance()
         } else if is_closer && !self.dyn()->diag->is_suppressed() {
@@ -3354,20 +3505,27 @@ pub class <T: type> ExprParse {
                 dot_range.start,
                 "expected a variant name after '.'",
             ).first(dot_range)->emit()
-            return Expressions::NamedInitializerExpr::create_error(self.dyn()->ctx, dot_range)
+            return Expressions::NamedInitializerExpr::create_error(
+                self.dyn()->ctx,
+                dot_range,
+            )
         }
 
         var name = self.dyn()->current()
         self.dyn()->advance() // consume the variant name
         var head_range = dot_range | name.range
 
-        var suppressed              = stop.has(Self::ExprStopKind::NoStructLiteral)
-        var braces                  = !suppressed && self.dyn()->check(TokenKind::OpLBrace)
-        var e:         unsafe *Expr = &null
+        var suppressed = stop.has(Self::ExprStopKind::NoStructLiteral)
+        var braces = !suppressed && self.dyn()->check(TokenKind::OpLBrace)
+        var e: unsafe *Expr = &null
         if braces {
             e = self._parse_init_braces(&null, head_range)
         } else {
-            e = Expressions::NamedInitializerExpr::create(self.dyn()->ctx, head_range, &null)
+            e = Expressions::NamedInitializerExpr::create(
+                self.dyn()->ctx,
+                head_range,
+                &null,
+            )
         }
 
         if isa<Expressions::NamedInitializerExpr>(e) {
@@ -3431,7 +3589,10 @@ pub class <T: type> ExprParse {
             }
         }
 
-        var ce = ChainExpr::create_global(self.dyn()->ctx, start_range | self.dyn()->prev().range)
+        var ce = ChainExpr::create_global(
+            self.dyn()->ctx,
+            start_range | self.dyn()->prev().range,
+        )
 
         // we need to put the first step in, but more steps may follow
         // via the postfix loop. so we create the chain with just this one step.
@@ -3497,7 +3658,9 @@ pub class <T: type> ExprParse {
         }
 
         var unsafe *first = self.parse_expr(
-            self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopParen),
+            self.stop_on(Self::ExprStopKind::StopComma).plus(
+                Self::ExprStopKind::StopParen,
+            ),
         )
 
         if first == &null {
@@ -3642,7 +3805,9 @@ pub class <T: type> ExprParse {
             }
 
             var unsafe *elem = self.parse_expr(
-                self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopParen),
+                self.stop_on(Self::ExprStopKind::StopComma).plus(
+                    Self::ExprStopKind::StopParen,
+                ),
             )
 
             if elem == &null || is_recovery(elem) {
@@ -3685,8 +3850,17 @@ pub class <T: type> ExprParse {
             return first
         }
 
-        var tuple = Expressions::TupleLiteralExpr::create(self.dyn()->ctx, full_range)
-        tuple->elements.from_buf(elements.data(), elements.size(), self.dyn()->ctx)
+        var tuple = Expressions::TupleLiteralExpr::create(
+            self.dyn()->ctx,
+            full_range,
+        )
+
+        tuple->elements.from_buf(
+            elements.data(),
+            elements.size(),
+            self.dyn()->ctx,
+        )
+
         return tuple
     }
 
@@ -3721,7 +3895,9 @@ pub class <T: type> ExprParse {
             }
 
             var unsafe *elem = self.parse_expr(
-                self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopSquare),
+                self.stop_on(Self::ExprStopKind::StopComma).plus(
+                    Self::ExprStopKind::StopSquare,
+                ),
             )
 
             if elem == &null || is_recovery(elem) {
@@ -3760,7 +3936,11 @@ pub class <T: type> ExprParse {
             ).first(lsquare_range)->emit()
         }
 
-        var ll = Expressions::ListLiteralExpr::create(self.dyn()->ctx, lsquare_range | end_range)
+        var ll = Expressions::ListLiteralExpr::create(
+            self.dyn()->ctx,
+            lsquare_range | end_range,
+        )
+
         ll->elements.from_buf(elements.data(), elements.size(), self.dyn()->ctx)
         return ll
     }
@@ -3806,7 +3986,7 @@ pub class <T: type> ExprParse {
         // literals join whatever their prefixes, so `"a" f"b{x}"` is
         // one f-string whose holes are every segment's, in order; a chain
         // with no format segment stays a plain compile-time literal.
-        var skind = FlagSet<StringLiteralExpr::StringKind, u8>()
+        var skind        = FlagSet<StringLiteralExpr::StringKind, u8>()
         var holes: usize = 0
         if sdata != &null {
             if sdata->prefix_kind.has(Immediate::TextPrefixKind::Raw) {
@@ -3828,7 +4008,13 @@ pub class <T: type> ExprParse {
             }
         }
 
-        var node = StringLiteralExpr::create(self.dyn()->ctx, tok.range, tok, skind)
+        var node = StringLiteralExpr::create(
+            self.dyn()->ctx,
+            tok.range,
+            tok,
+            skind,
+        )
+
         node->imm = sdata // attach: every get_*/is_* accessor asserts on null imm
 
         // Parse holes off the DATA, not the kind: rf is both raw and format, and a
@@ -3847,10 +4033,10 @@ pub class <T: type> ExprParse {
         // StringLiteralExpr::hole_segment / hole_index, which walk the chain
         // the same way.
         for var h: usize = 0; h < holes; ++h {
-            var unsafe *hs = node->hole_segment(h)
-            var        i  = node->hole_index(h)
-            var hole_buf   = hs->exprs[i].0
-            var hole_range = hs->exprs[i].1
+            var unsafe *hs        = node->hole_segment(h)
+            var        i          = node->hole_index(h)
+            var        hole_buf   = hs->exprs[i].0
+            var        hole_range = hs->exprs[i].1
 
             if hole_buf == &null {
                 parts.push_back(self._error_expr(hole_range))
@@ -3865,7 +4051,10 @@ pub class <T: type> ExprParse {
                 if t_ptr != &null {
                     flat_tokens[k] = *t_ptr
                     if foreign {
-                        flat_tokens[k] = self.dyn()->ctx->wrap_foreign_token(*t_ptr, tok)
+                        flat_tokens[k] = self.dyn()->ctx->wrap_foreign_token(
+                            *t_ptr,
+                            tok,
+                        )
                     }
                 }
             }
@@ -3927,7 +4116,9 @@ pub class <T: type> ExprParse {
 
         // parse first element to disambiguate set vs map
         var unsafe *first = self.parse_expr(
-            self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopBrace),
+            self.stop_on(Self::ExprStopKind::StopComma).plus(
+                Self::ExprStopKind::StopBrace,
+            ),
         )
 
         if first == &null {
@@ -3961,7 +4152,9 @@ pub class <T: type> ExprParse {
             }
 
             var unsafe *elem = self.parse_expr(
-                self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopBrace),
+                self.stop_on(Self::ExprStopKind::StopComma).plus(
+                    Self::ExprStopKind::StopBrace,
+                ),
             )
 
             if elem == &null || is_recovery(elem) {
@@ -3997,7 +4190,11 @@ pub class <T: type> ExprParse {
             ).first(start_range)->emit()
         }
 
-        var sl = Expressions::SetLiteralExpr::create(self.dyn()->ctx, start_range | end_range)
+        var sl = Expressions::SetLiteralExpr::create(
+            self.dyn()->ctx,
+            start_range | end_range,
+        )
+
         sl->elements.from_buf(elements.data(), elements.size(), self.dyn()->ctx)
         return sl
     }
@@ -4012,7 +4209,9 @@ pub class <T: type> ExprParse {
         self.dyn()->advance(T::SkipNL::After) // consume `:`
 
         var unsafe *first_val = self.parse_expr(
-            self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopBrace),
+            self.stop_on(Self::ExprStopKind::StopComma).plus(
+                Self::ExprStopKind::StopBrace,
+            ),
         )
 
         if first_val == &null {
@@ -4039,7 +4238,9 @@ pub class <T: type> ExprParse {
             }
 
             var unsafe *key = self.parse_expr(
-                self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopBrace),
+                self.stop_on(Self::ExprStopKind::StopComma).plus(
+                    Self::ExprStopKind::StopBrace,
+                ),
             )
 
             if key == &null {
@@ -4067,7 +4268,9 @@ pub class <T: type> ExprParse {
             self.dyn()->advance(T::SkipNL::After) // consume `:`
 
             var unsafe *val = self.parse_expr(
-                self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopBrace),
+                self.stop_on(Self::ExprStopKind::StopComma).plus(
+                    Self::ExprStopKind::StopBrace,
+                ),
             )
 
             if val == &null {
@@ -4102,7 +4305,11 @@ pub class <T: type> ExprParse {
             ).first(start_range)->emit()
         }
 
-        var ml = Expressions::MapLiteralExpr::create(self.dyn()->ctx, start_range | end_range)
+        var ml = Expressions::MapLiteralExpr::create(
+            self.dyn()->ctx,
+            start_range | end_range,
+        )
+
         ml->entries.from_buf(entries.data(), entries.size(), self.dyn()->ctx)
         return ml
     }
@@ -4178,7 +4385,9 @@ pub class <T: type> ExprParse {
             self.dyn()->advance(T::SkipNL::After) // consume `:`
 
             var unsafe *value = self.parse_expr(
-                self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopBrace),
+                self.stop_on(Self::ExprStopKind::StopComma).plus(
+                    Self::ExprStopKind::StopBrace,
+                ),
             )
 
             if value == &null {
@@ -4224,7 +4433,11 @@ pub class <T: type> ExprParse {
             ).first(start_range)->emit()
         }
 
-        var ai = Expressions::AnonInitializerExpr::create(self.dyn()->ctx, start_range | end_range)
+        var ai = Expressions::AnonInitializerExpr::create(
+            self.dyn()->ctx,
+            start_range | end_range,
+        )
+
         ai->fields.from_buf(fields.data(), fields.size(), self.dyn()->ctx)
         return ai
     }
@@ -4281,7 +4494,10 @@ pub class <T: type> ExprParse {
     /// precondition: current token is `{`.
     priv fn _parse_init_braces(self, path: unsafe *Expr, start_range: SourceRange) -> unsafe *Expr {
         if !self.dyn()->enter_expr_depth() {
-            return Expressions::NamedInitializerExpr::create_error(self.dyn()->ctx, start_range)
+            return Expressions::NamedInitializerExpr::create_error(
+                self.dyn()->ctx,
+                start_range,
+            )
         }
 
         var lbrace_range = self.dyn()->current_ptr()->range
@@ -4345,7 +4561,12 @@ pub class <T: type> ExprParse {
             full_range = start_range | self.dyn()->prev().range
         }
 
-        var node = Expressions::NamedInitializerExpr::create(self.dyn()->ctx, full_range, path)
+        var node = Expressions::NamedInitializerExpr::create(
+            self.dyn()->ctx,
+            full_range,
+            path,
+        )
+
         node->fields.from_buf(fields.data(), fields.size(), self.dyn()->ctx)
 
         self.dyn()->exit_expr_depth()
@@ -4392,7 +4613,9 @@ pub class <T: type> ExprParse {
         // Field value: stop at `,` (next field) or `}` (end). Fresh stop kind,
         // so NoStructLiteral does NOT leak in nested initializers are legal.
         var value = self.dyn()->parse_expr(
-            self.stop_on(Self::ExprStopKind::StopComma).plus(Self::ExprStopKind::StopBrace),
+            self.stop_on(Self::ExprStopKind::StopComma).plus(
+                Self::ExprStopKind::StopBrace,
+            ),
         )
 
         if value == &null { // `P { a: }`: nothing reported it
@@ -4475,7 +4698,7 @@ pub class <T: type> ExprParse {
     ///          block. Without this the arm parses as a set literal and the user
     ///          is told about a missing `}` instead of the arm rule.
     priv fn _arrow_brace_is_block(self) -> bool {
-        var i = self.dyn()->c_idx + 1 // past the `=>`
+        var i = self.dyn()->c_idx + 1   // past the `=>`
         var n = self.dyn()->span.size()
         while i < n {
             var k0 = self.dyn()->resolve_kind_deep(self.dyn()->span.get(i))
@@ -4491,10 +4714,10 @@ pub class <T: type> ExprParse {
         }
 
         ++i
-        var depth: i32    = 1
-        var first         = true
-        var prev          = TokenKind::OpLBrace
-        var nl_after_elem = false
+        var depth:        i32 = 1
+        var first             = true
+        var prev              = TokenKind::OpLBrace
+        var nl_after_elem     = false
         while i < n {
             var k = self.dyn()->resolve_kind_deep(self.dyn()->span.get(i))
             ++i
@@ -4528,7 +4751,9 @@ pub class <T: type> ExprParse {
             nl_after_elem = false
             if k == TokenKind::OpLBrace || k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
                 ++depth
-            } else if k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare {
+            } else if k == TokenKind::OpRBrace
+                || k == TokenKind::OpRParen
+                || k == TokenKind::OpRSquare {
                 --depth
                 if depth == 0 {
                     return false
@@ -4645,7 +4870,11 @@ pub class <T: type> ExprParse {
                     return &null
                 }
 
-                jump = (ReturnStmt::create(self.dyn()->ctx, start | value->range, value))
+                jump = (ReturnStmt::create(
+                    self.dyn()->ctx,
+                    start | value->range,
+                    value,
+                ))
             }
         } else {
             var is_break = self.dyn()->check(TokenKind::KwBreak)
@@ -4662,7 +4891,12 @@ pub class <T: type> ExprParse {
             if is_break {
                 jump = BreakStmt::create(self.dyn()->ctx, r, has_label, label)
             } else {
-                jump = ContinueStmt::create(self.dyn()->ctx, r, has_label, label)
+                jump = ContinueStmt::create(
+                    self.dyn()->ctx,
+                    r,
+                    has_label,
+                    label,
+                )
             }
         }
 
@@ -4670,7 +4904,12 @@ pub class <T: type> ExprParse {
         var one: kairo::std::StackBuf<unsafe *Stmt, 1>
         one.push_back(jump)
         body->body.from_buf(one.data(), one.size(), self.dyn()->ctx)
-        var se = Expressions::StmtExpr::create(self.dyn()->ctx, jump->range, body)
+        var se = Expressions::StmtExpr::create(
+            self.dyn()->ctx,
+            jump->range,
+            body,
+        )
+
         se->is_jump = true
         return se
     }
@@ -4680,7 +4919,12 @@ pub class <T: type> ExprParse {
     ///        forgotten `=>` costs one diagnostic and no cascade.
     pub fn _expect_arrow_recover(self, const after: string, stop: Self::ExprStop) -> unsafe *Expr {
         var at = self.dyn()->current_range() // the arm may be missing at EOF
-        var b  = self.dyn()->diag->report(DiagID::S074E, at.start, f"expected '=>' after {after}")
+        var b = self.dyn()->diag->report(
+            DiagID::S074E,
+            at.start,
+            f"expected '=>' after {after}",
+        )
+
         b.first(at)
         b.insert(at.start, "=> ", "insert '=>'")
         b.emit()
@@ -4764,11 +5008,7 @@ pub class <T: type> ExprParse {
             arm_msg = "an arm is a single expression, not a block; use a statement expression '({ ... })'"
         }
 
-        var b = self.dyn()->diag->report(
-            DiagID::S073E,
-            lbrace.start,
-            arm_msg,
-        )
+        var b = self.dyn()->diag->report(DiagID::S073E, lbrace.start, arm_msg)
 
         b.first(lbrace)
 
@@ -4778,7 +5018,9 @@ pub class <T: type> ExprParse {
             b.insert(lbrace.start, "(", "wrap the block in '(' ... ')'")
             b.insert(rbrace.end, ")", "close the statement expression")
         } else if value != &null {
-            var same_open = self._line_of(lbrace.start) == self._line_of(value->range.start)
+            var same_open = self._line_of(lbrace.start) == self._line_of(
+                value->range.start,
+            )
 
             // `{` and the space after it become `=> `. A value on the next
             // line keeps its line: only the brace is replaced.
@@ -4803,7 +5045,9 @@ pub class <T: type> ExprParse {
                 var nxt = self.dyn()->current_ptr()
                 if nxt != &null
                     && nxt->kind != TokenKind::TkNewLine
-                    && self._line_of(nxt->range.start) == self._line_of(rbrace.start) {
+                    && self._line_of(nxt->range.start) == self._line_of(
+                        rbrace.start,
+                    ) {
                     close = SourceRange(rbrace.start, nxt->range.start)
                 }
             }
@@ -4990,7 +5234,10 @@ pub class <T: type> ExprParse {
         var start_range = self.dyn()->current_ptr()->range
 
         if !self.dyn()->enter_expr_depth() {
-            return Expressions::IfExpr::create_error(self.dyn()->ctx, start_range)
+            return Expressions::IfExpr::create_error(
+                self.dyn()->ctx,
+                start_range,
+            )
         }
 
         self.dyn()->advance(T::SkipNL::After) // consume `if`
@@ -5101,9 +5348,18 @@ pub class <T: type> ExprParse {
                 if else_expr != &null
                     && isa<Expressions::IfExpr>(else_expr)
                     && self._is_open_form(else_expr) {
-                    var b = self.dyn()->diag->report(DiagID::S079W, arrow.start, "write 'else if'")
+                    var b = self.dyn()->diag->report(
+                        DiagID::S079W,
+                        arrow.start,
+                        "write 'else if'",
+                    )
+
                     b.first(arrow)
-                    b.remove(SourceRange(arrow.start, else_expr->range.start), "remove '=>'")
+                    b.remove(
+                        SourceRange(arrow.start, else_expr->range.start),
+                        "remove '=>'",
+                    )
+
                     b.emit()
                 }
             } else if self.dyn()->check(TokenKind::OpLBrace) {
@@ -5143,7 +5399,12 @@ pub class <T: type> ExprParse {
             else_expr,
         )
 
-        node->else_ifs.from_buf(else_ifs.data(), else_ifs.size(), self.dyn()->ctx)
+        node->else_ifs.from_buf(
+            else_ifs.data(),
+            else_ifs.size(),
+            self.dyn()->ctx,
+        )
+
         return node
     }
 
@@ -5173,7 +5434,10 @@ pub class <T: type> ExprParse {
         var nested_bare = self.dyn()->c_idx + 1 == self._bare_try_at
 
         if !self.dyn()->enter_expr_depth() {
-            return Expressions::TryCatchExpr::create_error(self.dyn()->ctx, start_range)
+            return Expressions::TryCatchExpr::create_error(
+                self.dyn()->ctx,
+                start_range,
+            )
         }
 
         self.dyn()->advance(T::SkipNL::After) // consume `try`
@@ -5318,7 +5582,10 @@ pub class <T: type> ExprParse {
 
         var core = self.dyn()->_parse_match_core(start_range)
         if !core.ok {
-            return Expressions::MatchExpr::create_error(self.dyn()->ctx, core.range)
+            return Expressions::MatchExpr::create_error(
+                self.dyn()->ctx,
+                core.range,
+            )
         }
 
         var cases: kairo::std::StackBuf<MatchCase, 8>
@@ -5331,7 +5598,12 @@ pub class <T: type> ExprParse {
             }
         }
 
-        var node = Expressions::MatchExpr::create(self.dyn()->ctx, core.range, core.scrutinee)
+        var node = Expressions::MatchExpr::create(
+            self.dyn()->ctx,
+            core.range,
+            core.scrutinee,
+        )
+
         node->cases.from_buf(cases.data(), cases.size(), self.dyn()->ctx)
         return node
     }
@@ -5351,9 +5623,13 @@ pub class <T: type> ExprParse {
         out.body       = &null
         out.expression = &null
 
-        var unsafe *cb    = src->body
-        var        lbrace = SourceRange(cb->range.start, cb->range.start.with_offset(1))
-        var        rbrace = SourceRange(cb->range.end.with_offset(-1), cb->range.end)
+        var unsafe *cb = src->body
+        var lbrace = SourceRange(
+            cb->range.start,
+            cb->range.start.with_offset(1),
+        )
+
+        var rbrace = SourceRange(cb->range.end.with_offset(-1), cb->range.end)
 
         var value: unsafe *Expr = &null
         if cb->body.size() == 1 && !is_recovery(unsafe (cb as unsafe *Stmt)) {
@@ -5374,10 +5650,17 @@ pub class <T: type> ExprParse {
 
         b.first(lbrace)
         if value != &null {
-            var same_open = self._line_of(lbrace.start) == self._line_of(value->range.start)
-            var open_end  = if (same_open) => (value->range.start) else => lbrace.end
-            var arrow     = if (same_open) => ("=> ") else => "=>"
-            b.fix(SourceRange(lbrace.start, open_end), arrow, "replace '{' with '=>'")
+            var same_open = self._line_of(lbrace.start) == self._line_of(
+                value->range.start,
+            )
+
+            var open_end = if (same_open) => (value->range.start) else => lbrace.end
+            var arrow    = if (same_open) => ("=> ") else => "=>"
+            b.fix(
+                SourceRange(lbrace.start, open_end),
+                arrow,
+                "replace '{' with '=>'",
+            )
 
             // the arm list is newline-separated, so `}` always takes the space
             // in front of it: on its own line it joins the value's line.
@@ -5432,11 +5715,21 @@ pub class <T: type> ExprParse {
             var id_ptr   = self.dyn()->current_ptr()
             var id_range = id_ptr->range
             self.dyn()->advance()
-            result.binding     = NamedIdentExpr::create(self.dyn()->ctx, id_range, *id_ptr)
+            result.binding = NamedIdentExpr::create(
+                self.dyn()->ctx,
+                id_range,
+                *id_ptr,
+            )
+
             result.has_binding = true
             // The caught error is a declaration; see CatchArm::decl.
             var cstor = if (result.is_const) => (StorageClass::Const) else => StorageClass::Var
-            result.decl = VariableDecl::create(self.dyn()->ctx, id_range, *id_ptr, cstor)
+            result.decl = VariableDecl::create(
+                self.dyn()->ctx,
+                id_range,
+                *id_ptr,
+                cstor,
+            )
 
             // optional `: Type` filter (only meaningful with a binding)
             if self.dyn()->check(TokenKind::OpColon) {
@@ -5725,7 +6018,11 @@ pub class <T: type> ExprParse {
                     }
 
                     // matched the alias/name the user wrote resolve the ORIGINAL.
-                    if self._src_name_is_generic(gs, fid, self.dyn()->ctx->get_spelling(orig_tok)) {
+                    if self._src_name_is_generic(
+                        gs,
+                        fid,
+                        self.dyn()->ctx->get_spelling(orig_tok),
+                    ) {
                         return true
                     }
                 }
@@ -5773,7 +6070,10 @@ pub class <T: type> ExprParse {
         var start = self.dyn()->current_ptr()->range
 
         if !self.dyn()->enter_expr_depth() {
-            return Expressions::ClosureExpr::create_error(self.dyn()->ctx, start)
+            return Expressions::ClosureExpr::create_error(
+                self.dyn()->ctx,
+                start,
+            )
         }
 
         self.dyn()->advance(T::SkipNL::After) // consume `fn`

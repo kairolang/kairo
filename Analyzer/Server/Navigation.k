@@ -29,27 +29,13 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
@@ -66,17 +52,31 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 extend Server {
     /// A CallHierarchyItem / TypeHierarchyItem: both have this shape.
     fn hierarchy_item(self,
-                      w:           *JsonWriter,
-                      const name:  string,
-                      kind:        i64,
-                      const path:  string,
-                      line:        i64,
-                      ch:          i64,
-                      len:         i64) {
+                      w:          *JsonWriter,
+                      const name: string,
+                      kind:       i64,
+                      const path: string,
+                      line:       i64,
+                      ch:         i64,
+                      len:        i64) {
         w->begin_object()
         w->field(K_NAME, name)
         w->field_int(K_KIND, kind)
@@ -91,7 +91,7 @@ extend Server {
     /// The function symbol of file node \p f whose body holds (line, ch).
     fn enclosing_fn(const self, s: *const JsonDoc, f: u32, line: i64, ch: i64) -> u32 {
         var best = JSON_NONE()
-        var c = s->first(s->get(f, SK_SYMBOLS))
+        var c    = s->first(s->get(f, SK_SYMBOLS))
         while c != JSON_NONE() {
             var k = s->get_int(c, K_KIND)
             if (k == SYM_FUNCTION) || (k == SYM_METHOD) {
@@ -100,7 +100,7 @@ extend Server {
                 var en = s->get(r, K_END)
                 var sl = s->get_int(st, K_LINE)
                 var el = s->get_int(en, K_LINE)
-                var after  = (line > sl) || ((line == sl) && (ch >= s->get_int(st, K_CHARACTER)))
+                var after = (line > sl) || ((line == sl) && (ch >= s->get_int(st, K_CHARACTER)))
                 var before = (line < el) || ((line == el) && (ch <= s->get_int(en, K_CHARACTER)))
                 if after && before {
                     best = c // source order: a later match is nested deeper
@@ -165,7 +165,9 @@ extend Server {
                     var kind = o->as_int(self.nth(o, r, REF_KIND))
                     var rl   = o->as_int(self.nth(o, r, REF_LINE))
                     var rc   = o->as_int(self.nth(o, r, REF_CHAR))
-                    var use  = (fi >= 0) && (o->as_int(self.nth(o, r, REF_IS_DECL)) == 0) && ((kind == 11) || (kind == 12))
+                    var use = (fi >= 0)
+                        && (o->as_int(self.nth(o, r, REF_IS_DECL)) == 0)
+                        && ((kind == 11) || (kind == 12))
                     if !use {
                         r = o->next(r)
                         continue
@@ -175,8 +177,8 @@ extend Server {
                     var dl    = o->as_int(self.nth(o, r, REF_DEF_LINE))
                     var dc    = o->as_int(self.nth(o, r, REF_DEF_CHAR))
 
-                    var key:  string = ""
-                    var head = JsonWriter()
+                    var key: string = ""
+                    var head        = JsonWriter()
                     if incoming {
                         if (dpath != path) || (dl != line) || (dc != ch) {
                             r = o->next(r)
@@ -189,7 +191,11 @@ extend Server {
                             continue
                         }
 
-                        var fs = o->get(o->get(from, K_SELECTION_RANGE), K_START)
+                        var fs = o->get(
+                            o->get(from, K_SELECTION_RANGE),
+                            K_START,
+                        )
+
                         var fe = o->get(o->get(from, K_SELECTION_RANGE), K_END)
                         key = fpath + ":" + o->dump(fs)
                         self.hierarchy_item(
@@ -199,7 +205,10 @@ extend Server {
                             fpath,
                             o->get_int(fs, K_LINE),
                             o->get_int(fs, K_CHARACTER),
-                            o->get_int(fe, K_CHARACTER) - o->get_int(fs, K_CHARACTER),
+                            o->get_int(fe, K_CHARACTER) - o->get_int(
+                                fs,
+                                K_CHARACTER,
+                            ),
                         )
                     } else {
                         var inside = self.enclosing_fn(o, of, rl, rc)
@@ -211,7 +220,15 @@ extend Server {
                         key = f"{dpath}:{dl}:{dc}"
                         self.hierarchy_item(
                             &head,
-                            self.name_in_hover(o->str(self.nth(o, o->get(of, SK_HOVERS), o->as_int(self.nth(o, r, REF_HOVER))))),
+                            self.name_in_hover(
+                                o->str(
+                                    self.nth(
+                                        o,
+                                        o->get(of, SK_HOVERS),
+                                        o->as_int(self.nth(o, r, REF_HOVER)),
+                                    ),
+                                ),
+                            ),
                             12,
                             dpath,
                             dl,
@@ -221,7 +238,13 @@ extend Server {
                     }
 
                     var rw = JsonWriter()
-                    self.write_range(&rw, rl, rc, o->as_int(self.nth(o, r, REF_LEN)))
+                    self.write_range(
+                        &rw,
+                        rl,
+                        rc,
+                        o->as_int(self.nth(o, r, REF_LEN)),
+                    )
+
                     var g = keys.size()
                     for var q: usize = 0; q < keys.size(); ++q {
                         if keys[q] == key {
@@ -262,7 +285,14 @@ extend Server {
     /// Locations for "go to implementation". (path, line) is in \p sh's
     /// index's lines when \p sh is active, and every result is placed on the
     /// buffer's lines through it (Lookup.k, LineShift).
-    fn related_types(self, const path: string, line: i64, ch: i64, up: bool, w: *JsonWriter, items: bool, sh: *const LineShift) {
+    fn related_types(self,
+                     const path: string,
+                     line:       i64,
+                     ch:         i64,
+                     up:         bool,
+                     w:          *JsonWriter,
+                     items:      bool,
+                     sh:         *const LineShift) {
         var seen: [string]
         for var ei: usize = 0; ei < self.entries.size(); ++ei {
             if !self.entries[ei].has_idx {
@@ -278,21 +308,28 @@ extend Server {
             var of = o->first(o->get(o->root, SK_FILES))
             while of != JSON_NONE() {
                 var fpath = o->get_str(of, SK_PATH)
-                var b = o->first(o->get(of, SK_BASES))
+                var b     = o->first(o->get(of, SK_BASES))
                 while b != JSON_NONE() {
-                    var bpath = o->str(self.nth(o, o->get(of, SK_FILES), o->as_int(self.nth(o, b, BASE_BASE_FILE))))
+                    var bpath = o->str(
+                        self.nth(
+                            o,
+                            o->get(of, SK_FILES),
+                            o->as_int(self.nth(o, b, BASE_BASE_FILE)),
+                        ),
+                    )
+
                     var dl = o->as_int(self.nth(o, b, BASE_LINE))
                     var dc = o->as_int(self.nth(o, b, BASE_CHAR))
                     var bl = o->as_int(self.nth(o, b, BASE_BASE_LINE))
                     var bc = o->as_int(self.nth(o, b, BASE_BASE_CHAR))
 
-                    var hit = false
-                    var rp: string = ""
-                    var rl: i64 = 0
-                    var rc: i64 = 0
-                    var rn: i64 = 0
+                    var hit          = false
+                    var rp:   string = ""
+                    var rl:   i64    = 0
+                    var rc:   i64    = 0
+                    var rn:   i64    = 0
                     var name: string = ""
-                    var kind: i64 = SYM_CLASS
+                    var kind: i64    = SYM_CLASS
                     if up && (fpath == path) && (dl == ql) && (dc == ch) {
                         hit  = true
                         rp   = bpath
@@ -327,7 +364,15 @@ extend Server {
                         if !dup {
                             seen.push_back(key)
                             if items {
-                                self.hierarchy_item(w, name, kind, rp, rl, rc, rn)
+                                self.hierarchy_item(
+                                    w,
+                                    name,
+                                    kind,
+                                    rp,
+                                    rl,
+                                    rc,
+                                    rn,
+                                )
                             } else {
                                 w->begin_object()
                                 w->field(K_URI, self.uri_of(rp))
@@ -350,13 +395,18 @@ extend Server {
     /// \param sh  the index is of an older text of the buffer (inactive: it
     ///            is not): a lens is placed on the buffer's line, and one
     ///            whose line the edits changed is not sent.
-    fn code_lens(self, s: *const JsonDoc, f: u32, const path: string, const id: string, sh: *const LineShift) {
+    fn code_lens(self,
+                 s:          *const JsonDoc,
+                 f:          u32,
+                 const path: string,
+                 const id:   string,
+                 sh:         *const LineShift) {
         // One pass over every snapshot's refs, counting uses per declaration
         // of THIS file; a use is counted once however many entries index it.
         var decl_keys: [string]
         var counts:    [usize]
         var sites:     [string]
-        var c = s->first(s->get(f, SK_SYMBOLS))
+        var c                   = s->first(s->get(f, SK_SYMBOLS))
         while c != JSON_NONE() {
             var ss = s->get(s->get(c, K_SELECTION_RANGE), K_START)
             decl_keys.push_back(s->dump(ss))
@@ -374,10 +424,11 @@ extend Server {
             var of = o->first(o->get(o->root, SK_FILES))
             while of != JSON_NONE() {
                 var fpath = o->get_str(of, SK_PATH)
-                var r = o->first(o->get(of, SK_REFS))
+                var r     = o->first(o->get(of, SK_REFS))
                 while r != JSON_NONE() {
                     var fi = o->as_int(self.nth(o, r, REF_DEF_FILE))
-                    if (fi >= 0) && (o->as_int(self.nth(o, r, REF_IS_DECL)) == 0)
+                    if (fi >= 0)
+                        && (o->as_int(self.nth(o, r, REF_IS_DECL)) == 0)
                         && (o->str(self.nth(o, o->get(of, SK_FILES), fi)) == path) {
                         var dl = o->as_int(self.nth(o, r, REF_DEF_LINE))
                         var dc = o->as_int(self.nth(o, r, REF_DEF_CHAR))
@@ -385,10 +436,11 @@ extend Server {
                         // compares equal to the dumped selectionRange starts.
                         var kw = JsonWriter()
                         write_lsp_position(&kw, dl, dc)
-                        var key  = kw.out
+                        var key = kw.out
                         var site = fpath + ":" + f"{o->as_int(self.nth(o, r, REF_LINE))}" + ":" + f"{o->as_int(self.nth(o, r, REF_CHAR))}" + ";"
                         for var k: usize = 0; k < decl_keys.size(); ++k {
-                            if (decl_keys[k] == key) && (find_from(sites[k], site, 0) == usize::MAX) {
+                            if (decl_keys[k] == key)
+                                && (find_from(sites[k], site, 0) == usize::MAX) {
                                 sites[k] += site
                                 counts[k] += 1
                             }
@@ -408,8 +460,12 @@ extend Server {
         c = s->first(s->get(f, SK_SYMBOLS))
         while c != JSON_NONE() {
             var kind = s->get_int(c, K_KIND)
-            var wanted = (kind == SYM_FUNCTION) || (kind == SYM_METHOD) || (kind == SYM_CLASS) || (kind == SYM_STRUCT) ||
-                (kind == SYM_INTERFACE) || (kind == SYM_ENUM)
+            var wanted = (kind == SYM_FUNCTION)
+                || (kind == SYM_METHOD)
+                || (kind == SYM_CLASS)
+                || (kind == SYM_STRUCT)
+                || (kind == SYM_INTERFACE)
+                || (kind == SYM_ENUM)
             var sel = s->get(c, K_SELECTION_RANGE)
             var l0  = s->get_int(s->get(sel, K_START), K_LINE)
             var l1  = s->get_int(s->get(sel, K_END), K_LINE)
@@ -436,7 +492,11 @@ extend Server {
                 w.key(K_COMMAND)
                 w.begin_object()
                 var n = counts[k]
-                w.field(K_TITLE, if n == 1 => "1 reference" else => (f"{n}" + " references"))
+                w.field(
+                    K_TITLE,
+                    if n == 1 => "1 reference" else => (f"{n}" + " references"),
+                )
+
                 // No command id: the lens is information. An editor that
                 // wants a click wires its own "show references" to it.
                 w.field(K_COMMAND, "")

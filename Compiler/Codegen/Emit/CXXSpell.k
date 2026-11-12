@@ -429,7 +429,10 @@ pub class CXXSpell {
             var cands = cxx::std::vector<unsafe *Decl>()
             cands.push_back(d)
             cands.push_back(CXXSpell::rep(d))
-            cands.push_back(CXXSpell::rep(DeclFacts::decl_pattern(CXXSpell::rep(d))))
+            cands.push_back(
+                CXXSpell::rep(DeclFacts::decl_pattern(CXXSpell::rep(d))),
+            )
+
             for var i: usize = 0; i < cands.size(); ++i {
                 var unsafe *cd = cands[i]
                 if cd == &null {
@@ -569,7 +572,7 @@ pub class CXXSpell {
 
         var unsafe *dc    = d->semantic_dc
         var unsafe *owner = if (dc != &null) => (dc->owner_decl()) else => &null
-        var        is_var = isa<Declarations::FieldDecl>(d) || isa<Declarations::VariableDecl>(d)
+        var is_var = isa<Declarations::FieldDecl>(d) || isa<Declarations::VariableDecl>(d)
         if is_var && owner != &null && isa<Declarations::ClassDecl>(owner) {
             return VIS_PRIV()
         }
@@ -716,7 +719,10 @@ pub class CXXSpell {
             // Inside a definition of a C++-declared function (a parameter, a
             // local): the file it is written in, as tu_of says.
             if c->dc_kind == DeclContextKind::Function && c->dc_owner != &null {
-                var unsafe *of = dyn_cast<Declarations::FunctionDecl>(c->dc_owner)
+                var unsafe *of = dyn_cast<Declarations::FunctionDecl>(
+                    c->dc_owner,
+                )
+
                 if of != &null && CXXSpell::defines_foreign(of) && of->lexical_dc != &null {
                     c = of->lexical_dc
                     continue
@@ -740,7 +746,9 @@ pub class CXXSpell {
         }
 
         var unsafe *first = f->first_decl()
-        return first != &null && first != f && DeclFacts::decl_is_imported(unsafe (first as unsafe *Decl))
+        return first != &null
+            && first != f
+            && DeclFacts::decl_is_imported(unsafe (first as unsafe *Decl))
     }
 
     pub static fn tu_of(d: unsafe *Decl) -> unsafe *TranslationUnit {
@@ -1199,7 +1207,10 @@ pub class CXXSpell {
             dc = f->lexical_dc
         }
 
-        var unsafe *sets = if (dc != &null) => (dc->lookup_symbol(DeclName::subscript_set_name())) else => &null
+        var unsafe *sets = if (dc != &null) => (dc->lookup_symbol(
+                               DeclName::subscript_set_name(),
+                           ))
+                           else => &null
         if sets == &null {
             return true
         }
@@ -1311,7 +1322,10 @@ pub class CXXSpell {
         // An eval generator runs at compile time, where nothing suspends: it
         // returns the buffer its `yield`s push into (Compiler/Spec/Eval.md#eval-for).
         if f->is_eval() && f->is_generator {
-            var unsafe *gr = dyn_cast<RecordType>(canon_unqual(f->return_type->canonical))
+            var unsafe *gr = dyn_cast<RecordType>(
+                canon_unqual(f->return_type->canonical),
+            )
+
             if gr != &null && gr->args.size() > 0 {
                 return "::" + LowerTargets::eval_buf() + "<" + self._type(
                     gr->args[0],
@@ -1327,7 +1341,10 @@ pub class CXXSpell {
 
         var unsafe *c = canon_unqual(f->return_type->canonical)
         if c == &null || !isa<PointerType>(c) {
-            self._ice(f->range, "CXXSpell: is_place_operator accepted a non-pointer result")
+            self._ice(
+                f->range,
+                "CXXSpell: is_place_operator accepted a non-pointer result",
+            )
         }
 
         return self._type(cast<PointerType>(c)->pointee, subst, scope) + "&"
@@ -1340,7 +1357,10 @@ pub class CXXSpell {
             var unsafe *x = cast<Declarations::ExtensionDecl>(lex->dc_owner)
             var unsafe *c = x->target->canonical
             if c == &null || c->kind != TypeKind::RecordType {
-                self._ice(f->range, "CXXSpell: extension operator on a non-record target")
+                self._ice(
+                    f->range,
+                    "CXXSpell: extension operator on a non-record target",
+                )
             }
 
             return CXXSpell::rep(cast<RecordType>(c)->decl)
@@ -1392,7 +1412,9 @@ pub class CXXSpell {
         }
 
         if self._cg->psym == &null {
-            kairo::std::ice_fail("CXXSpell: no PreprocessorSymbolTable on the CodegenContext")
+            kairo::std::ice_fail(
+                "CXXSpell: no PreprocessorSymbolTable on the CodegenContext",
+            )
         }
 
         // Resolve the SymbolID directly: module_base segments are
@@ -1402,7 +1424,9 @@ pub class CXXSpell {
         for var i: usize = 0; i < mb->segments.size(); ++i {
             var unsafe *p = self._cg->psym->resolve(mb->segments[i].name)
             if p == &null {
-                kairo::std::ice_fail("CXXSpell: module_base segment is not in the PP symbol table")
+                kairo::std::ice_fail(
+                    "CXXSpell: module_base segment is not in the PP symbol table",
+                )
             }
 
             // A segment is a FILE or directory name, not a Kairo identifier:
@@ -1594,7 +1618,10 @@ pub class CXXSpell {
         }
 
         return CXXSpell::cxx_segment(
-            string(unsafe (((path.raw() as unsafe *const u8) + start) as *const u8), end - start),
+            string(
+                unsafe (((path.raw() as unsafe *const u8) + start) as *const u8),
+                end - start,
+            ),
         )
     }
 
@@ -1801,7 +1828,9 @@ pub class CXXSpell {
     /// Deterministic, and a function of the source tree alone (invariant 9a).
     fn ext_scope_name(self, x: unsafe *Declarations::ExtensionDecl) -> string {
         if x == &null || x->target == &null || x->target->canonical == &null {
-            kairo::std::ice_fail("CXXSpell: extension with an unresolved target reached codegen")
+            kairo::std::ice_fail(
+                "CXXSpell: extension with an unresolved target reached codegen",
+            )
         }
 
         var unsafe *c = canon_unqual(x->target->canonical)
@@ -1971,7 +2000,9 @@ pub class CXXSpell {
         // the C++ name, not under the module it is written in.
         var unsafe *rf = dyn_cast<Declarations::FunctionDecl>(r)
         if rf != &null && CXXSpell::defines_foreign(rf) {
-            return DeclFacts::decl_cxx_spelling(unsafe (rf->first_decl() as unsafe *Decl))
+            return DeclFacts::decl_cxx_spelling(
+                unsafe (rf->first_decl() as unsafe *Decl),
+            )
         }
 
         // An imported enum's enumerator carries no import facts of its own
@@ -2138,7 +2169,9 @@ pub class CXXSpell {
     fn ginit_decl(self, v: unsafe *Declarations::VariableDecl) -> string {
         return self.decl(
             v->type_,
-            LowerTargets::global_init_thunk(self.leaf(unsafe (v as unsafe *Decl))) + "()",
+            LowerTargets::global_init_thunk(
+                self.leaf(unsafe (v as unsafe *Decl)),
+            ) + "()",
         )
     }
 
@@ -2336,7 +2369,7 @@ pub class CXXSpell {
                       t:     unsafe *Type,
                       subst: unsafe *InstanceEntry = &null,
                       scope: unsafe *Decl = &null) -> string {
-        var s = self._type(t, subst, scope)
+        var        s  = self._type(t, subst, scope)
         var unsafe *c = if (t != &null && t->canonical != &null) => (t->canonical) else => t
         if c != &null && isa<FixedArrayType>(canon_unqual(c)) {
             return "__typeof__(" + s + ")"
@@ -2382,7 +2415,10 @@ pub class CXXSpell {
                 return ""
             }
 
-            out += "::" + *TokenText::from_range(sg->name->range, self._cg->ctx->sm).get_text()
+            out += "::" + *TokenText::from_range(
+                sg->name->range,
+                self._cg->ctx->sm,
+            ).get_text()
         }
 
         return out
@@ -2470,13 +2506,31 @@ pub class CXXSpell {
                     return self._join("auto", name)
                 }
 
-                return self._join(self._record(cast<RecordType>(t), subst, scope), name)
+                return self._join(
+                    self._record(cast<RecordType>(t), subst, scope),
+                    name,
+                )
             } case TypeKind::PointerType {
-                return self.decl(cast<PointerType>(t)->pointee, "*" + name, subst, scope)
+                return self.decl(
+                    cast<PointerType>(t)->pointee,
+                    "*" + name,
+                    subst,
+                    scope,
+                )
             } case TypeKind::CXXLValueRefType {
-                return self.decl(cast<CXXLValueRefType>(t)->referee, "&" + name, subst, scope)
+                return self.decl(
+                    cast<CXXLValueRefType>(t)->referee,
+                    "&" + name,
+                    subst,
+                    scope,
+                )
             } case TypeKind::CXXRValueRefType {
-                return self.decl(cast<CXXRValueRefType>(t)->referee, "&&" + name, subst, scope)
+                return self.decl(
+                    cast<CXXRValueRefType>(t)->referee,
+                    "&&" + name,
+                    subst,
+                    scope,
+                )
             } case TypeKind::FixedArrayType {
                 var unsafe *a  = cast<FixedArrayType>(t)
                 var        ext = ""
@@ -2509,7 +2563,12 @@ pub class CXXSpell {
             case TypeKind::FunctionPointerType {
                 var unsafe *f = cast<FunctionPointerType>(t)
                 if f->is_unprototyped {
-                    return self.decl(f->return_type, f"(*{name})()", subst, scope)
+                    return self.decl(
+                        f->return_type,
+                        f"(*{name})()",
+                        subst,
+                        scope,
+                    )
                 }
 
                 // `unsafe fn(A) -> R` is the plain `R(*)(A)`: one word,
@@ -2543,7 +2602,10 @@ pub class CXXSpell {
                     name,
                 )
             } case TypeKind::GenericParamType {
-                return self._join(self._gparam(cast<GenericParamType>(t), subst), name)
+                return self._join(
+                    self._gparam(cast<GenericParamType>(t), subst),
+                    name,
+                )
             }
 
             // `T::Node` is the witness's member type: `typename
@@ -2554,7 +2616,10 @@ pub class CXXSpell {
             // spelled as Self is there. `typename` always: it is allowed on
             // a qualified name that turns out not to be dependent.
             case TypeKind::AssocType {
-                return self._join(self.assoc_spelling(cast<AssocType>(t), subst, scope), name)
+                return self._join(
+                    self.assoc_spelling(cast<AssocType>(t), subst, scope),
+                    name,
+                )
             }
 
             // A generic VALUE argument (`4` of `Buf<4>`): the integer.
@@ -2597,7 +2662,11 @@ pub class CXXSpell {
 
                 return ""
             } default {
-                self._ice(t_in->range, f"CXXSpell: {to_string(t->kind)} is not a canonical kind")
+                self._ice(
+                    t_in->range,
+                    f"CXXSpell: {to_string(t->kind)} is not a canonical kind",
+                )
+
                 return ""
             }
         }
@@ -2625,7 +2694,10 @@ pub class CXXSpell {
                 var unsafe *vd = dyn_cast<Declarations::VariableDecl>(v->vdecl)
                 if vd != &null
                     && (vd->semantic_dc == &null || CXXSpell::in_function_scope(v->vdecl)) {
-                    return self.tok_name(vd->name, self._cg->ctx->sm->get_fid(vd->name.range))
+                    return self.tok_name(
+                        vd->name,
+                        self._cg->ctx->sm->get_fid(vd->name.range),
+                    )
                 }
 
                 return self.qual_name(v->vdecl)
@@ -2747,14 +2819,23 @@ pub class CXXSpell {
                 ps += ", "
             }
 
-            ps += self._param_type(f->params[i], f->modes[i], false, "", subst, scope)
+            ps += self._param_type(
+                f->params[i],
+                f->modes[i],
+                false,
+                "",
+                subst,
+                scope,
+            )
         }
 
         // A panicking `fn` type's value returns its panic result (§4.1).
         var unsafe *canon = if (f->canonical != &null
                                 && isa<FunctionPointerType>(
                                     canon_unqual(f->canonical),
-                                )) => (cast<FunctionPointerType>(canon_unqual(f->canonical)))
+                                )) => (cast<FunctionPointerType>(
+                                canon_unqual(f->canonical),
+                            ))
                             else => f
         if canon->panic_result != &null {
             return self.decl(canon->panic_result, f"({ps})", subst, scope)
@@ -2818,7 +2899,14 @@ pub class CXXSpell {
             )
         }
 
-        return self._param_type(p->type_, p->mode, CXXSpell::const_param(p), "", subst, scope)
+        return self._param_type(
+            p->type_,
+            p->mode,
+            CXXSpell::const_param(p),
+            "",
+            subst,
+            scope,
+        )
     }
 
     /// The parameter is spelled as a `const` one: written `const x: T`, or a
@@ -2867,7 +2955,10 @@ pub class CXXSpell {
         var unsafe *c = if (p->type_ != &null) => (p->type_->canonical) else => &null
         if !p->is_pack && c != &null && canon_unqual(c)->kind == TypeKind::FixedArrayType {
             if p->mode == ParamMode::Value && !p->is_const {
-                self._ice(p->range, "CXXSpell: array parameter by value; StmtTyping must reject it")
+                self._ice(
+                    p->range,
+                    "CXXSpell: array parameter by value; StmtTyping must reject it",
+                )
             }
 
             var s = self.decl(canon_unqual(c), "&" + name, subst, scope)
@@ -2883,7 +2974,14 @@ pub class CXXSpell {
             return s
         }
 
-        return self._param_type(p->type_, p->mode, CXXSpell::const_param(p), name, subst, scope)
+        return self._param_type(
+            p->type_,
+            p->mode,
+            CXXSpell::const_param(p),
+            name,
+            subst,
+            scope,
+        )
     }
 
     /// The mode's reference and the const marker folded into decl(), so a
@@ -2924,7 +3022,12 @@ pub class CXXSpell {
             if c != &null
                 && c->kind == TypeKind::GenericParamType
                 && !cast<GenericParamType>(c)->is_pack {
-                return self.decl(t, self._ref_declarator("const&", name), subst, scope)
+                return self.decl(
+                    t,
+                    self._ref_declarator("const&", name),
+                    subst,
+                    scope,
+                )
             }
 
             // A generic record's own instance type (`const other: Q<T>`) is a
@@ -2932,7 +3035,12 @@ pub class CXXSpell {
             // value, a move-only Q (an ArenaList field) could not be passed
             // at all.
             if c != &null && c->kind == TypeKind::RecordType {
-                return "const " + self.decl(t, self._ref_declarator("&", name), subst, scope)
+                return "const " + self.decl(
+                    t,
+                    self._ref_declarator("&", name),
+                    subst,
+                    scope,
+                )
             }
 
             return "const " + self.decl(t, name, subst, scope)
@@ -3034,7 +3142,9 @@ pub class CXXSpell {
                              subst:      unsafe *InstanceEntry = &null,
                              scope:      unsafe *Decl = &null) -> string {
         if record == &null || record->canonical == &null {
-            kairo::std::ice_fail("CXXSpell: dependent_member_type with no canonical qualifier")
+            kairo::std::ice_fail(
+                "CXXSpell: dependent_member_type with no canonical qualifier",
+            )
         }
 
         var unsafe *q    = canon_unqual(record->canonical)
@@ -3043,7 +3153,12 @@ pub class CXXSpell {
             targs = self.args_str(*args, subst, scope)
         }
 
-        return CXXSpell::_member_type(self._type(q, subst, scope), q->is_dependent(), leaf, targs)
+        return CXXSpell::_member_type(
+            self._type(q, subst, scope),
+            q->is_dependent(),
+            leaf,
+            targs,
+        )
     }
 
     /// \p t names an associated type anywhere inside it (`Self::Node`,
@@ -3069,11 +3184,17 @@ pub class CXXSpell {
             } case TypeKind::NullableType {
                 return CXXSpell::mentions_assoc(cast<NullableType>(c)->inner)
             } case TypeKind::FixedArrayType {
-                return CXXSpell::mentions_assoc(cast<FixedArrayType>(c)->element)
+                return CXXSpell::mentions_assoc(
+                    cast<FixedArrayType>(c)->element,
+                )
             } case TypeKind::CXXLValueRefType {
-                return CXXSpell::mentions_assoc(cast<CXXLValueRefType>(c)->referee)
+                return CXXSpell::mentions_assoc(
+                    cast<CXXLValueRefType>(c)->referee,
+                )
             } case TypeKind::CXXRValueRefType {
-                return CXXSpell::mentions_assoc(cast<CXXRValueRefType>(c)->referee)
+                return CXXSpell::mentions_assoc(
+                    cast<CXXRValueRefType>(c)->referee,
+                )
             } case TypeKind::RecordType {
                 var unsafe *r = cast<RecordType>(c)
                 for var i: usize = 0; i < r->args.size(); ++i {
@@ -3117,10 +3238,13 @@ pub class CXXSpell {
     /// \p d's C++ template parameters: an extension member's extension's,
     /// then its own. One list; a non-member function takes one.
     static fn template_params(d: unsafe *Decl) -> cxx::std::vector<unsafe *Declarations::GenericParamDecl> {
-        var        out  = cxx::std::vector<unsafe *Declarations::GenericParamDecl>()
+        var out = cxx::std::vector<unsafe *Declarations::GenericParamDecl>()
         var unsafe *ext = DeclFacts::decl_extension_of(d)
         if ext != &null {
-            var eps = DeclFacts::decl_generic_params(unsafe (ext as unsafe *Decl))
+            var eps = DeclFacts::decl_generic_params(
+                unsafe (ext as unsafe *Decl),
+            )
+
             for var i: usize = 0; i < eps.size(); ++i {
                 out.push_back(eps[i])
             }
@@ -3157,7 +3281,7 @@ pub class CXXSpell {
         }
 
         var unsafe *gp = own[idx]
-        var        tps = CXXSpell::template_params(CXXSpell::rep(subst->primary))
+        var tps = CXXSpell::template_params(CXXSpell::rep(subst->primary))
         for var k: usize = 0; k < tps.size(); ++k {
             if tps[k] != gp {
                 continue
@@ -3185,7 +3309,7 @@ pub class CXXSpell {
         }
 
         var unsafe *gp = own[idx]
-        var        tps = CXXSpell::template_params(CXXSpell::rep(subst->primary))
+        var tps = CXXSpell::template_params(CXXSpell::rep(subst->primary))
         for var k: usize = 0; k < tps.size(); ++k {
             if tps[k] != gp {
                 continue
@@ -3305,7 +3429,11 @@ pub class CXXSpell {
         var unsafe *b = canon_unqual(a->base)
         if isa<RecordType>(b)
             && isa<Declarations::InterfaceDecl>(
-                CXXSpell::rep(DeclFacts::decl_pattern(CXXSpell::rep(cast<RecordType>(b)->decl))),
+                CXXSpell::rep(
+                    DeclFacts::decl_pattern(
+                        CXXSpell::rep(cast<RecordType>(b)->decl),
+                    ),
+                ),
             ) {
             if self.assoc_self_qual.size() == 0 {
                 return leaf + targs
@@ -3341,7 +3469,11 @@ pub class CXXSpell {
 
         var unsafe *ic = canon_unqual(via)
         if ic == &null || !isa<RecordType>(ic) {
-            self._ice(a->range, "CXXSpell: an associated type through a non-interface")
+            self._ice(
+                a->range,
+                "CXXSpell: an associated type through a non-interface",
+            )
+
             return ""
         }
 
@@ -3373,7 +3505,11 @@ pub class CXXSpell {
             }
 
             var unsafe *idecl = dyn_cast<Declarations::InterfaceDecl>(
-                CXXSpell::rep(DeclFacts::decl_pattern(CXXSpell::rep(cast<RecordType>(bt)->decl))),
+                CXXSpell::rep(
+                    DeclFacts::decl_pattern(
+                        CXXSpell::rep(cast<RecordType>(bt)->decl),
+                    ),
+                ),
             )
 
             if idecl == &null || idecl->compose_state != 2 {
@@ -3398,7 +3534,11 @@ pub class CXXSpell {
         }
 
         var cs = cxx::std::vector<unsafe *ConstraintExpr>()
-        CXXSpell::impl_bounds(DeclFacts::decl_requires_clause(CXXSpell::rep(g->owner)), unsafe &cs)
+        CXXSpell::impl_bounds(
+            DeclFacts::decl_requires_clause(CXXSpell::rep(g->owner)),
+            unsafe &cs,
+        )
+
         var unsafe *want = CXXSpell::rep(a->assoc)
         for var i: usize = 0; i < cs.size(); ++i {
             var unsafe *c  = cs[i]
@@ -3407,7 +3547,10 @@ pub class CXXSpell {
                 continue
             }
 
-            var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(id->resolved_decl)
+            var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+                id->resolved_decl,
+            )
+
             if gp == &null || gp->index != g->param_index {
                 continue
             }
@@ -3422,7 +3565,11 @@ pub class CXXSpell {
             }
 
             var unsafe *idecl = dyn_cast<Declarations::InterfaceDecl>(
-                CXXSpell::rep(DeclFacts::decl_pattern(CXXSpell::rep(cast<RecordType>(bt)->decl))),
+                CXXSpell::rep(
+                    DeclFacts::decl_pattern(
+                        CXXSpell::rep(cast<RecordType>(bt)->decl),
+                    ),
+                ),
             )
 
             if idecl == &null || idecl->compose_state != 2 {
@@ -3468,7 +3615,10 @@ pub class CXXSpell {
         if DeclFacts::decl_is_instance(d) {
             var unsafe *e = self._cg->instances->entry_of(d)
             if e == &null {
-                self._ice(d->range, "CXXSpell: interface instance with no registry entry")
+                self._ice(
+                    d->range,
+                    "CXXSpell: interface instance with no registry entry",
+                )
             }
 
             for var i: usize = 0; i < e->args.size(); ++i {
@@ -3554,7 +3704,9 @@ pub class CXXSpell {
             }
 
             var unsafe *idecl = CXXSpell::rep(
-                DeclFacts::decl_pattern(CXXSpell::rep(cast<RecordType>(rhs)->decl)),
+                DeclFacts::decl_pattern(
+                    CXXSpell::rep(cast<RecordType>(rhs)->decl),
+                ),
             )
 
             if !isa<Declarations::InterfaceDecl>(idecl) {
@@ -3591,7 +3743,11 @@ pub class CXXSpell {
             || isa<Declarations::UnionDecl>(d)
             || isa<Declarations::EnumDecl>(d) {
             var vps = cxx::std::vector<unsafe *Expr>()
-            CXXSpell::value_predicates(DeclFacts::decl_requires_clause(d), unsafe &vps)
+            CXXSpell::value_predicates(
+                DeclFacts::decl_requires_clause(d),
+                unsafe &vps,
+            )
+
             for var i: usize = 0; i < vps.size(); ++i {
                 var t = self._pred_text(vps[i])
                 if t.size() == 0 {
@@ -3760,7 +3916,9 @@ pub class CXXSpell {
             }
 
             var unsafe *idecl = CXXSpell::rep(
-                DeclFacts::decl_pattern(CXXSpell::rep(cast<RecordType>(rhs)->decl)),
+                DeclFacts::decl_pattern(
+                    CXXSpell::rep(cast<RecordType>(rhs)->decl),
+                ),
             )
 
             if !isa<Declarations::InterfaceDecl>(idecl) {
@@ -3797,7 +3955,9 @@ pub class CXXSpell {
         }
 
         var unsafe *d = CXXSpell::rep(f->semantic_dc->dc_owner)
-        if d == &null || !CXXSpell::defers_bounds(d) || DeclFacts::decl_generic_params(d).size() == 0 {
+        if d == &null
+            || !CXXSpell::defers_bounds(d)
+            || DeclFacts::decl_generic_params(d).size() == 0 {
             return out
         }
 
@@ -3820,17 +3980,26 @@ pub class CXXSpell {
             }
 
             var unsafe *idecl = CXXSpell::rep(
-                DeclFacts::decl_pattern(CXXSpell::rep(cast<RecordType>(rhs)->decl)),
+                DeclFacts::decl_pattern(
+                    CXXSpell::rep(cast<RecordType>(rhs)->decl),
+                ),
             )
 
             if !isa<Declarations::InterfaceDecl>(idecl) {
                 continue
             }
 
-            var tn  = self.tparam_name(gp, d)
-            var msg = "\x27" + self.leaf(d) + "\x27 requires \x27" + tn + "\x27 to implement \x27" + self.leaf(idecl) + "\x27"
+            var tn = self.tparam_name(gp, d)
+            var msg = "\x27" + self.leaf(
+                d,
+            ) + "\x27 requires \x27" + tn + "\x27 to implement \x27" + self.leaf(
+                idecl,
+            ) + "\x27"
             out.push_back(
-                "static_assert(" + self.concept_name(idecl) + self.witness_args(tn, rhs) + ", \"" + msg + "\");",
+                "static_assert(" + self.concept_name(idecl) + self.witness_args(
+                    tn,
+                    rhs,
+                ) + ", \"" + msg + "\");",
             )
         }
 
@@ -3882,7 +4051,11 @@ pub class CXXSpell {
         }
 
         var vps = cxx::std::vector<unsafe *Expr>()
-        CXXSpell::value_predicates(DeclFacts::decl_requires_clause(d), unsafe &vps)
+        CXXSpell::value_predicates(
+            DeclFacts::decl_requires_clause(d),
+            unsafe &vps,
+        )
+
         for var i: usize = 0; i < vps.size(); ++i {
             if self._pred_text(vps[i]).size() == 0 {
                 out.push_back(vps[i])
@@ -3965,7 +4138,10 @@ pub class CXXSpell {
             return ""
         }
 
-        var unsafe *f = dyn_cast<Declarations::FunctionDecl>(CXXSpell::rep(ni->resolved_decl))
+        var unsafe *f = dyn_cast<Declarations::FunctionDecl>(
+            CXXSpell::rep(ni->resolved_decl),
+        )
+
         if f == &null || !f->is_eval() || f->generic_params.size() == 0 {
             return ""
         }
@@ -4287,7 +4463,7 @@ pub class CXXSpell {
         if self.rename_tparams != &null {
             if self._renamed_for != self.rename_tparams {
                 self._renamed_for = self.rename_tparams
-                self._renamed     = CXXSpell::template_params(self.rename_tparams)
+                self._renamed = CXXSpell::template_params(self.rename_tparams)
             }
 
             for var i: usize = 0; i < self._renamed.size(); ++i {
@@ -4527,7 +4703,10 @@ pub class CXXSpell {
                 // there and let C++ apply its defaults itself.
                 var v = cxx::std::vector<unsafe *Type>()
                 for var i: usize = 0; i < r->args.size(); ++i {
-                    var unsafe *g = dyn_cast<GenericParamType>(canon_unqual(r->args[i]))
+                    var unsafe *g = dyn_cast<GenericParamType>(
+                        canon_unqual(r->args[i]),
+                    )
+
                     if g != &null
                         && g->owner != &null
                         && CXXSpell::rep(g->owner) == CXXSpell::rep(d) {
@@ -4543,7 +4722,9 @@ pub class CXXSpell {
                     // deduction, as for the template itself.
                     if g != &null
                         && g->owner != &null
-                        && isa<Declarations::TypeAliasDecl>(CXXSpell::rep(g->owner)) {
+                        && isa<Declarations::TypeAliasDecl>(
+                            CXXSpell::rep(g->owner),
+                        ) {
                         v.clear()
                         break
                     }
@@ -4555,7 +4736,11 @@ pub class CXXSpell {
                     return DeclFacts::decl_cxx_spelling(d)
                 }
 
-                return DeclFacts::decl_cxx_spelling(d) + self.args_str(v, subst, scope)
+                return DeclFacts::decl_cxx_spelling(d) + self.args_str(
+                    v,
+                    subst,
+                    scope,
+                )
             }
 
             return DeclFacts::decl_cxx_spelling(d)
@@ -4566,7 +4751,10 @@ pub class CXXSpell {
         // sorting alias, so the template's result and a concrete caller's
         // `Panic<T, A, B>` are one type however the parameters land.
         if self._dependent_panic_set(r) {
-            var s = "::" + LowerTargets::panic_set_alias() + "<" + self.qual_name(CXXSpell::rep(d))
+            var s = "::" + LowerTargets::panic_set_alias() + "<" + self.qual_name(
+                CXXSpell::rep(d),
+            )
+
             for var i: usize = 0; i < r->args.size(); ++i {
                 s += ", " + self._type(r->args[i], subst, scope)
             }
@@ -4578,10 +4766,17 @@ pub class CXXSpell {
         if DeclFacts::decl_is_instance(d) {
             var unsafe *e = self._cg->instances->entry_of(d)
             if e == &null {
-                self._ice(d->range, "CXXSpell: instance shell with no registry entry")
+                self._ice(
+                    d->range,
+                    "CXXSpell: instance shell with no registry entry",
+                )
             }
 
-            return self._record_name(e->primary, self.args_str(e->args, subst, scope), scope)
+            return self._record_name(
+                e->primary,
+                self.args_str(e->args, subst, scope),
+                scope,
+            )
         }
 
         var targs = ""
@@ -4598,7 +4793,7 @@ pub class CXXSpell {
         // through it -- `::ns::L<int>::P`, or `typename ::ns::L<T>::P` while
         // the instance is dependent.
         if r->outer != &null {
-            var oq  = self._type(r->outer, subst, scope)
+            var oq = self._type(r->outer, subst, scope)
             var dep = r->outer->is_dependent() || r->outer->is_instantiation_dependent()
             return CXXSpell::_member_type(oq, dep, self.leaf(d), targs)
         }
@@ -4613,7 +4808,10 @@ pub class CXXSpell {
             return false
         }
 
-        var unsafe *en = dyn_cast<Declarations::EnumDecl>(CXXSpell::rep(r->decl))
+        var unsafe *en = dyn_cast<Declarations::EnumDecl>(
+            CXXSpell::rep(r->decl),
+        )
+
         if en == &null || !en->adt_explicit_tags || DeclFacts::adt_pack_param(en) == usize::MAX {
             return false
         }
@@ -4767,7 +4965,10 @@ pub class CXXSpell {
         var unsafe *owner = CXXSpell::rep(g->owner)
         var        gps    = DeclFacts::decl_generic_params(owner)
         if (g->param_index as usize) >= gps.size() {
-            self._ice(owner->range, "CXXSpell: generic param index out of range")
+            self._ice(
+                owner->range,
+                "CXXSpell: generic param index out of range",
+            )
         }
 
         return self.tparam_name(gps[g->param_index as usize], owner)
@@ -4780,7 +4981,9 @@ pub class CXXSpell {
                     subst:       unsafe *InstanceEntry,
                     const sigil: string = "") -> string {
         if g->owner == &null {
-            kairo::std::ice_fail("CXXSpell: canonical generic param with no owner")
+            kairo::std::ice_fail(
+                "CXXSpell: canonical generic param with no owner",
+            )
         }
 
         var unsafe *owner = CXXSpell::rep(g->owner)
@@ -4821,7 +5024,10 @@ pub class CXXSpell {
 
         var gps = DeclFacts::decl_generic_params(owner)
         if (g->param_index as usize) >= gps.size() {
-            self._ice(owner->range, "CXXSpell: generic param index out of range")
+            self._ice(
+                owner->range,
+                "CXXSpell: generic param index out of range",
+            )
         }
 
         var nm = self.tparam_name(gps[g->param_index as usize], owner)

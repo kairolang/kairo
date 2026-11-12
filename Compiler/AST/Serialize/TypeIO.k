@@ -160,7 +160,10 @@ fn io_type_base(ar: unsafe *ASTArchive, t: unsafe *Type) {
         ar->sema_zero(t->align_bits as u64, "Type::align_bits")
         ar->sema_null<Type>(t->canonical, "Type::canonical")
         if t->kind != TypeKind::RecoveryType {
-            ar->sema_is(t->recovery_kind == TypeKind::RecoveryType, "Type::recovery_kind")
+            ar->sema_is(
+                t->recovery_kind == TypeKind::RecoveryType,
+                "Type::recovery_kind",
+            )
         }
     }
 }
@@ -275,7 +278,10 @@ fn io_function_pointer_type(ar: unsafe *ASTArchive, n: unsafe *Types::FunctionPo
     ar->type_list<Type>(&n->panic_set)
     eval if defined!(DEBUG) {
         ar->sema_false(n->canon_panics, "FunctionPointerType::canon_panics")
-        ar->sema_null<Type>(n->panic_result, "FunctionPointerType::panic_result")
+        ar->sema_null<Type>(
+            n->panic_result,
+            "FunctionPointerType::panic_result",
+        )
     }
 }
 
@@ -300,7 +306,10 @@ fn io_opaque_ffi_type(ar: unsafe *ASTArchive, n: unsafe *Types::OpaqueFFIType) {
     ar->num32(&n->name)
     var sp: string
     if !ar->reading() && n->sp != &null {
-        sp = string(unsafe ((n->sp as unsafe *const u8) as *const u8), n->sp_len as usize)
+        sp = string(
+            unsafe ((n->sp as unsafe *const u8) as *const u8),
+            n->sp_len as usize,
+        )
     }
 
     var has = n->sp != &null
@@ -316,8 +325,8 @@ fn io_opaque_ffi_type(ar: unsafe *ASTArchive, n: unsafe *Types::OpaqueFFIType) {
             )
 
             mem[sp.size()] = 0
-            n->sp     = unsafe (mem as kairo::std::ConstPtr<u8>)
-            n->sp_len = sp.size() as u32
+            n->sp          = unsafe (mem as kairo::std::ConstPtr<u8>)
+            n->sp_len      = sp.size() as u32
         }
     }
 }
@@ -352,13 +361,22 @@ pub fn type_io(ar: unsafe *ASTArchive, t: unsafe *Type) {
         case TypeKind::ChainType {
             io_chain_type(ar, unsafe (t as unsafe *Types::ChainType))
         } case TypeKind::GenericParamType {
-            io_generic_param_type(ar, unsafe (t as unsafe *Types::GenericParamType))
+            io_generic_param_type(
+                ar,
+                unsafe (t as unsafe *Types::GenericParamType),
+            )
         } case TypeKind::TypeOfType {
             io_type_of_type(ar, unsafe (t as unsafe *Types::TypeOfType))
         } case TypeKind::VariadicPackType {
-            io_variadic_pack_type(ar, unsafe (t as unsafe *Types::VariadicPackType))
+            io_variadic_pack_type(
+                ar,
+                unsafe (t as unsafe *Types::VariadicPackType),
+            )
         } case TypeKind::PackExpansionType {
-            io_pack_expansion_type(ar, unsafe (t as unsafe *Types::PackExpansionType))
+            io_pack_expansion_type(
+                ar,
+                unsafe (t as unsafe *Types::PackExpansionType),
+            )
         } case TypeKind::PointerType {
             io_pointer_type(ar, unsafe (t as unsafe *Types::PointerType))
         } case TypeKind::NullableType {
@@ -376,13 +394,22 @@ pub fn type_io(ar: unsafe *ASTArchive, t: unsafe *Type) {
         } case TypeKind::SelfType {
             // no fields of its own
         } case TypeKind::FunctionPointerType {
-            io_function_pointer_type(ar, unsafe (t as unsafe *Types::FunctionPointerType))
+            io_function_pointer_type(
+                ar,
+                unsafe (t as unsafe *Types::FunctionPointerType),
+            )
         } case TypeKind::InferredType {
             io_inferred_type(ar, unsafe (t as unsafe *Types::InferredType))
         } case TypeKind::CXXLValueRefType {
-            io_cxx_lvalue_ref_type(ar, unsafe (t as unsafe *Types::CXXLValueRefType))
+            io_cxx_lvalue_ref_type(
+                ar,
+                unsafe (t as unsafe *Types::CXXLValueRefType),
+            )
         } case TypeKind::CXXRValueRefType {
-            io_cxx_rvalue_ref_type(ar, unsafe (t as unsafe *Types::CXXRValueRefType))
+            io_cxx_rvalue_ref_type(
+                ar,
+                unsafe (t as unsafe *Types::CXXRValueRefType),
+            )
         } case TypeKind::OpaqueFFIType {
             io_opaque_ffi_type(ar, unsafe (t as unsafe *Types::OpaqueFFIType))
         } case TypeKind::TypeExpr {

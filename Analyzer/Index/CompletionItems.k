@@ -12,25 +12,17 @@
 /// ------------------------------------------------------------------------ ///
 
 
-import Index::Snapshot::*
-import CompletionSite::{
-    Block,
-    blocks_before,
-    declared_in_scope,
-    function_block,
-}
-import TextScan::classify
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
-import AST::Context::ImportOverlay::{
-    ImportOverlay,
-    OverlayVisibility,
-}
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
+}
+import AST::Context::ImportOverlay::{
+    ImportOverlay,
+    OverlayVisibility,
 }
 import AST::Context::SymbolTable::{
     DeclName,
@@ -56,8 +48,6 @@ import AST::Node::CanonicalNodes::{
     builtin_for_token,
     canon_unqual,
 }
-import Index::Primitives::primitive_consts
-import Protocol::CIK_CONSTANT
 import AST::Node::Casting::{
     cast,
     isa,
@@ -72,14 +62,32 @@ import AST::Node::Program::TopLevelKind
 import AST::Node::Statements
 import AST::Node::Types
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import CompletionSite::{
+    Block,
+    blocks_before,
+    declared_in_scope,
+    function_block,
+}
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
+import Index::Bases::*
+import Index::Hovers::*
+import Index::Indexer::*
+import Index::Inlays::*
+import Index::Legend::*
+import Index::Macros::*
+import Index::Primitives::primitive_consts
+import Index::Refs::*
+import Index::Snapshot::*
+import Index::Tokens::*
+import Index::Writer::*
 import Json::JsonWriter
 import Lexer::Immediate::ImmediateTable
 import Lexer::Lexer::Lexer
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Protocol::CIK_CONSTANT
 import Sema::Resolve::AccessCheck::AccessCheck
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
@@ -89,21 +97,13 @@ import Sema::SemaContext::{
 }
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
+import TextScan::classify
 import Token::Token::Token
-import Token::TokenText::TokenText
 import Token::TokenKind::{
     TokenKind,
     is_keyword,
 }
-import Index::Bases::*
-import Index::Hovers::*
-import Index::Indexer::*
-import Index::Inlays::*
-import Index::Legend::*
-import Index::Macros::*
-import Index::Refs::*
-import Index::Tokens::*
-import Index::Writer::*
+import Token::TokenText::TokenText
 
 extend IndexWalker {
     fn item_(self, d: unsafe *Decl, sort: u32) {
@@ -372,7 +372,9 @@ extend IndexWalker {
             // A file IS a module: `import std::io` binds `io` to io.k's
             // module_self, and what the file declares lives in its TU.
             var unsafe *mctx = NameLookup::ctx_of(d)
-            if (mctx != &null) && (mctx->tu != &null) && (unsafe (mctx->tu->module_self as unsafe *Decl) == d) {
+            if (mctx != &null)
+                && (mctx->tu != &null)
+                && (unsafe (mctx->tu->module_self as unsafe *Decl) == d) {
                 self.items_of_tu_(mctx->tu, depth)
             }
         }
@@ -478,11 +480,20 @@ extend IndexWalker {
         }
 
         if isa<Declarations::VariableDecl>(recv_decl) {
-            self.items_of_type_(cast<Declarations::VariableDecl>(recv_decl)->type_, 0)
+            self.items_of_type_(
+                cast<Declarations::VariableDecl>(recv_decl)->type_,
+                0,
+            )
         } else if isa<Declarations::ParamDecl>(recv_decl) {
-            self.items_of_type_(cast<Declarations::ParamDecl>(recv_decl)->type_, 0)
+            self.items_of_type_(
+                cast<Declarations::ParamDecl>(recv_decl)->type_,
+                0,
+            )
         } else if isa<Declarations::FieldDecl>(recv_decl) {
-            self.items_of_type_(cast<Declarations::FieldDecl>(recv_decl)->type_, 0)
+            self.items_of_type_(
+                cast<Declarations::FieldDecl>(recv_decl)->type_,
+                0,
+            )
         }
     }
 
@@ -497,12 +508,12 @@ extend IndexWalker {
         // too. Which blocks are open is read off the text, by the index
         // path's own test, so the two lists agree.
         var blocks: [Block]
-        var fi: usize = 0
+        var fi:     usize   = 0
         if at != u32::MAX {
             var *ft = &self.files[self.file_(self.fid)]
             var cls = classify(ft->text)
             blocks = blocks_before(ft->text, cls, at as usize)
-            fi = function_block(blocks)
+            fi     = function_block(blocks)
             if fi == usize::MAX {
                 fi = 0
             }

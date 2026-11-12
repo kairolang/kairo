@@ -105,7 +105,7 @@ pub class KairoIncludeSource {
 ///        and owns the token arrays, which the lexer reads through an
 ///        ArrayRef until the include pops.
 pub class KairoIncludeHook {
-    pub var  source:   unsafe *KairoIncludeSource                               = &null
+    pub var source: unsafe *KairoIncludeSource = &null
     /// Serve no .k at all: every one entered is the sentinel, with no error
     /// here. For a header set's parse (Interop/Clang/HeaderSet.k), where a
     /// header that includes a .k is a Kairo error the set reports itself
@@ -159,7 +159,10 @@ pub class KairoIncludeHook {
         if self.refuse {
             // Once per TU, as below: a header without a guard that includes
             // it twice needs no second stand-in.
-            self._ci->getPreprocessor().getHeaderSearchInfo().MarkFileIncludeOnce(*fe)
+            self._ci->getPreprocessor().getHeaderSearchInfo().MarkFileIncludeOnce(
+                *fe,
+            )
+
             var unsafe *skip = kairo::std::create<cxx::std::vector<clang::Token>>()
             self._streams.push_back(skip)
             self._sentinel(skip, fid)
@@ -168,7 +171,10 @@ pub class KairoIncludeHook {
             )
         }
 
-        var path = string(unsafe ((name.data() as unsafe *const u8) as *const u8), name.size())
+        var path = string(
+            unsafe ((name.data() as unsafe *const u8) as *const u8),
+            name.size(),
+        )
 
         // The second entry, from the header buffer: the stream is ready.
         var uid = (fe->getUID())
@@ -179,7 +185,10 @@ pub class KairoIncludeHook {
 
             var unsafe *held = self._held[i]
             self._held[i] = &null
-            self._ci->getPreprocessor().getHeaderSearchInfo().MarkFileIncludeOnce(*fe)
+            self._ci->getPreprocessor().getHeaderSearchInfo().MarkFileIncludeOnce(
+                *fe,
+            )
+
             return cxx::std::optional<llvm::ArrayRef<clang::Token>>(
                 llvm::ArrayRef<clang::Token>(held->data(), held->size()),
             )
@@ -201,7 +210,10 @@ pub class KairoIncludeHook {
         }
 
         if !why.empty() {
-            self._error_at(csm->getIncludeLoc(fid), f"cannot include '{path}': {why}")
+            self._error_at(
+                csm->getIncludeLoc(fid),
+                f"cannot include '{path}': {why}",
+            )
         }
 
         // A stream that needs headers cannot carry them (a token stream has
@@ -230,7 +242,9 @@ pub class KairoIncludeHook {
 
         // Entered once per TU however often it is included: the stream is
         // declarations and the helpers, which C++ rejects twice.
-        self._ci->getPreprocessor().getHeaderSearchInfo().MarkFileIncludeOnce(*fe)
+        self._ci->getPreprocessor().getHeaderSearchInfo().MarkFileIncludeOnce(
+            *fe,
+        )
 
         if toks->empty() {
             self._sentinel(toks, fid)
@@ -264,9 +278,20 @@ pub class KairoIncludeHook {
             llvm::Twine(kairo::sref(r"<kairo-include>")),
         )
 
-        var at   = csm->getIncludeLoc(fid)
-        var bfid = csm->createFileID(cxx::std::move(buf), clang::SrcMgr::C_User, 0, 0, at)
-        self._ci->getPreprocessor().EnterSourceFile(bfid, clang::ConstSearchDirIterator(&null), at)
+        var at = csm->getIncludeLoc(fid)
+        var bfid = csm->createFileID(
+            cxx::std::move(buf),
+            clang::SrcMgr::C_User,
+            0,
+            0,
+            at,
+        )
+
+        self._ci->getPreprocessor().EnterSourceFile(
+            bfid,
+            clang::ConstSearchDirIterator(&null),
+            at,
+        )
     }
 
     /// `static_assert(true);`: see the file header. Lexed from a buffer of
@@ -296,15 +321,33 @@ pub class KairoIncludeHook {
 
         var at = csm->getLocForStartOfFile(sfid)
         if cxx_v == 0 {
-            self._push_punct(&*toks, clang::tok::semi, at.getLocWithOffset(1), 1)
+            self._push_punct(
+                &*toks,
+                clang::tok::semi,
+                at.getLocWithOffset(1),
+                1,
+            )
+
             return
         }
 
         var unsafe *pp = unsafe &self._ci->getPreprocessor()
         self._push_kw(&*toks, pp, r"static_assert", at.getLocWithOffset(1), 13)
-        self._push_punct(&*toks, clang::tok::l_paren, at.getLocWithOffset(14), 1)
+        self._push_punct(
+            &*toks,
+            clang::tok::l_paren,
+            at.getLocWithOffset(14),
+            1,
+        )
+
         self._push_kw(&*toks, pp, r"true", at.getLocWithOffset(15), 4)
-        self._push_punct(&*toks, clang::tok::r_paren, at.getLocWithOffset(19), 1)
+        self._push_punct(
+            &*toks,
+            clang::tok::r_paren,
+            at.getLocWithOffset(19),
+            1,
+        )
+
         self._push_punct(&*toks, clang::tok::semi, at.getLocWithOffset(20), 1)
     }
 

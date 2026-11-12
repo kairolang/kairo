@@ -16,13 +16,13 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
-import AST::Context::ImportOverlay::{
-    ImportOverlay,
-    OverlayVisibility,
-}
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
+}
+import AST::Context::ImportOverlay::{
+    ImportOverlay,
+    OverlayVisibility,
 }
 import AST::Context::SymbolTable::{
     DeclName,
@@ -61,12 +61,12 @@ import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
 import Json::JsonWriter
-import Protocol::*
 import Lexer::Immediate::ImmediateTable
 import Lexer::Lexer::Lexer
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Protocol::*
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
     SemaContext,
@@ -75,11 +75,11 @@ import Sema::SemaContext::{
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
-import Token::TokenText::TokenText
 import Token::TokenKind::{
     TokenKind,
     is_keyword,
 }
+import Token::TokenText::TokenText
 
 /// One classified span, in bytes of the indexed file.
 pub struct SemTok {
@@ -91,13 +91,13 @@ pub struct SemTok {
 
 /// One name -> declaration edge. `def_*` name the declaration's name token.
 pub struct RefRow {
-    var off:      u32  = 0
-    var len:      u32  = 0
-    var def_fid:  u32  = u32::MAX
-    var def_off:  u32  = 0
-    var def_len:  u32  = 0
-    var hover:    u32  = u32::MAX
-    var is_decl:  bool = false
+    var off:     u32  = 0
+    var len:     u32  = 0
+    var def_fid: u32  = u32::MAX
+    var def_off: u32  = 0
+    var def_len: u32  = 0
+    var hover:   u32  = u32::MAX
+    var is_decl: bool = false
 
     /// The declaration of the name's TYPE (a variable's class, a function's
     /// result), for "go to type definition". u32::MAX when it has none.
@@ -120,17 +120,17 @@ pub struct LinkRow {
 pub struct SymRow {
     var name:    string = ""
     var detail:  string = ""
-    var kind:    u32    = 0   ///< LSP SymbolKind
-    var start:   u32    = 0   ///< whole declaration, bytes
+    var kind:    u32    = 0  ///< LSP SymbolKind
+    var start:   u32    = 0  ///< whole declaration, bytes
     var end:     u32    = 0
-    var sel_off: u32    = 0   ///< name token
+    var sel_off: u32    = 0  ///< name token
     var sel_len: u32    = 0
 }
 
 pub struct InlayRow {
     var off:       u32    = 0
     var label:     string = ""
-    var kind:      u32    = IHK_TYPE as u32  ///< LSP InlayHintKind; 0 leaves it out
+    var kind:      u32    = IHK_TYPE as u32 ///< LSP InlayHintKind; 0 leaves it out
     var pad_left:  bool   = false
     var pad_right: bool   = false
 }
@@ -138,14 +138,14 @@ pub struct InlayRow {
 /// "This type derives or implements that one": the edge implementation and
 /// type-hierarchy requests walk, in either direction.
 pub struct BaseRow {
-    var off:      u32 = 0         ///< the deriving declaration's name
-    var len:      u32 = 0
-    var base_fid: u32 = u32::MAX
-    var base_off: u32 = 0
-    var base_len: u32 = 0
-    var name:      string = ""    ///< the deriving declaration
+    var off:       u32    = 0                ///< the deriving declaration's name
+    var len:       u32    = 0
+    var base_fid:  u32    = u32::MAX
+    var base_off:  u32    = 0
+    var base_len:  u32    = 0
+    var name:      string = ""               ///< the deriving declaration
     var base_name: string = ""
-    var kind:      u32    = SYM_CLASS as u32  ///< LSP SymbolKind of the deriving declaration
+    var kind:      u32    = SYM_CLASS as u32 ///< LSP SymbolKind of the deriving declaration
     var base_kind: u32    = SYM_CLASS as u32
 }
 
@@ -156,10 +156,10 @@ pub struct ScopeFact {
     var ok:     bool   = false
     var name:   string = ""
     var kind:   u32    = 0
-    var fid:    u32    = u32::MAX  ///< the file its row is in; with `off` -1, the file it IS (a module)
+    var fid:    u32    = u32::MAX ///< the file its row is in; with `off` -1, the file it IS (a module)
     var off:    i64    = -1
     var detail: string = ""
-    var home:   u32    = u32::MAX  ///< the file that declares it: a `_name` / `name_` is offered there only
+    var home:   u32    = u32::MAX ///< the file that declares it: a `_name` / `name_` is offered there only
     /// Which declaration the fact is of, beyond its address: where its name
     /// is and what kind of node it is (ScopeFacts::get).
     var loc: u32 = 0
@@ -191,7 +191,7 @@ pub class ScopeFacts {
 
     pub fn get(self, key: u64, loc: u32, tag: u32, out: *ScopeFact) -> bool {
         var lock = kairo::std::LockGuard(self.mu_)
-        var hit = self.at_.get(key)
+        var hit  = self.at_.get(key)
         if hit == null {
             return false
         }
@@ -207,7 +207,7 @@ pub class ScopeFacts {
 
     pub fn put(self, key: u64, const f: ScopeFact) {
         var lock = kairo::std::LockGuard(self.mu_)
-        var hit = self.at_.get(key)
+        var hit  = self.at_.get(key)
         if hit != null {
             self.rows_[(*hit) as usize] = f
             return
@@ -229,8 +229,8 @@ pub struct ScopeRow {
     var name:   string = ""
     var kind:   u32    = 0
     var sort:   u32    = 0
-    var file:   i64    = -1  ///< index into the walker's scope_files
-    var off:    i64    = -1  ///< the declared name's byte offset there; -1 with a file: the file itself
+    var file:   i64    = -1 ///< index into the walker's scope_files
+    var off:    i64    = -1 ///< the declared name's byte offset there; -1 with a file: the file itself
     var detail: string = ""
 }
 
@@ -270,21 +270,21 @@ pub fn completion_marker() -> string {
 // server forwards it as it is.
 
 // the document
-pub const SK_OK:          string = "ok"          ///< false: `error` says why, nothing else is written
+pub const SK_OK:          string = "ok" ///< false: `error` says why, nothing else is written
 pub const SK_ERROR:       string = "error"
-pub const SK_FILES:       string = "files"       ///< the indexed files' nodes; in a node, the paths its rows index
-pub const SK_UNCHECKED:   string = "unchecked"   ///< files syntax errors left unchecked
-pub const SK_PARTIAL:     string = "partial"     ///< files checked without the bodies the errors are in
-pub const SK_WIDE:        string = "wide"        ///< every file indexed; false over WIDE_INDEX_LIMIT (the open buffers only)
-pub const SK_HEADER:      string = "header"      ///< `--as-module` (the header job): the module's header, relative
-pub const SK_ERRORS:      string = "errors"      ///< `--as-module`: the run's error count
+pub const SK_FILES:       string = "files" ///< the indexed files' nodes; in a node, the paths its rows index
+pub const SK_UNCHECKED:   string = "unchecked" ///< files syntax errors left unchecked
+pub const SK_PARTIAL:     string = "partial" ///< files checked without the bodies the errors are in
+pub const SK_WIDE:        string = "wide" ///< every file indexed; false over WIDE_INDEX_LIMIT (the open buffers only)
+pub const SK_HEADER:      string = "header" ///< `--as-module` (the header job): the module's header, relative
+pub const SK_ERRORS:      string = "errors" ///< `--as-module`: the run's error count
 pub const SK_CXX_FLAGS:   string = "cxx_flags"
 pub const SK_C_FLAGS:     string = "c_flags"
 pub const SK_DIAGNOSTICS: string = "diagnostics" ///< diagnostic rows
-pub const SK_DEPS:        string = "deps"        ///< every file of the graph
-pub const SK_PARSED:      string = "parsed"      ///< syntax-only: the buffer parsed without error
-pub const SK_UNSURE:      string = "unsure"      ///< syntax-only: `parsed` is of the file alone (it invokes macros of other files)
-pub const SK_TIMING:      string = "timing"      ///< the worker's own timings, for the trace
+pub const SK_DEPS:        string = "deps" ///< every file of the graph
+pub const SK_PARSED:      string = "parsed" ///< syntax-only: the buffer parsed without error
+pub const SK_UNSURE:      string = "unsure" ///< syntax-only: `parsed` is of the file alone (it invokes macros of other files)
+pub const SK_TIMING:      string = "timing" ///< the worker's own timings, for the trace
 pub const SK_RUN_US:      string = "run_us"
 pub const SK_WALK_US:     string = "walk_us"
 pub const SK_WRITE_US:    string = "write_us"
@@ -293,30 +293,30 @@ pub const SK_UNIT_FIDS:   string = "unit_fids"
 
 // a file node (Writer.k)
 pub const SK_PATH:    string = "path"
-pub const SK_TOKENS:  string = "tokens"   ///< semantic tokens, LSP-encoded
-pub const SK_REFS:    string = "refs"     ///< REF_* rows
-pub const SK_BASES:   string = "bases"    ///< BASE_* rows
-pub const SK_LINKS:   string = "links"    ///< LINK_* rows
-pub const SK_MACROS:  string = "macros"   ///< MACRO_* rows
-pub const SK_HOVERS:  string = "hovers"   ///< hover texts, by a ref row's REF_HOVER
-pub const SK_SYMBOLS: string = "symbols"  ///< outline symbols, flat, in source order
-pub const SK_INLAYS:  string = "inlays"   ///< inlay hints
-pub const SK_ITEMS:   string = "items"    ///< completion items (a completion run only)
-pub const SK_DOC:     string = "doc"      ///< a completion item's `///` block
-pub const SK_SCOPE:   string = "scope"    ///< SCOPE_* rows: what a bare name reaches through the file's imports
-pub const SK_SFILES:  string = "sfiles"   ///< paths a scope row's SCOPE_FILE indexes
-pub const SK_SEES:    string = "sees"     ///< files whose `extend` blocks this file sees (SemaContext::sees_extension_file)
+pub const SK_TOKENS:  string = "tokens" ///< semantic tokens, LSP-encoded
+pub const SK_REFS:    string = "refs" ///< REF_* rows
+pub const SK_BASES:   string = "bases" ///< BASE_* rows
+pub const SK_LINKS:   string = "links" ///< LINK_* rows
+pub const SK_MACROS:  string = "macros" ///< MACRO_* rows
+pub const SK_HOVERS:  string = "hovers" ///< hover texts, by a ref row's REF_HOVER
+pub const SK_SYMBOLS: string = "symbols" ///< outline symbols, flat, in source order
+pub const SK_INLAYS:  string = "inlays" ///< inlay hints
+pub const SK_ITEMS:   string = "items" ///< completion items (a completion run only)
+pub const SK_DOC:     string = "doc" ///< a completion item's `///` block
+pub const SK_SCOPE:   string = "scope" ///< SCOPE_* rows: what a bare name reaches through the file's imports
+pub const SK_SFILES:  string = "sfiles" ///< paths a scope row's SCOPE_FILE indexes
+pub const SK_SEES:    string = "sees" ///< files whose `extend` blocks this file sees (SemaContext::sees_extension_file)
 
 // the document: declaration tables, one per file of the graph (Tables.k)
 pub const SK_TABLES:     string = "tables"
-pub const SK_TABLES_SEQ: string = "tablesSeq"  ///< the worker step the tables are of (LiveWorker.k); absent from a run's
-pub const SK_TABLES_ALL: string = "tablesAll"  ///< every file's table is in this snapshot
+pub const SK_TABLES_SEQ: string = "tablesSeq" ///< the worker step the tables are of (LiveWorker.k); absent from a run's
+pub const SK_TABLES_ALL: string = "tablesAll" ///< every file's table is in this snapshot
 
 // a table (Tables.k)
-pub const SK_MOD:     string = "mod"      ///< the file's module directory ("": in no module): `prot` reaches the files of one
-pub const SK_BUILTIN: string = "builtin"  ///< a file of the builtin library: its extensions are seen by every file
-pub const SK_DECLS:   string = "decls"    ///< DC_* rows
-pub const SK_TBASES:  string = "bases"    ///< TB_* rows
+pub const SK_MOD:     string = "mod" ///< the file's module directory ("": in no module): `prot` reaches the files of one
+pub const SK_BUILTIN: string = "builtin" ///< a file of the builtin library: its extensions are seen by every file
+pub const SK_DECLS:   string = "decls" ///< DC_* rows
+pub const SK_TBASES:  string = "bases" ///< TB_* rows
 
 // a diagnostic row: the file, the LSP diagnostic, the fixes; a fix is a
 // title and its edits, each edit a path, a range and the new text
@@ -379,29 +379,29 @@ pub const BASE_BASE_KIND: i64 = 10
 /// agree on (their own rows are not in the table); -1 for anything else (a
 /// pointer, a `?`, overloads that differ).
 pub const DC_NAME:   i64 = 0
-pub const DC_KIND:   i64 = 1   ///< LSP CompletionItemKind
+pub const DC_KIND:   i64 = 1  ///< LSP CompletionItemKind
 pub const DC_PARENT: i64 = 2
 pub const DC_OFF:    i64 = 3
 pub const DC_LINE:   i64 = 4
 pub const DC_CHAR:   i64 = 5
 pub const DC_VIS:    i64 = 6
-pub const DC_FLAGS:  i64 = 7   ///< DF_* bits
+pub const DC_FLAGS:  i64 = 7  ///< DF_* bits
 pub const DC_DETAIL: i64 = 8
 pub const DC_TFILE:  i64 = 9
 pub const DC_TOFF:   i64 = 10
 pub const DC_EFILE:  i64 = 11
 pub const DC_EOFF:   i64 = 12
 
-pub const VIS_PRIV: i64 = 1  ///< VisibilityKind's numbers, as an InheritEdge carries them
+pub const VIS_PRIV: i64 = 1 ///< VisibilityKind's numbers, as an InheritEdge carries them
 pub const VIS_PROT: i64 = 2
 pub const VIS_PUB:  i64 = 3
 
-pub const DF_STATIC: i64 = 1   ///< named without an object: a static, a nested type, a variant
-pub const DF_EXT:    i64 = 2   ///< an `extend` block: no name, its members are the target's
-pub const DF_MACRO:  i64 = 4   ///< a `macro name!`
-pub const DF_ALIAS:  i64 = 8   ///< declared in another file and bound here
-pub const DF_SCOPE:  i64 = 16  ///< opens a scope: a type or a module
-pub const DF_METHOD: i64 = 32  ///< takes `self`
+pub const DF_STATIC: i64 = 1  ///< named without an object: a static, a nested type, a variant
+pub const DF_EXT:    i64 = 2  ///< an `extend` block: no name, its members are the target's
+pub const DF_MACRO:  i64 = 4  ///< a `macro name!`
+pub const DF_ALIAS:  i64 = 8  ///< declared in another file and bound here
+pub const DF_SCOPE:  i64 = 16 ///< opens a scope: a type or a module
+pub const DF_METHOD: i64 = 32 ///< takes `self`
 
 /// A "bases" row of a table: decl row `TB_ROW` derives the record at
 /// (`TB_FILE`, `TB_OFF`) through an edge of visibility `TB_VIS` (0: none

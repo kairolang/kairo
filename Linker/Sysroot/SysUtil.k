@@ -46,17 +46,28 @@ pub struct SysJsonField {
 pub class SysUtil {
     /// sha256 of \p s, 64 lowercase hex.
     pub static fn sha256(const s: string) -> string {
-        return SysUtil::_hex(llvm::SHA256::hash(llvm::arrayRefFromStringRef(kairo::sref(s))))
+        return SysUtil::_hex(
+            llvm::SHA256::hash(llvm::arrayRefFromStringRef(kairo::sref(s))),
+        )
     }
 
     /// sha256 of the file's bytes; "" when it cannot be read.
     pub static fn sha256_file(const path: string) -> string {
-        var mb = llvm::MemoryBuffer::getFile(llvm::Twine(kairo::sref(path)), false, false)
+        var mb = llvm::MemoryBuffer::getFile(
+            llvm::Twine(kairo::sref(path)),
+            false,
+            false,
+        )
+
         if mb.getError().value() != 0 {
             return ""
         }
 
-        return SysUtil::_hex(llvm::SHA256::hash(llvm::arrayRefFromStringRef(mb.get()->getBuffer())))
+        return SysUtil::_hex(
+            llvm::SHA256::hash(
+                llvm::arrayRefFromStringRef(mb.get()->getBuffer()),
+            ),
+        )
     }
 
     /// The share tree's tree_sha256 of \p dir (FORMAT.md). \p follow is

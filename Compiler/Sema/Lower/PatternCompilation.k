@@ -621,9 +621,15 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 // A tuple's field is declared `Ti`; the element is the
                 // instance's argument i, so a wildcard column still has a
                 // concrete domain to classify.
-                var unsafe *ot    = self._occs[occ as usize].type_
-                var        te     = self._tu.tuple_elems(canon_unqual(self._tu.as_value(ot)))
-                var        is_tup = self._tu.is_tuple(canon_unqual(self._tu.as_value(ot)))
+                var unsafe *ot = self._occs[occ as usize].type_
+                var te = self._tu.tuple_elems(
+                    canon_unqual(self._tu.as_value(ot)),
+                )
+
+                var is_tup = self._tu.is_tuple(
+                    canon_unqual(self._tu.as_value(ot)),
+                )
+
                 for var i: usize = 0; i < fs.size() && i < (c.arity as usize); ++i {
                     var unsafe *ft = self._canon(fs[i]->type_)
                     if is_tup && i < te.size() {
@@ -641,10 +647,16 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                     var unsafe *f  = v->payload[i]
                     var unsafe *ft = self._canon(f->type_)
                     if k >= 0 {
-                        ft = VariadicEnum(self._ps.sc).field_at(d.ty, f, k as usize)
+                        ft = VariadicEnum(self._ps.sc).field_at(
+                            d.ty,
+                            f,
+                            k as usize,
+                        )
                     }
 
-                    out.push_back(self._occ(occ, OccKind::Payload, c.index, f, ft))
+                    out.push_back(
+                        self._occ(occ, OccKind::Payload, c.index, f, ft),
+                    )
                 }
             } default {
                 0
@@ -1379,10 +1391,10 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                            rows: unsafe *cxx::std::vector<CRow>,
                            occs: unsafe *cxx::std::vector<u32>,
                            d:    Domain) -> u32 {
-        var at:     llvm::StringMap<u32>
-        var buckets                      = cxx::std::vector<cxx::std::vector<u32>>()
-        var bkey                         = cxx::std::vector<u64>()
-        var wilds                        = cxx::std::vector<u32>()
+        var at: llvm::StringMap<u32>
+        var buckets = cxx::std::vector<cxx::std::vector<u32>>()
+        var bkey    = cxx::std::vector<u64>()
+        var wilds   = cxx::std::vector<u32>()
         for var i: usize = 0; i < rows->size(); ++i {
             var unsafe *h = (*rows)[i].cols[0]
             if self._ps.is_wild(h) {
@@ -1496,7 +1508,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         var start: u64 = 0
         for var i: usize = 0; i <= cuts.size(); ++i {
             var end = if (i < cuts.size()) => (cuts[i] - (1 as u64)) else => max_key
-            var c   = Ctor{}
+            var c = Ctor{}
             c.kind = CtorKind::Int
             c.lo   = start
             c.hi   = end
@@ -1609,10 +1621,10 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                            occs: unsafe *cxx::std::vector<u32>) -> u32 {
         // Keys in first-appearance order, each key's rows bucketed by its
         // decoded bytes in the same pass; wildcard rows join every key.
-        var at:     llvm::StringMap<u32>
-        var heads                        = cxx::std::vector<unsafe *Pattern>()
-        var buckets                      = cxx::std::vector<cxx::std::vector<u32>>()
-        var wilds                        = cxx::std::vector<u32>()
+        var at:   llvm::StringMap<u32>
+        var heads                      = cxx::std::vector<unsafe *Pattern>()
+        var buckets = cxx::std::vector<cxx::std::vector<u32>>()
+        var wilds   = cxx::std::vector<u32>()
         for var i: usize = 0; i < rows->size(); ++i {
             var unsafe *h = (*rows)[i].cols[0]
             if self._ps.is_wild(h) {
@@ -1700,9 +1712,9 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         var yes = cxx::std::vector<CRow>()
         var no  = cxx::std::vector<CRow>()
         for var i: usize = 0; i < rows.size(); ++i {
-            var        r    = (rows)[i]
-            var unsafe *p   = r.cols[0]
-            var        same = !self._ps.is_wild(p) && self._same_ctor(self._ps.ctor_of(p), hc)
+            var        r  = (rows)[i]
+            var unsafe *p = r.cols[0]
+            var same = !self._ps.is_wild(p) && self._same_ctor(self._ps.ctor_of(p), hc)
             if same {
                 r.cols[0] = &null
                 yes.push_back(r)
@@ -1785,9 +1797,11 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         }
 
         self._bad = true
-        self.sc->diag->report(DiagID::SC116E, p->range.start, f"{what} is not yet supported").first(
-            p->range,
-        )->emit()
+        self.sc->diag->report(
+            DiagID::SC116E,
+            p->range.start,
+            f"{what} is not yet supported",
+        ).first(p->range)->emit()
     }
 
     /// ## backtracking automaton
@@ -1994,7 +2008,9 @@ pub fn decision_occ(sc: unsafe *SemaContext, t: unsafe *DecisionTree, o: u32) ->
                 return decision_occ(sc, t, d.parent as u32) + f".{d.field->index}"
             }
 
-            return decision_occ(sc, t, d.parent as u32) + "." + tu.decl_name(d.field)
+            return decision_occ(sc, t, d.parent as u32) + "." + tu.decl_name(
+                d.field,
+            )
         } case OccKind::Payload {
             var        ps  = PatternSpace(sc)
             var        pd  = ps.domain_of(t->occs[d.parent as usize].type_)
@@ -2009,7 +2025,9 @@ pub fn decision_occ(sc: unsafe *SemaContext, t: unsafe *DecisionTree, o: u32) ->
                 v += f"[{pk}]"
             }
 
-            return decision_occ(sc, t, d.parent as u32) + "." + v + "." + tu.decl_name(d.field)
+            return decision_occ(sc, t, d.parent as u32) + "." + v + "." + tu.decl_name(
+                d.field,
+            )
         }
     }
 }
@@ -2050,7 +2068,11 @@ pub fn decision_binds(sc: unsafe *SemaContext, t: unsafe *DecisionTree, n: DNode
             s = s + " "
         }
 
-        s = s + sc->ctx->get_spelling(b.pat->name) + "=" + decision_occ(sc, t, b.occ)
+        s = s + sc->ctx->get_spelling(b.pat->name) + "=" + decision_occ(
+            sc,
+            t,
+            b.occ,
+        )
     }
 
     return s + "]"
@@ -2065,7 +2087,11 @@ pub fn decision_row(sc: unsafe *SemaContext, t: unsafe *DecisionTree, i: u32) ->
         } case DKind::Leaf {
             return head + f"leaf arm {n.arm}" + decision_binds(sc, t, n)
         } case DKind::Guard {
-            return head + f"guard arm {n.arm} else n{n.other}" + decision_binds(sc, t, n)
+            return head + f"guard arm {n.arm} else n{n.other}" + decision_binds(
+                sc,
+                t,
+                n,
+            )
         } case DKind::Test {
             var e = t->edges[n.edge0 as usize]
             return head + f"test {decision_occ(sc, t, n.occ)} is " + decision_ctor(
@@ -2117,7 +2143,10 @@ pub fn decision_rows(sc: unsafe *SemaContext, t: unsafe *DecisionTree) -> cxx::s
     }
 
     var mode = if (t->automaton) => (" automaton") else => ""
-    out.push_back(f"decision{mode} [nodes={t->nodes.size()} rows={t->row_count}]")
+    out.push_back(
+        f"decision{mode} [nodes={t->nodes.size()} rows={t->row_count}]",
+    )
+
     out.push_back("  " + decision_row(sc, t, t->root))
     for var i: usize = 0; i < t->nodes.size(); ++i {
         if (i as u32) == t->root {

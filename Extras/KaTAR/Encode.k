@@ -12,8 +12,8 @@
 /// ------------------------------------------------------------------------ ///
 
 /// usize -> decimal ASCII. Avoids wstring contact for the table.
-ffi "c++" import "string";
+ffi "c++" import "string"
 
 pub fn dec(n: usize) -> cxx::std::string {
-    return cxx::std::to_string(n);
+    return cxx::std::to_string(n)
 }

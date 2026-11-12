@@ -109,8 +109,8 @@ import Config::Target::{
 }
 
 pub class Toolchain {
-    pub var ok:     bool   = false
-    pub var format: ObjectFormat   ///< Elf | MachO | Coff | Wasm
+    pub var ok:     bool         = false
+    pub var format: ObjectFormat         ///< Elf | MachO | Coff | Wasm
 
     pub var triple: string        ///< effective, as the driver resolved it
     pub var arch:   string        ///< canonical: x86_64 i386 aarch64 arm riscv64 ...
@@ -176,7 +176,9 @@ pub class Toolchain {
         }
 
         var fmt = t->object_format_kind
-        if fmt != ObjectFormat::Elf && fmt != ObjectFormat::MachO && fmt != ObjectFormat::Coff
+        if fmt != ObjectFormat::Elf
+            && fmt != ObjectFormat::MachO
+            && fmt != ObjectFormat::Coff
             && fmt != ObjectFormat::Wasm {
             msgs.push_back(
                 LinkDiag::make(
@@ -204,9 +206,13 @@ pub class Toolchain {
         }
 
         if darwin {
-            self.libc        = "libsystem"
-            self.platform    = Toolchain::darwin_platform(self.os, self.env)
-            self.darwin_arch = Toolchain::darwin_arch_of(t->arch_name, self.arch)
+            self.libc     = "libsystem"
+            self.platform = Toolchain::darwin_platform(self.os, self.env)
+            self.darwin_arch = Toolchain::darwin_arch_of(
+                t->arch_name,
+                self.arch,
+            )
+
             if self.platform.empty() {
                 msgs.push_back(
                     LinkDiag::make(
@@ -303,7 +309,10 @@ pub class Toolchain {
         if LinkFS::is_file(mpath) {
             if !SysrootManifest::load(mpath, &self.manifest) {
                 msgs.push_back(
-                    LinkDiag::make(LinkSeverity::Fatal, f"{mpath}: {self.manifest.error}"),
+                    LinkDiag::make(
+                        LinkSeverity::Fatal,
+                        f"{mpath}: {self.manifest.error}",
+                    ),
                 )
 
                 return false
@@ -362,7 +371,11 @@ pub class Toolchain {
                 } else if wasm {
                     self.emulation = self.arch
                 } else {
-                    self.emulation = Toolchain::emulation_for(self.arch, self.os, self.env)
+                    self.emulation = Toolchain::emulation_for(
+                        self.arch,
+                        self.os,
+                        self.env,
+                    )
                 }
             }
 
@@ -444,7 +457,10 @@ pub class Toolchain {
         self.pass_sysroot = false
         if !LinkFS::is_dir(self.sysroot) {
             msgs.push_back(
-                LinkDiag::make(LinkSeverity::Error, f"the SDK {self.sysroot} does not exist"),
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    f"the SDK {self.sysroot} does not exist",
+                ),
             )
 
             return
@@ -558,7 +574,10 @@ pub class Toolchain {
         // GCC sits beside the mingw tree, not in it:
         // /usr/lib/gcc/x86_64-w64-mingw32/<v> for --sysroot=/usr/x86_64-w64-mingw32.
         var groots = cxx::std::vector<string>()
-        groots.push_back(LinkText::join(LinkText::join(self.sysroot, "lib"), "gcc"))
+        groots.push_back(
+            LinkText::join(LinkText::join(self.sysroot, "lib"), "gcc"),
+        )
+
         groots.push_back(LinkText::join(LinkText::join(usr, "lib"), "gcc"))
         var up = LinkFS::parent(self.sysroot)
         if !up.empty() {
@@ -861,7 +880,9 @@ pub class Toolchain {
         }
 
         if self.has_manifest && !self.manifest.resource_dir.empty() {
-            roots.push_back(LinkText::join(self.sysroot, self.manifest.resource_dir))
+            roots.push_back(
+                LinkText::join(self.sysroot, self.manifest.resource_dir),
+            )
         }
 
         if !t->resource_dir.empty() {
@@ -965,7 +986,11 @@ pub class Toolchain {
         for var root: string in self._rt_roots(t) {
             var lib = LinkText::join(root, "lib")
             for var tr: string in self._rt_triples(t) {
-                var a = LinkText::join(LinkText::join(lib, tr), "clang_rt.builtins.lib")
+                var a = LinkText::join(
+                    LinkText::join(lib, tr),
+                    "clang_rt.builtins.lib",
+                )
+
                 if LinkFS::is_file(a) {
                     self.rt_dir   = LinkFS::parent(a)
                     self.builtins = a
@@ -1050,7 +1075,11 @@ pub class Toolchain {
             )
         }
 
-        Toolchain::_push_unique(&out, f"{t->arch_name}-unknown-{t->os_name}{env}")
+        Toolchain::_push_unique(
+            &out,
+            f"{t->arch_name}-unknown-{t->os_name}{env}",
+        )
+
         Toolchain::_push_unique(&out, f"{t->arch_name}-{t->os_name}{env}")
         Toolchain::_push_unique(&out, f"{t->arch_name}-pc-{t->os_name}{env}")
         if self.format == ObjectFormat::Coff {
@@ -1066,7 +1095,10 @@ pub class Toolchain {
             return
         }
 
-        var base = LinkFS::parent(LinkFS::parent(LinkText::strip_slash(t->resource_dir)))
+        var base = LinkFS::parent(
+            LinkFS::parent(LinkText::strip_slash(t->resource_dir)),
+        )
+
         if base.empty() {
             return
         }
@@ -1196,7 +1228,9 @@ pub class Toolchain {
                 return ""
             }
 
-            return string(unsafe ((v.getAsString().c_str() as unsafe *const u8) as *const u8))
+            return string(
+                unsafe ((v.getAsString().c_str() as unsafe *const u8) as *const u8),
+            )
         }
 
         return string(
@@ -1370,7 +1404,11 @@ pub class Toolchain {
     /// target without them links without them.
     fn crt_object(self, const stem: string, const variant: string) -> string {
         if self.rtlib == "compiler-rt" && !self.rt_dir.empty() {
-            var p = LinkText::join(self.rt_dir, f"clang_rt.{stem}{self.rt_suffix}.o")
+            var p = LinkText::join(
+                self.rt_dir,
+                f"clang_rt.{stem}{self.rt_suffix}.o",
+            )
+
             if LinkFS::is_file(p) {
                 return p
             }
@@ -1402,37 +1440,82 @@ pub class Toolchain {
 
             out.push_back(f"arch:            {self.darwin_arch}")
             out.push_back(f"rtlib:           {self.rtlib}")
-            out.push_back(f"builtins:        {Toolchain::or_none(self.builtins)}")
-            out.push_back(f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}")
+            out.push_back(
+                f"builtins:        {Toolchain::or_none(self.builtins)}",
+            )
+
+            out.push_back(
+                f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}",
+            )
         } else if self.format == ObjectFormat::Coff {
             out.push_back(f"libc:            {self.libc}")
             out.push_back(f"rtlib:           {self.rtlib}")
             out.push_back(f"unwindlib:       {self.unwindlib}")
-            out.push_back(f"builtins:        {Toolchain::or_none(self.builtins)}")
-            out.push_back(f"gcc install:     {Toolchain::or_none(self.gcc_dir)}")
-            out.push_back(f"crt dir:         {Toolchain::or_none(self.crt_dir)}")
-            out.push_back(f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}")
+            out.push_back(
+                f"builtins:        {Toolchain::or_none(self.builtins)}",
+            )
+
+            out.push_back(
+                f"gcc install:     {Toolchain::or_none(self.gcc_dir)}",
+            )
+
+            out.push_back(
+                f"crt dir:         {Toolchain::or_none(self.crt_dir)}",
+            )
+
+            out.push_back(
+                f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}",
+            )
+
             if self.libc == "mingw" {
-                out.push_back(f"emulation:       {Toolchain::or_none(self.emulation)}")
+                out.push_back(
+                    f"emulation:       {Toolchain::or_none(self.emulation)}",
+                )
             }
         } else if self.format == ObjectFormat::Wasm {
             out.push_back(f"libc:            {Toolchain::or_none(self.libc)}")
             out.push_back(f"rtlib:           {self.rtlib}")
             out.push_back(f"unwindlib:       {self.unwindlib}")
-            out.push_back(f"builtins:        {Toolchain::or_none(self.builtins)}")
-            out.push_back(f"crt dir:         {Toolchain::or_none(self.crt_dir)}")
-            out.push_back(f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}")
+            out.push_back(
+                f"builtins:        {Toolchain::or_none(self.builtins)}",
+            )
+
+            out.push_back(
+                f"crt dir:         {Toolchain::or_none(self.crt_dir)}",
+            )
+
+            out.push_back(
+                f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}",
+            )
+
             out.push_back(f"emulation:       {self.emulation}")
         } else {
             out.push_back(f"libc:            {Toolchain::or_none(self.libc)}")
             out.push_back(f"rtlib:           {self.rtlib}")
             out.push_back(f"unwindlib:       {self.unwindlib}")
-            out.push_back(f"builtins:        {Toolchain::or_none(self.builtins)}")
-            out.push_back(f"gcc install:     {Toolchain::or_none(self.gcc_dir)}")
-            out.push_back(f"crt dir:         {Toolchain::or_none(self.crt_dir)}")
-            out.push_back(f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}")
-            out.push_back(f"emulation:       {Toolchain::or_none(self.emulation)}")
-            out.push_back(f"dynamic linker:  {Toolchain::or_none(self.dynamic_linker)}")
+            out.push_back(
+                f"builtins:        {Toolchain::or_none(self.builtins)}",
+            )
+
+            out.push_back(
+                f"gcc install:     {Toolchain::or_none(self.gcc_dir)}",
+            )
+
+            out.push_back(
+                f"crt dir:         {Toolchain::or_none(self.crt_dir)}",
+            )
+
+            out.push_back(
+                f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}",
+            )
+
+            out.push_back(
+                f"emulation:       {Toolchain::or_none(self.emulation)}",
+            )
+
+            out.push_back(
+                f"dynamic linker:  {Toolchain::or_none(self.dynamic_linker)}",
+            )
         }
 
         if !self.native_bundle.empty() {
@@ -2068,7 +2151,10 @@ pub class Toolchain {
         var sdkroot = LinkText::strip_slash(LinkFS::env(EnvNames::sdkroot()))
         if !sdkroot.empty()
             && LinkFS::is_dir(sdkroot)
-            && LinkText::starts_with(LinkFS::filename(LinkFS::real(sdkroot)), pname) {
+            && LinkText::starts_with(
+                LinkFS::filename(LinkFS::real(sdkroot)),
+                pname,
+            ) {
             return sdkroot
         }
 
@@ -2088,7 +2174,11 @@ pub class Toolchain {
         for var d: string in devs {
             // Xcode nests SDKs per platform; the Command Line Tools keep a
             // flat SDKs/ with macOS only.
-            var x = LinkText::join(d, f"Platforms/{pname}.platform/Developer/SDKs/{pname}.sdk")
+            var x = LinkText::join(
+                d,
+                f"Platforms/{pname}.platform/Developer/SDKs/{pname}.sdk",
+            )
+
             if LinkFS::is_dir(x) {
                 return x
             }
@@ -2153,7 +2243,9 @@ pub class Toolchain {
             return triple
         }
 
-        return string(unsafe ((tt.getTriple().c_str() as unsafe *const u8) as *const u8))
+        return string(
+            unsafe ((tt.getTriple().c_str() as unsafe *const u8) as *const u8),
+        )
     }
 
     /// \brief \p triple with the OS version made explicit where clang's
@@ -2189,7 +2281,9 @@ pub class Toolchain {
         // Named: a StringRef over an f-string temporary is a dangling view.
         var os = f"macosx{floor}"
         tt.setOSName(kairo::sref(os))
-        return string(unsafe ((tt.getTriple().c_str() as unsafe *const u8) as *const u8))
+        return string(
+            unsafe ((tt.getTriple().c_str() as unsafe *const u8) as *const u8),
+        )
     }
 
     /// The macOS deployment floor for \p triple's arch: "11.0" (arm64,
@@ -2214,12 +2308,12 @@ pub class Toolchain {
     /// Both sides are canonical_triple'd first, so an armv7-linux-musl
     /// sysroot matches the musleabihf target it is for.
     pub static fn same_target(const a: string, const b: string) -> bool {
-        var na      = Toolchain::canonical_triple(a)
-        var nb      = Toolchain::canonical_triple(b)
-        var ta      = llvm::Triple(llvm::Triple::normalize(kairo::sref(na)))
-        var tb      = llvm::Triple(llvm::Triple::normalize(kairo::sref(nb)))
-        var wasi_a  = ta.getOS() == llvm::Triple::WASI || ta.getOS() == llvm::Triple::WASIp1
-        var wasi_b  = tb.getOS() == llvm::Triple::WASI || tb.getOS() == llvm::Triple::WASIp1
+        var na = Toolchain::canonical_triple(a)
+        var nb = Toolchain::canonical_triple(b)
+        var ta = llvm::Triple(llvm::Triple::normalize(kairo::sref(na)))
+        var tb = llvm::Triple(llvm::Triple::normalize(kairo::sref(nb)))
+        var wasi_a = ta.getOS() == llvm::Triple::WASI || ta.getOS() == llvm::Triple::WASIp1
+        var wasi_b = tb.getOS() == llvm::Triple::WASI || tb.getOS() == llvm::Triple::WASIp1
         var same_os = ta.getOS() == tb.getOS() || ta.isMacOSX() && tb.isMacOSX() || wasi_a && wasi_b
         return ta.getArch() == tb.getArch() && same_os && ta.getEnvironment() == tb.getEnvironment()
     }

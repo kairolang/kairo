@@ -235,7 +235,9 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
 
         var unsafe *pt = canon_unqual(v->type_)
         if pt == &null || !isa<PointerType>(pt) {
-            kairo::std::ice_fail("OperatorLowering: is_place accepted a non-pointer return")
+            kairo::std::ice_fail(
+                "OperatorLowering: is_place accepted a non-pointer return",
+            )
         }
 
         var unsafe *d = UnaryOperatorExpr::create(
@@ -252,7 +254,11 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
     }
 
     fn transform_binary_operator_expr(self, n: unsafe *BinaryOperatorExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<OperatorLowering>::transform_binary_operator_expr(self, n)
+        var unsafe *out = ASTWriter<OperatorLowering>::transform_binary_operator_expr(
+            self,
+            n,
+        )
+
         return self._binary(n, out)
     }
 
@@ -311,11 +317,23 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         }
 
         args.push_back(n->rhs)
-        return self._call(n, n->lhs, n->op_token, f, n->op_via_free, unsafe &args, n->op_instance)
+        return self._call(
+            n,
+            n->lhs,
+            n->op_token,
+            f,
+            n->op_via_free,
+            unsafe &args,
+            n->op_instance,
+        )
     }
 
     fn transform_unary_operator_expr(self, n: unsafe *UnaryOperatorExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<OperatorLowering>::transform_unary_operator_expr(self, n)
+        var unsafe *out = ASTWriter<OperatorLowering>::transform_unary_operator_expr(
+            self,
+            n,
+        )
+
         return self._unary(n, out)
     }
 
@@ -329,7 +347,9 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         // C++ tells postfix from prefix by an `int` argument, `0` by
         // convention. Its type is i32: `int` on every target Kairo has.
         if OperatorFacts::is_postfix(f) {
-            args.push_back(self.synth.int_literal(n->range, 0, BuiltinKind::I32))
+            args.push_back(
+                self.synth.int_literal(n->range, 0, BuiltinKind::I32),
+            )
         }
 
         return self._call(
@@ -344,7 +364,11 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
     }
 
     fn transform_assign_operator_expr(self, n: unsafe *AssignOperatorExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<OperatorLowering>::transform_assign_operator_expr(self, n)
+        var unsafe *out = ASTWriter<OperatorLowering>::transform_assign_operator_expr(
+            self,
+            n,
+        )
+
         return self._assign(n, out)
     }
 
@@ -374,7 +398,11 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
     }
 
     fn transform_subscript_expr(self, n: unsafe *SubscriptExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<OperatorLowering>::transform_subscript_expr(self, n)
+        var unsafe *out = ASTWriter<OperatorLowering>::transform_subscript_expr(
+            self,
+            n,
+        )
+
         return self._subscript(n, out)
     }
 
@@ -418,7 +446,11 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
     }
 
     fn transform_type_cast_expr(self, n: unsafe *TypeCastExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<OperatorLowering>::transform_type_cast_expr(self, n)
+        var unsafe *out = ASTWriter<OperatorLowering>::transform_type_cast_expr(
+            self,
+            n,
+        )
+
         if n->enum_check != &null && out != &null && isa<TypeCastExpr>(out) {
             // The enum was recorded at typing: the cast's own type may be a
             // `Nullable<E>` record by now (NullableTypeLowering).
@@ -450,14 +482,19 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
                 // A cast to a C++ reference is not an identity: lowering writes
                 // `static_cast<T &&>(x)` to MOVE out of a nullable or a coalesce
                 // temporary, and folding it copies a move-only value (CL001E).
-                var is_ref = (oc->type_ != &null &&
-                              (isa<CXXRValueRefType>(oc->type_) || isa<CXXLValueRefType>(oc->type_))) ||
-                             (oc->target != &null &&
-                              (isa<CXXRValueRefType>(oc->target) || isa<CXXLValueRefType>(oc->target)))
-                if (!is_ref) && oc->operand != &null && oc->operand->type_ != &null && oc->type_ != &null {
-                    var tu  = TypeUtil(self.sc)
+                var is_ref = (oc->type_ != &null
+                    && (isa<CXXRValueRefType>(oc->type_) || isa<CXXLValueRefType>(oc->type_)))
+                    || (oc->target != &null
+                        && (isa<CXXRValueRefType>(oc->target) || isa<CXXLValueRefType>(oc->target)))
+                if (!is_ref)
+                    && oc->operand != &null
+                    && oc->operand->type_ != &null
+                    && oc->type_ != &null {
+                    var        tu  = TypeUtil(self.sc)
                     var unsafe *st = canon_unqual(oc->operand->type_)
-                    if st == canon_unqual(oc->type_) && tu.record_decl(st) != &null && !isa<PointerType>(st) {
+                    if st == canon_unqual(oc->type_)
+                        && tu.record_decl(st) != &null
+                        && !isa<PointerType>(st) {
                         return oc->operand
                     }
                 }
@@ -498,7 +535,10 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         if rt != &null && rt->is_dependent() && n->operand->type_ != &null && isa<CallExpr>(call) {
             var tu = TypeUtil(self.sc)
             var sb = Substitution(self.sc)
-            sb.bind_from_record(tu.strip_nullable(canon_unqual(n->operand->type_)))
+            sb.bind_from_record(
+                tu.strip_nullable(canon_unqual(n->operand->type_)),
+            )
+
             var unsafe *cr = sb.substitute(rt)
             var unsafe *ch = dyn_cast<ChainExpr>(cast<CallExpr>(call)->callee)
             if cr != &null && !cr->is_dependent() && ch != &null && ch->steps.size() == 1 {
@@ -553,9 +593,9 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             }
         }
 
-        var        stmts              = self.list_builder<unsafe *Stmt>()
-        var unsafe *t                 = self.synth.bind(at, "ecast", ut, v, unsafe &stmts)
-        var        miss: unsafe *Expr = &null
+        var stmts = self.list_builder<unsafe *Stmt>()
+        var unsafe *t = self.synth.bind(at, "ecast", ut, v, unsafe &stmts)
+        var miss: unsafe *Expr = &null
         if dense {
             miss = self._cmp(
                 at,
@@ -652,8 +692,15 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             return unsafe (n as unsafe *Expr)
         }
 
-        var        stmts = self.list_builder<unsafe *Stmt>()
-        var unsafe *s    = self.synth.bind(at, "dcs", st, n->operand, unsafe &stmts)
+        var stmts = self.list_builder<unsafe *Stmt>()
+        var unsafe *s = self.synth.bind(
+            at,
+            "dcs",
+            st,
+            n->operand,
+            unsafe &stmts,
+        )
+
         var unsafe *dc = TypeCastExpr::create(
             self.ctx,
             at,
@@ -690,7 +737,11 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         var        tn   = if (tp != &null) => (tu.str(tp)) else => tu.str(dt)
         var text = f"{self.ctx->get_spelling(at)}: the object is not a '{tn}' (static type '{tu.str(st)}') at {self.ctx->sm->get_filename(at.start)}:{full.line}:{full.column}"
         stmts.push(
-            self.synth.crash_if(at, miss, self.synth.crash_call(at, text, "OperatorLowering")),
+            self.synth.crash_if(
+                at,
+                miss,
+                self.synth.crash_call(at, text, "OperatorLowering"),
+            ),
         )
 
         stmts.push(
@@ -710,7 +761,14 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
                  l:  unsafe *Expr,
                  r:  unsafe *Expr,
                  k:  TokenKind) -> unsafe *Expr {
-        var unsafe *b = BinaryOperatorExpr::create(self.ctx, at, l, r, self.synth.punct(at, k))
+        var unsafe *b = BinaryOperatorExpr::create(
+            self.ctx,
+            at,
+            l,
+            r,
+            self.synth.punct(at, k),
+        )
+
         b->type_          = self.sc->builtin(BuiltinKind::Bool)
         b->value_category = Expr::ValueCategory::RValue
         return b
@@ -727,7 +785,11 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         var full = self.ctx->sm->get_line_col(at.start)
         var nm   = tu.decl_name(unsafe (en as unsafe *Decl))
         var text = f"{self.ctx->get_spelling(at)}: the value is no variant of the closed enum '{nm}' at {self.ctx->sm->get_filename(at.start)}:{full.line}:{full.column}"
-        return self.synth.crash_if(at, miss, self.synth.crash_call(at, text, "OperatorLowering"))
+        return self.synth.crash_if(
+            at,
+            miss,
+            self.synth.crash_call(at, text, "OperatorLowering"),
+        )
     }
 
     /// `x as T` through a converting constructor -> `T(x)`. The callee names
@@ -795,7 +857,14 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             )
         }
 
-        var unsafe *cmp = q.same_variant(n->range, n->lhs, n->rhs, en, n->op_token)
+        var unsafe *cmp = q.same_variant(
+            n->range,
+            n->lhs,
+            n->rhs,
+            en,
+            n->op_token,
+        )
+
         cmp->adopt_sema(n)
         return cmp
     }
@@ -860,7 +929,12 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             && !decl_is_imported(rd)
             && (!decl_is_instance(rd) || !decl_is_imported(decl_instantiated_from(rd)))
         if !kairo_ord {
-            var unsafe *izero = self.synth.int_literal(n->range, 0, BuiltinKind::I32)
+            var unsafe *izero = self.synth.int_literal(
+                n->range,
+                0,
+                BuiltinKind::I32,
+            )
+
             var unsafe *irel = BinaryOperatorExpr::create(
                 self.ctx,
                 n->range,
@@ -878,7 +952,14 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         as_int->type_          = _i8
         as_int->value_category = Expr::ValueCategory::RValue
         var unsafe *zero = self.synth.int_literal(n->range, 0, BuiltinKind::I8)
-        var unsafe *rel  = BinaryOperatorExpr::create(self.ctx, n->range, as_int, zero, n->op_token)
+        var unsafe *rel = BinaryOperatorExpr::create(
+            self.ctx,
+            n->range,
+            as_int,
+            zero,
+            n->op_token,
+        )
+
         rel->adopt_sema(n)
         return rel
     }
@@ -905,7 +986,10 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         var unsafe *mut = self._call(
             n,
             self.synth.use_of(vd, n->range, Expr::ValueCategory::LValue),
-            self.synth.punct(n->op_token.range, OperatorFacts::compound_of(n->op_token.kind)),
+            self.synth.punct(
+                n->op_token.range,
+                OperatorFacts::compound_of(n->op_token.kind),
+            ),
             f,
             n->op_via_free,
             unsafe &args,
@@ -972,7 +1056,14 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
 
             sum->type_          = self._ret(f)
             sum->value_category = Expr::ValueCategory::RValue
-            var unsafe *asg = AssignOperatorExpr::create(self.ctx, n->range, n->lhs, sum, eq_tok)
+            var unsafe *asg = AssignOperatorExpr::create(
+                self.ctx,
+                n->range,
+                n->lhs,
+                sum,
+                eq_tok,
+            )
+
             asg->adopt_sema(n)
             return asg
         }
@@ -988,7 +1079,12 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
 
         addr->type_          = pt
         addr->value_category = Expr::ValueCategory::RValue
-        var unsafe *vd = self.synth.local(n->range, "lhs", pt, unsafe (addr as unsafe *Expr))
+        var unsafe *vd = self.synth.local(
+            n->range,
+            "lhs",
+            pt,
+            unsafe (addr as unsafe *Expr),
+        )
 
         var unsafe *sum = self._call(
             unsafe (n as unsafe *Expr),
@@ -1060,7 +1156,9 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
     priv fn _fn(self, d: unsafe *Decl) -> unsafe *FunctionDecl {
         var unsafe *f = dyn_cast<FunctionDecl>(d)
         if f == &null {
-            kairo::std::ice_fail("OperatorLowering: resolved_op is not a function")
+            kairo::std::ice_fail(
+                "OperatorLowering: resolved_op is not a function",
+            )
         }
 
         return f
@@ -1092,7 +1190,15 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         toks.push(_op)
         var fl = create_empty_frozen_list<Token>()
         toks.freeze_into(&fl)
-        return self._call_tokens(orig, recv, fl, unsafe (f as unsafe *Decl), via_free, *args, inst)
+        return self._call_tokens(
+            orig,
+            recv,
+            fl,
+            unsafe (f as unsafe *Decl),
+            via_free,
+            *args,
+            inst,
+        )
     }
 
     /// The call node. Member: `recv.op<toks>(args)`. Free: `op<toks>(recv, args)`.
@@ -1111,10 +1217,17 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             // A free operator has no identifier; the head carries the first
             // op token for its span and the decl for its identity.
             if op_toks.size() == 0 {
-                kairo::std::ice_fail("OperatorLowering: operator with no tokens")
+                kairo::std::ice_fail(
+                    "OperatorLowering: operator with no tokens",
+                )
             }
 
-            var unsafe *head = NamedIdentExpr::create(self.ctx, op_toks[0].range, op_toks[0])
+            var unsafe *head = NamedIdentExpr::create(
+                self.ctx,
+                op_toks[0].range,
+                op_toks[0],
+            )
+
             head->resolved_decl = decl
             callee              = head
             all.push(recv)
@@ -1122,13 +1235,13 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             var unsafe *chain = ChainExpr::create(self.ctx, recv->range, recv)
             var        steps  = self.list_builder<ChainExpr::Step>()
             var        st     = ChainExpr::Step()
-            st.name          = &null
-            st.target        = ChainExpr::StepTarget::Operator
-            st.op_tokens     = op_toks
-            st.range         = if (op_toks.size() > 0) => (op_toks[0].range) else => recv->range
+            st.name      = &null
+            st.target    = ChainExpr::StepTarget::Operator
+            st.op_tokens = op_toks
+            st.range = if (op_toks.size() > 0) => (op_toks[0].range) else => recv->range
             st.access_kind   = ChainExpr::AccessKind::Dot
             st.resolved_decl = decl
-            st.resolved_type = &null // callable: no type of its own.
+            st.resolved_type = &null                      // callable: no type of its own.
             steps.push(st)
             steps.freeze_into(&chain->steps)
             callee = chain

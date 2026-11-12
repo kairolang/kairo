@@ -395,7 +395,11 @@ pub class EarlyNeeds derives RecursiveASTVisitor<EarlyNeeds> {
             self._const += 1
         }
 
-        var unsafe *r = RecursiveASTVisitor<EarlyNeeds>::traverse_variable_decl(self, n)
+        var unsafe *r = RecursiveASTVisitor<EarlyNeeds>::traverse_variable_decl(
+            self,
+            n,
+        )
+
         if ev {
             self._const -= 1
         }

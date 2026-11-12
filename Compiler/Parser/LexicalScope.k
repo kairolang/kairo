@@ -220,7 +220,12 @@ pub class ScopeStack {
     /// \param dc    the declaration context that will own declarations in this scope.
     /// \return a pointer to the newly allocated and activated scope.
     fn push(self, kind: ScopeKind, dc: unsafe *DeclContext) -> unsafe *LexicalScope {
-        var unsafe *s = self.ctx->alloc_init_cleanup<LexicalScope>(kind, self._top, dc)
+        var unsafe *s = self.ctx->alloc_init_cleanup<LexicalScope>(
+            kind,
+            self._top,
+            dc,
+        )
+
         self._top = s
         return s
     }
@@ -304,9 +309,9 @@ pub class ScopeStack {
 pub class PendingAnnotations {
     type VisAnnotation = VisibilityAnnotation<Decl>
 
-    pub var visibility: VisibilityKind                    = VisibilityKind::None
-    pub var vis_range:  SourceRange                       = SourceRange::invalid()
-    pub var entries:    cxx::std::vector<AnnotationEntry>
+    pub var visibility: VisibilityKind = VisibilityKind::None
+    pub var vis_range: SourceRange = SourceRange::invalid()
+    pub var entries: cxx::std::vector<AnnotationEntry>
 
     fn PendingAnnotations(self) {
         self.entries.reserve(4)

@@ -125,7 +125,11 @@ pub class BalanceTracker {
                 )
 
                 buff->append(
-                    Token(SourceRange::single(loc), TokenKind::TkError, unclosed_closer as u32),
+                    Token(
+                        SourceRange::single(loc),
+                        TokenKind::TkError,
+                        unclosed_closer as u32,
+                    ),
                 )
             }
 
@@ -145,7 +149,13 @@ pub class BalanceTracker {
             )
 
             // Emit synthetic closer for top, then pop it
-            buff->append(Token(SourceRange::single(loc), TokenKind::TkError, expected as u32))
+            buff->append(
+                Token(
+                    SourceRange::single(loc),
+                    TokenKind::TkError,
+                    expected as u32,
+                ),
+            )
 
             --self.stack_size
         }
@@ -170,7 +180,13 @@ pub class BalanceTracker {
                 },
             )
 
-            tokens->append(Token(SourceRange::single(eof_loc), TokenKind::TkError, expected as u32))
+            tokens->append(
+                Token(
+                    SourceRange::single(eof_loc),
+                    TokenKind::TkError,
+                    expected as u32,
+                ),
+            )
 
             --self.stack_size
         }

@@ -740,7 +740,12 @@ pub class <T: type> DeclParse {
         self.dyn()->advance(T::SkipNL::After) // consume visibility keyword
         self.dyn()->advance(T::SkipNL::After) // consume `{`
 
-        var vg = Declarations::VisibilityGroupDecl::create(self.dyn()->ctx, start, vis)
+        var vg = Declarations::VisibilityGroupDecl::create(
+            self.dyn()->ctx,
+            start,
+            vis,
+        )
+
         var members: kairo::std::StackBuf<unsafe *Decl, 8>
 
         while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
@@ -819,7 +824,12 @@ pub class <T: type> DeclParse {
         self.dyn()->advance(T::SkipNL::After) // visibility keyword
         self.dyn()->advance(T::SkipNL::After) // `{`
 
-        var vg = Declarations::VisibilityGroupDecl::create(self.dyn()->ctx, start, vis)
+        var vg = Declarations::VisibilityGroupDecl::create(
+            self.dyn()->ctx,
+            start,
+            vis,
+        )
+
         var members: kairo::std::StackBuf<unsafe *Decl, 8>
 
         while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
@@ -1436,8 +1446,17 @@ pub class <T: type> DeclParse {
             var impl_edges:    kairo::std::StackBuf<Declarations::InheritEdge, 4>
             var derives_edges: kairo::std::StackBuf<Declarations::InheritEdge, 4>
             self._parse_param_bounds(&impl_edges, &derives_edges)
-            gp->impl_bounds.from_buf(impl_edges.data(), impl_edges.size(), self.dyn()->ctx)
-            gp->derives_bounds.from_buf(derives_edges.data(), derives_edges.size(), self.dyn()->ctx)
+            gp->impl_bounds.from_buf(
+                impl_edges.data(),
+                impl_edges.size(),
+                self.dyn()->ctx,
+            )
+
+            gp->derives_bounds.from_buf(
+                derives_edges.data(),
+                derives_edges.size(),
+                self.dyn()->ctx,
+            )
         }
 
         self._maybe_parse_generic_default(gp)
@@ -1503,9 +1522,11 @@ pub class <T: type> DeclParse {
         }
 
         var r = self._cur_range()
-        self.dyn()->diag->report(DiagID::S053E, r.start, f"expected a type after '{kw}'").first(
-            r,
-        )->emit()
+        self.dyn()->diag->report(
+            DiagID::S053E,
+            r.start,
+            f"expected a type after '{kw}'",
+        ).first(r)->emit()
     }
 
     priv fn _parse_param_bounds(
@@ -1601,7 +1622,11 @@ pub class <T: type> DeclParse {
         var ctx = self.dyn()->ctx
         var u   = ctx->unwrap_token(t)
         if u.kind == TokenKind::LitIdentifier {
-            return ctx->make_token(t.range, TokenKind::LitIdentifier, ctx->get_spelling(t))
+            return ctx->make_token(
+                t.range,
+                TokenKind::LitIdentifier,
+                ctx->get_spelling(t),
+            )
         }
 
         return u
@@ -1659,13 +1684,14 @@ pub class <T: type> DeclParse {
                 // is always this operator; one written apart is still read
                 // as it (one error, no cascade) and told to close the gap.
                 if self.dyn()->ig_kind() == TokenKind::OpEqual {
-                    var eq = self.dyn()->current()
+                    var eq  = self.dyn()->current()
                     var ctx = self.dyn()->ctx
                     if ctx->written_range(eq).start != ctx->written_range(rsq).end {
                         var gap = SourceRange::from_bounds(
                             ctx->written_range(rsq).end,
                             ctx->written_range(eq).start,
                         )
+
                         var b = self.dyn()->diag->report(
                             DiagID::S045E,
                             eq.range.start,
@@ -1826,6 +1852,7 @@ pub class <T: type> DeclParse {
                 colons.start,
                 "a function name cannot start with '::'; a function C++ declares in a namespace or a class is defined with its qualified name alone",
             )
+
             b.first(colons | name)
             b.remove(colons, "remove the leading '::'")
             b.emit()
@@ -1837,6 +1864,7 @@ pub class <T: type> DeclParse {
             colons.start,
             f"'fn ::{nm}' would define the C++ global function '{nm}'; a C++ global function cannot be defined from Kairo yet",
         )
+
         b.first(colons | name)
         b.emit()
     }
@@ -1845,14 +1873,17 @@ pub class <T: type> DeclParse {
         var start = if (lead->any) => (lead->range) else => self._cur_range()
 
         if !self.dyn()->enter_depth() {
-            return Declarations::FunctionDecl::create_error(self.dyn()->ctx, start)
+            return Declarations::FunctionDecl::create_error(
+                self.dyn()->ctx,
+                start,
+            )
         }
 
         self.dyn()->advance(T::SkipNL::After) // consume `fn`
 
         // capture the enclosing context *before* the function opens its own
         // scope: it tells us whether a `self` receiver is legal here.
-        var enclosing_dc  = self.dyn()->scope.current_dc()
+        var enclosing_dc = self.dyn()->scope.current_dc()
         var in_type_scope = enclosing_dc != &null && enclosing_dc->is_type_scope()
 
         var fd: *Declarations::FunctionDecl = Declarations::FunctionDecl::create(
@@ -1896,7 +1927,11 @@ pub class <T: type> DeclParse {
         var gparams: kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
         self._parse_generic_or_spec_intro(unsafe &gparams, &fn_intro)
         var has_generics = !gparams.is_empty()
-        fd->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
+        fd->generic_params.from_buf(
+            gparams.data(),
+            gparams.size(),
+            self.dyn()->ctx,
+        )
 
         // `fn ::gf` / `fn ::ns::f`: S093E at the name, then parsed on without
         // the `::`, so the parameters and body are checked as usual and the
@@ -1985,7 +2020,12 @@ pub class <T: type> DeclParse {
 
                     var ops: kairo::std::StackBuf<Token, 3>
                     self._parse_and_validate_op_spelling(unsafe &ops)
-                    fd->op_token.from_buf(ops.data(), ops.size(), self.dyn()->ctx)
+                    fd->op_token.from_buf(
+                        ops.data(),
+                        ops.size(),
+                        self.dyn()->ctx,
+                    )
+
                     fd->name = Token()
                 } else {
                     fd->name = self.dyn()->current()
@@ -2001,7 +2041,11 @@ pub class <T: type> DeclParse {
                 && self.dyn()->check(TokenKind::OpLess) {
                 var sargs: kairo::std::StackBuf<unsafe *Type, 4>
                 self._parse_spec_args(&sargs)
-                fd->spec_args.from_buf(sargs.data(), sargs.size(), self.dyn()->ctx)
+                fd->spec_args.from_buf(
+                    sargs.data(),
+                    sargs.size(),
+                    self.dyn()->ctx,
+                )
 
                 var kind = self._classify_spec(&sargs, has_generics)
                 // Functions accept primary + explicit only; partial (a pattern
@@ -2048,7 +2092,10 @@ pub class <T: type> DeclParse {
                 at.range.start,
                 f"'{token_kind_to_readable_string(at.kind)}' names a primitive type and cannot name a function",
             ).first(at.range)->emit()
-            at.imm   = self.dyn()->ctx->hoisted->intern(token_kind_to_readable_string(at.kind))
+            at.imm = self.dyn()->ctx->hoisted->intern(
+                token_kind_to_readable_string(at.kind),
+            )
+
             at.kind  = TokenKind::LitIdentifier
             fd->name = at
             self.dyn()->advance()
@@ -2282,7 +2329,12 @@ pub class <T: type> DeclParse {
 
             var seg_tok = self.dyn()->current()
             var step    = ChainExpr::Step{}
-            step.name          = NamedIdentExpr::create(self.dyn()->ctx, seg_tok.range, seg_tok)
+            step.name = NamedIdentExpr::create(
+                self.dyn()->ctx,
+                seg_tok.range,
+                seg_tok,
+            )
+
             step.range         = seg_tok.range
             step.access_kind   = ChainExpr::AccessKind::ColonColon
             step.resolved_type = &null
@@ -2507,7 +2559,12 @@ pub class <T: type> DeclParse {
 
             // Prevent parse_type from consuming delimiters on error
             if self.dyn()->check(TokenKind::OpComma) || self.dyn()->check(TokenKind::OpRParen) {
-                self.dyn()->report_tok(DiagID::S053E, self.dyn()->current_ptr(), "expected type")
+                self.dyn()->report_tok(
+                    DiagID::S053E,
+                    self.dyn()->current_ptr(),
+                    "expected type",
+                )
+
                 if self.dyn()->check(TokenKind::OpComma) {
                     self.dyn()->advance(T::SkipNL::After)
                     continue
@@ -2557,15 +2614,20 @@ pub class <T: type> DeclParse {
             // `const` with a mode contradicts it. Reported at the mode, and the
             // mode KEPT: the decl stays usable for everything downstream.
             if p_const && p_mode != ParamMode::Value {
-                var cmsg = "'const' cannot be combined with " + LangAttrs::quoted(LangAttrs::param_move())
+                var cmsg = "'const' cannot be combined with " + LangAttrs::quoted(
+                    LangAttrs::param_move(),
+                )
+
                 if p_mode == ParamMode::Inout {
                     var q = LangAttrs::quoted(LangAttrs::param_inout())
                     cmsg = "'const' and " + q + " contradict: an " + q + " parameter is a mutable borrow; a read-only borrow is 'const x: T'"
                 }
 
-                self.dyn()->diag->report(DiagID::S070E, p_mode_range.start, cmsg).first(
-                    p_mode_range,
-                )->emit()
+                self.dyn()->diag->report(
+                    DiagID::S070E,
+                    p_mode_range.start,
+                    cmsg,
+                ).first(p_mode_range)->emit()
             }
 
             // `x: const T` on a NAMED parameter is `const x: T` spelled on the
@@ -2581,7 +2643,12 @@ pub class <T: type> DeclParse {
                 )
 
                 b.first(c_range)
-                b.insert(pname.range.start, "const ", "make the parameter 'const'")
+                b.insert(
+                    pname.range.start,
+                    "const ",
+                    "make the parameter 'const'",
+                )
+
                 b.remove(c_range, "and drop it from the type")
                 b.emit()
             } else if is_named && p_const && pty->is_const() {
@@ -2598,7 +2665,10 @@ pub class <T: type> DeclParse {
             // default value
             if self.dyn()->check(TokenKind::OpEqual) {
                 self.dyn()->advance(T::SkipNL::After) // consume `=`
-                var dv = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::StopComma))
+                var dv = self.dyn()->parse_expr(
+                    self.dyn()->stop_on(T::ExprStopKind::StopComma),
+                )
+
                 if dv != &null && !is_recovery(dv) {
                     pd->default_val = dv
                 }
@@ -2607,7 +2677,11 @@ pub class <T: type> DeclParse {
             // bind named params in the function scope for body lookups.
             // type-only params have no name to bind.
             if is_named {
-                self.dyn()->scope.bind(self.dyn()->ctx->get_spelling(pname), pd, pname.range)
+                self.dyn()->scope.bind(
+                    self.dyn()->ctx->get_spelling(pname),
+                    pd,
+                    pname.range,
+                )
             }
 
             out.push_back(pd)
@@ -2744,7 +2818,12 @@ pub class <T: type> DeclParse {
                 var cname = self.dyn()->current()
                 self.dyn()->advance()
                 var capture = ClosureExpr::Capture()
-                capture.name = NamedIdentExpr::create(self.dyn()->ctx, p_start | cname.range, cname)
+                capture.name = NamedIdentExpr::create(
+                    self.dyn()->ctx,
+                    p_start | cname.range,
+                    cname,
+                )
+
                 capture.by_ptr   = false
                 capture.is_const = is_const
                 out.push_back(capture)
@@ -2826,7 +2905,12 @@ pub class <T: type> DeclParse {
             self.dyn()->advance()
 
             var capture = ClosureExpr::Capture()
-            capture.name     = NamedIdentExpr::create(self.dyn()->ctx, p_start | cname.range, cname)
+            capture.name = NamedIdentExpr::create(
+                self.dyn()->ctx,
+                p_start | cname.range,
+                cname,
+            )
+
             capture.by_ptr   = by_ptr
             capture.is_const = is_const
             out.push_back(capture)
@@ -2925,7 +3009,11 @@ pub class <T: type> DeclParse {
                 if self.dyn()->check(TokenKind::OpLParen) {
                     var pset: kairo::std::StackBuf<unsafe *Type, 4>
                     self.dyn()->parse_panic_set(&pset)
-                    fd->panic_set.from_buf(pset.data(), pset.size(), self.dyn()->ctx)
+                    fd->panic_set.from_buf(
+                        pset.data(),
+                        pset.size(),
+                        self.dyn()->ctx,
+                    )
                 }
 
                 // The specifier as written, its set included: what a fix-it
@@ -3031,7 +3119,11 @@ pub class <T: type> DeclParse {
                 if self.dyn()->check(TokenKind::OpLParen) {
                     var pset: kairo::std::StackBuf<unsafe *Type, 4>
                     self.dyn()->parse_panic_set(&pset)
-                    fd->panic_set.from_buf(pset.data(), pset.size(), self.dyn()->ctx)
+                    fd->panic_set.from_buf(
+                        pset.data(),
+                        pset.size(),
+                        self.dyn()->ctx,
+                    )
                 }
 
                 // The specifier as written, its set included: what a fix-it
@@ -3083,7 +3175,11 @@ pub class <T: type> DeclParse {
                 b.first(vr)
                 b.remove(gone, "remove '= virtual'")
                 if fd->abi != Declarations::AbiKind::Virtual {
-                    b.insert(fd->range.start, "virtual ", "declare the method 'virtual'")
+                    b.insert(
+                        fd->range.start,
+                        "virtual ",
+                        "declare the method 'virtual'",
+                    )
                 }
 
                 b.emit()
@@ -3164,9 +3260,9 @@ pub class <T: type> DeclParse {
             // the driver may drop the body and check the signature
             // (Driver/CompilerRecovery.k). Outermost bodies only: a nested
             // function or closure is part of the body around it.
-            var open   = self.dyn()->c_idx
-            var errs0  = self.dyn()->diag->error_count()
-            var watch  = self.dyn()->recover_bodies && self.dyn()->recover_body_depth == 0
+            var open  = self.dyn()->c_idx
+            var errs0 = self.dyn()->diag->error_count()
+            var watch = self.dyn()->recover_bodies && self.dyn()->recover_body_depth == 0
             self.dyn()->recover_body_depth += 1
             var block = self.dyn()->parse_compound()
             self.dyn()->recover_body_depth -= 1
@@ -3174,7 +3270,10 @@ pub class <T: type> DeclParse {
             fd->body_block = block
             var errs = self.dyn()->diag->error_count() - errs0
             if watch && errs > 0 && self.dyn()->closes_lexically(open) {
-                self.dyn()->tu->recovered_bodies.push(unsafe (fd as unsafe *Decl))
+                self.dyn()->tu->recovered_bodies.push(
+                    unsafe (fd as unsafe *Decl),
+                )
+
                 self.dyn()->tu->recovered_errors += errs
             }
 
@@ -3238,7 +3337,12 @@ pub class <T: type> DeclParse {
                 msg = "'const' is written twice; a binding takes it once"
             }
 
-            var b = self.dyn()->diag->report(DiagID::S045E, extra.range.start, msg)
+            var b = self.dyn()->diag->report(
+                DiagID::S045E,
+                extra.range.start,
+                msg,
+            )
+
             b.first(extra.range)
             b.remove(extra.range, "remove it")
             b.emit()
@@ -3365,7 +3469,13 @@ pub class <T: type> DeclParse {
         var name = self.dyn()->current()
         self.dyn()->advance()
 
-        var vd = Declarations::VariableDecl::create(self.dyn()->ctx, start, name, storage)
+        var vd = Declarations::VariableDecl::create(
+            self.dyn()->ctx,
+            start,
+            name,
+            storage,
+        )
+
         vd->storage_kw     = start // the first binding keyword: a Sema fix-it rewrites it.
         vd->is_thread      = head.is_thread
         vd->const_binding  = head.const_binding
@@ -3437,7 +3547,11 @@ pub class <T: type> DeclParse {
                 b.first(q_range)
                 b.remove(q_range, "remove the shorthand")
                 if !already {
-                    b.insert(ty->range.end, "?", "make the annotated type nullable")
+                    b.insert(
+                        ty->range.end,
+                        "?",
+                        "make the annotated type nullable",
+                    )
                 }
 
                 b.emit()
@@ -3475,7 +3589,10 @@ pub class <T: type> DeclParse {
                         DiagID::S071E,
                         c_range.start,
                         "the binding is already 'const'; a second 'const' on its type is not allowed",
-                    ).first(c_range)->remove(c_range, "remove the second 'const'")->emit()
+                    ).first(c_range)->remove(
+                        c_range,
+                        "remove the second 'const'",
+                    )->emit()
                 }
             }
         }
@@ -3490,7 +3607,11 @@ pub class <T: type> DeclParse {
         }
 
         // bind into the current scope for subsequent lookups.
-        self.dyn()->scope.bind(self.dyn()->ctx->get_spelling(name), vd, name.range)
+        self.dyn()->scope.bind(
+            self.dyn()->ctx->get_spelling(name),
+            vd,
+            name.range,
+        )
 
         vd->range = start | self.dyn()->prev().range
         return vd
@@ -3552,9 +3673,11 @@ pub class <T: type> DeclParse {
         }
 
         if !self.dyn()->check_is_ident() {
-            self.dyn()->diag->report(DiagID::S048E, start.start, "expected field name").first(
-                start,
-            )->emit()
+            self.dyn()->diag->report(
+                DiagID::S048E,
+                start.start,
+                "expected field name",
+            ).first(start)->emit()
             return Declarations::FieldDecl::create_error(
                 self.dyn()->ctx,
                 start | self.dyn()->prev().range,
@@ -3577,8 +3700,8 @@ pub class <T: type> DeclParse {
             self.dyn()->advance()
         }
 
-        var fty: unsafe *Type = &null
-        var has_colon = false
+        var fty:      unsafe *Type = &null
+        var has_colon              = false
         if self.dyn()->check(TokenKind::OpColon) {
             has_colon = true
             self.dyn()->advance(T::SkipNL::After) // consume `:`
@@ -3623,7 +3746,11 @@ pub class <T: type> DeclParse {
         }
 
         if p_depth > 0 {
-            var stars = Declarations::pointer_shorthand_spelling(p_depth, p_unsafe)
+            var stars = Declarations::pointer_shorthand_spelling(
+                p_depth,
+                p_unsafe,
+            )
+
             var b = self.dyn()->diag->report(
                 DiagID::S058E,
                 p_range.start,
@@ -3635,7 +3762,15 @@ pub class <T: type> DeclParse {
             b.emit()
         }
 
-        var fd = Declarations::FieldDecl::create(self.dyn()->ctx, start, name, storage, fty, idx)
+        var fd = Declarations::FieldDecl::create(
+            self.dyn()->ctx,
+            start,
+            name,
+            storage,
+            fty,
+            idx,
+        )
+
         fd->is_mutable    = is_mutable
         fd->is_thread     = head.is_thread
         fd->const_binding = head.const_binding
@@ -3757,7 +3892,12 @@ pub class <T: type> DeclParse {
                 tree = e
             } else {
                 // `A, B` is `A + B`: the comma becomes the union operator.
-                var plus = self.dyn()->ctx->make_token(e->range, TokenKind::OpPlus, "+")
+                var plus = self.dyn()->ctx->make_token(
+                    e->range,
+                    TokenKind::OpPlus,
+                    "+",
+                )
+
                 tree = (BinaryOperatorExpr::create(
                     self.dyn()->ctx,
                     tree->range | e->range,
@@ -3980,7 +4120,10 @@ pub class <T: type> DeclParse {
             return &null
         }
 
-        var buf = self.dyn()->ctx->alloc_array<ChainType::ChainSegment>(segs.size())
+        var buf = self.dyn()->ctx->alloc_array<ChainType::ChainSegment>(
+            segs.size(),
+        )
+
         for var i: usize = 0; i < segs.size(); ++i {
             buf[i] = segs[i]
         }
@@ -3997,7 +4140,7 @@ pub class <T: type> DeclParse {
                           range:      SourceRange,
                           sep:        ChainType::SegmentSeparator) {
         var seg = ChainType::ChainSegment{}
-        seg.name          = NamedIdentExpr::create(self.dyn()->ctx, name.range, name)
+        seg.name = NamedIdentExpr::create(self.dyn()->ctx, name.range, name)
         seg.generic_args  = args
         seg.resolved_type = &null
         seg.resolved_decl = &null
@@ -4030,7 +4173,9 @@ pub class <T: type> DeclParse {
             "compile-time constraint instead",
         ).first(wh)->fix(wh, "requires", "use 'requires'")->emit()
         self.dyn()->advance(T::SkipNL::After) // consume `where`
-        var _discard = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral)) // eat + drop the clause
+        var _discard = self.dyn()->parse_expr( // eat + drop the clause
+            self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral),
+        )
     }
 
     /// \brief parses the `derives ...` and `impl ...` clauses in either order,
@@ -4176,7 +4321,7 @@ pub class <T: type> DeclParse {
             return false
         }
 
-        var open = self._cur_range() // the `{`, for the unclosed-body note
+        var open = self._cur_range()          // the `{`, for the unclosed-body note
         self.dyn()->advance(T::SkipNL::After) // consume `{`
 
         var field_idx: u32   = 0
@@ -4331,7 +4476,11 @@ pub class <T: type> DeclParse {
                 || k == TokenKind::KwType {
                 var unsafe *nested = self._dispatch_decl()
                 if nested != &null && !self.is_fatal_decl(nested) {
-                    self.dyn()->apply_annotations_to_decl(nested, unsafe &m_annot)
+                    self.dyn()->apply_annotations_to_decl(
+                        nested,
+                        unsafe &m_annot,
+                    )
+
                     owner->add_decl(nested)
                 }
 
@@ -4386,9 +4535,12 @@ pub class <T: type> DeclParse {
             self.dyn()->prev().range.start,
             "expected '}' to close the type body",
         )
+
         b.first(self.dyn()->prev().range)
         if open.is_valid() {
-            b.note(open.start, "the type body opened here is not closed")->child_first(open)
+            b.note(open.start, "the type body opened here is not closed")->child_first(
+                open,
+            )
         }
 
         b.emit()
@@ -4419,9 +4571,11 @@ pub class <T: type> DeclParse {
         var has_generics = !gparams.is_empty()
 
         if !self.dyn()->check_is_ident() {
-            self.dyn()->diag->report(DiagID::S046E, start.start, "expected class name").first(
-                start,
-            )->emit()
+            self.dyn()->diag->report(
+                DiagID::S046E,
+                start.start,
+                "expected class name",
+            ).first(start)->emit()
             self.dyn()->exit_depth()
             self._sync_decl(Self::DeclSyncCtx::TopLevel)
             return (Declarations::ClassDecl::create_error(
@@ -4442,7 +4596,11 @@ pub class <T: type> DeclParse {
 
         cd->is_final = lead->is_final
         if has_generics {
-            cd->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
+            cd->generic_params.from_buf(
+                gparams.data(),
+                gparams.size(),
+                self.dyn()->ctx,
+            )
         }
 
         // specialization argument pattern after the name: `Box<T>`, `Box<[T]>`.
@@ -4452,7 +4610,10 @@ pub class <T: type> DeclParse {
             var sargs: kairo::std::StackBuf<unsafe *Type, 4>
             self._parse_spec_args(&sargs)
             cd->spec_args.from_buf(sargs.data(), sargs.size(), self.dyn()->ctx)
-            cd->spec_kind = self._classify_record_spec(unsafe &sargs, unsafe &gparams)
+            cd->spec_kind = self._classify_record_spec(
+                unsafe &sargs,
+                unsafe &gparams,
+            )
         } else if cls_intro != Declarations::SpecKind::None {
             self.dyn()->diag->report(
                 DiagID::S049E,
@@ -4485,7 +4646,10 @@ pub class <T: type> DeclParse {
         // optional requires
         if self._peek_past_nl(TokenKind::KwRequires) {
             self.dyn()->advance(T::SkipNL::After)
-            var req = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+            var req = self.dyn()->parse_expr(
+                self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral),
+            )
+
             if req != &null && !is_recovery(req) {
                 cd->requires_clause = req
             }
@@ -4502,7 +4666,11 @@ pub class <T: type> DeclParse {
             var methods: kairo::std::StackBuf<unsafe *Declarations::FunctionDecl, 8>
             self._parse_member_body(cd, name, &fields, &methods, true)
             cd->fields.from_buf(fields.data(), fields.size(), self.dyn()->ctx)
-            cd->methods.from_buf(methods.data(), methods.size(), self.dyn()->ctx)
+            cd->methods.from_buf(
+                methods.data(),
+                methods.size(),
+                self.dyn()->ctx,
+            )
 
             // A `virtual fn` with no body is pure virtual, and its class
             // abstract (a bodyless method that is not virtual stays a
@@ -4537,7 +4705,10 @@ pub class <T: type> DeclParse {
         var start = self._cur_range()
 
         if !self.dyn()->enter_depth() {
-            return Declarations::StructDecl::create_error(self.dyn()->ctx, start)
+            return Declarations::StructDecl::create_error(
+                self.dyn()->ctx,
+                start,
+            )
         }
 
         self.dyn()->advance(T::SkipNL::After) // consume `struct`
@@ -4548,9 +4719,11 @@ pub class <T: type> DeclParse {
         var has_generics = !gparams.is_empty()
 
         if !self.dyn()->check_is_ident() {
-            self.dyn()->diag->report(DiagID::S046E, start.start, "expected struct name").first(
-                start,
-            )->emit()
+            self.dyn()->diag->report(
+                DiagID::S046E,
+                start.start,
+                "expected struct name",
+            ).first(start)->emit()
             self.dyn()->exit_depth()
             self._sync_decl(Self::DeclSyncCtx::TopLevel)
             return (Declarations::StructDecl::create_error(
@@ -4570,7 +4743,11 @@ pub class <T: type> DeclParse {
         )
 
         if has_generics {
-            sd->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
+            sd->generic_params.from_buf(
+                gparams.data(),
+                gparams.size(),
+                self.dyn()->ctx,
+            )
         }
 
         // Specialization argument pattern (#68). Two heads reach it:
@@ -4585,7 +4762,10 @@ pub class <T: type> DeclParse {
             var sargs: kairo::std::StackBuf<unsafe *Type, 4>
             self._parse_spec_args(&sargs)
             sd->spec_args.from_buf(sargs.data(), sargs.size(), self.dyn()->ctx)
-            sd->spec_kind = self._classify_record_spec(unsafe &sargs, unsafe &gparams)
+            sd->spec_kind = self._classify_record_spec(
+                unsafe &sargs,
+                unsafe &gparams,
+            )
         } else if struct_intro != Declarations::SpecKind::None {
             self.dyn()->diag->report(
                 DiagID::S049E,
@@ -4616,7 +4796,10 @@ pub class <T: type> DeclParse {
 
         if self._peek_past_nl(TokenKind::KwRequires) {
             self.dyn()->advance(T::SkipNL::After)
-            var req = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+            var req = self.dyn()->parse_expr(
+                self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral),
+            )
+
             if req != &null && !is_recovery(req) {
                 sd->requires_clause = req
             }
@@ -4669,9 +4852,11 @@ pub class <T: type> DeclParse {
         var has_generics = !gparams.is_empty()
 
         if !self.dyn()->check_is_ident() {
-            self.dyn()->diag->report(DiagID::S046E, start.start, "expected union name").first(
-                start,
-            )->emit()
+            self.dyn()->diag->report(
+                DiagID::S046E,
+                start.start,
+                "expected union name",
+            ).first(start)->emit()
             self.dyn()->exit_depth()
             self._sync_decl(Self::DeclSyncCtx::TopLevel)
             return (Declarations::UnionDecl::create_error(
@@ -4691,7 +4876,11 @@ pub class <T: type> DeclParse {
         )
 
         if has_generics {
-            ud->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
+            ud->generic_params.from_buf(
+                gparams.data(),
+                gparams.size(),
+                self.dyn()->ctx,
+            )
         }
 
         // Specialization argument pattern (#68). Two heads reach it:
@@ -4706,7 +4895,10 @@ pub class <T: type> DeclParse {
             var sargs: kairo::std::StackBuf<unsafe *Type, 4>
             self._parse_spec_args(&sargs)
             ud->spec_args.from_buf(sargs.data(), sargs.size(), self.dyn()->ctx)
-            ud->spec_kind = self._classify_record_spec(unsafe &sargs, unsafe &gparams)
+            ud->spec_kind = self._classify_record_spec(
+                unsafe &sargs,
+                unsafe &gparams,
+            )
         } else if union_intro != Declarations::SpecKind::None {
             self.dyn()->diag->report(
                 DiagID::S049E,
@@ -4757,7 +4949,10 @@ pub class <T: type> DeclParse {
         var start = self._cur_range()
 
         if !self.dyn()->enter_depth() {
-            return Declarations::InterfaceDecl::create_error(self.dyn()->ctx, start)
+            return Declarations::InterfaceDecl::create_error(
+                self.dyn()->ctx,
+                start,
+            )
         }
 
         self.dyn()->advance(T::SkipNL::After) // consume `interface`
@@ -4770,9 +4965,11 @@ pub class <T: type> DeclParse {
         }
 
         if !self.dyn()->check_is_ident() {
-            self.dyn()->diag->report(DiagID::S046E, start.start, "expected interface name").first(
-                start,
-            )->emit()
+            self.dyn()->diag->report(
+                DiagID::S046E,
+                start.start,
+                "expected interface name",
+            ).first(start)->emit()
             self.dyn()->exit_depth()
             self._sync_decl(Self::DeclSyncCtx::TopLevel)
             return (Declarations::InterfaceDecl::create_error(
@@ -4792,7 +4989,11 @@ pub class <T: type> DeclParse {
         )
 
         if has_generics {
-            id->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
+            id->generic_params.from_buf(
+                gparams.data(),
+                gparams.size(),
+                self.dyn()->ctx,
+            )
         }
 
         // index mode: see _parse_class.
@@ -4833,7 +5034,10 @@ pub class <T: type> DeclParse {
 
         if self._peek_past_nl(TokenKind::KwRequires) {
             self.dyn()->advance(T::SkipNL::After)
-            var req = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+            var req = self.dyn()->parse_expr(
+                self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral),
+            )
+
             if req != &null && !is_recovery(req) {
                 id->requires_clause = req
             }
@@ -4865,7 +5069,10 @@ pub class <T: type> DeclParse {
         var start = self._cur_range()
 
         if !self.dyn()->enter_depth() {
-            return Declarations::ExtensionDecl::create_error(self.dyn()->ctx, start)
+            return Declarations::ExtensionDecl::create_error(
+                self.dyn()->ctx,
+                start,
+            )
         }
 
         self.dyn()->advance(T::SkipNL::After) // consume `extend`
@@ -4903,7 +5110,11 @@ pub class <T: type> DeclParse {
         )
 
         if has_generics {
-            ed->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
+            ed->generic_params.from_buf(
+                gparams.data(),
+                gparams.size(),
+                self.dyn()->ctx,
+            )
         }
 
         ed->spec_kind = ext_intro
@@ -4921,7 +5132,10 @@ pub class <T: type> DeclParse {
         // whole body down with it.
         if self._peek_past_nl(TokenKind::KwRequires) {
             self.dyn()->advance(T::SkipNL::After)
-            var req = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+            var req = self.dyn()->parse_expr(
+                self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral),
+            )
+
             if req != &null && !is_recovery(req) {
                 ed->requires_clause = req
             }
@@ -4969,9 +5183,11 @@ pub class <T: type> DeclParse {
         }
 
         if !self.dyn()->check_is_ident() {
-            self.dyn()->diag->report(DiagID::S046E, start.start, "expected enum name").first(
-                start,
-            )->emit()
+            self.dyn()->diag->report(
+                DiagID::S046E,
+                start.start,
+                "expected enum name",
+            ).first(start)->emit()
             self.dyn()->exit_depth()
             self._sync_decl(Self::DeclSyncCtx::TopLevel)
             return unsafe (Declarations::EnumDecl::create_error(self.dyn()->ctx, start | self.dyn()->prev().range) as unsafe *Decl)
@@ -4988,7 +5204,11 @@ pub class <T: type> DeclParse {
         )
 
         if has_generics {
-            en->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
+            en->generic_params.from_buf(
+                gparams.data(),
+                gparams.size(),
+                self.dyn()->ctx,
+            )
         }
 
         // index mode: variants are not decls and are not hoisted; skip the
@@ -5017,7 +5237,10 @@ pub class <T: type> DeclParse {
         // the clause parsed as a stray expression and took the body with it.
         if self._peek_past_nl(TokenKind::KwRequires) {
             self.dyn()->advance(T::SkipNL::After)
-            var req = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral))
+            var req = self.dyn()->parse_expr(
+                self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral),
+            )
+
             if req != &null && !is_recovery(req) {
                 en->requires_clause = req
             }
@@ -5056,7 +5279,11 @@ pub class <T: type> DeclParse {
                 continue
             }
 
-            self.dyn()->apply_annotations_to_decl(unsafe (v as unsafe *Decl), unsafe &v_annot)
+            self.dyn()->apply_annotations_to_decl(
+                unsafe (v as unsafe *Decl),
+                unsafe &v_annot,
+            )
+
             if v->is_adt() {
                 any_adt = true
             }
@@ -5112,7 +5339,12 @@ pub class <T: type> DeclParse {
         var start = name.range
         self.dyn()->advance()
 
-        var v = Declarations::EnumVariantDecl::create(self.dyn()->ctx, start, name, idx)
+        var v = Declarations::EnumVariantDecl::create(
+            self.dyn()->ctx,
+            start,
+            name,
+            idx,
+        )
 
         // ADT payload: `Found { key: K, value: V }`
         if self.dyn()->check(TokenKind::OpLBrace) {
@@ -5177,7 +5409,10 @@ pub class <T: type> DeclParse {
         } // explicit discriminant: `= <const expr>`
         else if self.dyn()->check(TokenKind::OpEqual) {
             self.dyn()->advance(T::SkipNL::After) // consume `=`
-            var disc = self.dyn()->parse_expr(self.dyn()->stop_on(T::ExprStopKind::StopComma))
+            var disc = self.dyn()->parse_expr(
+                self.dyn()->stop_on(T::ExprStopKind::StopComma),
+            )
+
             if disc != &null && !is_recovery(disc) {
                 v->discriminant = disc
             }
@@ -5238,7 +5473,11 @@ pub class <T: type> DeclParse {
             )
 
             if has_generics {
-                ita->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
+                ita->generic_params.from_buf(
+                    gparams.data(),
+                    gparams.size(),
+                    self.dyn()->ctx,
+                )
             }
 
             self.dyn()->_index_skip_stmt()
@@ -5317,7 +5556,11 @@ pub class <T: type> DeclParse {
         ta->is_associated   = in_iface
         ta->requires_clause = bounds
         if has_generics {
-            ta->generic_params.from_buf(gparams.data(), gparams.size(), self.dyn()->ctx)
+            ta->generic_params.from_buf(
+                gparams.data(),
+                gparams.size(),
+                self.dyn()->ctx,
+            )
         }
 
         return ta
@@ -5347,7 +5590,12 @@ pub class <T: type> DeclParse {
             if clause == &null {
                 clause = c
             } else {
-                var and_tok = self.dyn()->ctx->make_token(ty->range, TokenKind::OpAmpAmp, "&&")
+                var and_tok = self.dyn()->ctx->make_token(
+                    ty->range,
+                    TokenKind::OpAmpAmp,
+                    "&&",
+                )
+
                 clause = (BinaryOperatorExpr::create(
                     self.dyn()->ctx,
                     clause->range | c->range,
@@ -5376,7 +5624,10 @@ pub class <T: type> DeclParse {
         var start = self._cur_range()
 
         if !self.dyn()->enter_depth() {
-            return Declarations::ModuleDecl::create_error(self.dyn()->ctx, start)
+            return Declarations::ModuleDecl::create_error(
+                self.dyn()->ctx,
+                start,
+            )
         }
 
         var is_inline = false
@@ -5554,7 +5805,11 @@ pub class <T: type> DeclParse {
             ))
         }
 
-        var mac = Declarations::MacroDecl::create(self.dyn()->ctx, start, hdr.name)
+        var mac = Declarations::MacroDecl::create(
+            self.dyn()->ctx,
+            start,
+            hdr.name,
+        )
 
         // MacroDecl keeps its lossy Token parameter list; this block is a
         // pure adapter and would be replaced by FrozenList<MacroParamSpec>.
@@ -5732,7 +5987,11 @@ pub class <T: type> DeclParse {
             ))
         }
 
-        var id = Declarations::ImportDecl::create(self.dyn()->ctx, spec.range, spec.kind)
+        var id = Declarations::ImportDecl::create(
+            self.dyn()->ctx,
+            spec.range,
+            spec.kind,
+        )
 
         // base path
         var segs: kairo::std::StackBuf<Token, 8>
@@ -5886,7 +6145,12 @@ pub class <T: type> DeclParse {
         if self.dyn()->check(TokenKind::OpLBrace) {
             self.dyn()->advance(T::SkipNL::After) // consume `{`
 
-            var fb = Declarations::FFIBlockDecl::create(self.dyn()->ctx, start, lang_tok)
+            var fb = Declarations::FFIBlockDecl::create(
+                self.dyn()->ctx,
+                start,
+                lang_tok,
+            )
+
             var decls: kairo::std::StackBuf<unsafe *Decl, 8>
 
             while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
@@ -5907,7 +6171,12 @@ pub class <T: type> DeclParse {
                     break
                 }
 
-                if !self._stamp_ffi_linkage(d, linkage_kind, lang_tok, ffi_range) {
+                if !self._stamp_ffi_linkage(
+                    d,
+                    linkage_kind,
+                    lang_tok,
+                    ffi_range,
+                ) {
                     self.dyn()->diag->report(
                         DiagID::S064E,
                         d->range.start,
@@ -5970,37 +6239,72 @@ pub class <T: type> DeclParse {
                                lang_tok:  Token,
                                ffi_range: SourceRange) -> bool {
         if isa<Declarations::FunctionDecl>(d) {
-            cast<Declarations::FunctionDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            cast<Declarations::FunctionDecl>(d)->set_ffi_linkage(
+                kind,
+                lang_tok,
+                ffi_range,
+            )
+
             return true
         }
 
         if isa<Declarations::ClassDecl>(d) {
-            cast<Declarations::ClassDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            cast<Declarations::ClassDecl>(d)->set_ffi_linkage(
+                kind,
+                lang_tok,
+                ffi_range,
+            )
+
             return true
         }
 
         if isa<Declarations::StructDecl>(d) {
-            cast<Declarations::StructDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            cast<Declarations::StructDecl>(d)->set_ffi_linkage(
+                kind,
+                lang_tok,
+                ffi_range,
+            )
+
             return true
         }
 
         if isa<Declarations::UnionDecl>(d) {
-            cast<Declarations::UnionDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            cast<Declarations::UnionDecl>(d)->set_ffi_linkage(
+                kind,
+                lang_tok,
+                ffi_range,
+            )
+
             return true
         }
 
         if isa<Declarations::TypeAliasDecl>(d) {
-            cast<Declarations::TypeAliasDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            cast<Declarations::TypeAliasDecl>(d)->set_ffi_linkage(
+                kind,
+                lang_tok,
+                ffi_range,
+            )
+
             return true
         }
 
         if isa<Declarations::VariableDecl>(d) {
-            cast<Declarations::VariableDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            cast<Declarations::VariableDecl>(d)->set_ffi_linkage(
+                kind,
+                lang_tok,
+                ffi_range,
+            )
+
             return true
         }
 
         if isa<Declarations::ImportDecl>(d) {
-            cast<Declarations::ImportDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range)
+            cast<Declarations::ImportDecl>(d)->set_ffi_linkage(
+                kind,
+                lang_tok,
+                ffi_range,
+            )
+
             return true
         }
 
@@ -6221,9 +6525,11 @@ pub class <T: type> DeclParse {
         self.dyn()->advance(T::SkipNL::After) // consume `eval`
 
         if !self.dyn()->check(TokenKind::OpLBrace) {
-            self.dyn()->diag->report(DiagID::S050E, start.start, "expected '{' after 'eval'").first(
-                start,
-            )->emit()
+            self.dyn()->diag->report(
+                DiagID::S050E,
+                start.start,
+                "expected '{' after 'eval'",
+            ).first(start)->emit()
             self._sync_decl(Self::DeclSyncCtx::TopLevel)
             return (Declarations::EvalBlockDecl::create_error(
                 self.dyn()->ctx,
@@ -6453,8 +6759,7 @@ pub class <T: type> DeclParse {
                 self.dyn()->diag->report(
                     DiagID::S047E,
                     r.start,
-                    f"unexpected '{token_kind_to_readable_string(k)}' in a closure signature; "
-                        + "expected '(' and the parameters, '|' and the captures, '->', '{' or '='",
+                    f"unexpected '{token_kind_to_readable_string(k)}' in a closure signature; " + "expected '(' and the parameters, '|' and the captures, '->', '{' or '='",
                 ).first(r | self._prev_range())->emit()
             }
         }

@@ -36,13 +36,13 @@ import Diagnostic::Registry::DiagID
 import Driver::CompilerInstance::CompilerInstance
 import Driver::CompilerNative
 import Driver::FrontendAction::FrontendAction
-import Location::SourceManager::FileID
-import Resolution::ModulePath::ModulePath
-import Support::FileIO::Path::Path
 import Driver::ObjectCache::{
     CacheEntryStat,
     cache_evict_to_cap,
 }
+import Location::SourceManager::FileID
+import Resolution::ModulePath::ModulePath
+import Support::FileIO::Path::Path
 import Support::Tuning::{
     CACHE_ENTRY_MAX_AGE_NS,
     CACHE_LIBRARY_MAX_BYTES,
@@ -78,7 +78,7 @@ extend CompilerInstance {
             return p + " -\n"
         }
 
-        var size  = (st.getSize())
+        var size = (st.getSize())
         var mtime = (st.getLastModificationTime().time_since_epoch().count() as u64)
         return f"{p} {size} {mtime}\n"
     }
@@ -143,7 +143,10 @@ extend CompilerInstance {
         }
 
         {
-            var o = llvm::object::ObjectFile::createObjectFile(kairo::sref(entry))
+            var o = llvm::object::ObjectFile::createObjectFile(
+                kairo::sref(entry),
+            )
+
             if !(o as bool) {
                 llvm::consumeError(o.takeError())
                 return false
@@ -205,7 +208,11 @@ extend CompilerInstance {
             return true
         }
 
-        var prefix = string(unsafe ((name.raw() as unsafe *const u8) as *const u8), cut + 1)
+        var prefix = string(
+            unsafe ((name.raw() as unsafe *const u8) as *const u8),
+            cut + 1,
+        )
+
         for var other: string in LinkFS::list_dir(dir) {
             if other == name || !other.starts_with(prefix) || !other.ends_with(".o") {
                 continue
@@ -218,7 +225,9 @@ extend CompilerInstance {
                 other.size() - prefix.size(),
             )
 
-            if !(cxx::std::string::npos == kairo::std::to_std_string(rest).find(r"-")) {
+            if !(cxx::std::string::npos == kairo::std::to_std_string(rest).find(
+                r"-",
+            )) {
                 continue
             }
 
@@ -251,9 +260,9 @@ extend CompilerInstance {
                 continue
             }
 
-            var partial = !(cxx::std::string::npos == kairo::std::to_std_string(name).find(
-                r".tmp-",
-            ))
+            var partial = !(cxx::std::string::npos == kairo::std::to_std_string(
+                name,
+            ).find(r".tmp-"))
 
             var last  = LinkFS::mtime(p)
             var limit = if (partial) => (CACHE_PARTIAL_MAX_AGE_NS) else => CACHE_ENTRY_MAX_AGE_NS
@@ -272,7 +281,10 @@ extend CompilerInstance {
                 }
 
                 var bytes = LinkFS::size(p)
-                kept.push_back(CacheEntryStat { path: p, at: last, bytes: bytes, pinned: pinned })
+                kept.push_back(
+                    CacheEntryStat { path: p, at: last, bytes: bytes, pinned: pinned },
+                )
+
                 total += bytes
             }
         }
@@ -306,12 +318,18 @@ extend CompilerInstance {
         }
 
         if !self._build_kairo_lib(dir) {
-            self._diag->report(DiagID::L007E, f"cannot build the Kairo library in {dir}").emit()
+            self._diag->report(
+                DiagID::L007E,
+                f"cannot build the Kairo library in {dir}",
+            ).emit()
             return false
         }
 
         if !self._read_kairo_lib(dir) {
-            self._diag->report(DiagID::L007E, f"the Kairo library in {dir} is incomplete").emit()
+            self._diag->report(
+                DiagID::L007E,
+                f"the Kairo library in {dir} is incomplete",
+            ).emit()
             return false
         }
 
@@ -432,7 +450,11 @@ extend CompilerInstance {
                     return false
                 }
 
-                var want = string(unsafe ((rest.raw() as unsafe *const u8) as *const u8), sp)
+                var want = string(
+                    unsafe ((rest.raw() as unsafe *const u8) as *const u8),
+                    sp,
+                )
+
                 var path = string(
                     unsafe (((rest.raw() as unsafe *const u8) + sp + 1) as *const u8),
                     rest.size() - sp - 1,
@@ -638,10 +660,13 @@ extend CompilerInstance {
                 continue
             }
 
-            var partial = !(cxx::std::string::npos == kairo::std::to_std_string(name).find(
-                r".tmp-",
-            ))
-                || !(cxx::std::string::npos == kairo::std::to_std_string(name).find(r".stale-"))
+            var partial = !(cxx::std::string::npos == kairo::std::to_std_string(
+                name,
+            ).find(r".tmp-"))
+                || !(cxx::std::string::npos == kairo::std::to_std_string(name).find(
+                    r".stale-",
+                ))
+
             var last = LinkFS::mtime(p + "/used")
             if last == 0 {
                 last = LinkFS::mtime(p + "/manifest")
@@ -659,7 +684,10 @@ extend CompilerInstance {
 
             if !partial {
                 var bytes = LinkFS::tree_size(p)
-                kept.push_back(CacheEntryStat { path: p, at: last, bytes: bytes, tree: true })
+                kept.push_back(
+                    CacheEntryStat { path: p, at: last, bytes: bytes, tree: true },
+                )
+
                 total += bytes
             }
         }

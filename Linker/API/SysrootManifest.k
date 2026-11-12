@@ -319,7 +319,9 @@ pub class SysrootManifest {
     /// Scripts/ship_sysroot_inputs.py; Tests/CLI/Sysroot/llvm_version_drift.k
     /// holds the two together.
     pub static fn toolchain_llvm_version() -> string {
-        return string(unsafe ((kairo::llvm_version_string() as unsafe *const u8) as *const u8))
+        return string(
+            unsafe ((kairo::llvm_version_string() as unsafe *const u8) as *const u8),
+        )
     }
 
     pub static fn load(const path: string, @inout out: SysrootManifest) -> bool {

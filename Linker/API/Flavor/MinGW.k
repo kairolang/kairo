@@ -70,7 +70,10 @@ pub class MinGWArgs {
         var *o    = job.opts
 
         if job.output.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "link: no output path"))
+            msgs.push_back(
+                LinkDiag::make(LinkSeverity::Error, "link: no output path"),
+            )
+
             return false
         }
 
@@ -87,7 +90,10 @@ pub class MinGWArgs {
 
         if o->shared && o->static_link {
             msgs.push_back(
-                LinkDiag::make(LinkSeverity::Error, "--shared and --static are mutually exclusive"),
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "--shared and --static are mutually exclusive",
+                ),
             )
 
             return false
@@ -168,7 +174,13 @@ pub class MinGWArgs {
                     MinGWArgs::_crt(&tc, name, &argv, &msgs)
                 }
             } else {
-                MinGWArgs::_crt(&tc, if (shared) => ("dllcrt2.o") else => "crt2.o", &argv, &msgs)
+                MinGWArgs::_crt(
+                    &tc,
+                    if (shared) => ("dllcrt2.o") else => "crt2.o",
+                    &argv,
+                    &msgs,
+                )
+
                 var cb = tc.crt_object("crtbegin", "")
                 if !cb.empty() {
                     argv.push_back(cb)
@@ -416,7 +428,10 @@ pub class MinGWArgs {
 
         if !o->rpath_link.empty() {
             msgs.push_back(
-                LinkDiag::make(LinkSeverity::Warning, "-rpath-link has no PE equivalent; ignored"),
+                LinkDiag::make(
+                    LinkSeverity::Warning,
+                    "-rpath-link has no PE equivalent; ignored",
+                ),
             )
         }
 
@@ -469,7 +484,13 @@ pub class MinGWArgs {
         }
 
         if name.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"-l {spec}: no library name"))
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    f"-l {spec}: no library name",
+                ),
+            )
+
             return
         }
 

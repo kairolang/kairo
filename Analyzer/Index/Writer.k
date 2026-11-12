@@ -12,19 +12,17 @@
 /// ------------------------------------------------------------------------ ///
 
 
-import Index::Snapshot::*
-import Protocol::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
-import AST::Context::ImportOverlay::{
-    ImportOverlay,
-    OverlayVisibility,
-}
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
+}
+import AST::Context::ImportOverlay::{
+    ImportOverlay,
+    OverlayVisibility,
 }
 import AST::Context::SymbolTable::{
     DeclName,
@@ -62,25 +60,6 @@ import AST::Node::Types
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
-import Json::JsonWriter
-import Lexer::Immediate::ImmediateTable
-import Lexer::Lexer::Lexer
-import Location::SourceLocation::SourceLocation
-import Location::SourceManager::SourceManager
-import Location::SourceRange::SourceRange
-import Sema::Resolve::NameLookup::NameLookup
-import Sema::SemaContext::{
-    SemaContext,
-    SemaPhase,
-}
-import Sema::SemaDump::sema_dump_decl_name
-import Sema::Type::TypeUtil::TypeUtil
-import Token::Token::Token
-import Token::TokenText::TokenText
-import Token::TokenKind::{
-    TokenKind,
-    is_keyword,
-}
 import Index::Bases::*
 import Index::CompletionItems::*
 import Index::Hovers::*
@@ -89,16 +68,37 @@ import Index::Inlays::*
 import Index::Legend::*
 import Index::Macros::*
 import Index::Refs::*
+import Index::Snapshot::*
 import Index::Tables::*
 import Index::Tokens::*
+import Json::JsonWriter
+import Lexer::Immediate::ImmediateTable
+import Lexer::Lexer::Lexer
+import Location::SourceLocation::SourceLocation
+import Location::SourceManager::SourceManager
+import Location::SourceRange::SourceRange
+import Protocol::*
+import Sema::Resolve::NameLookup::NameLookup
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+import Sema::SemaDump::sema_dump_decl_name
+import Sema::Type::TypeUtil::TypeUtil
+import Token::Token::Token
+import Token::TokenKind::{
+    TokenKind,
+    is_keyword,
+}
+import Token::TokenText::TokenText
 
 extend IndexWalker {
     /// UTF-16 length of bytes [off, off+len) of file \p fi.
     fn len16_(self, fi: usize, off: usize, len: usize) -> usize {
         var units: usize = 0
-        var i   = off
-        var end = off + len
-        var *text = &self.files[fi].text
+        var i            = off
+        var end          = off + len
+        var *text        = &self.files[fi].text
         if end > text->size() {
             end = text->size()
         }
@@ -106,16 +106,16 @@ extend IndexWalker {
         while i < end {
             var c = (*text)[i]
             if c >= 0xF0 {
-                i     += 4
+                i += 4
                 units += 2
             } else if c >= 0xE0 {
-                i     += 3
+                i += 3
                 units += 1
             } else if c >= 0xC0 {
-                i     += 2
+                i += 2
                 units += 1
             } else {
-                i     += 1
+                i += 1
                 units += 1
             }
         }
@@ -126,14 +126,24 @@ extend IndexWalker {
     /// Writes the Position of byte \p off of file \p fi.
     fn pos_(self, w: *JsonWriter, fi: usize, off: usize) {
         var line = self.files[fi].lines.line_of(off) as i64
-        write_lsp_position(w, line, self.files[fi].lines.character(self.files[fi].text, off, false) as i64)
+        write_lsp_position(
+            w,
+            line,
+            self.files[fi].lines.character(self.files[fi].text, off, false) as i64,
+        )
     }
 
     /// Writes the Range of \p len bytes at \p off of file \p fi.
     fn range_(self, w: *JsonWriter, fi: usize, off: usize, len: usize) {
         var *lm = &self.files[fi].lines
         var *tx = &self.files[fi].text
-        write_lsp_range(w, lm->line_of(off) as i64, lm->character(*tx, off, false) as i64, lm->line_of(off + len) as i64, lm->character(*tx, off + len, false) as i64)
+        write_lsp_range(
+            w,
+            lm->line_of(off) as i64,
+            lm->character(*tx, off, false) as i64,
+            lm->line_of(off + len) as i64,
+            lm->character(*tx, off + len, false) as i64,
+        )
     }
 
     /// Writes this file's index as one JSON object into \p w.
@@ -167,7 +177,14 @@ extend IndexWalker {
             w->begin_array()
             var line = self.files[0].lines.line_of(r.off as usize)
             w->uint(line)
-            w->uint(self.files[0].lines.character(self.files[0].text, r.off as usize, false))
+            w->uint(
+                self.files[0].lines.character(
+                    self.files[0].text,
+                    r.off as usize,
+                    false,
+                ),
+            )
+
             w->uint(self.len16_(0, r.off as usize, r.len as usize))
             if r.def_fid == u32::MAX {
                 w->integer(-1)
@@ -178,7 +195,14 @@ extend IndexWalker {
                 var fi = self.file_(r.def_fid)
                 w->uint(fi)
                 w->uint(self.files[fi].lines.line_of(r.def_off as usize))
-                w->uint(self.files[fi].lines.character(self.files[fi].text, r.def_off as usize, false))
+                w->uint(
+                    self.files[fi].lines.character(
+                        self.files[fi].text,
+                        r.def_off as usize,
+                        false,
+                    ),
+                )
+
                 w->uint(self.len16_(fi, r.def_off as usize, r.def_len as usize))
             }
 
@@ -203,8 +227,17 @@ extend IndexWalker {
                 var ti = self.file_(r.type_fid)
                 w->uint(ti)
                 w->uint(self.files[ti].lines.line_of(r.type_off as usize))
-                w->uint(self.files[ti].lines.character(self.files[ti].text, r.type_off as usize, false))
-                w->uint(self.len16_(ti, r.type_off as usize, r.type_len as usize))
+                w->uint(
+                    self.files[ti].lines.character(
+                        self.files[ti].text,
+                        r.type_off as usize,
+                        false,
+                    ),
+                )
+
+                w->uint(
+                    self.len16_(ti, r.type_off as usize, r.type_len as usize),
+                )
             }
 
             w->uint(r.kind as usize)
@@ -217,15 +250,29 @@ extend IndexWalker {
         w->key(SK_BASES)
         w->begin_array()
         for var i: usize = 0; i < self.bases.size(); ++i {
-            var b = self.bases[i]
+            var b  = self.bases[i]
             var bi = self.file_(b.base_fid)
             w->begin_array()
             w->uint(self.files[0].lines.line_of(b.off as usize))
-            w->uint(self.files[0].lines.character(self.files[0].text, b.off as usize, false))
+            w->uint(
+                self.files[0].lines.character(
+                    self.files[0].text,
+                    b.off as usize,
+                    false,
+                ),
+            )
+
             w->uint(self.len16_(0, b.off as usize, b.len as usize))
             w->uint(bi)
             w->uint(self.files[bi].lines.line_of(b.base_off as usize))
-            w->uint(self.files[bi].lines.character(self.files[bi].text, b.base_off as usize, false))
+            w->uint(
+                self.files[bi].lines.character(
+                    self.files[bi].text,
+                    b.base_off as usize,
+                    false,
+                ),
+            )
+
             w->uint(self.len16_(bi, b.base_off as usize, b.base_len as usize))
             w->str(b.name)
             w->str(b.base_name)
@@ -242,8 +289,22 @@ extend IndexWalker {
         for var i: usize = 0; i < self.links.size(); ++i {
             w->begin_array()
             w->uint(self.files[0].lines.line_of(self.links[i].off as usize))
-            w->uint(self.files[0].lines.character(self.files[0].text, self.links[i].off as usize, false))
-            w->uint(self.len16_(0, self.links[i].off as usize, self.links[i].len as usize))
+            w->uint(
+                self.files[0].lines.character(
+                    self.files[0].text,
+                    self.links[i].off as usize,
+                    false,
+                ),
+            )
+
+            w->uint(
+                self.len16_(
+                    0,
+                    self.links[i].off as usize,
+                    self.links[i].len as usize,
+                ),
+            )
+
             w->str(self.links[i].target)
             w->end_array()
         }

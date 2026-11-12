@@ -182,7 +182,10 @@ pub class HeaderSetCache {
                 var norm: llvm::SmallString<256>
                 norm.append(kairo::sref(cand))
                 llvm::sys::path::remove_dots(&norm, true)
-                return string(unsafe ((norm.data() as unsafe *const u8) as *const u8), norm.size())
+                return string(
+                    unsafe ((norm.data() as unsafe *const u8) as *const u8),
+                    norm.size(),
+                )
             }
         }
 
@@ -273,7 +276,10 @@ pub class HeaderSetCache {
             self._sets.try_emplace(kairo::sref(u->key), u)
         }
 
-        var unsafe *job = kairo::std::create<cxx::std::vector<unsafe *HeaderSet>>(views)
+        var unsafe *job = kairo::std::create<cxx::std::vector<unsafe *HeaderSet>>(
+            views,
+        )
+
         var unsafe *be  = self._be
         var        *me  = &self
         var unsafe *rec = kairo::TimeReport::region(r"HeaderSets")
@@ -387,8 +393,11 @@ pub class HeaderSetCache {
     pub fn prebuild_codegen_pch(self,
                                 sets: cxx::std::vector<unsafe *HeaderSet>,
                                 rec:  unsafe *kairo::KTimeRecord) {
-        var unsafe *job = kairo::std::create<cxx::std::vector<unsafe *HeaderSet>>(sets)
-        var unsafe *me  = unsafe &self
+        var unsafe *job = kairo::std::create<cxx::std::vector<unsafe *HeaderSet>>(
+            sets,
+        )
+
+        var unsafe *me = unsafe &self
         self._pool->enqueue(
             kairo::SmallFunction<64>(
                 fn () |me, job, rec| {

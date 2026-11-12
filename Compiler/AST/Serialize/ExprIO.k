@@ -43,14 +43,8 @@ import AST::Node::Declarations::{
 }
 import AST::Node::Expressions
 import AST::Node::PrimaryExpressions::{
-    BooleanLiteralExpr,
-    ChainExpr,
-    CharacterLiteralExpr,
-    FloatingLiteralExpr,
-    IntegerLiteralExpr,
-    NamedIdentExpr,
-    NullLiteralExpr,
-    StringLiteralExpr,
+    BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
+    IntegerLiteralExpr, NamedIdentExpr, NullLiteralExpr,      StringLiteralExpr,
 }
 import AST::Node::Statements::CompoundStmt
 import AST::Serialize::Archive::ASTArchive
@@ -203,11 +197,18 @@ fn io_expr_base(ar: unsafe *ASTArchive, e: unsafe *Expr) {
     io_annotations<Expr>(ar, e)
     eval if defined!(DEBUG) {
         // X's facts (Pipeline.md, fact writers).
-        ar->sema_is(e->value_category == Expr::ValueCategory::Unknown, "Expr::value_category")
+        ar->sema_is(
+            e->value_category == Expr::ValueCategory::Unknown,
+            "Expr::value_category",
+        )
+
         ar->sema_null<Type>(e->type_, "Expr::type_")
         ar->sema_zero(e->expr_flags.bits as u64, "Expr::expr_flags")
         if e->kind != ExprKind::RecoveryExpr {
-            ar->sema_is(e->recovery_kind == ExprKind::RecoveryExpr, "Expr::recovery_kind")
+            ar->sema_is(
+                e->recovery_kind == ExprKind::RecoveryExpr,
+                "Expr::recovery_kind",
+            )
         }
     }
 }
@@ -310,7 +311,11 @@ fn io_string_literal_expr(ar: unsafe *ASTArchive, n: unsafe *StringLiteralExpr) 
         ar->sema_null<Decl>(n->fmt_text, "StringLiteralExpr::fmt_text")
         ar->sema_null<Decl>(n->fmt_finish, "StringLiteralExpr::fmt_finish")
         ar->sema_null<Decl>(n->fmt_len, "StringLiteralExpr::fmt_len")
-        ar->sema_zero(n->fmt_holes.size() as u64, "StringLiteralExpr::fmt_holes")
+        ar->sema_zero(
+            n->fmt_holes.size() as u64,
+            "StringLiteralExpr::fmt_holes",
+        )
+
         ar->sema_false(n->const_eval, "StringLiteralExpr::const_eval")
         ar->sema_null<Type>(n->c_string, "StringLiteralExpr::c_string")
         ar->sema_null<Decl>(n->udl_op, "StringLiteralExpr::udl_op")
@@ -354,7 +359,11 @@ fn io_named_ident_expr(ar: unsafe *ASTArchive, n: unsafe *NamedIdentExpr) {
 
     eval if defined!(DEBUG) {
         ar->sema_null<Decl>(n->resolved_decl, "NamedIdentExpr::resolved_decl")
-        ar->sema_is(n->candidate_cell == &null, "NamedIdentExpr::candidate_cell")
+        ar->sema_is(
+            n->candidate_cell == &null,
+            "NamedIdentExpr::candidate_cell",
+        )
+
         ar->sema_null<Decl>(n->variant_decl, "NamedIdentExpr::variant_decl")
         ar->sema_null<Type>(n->narrowed_from, "NamedIdentExpr::narrowed_from")
         ar->sema_false(n->capture_ptr, "NamedIdentExpr::capture_ptr")
@@ -380,13 +389,36 @@ fn io_chain_expr(ar: unsafe *ASTArchive, n: unsafe *ChainExpr) {
         eval if defined!(DEBUG) {
             // What a step binds to is ChainBinding's and X's.
             ar->sema_is(s->pack_index == -1, "ChainExpr::Step::pack_index")
-            ar->sema_null<Type>(s->resolved_type, "ChainExpr::Step::resolved_type")
-            ar->sema_null<Decl>(s->resolved_decl, "ChainExpr::Step::resolved_decl")
-            ar->sema_is(s->candidate_cell == &null, "ChainExpr::Step::candidate_cell")
-            ar->sema_null<Type>(s->narrowed_from, "ChainExpr::Step::narrowed_from")
+            ar->sema_null<Type>(
+                s->resolved_type,
+                "ChainExpr::Step::resolved_type",
+            )
+
+            ar->sema_null<Decl>(
+                s->resolved_decl,
+                "ChainExpr::Step::resolved_decl",
+            )
+
+            ar->sema_is(
+                s->candidate_cell == &null,
+                "ChainExpr::Step::candidate_cell",
+            )
+
+            ar->sema_null<Type>(
+                s->narrowed_from,
+                "ChainExpr::Step::narrowed_from",
+            )
+
             ar->sema_null<Type>(s->through, "ChainExpr::Step::through")
-            ar->sema_null<Type>(s->witness_iface, "ChainExpr::Step::witness_iface")
-            ar->sema_null<Type>(s->witness_self, "ChainExpr::Step::witness_self")
+            ar->sema_null<Type>(
+                s->witness_iface,
+                "ChainExpr::Step::witness_iface",
+            )
+
+            ar->sema_null<Type>(
+                s->witness_self,
+                "ChainExpr::Step::witness_self",
+            )
         }
     }
 
@@ -437,7 +469,11 @@ fn io_subscript_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::SubscriptEx
 fn io_list_literal_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::ListLiteralExpr) {
     ar->expr_list<Expr>(&n->elements)
     eval if defined!(DEBUG) {
-        ar->sema_is(n->storage == Expressions::ListStorage::FullExpr, "ListLiteralExpr::storage")
+        ar->sema_is(
+            n->storage == Expressions::ListStorage::FullExpr,
+            "ListLiteralExpr::storage",
+        )
+
         ar->sema_null<Decl>(n->slice_ctor, "ListLiteralExpr::slice_ctor")
         ar->sema_null<Decl>(n->owner_ctor, "ListLiteralExpr::owner_ctor")
     }
@@ -481,7 +517,11 @@ fn io_named_initializer_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::Nam
     }
 
     eval if defined!(DEBUG) {
-        ar->sema_null<Decl>(n->variant_decl, "NamedInitializerExpr::variant_decl")
+        ar->sema_null<Decl>(
+            n->variant_decl,
+            "NamedInitializerExpr::variant_decl",
+        )
+
         ar->sema_is(n->variant_pack == -1, "NamedInitializerExpr::variant_pack")
     }
 }
@@ -504,7 +544,10 @@ fn io_unary_operator_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::UnaryO
         ar->sema_null<Decl>(n->resolved_op, "UnaryOperatorExpr::resolved_op")
         ar->sema_false(n->op_via_free, "UnaryOperatorExpr::op_via_free")
         ar->sema_is(n->op_instance == &null, "UnaryOperatorExpr::op_instance")
-        ar->sema_null<Type>(n->narrowed_from, "UnaryOperatorExpr::narrowed_from")
+        ar->sema_null<Type>(
+            n->narrowed_from,
+            "UnaryOperatorExpr::narrowed_from",
+        )
     }
 }
 
@@ -515,7 +558,7 @@ fn io_unary_operator_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::UnaryO
 /// reference first, then on the way back up its `rhs` and operator.
 fn io_binary_operator_expr(ar: unsafe *ASTArchive, top: unsafe *Expressions::BinaryOperatorExpr) {
     var spine: [unsafe *Expressions::BinaryOperatorExpr]
-    var cur = top
+    var cur                                              = top
     while true {
         spine.push_back(cur)
         var fresh = ar->expr_begin(&cur->lhs)
@@ -539,14 +582,33 @@ fn io_binary_operator_expr(ar: unsafe *ASTArchive, top: unsafe *Expressions::Bin
         ar->expr<Expr>(&n->rhs)
         ar->tok(&n->op_token)
         eval if defined!(DEBUG) {
-            ar->sema_null<Decl>(n->resolved_op, "BinaryOperatorExpr::resolved_op")
+            ar->sema_null<Decl>(
+                n->resolved_op,
+                "BinaryOperatorExpr::resolved_op",
+            )
+
             ar->sema_false(n->op_via_free, "BinaryOperatorExpr::op_via_free")
-            ar->sema_is(n->op_rewrite == Expressions::OpRewrite::None, "BinaryOperatorExpr::op_rewrite")
+            ar->sema_is(
+                n->op_rewrite == Expressions::OpRewrite::None,
+                "BinaryOperatorExpr::op_rewrite",
+            )
+
             ar->sema_false(n->tag_eq, "BinaryOperatorExpr::tag_eq")
             ar->sema_false(n->no_wrap, "BinaryOperatorExpr::no_wrap")
-            ar->sema_is(n->op_instance == &null, "BinaryOperatorExpr::op_instance")
-            ar->sema_null<Type>(n->type_cmp_lhs, "BinaryOperatorExpr::type_cmp_lhs")
-            ar->sema_null<Type>(n->type_cmp_rhs, "BinaryOperatorExpr::type_cmp_rhs")
+            ar->sema_is(
+                n->op_instance == &null,
+                "BinaryOperatorExpr::op_instance",
+            )
+
+            ar->sema_null<Type>(
+                n->type_cmp_lhs,
+                "BinaryOperatorExpr::type_cmp_lhs",
+            )
+
+            ar->sema_null<Type>(
+                n->type_cmp_rhs,
+                "BinaryOperatorExpr::type_cmp_rhs",
+            )
         }
     }
 }
@@ -735,7 +797,11 @@ fn io_type_cast_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::TypeCastExp
         ar->sema_null<Decl>(n->resolved_ctor, "TypeCastExpr::resolved_ctor")
         ar->sema_false(n->widening, "TypeCastExpr::widening")
         ar->sema_false(n->checked_downcast, "TypeCastExpr::checked_downcast")
-        ar->sema_false(n->asserting_downcast, "TypeCastExpr::asserting_downcast")
+        ar->sema_false(
+            n->asserting_downcast,
+            "TypeCastExpr::asserting_downcast",
+        )
+
         ar->sema_false(n->dynamic_only, "TypeCastExpr::dynamic_only")
         ar->sema_null<Decl>(n->enum_check, "TypeCastExpr::enum_check")
         ar->sema_false(n->base_adjust, "TypeCastExpr::base_adjust")
@@ -785,7 +851,11 @@ fn io_closure_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::ClosureExpr) 
 
     eval if defined!(DEBUG) {
         ar->sema_zero(n->panic_eff.size() as u64, "ClosureExpr::panic_eff")
-        ar->sema_is(n->panic_state == PanicSetState::None, "ClosureExpr::panic_state")
+        ar->sema_is(
+            n->panic_state == PanicSetState::None,
+            "ClosureExpr::panic_state",
+        )
+
         ar->sema_null<Type>(n->panic_result, "ClosureExpr::panic_result")
         // ClosureCaptures' resolution of the capture list.
         ar->sema_zero(n->cap_decls.size() as u64, "ClosureExpr::cap_decls")
@@ -818,51 +888,102 @@ fn io_expr_fields(ar: unsafe *ASTArchive, e: unsafe *Expr) {
 
     match cls {
         case ExprKind::IntegerLiteralExpr {
-            io_integer_literal_expr(ar, unsafe (e as unsafe *IntegerLiteralExpr))
+            io_integer_literal_expr(
+                ar,
+                unsafe (e as unsafe *IntegerLiteralExpr),
+            )
         } case ExprKind::FloatingLiteralExpr {
-            io_floating_literal_expr(ar, unsafe (e as unsafe *FloatingLiteralExpr))
+            io_floating_literal_expr(
+                ar,
+                unsafe (e as unsafe *FloatingLiteralExpr),
+            )
         } case ExprKind::StringLiteralExpr {
             io_string_literal_expr(ar, unsafe (e as unsafe *StringLiteralExpr))
         } case ExprKind::CharacterLiteralExpr {
-            io_character_literal_expr(ar, unsafe (e as unsafe *CharacterLiteralExpr))
+            io_character_literal_expr(
+                ar,
+                unsafe (e as unsafe *CharacterLiteralExpr),
+            )
         } case ExprKind::BooleanLiteralExpr {
-            io_boolean_literal_expr(ar, unsafe (e as unsafe *BooleanLiteralExpr))
+            io_boolean_literal_expr(
+                ar,
+                unsafe (e as unsafe *BooleanLiteralExpr),
+            )
         } case ExprKind::NullLiteralExpr {
             io_null_literal_expr(ar, unsafe (e as unsafe *NullLiteralExpr))
         } case ExprKind::ListLiteralExpr {
-            io_list_literal_expr(ar, unsafe (e as unsafe *Expressions::ListLiteralExpr))
+            io_list_literal_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::ListLiteralExpr),
+            )
         } case ExprKind::TupleLiteralExpr {
-            io_tuple_literal_expr(ar, unsafe (e as unsafe *Expressions::TupleLiteralExpr))
+            io_tuple_literal_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::TupleLiteralExpr),
+            )
         } case ExprKind::SetLiteralExpr {
-            io_set_literal_expr(ar, unsafe (e as unsafe *Expressions::SetLiteralExpr))
+            io_set_literal_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::SetLiteralExpr),
+            )
         } case ExprKind::MapLiteralExpr {
-            io_map_literal_expr(ar, unsafe (e as unsafe *Expressions::MapLiteralExpr))
+            io_map_literal_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::MapLiteralExpr),
+            )
         } case ExprKind::NamedInitializerExpr {
-            io_named_initializer_expr(ar, unsafe (e as unsafe *Expressions::NamedInitializerExpr))
+            io_named_initializer_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::NamedInitializerExpr),
+            )
         } case ExprKind::AnonInitializerExpr {
-            io_anon_initializer_expr(ar, unsafe (e as unsafe *Expressions::AnonInitializerExpr))
+            io_anon_initializer_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::AnonInitializerExpr),
+            )
         } case ExprKind::ChainExpr {
             io_chain_expr(ar, unsafe (e as unsafe *ChainExpr))
         } case ExprKind::CallExpr {
             io_call_expr(ar, unsafe (e as unsafe *Expressions::CallExpr))
         } case ExprKind::SubscriptExpr {
-            io_subscript_expr(ar, unsafe (e as unsafe *Expressions::SubscriptExpr))
+            io_subscript_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::SubscriptExpr),
+            )
         } case ExprKind::NamedIdentExpr {
             io_named_ident_expr(ar, unsafe (e as unsafe *NamedIdentExpr))
         } case ExprKind::UnaryOperatorExpr {
-            io_unary_operator_expr(ar, unsafe (e as unsafe *Expressions::UnaryOperatorExpr))
+            io_unary_operator_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::UnaryOperatorExpr),
+            )
         } case ExprKind::BinaryOperatorExpr {
-            io_binary_operator_expr(ar, unsafe (e as unsafe *Expressions::BinaryOperatorExpr))
+            io_binary_operator_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::BinaryOperatorExpr),
+            )
         } case ExprKind::AssignOperatorExpr {
-            io_assign_operator_expr(ar, unsafe (e as unsafe *Expressions::AssignOperatorExpr))
+            io_assign_operator_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::AssignOperatorExpr),
+            )
         } case ExprKind::ImplConformanceExpr {
-            io_impl_conformance_expr(ar, unsafe (e as unsafe *Expressions::ImplConformanceExpr))
+            io_impl_conformance_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::ImplConformanceExpr),
+            )
         } case ExprKind::DerivesRelationExpr {
-            io_derives_relation_expr(ar, unsafe (e as unsafe *Expressions::DerivesRelationExpr))
+            io_derives_relation_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::DerivesRelationExpr),
+            )
         } case ExprKind::IfExpr {
             io_if_expr(ar, unsafe (e as unsafe *Expressions::IfExpr))
         } case ExprKind::TryCatchExpr {
-            io_try_catch_expr(ar, unsafe (e as unsafe *Expressions::TryCatchExpr))
+            io_try_catch_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::TryCatchExpr),
+            )
         } case ExprKind::MatchExpr {
             io_match_expr(ar, unsafe (e as unsafe *Expressions::MatchExpr))
         } case ExprKind::RangeExpr {
@@ -876,7 +997,10 @@ fn io_expr_fields(ar: unsafe *ASTArchive, e: unsafe *Expr) {
         } case ExprKind::ThreadExpr {
             io_thread_expr(ar, unsafe (e as unsafe *Expressions::ThreadExpr))
         } case ExprKind::ConstraintExpr {
-            io_constraint_expr(ar, unsafe (e as unsafe *Expressions::ConstraintExpr))
+            io_constraint_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::ConstraintExpr),
+            )
         } case ExprKind::SizeOfExpr {
             io_size_of_expr(ar, unsafe (e as unsafe *Expressions::SizeOfExpr))
         } case ExprKind::AlignOfExpr {
@@ -890,9 +1014,15 @@ fn io_expr_fields(ar: unsafe *ASTArchive, e: unsafe *Expr) {
         } case ExprKind::DeleteExpr {
             io_delete_expr(ar, unsafe (e as unsafe *Expressions::DeleteExpr))
         } case ExprKind::PackExpansionExpr {
-            io_pack_expansion_expr(ar, unsafe (e as unsafe *Expressions::PackExpansionExpr))
+            io_pack_expansion_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::PackExpansionExpr),
+            )
         } case ExprKind::TypeCastExpr {
-            io_type_cast_expr(ar, unsafe (e as unsafe *Expressions::TypeCastExpr))
+            io_type_cast_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::TypeCastExpr),
+            )
         } case ExprKind::ImplicitBoundaryCastExpr {
             io_implicit_boundary_cast_expr(
                 ar,
@@ -901,11 +1031,20 @@ fn io_expr_fields(ar: unsafe *ASTArchive, e: unsafe *Expr) {
         } case ExprKind::ParenExpr {
             io_paren_expr(ar, unsafe (e as unsafe *Expressions::ParenExpr))
         } case ExprKind::VerbatimExpr {
-            io_verbatim_expr(ar, unsafe (e as unsafe *Expressions::VerbatimExpr))
+            io_verbatim_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::VerbatimExpr),
+            )
         } case ExprKind::NamedArgExpr {
-            io_named_arg_expr(ar, unsafe (e as unsafe *Expressions::NamedArgExpr))
+            io_named_arg_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::NamedArgExpr),
+            )
         } case ExprKind::InitListExpr {
-            io_init_list_expr(ar, unsafe (e as unsafe *Expressions::InitListExpr))
+            io_init_list_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::InitListExpr),
+            )
         } case ExprKind::StmtExpr {
             io_stmt_expr(ar, unsafe (e as unsafe *Expressions::StmtExpr))
         } case ExprKind::UnwrapExpr {
@@ -913,15 +1052,23 @@ fn io_expr_fields(ar: unsafe *ASTArchive, e: unsafe *Expr) {
         } case ExprKind::DefinedExpr {
             io_defined_expr(ar, unsafe (e as unsafe *Expressions::DefinedExpr))
         } case ExprKind::AttributedExpr {
-            io_attributed_expr(ar, unsafe (e as unsafe *Expressions::AttributedExpr))
+            io_attributed_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::AttributedExpr),
+            )
         } case ExprKind::PanicOpExpr {
             io_panic_op_expr(ar, unsafe (e as unsafe *Expressions::PanicOpExpr))
         } case ExprKind::TypeTraitExpr {
-            io_type_trait_expr(ar, unsafe (e as unsafe *Expressions::TypeTraitExpr))
+            io_type_trait_expr(
+                ar,
+                unsafe (e as unsafe *Expressions::TypeTraitExpr),
+            )
         } case ExprKind::CxxNewExpr {
             io_cxx_new_expr(ar, unsafe (e as unsafe *Expressions::CxxNewExpr))
         } default {
-            ar->fail("an expression a lowering minted (VariantInitExpr) is reachable from a parsed tree")
+            ar->fail(
+                "an expression a lowering minted (VariantInitExpr) is reachable from a parsed tree",
+            )
         }
     }
 }

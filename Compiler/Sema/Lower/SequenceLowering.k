@@ -205,7 +205,11 @@ pub class SeqAddrScan derives RecursiveASTVisitor<SeqAddrScan> {
     fn traverse_closure_expr(self,
                              n: unsafe *Expressions::ClosureExpr) -> unsafe *Expressions::ClosureExpr {
         self._closures += 1
-        var unsafe *r = RecursiveASTVisitor<SeqAddrScan>::traverse_closure_expr(self, n)
+        var unsafe *r = RecursiveASTVisitor<SeqAddrScan>::traverse_closure_expr(
+            self,
+            n,
+        )
+
         self._closures -= 1
         return r
     }
@@ -264,7 +268,11 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
                                  n: unsafe *ExpressionStmt) -> cxx::std::vector<unsafe *Stmt> {
         var unsafe *saved = self._stmt_top
         self._stmt_top = n->expr
-        var out = ASTWriter<SequenceLowering>::transform_expression_stmt(self, n)
+        var out = ASTWriter<SequenceLowering>::transform_expression_stmt(
+            self,
+            n,
+        )
+
         self._stmt_top = saved
         return out
     }
@@ -272,7 +280,11 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     fn transform_call_expr(self, n: unsafe *Expressions::CallExpr) -> unsafe *Expr {
         // Children first: an inner call `f(g(h(), k()))` is sequenced on its
         // own, and this call then sees it as one impure argument.
-        var unsafe *out = ASTWriter<SequenceLowering>::transform_call_expr(self, n)
+        var unsafe *out = ASTWriter<SequenceLowering>::transform_call_expr(
+            self,
+            n,
+        )
+
         // `({ B t = make(); B* p = t.first(1); p->note(..) })->emit()`
         // would run emit after `t` ended. A call on such a block's result is
         // moved into the block's tail: `({ ...; p->note(..)->emit() })`. The
@@ -284,7 +296,10 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             return r
         }
 
-        var unsafe *last = cast<ExpressionStmt>(host->body->body[host->body->body.size() - 1])
+        var unsafe *last = cast<ExpressionStmt>(
+            host->body->body[host->body->body.size() - 1],
+        )
+
         last->expr           = r
         host->type_          = r->type_
         host->value_category = Expr::ValueCategory::RValue
@@ -305,7 +320,10 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             return &null
         }
 
-        var unsafe *se = dyn_cast<Expressions::StmtExpr>(self.tu.strip_parens(ch->base))
+        var unsafe *se = dyn_cast<Expressions::StmtExpr>(
+            self.tu.strip_parens(ch->base),
+        )
+
         if se == &null {
             return &null
         }
@@ -404,7 +422,13 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
                 // bound by value in this block, and the call's result may point
                 // into it: noted, so a call on the result is sunk in.
                 var prv = self._record_prvalue(recv->base)
-                recv->base = self._hoist(recv->base, unsafe &stmts, false, places[0] != 0)
+                recv->base = self._hoist(
+                    recv->base,
+                    unsafe &stmts,
+                    false,
+                    places[0] != 0,
+                )
+
                 if prv {
                     self._bound_temp = true
                 }
@@ -483,8 +507,12 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     /// the left first. `&&` and `||` short-circuit and are already ordered.
     fn transform_binary_operator_expr(self,
                                       n: unsafe *Expressions::BinaryOperatorExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<SequenceLowering>::transform_binary_operator_expr(self, n)
-        var        k    = n->op_token.kind
+        var unsafe *out = ASTWriter<SequenceLowering>::transform_binary_operator_expr(
+            self,
+            n,
+        )
+
+        var k = n->op_token.kind
         if k == TokenKind::OpAmpAmp || k == TokenKind::OpPipePipe {
             return out
         }
@@ -514,7 +542,11 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             unsafe (ExpressionStmt::create(self.ctx, n->range, unsafe (n as unsafe *Expr)) as unsafe *Stmt),
         )
 
-        return self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, n->type_)
+        return self.synth.stmt_expr(
+            unsafe (n as unsafe *Expr),
+            &stmts,
+            n->type_,
+        )
     }
 
     /// A compound assignment EmitIR orders itself: an integer `+= -= *= /=
@@ -544,7 +576,11 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     /// orders itself (wrap_ordered) is left to it.
     fn transform_assign_operator_expr(self,
                                       n: unsafe *Expressions::AssignOperatorExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<SequenceLowering>::transform_assign_operator_expr(self, n)
+        var unsafe *out = ASTWriter<SequenceLowering>::transform_assign_operator_expr(
+            self,
+            n,
+        )
+
         if n->is_poisoned() || n->lhs->type_ == &null {
             return out
         }
@@ -577,7 +613,11 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
 
     ///   p()[i()]   ->   (*({ T* __kairo_ord0 = p(); &__kairo_ord0[i()]; }))
     fn transform_subscript_expr(self, n: unsafe *Expressions::SubscriptExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<SequenceLowering>::transform_subscript_expr(self, n)
+        var unsafe *out = ASTWriter<SequenceLowering>::transform_subscript_expr(
+            self,
+            n,
+        )
+
         if n->is_poisoned() || n->type_ == &null {
             return out
         }
@@ -607,10 +647,18 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
                 unsafe (ExpressionStmt::create(self.ctx, n->range, unsafe (n as unsafe *Expr)) as unsafe *Stmt),
             )
 
-            return self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, n->type_)
+            return self.synth.stmt_expr(
+                unsafe (n as unsafe *Expr),
+                &stmts,
+                n->type_,
+            )
         }
 
-        return self._close_lvalue(unsafe (n as unsafe *Expr), unsafe &stmts, false)
+        return self._close_lvalue(
+            unsafe (n as unsafe *Expr),
+            unsafe &stmts,
+            false,
+        )
     }
 
     ///   T { b: f(), a: g() }   (declared a, b)
@@ -623,7 +671,11 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     /// written order.
     fn transform_named_initializer_expr(self,
                                         n: unsafe *Expressions::NamedInitializerExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<SequenceLowering>::transform_named_initializer_expr(self, n)
+        var unsafe *out = ASTWriter<SequenceLowering>::transform_named_initializer_expr(
+            self,
+            n,
+        )
+
         if n->is_poisoned() || n->is_instantiation_dependent() || n->type_ == &null {
             return out
         }
@@ -716,7 +768,11 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             unsafe (ExpressionStmt::create(self.ctx, n->range, unsafe (n as unsafe *Expr)) as unsafe *Stmt),
         )
 
-        return self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, n->type_)
+        return self.synth.stmt_expr(
+            unsafe (n as unsafe *Expr),
+            &stmts,
+            n->type_,
+        )
     }
 
     /// # the hoisting rule
@@ -757,7 +813,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         for var i: usize = 0; i < last; ++i {
             var unsafe *e = (*ops)[i]
             var st = if ((*places)[i] != 0) => (self._place_moves(e)) else => self._reads_state(e)
-            var h  = !self.synth.pure_read(e) || st
+            var h = !self.synth.pure_read(e) || st
             (*hoist)[i] = h as u8
             if h {
                 any = true
@@ -813,7 +869,9 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
 
                 return !self._state_free_local(d)
             } case ExprKind::TypeCastExpr {
-                return self._reads_state(cast<Expressions::TypeCastExpr>(e)->operand)
+                return self._reads_state(
+                    cast<Expressions::TypeCastExpr>(e)->operand,
+                )
             } case ExprKind::UnaryOperatorExpr {
                 var unsafe *u = cast<Expressions::UnaryOperatorExpr>(e)
                 if u->op_token.kind == TokenKind::OpStar { // through a pointer: anything may change it.
@@ -939,19 +997,23 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
                          bound_recv: bool) -> cxx::std::vector<u8> {
         // u8, not bool: the self-host migration rewrites vec<bool> to vec<u8>
         // by name, and a local named like a field (`out`) dragged the field along.
-        var lrs                          = cxx::std::vector<u8>()
-        var f:      unsafe *FunctionDecl = &null
-        var is_ctor                      = n->ctor_decl != &null && isa<FunctionDecl>(n->ctor_decl)
+        var lrs                      = cxx::std::vector<u8>()
+        var f:  unsafe *FunctionDecl = &null
+        var is_ctor = n->ctor_decl != &null && isa<FunctionDecl>(n->ctor_decl)
         if is_ctor {
             f = cast<FunctionDecl>(n->ctor_decl)
         } else {
             var unsafe *c = self.tu.strip_parens(n->callee)
             if c != &null && isa<NamedIdentExpr>(c) {
-                f = dyn_cast<FunctionDecl>(cast<NamedIdentExpr>(c)->resolved_decl)
+                f = dyn_cast<FunctionDecl>(
+                    cast<NamedIdentExpr>(c)->resolved_decl,
+                )
             } else if c != &null && isa<ChainExpr>(c) {
                 var unsafe *ce = cast<ChainExpr>(c)
                 if ce->steps.size() > 0 {
-                    f = dyn_cast<FunctionDecl>(ce->steps.get(ce->steps.size() - 1)->resolved_decl)
+                    f = dyn_cast<FunctionDecl>(
+                        ce->steps.get(ce->steps.size() - 1)->resolved_decl,
+                    )
                 }
             }
         }
@@ -1130,12 +1192,22 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
                 unsafe (DeclStmt::create(self.ctx, e->range, unsafe (dv as unsafe *Decl)) as unsafe *Stmt),
             )
 
-            var unsafe *du = self.synth.use_of(dv, e->range, Expr::ValueCategory::LValue)
+            var unsafe *du = self.synth.use_of(
+                dv,
+                e->range,
+                Expr::ValueCategory::LValue,
+            )
+
             // An xvalue (`cxx::std::move(x)`, an imported `T&&` return) is copied into an
             // `auto` local, a named lvalue: handed on bare it would COPY again, which a
             // move-only type (`unique_ptr`) forbids. It is passed on as the `T&&` it was.
             if consumed && isa<CXXRValueRefType>(e->type_) {
-                return self.synth.cast_to(e->range, du, e->type_, Expressions::CastMode::Default)
+                return self.synth.cast_to(
+                    e->range,
+                    du,
+                    e->type_,
+                    Expressions::CastMode::Default,
+                )
             }
 
             return du
@@ -1182,7 +1254,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             unsafe (DeclStmt::create(self.ctx, b->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
         )
 
-        ch->base         = self.synth.use_of(vd, b->range, Expr::ValueCategory::LValue)
+        ch->base = self.synth.use_of(vd, b->range, Expr::ValueCategory::LValue)
         self._bound_temp = true
     }
 
@@ -1212,14 +1284,20 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             return false
         }
 
-        var unsafe *fd = dyn_cast<FieldDecl>(c->steps.get(c->steps.size() - 1)->resolved_decl)
+        var unsafe *fd = dyn_cast<FieldDecl>(
+            c->steps.get(c->steps.size() - 1)->resolved_decl,
+        )
+
         return fd != &null && fd->is_bitfield
     }
 
     /// `*__kairo_tmp(p)` / `__kairo_tmp(p)`: _bind's own case, never bound by
     /// address (the temporary would end at the declaration's `;`).
     priv fn _materialized(self, e: unsafe *Expr) -> bool {
-        var unsafe *x = dyn_cast<Expressions::UnaryOperatorExpr>(self.tu.strip_parens(e))
+        var unsafe *x = dyn_cast<Expressions::UnaryOperatorExpr>(
+            self.tu.strip_parens(e),
+        )
+
         if x == &null {
             return false
         }
@@ -1259,11 +1337,15 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         // leaves the statement expression no value (void) to copy.
         if as_stmt {
             var unsafe *inner = CompoundStmt::create(self.ctx, n->range)
-            var one = self.list_builder<unsafe *Stmt>()
+            var        one    = self.list_builder<unsafe *Stmt>()
             one.push(ExpressionStmt::create(self.ctx, n->range, n))
             one.freeze_into(&inner->body)
             stmts->push(unsafe (inner as unsafe *Stmt))
-            return self.synth.stmt_expr(n, &*stmts, self.sc->builtin(BuiltinKind::Void))
+            return self.synth.stmt_expr(
+                n,
+                &*stmts,
+                self.sc->builtin(BuiltinKind::Void),
+            )
         }
 
         var unsafe *pt = self.sc->types->pointer(n->type_)
@@ -1299,7 +1381,11 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     /// ->
     ///   ({ i32 __kairo_ord0 = g(); i32 __kairo_ord1 = f(); Shape::Rect { w: __kairo_ord1, h: __kairo_ord0 }; })
     fn transform_variant_init_expr(self, n: unsafe *Expressions::VariantInitExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<SequenceLowering>::transform_variant_init_expr(self, n)
+        var unsafe *out = ASTWriter<SequenceLowering>::transform_variant_init_expr(
+            self,
+            n,
+        )
+
         if n->is_poisoned() || n->type_ == &null {
             return out
         }
@@ -1358,7 +1444,11 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             unsafe (ExpressionStmt::create(self.ctx, n->range, unsafe (n as unsafe *Expr)) as unsafe *Stmt),
         )
 
-        return self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, n->type_)
+        return self.synth.stmt_expr(
+            unsafe (n as unsafe *Expr),
+            &stmts,
+            n->type_,
+        )
     }
 
     /// A call whose result is a reference (an lvalue or xvalue: an
@@ -1445,16 +1535,29 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
 
         if u != &null && u->materialize {
             if u->operand->type_ == &null {
-                kairo::std::ice_fail("SequenceLowering: untyped materialized receiver")
+                kairo::std::ice_fail(
+                    "SequenceLowering: untyped materialized receiver",
+                )
             }
 
-            var unsafe *vd = self.synth.local(e->range, "ord", u->operand->type_, u->operand)
+            var unsafe *vd = self.synth.local(
+                e->range,
+                "ord",
+                u->operand->type_,
+                u->operand,
+            )
+
             self._mark_extended(u->operand)
             stmts.push(
                 unsafe (DeclStmt::create(self.ctx, e->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
             )
 
-            var unsafe *use = self.synth.use_of(vd, e->range, Expr::ValueCategory::LValue)
+            var unsafe *use = self.synth.use_of(
+                vd,
+                e->range,
+                Expr::ValueCategory::LValue,
+            )
+
             if deref {
                 return use
             }

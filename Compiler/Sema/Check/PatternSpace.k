@@ -231,7 +231,10 @@ pub class PatternSpace {
             // pattern's, one list for every instance unless a variant is
             // pack-expanded (PatternTyping::dependent_adt).
             if isa<RecordType>(u) {
-                var unsafe *den = dyn_cast<EnumDecl>(self.tu.pattern_of(cast<RecordType>(u)->decl))
+                var unsafe *den = dyn_cast<EnumDecl>(
+                    self.tu.pattern_of(cast<RecordType>(u)->decl),
+                )
+
                 if den != &null
                     && den->is_adt
                     && !den->is_imported()
@@ -536,10 +539,12 @@ pub class PatternSpace {
                     }
                 }
 
-                return self._opaque(f"range:{self.sc->ctx->get_spelling(p->range)}")
+                return self._opaque(
+                    f"range:{self.sc->ctx->get_spelling(p->range)}",
+                )
             } case PatternKind::TupleDestructurePattern {
                 // Positional over the tuple's record: field i is element i.
-                c.kind  = CtorKind::Record
+                c.kind = CtorKind::Record
                 c.arity = (cast<TupleDestructurePattern>(p)->elements.size() as u32)
                 return c
             } case PatternKind::ConstructorPattern {
@@ -579,7 +584,9 @@ pub class PatternSpace {
             }
 
             // Open enum: a variant is one value among unlisted others.
-            return self._opaque(f"variant:{self.tu.decl_name((unsafe (v as unsafe *Decl)))}")
+            return self._opaque(
+                f"variant:{self.tu.decl_name((unsafe (v as unsafe *Decl)))}",
+            )
         }
 
         if isa<StructDecl>(rd) || isa<ClassDecl>(rd) {
@@ -907,9 +914,16 @@ pub class PatternSpace {
                             continue
                         }
 
-                        var unsafe *et = ve.field_at(d.ty, vv->payload[j], k as usize)
-                        var        tn  = if (et == &null) => ("?") else => self.tu.str(et)
-                        return name + "(var " + self.tu.decl_name(vv->payload[j]) + ": " + tn + ")"
+                        var unsafe *et = ve.field_at(
+                            d.ty,
+                            vv->payload[j],
+                            k as usize,
+                        )
+
+                        var tn = if (et == &null) => ("?") else => self.tu.str(et)
+                        return name + "(var " + self.tu.decl_name(
+                            vv->payload[j],
+                        ) + ": " + tn + ")"
                     }
                 }
 

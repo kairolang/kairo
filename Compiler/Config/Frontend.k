@@ -165,10 +165,10 @@ pub class FrontendOptions {
     pub var time_trace: string = ""
     pub var stats_file: string = ""
     // concurrency
-    pub var thread_count:    i32 = 0 ///< 0 = hardware concurrency
+    pub var thread_count:    i32 = 0                   ///< 0 = hardware concurrency
     pub var max_threads:     i32 = DEFAULT_MAX_THREADS ///< 0 = no cap
-    pub var sema_threads:    i32 = 0 ///< --sema-threads: 0 = thread_count
-    pub var codegen_threads: i32 = 0 ///< --codegen-threads: 0 = thread_count
+    pub var sema_threads:    i32 = 0                   ///< --sema-threads: 0 = thread_count
+    pub var codegen_threads: i32 = 0                   ///< --codegen-threads: 0 = thread_count
     /// --interface-pch: "auto" (by size), "on" or "off".
     pub var interface_pch: string = "auto"
     /// -fno-shared-header-set turns this off: one clang parse per header list.
@@ -184,11 +184,11 @@ pub class FrontendOptions {
     pub var time_passes: bool = false
     pub var print_stats: bool = false
     // post-stage dump flags (independent of primary action)
-    pub var dump_preprocessed:   bool   = false ///< --dump-preprocessed: print reconstructed source to stdout
-    pub var print_tokens:        bool   = false
-    pub var print_macros:        bool   = false
-    pub var print_imports:       bool   = false
-    pub var dump_import_uses:    string = "" ///< --dump-import-uses=<path.json>: Scripts/import_lint.py's input
+    pub var dump_preprocessed: bool   = false ///< --dump-preprocessed: print reconstructed source to stdout
+    pub var print_tokens:      bool   = false
+    pub var print_macros:      bool   = false
+    pub var print_imports:     bool   = false
+    pub var dump_import_uses:  string = "" ///< --dump-import-uses=<path.json>: Scripts/import_lint.py's input
     /// --dump-interface=<path.json> / --dump-deps=<path.json>: incremental
     /// Sema's phase 1 facts (Compiler/Spec/IncrementalSema.md). Either one
     /// turns dependency logging on for the run.
@@ -203,14 +203,14 @@ pub class FrontendOptions {
     pub var incr_paranoid:     bool = false
     /// --print-incr-plan: the re-check set the stored rows give for this
     /// run's changes (Sema/Incremental/Plan.k).
-    pub var print_incr_plan: bool = false
-    pub var print_emit_plan:     bool   = false
-    pub var print_panic_sets:    bool   = false
-    pub var print_cxx:           bool   = false ///< --print-cxx: the TU's C++ preamble (interface only) as text
-    pub var emit_headers:        string = "" ///< --emit-headers <dir>: write each module's C++ interop header
-    pub var emit_header_lines:   bool   = false ///< --emit-headers-line-directives (kals only): `#line` to the Kairo source
-    pub var emit_header_layout:  bool   = false ///< --emit-headers-layout (kals only): declarations on their Kairo lines
-    pub var print_symbols:       bool   = false
+    pub var print_incr_plan:    bool   = false
+    pub var print_emit_plan:    bool   = false
+    pub var print_panic_sets:   bool   = false
+    pub var print_cxx:          bool   = false ///< --print-cxx: the TU's C++ preamble (interface only) as text
+    pub var emit_headers:       string = "" ///< --emit-headers <dir>: write each module's C++ interop header
+    pub var emit_header_lines:  bool   = false ///< --emit-headers-line-directives (kals only): `#line` to the Kairo source
+    pub var emit_header_layout: bool   = false ///< --emit-headers-layout (kals only): declarations on their Kairo lines
+    pub var print_symbols:      bool   = false
     /// The serialized-AST test flags (Compiler/Spec/Serialization.md):
     /// --emit-ast-bin=<path>, --ast-roundtrip (or KAIRO_AST_ROUNDTRIP=1 in
     /// the environment, so an unmodified test suite can run under it) and
@@ -218,8 +218,8 @@ pub class FrontendOptions {
     pub var emit_ast_bin:         string = ""
     pub var ast_roundtrip:        bool   = false
     pub var verify_ast_roundtrip: bool   = false
-    pub var print_ast:           string = ""
-    pub var print_sema:          bool   = false
+    pub var print_ast:            string = ""
+    pub var print_sema:           bool   = false
     /// A Tooling::SemaObserver, or null. Called with each TU's SemaContext at
     /// SemaPhase::Checked, where --print-sema dumps: names and types are
     /// resolved and no lowering has rewritten the tree yet. Typed `void` here
@@ -241,8 +241,8 @@ pub class FrontendOptions {
     pub var check_past_syntax: bool = false
     /// --incr-replay=<script> / --incr-replay-dump=<dir>: check the entry,
     /// then apply the script's edits in this process (Driver/IncrReplay.k).
-    pub var incr_replay:      string = ""
-    pub var incr_replay_dump: string = ""
+    pub var incr_replay:         string = ""
+    pub var incr_replay_dump:    string = ""
     pub var print_lowered:       bool   = false ///< --print-lowered: the same dump, after the Lower/ passes have rewritten the tree
     pub var print_cg:            bool   = false
     pub var print_ir:            bool   = false
@@ -278,9 +278,9 @@ pub class FrontendOptions {
     pub var test_list:       bool   = false
     pub var test_filter:     string = ""
     pub var test_format:     string = "pretty"
-    pub var test_threads:    i32    = 0        ///< 0 = logical CPU count
+    pub var test_threads:    i32    = 0                      ///< 0 = logical CPU count
     pub var test_no_capture: bool   = false
-    pub var test_timeout:    i32    = 0        ///< 0 = no timeout (ms)
+    pub var test_timeout:    i32    = 0                      ///< 0 = no timeout (ms)
     pub var test_exit_code:  i32    = DEFAULT_TEST_EXIT_CODE
 
     // BCIR / AMT limits
@@ -342,28 +342,28 @@ pub class FrontendOptions {
         o.max_threads       = args.get_cfg_i32("max-threads")
 
         // post-stage dump flags
-        o.dump_preprocessed   = args.get_bool("dump-preprocessed")
-        o.print_tokens        = args.get_bool("print-tokens")
-        o.print_macros        = args.get_bool("print-macros")
-        o.print_imports       = args.get_bool("print-imports")
-        o.dump_import_uses    = args.get_string("dump-import-uses")
-        o.dump_interface      = args.get_string("dump-interface")
-        o.dump_deps           = args.get_string("dump-deps")
-        o.incremental_sema    = args.get_bool("incremental-sema")
-        o.incr_verify         = args.get_bool("incr-verify")
-        o.print_incr_status   = args.get_bool("print-incr-status")
-        o.incr_paranoid       = args.get_bool("incr-paranoid")
-        o.print_incr_plan     = args.get_bool("print-incr-plan")
-        o.incr_replay         = args.get_string("incr-replay")
-        o.incr_replay_dump    = args.get_string("incr-replay-dump")
-        o.print_emit_plan     = args.get_bool("print-emit-plan")
-        o.print_panic_sets    = args.get_bool("print-panic-sets")
-        o.print_cxx           = args.get_bool("print-cxx")
-        o.emit_headers        = args.get_string("emit-headers")
-        o.emit_header_lines   = args.get_bool("emit-headers-line-directives")
-        o.emit_header_layout  = args.get_bool("emit-headers-layout")
-        o.check_past_syntax   = args.get_bool("check-past-syntax-errors")
-        o.print_symbols       = args.get_bool("print-symbols")
+        o.dump_preprocessed    = args.get_bool("dump-preprocessed")
+        o.print_tokens         = args.get_bool("print-tokens")
+        o.print_macros         = args.get_bool("print-macros")
+        o.print_imports        = args.get_bool("print-imports")
+        o.dump_import_uses     = args.get_string("dump-import-uses")
+        o.dump_interface       = args.get_string("dump-interface")
+        o.dump_deps            = args.get_string("dump-deps")
+        o.incremental_sema     = args.get_bool("incremental-sema")
+        o.incr_verify          = args.get_bool("incr-verify")
+        o.print_incr_status    = args.get_bool("print-incr-status")
+        o.incr_paranoid        = args.get_bool("incr-paranoid")
+        o.print_incr_plan      = args.get_bool("print-incr-plan")
+        o.incr_replay          = args.get_string("incr-replay")
+        o.incr_replay_dump     = args.get_string("incr-replay-dump")
+        o.print_emit_plan      = args.get_bool("print-emit-plan")
+        o.print_panic_sets     = args.get_bool("print-panic-sets")
+        o.print_cxx            = args.get_bool("print-cxx")
+        o.emit_headers         = args.get_string("emit-headers")
+        o.emit_header_lines    = args.get_bool("emit-headers-line-directives")
+        o.emit_header_layout   = args.get_bool("emit-headers-layout")
+        o.check_past_syntax    = args.get_bool("check-past-syntax-errors")
+        o.print_symbols        = args.get_bool("print-symbols")
         o.emit_ast_bin         = args.get_string("emit-ast-bin")
         o.verify_ast_roundtrip = args.get_bool("verify-ast-roundtrip")
         o.ast_roundtrip        = args.get_bool("ast-roundtrip")
@@ -373,7 +373,8 @@ pub class FrontendOptions {
                 o.ast_roundtrip = true
             }
         }
-        o.print_ast           = FrontendOptions::_mode_or(&args, "print-ast", "tree")
+
+        o.print_ast = FrontendOptions::_mode_or(&args, "print-ast", "tree")
         o.print_sema          = args.get_bool("print-sema")
         o.print_lowered       = args.get_bool("print-lowered")
         o.print_cg            = args.get_bool("print-cg")
@@ -389,8 +390,11 @@ pub class FrontendOptions {
         o.bcir_stats          = args.get_bool("bcir-stats")
 
         // parser / sema
-        o.max_generic_instantiations = args.get_cfg_i32("max-generic-instantiations")
-        o.max_tuple_arity            = args.get_cfg_i32("max-tuple-arity")
+        o.max_generic_instantiations = args.get_cfg_i32(
+            "max-generic-instantiations",
+        )
+
+        o.max_tuple_arity = args.get_cfg_i32("max-tuple-arity")
 
         // incremental compilation
         o.incremental     = args.get_bool("incremental")
@@ -413,8 +417,10 @@ pub class FrontendOptions {
         o.test_exit_code  = args.get_i32("test-exit-code")
 
         // BCIR / AMT limits
-        o.max_borrow_depth          = args.get_cfg_i32("max-borrow-depth")
-        o.max_amt_smartptr_rewrites = args.get_cfg_i32("max-amt-smartptr-rewrites")
+        o.max_borrow_depth = args.get_cfg_i32("max-borrow-depth")
+        o.max_amt_smartptr_rewrites = args.get_cfg_i32(
+            "max-amt-smartptr-rewrites",
+        )
 
         // primary action: highest-priority flag wins
         if args.get_bool("preprocess") || args.get_bool("dump-preprocessed") {
@@ -443,7 +449,12 @@ pub class FrontendOptions {
     /// --emit into the emit_* set (EmitKinds::parse, which the linker
     /// options read too).
     priv static fn _parse_emit(o: *FrontendOptions, @inout args: ParsedArgs) {
-        var k = EmitKinds::parse(args.get_string("emit"), args.get_bool("emit-asm"), args.is_set("emit"))
+        var k = EmitKinds::parse(
+            args.get_string("emit"),
+            args.get_bool("emit-asm"),
+            args.is_set("emit"),
+        )
+
         o->emit_obj     = k.emit_obj
         o->emit_asm     = k.emit_asm
         o->emit_llvm_ir = k.emit_llvm_ir

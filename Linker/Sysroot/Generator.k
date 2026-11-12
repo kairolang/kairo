@@ -142,11 +142,15 @@ pub class SysGen {
     /// The LLVM runtimes revision this binary was built from; the share
     /// tree's runtimes/REVISION must equal it.
     pub static fn runtimes_revision() -> string {
-        return string(unsafe ((kairo::runtimes_revision_string() as unsafe *const u8) as *const u8))
+        return string(
+            unsafe ((kairo::runtimes_revision_string() as unsafe *const u8) as *const u8),
+        )
     }
 
     pub static fn tool_version() -> string {
-        return string(unsafe ((kairo::version_string() as unsafe *const u8) as *const u8))
+        return string(
+            unsafe ((kairo::version_string() as unsafe *const u8) as *const u8),
+        )
     }
 
     pub fn cache(self) -> SysCache {
@@ -183,7 +187,14 @@ pub class SysGen {
         if SysNames::parse(target, glibc_default_version(), &st, &cands, &why)
             && SysSdk::handles(&st) {
             var sc = self.cache()
-            return SysSdk::ensure(&sc, &st, self.input, SysGen::_tools_dir(), &path, &out)
+            return SysSdk::ensure(
+                &sc,
+                &st,
+                self.input,
+                SysGen::_tools_dir(),
+                &path,
+                &out,
+            )
         }
 
         var p = SysPlan()
@@ -211,7 +222,10 @@ pub class SysGen {
         var done_dir = c.sysroot_dir(p.key)
         if LinkFS::is_file(done_dir + "/.ok") {
             if !c.publish(p.target.name, p.key) {
-                return out.fail(f"cannot write {c.root}/by-name/{p.target.name}", "")
+                return out.fail(
+                    f"cannot write {c.root}/by-name/{p.target.name}",
+                    "",
+                )
             }
 
             path = done_dir
@@ -243,7 +257,13 @@ pub class SysGen {
         if SysUtil::contains(&p.inputs, "runtimes-template") {
             var why  = ""
             var tmpl = p.share.input_path("runtimes-template")
-            if !SysRuntimes::from_template(&p.target, &p.recipe, tmpl, out_dir, &why) {
+            if !SysRuntimes::from_template(
+                &p.target,
+                &p.recipe,
+                tmpl,
+                out_dir,
+                &why,
+            ) {
                 return out.refuse(why, "")
             }
 
@@ -251,7 +271,10 @@ pub class SysGen {
         }
 
         if !SysUtil::contains(&p.inputs, "runtimes-recipe") {
-            return out.refuse(f"{p.target.name} builds no runtimes from this share tree", "")
+            return out.refuse(
+                f"{p.target.name} builds no runtimes from this share tree",
+                "",
+            )
         }
 
         var rdir = p.share.input_path("runtimes-recipe")
@@ -262,7 +285,11 @@ pub class SysGen {
         }
 
         LinkFS::make_dirs(out_dir + "/targets")
-        if !SysRun::put_file(tp, f"{out_dir}/targets/{p.target.name}.toml", false) {
+        if !SysRun::put_file(
+            tp,
+            f"{out_dir}/targets/{p.target.name}.toml",
+            false,
+        ) {
             return out.fail(f"cannot copy {tp}", "")
         }
 
@@ -274,7 +301,11 @@ pub class SysGen {
 
             LinkFS::make_dirs(out_dir + "/" + rt)
             var from = f"{rdir}/{rt}/{key}.toml"
-            if !SysRun::put_file(from, f"{out_dir}/{rt}/{p.target.name}.toml", false) {
+            if !SysRun::put_file(
+                from,
+                f"{out_dir}/{rt}/{p.target.name}.toml",
+                false,
+            ) {
                 return out.fail(f"cannot copy {from}", "")
             }
         }
@@ -311,12 +342,18 @@ pub class SysGen {
     pub fn validate(self, const dir: string, @inout out: SysOutcome) -> bool {
         var mpath = LinkText::join(dir, SysrootManifest::file_name())
         if !LinkFS::is_file(mpath) {
-            return out.fail(f"validation failed at manifest: {mpath} is missing", "")
+            return out.fail(
+                f"validation failed at manifest: {mpath} is missing",
+                "",
+            )
         }
 
         var m = SysrootManifest()
         if !SysrootManifest::load(mpath, &m) {
-            return out.fail(f"validation failed at manifest: {mpath}: {m.error}", "")
+            return out.fail(
+                f"validation failed at manifest: {mpath}: {m.error}",
+                "",
+            )
         }
 
         var t     = SysTarget{}
@@ -340,7 +377,10 @@ pub class SysGen {
 
         var log = LinkFS::temp_dir("ksys-validate")
         if log.empty() {
-            return out.fail("cannot create a temporary directory for validation", "")
+            return out.fail(
+                "cannot create a temporary directory for validation",
+                "",
+            )
         }
 
         var rep = ""
@@ -377,7 +417,10 @@ pub class SysGen {
         var mpath = LinkText::join(root, SysrootManifest::file_name())
         var m     = SysrootManifest()
         if !SysrootManifest::load(mpath, &m) {
-            return out.fail(f"validation failed at manifest: {mpath}: {m.error}", "")
+            return out.fail(
+                f"validation failed at manifest: {mpath}: {m.error}",
+                "",
+            )
         }
 
         rep += f"manifest:     {mpath}" + "\n"
@@ -432,7 +475,10 @@ pub class SysGen {
         var vdir = LinkText::join(share, "validate")
         var exp  = SysGen::_expectations(LinkText::join(vdir, "expect.toml"))
         if exp.empty() {
-            return out.refuse(f"share input {vdir}/expect.toml missing or empty", "")
+            return out.refuse(
+                f"share input {vdir}/expect.toml missing or empty",
+                "",
+            )
         }
 
         // Every build names the manifest's own triple: the driver checks
@@ -515,7 +561,15 @@ pub class SysGen {
             var missing = ""
             if !need.empty() {
                 for var ty: string in SysUtil::split(need, (',' as u8)) {
-                    if !SysGen::_has_type(kcc, m.triple, root, work, ty, &have, &lack) {
+                    if !SysGen::_has_type(
+                        kcc,
+                        m.triple,
+                        root,
+                        work,
+                        ty,
+                        &have,
+                        &lack,
+                    ) {
                         missing += if (missing.empty()) => (ty) else => ", " + ty
                     }
                 }
@@ -606,7 +660,10 @@ pub class SysGen {
         var share = ShareTree()
         var sdir  = ShareTree::locate(self.share_flag)
         if !share.load(sdir) {
-            return out.refuse(f"share input {share.error}", SysGen::_share_note())
+            return out.refuse(
+                f"share input {share.error}",
+                SysGen::_share_note(),
+            )
         }
 
         var first = ""
@@ -691,7 +748,11 @@ pub class SysGen {
                 )
             }
 
-            p.target = SysNames::make(p.target.family, p.target.arch, self.glibc)
+            p.target = SysNames::make(
+                p.target.family,
+                p.target.arch,
+                self.glibc,
+            )
         }
 
         p.row("name", p.target.name)
@@ -703,12 +764,18 @@ pub class SysGen {
 
         if !present {
             p.row("share", f"{sdir} (missing)")
-            return out.refuse(f"share input {sdir}/registry.toml missing", SysGen::_share_note())
+            return out.refuse(
+                f"share input {sdir}/registry.toml missing",
+                SysGen::_share_note(),
+            )
         }
 
         p.row("share", sdir)
         if !p.share.load(sdir) {
-            return out.refuse(f"share input {p.share.error}", SysGen::_share_note())
+            return out.refuse(
+                f"share input {p.share.error}",
+                SysGen::_share_note(),
+            )
         }
 
         var have = p.share.revision()
@@ -724,17 +791,26 @@ pub class SysGen {
 
         if p.target.family == "linux-gnu" {
             if !have_gv {
-                return out.refuse(f"share input {sdir}/glibc/VERSIONS.toml missing", "")
+                return out.refuse(
+                    f"share input {sdir}/glibc/VERSIONS.toml missing",
+                    "",
+                )
             }
 
             var v = p.target.libc_version
             if !SysUtil::contains(&gv.versions, v) {
                 var list = SysUtil::joined(&gv.versions, ", ")
-                return out.refuse(f"glibc {v} is not in the shipped set {list}", "")
+                return out.refuse(
+                    f"glibc {v} is not in the shipped set {list}",
+                    "",
+                )
             }
 
             if SysUtil::version_less(v, gv.floor) {
-                return out.refuse(f"glibc {v} is below the floor {gv.floor}", "")
+                return out.refuse(
+                    f"glibc {v} is below the floor {gv.floor}",
+                    "",
+                )
             }
 
             p.floor = gv.floor
@@ -766,13 +842,16 @@ pub class SysGen {
         p.os   = if (parts.size() > 2) => (parts[2]) else => ""
         p.env_ = if (parts.size() > 3) => (parts[3]) else => ""
 
-        var        tt                        = llvm::Triple(norm)
-        var        err:     cxx::std::string
-        var unsafe *backend                  = llvm::TargetRegistry::lookupTarget(tt, &err)
+        var tt                    = llvm::Triple(norm)
+        var err: cxx::std::string
+        var unsafe *backend = llvm::TargetRegistry::lookupTarget(tt, &err)
         var arch_name = if (parts.empty()) => (p.target.arch) else => parts[0]
         if backend == &null {
             p.row("backend", "missing")
-            return out.refuse(f"backend {arch_name} not compiled into this toolchain", "")
+            return out.refuse(
+                f"backend {arch_name} not compiled into this toolchain",
+                "",
+            )
         }
 
         p.row("backend", "ok")
@@ -802,16 +881,26 @@ pub class SysGen {
             qids.push_back(q.id)
             if !q.target_rewrite.empty() {
                 rewrites.push_back(q.id)
-                p.target.clang_triple = p.recipe.expand(q.target_rewrite, &p.target)
+                p.target.clang_triple = p.recipe.expand(
+                    q.target_rewrite,
+                    &p.target,
+                )
             }
         }
 
         // After the recipe and the quirks: either may have rewritten it.
         p.row("clang_triple", p.target.clang_triple)
-        p.row("quirks", if (qids.empty()) => ("(none)") else => SysUtil::joined(&qids, ", "))
+        p.row(
+            "quirks",
+            if (qids.empty()) => ("(none)") else => SysUtil::joined(&qids, ", "),
+        )
+
         if rewrites.size() > 1 {
             var list = SysUtil::joined(&rewrites, ", ")
-            return out.refuse(f"quirks {list} each rewrite the target; at most one may", "")
+            return out.refuse(
+                f"quirks {list} each rewrite the target; at most one may",
+                "",
+            )
         }
 
         var prov = ProviderSet::make(p.target.provider, self.input)
@@ -830,7 +919,9 @@ pub class SysGen {
             var np = SysNames::properties(&p.target)
             np.put(
                 "backend",
-                string(unsafe ((backend->getName() as unsafe *const u8) as *const u8)),
+                string(
+                    unsafe ((backend->getName() as unsafe *const u8) as *const u8),
+                ),
             )
 
             p.row("properties", np.text())
@@ -861,7 +952,10 @@ pub class SysGen {
 
         p.row("tools", "ok")
         var props = SysNames::properties(&p.target)
-        var be    = string(unsafe ((backend->getName() as unsafe *const u8) as *const u8))
+        var be = string(
+            unsafe ((backend->getName() as unsafe *const u8) as *const u8),
+        )
+
         props.put("backend", be)
         p.row("properties", props.text())
         if !with_inputs {
@@ -906,7 +1000,10 @@ pub class SysGen {
         for var rel: string in rels {
             var reg = p.share.registered(rel)
             if reg.empty() {
-                return out.refuse(f"share input {rel} is not listed in {sdir}/registry.toml", "")
+                return out.refuse(
+                    f"share input {rel} is not listed in {sdir}/registry.toml",
+                    "",
+                )
             }
 
             var path = p.share.input_path(rel)
@@ -915,13 +1012,22 @@ pub class SysGen {
             }
 
             var err = ""
-            var got = SysGen::_verified_sha(&c, path, p.share.follows_links(), &err)
+            var got = SysGen::_verified_sha(
+                &c,
+                path,
+                p.share.follows_links(),
+                &err,
+            )
+
             if !err.empty() {
                 return out.refuse(f"share input {err}", "")
             }
 
             if got != reg {
-                return out.refuse(f"share input {path}: tree hash mismatch (registry.toml)", "")
+                return out.refuse(
+                    f"share input {path}: tree hash mismatch (registry.toml)",
+                    "",
+                )
             }
 
             p.inputs.push_back(rel)
@@ -961,7 +1067,9 @@ pub class SysGen {
         /// ## keys (section 7)
         var build_id = SysGen::_compiler_build_id(&c, p.tools)
         for var s: string in sys_stages() {
-            p.stage_keys.push_back(SysUtil::sha256(SysGen::_key_json(&p, build_id, s)))
+            p.stage_keys.push_back(
+                SysUtil::sha256(SysGen::_key_json(&p, build_id, s)),
+            )
         }
 
         p.key_json = SysGen::_key_json(&p, build_id, "")
@@ -1010,7 +1118,10 @@ pub class SysGen {
             }
 
             if !st.begin() {
-                return out.fail(f"stage {name} failed: cannot create {st.tmp()}", "")
+                return out.fail(
+                    f"stage {name} failed: cannot create {st.tmp()}",
+                    "",
+                )
             }
 
             self._log(f"{p->target.name}: stage {name}")
@@ -1040,7 +1151,11 @@ pub class SysGen {
                 if out.status == SYS_STATUS_FAILED {
                     var log = st.fail(out.message)
                     out.message = f"stage {name} failed: {out.message} (log: {log})"
-                    out.note    = SysGen::_moved(out.note, st.tmp(), st.dir + ".failed")
+                    out.note = SysGen::_moved(
+                        out.note,
+                        st.tmp(),
+                        st.dir + ".failed",
+                    )
                 } else {
                     st.abandon()
                 }
@@ -1049,7 +1164,10 @@ pub class SysGen {
             }
 
             if !st.commit() {
-                return out.fail(f"stage {name} failed: cannot rename {st.tmp()}", "")
+                return out.fail(
+                    f"stage {name} failed: cannot rename {st.tmp()}",
+                    "",
+                )
             }
 
             ctx.done_names.push_back(name)
@@ -1092,7 +1210,10 @@ pub class SysGen {
             }
         }
 
-        if !LinkFS::write(dest + "/" + SysrootManifest::file_name(), SysGen::render_toml(&p->recipe, &p->target)) {
+        if !LinkFS::write(
+            dest + "/" + SysrootManifest::file_name(),
+            SysGen::render_toml(&p->recipe, &p->target),
+        ) {
             return out.fail(f"cannot write {dest}/SYSROOT.toml", "")
         }
 
@@ -1134,8 +1255,16 @@ pub class SysGen {
             }
         }
 
-        var rl   = ctx->recipe.expand(ctx->recipe.str("", "resource_layout"), &ctx->target)
-        var bn   = ctx->recipe.expand(ctx->recipe.str("", "builtins_name"), &ctx->target)
+        var rl = ctx->recipe.expand(
+            ctx->recipe.str("", "resource_layout"),
+            &ctx->target,
+        )
+
+        var bn = ctx->recipe.expand(
+            ctx->recipe.str("", "builtins_name"),
+            &ctx->target,
+        )
+
         var bsrc = ctx->product("builtins") + "/" + bn
         if !LinkFS::is_file(bsrc) || !SysRun::put_file(bsrc, root + "/" + rl + "/" + bn, true) {
             return out.fail(f"the builtins stage left no {bn}", "")
@@ -1154,13 +1283,20 @@ pub class SysGen {
             }
 
             if g == "include/c++/v1" && !LinkFS::is_file(to + "/__config_site") {
-                return out.fail(f"{to} has no __config_site beside the libc++ headers", "")
+                return out.fail(
+                    f"{to} has no __config_site beside the libc++ headers",
+                    "",
+                )
             }
         }
 
         if ctx->recipe.flag("", "crt_objects", false) {
             for var n: string in SysRuntimes::crt_names() {
-                if !SysRun::put_file(rt + "/crt/" + n, root + "/" + rl + "/" + n, true) {
+                if !SysRun::put_file(
+                    rt + "/crt/" + n,
+                    root + "/" + rl + "/" + n,
+                    true,
+                ) {
                     return out.fail(f"the runtimes stage left no crt/{n}", "")
                 }
             }
@@ -1178,7 +1314,10 @@ pub class SysGen {
             }
 
             if lic.empty() {
-                return out.refuse(f"share input {rel} has no [licenses] entry in registry.toml", "")
+                return out.refuse(
+                    f"share input {rel} has no [licenses] entry in registry.toml",
+                    "",
+                )
             }
 
             var comp = SysUtil::split(rel, ('/' as u8))[0]
@@ -1206,7 +1345,10 @@ pub class SysGen {
                 var want  = LinkText::slice(a, colon + 1, a.size())
                 var text  = ""
                 if !LinkFS::read(file, &text) || !LinkText::contains(text, want) {
-                    return out.fail(f"quirk {q.id}: {file} does not contain {want}", "")
+                    return out.fail(
+                        f"quirk {q.id}: {file} does not contain {want}",
+                        "",
+                    )
                 }
             }
         }
@@ -1219,10 +1361,16 @@ pub class SysGen {
     priv static fn _stage_toml(ctx: *StageCtx, @inout out: SysOutcome) -> bool {
         var text = SysGen::render_toml(&ctx->recipe, &ctx->target)
         if text.empty() {
-            return out.refuse(f"the {ctx->target.recipe} recipe has no [toml] table", "")
+            return out.refuse(
+                f"the {ctx->target.recipe} recipe has no [toml] table",
+                "",
+            )
         }
 
-        if !LinkFS::write(ctx->stage + "/out/" + SysrootManifest::file_name(), text) {
+        if !LinkFS::write(
+            ctx->stage + "/out/" + SysrootManifest::file_name(),
+            text,
+        ) {
             return out.fail(f"cannot write {ctx->stage}/out/SYSROOT.toml", "")
         }
 
@@ -1244,7 +1392,11 @@ pub class SysGen {
         var asm_ = ctx->product("assemble")
         var tom  = ctx->product("toml") + "/" + SysrootManifest::file_name()
         if !SysRun::link_tree(asm_, root, &none)
-            || !SysRun::put_file(tom, root + "/" + SysrootManifest::file_name(), false) {
+            || !SysRun::put_file(
+                tom,
+                root + "/" + SysrootManifest::file_name(),
+                false,
+            ) {
             return out.fail(f"cannot lay out {root} for validation", "")
         }
 
@@ -1272,13 +1424,17 @@ pub class SysGen {
                             c:          *SysCache,
                             const dest: string,
                             @inout out: SysOutcome) -> bool {
-        var fin  = if (dest.empty()) => (c->sysroot_dir(p->key)) else => LinkText::strip_slash(dest)
+        var fin = if (dest.empty()) => (c->sysroot_dir(p->key)) else => LinkText::strip_slash(dest)
         var tmp  = fin + ".tmp"
         var none = cxx::std::vector<string>()
         LinkFS::remove_tree(tmp)
         var tom = ctx->product("toml") + "/" + SysrootManifest::file_name()
         if !SysRun::link_tree(ctx->product("assemble"), tmp, &none)
-            || !SysRun::put_file(tom, tmp + "/" + SysrootManifest::file_name(), false) {
+            || !SysRun::put_file(
+                tom,
+                tmp + "/" + SysrootManifest::file_name(),
+                false,
+            ) {
             LinkFS::remove_tree(tmp)
             return out.fail(f"cannot write {tmp}", "")
         }
@@ -1308,11 +1464,24 @@ pub class SysGen {
         var lics = LinkFS::list_dir(tmp + "/LICENSES")
         cxx::std::sort(lics.begin(), lics.end())
         SysUtil::field(&f, "licenses", SysUtil::json_list(&lics))
-        SysUtil::field(&f, "clang_triple", SysUtil::json_str(p->target.clang_triple))
-        SysUtil::field(&f, "libc_version", SysUtil::json_str(p->target.libc_version))
+        SysUtil::field(
+            &f,
+            "clang_triple",
+            SysUtil::json_str(p->target.clang_triple),
+        )
+
+        SysUtil::field(
+            &f,
+            "libc_version",
+            SysUtil::json_str(p->target.libc_version),
+        )
+
         var by = "ksys " + SysGen::tool_version()
         SysUtil::field(&f, "generated_by", SysUtil::json_str(by))
-        if !LinkFS::write(tmp + "/.kairo-sysroot.json", SysUtil::json_object(&f) + "\n") {
+        if !LinkFS::write(
+            tmp + "/.kairo-sysroot.json",
+            SysUtil::json_object(&f) + "\n",
+        ) {
             LinkFS::remove_tree(tmp)
             return out.fail(f"cannot write {tmp}/.kairo-sysroot.json", "")
         }
@@ -1363,7 +1532,9 @@ pub class SysGen {
             } else if toml.table == "types" && val.kind == 3 {
                 // [types] "<file>" = ["f16", ...]: the Kairo float types the
                 // program spells, kept as types/<file>=f16,bf16.
-                out.push_back("types/" + key + "=" + SysUtil::joined(&val.list, ","))
+                out.push_back(
+                    "types/" + key + "=" + SysUtil::joined(&val.list, ","),
+                )
             }
         }
 
@@ -1467,8 +1638,8 @@ pub class SysGen {
 
         var hparts = SysUtil::split(host, ('-' as u8))
         var harch  = hparts[0]
-        var hos    = if (LinkText::contains(host, "linux")) => ("linux") else => host
-        var tos    = if (LinkText::starts_with(t->family, "linux")) => ("linux") else => t->family
+        var hos = if (LinkText::contains(host, "linux")) => ("linux") else => host
+        var tos = if (LinkText::starts_with(t->family, "linux")) => ("linux") else => t->family
         // x32 runs on an x86_64 kernel built with CONFIG_X86_X32_ABI; without
         // it the run fails rather than SKIPs (qemu-user has no x32 target).
         var native = harch == t->arch
@@ -1568,7 +1739,11 @@ pub class SysGen {
             return s
         }
 
-        return LinkText::slice(s, 0, at) + to + LinkText::slice(s, at + from.size(), s.size())
+        return LinkText::slice(s, 0, at) + to + LinkText::slice(
+            s,
+            at + from.size(),
+            s.size(),
+        )
     }
 
     priv static fn _first_line(const text: string) -> string {
@@ -1600,7 +1775,9 @@ pub class SysGen {
             return ""
         }
 
-        return string(unsafe ((found.get().c_str() as unsafe *const u8) as *const u8))
+        return string(
+            unsafe ((found.get().c_str() as unsafe *const u8) as *const u8),
+        )
     }
 
     /// The canonical key object (section 7). \p stage "" is the sysroot's
@@ -1610,7 +1787,12 @@ pub class SysGen {
         var f = cxx::std::vector<SysJsonField>()
         SysUtil::field(&f, "schema", SysCache::key_schema())
         SysUtil::field(&f, "name", SysUtil::json_str(p->target.name))
-        SysUtil::field(&f, "clang_triple", SysUtil::json_str(p->target.clang_triple))
+        SysUtil::field(
+            &f,
+            "clang_triple",
+            SysUtil::json_str(p->target.clang_triple),
+        )
+
         SysUtil::field(&f, "provider", SysUtil::json_str(p->target.provider))
         var libc = p->target.libc_version
         // The runtimes are built once per glibc floor and serve every
@@ -1626,9 +1808,19 @@ pub class SysGen {
         }
 
         SysUtil::field(&f, "inputs", SysUtil::json_list(&ins))
-        SysUtil::field(&f, "runtimes_revision", SysUtil::json_str(SysGen::runtimes_revision()))
+        SysUtil::field(
+            &f,
+            "runtimes_revision",
+            SysUtil::json_str(SysGen::runtimes_revision()),
+        )
+
         SysUtil::field(&f, "compiler_build_id", SysUtil::json_str(build_id))
-        SysUtil::field(&f, "tool_version", SysUtil::json_str(SysGen::tool_version()))
+        SysUtil::field(
+            &f,
+            "tool_version",
+            SysUtil::json_str(SysGen::tool_version()),
+        )
+
         SysUtil::field(&f, "provider_extra", SysUtil::json_list(&p->extra))
         if !stage.empty() {
             SysUtil::field(&f, "stage", SysUtil::json_str(stage))

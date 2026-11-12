@@ -83,8 +83,10 @@ pub fn primitive_consts(b: BuiltinKind) -> [PrimConst] {
         }
 
         var c = PrimConst{}
-        c.name   = PrimitiveLimits::name_of(k)
-        c.detail = "const " + c.name + ": " + builtin_info(PrimitiveLimits::result_kind(b, k))->spelling
+        c.name = PrimitiveLimits::name_of(k)
+        c.detail = "const " + c.name + ": " + builtin_info(
+            PrimitiveLimits::result_kind(b, k),
+        )->spelling
         out.push_back(c)
     }
 

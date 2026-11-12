@@ -167,7 +167,12 @@ pub class LinkerOptions {
         // so the two cannot read one spelling two ways. -S stops at assembly
         // even beside an explicit --emit (`--emit=obj -S`), as -c stops at
         // objects.
-        var emit = EmitKinds::parse(args.get_string("emit"), args.get_bool("emit-asm"), args.is_set("emit"))
+        var emit = EmitKinds::parse(
+            args.get_string("emit"),
+            args.get_bool("emit-asm"),
+            args.is_set("emit"),
+        )
+
         o.compile_only = args.get_bool("compile-only")
             || args.get_bool("emit-asm")
             || !emit.links(!args.get_string("output").empty())
@@ -200,7 +205,7 @@ pub class LinkerOptions {
         // the optimised-build default skips wasm targets; an explicit --icf still reaches the
         // flavor and gets its error.
         var wasm = args.get_string("target").starts_with("wasm")
-        o.icf       = args.get_bool("icf") || optimized && !wasm && !args.get_bool("no-icf")
+        o.icf = args.get_bool("icf") || optimized && !wasm && !args.get_bool("no-icf")
         o.icf_mode  = args.get_string("icf-mode")
         o.rtlib     = args.get_string("rtlib")
         o.unwindlib = args.get_string("unwindlib")

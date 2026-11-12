@@ -40,8 +40,8 @@ import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_instantiated_from,
     decl_is_imported,
-    decl_only_forward,
     decl_is_instance,
+    decl_only_forward,
     param_is_type_pack,
 }
 import AST::Kind::ExprKind::ExprKind
@@ -102,8 +102,8 @@ import AST::Node::Types::{
 import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::named_declared_here
+import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstEval::ConstEval
 import Sema::Check::FfiRefReturnCheck::check_ref_return_value
@@ -184,8 +184,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
     fn push_fn_frame(self, f: unsafe *FunctionDecl, declared: unsafe *Type) {
         var fr = TyperFrame()
-        fr.fn_decl      = f
-        fr.declared     = declared
+        fr.fn_decl  = f
+        fr.declared = declared
         fr.is_generator = f != &null && self.dyn()->tu.is_generator_return(f->return_type)
         if f != &null {
             fr.declared = self._effect_inner(f->return_type, declared)
@@ -206,8 +206,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
     fn push_closure_frame(self, c: unsafe *ClosureExpr, declared: unsafe *Type) {
         var fr = TyperFrame()
-        fr.closure      = c
-        fr.declared     = declared
+        fr.closure  = c
+        fr.declared = declared
         fr.is_generator = c != &null && self.dyn()->tu.is_generator_return(c->return_type)
         if c != &null {
             fr.declared = self._effect_inner(c->return_type, declared)
@@ -350,7 +350,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             f->return_type = canon_unqual(t)
         }
 
-        self.dyn()->sc->rstate.finish_decl(f, ok || !f->body_expr->is_poisoned())
+        self.dyn()->sc->rstate.finish_decl(
+            f,
+            ok || !f->body_expr->is_poisoned(),
+        )
+
         return t
     }
 
@@ -652,8 +656,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return
         }
 
-        var nm    = self.dyn()->tu.decl_name(v)
-        var wrote = pointer_shorthand_spelling(v->pointer_depth, v->pointer_unsafe)
+        var nm = self.dyn()->tu.decl_name(v)
+        var wrote = pointer_shorthand_spelling(
+            v->pointer_depth,
+            v->pointer_unsafe,
+        )
 
         // `var *y = e` with `e: (*T)?`: the value may be null and nothing
         // on the name says so. The `?` is what is missing, not a star.
@@ -722,9 +729,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         // One fix-it rewrites both the count and the safety: what the
         // initializer's type spells (the visible stars when it is opaque).
-        var want_depth        = if (depth_ok) => (v->pointer_depth) else => depth
-        var want              = pointer_shorthand_spelling(want_depth, outer_unsafe)
-        var msg:       string = ""
+        var want_depth = if (depth_ok) => (v->pointer_depth) else => depth
+        var want        = pointer_shorthand_spelling(want_depth, outer_unsafe)
+        var msg: string = ""
         if !depth_ok {
             msg = f"'{wrote}{nm}' states a pointer of depth {v->pointer_depth}, but its initializer is '{self.dyn()->tu.str(c)}', a pointer of depth {depth}; write '{want}{nm}'"
         } else if outer_unsafe {
@@ -733,7 +740,12 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             msg = f"'{wrote}{nm}' declares an unsafe pointer, but its initializer is the safe pointer '{self.dyn()->tu.str(c)}'; write '{want}{nm}'"
         }
 
-        var b = self.dyn()->sc->diag->report(DiagID::SC266E, v->pointer_range.start, msg)
+        var b = self.dyn()->sc->diag->report(
+            DiagID::SC266E,
+            v->pointer_range.start,
+            msg,
+        )
+
         b.first(v->pointer_range)
         b.second(v->init->range, f"this has type '{self.dyn()->tu.str(c)}'")
         b.fix(v->pointer_range, want, f"write '{want}'")
@@ -788,7 +800,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return true
         }
 
-        var nm  = self.dyn()->tu.decl_name(v)
+        var nm = self.dyn()->tu.decl_name(v)
         var lit = if (cast<NullLiteralExpr>(e)->is_ref) => ("&null") else => "null"
         var b = self.dyn()->sc->diag->report(
             DiagID::SC076E,
@@ -822,8 +834,15 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     /// of one is in TypeCycleCheck): reported with a note at the method
     /// that keeps it abstract, or at the forward declaration. \p forward:
     /// check the forward-declared case too.
-    fn reject_unheld_by_value(self, t: unsafe *Type, at: SourceRange, const what: string, forward: bool) {
-        var unsafe *c = if (t != &null && t->canonical != &null) => (canon_unqual(t->canonical)) else => &null
+    fn reject_unheld_by_value(self,
+                              t:          unsafe *Type,
+                              at:         SourceRange,
+                              const what: string,
+                              forward:    bool) {
+        var unsafe *c = if (t != &null && t->canonical != &null) => (canon_unqual(
+                            t->canonical,
+                        ))
+                        else => &null
         if c == &null || !isa<RecordType>(c) {
             return
         }
@@ -906,7 +925,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             self.dyn()->push_null_target(p->default_val, p->type_, p)
             self.dyn()->type_of(p->default_val, pt)
             self.dyn()->pop_null_target()
-            if self.dyn()->reject_slice_literal(p->default_val, "used as a default argument") {
+            if self.dyn()->reject_slice_literal(
+                p->default_val,
+                "used as a default argument",
+            ) {
                 continue
             }
 
@@ -961,7 +983,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         if n->body_kind == FnBodyKind::Block || n->body_kind == FnBodyKind::Expr {
             for var i: usize = 0; i < n->params.size(); ++i {
                 var unsafe *p = n->params[i]
-                if p == &null || p->is_self || p->type_ == &null || p->is_const || p->mode != ParamMode::Value {
+                if p == &null
+                    || p->is_self
+                    || p->type_ == &null
+                    || p->is_const
+                    || p->mode != ParamMode::Value {
                     continue
                 }
 
@@ -974,7 +1000,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             }
 
             if n->return_type != &null && !n->is_noreturn {
-                var rr = if (n->return_type->range.is_valid()) => (n->return_type->range) else => n->name.range
+                var rr = if (n->return_type->range.is_valid()) => (n->return_type->range)
+                         else => n->name.range
                 // Abstract only: a return of a record never defined is still
                 // clang's (CL001E "incomplete result type"), which
                 // Tests/Codegen/method_name_byte.k leans on until it moves.
@@ -1000,7 +1027,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         if n->requires_clause != &null {
-            self.dyn()->type_of(n->requires_clause, self.dyn()->tu.builtin(BuiltinKind::Bool))
+            self.dyn()->type_of(
+                n->requires_clause,
+                self.dyn()->tu.builtin(BuiltinKind::Bool),
+            )
         }
 
         if n->where_clause != &null {
@@ -1045,7 +1075,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             self.dyn()->unsafe_depth = 0
             var unsafe *want = self.cur_frame()->declared
             var        bt    = self.dyn()->type_of(n->body_expr, want)
-            self.dyn()->reject_slice_literal(n->body_expr, "returned from a function")
+            self.dyn()->reject_slice_literal(
+                n->body_expr,
+                "returned from a function",
+            )
+
             if want != &null && self.dyn()->tu.is_void(want) {
                 // desugars to `return e;` in a void function: legal C++ only
                 // for a void (or never-returning) `e`.
@@ -1098,7 +1132,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return
         }
 
-        var k_no = self.dyn()->sc->imm_table()->find_ident(LangAttrs::no_unwind())
+        var k_no = self.dyn()->sc->imm_table()->find_ident(
+            LangAttrs::no_unwind(),
+        )
+
         var k_un = self.dyn()->sc->imm_table()->find_ident(LangAttrs::unwind())
         var        no_at: unsafe *FunctionDecl = &null
         var        un_at: unsafe *FunctionDecl = &null
@@ -1131,7 +1168,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             b.note(
                 DiagCode(DiagID::SC267N),
                 no_at->range.start,
-                LangAttrs::quoted(LangAttrs::no_unwind()) + " is here; it wins: the function is 'noexcept'",
+                LangAttrs::quoted(
+                    LangAttrs::no_unwind(),
+                ) + " is here; it wins: the function is 'noexcept'",
             )->child_first(no_at->range)
             b.emit()
         }
@@ -1183,7 +1222,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return false
         }
 
-        return self.dyn()->tu.decl_name(f) == self.dyn()->tu.decl_name(dc->dc_owner)
+        return self.dyn()->tu.decl_name(f) == self.dyn()->tu.decl_name(
+            dc->dc_owner,
+        )
     }
 
     /// A free function named `main` outside any type. Whether this TU is the
@@ -1255,10 +1296,12 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             // An earlier variant named here is its integer value, not an enum
             // object; see ExprTyper::discr_enum.
             var saved = self.dyn()->discr_enum
-            self.dyn()->discr_enum = if (ed != &null) => (NameLookup::representative(ed))
+            self.dyn()->discr_enum = if (ed != &null) => (NameLookup::representative(
+                                         ed,
+                                     ))
                                      else => &null
             self.dyn()->type_of(n->discriminant, under)
-            typed_ok               = self.dyn()->check_convertible(n->discriminant, under)
+            typed_ok = self.dyn()->check_convertible(n->discriminant, under)
             self.dyn()->discr_enum = saved
         }
 
@@ -1327,7 +1370,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 if ce.bad_decl != &null {
                     b.note(
                         ce.bad_decl->range.start,
-                        named_declared_here(self.dyn()->tu.decl_name(ce.bad_decl)),
+                        named_declared_here(
+                            self.dyn()->tu.decl_name(ce.bad_decl),
+                        ),
                     )
                 }
 
@@ -1335,7 +1380,13 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 return
             }
 
-            self._report_value_misfit(ed, under, n->discriminant->range, f"it is {ce.str(c)}")
+            self._report_value_misfit(
+                ed,
+                under,
+                n->discriminant->range,
+                f"it is {ce.str(c)}",
+            )
+
             return
         }
 
@@ -1404,7 +1455,12 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             )
 
             b.first(n->name.range)
-            b.note(DiagCode(DiagID::SC130N), a->name.range.start, named_declared_here(an))
+            b.note(
+                DiagCode(DiagID::SC130N),
+                a->name.range.start,
+                named_declared_here(an),
+            )
+
             b.emit()
             return
         }
@@ -1425,7 +1481,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         b.first(at)
         if ed != &null && ed->underlying != &null && ed->underlying->range.is_valid() {
-            b.note(ed->underlying->range.start, "the underlying type is declared here")
+            b.note(
+                ed->underlying->range.start,
+                "the underlying type is declared here",
+            )
         } else if ed != &null {
             b.note(
                 ed->name.range.start,
@@ -1455,8 +1514,13 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return
         }
 
-        var unsafe *s = dyn_cast<SubscriptExpr>(self.dyn()->tu.strip_parens(n->init))
-        if s == &null || s->index == &null || !isa<RangeExpr>(self.dyn()->tu.strip_parens(s->index)) {
+        var unsafe *s = dyn_cast<SubscriptExpr>(
+            self.dyn()->tu.strip_parens(n->init),
+        )
+
+        if s == &null
+            || s->index == &null
+            || !isa<RangeExpr>(self.dyn()->tu.strip_parens(s->index)) {
             return
         }
 
@@ -1529,7 +1593,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var t = self.dyn()->type_of(n->init, declared)
         self.dyn()->pop_null_target()
         self.dyn()->mark_list_storage(n->init)
-        self._reject_array_copy(n, if (declared != &null) => (declared) else => t)
+        self._reject_array_copy(
+            n,
+            if (declared != &null) => (declared) else => t,
+        )
+
         var ok = true
         if declared != &null {
             ok = self.dyn()->check_convertible(n->init, declared)
@@ -1543,7 +1611,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 n->poison()
                 ok = false
             } else {
-                n->type_ = self._shorthand_type(n, self._fn_value_decay(n->init, t)) // inferred slot := the value's type (a copy has no cv), `?` applied.
+                n->type_ = self._shorthand_type( // inferred slot := the value's type (a copy has no cv), `?` applied.
+                    n,
+                    self._fn_value_decay(n->init, t),
+                )
             }
         } else if self._reject_type_value(n) {
             ok = false
@@ -1816,7 +1887,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         if sel == 0 && n->then_ != &null {
-            n->then_      = Statements::CompoundStmt::create(self.dyn()->sc->ctx, n->then_->range)
+            n->then_ = Statements::CompoundStmt::create(
+                self.dyn()->sc->ctx,
+                n->then_->range,
+            )
+
             n->eval_taken = Statements::EvalTaken::Else
         }
 
@@ -2034,7 +2109,15 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var kind                        = Statements::IterKind::None
         var _op:  unsafe *Decl          = &null
         var inst: unsafe *InstanceEntry = &null
-        var unsafe *elem = self._iter_classify(at, t, unsafe &kind, unsafe &_op, unsafe &inst, rf)
+        var unsafe *elem = self._iter_classify(
+            at,
+            t,
+            unsafe &kind,
+            unsafe &_op,
+            unsafe &inst,
+            rf,
+        )
+
         if rf != &null && elem != &null {
             rf->iter_kind = kind
             rf->iter_op   = _op
@@ -2115,14 +2198,22 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         // X's arguments, never clang's (ExtensionLowering refuses it without
         // them), and its `T` is the extension's, which member_through does
         // not reach.
-        var none = cxx::std::vector<ArgInfo>()
-        var recv = canon_unqual(self.dyn()->tu.strip_nullable(t))
+        var none  = cxx::std::vector<ArgInfo>()
+        var recv  = canon_unqual(self.dyn()->tu.strip_nullable(t))
         var qrecv = recv
         if self._const_iterable(t) {
             qrecv = self.dyn()->sc->types->qualified(recv, QUAL_CONST)
         }
 
-        var r = self.dyn()->ovl.resolve(&forms, &none, true, at->range, "op in", qrecv)
+        var r = self.dyn()->ovl.resolve(
+            &forms,
+            &none,
+            true,
+            at->range,
+            "op in",
+            qrecv,
+        )
+
         if r.outcome == OvlOutcome::NoViable {
             at->poison() // reported; the shapes below must not iterate it anyway.
             return &null
@@ -2188,7 +2279,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         // gate in FeatureGateCheck (SC116E) refusing it. Asked only of a
         // record: an array (above), a pointer or a builtin has no members.
         if self.dyn()->tu.record_decl(self.dyn()->tu.strip_nullable(t)) != &null {
-            var was = at->is_poisoned()
+            var        was  = at->is_poisoned()
             var unsafe *own = self._iter_own_op(at, t, kind, _op, inst)
             if own != &null {
                 return own
@@ -2391,8 +2482,23 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 return &null
             }
 
-            bf = self._cxx_member(at, obj, unsafe &mb, kb, unsafe &bt, unsafe &bi)
-            ef = self._cxx_member(at, obj, unsafe &me, ke, unsafe &et, unsafe &ei)
+            bf = self._cxx_member(
+                at,
+                obj,
+                unsafe &mb,
+                kb,
+                unsafe &bt,
+                unsafe &bi,
+            )
+
+            ef = self._cxx_member(
+                at,
+                obj,
+                unsafe &me,
+                ke,
+                unsafe &et,
+                unsafe &ei,
+            )
         } else {
             var scopes = cxx::std::vector<unsafe *DeclContext>()
             self.dyn()->ml.associated_scopes(obj, &scopes)
@@ -2500,9 +2606,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     priv fn _dependent_for_shape(self, rf: unsafe *Statements::RangedForStmt) -> bool {
         var n = rf->bindings.size()
         for var i: usize = 0; i < n; ++i {
-            var unsafe *b = rf->bindings.get(i)
-            var plain = b->type_ == &null && b->shorthand.empty()
-            var ptr   = n == 1
+            var unsafe *b    = rf->bindings.get(i)
+            var        plain = b->type_ == &null && b->shorthand.empty()
+            var ptr = n == 1
                 && b->type_ == &null
                 && b->shorthand.has(Statements::BindingShorthand::Pointer)
                 && (!b->shorthand.has(Statements::BindingShorthand::Nullable))
@@ -2562,7 +2668,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
     /// This TU's DeclName for the identifier \p s.
     priv fn _cxx_name(self, const s: string) -> DeclName {
-        return DeclName::ident(self.dyn()->sc->imm_table()->intern_ident_copy(s))
+        return DeclName::ident(
+            self.dyn()->sc->imm_table()->intern_ident_copy(s),
+        )
     }
 
     /// `obj.<name>()` resolved on \p obj's cv: the method, its result type
@@ -2575,7 +2683,15 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                         ty:         unsafe *(unsafe *Type),
                         inst:       unsafe *(unsafe *InstanceEntry)) -> unsafe *FunctionDecl {
         var args = cxx::std::vector<ArgInfo>()
-        var r    = self.dyn()->ovl.resolve(cands, &args, true, at->range, name, obj)
+        var r = self.dyn()->ovl.resolve(
+            cands,
+            &args,
+            true,
+            at->range,
+            name,
+            obj,
+        )
+
         if r.outcome != OvlOutcome::Selected {
             return &null
         }
@@ -2617,7 +2733,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     }
 
     /// Apply binding shorthands and write the binder's type.
-    priv fn _bind_one(self, b: unsafe *Statements::Binding, t: unsafe *Type, const_elem: bool = false) {
+    priv fn _bind_one(self,
+                      b:          unsafe *Statements::Binding,
+                      t:          unsafe *Type,
+                      const_elem: bool = false) {
         if b == &null || b->is_discard || b->decl == &null {
             return
         }
@@ -2701,7 +2820,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         // Each binder of the tuple points into the same const element:
         // `for (k, *v) in xs` over a const owner is `*const V` too.
         for var i: usize = 0; i < list->size(); ++i {
-            self._bind_one(list->get(i), if (have) => (elems[i]) else => &null, const_elem)
+            self._bind_one(
+                list->get(i),
+                if (have) => (elems[i]) else => &null,
+                const_elem,
+            )
         }
     }
 
@@ -2724,8 +2847,12 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             }
         }
 
-        self.dyn()->mark_subscript_use(n->iterable, if (by_ptr) => (SUB_SOFT) else => SUB_RECV)
-        var it   = self.dyn()->type_of(n->iterable, &null)
+        self.dyn()->mark_subscript_use(
+            n->iterable,
+            if (by_ptr) => (SUB_SOFT) else => SUB_RECV,
+        )
+
+        var it = self.dyn()->type_of(n->iterable, &null)
         var elem = if (it != &null) => (self.iter_elem_type(n->iterable, it, n)) else => &null
         if !by_ptr {
             self.dyn()->settle_iterable_subscript(n->iterable, n->iter_op)
@@ -2748,6 +2875,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             n->iterable,
             self._cxx_yields_const(n) || self._const_owner_iter(n, it),
         )
+
         // No condition refines it; it may run zero times, so after it is
         // the head's state joined with each `break`.
         self.dyn()->flow.loop_enter(n->body, &null)
@@ -2794,7 +2922,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     /// says nothing about the element's const: without this a `for *e` over
     /// a const `[T]` wrote the elements and compiled. A slice is a view over
     /// storage it does not own and keeps its elements' own const.
-    priv fn _const_owner_iter(self, n: unsafe *Statements::RangedForStmt, it: unsafe *Type) -> bool {
+    priv fn _const_owner_iter(self,
+                              n:  unsafe *Statements::RangedForStmt,
+                              it: unsafe *Type) -> bool {
         if it == &null {
             return false
         }
@@ -2834,14 +2964,17 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return
         }
 
-        var unsafe *cd = dyn_cast<ClassDecl>(self.dyn()->tu.record_decl(canon_unqual(elem)))
+        var unsafe *cd = dyn_cast<ClassDecl>(
+            self.dyn()->tu.record_decl(canon_unqual(elem)),
+        )
+
         if cd == &null || (!cd->is_abstract) {
             return
         }
 
         var bn = self.dyn()->sc->ctx->get_spelling(b->name->name)
         var tn = self.dyn()->tu.str(elem)
-        var d  = self.dyn()->sc->diag->report(
+        var d = self.dyn()->sc->diag->report(
             DiagID::SC001E,
             b->range.start,
             f"cannot bind '{bn}' by value: '{tn}' is abstract; iterate by pointer",
@@ -2891,7 +3024,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return n
         }
 
-        var dc = if (d != &null) => (NameLookup::context_of(self.dyn()->sc->body_of(d)))
+        var dc = if (d != &null) => (NameLookup::context_of(
+                     self.dyn()->sc->body_of(d),
+                 ))
                  else => &null
         for var i: usize = 0; i < n->bindings.size(); ++i {
             var unsafe *b = n->bindings.get(i)
@@ -2903,8 +3038,13 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             if dc != &null {
                 var spelled = self.dyn()->sc->ctx->get_spelling(b->name->name)
                 var imm     = self.dyn()->sc->ctx->get_ident_imm(b->name->name)
-                var cell    = self.dyn()->sc->lookup.in_context(dc, DeclName::ident(imm), spelled)
-                var fd      = if (cell.found()) => (dyn_cast<FieldDecl>(cell.first())) else => &null
+                var cell = self.dyn()->sc->lookup.in_context(
+                    dc,
+                    DeclName::ident(imm),
+                    spelled,
+                )
+
+                var fd = if (cell.found()) => (dyn_cast<FieldDecl>(cell.first())) else => &null
                 if fd == &null {
                     self.dyn()->sc->diag->report(
                         DiagID::SC040E,
@@ -2915,7 +3055,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 }
 
                 if fd->type_ != &null {
-                    ft = self.dyn()->ded_scratch()->member_through(t, fd->type_->canonical)
+                    ft = self.dyn()->ded_scratch()->member_through(
+                        t,
+                        fd->type_->canonical,
+                    )
                 }
             }
 
@@ -2957,12 +3100,27 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var st = self.dyn()->type_of(n->scrutinee, &null)
         st = self.dyn()->match_infer_column(n->scrutinee, &n->cases, st)
         var entry = self.dyn()->flow.env
-        n->null_arm = self.dyn()->match_null_first(n->scrutinee, &n->cases, st, n->range, true)
+        n->null_arm = self.dyn()->match_null_first(
+            n->scrutinee,
+            &n->cases,
+            st,
+            n->range,
+            true,
+        )
+
         var bad_null = self.dyn()->match_null_missed(n->null_arm, st)
         var acc      = self.dyn()->flow.dead_env()
         for var i: usize = 0; i < n->cases.size(); ++i {
             var unsafe *mc = n->cases.get(i)
-            var col = self.dyn()->match_arm_enter(n->null_arm, n->scrutinee, mc, i, st, &entry)
+            var col = self.dyn()->match_arm_enter(
+                n->null_arm,
+                n->scrutinee,
+                mc,
+                i,
+                st,
+                &entry,
+            )
+
             for var j: usize = 0; j < mc->patterns.size(); ++j {
                 self.dyn()->type_pattern(mc->patterns[j], col)
             }
@@ -3071,6 +3229,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             n->range.start,
             "an inline assembly block must be inside 'unsafe': the compiler cannot check what the assembly does",
         )
+
         b.first(n->range)
         b.insert(n->range.start, "unsafe { ", "wrap it in an unsafe block")
         b.insert(n->range.end, " }", "close the unsafe block")
@@ -3193,7 +3352,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var unsafe *elem = fr->yield_elem
         self.dyn()->type_of(n->value, elem)
         // The backing array of `[1, 2]` as a slice dies at the suspension.
-        if self.dyn()->reject_slice_literal(n->value, "yielded from a generator") {
+        if self.dyn()->reject_slice_literal(
+            n->value,
+            "yielded from a generator",
+        ) {
             return n
         }
 

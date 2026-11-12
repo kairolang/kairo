@@ -55,15 +55,22 @@ pub class SysRun {
         var nlog = kairo::std::to_std_string(log)
         var redir: cxx::std::vector<cxx::std::optional<llvm::StringRef>>
         redir.push_back(cxx::std::optional<llvm::StringRef>(cxx::std::nullopt))
-        redir.push_back(cxx::std::optional<llvm::StringRef>(llvm::StringRef(nlog)))
-        redir.push_back(cxx::std::optional<llvm::StringRef>(llvm::StringRef(nlog)))
+        redir.push_back(
+            cxx::std::optional<llvm::StringRef>(llvm::StringRef(nlog)),
+        )
+
+        redir.push_back(
+            cxx::std::optional<llvm::StringRef>(llvm::StringRef(nlog)),
+        )
 
         var emsg:  cxx::std::string
         var failed                  = false
         var rc = llvm::sys::ExecuteAndWait(
             refs[0],
             llvm::ArrayRef<llvm::StringRef>(refs),
-            cxx::std::optional<llvm::ArrayRef<llvm::StringRef>>(cxx::std::nullopt),
+            cxx::std::optional<llvm::ArrayRef<llvm::StringRef>>(
+                cxx::std::nullopt,
+            ),
             llvm::ArrayRef<cxx::std::optional<llvm::StringRef>>(redir),
             0,
             0,
@@ -72,7 +79,11 @@ pub class SysRun {
         )
 
         if failed {
-            var why = string(unsafe ((emsg.data() as unsafe *const u8) as *const u8), emsg.size())
+            var why = string(
+                unsafe ((emsg.data() as unsafe *const u8) as *const u8),
+                emsg.size(),
+            )
+
             LinkFS::write(log, f"cannot run {argv[0]}: {why}\n")
             return -1
         }
@@ -114,13 +125,20 @@ pub class SysRun {
 
         var ec: cxx::std::error_code
         var sp                       = kairo::std::to_std_string(p)
-        var t = cxx::std::filesystem::read_symlink(cxx::std::filesystem::path(sp), &ec)
+        var t = cxx::std::filesystem::read_symlink(
+            cxx::std::filesystem::path(sp),
+            &ec,
+        )
+
         if ec.value() != 0 {
             return ""
         }
 
         var ts = t.generic_string()
-        return string(unsafe ((ts.data() as unsafe *const u8) as *const u8), ts.size())
+        return string(
+            unsafe ((ts.data() as unsafe *const u8) as *const u8),
+            ts.size(),
+        )
     }
 
     /// A symlink at \p at reading \p target (relative targets stay
@@ -260,7 +278,11 @@ pub class SysRun {
 
             var src = root + "/" + res
             LinkFS::remove(at)
-            var ok = if (LinkFS::is_dir(src)) => (SysRun::copy_tree(src, at, &none))
+            var ok = if (LinkFS::is_dir(src)) => (SysRun::copy_tree(
+                         src,
+                         at,
+                         &none,
+                     ))
                      else => SysRun::put_file(src, at, false)
             if !ok {
                 err = f"cannot copy {src} to {at} (in place of the link {rels[i]})"
@@ -507,15 +529,22 @@ pub class SysJobs {
         var nlog = kairo::std::to_std_string(log)
         var redir: cxx::std::vector<cxx::std::optional<llvm::StringRef>>
         redir.push_back(cxx::std::optional<llvm::StringRef>(cxx::std::nullopt))
-        redir.push_back(cxx::std::optional<llvm::StringRef>(llvm::StringRef(nlog)))
-        redir.push_back(cxx::std::optional<llvm::StringRef>(llvm::StringRef(nlog)))
+        redir.push_back(
+            cxx::std::optional<llvm::StringRef>(llvm::StringRef(nlog)),
+        )
+
+        redir.push_back(
+            cxx::std::optional<llvm::StringRef>(llvm::StringRef(nlog)),
+        )
 
         var emsg:  cxx::std::string
         var failed                  = false
         var pi = llvm::sys::ExecuteNoWait(
             refs[0],
             llvm::ArrayRef<llvm::StringRef>(refs),
-            cxx::std::optional<llvm::ArrayRef<llvm::StringRef>>(cxx::std::nullopt),
+            cxx::std::optional<llvm::ArrayRef<llvm::StringRef>>(
+                cxx::std::nullopt,
+            ),
             llvm::ArrayRef<cxx::std::optional<llvm::StringRef>>(redir),
             0,
             unsafe &emsg,
@@ -523,7 +552,11 @@ pub class SysJobs {
         )
 
         if failed {
-            var why = string(unsafe ((emsg.data() as unsafe *const u8) as *const u8), emsg.size())
+            var why = string(
+                unsafe ((emsg.data() as unsafe *const u8) as *const u8),
+                emsg.size(),
+            )
+
             LinkFS::write(log, f"cannot run {argv[0]}: {why}\n")
             self.failed_log = log
             self.failed_rc  = -1

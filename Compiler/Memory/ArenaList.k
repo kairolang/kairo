@@ -178,7 +178,11 @@ pub class <T> ArenaList {
         self.ensure_space()
         var unsafe *chunk = unsafe &self._chunks[self._chunk_count - 1]
         var        dst    = unsafe &chunk->base[chunk->count]
-        kairo::construct_at<T>(unsafe (dst as unsafe *void), cxx::std::move(val))
+        kairo::construct_at<T>(
+            unsafe (dst as unsafe *void),
+            cxx::std::move(val),
+        )
+
         chunk->count += 1
         self._total += 1
         return unsafe &chunk->base[chunk->count - 1]
@@ -414,7 +418,11 @@ pub class <T> ArenaList {
             var unsafe *new_table = unsafe (self._arena->alloc(new_cap * sizeof(Self::Chunk), alignof(Self::Chunk)) as unsafe *Self::Chunk)
 
             if self._chunks != &null {
-                cxx::std::memcpy(new_table, self._chunks, self._chunk_count * sizeof(Self::Chunk))
+                cxx::std::memcpy(
+                    new_table,
+                    self._chunks,
+                    self._chunk_count * sizeof(Self::Chunk),
+                )
             }
 
             self._chunks    = new_table

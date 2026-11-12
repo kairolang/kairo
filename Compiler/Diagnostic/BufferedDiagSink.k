@@ -288,12 +288,18 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         for var i: usize = 0; i < self._diags.size(); ++i {
             BufferedDiagSink::_named_in(self._diags[i], sm, out)
             for var k: usize = 0; k < self._diags[i]->children.size(); ++k {
-                BufferedDiagSink::_named_in(self._diags[i]->children[k], sm, out)
+                BufferedDiagSink::_named_in(
+                    self._diags[i]->children[k],
+                    sm,
+                    out,
+                )
             }
         }
     }
 
-    priv static fn _named_at(loc: SourceLocation, sm: unsafe *SourceManager, out: unsafe *cxx::std::vector<u32>) {
+    priv static fn _named_at(loc: SourceLocation,
+                             sm:  unsafe *SourceManager,
+                             out: unsafe *cxx::std::vector<u32>) {
         if !loc.is_valid() {
             return
         }
@@ -308,7 +314,9 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         out->push_back(fid)
     }
 
-    priv static fn _named_in(d: unsafe *Diagnostic, sm: unsafe *SourceManager, out: unsafe *cxx::std::vector<u32>) {
+    priv static fn _named_in(d:   unsafe *Diagnostic,
+                             sm:  unsafe *SourceManager,
+                             out: unsafe *cxx::std::vector<u32>) {
         if d == &null {
             return
         }

@@ -547,7 +547,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Types::OpaqueFFIType>(ty) {
-            self.p.paint(Color::TypeName, cast<Types::OpaqueFFIType>(ty)->text())
+            self.p.paint(
+                Color::TypeName,
+                cast<Types::OpaqueFFIType>(ty)->text(),
+            )
+
             return
         }
 
@@ -688,22 +692,38 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<IntegerLiteralExpr>(e) {
-            self.p.paint(Color::Literal, cast<IntegerLiteralExpr>(e)->get_spelling())
+            self.p.paint(
+                Color::Literal,
+                cast<IntegerLiteralExpr>(e)->get_spelling(),
+            )
+
             return
         }
 
         if isa<FloatingLiteralExpr>(e) {
-            self.p.paint(Color::Literal, cast<FloatingLiteralExpr>(e)->get_spelling())
+            self.p.paint(
+                Color::Literal,
+                cast<FloatingLiteralExpr>(e)->get_spelling(),
+            )
+
             return
         }
 
         if isa<StringLiteralExpr>(e) {
-            self.p.paint(Color::Literal, cast<StringLiteralExpr>(e)->get_spelling())
+            self.p.paint(
+                Color::Literal,
+                cast<StringLiteralExpr>(e)->get_spelling(),
+            )
+
             return
         }
 
         if isa<CharacterLiteralExpr>(e) {
-            self.p.paint(Color::Literal, cast<CharacterLiteralExpr>(e)->get_spelling())
+            self.p.paint(
+                Color::Literal,
+                cast<CharacterLiteralExpr>(e)->get_spelling(),
+            )
+
             return
         }
 
@@ -753,12 +773,22 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Expressions::ListLiteralExpr>(e) {
-            self._expr_list("[", "]", cast<Expressions::ListLiteralExpr>(e)->elements)
+            self._expr_list(
+                "[",
+                "]",
+                cast<Expressions::ListLiteralExpr>(e)->elements,
+            )
+
             return
         }
 
         if isa<Expressions::InitListExpr>(e) {
-            self._expr_list("{", "}", cast<Expressions::InitListExpr>(e)->elements)
+            self._expr_list(
+                "{",
+                "}",
+                cast<Expressions::InitListExpr>(e)->elements,
+            )
+
             return
         }
 
@@ -780,12 +810,22 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Expressions::TupleLiteralExpr>(e) {
-            self._expr_list("(", ")", cast<Expressions::TupleLiteralExpr>(e)->elements)
+            self._expr_list(
+                "(",
+                ")",
+                cast<Expressions::TupleLiteralExpr>(e)->elements,
+            )
+
             return
         }
 
         if isa<Expressions::SetLiteralExpr>(e) {
-            self._expr_list("{", "}", cast<Expressions::SetLiteralExpr>(e)->elements)
+            self._expr_list(
+                "{",
+                "}",
+                cast<Expressions::SetLiteralExpr>(e)->elements,
+            )
+
             return
         }
 
@@ -841,7 +881,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
         if isa<Expressions::PanicOpExpr>(e) {
             var unsafe *po = cast<Expressions::PanicOpExpr>(e)
-            self.p.paint(Color::Keyword, "__panic_" + Expressions::panic_op_name(po->which))
+            self.p.paint(
+                Color::Keyword,
+                "__panic_" + Expressions::panic_op_name(po->which),
+            )
+
             self.p.put("(")
             if po->slot != &null {
                 self.src_expr(po->slot)
@@ -874,7 +918,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         if isa<Expressions::DefinedExpr>(e) {
             self.p.paint(Color::Keyword, "defined!")
             self.p.paint(Color::Punct, "(")
-            self.p.put(self.ctx->get_spelling(cast<Expressions::DefinedExpr>(e)->name))
+            self.p.put(
+                self.ctx->get_spelling(cast<Expressions::DefinedExpr>(e)->name),
+            )
+
             self.p.paint(Color::Punct, ")")
             return
         }
@@ -893,7 +940,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Expressions::ThreadExpr>(e) {
-            self._kw_operand("thread ", cast<Expressions::ThreadExpr>(e)->operand)
+            self._kw_operand(
+                "thread ",
+                cast<Expressions::ThreadExpr>(e)->operand,
+            )
+
             return
         }
 
@@ -903,7 +954,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Expressions::UnsafeExpr>(e) {
-            self._kw_operand("unsafe ", cast<Expressions::UnsafeExpr>(e)->operand)
+            self._kw_operand(
+                "unsafe ",
+                cast<Expressions::UnsafeExpr>(e)->operand,
+            )
+
             return
         }
 
@@ -943,18 +998,28 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Expressions::SizeOfExpr>(e) {
-            self._builtin_type("sizeof", cast<Expressions::SizeOfExpr>(e)->type_arg)
+            self._builtin_type(
+                "sizeof",
+                cast<Expressions::SizeOfExpr>(e)->type_arg,
+            )
+
             return
         }
 
         if isa<Expressions::AlignOfExpr>(e) {
-            self._builtin_type("alignof", cast<Expressions::AlignOfExpr>(e)->type_arg)
+            self._builtin_type(
+                "alignof",
+                cast<Expressions::AlignOfExpr>(e)->type_arg,
+            )
+
             return
         }
 
         if isa<Expressions::TypeTraitExpr>(e) {
             self._builtin_type(
-                Expressions::type_trait_spelling(cast<Expressions::TypeTraitExpr>(e)->fact) + "!",
+                Expressions::type_trait_spelling(
+                    cast<Expressions::TypeTraitExpr>(e)->fact,
+                ) + "!",
                 cast<Expressions::TypeTraitExpr>(e)->type_arg,
             )
 
@@ -998,7 +1063,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Expressions::ImplicitBoundaryCastExpr>(e) {
-            self.src_expr(cast<Expressions::ImplicitBoundaryCastExpr>(e)->original)
+            self.src_expr(
+                cast<Expressions::ImplicitBoundaryCastExpr>(e)->original,
+            )
+
             return
         }
 
@@ -3408,7 +3476,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
         if ty->is_error() {
             self._head("RecoveryType", is_last)
-            self._dim(self._recovery_name(self._type_kind_name_of(ty->recovery_kind)))
+            self._dim(
+                self._recovery_name(self._type_kind_name_of(ty->recovery_kind)),
+            )
+
             self.p.newline()
             return
         }
@@ -3464,15 +3535,21 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Types::PointerType>(ty) {
-            return self._type_is_expandable(cast<Types::PointerType>(ty)->pointee)
+            return self._type_is_expandable(
+                cast<Types::PointerType>(ty)->pointee,
+            )
         }
 
         if isa<Types::NullableType>(ty) {
-            return self._type_is_expandable(cast<Types::NullableType>(ty)->inner)
+            return self._type_is_expandable(
+                cast<Types::NullableType>(ty)->inner,
+            )
         }
 
         if isa<Types::VectorType>(ty) {
-            return self._type_is_expandable(cast<Types::VectorType>(ty)->element)
+            return self._type_is_expandable(
+                cast<Types::VectorType>(ty)->element,
+            )
         }
 
         if isa<Types::SetType>(ty) {
@@ -3480,23 +3557,33 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Types::VariadicPackType>(ty) {
-            return self._type_is_expandable(cast<Types::VariadicPackType>(ty)->param)
+            return self._type_is_expandable(
+                cast<Types::VariadicPackType>(ty)->param,
+            )
         }
 
         if isa<Types::PackExpansionType>(ty) {
-            return self._type_is_expandable(cast<Types::PackExpansionType>(ty)->pattern)
+            return self._type_is_expandable(
+                cast<Types::PackExpansionType>(ty)->pattern,
+            )
         }
 
         if isa<Types::CXXLValueRefType>(ty) {
-            return self._type_is_expandable(cast<Types::CXXLValueRefType>(ty)->referee)
+            return self._type_is_expandable(
+                cast<Types::CXXLValueRefType>(ty)->referee,
+            )
         }
 
         if isa<Types::CXXRValueRefType>(ty) {
-            return self._type_is_expandable(cast<Types::CXXRValueRefType>(ty)->referee)
+            return self._type_is_expandable(
+                cast<Types::CXXRValueRefType>(ty)->referee,
+            )
         }
 
         if isa<Types::FixedArrayType>(ty) {
-            return self._type_is_expandable(cast<Types::FixedArrayType>(ty)->element)
+            return self._type_is_expandable(
+                cast<Types::FixedArrayType>(ty)->element,
+            )
         }
 
         if isa<Types::TupleType>(ty) {
@@ -3540,7 +3627,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
                 var unsafe *seg = ct->segments.get(i)
                 for var j: usize = 0; j < seg->generic_args.size(); ++j {
                     ++seen
-                    self._dump_generic_arg_row(seg->generic_args.get(j), seen == total)
+                    self._dump_generic_arg_row(
+                        seg->generic_args.get(j),
+                        seen == total,
+                    )
                 }
             }
 
@@ -3667,7 +3757,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
         if e->is_error() {
             self._head("RecoveryExpr", is_last)
-            self._dim(self._recovery_name(self._expr_kind_name_of(e->recovery_kind)))
+            self._dim(
+                self._recovery_name(self._expr_kind_name_of(e->recovery_kind)),
+            )
+
             self.p.newline()
             return
         }
@@ -3739,12 +3832,21 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Expressions::ListLiteralExpr>(e) {
-            self._dx_list_literal(cast<Expressions::ListLiteralExpr>(e), is_last)
+            self._dx_list_literal(
+                cast<Expressions::ListLiteralExpr>(e),
+                is_last,
+            )
+
             return
         }
 
         if isa<Expressions::InitListExpr>(e) {
-            self._dx_expr_seq("InitListExpr", cast<Expressions::InitListExpr>(e)->elements, is_last)
+            self._dx_expr_seq(
+                "InitListExpr",
+                cast<Expressions::InitListExpr>(e)->elements,
+                is_last,
+            )
+
             return
         }
 
@@ -3779,17 +3881,29 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Expressions::NamedInitializerExpr>(e) {
-            self._dx_named_init(cast<Expressions::NamedInitializerExpr>(e), is_last)
+            self._dx_named_init(
+                cast<Expressions::NamedInitializerExpr>(e),
+                is_last,
+            )
+
             return
         }
 
         if isa<Expressions::VariantInitExpr>(e) {
-            self._dx_variant_init(cast<Expressions::VariantInitExpr>(e), is_last)
+            self._dx_variant_init(
+                cast<Expressions::VariantInitExpr>(e),
+                is_last,
+            )
+
             return
         }
 
         if isa<Expressions::AnonInitializerExpr>(e) {
-            self._dx_anon_init(cast<Expressions::AnonInitializerExpr>(e), is_last)
+            self._dx_anon_init(
+                cast<Expressions::AnonInitializerExpr>(e),
+                is_last,
+            )
+
             return
         }
 
@@ -3819,12 +3933,22 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Expressions::AwaitExpr>(e) {
-            self._dx_kw("AwaitExpr", cast<Expressions::AwaitExpr>(e)->operand, is_last)
+            self._dx_kw(
+                "AwaitExpr",
+                cast<Expressions::AwaitExpr>(e)->operand,
+                is_last,
+            )
+
             return
         }
 
         if isa<Expressions::UnwrapExpr>(e) {
-            self._dx_kw("UnwrapExpr", cast<Expressions::UnwrapExpr>(e)->operand, is_last)
+            self._dx_kw(
+                "UnwrapExpr",
+                cast<Expressions::UnwrapExpr>(e)->operand,
+                is_last,
+            )
+
             return
         }
 
@@ -3839,27 +3963,52 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Expressions::SpawnExpr>(e) {
-            self._dx_kw("SpawnExpr", cast<Expressions::SpawnExpr>(e)->operand, is_last)
+            self._dx_kw(
+                "SpawnExpr",
+                cast<Expressions::SpawnExpr>(e)->operand,
+                is_last,
+            )
+
             return
         }
 
         if isa<Expressions::ThreadExpr>(e) {
-            self._dx_kw("ThreadExpr", cast<Expressions::ThreadExpr>(e)->operand, is_last)
+            self._dx_kw(
+                "ThreadExpr",
+                cast<Expressions::ThreadExpr>(e)->operand,
+                is_last,
+            )
+
             return
         }
 
         if isa<Expressions::EvalExpr>(e) {
-            self._dx_kw("EvalExpr", cast<Expressions::EvalExpr>(e)->operand, is_last)
+            self._dx_kw(
+                "EvalExpr",
+                cast<Expressions::EvalExpr>(e)->operand,
+                is_last,
+            )
+
             return
         }
 
         if isa<Expressions::UnsafeExpr>(e) {
-            self._dx_kw("UnsafeExpr", cast<Expressions::UnsafeExpr>(e)->operand, is_last)
+            self._dx_kw(
+                "UnsafeExpr",
+                cast<Expressions::UnsafeExpr>(e)->operand,
+                is_last,
+            )
+
             return
         }
 
         if isa<Expressions::ParenExpr>(e) {
-            self._dx_kw("ParenExpr", cast<Expressions::ParenExpr>(e)->inner, is_last)
+            self._dx_kw(
+                "ParenExpr",
+                cast<Expressions::ParenExpr>(e)->inner,
+                is_last,
+            )
+
             return
         }
 
@@ -3878,7 +4027,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
             var unsafe *ve = cast<Expressions::VerbatimExpr>(e)
             self._head("VerbatimExpr", is_last)
             if self.ctx != &null && self.ctx->sm != &null {
-                self.p.paint(Color::Literal, f" '{self.ctx->sm->get_text(ve->span)}'")
+                self.p.paint(
+                    Color::Literal,
+                    f" '{self.ctx->sm->get_text(ve->span)}'",
+                )
             }
 
             self.p.newline()
@@ -3898,7 +4050,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
         if isa<Expressions::CxxNewExpr>(e) {
             var unsafe *ne = cast<Expressions::CxxNewExpr>(e)
-            self._head((if (ne->is_array()) => ("CxxNewExpr []") else => "CxxNewExpr"), is_last)
+            self._head(
+                (if (ne->is_array()) => ("CxxNewExpr []") else => "CxxNewExpr"),
+                is_last,
+            )
+
             self.p.newline()
             self.p.enter(is_last)
             if ne->is_array() {
@@ -3955,7 +4111,12 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Expressions::TypeOfExpr>(e) {
-            self._dx_kw("TypeOfExpr", cast<Expressions::TypeOfExpr>(e)->operand, is_last)
+            self._dx_kw(
+                "TypeOfExpr",
+                cast<Expressions::TypeOfExpr>(e)->operand,
+                is_last,
+            )
+
             return
         }
 
@@ -3987,7 +4148,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Expressions::ImplicitBoundaryCastExpr>(e) {
-            self._dx_boundary(cast<Expressions::ImplicitBoundaryCastExpr>(e), is_last)
+            self._dx_boundary(
+                cast<Expressions::ImplicitBoundaryCastExpr>(e),
+                is_last,
+            )
+
             return
         }
 
@@ -4095,7 +4260,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
     fn _dx_binop(self, e: unsafe *Expressions::BinaryOperatorExpr, is_last: bool) {
         var spine = cxx::std::vector<unsafe *Expressions::BinaryOperatorExpr>()
         var unsafe *cur = e
-        var last  = is_last
+        var        last = is_last
         while true {
             self._head("BinaryOperatorExpr", last)
             self.p.put(" ")
@@ -4116,7 +4281,9 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
             self.p.newline()
             self.p.enter(last)
             spine.push_back(cur)
-            if cur->lhs != &null && (!cur->lhs->is_error()) && isa<Expressions::BinaryOperatorExpr>(cur->lhs) {
+            if cur->lhs != &null
+                && (!cur->lhs->is_error())
+                && isa<Expressions::BinaryOperatorExpr>(cur->lhs) {
                 cur  = cast<Expressions::BinaryOperatorExpr>(cur->lhs)
                 last = false
                 continue
@@ -4280,7 +4447,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         var unsafe *v  = en->variants[e->variant as usize]
         self._head("VariantInitExpr", is_last)
         self.p.put(" ")
-        self.p.paint(Color::Ident, self.tok(en->name) + "::" + self.tok(v->name))
+        self.p.paint(
+            Color::Ident,
+            self.tok(en->name) + "::" + self.tok(v->name),
+        )
+
         self.p.put(f" fields={e->fields.size()}")
         self.p.newline()
         self.p.enter(is_last)
@@ -4470,14 +4641,20 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
                     && !has_params
                     && !has_captures
                     && !has_body
-                self._child_decl(unsafe (e->generic_params[i] as unsafe *Decl), last_gen)
+                self._child_decl(
+                    unsafe (e->generic_params[i] as unsafe *Decl),
+                    last_gen,
+                )
             }
         }
 
         if has_params {
             for var i: usize = 0; i < e->params.size(); ++i {
                 var last_param = i == e->params.size() - 1 && !has_captures && !has_body
-                self._child_decl(unsafe (e->params[i] as unsafe *Decl), last_param)
+                self._child_decl(
+                    unsafe (e->params[i] as unsafe *Decl),
+                    last_param,
+                )
             }
         }
 
@@ -4596,7 +4773,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
     /// One child, and it is a block: the value is its last statement.
     fn _dx_stmt_expr(self, n: unsafe *Expressions::StmtExpr, is_last: bool) {
-        self._head(if (n->is_jump) => ("StmtExpr (jump)") else => "StmtExpr", is_last)
+        self._head(
+            if (n->is_jump) => ("StmtExpr (jump)") else => "StmtExpr",
+            is_last,
+        )
+
         self.p.newline()
         self.p.enter(is_last)
         self._child_stmt(n->body, true)
@@ -4623,7 +4804,12 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
         if pat->is_error() {
             self._head("RecoveryPattern", is_last)
-            self._dim(self._recovery_name(self._pattern_kind_name_of(pat->recovery_kind)))
+            self._dim(
+                self._recovery_name(
+                    self._pattern_kind_name_of(pat->recovery_kind),
+                ),
+            )
+
             self.p.newline()
             return
         }
@@ -4646,7 +4832,12 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
         if stmt->is_error() {
             self._head("RecoveryStmt", is_last)
-            self._dim(self._recovery_name(self._stmt_kind_name_of(stmt->recovery_kind)))
+            self._dim(
+                self._recovery_name(
+                    self._stmt_kind_name_of(stmt->recovery_kind),
+                ),
+            )
+
             self.p.newline()
             return
         }
@@ -4687,12 +4878,22 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Statements::PanicStmt>(stmt) {
-            self._ds_one_expr("PanicStmt", cast<Statements::PanicStmt>(stmt)->payload, is_last)
+            self._ds_one_expr(
+                "PanicStmt",
+                cast<Statements::PanicStmt>(stmt)->payload,
+                is_last,
+            )
+
             return
         }
 
         if isa<Statements::YieldStmt>(stmt) {
-            self._ds_one_expr("YieldStmt", cast<Statements::YieldStmt>(stmt)->value, is_last)
+            self._ds_one_expr(
+                "YieldStmt",
+                cast<Statements::YieldStmt>(stmt)->value,
+                is_last,
+            )
+
             return
         }
 
@@ -4721,7 +4922,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         if isa<Statements::LabelIntrinsicStmt>(stmt) {
             self._head("LabelIntrinsicStmt", is_last)
             self.p.put(" ")
-            self.p.paint(Color::Ident, self.tok(cast<Statements::LabelIntrinsicStmt>(stmt)->name))
+            self.p.paint(
+                Color::Ident,
+                self.tok(cast<Statements::LabelIntrinsicStmt>(stmt)->name),
+            )
+
             self.p.newline()
             return
         }
@@ -4729,13 +4934,21 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         if isa<Statements::JumpIntrinsicStmt>(stmt) {
             self._head("JumpIntrinsicStmt", is_last)
             self.p.put(" ")
-            self.p.paint(Color::Ident, self.tok(cast<Statements::JumpIntrinsicStmt>(stmt)->target))
+            self.p.paint(
+                Color::Ident,
+                self.tok(cast<Statements::JumpIntrinsicStmt>(stmt)->target),
+            )
+
             self.p.newline()
             return
         }
 
         if isa<Statements::ConditionalStmt>(stmt) {
-            self._ds_conditional(cast<Statements::ConditionalStmt>(stmt), is_last)
+            self._ds_conditional(
+                cast<Statements::ConditionalStmt>(stmt),
+                is_last,
+            )
+
             return
         }
 
@@ -4755,7 +4968,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Statements::IndexedForStmt>(stmt) {
-            self._ds_indexed_for(cast<Statements::IndexedForStmt>(stmt), is_last)
+            self._ds_indexed_for(
+                cast<Statements::IndexedForStmt>(stmt),
+                is_last,
+            )
+
             return
         }
 
@@ -4775,7 +4992,12 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Statements::FinallyStmt>(stmt) {
-            self._ds_block_stmt("FinallyStmt", cast<Statements::FinallyStmt>(stmt)->body, is_last)
+            self._ds_block_stmt(
+                "FinallyStmt",
+                cast<Statements::FinallyStmt>(stmt)->body,
+                is_last,
+            )
+
             return
         }
 
@@ -4790,18 +5012,29 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Statements::ContextBindingStmt>(stmt) {
-            self._ds_context(cast<Statements::ContextBindingStmt>(stmt), is_last)
+            self._ds_context(
+                cast<Statements::ContextBindingStmt>(stmt),
+                is_last,
+            )
+
             return
         }
 
         if isa<Statements::DestructuringDeclStmt>(stmt) {
-            self._ds_destructure(cast<Statements::DestructuringDeclStmt>(stmt), is_last)
+            self._ds_destructure(
+                cast<Statements::DestructuringDeclStmt>(stmt),
+                is_last,
+            )
+
             return
         }
 
         if isa<Statements::InlineBlockStmt>(stmt) {
             self._head("InlineBlockStmt", is_last)
-            self._dim(f"({self._inline_lang(cast<Statements::InlineBlockStmt>(stmt)->lang)})")
+            self._dim(
+                f"({self._inline_lang(cast<Statements::InlineBlockStmt>(stmt)->lang)})",
+            )
+
             self.p.newline()
             return
         }
@@ -4812,7 +5045,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Statements::SwitchDispatchStmt>(stmt) {
-            self._ds_switch_dispatch(cast<Statements::SwitchDispatchStmt>(stmt), is_last)
+            self._ds_switch_dispatch(
+                cast<Statements::SwitchDispatchStmt>(stmt),
+                is_last,
+            )
+
             return
         }
 
@@ -4996,7 +5233,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self.p.enter(is_last)
         self._child_expr(stmt->scrutinee, stmt->cases.is_empty())
         for var i: usize = 0; i < stmt->cases.size(); ++i {
-            self._dump_match_case(stmt->cases.get(i), i == stmt->cases.size() - 1)
+            self._dump_match_case(
+                stmt->cases.get(i),
+                i == stmt->cases.size() - 1,
+            )
         }
 
         self.p.leave()
@@ -5114,7 +5354,12 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
         if decl->is_error() {
             self._head("RecoveryDecl", is_last)
-            self._dim(self._recovery_name(self._decl_kind_name_of(decl->recovery_kind)))
+            self._dim(
+                self._recovery_name(
+                    self._decl_kind_name_of(decl->recovery_kind),
+                ),
+            )
+
             self.p.newline()
             return
         }
@@ -5170,7 +5415,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Declarations::EnumVariantDecl>(decl) {
-            self._dd_enum_variant(cast<Declarations::EnumVariantDecl>(decl), is_last)
+            self._dd_enum_variant(
+                cast<Declarations::EnumVariantDecl>(decl),
+                is_last,
+            )
+
             return
         }
 
@@ -5180,7 +5429,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Declarations::TypeAliasDecl>(decl) {
-            self._dd_type_alias(cast<Declarations::TypeAliasDecl>(decl), is_last)
+            self._dd_type_alias(
+                cast<Declarations::TypeAliasDecl>(decl),
+                is_last,
+            )
+
             return
         }
 
@@ -5195,12 +5448,20 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Declarations::VisibilityGroupDecl>(decl) {
-            self._dd_vis_group(cast<Declarations::VisibilityGroupDecl>(decl), is_last)
+            self._dd_vis_group(
+                cast<Declarations::VisibilityGroupDecl>(decl),
+                is_last,
+            )
+
             return
         }
 
         if isa<Declarations::EvalBlockDecl>(decl) {
-            self._dd_eval_block(cast<Declarations::EvalBlockDecl>(decl), is_last)
+            self._dd_eval_block(
+                cast<Declarations::EvalBlockDecl>(decl),
+                is_last,
+            )
+
             return
         }
 
@@ -5215,7 +5476,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         if isa<Declarations::ProcedureMacroDecl>(decl) {
-            self._dd_proc_macro(cast<Declarations::ProcedureMacroDecl>(decl), is_last)
+            self._dd_proc_macro(
+                cast<Declarations::ProcedureMacroDecl>(decl),
+                is_last,
+            )
+
             return
         }
 
@@ -5407,7 +5672,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
         self.p.enter(is_last)
         if has_attrs {
-            self._dump_annotations(unsafe (vd as unsafe *Decl), !(ty_child || has_init))
+            self._dump_annotations(
+                unsafe (vd as unsafe *Decl),
+                !(ty_child || has_init),
+            )
         }
 
         if ty_child {
@@ -5453,7 +5721,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
         self.p.enter(is_last)
         if has_attrs {
-            self._dump_annotations(unsafe (fd as unsafe *Decl), !(ty_child || has_init))
+            self._dump_annotations(
+                unsafe (fd as unsafe *Decl),
+                !(ty_child || has_init),
+            )
         }
 
         if ty_child {
@@ -5738,9 +6009,9 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
         self.p.newline()
 
-        var unsafe *dc       = unsafe (md as unsafe *DeclContext)
-        var        has_attrs = self._has_annotations(unsafe (md as unsafe *Decl))
-        var        n         = dc->dc_decls.size()
+        var unsafe *dc = unsafe (md as unsafe *DeclContext)
+        var has_attrs = self._has_annotations(unsafe (md as unsafe *Decl))
+        var n         = dc->dc_decls.size()
         if !has_attrs && n == 0 {
             return
         }
@@ -5792,7 +6063,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         for var i: usize = 0; i < npayload; ++i {
-            self._child_decl(unsafe ((*v->payload.get(i)) as unsafe *Decl), i == npayload - 1)
+            self._child_decl(
+                unsafe ((*v->payload.get(i)) as unsafe *Decl),
+                i == npayload - 1,
+            )
         }
 
         self.p.leave()
@@ -5873,7 +6147,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
         self.p.enter(is_last)
         if has_attrs {
-            self._dump_annotations(unsafe (eb as unsafe *Decl), n == 0 && !has_stmt)
+            self._dump_annotations(
+                unsafe (eb as unsafe *Decl),
+                n == 0 && !has_stmt,
+            )
         }
 
         for var i: usize = 0; i < n; ++i {

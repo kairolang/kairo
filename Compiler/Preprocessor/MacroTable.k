@@ -13,19 +13,19 @@ ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "map"
 ffi "c++" import "vector"
 
+import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Declarations::{
     MacroDecl,
     MacroParamSpec,
 }
-import AST::Mixin::Annotation::VisibilityKind
 import Preprocessor::PreprocessorSymbolTable::SymbolID
 import Resolution::ModulePath::ModulePath
 import Token::TokenBuffer::TokenBuffer
 import Token::TokenSpan::TokenSpan
 
 pub class MacroEntry {
-    pub var decl:       unsafe *MacroDecl            ///< TU-owned AST node
-    pub var storage:    unsafe *TokenBuffer<512>     ///< body + default runs, OWNED
+    pub var decl:       unsafe *MacroDecl ///< TU-owned AST node
+    pub var storage:    unsafe *TokenBuffer<512> ///< body + default runs, OWNED
     pub var body_len:   u32                      = 0
     pub var name_sym:   SymbolID                 = 0
     pub var scope:      ModulePath
@@ -123,7 +123,8 @@ pub class MacroTable {
         }
 
         var unsafe *e = it->second
-        var gated = e->visibility == VisibilityKind::Private || e->visibility == VisibilityKind::Protected
+        var gated = e->visibility == VisibilityKind::Private
+            || e->visibility == VisibilityKind::Protected
         if gated && e->source_fid != requesting_fid {
             return &null // priv (and prot-as-priv) blocked cross-file
         }

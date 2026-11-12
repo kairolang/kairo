@@ -302,7 +302,10 @@ pub class SysCrt {
                 var eq = LinkText::find(e, "=", 0)
                 if eq >= e.size() {
                     jobs.wait_all()
-                    return out.refuse(f"{t->path}: source entry \x27{e}\x27 names no object", "")
+                    return out.refuse(
+                        f"{t->path}: source entry \x27{e}\x27 names no object",
+                        "",
+                    )
                 }
 
                 var o = env->build + "/" + LinkText::slice(e, eq + 1, e.size())
@@ -331,7 +334,10 @@ pub class SysCrt {
         if !jobs.wait_all() {
             var text = ""
             LinkFS::read(jobs.failed_log, &text)
-            return out.fail(SysCrt::first_error(text), f"compile log: {jobs.failed_log}")
+            return out.fail(
+                SysCrt::first_error(text),
+                f"compile log: {jobs.failed_log}",
+            )
         }
 
         for var d: CrtDef in t->defs {
@@ -386,7 +392,11 @@ pub class SysCrt {
             }
 
             if digits {
-                res += LinkText::slice(l, 0, at) + LinkText::slice(l, we, l.size())
+                res += LinkText::slice(l, 0, at) + LinkText::slice(
+                    l,
+                    we,
+                    l.size(),
+                )
             } else {
                 res += l
             }
@@ -421,7 +431,7 @@ pub class SysCrt {
                           hard:       bool,
                           @inout err: string) -> bool {
         var colon = LinkText::find(how, ":", 0)
-        var kind  = if (colon < how.size()) => (LinkText::slice(how, 0, colon)) else => ""
+        var kind = if (colon < how.size()) => (LinkText::slice(how, 0, colon)) else => ""
         if kind != "src" && kind != "gen" {
             err = f"\x27{how}\x27 is neither src: nor gen:"
             return false

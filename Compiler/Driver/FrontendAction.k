@@ -75,6 +75,7 @@ import AST::Context::TranslationUnit::{
     ImportEdge,
     TranslationUnit,
 }
+import AST::DeclFacts::decl_is_imported
 import AST::DeclFacts::decl_spec_kind
 import AST::LangItems::{
     LowerTargets,
@@ -84,6 +85,10 @@ import AST::LangItems::{
 import AST::Node::Base::{
     Decl,
     Type,
+}
+import AST::Node::CanonicalNodes::{
+    QualifiedType,
+    RecordType,
 }
 import AST::Node::Casting::{
     cast,
@@ -131,6 +136,7 @@ import Codegen::EmitPlan::{
 }
 import Codegen::Sink::TextSink::TextSink
 import Diagnostic::Code::DiagCode
+import Diagnostic::FileDiagnostics::FileDiagConsumer
 import Diagnostic::Registry::DiagID
 import Driver::CompilerInstance::CompilerInstance
 import Driver::CompilerLink
@@ -154,18 +160,6 @@ import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
 import Sema::Check::EffectPropagation::EffectTable
-import Sema::Incremental::Plan::PlanModule
-import AST::DeclFacts::decl_is_imported
-import AST::Node::CanonicalNodes::{
-    QualifiedType,
-    RecordType,
-}
-import Sema::Incremental::Retract::{
-    RetractStats,
-    retract_instances,
-    verify_retired,
-}
-import Diagnostic::FileDiagnostics::FileDiagConsumer
 import Sema::Incremental::Facts::{
     FileDeps,
     FileFacts,
@@ -173,6 +167,12 @@ import Sema::Incremental::Facts::{
     incr_decl_id,
     incr_json,
     incr_resolve_deps,
+}
+import Sema::Incremental::Plan::PlanModule
+import Sema::Incremental::Retract::{
+    RetractStats,
+    retract_instances,
+    verify_retired,
 }
 import Sema::Resolve::ImportResolution::ImportResolution
 import Sema::Resolve::NameLookup::NameLookup
@@ -183,9 +183,8 @@ import Sema::SemaContext::{
     SemaPhase,
 }
 import Sema::SemaDump::SemaDump
-import Tooling::SemaObserver::SemaObserver
-import Support::FileIO::Path::Path
 import Support::Ascii::is_control
+import Support::FileIO::Path::Path
 import Support::TimeReport::{
     TimeRegion,
     time_mark_idle,
@@ -194,6 +193,7 @@ import Support::TimeReport::{
 import Token::TokenKind::TokenKind
 import Token::TokenPrinter::TokenPrinter
 import Token::TokenText::TokenText
+import Tooling::SemaObserver::SemaObserver
 import std::io
 
 /// Per-file pipeline executor.
@@ -239,20 +239,20 @@ pub class FrontendAction {
     ///  - an adopted stand-in's record is compared with the layout it had
     ///    before the first retraction since the last tier_finish
     ///    (\c _tt_old_i), whichever slice re-reads it.
-    pub var tiered: bool = false
+    pub var  tiered:     bool                                    = false
     priv var _tt_sets:   cxx::std::vector<cxx::std::vector<u32>>
     priv var _rearm_set: cxx::std::vector<u64> ///< parallel to _rearmed: its retraction's set
-    priv var _rearm_ok:  cxx::std::vector<u8>  ///< parallel: used again by that set, or dropped
+    priv var _rearm_ok:  cxx::std::vector<u8> ///< parallel: used again by that set, or dropped
     priv var _tt_old_i:  llvm::StringMap<u32>
     priv var _tt_old_v:  cxx::std::vector<string>
-    priv var _tt_old_f:  llvm::DenseSet<u64>   ///< files whose old hashes are in _tt_old_i
+    priv var _tt_old_f:  llvm::DenseSet<u64> ///< files whose old hashes are in _tt_old_i
     /// RetractStats::first_* of every retraction since the last tier_finish.
     priv var _tt_first_prim:  cxx::std::vector<u64>
     priv var _tt_first_fid:   cxx::std::vector<u32>
     priv var _tt_first_entry: cxx::std::vector<unsafe *InstanceEntry>
-    priv var _graph:        cxx::std::vector<u32> ///< every fid of the graph, an earlier input's too
-    pub var  result:        TUResult
-    priv var _stage:        TUStage
+    priv var _graph:          cxx::std::vector<u32> ///< every fid of the graph, an earlier input's too
+    pub var  result:          TUResult
+    priv var _stage:          TUStage
     /// The shared engine's counts this input is judged against (see run()):
     /// what the previous input left, 0 for the first. Set by execute().
     pub var errors_at_start: u32 = 0
@@ -363,7 +363,12 @@ pub class FrontendAction {
         // go on to Sema, and the check after it fails the action as this one
         // would have. Never for an action that stops at the parse anyway.
         if self._ci->diag()->error_count() > self.errors_at_start
-            && (fe.stops_at_parse() || !self._ci->admit_past_syntax_errors(self._global_scope, self._fids, self.errors_at_start)) {
+            && (fe.stops_at_parse()
+                || !self._ci->admit_past_syntax_errors(
+                    self._global_scope,
+                    self._fids,
+                    self.errors_at_start,
+                )) {
             self._stage = TUStage::Failed
             return
         }
@@ -421,7 +426,9 @@ pub class FrontendAction {
                     f"{late} use(s) of a header set's clang AST after its early release",
                 )
 
-                io::eprintln(f"kairo: warning: {late} use(s) of a released header set")
+                io::eprintln(
+                    f"kairo: warning: {late} use(s) of a released header set",
+                )
             }
         }
 
@@ -486,7 +493,9 @@ pub class FrontendAction {
 
             r += f">: size {e->adt_size}, payload offset {e->payload_offset}"
             for var k: usize = 0; k < e->type_ids.size(); ++k {
-                r += "\n  " + ids->spelling(e->args[p + k]) + " = 0x" + hex32(e->type_ids[k])
+                r += "\n  " + ids->spelling(e->args[p + k]) + " = 0x" + hex32(
+                    e->type_ids[k],
+                )
             }
 
             var at = rows.size()
@@ -529,7 +538,10 @@ pub class FrontendAction {
         self._stage   = TUStage::Loading
         self._file_id = self._ci->sm()->load_file(self.path)
         if self._file_id == u32::MAX {
-            return self._fatal(DiagID::I005F, f"cannot open '{self.path.full_path()}'")
+            return self._fatal(
+                DiagID::I005F,
+                f"cannot open '{self.path.full_path()}'",
+            )
         }
 
         return true
@@ -668,7 +680,13 @@ pub class FrontendAction {
                             var unsafe *gs  = self._global_scope
                             var unsafe *ctx = gs->begin_index(fid)
                             if ctx != &null {
-                                var indexer = ASTParse(ctx, &null, gs, ASTParse::ParseMode::Index)
+                                var indexer = ASTParse(
+                                    ctx,
+                                    &null,
+                                    gs,
+                                    ASTParse::ParseMode::Index,
+                                )
+
                                 indexer.index()
                                 gs->finish_index(fid)
                             }
@@ -698,7 +716,7 @@ pub class FrontendAction {
             // done[i] published (release) by the parse task for fids[i];
             // read (acquire) by the flusher. Outlives both: the flusher is
             // joined and the parse group drained before this scope ends.
-            var        done       = cxx::std::vector<kairo::std::Atomic<bool>>(N)
+            var done = cxx::std::vector<kairo::std::Atomic<bool>>(N)
             var unsafe *done_data = done.data()
 
             var unsafe *engine    = self._ci->diag()
@@ -712,7 +730,9 @@ pub class FrontendAction {
                     var _kf           = kairo::TimeReport::Scope(time_flush)
                     var cursor: usize = 0
                     while cursor < N {
-                        if done_data[cursor].load(cxx::std::memory_order_acquire) {
+                        if done_data[cursor].load(
+                            cxx::std::memory_order_acquire,
+                        ) {
                             var        fid: u32 = fids_data[cursor]
                             var unsafe *ctx     = gs->get_context(fid)
                             if ctx != &null {
@@ -722,7 +742,10 @@ pub class FrontendAction {
                             ++cursor
                         } else {
                             // Parks until PublishOnExit's notify.
-                            done_data[cursor].wait(false, cxx::std::memory_order_acquire)
+                            done_data[cursor].wait(
+                                false,
+                                cxx::std::memory_order_acquire,
+                            )
                         }
                     }
                 },
@@ -738,16 +761,28 @@ pub class FrontendAction {
 
                             var unsafe *ctx = gs->get_context(fid)
                             if ctx != &null {
-                                var        parser = ASTParse(ctx, &null, gs, ASTParse::ParseMode::Full)
-                                var unsafe *tu    = parser.parse()
+                                var parser = ASTParse(
+                                    ctx,
+                                    &null,
+                                    gs,
+                                    ASTParse::ParseMode::Full,
+                                )
+
+                                var unsafe *tu = parser.parse()
                                 ctx->tu = tu
                                 if time_sm != &null {
-                                    _kt.units(time_sm->get_file_size(fid), "B".c_str())
+                                    _kt.units(
+                                        time_sm->get_file_size(fid),
+                                        "B".c_str(),
+                                    )
                                 }
                             }
 
                             if time_sm != &null && progress_on() {
-                                progress_tick(PROGRESS_PARSE, time_sm->get_filename(fid))
+                                progress_tick(
+                                    PROGRESS_PARSE,
+                                    time_sm->get_filename(fid),
+                                )
                             }
                         },
                     ),
@@ -787,15 +822,24 @@ pub class FrontendAction {
 
             opts.color = use_color
             for var fid: u32 in parse_fids {
-                io::println(f"============== AST ({ast_mode}) for fid {fid} ==============")
+                io::println(
+                    f"============== AST ({ast_mode}) for fid {fid} ==============",
+                )
+
                 var unsafe *ctx = self._global_scope->get_context(fid)
                 if ctx == &null {
-                    return self._fatal(DiagID::I006F, f"failed to get context for fid {fid}")
+                    return self._fatal(
+                        DiagID::I006F,
+                        f"failed to get context for fid {fid}",
+                    )
                 }
 
                 var unsafe *tu = ctx->tu
                 if tu == &null {
-                    return self._fatal(DiagID::I006F, f"parse failed for fid {fid}")
+                    return self._fatal(
+                        DiagID::I006F,
+                        f"parse failed for fid {fid}",
+                    )
                 }
 
                 ASTPrinter::print(tu, opts)
@@ -828,7 +872,10 @@ pub class FrontendAction {
                     continue
                 }
 
-                io::println(f"============== SYMBOLS for fid {fid} ==============")
+                io::println(
+                    f"============== SYMBOLS for fid {fid} ==============",
+                )
+
                 self._dump_symbols(tu, ctx, sym_opts)
             }
         }
@@ -869,8 +916,8 @@ pub class FrontendAction {
             psym = self._ci->pp()->get_symbol_table()
         }
 
-        var unsafe *gs = self._global_scope
-        var stats      = RoundTripStats{}
+        var unsafe *gs   = self._global_scope
+        var        stats = RoundTripStats{}
 
         for var fid: u32 in fids {
             var unsafe *ctx = gs->get_context(fid)
@@ -884,24 +931,36 @@ pub class FrontendAction {
                 var w = ASTBinWriter()
                 if !w.write(ctx->tu, psym, gs) {
                     var why = w.error()
-                    return self._fatal(DiagID::I002F, f"cannot serialize the AST of {name}: {why}")
+                    return self._fatal(
+                        DiagID::I002F,
+                        f"cannot serialize the AST of {name}: {why}",
+                    )
                 }
 
                 if !write_ast_file(fe.emit_ast_bin, w.out) {
-                    return self._fatal(DiagID::I002F, f"cannot write {fe.emit_ast_bin}")
+                    return self._fatal(
+                        DiagID::I002F,
+                        f"cannot write {fe.emit_ast_bin}",
+                    )
                 }
             }
 
             var err: string
             if fe.verify_ast_roundtrip {
                 if !ASTRoundTrip::verify(ctx->tu, psym, gs, &stats, &err) {
-                    return self._fatal(DiagID::I002F, f"AST round trip of {name} failed: {err}")
+                    return self._fatal(
+                        DiagID::I002F,
+                        f"AST round trip of {name} failed: {err}",
+                    )
                 }
             }
 
             if fe.ast_roundtrip {
                 if !ASTRoundTrip::replace(ctx, psym, gs, &stats, &err) {
-                    return self._fatal(DiagID::I002F, f"AST round trip of {name} failed: {err}")
+                    return self._fatal(
+                        DiagID::I002F,
+                        f"AST round trip of {name} failed: {err}",
+                    )
                 }
             }
         }
@@ -996,7 +1055,10 @@ pub class FrontendAction {
             if !fe.stops_before_codegen() {
                 var gsets = self._graph_header_sets()
                 if gsets.size() > 0 {
-                    hc->prebuild_codegen_pch(gsets, kairo::TimeReport::current())
+                    hc->prebuild_codegen_pch(
+                        gsets,
+                        kairo::TimeReport::current(),
+                    )
                 }
             }
         }
@@ -1101,7 +1163,10 @@ pub class FrontendAction {
         // reports the item missing from inside Lib/builtin itself.
         var bfid = self._global_scope->builtin_fid()
         if bfid != 0 {
-            var bsym   = self._ci->pp()->get_symbol_table()->intern(builtin_root_name())
+            var bsym = self._ci->pp()->get_symbol_table()->intern(
+                builtin_root_name(),
+            )
+
             var inject = !self._ci->invocation()->pp.no_builtins
             self._global_scope->mark_builtin_fid(bfid) // the loop skips the root below.
 
@@ -1109,10 +1174,16 @@ pub class FrontendAction {
             // for a file that writes `@create` / `@destroy`.
             var afid = u32::MAX
             {
-                var s_base  = self._ci->pp()->get_symbol_table()->intern("base")
-                var s_alloc = self._ci->pp()->get_symbol_table()->intern("alloc")
+                var s_base = self._ci->pp()->get_symbol_table()->intern("base")
+                var s_alloc = self._ci->pp()->get_symbol_table()->intern(
+                    "alloc",
+                )
+
                 for var i: usize = 0; i < self._fids.size(); ++i {
-                    var unsafe *actx = self._global_scope->get_context(self._fids[i])
+                    var unsafe *actx = self._global_scope->get_context(
+                        self._fids[i],
+                    )
+
                     if actx == &null {
                         continue
                     }
@@ -1236,7 +1307,9 @@ pub class FrontendAction {
             if !self._ci->invocation()->pp.no_prelude
                 && self._ci->invocation()->pp.prelude_path.size() > 0 {
                 xfids.push_back(
-                    self._ci->sm()->load_file(Path(self._ci->invocation()->pp.prelude_path)),
+                    self._ci->sm()->load_file(
+                        Path(self._ci->invocation()->pp.prelude_path),
+                    ),
                 )
             }
 
@@ -1343,10 +1416,10 @@ pub class FrontendAction {
             }
         }
 
-        var effects:  EffectTable
-        var ngroups               = ((groups.starts.size() - 1) as u64)
-        var rank_base             = self._global_scope->instances()->reserve_ranks(ngroups)
-        var workers               = self._sema_workers()
+        var effects: EffectTable
+        var ngroups              = ((groups.starts.size() - 1) as u64)
+        var rank_base = self._global_scope->instances()->reserve_ranks(ngroups)
+        var workers   = self._sema_workers()
         progress_begin(PROGRESS_SEMA, groups.fids.size())
         if workers > 1 {
             self._sema_parallel(
@@ -1398,7 +1471,9 @@ pub class FrontendAction {
         // Past every group: a mint from here on (codegen, the next input's
         // header indexing) goes after all of this action's Sema in the
         // worklist, as one appended then always did.
-        self._global_scope->instances()->set_floor_rank(group_rank(rank_base, ngroups))
+        self._global_scope->instances()->set_floor_rank(
+            group_rank(rank_base, ngroups),
+        )
 
         if fe.print_imports {
             self._dump_overlays()
@@ -1446,8 +1521,14 @@ pub class FrontendAction {
                 }
 
                 var unsafe *psym = self._ci->pp()->get_symbol_table()
-                var        cg    = CodegenContext(ctx, &null, psym, self._global_scope->instances())
-                var        plan  = EmitPlan(unsafe &cg, PlanMode::Preamble)
+                var cg = CodegenContext(
+                    ctx,
+                    &null,
+                    psym,
+                    self._global_scope->instances(),
+                )
+
+                var plan = EmitPlan(unsafe &cg, PlanMode::Preamble)
                 plan.run()
                 plan.dump(self._ci->sm()->get_filename(fid))
 
@@ -1458,7 +1539,13 @@ pub class FrontendAction {
                     continue
                 }
 
-                var hcg   = CodegenContext(ctx, &null, psym, self._global_scope->instances())
+                var hcg = CodegenContext(
+                    ctx,
+                    &null,
+                    psym,
+                    self._global_scope->instances(),
+                )
+
                 var hplan = EmitPlan(unsafe &hcg, PlanMode::Header)
                 hplan.run()
                 hplan.dump(self._ci->sm()->get_filename(fid))
@@ -1483,7 +1570,10 @@ pub class FrontendAction {
                 grew   = false
                 rounds = rounds + 1
                 for var i: usize = 0; i < n; ++i {
-                    var unsafe *bctx = self._global_scope->get_context(self._fids[i])
+                    var unsafe *bctx = self._global_scope->get_context(
+                        self._fids[i],
+                    )
+
                     if bctx == &null || bctx->tu == &null || CXXSpell::is_entry_tu(bctx->tu) {
                         continue
                     }
@@ -1600,9 +1690,9 @@ pub class FrontendAction {
     ///      points into one that is in.
     pub fn refresh(self, const fids: cxx::std::vector<u32>) -> string {
         self.refresh_detail = ""
-        var fe        = self._ci->invocation()->frontend
-        var sema_opts = PrintOptions::diag()
-        var unsafe *hc = self._ci->headers()
+        var        fe        = self._ci->invocation()->frontend
+        var        sema_opts = PrintOptions::diag()
+        var unsafe *hc       = self._ci->headers()
         if hc != &null {
             hc->wait_all()
             for var fid: u32 in fids {
@@ -1652,7 +1742,11 @@ pub class FrontendAction {
             }
 
             if mine {
-                _facts_hashes(unsafe &self._incr[i], unsafe &old_i, unsafe &old_v)
+                _facts_hashes(
+                    unsafe &self._incr[i],
+                    unsafe &old_i,
+                    unsafe &old_v,
+                )
             }
         }
 
@@ -1684,12 +1778,12 @@ pub class FrontendAction {
 
         var groups = ImportGroups()
         groups.build(order, self._global_scope)
-        var effects:  EffectTable
-        var ngroups   = ((groups.starts.size() - 1) as u64)
-        var unsafe *reg = self._global_scope->instances()
-        var rank_base   = reg->reserve_ranks(ngroups)
-        var relive      = cxx::std::vector<unsafe *InstanceEntry>()
-        var relive_at   = cxx::std::vector<SourceRange>()
+        var        effects:  EffectTable
+        var        ngroups               = ((groups.starts.size() - 1) as u64)
+        var unsafe *reg                  = self._global_scope->instances()
+        var        rank_base             = reg->reserve_ranks(ngroups)
+        var relive    = cxx::std::vector<unsafe *InstanceEntry>()
+        var relive_at = cxx::std::vector<SourceRange>()
         reg->relive_log = unsafe &relive
         reg->relive_at  = unsafe &relive_at
         for var g: usize = 0; g + 1 < groups.starts.size(); ++g {
@@ -1701,7 +1795,14 @@ pub class FrontendAction {
             var slot = SemaSlot()
             slot.rank = group_rank(rank_base, g as u64)
             slot.enter()
-            self._sema_group(unsafe &members, unsafe &effects, false, false, sema_opts)
+            self._sema_group(
+                unsafe &members,
+                unsafe &effects,
+                false,
+                false,
+                sema_opts,
+            )
+
             SemaSlot::leave()
         }
 
@@ -1727,15 +1828,25 @@ pub class FrontendAction {
                     continue
                 }
 
-                var unsafe *re = self._rearmed[i]
-                var *rset      = &self._tt_sets[self._rearm_set[i] as usize]
-                if re->depth != 0 && re->use_at.is_valid() && _fid_in(rset, self._ci->sm()->resolve(re->use_at.start).fid as u32) {
+                var unsafe *re   = self._rearmed[i]
+                var        *rset = &self._tt_sets[self._rearm_set[i] as usize]
+                if re->depth != 0
+                    && re->use_at.is_valid()
+                    && _fid_in(
+                        rset,
+                        self._ci->sm()->resolve(re->use_at.start).fid as u32,
+                    ) {
                     self._rearm_ok[i] = (1 as u8)
                     continue
                 }
 
                 for var k: usize = 0; k < relive.size(); ++k {
-                    if relive[k] == re && relive_at[k].is_valid() && _fid_in(rset, self._ci->sm()->resolve(relive_at[k].start).fid as u32) {
+                    if relive[k] == re
+                        && relive_at[k].is_valid()
+                        && _fid_in(
+                            rset,
+                            self._ci->sm()->resolve(relive_at[k].start).fid as u32,
+                        ) {
                         self._rearm_ok[i] = (1 as u8)
                         break
                     }
@@ -1745,7 +1856,11 @@ pub class FrontendAction {
             for var i: usize = 0; i < self._rearmed.size(); ++i {
                 if self._rearmed[i]->depth == 0 {
                     var unsafe *re = self._rearmed[i]
-                    var what = if (re->primary != &null) => (incr_decl_id(re->primary, self._ci->pp()->get_symbol_table())) else => "?"
+                    var what = if (re->primary != &null) => (incr_decl_id(
+                                   re->primary,
+                                   self._ci->pp()->get_symbol_table(),
+                               ))
+                               else => "?"
                     self.refresh_detail = what + f" ({self._rearmed_was[i]})"
                     return "an instance the edited files used first is now used first by a kept file"
                 }
@@ -1776,7 +1891,11 @@ pub class FrontendAction {
                 // one: every file a retraction named, as it stands.
                 if self.tiered {
                     if self._tt_old_f.contains(self._incr[i].fid as u64) {
-                        _facts_hashes(unsafe &self._incr[i], unsafe &new_i, unsafe &new_v)
+                        _facts_hashes(
+                            unsafe &self._incr[i],
+                            unsafe &new_i,
+                            unsafe &new_v,
+                        )
                     }
 
                     continue
@@ -1784,17 +1903,27 @@ pub class FrontendAction {
 
                 for var fid: u32 in fids {
                     if self._incr[i].fid == fid {
-                        _facts_hashes(unsafe &self._incr[i], unsafe &new_i, unsafe &new_v)
+                        _facts_hashes(
+                            unsafe &self._incr[i],
+                            unsafe &new_i,
+                            unsafe &new_v,
+                        )
                     }
                 }
             }
 
             for var i: usize = 0; i < freg->adopted.size(); ++i {
-                var id = incr_decl_id(freg->adopted[i], self._ci->pp()->get_symbol_table())
-                var b  = new_i.find(kairo::sref(id))
+                var id = incr_decl_id(
+                    freg->adopted[i],
+                    self._ci->pp()->get_symbol_table(),
+                )
+
+                var b = new_i.find(kairo::sref(id))
                 if self.tiered {
                     var ta = self._tt_old_i.find(kairo::sref(id))
-                    if ta == self._tt_old_i.end() || b == new_i.end() || self._tt_old_v[ta->second as usize] != new_v[b->second as usize] {
+                    if ta == self._tt_old_i.end()
+                        || b == new_i.end()
+                        || self._tt_old_v[ta->second as usize] != new_v[b->second as usize] {
                         return "a record handed to a C++ template changed its layout: " + id
                     }
 
@@ -1802,7 +1931,9 @@ pub class FrontendAction {
                 }
 
                 var a = old_i.find(kairo::sref(id))
-                if a == old_i.end() || b == new_i.end() || old_v[a->second as usize] != new_v[b->second as usize] {
+                if a == old_i.end()
+                    || b == new_i.end()
+                    || old_v[a->second as usize] != new_v[b->second as usize] {
                     return "a record handed to a C++ template changed its layout: " + id
                 }
             }
@@ -1823,7 +1954,11 @@ pub class FrontendAction {
         for var i: usize = 0; i < self._rearmed.size() && why.empty(); ++i {
             if self._rearm_ok[i] == 0 {
                 var unsafe *re = self._rearmed[i]
-                var what = if (re->primary != &null) => (incr_decl_id(re->primary, self._ci->pp()->get_symbol_table())) else => "?"
+                var what = if (re->primary != &null) => (incr_decl_id(
+                               re->primary,
+                               self._ci->pp()->get_symbol_table(),
+                           ))
+                           else => "?"
                 self.refresh_detail = what + f" ({self._rearmed_was[i]})"
                 why = "an instance the edited files used first is now used first by a kept file"
             }
@@ -1956,7 +2091,11 @@ pub class FrontendAction {
     /// replaced tree (Sema/Incremental/Retract.k, verify_retired). How
     /// many they do hold.
     pub fn verify_retired(self) -> usize {
-        return verify_retired(self._global_scope, self._ci->foreign_registry(), self._ci->retired)
+        return verify_retired(
+            self._global_scope,
+            self._ci->foreign_registry(),
+            self._ci->retired,
+        )
     }
 
     /// \brief every address of the replaced trees (\p dead: their arena
@@ -1969,11 +2108,17 @@ pub class FrontendAction {
     ///      file holds an old tree) and tier_finish / refresh accepted the
     ///      result.
     pub fn sweep_retired(self, dead: unsafe *kairo::AddrRanges) -> string {
-        var shells = llvm::DenseSet<u64>()
-        var types  = llvm::DenseSet<u64>()
-        var unsafe *reg = self._global_scope->instances()
+        var        shells = llvm::DenseSet<u64>()
+        var        types  = llvm::DenseSet<u64>()
+        var unsafe *reg   = self._global_scope->instances()
         reg->dead_shells(unsafe &shells)
-        var nt = self._global_scope->types()->sweep(dead, unsafe &shells, unsafe &types, false)
+        var nt = self._global_scope->types()->sweep(
+            dead,
+            unsafe &shells,
+            unsafe &types,
+            false,
+        )
+
         var nr = reg->sweep_dead(dead, unsafe &types, false)
         return f"{nt} canonical types, {nr} conformance rows, {shells.size()} instance nodes"
     }
@@ -2000,11 +2145,17 @@ pub class FrontendAction {
         }
 
         dead.seal()
-        var shells = llvm::DenseSet<u64>()
-        var types  = llvm::DenseSet<u64>()
-        var unsafe *reg = self._global_scope->instances()
+        var        shells = llvm::DenseSet<u64>()
+        var        types  = llvm::DenseSet<u64>()
+        var unsafe *reg   = self._global_scope->instances()
         reg->dead_shells(unsafe &shells)
-        self._global_scope->types()->sweep(unsafe &dead, unsafe &shells, unsafe &types, true)
+        self._global_scope->types()->sweep(
+            unsafe &dead,
+            unsafe &shells,
+            unsafe &types,
+            true,
+        )
+
         reg->sweep_dead(unsafe &dead, unsafe &types, true)
     }
 
@@ -2044,7 +2195,9 @@ pub class FrontendAction {
             // build, and hold the declaration.
             var exts = cxx::std::vector<unsafe *Decl>()
             if _refresh_specs(unsafe (tu as unsafe *DeclContext), unsafe &exts) {
-                return "a file that declares a specialization: " + Path(ctx->sm->get_filename(fid)).filename()
+                return "a file that declares a specialization: " + Path(
+                    ctx->sm->get_filename(fid),
+                ).filename()
             }
 
             // An out-of-line definition is spliced into the redeclaration
@@ -2065,7 +2218,9 @@ pub class FrontendAction {
                 }
 
                 if !inside {
-                    return "a file that defines another file's member out of line: " + Path(ctx->sm->get_filename(fid)).filename()
+                    return "a file that defines another file's member out of line: " + Path(
+                        ctx->sm->get_filename(fid),
+                    ).filename()
                 }
             }
         }
@@ -2105,12 +2260,22 @@ pub class FrontendAction {
 
                 if mine && !self._tt_old_f.contains(self._incr[i].fid as u64) {
                     self._tt_old_f.insert(self._incr[i].fid as u64)
-                    _facts_hashes(unsafe &self._incr[i], unsafe &self._tt_old_i, unsafe &self._tt_old_v)
+                    _facts_hashes(
+                        unsafe &self._incr[i],
+                        unsafe &self._tt_old_i,
+                        unsafe &self._tt_old_v,
+                    )
                 }
             }
         }
 
-        var st = retract_instances(self._global_scope, self._ci->sm(), self._ci->foreign_registry(), set)
+        var st = retract_instances(
+            self._global_scope,
+            self._ci->sm(),
+            self._ci->foreign_registry(),
+            set,
+        )
+
         self._retract_rows(set)
         if !self.tiered {
             self._rearmed = st.rearmed_list
@@ -2185,7 +2350,11 @@ pub class FrontendAction {
             }
 
             var exts = cxx::std::vector<unsafe *Decl>()
-            _refresh_specs(unsafe (ctx->tu as unsafe *DeclContext), unsafe &exts)
+            _refresh_specs(
+                unsafe (ctx->tu as unsafe *DeclContext),
+                unsafe &exts,
+            )
+
             for var i: usize = 0; i < exts.size(); ++i {
                 var unsafe *e = cast<Declarations::ExtensionDecl>(exts[i])
                 var unsafe *c = e->target
@@ -2244,10 +2413,13 @@ pub class FrontendAction {
         }
 
         var unsafe *ptu = pctx->tu
-        var afid        = u32::MAX
-        var bsym        = self._ci->pp()->get_symbol_table()->intern(builtin_root_name())
-        var s_base      = self._ci->pp()->get_symbol_table()->intern("base")
-        var s_alloc     = self._ci->pp()->get_symbol_table()->intern("alloc")
+        var        afid = u32::MAX
+        var bsym = self._ci->pp()->get_symbol_table()->intern(
+            builtin_root_name(),
+        )
+
+        var s_base  = self._ci->pp()->get_symbol_table()->intern("base")
+        var s_alloc = self._ci->pp()->get_symbol_table()->intern("alloc")
         for var i: usize = 0; i < self._fids.size(); ++i {
             var unsafe *actx = self._global_scope->get_context(self._fids[i])
             if actx == &null {
@@ -2271,7 +2443,12 @@ pub class FrontendAction {
             prng = SourceRange(ploc, ploc)
         }
 
-        var unsafe *pid = Declarations::ImportDecl::create(pctx, prng, Declarations::ImportKind::Native)
+        var unsafe *pid = Declarations::ImportDecl::create(
+            pctx,
+            prng,
+            Declarations::ImportKind::Native,
+        )
+
         pid->is_wildcard    = true
         pid->is_prelude     = true
         pid->resolved_fid   = bfid
@@ -2282,7 +2459,12 @@ pub class FrontendAction {
         pedge.decl       = pid
         ptu->import_edges.push(pedge)
         if afid != u32::MAX && afid != fid && ptu->has_alloc_sugar {
-            var unsafe *aid = Declarations::ImportDecl::create(pctx, prng, Declarations::ImportKind::Native)
+            var unsafe *aid = Declarations::ImportDecl::create(
+                pctx,
+                prng,
+                Declarations::ImportKind::Native,
+            )
+
             aid->is_prelude     = true
             aid->resolved_fid   = afid
             aid->file_seg_count = 1
@@ -2381,9 +2563,9 @@ pub class FrontendAction {
                     continue
                 }
 
-                var        ready                         = true
-                var unsafe *ctx                          = self._global_scope->get_context(fid)
-                var        tu:   unsafe *TranslationUnit = &null
+                var ready = true
+                var unsafe *ctx = self._global_scope->get_context(fid)
+                var tu: unsafe *TranslationUnit = &null
                 if ctx != &null {
                     tu = ctx->tu
                 }
@@ -2575,7 +2757,9 @@ pub class FrontendAction {
         var order = cxx::std::vector<usize>()
         for var i: usize = 0; i < sems.size(); ++i {
             var unsafe *en = sems[i]->sc.nullable_enum()
-            var unsafe *home = if (en != &null) => (NameLookup::tu_of(en->semantic_dc))
+            var unsafe *home = if (en != &null) => (NameLookup::tu_of(
+                                   en->semantic_dc,
+                               ))
                                else => &null
             if home != &null && home == sems[i]->sc.tu {
                 order.push_back(i)
@@ -2628,7 +2812,10 @@ pub class FrontendAction {
             if sem->sc.opts.log_deps && sem->sc.tu != &null {
                 var _ti   = TimeRegion("IncrFacts")
                 var facts = FileFacts{}
-                IncrFacts(unsafe &sem->sc, self._ci->pp()->get_symbol_table()).run(unsafe &facts)
+                IncrFacts(unsafe &sem->sc, self._ci->pp()->get_symbol_table()).run(
+                    unsafe &facts,
+                )
+
                 self._incr.push_back(facts)
                 has_facts = true
             }
@@ -2639,7 +2826,11 @@ pub class FrontendAction {
             // editor wants the half-resolved tree of a broken file too.
             var unsafe *observer = self._ci->invocation()->frontend.sema_observer
             if observer != &null {
-                unsafe { (observer as unsafe *SemaObserver)->on_checked(unsafe &sem->sc) }
+                unsafe {
+                    (observer as unsafe *SemaObserver)->on_checked(
+                        unsafe &sem->sc,
+                    )
+                }
             }
 
             // Two continuations instead of one run(), only so the timing tree can
@@ -2661,7 +2852,11 @@ pub class FrontendAction {
             // a layout query reads (kals: an ADT's size on hover). Always,
             // so a tool that held something back at on_checked gets it back.
             if observer != &null {
-                unsafe { (observer as unsafe *SemaObserver)->on_lowered(unsafe &sem->sc) }
+                unsafe {
+                    (observer as unsafe *SemaObserver)->on_lowered(
+                        unsafe &sem->sc,
+                    )
+                }
             }
 
             // Test hook (Tests/CLI/Driver/ice_flushes_diagnostics.k): an ICE at
@@ -2670,7 +2865,9 @@ pub class FrontendAction {
             // the ICE path flushes them.
             if cxx::std::getenv(r"KAIRO_DEBUG_FORCE_ICE") != &null
                 && ctx->diag_sink.error_count() > 0 {
-                kairo::std::ice_fail("forced by KAIRO_DEBUG_FORCE_ICE (a test hook)")
+                kairo::std::ice_fail(
+                    "forced by KAIRO_DEBUG_FORCE_ICE (a test hook)",
+                )
             }
 
             if ctx->diag_sink.error_count() > 0 {
@@ -2682,15 +2879,17 @@ pub class FrontendAction {
             // needs it): the text this drain delivers, and the other files
             // it names a position in. Only for a recording run; the lowerings
             // and mono above have reported what they will by now.
-            var rec_diag = has_facts && self._ci->incr.on
-            var d0: usize = 0
+            var rec_diag       = has_facts && self._ci->incr.on
+            var d0:      usize = 0
             if rec_diag {
                 var named = cxx::std::vector<u32>()
                 ctx->diag_sink.named_fids(ctx->sm, unsafe &named)
                 var *ff = &self._incr[self._incr.size() - 1]
                 for var ni: usize = 0; ni < named.size(); ++ni {
                     if named[ni] != ctx->fid {
-                        ff->diag_files.push_back(ctx->sm->get_filename(named[ni]))
+                        ff->diag_files.push_back(
+                            ctx->sm->get_filename(named[ni]),
+                        )
                     }
                 }
 
@@ -2710,7 +2909,10 @@ pub class FrontendAction {
             }
 
             if rec_diag {
-                self._incr[self._incr.size() - 1].diag = self._ci->incr_diag_text(d0, self._ci->incr_diag_count())
+                self._incr[self._incr.size() - 1].diag = self._ci->incr_diag_text(
+                    d0,
+                    self._ci->incr_diag_count(),
+                )
             }
 
             // Kept past `sem`: the batch rejects two scripts in one link.
@@ -2756,9 +2958,11 @@ pub class FrontendAction {
                     )
 
                     d.first(here)
-                    d.note(DiagCode(DiagID::SC138N), first.start, f"'{a}' sets it here")->child_first(
-                        first,
-                    )
+                    d.note(
+                        DiagCode(DiagID::SC138N),
+                        first.start,
+                        f"'{a}' sets it here",
+                    )->child_first(first)
 
                     d.emit()
                 }
@@ -2898,7 +3102,9 @@ pub class FrontendAction {
             slot->front = kairo_tus >= 1 && !serial
             slots.push_back(slot)
             maxdep.push_back(dep)
-            barrier.push_back(if (kairo_tus > 0 && serial) => (1 as u8) else => (0 as u8))
+            barrier.push_back(
+                if (kairo_tus > 0 && serial) => (1 as u8) else => (0 as u8),
+            )
         }
 
         var unsafe *rec                = kairo::TimeReport::current()
@@ -2977,7 +3183,14 @@ pub class FrontendAction {
 
             slot->enter()
             self._settle_once(slot)
-            self._sema_finish(slot->sems, effects, print_sema, print_lowered, sema_opts)
+            self._sema_finish(
+                slot->sems,
+                effects,
+                print_sema,
+                print_lowered,
+                sema_opts,
+            )
+
             SemaSlot::leave()
             if slot->members.size() > 0 && progress_on() {
                 progress_tick(
@@ -3226,7 +3439,10 @@ pub class FrontendAction {
         }
 
         if !any_kairo {
-            return self._fatal(DiagID::I006F, "codegen: no Kairo translation unit to emit")
+            return self._fatal(
+                DiagID::I006F,
+                "codegen: no Kairo translation unit to emit",
+            )
         }
 
         // -o under -c names the one object; a graph emits several, and they go
@@ -3312,7 +3528,10 @@ pub class FrontendAction {
                     kairo::std::destroy(j)
                 }
 
-                return self._fatal(DiagID::I006F, "codegen: no ASTContext for a Kairo fid")
+                return self._fatal(
+                    DiagID::I006F,
+                    "codegen: no ASTContext for a Kairo fid",
+                )
             }
 
             var ksize = (self._ci->sm()->get_file_size(fid) as u32)
@@ -3320,8 +3539,8 @@ pub class FrontendAction {
             // The output path mirrors the module path, so two modules of the
             // same leaf name do not collide. A pathless TU (outside every search
             // dir) is named by its file stem instead.
-            var stem      = ""
-            var obj_stem  = "" // the object dir's name for it, whatever `stem` became
+            var stem     = ""
+            var obj_stem = "" // the object dir's name for it, whatever `stem` became
             var to_single = !single_obj.empty() && fid == self._file_id && !self.discovered
             if !to_single {
                 var ocg  = CodegenContext(ctx, &null, psym, insts)
@@ -3500,7 +3719,11 @@ pub class FrontendAction {
                 var gcg = CodegenContext(gctx, &null, psym, insts)
                 var gsp = CXXSpell(unsafe &gcg)
                 rkeys.push_back(
-                    "0" + self._module_key(&gsp, gctx->tu, self._ci->sm()->get_filename(gf)),
+                    "0" + self._module_key(
+                        &gsp,
+                        gctx->tu,
+                        self._ci->sm()->get_filename(gf),
+                    ),
                 )
 
                 rfids.push_back(gf)
@@ -3542,7 +3765,9 @@ pub class FrontendAction {
             var prelude: u32 = 0
             if !self._ci->invocation()->pp.no_prelude
                 && self._ci->invocation()->pp.prelude_path.size() > 0 {
-                prelude = self._ci->sm()->load_file(Path(self._ci->invocation()->pp.prelude_path))
+                prelude = self._ci->sm()->load_file(
+                    Path(self._ci->invocation()->pp.prelude_path),
+                )
             }
 
             EmitPlan::set_graph(gmods, gedges, prelude)
@@ -3551,7 +3776,9 @@ pub class FrontendAction {
             for var j: *CodegenJob in jobs {
                 var kcg = CodegenContext(j->ctx, &null, psym, insts)
                 var ksp = CXXSpell(unsafe &kcg)
-                jkeys.push_back(self._module_key(&ksp, j->ctx->tu, Path(j->path).filename()))
+                jkeys.push_back(
+                    self._module_key(&ksp, j->ctx->tu, Path(j->path).filename()),
+                )
             }
 
             // Each TU's plan, side by side, for the instances it admits; the
@@ -3560,7 +3787,9 @@ pub class FrontendAction {
                 var *cr = &crun
                 for var j: *CodegenJob in jobs {
                     self._ci->pool()->enqueue(
-                        kairo::SmallFunction<64>(fn () |j, cr| { j->make_plan(cr) }),
+                        kairo::SmallFunction<64>(
+                            fn () |j, cr| { j->make_plan(cr) },
+                        ),
                         CODEGEN_GROUP,
                     )
                 }
@@ -3691,13 +3920,21 @@ pub class FrontendAction {
             var _tk = TimeRegion("CacheKeys")
             // Which header files each TU can reach (ObjectCache::tu_headers):
             // the graph's modules and their import edges.
-            ocache.begin_run(&graph_sets, merged != &null && merged->ok, gmods, gedges)
+            ocache.begin_run(
+                &graph_sets,
+                merged != &null && merged->ok,
+                gmods,
+                gedges,
+            )
+
             {
                 var *cr  = &crun
                 var locs = ocache.with_locs
                 for var j: *CodegenJob in jobs {
                     self._ci->pool()->enqueue(
-                        kairo::SmallFunction<64>(fn () |j, cr, locs| { j->hash_stream(cr, locs) }),
+                        kairo::SmallFunction<64>(
+                            fn () |j, cr, locs| { j->hash_stream(cr, locs) },
+                        ),
                         CODEGEN_GROUP,
                     )
                 }
@@ -3747,7 +3984,12 @@ pub class FrontendAction {
                 }
 
                 j->record = ocache.record_asm(
-                    ocache.record(j->key, ObjectCache::clean(modname), src, j->stream),
+                    ocache.record(
+                        j->key,
+                        ObjectCache::clean(modname),
+                        src,
+                        j->stream,
+                    ),
                 )
 
                 ocache.compiled += 1
@@ -3819,7 +4061,9 @@ pub class FrontendAction {
                 var *cr = &crun
                 for var j: *CodegenJob in mine {
                     self._ci->pool()->enqueue(
-                        kairo::SmallFunction<64>(fn () |j, cr| { j->make_plan(cr) }),
+                        kairo::SmallFunction<64>(
+                            fn () |j, cr| { j->make_plan(cr) },
+                        ),
                         CODEGEN_GROUP,
                     )
                 }
@@ -3968,7 +4212,11 @@ pub class FrontendAction {
 
             // Only objects are link inputs; the rest are outputs in their own right.
             for var k: usize = 0; k < job->written.size(); ++k {
-                kairo::Logger::info(kairo::Logger::Stage::Driver, f"emitted {job->written[k]}")
+                kairo::Logger::info(
+                    kairo::Logger::Stage::Driver,
+                    f"emitted {job->written[k]}",
+                )
+
                 if job->kinds[k] == EmitKind::Obj {
                     self.result.objects.push_back(job->written[k])
                 }
@@ -4114,7 +4362,10 @@ pub class FrontendAction {
             return
         }
 
-        var printer = TokenPrinter(self._ci->tcm(), self._ci->invocation()->diag.no_color)
+        var printer = TokenPrinter(
+            self._ci->tcm(),
+            self._ci->invocation()->diag.no_color,
+        )
 
         printer.print_stream(tokens, self.path.full_path())
     }
@@ -4142,7 +4393,10 @@ pub class FrontendAction {
     priv fn _dump_preprocessed_source(self) {
         var unsafe *tokens = self._ci->tcm()->get_tokens(self._file_id)
         if tokens == &null {
-            io::println(f"-- preprocessed source: {self.path.full_path()} (none) --")
+            io::println(
+                f"-- preprocessed source: {self.path.full_path()} (none) --",
+            )
+
             return
         }
 
@@ -4245,7 +4499,7 @@ pub class FrontendAction {
             io::println(f"fid {fid}: {tu->import_edges.size()} edge(s)")
             for var i: usize = 0; i < tu->import_edges.size(); ++i {
                 var unsafe *edge = tu->import_edges.at(i) // *ImportEdge
-                var unsafe *id   = dyn_cast<Declarations::ImportDecl>(edge->decl)
+                var unsafe *id = dyn_cast<Declarations::ImportDecl>(edge->decl)
                 if id == &null {
                     continue
                 }
@@ -4275,7 +4529,9 @@ pub class FrontendAction {
                     alias = f" as {ctx->get_spelling(id->alias)}"
                 }
 
-                io::println(f"  [{kind}] {path}{alias} -> fid {edge->target_fid}")
+                io::println(
+                    f"  [{kind}] {path}{alias} -> fid {edge->target_fid}",
+                )
             }
         }
     }
@@ -4333,21 +4589,26 @@ pub class FrontendAction {
                     continue
                 }
 
-                io::println(f"  <prelude> import builtin::* (src=fid {pimp->resolved_fid})")
+                io::println(
+                    f"  <prelude> import builtin::* (src=fid {pimp->resolved_fid})",
+                )
             }
 
             var unsafe *imms = ctx->get_imm_table()
             var        rows  = cxx::std::vector<ImportOverlay::Row>()
             ov->collect_rows(&rows)
             for var i: usize = 0; i < rows.size(); ++i {
-                var row  = rows[i]
+                var row = rows[i]
                 var name = if (imms == &null) => ("<?>") else => imms->get_ident(row.key)
-                var amb  = if (row.entry->is_ambiguous()) => (" [AMBIGUOUS]") else => ""
+                var amb = if (row.entry->is_ambiguous()) => (" [AMBIGUOUS]") else => ""
                 if row.entry->is_ambiguous() && row.entry->lazy {
                     amb += " (reported at use)"
                 }
 
-                io::println(f"  {name}: {row.entry->targets.size()} target(s){amb}")
+                io::println(
+                    f"  {name}: {row.entry->targets.size()} target(s){amb}",
+                )
+
                 for var t: usize = 0; t < row.entry->targets.size(); ++t {
                     var tg  = row.entry->targets[t]
                     var hid = if (tg.hidden) => (" hidden") else => ""
@@ -4409,8 +4670,8 @@ pub class FrontendAction {
             // but flagged: the lint never touches it.
             var decls = cxx::std::vector<unsafe *Declarations::ImportDecl>()
             for var pi: usize = 0; pi < tu->imports.size(); ++pi {
-                var unsafe **pslot                                  = tu->imports.at(pi)
-                var        imp:    unsafe *Declarations::ImportDecl = &null
+                var unsafe **pslot = tu->imports.at(pi)
+                var imp: unsafe *Declarations::ImportDecl = &null
                 if pslot != &null {
                     imp = dyn_cast<Declarations::ImportDecl>(*pslot)
                 }
@@ -4488,7 +4749,10 @@ pub class FrontendAction {
                         continue
                     }
 
-                    var unsafe *od = dyn_cast<Declarations::ImportDecl>(tg.origin)
+                    var unsafe *od = dyn_cast<Declarations::ImportDecl>(
+                        tg.origin,
+                    )
+
                     if od == &null || od->is_prelude {
                         continue
                     }
@@ -4577,15 +4841,17 @@ pub class FrontendAction {
     /// file's `path` is relative to it, or empty for a file outside it (the
     /// bundled library), which its module path still names.
     priv fn _dump_incremental(self, const iface_path: string, const deps_path: string) {
-        var _t          = TimeRegion("IncrDump")
-        var unsafe *psym = self._ci->pp()->get_symbol_table()
-        var root         = Path::cwd().path_data
-        var prefix       = root + "/"
+        var        _t     = TimeRegion("IncrDump")
+        var unsafe *psym  = self._ci->pp()->get_symbol_table()
+        var        root   = Path::cwd().path_data
+        var        prefix = root + "/"
 
         // Sorted by (module, path): the order of every file list below.
         var order = cxx::std::vector<string>()
         for var i: usize = 0; i < self._incr.size(); ++i {
-            order.push_back(self._incr[i].mod_path + "\t" + self._incr[i].path + "\t" + f"{i}")
+            order.push_back(
+                self._incr[i].mod_path + "\t" + self._incr[i].path + "\t" + f"{i}",
+            )
         }
 
         llvm::sort(order.begin(), order.end())
@@ -4613,18 +4879,24 @@ pub class FrontendAction {
             }
         }
 
-        var rec  = self._ci->incr.on
+        var rec = self._ci->incr.on
         var head = "{\"version\": 1, \"root\": " + incr_json(root) + ", \"files\": ["
         var io_: string = head
         var do_: string = head
         for var i: usize = 0; i < idx.size(); ++i {
-            var *f  = &self._incr[idx[i]]
+            var *f          = &self._incr[idx[i]]
             var rel: string = ""
             if f->path.size() > prefix.size() && f->path.subslice(0, prefix.size()) == prefix {
-                rel = f->path.subslice(prefix.size(), f->path.size() - prefix.size())
+                rel = f->path.subslice(
+                    prefix.size(),
+                    f->path.size() - prefix.size(),
+                )
             }
 
-            var who = "\n{\"module\": " + incr_json(f->mod_path) + ", \"path\": " + incr_json(rel)
+            var who = "\n{\"module\": " + incr_json(f->mod_path) + ", \"path\": " + incr_json(
+                rel,
+            )
+
             if i > 0 {
                 io_ += ","
                 do_ += ","
@@ -4633,7 +4905,9 @@ pub class FrontendAction {
             var io_at = io_.size()
             var do_at = do_.size()
 
-            io_ += who + ", \"phase\": " + incr_json(f->phase) + ", \"hash\": " + incr_json(f->hash) + ", \"macros\": " + incr_json(f->macros) + ", \"decls\": ["
+            io_ += who + ", \"phase\": " + incr_json(f->phase) + ", \"hash\": " + incr_json(
+                f->hash,
+            ) + ", \"macros\": " + incr_json(f->macros) + ", \"decls\": ["
             for var k: usize = 0; k < f->decls.size(); ++k {
                 io_ += (if (k > 0) => (",\n  ") else => "\n  ") + f->decls[k]
             }
@@ -4652,12 +4926,20 @@ pub class FrontendAction {
             var        deps = FileDeps{}
             var unsafe *c   = self._global_scope->get_context(f->fid)
             if c != &null {
-                incr_resolve_deps(c->tu, self._global_scope, psym, unsafe &overlays, unsafe &deps)
+                incr_resolve_deps(
+                    c->tu,
+                    self._global_scope,
+                    psym,
+                    unsafe &overlays,
+                    unsafe &deps,
+                )
             }
 
             do_ += who + ", \"surface\": ["
             for var k: usize = 0; k < deps.surface.size(); ++k {
-                do_ += (if (k > 0) => (", ") else => "") + incr_json(deps.surface[k])
+                do_ += (if (k > 0) => (", ") else => "") + incr_json(
+                    deps.surface[k],
+                )
             }
 
             do_ += "], \"names\": ["
@@ -4671,14 +4953,18 @@ pub class FrontendAction {
             var cur:  string = ""
             var open_        = false
             for var k: usize = 0; k < deps.overlay.size(); ++k {
-                var row      = deps.overlay[k]
+                var row        = deps.overlay[k]
                 var cut: usize = 0
                 while cut < row.size() && row[cut] != ('\t' as u8) {
                     cut += 1
                 }
 
-                var of_  = row.subslice(0, cut)
-                var name = if (cut < row.size()) => (row.subslice(cut + 1, row.size() - cut - 1)) else => ""
+                var of_ = row.subslice(0, cut)
+                var name = if (cut < row.size()) => (row.subslice(
+                               cut + 1,
+                               row.size() - cut - 1,
+                           ))
+                           else => ""
                 if (!open_) || of_ != cur {
                     if open_ {
                         do_ += "]},"
@@ -4720,10 +5006,14 @@ pub class FrontendAction {
                 }
 
                 var part = prev.subslice(0, cut)
-                var id   = if (cut < prev.size()) => (prev.subslice(cut + 1, prev.size() - cut - 1)) else => ""
-                do_ += (if (first_) => ("\n  ") else => ",\n  ") + "{\"id\": " + incr_json(id) + ", \"part\": " + incr_json(
-                    part,
-                ) + "}"
+                var id = if (cut < prev.size()) => (prev.subslice(
+                             cut + 1,
+                             prev.size() - cut - 1,
+                         ))
+                         else => ""
+                do_ += (if (first_) => ("\n  ") else => ",\n  ") + "{\"id\": " + incr_json(
+                    id,
+                ) + ", \"part\": " + incr_json(part) + "}"
                 first_ = false
             }
 
@@ -4738,11 +5028,15 @@ pub class FrontendAction {
                         // Kairo modules only: a header's ffi closure is
                         // thousands of files per TU, and the manifest
                         // already hashes every header of the run.
-                        if e == &null || e->target_fid == u32::MAX || self._ci->is_foreign_fid(e->target_fid) {
+                        if e == &null
+                            || e->target_fid == u32::MAX
+                            || self._ci->is_foreign_fid(e->target_fid) {
                             continue
                         }
 
-                        imps += (if (imps.empty()) => ("") else => ", ") + incr_json(self._ci->sm()->get_filename(e->target_fid))
+                        imps += (if (imps.empty()) => ("") else => ", ") + incr_json(
+                            self._ci->sm()->get_filename(e->target_fid),
+                        )
                     }
                 }
 
@@ -4773,7 +5067,13 @@ pub class FrontendAction {
                 self._ci->incr.mod_names.push_back(name)
                 self._ci->incr.mod_hash.push_back(f->hash)
                 self._ci->incr.mod_json.push_back(
-                    "\"imports\": [" + imps + "],\n\"interface\": " + io_.subslice(io_at + 1, io_.size() - io_at - 1) + ",\n\"deps\": " + do_.subslice(do_at + 1, do_.size() - do_at - 1) + "\n",
+                    "\"imports\": [" + imps + "],\n\"interface\": " + io_.subslice(
+                        io_at + 1,
+                        io_.size() - io_at - 1,
+                    ) + ",\n\"deps\": " + do_.subslice(
+                        do_at + 1,
+                        do_.size() - do_at - 1,
+                    ) + "\n",
                 )
             }
         }
@@ -4781,11 +5081,17 @@ pub class FrontendAction {
         io_ += "\n]}\n"
         do_ += "\n]}\n"
         if (!iface_path.empty()) && !Path::write_file(iface_path, io_) {
-            self._ci->diag()->report(DiagID::U023E, f"cannot write interface dump '{iface_path}'").emit()
+            self._ci->diag()->report(
+                DiagID::U023E,
+                f"cannot write interface dump '{iface_path}'",
+            ).emit()
         }
 
         if (!deps_path.empty()) && !Path::write_file(deps_path, do_) {
-            self._ci->diag()->report(DiagID::U023E, f"cannot write dependency dump '{deps_path}'").emit()
+            self._ci->diag()->report(
+                DiagID::U023E,
+                f"cannot write dependency dump '{deps_path}'",
+            ).emit()
         }
     }
 
@@ -4837,8 +5143,8 @@ pub class FrontendAction {
                 if entries[ei].name.is_op() {
                     var unsafe *od = cell->get(0)
                     if od != &null && isa<Declarations::FunctionDecl>(od) {
-                        var unsafe *f          = cast<Declarations::FunctionDecl>(od)
-                        var        opr: string = "op "
+                        var unsafe *f = cast<Declarations::FunctionDecl>(od)
+                        var opr: string = "op "
                         for var ti: usize = 0; ti < f->op_token.size(); ++ti {
                             opr += ctx->get_spelling(f->op_token[ti])
                         }
@@ -4971,7 +5277,10 @@ pub class FrontendAction {
 
         var retained_blocks: usize = 0
         var retained_bytes:  usize = 0
-        kairo::GlobalRecycler::instance().stats(&retained_blocks, &retained_bytes)
+        kairo::GlobalRecycler::instance().stats(
+            &retained_blocks,
+            &retained_bytes,
+        )
 
         io::eprintln(f"[stats] mem: TU contexts:        {tu_count}")
         io::eprintln(
@@ -5048,7 +5357,12 @@ pub class FrontendAction {
             var m_sm:  usize = 0
             var m_pp:  usize = 0
             for var hs: *HeaderSet in hsets {
-                hs->other_bytes(unsafe &m_buf, unsafe &m_map, unsafe &m_sm, unsafe &m_pp)
+                hs->other_bytes(
+                    unsafe &m_buf,
+                    unsafe &m_map,
+                    unsafe &m_sm,
+                    unsafe &m_pp,
+                )
             }
 
             var mb: usize = 1024 * 1024
@@ -5425,8 +5739,8 @@ pub class ImportGroups {
 
         for var i: usize = 0; i < n; ++i {
             self._adj_at.push_back(self._adj.size())
-            var unsafe *ctx                         = gs->get_context((order)[i])
-            var        tu:  unsafe *TranslationUnit = &null
+            var unsafe *ctx = gs->get_context((order)[i])
+            var tu: unsafe *TranslationUnit = &null
             if ctx != &null {
                 tu = ctx->tu
             }
@@ -5591,8 +5905,8 @@ fn _refresh_specs(dc: unsafe *DeclContext, exts: unsafe *cxx::std::vector<unsafe
 
 fn _decl_refresh_specs(d: unsafe *Decl, exts: unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
     if isa<Declarations::VisibilityGroupDecl>(d) {
-        var unsafe *g = cast<Declarations::VisibilityGroupDecl>(d)
-        var found     = false
+        var unsafe *g    = cast<Declarations::VisibilityGroupDecl>(d)
+        var        found = false
         for var i: usize = 0; i < g->members.size(); ++i {
             if g->members[i] != &null && _decl_refresh_specs(g->members[i], exts) {
                 found = true
@@ -5603,8 +5917,8 @@ fn _decl_refresh_specs(d: unsafe *Decl, exts: unsafe *cxx::std::vector<unsafe *D
     }
 
     if isa<Declarations::EvalBlockDecl>(d) {
-        var unsafe *b = cast<Declarations::EvalBlockDecl>(d)
-        var found     = false
+        var unsafe *b    = cast<Declarations::EvalBlockDecl>(d)
+        var        found = false
         for var i: usize = 0; i < b->body.size(); ++i {
             if b->body[i] != &null && _decl_refresh_specs(b->body[i], exts) {
                 found = true
@@ -5648,10 +5962,12 @@ fn _fid_in(set: *cxx::std::vector<u32>, fid: u32) -> bool {
     return false
 }
 
-fn _facts_hashes(f: unsafe *FileFacts, at: unsafe *llvm::StringMap<u32>, vals: unsafe *cxx::std::vector<string>) {
+fn _facts_hashes(f:    unsafe *FileFacts,
+                 at:   unsafe *llvm::StringMap<u32>,
+                 vals: unsafe *cxx::std::vector<string>) {
     for var k: usize = 0; k < f->plain_decls.size(); ++k {
-        var l          = f->plain_decls[k]
-        var cut        = cxx::std::vector<usize>()
+        var l   = f->plain_decls[k]
+        var cut = cxx::std::vector<usize>()
         for var c: usize = 0; c < l.size() && cut.size() < 4; ++c {
             if l[c] == ('\t' as u8) {
                 cut.push_back(c)

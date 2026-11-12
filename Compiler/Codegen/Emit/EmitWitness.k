@@ -205,12 +205,15 @@ pub class EmitWitness {
 
         var unsafe *me = CXXSpell::rep(idecl)
         for var i: usize = 0; i < idecl->requirements.size(); ++i {
-            var unsafe *r                         = idecl->requirements.get(i)
-            var unsafe *f                         = dyn_cast<FunctionDecl>(r->decl)
-            var        sub: unsafe *InstanceEntry = &null
+            var unsafe *r = idecl->requirements.get(i)
+            var unsafe *f = dyn_cast<FunctionDecl>(r->decl)
+            var sub: unsafe *InstanceEntry = &null
             if f != &null && r->source != &null && isa<RecordType>(canon_unqual(r->source)) {
                 var unsafe *src = cast<RecordType>(canon_unqual(r->source))
-                var unsafe *sd  = CXXSpell::rep(decl_pattern(CXXSpell::rep(src->decl)))
+                var unsafe *sd = CXXSpell::rep(
+                    decl_pattern(CXXSpell::rep(src->decl)),
+                )
+
                 if sd != me && decl_generic_params(sd).size() > 0 {
                     if !src->is_dependent() {
                         sub = self._iface_subst(unsafe (src as unsafe *Type))
@@ -375,7 +378,11 @@ pub class EmitWitness {
                         m:            unsafe *FunctionDecl,
                         subst:        unsafe *InstanceEntry,
                         const self_s: string) -> string {
-        return self._member_ret(m, subst, self_s) + " " + self._member_params(m, subst, self_s)
+        return self._member_ret(m, subst, self_s) + " " + self._member_params(
+            m,
+            subst,
+            self_s,
+        )
     }
 
     /// \p m's return type as _member_sig spells it, Self read as \p self_s.
@@ -481,7 +488,11 @@ pub class EmitWitness {
     /// hash through the witness -- the same call a `{K: V}` makes.
     priv fn _std_hash_def(self, p: unsafe *WitnessPiece) {
         var x = self._spell->_type(p->row->conformer)
-        var w = self._spell->witness_name(p->iface) + self._spell->witness_args(x, p->row->iface)
+        var w = self._spell->witness_name(p->iface) + self._spell->witness_args(
+            x,
+            p->row->iface,
+        )
+
         self._cg->sink->spell(
             self._at(p),
             "inline " + LowerTargets::cxx_size_t() + " " + LowerTargets::cxx_std_hash_leaf() + "<" + x + ">::operator()(const " + x + " & v) const noexcept { return " + w + "::hash(&v); }",
@@ -563,7 +574,9 @@ pub class EmitWitness {
         var unsafe *idecl    = cast<InterfaceDecl>(p->iface)
         var        me        = LowerTargets::witness_self()
         var        self_args = self._self_params(p->iface)
-        var s = self._head(p->iface) + " concept " + self._leaf_concept(p->iface) + " = "
+        var s = self._head(p->iface) + " concept " + self._leaf_concept(
+            p->iface,
+        ) + " = "
         // No base concepts: the requirement list already holds everything
         // the interface derives (InterfaceComposition, D4).
         var conj          = ""
@@ -656,7 +669,10 @@ pub class EmitWitness {
         var tn = ""
         if idecl->compose_state == 2 {
             for var i: usize = 0; i < idecl->requirements.size(); ++i {
-                var unsafe *ta = dyn_cast<TypeAliasDecl>(idecl->requirements.get(i)->decl)
+                var unsafe *ta = dyn_cast<TypeAliasDecl>(
+                    idecl->requirements.get(i)->decl,
+                )
+
                 // A generic associated type has no argument to probe it
                 // with, as a generic requirement has none to call it with.
                 if ta == &null || ta->generic_params.size() > 0 {
@@ -714,7 +730,11 @@ pub class EmitWitness {
         // `const __kairo_Self *` is the pointer to the array.
         var is_ptr = isa<PointerType>(canon_unqual(row->conformer))
         if is_ptr || isa<FixedArrayType>(canon_unqual(row->conformer)) {
-            self._cg->sink->spell(at, "using " + LowerTargets::witness_self() + " = " + x + ";")
+            self._cg->sink->spell(
+                at,
+                "using " + LowerTargets::witness_self() + " = " + x + ";",
+            )
+
             x = LowerTargets::witness_self()
         }
 
@@ -722,7 +742,10 @@ pub class EmitWitness {
         // them: the conformer's alias, or the default it took.
         if idecl->compose_state == 2 {
             for var i: usize = 0; i < idecl->requirements.size(); ++i {
-                var unsafe *ta = dyn_cast<TypeAliasDecl>(idecl->requirements.get(i)->decl)
+                var unsafe *ta = dyn_cast<TypeAliasDecl>(
+                    idecl->requirements.get(i)->decl,
+                )
+
                 if ta == &null {
                     continue
                 }
@@ -764,10 +787,23 @@ pub class EmitWitness {
                 )
             }
 
-            var decl = self._member_decl(m, if (subs[i] != &null) => (subs[i]) else => subst, x)
-            var ea   = cxx::std::vector<unsafe *Type>()
+            var decl = self._member_decl(
+                m,
+                if (subs[i] != &null) => (subs[i]) else => subst,
+                x,
+            )
+
+            var ea = cxx::std::vector<unsafe *Type>()
             row->ext_args_of(i, &ea)
-            var call = self._target(w, m, x, unsafe &ea, row->conformer->is_dependent(), is_ptr)
+            var call = self._target(
+                w,
+                m,
+                x,
+                unsafe &ea,
+                row->conformer->is_dependent(),
+                is_ptr,
+            )
+
             // A conformer met structurally keeps its own result: a
             // smaller set's panic result, or a plain value when it does not
             // panic. A declared one returns the requirement's
@@ -777,7 +813,11 @@ pub class EmitWitness {
             // and makes a plain value (or nothing) Ok.
             var unsafe *msub = if (subs[i] != &null) => (subs[i]) else => subst
             if m->panic_result != &null
-                && self._member_ret(w, &null, "") != self._member_ret(m, msub, x) {
+                && self._member_ret(w, &null, "") != self._member_ret(
+                    m,
+                    msub,
+                    x,
+                ) {
                 var nx = if (self._cg->opts.unwind) => ("") else => " noexcept"
                 call = "::" + LowerTargets::panic_call_as() + "<" + self._member_ret(
                     m,
@@ -786,7 +826,10 @@ pub class EmitWitness {
                 ) + ">([&]()" + nx + " { return " + call + "; })"
             }
 
-            self._cg->sink->spell(CXXSpell::at(m), decl + " { return " + call + "; }")
+            self._cg->sink->spell(
+                CXXSpell::at(m),
+                decl + " { return " + call + "; }",
+            )
         }
 
         self._cg->sink->spell(at, "};")
@@ -826,7 +869,10 @@ pub class EmitWitness {
             }
 
             s += "class "
-            s += self._spell->tok_name(gps[k]->name, CXXSpell::fid_of(CXXSpell::rep(w)))
+            s += self._spell->tok_name(
+                gps[k]->name,
+                CXXSpell::fid_of(CXXSpell::rep(w)),
+            )
         }
 
         return s + "> "
@@ -1093,14 +1139,17 @@ pub class EmitWitness {
     }
 
     priv fn _pname(self, m: unsafe *FunctionDecl, p: unsafe *ParamDecl) -> string {
-        return self._spell->tok_name(p->name, CXXSpell::fid_of(unsafe (m as unsafe *Decl)))
+        return self._spell->tok_name(
+            p->name,
+            CXXSpell::fid_of(unsafe (m as unsafe *Decl)),
+        )
     }
 
     /// Spell the bare Self of \p m's interface as \p self_s until restored.
     priv fn _self_as(self, m: unsafe *FunctionDecl, const self_s: string) {
         var unsafe *dc    = m->semantic_dc
         var unsafe *owner = if (dc != &null) => (dc->owner_decl()) else => &null
-        self._spell->self_iface    = if (owner != &null) => (CXXSpell::rep(owner)) else => &null
+        self._spell->self_iface = if (owner != &null) => (CXXSpell::rep(owner)) else => &null
         self._spell->self_spelling = self_s
     }
 

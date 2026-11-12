@@ -154,7 +154,9 @@ pub class CxxNameCheck derives RecursiveASTVisitor<CxxNameCheck> {
                 msg = f"{what} name begins with an underscore; Kairo reserves leading-underscore names at every scope for C++ interop"
             }
 
-            self.sc->diag->report(DiagID::SC005W, name.range.start, msg).first(name.range)->emit()
+            self.sc->diag->report(DiagID::SC005W, name.range.start, msg).first(
+                name.range,
+            )->emit()
         }
     }
 

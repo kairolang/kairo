@@ -240,7 +240,9 @@ pub class BuiltinImport {
         for var i: usize = 0; i < BUILTIN_MAX_PARAMS; ++i {
             var nm = LowerTargets::foreign_param(i)
             var at = ksm->get_range(fid, ((arg_offs[i])), nm.size())
-            self._arg_tok.push_back(t->ctx->make_token(at, TokenKind::LitIdentifier, nm))
+            self._arg_tok.push_back(
+                t->ctx->make_token(at, TokenKind::LitIdentifier, nm),
+            )
         }
 
         self._ready = true
@@ -329,10 +331,21 @@ pub class BuiltinImport {
             return out
         }
 
-        var ti = TypeImport(self._store, self._instances, self._reg, cctx, self._ctx, self._fid)
+        var ti = TypeImport(
+            self._store,
+            self._instances,
+            self._reg,
+            cctx,
+            self._ctx,
+            self._fid,
+        )
+
         var ts = llvm::StringRef(bi->getTypeString(id)) // VERIFY(22.x)
         var slots = BuiltinImport::sized_slots(
-            string(unsafe ((ts.data() as unsafe *const u8) as *const u8), ts.size()),
+            string(
+                unsafe ((ts.data() as unsafe *const u8) as *const u8),
+                ts.size(),
+            ),
         )
 
         // The decoder and clang disagree on the shape: trust the canonical
@@ -429,12 +442,26 @@ pub class BuiltinImport {
 
         var params = cxx::std::vector<unsafe *ParamDecl>()
         for var i: usize = 0; i < ptys.size(); ++i {
-            var        pt  = self._arg_tok[i]
-            var unsafe *kp = ParamDecl::create(ctx, pt.range, pt, ptys[i], i as u32, true)
+            var pt = self._arg_tok[i]
+            var unsafe *kp = ParamDecl::create(
+                ctx,
+                pt.range,
+                pt,
+                ptys[i],
+                i as u32,
+                true,
+            )
+
             kp->has_default   = false
             kp->cxx_int_alias = ti->is_int_alias(fpt->getParamType(i as u32))
-            kp->cxx_alias_ptr = ti->is_alias_indirect(fpt->getParamType(i as u32))
-            fd->cxx_param_spellings.push_back(ti->spelling(fpt->getParamType(i as u32)))
+            kp->cxx_alias_ptr = ti->is_alias_indirect(
+                fpt->getParamType(i as u32),
+            )
+
+            fd->cxx_param_spellings.push_back(
+                ti->spelling(fpt->getParamType(i as u32)),
+            )
+
             params.push_back(kp)
         }
 

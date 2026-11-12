@@ -246,7 +246,11 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
             v->range.start,
             f"'{name}' is given its value here; " + why,
         )->child_first(v->range)
-        b.note(DiagCode(DiagID::SC238N), lab->range.start, "the jump lands here")->child_first(lab->range)
+        b.note(
+            DiagCode(DiagID::SC238N),
+            lab->range.start,
+            "the jump lands here",
+        )->child_first(lab->range)
         b.emit()
     }
 
@@ -361,7 +365,9 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
 
             if !self.stop {
                 if n->requires_clause != &null {
-                    n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause)
+                    n->requires_clause = self.dyn()->dispatch_expr(
+                        n->requires_clause,
+                    )
                 }
             }
 

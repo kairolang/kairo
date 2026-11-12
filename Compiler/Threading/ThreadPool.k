@@ -77,8 +77,10 @@ pub class ThreadPool {
     priv var _count:  usize                                    = 0
     priv var _queues: cxx::std::vector<unsafe *PartitionQueue>
     priv var _groups: cxx::std::array<kairo::std::Atomic<u64>, 256> = cxx::std::array<kairo::std::Atomic<u64>, 256>()
-    priv var _active:       kairo::std::Atomic<bool>  = kairo::std::Atomic<bool>(true)
-    priv var _live_workers: kairo::std::Atomic<usize> = kairo::std::Atomic<usize>(0)
+    priv var _active: kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(true)
+    priv var _live_workers: kairo::std::Atomic<usize> = kairo::std::Atomic<usize>(
+        0,
+    )
 
     /// Idle workers PARK here rather than spinning.
     ///
@@ -421,7 +423,9 @@ pub class ThreadPool {
         self._epoch.notify_all()
 
         while self.get_total_pending_tasks() > 0 {
-            cxx::std::this_thread::sleep_for(cxx::std::chrono::microseconds(100))
+            cxx::std::this_thread::sleep_for(
+                cxx::std::chrono::microseconds(100),
+            )
         }
 
         // One notify_all is enough: a worker always re-checks _active after
@@ -437,7 +441,10 @@ pub class ThreadPool {
         }
 
         self._queues.clear()
-        kairo::Logger::info(kairo::Logger::Stage::ThreadPool, "ThreadPool::shutdown: complete")
+        kairo::Logger::info(
+            kairo::Logger::Stage::ThreadPool,
+            "ThreadPool::shutdown: complete",
+        )
     }
 
     ///
@@ -489,7 +496,11 @@ pub class ThreadPool {
 
                 for var n: usize = 0; n < BATCH; ++n {
                     if self._queues[target]->steal(&task) {
-                        self._queued.fetch_sub(1, kairo::std::MemoryOrder::acquire)
+                        self._queued.fetch_sub(
+                            1,
+                            kairo::std::MemoryOrder::acquire,
+                        )
+
                         task._fn()
                         self._task_done(task._group)
 
@@ -640,7 +651,10 @@ pub class ThreadPool {
             self.enqueue(
                 kairo::SmallFunction<64>(
                     fn() |heat_task, *barrier, spins| {
-                        heat_task(unsafe (barrier as unsafe *kairo::std::Atomic<usize>), spins)
+                        heat_task(
+                            unsafe (barrier as unsafe *kairo::std::Atomic<usize>),
+                            spins,
+                        )
                     },
                 ),
                 i as u8,
@@ -651,7 +665,10 @@ pub class ThreadPool {
             kairo::thread_pause()
         }
 
-        kairo::Logger::debug(kairo::Logger::Stage::ThreadPool, "ThreadPool::warmup: complete")
+        kairo::Logger::debug(
+            kairo::Logger::Stage::ThreadPool,
+            "ThreadPool::warmup: complete",
+        )
 
         kairo::thread_pause()
     }

@@ -174,7 +174,14 @@ pub class ReturnPathCheck derives RecursiveASTVisitor<ReturnPathCheck> {
             return true
         }
 
-        self._check(n->body_block, n->return_type, false, n->return_type->range, n)
+        self._check(
+            n->body_block,
+            n->return_type,
+            false,
+            n->return_type->range,
+            n,
+        )
+
         return true
     }
 
@@ -206,7 +213,14 @@ pub class ReturnPathCheck derives RecursiveASTVisitor<ReturnPathCheck> {
             return true
         }
 
-        self._check(n->body_block, n->return_type, false, n->return_type->range, &null)
+        self._check(
+            n->body_block,
+            n->return_type,
+            false,
+            n->return_type->range,
+            &null,
+        )
+
         return true
     }
 
@@ -270,7 +284,9 @@ pub class ReturnPathCheck derives RecursiveASTVisitor<ReturnPathCheck> {
         }
 
         if isa<NamedIdentExpr>(c) {
-            return dyn_cast<FunctionDecl>(cast<NamedIdentExpr>(c)->resolved_decl)
+            return dyn_cast<FunctionDecl>(
+                cast<NamedIdentExpr>(c)->resolved_decl,
+            )
         }
 
         if isa<ChainExpr>(c) {
@@ -279,7 +295,9 @@ pub class ReturnPathCheck derives RecursiveASTVisitor<ReturnPathCheck> {
                 return &null
             }
 
-            return dyn_cast<FunctionDecl>(ce->steps.get(ce->steps.size() - 1)->resolved_decl)
+            return dyn_cast<FunctionDecl>(
+                ce->steps.get(ce->steps.size() - 1)->resolved_decl,
+            )
         }
 
         return &null
@@ -316,8 +334,12 @@ pub class ReturnPathCheck derives RecursiveASTVisitor<ReturnPathCheck> {
         }
 
         // `end` is exclusive; the closing brace is the byte before it.
-        var brace = SourceRange::from_bounds(body->range.end.with_offset(-1), 1 as u32)
-        var what  = self._subject(f)
+        var brace = SourceRange::from_bounds(
+            body->range.end.with_offset(-1),
+            1 as u32,
+        )
+
+        var what = self._subject(f)
 
         if never {
             var b = self.sc->diag->report(

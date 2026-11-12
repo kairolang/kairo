@@ -201,7 +201,9 @@ pub class ResolutionState {
 
         eval if defined!(DEBUG) {
             if self.stack.empty() || self.stack.back().decl != d {
-                kairo::std::ice_fail(r"ResolutionState: finish_decl without its begin_decl frame on top")
+                kairo::std::ice_fail(
+                    r"ResolutionState: finish_decl without its begin_decl frame on top",
+                )
             }
         }
 
@@ -225,7 +227,10 @@ pub class ResolutionState {
             return
         }
 
-        self._set_decl_state(d, if (ok) => (ResolveState::Resolved) else => ResolveState::Errored)
+        self._set_decl_state(
+            d,
+            if (ok) => (ResolveState::Resolved) else => ResolveState::Errored,
+        )
     }
 
     /// \brief Index of \p d in the active stack, or usize(-1) if absent.

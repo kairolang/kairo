@@ -390,7 +390,11 @@ pub class TokenSink derives EmitSink {
             self.ice_at(at, "TokenSink::keyword: kind is not a keyword")
         }
 
-        return self._ident_lit(llvm::StringRef(kws, cxx::std::strlen(kws)), at.start, at.size())
+        return self._ident_lit(
+            llvm::StringRef(kws, cxx::std::strlen(kws)),
+            at.start,
+            at.size(),
+        )
     }
 
     /// Borrowed literal: clang reads getLength() bytes at getLocation(), so
@@ -443,7 +447,9 @@ pub class TokenSink derives EmitSink {
     fn eof(self) -> bool {
         eval if defined!(DEBUG) {
             if self._stage == SinkStage::Drained {
-                kairo::std::ice_fail("TokenSink: eof after the stream was drained")
+                kairo::std::ice_fail(
+                    "TokenSink: eof after the stream was drained",
+                )
             }
         }
 
@@ -638,8 +644,8 @@ pub class TokenSink derives EmitSink {
             return SourceLocation::invalid()
         }
 
-        var dec         = self._csm->getDecomposedLoc(self._loc(loc))
-        var avail       = self._csm->getBufferData(dec.first).size() - (dec.second as usize)
+        var dec = self._csm->getDecomposedLoc(self._loc(loc))
+        var avail = self._csm->getBufferData(dec.first).size() - (dec.second as usize)
         var from: usize = 0
         if !exact && self._is_name_span(loc, len) {
             from = 1
@@ -850,14 +856,20 @@ pub class TokenSink derives EmitSink {
         var unsafe *ii = t->getIdentifierInfo()
         if ii != &null {
             var nm = ii->getName()
-            ns = string(unsafe ((nm.data() as unsafe *const u8) as *const u8), nm.size())
+            ns = string(
+                unsafe ((nm.data() as unsafe *const u8) as *const u8),
+                nm.size(),
+            )
         } else {
             var unsafe *ps = clang::tok::getPunctuatorSpelling(k)
             if ps == &null {
                 return false
             }
 
-            ns = string(unsafe ((ps as unsafe *const u8) as *const u8), cxx::std::strlen(ps))
+            ns = string(
+                unsafe ((ps as unsafe *const u8) as *const u8),
+                cxx::std::strlen(ps),
+            )
         }
 
         var        alen = (ns.size() as u32)
@@ -919,7 +931,11 @@ pub class TokenSink derives EmitSink {
                 )
             }
 
-            var ns = string(unsafe ((p as unsafe *const u8) as *const u8), cxx::std::strlen(p))
+            var ns = string(
+                unsafe ((p as unsafe *const u8) as *const u8),
+                cxx::std::strlen(p),
+            )
+
             self._arena_tok(k, SourceRange::from_bounds(loc, len), &ns)
             self._opened(loc, len, at)
             return true
@@ -957,7 +973,10 @@ pub class TokenSink derives EmitSink {
             return false
         }
 
-        return self._checked_pair(self._tokens.get(self._open_end - 1)->getKind(), k)
+        return self._checked_pair(
+            self._tokens.get(self._open_end - 1)->getKind(),
+            k,
+        )
     }
 
     /// \p first then \p k is one of the pairs clang checks (_completes_pair).
@@ -1026,23 +1045,34 @@ pub class TokenSink derives EmitSink {
             h->kro_len   = self._open_len
         }
 
-        var unsafe *a = clang::tok::getPunctuatorSpelling(self._tokens.get(first)->getKind())
-        var unsafe *b                       = clang::tok::getPunctuatorSpelling(k)
-        var        alen                     = (cxx::std::strlen(a) as u32)
-        var        blen                     = (cxx::std::strlen(b) as u32)
-        var        joined: cxx::std::string
+        var unsafe *a = clang::tok::getPunctuatorSpelling(
+            self._tokens.get(first)->getKind(),
+        )
+
+        var unsafe *b = clang::tok::getPunctuatorSpelling(k)
+        var alen                     = (cxx::std::strlen(a) as u32)
+        var blen                     = (cxx::std::strlen(b) as u32)
+        var joined: cxx::std::string
         joined.append(a)
         joined.append(b)
-        var ns  = string(unsafe ((joined.data() as unsafe *const u8) as *const u8), joined.size())
+        var ns = string(
+            unsafe ((joined.data() as unsafe *const u8) as *const u8),
+            joined.size(),
+        )
+
         var off = self._intern(&ns)
 
         if self._pending.size() == 0 {
-            kairo::std::ice_fail("TokenSink::_pair: the first half has no arena entry")
+            kairo::std::ice_fail(
+                "TokenSink::_pair: the first half has no arena entry",
+            )
         }
 
         var unsafe *head = self._pending.get(self._pending.size() - 1)
         if head->tok_index != first {
-            kairo::std::ice_fail("TokenSink::_pair: the first half has no arena entry")
+            kairo::std::ice_fail(
+                "TokenSink::_pair: the first half has no arena entry",
+            )
         }
 
         head->arena_off = off
@@ -1075,14 +1105,23 @@ pub class TokenSink derives EmitSink {
     /// parser as they are, and a keyword left tok::identifier is a parse
     /// error there.
     priv fn _ident_lit(self, name: llvm::StringRef, loc: SourceLocation, len: u32) -> bool {
-        var unsafe *ii   = self._pp->getIdentifierInfo(name)
-        var        exact = (len as usize) == name.size() && self._bytes(loc, len) == name
-        var        at    = self._claim(loc, len, exact)
+        var unsafe *ii = self._pp->getIdentifierInfo(name)
+        var exact = (len as usize) == name.size() && self._bytes(loc, len) == name
+        var at = self._claim(loc, len, exact)
         if !at.is_valid() {
             // Clang reads an identifier's spelling from its IdentifierInfo,
             // so the arena copy only buys the location.
-            var ns = string(unsafe ((name.data() as unsafe *const u8) as *const u8), name.size())
-            self._arena_tok(clang::tok::identifier, SourceRange::from_bounds(loc, len), &ns)
+            var ns = string(
+                unsafe ((name.data() as unsafe *const u8) as *const u8),
+                name.size(),
+            )
+
+            self._arena_tok(
+                clang::tok::identifier,
+                SourceRange::from_bounds(loc, len),
+                &ns,
+            )
+
             var unsafe *last = self._tokens.get(self._tokens.size() - 1)
             last->setIdentifierInfo(ii)
             last->setKind(ii->getTokenID())
@@ -1151,7 +1190,9 @@ pub class TokenSink derives EmitSink {
     fn seal_arena(self) -> llvm::StringRef {
         eval if defined!(DEBUG) {
             if self._stage != SinkStage::Filling {
-                kairo::std::ice_fail("TokenSink: seal_arena twice, or after drain")
+                kairo::std::ice_fail(
+                    "TokenSink: seal_arena twice, or after drain",
+                )
             }
         }
 
@@ -1173,7 +1214,11 @@ pub class TokenSink derives EmitSink {
             llvm::Twine(kairo::sref(r"<kairo-literals>")),
         )
 
-        var afid = self._csm->createFileID(cxx::std::move(buf), clang::SrcMgr::C_User)
+        var afid = self._csm->createFileID(
+            cxx::std::move(buf),
+            clang::SrcMgr::C_User,
+        )
+
         self.patch_pending(afid)
     }
 
@@ -1189,7 +1234,9 @@ pub class TokenSink derives EmitSink {
         // over a stream clang may already hold.
         eval if defined!(DEBUG) {
             if self._stage == SinkStage::Patched || self._stage == SinkStage::Drained {
-                kairo::std::ice_fail("TokenSink: patch_pending twice, or after drain")
+                kairo::std::ice_fail(
+                    "TokenSink: patch_pending twice, or after drain",
+                )
             }
         }
 
@@ -1209,7 +1256,10 @@ pub class TokenSink derives EmitSink {
                     )
                 }
 
-                t->setLocation(entry.getLocWithOffset((p->arena_off - entry_off) as i32))
+                t->setLocation(
+                    entry.getLocWithOffset((p->arena_off - entry_off) as i32),
+                )
+
                 t->setLength(p->arena_len)
                 continue
             }
@@ -1241,7 +1291,9 @@ pub class TokenSink derives EmitSink {
         // Patched, not merely sealed: a sealed stream's pending tokens still
         // carry no location.
         if !self._pending.empty() && self._stage != SinkStage::Patched {
-            kairo::std::ice_fail("TokenSink: drain with unpatched pending tokens")
+            kairo::std::ice_fail(
+                "TokenSink: drain with unpatched pending tokens",
+            )
         }
 
         eval if defined!(DEBUG) {

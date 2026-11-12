@@ -150,8 +150,8 @@ import AST::Node::Types::FixedArrayType
 import AST::Visitor::ASTWriter::ASTWriter
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::named_declared_here
+import Diagnostic::Registry::DiagID
 import Interop::Clang::HeaderSet::HeaderSet
 import Memory::ArenaList::ArenaList
 import Sema::Check::ClassLifecycle::{
@@ -183,7 +183,7 @@ pub enum FoldKind derives u8 {
 /// zero). Built only by EvalIfFolding's _no / _defer / _waits / _bool /
 /// _int, so `kind` always says which payload is meaningful.
 pub struct FoldVal {
-    var kind: FoldKind = FoldKind::Failed
+    var kind: FoldKind               = FoldKind::Failed
     var b:    bool
     var i:    Declarations::IntConst
 }
@@ -357,8 +357,8 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     priv var _taken: unsafe *CompoundStmt = &null
     /// The last lookup found only declarations a deferred `eval if` may
     /// still discard: the condition waits for it rather than fails.
-    priv var _pending_name: bool = false
-    priv var _mode: FoldMode = FoldMode::Early ///< run() is Early; run_late() moves it on.
+    priv var _pending_name: bool     = false
+    priv var _mode:         FoldMode = FoldMode::Early ///< run() is Early; run_late() moves it on.
     /// This late round folded something / left something waiting.
     priv var _progress: bool = false
     priv var _waiting:  bool = false
@@ -505,7 +505,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
     fn transform_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *Expr {
         self._body_depth += 1
-        var unsafe *out = ASTWriter<EvalIfFolding>::transform_closure_expr(self, n)
+        var unsafe *out = ASTWriter<EvalIfFolding>::transform_closure_expr(
+            self,
+            n,
+        )
+
         self._body_depth -= 1
         return out
     }
@@ -528,7 +532,10 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         if r != 1 {
             if self._body_depth > 0 {
                 // `if constexpr`: both branches stay, and are resolved and typed.
-                return ASTWriter<EvalIfFolding>::transform_conditional_stmt(self, n)
+                return ASTWriter<EvalIfFolding>::transform_conditional_stmt(
+                    self,
+                    n,
+                )
             }
 
             // A type fact (r == 2) waits; anything else was reported, and the
@@ -606,7 +613,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 // carrier, as the parser gave it one, for the next round.
                 var unsafe *w = dyn_cast<ConditionalStmt>(rs[j])
                 if w != &null && w->eval_deferred {
-                    var unsafe *carrier = Declarations::EvalBlockDecl::create(self.ctx, w->range)
+                    var unsafe *carrier = Declarations::EvalBlockDecl::create(
+                        self.ctx,
+                        w->range,
+                    )
+
                     carrier->stmt = unsafe (w as unsafe *Stmt)
                     out.push_back(carrier)
                     continue
@@ -822,7 +833,9 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 s += ", "
             }
 
-            s += self.ctx->get_spelling(decl_name_tok(unsafe (gps[i] as unsafe *Decl)))
+            s += self.ctx->get_spelling(
+                decl_name_tok(unsafe (gps[i] as unsafe *Decl)),
+            )
         }
 
         return s
@@ -872,7 +885,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
         self._no_types(unsafe (head as unsafe *Stmt))
         head->eval_deferred = true
-        var at = self.sc->eval_branches.add_if(head, self._dcs[self._dcs.size() - 1])
+        var at = self.sc->eval_branches.add_if(
+            head,
+            self._dcs[self._dcs.size() - 1],
+        )
+
         self._file_arms(at, head)
     }
 
@@ -886,7 +903,9 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             }
 
             if c->then_ != &null {
-                c->then_ = cast<CompoundStmt>(self.dyn()->transform_stmt_scalar(c->then_))
+                c->then_ = cast<CompoundStmt>(
+                    self.dyn()->transform_stmt_scalar(c->then_),
+                )
             }
 
             if c->else_ == &null {
@@ -943,7 +962,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 continue
             }
 
-            var unsafe *f = self._as_field(cast<Declarations::VariableDecl>(ds->decl), 0)
+            var unsafe *f = self._as_field(
+                cast<Declarations::VariableDecl>(ds->decl),
+                0,
+            )
+
             if f != &null {
                 ds->decl = f
             }
@@ -1006,7 +1029,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
             var tok = decl_name_tok(d)
             var at  = if (tok.range.is_valid()) => (tok.range) else => d->range
-            var nm  = if (tok.range.is_valid()) => (self.ctx->get_spelling(tok)) else => "this type"
+            var nm = if (tok.range.is_valid()) => (self.ctx->get_spelling(tok)) else => "this type"
             var bld = self.sc->diag->report(
                 DiagID::SC231E,
                 at.start,
@@ -1073,7 +1096,12 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     /// Every `defined!` the preprocessor passed on, wherever it stands, is a
     /// bool literal from here on: nothing after this pass sees one.
     fn transform_defined_expr(self, n: *DefinedExpr) -> unsafe *Expr {
-        var unsafe *b = BooleanLiteralExpr::create(self.ctx, n->range, self._macro(n->name))
+        var unsafe *b = BooleanLiteralExpr::create(
+            self.ctx,
+            n->range,
+            self._macro(n->name),
+        )
+
         return b
     }
 
@@ -1202,7 +1230,10 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 return x
             }
 
-            return self._no(e, f"'{self.ctx->get_spelling(u->op_token)}' does not fold here")
+            return self._no(
+                e,
+                f"'{self.ctx->get_spelling(u->op_token)}' does not fold here",
+            )
         }
 
         if isa<BinaryOperatorExpr>(e) {
@@ -1225,7 +1256,10 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                     return self._no_or_wait(e)
                 }
 
-                return self._no(e, "this name is not an 'eval' constant reachable here")
+                return self._no(
+                    e,
+                    "this name is not an 'eval' constant reachable here",
+                )
             }
 
             return self._ref(e, d, depth)
@@ -1333,11 +1367,16 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 return self._no(e, "it compares a bool with an integer")
             }
 
-            return self._bool(if (k == TokenKind::OpEqualEqual) => (eq) else => !eq)
+            return self._bool(
+                if (k == TokenKind::OpEqualEqual) => (eq) else => !eq,
+            )
         }
 
         if !fold_is_int(l) || !fold_is_int(r) {
-            return self._no(e, f"'{self.ctx->get_spelling(b->op_token)}' needs integer operands")
+            return self._no(
+                e,
+                f"'{self.ctx->get_spelling(b->op_token)}' needs integer operands",
+            )
         }
 
         if k == TokenKind::OpLess {
@@ -1388,7 +1427,10 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             return self._int(self._ce.shr(l.i, r.i))
         }
 
-        return self._no(e, f"'{self.ctx->get_spelling(b->op_token)}' does not fold here")
+        return self._no(
+            e,
+            f"'{self.ctx->get_spelling(b->op_token)}' does not fold here",
+        )
     }
 
     /// -1, 0, 1 as \p a is below, equal to, above \p b.
@@ -1465,7 +1507,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             return self._defer(e, self._held_why(held))
         }
 
-        var f = lifecycle_of(self.sc)->facts_of_type_concrete(c, "EvalIfLateFolding")
+        var f = lifecycle_of(self.sc)->facts_of_type_concrete(
+            c,
+            "EvalIfLateFolding",
+        )
+
         var t = if (n->fact == TypeTraitKind::TriviallyCopyable) => (f.trivially_copyable)
                 else => f.trivial_dtor
         if t == LifecycleTri::Unknown {
@@ -1516,7 +1562,10 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         }
 
         if isa<FixedArrayType>(c) {
-            return self._held_by_pending(cast<FixedArrayType>(c)->element, depth + 1)
+            return self._held_by_pending(
+                cast<FixedArrayType>(c)->element,
+                depth + 1,
+            )
         }
 
         if !isa<RecordType>(c) {
@@ -1557,7 +1606,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                     continue
                 }
 
-                var unsafe *h = self._held_by_pending(be->base->canonical, depth + 1)
+                var unsafe *h = self._held_by_pending(
+                    be->base->canonical,
+                    depth + 1,
+                )
+
                 if h != &null {
                     return h
                 }
@@ -1578,7 +1631,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                     continue
                 }
 
-                var unsafe *h = self._held_by_pending(fd->type_->canonical, depth + 1)
+                var unsafe *h = self._held_by_pending(
+                    fd->type_->canonical,
+                    depth + 1,
+                )
+
                 if h != &null {
                     return h
                 }
@@ -1599,7 +1656,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                         continue
                     }
 
-                    var unsafe *h = self._held_by_pending(pf->type_->canonical, depth + 1)
+                    var unsafe *h = self._held_by_pending(
+                        pf->type_->canonical,
+                        depth + 1,
+                    )
+
                     if h != &null {
                         return h
                     }
@@ -1777,7 +1838,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             return &null
         }
 
-        var unsafe *d = self._lookup(cast<NamedIdentExpr>(ch->base)->name, ch->base)
+        var unsafe *d = self._lookup(
+            cast<NamedIdentExpr>(ch->base)->name,
+            ch->base,
+        )
+
         for var i: usize = 0; i < ch->steps.size(); ++i {
             var unsafe *st = ch->steps.get(i)
             if d == &null
@@ -1804,7 +1869,12 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
             var next: unsafe *Decl = &null
             for var k: usize = 0; k < scopes.size(); ++k {
-                var r = self.sc->lookup.in_context(scopes[k], DeclName::ident(imm), nm)
+                var r = self.sc->lookup.in_context(
+                    scopes[k],
+                    DeclName::ident(imm),
+                    nm,
+                )
+
                 if !r.found() {
                     continue
                 }
@@ -2057,11 +2127,13 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
         for var j: usize = kept; j < n; ++j {
             var unsafe *f = all[j]
-            var at = kept
+            var        at = kept
             if f != &null && f->range.start.is_valid() {
                 for var k: usize = 0; k < kept; ++k {
                     var unsafe *o = all[k]
-                    if o != &null && o->range.start.is_valid() && f->range.start.raw() < o->range.start.raw() {
+                    if o != &null
+                        && o->range.start.is_valid()
+                        && f->range.start.raw() < o->range.start.raw() {
                         at = k
                         break
                     }

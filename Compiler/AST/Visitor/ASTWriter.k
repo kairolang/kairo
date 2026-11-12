@@ -581,7 +581,9 @@ pub class <D: type> ASTWriter {
         }
 
         if results.size() != 1 {
-            kairo::std::ice_fail("transform produced multiple stmts in a scalar slot")
+            kairo::std::ice_fail(
+                "transform produced multiple stmts in a scalar slot",
+            )
         }
 
         return results[0]
@@ -598,7 +600,9 @@ pub class <D: type> ASTWriter {
         }
 
         if results.size() != 1 {
-            kairo::std::ice_fail("transform produced multiple decls in a scalar slot")
+            kairo::std::ice_fail(
+                "transform produced multiple decls in a scalar slot",
+            )
         }
 
         return results[0]
@@ -625,7 +629,9 @@ pub class <D: type> ASTWriter {
         }
 
         if mc->body != &null {
-            mc->body = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(mc->body))
+            mc->body = cast<Statements::CompoundStmt>(
+                self.dyn()->transform_stmt_scalar(mc->body),
+            )
         }
 
         if mc->expression != &null {
@@ -664,35 +670,63 @@ pub class <D: type> ASTWriter {
             } case TypeKind::TypeExpr {
                 return self.dyn()->transform_type_expr(cast<Types::TypeExpr>(t))
             } case TypeKind::TupleType {
-                return self.dyn()->transform_tuple_type(cast<Types::TupleType>(t))
+                return self.dyn()->transform_tuple_type(
+                    cast<Types::TupleType>(t),
+                )
             } case TypeKind::ChainType {
-                return self.dyn()->transform_chain_type(cast<Types::ChainType>(t))
+                return self.dyn()->transform_chain_type(
+                    cast<Types::ChainType>(t),
+                )
             } case TypeKind::VectorType {
-                return self.dyn()->transform_vector_type(cast<Types::VectorType>(t))
+                return self.dyn()->transform_vector_type(
+                    cast<Types::VectorType>(t),
+                )
             } case TypeKind::PointerType {
-                return self.dyn()->transform_pointer_type(cast<Types::PointerType>(t))
+                return self.dyn()->transform_pointer_type(
+                    cast<Types::PointerType>(t),
+                )
             } case TypeKind::TypeOfType {
-                return self.dyn()->transform_type_of_type(cast<Types::TypeOfType>(t))
+                return self.dyn()->transform_type_of_type(
+                    cast<Types::TypeOfType>(t),
+                )
             } case TypeKind::InferredType {
-                return self.dyn()->transform_inferred_type(cast<Types::InferredType>(t))
+                return self.dyn()->transform_inferred_type(
+                    cast<Types::InferredType>(t),
+                )
             } case TypeKind::NullableType {
-                return self.dyn()->transform_nullable_type(cast<Types::NullableType>(t))
+                return self.dyn()->transform_nullable_type(
+                    cast<Types::NullableType>(t),
+                )
             } case TypeKind::OpaqueFFIType {
-                return self.dyn()->transform_opaque_ffi_type(cast<Types::OpaqueFFIType>(t))
+                return self.dyn()->transform_opaque_ffi_type(
+                    cast<Types::OpaqueFFIType>(t),
+                )
             } case TypeKind::QualifiedType { // canonical and interned: never rewritten in place.
                 return t
             } case TypeKind::FixedArrayType {
-                return self.dyn()->transform_fixed_array_type(cast<Types::FixedArrayType>(t))
+                return self.dyn()->transform_fixed_array_type(
+                    cast<Types::FixedArrayType>(t),
+                )
             } case TypeKind::VariadicPackType {
-                return self.dyn()->transform_variadic_pack_type(cast<Types::VariadicPackType>(t))
+                return self.dyn()->transform_variadic_pack_type(
+                    cast<Types::VariadicPackType>(t),
+                )
             } case TypeKind::GenericParamType {
-                return self.dyn()->transform_generic_param_type(cast<Types::GenericParamType>(t))
+                return self.dyn()->transform_generic_param_type(
+                    cast<Types::GenericParamType>(t),
+                )
             } case TypeKind::PackExpansionType {
-                return self.dyn()->transform_pack_expansion_type(cast<Types::PackExpansionType>(t))
+                return self.dyn()->transform_pack_expansion_type(
+                    cast<Types::PackExpansionType>(t),
+                )
             } case TypeKind::CXXLValueRefType {
-                return self.dyn()->transform_cxxl_value_ref_type(cast<Types::CXXLValueRefType>(t))
+                return self.dyn()->transform_cxxl_value_ref_type(
+                    cast<Types::CXXLValueRefType>(t),
+                )
             } case TypeKind::CXXRValueRefType {
-                return self.dyn()->transform_cxxr_value_ref_type(cast<Types::CXXRValueRefType>(t))
+                return self.dyn()->transform_cxxr_value_ref_type(
+                    cast<Types::CXXRValueRefType>(t),
+                )
             } case TypeKind::FunctionPointerType {
                 return self.dyn()->transform_function_pointer_type(
                     cast<Types::FunctionPointerType>(t),
@@ -884,17 +918,29 @@ pub class <D: type> ASTWriter {
 
         match e->kind {
             case ExprKind::IntegerLiteralExpr {
-                return self.dyn()->transform_integer_literal_expr(cast<IntegerLiteralExpr>(e))
+                return self.dyn()->transform_integer_literal_expr(
+                    cast<IntegerLiteralExpr>(e),
+                )
             } case ExprKind::FloatingLiteralExpr {
-                return self.dyn()->transform_floating_literal_expr(cast<FloatingLiteralExpr>(e))
+                return self.dyn()->transform_floating_literal_expr(
+                    cast<FloatingLiteralExpr>(e),
+                )
             } case ExprKind::StringLiteralExpr {
-                return self.dyn()->transform_string_literal_expr(cast<StringLiteralExpr>(e))
+                return self.dyn()->transform_string_literal_expr(
+                    cast<StringLiteralExpr>(e),
+                )
             } case ExprKind::CharacterLiteralExpr {
-                return self.dyn()->transform_character_literal_expr(cast<CharacterLiteralExpr>(e))
+                return self.dyn()->transform_character_literal_expr(
+                    cast<CharacterLiteralExpr>(e),
+                )
             } case ExprKind::BooleanLiteralExpr {
-                return self.dyn()->transform_boolean_literal_expr(cast<BooleanLiteralExpr>(e))
+                return self.dyn()->transform_boolean_literal_expr(
+                    cast<BooleanLiteralExpr>(e),
+                )
             } case ExprKind::NullLiteralExpr {
-                return self.dyn()->transform_null_literal_expr(cast<NullLiteralExpr>(e))
+                return self.dyn()->transform_null_literal_expr(
+                    cast<NullLiteralExpr>(e),
+                )
             } case ExprKind::ListLiteralExpr {
                 return self.dyn()->transform_list_literal_expr(
                     cast<Expressions::ListLiteralExpr>(e),
@@ -904,9 +950,13 @@ pub class <D: type> ASTWriter {
                     cast<Expressions::TupleLiteralExpr>(e),
                 )
             } case ExprKind::SetLiteralExpr {
-                return self.dyn()->transform_set_literal_expr(cast<Expressions::SetLiteralExpr>(e))
+                return self.dyn()->transform_set_literal_expr(
+                    cast<Expressions::SetLiteralExpr>(e),
+                )
             } case ExprKind::MapLiteralExpr {
-                return self.dyn()->transform_map_literal_expr(cast<Expressions::MapLiteralExpr>(e))
+                return self.dyn()->transform_map_literal_expr(
+                    cast<Expressions::MapLiteralExpr>(e),
+                )
             } case ExprKind::NamedInitializerExpr {
                 return self.dyn()->transform_named_initializer_expr(
                     cast<Expressions::NamedInitializerExpr>(e),
@@ -918,11 +968,17 @@ pub class <D: type> ASTWriter {
             } case ExprKind::ChainExpr {
                 return self.dyn()->transform_chain_expr(cast<ChainExpr>(e))
             } case ExprKind::CallExpr {
-                return self.dyn()->transform_call_expr(cast<Expressions::CallExpr>(e))
+                return self.dyn()->transform_call_expr(
+                    cast<Expressions::CallExpr>(e),
+                )
             } case ExprKind::SubscriptExpr {
-                return self.dyn()->transform_subscript_expr(cast<Expressions::SubscriptExpr>(e))
+                return self.dyn()->transform_subscript_expr(
+                    cast<Expressions::SubscriptExpr>(e),
+                )
             } case ExprKind::NamedIdentExpr {
-                return self.dyn()->transform_named_ident_expr(cast<NamedIdentExpr>(e))
+                return self.dyn()->transform_named_ident_expr(
+                    cast<NamedIdentExpr>(e),
+                )
             } case ExprKind::UnaryOperatorExpr {
                 return self.dyn()->transform_unary_operator_expr(
                     cast<Expressions::UnaryOperatorExpr>(e),
@@ -944,67 +1000,121 @@ pub class <D: type> ASTWriter {
                     cast<Expressions::DerivesRelationExpr>(e),
                 )
             } case ExprKind::IfExpr {
-                return self.dyn()->transform_if_expr(cast<Expressions::IfExpr>(e))
+                return self.dyn()->transform_if_expr(
+                    cast<Expressions::IfExpr>(e),
+                )
             } case ExprKind::TryCatchExpr {
-                return self.dyn()->transform_try_catch_expr(cast<Expressions::TryCatchExpr>(e))
+                return self.dyn()->transform_try_catch_expr(
+                    cast<Expressions::TryCatchExpr>(e),
+                )
             } case ExprKind::MatchExpr {
-                return self.dyn()->transform_match_expr(cast<Expressions::MatchExpr>(e))
+                return self.dyn()->transform_match_expr(
+                    cast<Expressions::MatchExpr>(e),
+                )
             } case ExprKind::RangeExpr {
-                return self.dyn()->transform_range_expr(cast<Expressions::RangeExpr>(e))
+                return self.dyn()->transform_range_expr(
+                    cast<Expressions::RangeExpr>(e),
+                )
             } case ExprKind::ClosureExpr {
-                return self.dyn()->transform_closure_expr(cast<Expressions::ClosureExpr>(e))
+                return self.dyn()->transform_closure_expr(
+                    cast<Expressions::ClosureExpr>(e),
+                )
             } case ExprKind::AwaitExpr {
-                return self.dyn()->transform_await_expr(cast<Expressions::AwaitExpr>(e))
+                return self.dyn()->transform_await_expr(
+                    cast<Expressions::AwaitExpr>(e),
+                )
             } case ExprKind::UnwrapExpr {
-                return self.dyn()->transform_unwrap_expr(cast<Expressions::UnwrapExpr>(e))
+                return self.dyn()->transform_unwrap_expr(
+                    cast<Expressions::UnwrapExpr>(e),
+                )
             } case ExprKind::DefinedExpr {
-                return self.dyn()->transform_defined_expr(cast<Expressions::DefinedExpr>(e))
+                return self.dyn()->transform_defined_expr(
+                    cast<Expressions::DefinedExpr>(e),
+                )
             } case ExprKind::AttributedExpr {
-                return self.dyn()->transform_attributed_expr(cast<Expressions::AttributedExpr>(e))
+                return self.dyn()->transform_attributed_expr(
+                    cast<Expressions::AttributedExpr>(e),
+                )
             } case ExprKind::PanicOpExpr {
-                return self.dyn()->transform_panic_op_expr(cast<Expressions::PanicOpExpr>(e))
+                return self.dyn()->transform_panic_op_expr(
+                    cast<Expressions::PanicOpExpr>(e),
+                )
             } case ExprKind::TypeTraitExpr {
-                return self.dyn()->transform_type_trait_expr(cast<Expressions::TypeTraitExpr>(e))
+                return self.dyn()->transform_type_trait_expr(
+                    cast<Expressions::TypeTraitExpr>(e),
+                )
             } case ExprKind::CxxNewExpr {
-                return self.dyn()->transform_cxx_new_expr(cast<Expressions::CxxNewExpr>(e))
+                return self.dyn()->transform_cxx_new_expr(
+                    cast<Expressions::CxxNewExpr>(e),
+                )
             } case ExprKind::SpawnExpr {
-                return self.dyn()->transform_spawn_expr(cast<Expressions::SpawnExpr>(e))
+                return self.dyn()->transform_spawn_expr(
+                    cast<Expressions::SpawnExpr>(e),
+                )
             } case ExprKind::ThreadExpr {
-                return self.dyn()->transform_thread_expr(cast<Expressions::ThreadExpr>(e))
+                return self.dyn()->transform_thread_expr(
+                    cast<Expressions::ThreadExpr>(e),
+                )
             } case ExprKind::ConstraintExpr {
-                return self.dyn()->transform_constraint_expr(cast<Expressions::ConstraintExpr>(e))
+                return self.dyn()->transform_constraint_expr(
+                    cast<Expressions::ConstraintExpr>(e),
+                )
             } case ExprKind::SizeOfExpr {
-                return self.dyn()->transform_size_of_expr(cast<Expressions::SizeOfExpr>(e))
+                return self.dyn()->transform_size_of_expr(
+                    cast<Expressions::SizeOfExpr>(e),
+                )
             } case ExprKind::AlignOfExpr {
-                return self.dyn()->transform_align_of_expr(cast<Expressions::AlignOfExpr>(e))
+                return self.dyn()->transform_align_of_expr(
+                    cast<Expressions::AlignOfExpr>(e),
+                )
             } case ExprKind::TypeOfExpr {
-                return self.dyn()->transform_type_of_expr(cast<Expressions::TypeOfExpr>(e))
+                return self.dyn()->transform_type_of_expr(
+                    cast<Expressions::TypeOfExpr>(e),
+                )
             } case ExprKind::EvalExpr {
-                return self.dyn()->transform_eval_expr(cast<Expressions::EvalExpr>(e))
+                return self.dyn()->transform_eval_expr(
+                    cast<Expressions::EvalExpr>(e),
+                )
             } case ExprKind::UnsafeExpr {
-                return self.dyn()->transform_unsafe_expr(cast<Expressions::UnsafeExpr>(e))
+                return self.dyn()->transform_unsafe_expr(
+                    cast<Expressions::UnsafeExpr>(e),
+                )
             } case ExprKind::DeleteExpr {
-                return self.dyn()->transform_delete_expr(cast<Expressions::DeleteExpr>(e))
+                return self.dyn()->transform_delete_expr(
+                    cast<Expressions::DeleteExpr>(e),
+                )
             } case ExprKind::PackExpansionExpr {
                 return self.dyn()->transform_pack_expansion_expr(
                     cast<Expressions::PackExpansionExpr>(e),
                 )
             } case ExprKind::TypeCastExpr {
-                return self.dyn()->transform_type_cast_expr(cast<Expressions::TypeCastExpr>(e))
+                return self.dyn()->transform_type_cast_expr(
+                    cast<Expressions::TypeCastExpr>(e),
+                )
             } case ExprKind::ImplicitBoundaryCastExpr {
                 return self.dyn()->transform_implicit_boundary_cast_expr(
                     cast<Expressions::ImplicitBoundaryCastExpr>(e),
                 )
             } case ExprKind::ParenExpr {
-                return self.dyn()->transform_paren_expr(cast<Expressions::ParenExpr>(e))
+                return self.dyn()->transform_paren_expr(
+                    cast<Expressions::ParenExpr>(e),
+                )
             } case ExprKind::VerbatimExpr {
-                return self.dyn()->transform_verbatim_expr(cast<Expressions::VerbatimExpr>(e))
+                return self.dyn()->transform_verbatim_expr(
+                    cast<Expressions::VerbatimExpr>(e),
+                )
             } case ExprKind::NamedArgExpr {
-                return self.dyn()->transform_named_arg_expr(cast<Expressions::NamedArgExpr>(e))
+                return self.dyn()->transform_named_arg_expr(
+                    cast<Expressions::NamedArgExpr>(e),
+                )
             } case ExprKind::InitListExpr {
-                return self.dyn()->transform_init_list_expr(cast<Expressions::InitListExpr>(e))
+                return self.dyn()->transform_init_list_expr(
+                    cast<Expressions::InitListExpr>(e),
+                )
             } case ExprKind::StmtExpr {
-                return self.dyn()->transform_stmt_expr(cast<Expressions::StmtExpr>(e))
+                return self.dyn()->transform_stmt_expr(
+                    cast<Expressions::StmtExpr>(e),
+                )
             } case ExprKind::VariantInitExpr {
                 return self.dyn()->transform_variant_init_expr(
                     cast<Expressions::VariantInitExpr>(e),
@@ -1056,7 +1166,9 @@ pub class <D: type> ASTWriter {
 
     fn transform_stmt_expr(self, n: *Expressions::StmtExpr) -> *Expr {
         if n->body != &null {
-            n->body = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body))
+            n->body = cast<Statements::CompoundStmt>(
+                self.dyn()->transform_stmt_scalar(n->body),
+            )
         }
 
         return n
@@ -1333,8 +1445,14 @@ pub class <D: type> ASTWriter {
     }
 
     fn transform_closure_expr(self, n: unsafe *Expressions::ClosureExpr) -> unsafe *Expr {
-        self.dyn()->rebuild_decl_list(unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>))
-        self.dyn()->rebuild_decl_list(unsafe ((&n->params) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>),
+        )
+
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->params) as unsafe *FrozenList<*Decl>),
+        )
+
         for var i: usize = 0; i < n->captures.size(); i++ {
             if self.stop {
                 break
@@ -1342,7 +1460,9 @@ pub class <D: type> ASTWriter {
 
             var unsafe *cap = n->captures.get(i)
             if cap->name != &null {
-                cap->name = cast<NamedIdentExpr>(self.dyn()->transform_expr(cap->name))
+                cap->name = cast<NamedIdentExpr>(
+                    self.dyn()->transform_expr(cap->name),
+                )
             }
         }
 
@@ -1582,21 +1702,37 @@ pub class <D: type> ASTWriter {
 
         match s->kind {
             case StmtKind::CompoundStmt {
-                return self.dyn()->transform_compound_stmt(cast<Statements::CompoundStmt>(s))
+                return self.dyn()->transform_compound_stmt(
+                    cast<Statements::CompoundStmt>(s),
+                )
             } case StmtKind::ExpressionStmt {
-                return self.dyn()->transform_expression_stmt(cast<Statements::ExpressionStmt>(s))
+                return self.dyn()->transform_expression_stmt(
+                    cast<Statements::ExpressionStmt>(s),
+                )
             } case StmtKind::DeclStmt {
-                return self.dyn()->transform_decl_stmt(cast<Statements::DeclStmt>(s))
+                return self.dyn()->transform_decl_stmt(
+                    cast<Statements::DeclStmt>(s),
+                )
             } case StmtKind::ReturnStmt {
-                return self.dyn()->transform_return_stmt(cast<Statements::ReturnStmt>(s))
+                return self.dyn()->transform_return_stmt(
+                    cast<Statements::ReturnStmt>(s),
+                )
             } case StmtKind::BreakStmt {
-                return self.dyn()->transform_break_stmt(cast<Statements::BreakStmt>(s))
+                return self.dyn()->transform_break_stmt(
+                    cast<Statements::BreakStmt>(s),
+                )
             } case StmtKind::ContinueStmt {
-                return self.dyn()->transform_continue_stmt(cast<Statements::ContinueStmt>(s))
+                return self.dyn()->transform_continue_stmt(
+                    cast<Statements::ContinueStmt>(s),
+                )
             } case StmtKind::PanicStmt {
-                return self.dyn()->transform_panic_stmt(cast<Statements::PanicStmt>(s))
+                return self.dyn()->transform_panic_stmt(
+                    cast<Statements::PanicStmt>(s),
+                )
             } case StmtKind::YieldStmt {
-                return self.dyn()->transform_yield_stmt(cast<Statements::YieldStmt>(s))
+                return self.dyn()->transform_yield_stmt(
+                    cast<Statements::YieldStmt>(s),
+                )
             } case StmtKind::RuntimeAssertStmt {
                 return self.dyn()->transform_runtime_assert_stmt(
                     cast<Statements::RuntimeAssertStmt>(s),
@@ -1614,25 +1750,45 @@ pub class <D: type> ASTWriter {
                     cast<Statements::JumpIntrinsicStmt>(s),
                 )
             } case StmtKind::ConditionalStmt {
-                return self.dyn()->transform_conditional_stmt(cast<Statements::ConditionalStmt>(s))
+                return self.dyn()->transform_conditional_stmt(
+                    cast<Statements::ConditionalStmt>(s),
+                )
             } case StmtKind::WhileLoopStmt {
-                return self.dyn()->transform_while_loop_stmt(cast<Statements::WhileLoopStmt>(s))
+                return self.dyn()->transform_while_loop_stmt(
+                    cast<Statements::WhileLoopStmt>(s),
+                )
             } case StmtKind::LoopStmt {
-                return self.dyn()->transform_loop_stmt(cast<Statements::LoopStmt>(s))
+                return self.dyn()->transform_loop_stmt(
+                    cast<Statements::LoopStmt>(s),
+                )
             } case StmtKind::RangedForStmt {
-                return self.dyn()->transform_ranged_for_stmt(cast<Statements::RangedForStmt>(s))
+                return self.dyn()->transform_ranged_for_stmt(
+                    cast<Statements::RangedForStmt>(s),
+                )
             } case StmtKind::IndexedForStmt {
-                return self.dyn()->transform_indexed_for_stmt(cast<Statements::IndexedForStmt>(s))
+                return self.dyn()->transform_indexed_for_stmt(
+                    cast<Statements::IndexedForStmt>(s),
+                )
             } case StmtKind::MatchStmt {
-                return self.dyn()->transform_match_stmt(cast<Statements::MatchStmt>(s))
+                return self.dyn()->transform_match_stmt(
+                    cast<Statements::MatchStmt>(s),
+                )
             } case StmtKind::LabeledStmt {
-                return self.dyn()->transform_labeled_stmt(cast<Statements::LabeledStmt>(s))
+                return self.dyn()->transform_labeled_stmt(
+                    cast<Statements::LabeledStmt>(s),
+                )
             } case StmtKind::TryCatchStmt {
-                return self.dyn()->transform_try_catch_stmt(cast<Statements::TryCatchStmt>(s))
+                return self.dyn()->transform_try_catch_stmt(
+                    cast<Statements::TryCatchStmt>(s),
+                )
             } case StmtKind::FinallyStmt {
-                return self.dyn()->transform_finally_stmt(cast<Statements::FinallyStmt>(s))
+                return self.dyn()->transform_finally_stmt(
+                    cast<Statements::FinallyStmt>(s),
+                )
             } case StmtKind::UnsafeBlockStmt {
-                return self.dyn()->transform_unsafe_block_stmt(cast<Statements::UnsafeBlockStmt>(s))
+                return self.dyn()->transform_unsafe_block_stmt(
+                    cast<Statements::UnsafeBlockStmt>(s),
+                )
             } case StmtKind::ContextBindingStmt {
                 return self.dyn()->transform_context_binding_stmt(
                     cast<Statements::ContextBindingStmt>(s),
@@ -1642,9 +1798,13 @@ pub class <D: type> ASTWriter {
                     cast<Statements::DestructuringDeclStmt>(s),
                 )
             } case StmtKind::InlineBlockStmt {
-                return self.dyn()->transform_inline_block_stmt(cast<Statements::InlineBlockStmt>(s))
+                return self.dyn()->transform_inline_block_stmt(
+                    cast<Statements::InlineBlockStmt>(s),
+                )
             } case StmtKind::EvalBlockStmt {
-                return self.dyn()->transform_eval_block_stmt(cast<Statements::EvalBlockStmt>(s))
+                return self.dyn()->transform_eval_block_stmt(
+                    cast<Statements::EvalBlockStmt>(s),
+                )
             } case StmtKind::SwitchDispatchStmt {
                 return self.dyn()->transform_switch_dispatch_stmt(
                     cast<Statements::SwitchDispatchStmt>(s),
@@ -1689,7 +1849,12 @@ pub class <D: type> ASTWriter {
 
         var out = cxx::std::vector<unsafe *Stmt>()
         for var i: usize = 0; i < decls.size(); i++ {
-            var wrapper = Statements::DeclStmt::create(self.ctx, n->range, decls[i])
+            var wrapper = Statements::DeclStmt::create(
+                self.ctx,
+                n->range,
+                decls[i],
+            )
+
             out.push_back(wrapper)
         }
 
@@ -1803,7 +1968,10 @@ pub class <D: type> ASTWriter {
             n->cond = self.dyn()->transform_expr(n->cond)
         }
 
-        n->then_ = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(n->then_))
+        n->then_ = cast<Statements::CompoundStmt>(
+            self.dyn()->transform_stmt_scalar(n->then_),
+        )
+
         if n->else_ != &null {
             n->else_ = self.dyn()->transform_stmt_scalar(n->else_)
         }
@@ -1817,13 +1985,19 @@ pub class <D: type> ASTWriter {
             n->cond = self.dyn()->transform_expr(n->cond)
         }
 
-        n->body = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body))
+        n->body = cast<Statements::CompoundStmt>(
+            self.dyn()->transform_stmt_scalar(n->body),
+        )
+
         return self._one_stmt(n)
     }
 
     fn transform_loop_stmt(self,
                            n: unsafe *Statements::LoopStmt) -> cxx::std::vector<unsafe *Stmt> {
-        n->body = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body))
+        n->body = cast<Statements::CompoundStmt>(
+            self.dyn()->transform_stmt_scalar(n->body),
+        )
+
         return self._one_stmt(n)
     }
 
@@ -1833,7 +2007,10 @@ pub class <D: type> ASTWriter {
             n->iterable = self.dyn()->transform_expr(n->iterable)
         }
 
-        n->body = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body))
+        n->body = cast<Statements::CompoundStmt>(
+            self.dyn()->transform_stmt_scalar(n->body),
+        )
+
         return self._one_stmt(n)
     }
 
@@ -1851,7 +2028,10 @@ pub class <D: type> ASTWriter {
             n->update = self.dyn()->transform_expr(n->update)
         }
 
-        n->body = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body))
+        n->body = cast<Statements::CompoundStmt>(
+            self.dyn()->transform_stmt_scalar(n->body),
+        )
+
         return self._one_stmt(n)
     }
 
@@ -1883,7 +2063,10 @@ pub class <D: type> ASTWriter {
 
     fn transform_try_catch_stmt(self,
                                 n: unsafe *Statements::TryCatchStmt) -> cxx::std::vector<unsafe *Stmt> {
-        n->try_body = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(n->try_body))
+        n->try_body = cast<Statements::CompoundStmt>(
+            self.dyn()->transform_stmt_scalar(n->try_body),
+        )
+
         for var i: usize = 0; i < n->arms.size(); i++ {
             if self.stop {
                 break
@@ -1906,13 +2089,19 @@ pub class <D: type> ASTWriter {
 
     fn transform_finally_stmt(self,
                               n: unsafe *Statements::FinallyStmt) -> cxx::std::vector<unsafe *Stmt> {
-        n->body = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body))
+        n->body = cast<Statements::CompoundStmt>(
+            self.dyn()->transform_stmt_scalar(n->body),
+        )
+
         return self._one_stmt(n)
     }
 
     fn transform_unsafe_block_stmt(self,
                                    n: unsafe *Statements::UnsafeBlockStmt) -> cxx::std::vector<unsafe *Stmt> {
-        n->body = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body))
+        n->body = cast<Statements::CompoundStmt>(
+            self.dyn()->transform_stmt_scalar(n->body),
+        )
+
         return self._one_stmt(n)
     }
 
@@ -1922,7 +2111,10 @@ pub class <D: type> ASTWriter {
             n->value = self.dyn()->transform_expr(n->value)
         }
 
-        n->body = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body))
+        n->body = cast<Statements::CompoundStmt>(
+            self.dyn()->transform_stmt_scalar(n->body),
+        )
+
         return self._one_stmt(n)
     }
 
@@ -1957,55 +2149,89 @@ pub class <D: type> ASTWriter {
 
         match d->kind {
             case DeclKind::FunctionDecl {
-                return self.dyn()->transform_function_decl(cast<Declarations::FunctionDecl>(d))
+                return self.dyn()->transform_function_decl(
+                    cast<Declarations::FunctionDecl>(d),
+                )
             } case DeclKind::VariableDecl {
-                return self.dyn()->transform_variable_decl(cast<Declarations::VariableDecl>(d))
+                return self.dyn()->transform_variable_decl(
+                    cast<Declarations::VariableDecl>(d),
+                )
             } case DeclKind::FieldDecl {
-                return self.dyn()->transform_field_decl(cast<Declarations::FieldDecl>(d))
+                return self.dyn()->transform_field_decl(
+                    cast<Declarations::FieldDecl>(d),
+                )
             } case DeclKind::ParamDecl {
-                return self.dyn()->transform_param_decl(cast<Declarations::ParamDecl>(d))
+                return self.dyn()->transform_param_decl(
+                    cast<Declarations::ParamDecl>(d),
+                )
             } case DeclKind::GenericParamDecl {
                 return self.dyn()->transform_generic_param_decl(
                     cast<Declarations::GenericParamDecl>(d),
                 )
             } case DeclKind::StructDecl {
-                return self.dyn()->transform_struct_decl(cast<Declarations::StructDecl>(d))
+                return self.dyn()->transform_struct_decl(
+                    cast<Declarations::StructDecl>(d),
+                )
             } case DeclKind::ClassDecl {
-                return self.dyn()->transform_class_decl(cast<Declarations::ClassDecl>(d))
+                return self.dyn()->transform_class_decl(
+                    cast<Declarations::ClassDecl>(d),
+                )
             } case DeclKind::InterfaceDecl {
-                return self.dyn()->transform_interface_decl(cast<Declarations::InterfaceDecl>(d))
+                return self.dyn()->transform_interface_decl(
+                    cast<Declarations::InterfaceDecl>(d),
+                )
             } case DeclKind::ExtensionDecl {
-                return self.dyn()->transform_extension_decl(cast<Declarations::ExtensionDecl>(d))
+                return self.dyn()->transform_extension_decl(
+                    cast<Declarations::ExtensionDecl>(d),
+                )
             } case DeclKind::EnumDecl {
-                return self.dyn()->transform_enum_decl(cast<Declarations::EnumDecl>(d))
+                return self.dyn()->transform_enum_decl(
+                    cast<Declarations::EnumDecl>(d),
+                )
             } case DeclKind::EnumVariantDecl {
                 return self.dyn()->transform_enum_variant_decl(
                     cast<Declarations::EnumVariantDecl>(d),
                 )
             } case DeclKind::UnionDecl {
-                return self.dyn()->transform_union_decl(cast<Declarations::UnionDecl>(d))
+                return self.dyn()->transform_union_decl(
+                    cast<Declarations::UnionDecl>(d),
+                )
             } case DeclKind::TypeAliasDecl {
-                return self.dyn()->transform_type_alias_decl(cast<Declarations::TypeAliasDecl>(d))
+                return self.dyn()->transform_type_alias_decl(
+                    cast<Declarations::TypeAliasDecl>(d),
+                )
             } case DeclKind::ModuleDecl {
-                return self.dyn()->transform_module_decl(cast<Declarations::ModuleDecl>(d))
+                return self.dyn()->transform_module_decl(
+                    cast<Declarations::ModuleDecl>(d),
+                )
             } case DeclKind::ImportDecl {
-                return self.dyn()->transform_import_decl(cast<Declarations::ImportDecl>(d))
+                return self.dyn()->transform_import_decl(
+                    cast<Declarations::ImportDecl>(d),
+                )
             } case DeclKind::VisibilityGroupDecl {
                 return self.dyn()->transform_visibility_group_decl(
                     cast<Declarations::VisibilityGroupDecl>(d),
                 )
             } case DeclKind::EvalBlockDecl {
-                return self.dyn()->transform_eval_block_decl(cast<Declarations::EvalBlockDecl>(d))
+                return self.dyn()->transform_eval_block_decl(
+                    cast<Declarations::EvalBlockDecl>(d),
+                )
             } case DeclKind::TestDecl {
-                return self.dyn()->transform_test_decl(cast<Declarations::TestDecl>(d))
+                return self.dyn()->transform_test_decl(
+                    cast<Declarations::TestDecl>(d),
+                )
             } case DeclKind::MacroDecl {
-                return self.dyn()->transform_macro_decl(cast<Declarations::MacroDecl>(d))
+                return self.dyn()->transform_macro_decl(
+                    cast<Declarations::MacroDecl>(d),
+                )
             } case DeclKind::ProcedureMacroDecl {
                 return self.dyn()->transform_procedure_macro_decl(
                     cast<Declarations::ProcedureMacroDecl>(d),
                 )
             } case DeclKind::FFIBlockDecl {
-                return self.dyn()->transform_ffi_block_decl(cast<Declarations::FFIBlockDecl>(d))
+                return self.dyn()->transform_ffi_block_decl(
+                    cast<Declarations::FFIBlockDecl>(d),
+                )
             } case DeclKind::RecoveryDecl {
                 return self._one_decl(d)
             } case DeclKind::DeclKindCount {
@@ -2016,7 +2242,10 @@ pub class <D: type> ASTWriter {
 
     fn transform_function_decl(self,
                                n: unsafe *Declarations::FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
-        self.dyn()->rebuild_decl_list(unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>),
+        )
+
         self.dyn()->rebuild_type_list(&n->spec_args) // specialization pattern (#68)
         if n->requires_clause != &null {
             n->requires_clause = self.dyn()->transform_expr(n->requires_clause)
@@ -2026,7 +2255,10 @@ pub class <D: type> ASTWriter {
             n->where_clause = self.dyn()->transform_expr(n->where_clause)
         }
 
-        self.dyn()->rebuild_decl_list(unsafe ((&n->params) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->params) as unsafe *FrozenList<*Decl>),
+        )
+
         self.dyn()->rebuild_type_list(&n->panic_set)
         if n->return_type != &null {
             n->return_type = self.dyn()->transform_type(n->return_type)
@@ -2119,7 +2351,10 @@ pub class <D: type> ASTWriter {
 
     fn transform_struct_decl(self,
                              n: unsafe *Declarations::StructDecl) -> cxx::std::vector<unsafe *Decl> {
-        self.dyn()->rebuild_decl_list(unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>),
+        )
+
         self.dyn()->rebuild_type_list(&n->spec_args) // specialization pattern (#68)
         if n->requires_clause != &null {
             n->requires_clause = self.dyn()->transform_expr(n->requires_clause)
@@ -2133,15 +2368,24 @@ pub class <D: type> ASTWriter {
             self.dyn()->transform_inherit_edge(n->implements.get(i))
         }
 
-        self.dyn()->rebuild_decl_list(unsafe ((&n->fields) as unsafe *FrozenList<*Decl>))
-        self.dyn()->rebuild_decl_list(unsafe ((&n->methods) as unsafe *FrozenList<*Decl>)) // ctors and operators; the RAV walks them, so must every rewrite.
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->fields) as unsafe *FrozenList<*Decl>),
+        )
+
+        self.dyn()->rebuild_decl_list( // ctors and operators; the RAV walks them, so must every rewrite.
+            unsafe ((&n->methods) as unsafe *FrozenList<*Decl>),
+        )
+
         self.dyn()->rebuild_dc_decls(n)
         return self._one_decl(n)
     }
 
     fn transform_class_decl(self,
                             n: unsafe *Declarations::ClassDecl) -> cxx::std::vector<unsafe *Decl> {
-        self.dyn()->rebuild_decl_list(unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>),
+        )
+
         self.dyn()->rebuild_type_list(&n->spec_args) // specialization pattern (#68)
         if n->requires_clause != &null {
             n->requires_clause = self.dyn()->transform_expr(n->requires_clause)
@@ -2163,15 +2407,24 @@ pub class <D: type> ASTWriter {
             self.dyn()->transform_inherit_edge(n->implements.get(i))
         }
 
-        self.dyn()->rebuild_decl_list(unsafe ((&n->fields) as unsafe *FrozenList<*Decl>))
-        self.dyn()->rebuild_decl_list(unsafe ((&n->methods) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->fields) as unsafe *FrozenList<*Decl>),
+        )
+
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->methods) as unsafe *FrozenList<*Decl>),
+        )
+
         self.dyn()->rebuild_dc_decls(n)
         return self._one_decl(n)
     }
 
     fn transform_interface_decl(self,
                                 n: unsafe *Declarations::InterfaceDecl) -> cxx::std::vector<unsafe *Decl> {
-        self.dyn()->rebuild_decl_list(unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>),
+        )
+
         if n->requires_clause != &null {
             n->requires_clause = self.dyn()->transform_expr(n->requires_clause)
         }
@@ -2184,14 +2437,20 @@ pub class <D: type> ASTWriter {
             self.dyn()->transform_inherit_edge(n->derives_list.get(i))
         }
 
-        self.dyn()->rebuild_decl_list(unsafe ((&n->methods) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->methods) as unsafe *FrozenList<*Decl>),
+        )
+
         self.dyn()->rebuild_dc_decls(n)
         return self._one_decl(n)
     }
 
     fn transform_extension_decl(self,
                                 n: unsafe *Declarations::ExtensionDecl) -> cxx::std::vector<unsafe *Decl> {
-        self.dyn()->rebuild_decl_list(unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>),
+        )
+
         if n->requires_clause != &null {
             n->requires_clause = self.dyn()->transform_expr(n->requires_clause)
         }
@@ -2208,14 +2467,20 @@ pub class <D: type> ASTWriter {
             self.dyn()->transform_inherit_edge(n->implements.get(i))
         }
 
-        self.dyn()->rebuild_decl_list(unsafe ((&n->methods) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->methods) as unsafe *FrozenList<*Decl>),
+        )
+
         self.dyn()->rebuild_dc_decls(n)
         return self._one_decl(n)
     }
 
     fn transform_enum_decl(self,
                            n: unsafe *Declarations::EnumDecl) -> cxx::std::vector<unsafe *Decl> {
-        self.dyn()->rebuild_decl_list(unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>),
+        )
+
         if n->requires_clause != &null {
             n->requires_clause = self.dyn()->transform_expr(n->requires_clause)
         }
@@ -2224,7 +2489,10 @@ pub class <D: type> ASTWriter {
             n->underlying = self.dyn()->transform_type(n->underlying)
         }
 
-        self.dyn()->rebuild_decl_list(unsafe ((&n->variants) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->variants) as unsafe *FrozenList<*Decl>),
+        )
+
         return self._one_decl(n)
     }
 
@@ -2234,27 +2502,42 @@ pub class <D: type> ASTWriter {
             n->discriminant = self.dyn()->transform_expr(n->discriminant)
         }
 
-        self.dyn()->rebuild_decl_list(unsafe ((&n->payload) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->payload) as unsafe *FrozenList<*Decl>),
+        )
+
         return self._one_decl(n)
     }
 
     fn transform_union_decl(self,
                             n: unsafe *Declarations::UnionDecl) -> cxx::std::vector<unsafe *Decl> {
-        self.dyn()->rebuild_decl_list(unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>),
+        )
+
         self.dyn()->rebuild_type_list(&n->spec_args) // specialization pattern (#68)
         if n->requires_clause != &null {
             n->requires_clause = self.dyn()->transform_expr(n->requires_clause)
         }
 
-        self.dyn()->rebuild_decl_list(unsafe ((&n->fields) as unsafe *FrozenList<*Decl>))
-        self.dyn()->rebuild_decl_list(unsafe ((&n->methods) as unsafe *FrozenList<*Decl>)) // ctors and operators; the RAV walks them, so must every rewrite.
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->fields) as unsafe *FrozenList<*Decl>),
+        )
+
+        self.dyn()->rebuild_decl_list( // ctors and operators; the RAV walks them, so must every rewrite.
+            unsafe ((&n->methods) as unsafe *FrozenList<*Decl>),
+        )
+
         self.dyn()->rebuild_dc_decls(n)
         return self._one_decl(n)
     }
 
     fn transform_type_alias_decl(self,
                                  n: unsafe *Declarations::TypeAliasDecl) -> cxx::std::vector<unsafe *Decl> {
-        self.dyn()->rebuild_decl_list(unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->generic_params) as unsafe *FrozenList<*Decl>),
+        )
+
         if n->requires_clause != &null {
             n->requires_clause = self.dyn()->transform_expr(n->requires_clause)
         }
@@ -2306,7 +2589,9 @@ pub class <D: type> ASTWriter {
         }
 
         if n->body != &null {
-            n->body = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body))
+            n->body = cast<Statements::CompoundStmt>(
+                self.dyn()->transform_stmt_scalar(n->body),
+            )
         }
 
         return self._one_decl(n)
@@ -2319,9 +2604,14 @@ pub class <D: type> ASTWriter {
 
     fn transform_procedure_macro_decl(self,
                                       n: unsafe *Declarations::ProcedureMacroDecl) -> cxx::std::vector<unsafe *Decl> {
-        self.dyn()->rebuild_decl_list(unsafe ((&n->params) as unsafe *FrozenList<*Decl>))
+        self.dyn()->rebuild_decl_list(
+            unsafe ((&n->params) as unsafe *FrozenList<*Decl>),
+        )
+
         if n->body != &null {
-            n->body = cast<Statements::CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body))
+            n->body = cast<Statements::CompoundStmt>(
+                self.dyn()->transform_stmt_scalar(n->body),
+            )
         }
 
         return self._one_decl(n)
@@ -2338,27 +2628,41 @@ pub class <D: type> ASTWriter {
 
         match p->kind {
             case PatternKind::WildcardPattern {
-                return self.dyn()->transform_wildcard_pattern(cast<WildcardPattern>(p))
+                return self.dyn()->transform_wildcard_pattern(
+                    cast<WildcardPattern>(p),
+                )
             } case PatternKind::LiteralPattern {
-                return self.dyn()->transform_literal_pattern(cast<LiteralPattern>(p))
+                return self.dyn()->transform_literal_pattern(
+                    cast<LiteralPattern>(p),
+                )
             } case PatternKind::BindingPattern {
-                return self.dyn()->transform_binding_pattern(cast<BindingPattern>(p))
+                return self.dyn()->transform_binding_pattern(
+                    cast<BindingPattern>(p),
+                )
             } case PatternKind::TupleDestructurePattern {
                 return self.dyn()->transform_tuple_destructure_pattern(
                     cast<TupleDestructurePattern>(p),
                 )
             } case PatternKind::ConstructorPattern {
-                return self.dyn()->transform_constructor_pattern(cast<ConstructorPattern>(p))
+                return self.dyn()->transform_constructor_pattern(
+                    cast<ConstructorPattern>(p),
+                )
             } case PatternKind::UnresolvedConstructorPattern {
                 return self.dyn()->transform_unresolved_constructor_pattern(
                     cast<UnresolvedConstructorPattern>(p),
                 )
             } case PatternKind::AlternationPattern {
-                return self.dyn()->transform_alternation_pattern(cast<AlternationPattern>(p))
+                return self.dyn()->transform_alternation_pattern(
+                    cast<AlternationPattern>(p),
+                )
             } case PatternKind::RangePattern {
-                return self.dyn()->transform_range_pattern(cast<RangePattern>(p))
+                return self.dyn()->transform_range_pattern(
+                    cast<RangePattern>(p),
+                )
             } case PatternKind::SlicePattern {
-                return self.dyn()->transform_slice_pattern(cast<SlicePattern>(p))
+                return self.dyn()->transform_slice_pattern(
+                    cast<SlicePattern>(p),
+                )
             } case PatternKind::RecoveryPattern {
                 return p
             } case PatternKind::PatternKindCount {

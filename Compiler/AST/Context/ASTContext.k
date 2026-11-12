@@ -75,23 +75,23 @@ pub class ASTContext {
     /// already analysed and reports nothing, yet its codegen would walk this
     /// TU's poisoned or never-lowered decls and hit an emitter ICE guard;
     /// FrontendAction::_codegen refuses a graph holding one.
-    pub var sema_errored: bool                       = false
+    pub var sema_errored: bool = false
     /// --check-past-syntax-errors: this file has syntax errors, or imports
     /// (transitively) one that has, so Sema leaves it unchecked and a tool
     /// gets nothing for it (Driver/SyntaxRecovery.k). Never set otherwise.
-    pub var syntax_skipped: bool                     = false
+    pub var syntax_skipped: bool = false
     /// --print-stats: the re-export fixpoint rounds an import cycle ran on
     /// this TU (ImportResolution::refold_reexports). One per round of the
-    /// group's I; a group resumed past I runs none (P911).
-    pub var refold_rounds: u32                       = 0
-    pub var sm:          unsafe *SourceManager      = &null
-    pub var tcm:          unsafe *TokenCacheManager  = &null // we can get the imm table from the tcm
-    pub var diags:        unsafe *DiagEngine         = &null
-    pub var resolver:     unsafe *ImportResolver     = &null
-    pub var hoisted:      unsafe *DisambigTable      = &null
-    pub var ci:           unsafe *CompilerInvocation = &null
-    pub var tu:           unsafe *TranslationUnit    = &null
-    pub var fid:          u32 // needed to get the right lexer
+    /// group's I; a group resumed past I runs none.
+    pub var refold_rounds: u32                        = 0
+    pub var sm:            unsafe *SourceManager      = &null
+    pub var tcm:           unsafe *TokenCacheManager  = &null // we can get the imm table from the tcm
+    pub var diags:         unsafe *DiagEngine         = &null
+    pub var resolver:      unsafe *ImportResolver     = &null
+    pub var hoisted:       unsafe *DisambigTable      = &null
+    pub var ci:            unsafe *CompilerInvocation = &null
+    pub var tu:            unsafe *TranslationUnit    = &null
+    pub var fid:           u32 // needed to get the right lexer
 
     // Arena reset frees the BLOCKS; it does not run destructors. Anything
     // allocated into an arena whose type is not trivially destructible   it
@@ -191,7 +191,11 @@ pub class ASTContext {
 
     pub fn <T, A0, A1> alloc_init(self, a0: A0, a1: A1) -> unsafe *T {
         var mem: unsafe *void = self.ast_alloc.alloc(sizeof(T), alignof(T))
-        return kairo::construct_at<T>(mem, cxx::std::move(a0), cxx::std::move(a1))
+        return kairo::construct_at<T>(
+            mem,
+            cxx::std::move(a0),
+            cxx::std::move(a1),
+        )
     }
 
     pub fn <T> alloc_array(self, n: usize) -> unsafe *T {
@@ -205,7 +209,7 @@ pub class ASTContext {
 
     /// An array that lives with the PP-stage nodes (ImportDecl, MacroDecl):
     /// release_from(Parsing) resets ast_alloc but keeps pp_alloc, so a list a
-    /// pp_alloc node points at must not sit in ast_alloc (P805).
+    /// pp_alloc node points at must not sit in ast_alloc.
     pub fn <T> alloc_pp_array(self, n: usize) -> unsafe *T {
         if n == 0 {
             return &null
@@ -240,7 +244,10 @@ pub class ASTContext {
 
     pub fn <T> alloc_init_cleanup(self) -> unsafe *T {
         var mem: unsafe *void = self.ast_alloc.alloc(sizeof(T), alignof(T))
-        return self._with_cleanup<T>(&self._cleanup_ast, kairo::construct_at<T>(mem))
+        return self._with_cleanup<T>(
+            &self._cleanup_ast,
+            kairo::construct_at<T>(mem),
+        )
     }
 
     pub fn <T, A0> alloc_init_cleanup(self, a0: A0) -> unsafe *T {
@@ -255,18 +262,29 @@ pub class ASTContext {
         var mem: unsafe *void = self.ast_alloc.alloc(sizeof(T), alignof(T))
         return self._with_cleanup<T>(
             &self._cleanup_ast,
-            kairo::construct_at<T>(mem, cxx::std::move(a0), cxx::std::move(a1), cxx::std::move(a2)),
+            kairo::construct_at<T>(
+                mem,
+                cxx::std::move(a0),
+                cxx::std::move(a1),
+                cxx::std::move(a2),
+            ),
         )
     }
 
     pub fn <T> alloc_init_sema_cleanup(self) -> unsafe *T {
         var mem: unsafe *void = self.sema_alloc.alloc(sizeof(T), alignof(T))
-        return self._with_cleanup<T>(&self._cleanup_sema, kairo::construct_at<T>(mem))
+        return self._with_cleanup<T>(
+            &self._cleanup_sema,
+            kairo::construct_at<T>(mem),
+        )
     }
 
     pub fn <T> alloc_init_pp_cleanup(self) -> unsafe *T {
         var mem: unsafe *void = self.pp_alloc.alloc(sizeof(T), alignof(T))
-        return self._with_cleanup<T>(&self._cleanup_pp, kairo::construct_at<T>(mem))
+        return self._with_cleanup<T>(
+            &self._cleanup_pp,
+            kairo::construct_at<T>(mem),
+        )
     }
 
     pub fn <T, A0, A1, A2, A3> alloc_init_pp_cleanup(self,
@@ -289,7 +307,10 @@ pub class ASTContext {
 
     fn <T> alloc_init_index_cleanup(self) -> unsafe *T {
         var mem: unsafe *void = self.index_alloc.alloc(sizeof(T), alignof(T))
-        return self._with_cleanup<T>(&self._cleanup_index, kairo::construct_at<T>(mem))
+        return self._with_cleanup<T>(
+            &self._cleanup_index,
+            kairo::construct_at<T>(mem),
+        )
     }
 
     pub fn <T, A0> alloc_init_index_cleanup(self, a0: A0) -> unsafe *T {
@@ -658,7 +679,10 @@ pub class ASTContext {
         if (site.kind as u32) == (TokenKind::TkMacroExpand as u32) {
             var unsafe *rec_tbl = self.tcm->get_imm_table_for_token(site)
             if rec_tbl != &null {
-                var unsafe *outer = rec_tbl->get<Immediate::MacroExpansionInfo>(site.imm)
+                var unsafe *outer = rec_tbl->get<Immediate::MacroExpansionInfo>(
+                    site.imm,
+                )
+
                 if outer != &null {
                     name = outer->macro_name
                 }

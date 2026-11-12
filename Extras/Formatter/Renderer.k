@@ -348,7 +348,9 @@ pub class Renderer {
                         // a choice breaks into its second child
                         var unsafe *bd = if d->children.size() > 1 => unsafe &d->children[1]
                                          else => child
-                        stack.push_back(Cmd { ind: c.ind, pad: c.pad, brk: true, doc: bd, lit: "" })
+                        stack.push_back(
+                            Cmd { ind: c.ind, pad: c.pad, brk: true, doc: bd, lit: "" },
+                        )
                     }
 
                     continue
@@ -599,7 +601,10 @@ pub class Renderer {
         var unsafe *key = unsafe &d->children[1 + 2 * i]
         var unsafe *val = unsafe &d->children[2 + 2 * i]
         if !key->is_empty() {
-            seq->push_back(Cmd { ind: ind, pad: pad, brk: false, doc: key, lit: "" })
+            seq->push_back(
+                Cmd { ind: ind, pad: pad, brk: false, doc: key, lit: "" },
+            )
+
             var gap: i32 = 1
             if keys {
                 gap += kw - Renderer::flat_width(key)
@@ -623,7 +628,9 @@ pub class Renderer {
                          n:     usize) {
         var cw = cxx::std::vector<i32>()
         for var i: usize = 0; i < n; ++i {
-            cw.push_back(Renderer::flat_width(unsafe &d->children[2 + 2 * i]) + 1)
+            cw.push_back(
+                Renderer::flat_width(unsafe &d->children[2 + 2 * i]) + 1,
+            )
         }
 
         var lead = (c.ind + 1) * pen->level_cols() + c.pad
@@ -693,7 +700,13 @@ pub class Renderer {
             if last {
                 seq.push_back(Renderer::_lit(c.ind + 1, c.pad, ","))
             } else {
-                seq.push_back(Renderer::_lit(c.ind + 1, c.pad, "," + spaces(widths[k] - cw[i] + 1)))
+                seq.push_back(
+                    Renderer::_lit(
+                        c.ind + 1,
+                        c.pad,
+                        "," + spaces(widths[k] - cw[i] + 1),
+                    ),
+                )
             }
         }
 
@@ -809,7 +822,9 @@ pub class Renderer {
                 seq.push_back(Renderer::_lit(c.ind, pad, ","))
             } else {
                 var iw = Renderer::flat_width(unsafe &d->children[2 + 2 * i]) + 1
-                seq.push_back(Renderer::_lit(c.ind, pad, "," + spaces(widths[k] - iw + 1)))
+                seq.push_back(
+                    Renderer::_lit(c.ind, pad, "," + spaces(widths[k] - iw + 1)),
+                )
             }
         }
 
@@ -863,7 +878,13 @@ pub class Renderer {
                 if cell->is_empty() {
                     // an empty cell under a later one: pad past it, separator included
                     if w[k] > 0 {
-                        seq.push_back(Renderer::_lit(c.ind, c.pad, spaces(width_of(sep) + w[k])))
+                        seq.push_back(
+                            Renderer::_lit(
+                                c.ind,
+                                c.pad,
+                                spaces(width_of(sep) + w[k]),
+                            ),
+                        )
                     }
 
                     continue
@@ -873,7 +894,10 @@ pub class Renderer {
                     seq.push_back(Renderer::_lit(c.ind, c.pad, sep))
                 }
 
-                seq.push_back(Cmd { ind: c.ind, pad: c.pad, brk: false, doc: cell, lit: "" })
+                seq.push_back(
+                    Cmd { ind: c.ind, pad: c.pad, brk: false, doc: cell, lit: "" },
+                )
+
                 if k < last {
                     var gap = w[k] - Renderer::flat_width(cell)
                     if gap > 0 {

@@ -30,33 +30,20 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
 import Server::Diagnostics::*
 import Server::Features::*
 import Server::Formatting::*
+import Server::LiveIndex::*
 import Server::Lookup::*
 import Server::Navigation::*
 import Server::Output::*
@@ -67,7 +54,20 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
-import Server::LiveIndex::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 extend Server {
     /// (Re)reads the project file and rebuilds the entry list from it.
@@ -134,12 +134,16 @@ extend Server {
 
         var opts = d->get(params, "initializationOptions")
         var dms  = d->get_int(opts, OPT_DEBOUNCE_MS)
-        if d->is_number(d->get(opts, OPT_DEBOUNCE_MS)) && (dms >= 0) && (dms <= MAX_DEBOUNCE_OPTION_MS) {
+        if d->is_number(d->get(opts, OPT_DEBOUNCE_MS))
+            && (dms >= 0)
+            && (dms <= MAX_DEBOUNCE_OPTION_MS) {
             self.debounce_ms = dms
         }
 
         var sms = d->get_int(opts, OPT_SYNTAX_DEBOUNCE_MS)
-        if d->is_number(d->get(opts, OPT_SYNTAX_DEBOUNCE_MS)) && (sms >= 0) && (sms <= MAX_DEBOUNCE_OPTION_MS) {
+        if d->is_number(d->get(opts, OPT_SYNTAX_DEBOUNCE_MS))
+            && (sms >= 0)
+            && (sms <= MAX_DEBOUNCE_OPTION_MS) {
             self.syntax_ms = sms
         }
 
@@ -148,7 +152,8 @@ extend Server {
         // 2026-11-12, LanguageServer.md section 10). The environment
         // decides for a whole session whatever the editor sends:
         // KALS_LIVE_CHECK=0 is off, =1 is on (a test suite run in one mode).
-        self.live_on = (d->get(opts, OPT_LIVE_CHECK) == JSON_NONE()) || d->get_bool(opts, OPT_LIVE_CHECK)
+        self.live_on = (d->get(opts, OPT_LIVE_CHECK) == JSON_NONE())
+            || d->get_bool(opts, OPT_LIVE_CHECK)
         var unsafe *lenv = cxx::std::getenv(r"KALS_LIVE_CHECK")
         if (lenv != &null) && ((lenv[0] as u8) == ('1' as u8)) {
             self.live_on = true
@@ -160,15 +165,27 @@ extend Server {
 
         // Completion from the index, unless the client or the environment
         // says no (a comparison of the two ways, Dev/completion_oracle.py).
-        self.index_completion = (d->get(opts, OPT_INDEX_COMPLETION) == JSON_NONE()) || d->get_bool(opts, OPT_INDEX_COMPLETION)
+        self.index_completion = (d->get(opts, OPT_INDEX_COMPLETION) == JSON_NONE())
+            || d->get_bool(opts, OPT_INDEX_COMPLETION)
         var unsafe *ienv = cxx::std::getenv(r"KALS_INDEX_COMPLETION")
         if (ienv != &null) && ((ienv[0] as u8) == ('0' as u8)) {
             self.index_completion = false
         }
 
-        var ccap = d->get(d->get(d->get(params, K_CAPABILITIES), K_TEXT_DOCUMENT), "completion")
-        self.snippet_ok = d->get_bool(d->get(ccap, "completionItem"), "snippetSupport")
-        var idf = d->first(d->get(d->get(ccap, "completionList"), K_ITEM_DEFAULTS))
+        var ccap = d->get(
+            d->get(d->get(params, K_CAPABILITIES), K_TEXT_DOCUMENT),
+            "completion",
+        )
+
+        self.snippet_ok = d->get_bool(
+            d->get(ccap, "completionItem"),
+            "snippetSupport",
+        )
+
+        var idf = d->first(
+            d->get(d->get(ccap, "completionList"), K_ITEM_DEFAULTS),
+        )
+
         while idf != JSON_NONE() {
             if d->str(idf) == K_EDIT_RANGE {
                 self.edit_default_ok = true
@@ -177,9 +194,16 @@ extend Server {
             idf = d->next(idf)
         }
 
-        self.progress_ok = d->get_bool(d->get(d->get(params, K_CAPABILITIES), "window"), "workDoneProgress")
+        self.progress_ok = d->get_bool(
+            d->get(d->get(params, K_CAPABILITIES), "window"),
+            "workDoneProgress",
+        )
+
         self.watch_ok = d->get_bool(
-            d->get(d->get(d->get(params, K_CAPABILITIES), K_WORKSPACE), "didChangeWatchedFiles"),
+            d->get(
+                d->get(d->get(params, K_CAPABILITIES), K_WORKSPACE),
+                "didChangeWatchedFiles",
+            ),
             "dynamicRegistration",
         )
 
@@ -189,8 +213,15 @@ extend Server {
         }
 
         var ws = d->get(d->get(params, K_CAPABILITIES), K_WORKSPACE)
-        self.refresh_tokens = d->get_bool(d->get(ws, "semanticTokens"), K_REFRESH_SUPPORT)
-        self.refresh_inlays = d->get_bool(d->get(ws, "inlayHint"), K_REFRESH_SUPPORT)
+        self.refresh_tokens = d->get_bool(
+            d->get(ws, "semanticTokens"),
+            K_REFRESH_SUPPORT,
+        )
+
+        self.refresh_inlays = d->get_bool(
+            d->get(ws, "inlayHint"),
+            K_REFRESH_SUPPORT,
+        )
 
         var w = JsonWriter()
         w.begin_object()
@@ -225,7 +256,11 @@ extend Server {
         w.field_bool("foldingRangeProvider", true)
         w.field_bool("selectionRangeProvider", true)
         w.field_raw("documentLinkProvider", "{\"resolveProvider\":false}")
-        w.field_raw("signatureHelpProvider", "{\"triggerCharacters\":[\"(\",\",\"]}")
+        w.field_raw(
+            "signatureHelpProvider",
+            "{\"triggerCharacters\":[\"(\",\",\"]}",
+        )
+
         w.field_bool("implementationProvider", true)
         w.field_bool("callHierarchyProvider", true)
         w.field_bool("typeHierarchyProvider", true)
@@ -236,15 +271,27 @@ extend Server {
         // The object form, not `true`: both are valid, and a client that
         // only looks for the options object then still sees the capability.
         w.field_raw("inlayHintProvider", "{\"resolveProvider\":false}")
-        w.field_raw("codeActionProvider", "{\"codeActionKinds\":[\"" + KIND_QUICKFIX + "\",\"" + KIND_REFACTOR_INLINE + "\",\"" + KIND_REFACTOR_EXTRACT + "\"]}")
+        w.field_raw(
+            "codeActionProvider",
+            "{\"codeActionKinds\":[\"" + KIND_QUICKFIX + "\",\"" + KIND_REFACTOR_INLINE + "\",\"" + KIND_REFACTOR_EXTRACT + "\"]}",
+        )
+
         // `.` `:` `>`: a member (`a.`, `a::`, `a->`). `@`: an attribute.
         // `"` and `/`: a header's path (`ffi "c++" import "`, then a
         // directory), which is inside a string, where an editor does not
         // ask on its own. A name needs none: every editor asks as a word
         // is typed. Not a space (after `import`): it would ask after every
         // word of a line.
-        w.field_raw("completionProvider", "{\"triggerCharacters\":[\".\",\":\",\">\",\"@\",\"\\\"\",\"/\"],\"resolveProvider\":true}")
-        w.field_raw("documentOnTypeFormattingProvider", "{\"firstTriggerCharacter\":\"}\"}")
+        w.field_raw(
+            "completionProvider",
+            "{\"triggerCharacters\":[\".\",\":\",\">\",\"@\",\"\\\"\",\"/\"],\"resolveProvider\":true}",
+        )
+
+        w.field_raw(
+            "documentOnTypeFormattingProvider",
+            "{\"firstTriggerCharacter\":\"}\"}",
+        )
+
         w.end_object()
         w.key("serverInfo")
         w.begin_object()

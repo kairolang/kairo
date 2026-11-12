@@ -243,18 +243,30 @@ pub class ImportOverlay {
 
     /// The end of phase I's fold: Building -> Frozen, once.
     pub fn freeze(self) {
-        self._move(OverlayState::Building, OverlayState::Frozen, r"ImportOverlay::freeze of an overlay already frozen")
+        self._move(
+            OverlayState::Building,
+            OverlayState::Frozen,
+            r"ImportOverlay::freeze of an overlay already frozen",
+        )
     }
 
     /// Writable again, for the one sanctioned late writer: the re-export
     /// fixpoint of an import cycle (ImportResolution::refold_reexports).
     /// Frozen -> Refolding; end_refold takes it back.
     pub fn begin_refold(self) {
-        self._move(OverlayState::Frozen, OverlayState::Refolding, r"ImportOverlay::begin_refold of an overlay phase I has not frozen")
+        self._move(
+            OverlayState::Frozen,
+            OverlayState::Refolding,
+            r"ImportOverlay::begin_refold of an overlay phase I has not frozen",
+        )
     }
 
     pub fn end_refold(self) {
-        self._move(OverlayState::Refolding, OverlayState::Frozen, r"ImportOverlay::end_refold without begin_refold")
+        self._move(
+            OverlayState::Refolding,
+            OverlayState::Frozen,
+            r"ImportOverlay::end_refold without begin_refold",
+        )
     }
 
     pub fn is_refolding(self) -> bool {
@@ -316,7 +328,10 @@ pub class ImportOverlay {
     priv fn _dep_note(self, key: u32) {
         var unsafe *deps = dep_log_current()
         if deps != &null {
-            deps->overlay_probe((unsafe ((&self) as unsafe *void)) as usize as u64, key as u64)
+            deps->overlay_probe(
+                (unsafe ((&self) as unsafe *void)) as usize as u64,
+                key as u64,
+            )
         }
     }
 

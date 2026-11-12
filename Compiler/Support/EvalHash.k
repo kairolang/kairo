@@ -114,7 +114,9 @@ pub fn compute_hash(str: unsafe *const u8, const len: usize) -> u64 {
         hash = mix_char(str[i], hash, i)
     }
 
-    return fold_hash((hash ^ (len as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX)
+    return fold_hash(
+        (hash ^ (len as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX,
+    )
 }
 
 ///
@@ -137,7 +139,9 @@ pub fn compute_hash(str: unsafe *const char, const len: usize) -> u64 {
         hash = mix_char(str[i] as u8, hash, i)
     }
 
-    return fold_hash((hash ^ (len as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX)
+    return fold_hash(
+        (hash ^ (len as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX,
+    )
 }
 
 ///
@@ -161,7 +165,9 @@ pub fn compute_hash(str: unsafe *const string) -> u64 {
         hash = mix_char((*str)[i], hash, i)
     }
 
-    return fold_hash((hash ^ (len as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX)
+    return fold_hash(
+        (hash ^ (len as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX,
+    )
 }
 
 

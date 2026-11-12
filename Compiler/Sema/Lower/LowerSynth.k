@@ -118,7 +118,11 @@ pub class LowerSynth {
 
     /// `__kairo_<hint>K`, unique within this pass.
     fn fresh(self, range: SourceRange, const hint: string) -> Token {
-        var t = self.ident(range, LowerTargets::reserved_prefix() + hint + f"{self._counter}")
+        var t = self.ident(
+            range,
+            LowerTargets::reserved_prefix() + hint + f"{self._counter}",
+        )
+
         self._counter += 1
         return t
     }
@@ -172,7 +176,7 @@ pub class LowerSynth {
                      bytes: unsafe *cxx::std::vector<u8>,
                      ty:    unsafe *Type) -> unsafe *Expr {
         var unsafe *tbl = self.sc->imm_table()
-        var        idx  = tbl->intern_bytes_copy(self._bytes_ptr(*bytes), bytes->size())
+        var idx = tbl->intern_bytes_copy(self._bytes_ptr(*bytes), bytes->size())
 
         var t = Token()
         t.kind  = TokenKind::LitString
@@ -333,7 +337,9 @@ pub class LowerSynth {
         var        tu = TypeUtil(self.sc)
         var unsafe *f = dyn_cast<FunctionDecl>(method)
         if f == &null {
-            kairo::std::ice_fail("LowerSynth::member_call: method is not a function")
+            kairo::std::ice_fail(
+                "LowerSynth::member_call: method is not a function",
+            )
         }
 
         var unsafe *chain = ChainExpr::create(self.sc->ctx, range, recv)
@@ -384,7 +390,12 @@ pub class LowerSynth {
                  @inout args: ListBuilder<unsafe *Expr>,
                  ty:          unsafe *Type,
                  ordered:     bool = false) -> unsafe *Expr {
-        var unsafe *callee = NamedIdentExpr::create(self.sc->ctx, range, self.ident(range, name))
+        var unsafe *callee = NamedIdentExpr::create(
+            self.sc->ctx,
+            range,
+            self.ident(range, name),
+        )
+
         callee->resolved_decl = ctor
         var unsafe *call = CallExpr::create(self.sc->ctx, range, callee)
         args.freeze_into(&call->args)
@@ -471,13 +482,25 @@ pub class LowerSynth {
 
         var bytes = cxx::std::vector<u8>()
         LowerSynth::push_string(text, &bytes)
-        var unsafe *u8t = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST)
+        var unsafe *u8t = self.sc->types->qualified(
+            self.sc->builtin(BuiltinKind::U8),
+            QUAL_CONST,
+        )
+
         var unsafe *pu8 = self.sc->types->pointer(u8t)
         var unsafe *lit = self.bytes_literal(range, unsafe &bytes, pu8)
         var        args = ListBuilder<unsafe *Expr>(self.sc->ctx)
         args.push(self.cast_to(range, lit, pu8, CastMode::Unsafe)) // `"..."` is const char*; the parameter is const unsigned char*.
-        args.push(self.int_literal(range, bytes.size() as u64, BuiltinKind::USize))
-        return self.free_call(range, f, unsafe &args, self.sc->builtin(BuiltinKind::Never))
+        args.push(
+            self.int_literal(range, bytes.size() as u64, BuiltinKind::USize),
+        )
+
+        return self.free_call(
+            range,
+            f,
+            unsafe &args,
+            self.sc->builtin(BuiltinKind::Never),
+        )
     }
 
     /// `if cond { <call> }`, \p call a `-> !` call (crash_call's).
@@ -522,7 +545,7 @@ pub class LowerSynth {
             tbl = sl->ctx->get_payload_table(sl->token)
         }
 
-        var        out = cxx::std::vector<u8>()
+        var        out  = cxx::std::vector<u8>()
         var unsafe *seg = sl->imm
         var        raw  = sl->is_raw()
         while seg != &null {
@@ -602,7 +625,10 @@ pub class LowerSynth {
                         return false
                     }
 
-                    var cp = LowerSynth::_hex(p[i]) << 4 | LowerSynth::_hex(p[i + 1])
+                    var cp = LowerSynth::_hex(p[i]) << 4 | LowerSynth::_hex(
+                        p[i + 1],
+                    )
+
                     i += 2
                     LowerSynth::push_utf8(cp, &*out)
                 } case 0x75 /* 'u' */ {
@@ -704,7 +730,7 @@ pub class LowerSynth {
     static fn cp_count(const bytes: cxx::std::vector<u8>) -> usize {
         eval if defined!(DEBUG) {
             const base: kairo::std::ConstPtr<u8> = unsafe (bytes.data() as kairo::std::ConstPtr<u8>)
-            var   off:  usize                    = 0
+            var off: usize = 0
             while off < bytes.size() {
                 var d = kairo::decode_utf8_lut(base + off, bytes.size() - off)
                 if !d.ok {
@@ -846,8 +872,11 @@ pub class LowerSynth {
             return
         }
 
-        var        tu  = TypeUtil(self.sc)
-        var unsafe *dc = NameLookup::context_of(tu.pattern_of(NameLookup::representative(sd)))
+        var tu = TypeUtil(self.sc)
+        var unsafe *dc = NameLookup::context_of(
+            tu.pattern_of(NameLookup::representative(sd)),
+        )
+
         if dc == &null {
             return
         }
@@ -902,7 +931,10 @@ pub class LowerSynth {
             } case ExprKind::UnsafeExpr {
                 return LowerSynth::_pure(cast<UnsafeExpr>(e)->operand, acc)
             } case ExprKind::ImplicitBoundaryCastExpr {
-                return LowerSynth::_pure(cast<ImplicitBoundaryCastExpr>(e)->original, acc)
+                return LowerSynth::_pure(
+                    cast<ImplicitBoundaryCastExpr>(e)->original,
+                    acc,
+                )
             } case ExprKind::ChainExpr {
                 // A field path off a pure base. An operator step is a call
                 // (only as a callee, which never reaches here as an operand).

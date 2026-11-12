@@ -308,12 +308,12 @@ pub class ImportResolver {
 
         /// \brief default constructor; initializes all fields to null/empty
         pub fn Builder(self) {
-            self._cwd               = null
-            self._include_paths     = cxx::std::vector<Path>()
-            self._include_names     = cxx::std::vector<cxx::std::vector<string>>()
+            self._cwd           = null
+            self._include_paths = cxx::std::vector<Path>()
+            self._include_names = cxx::std::vector<cxx::std::vector<string>>()
             self._include_spellings = cxx::std::vector<cxx::std::vector<string>>()
-            self._ext_cfg           = &null
-            self._pool              = &null
+            self._ext_cfg = &null
+            self._pool    = &null
         }
 
         /// \brief sets the current working directory as the highest-priority search root
@@ -377,8 +377,10 @@ pub class ImportResolver {
         /// \param pool optional thread pool for async indexing; if null, blocks until done
         /// \return heap-allocated resolver; caller assumes ownership
         pub fn create_ptr(self, pool: unsafe *ThreadPool = &null) -> unsafe *ImportResolver {
-            var        cwd_path  = self._cwd ?? Path::cwd()
-            var unsafe *resolver = kairo::std::create<ImportResolver>(self._ext_cfg)
+            var cwd_path = self._cwd ?? Path::cwd()
+            var unsafe *resolver = kairo::std::create<ImportResolver>(
+                self._ext_cfg,
+            )
 
             // Always index synchronously on the calling (main) thread. (The
             // original reason, libcxx::filesystem throwing on worker threads,
@@ -447,7 +449,12 @@ pub class ImportResolver {
         // stamps each root's fs_path and ext_cfg so it can probe lazily on first
         // access; there is no eager directory walk here anymore.
         if cwd.exists() && cwd.is_directory() {
-            var unsafe *root = kairo::std::create<SearchRoot>(cwd, 0, self._ext_cfg)
+            var unsafe *root = kairo::std::create<SearchRoot>(
+                cwd,
+                0,
+                self._ext_cfg,
+            )
+
             self._roots.push_back(root)
         }
 
@@ -563,7 +570,10 @@ pub class ImportResolver {
                     continue
                 }
 
-                if child->find_by_stem_and_category("module", FileCategory::KairoSource) == &null {
+                if child->find_by_stem_and_category(
+                    "module",
+                    FileCategory::KairoSource,
+                ) == &null {
                     continue
                 }
 
@@ -572,7 +582,14 @@ pub class ImportResolver {
                     continue
                 }
 
-                var unsafe *lib = self._add_root(cpath, priority, pin, pin, true)
+                var unsafe *lib = self._add_root(
+                    cpath,
+                    priority,
+                    pin,
+                    pin,
+                    true,
+                )
+
                 lib->discovered = true
                 priority += 1
             }
@@ -608,7 +625,14 @@ pub class ImportResolver {
                       sp:       cxx::std::vector<string>,
                       pinned:   bool) -> unsafe *SearchRoot {
         self._check_root_name(p, nm, sp, pinned, &null)
-        var unsafe *root = kairo::std::create<SearchRoot>(p, priority, self._ext_cfg, nm, sp)
+        var unsafe *root = kairo::std::create<SearchRoot>(
+            p,
+            priority,
+            self._ext_cfg,
+            nm,
+            sp,
+        )
+
         self._roots.push_back(root)
         return root
     }
@@ -780,7 +804,11 @@ pub class ImportResolver {
 
             var last = segments[segments.size() - 1]
 
-            var unsafe *file_node = node->find_by_stem_and_category(last, FileCategory::KairoSource)
+            var unsafe *file_node = node->find_by_stem_and_category(
+                last,
+                FileCategory::KairoSource,
+            )
+
             if file_node != &null && file_node->file_path? {
                 self._cache[cache_key] = unwrap!(file_node->file_path)
 
@@ -1022,8 +1050,8 @@ pub class ImportResolver {
         // which library holds a file is a property of the file, so whether
         // it may reach into the command line's unnamed dirs must not depend
         // on whether this run happened to register its library.
-        var from_library       = own_root != &null && own_root->name.size() > 0 || lib_root != &null
-        var ri:          usize = 0
+        var from_library = own_root != &null && own_root->name.size() > 0 || lib_root != &null
+        var ri: usize = 0
         while ri < self._roots.size() && !root_hit {
             var unsafe *r = self._roots[ri]
             ri += 1
@@ -1176,7 +1204,9 @@ pub class ImportResolver {
         var lib       = self._library_of(Path::parent_of(file.full_path()))
         if lib.found {
             best_name = lib.name
-            best_rel  = file.relative_to(Path::from_known(lib.dir, FileType::directory_file))
+            best_rel = file.relative_to(
+                Path::from_known(lib.dir, FileType::directory_file),
+            )
         } else {
             // No library above the file: the deepest search root holding it
             // (necessarily unnamed -- the walk stops at every named root).
@@ -1628,13 +1658,21 @@ pub class ImportResolver {
         var        mod_node: unsafe *DirEntry = &null
         var unsafe *dir_node                  = node->find_dir(last)
         if dir_node != &null {
-            mod_node = dir_node->find_by_stem_and_category("module", FileCategory::KairoSource)
+            mod_node = dir_node->find_by_stem_and_category(
+                "module",
+                FileCategory::KairoSource,
+            )
+
             if mod_node != &null && !mod_node->file_path? {
                 mod_node = &null
             }
         }
 
-        var unsafe *file_node = node->find_by_stem_and_category(last, FileCategory::KairoSource)
+        var unsafe *file_node = node->find_by_stem_and_category(
+            last,
+            FileCategory::KairoSource,
+        )
+
         if file_node != &null && file_node->file_path? {
             out.found = true
             out.path     = unwrap!(file_node->file_path)
@@ -1667,7 +1705,12 @@ pub class ImportResolver {
 
         // priority u32(-1): never competes with a real root, and is only ever
         // reached through resolve_module_rel.
-        var unsafe *r = kairo::std::create<SearchRoot>(dir, u32::MAX, self._ext_cfg)
+        var unsafe *r = kairo::std::create<SearchRoot>(
+            dir,
+            u32::MAX,
+            self._ext_cfg,
+        )
+
         self._sibling_roots[kairo::sref(key)] = r
         return r
     }
@@ -1709,7 +1752,7 @@ pub class ImportResolver {
         // Sorted, so a collision is reported with the same pair ordering on
         // every run (children is an unordered_map).
         var names = cxx::std::vector<string>()
-        var dirs  = llvm::StringMap<bool>() // name -> a directory claims it
+        var dirs  = llvm::StringMap<bool>()    // name -> a directory claims it
         for var it = dir->children.begin(); it != dir->children.end(); ++it {
             var unsafe *child = it->second
             if child == &null {
@@ -2058,7 +2101,12 @@ pub class ImportResolver {
         var seen   = llvm::StringSet<llvm::MallocAllocator>() // full paths; membership only (result keeps the order)
 
         for var root: *SearchRoot in self._roots {
-            self.collect_recursive(root->root, cat, unsafe &result, unsafe &seen)
+            self.collect_recursive(
+                root->root,
+                cat,
+                unsafe &result,
+                unsafe &seen,
+            )
         }
 
         return result
@@ -2368,7 +2416,10 @@ pub fn Test() -> i32 {
     files_to_create.emplace_back(Path::join_str(test_root, "cpp/legacy.h"))
 
     // random files (json, txt, no extension)
-    files_to_create.emplace_back(Path::join_str(test_root, "Assets/config.json"))
+    files_to_create.emplace_back(
+        Path::join_str(test_root, "Assets/config.json"),
+    )
+
     files_to_create.emplace_back(Path::join_str(test_root, "Assets/data.txt"))
     files_to_create.emplace_back(Path::join_str(test_root, "Assets/README"))
     files_to_create.emplace_back(Path::join_str(test_root, "Makefile"))
@@ -2920,7 +2971,9 @@ pub fn Test() -> i32 {
         "collect_all_by_category KairoSource",
         1,
         fn () -> i32 {
-            var all_hlx = resolver->collect_all_by_category(FileCategory::KairoSource)
+            var all_hlx = resolver->collect_all_by_category(
+                FileCategory::KairoSource,
+            )
 
             // cwd: io, net, module, alloc, util = 5
             // include: util (dup), extra = 1 unique
@@ -2938,7 +2991,9 @@ pub fn Test() -> i32 {
         "collect_all_by_category CxxSource",
         1,
         fn () -> i32 {
-            var all_cpp = resolver->collect_all_by_category(FileCategory::CxxSource)
+            var all_cpp = resolver->collect_all_by_category(
+                FileCategory::CxxSource,
+            )
 
             if all_cpp.size() == 1 {
                 return 1
@@ -2953,7 +3008,9 @@ pub fn Test() -> i32 {
         "collect_all_by_category CxxHeader",
         1,
         fn () -> i32 {
-            var all_hdr = resolver->collect_all_by_category(FileCategory::CxxHeader)
+            var all_hdr = resolver->collect_all_by_category(
+                FileCategory::CxxHeader,
+            )
 
             // helper.hpp, legacy.h = 2
             if all_hdr.size() == 2 {
@@ -2969,7 +3026,9 @@ pub fn Test() -> i32 {
         "collect_all_by_category Other (json, txt, no-ext)",
         1,
         fn () -> i32 {
-            var all_other = resolver->collect_all_by_category(FileCategory::Other)
+            var all_other = resolver->collect_all_by_category(
+                FileCategory::Other,
+            )
 
             // config.json, data.txt, README, Makefile = 4
             if all_other.size() == 4 {

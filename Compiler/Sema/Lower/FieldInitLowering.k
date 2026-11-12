@@ -297,7 +297,9 @@ pub class FieldInitLowering derives ASTWriter<FieldInitLowering> {
         var unsafe *th = self._thunk(
             f,
             e,
-            LowerTargets::field_init_thunk(self.tu.decl_name(unsafe (f as unsafe *Decl))),
+            LowerTargets::field_init_thunk(
+                self.tu.decl_name(unsafe (f as unsafe *Decl)),
+            ),
             f->type_,
         )
 
@@ -314,8 +316,13 @@ pub class FieldInitLowering derives ASTWriter<FieldInitLowering> {
                    e:          unsafe *Expr,
                    const name: string,
                    rt:         unsafe *Type) -> unsafe *FunctionDecl {
-        var        at  = e->range
-        var unsafe *th = self._new_fn(at, self.synth.ident(at, name), f->semantic_dc)
+        var at = e->range
+        var unsafe *th = self._new_fn(
+            at,
+            self.synth.ident(at, name),
+            f->semantic_dc,
+        )
+
         th->semantic_dc = f->semantic_dc
         th->lexical_dc  = f->semantic_dc
         th->visibility  = VisibilityKind::Public
@@ -335,7 +342,13 @@ pub class FieldInitLowering derives ASTWriter<FieldInitLowering> {
 
         var ps = self.list_builder<unsafe *ParamDecl>()
         if !f->is_static() {
-            ps.push(ParamDecl::create_self(self.ctx, at, self.synth.ident(at, "self")))
+            ps.push(
+                ParamDecl::create_self(
+                    self.ctx,
+                    at,
+                    self.synth.ident(at, "self"),
+                ),
+            )
         }
 
         ps.freeze_into(&th->params)
@@ -367,8 +380,14 @@ pub class FieldInitLowering derives ASTWriter<FieldInitLowering> {
         var nm  = self.tu.decl_name(unsafe (f as unsafe *Decl))
         var out = self.list_builder<unsafe *Decl>()
         for var i: usize = 0; i < leaves.size(); ++i {
-            var unsafe *e  = leaves[i]
-            var unsafe *th = self._thunk(f, e, LowerTargets::field_init_elem_thunk(nm, i), el)
+            var unsafe *e = leaves[i]
+            var unsafe *th = self._thunk(
+                f,
+                e,
+                LowerTargets::field_init_elem_thunk(nm, i),
+                el,
+            )
+
             rw->append(th)
             out.push(th)
         }
@@ -425,8 +444,8 @@ pub class FieldInitLowering derives ASTWriter<FieldInitLowering> {
         n->init_annotations(unsafe &self.ctx->ast_alloc)
         n->init_dc(DeclContextKind::Function, self.ctx, parent, n)
         n->init_redecl()
-        n->params          = create_empty_frozen_list<unsafe *ParamDecl>()
-        n->generic_params  = create_empty_frozen_list<unsafe *GenericParamDecl>()
+        n->params = create_empty_frozen_list<unsafe *ParamDecl>()
+        n->generic_params = create_empty_frozen_list<unsafe *GenericParamDecl>()
         n->op_token        = create_empty_frozen_list<Token>()
         n->spec_args       = create_empty_frozen_list<unsafe *Type>()
         n->abi             = AbiKind::None

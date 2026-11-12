@@ -29,27 +29,13 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
@@ -66,6 +52,20 @@ import Server::SignatureHelp::*
 import Server::Structure::*
 import Server::TextUtil::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 extend Server {
     /// Answers a semanticTokens request (full, delta or range) from \p now,
@@ -73,7 +73,15 @@ extend Server {
     /// per snapshot), or the lexical tokens of a buffer that does not parse.
     /// One token at (\p line, \p ch), appended to \p out in the protocol's
     /// relative encoding; \p pl / \p pc are the last one's position.
-    priv fn tok_put_(self, out: *[i64], pl: *i64, pc: *i64, line: i64, ch: i64, len: i64, kind: i64, mods: i64) {
+    priv fn tok_put_(self,
+                     out:  *[i64],
+                     pl:   *i64,
+                     pc:   *i64,
+                     line: i64,
+                     ch:   i64,
+                     len:  i64,
+                     kind: i64,
+                     mods: i64) {
         out->push_back(line - (*pl))
         out->push_back(if line == (*pl) => (ch - (*pc)) else => ch)
         out->push_back(len)
@@ -98,16 +106,16 @@ extend Server {
     ///          of no other.
     fn merged_tokens(self, ei: usize, k: usize, di: usize, sh: *const LineShift) -> [i64] {
         var out: [i64]
-        var pl: i64 = 0
-        var pc: i64 = 0
-        var e: *const Entry = &self.entries[ei]
+        var pl:  i64          = 0
+        var pc:  i64          = 0
+        var e:   *const Entry = &self.entries[ei]
         for var pass: usize = 0; pass < 3; ++pass {
             if pass == 1 {
                 // The changed middle, from the buffer's own lexical pass.
-                var *syn = &self.docs.docs[di].syn.tokens
-                var sl: i64 = 0
-                var sc: i64 = 0
-                var t: usize = 0
+                var *syn       = &self.docs.docs[di].syn.tokens
+                var sl:  i64   = 0
+                var sc:  i64   = 0
+                var t:   usize = 0
                 while (t + SEMTOK_STRIDE) <= syn->size() {
                     if (*syn)[t] != 0 {
                         sl += (*syn)[t]
@@ -117,7 +125,16 @@ extend Server {
                     }
 
                     if (sl >= sh->pre) && (sl < (sh->new_n - sh->suf)) {
-                        self.tok_put_(&out, &pl, &pc, sl, sc, (*syn)[t + 2], (*syn)[t + 3], (*syn)[t + 4])
+                        self.tok_put_(
+                            &out,
+                            &pl,
+                            &pc,
+                            sl,
+                            sc,
+                            (*syn)[t + 2],
+                            (*syn)[t + 3],
+                            (*syn)[t + 4],
+                        )
                     }
 
                     t += SEMTOK_STRIDE
@@ -128,7 +145,7 @@ extend Server {
 
             var tl: i64 = 0
             var tc: i64 = 0
-            var q = e->ct_lo[k]
+            var q       = e->ct_lo[k]
             while (q + SEMTOK_STRIDE) <= e->ct_hi[k] {
                 if e->ct_data[q] != 0 {
                     tl += e->ct_data[q]
@@ -140,7 +157,16 @@ extend Server {
                 var prefix = tl < sh->pre
                 var suffix = (tl >= (sh->old_n - sh->suf)) && (tl < sh->old_n)
                 if ((pass == 0) && prefix) || ((pass == 2) && suffix && (!prefix)) {
-                    self.tok_put_(&out, &pl, &pc, sh->to_new(tl), tc, e->ct_data[q + 2], e->ct_data[q + 3], e->ct_data[q + 4])
+                    self.tok_put_(
+                        &out,
+                        &pl,
+                        &pc,
+                        sh->to_new(tl),
+                        tc,
+                        e->ct_data[q + 2],
+                        e->ct_data[q + 3],
+                        e->ct_data[q + 4],
+                    )
                 }
 
                 q += SEMTOK_STRIDE
@@ -150,22 +176,27 @@ extend Server {
         return out
     }
 
-    fn send_tokens(self, d: *const JsonDoc, params: u32, const id: string, const method: string, now: *const [i64]) {
+    fn send_tokens(self,
+                   d:            *const JsonDoc,
+                   params:       u32,
+                   const id:     string,
+                   const method: string,
+                   now:          *const [i64]) {
         if method == M_SEMANTIC_TOKENS_RANGE {
             // Cut to the lines asked for and re-based: the encoding is
             // relative, so the first one kept restarts it.
             var rr = d->get(params, K_RANGE)
             var lo = d->get_int(d->get(rr, K_START), K_LINE)
             var hi = d->get_int(d->get(rr, K_END), K_LINE)
-            var w = JsonWriter()
+            var w  = JsonWriter()
             w.begin_object()
             w.key(K_DATA)
             w.begin_array()
-            var tl: i64 = 0
-            var tc: i64 = 0
-            var pl: i64 = 0
-            var pc: i64 = 0
-            var t: usize = 0
+            var tl: i64   = 0
+            var tc: i64   = 0
+            var pl: i64   = 0
+            var pc: i64   = 0
+            var t:  usize = 0
             while (t + SEMTOK_STRIDE) <= now->size() {
                 var dl = (*now)[t]
                 var dc = (*now)[t + 1]
@@ -199,7 +230,7 @@ extend Server {
             return
         }
 
-        var uri = text_document_uri(d, params)
+        var uri  = text_document_uri(d, params)
         var slot = self.tok_uri.size()
         for var q: usize = 0; q < self.tok_uri.size(); ++q {
             if self.tok_uri[q] == uri {
@@ -218,15 +249,15 @@ extend Server {
         var rid  = self.tok_seq
         var prev = d->get_str(params, "previousResultId")
         var have = f"{self.tok_id[slot]}"
-        var w = JsonWriter()
+        var w    = JsonWriter()
         w.begin_object()
         w.field("resultId", f"{rid}")
         if (method == M_SEMANTIC_TOKENS_DELTA) && (prev == have) && (self.tok_id[slot] != 0) {
             // One edit: what lies between the longest common prefix and
             // suffix of the two integer arrays. Cut on token boundaries
             // (multiples of five) so a relative position is never split.
-            var *old = &self.tok_data[slot]
-            var a: usize = 0
+            var *old       = &self.tok_data[slot]
+            var a:   usize = 0
             while (a < old->size()) && (a < now->size()) && ((*old)[a] == (*now)[a]) {
                 a += 1
             }

@@ -74,7 +74,7 @@ import std::io
 /// A fix that carries only a message prints nothing extra.
 pub class BasicDiagConsumer derives DiagConsumer {
     /// Pre-rendered text written before the buffer (ModuleRecords' replay).
-    pub var replay: string = ""
+    pub var  replay:     string                               = ""
     priv var _diags:     cxx::std::vector<unsafe *Diagnostic>
     priv var _sm:        unsafe *SourceManager
     priv var _abs_paths: bool                                 = false ///< --diag-absolute-paths
@@ -158,7 +158,12 @@ pub class BasicDiagConsumer derives DiagConsumer {
         // there is no reason to hold the whole report as one string first.
         // OF_None: binary -- the bytes are already UTF-8.
         var ec: cxx::std::error_code
-        var f = llvm::raw_fd_ostream(kairo::sref(path), &ec, llvm::sys::fs::OF_None)
+        var f = llvm::raw_fd_ostream(
+            kairo::sref(path),
+            &ec,
+            llvm::sys::fs::OF_None,
+        )
+
         if ec.value() != 0 {
             return
         }
@@ -294,8 +299,8 @@ pub class BasicDiagConsumer derives DiagConsumer {
         }
 
         var loc_prefix = if diag->has_loc => (self.format_loc(diag->loc)) else => ""
-        var sev        = self.severity_string(diag->code.severity())
-        var code       = diag->code as string
+        var sev  = self.severity_string(diag->code.severity())
+        var code = diag->code as string
         return f"{loc_prefix}{sev} [{code}]: {diag->message}\n"
     }
 
@@ -303,7 +308,9 @@ pub class BasicDiagConsumer derives DiagConsumer {
     priv fn render_diag(self, diag: unsafe *Diagnostic) -> string {
         var out = self.render_one(diag) + self.render_fixits(diag)
         for var i: usize = 0; i < diag->children.size(); ++i {
-            out += self.render_one(diag->children[i]) + self.render_fixits(diag->children[i])
+            out += self.render_one(diag->children[i]) + self.render_fixits(
+                diag->children[i],
+            )
         }
 
         return out
@@ -317,7 +324,9 @@ pub class BasicDiagConsumer derives DiagConsumer {
     priv fn stderr_text(self, diag: unsafe *Diagnostic) -> string {
         var out = self.render_one(diag) + self.render_fixits(diag)
         for var i: usize = 0; i < diag->children.size(); ++i {
-            out += self.render_one(diag->children[i]) + self.render_fixits(diag->children[i])
+            out += self.render_one(diag->children[i]) + self.render_fixits(
+                diag->children[i],
+            )
         }
 
         return out

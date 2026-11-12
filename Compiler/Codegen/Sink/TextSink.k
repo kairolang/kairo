@@ -45,13 +45,13 @@ pub class TextSink derives EmitSink {
     /// \ref self_path at the line's own number. A directive is written only
     /// where the attribution changes, so a run of lines from consecutive
     /// Kairo lines carries one.
-    pub var line_mode: bool   = false
-    pub var self_path: string = ""
+    pub var  line_mode:  bool   = false
+    pub var  self_path:  string = ""
     priv var _line:      string = ""
     priv var _line_file: string = ""
     priv var _line_no:   usize  = 0
-    priv var _phys:      usize  = 0  ///< lines written to `out`
-    priv var _map_file:  string = "" ///< what the next line of `out` is attributed to
+    priv var _phys:      usize  = 0     ///< lines written to `out`
+    priv var _map_file:  string = ""    ///< what the next line of `out` is attributed to
     priv var _map_line:  usize  = 0
 
     /// Layout mode (EmitCXXHeader::layout, kals' clangd bridge only, on top
@@ -62,34 +62,34 @@ pub class TextSink derives EmitSink {
     /// physical line its declaration has in that file. A line is attributed
     /// to the LOWEST Kairo line among its tokens from the first file named
     /// on it: a declaration's name precedes its parameters and result type.
-    pub var layout: bool = false
-    pub var home_path: string = "" ///< the module's own .k file, as the source manager names it
-    priv var _rec_text: [string]
-    priv var _rec_file: [string]
-    priv var _rec_line: [usize]
-    priv var _rec_dir:  [bool]
-    priv var _line_dir: bool = false ///< the buffered line is a directive (own physical line)
-    priv var _rec_depth: [usize]     ///< brace depth after each recorded line
-    priv var _pl_text:  [string]     ///< finish_layout: physical line k is index k - 1
-    priv var _pl_lock:  [bool]       ///< a directive: nothing joins it
-    priv var _pl_depth: [usize]      ///< brace depth at the end of the line
-    priv var _cursor:   usize  = 0   ///< the last physical line written in order
-    priv var _run_dep:  usize  = 0
-    priv var _mapped:   bool   = false
-    priv var _home:     string = ""
-    priv var _pl_decl:  [usize]      ///< the Kairo line placed on this physical one (its own), else 0
-    priv var _line_at:  usize  = 0   ///< the physical line of the one `#line` _place_ wrote, else 0
-    priv var _fnames:   [string]     ///< the Kairo files lines are attributed to, and their ids
-    priv var _fids:     [u32]
-    priv var _home_fid: u32    = u32::MAX
-    priv var _doc_done: [usize]      ///< Kairo lines whose doc comment is in the header
-    priv var _last_word: string = "" ///< the token _word wrote last (layout: `public :` breaks)
-    priv var _enum_at:  usize  = 0   ///< layout: the depth of the enum body being written, else 0
-    priv var _c_end:    [usize]      ///< finish_layout: the last record of each record's chunk
-    priv var _c_kind:   [u8]         ///< and the chunk's kind (_chunk_kind_)
-    priv var _skip_fwd: [bool]       ///< a forward declaration that claims no line (_lay_)
-    priv var _pl_rec:   [usize]      ///< the record whose text claimed this physical line, else usize::MAX
-    priv var _drop:     [bool]       ///< a record of a definition the header leaves out (_mark_drops_)
+    pub var  layout:     bool     = false
+    pub var  home_path:  string   = "" ///< the module's own .k file, as the source manager names it
+    priv var _rec_text:  [string]
+    priv var _rec_file:  [string]
+    priv var _rec_line:  [usize]
+    priv var _rec_dir:   [bool]
+    priv var _line_dir:  bool     = false ///< the buffered line is a directive (own physical line)
+    priv var _rec_depth: [usize] ///< brace depth after each recorded line
+    priv var _pl_text:   [string] ///< finish_layout: physical line k is index k - 1
+    priv var _pl_lock:   [bool] ///< a directive: nothing joins it
+    priv var _pl_depth:  [usize] ///< brace depth at the end of the line
+    priv var _cursor:    usize    = 0 ///< the last physical line written in order
+    priv var _run_dep:   usize    = 0
+    priv var _mapped:    bool     = false
+    priv var _home:      string   = ""
+    priv var _pl_decl:   [usize] ///< the Kairo line placed on this physical one (its own), else 0
+    priv var _line_at:   usize    = 0 ///< the physical line of the one `#line` _place_ wrote, else 0
+    priv var _fnames:    [string] ///< the Kairo files lines are attributed to, and their ids
+    priv var _fids:      [u32]
+    priv var _home_fid:  u32      = u32::MAX
+    priv var _doc_done:  [usize] ///< Kairo lines whose doc comment is in the header
+    priv var _last_word: string   = "" ///< the token _word wrote last (layout: `public :` breaks)
+    priv var _enum_at:   usize    = 0 ///< layout: the depth of the enum body being written, else 0
+    priv var _c_end:     [usize] ///< finish_layout: the last record of each record's chunk
+    priv var _c_kind:    [u8] ///< and the chunk's kind (_chunk_kind_)
+    priv var _skip_fwd:  [bool] ///< a forward declaration that claims no line (_lay_)
+    priv var _pl_rec:    [usize] ///< the record whose text claimed this physical line, else usize::MAX
+    priv var _drop:      [bool] ///< a record of a definition the header leaves out (_mark_drops_)
 
     /// Out-of-line function definitions: left out because their
     /// declaration holds their line, or kept because C++ in the including
@@ -185,7 +185,9 @@ pub class TextSink derives EmitSink {
         }
 
         var access = (k == clang::tok::colon)
-            && ((self._last_word == "public") || (self._last_word == "private") || (self._last_word == "protected"))
+            && ((self._last_word == "public")
+                || (self._last_word == "private")
+                || (self._last_word == "protected"))
         self._note(at)
         self._word(s, tight_before)
         if tight_after {
@@ -204,7 +206,10 @@ pub class TextSink derives EmitSink {
         // specifier is anchored at the class, so the field after it joins
         // the class's line unless the specifier ends its line. C++ does not
         // care where a line breaks.
-        if self.layout && (k == clang::tok::comma) && (self._enum_at != 0) && (self._depth == self._enum_at) {
+        if self.layout
+            && (k == clang::tok::comma)
+            && (self._enum_at != 0)
+            && (self._depth == self._enum_at) {
             self.brk()
         }
 
@@ -215,8 +220,13 @@ pub class TextSink derives EmitSink {
         if k == clang::tok::l_brace {
             // Not an enum the compiler mints (an ADT's `__kairo_Tag`): its
             // variants share the Kairo lines of the factories C++ calls.
-            var head    = TextSink::_trim_(self._line)
-            var is_enum = self.layout && head.starts_with("enum class ") && (!head.starts_with("enum class " + LowerTargets::reserved_stem()))
+            var head = TextSink::_trim_(self._line)
+            var is_enum = self.layout
+                && head.starts_with("enum class ")
+                && (!head.starts_with(
+                    "enum class " + LowerTargets::reserved_stem(),
+                ))
+
             self._depth += 1
             if is_enum {
                 self._enum_at = self._depth
@@ -236,7 +246,11 @@ pub class TextSink derives EmitSink {
 
         self._flush_pending()
         self._note(at)
-        self._word(string(unsafe ((kw as unsafe *const u8) as *const u8)), false)
+        self._word(
+            string(unsafe ((kw as unsafe *const u8) as *const u8)),
+            false,
+        )
+
         if k == clang::tok::kw_operator {
             self._after_op_kw = true
         }
@@ -432,7 +446,7 @@ pub class TextSink derives EmitSink {
         // 0 plain, 1 forward declarations, 2 prototypes.
         var c_end:  [usize]
         var c_kind: [u8]
-        var i: usize = 0
+        var i:      usize   = 0
         while i < n {
             var j = i
             while (j < (n - 1)) && (self._rec_depth[j] != 0) {
@@ -459,11 +473,20 @@ pub class TextSink derives EmitSink {
         // split across the two files compiles in neither.
         var open: usize = 0
         for var q: usize = 0; q < first; ++q {
-            open = TextSink::_cond_depth_(self._rec_text[q], self._rec_dir[q], open)
+            open = TextSink::_cond_depth_(
+                self._rec_text[q],
+                self._rec_dir[q],
+                open,
+            )
         }
 
         while (open != 0) && (first < n) {
-            open = TextSink::_cond_depth_(self._rec_text[first], self._rec_dir[first], open)
+            open = TextSink::_cond_depth_(
+                self._rec_text[first],
+                self._rec_dir[first],
+                open,
+            )
+
             first += 1
         }
 
@@ -477,8 +500,14 @@ pub class TextSink derives EmitSink {
         self._home   = home
         self._skip_fwd.clear()
         for var q: usize = 0; q < n; ++q {
-            self._skip_fwd.push_back((c_kind[q] == 0) && (q >= first) && (self._rec_file[q] == home)
-                && (self._rec_line[q] > 1) && (!self._rec_dir[q]) && TextSink::_is_fwd_(TextSink::_trim_(self._rec_text[q])))
+            self._skip_fwd.push_back(
+                (c_kind[q] == 0)
+                    && (q >= first)
+                    && (self._rec_file[q] == home)
+                    && (self._rec_line[q] > 1)
+                    && (!self._rec_dir[q])
+                    && TextSink::_is_fwd_(TextSink::_trim_(self._rec_text[q])),
+            )
         }
 
         self._drop.clear()
@@ -498,10 +527,16 @@ pub class TextSink derives EmitSink {
                 // A record the compiler names (`__kairo_ext_T`, an extend
                 // block's) is never what clangd is asked about: its line
                 // stays free even then, for whatever the block declares.
-                var minted = TextSink::_has_(self._rec_text[q], " " + LowerTargets::reserved_stem())
-                if self._skip_fwd[q] && (!minted) && ((at > self._pl_decl.size()) || (self._pl_decl[at - 1] != at)) {
+                var minted = TextSink::_has_(
+                    self._rec_text[q],
+                    " " + LowerTargets::reserved_stem(),
+                )
+
+                if self._skip_fwd[q]
+                    && (!minted)
+                    && ((at > self._pl_decl.size()) || (self._pl_decl[at - 1] != at)) {
                     self._skip_fwd[q] = false
-                    changed = true
+                    changed           = true
                 }
             }
 
@@ -519,18 +554,30 @@ pub class TextSink derives EmitSink {
         // A class whose doc found no room above it in the header keeps it on
         // its forward declaration here: clangd shows the doc of any
         // redeclaration, and the prelude has no line numbers to keep.
-        var prelude: string = ""
+        var prelude: string  = ""
         var missed:  [usize]
         for var q: usize = 0; q < n; ++q {
             if (q < first) || (c_kind[q] == 1) {
                 var at = self._rec_line[q]
-                var fwd = TextSink::_class_name_(TextSink::_untemplate_(TextSink::_trim_(self._rec_text[q])))
-                if (c_kind[q] == 1) && (!fwd.empty()) && (self._rec_file[q] == home) && (at > 0)
+                var fwd = TextSink::_class_name_(
+                    TextSink::_untemplate_(TextSink::_trim_(self._rec_text[q])),
+                )
+
+                if (c_kind[q] == 1)
+                    && (!fwd.empty())
+                    && (self._rec_file[q] == home)
+                    && (at > 0)
                     && (!TextSink::_has_line_(self._doc_done, at)) {
                     var top: usize = 0
-                    var doc = self._doc_above_(at, &top)
+                    var doc        = self._doc_above_(at, &top)
                     if !doc.empty() {
-                        var pad = self._rec_text[q].subslice(0, self._rec_text[q].size() - TextSink::_trim_(self._rec_text[q]).size())
+                        var pad = self._rec_text[q].subslice(
+                            0,
+                            self._rec_text[q].size() - TextSink::_trim_(
+                                self._rec_text[q],
+                            ).size(),
+                        )
+
                         for var d: usize = 0; d < doc.size(); ++d {
                             prelude += pad + TextSink::_trim_ws_(doc[d])
                             prelude += "\n"
@@ -549,7 +596,10 @@ pub class TextSink derives EmitSink {
         // What is left: a declaration with a doc that is in neither place.
         for var q: usize = 0; q < n; ++q {
             var at = self._rec_line[q]
-            if (self._rec_file[q] != home) || (at == 0) || self._rec_dir[q] || TextSink::_has_line_(self._doc_done, at)
+            if (self._rec_file[q] != home)
+                || (at == 0)
+                || self._rec_dir[q]
+                || TextSink::_has_line_(self._doc_done, at)
                 || TextSink::_has_line_(missed, at) {
                 continue
             }
@@ -574,8 +624,8 @@ pub class TextSink derives EmitSink {
     /// on, onto `_pl_text` (_skip_fwd says which forward declarations
     /// claim no line).
     priv fn _lay_(self, first: usize, const include_line: string) {
-        var n    = self._rec_text.size()
-        var home = self._home
+        var n      = self._rec_text.size()
+        var home   = self._home
         var c_end  = self._c_end
         var c_kind = self._c_kind
         self._pl_text.clear()
@@ -594,18 +644,19 @@ pub class TextSink derives EmitSink {
         self._pl_depth.push_back(0)
         self._pl_decl.push_back(0)
         self._pl_rec.push_back(usize::MAX)
-        self._cursor  = 2
-        self._run_dep = 0
-        self._mapped  = false
-        self._line_at = 0
-        self._home    = home
+        self._cursor   = 2
+        self._run_dep  = 0
+        self._mapped   = false
+        self._line_at  = 0
+        self._home     = home
         self._home_fid = u32::MAX
         for var f: usize = 0; f < self._fnames.size(); ++f {
             if self._fnames[f] == home {
                 self._home_fid = self._fids[f]
             }
         }
-        var barrier: usize = 0
+
+        var barrier:   usize    = 0
         var cls_names: [string]
         var cls_lines: [usize]
         // A namespace-scope declaration that is not a record (an explicit
@@ -615,14 +666,14 @@ pub class TextSink derives EmitSink {
         // decltype() other than the size_t spelling): fail closed there.
         var nb_names: [string]
         var nb_lines: [usize]
-        var nb_max: usize = 0
+        var nb_max:   usize    = 0
 
         // Text the compiler names (an ADT's payload structs, tag and union)
         // is never what clangd is asked about, but it carries its variant's
         // Kairo line, which the factory C++ calls wants: it, and all of its
         // body, claims no line. inv_depth: the depth inside such a body.
         var inv_depth: usize = 0
-        var r = first
+        var r                = first
         while r < n {
             var starts_at: usize = 0
             if r > 0 {
@@ -634,11 +685,20 @@ pub class TextSink derives EmitSink {
             }
 
             var minted = (inv_depth != 0)
-            if (!minted) && (!self._rec_dir[r]) && (c_kind[r] == 0) && TextSink::_invented_(TextSink::_trim_(self._rec_text[r])) {
+            if (!minted)
+                && (!self._rec_dir[r])
+                && (c_kind[r] == 0)
+                && TextSink::_invented_(TextSink::_trim_(self._rec_text[r])) {
                 minted = true
                 // An extend block's struct holds the block's own functions.
-                var ext = TextSink::_has_(self._rec_text[r], LowerTargets::ext_scope_prefix())
-                if (!ext) && TextSink::_trim_(self._rec_text[r]).ends_with("{") && (self._rec_depth[r] > starts_at) {
+                var ext = TextSink::_has_(
+                    self._rec_text[r],
+                    LowerTargets::ext_scope_prefix(),
+                )
+
+                if (!ext)
+                    && TextSink::_trim_(self._rec_text[r]).ends_with("{")
+                    && (self._rec_depth[r] > starts_at) {
                     inv_depth = self._rec_depth[r]
                 }
             }
@@ -660,8 +720,11 @@ pub class TextSink derives EmitSink {
                         k = self._rec_line[r]
                     }
 
-                    var hoist = (k >= 2) && (k <= self._cursor) && (!self._pl_lock[k - 1])
-                             && (self._pl_depth[k - 1] == 0) && (k > barrier)
+                    var hoist = (k >= 2)
+                        && (k <= self._cursor)
+                        && (!self._pl_lock[k - 1])
+                        && (self._pl_depth[k - 1] == 0)
+                        && (k > barrier)
                     for var c: usize = 0; hoist && (c < cls_names.size()); ++c {
                         if (cls_lines[c] >= k) && TextSink::_has_(piece, cls_names[c] + "::") {
                             hoist = false
@@ -683,7 +746,7 @@ pub class TextSink derives EmitSink {
                     if k > self._cursor {
                         self._place_(k, piece, 0)
                         self._pl_rec[k - 1] = q
-                        landed = k
+                        landed              = k
                     } else if hoist {
                         if self._pl_text[k - 1].empty() {
                             self._pl_text[k - 1] = piece
@@ -747,7 +810,7 @@ pub class TextSink derives EmitSink {
                 // its first line when it has none (a specialization at
                 // global scope).
                 var head: string = ""
-                var h0 = TextSink::_trim_(self._rec_text[j0])
+                var h0           = TextSink::_trim_(self._rec_text[j0])
                 var opener = h0.starts_with("namespace ") && h0.ends_with("{")
                 if opener && ((j0 + 1) <= r) {
                     head = TextSink::_trim_(self._rec_text[j0 + 1])
@@ -818,11 +881,17 @@ pub class TextSink derives EmitSink {
             // The shape: one function definition and nothing else.
             var opener = TextSink::_trim_(self._rec_text[j0])
             var head   = TextSink::_trim_(self._rec_text[h])
-            var shape  = opener.starts_with("namespace ") && opener.ends_with("{") && (opener != "namespace {")
-                      && (TextSink::_openers_(opener) == opener) && (self._rec_depth[j0] == 1)
-                      && head.ends_with("{") && (self._rec_depth[h] == 2)
-                      && (TextSink::_trim_(self._rec_text[j]) == "}") && (self._rec_depth[j] == 0)
-                      && (TextSink::_trim_(self._rec_text[j - 1]) == "}") && (self._rec_depth[j - 1] == 1)
+            var shape = opener.starts_with("namespace ")
+                && opener.ends_with("{")
+                && (opener != "namespace {")
+                && (TextSink::_openers_(opener) == opener)
+                && (self._rec_depth[j0] == 1)
+                && head.ends_with("{")
+                && (self._rec_depth[h] == 2)
+                && (TextSink::_trim_(self._rec_text[j]) == "}")
+                && (self._rec_depth[j] == 0)
+                && (TextSink::_trim_(self._rec_text[j - 1]) == "}")
+                && (self._rec_depth[j - 1] == 1)
             for var q = j0; shape && (q <= j); ++q {
                 if self._rec_dir[q] || ((q > h) && (q < (j - 1)) && (self._rec_depth[q] < 2)) {
                     shape = false
@@ -830,8 +899,11 @@ pub class TextSink derives EmitSink {
             }
 
             var u = TextSink::_untemplate_all_(head)
-            if shape && ((!TextSink::_class_name_(u).empty()) || u.starts_with("namespace ") || u.starts_with("using ")
-                         || (!TextSink::_has_(u, "("))) {
+            if shape
+                && ((!TextSink::_class_name_(u).empty())
+                    || u.starts_with("namespace ")
+                    || u.starts_with("using ")
+                    || (!TextSink::_has_(u, "("))) {
                 shape = false
             }
 
@@ -841,9 +913,12 @@ pub class TextSink derives EmitSink {
             }
 
             // What C++ beyond the header can need the body for.
-            if TextSink::_has_word_(head, "constexpr") || TextSink::_has_word_(head, "consteval")
-                || TextSink::_has_word_(head, "auto") || TextSink::_has_word_(head, "static")
-                || TextSink::_has_word_(head, "extern") || TextSink::_has_(head, "template<>")
+            if TextSink::_has_word_(head, "constexpr")
+                || TextSink::_has_word_(head, "consteval")
+                || TextSink::_has_word_(head, "auto")
+                || TextSink::_has_word_(head, "static")
+                || TextSink::_has_word_(head, "extern")
+                || TextSink::_has_(head, "template<>")
                 || TextSink::_has_(head, "template <>") {
                 self.bodies_needed += 1
                 j0 = j + 1
@@ -854,18 +929,30 @@ pub class TextSink derives EmitSink {
             var name = TextSink::_fn_name_(u, &qual)
             var k    = self._rec_line[h]
             var c    = usize::MAX
-            if (!name.empty()) && (k >= 2) && (k <= self._pl_text.size()) && (self._pl_decl[k - 1] == k) {
+            if (!name.empty())
+                && (k >= 2)
+                && (k <= self._pl_text.size())
+                && (self._pl_decl[k - 1] == k) {
                 c = self._pl_rec[k - 1]
             }
 
-            var held = (c != usize::MAX) && (c != h) && (self._rec_file[c] == self._home) && (!self._rec_dir[c])
+            var held = (c != usize::MAX)
+                && (c != h)
+                && (self._rec_file[c] == self._home)
+                && (!self._rec_dir[c])
             if held {
                 var t = TextSink::_trim_(self._rec_text[c])
                 if qual {
-                    held = (self._c_kind[c] == 0) && (self._rec_depth[c] >= 2) && TextSink::_has_word_(t, name)
-                        && (!TextSink::_has_word_(t, "friend")) && TextSink::_class_name_(TextSink::_untemplate_all_(t)).empty()
+                    held = (self._c_kind[c] == 0)
+                        && (self._rec_depth[c] >= 2)
+                        && TextSink::_has_word_(t, name)
+                        && (!TextSink::_has_word_(t, "friend"))
+                        && TextSink::_class_name_(TextSink::_untemplate_all_(t)).empty()
                 } else {
-                    held = (self._c_kind[c] == 2) && (TextSink::_proto_key_(t) == TextSink::_proto_key_(head))
+                    held = (self._c_kind[c] == 2)
+                        && (TextSink::_proto_key_(t) == TextSink::_proto_key_(
+                            head,
+                        ))
                 }
             }
 
@@ -946,8 +1033,14 @@ pub class TextSink derives EmitSink {
             }
 
             var id = u.subslice(b, e - b)
-            if id.empty() || (id == "decltype") || (id == "sizeof") || (id == "alignof") || (id == "__attribute__")
-                || (id == "noexcept") || (id == "alignas") || (id == "requires") {
+            if id.empty()
+                || (id == "decltype")
+                || (id == "sizeof")
+                || (id == "alignof")
+                || (id == "__attribute__")
+                || (id == "noexcept")
+                || (id == "alignas")
+                || (id == "requires") {
                 continue
             }
 
@@ -979,11 +1072,13 @@ pub class TextSink derives EmitSink {
         }
 
         var bare: string = ""
-        var i: usize = 0
+        var i:    usize  = 0
         while i < s.size() {
-            var rest = s.subslice(i, s.size() - i)
+            var rest   = s.subslice(i, s.size() - i)
             var before = (i > 0) && TextSink::_ident_char_(s[i - 1])
-            if (!before) && rest.starts_with("inline") && ((rest.size() == 6) || (!TextSink::_ident_char_(rest[6]))) {
+            if (!before)
+                && rest.starts_with("inline")
+                && ((rest.size() == 6) || (!TextSink::_ident_char_(rest[6]))) {
                 bare += " "
                 i += 6
                 continue
@@ -1003,9 +1098,9 @@ pub class TextSink derives EmitSink {
                     close = (')' as u8)
                 }
 
-                var d: usize = 0
-                var e = i
-                var seen = false
+                var d:   usize = 0
+                var e          = i
+                var seen       = false
                 while e < s.size() {
                     if s[e] == open {
                         d += 1
@@ -1045,7 +1140,9 @@ pub class TextSink derives EmitSink {
                 q += 1
             }
 
-            if (out.size() > 0) && (q < bare.size()) && TextSink::_ident_char_(out[out.size() - 1])
+            if (out.size() > 0)
+                && (q < bare.size())
+                && TextSink::_ident_char_(out[out.size() - 1])
                 && TextSink::_ident_char_(bare[q]) {
                 out += " "
             }
@@ -1094,8 +1191,10 @@ pub class TextSink derives EmitSink {
     /// 1: `namespace n {` + forward declarations + `}`; 2: the same with
     /// plain prototypes (no body, no default argument); else 0.
     priv fn _chunk_kind_(self, i: usize, j: usize) -> u8 {
-        if (j < (i + 2)) || (!TextSink::_trim_(self._rec_text[i]).starts_with("namespace "))
-            || (!TextSink::_trim_(self._rec_text[i]).ends_with("{")) || (TextSink::_trim_(self._rec_text[j]) != "}") {
+        if (j < (i + 2))
+            || (!TextSink::_trim_(self._rec_text[i]).starts_with("namespace "))
+            || (!TextSink::_trim_(self._rec_text[i]).ends_with("{"))
+            || (TextSink::_trim_(self._rec_text[j]) != "}") {
             return 0
         }
 
@@ -1110,17 +1209,25 @@ pub class TextSink derives EmitSink {
                 continue
             }
 
-            var t = TextSink::_trim_(self._rec_text[q])
+            var t        = TextSink::_trim_(self._rec_text[q])
             var decl_end = t.ends_with(";") && (!TextSink::_has_(t, "="))
-            var tag = t.starts_with("struct ") || t.starts_with("class ") || t.starts_with("union ")
-                   || t.starts_with("enum ") || t.starts_with("template<")
+            var tag = t.starts_with("struct ")
+                || t.starts_with("class ")
+                || t.starts_with("union ")
+                || t.starts_with("enum ")
+                || t.starts_with("template<")
             if (!decl_end) || (!tag) || TextSink::_has_(t, "(") {
                 fwd = false
             }
 
-            var ext_var = t.starts_with("extern ") && (!t.starts_with("extern template")) && (!t.starts_with("extern \""))
-            if (!decl_end) || ((!TextSink::_has_(t, "(")) && (!ext_var)) || t.starts_with("using ")
-                || t.starts_with("static_assert") || t.starts_with("extern template") {
+            var ext_var = t.starts_with("extern ")
+                && (!t.starts_with("extern template"))
+                && (!t.starts_with("extern \""))
+            if (!decl_end)
+                || ((!TextSink::_has_(t, "(")) && (!ext_var))
+                || t.starts_with("using ")
+                || t.starts_with("static_assert")
+                || t.starts_with("extern template") {
                 proto = false
             }
         }
@@ -1140,10 +1247,15 @@ pub class TextSink derives EmitSink {
     /// `#line` naming the Kairo file on the line before it when there is room.
     priv fn _place_(self, k: usize, const text: string, depth_after: usize) {
         if (!self._mapped) && (k >= (self._cursor + 2)) {
-            self._fresh_(k - 1, f"#line {k} \"" + self._home + "\"", self._run_dep)
+            self._fresh_(
+                k - 1,
+                f"#line {k} \"" + self._home + "\"",
+                self._run_dep,
+            )
+
             self._pl_lock[k - 2] = true
-            self._mapped  = true
-            self._line_at = k - 1
+            self._mapped         = true
+            self._line_at        = k - 1
         }
 
         self._fresh_(k, text, depth_after)
@@ -1196,7 +1308,7 @@ pub class TextSink derives EmitSink {
     /// declaration are passed over, a bare `//` ends it, and a block opening
     /// with a `/// ---` rule is the file's license banner, not a doc.
     priv fn _doc_above_(self, k: usize, top: *usize) -> [string] {
-        var rev: [string]
+        var rev:  [string]
         var none: [string]
         if (self._home_fid == u32::MAX) || (self._sm == &null) {
             return none
@@ -1204,9 +1316,15 @@ pub class TextSink derives EmitSink {
 
         var j = k
         while j > 1 {
-            var s = TextSink::_trim_ws_(self._sm->get_line_text(self._home_fid, (j - 1) as u32))
+            var s = TextSink::_trim_ws_(
+                self._sm->get_line_text(self._home_fid, (j - 1) as u32),
+            )
+
             if s.starts_with("///") {
-                rev.push_back(self._sm->get_line_text(self._home_fid, (j - 1) as u32))
+                rev.push_back(
+                    self._sm->get_line_text(self._home_fid, (j - 1) as u32),
+                )
+
                 j -= 1
                 continue
             }
@@ -1236,7 +1354,11 @@ pub class TextSink derives EmitSink {
     /// would splice the next line (the declaration) into the comment.
     priv static fn _doc_line_(const s: string) -> string {
         var e = s.size()
-        while (e > 0) && ((s[e - 1] == (' ' as u8)) || (s[e - 1] == ('\t' as u8)) || (s[e - 1] == ('\r' as u8)) || (s[e - 1] == ('\\' as u8))) {
+        while (e > 0)
+            && ((s[e - 1] == (' ' as u8))
+                || (s[e - 1] == ('\t' as u8))
+                || (s[e - 1] == ('\r' as u8))
+                || (s[e - 1] == ('\\' as u8))) {
             e -= 1
         }
 
@@ -1253,7 +1375,11 @@ pub class TextSink derives EmitSink {
         var end: usize = 0
         while t.subslice(p, t.size() - p).starts_with("namespace ") {
             var q = p + 10
-            while (q < t.size()) && (t[q] != ('{' as u8)) && (t[q] != (';' as u8)) && (t[q] != ('(' as u8)) && (t[q] != ('}' as u8)) {
+            while (q < t.size())
+                && (t[q] != ('{' as u8))
+                && (t[q] != (';' as u8))
+                && (t[q] != ('(' as u8))
+                && (t[q] != ('}' as u8)) {
                 q += 1
             }
 
@@ -1261,7 +1387,7 @@ pub class TextSink derives EmitSink {
                 break
             }
 
-            p = q + 1
+            p   = q + 1
             end = p
             while (p < t.size()) && (t[p] == (' ' as u8)) {
                 p += 1
@@ -1292,7 +1418,7 @@ pub class TextSink derives EmitSink {
             }
 
             var top: usize = 0
-            var doc = self._doc_above_(k, &top)
+            var doc        = self._doc_above_(k, &top)
             if doc.empty() || (top < 2) {
                 continue
             }
@@ -1302,14 +1428,16 @@ pub class TextSink derives EmitSink {
             for var j = top; j < k; ++j {
                 if j == self._line_at {
                     has_dir = true
-                } else if self._pl_lock[j - 1] || (!TextSink::_trim_(self._pl_text[j - 1]).empty()) {
+                } else if self._pl_lock[j - 1]
+                    || (!TextSink::_trim_(self._pl_text[j - 1]).empty()) {
                     fits = false
                 }
             }
 
-            var open = TextSink::_openers_(self._pl_text[k - 1])
+            var open  = TextSink::_openers_(self._pl_text[k - 1])
             var above = top - 1 // the opener's line, and the `#line`'s
-            if (!open.empty()) && ((above < 1) || self._pl_lock[above - 1] || (above == self._line_at)) {
+            if (!open.empty())
+                && ((above < 1) || self._pl_lock[above - 1] || (above == self._line_at)) {
                 fits = false
             }
 
@@ -1326,17 +1454,22 @@ pub class TextSink derives EmitSink {
                 var old = self._line_at
                 self._pl_text[old - 1] = ""
                 self._pl_lock[old - 1] = false
-                self._line_at = 0
-                if (to >= 3) && (!self._pl_lock[to - 1])
+                self._line_at          = 0
+                if (to >= 3)
+                    && (!self._pl_lock[to - 1])
                     && TextSink::_trim_(self._pl_text[to - 1]).empty() {
                     self._pl_text[to - 1] = f"#line {to + 1} \"" + self._home + "\""
                     self._pl_lock[to - 1] = true
-                    self._line_at = to
+                    self._line_at         = to
                 }
             }
 
             if !open.empty() {
-                var rest = self._pl_text[k - 1].subslice(open.size(), self._pl_text[k - 1].size() - open.size())
+                var rest = self._pl_text[k - 1].subslice(
+                    open.size(),
+                    self._pl_text[k - 1].size() - open.size(),
+                )
+
                 self._pl_text[k - 1] = TextSink::_trim_(rest)
                 if TextSink::_trim_(self._pl_text[above - 1]).empty() {
                     self._pl_text[above - 1] = TextSink::_trim_(open)
@@ -1364,7 +1497,7 @@ pub class TextSink derives EmitSink {
 
         self._pl_text[self._cursor - 1] += " " + TextSink::_trim_(text)
         self._pl_depth[self._cursor - 1] = depth_after
-        self._run_dep = depth_after
+        self._run_dep                    = depth_after
     }
 
     /// The record a namespace-scope chunk's first inner line defines
@@ -1386,8 +1519,11 @@ pub class TextSink derives EmitSink {
         }
 
         var e = at
-        while (e < t.size()) && (((t[e] >= ('a' as u8)) && (t[e] <= ('z' as u8))) || ((t[e] >= ('A' as u8)) && (t[e] <= ('Z' as u8)))
-                                 || ((t[e] >= ('0' as u8)) && (t[e] <= ('9' as u8))) || (t[e] == ('_' as u8))) {
+        while (e < t.size())
+            && (((t[e] >= ('a' as u8)) && (t[e] <= ('z' as u8)))
+                || ((t[e] >= ('A' as u8)) && (t[e] <= ('Z' as u8)))
+                || ((t[e] >= ('0' as u8)) && (t[e] <= ('9' as u8)))
+                || (t[e] == ('_' as u8))) {
             e += 1
         }
 
@@ -1415,7 +1551,9 @@ pub class TextSink derives EmitSink {
         }
 
         if at != 0 {
-            return u.subslice(at, u.size() - at).starts_with(LowerTargets::reserved_stem())
+            return u.subslice(at, u.size() - at).starts_with(
+                LowerTargets::reserved_stem(),
+            )
         }
 
         if u.starts_with(LowerTargets::reserved_stem()) {
@@ -1440,18 +1578,29 @@ pub class TextSink derives EmitSink {
                 b -= 1
             }
 
-            return u.subslice(b, e - b).starts_with(LowerTargets::reserved_stem())
+            return u.subslice(b, e - b).starts_with(
+                LowerTargets::reserved_stem(),
+            )
         }
 
-        return TextSink::_var_name_(u).starts_with(LowerTargets::reserved_stem())
+        return TextSink::_var_name_(u).starts_with(
+            LowerTargets::reserved_stem(),
+        )
     }
 
     /// A forward declaration (`struct S;`, `enum class E : int;`,
     /// `template<class T> struct B;`): a tag, no body, no initializer.
     priv static fn _is_fwd_(const t: string) -> bool {
         var u = TextSink::_untemplate_(t)
-        var tag = u.starts_with("struct ") || u.starts_with("class ") || u.starts_with("union ") || u.starts_with("enum ")
-        return tag && t.ends_with(";") && (!TextSink::_has_(t, "(")) && (!TextSink::_has_(t, "{")) && (!TextSink::_has_(t, "="))
+        var tag = u.starts_with("struct ")
+            || u.starts_with("class ")
+            || u.starts_with("union ")
+            || u.starts_with("enum ")
+        return tag
+            && t.ends_with(";")
+            && (!TextSink::_has_(t, "("))
+            && (!TextSink::_has_(t, "{"))
+            && (!TextSink::_has_(t, "="))
     }
 
     /// \p t without a leading `template<...> ` head (balanced), else \p t;
@@ -1523,7 +1672,11 @@ pub class TextSink derives EmitSink {
         }
 
         var stop: usize = 0
-        while (stop < t.size()) && (t[stop] != ('=' as u8)) && (t[stop] != ('{' as u8)) && (t[stop] != ('[' as u8)) && (t[stop] != (';' as u8)) {
+        while (stop < t.size())
+            && (t[stop] != ('=' as u8))
+            && (t[stop] != ('{' as u8))
+            && (t[stop] != ('[' as u8))
+            && (t[stop] != (';' as u8)) {
             stop += 1
         }
 
@@ -1557,7 +1710,9 @@ pub class TextSink derives EmitSink {
         for var i: usize = 0; (i + 9) <= piece.size(); ++i {
             if piece.subslice(i, 9) == "decltype(" {
                 n += 1
-                if piece.subslice(i, piece.size() - i).starts_with("decltype(sizeof(0))") {
+                if piece.subslice(i, piece.size() - i).starts_with(
+                    "decltype(sizeof(0))",
+                ) {
                     z += 1
                 }
             }
@@ -1578,7 +1733,7 @@ pub class TextSink derives EmitSink {
             }
 
             var before = (i > 0) && TextSink::_ident_char_(s[i - 1])
-            var after  = ((i + name.size()) < s.size()) && TextSink::_ident_char_(s[i + name.size()])
+            var after = ((i + name.size()) < s.size()) && TextSink::_ident_char_(s[i + name.size()])
             if (!before) && (!after) {
                 return true
             }
@@ -1588,7 +1743,10 @@ pub class TextSink derives EmitSink {
     }
 
     priv static fn _ident_char_(c: u8) -> bool {
-        return ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || ((c >= ('0' as u8)) && (c <= ('9' as u8))) || (c == ('_' as u8))
+        return ((c >= ('a' as u8)) && (c <= ('z' as u8)))
+            || ((c >= ('A' as u8)) && (c <= ('Z' as u8)))
+            || ((c >= ('0' as u8)) && (c <= ('9' as u8)))
+            || (c == ('_' as u8))
     }
 
     priv static fn _trim_(const s: string) -> string {

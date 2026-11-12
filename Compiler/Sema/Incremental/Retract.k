@@ -59,10 +59,10 @@ import AST::Node::CanonicalNodes::{
 import AST::Node::Casting::cast
 import AST::Node::Types
 import Location::SourceManager::SourceManager
-import std::io
 import Location::SourceRange::SourceRange
 import Sema::Foreign::ForeignRegistry::ForeignRegistry
 import Sema::Resolve::NameLookup::NameLookup
+import std::io
 
 /// Every record declaration the canonical type \p c_in mentions.
 fn retract_records(c_in: unsafe *Type, depth: u32, out: unsafe *cxx::std::vector<unsafe *Decl>) {
@@ -90,11 +90,19 @@ fn retract_records(c_in: unsafe *Type, depth: u32, out: unsafe *cxx::std::vector
         } case TypeKind::QualifiedType {
             retract_records(cast<QualifiedType>(c)->inner, depth + 1, out)
         } case TypeKind::PointerType {
-            retract_records(cast<Types::PointerType>(c)->pointee, depth + 1, out)
+            retract_records(
+                cast<Types::PointerType>(c)->pointee,
+                depth + 1,
+                out,
+            )
         } case TypeKind::NullableType {
             retract_records(cast<Types::NullableType>(c)->inner, depth + 1, out)
         } case TypeKind::FixedArrayType {
-            retract_records(cast<Types::FixedArrayType>(c)->element, depth + 1, out)
+            retract_records(
+                cast<Types::FixedArrayType>(c)->element,
+                depth + 1,
+                out,
+            )
         } case TypeKind::VectorType {
             retract_records(cast<Types::VectorType>(c)->element, depth + 1, out)
         } case TypeKind::SetType {
@@ -104,9 +112,17 @@ fn retract_records(c_in: unsafe *Type, depth: u32, out: unsafe *cxx::std::vector
             retract_records(m->key, depth + 1, out)
             retract_records(m->value, depth + 1, out)
         } case TypeKind::CXXLValueRefType {
-            retract_records(cast<Types::CXXLValueRefType>(c)->referee, depth + 1, out)
+            retract_records(
+                cast<Types::CXXLValueRefType>(c)->referee,
+                depth + 1,
+                out,
+            )
         } case TypeKind::CXXRValueRefType {
-            retract_records(cast<Types::CXXRValueRefType>(c)->referee, depth + 1, out)
+            retract_records(
+                cast<Types::CXXRValueRefType>(c)->referee,
+                depth + 1,
+                out,
+            )
         } case TypeKind::FunctionPointerType {
             var unsafe *f = cast<Types::FunctionPointerType>(c)
             for var i: usize = 0; i < f->params.size(); ++i {
@@ -159,7 +175,7 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
                          sm:         unsafe *SourceManager,
                          freg:       unsafe *ForeignRegistry,
                          const fids: cxx::std::vector<u32>) -> RetractStats {
-    var st = RetractStats()
+    var st   = RetractStats()
     var ctxs = llvm::DenseSet<u64>()
     var in_f = llvm::DenseSet<u64>()
     for var f: u32 in fids {
@@ -170,10 +186,10 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
         }
     }
 
-    var tdbg = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
-    var tm0  = cxx::std::chrono::steady_clock::now()
+    var        tdbg = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
+    var        tm0  = cxx::std::chrono::steady_clock::now()
     var unsafe *reg = gs->instances()
-    var all = cxx::std::vector<unsafe *InstanceEntry>()
+    var        all  = cxx::std::vector<unsafe *InstanceEntry>()
     reg->collect(&all)
     st.entries = all.size()
 
@@ -207,9 +223,9 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
                 continue
             }
 
-            var unsafe *e = all[i]
-            var hit       = false
-            var own       = cxx::std::vector<unsafe *Decl>()
+            var unsafe *e  = all[i]
+            var        hit = false
+            var        own = cxx::std::vector<unsafe *Decl>()
             own.push_back(e->primary)
             own.push_back(e->pattern)
             if e->is_explicit {
@@ -259,7 +275,9 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
         if e->use_at.is_valid() && e->primary != &null && !decl_is_imported(e->primary) {
             st.first_prim.push_back(e->primary as usize as u64)
             st.first_fid.push_back(sm->resolve(e->use_at.start).fid as u32)
-            st.first_entry.push_back(if (dead[i] != 0) => (unsafe (&null as unsafe *InstanceEntry)) else => e)
+            st.first_entry.push_back(
+                if (dead[i] != 0) => (unsafe (&null as unsafe *InstanceEntry)) else => e,
+            )
         }
 
         if dead[i] != 0 {
@@ -295,8 +313,12 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
 
         if rearm {
             st.rearmed_was.push_back(
-                f"depth {e->depth}" + (if (e->via != &null) => (", reached") else => "") + (if (e->failed) => (", failed") else => "") + (if (e->liveness == InstLiveness::Walked) => (", walked") else => ""),
+                f"depth {e->depth}" + (if (e->via != &null) => (", reached")
+                                       else => "") + (if (e->failed) => (", failed")
+                                                      else => "") + (if (e->liveness == InstLiveness::Walked) => (", walked")
+                                                                     else => ""),
             )
+
             // What the first use decided goes with it; what any use
             // would have found the same stays:
             //  - `failed` is the verdict of the bounds check where the
@@ -357,9 +379,9 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
         // their owners.
         var memo = llvm::DenseMap<u64, u8>()
         for var i: usize = 0; i < usrs.size(); ++i {
-            var unsafe *cur = decls[i]
-            var is_dead     = false
-            var path        = cxx::std::vector<u64>()
+            var unsafe *cur    = decls[i]
+            var        is_dead = false
+            var        path    = cxx::std::vector<u64>()
             for var hop: usize = 0; hop < 16 && cur != &null && !is_dead; ++hop {
                 var seen = memo.find(cur as usize as u64)
                 if seen != memo.end() {
@@ -399,20 +421,36 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
                 // The stand-in of a declaration of the set itself, against
                 // something imported into a dropped shell.
                 var unsafe *own = NameLookup::ctx_of(decls[i])
-                if own != &null && ctxs.contains(own as usize as u64) && !dead_nodes.contains(decls[i] as usize as u64) {
+                if own != &null
+                    && ctxs.contains(own as usize as u64)
+                    && !dead_nodes.contains(decls[i] as usize as u64) {
                     orphans.push_back(usrs[i])
                     if dbg {
-                        var us = kairo::std::from_std_string<string>(usrs[i].str())
+                        var us = kairo::std::from_std_string<string>(
+                            usrs[i].str(),
+                        )
+
                         io::eprintln(f"[retract] orphan {us}")
                     }
                 } else {
                     gone.push_back(usrs[i])
                     if dbg {
                         var unsafe *oc = NameLookup::ctx_of(decls[i])
-                        var where_ = if (oc != &null && oc->sm != &null) => (oc->sm->get_filename(oc->fid)) else => "?"
-                        var dn = if (dead_nodes.contains(decls[i] as usize as u64)) => (" dead-node") else => ""
-                        var us = kairo::std::from_std_string<string>(usrs[i].str())
-                        io::eprintln(f"[retract] gone {us} kind={(decls[i]->kind as u8) as u32} ctx={where_}{dn}")
+                        var where_ = if (oc != &null && oc->sm != &null) => (oc->sm->get_filename(
+                                         oc->fid,
+                                     ))
+                                     else => "?"
+                        var dn = if (dead_nodes.contains(
+                                     decls[i] as usize as u64,
+                                 )) => (" dead-node")
+                                 else => ""
+                        var us = kairo::std::from_std_string<string>(
+                            usrs[i].str(),
+                        )
+
+                        io::eprintln(
+                            f"[retract] gone {us} kind={(decls[i]->kind as u8) as u32} ctx={where_}{dn}",
+                        )
                     }
                 }
             }
@@ -430,10 +468,18 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
         var tm2 = cxx::std::chrono::steady_clock::now()
         freg->forget(unsafe &gone, unsafe &orphans, unsafe &shells)
         if tdbg {
-            var a = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(tm1 - tm0).count() as i64
-            var b = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(tm2 - tm1).count() as i64
-            var c = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(cxx::std::chrono::steady_clock::now() - tm2).count() as i64
-            io::eprintln(f"[retract] {all.size()} entries {a} us, {usrs.size()} usrs {b} us, forget {gone.size()}+{orphans.size()}+{shells.size()} {c} us")
+            var a = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(
+                tm1 - tm0,
+            ).count() as i64
+            var b = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(
+                tm2 - tm1,
+            ).count() as i64
+            var c = cxx::std::chrono::duration_cast<cxx::std::chrono::microseconds>(
+                cxx::std::chrono::steady_clock::now() - tm2,
+            ).count() as i64
+            io::eprintln(
+                f"[retract] {all.size()} entries {a} us, {usrs.size()} usrs {b} us, forget {gone.size()}+{orphans.size()}+{shells.size()} {c} us",
+            )
         }
     }
 
@@ -472,8 +518,8 @@ pub fn verify_retired(gs:            unsafe *GlobalDisambigTable,
     var all = cxx::std::vector<unsafe *InstanceEntry>()
     gs->instances()->collect(&all)
     for var i: usize = 0; i < all.size(); ++i {
-        var unsafe *e = all[i]
-        var own       = cxx::std::vector<unsafe *Decl>()
+        var unsafe *e  = all[i]
+        var        own = cxx::std::vector<unsafe *Decl>()
         own.push_back(e->primary)
         own.push_back(e->pattern)
         if e->is_explicit {
@@ -498,7 +544,9 @@ pub fn verify_retired(gs:            unsafe *GlobalDisambigTable,
                 bad += 1
                 if bad <= 20 {
                     var where_ = if (dc->sm != &null) => (dc->sm->get_filename(dc->fid)) else => "?"
-                    io::eprintln(f"[live] self-check: a kept instance (depth {e->depth}) names a declaration of a replaced tree of {where_}")
+                    io::eprintln(
+                        f"[live] self-check: a kept instance (depth {e->depth}) names a declaration of a replaced tree of {where_}",
+                    )
                 }
 
                 break
@@ -517,8 +565,13 @@ pub fn verify_retired(gs:            unsafe *GlobalDisambigTable,
                 if dc != &null && dead.contains(dc as usize as u64) {
                     bad += 1
                     if bad <= 20 {
-                        var us = kairo::std::from_std_string<string>(usrs[i].str())
-                        io::eprintln(f"[live] self-check: the foreign registry holds {us} for a declaration of a replaced tree")
+                        var us = kairo::std::from_std_string<string>(
+                            usrs[i].str(),
+                        )
+
+                        io::eprintln(
+                            f"[live] self-check: the foreign registry holds {us} for a declaration of a replaced tree",
+                        )
                     }
 
                     break

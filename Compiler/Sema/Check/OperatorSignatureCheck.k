@@ -138,7 +138,9 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             self._err_id(
                 f,
                 DiagID::SC115E,
-                LangAttrs::quoted(LangAttrs::implicit_conversion()) + " applies only to a conversion operator: 'fn op as (self) -> T' in a type's body",
+                LangAttrs::quoted(
+                    LangAttrs::implicit_conversion(),
+                ) + " applies only to a conversion operator: 'fn op as (self) -> T' in a type's body",
             )
 
             return true
@@ -152,9 +154,9 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return true
         }
 
-        var        sym    = OperatorFacts::symbol(f) // for the messages; identity is by kind.
-        var        k      = OperatorFacts::single_kind(f)
-        var        subs   = OperatorFacts::is_subscript(f) || OperatorFacts::is_subscript_set(f)
+        var sym = OperatorFacts::symbol(f)      // for the messages; identity is by kind.
+        var k   = OperatorFacts::single_kind(f)
+        var subs = OperatorFacts::is_subscript(f) || OperatorFacts::is_subscript_set(f)
         var unsafe *lex   = f->lexical_dc
         var        in_ext = lex != &null && lex->dc_kind == DeclContextKind::Extension
         var        member = f->is_method() || in_ext
@@ -234,7 +236,11 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return true
         }
 
-        if in_ext && (k == TokenKind::KwAs || subs || k == TokenKind::OpArrow || k == TokenKind::KwFinally) {
+        if in_ext
+            && (k == TokenKind::KwAs
+                || subs
+                || k == TokenKind::OpArrow
+                || k == TokenKind::KwFinally) {
             self._err(
                 f,
                 f"'op {sym}' cannot be declared in an extension; it must be a member, so declare it in the type's body",
@@ -243,7 +249,8 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return true
         }
 
-        if (k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus) && !OperatorFacts::has_fixity(f) {
+        if (k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus)
+            && !OperatorFacts::has_fixity(f) {
             self.sc->diag->report(
                 DiagID::SC053W,
                 f->range.start,
@@ -292,9 +299,13 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             )
 
             b.first(recv->range)
-            if recv->name.range.is_valid() && recv->range.start.raw() < recv->name.range.start.raw() {
+            if recv->name.range.is_valid()
+                && recv->range.start.raw() < recv->name.range.start.raw() {
                 b.remove(
-                    SourceRange::from_bounds(recv->range.start, recv->name.range.start),
+                    SourceRange::from_bounds(
+                        recv->range.start,
+                        recv->name.range.start,
+                    ),
                     "take 'self'",
                 )
             }
@@ -353,7 +364,11 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
 
         // A value, or a type parameter that is not known to be a pointer:
         // neither is a place. A value subscript is the read form's.
-        self._err_id(f, DiagID::SC280E, want + "; a value cannot be written through (a value subscript is 'op []')")
+        self._err_id(
+            f,
+            DiagID::SC280E,
+            want + "; a value cannot be written through (a value subscript is 'op []')",
+        )
     }
 
     /// `op []` beside an `op []=`: the read form. A `*T` result would be a
@@ -378,7 +393,11 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         b.first(f->range)
         var unsafe *g = self._first_set_of(f)
         if g != &null {
-            b.note(DiagCode(DiagID::SC280N), g->range.start, "'op []=' is declared here")->child_first(g->range)
+            b.note(
+                DiagCode(DiagID::SC280N),
+                g->range.start,
+                "'op []=' is declared here",
+            )->child_first(g->range)
         }
 
         b.emit()
@@ -462,7 +481,10 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return
         }
 
-        var unsafe *gets = dc->lookup_symbol(DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare))
+        var unsafe *gets = dc->lookup_symbol(
+            DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare),
+        )
+
         var unsafe *sets = dc->lookup_symbol(DeclName::subscript_set_name())
         if gets != &null && sets != &null {
             for var i: usize = 0; i < gets->size(); ++i {
@@ -489,7 +511,10 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
                 continue
             }
 
-            var unsafe *rec = dyn_cast<RecordType>(canon_unqual(e->base->canonical))
+            var unsafe *rec = dyn_cast<RecordType>(
+                canon_unqual(e->base->canonical),
+            )
+
             if rec == &null {
                 continue
             }
@@ -499,7 +524,10 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
                 continue
             }
 
-            var unsafe *bg = bdc->lookup_symbol(DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare))
+            var unsafe *bg = bdc->lookup_symbol(
+                DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare),
+            )
+
             if bg == &null {
                 continue
             }
@@ -523,7 +551,11 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
                 )
 
                 b.first(at->range)
-                b.note(DiagCode(DiagID::SC280N), g->range.start, f"'{bn}::op []' is declared here")->child_first(g->range)
+                b.note(
+                    DiagCode(DiagID::SC280N),
+                    g->range.start,
+                    f"'{bn}::op []' is declared here",
+                )->child_first(g->range)
                 b.emit()
                 return
             }
@@ -552,7 +584,11 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         )
 
         b.first(s->range)
-        b.note(DiagCode(DiagID::SC280N), g->range.start, "the read form is declared here")->child_first(g->range)
+        b.note(
+            DiagCode(DiagID::SC280N),
+            g->range.start,
+            "the read form is declared here",
+        )->child_first(g->range)
         b.emit()
         s->poison()
     }
@@ -622,7 +658,11 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         if k == TokenKind::OpArrow {
             var unsafe *p = if (rt != &null) => (self._tu.pointee(rt)) else => &null
             if p == &null || self._tu.is_unsafe_ptr(rt) {
-                self._err_id(f, DiagID::SC113E, "'op ->' must return a pointer: '*T' or '*const T'")
+                self._err_id(
+                    f,
+                    DiagID::SC113E,
+                    "'op ->' must return a pointer: '*T' or '*const T'",
+                )
             }
 
             return
@@ -632,7 +672,10 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         // the two results that are neither are errors here.
         if subs {
             if rt == &null {
-                self._err(f, f"'op {sym}' must return a value or a place ('*T' / '*const T')")
+                self._err(
+                    f,
+                    f"'op {sym}' must return a value or a place ('*T' / '*const T')",
+                )
             } else if self._tu.is_unsafe_ptr(rt) {
                 self._err_id(
                     f,
@@ -673,7 +716,9 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
                             else => &null
             if ord == &null
                 || d == &null
-                || NameLookup::representative(d) != NameLookup::representative(ord) {
+                || NameLookup::representative(d) != NameLookup::representative(
+                    ord,
+                ) {
                 self._err(f, "'op <=>' must return 'Ordering'")
             }
 
@@ -706,7 +751,12 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
                 f->range.start,
                 "the operator is declared here",
             )->child_first(f->range)
-            b.insert(recv->range.start, "const ", "make the receiver 'const self'")
+            b.insert(
+                recv->range.start,
+                "const ",
+                "make the receiver 'const self'",
+            )
+
             b.emit()
         }
 
@@ -724,9 +774,11 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         )
 
         rb.first(at)
-        rb.note(DiagCode(DiagID::SC201N), f->range.start, "the operator is declared here")->child_first(
-            f->range,
-        )
+        rb.note(
+            DiagCode(DiagID::SC201N),
+            f->range.start,
+            "the operator is declared here",
+        )->child_first(f->range)
 
         if f->return_type != &null && f->return_type->range.is_valid() {
             rb.fix(f->return_type->range, "string", "return 'string'")
@@ -769,7 +821,9 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         if n->target != &null
             && n->target->canonical != &null
             && isa<RecordType>(canon_unqual(n->target->canonical)) {
-            var unsafe *td  = cast<RecordType>(canon_unqual(n->target->canonical))->decl
+            var unsafe *td = cast<RecordType>(
+                canon_unqual(n->target->canonical),
+            )->decl
             var unsafe *tdc = NameLookup::context_of(decl_pattern(td))
             if tdc != &null {
                 self._pairs_across(dc, tdc, n)
@@ -813,7 +867,10 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             }
 
             var unsafe *base = b->lookup_symbol(
-                DeclName::op_name(OperatorFacts::compound_base(k), TokenKind::TkUnknown),
+                DeclName::op_name(
+                    OperatorFacts::compound_base(k),
+                    TokenKind::TkUnknown,
+                ),
             )
 
             if base == &null || base->size() == 0 {
@@ -827,9 +884,10 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
                 DiagID::SC054E,
                 f->range.start,
                 f"'op {sym}' and 'op {bsym}' are both declared; a type declares one of the pair and the other is derived from it",
-            ).first(f->range)->note(g->range.start, f"'op {bsym}' is declared here")->child_first(
-                g->range,
-            )->emit()
+            ).first(f->range)->note(
+                g->range.start,
+                f"'op {bsym}' is declared here",
+            )->child_first(g->range)->emit()
             f->poison()
         }
     }
@@ -860,7 +918,10 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         }
 
         var unsafe *cmp = b->lookup_symbol(
-            DeclName::op_name(TokenKind::OpLessEqualGreater, TokenKind::TkUnknown),
+            DeclName::op_name(
+                TokenKind::OpLessEqualGreater,
+                TokenKind::TkUnknown,
+            ),
         )
 
         if cmp == &null || cmp->size() == 0 {

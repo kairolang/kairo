@@ -82,7 +82,10 @@ pub class TokenCacheManager {
 
     fn op finally (self) {
         for var i: usize = 0; i < 1024; ++i {
-            var unsafe *page = self._imm_dir[i].load(kairo::std::MemoryOrder::relaxed)
+            var unsafe *page = self._imm_dir[i].load(
+                kairo::std::MemoryOrder::relaxed,
+            )
+
             if page != &null {
                 kairo::std::destroy(page)
             }
@@ -96,7 +99,10 @@ pub class TokenCacheManager {
             kairo::std::ice_fail("TokenCacheManager: more than 4M file ids")
         }
 
-        var unsafe *page = self._imm_dir[pi].load(kairo::std::MemoryOrder::relaxed)
+        var unsafe *page = self._imm_dir[pi].load(
+            kairo::std::MemoryOrder::relaxed,
+        )
+
         if page == &null {
             if imm == &null {
                 return
@@ -106,7 +112,10 @@ pub class TokenCacheManager {
             self._imm_dir[pi].store(page, kairo::std::MemoryOrder::release)
         }
 
-        page->e[(fid as usize) & 4095].store(imm, kairo::std::MemoryOrder::release)
+        page->e[(fid as usize) & 4095].store(
+            imm,
+            kairo::std::MemoryOrder::release,
+        )
     }
 
     fn TokenCacheManager(self, sm: unsafe *SourceManager, pool: *ThreadPool, diag: *DiagEngine) {
@@ -126,7 +135,12 @@ pub class TokenCacheManager {
         var        s    = Self::ScanStream()
         var unsafe *imm = kairo::std::create<ImmediateTable>()
         imm->initialize(self._sm)
-        var unsafe *lexer = kairo::std::create<Lexer>(self._sm, self._pool, self._diag, imm)
+        var unsafe *lexer = kairo::std::create<Lexer>(
+            self._sm,
+            self._pool,
+            self._diag,
+            imm,
+        )
 
         // Bound explicitly, under the caller's region (DepScan), so this scan
         // lex does not merge with the walk's lex into a single row. They are
@@ -179,7 +193,13 @@ pub class TokenCacheManager {
         var unsafe *imm = kairo::std::create<ImmediateTable>()
         imm->initialize(self._sm)
 
-        var unsafe *lexer = kairo::std::create<Lexer>(self._sm, self._pool, self._diag, imm)
+        var unsafe *lexer = kairo::std::create<Lexer>(
+            self._sm,
+            self._pool,
+            self._diag,
+            imm,
+        )
+
         if !lexer->open(fid) {
             kairo::std::destroy(lexer)
             kairo::std::destroy(imm)
@@ -258,12 +278,17 @@ pub class TokenCacheManager {
             return &null
         }
 
-        var unsafe *page = self._imm_dir[pi].load(kairo::std::MemoryOrder::acquire)
+        var unsafe *page = self._imm_dir[pi].load(
+            kairo::std::MemoryOrder::acquire,
+        )
+
         if page == &null {
             return &null
         }
 
-        return page->e[(fid as usize) & 4095].load(kairo::std::MemoryOrder::acquire)
+        return page->e[(fid as usize) & 4095].load(
+            kairo::std::MemoryOrder::acquire,
+        )
     }
 
     /// A fid that is not Kairo source (a C++ header): an identifier table

@@ -216,7 +216,13 @@ pub class CodegenBackend derives TokenFiller {
         // when there is one: bound to this TU's sink for the fill, and left
         // as it was found after, since a TU fills once per kind and again
         // without the PCH when clang had something to say (CodegenJob::run).
-        var        cg_own   = CodegenContext(self._ctx, sink, self._psym, self._instances)
+        var cg_own = CodegenContext(
+            self._ctx,
+            sink,
+            self._psym,
+            self._instances,
+        )
+
         var        plan_own = EmitPlan(unsafe &cg_own, PlanMode::Preamble)
         var unsafe *cg      = unsafe &cg_own
         var unsafe *plan    = unsafe &plan_own
@@ -358,7 +364,10 @@ pub class CodegenBackend derives TokenFiller {
 
         // A COPY of the backend's invocation, as for every header set and
         // the merged PCH: the PCH reader rejects one whose options differ.
-        var inv  = cxx::std::make_shared<clang::CompilerInvocation>(*self._be->invocation())
+        var inv = cxx::std::make_shared<clang::CompilerInvocation>(
+            *self._be->invocation(),
+        )
+
         var *cfe = &inv->getFrontendOpts()
         var empty = llvm::MemoryBuffer::getMemBuffer(
             llvm::StringRef(r"", 0),
@@ -431,7 +440,10 @@ pub class CodegenBackend derives TokenFiller {
             }
 
             ppo->Includes.clear()
-            ppo->ImplicitPCHInclude = kairo::std::to_std_string(self._iface->path)
+            ppo->ImplicitPCHInclude = kairo::std::to_std_string(
+                self._iface->path,
+            )
+
             // Built by this process from these files and this invocation a
             // moment ago: re-checking each of its ~2,000 input files (and
             // the header PCH's below it) per TU proves nothing.
@@ -444,13 +456,18 @@ pub class CodegenBackend derives TokenFiller {
             }
 
             ppo->Includes.clear()
-            ppo->ImplicitPCHInclude = kairo::std::to_std_string(self._merged->path)
+            ppo->ImplicitPCHInclude = kairo::std::to_std_string(
+                self._merged->path,
+            )
         } else if self._sets.size() > 0 {
             ppo->Includes.clear()
             var textual_from: usize = 0
             if self._sets[0]->mounted {
-                ppo->ImplicitPCHInclude = kairo::std::to_std_string(self._sets[0]->pch_path())
-                textual_from            = 1
+                ppo->ImplicitPCHInclude = kairo::std::to_std_string(
+                    self._sets[0]->pch_path(),
+                )
+
+                textual_from = 1
             }
 
             // Every textual set goes through one mounted wrapper: the same
@@ -460,7 +477,9 @@ pub class CodegenBackend derives TokenFiller {
             // them), and with the C ones extern "C" as phase A parsed them.
             // Preprocessor `Includes` cannot wrap a path themselves.
             for var i: usize = textual_from; i < self._sets.size(); ++i {
-                ppo->Includes.push_back(kairo::std::to_std_string(self._sets[i]->wrap_path()))
+                ppo->Includes.push_back(
+                    kairo::std::to_std_string(self._sets[i]->wrap_path()),
+                )
             }
         }
 
@@ -562,7 +581,11 @@ pub class CodegenRun {
     /// only ever read.
     pub fn mount(self, @inout sets: cxx::std::vector<unsafe *HeaderSet>) {
         if self.merged != &null && self.merged->ok {
-            self.mounts.add_pch(self.merged->path, unsafe &self.merged->pch->Data)
+            self.mounts.add_pch(
+                self.merged->path,
+                unsafe &self.merged->pch->Data,
+            )
+
             self.merged->mounted = true
             return
         }
@@ -742,7 +765,13 @@ pub class CodegenJob {
     /// Any thread: plans read what Sema finished and prepare_shared filled,
     /// as the fan-out's do.
     pub fn make_plan(self, r: *CodegenRun) {
-        self.pcg  = kairo::std::create<CodegenContext>(self.ctx, &null, r->psym, r->instances)
+        self.pcg = kairo::std::create<CodegenContext>(
+            self.ctx,
+            &null,
+            r->psym,
+            r->instances,
+        )
+
         self.plan = kairo::std::create<EmitPlan>(self.pcg, PlanMode::Preamble)
         self.plan->require_shared()
         self.plan->run()
@@ -787,7 +816,7 @@ pub class CodegenQueue {
     pub var  run:    *CodegenRun
     priv var _jobs:  cxx::std::vector<unsafe *CodegenJob>
     priv var _order: cxx::std::vector<usize>
-    priv var _next:  kairo::std::Atomic<usize>            = kairo::std::Atomic<usize>(0)
+    priv var _next: kairo::std::Atomic<usize> = kairo::std::Atomic<usize>(0)
 
     pub fn add(self, j: unsafe *CodegenJob) {
         self._jobs.push_back(j)

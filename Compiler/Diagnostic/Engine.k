@@ -126,7 +126,7 @@ pub fn diag_category_index(cat: DiagCategory) -> u32 {
 
 /// The policy key's layout, one place for both of its builders.
 const DIAG_KEY_CATEGORY_SHIFT: u32 = 24
-const DIAG_KEY_NUMBER_MASK: u32 = 0x00FFFFFF
+const DIAG_KEY_NUMBER_MASK:    u32 = 0x00FFFFFF
 
 fn diag_key_pack(idx: u32, number: u32) -> u32 {
     return idx << DIAG_KEY_CATEGORY_SHIFT | number & DIAG_KEY_NUMBER_MASK
@@ -554,13 +554,21 @@ pub class DiagEngine derives DiagEngineVBase {
                 case DiagAction::Forbid {
                     // Non-overridable: force Error regardless of prior severity.
                     if sev != DiagSeverity::Error && sev != DiagSeverity::Fatal {
-                        diag->code = self._override_severity(diag->code, DiagSeverity::Error)
-                        sev        = DiagSeverity::Error
+                        diag->code = self._override_severity(
+                            diag->code,
+                            DiagSeverity::Error,
+                        )
+
+                        sev = DiagSeverity::Error
                     }
                 } case DiagAction::Promote {
                     if sev == DiagSeverity::Warning {
-                        diag->code = self._override_severity(diag->code, DiagSeverity::Error)
-                        sev        = DiagSeverity::Error
+                        diag->code = self._override_severity(
+                            diag->code,
+                            DiagSeverity::Error,
+                        )
+
+                        sev = DiagSeverity::Error
                     }
                 } case DiagAction::Silence {
                     // Errors and fatals are never silenced: dropping one would
@@ -573,8 +581,12 @@ pub class DiagEngine derives DiagEngineVBase {
                 } case DiagAction::Warn {
                     // An Ignored-severity code is invisible until asked for.
                     if sev == DiagSeverity::Ignored {
-                        diag->code = self._override_severity(diag->code, DiagSeverity::Warning)
-                        sev        = DiagSeverity::Warning
+                        diag->code = self._override_severity(
+                            diag->code,
+                            DiagSeverity::Warning,
+                        )
+
+                        sev = DiagSeverity::Warning
                     }
                 }
             }
@@ -583,8 +595,12 @@ pub class DiagEngine derives DiagEngineVBase {
             kairo::std::destroy(diag) // suppressed: never reaches a consumer
             return
         } else if sev == DiagSeverity::Warning && self._warnings_as_errors {
-            diag->code = self._override_severity(diag->code, DiagSeverity::Error)
-            sev        = DiagSeverity::Error
+            diag->code = self._override_severity(
+                diag->code,
+                DiagSeverity::Error,
+            )
+
+            sev = DiagSeverity::Error
         }
 
         // --quiet, after the policy block so a -Werror promoted warning is an
@@ -859,11 +875,11 @@ pub class DiagEngine derives DiagEngineVBase {
             // the cap as well as in the totals.
             var sev = d->code.severity()
             if sev == DiagSeverity::Fatal {
-                self._fatal_count      += 1
-                self._error_count      += 1
+                self._fatal_count += 1
+                self._error_count += 1
                 self._errors_delivered += 1
             } else if sev == DiagSeverity::Error {
-                self._error_count      += 1
+                self._error_count += 1
                 self._errors_delivered += 1
             } else if sev == DiagSeverity::Warning {
                 self._warn_count += 1

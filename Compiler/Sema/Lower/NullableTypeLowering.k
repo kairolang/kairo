@@ -111,7 +111,9 @@ pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
 
         self._en = self.sc->nullable_enum()
         if self._en == &null {
-            kairo::std::ice_fail("NullableTypeLowering: the Nullable lang item is not an enum")
+            kairo::std::ice_fail(
+                "NullableTypeLowering: the Nullable lang item is not an enum",
+            )
         }
 
         var found = false
@@ -160,7 +162,11 @@ pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
 
             var args = cxx::std::vector<unsafe *Type>()
             args.push_back(n->inner)
-            var unsafe *r = self.sc->lang_record(WellKnownType::Nullable, unsafe &args)
+            var unsafe *r = self.sc->lang_record(
+                WellKnownType::Nullable,
+                unsafe &args,
+            )
+
             self.sc->types->set_nullable_lowered(n, r)
         }
     }
@@ -187,7 +193,13 @@ pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
             return n
         }
 
-        var unsafe *vi = VariantInitExpr::create(self.ctx, n->range, self._en, self._null_ix)
+        var unsafe *vi = VariantInitExpr::create(
+            self.ctx,
+            n->range,
+            self._en,
+            self._null_ix,
+        )
+
         vi->adopt_sema(n)
         vi->type_          = r
         vi->value_category = Expr::ValueCategory::RValue

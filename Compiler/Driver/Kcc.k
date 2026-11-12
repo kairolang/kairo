@@ -72,12 +72,23 @@ pub fn _kcc_usage() {
     io::println("")
     io::println("USAGE: kcc [clang options] <inputs>")
     io::println("")
-    io::println("  Takes clang's options and C, C++, Objective-C(++), Kairo (.k), object and")
-    io::println("  archive inputs. A C++ input may #include a .k file; the .k is built and linked")
+    io::println(
+        "  Takes clang's options and C, C++, Objective-C(++), Kairo (.k), object and",
+    )
+
+    io::println(
+        "  archive inputs. A C++ input may #include a .k file; the .k is built and linked",
+    )
+
     io::println("  with it. The target and sysroot are Kairo's.")
     io::println("")
-    io::println("  -Xkairo <word>   pass <word> to kairo as is (`-Xkairo --help` lists them)")
-    io::println("  -###             print the compile and link jobs, run nothing")
+    io::println(
+        "  -Xkairo <word>   pass <word> to kairo as is (`-Xkairo --help` lists them)",
+    )
+
+    io::println(
+        "  -###             print the compile and link jobs, run nothing",
+    )
 }
 
 /// \brief the kairo words for kcc's command line (\p argc / \p argv, argv[0]
@@ -262,9 +273,12 @@ fn _kcc_is_clang_query(w: string) -> bool {
         n = w.subslice(1, w.length() - 1)
     }
 
-    if n == "-print-libgcc-file-name" || n == "-print-resource-dir"
-        || n == "-print-target-triple" || n == "-print-effective-triple"
-        || n == "-print-multiarch" || n == "-print-search-dirs" {
+    if n == "-print-libgcc-file-name"
+        || n == "-print-resource-dir"
+        || n == "-print-target-triple"
+        || n == "-print-effective-triple"
+        || n == "-print-multiarch"
+        || n == "-print-search-dirs" {
         return true
     }
 
@@ -287,7 +301,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var unsafe *llvm_init = init_runtime(argc, argv)
 
     finally {
-        kairo::Logger::set_dump_path(Path::join_str(Path::parent_of(env::exe_path()), "kcc.log"))
+        kairo::Logger::set_dump_path(
+            Path::join_str(Path::parent_of(env::exe_path()), "kcc.log"),
+        )
+
         kairo::Logger::dump_to_file()
         kairo::Logger::shutdown()
         kairo::GlobalRecycler::shutdown_allocator_runtime()

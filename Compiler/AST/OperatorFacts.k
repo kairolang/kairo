@@ -51,7 +51,10 @@ pub class OperatorFacts {
             return &null
         }
 
-        var unsafe *tu = OperatorFacts::_tu_of(unsafe (f as unsafe *DeclContext))
+        var unsafe *tu = OperatorFacts::_tu_of(
+            unsafe (f as unsafe *DeclContext),
+        )
+
         if tu == &null {
             tu = OperatorFacts::_tu_of(f->semantic_dc)
         }

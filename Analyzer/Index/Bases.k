@@ -12,19 +12,17 @@
 /// ------------------------------------------------------------------------ ///
 
 
-import Index::Snapshot::*
-import Protocol::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
-import AST::Context::ImportOverlay::{
-    ImportOverlay,
-    OverlayVisibility,
-}
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
+}
+import AST::Context::ImportOverlay::{
+    ImportOverlay,
+    OverlayVisibility,
 }
 import AST::Context::SymbolTable::{
     DeclName,
@@ -62,12 +60,23 @@ import AST::Node::Types
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::LineMap
+import Index::CompletionItems::*
+import Index::Hovers::*
+import Index::Indexer::*
+import Index::Inlays::*
+import Index::Legend::*
+import Index::Macros::*
+import Index::Refs::*
+import Index::Snapshot::*
+import Index::Tokens::*
+import Index::Writer::*
 import Json::JsonWriter
 import Lexer::Immediate::ImmediateTable
 import Lexer::Lexer::Lexer
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Protocol::*
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
     SemaContext,
@@ -76,20 +85,11 @@ import Sema::SemaContext::{
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
-import Token::TokenText::TokenText
 import Token::TokenKind::{
     TokenKind,
     is_keyword,
 }
-import Index::CompletionItems::*
-import Index::Hovers::*
-import Index::Indexer::*
-import Index::Inlays::*
-import Index::Legend::*
-import Index::Macros::*
-import Index::Refs::*
-import Index::Tokens::*
-import Index::Writer::*
+import Token::TokenText::TokenText
 
 extend IndexWalker {
     /// The declaration a written type names: a path's last segment, or the
@@ -129,11 +129,11 @@ extend IndexWalker {
 
         var res = self.sm->resolve(bn.start)
         var row = BaseRow{}
-        row.off      = off
-        row.len      = name.range.size() as u32
-        row.base_fid = res.fid as u32
-        row.base_off = res.offset as u32
-        row.base_len = bn.size() as u32
+        row.off       = off
+        row.len       = name.range.size() as u32
+        row.base_fid  = res.fid as u32
+        row.base_off  = res.offset as u32
+        row.base_len  = bn.size() as u32
         row.name      = sema_dump_decl_name(self.ast_(), d)
         row.base_name = sema_dump_decl_name(self.ast_(), bd)
         row.kind      = self.symbol_kind_(d)
@@ -143,10 +143,7 @@ extend IndexWalker {
 
     /// Every requirement an interface gets from the interfaces it derives,
     /// nearest first, each once.
-    fn inherited_methods_(self,
-                               d:     unsafe *Decl,
-                               depth: u32,
-                               out:   *[string]) {
+    fn inherited_methods_(self, d: unsafe *Decl, depth: u32, out: *[string]) {
         if (d == &null) || (depth > 8) || (!isa<Declarations::InterfaceDecl>(d)) {
             return
         }
@@ -154,7 +151,10 @@ extend IndexWalker {
         var unsafe *it = cast<Declarations::InterfaceDecl>(d)
         if depth > 0 {
             for var i: usize = 0; i < it->methods.size(); ++i {
-                var sig = self.signature_(unsafe (it->methods[i] as unsafe *Decl))
+                var sig = self.signature_(
+                    unsafe (it->methods[i] as unsafe *Decl),
+                )
+
                 var dup = false
                 for var k: usize = 0; k < out->size(); ++k {
                     if (*out)[k] == sig {
@@ -169,7 +169,11 @@ extend IndexWalker {
         }
 
         for var i: usize = 0; i < it->derives_list.size(); ++i {
-            self.inherited_methods_(self.decl_of_type_(it->derives_list[i].base), depth + 1, out)
+            self.inherited_methods_(
+                self.decl_of_type_(it->derives_list[i].base),
+                depth + 1,
+                out,
+            )
         }
     }
 
@@ -328,7 +332,7 @@ extend IndexWalker {
             }
 
             var *text = &self.files[0].text
-            var p = from as usize
+            var p     = from as usize
             while (p < text->size()) && ((*text)[p] != ('{' as u8)) && ((*text)[p] != (';' as u8)) {
                 p += 1
             }

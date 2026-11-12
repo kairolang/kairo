@@ -107,7 +107,7 @@ pub struct DiagGroup {
 /// Overlapping caret spans use the color of the highest severity diagnostic.
 pub class PrettyDiagConsumer derives DiagConsumer {
     /// Pre-rendered text written before the buffer (ModuleRecords' replay).
-    pub var replay: string = ""
+    pub var  replay:        string                               = ""
     priv var _diags:        cxx::std::vector<unsafe *Diagnostic>
     priv var _sm:           unsafe *SourceManager
     priv var _show_context: bool                                 = true ///< --diag-show-context: false hides the source snippet
@@ -248,7 +248,12 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         // the bytes are already UTF-8, nothing to translate.
         var out                      = self.render_all(false)
         var ec: cxx::std::error_code
-        var f = llvm::raw_fd_ostream(kairo::sref(path), &ec, llvm::sys::fs::OF_None)
+        var f = llvm::raw_fd_ostream(
+            kairo::sref(path),
+            &ec,
+            llvm::sys::fs::OF_None,
+        )
+
         if ec.value() != 0 {
             return
         }
@@ -575,7 +580,12 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         if self._show_context {
             for var i: usize = 0; i < group.diags.size(); ++i {
                 var unsafe *nd = group.diags[i]
-                if self._labels_hide_message(nd, sm, group.key.file_id, group.line_num as usize) {
+                if self._labels_hide_message(
+                    nd,
+                    sm,
+                    group.key.file_id,
+                    group.line_num as usize,
+                ) {
                     out += "  " + self.code_prefix(
                         nd->code,
                         nd->code.severity(),
@@ -628,11 +638,15 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                     continue
                 }
 
-                // A label in another file can share this line NUMBER: a note
-                // label on a header declaration at the call's line once drew
-                // the whole declaration's width from column 1 under the call
-                // (P961). Only labels in this group's file belong here.
-                if !self._on_line(label.range.start, sm, group.key.file_id, group.line_num as usize) {
+                // A label in another file can share this line NUMBER, and
+                // drawing it here would underline the wrong text. Only labels
+                // in this group's file belong here.
+                if !self._on_line(
+                    label.range.start,
+                    sm,
+                    group.key.file_id,
+                    group.line_num as usize,
+                ) {
                     continue
                 }
 
@@ -659,7 +673,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 span.code  = diag->code
                 span.sev   = dsev
                 span.style = DiagLabel::Style::Primary
-                var at     = SourceRange::invalid()
+                var at = SourceRange::invalid()
                 at.start = diag->loc
                 at.end   = diag->loc
                 self._place_span(&span, line_text, at, sm)
@@ -697,7 +711,12 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             for var fj: usize = 0; fj < dg->fixits.size(); ++fj {
                 var pf = dg->fixits[fj]
                 if pf.range.is_valid()
-                    && self._on_line(pf.range.start, sm, group.key.file_id, group.line_num as usize) {
+                    && self._on_line(
+                        pf.range.start,
+                        sm,
+                        group.key.file_id,
+                        group.line_num as usize,
+                    ) {
                     primary_fix     = pf
                     has_primary_fix = true
                 }
@@ -708,17 +727,17 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         // (render_fixed_line slices the text with them), and the same edit in
         // terminal cells for the '-'/'+' markers on the caret row.
         var fix_start_col:  usize  = 0
-        var fix_mid_len:    usize  = 0 ///< removed span bytes
+        var fix_mid_len:    usize  = 0         ///< removed span bytes
         var fix_start_cell: usize  = 0
-        var fix_mid_cells:  usize  = 0 ///< removed span width ('-' markers)
-        var fix_ins_cells:  usize  = 0 ///< inserted text width ('+' markers)
+        var fix_mid_cells:  usize  = 0         ///< removed span width ('-' markers)
+        var fix_ins_cells:  usize  = 0         ///< inserted text width ('+' markers)
         var shown_text:     string = line_text ///< the primary line as printed
         if has_primary_fix {
-            var fb        = self._byte_span(primary_fix.range, line_text.length(), sm)
+            var fb = self._byte_span(primary_fix.range, line_text.length(), sm)
             fix_start_col = fb.start_col
             var f_end_col = fb.end_col
-            fix_mid_len   = f_end_col - fix_start_col
-            var rep     = primary_fix.replacement
+            fix_mid_len = f_end_col - fix_start_col
+            var rep = primary_fix.replacement
 
             fix_start_cell = self._cells(line_text, fix_start_col)
             fix_mid_cells  = self._cells(line_text, f_end_col) - fix_start_cell
@@ -770,7 +789,9 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         for var s: usize = 0; s < spans.size(); ++s {
             var span = spans[s]
             for var col: usize = span.start_col; col < span.end_col; ++col {
-                if self.severity_priority(span.sev) < self.severity_priority(col_sev[col]) {
+                if self.severity_priority(span.sev) < self.severity_priority(
+                    col_sev[col],
+                ) {
                     col_sev[col]   = span.sev
                     col_style[col] = span.style
                 }
@@ -847,7 +868,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 }
             }
 
-            var under = self._blank(shown_text, 0, row_cols) ///< one byte per cell
+            var under             = self._blank(shown_text, 0, row_cols) ///< one byte per cell
             var caret_row: string
             for var c: usize = 0; c < row_cols; ++c {
                 if row_glyph[c] == (' ' as u8) {
@@ -960,7 +981,12 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             }
 
             for var i: usize = 0; i < diag->children.size(); ++i {
-                out += self.render_single(diag->children[i], color, indent + "    ", true)
+                out += self.render_single(
+                    diag->children[i],
+                    color,
+                    indent + "    ",
+                    true,
+                )
             }
 
             return out
@@ -971,7 +997,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var        filename = self.display_path(sm->get_filename(diag->loc))
 
         // Find the maximum line width in the target labels to calculate padding
-        var max_num_len                              = f"{loc_info.line}".length()
+        var max_num_len = f"{loc_info.line}".length()
         var temp_labels: cxx::std::vector<DiagLabel>
 
         var has_own_text = false
@@ -1009,7 +1035,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             label.range.start = diag->loc
             label.range.end   = diag->loc
             label.style       = DiagLabel::Style::Primary
-            label.text        = self.code_prefix(diag->code, sev, color, is_child) + diag->message
+            label.text = self.code_prefix(diag->code, sev, color, is_child) + diag->message
             temp_labels.push_back(label)
         }
 
@@ -1037,7 +1063,14 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         // Render the source context snippet and label lines. With the snippet
         // hidden the message still has to appear: it normally rides on a label.
         if self._show_context {
-            out += self.render_labels(&temp_labels, sm, indent, sev_col, color, left_pad)
+            out += self.render_labels(
+                &temp_labels,
+                sm,
+                indent,
+                sev_col,
+                color,
+                left_pad,
+            )
         } else {
             out += indent + "  " + self.code_prefix(
                 diag->code,
@@ -1056,7 +1089,12 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         }
 
         for var i: usize = 0; i < diag->children.size(); ++i {
-            out += self.render_single(diag->children[i], color, indent + "    ", true)
+            out += self.render_single(
+                diag->children[i],
+                color,
+                indent + "    ",
+                true,
+            )
         }
 
         return out
@@ -1082,11 +1120,13 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         }
 
         for var i: usize = 1; i < order.size(); ++i {
-            var key            = order[i]
-            var key_line       = sm->get_line_col(labels[(key)].range.start).line
-            var j:       isize = (i as isize) - 1
+            var key = order[i]
+            var key_line = sm->get_line_col(labels[(key)].range.start).line
+            var j: isize = (i as isize) - 1
             while j >= 0 {
-                var cmp_line = sm->get_line_col(labels[order[j as usize]].range.start).line
+                var cmp_line = sm->get_line_col(
+                    labels[order[j as usize]].range.start,
+                ).line
                 if cmp_line <= key_line {
                     break
                 }
@@ -1123,7 +1163,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             var ctx_before: u32 = self.ctx_before()
             var res             = sm->resolve(label.range.start)
             var fid             = res.fid
-            var lang            = self.snippet_lang(sm->get_filename(label.range.start))
+            var lang = self.snippet_lang(sm->get_filename(label.range.start))
             var first_line = if (start_lc.line > (ctx_before as usize)) => (start_lc.line - (ctx_before as usize))
                              else => 1
 
@@ -1152,13 +1192,16 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             // conn_gutter. Padding with a plain blank run the width of the
             // line-number prefix leaves note carets floating with no '|'
             // under the source line.
-            var pad = f"{indent}{string((' ' as u8), left_pad)} {pipe} "
+            var pad              = f"{indent}{string((' ' as u8), left_pad)} {pipe} "
             var cells: CaretSpan
             self._place_span(&cells, line_text, label.range, sm)
 
-            var glyph     = self.label_char(label.style)
-            var lead      = self._blank(line_text, 0, cells.start_col)
-            var underline = lead + string(glyph, cells.end_col - cells.start_col)
+            var glyph = self.label_char(label.style)
+            var lead  = self._blank(line_text, 0, cells.start_col)
+            var underline = lead + string(
+                glyph,
+                cells.end_col - cells.start_col,
+            )
 
             out += pad + (if color => f"{glyph_col}{underline}{self.RESET}" else => underline)
 
@@ -1214,11 +1257,14 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     /// on another line or in another file runs to the line's end. Shared by
     /// labels and fix-its, whose removal markers had the same mismeasured
     /// end (`x = Tok(2)` struck five columns of ten).
-    priv fn _byte_span(self, range: SourceRange, len: usize, sm: unsafe *SourceManager) -> CaretSpan {
-        var start_lc  = sm->get_line_col(range.start)
-        var end_lc    = sm->get_line_col(range.end)
-        var b0: usize = if (start_lc.column > 0) => (start_lc.column - 1) else => 0
-        var b1: usize = if (end_lc.column > 0) => (end_lc.column - 1) else => 0
+    priv fn _byte_span(self,
+                       range: SourceRange,
+                       len:   usize,
+                       sm:    unsafe *SourceManager) -> CaretSpan {
+        var start_lc       = sm->get_line_col(range.start)
+        var end_lc         = sm->get_line_col(range.end)
+        var b0:      usize = if (start_lc.column > 0) => (start_lc.column - 1) else => 0
+        var b1:      usize = if (end_lc.column > 0) => (end_lc.column - 1) else => 0
         var same_file = sm->resolve(range.end).fid == sm->resolve(range.start).fid
         if (end_lc.line != start_lc.line) || (!same_file) {
             b1 = len
@@ -1316,8 +1362,8 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     /// it short by the tab's width.
     priv fn _blank(self, const text: string, from: usize, to: usize) -> string {
         var out:  string
-        var cell: usize = 0
-        var i:    usize = 0
+        var cell: usize  = 0
+        var i:    usize  = 0
         while (i < text.length()) && (cell < to) {
             var b = text[i] as u8
             i += self._cell_bytes(text, i)

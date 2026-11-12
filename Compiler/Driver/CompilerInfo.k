@@ -84,7 +84,10 @@ extend CompilerInstance {
     fn print_version(self) {
         // version_string() is a C `const char *`, and an f-string formats a
         // pointer as `const c_char @ 0x...`: copy the text into a string.
-        var ver = string(unsafe ((kairo::version_string() as unsafe *const u8) as *const u8))
+        var ver = string(
+            unsafe ((kairo::version_string() as unsafe *const u8) as *const u8),
+        )
+
         io::println(f"installed version: {ver}")
         // "target" is what this run would compile for (--target when given),
         // "host" is the machine running the compiler; reporting only the host
@@ -122,7 +125,13 @@ extend CompilerInstance {
                 var cands = cxx::std::vector<string>()
                 var why   = ""
                 var name  = want
-                if SysNames::parse(want, glibc_default_version(), &tgt, &cands, &why) {
+                if SysNames::parse(
+                    want,
+                    glibc_default_version(),
+                    &tgt,
+                    &cands,
+                    &why,
+                ) {
                     name = tgt.name
                 }
 
@@ -144,9 +153,15 @@ extend CompilerInstance {
     fn run_explain(self) -> i32 {
         var code = self.invocation()->args.get_string("explain")
 
-        var first: usize = kairo::std::to_std_string(code).find_first_not_of(" \t\n\r\f\v")
+        var first: usize = kairo::std::to_std_string(code).find_first_not_of(
+            " \t\n\r\f\v",
+        )
+
         if !(cxx::std::string::npos == first) {
-            var last: usize = kairo::std::to_std_string(code).find_last_not_of(" \t\n\r\f\v")
+            var last: usize = kairo::std::to_std_string(code).find_last_not_of(
+                " \t\n\r\f\v",
+            )
+
             code = code.subslice(first, last - first + 1)
         }
 
@@ -204,7 +219,10 @@ extend CompilerInstance {
     /// otherwise the host triple. Mirrors `llc -mtriple=X -mcpu=help`.
     fn print_cpus(self) -> i32 {
         var triple = self._effective_triple()
-        var llvm_triple = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
+        var llvm_triple = llvm::Triple(
+            llvm::Triple::normalize(kairo::sref(triple)),
+        )
+
         var err: cxx::std::string
 
         var T: unsafe *llvm::Target = unsafe (llvm::TargetRegistry::lookupTarget(llvm_triple, &err) as unsafe *llvm::Target)
@@ -325,7 +343,10 @@ extend CompilerInstance {
     /// given, otherwise the host triple.
     fn print_target_info(self) -> i32 {
         var triple = self._effective_triple()
-        var llvm_triple = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
+        var llvm_triple = llvm::Triple(
+            llvm::Triple::normalize(kairo::sref(triple)),
+        )
+
         var err: cxx::std::string
 
         var T: unsafe *llvm::Target = unsafe (llvm::TargetRegistry::lookupTarget(llvm_triple, &err) as unsafe *llvm::Target)
@@ -342,7 +363,10 @@ extend CompilerInstance {
             return EXIT_FAILURE
         }
 
-        var full_triple: string = kairo::std::from_std_string<string>(llvm_triple.getTriple())
+        var full_triple: string = kairo::std::from_std_string<string>(
+            llvm_triple.getTriple(),
+        )
+
         var arch:        llvm::StringRef = llvm_triple.getArchName()
         var vendor:      llvm::StringRef = llvm_triple.getVendorName()
         var os_name:     llvm::StringRef = llvm_triple.getOSName()
@@ -380,7 +404,9 @@ extend CompilerInstance {
             os_family = "unknown"
         }
 
-        var obj_format = object_format_name(CompilerInstance::_object_format_of(&llvm_triple))
+        var obj_format = object_format_name(
+            CompilerInstance::_object_format_of(&llvm_triple),
+        )
 
         io::println(f"Triple:          {full_triple}")
         io::println(
@@ -503,7 +529,12 @@ extend CompilerInstance {
     fn print_dirs(self) -> i32 {
         var tc   = Toolchain()
         var msgs = cxx::std::vector<LinkMessage>()
-        var ok   = tc.resolve(&self.invocation()->target, &self.invocation()->linker, &msgs)
+        var ok = tc.resolve(
+            &self.invocation()->target,
+            &self.invocation()->linker,
+            &msgs,
+        )
+
         for var line: string in tc.describe() {
             io::println(f"{line}")
         }
@@ -585,14 +616,20 @@ extend CompilerInstance {
     ///          files" error the parser queued is left undrained on purpose:
     ///          a probe's stdout is its whole interface).
     fn print_clang_query(self) -> i32 {
-        var unsafe *be = kairo::std::create<ClangBackend>(self._sm, self._backend_config())
+        var unsafe *be = kairo::std::create<ClangBackend>(
+            self._sm,
+            self._backend_config(),
+        )
+
         finally {
             kairo::std::destroy(be)
         }
 
         var w = cxx::std::vector<string>()
         if !self.invocation()->target.resource_dir.empty() {
-            w.push_back("-resource-dir=" + self.invocation()->target.resource_dir)
+            w.push_back(
+                "-resource-dir=" + self.invocation()->target.resource_dir,
+            )
         }
 
         for *s in *self.invocation()->args.get_list("cxx-flags") {
@@ -622,7 +659,11 @@ extend CompilerInstance {
             return EXIT_FAILURE
         }
 
-        var unsafe *be = kairo::std::create<ClangBackend>(self._sm, self._backend_config())
+        var unsafe *be = kairo::std::create<ClangBackend>(
+            self._sm,
+            self._backend_config(),
+        )
+
         finally {
             kairo::std::destroy(be)
         }

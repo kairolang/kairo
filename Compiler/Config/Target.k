@@ -172,10 +172,10 @@ pub class TargetOptions {
     /// not `triple`, is what a diagnostic should name.
     pub var effective_triple: string = ""
 
-    pub var arch_name:     string = "" ///< first component, e.g. "x86_64".
-    pub var vendor_name:   string = "" ///< second component, e.g. "pc".
-    pub var os_name:       string = "" ///< third component, e.g. "linux".
-    pub var env_name:      string = "" ///< fourth component, e.g. "gnu"; "" if none.
+    pub var arch_name:   string = "" ///< first component, e.g. "x86_64".
+    pub var vendor_name: string = "" ///< second component, e.g. "pc".
+    pub var os_name:     string = "" ///< third component, e.g. "linux".
+    pub var env_name:    string = "" ///< fourth component, e.g. "gnu"; "" if none.
     /// What the driver, the linker and the emitters branch on. \c
     /// object_format is its name (object_format_name), set beside it by the
     /// same writer (CompilerInstance::_apply_invocation), for messages and

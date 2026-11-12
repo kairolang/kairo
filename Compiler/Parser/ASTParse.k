@@ -217,24 +217,24 @@ pub class ASTParse
     /// applies to: there a bodiless `struct S` / `union U` is a foreign
     /// forward declaration (it names the header's tag, Compiler/Spec/Interop.md#ffi-imports)
     /// instead of a missing body.
-    pub var ffi_decl_depth:     u32                              = 0
-    pub var max_depth:          u32                              = 256 ///< limit to prevent stack overflow on malicious input (--cmax-scope-depth).
-    pub var expr_depth:         u32                              = 0 ///< current expression recursion depth.
-    pub var max_expr_depth:     u32                              = 512 ///< expression nesting cap (--cmax-expr-depth); separate from max_depth so each flag governs what it names.
-    pub var _depth_aborted:     bool                             = false ///< a depth cap fired; is_eof() now reports true and later checks stay silent.
+    pub var ffi_decl_depth: u32  = 0
+    pub var max_depth:      u32  = 256 ///< limit to prevent stack overflow on malicious input (--cmax-scope-depth).
+    pub var expr_depth:     u32  = 0 ///< current expression recursion depth.
+    pub var max_expr_depth: u32  = 512 ///< expression nesting cap (--cmax-expr-depth); separate from max_depth so each flag governs what it names.
+    pub var _depth_aborted: bool = false ///< a depth cap fired; is_eof() now reports true and later checks stay silent.
     /// The closer a failed operand reported and left in place (ExprParse's
     /// no-match path). A statement loop that then stands on it skips it
     /// without parsing it again, which would only report the same
     /// "expected expression" a second time. Recorded only when the report
     /// was really emitted (not under a TentativeGuard's suppression), so
     /// skipping the token can never hide the only report of it.
-    pub var _kept_closer:       unsafe *Token                    = &null
+    pub var _kept_closer: unsafe *Token = &null
     /// Set by _parse_top_decl / _parse_top_stmt when the item they parsed is
     /// a recovery node: with no error reported for it, the top-level loop
-    /// reports one (P981).
-    pub var _top_item_failed:   bool                             = false
+    /// reports one.
+    pub var _top_item_failed: bool = false
     /// TypeParse::parse_bound_type: a rooted type path `::m::I` is legal
-    /// (P978).
+    ///.
     pub var rooted_type_ok:     bool                             = false
     pub var error_count_base:   u32                              = 0 ///< error count recorded at parse start.
     pub var nl_depth:           u32                              = 0 ///< if non-zero, the parser ignores newlines.
@@ -253,7 +253,7 @@ pub class ASTParse
     ///          pattern) and token-skip signatures/bodies, so nothing heavy is
     ///          materialized and no expression parsing runs against the
     ///          half-built DisambigTable. Statement positions are never walked
-    ///          into, which kills the old indexer's phantom-global hoists.
+    ///          into, so no phantom-global hoists arise from them.
     pub enum ParseMode derives u8 {
         Full,  ///< normal parse: builds the AST, emits diagnostics.
         Index, ///< pre-pass: populates ctx->hoisted, suppresses diagnostics.
@@ -363,7 +363,7 @@ pub class ASTParse
             p->nl_depth = 0
             p->_prev    = &null
             p->_current = if (p->span.size() > 0) => (p->span.get(0)) else => &null
-            p->_peek    = if (p->span.size() > 1) => (p->span.get(1)) else => &null
+            p->_peek = if (p->span.size() > 1) => (p->span.get(1)) else => &null
         }
 
         // Not transferable: the destructor restores the parser stream, and a copy would restore it twice.
@@ -388,8 +388,7 @@ pub class ASTParse
     /// \param cc       optional completion consumer for IDE features.
     /// \param g_scope  the global scope used for hoisting top-level declarations.
     /// \param mode     Full (default) or Index; Index allocates ctx->hoisted
-    ///                 (previously ASTIndex's job) and expects index() to be
-    ///                 called instead of parse().
+    ///                 and expects index() to be called instead of parse().
     pub fn ASTParse(self,
                     ctx:     unsafe *ASTContext,
                     cc:      unsafe *CodeCompleteConsumer,
@@ -402,7 +401,8 @@ pub class ASTParse
         self.span = ctx->get_tokens()
 
         self.mode = mode
-        self.recover_bodies = mode == Self::ParseMode::Full && ctx->ci != &null
+        self.recover_bodies = mode == Self::ParseMode::Full
+            && ctx->ci != &null
             && ctx->ci->frontend.check_past_syntax
         if mode == Self::ParseMode::Index && ctx->hoisted == &null {
             // the index pass owns table allocation; must precede TU creation
@@ -415,16 +415,22 @@ pub class ASTParse
             self.tu = existing // PP-built TU: imports/macros already in it
         } else {
             // ParseSource / test-harness path: no PP ran
-            self.tu = ctx->alloc_init_pp<TranslationUnit>(ctx, ctx->fid, ctx->hoisted, g_scope)
+            self.tu = ctx->alloc_init_pp<TranslationUnit>(
+                ctx,
+                ctx->fid,
+                ctx->hoisted,
+                g_scope,
+            )
+
             ctx->tu = self.tu
         }
 
         self.scope.set_ctx(ctx)
         self._pending_trailing.reserve(4)
 
-        self._prev    = &null
+        self._prev = &null
         self._current = if (self.span.size() > 0) => (self.span.get(0)) else => &null
-        self._peek    = if (self.span.size() > 1) => (self.span.get(1)) else => &null
+        self._peek = if (self.span.size() > 1) => (self.span.get(1)) else => &null
 
         self.max_depth        = ((ctx->ci->frontend.max_scope_depth) as u32)
         self.max_expr_depth   = ((ctx->ci->frontend.max_expr_depth) as u32)
@@ -448,7 +454,11 @@ pub class ASTParse
         self._kept_closer = &null // a token of an earlier parse's stream
 
         self.tu->advance(TUStage::Parsing)
-        var unsafe *program = self.ctx->alloc_init<Program>(self.ctx->fid, self.ctx)
+        var unsafe *program = self.ctx->alloc_init<Program>(
+            self.ctx->fid,
+            self.ctx,
+        )
+
         self.tu->program = program
         self.scope.push(ScopeKind::Block, self.tu)
 
@@ -532,12 +542,16 @@ pub class ASTParse
             var before      = self.c_idx
             var errs_before = self.diag->error_count()
             self._top_item_failed = false
-            var ok = if self._routes_to_decl(k) => (self._parse_top_decl(program, unsafe &annot, k))
+            var ok = if self._routes_to_decl(k) => (self._parse_top_decl(
+                         program,
+                         unsafe &annot,
+                         k,
+                     ))
                      else => self._parse_top_stmt(program, unsafe &annot)
 
             // An item that failed with no error said about it -- a null from
             // the production, or a recovery node -- dropped the rest of the
-            // file silently when the loop stopped (P981), or kept an <error>
+            // file silently when the loop stopped, or kept an <error>
             // node nobody reported. Whatever path got here, the loop says so
             // once and carries on from the next line.
             if (!ok || self._top_item_failed) && self.diag->error_count() == errs_before {
@@ -653,7 +667,10 @@ pub class ASTParse
         // table can be null share an empty frozen table so qualified lookup
         // through the module is a clean miss, not a null deref.
         if self.tu->dc_symbols == &null {
-            var unsafe *empty = self.ctx->alloc_init_cleanup<SymbolTable>(self.ctx)
+            var unsafe *empty = self.ctx->alloc_init_cleanup<SymbolTable>(
+                self.ctx,
+            )
+
             empty->freeze()
             self.tu->set_symbols(empty)
         }
@@ -775,7 +792,7 @@ pub class ASTParse
     }
 
     /// \brief S063E at the first token of a top-level item that failed
-    ///        without a diagnostic of its own (P981).
+    ///        without a diagnostic of its own.
     priv fn _report_unparsed_item(self, at: usize) {
         var unsafe *tok = if (at < self.span.size()) => (self.span.get(at)) else => self._current
         if tok == &null {
@@ -856,15 +873,15 @@ pub class ASTParse
                             program: unsafe *Program,
                             annot:   unsafe *Self::PendingAnnotations,
                             k:       TokenKind) -> bool {
-        var at        = self.c_idx
-        var errs      = self.diag->error_count()
-        var unsafe *d = self.parse_decl(true)
+        var        at   = self.c_idx
+        var        errs = self.diag->error_count()
+        var unsafe *d   = self.parse_decl(true)
         if d == &null {
             // `fn` that is a closure, and any lead-in parse_decl declined
             // without consuming or reporting anything (`inline "c++" { }`
             // opens a statement, not a declaration): the statement path owns
             // it. Before, the `inline` case ended the loop with no error and
-            // the rest of the file unparsed (P981).
+            // the rest of the file unparsed.
             if k == TokenKind::KwFn || (self.c_idx == at && self.diag->error_count() == errs) {
                 return self._parse_top_stmt(program, annot)
             }
@@ -911,7 +928,9 @@ pub class ASTParse
         self._top_item_failed = is_recovery(s)
         if isa<ExpressionStmt>(s) {
             var unsafe *es = cast<ExpressionStmt>(s)
-            self._top_item_failed = self._top_item_failed || es->expr == &null || is_recovery(es->expr)
+            self._top_item_failed = self._top_item_failed
+                || es->expr == &null
+                || is_recovery(es->expr)
         }
 
         if isa<DeclStmt>(s) {
@@ -1021,7 +1040,10 @@ pub class ASTParse
                 continue // fns/vars: no trie children; ScopeStack covers bodies
             }
 
-            var unsafe *child = node->get_child(self.ctx->hoisted->intern_tok(name_tok))
+            var unsafe *child = node->get_child(
+                self.ctx->hoisted->intern_tok(name_tok),
+            )
+
             if child == &null {
                 continue
             }
@@ -1089,7 +1111,12 @@ pub class ASTParse
                 if isa<DeclStmt>(s) {
                     var unsafe *ds = cast<DeclStmt>(s)
                     if ds->decl != &null {
-                        self._index_symbol_decl(ds->decl, tu_dc, tu_dc, u32::MAX)
+                        self._index_symbol_decl(
+                            ds->decl,
+                            tu_dc,
+                            tu_dc,
+                            u32::MAX,
+                        )
                     }
 
                     continue
@@ -1122,7 +1149,12 @@ pub class ASTParse
                             continue
                         }
 
-                        self._index_symbol_decl(bind.decl, tu_dc, tu_dc, u32::MAX)
+                        self._index_symbol_decl(
+                            bind.decl,
+                            tu_dc,
+                            tu_dc,
+                            u32::MAX,
+                        )
                     }
                 }
             }
@@ -1161,7 +1193,13 @@ pub class ASTParse
         }
 
         if isa<ConditionalStmt>(c->else_) {
-            self._index_eval_branches(c->else_, walk_dc, table_dc, owner_name_imm)
+            self._index_eval_branches(
+                c->else_,
+                walk_dc,
+                table_dc,
+                owner_name_imm,
+            )
+
             return
         }
 
@@ -1187,7 +1225,12 @@ pub class ASTParse
             if isa<DeclStmt>(st) {
                 var unsafe *ds = cast<DeclStmt>(st)
                 if ds->decl != &null {
-                    self._index_symbol_decl(ds->decl, walk_dc, table_dc, owner_name_imm)
+                    self._index_symbol_decl(
+                        ds->decl,
+                        walk_dc,
+                        table_dc,
+                        owner_name_imm,
+                    )
                 }
 
                 continue
@@ -1211,7 +1254,7 @@ pub class ASTParse
 
     /// \brief appends \p d under \p name in \p table_dc's table and stamps
     ///        the dual-context links (lexical = where written, semantic =
-    ///        lookup home). They differ for anonymous-module members now
+    ///        lookup home). They differ for anonymous-module members
     ///        and for extension members once sema folds them.
     priv fn _append_symbol(self,
                            table_dc: unsafe *DeclContext,
@@ -1517,7 +1560,12 @@ pub class ASTParse
             for var mi: usize = 0; mi < n->methods.size(); ++mi {
                 var unsafe *md = n->methods[mi]
                 if md != &null {
-                    self._index_symbol_decl(unsafe (md as unsafe *Decl), dc, dc, u32::MAX)
+                    self._index_symbol_decl(
+                        unsafe (md as unsafe *Decl),
+                        dc,
+                        dc,
+                        u32::MAX,
+                    )
                 }
             }
 
@@ -1539,7 +1587,12 @@ pub class ASTParse
 
             if f->is_operator {
                 if tabled {
-                    self._append_symbol(table_dc, walk_dc, self._op_decl_name(f), d)
+                    self._append_symbol(
+                        table_dc,
+                        walk_dc,
+                        self._op_decl_name(f),
+                        d,
+                    )
                 } else {
                     d->lexical_dc  = walk_dc
                     d->semantic_dc = table_dc
@@ -1596,7 +1649,13 @@ pub class ASTParse
             for var i: usize = 0; i < n->members.count; ++i {
                 var unsafe *m = n->members[i]
                 if m != &null {
-                    self._index_symbol_decl(m, walk_dc, table_dc, owner_name_imm, tabled)
+                    self._index_symbol_decl(
+                        m,
+                        walk_dc,
+                        table_dc,
+                        owner_name_imm,
+                        tabled,
+                    )
                 }
             }
 
@@ -1608,12 +1667,23 @@ pub class ASTParse
             for var i: usize = 0; i < n->body.count; ++i {
                 var unsafe *m = n->body[i]
                 if m != &null {
-                    self._index_symbol_decl(m, walk_dc, table_dc, owner_name_imm, tabled)
+                    self._index_symbol_decl(
+                        m,
+                        walk_dc,
+                        table_dc,
+                        owner_name_imm,
+                        tabled,
+                    )
                 }
             }
 
             if n->stmt != &null {
-                self._index_eval_branches(n->stmt, walk_dc, table_dc, owner_name_imm)
+                self._index_eval_branches(
+                    n->stmt,
+                    walk_dc,
+                    table_dc,
+                    owner_name_imm,
+                )
             }
 
             return
@@ -1624,7 +1694,13 @@ pub class ASTParse
             for var i: usize = 0; i < n->body.count; ++i {
                 var unsafe *m = n->body[i]
                 if m != &null {
-                    self._index_symbol_decl(m, walk_dc, table_dc, owner_name_imm, tabled)
+                    self._index_symbol_decl(
+                        m,
+                        walk_dc,
+                        table_dc,
+                        owner_name_imm,
+                        tabled,
+                    )
                 }
             }
 
@@ -1670,7 +1746,7 @@ pub class ASTParse
     ///          _index_hoist_decl own all table population. Statement
     ///          positions are token-skipped wholesale, so a `var` inside a
     ///          for-header or destructure RHS can never hoist a phantom
-    ///          global (old indexer bug #2).
+    ///          global.
     ///
     ///          Diagnostics are suppressed for the whole pass: the Full parse
     ///          that follows re-parses everything and owns every diagnostic;
@@ -1757,7 +1833,7 @@ pub class ASTParse
     /// \details genericness comes from TemplateParams::is_generic() on the
     ///          node: has_type_params() || spec_kind == Primary. Explicit and
     ///          Partial specializations therefore never mark a name generic
-    ///          on their own (old indexer bug #1).
+    ///          on their own.
     fn _index_hoist_decl(self, d: unsafe *Decl, foreign: bool) {
         if d == &null {
             return
@@ -1861,7 +1937,7 @@ pub class ASTParse
             e.extended    = false
             e.decl.origin = n->range
             self._index_insert(self.ctx->get_spelling(n->name), e)
-            return // variants are not hoisted (parity with the old indexer)
+            return // variants are not hoisted
         }
 
         if isa<TypeAliasDecl>(d) {
@@ -1900,7 +1976,7 @@ pub class ASTParse
 
         if isa<ModuleDecl>(d) {
             var unsafe *n = cast<ModuleDecl>(d)
-            // no entry for the module itself (parity with the old indexer);
+            // no entry for the module itself;
             // named modules contribute a scope-path segment for their decls.
             if !n->is_anonymous {
                 self._index_path.push_back(self.ctx->get_spelling(n->name))
@@ -1942,8 +2018,8 @@ pub class ASTParse
         }
 
         // ImportDecl, TestDecl, ExtensionDecl, error nodes: nothing to hoist.
-        // (Extension members are sema's job; the old indexer's flat-hoisting
-        // of extend bodies was pollution, not a feature.)
+        // (Extension members are sema's job; hoisting extend bodies flat
+        // would pollute the table.)
     }
 
     /// \brief hoists a type entry, then recurses into its dc_decls with the
@@ -2239,15 +2315,19 @@ pub class ASTParse
         self._peek = self._current
         self.c_idx -= 1
         self._current = self.span.get(self.c_idx)
-        self._prev    = if (self.c_idx > 0) => (self.span.get(self.c_idx - 1)) else => &null
+        self._prev = if (self.c_idx > 0) => (self.span.get(self.c_idx - 1)) else => &null
     }
 
     /// \brief syncs `_current` and `_peek` from c_idx.
     /// \note must be called after any direct mutation of `c_idx`.
     inline fn _sync_cursor(self) {
-        self._current = if (self.c_idx < self.span.size()) => (self.span.get(self.c_idx))
+        self._current = if (self.c_idx < self.span.size()) => (self.span.get(
+                            self.c_idx,
+                        ))
                         else => &null
-        self._peek = if (self.c_idx + 1 < self.span.size()) => (self.span.get(self.c_idx + 1))
+        self._peek = if (self.c_idx + 1 < self.span.size()) => (self.span.get(
+                         self.c_idx + 1,
+                     ))
                      else => &null
     }
 
@@ -2575,8 +2655,11 @@ pub class ASTParse
             return
         }
 
-        var unsafe *info  = self.imm->get<Immediate::MacroExpansionInfo>(tok->imm)
-        var        invoke = info->invoke_range
+        var unsafe *info = self.imm->get<Immediate::MacroExpansionInfo>(
+            tok->imm,
+        )
+
+        var invoke = info->invoke_range
 
         if !invoke.is_valid() {
             // degenerate record; fall back to the def-site range
@@ -2779,10 +2862,10 @@ pub class ASTParse
     ///  ...), not `unsafe {`, and not a loop label (`name:`).
     ///
     /// \details `@destroy p` and `@create T()` are expression attributes
-    ///          (attributes.mdx, tether-promotion.mdx); before this rule the
-    ///          annotation pass took them as statement attributes named
-    ///          `destroy` / `create` on the statement `p` / `T()`, and they
-    ///          were accepted silently. What stays a statement attribute is
+    ///          (attributes.mdx, tether-promotion.mdx); the
+    ///          annotation pass must not take them as statement attributes
+    ///          named `destroy` / `create` on the statement `p` / `T()`, which
+    ///          would accept them silently. What stays a statement attribute is
     ///          what has no expression to attach to: a declaration (`@copy
     ///          fn`, `@deprecated var`), a keyword statement (`@likely if`),
     ///          a block (`@repeat(3) { }`), and an attribute on a line of its
@@ -2987,7 +3070,9 @@ pub class ASTParse
             self.diag->report(
                 DiagID::S051E,
                 lparen.start,
-                "expected ')' to close '" + LangAttrs::at(LangAttrs::set_global_allocator()) + "('",
+                "expected ')' to close '" + LangAttrs::at(
+                    LangAttrs::set_global_allocator(),
+                ) + "('",
             ).first(lparen)->emit()
             while !self.is_eof()
                 && !self._is_terminator_tok(self._current)
@@ -3014,7 +3099,9 @@ pub class ASTParse
             var b = self.diag->report(
                 DiagID::SC139E,
                 e->range.start,
-                "an attribute cannot be applied to " + LangAttrs::quoted(LangAttrs::set_global_allocator()) + "; it declares nothing",
+                "an attribute cannot be applied to " + LangAttrs::quoted(
+                    LangAttrs::set_global_allocator(),
+                ) + "; it declares nothing",
             )
 
             b.first(e->range)
@@ -3026,7 +3113,9 @@ pub class ASTParse
             self.diag->report(
                 DiagID::S048E,
                 annot->vis_range.start,
-                "a visibility modifier cannot be applied to " + LangAttrs::quoted(LangAttrs::set_global_allocator()),
+                "a visibility modifier cannot be applied to " + LangAttrs::quoted(
+                    LangAttrs::set_global_allocator(),
+                ),
             ).first(annot->vis_range)->emit()
         }
 
@@ -3034,7 +3123,9 @@ pub class ASTParse
             self.diag->report(
                 DiagID::S052E,
                 lparen.start,
-                "expected the allocator type: '" + LangAttrs::at(LangAttrs::set_global_allocator()) + "(MyAllocator)'",
+                "expected the allocator type: '" + LangAttrs::at(
+                    LangAttrs::set_global_allocator(),
+                ) + "(MyAllocator)'",
             ).first(whole)->emit()
             return
         }
@@ -3052,7 +3143,13 @@ pub class ASTParse
                 self.tu->global_alloc_at.start,
                 "set here first",
             )->child_first(self.tu->global_alloc_at)
-            b.remove(whole, "remove the second " + LangAttrs::quoted(LangAttrs::set_global_allocator()))
+            b.remove(
+                whole,
+                "remove the second " + LangAttrs::quoted(
+                    LangAttrs::set_global_allocator(),
+                ),
+            )
+
             b.emit()
             return
         }
@@ -3065,7 +3162,10 @@ pub class ASTParse
         var tok = Token()
         tok.kind  = TokenKind::LitIdentifier
         tok.range = whole
-        tok.imm   = imms->intern_ident_copy(LowerTargets::global_allocator_alias())
+        tok.imm = imms->intern_ident_copy(
+            LowerTargets::global_allocator_alias(),
+        )
+
         var unsafe *ta = TypeAliasDecl::create(self.ctx, whole, tok, ty)
         var unsafe *d  = unsafe (ta as unsafe *Decl)
         // Private: the alias is this file's, never part of its module's
@@ -3099,7 +3199,9 @@ pub class ASTParse
             var b = self.diag->report(
                 DiagID::SC139E,
                 e->range.start,
-                LangAttrs::quoted(LangAttrs::set_global_allocator()) + " stands on a line of its own at file scope; it is not an attribute of a declaration or statement",
+                LangAttrs::quoted(
+                    LangAttrs::set_global_allocator(),
+                ) + " stands on a line of its own at file scope; it is not an attribute of a declaration or statement",
             )
 
             b.first(e->range)
@@ -3168,7 +3270,12 @@ pub class ASTParse
             var resolved = self.resolve_deep(tok)
 
             if resolved.kind == TokenKind::AtComment {
-                out->add(self._comment_kind_from_imm(tok->imm), u32::MAX, tok->range)
+                out->add(
+                    self._comment_kind_from_imm(tok->imm),
+                    u32::MAX,
+                    tok->range,
+                )
+
                 self.advance()
                 if self._current != &null
                     && self.resolve_kind_shallow(self._current) == TokenKind::TkNewLine {
@@ -3316,7 +3423,7 @@ pub class ASTParse
     /// \details read straight off the token span instead of being remembered
     ///          while stepping: _advance steps over every comment it lands on,
     ///          so a pending list could not tell a doc block from a comment
-    ///          buried in the middle of an expression, and the old stash handed
+    ///          buried in the middle of an expression, and a stash would hand
     ///          such comments to whichever declaration was parsed next. A
     ///          comment that shares its line with the previous code token is
     ///          that token's trailing comment (_attach_trailing), never ours.
@@ -3353,7 +3460,11 @@ pub class ASTParse
                 }
             }
 
-            out->add(self._comment_kind_from_imm(tok->imm), u32::MAX, tok->range)
+            out->add(
+                self._comment_kind_from_imm(tok->imm),
+                u32::MAX,
+                tok->range,
+            )
         }
     }
 
@@ -3384,7 +3495,7 @@ pub class ASTParse
     /// Resolved through the whole expansion chain: a `;` that a macro body
     /// produced through another macro (`outer!()` expanding to `semi!()`)
     /// is wrapped twice, and one step left it a TkMacroExpand, so a
-    /// statement ended by it read "expected expression, found ';'" (P958).
+    /// statement ended by it read "expected expression, found ';'".
     /// No report on a truncated chain here: resolve_deep owns that, at the
     /// token's real use.
     pub inline fn _is_terminator_tok(self, t: unsafe *Token) -> bool {
@@ -3425,7 +3536,7 @@ pub class ASTParse
     }
 
     /// \brief `@no_warn(CODE)` over the warnings this parse already reported
-    ///        inside \p decl (P964).
+    ///        inside \p decl.
     ///
     /// \details Sema registers every `@no_warn` scope before its first pass
     ///          (AttributeCheck::register_suppressions), but the parser's own
@@ -3437,7 +3548,9 @@ pub class ASTParse
     ///          warnings still buffered. Only valid warning codes; a bad one is
     ///          AttributeCheck's error. The lexer and preprocessor report to
     ///          the engine directly, so their warnings are not covered.
-    priv fn _quiet_parse_warnings(self, decl: unsafe *Decl, annot: unsafe *Self::PendingAnnotations) {
+    priv fn _quiet_parse_warnings(self,
+                                  decl:  unsafe *Decl,
+                                  annot: unsafe *Self::PendingAnnotations) {
         var k_nw = self.ctx->hoisted->intern(LangAttrs::no_warn())
         for var i: usize = 0; i < annot->entries.size(); ++i {
             var *e = &annot->entries[i]
@@ -3446,7 +3559,7 @@ pub class ASTParse
             }
 
             for var j: usize = 0; j < e->args.size(); ++j {
-                var unsafe *a    = e->args[j]
+                var unsafe *a   = e->args[j]
                 var        text = ""
                 if a != &null && isa<NamedIdentExpr>(a) {
                     text = self.ctx->get_spelling(cast<NamedIdentExpr>(a)->name)
@@ -3472,7 +3585,10 @@ pub class ASTParse
                     continue
                 }
 
-                self.diag->quiet_in(diag_policy_key(c.category(), c.number()), decl->range)
+                self.diag->quiet_in(
+                    diag_policy_key(c.category(), c.number()),
+                    decl->range,
+                )
             }
         }
     }
@@ -3501,9 +3617,9 @@ pub class ASTParse
         // land -- in-class, out-of-line, and nested alike. Without it a Kairo
         // transfer ctor is an ordinary method and the lifecycle rules are blind.
         if isa<FunctionDecl>(decl) {
-            var unsafe *fd    = cast<FunctionDecl>(decl)
-            var        k_copy = self.ctx->hoisted->intern(LangAttrs::transfer_copy())
-            var        k_move = self.ctx->hoisted->intern(LangAttrs::transfer_move())
+            var unsafe *fd = cast<FunctionDecl>(decl)
+            var k_copy = self.ctx->hoisted->intern(LangAttrs::transfer_copy())
+            var k_move = self.ctx->hoisted->intern(LangAttrs::transfer_move())
             for var i: usize = 0; i < annot->entries.size(); ++i {
                 var *e = &annot->entries[i]
                 if e->kind != AnnotationKind::Attribute {
@@ -3665,7 +3781,11 @@ pub class ASTParse
                 )
 
                 b.first(e->range)
-                b.note(decl->range.start, "the attribute is on this declaration")
+                b.note(
+                    decl->range.start,
+                    "the attribute is on this declaration",
+                )
+
                 b.remove(e->range, "remove " + an)
                 b.emit()
                 continue
@@ -3698,12 +3818,18 @@ pub class ASTParse
             var b = self.diag->report(
                 DiagID::SC147E,
                 cold_at.start,
-                LangAttrs::quoted(LangAttrs::hot_path()) + " and " + LangAttrs::quoted(LangAttrs::cold_path()) + " contradict each other",
+                LangAttrs::quoted(LangAttrs::hot_path()) + " and " + LangAttrs::quoted(
+                    LangAttrs::cold_path(),
+                ) + " contradict each other",
             )
 
             b.first(cold_at)
             b.note(decl->range.start, "both are on this function")
-            b.remove(cold_at, "remove " + LangAttrs::quoted(LangAttrs::cold_path()))
+            b.remove(
+                cold_at,
+                "remove " + LangAttrs::quoted(LangAttrs::cold_path()),
+            )
+
             b.emit()
         }
 
@@ -3770,13 +3896,21 @@ pub class ASTParse
                 fa = LangAttrs::cold_path()
             } else if e->name == k_pure {
                 fa = LangAttrs::pure_fn()
-            } else if e->name == self.ctx->hoisted->intern(LangAttrs::no_inline()) {
+            } else if e->name == self.ctx->hoisted->intern(
+                LangAttrs::no_inline(),
+            ) {
                 fa = LangAttrs::no_inline()
-            } else if e->name == self.ctx->hoisted->intern(LangAttrs::preserve_most()) {
+            } else if e->name == self.ctx->hoisted->intern(
+                LangAttrs::preserve_most(),
+            ) {
                 fa = LangAttrs::preserve_most()
-            } else if e->name == self.ctx->hoisted->intern(LangAttrs::preserve_all()) {
+            } else if e->name == self.ctx->hoisted->intern(
+                LangAttrs::preserve_all(),
+            ) {
                 fa = LangAttrs::preserve_all()
-            } else if e->name == self.ctx->hoisted->intern(LangAttrs::preserve_none()) {
+            } else if e->name == self.ctx->hoisted->intern(
+                LangAttrs::preserve_none(),
+            ) {
                 fa = LangAttrs::preserve_none()
             }
 
@@ -3832,21 +3966,45 @@ pub class ASTParse
             var rk       = resolved.kind
 
             if rk == TokenKind::KwConst {
-                out->add(Self::PendingQuals::TypeQualifier::Flags::IsConst, tok->range)
+                out->add(
+                    Self::PendingQuals::TypeQualifier::Flags::IsConst,
+                    tok->range,
+                )
             } else if rk == TokenKind::KwVolatile {
-                out->add(Self::PendingQuals::TypeQualifier::Flags::IsVolatile, tok->range)
+                out->add(
+                    Self::PendingQuals::TypeQualifier::Flags::IsVolatile,
+                    tok->range,
+                )
             } else if rk == TokenKind::KwAtomic {
-                out->add(Self::PendingQuals::TypeQualifier::Flags::IsAtomic, tok->range)
+                out->add(
+                    Self::PendingQuals::TypeQualifier::Flags::IsAtomic,
+                    tok->range,
+                )
             } else if rk == TokenKind::KwUnsafe {
-                out->add(Self::PendingQuals::TypeQualifier::Flags::IsUnsafe, tok->range)
+                out->add(
+                    Self::PendingQuals::TypeQualifier::Flags::IsUnsafe,
+                    tok->range,
+                )
             } else if rk == TokenKind::KwEval {
-                out->add(Self::PendingQuals::TypeQualifier::Flags::IsEval, tok->range)
+                out->add(
+                    Self::PendingQuals::TypeQualifier::Flags::IsEval,
+                    tok->range,
+                )
             } else if rk == TokenKind::KwAsync {
-                out->add(Self::PendingQuals::TypeQualifier::Flags::IsAsync, tok->range)
+                out->add(
+                    Self::PendingQuals::TypeQualifier::Flags::IsAsync,
+                    tok->range,
+                )
             } else if rk == TokenKind::KwYield {
-                out->add(Self::PendingQuals::TypeQualifier::Flags::IsYield, tok->range)
+                out->add(
+                    Self::PendingQuals::TypeQualifier::Flags::IsYield,
+                    tok->range,
+                )
             } else if rk == TokenKind::KwPanic {
-                out->add(Self::PendingQuals::TypeQualifier::Flags::IsPanic, tok->range)
+                out->add(
+                    Self::PendingQuals::TypeQualifier::Flags::IsPanic,
+                    tok->range,
+                )
             } else {
                 break
             }
@@ -3919,7 +4077,8 @@ pub class ASTParse
             return
         }
 
-        if self.depth != cp.depth || self.expr_depth != cp.expr_depth
+        if self.depth != cp.depth
+            || self.expr_depth != cp.expr_depth
             || self.ffi_decl_depth != cp.ffi_decl_depth
             || self._no_comment_skip != cp.no_comment_skip {
             kairo::std::ice_fail(
@@ -3956,11 +4115,12 @@ pub class ASTParse
 
     /// \brief parks the cursor on the final token so every enclosing loop sees
     ///        EOF and unwinds.
-    /// \details a depth-cap failure used to return an error node WITHOUT
-    ///          consuming anything, so the caller's loop (top level, block
-    ///          body) re-entered the same construct, failed the same check and
-    ///          spun forever. Jumping to EOF guarantees progress and turns the
-    ///          cap into exactly one diagnostic instead of a retry storm.
+    /// \details a depth-cap failure jumps to EOF: returning an error node
+    ///          WITHOUT consuming anything would make the caller's loop (top
+    ///          level, block body) re-enter the same construct, fail the same
+    ///          check and spin forever. Jumping to EOF guarantees progress and
+    ///          turns the cap into exactly one diagnostic instead of a retry
+    ///          storm.
     /// Stops the parse after a depth cap fires. Only a flag is set: is_eof()
     /// reads it, so every statement/declaration loop ends on its next check
     /// no matter which token window it is iterating. Moving the cursor
@@ -4118,7 +4278,7 @@ pub class ASTParse
     }
 
     /// \brief single-step advance that keeps a trailing newline for the
-    ///        caller. used to consume closing delimiters so a statement
+    ///        caller. Consumes closing delimiters so a statement
     ///        terminator after `)`/`]`/`}`/`>` survives.
     ///
     /// \details "for the caller" is the ENCLOSING context: a closer is
@@ -4174,9 +4334,9 @@ pub class ASTParse
         // only ever grows
         var waiting: kairo::std::StackBuf<TokenKind, 32>
         waiting.push_back(want)
-        var top:     u32   = 1
-        var i:       usize = self.c_idx
-        var seen:    usize = 0
+        var top:  u32   = 1
+        var i:    usize = self.c_idx
+        var seen: usize = 0
         while i > 0 {
             i -= 1
             ++seen
@@ -4202,7 +4362,9 @@ pub class ASTParse
                 }
 
                 ++top
-            } else if tk == TokenKind::OpLBrace || tk == TokenKind::OpLParen || tk == TokenKind::OpLSquare {
+            } else if tk == TokenKind::OpLBrace
+                || tk == TokenKind::OpLParen
+                || tk == TokenKind::OpLSquare {
                 var j = top
                 while j > 0 && waiting[j - 1] != tk {
                     --j
@@ -4215,6 +4377,7 @@ pub class ASTParse
                 if j > 1 {
                     top = j - 1 // paired; the closers waiting above it were strays
                 }
+
                 // j == 0: nothing waits for it, an unclosed opener: stepped over
             }
         }
@@ -4278,7 +4441,9 @@ pub class ASTParse
             var        k  = self.resolve_kind_shallow(t)
             if k == TokenKind::OpLBrace || k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
                 depth += 1
-            } else if k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare {
+            } else if k == TokenKind::OpRBrace
+                || k == TokenKind::OpRParen
+                || k == TokenKind::OpRSquare {
                 depth -= 1
                 if depth == 0 {
                     return k == TokenKind::OpRBrace && t == self._prev

@@ -95,7 +95,8 @@ pub class ResourceLayout {
 
     /// \brief \p file is under the std root as spelled, without resolving
     ///        a symlink on either side.
-    priv static fn _under_std_as_spelled(ci: unsafe *CompilerInvocation, const file: string) -> bool {
+    priv static fn _under_std_as_spelled(ci:         unsafe *CompilerInvocation,
+                                         const file: string) -> bool {
         var root = ResourceLayout::std_root_of(ci)
         if root.empty() {
             return false

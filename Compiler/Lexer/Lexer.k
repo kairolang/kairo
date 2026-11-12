@@ -225,10 +225,16 @@ pub class Lexer {
         /// \returns deque of token buffers + source ranges
         fn get_exprs(self) -> unsafe *llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4> {
             if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
+                    self.idx,
+                )
+
                 return unsafe &imm->exprs
             } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
+                    self.idx,
+                )
+
                 return unsafe &imm->exprs
             }
         }
@@ -236,10 +242,16 @@ pub class Lexer {
         /// \brief returns the per-hole spec/self-doc list, parallel to get_exprs()
         fn get_holes(self) -> unsafe *llvm::SmallVector<Immediate::HoleSpec, 4> {
             if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
+                    self.idx,
+                )
+
                 return unsafe &imm->holes
             } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
+                    self.idx,
+                )
+
                 return unsafe &imm->holes
             }
         }
@@ -248,10 +260,16 @@ pub class Lexer {
         /// \returns token reference
         fn get_prefix(self) -> *Token {
             if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
+                    self.idx,
+                )
+
                 return &imm->prefix
             } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
+                    self.idx,
+                )
+
                 return &imm->prefix
             }
         }
@@ -260,10 +278,16 @@ pub class Lexer {
         /// \returns token reference
         fn get_suffix(self) -> *Token {
             if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
+                    self.idx,
+                )
+
                 return &imm->suffix
             } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
+                    self.idx,
+                )
+
                 return &imm->suffix
             }
         }
@@ -272,10 +296,16 @@ pub class Lexer {
         /// \returns source range reference
         fn get_body(self) -> *SourceRange {
             if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
+                    self.idx,
+                )
+
                 return &imm->body
             } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
+                    self.idx,
+                )
+
                 return &imm->body
             }
         }
@@ -284,10 +314,16 @@ pub class Lexer {
         /// \returns next index reference
         fn get_next(self) -> unsafe *u32 {
             if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
+                    self.idx,
+                )
+
                 return unsafe &imm->next
             } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
+                    self.idx,
+                )
+
                 return unsafe &imm->next
             }
         }
@@ -296,10 +332,16 @@ pub class Lexer {
         /// \returns prefix kind
         fn get_prefix_kind(self) -> *FlagSet<Immediate::TextPrefixKind, u8> {
             if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
+                    self.idx,
+                )
+
                 return &imm->prefix_kind
             } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(self.idx)
+                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
+                    self.idx,
+                )
+
                 return &imm->prefix_kind
             }
         }
@@ -876,7 +918,10 @@ pub class Lexer {
     priv inline fn get_char32(self) -> kairo::DecodeResult {
         var result = self.peek_char32()
 
-        self.advance_cursor(((if (result.len > 0) => (result.len as usize) else => 1)))
+        self.advance_cursor(
+            ((if (result.len > 0) => (result.len as usize) else => 1)),
+        )
+
         return result
     }
 
@@ -925,7 +970,9 @@ pub class Lexer {
                 // (only necessary if your MemoryBuffer isn't guaranteed padded)
                 // Here we assume `remain` is correct for mapping.
 
-                var chunk: __m512i = _mm512_loadu_si512(unsafe (ptr as unsafe *const __m512i))
+                var chunk: __m512i = _mm512_loadu_si512(
+                    unsafe (ptr as unsafe *const __m512i),
+                )
 
                 var mask: __mmask64 = _mm512_movepi8_mask(chunk)
 
@@ -971,7 +1018,9 @@ pub class Lexer {
 
                 var ptr = data + consumed
 
-                var chunk: __m256i = _mm256_loadu_si256(unsafe (ptr as unsafe *const __m256i))
+                var chunk: __m256i = _mm256_loadu_si256(
+                    unsafe (ptr as unsafe *const __m256i),
+                )
 
                 var hi = _mm256_movemask_epi8(chunk)
                 if hi == 0 {
@@ -1014,7 +1063,9 @@ pub class Lexer {
                 }
 
                 var unsafe *ptr = data + consumed
-                var chunk: __m128i = _mm_loadu_si128(unsafe (ptr as kairo::std::ConstPtr<__m128i>))
+                var chunk: __m128i = _mm_loadu_si128(
+                    unsafe (ptr as kairo::std::ConstPtr<__m128i>),
+                )
 
                 var hi = _mm_movemask_epi8(chunk)
                 if hi == 0 {
@@ -1138,7 +1189,10 @@ pub class Lexer {
     }
 
     priv inline fn get_source_range(self) -> SourceRange {
-        return SourceRange::from_bounds(self.get_source_location(), self.get_source_location())
+        return SourceRange::from_bounds(
+            self.get_source_location(),
+            self.get_source_location(),
+        )
     }
 
     priv inline fn create_source_range(self, start: SourceLocation) -> SourceRange {
@@ -1568,7 +1622,10 @@ pub class Lexer {
         var is_float = ctx.has_decimal || ctx.has_exponent
 
         var tok: Token
-        tok.set_kind(if is_float => TokenKind::LitFloat else => TokenKind::LitInt)
+        tok.set_kind(
+            if is_float => TokenKind::LitFloat else => TokenKind::LitInt,
+        )
+
         tok.set_range(self.create_source_range(ctx.start))
 
         var imm_idx: u32 = if is_float => (self.create_imm<Immediate::FloatData>())
@@ -1581,7 +1638,10 @@ pub class Lexer {
 
             imm->flags = 0
             imm->base  = ctx.base
-            imm->body  = SourceRange::from_bounds(ctx.number_start, ctx.number_end)
+            imm->body = SourceRange::from_bounds(
+                ctx.number_start,
+                ctx.number_end,
+            )
 
             // bit0: has_exponent
             if ctx.has_exponent {
@@ -1600,7 +1660,10 @@ pub class Lexer {
             }
 
             if ctx.has_prefix {
-                imm->prefix = SourceRange::from_bounds(ctx.prefix_start, ctx.prefix_end)
+                imm->prefix = SourceRange::from_bounds(
+                    ctx.prefix_start,
+                    ctx.prefix_end,
+                )
             }
 
             imm->evaluate(self._sm, self.get_imm_tbl())
@@ -1611,12 +1674,18 @@ pub class Lexer {
             imm->flags = 0
 
             imm->base = ctx.base
-            imm->body = SourceRange::from_bounds(ctx.number_start, ctx.number_end)
+            imm->body = SourceRange::from_bounds(
+                ctx.number_start,
+                ctx.number_end,
+            )
 
             // bit4: has_prefix
             if ctx.has_prefix {
                 imm->flags |= 0b00010000
-                imm->prefix = SourceRange::from_bounds(ctx.prefix_start, ctx.prefix_end)
+                imm->prefix = SourceRange::from_bounds(
+                    ctx.prefix_start,
+                    ctx.prefix_end,
+                )
             }
 
             // bit3: has_suffix
@@ -1662,11 +1731,14 @@ pub class Lexer {
     }
 
     priv inline fn lex_symbol(self, start: SourceLocation) -> Token {
-        const CHARS: cxx::std::array<kairo::DecodeResult, 4> = self.peek_char32<4>(1)
-        const C1:    kairo::DecodeResult                     = CHARS[0]
-        const C2:    kairo::DecodeResult                     = CHARS[1]
-        const C3:    kairo::DecodeResult                     = CHARS[2]
-        const C4:    kairo::DecodeResult                     = CHARS[3]
+        const CHARS: cxx::std::array<kairo::DecodeResult, 4> = self.peek_char32<4>(
+            1,
+        )
+
+        const C1: kairo::DecodeResult = CHARS[0]
+        const C2: kairo::DecodeResult = CHARS[1]
+        const C3: kairo::DecodeResult = CHARS[2]
+        const C4: kairo::DecodeResult = CHARS[3]
 
         if !self.is_valid_symbol(C1) {
             self.advance_cursor((C1.len as usize))
@@ -1814,7 +1886,11 @@ pub class Lexer {
                     f"Lexer::lex_symbol: git conflict marker detected ({run_len} chars) at fid={self._fid} cursor={self._cursor}",
                 )
 
-                return self.create_error_token(start, TokenKind::TkError, TokenKind::TkError)
+                return self.create_error_token(
+                    start,
+                    TokenKind::TkError,
+                    TokenKind::TkError,
+                )
             }
         }
 
@@ -1964,7 +2040,9 @@ pub class Lexer {
         // whole chain, so `stringify!("a" "b")` covers both segments.
         var tail = self.chain_adjacent_text(&ctx)
         if tail.kind == TokenKind::LitString {
-            head.set_range(SourceRange::from_bounds(head.range.start, tail.range.end))
+            head.set_range(
+                SourceRange::from_bounds(head.range.start, tail.range.end),
+            )
         }
 
         return head
@@ -2079,13 +2157,21 @@ pub class Lexer {
                 f"Lexer::scan_text_body: unterminated string at fid={self._fid} cursor={self._cursor}",
             )
 
-            var _r015 = SourceRange::from_bounds(start, self.get_source_location())
+            var _r015 = SourceRange::from_bounds(
+                start,
+                self.get_source_location(),
+            )
+
             self._diag->report(
                 DiagCode(DiagID::S015E),
                 _r015.start,
                 f"expected string or character literal delimiter ('\"' or ''')",
             ).first(_r015)->emit()
-            ctx.error_token = self.create_error_token(start, TokenKind::LitString)
+            ctx.error_token = self.create_error_token(
+                start,
+                TokenKind::LitString,
+            )
+
             return ctx
         }
 
@@ -2175,7 +2261,11 @@ pub class Lexer {
         self.commit_cursor(base, p, step)
 
         ctx.has_error = true
-        var _r012 = SourceRange::from_bounds(ctx.start, self.get_source_location())
+        var _r012 = SourceRange::from_bounds(
+            ctx.start,
+            self.get_source_location(),
+        )
+
         self._diag->report(
             DiagCode(DiagID::S012E),
             _r012.start,
@@ -2209,7 +2299,10 @@ pub class Lexer {
                         var q3 = self.peek_char32(2)
                         if q2.chr == (ctx.delim as char) && q3.chr == (ctx.delim as char) {
                             ctx.body_end = self.get_source_location()
-                            self.advance_cursor(((d.len + q2.len + q3.len) as usize)) // consume all three
+                            self.advance_cursor( // consume all three
+                                ((d.len + q2.len + q3.len) as usize),
+                            )
+
                             return false
                         }
 
@@ -2247,7 +2340,9 @@ pub class Lexer {
                     ctx.has_error = true
                     var _r016 = SourceRange::from_bounds(
                         self.get_source_location(),
-                        self.get_source_location(self._cursor + (d.len as usize)),
+                        self.get_source_location(
+                            self._cursor + (d.len as usize),
+                        ),
                     )
 
                     self._diag->report(
@@ -2282,7 +2377,11 @@ pub class Lexer {
                 } else {
                     var esc_start = self.get_source_location()
                     self.advance_cursor((d.len as usize))
-                    if !self.is_valid_escape(esc_start, ctx.is_raw, ctx.is_format) {
+                    if !self.is_valid_escape(
+                        esc_start,
+                        ctx.is_raw,
+                        ctx.is_format,
+                    ) {
                         ctx.has_error = true
                     }
                 }
@@ -2464,7 +2563,10 @@ pub class Lexer {
                         ))
                         else => SourceRange::invalid()
             var doc_end = if (spec->spec_start != 0) => (spec->spec_start - 1) else => spec->end
-            hole.doc = if (spec->eq_pos != 0) => (self.create_source_range(spec->start, doc_end))
+            hole.doc = if (spec->eq_pos != 0) => (self.create_source_range(
+                           spec->start,
+                           doc_end,
+                       ))
                        else => SourceRange::invalid()
             ctx.imm.get_holes()->push_back(hole)
         }
@@ -2472,12 +2574,18 @@ pub class Lexer {
 
     priv inline fn make_text_token(self, @inout ctx: Self::TextCtx) -> Token {
         var tok: Token
-        tok.set_kind(if ctx.delim == 0x22 => TokenKind::LitString else => TokenKind::LitChar)
+        tok.set_kind(
+            if ctx.delim == 0x22 => TokenKind::LitString else => TokenKind::LitChar,
+        )
+
         tok.set_range(self.create_source_range(ctx.start))
         tok.imm         = ctx.imm_idx
         self._last_kind = LastTokenKind::Text
 
-        *ctx.imm.get_body() = SourceRange::from_bounds(ctx.body_start, ctx.body_end)
+        *ctx.imm.get_body() = SourceRange::from_bounds(
+            ctx.body_start,
+            ctx.body_end,
+        )
 
         *ctx.imm.get_prefix() = ctx.prefix
         var prefix_kind = FlagSet<Immediate::TextPrefixKind, u8>()
@@ -2605,7 +2713,10 @@ pub class Lexer {
                     return true
                 }
 
-                var range = SourceRange::from_bounds(start, self.get_source_location())
+                var range = SourceRange::from_bounds(
+                    start,
+                    self.get_source_location(),
+                )
 
                 self._diag->report(
                     DiagCode(DiagID::S022W),
@@ -2619,7 +2730,10 @@ pub class Lexer {
 
                 for var i: usize = 1; i <= 2; ++i {
                     if !hex_parser.is_digit(chars[i].chr) {
-                        var range = SourceRange::from_bounds(start, self.get_source_location())
+                        var range = SourceRange::from_bounds(
+                            start,
+                            self.get_source_location(),
+                        )
 
                         self.advance_cursor(((chars[i].len) as usize))
                         self._diag->report(
@@ -2638,7 +2752,10 @@ pub class Lexer {
 
                 // explicit byte-range check
                 if value > 0xFF {
-                    var range = SourceRange::from_bounds(start, self.get_source_location())
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
 
                     self._diag->report(
                         DiagCode(DiagID::S024E),
@@ -2667,7 +2784,10 @@ pub class Lexer {
                 }
 
                 if !is_byte {
-                    var range = SourceRange::from_bounds(start, self.get_source_location())
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
 
                     self._diag->report(
                         DiagCode(DiagID::S025W),
@@ -2681,7 +2801,10 @@ pub class Lexer {
 
                 if octal_parser.get_digits() < 1 || octal_parser.get_digits() > 3 {
                     // defensive: should never happen
-                    var range = SourceRange::from_bounds(start, self.get_source_location())
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
 
                     self._diag->report(
                         DiagCode(DiagID::S026E),
@@ -2693,7 +2816,10 @@ pub class Lexer {
 
                 // explicit byte-range check
                 if value > 0xFF {
-                    var range = SourceRange::from_bounds(start, self.get_source_location())
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
 
                     self._diag->report(
                         DiagCode(DiagID::S027E),
@@ -2708,7 +2834,10 @@ pub class Lexer {
 
                 for var i: usize = 1; i <= 4; ++i {
                     if !hex_parser.is_digit(chars[i].chr) {
-                        var range = SourceRange::from_bounds(start, self.get_source_location())
+                        var range = SourceRange::from_bounds(
+                            start,
+                            self.get_source_location(),
+                        )
 
                         self.advance_cursor(((chars[i].len) as usize))
                         self._diag->report(
@@ -2724,7 +2853,10 @@ pub class Lexer {
                 }
 
                 if is_byte {
-                    var range = SourceRange::from_bounds(start, self.get_source_location())
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
 
                     self._diag->report(
                         DiagCode(DiagID::S029E),
@@ -2739,7 +2871,10 @@ pub class Lexer {
                 // check for valid unicode range
                 if value > 0xFFFF {
                     // defensive: impossible with 4 hex digits, but documents intent
-                    var range = SourceRange::from_bounds(start, self.get_source_location())
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
 
                     self._diag->report(
                         DiagCode(DiagID::S030E),
@@ -2751,7 +2886,10 @@ pub class Lexer {
 
                 // Surrogate halves are invalid Unicode scalar values
                 if value >= 0xD800 && value <= 0xDFFF {
-                    var range = SourceRange::from_bounds(start, self.get_source_location())
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
 
                     self._diag->report(
                         DiagCode(DiagID::S031E),
@@ -2767,7 +2905,10 @@ pub class Lexer {
                 // we have no loops since we need exactly 8 digits
                 for var i: usize = 1; i <= 8; ++i {
                     if !hex_parser.is_digit(chars[i].chr) {
-                        var range = SourceRange::from_bounds(start, self.get_source_location())
+                        var range = SourceRange::from_bounds(
+                            start,
+                            self.get_source_location(),
+                        )
 
                         self.advance_cursor(((chars[i].len) as usize))
                         self._diag->report(
@@ -2783,7 +2924,10 @@ pub class Lexer {
                 }
 
                 if is_byte {
-                    var range = SourceRange::from_bounds(start, self.get_source_location())
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
 
                     self._diag->report(
                         DiagCode(DiagID::S029E),
@@ -2797,7 +2941,10 @@ pub class Lexer {
 
                 // check for valid unicode range
                 if value > 0x10FFFF {
-                    var range = SourceRange::from_bounds(start, self.get_source_location())
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
 
                     self._diag->report(
                         DiagCode(DiagID::S030E),
@@ -2809,7 +2956,10 @@ pub class Lexer {
 
                 // Surrogate halves are invalid Unicode scalar values
                 if value >= 0xD800 && value <= 0xDFFF {
-                    var range = SourceRange::from_bounds(start, self.get_source_location())
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
 
                     self._diag->report(
                         DiagCode(DiagID::S031E),
@@ -2825,7 +2975,10 @@ pub class Lexer {
                     return true
                 }
 
-                var range = SourceRange::from_bounds(start, self.get_source_location())
+                var range = SourceRange::from_bounds(
+                    start,
+                    self.get_source_location(),
+                )
 
                 self._diag->report(
                     DiagCode(DiagID::S032E),
@@ -2836,7 +2989,10 @@ pub class Lexer {
             } default {
                 self.advance_cursor(((chars[0].len) as usize))
 
-                var range = SourceRange::from_bounds(start, self.get_source_location())
+                var range = SourceRange::from_bounds(
+                    start,
+                    self.get_source_location(),
+                )
 
                 self._diag->report(
                     DiagCode(DiagID::S033E),
@@ -2914,7 +3070,7 @@ pub fn Test() -> i32 {
     // DiagEngine is not copyable: they share the engine through this pointer.
     var unsafe *test_diag_p = unsafe &test_diag
     var unsafe *pool        = kairo::std::create<ThreadPool>(4)
-    var unsafe *vfm         = kairo::std::create<VirtualFileManager>(test_diag_p)
+    var unsafe *vfm = kairo::std::create<VirtualFileManager>(test_diag_p)
     // the engine is shared across every test case and error-case tests run at
     // ~1000 iterations each; past _error_limit errors go to suppressed_count
     // instead of error_count, which would zero the per-lex deltas the tests
@@ -2958,7 +3114,12 @@ pub fn Test() -> i32 {
         test_imm = kairo::std::create<ImmediateTable>()
         test_imm->initialize(lsm)
 
-        var unsafe *lexer = kairo::std::create<Lexer>(lsm, lpool, diag, test_imm)
+        var unsafe *lexer = kairo::std::create<Lexer>(
+            lsm,
+            lpool,
+            diag,
+            test_imm,
+        )
 
         return (lexer, fid)
     }
@@ -2986,7 +3147,12 @@ pub fn Test() -> i32 {
         test_imm = kairo::std::create<ImmediateTable>()
         test_imm->initialize(lsm)
 
-        var unsafe *lexer = kairo::std::create<Lexer>(lsm, lpool, diag, test_imm)
+        var unsafe *lexer = kairo::std::create<Lexer>(
+            lsm,
+            lpool,
+            diag,
+            test_imm,
+        )
 
         return (lexer, fid)
     }
@@ -3022,7 +3188,13 @@ pub fn Test() -> i32 {
         "lex empty file",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag(" ", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                " ",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -3052,7 +3224,13 @@ pub fn Test() -> i32 {
         "lex single identifier",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("foo", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "foo",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -3204,7 +3382,13 @@ pub fn Test() -> i32 {
         "lex identifier with hash",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("foo#bar my#ident", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "foo#bar my#ident",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -3371,7 +3555,13 @@ pub fn Test() -> i32 {
         "lex brackets",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("{ } ( ) [ ]", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "{ } ( ) [ ]",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -3624,7 +3814,10 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected LitInt, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
                 }
 
-                var unsafe *imm = lexer->get_imm<Immediate::IntData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::IntData>(
+                    tokens->get(i)->imm,
+                )
+
                 imm->evaluate(sm, lexer->get_imm_tbl())
 
                 const base_10: u8 = (10)
@@ -3690,7 +3883,10 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected LitInt, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
                 }
 
-                var unsafe *imm = lexer->get_imm<Immediate::IntData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::IntData>(
+                    tokens->get(i)->imm,
+                )
+
                 imm->evaluate(sm, lexer->get_imm_tbl())
 
                 const base_16: u8 = (16)
@@ -3756,7 +3952,10 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected LitInt, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
                 }
 
-                var unsafe *imm = lexer->get_imm<Immediate::IntData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::IntData>(
+                    tokens->get(i)->imm,
+                )
+
                 imm->evaluate(sm, lexer->get_imm_tbl())
 
                 const base_2: u8 = (2)
@@ -3817,7 +4016,10 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected LitInt, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
                 }
 
-                var unsafe *imm = lexer->get_imm<Immediate::IntData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::IntData>(
+                    tokens->get(i)->imm,
+                )
+
                 imm->evaluate(sm, lexer->get_imm_tbl())
 
                 const base_8: u8 = (8)
@@ -3884,7 +4086,10 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected LitInt, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
                 }
 
-                var unsafe *imm = lexer->get_imm<Immediate::IntData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::IntData>(
+                    tokens->get(i)->imm,
+                )
+
                 imm->evaluate(sm, lexer->get_imm_tbl())
 
                 if imm->base != expected_bases[i] {
@@ -3953,7 +4158,9 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected LitInt, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
                 }
 
-                var unsafe *imm = lexer->get_imm<Immediate::IntData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::IntData>(
+                    tokens->get(i)->imm,
+                )
 
                 const has_suffix_flag: u8 = (0b00001000)
                 if (imm->flags & has_suffix_flag) == 0 {
@@ -4014,7 +4221,10 @@ pub fn Test() -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var unsafe *imm = lexer->get_imm<Immediate::IntData>(tokens->get(0)->imm)
+            var unsafe *imm = lexer->get_imm<Immediate::IntData>(
+                tokens->get(0)->imm,
+            )
+
             imm->evaluate(sm, lexer->get_imm_tbl())
 
             const u64_max: u64 = (0xFFFFFFFFFFFFFFFF)
@@ -4070,7 +4280,10 @@ pub fn Test() -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var unsafe *imm = lexer->get_imm<Immediate::IntData>(tokens->get(0)->imm)
+            var unsafe *imm = lexer->get_imm<Immediate::IntData>(
+                tokens->get(0)->imm,
+            )
+
             imm->evaluate(sm, lexer->get_imm_tbl())
 
             const zero_u64: u64 = (0)
@@ -4126,7 +4339,10 @@ pub fn Test() -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var unsafe *imm = lexer->get_imm<Immediate::IntData>(tokens->get(0)->imm)
+            var unsafe *imm = lexer->get_imm<Immediate::IntData>(
+                tokens->get(0)->imm,
+            )
+
             imm->evaluate(sm, lexer->get_imm_tbl())
 
             const u64_max: u64 = (0xFFFFFFFFFFFFFFFF)
@@ -4181,7 +4397,10 @@ pub fn Test() -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var unsafe *imm = lexer->get_imm<Immediate::IntData>(tokens->get(0)->imm)
+            var unsafe *imm = lexer->get_imm<Immediate::IntData>(
+                tokens->get(0)->imm,
+            )
+
             imm->evaluate(sm, lexer->get_imm_tbl())
 
             // should have is_big flag set
@@ -4274,7 +4493,10 @@ pub fn Test() -> i32 {
             expected_bits.push_back(64 as u16) // 0x100000000 needs 33 bits -> 64
 
             for var i: usize = 0; i < expected_count; ++i {
-                var unsafe *imm = lexer->get_imm<Immediate::IntData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::IntData>(
+                    tokens->get(i)->imm,
+                )
+
                 imm->evaluate(sm, lexer->get_imm_tbl())
 
                 if imm->bits != expected_bits[i] {
@@ -4332,7 +4554,10 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected LitFloat, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
                 }
 
-                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
+                    tokens->get(i)->imm,
+                )
+
                 imm->evaluate(sm, lexer->get_imm_tbl())
 
                 const base_10: u8 = (10)
@@ -4372,7 +4597,13 @@ pub fn Test() -> i32 {
         "lex float with leading dot",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag(".5 .123 .0", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                ".5 .123 .0",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -4400,7 +4631,10 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected LitFloat, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
                 }
 
-                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
+                    tokens->get(i)->imm,
+                )
+
                 imm->evaluate(sm, lexer->get_imm_tbl())
 
                 var   diff          = (imm->value_ieee as f64) - (expected_values[i])
@@ -4464,7 +4698,9 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected LitFloat, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
                 }
 
-                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
+                    tokens->get(i)->imm,
+                )
 
                 const has_exponent_flag: u8 = (0b00000001)
                 if (imm->flags & has_exponent_flag) == 0 {
@@ -4533,7 +4769,9 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected LitFloat, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
                 }
 
-                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
+                    tokens->get(i)->imm,
+                )
 
                 const is_hex_flag: u8 = (0b00000100)
                 if (imm->flags & is_hex_flag) == 0 {
@@ -4572,7 +4810,13 @@ pub fn Test() -> i32 {
         "lex hex floats complex",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("0xA.Bp+2 0xC.8p-1", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "0xA.Bp+2 0xC.8p-1",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -4597,7 +4841,10 @@ pub fn Test() -> i32 {
             expected_values.push_back(6.25 as f64)
 
             for var i: usize = 0; i < expected_count; ++i {
-                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
+                    tokens->get(i)->imm,
+                )
+
                 imm->evaluate(sm, lexer->get_imm_tbl())
 
                 var   diff          = (imm->value_ieee as f64) - (expected_values[i])
@@ -4664,7 +4911,9 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected LitFloat, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
                 }
 
-                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
+                    tokens->get(i)->imm,
+                )
 
                 const has_suffix_flag: u8 = (0b00010000)
                 if (imm->flags & has_suffix_flag) == 0 {
@@ -4731,7 +4980,10 @@ pub fn Test() -> i32 {
             expected_values.push_back(123.456e78)
 
             for var i: usize = 0; i < 3; ++i {
-                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
+                    tokens->get(i)->imm,
+                )
+
                 imm->evaluate(sm, lexer->get_imm_tbl()) // removing evaluation step only adds 1MB/s to perf
 
                 // use relative comparison for very large numbers
@@ -4755,7 +5007,13 @@ pub fn Test() -> i32 {
         "distinguish dot from float",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("foo.bar .5", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "foo.bar .5",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -4790,7 +5048,10 @@ pub fn Test() -> i32 {
             }
 
             // verify the float value
-            var unsafe *imm = lexer->get_imm<Immediate::FloatData>(tokens->get(3)->imm)
+            var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
+                tokens->get(3)->imm,
+            )
+
             imm->evaluate(sm, lexer->get_imm_tbl()) // removing evaluation step only adds 1MB/s to perf
 
             const expected_val: f64 = (0.5)
@@ -4818,7 +5079,13 @@ pub fn Test() -> i32 {
         "lex float scientific notation edge cases",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("1e0 1e+0 1e-0 0e0", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "1e0 1e+0 1e-0 0e0",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -4844,7 +5111,10 @@ pub fn Test() -> i32 {
             expected_values.push_back(0.0 as f64)
 
             for var i: usize = 0; i < expected_count; ++i {
-                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
+                    tokens->get(i)->imm,
+                )
+
                 imm->evaluate(sm, lexer->get_imm_tbl())
 
                 var   diff          = (imm->value_ieee as f64) - (expected_values[i])
@@ -4872,7 +5142,13 @@ pub fn Test() -> i32 {
         "lex range vs float disambiguation",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("0..10 0.5 1..2", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "0..10 0.5 1..2",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -4922,21 +5198,30 @@ pub fn Test() -> i32 {
             }
 
             // verify values
-            var unsafe *int0 = lexer->get_imm<Immediate::IntData>(tokens->get(0)->imm)
+            var unsafe *int0 = lexer->get_imm<Immediate::IntData>(
+                tokens->get(0)->imm,
+            )
+
             int0->evaluate(sm, lexer->get_imm_tbl())
             const zero_u64: u64 = (0)
             if int0->value_lo != zero_u64 {
                 return f"token 0: expected value 0, got {int0->value_lo}"
             }
 
-            var unsafe *int2 = lexer->get_imm<Immediate::IntData>(tokens->get(2)->imm)
+            var unsafe *int2 = lexer->get_imm<Immediate::IntData>(
+                tokens->get(2)->imm,
+            )
+
             int2->evaluate(sm, lexer->get_imm_tbl())
             const ten_u64: u64 = (10)
             if int2->value_lo != ten_u64 {
                 return f"token 2: expected value 10, got {int2->value_lo}"
             }
 
-            var unsafe *float3 = lexer->get_imm<Immediate::FloatData>(tokens->get(3)->imm)
+            var unsafe *float3 = lexer->get_imm<Immediate::FloatData>(
+                tokens->get(3)->imm,
+            )
+
             float3->evaluate(sm, lexer->get_imm_tbl())
             const expected_float: f64 = (0.5)
             var   diff                = (float3->value_ieee as f64) - expected_float
@@ -4963,7 +5248,13 @@ pub fn Test() -> i32 {
         "lex extreme float values",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("1e308 1e-308", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "1e308 1e-308",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -4986,7 +5277,10 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected LitFloat, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
                 }
 
-                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(tokens->get(i)->imm)
+                var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
+                    tokens->get(i)->imm,
+                )
+
                 imm->evaluate(sm, lexer->get_imm_tbl())
 
                 const zero_u:          usize = (0)
@@ -5025,7 +5319,13 @@ pub fn Test() -> i32 {
         "lex simple string",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("\"hello world\"", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "\"hello world\"",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -5059,7 +5359,13 @@ pub fn Test() -> i32 {
         "lex empty string",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("\"\"", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "\"\"",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -5213,7 +5519,13 @@ pub fn Test() -> i32 {
         "lex string with large unicode escape",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("\"\\U0001F600\"", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "\"\\U0001F600\"",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -5247,7 +5559,13 @@ pub fn Test() -> i32 {
         "lex f-string simple",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("f\"hello {name}\"", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "f\"hello {name}\"",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -5268,9 +5586,14 @@ pub fn Test() -> i32 {
                 return f"token 0: expected LitString, got {token_kind_to_readable_string(tokens->get(0)->kind)}"
             }
 
-            var unsafe *imm = lexer->get_imm<Immediate::StringData>(tokens->get(0)->imm)
+            var unsafe *imm = lexer->get_imm<Immediate::StringData>(
+                tokens->get(0)->imm,
+            )
+
             if !imm->prefix_kind.equals(
-                FlagSet<Immediate::TextPrefixKind, u8>(Immediate::TextPrefixKind::Format),
+                FlagSet<Immediate::TextPrefixKind, u8>(
+                    Immediate::TextPrefixKind::Format,
+                ),
             ) {
                 return f"expected prefix_kind Format, got different prefix kind"
             }
@@ -5315,7 +5638,10 @@ pub fn Test() -> i32 {
                 return f"token 0: expected LitString, got {token_kind_to_readable_string(tokens->get(0)->kind)}"
             }
 
-            var unsafe *imm = lexer->get_imm<Immediate::StringData>(tokens->get(0)->imm)
+            var unsafe *imm = lexer->get_imm<Immediate::StringData>(
+                tokens->get(0)->imm,
+            )
+
             if imm->exprs.size() != 1 {
                 return f"expected 1 expression in f-string, got {imm->exprs.size()}"
             }
@@ -5373,7 +5699,13 @@ pub fn Test() -> i32 {
         "lex raw string",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("r\"hello\"", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "r\"hello\"",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -5394,9 +5726,14 @@ pub fn Test() -> i32 {
                 return f"token 0: expected LitString, got {token_kind_to_readable_string(tokens->get(0)->kind)}"
             }
 
-            var unsafe *imm = lexer->get_imm<Immediate::StringData>(tokens->get(0)->imm)
+            var unsafe *imm = lexer->get_imm<Immediate::StringData>(
+                tokens->get(0)->imm,
+            )
+
             if !imm->prefix_kind.equals(
-                FlagSet<Immediate::TextPrefixKind, u8>(Immediate::TextPrefixKind::Raw),
+                FlagSet<Immediate::TextPrefixKind, u8>(
+                    Immediate::TextPrefixKind::Raw,
+                ),
             ) {
                 return f"expected prefix_kind Raw, got different prefix kind"
             }
@@ -5454,7 +5791,13 @@ pub fn Test() -> i32 {
         "lex fr-string (format + raw)",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("fr\"value: {x}\"", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "fr\"value: {x}\"",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -5475,10 +5818,13 @@ pub fn Test() -> i32 {
                 return f"token 0: expected LitString, got {token_kind_to_readable_string(tokens->get(0)->kind)}"
             }
 
-            var unsafe *imm = lexer->get_imm<Immediate::StringData>(tokens->get(0)->imm)
-            var want = FlagSet<Immediate::TextPrefixKind, u8>(Immediate::TextPrefixKind::Raw).plus(
-                Immediate::TextPrefixKind::Format,
+            var unsafe *imm = lexer->get_imm<Immediate::StringData>(
+                tokens->get(0)->imm,
             )
+
+            var want = FlagSet<Immediate::TextPrefixKind, u8>(
+                Immediate::TextPrefixKind::Raw,
+            ).plus(Immediate::TextPrefixKind::Format)
 
             if !imm->prefix_kind.equals(want) {
                 return f"expected prefix_kind raw|format (rf), got '{imm->prefix_kind.bits}'"
@@ -5499,7 +5845,13 @@ pub fn Test() -> i32 {
         "lex simple char",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("'a' 'Z' '0'", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "'a' 'Z' '0'",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -5780,7 +6132,13 @@ pub fn Test() -> i32 {
         "error on unmatched block comment end",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("foo */ bar", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "foo */ bar",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -5998,7 +6356,13 @@ pub fn Test() -> i32 {
         "lex unicode identifier",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("café αβγ 日本語", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "café αβγ 日本語",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6034,7 +6398,13 @@ pub fn Test() -> i32 {
         "lex consecutive operators",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("a+-b", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "a+-b",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6080,7 +6450,13 @@ pub fn Test() -> i32 {
         "lex generics syntax",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("Vec::<i32>", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "Vec::<i32>",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6130,7 +6506,13 @@ pub fn Test() -> i32 {
         "lex range expressions",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("0..10 0..=10", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "0..10 0..=10",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6184,7 +6566,13 @@ pub fn Test() -> i32 {
         "lex exponentiation operator",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("2^^8", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "2^^8",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6226,7 +6614,13 @@ pub fn Test() -> i32 {
         "lex spaceship operator",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("a <=> b", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "a <=> b",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6260,7 +6654,13 @@ pub fn Test() -> i32 {
         "lex triple equals",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("a === b", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "a === b",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6414,7 +6814,13 @@ pub fn Test() -> i32 {
         "lex null literal",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("null", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "null",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6448,7 +6854,13 @@ pub fn Test() -> i32 {
         "lex boolean literals",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("true false", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "true false",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6493,7 +6905,13 @@ pub fn Test() -> i32 {
         "lexed and copied identifiers intern to the same index",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("foo bar foo", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "foo bar foo",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6555,7 +6973,13 @@ pub fn Test() -> i32 {
         "error on invalid escape in string",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("\"hello\\qworld\"", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "\"hello\\qworld\"",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6591,7 +7015,13 @@ pub fn Test() -> i32 {
         "byte string prefix not yet implemented (pin)",
         "pass",
         fn () -> string {
-            var res = create_lexer_from_string_with_diag("b\"\\u0041\"", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "b\"\\u0041\"",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6629,7 +7059,13 @@ pub fn Test() -> i32 {
         "error on surrogate in unicode escape",
         "pass",
         fn () -> string {
-            var        res    = create_lexer_from_string_with_diag("\"\\uD800\"", sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                "\"\\uD800\"",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6656,7 +7092,13 @@ pub fn Test() -> i32 {
         fn () -> string {
             var code = "fn factorial(n: i32) -> i32 {\n" + "    if n <= 1 {\n" + "        return 1;\n" + "    }\n" + "    return n * factorial(n - 1);\n" + "}\n" + "\n" + "class Point {\n" + "    var x: f64;\n" + "    var y: f64;\n" + "    \n" + "    fn Point(self, x: f64, y: f64) {\n" + "        self.x = x;\n" + "        self.y = y;\n" + "    }\n" + "    \n" + "    fn distance(self, other: *Point) -> f64 {\n" + "        var dx = self.x - other->x;\n" + "        var dy = self.y - other->y;\n" + "        return (dx * dx + dy * dy).sqrt();\n" + "    }\n" + "}\n" + "\n" + "fn main() -> i32 {\n" + "    var p1 = Point(0.0, 0.0);\n" + "    var p2 = Point(3.0, 4.0);\n" + "    var d = p1.distance(&p2);\n" + "    std::print(f\"Distance: {d}\n\");\n" + "    return 0;\n" + "}\n"
 
-            var        res    = create_lexer_from_string_with_diag(code, sm, pool, test_diag_p)
+            var res = create_lexer_from_string_with_diag(
+                code,
+                sm,
+                pool,
+                test_diag_p,
+            )
+
             var unsafe *lexer = res.0
             var        fid    = res.1
 
@@ -6693,7 +7135,9 @@ pub fn Test() -> i32 {
             const s = cxx::std::chrono::steady_clock::now()
             dummy = s.time_since_epoch().count() // force materialization
             const e = cxx::std::chrono::steady_clock::now()
-            total += cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(e - s)
+            total += cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
+                e - s,
+            )
         }
 
         return total.count() / iterations
@@ -6746,8 +7190,7 @@ pub fn Test() -> i32 {
 
             wide += f" +/// \\brief resolves declaration reference {i} against the scope chain\n"
             " +/// \\param candidate_reference unresolved identifier expression to look up\n"
-            " +/// \\returns the resolved declaration, or null when lookup fails outright\n" +
-            f"inline priv fn resolve_declaration_reference_{i}(\n" + "    self,\n" + "    @inout resolution_context: NameResolutionContext,\n" + "    candidate_reference: obs::<UnresolvedIdentifierExpr>\n" + ") -> own::<ResolvedDeclaration> {\n" + "    var enclosing_lexical_scope = resolution_context.scope_chain().innermost();\n" + "\n" + "    if enclosing_lexical_scope == &null {\n" + "        self.diagnostic_engine->report(DiagCode(DiagID::R001E),\n" + "            candidate_reference->range.start,\n" + "            f\"unresolved identifier {candidate_reference} in this scope\")\n" + "            .first(candidate_reference->range).emit();\n" + "        return &null;\n" + "    }\n" + "\n" + "    var depth = enclosing_lexical_scope->depth() + 1;\n" + "    if (depth > 0) && (depth < 64) && !candidate_reference->is_synthetic {\n" + "        resolution_context.record(candidate_reference, depth * 2 - 1);\n" + "    }\n" + "\n" + "    switch candidate_reference->lookup_kind {\n" + "        case LookupKind::Ordinary {\n" + "            return enclosing_lexical_scope->lookup_ordinary::<ResolvedDeclaration>(\n" + "                candidate_reference->qualified_name);\n" + "        } case LookupKind::Qualified {\n" + "            return enclosing_lexical_scope->lookup_qualified::<ResolvedDeclaration>(\n" + "                candidate_reference->qualified_name);\n" + "        } default {\n" + "            return &null;\n" + "        }\n" + "    }\n" + "}\n" + "\n"
+            " +/// \\returns the resolved declaration, or null when lookup fails outright\n" + f"inline priv fn resolve_declaration_reference_{i}(\n" + "    self,\n" + "    @inout resolution_context: NameResolutionContext,\n" + "    candidate_reference: obs::<UnresolvedIdentifierExpr>\n" + ") -> own::<ResolvedDeclaration> {\n" + "    var enclosing_lexical_scope = resolution_context.scope_chain().innermost();\n" + "\n" + "    if enclosing_lexical_scope == &null {\n" + "        self.diagnostic_engine->report(DiagCode(DiagID::R001E),\n" + "            candidate_reference->range.start,\n" + "            f\"unresolved identifier {candidate_reference} in this scope\")\n" + "            .first(candidate_reference->range).emit();\n" + "        return &null;\n" + "    }\n" + "\n" + "    var depth = enclosing_lexical_scope->depth() + 1;\n" + "    if (depth > 0) && (depth < 64) && !candidate_reference->is_synthetic {\n" + "        resolution_context.record(candidate_reference, depth * 2 - 1);\n" + "    }\n" + "\n" + "    switch candidate_reference->lookup_kind {\n" + "        case LookupKind::Ordinary {\n" + "            return enclosing_lexical_scope->lookup_ordinary::<ResolvedDeclaration>(\n" + "                candidate_reference->qualified_name);\n" + "        } case LookupKind::Qualified {\n" + "            return enclosing_lexical_scope->lookup_qualified::<ResolvedDeclaration>(\n" + "                candidate_reference->qualified_name);\n" + "        } default {\n" + "            return &null;\n" + "        }\n" + "    }\n" + "}\n" + "\n"
         }
 
         return kairo::std::to_std_string(wide)
@@ -6767,7 +7210,13 @@ pub fn Test() -> i32 {
         }
 
         var hot_size = hot_code.size()
-        var hot_res = create_lexer_from_bytes(cxx::std::move(hot_code), sm, pool, test_diag_p)
+        var hot_res = create_lexer_from_bytes(
+            cxx::std::move(hot_code),
+            sm,
+            pool,
+            test_diag_p,
+        )
+
         var unsafe *hot_lexer = hot_res.0
         var        hot_fid    = hot_res.1
 

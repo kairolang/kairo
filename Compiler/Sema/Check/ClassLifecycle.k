@@ -226,8 +226,8 @@ import AST::Node::Types::{
 import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::type_declared_here
+import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
@@ -481,7 +481,10 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         self._sub = &null
         if inst != &null {
             var sub = Substitution(self.sc)
-            sub.bind_from_record(self.sc->types->record(inst->decl, unsafe &inst->args))
+            sub.bind_from_record(
+                self.sc->types->record(inst->decl, unsafe &inst->args),
+            )
+
             self._sub = unsafe &sub
             self._compute(body, f)
         } else {
@@ -565,7 +568,10 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         var fs = self._fields(d)
         for var i: usize = 0; i < fs.size(); ++i {
             var unsafe *fd = fs[i]
-            if fd == &null || fd->is_static() || fd->type_ == &null || fd->type_->canonical == &null {
+            if fd == &null
+                || fd->is_static()
+                || fd->type_ == &null
+                || fd->type_->canonical == &null {
                 continue
             }
 
@@ -575,7 +581,10 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
             // A library-internal member (`tuple::__base_`) names nothing
             // the user wrote: those are left to the steps below.
-            var unsafe *fr = self._tu.record_decl(canon_unqual(fd->type_->canonical))
+            var unsafe *fr = self._tu.record_decl(
+                canon_unqual(fd->type_->canonical),
+            )
+
             if fr != &null && decl_is_imported(fr) {
                 continue
             }
@@ -585,7 +594,10 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             }
         }
 
-        var unsafe *e = if (self.sc->instances != &null) => (self.sc->instances->entry_of(d)) else => &null
+        var unsafe *e = if (self.sc->instances != &null) => (self.sc->instances->entry_of(
+                            d,
+                        ))
+                        else => &null
         if e != &null {
             for var i: usize = 0; i < e->args.size(); ++i {
                 var unsafe *a = e->args[i]
@@ -886,9 +898,13 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                     f:          unsafe *LifecycleFacts,
                     c:          unsafe *LifecycleFacts,
                     const what: string) {
-        f->trivially_copyable = lifecycle_and(f->trivially_copyable, c->trivially_copyable)
-        f->trivial_dtor       = lifecycle_and(f->trivial_dtor, c->trivial_dtor)
-        f->destructible       = lifecycle_and(f->destructible, c->destructible)
+        f->trivially_copyable = lifecycle_and(
+            f->trivially_copyable,
+            c->trivially_copyable,
+        )
+
+        f->trivial_dtor = lifecycle_and(f->trivial_dtor, c->trivial_dtor)
+        f->destructible = lifecycle_and(f->destructible, c->destructible)
         var cp = lifecycle_and(f->copyable, c->copyable)
         if cp == LifecycleTri::No && f->copyable != LifecycleTri::No {
             f->why_not_copyable = f"{what} is not copyable"
@@ -1088,8 +1104,16 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                     // would fold in is the instance's.
                     if self._dependent_base(e->base) {
                         var uf = self._unknown_facts()
-                        f->virtual_dtor = lifecycle_or(f->virtual_dtor, uf.virtual_dtor)
-                        f->polymorphic  = lifecycle_or(f->polymorphic, uf.polymorphic)
+                        f->virtual_dtor = lifecycle_or(
+                            f->virtual_dtor,
+                            uf.virtual_dtor,
+                        )
+
+                        f->polymorphic = lifecycle_or(
+                            f->polymorphic,
+                            uf.polymorphic,
+                        )
+
                         self._absorb(f, unsafe &uf, "its base")
                         self._absorb_assign(f, unsafe &uf, "its base")
                     }
@@ -1106,10 +1130,18 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                     continue
                 }
 
-                f->virtual_dtor = lifecycle_or(f->virtual_dtor, bf->virtual_dtor)
-                f->polymorphic  = lifecycle_or(f->polymorphic, bf->polymorphic)
+                f->virtual_dtor = lifecycle_or(
+                    f->virtual_dtor,
+                    bf->virtual_dtor,
+                )
+
+                f->polymorphic = lifecycle_or(f->polymorphic, bf->polymorphic)
                 self._absorb(f, bf, f"its base '{self._tu.decl_name(bd)}'")
-                self._absorb_assign(f, bf, f"its base '{self._tu.decl_name(bd)}'")
+                self._absorb_assign(
+                    f,
+                    bf,
+                    f"its base '{self._tu.decl_name(bd)}'",
+                )
             }
         }
 
@@ -1130,8 +1162,17 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 continue
             }
 
-            f->own_dtor_work = lifecycle_or(f->own_dtor_work, lifecycle_not(ff.trivial_dtor))
-            self._absorb(f, unsafe &ff, f"its field '{self.sc->ctx->get_spelling(fd->name)}'")
+            f->own_dtor_work = lifecycle_or(
+                f->own_dtor_work,
+                lifecycle_not(ff.trivial_dtor),
+            )
+
+            self._absorb(
+                f,
+                unsafe &ff,
+                f"its field '{self.sc->ctx->get_spelling(fd->name)}'",
+            )
+
             self._absorb_assign(
                 f,
                 unsafe &ff,
@@ -1218,7 +1259,11 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             f->assignable         = LifecycleTri::No
             f->why_not_assignable = "its transfer constructor is deleted"
         } else if copy_provided || move_provided {
-            f->assignable         = lifecycle_and(lifecycle_not(f->polymorphic), f->destructible)
+            f->assignable = lifecycle_and(
+                lifecycle_not(f->polymorphic),
+                f->destructible,
+            )
+
             f->why_not_assignable = ""
             if f->polymorphic == LifecycleTri::Yes {
                 f->why_not_assignable = "it is polymorphic, and assigning it would destroy it and rebuild it in place through its transfer constructor"
@@ -1260,7 +1305,11 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                     continue
                 }
 
-                f->own_dtor_work = lifecycle_or(f->own_dtor_work, lifecycle_not(pf.trivial_dtor))
+                f->own_dtor_work = lifecycle_or(
+                    f->own_dtor_work,
+                    lifecycle_not(pf.trivial_dtor),
+                )
+
                 self._absorb(
                     f,
                     unsafe &pf,
@@ -1416,7 +1465,11 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             return true
         }
 
-        self._check_transfer_shapes(unsafe (n as unsafe *Decl), self.sc->ctx->get_spelling(n->name))
+        self._check_transfer_shapes(
+            unsafe (n as unsafe *Decl),
+            self.sc->ctx->get_spelling(n->name),
+        )
+
         self._derive_assign(unsafe (n as unsafe *Decl))
         return true
     }
@@ -1477,7 +1530,9 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 continue
             }
 
-            if canon_unqual(p->type_->canonical) != canon_unqual(selfp->type_->canonical) {
+            if canon_unqual(p->type_->canonical) != canon_unqual(
+                selfp->type_->canonical,
+            ) {
                 continue
             }
 
@@ -1510,7 +1565,10 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
             // Marked: `other` is written bare, so the marker is the only
             // thing that decides the C++ shape.
-            var marker = if (m->transfer == TransferKind::Copy) => (LangAttrs::at(LangAttrs::transfer_copy())) else => LangAttrs::at(LangAttrs::transfer_move())
+            var marker = if (m->transfer == TransferKind::Copy) => (LangAttrs::at(
+                             LangAttrs::transfer_copy(),
+                         ))
+                         else => LangAttrs::at(LangAttrs::transfer_move())
             if p->mode != ParamMode::Value || p->default_val != &null || tail {
                 var b = self.sc->diag->report(
                     DiagID::SC110E,
@@ -1568,7 +1626,10 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
         b.first(m->range)
         if p->mode != ParamMode::Value {
-            var mw = if (p->mode == ParamMode::Move) => (LangAttrs::at(LangAttrs::param_move())) else => LangAttrs::at(LangAttrs::param_inout())
+            var mw = if (p->mode == ParamMode::Move) => (LangAttrs::at(
+                         LangAttrs::param_move(),
+                     ))
+                     else => LangAttrs::at(LangAttrs::param_inout())
             b.note(
                 p->mode_range.start,
                 f"'{mw}' on the parameter is not a transfer constructor",
@@ -1641,7 +1702,10 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         //    without `const` on `other` would otherwise merge as one member,
         //    since top-level const is not in a signature.
         if dup != &null {
-            var marker = if (dup->transfer == TransferKind::Copy) => (LangAttrs::at(LangAttrs::transfer_copy())) else => LangAttrs::at(LangAttrs::transfer_move())
+            var marker = if (dup->transfer == TransferKind::Copy) => (LangAttrs::at(
+                             LangAttrs::transfer_copy(),
+                         ))
+                         else => LangAttrs::at(LangAttrs::transfer_move())
             self.sc->diag->report(
                 DiagID::SC057E,
                 dup->range.start,
@@ -1691,9 +1755,10 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 DiagID::SC059E,
                 xfer->range.start,
                 f"'{dn}' has a transfer constructor with a body and a deleted destructor; the derived 'op =' must destroy the old value first and cannot",
-            ).first(xfer->range)->note(dtor->range.start, "destructor deleted here")->child_first(
-                dtor->range,
-            )->note(
+            ).first(xfer->range)->note(
+                dtor->range.start,
+                "destructor deleted here",
+            )->child_first(dtor->range)->note(
                 xfer->range.start,
                 "provide a destructor, or make the transfer constructor '= default' / '= delete'",
             )->emit()
@@ -1756,7 +1821,9 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 DiagID::SC061E,
                 e->range.start,
                 f"'{dn}' is {self._cat_word(f->category)}, but its base '{bn}' is {self._cat_word(bf->category)}; a derived class's lifecycle category must match its base's, or be non-transferable",
-            ).first(e->range)->note(bd->range.start, "base declared here")->child_first(bd->range)->emit()
+            ).first(e->range)->note(bd->range.start, "base declared here")->child_first(
+                bd->range,
+            )->emit()
             self.n_errored += 1
         }
 
@@ -1854,9 +1921,11 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             )
 
             b.first(x->range)
-            b.note(DiagCode(DiagID::SC129N), fd->range.start, f"'{fname}' declared here")->child_first(
-                fd->range,
-            )
+            b.note(
+                DiagCode(DiagID::SC129N),
+                fd->range.start,
+                f"'{fname}' declared here",
+            )->child_first(fd->range)
 
             b.emit()
             self.n_errored += 1
@@ -1948,7 +2017,9 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         var unsafe *f  = self.facts_of(e->decl) // the instance's own.
         var        sub = Substitution(self.sc)
         sub.bind_from_record(self.sc->types->record(e->decl, unsafe &e->args))
-        var iname = self._tu.str(self.sc->types->record(e->decl, unsafe &e->args))
+        var iname = self._tu.str(
+            self.sc->types->record(e->decl, unsafe &e->args),
+        )
 
         // Rule 6, per defaulted transfer constructor.
         var copy_ctor: unsafe *FunctionDecl = &null
@@ -2008,7 +2079,12 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 var x = LifecycleFailure()
                 x.id = DiagID::SC061E
                 x.msg = f"'{iname}' is {self._cat_word(f->category)}, but its base '{bn}' is {self._cat_word(bf->category)}; a derived class's lifecycle category must match its base's, or be non-transferable"
-                x.add_note(DiagID::I900N, edge->range, f"'{bn}' is a base of '{iname}' here")
+                x.add_note(
+                    DiagID::I900N,
+                    edge->range,
+                    f"'{bn}' is a base of '{iname}' here",
+                )
+
                 if ib->range.is_valid() {
                     x.add_note(DiagID::I900N, ib->range, "base declared here")
                 }
@@ -2028,7 +2104,12 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 var x = LifecycleFailure()
                 x.id = DiagID::SC056E
                 x.msg = f"class '{iname}' has a non-trivial destructor, but its base '{bn}' does not have a virtual destructor; deleting a '{iname}' through a '*{bn}' would run only '{bn}''s destructor and leak the rest"
-                x.add_note(DiagID::I900N, edge->range, f"'{bn}' is a base of '{iname}' here")
+                x.add_note(
+                    DiagID::I900N,
+                    edge->range,
+                    f"'{bn}' is a base of '{iname}' here",
+                )
+
                 if ib->range.is_valid() {
                     x.add_note(
                         DiagID::I900N,
@@ -2082,7 +2163,12 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             var f  = LifecycleFailure()
             f.id  = DiagID::SC129E
             f.msg = f"'{iname}' cannot have a defaulted {kind} constructor: base '{bn}' is {why}"
-            f.add_note(DiagID::SC129N, edge->range, f"'{bn}' is a base of '{iname}' here")
+            f.add_note(
+                DiagID::SC129N,
+                edge->range,
+                f"'{bn}' is a base of '{iname}' here",
+            )
+
             f.add_note(
                 DiagID::I900N,
                 x->range,
@@ -2227,7 +2313,9 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 continue
             }
 
-            if canon_unqual(other->type_->canonical) != canon_unqual(selfp->type_->canonical) {
+            if canon_unqual(other->type_->canonical) != canon_unqual(
+                selfp->type_->canonical,
+            ) {
                 continue
             }
 
@@ -2412,7 +2500,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
     }
 
     priv fn _methods(self, d: unsafe *Decl) -> cxx::std::vector<unsafe *FunctionDecl> {
-        var out                                           = cxx::std::vector<unsafe *FunctionDecl>()
+        var out = cxx::std::vector<unsafe *FunctionDecl>()
         var lst: unsafe *FrozenList<unsafe *FunctionDecl> = &null
         if isa<ClassDecl>(d) {
             lst = unsafe &cast<ClassDecl>(d)->methods
@@ -2442,7 +2530,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
     }
 
     priv fn _fields(self, d: unsafe *Decl) -> cxx::std::vector<unsafe *FieldDecl> {
-        var out                                        = cxx::std::vector<unsafe *FieldDecl>()
+        var out = cxx::std::vector<unsafe *FieldDecl>()
         var lst: unsafe *FrozenList<unsafe *FieldDecl> = &null
         if isa<ClassDecl>(d) {
             lst = unsafe &cast<ClassDecl>(d)->fields

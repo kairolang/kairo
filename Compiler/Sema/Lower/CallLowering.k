@@ -225,7 +225,10 @@ pub class CallLowering derives ASTWriter<CallLowering> {
                 continue
             }
 
-            var full: FullSourceLocation = self.sc->ctx->sm->get_line_col(s->carrier->range.start)
+            var full: FullSourceLocation = self.sc->ctx->sm->get_line_col(
+                s->carrier->range.start,
+            )
+
             kairo::std::ice_fail(
                 f"CallLowering: a default thunk was minted for '{self.tu.decl_name(s->entity)}' parameter {s->index}, but the declaration that wrote the default ({full.path.full_path()}:{full.line}:{full.column}) was never visited",
             )
@@ -397,7 +400,9 @@ pub class CallLowering derives ASTWriter<CallLowering> {
             )
         }
 
-        var unsafe *rep = cast<FunctionDecl>(NameLookup::representative(unsafe (f as unsafe *Decl)))
+        var unsafe *rep = cast<FunctionDecl>(
+            NameLookup::representative(unsafe (f as unsafe *Decl)),
+        )
 
         // Where it lives. Out of line: the owner type, never the file.
         var sem: unsafe *DeclContext = carrier->semantic_dc
@@ -497,7 +502,9 @@ pub class CallLowering derives ASTWriter<CallLowering> {
 
         var unsafe *dc = carrier->semantic_dc
         if dc == &null || !dc->is_type_scope() {
-            kairo::std::ice_fail("CallLowering: out-of-line definition with no owning type")
+            kairo::std::ice_fail(
+                "CallLowering: out-of-line definition with no owning type",
+            )
         }
 
         var unsafe *owner = dc->dc_owner
@@ -508,21 +515,30 @@ pub class CallLowering derives ASTWriter<CallLowering> {
         }
 
         if isa<ClassDecl>(owner) {
-            var rw = self.rewriter<unsafe *FunctionDecl>(unsafe &cast<ClassDecl>(owner)->methods)
+            var rw = self.rewriter<unsafe *FunctionDecl>(
+                unsafe &cast<ClassDecl>(owner)->methods,
+            )
+
             rw.append(th)
             rw.apply()
             return
         }
 
         if isa<StructDecl>(owner) {
-            var rw = self.rewriter<unsafe *FunctionDecl>(unsafe &cast<StructDecl>(owner)->methods)
+            var rw = self.rewriter<unsafe *FunctionDecl>(
+                unsafe &cast<StructDecl>(owner)->methods,
+            )
+
             rw.append(th)
             rw.apply()
             return
         }
 
         if isa<UnionDecl>(owner) {
-            var rw = self.rewriter<unsafe *FunctionDecl>(unsafe &cast<UnionDecl>(owner)->methods)
+            var rw = self.rewriter<unsafe *FunctionDecl>(
+                unsafe &cast<UnionDecl>(owner)->methods,
+            )
+
             rw.append(th)
             rw.apply()
             return
@@ -547,10 +563,15 @@ pub class CallLowering derives ASTWriter<CallLowering> {
 
         var name = self.tu.decl_name(unsafe (f as unsafe *Decl))
         var ctor = self._is_ctor(f)
-        var cell = if (ctor) => (self.sc->lookup.in_context(dc, DeclName::ctor()))
+        var cell = if (ctor) => (self.sc->lookup.in_context(
+                       dc,
+                       DeclName::ctor(),
+                   ))
                    else => self.sc->lookup.in_context(
                        dc,
-                       DeclName::ident(self.sc->imm_table()->intern_ident_copy(name)),
+                       DeclName::ident(
+                           self.sc->imm_table()->intern_ident_copy(name),
+                       ),
                        name,
                    )
 
@@ -616,7 +637,9 @@ pub class CallLowering derives ASTWriter<CallLowering> {
         }
 
         if f == &null {
-            kairo::std::ice_fail("CallLowering: arg_map on a call with no function callee")
+            kairo::std::ice_fail(
+                "CallLowering: arg_map on a call with no function callee",
+            )
         }
 
         return self._rewrite(n, f)
@@ -637,7 +660,9 @@ pub class CallLowering derives ASTWriter<CallLowering> {
         }
 
         if c != &null && isa<NamedIdentExpr>(c) {
-            return dyn_cast<FunctionDecl>(cast<NamedIdentExpr>(c)->resolved_decl)
+            return dyn_cast<FunctionDecl>(
+                cast<NamedIdentExpr>(c)->resolved_decl,
+            )
         }
 
         if c != &null && isa<ChainExpr>(c) {
@@ -646,7 +671,9 @@ pub class CallLowering derives ASTWriter<CallLowering> {
                 return &null
             }
 
-            return dyn_cast<FunctionDecl>(ch->steps.get(ch->steps.size() - 1)->resolved_decl)
+            return dyn_cast<FunctionDecl>(
+                ch->steps.get(ch->steps.size() - 1)->resolved_decl,
+            )
         }
 
         return &null
@@ -685,7 +712,9 @@ pub class CallLowering derives ASTWriter<CallLowering> {
             return false
         }
 
-        return self.tu.decl_name(unsafe (f as unsafe *Decl)) == self.tu.decl_name(dc->dc_owner)
+        return self.tu.decl_name(unsafe (f as unsafe *Decl)) == self.tu.decl_name(
+            dc->dc_owner,
+        )
     }
 
     /// A call an earlier lowering minted is positional and must be whole.
@@ -728,7 +757,9 @@ pub class CallLowering derives ASTWriter<CallLowering> {
     priv fn _rewrite(self, n: unsafe *CallExpr, f: unsafe *FunctionDecl) -> unsafe *Expr {
         var np = f->params.size()
         if n->arg_map.size() != np {
-            kairo::std::ice_fail("CallLowering: arg_map is not parallel to the callee's parameters")
+            kairo::std::ice_fail(
+                "CallLowering: arg_map is not parallel to the callee's parameters",
+            )
         }
 
         var vals  = cxx::std::vector<unsafe *Expr>()
@@ -935,8 +966,13 @@ pub class CallLowering derives ASTWriter<CallLowering> {
 
         head->resolved_decl = th
 
-        var unsafe *call = CallExpr::create(self.ctx, n->range, unsafe (head as unsafe *Expr))
-        var        none  = self.list_builder<unsafe *Expr>()
+        var unsafe *call = CallExpr::create(
+            self.ctx,
+            n->range,
+            unsafe (head as unsafe *Expr),
+        )
+
+        var none = self.list_builder<unsafe *Expr>()
         none.freeze_into(&call->args)
         call->value_category = Expr::ValueCategory::RValue
         call->qualifier      = self._qualifier(n, f)

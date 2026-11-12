@@ -188,11 +188,11 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     priv var _level: PurityLevel          = PurityLevel::None
     /// Which walk this is (see PurityWalk). Under Infer, rules break
     /// silently into _fail instead of reporting.
-    priv var _walk:  PurityWalk                             = PurityWalk::Check
-    priv var _fail:  bool                                   = false
-    priv var _cands: cxx::std::vector<unsafe *FunctionDecl>
-    pub var  n_const:  usize                                  = 0
-    pub var  n_pure:   usize                                  = 0
+    priv var _walk:   PurityWalk                             = PurityWalk::Check
+    priv var _fail:   bool                                   = false
+    priv var _cands:  cxx::std::vector<unsafe *FunctionDecl>
+    pub var  n_const: usize                                  = 0
+    pub var  n_pure:  usize                                  = 0
 
     fn FnPurityCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -265,7 +265,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         var unsafe *saved_f = self._f
         var        saved_m  = self._level
-        self._f    = n
+        self._f     = n
         self._level = PurityLevel::None
         if n->is_const_fn {
             self._level = PurityLevel::Const
@@ -279,7 +279,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         self._walk_body(n)
 
-        self._f    = saved_f
+        self._f     = saved_f
         self._level = saved_m
         return false
     }
@@ -355,13 +355,13 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     priv fn _passes(self, f: unsafe *FunctionDecl, level: PurityLevel) -> bool {
         self._f     = f
         self._level = level
-        self._fail = false
+        self._fail  = false
         self._check_head(f)
         if !self._fail {
             self._walk_body(f)
         }
 
-        self._f    = &null
+        self._f     = &null
         self._level = PurityLevel::None
         return !self._fail
     }
@@ -370,7 +370,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// spells the declaration from its own link, and the definition from
     /// this one, and both must carry the same attribute.
     priv fn _stamp(self, f: unsafe *FunctionDecl, level: PurityLevel) {
-        var lvl = (level as u8)
+        var        lvl          = (level as u8)
         var unsafe *head        = f->first_decl()
         var unsafe *cur         = head
         var        guard: usize = 0
@@ -547,7 +547,12 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// its body is read.
     priv fn _check_head(self, f: unsafe *FunctionDecl) {
         if f->is_noreturn {
-            self._report_head(f, "never returns; the promise says every call returns", true)
+            self._report_head(
+                f,
+                "never returns; the promise says every call returns",
+                true,
+            )
+
             return
         }
 
@@ -570,7 +575,13 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             // X stamps no_unwind on every typed function but one marked
             // `@unwind`; under -funwind none is stamped, and the attribute
             // itself then supplies the nounwind every callee also keeps.
-            self._report_head(f, "is marked " + LangAttrs::quoted(LangAttrs::unwind()) + "; the promise says no call unwinds", false)
+            self._report_head(
+                f,
+                "is marked " + LangAttrs::quoted(
+                    LangAttrs::unwind(),
+                ) + "; the promise says no call unwinds",
+                false,
+            )
         }
 
         if f->abi == AbiKind::Virtual || f->abi == AbiKind::Override || decl_is_requirement(f) {
@@ -750,7 +761,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             }
 
             if v->type_ != &null && canon_has_volatile(v->type_->canonical) {
-                self._report(n->range, "read the volatile '" + self._tu.decl_name(v) + "'")
+                self._report(
+                    n->range,
+                    "read the volatile '" + self._tu.decl_name(v) + "'",
+                )
             }
 
             return true
@@ -844,7 +858,8 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return true
         }
 
-        if self._level == PurityLevel::Pure && (k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus) {
+        if self._level == PurityLevel::Pure
+            && (k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus) {
             self._write(n->operand, n->range)
         }
 
@@ -1064,7 +1079,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
     fn visit_verbatim_expr(self, n: unsafe *Expressions::VerbatimExpr) -> bool {
         if self._level != PurityLevel::None && n != &null {
-            self._report(n->range, "run inline C++, which the compiler cannot check")
+            self._report(
+                n->range,
+                "run inline C++, which the compiler cannot check",
+            )
         }
 
         return true
@@ -1114,7 +1132,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         if k == IterKind::Slice {
             if self._level == PurityLevel::Const {
-                self._deref(n->range, "loop over a slice: it reads through the slice's pointer")
+                self._deref(
+                    n->range,
+                    "loop over a slice: it reads through the slice's pointer",
+                )
             }
 
             return true
@@ -1545,7 +1566,9 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return false
         }
 
-        if !self.sc->g->is_builtin_fid(self._tu.fid_of(unsafe (f as unsafe *Decl))) {
+        if !self.sc->g->is_builtin_fid(
+            self._tu.fid_of(unsafe (f as unsafe *Decl)),
+        ) {
             return false
         }
 
@@ -1560,7 +1583,8 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return true
         }
 
-        if self._level == PurityLevel::Pure && (nm == "__builtin_compare_mem" || nm == "__builtin_prefetch") {
+        if self._level == PurityLevel::Pure
+            && (nm == "__builtin_compare_mem" || nm == "__builtin_prefetch") {
             return true
         }
 
@@ -1635,7 +1659,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 // `self.x = v` on a method: self is the caller's object.
                 var unsafe *b = self._tu.strip_parens(ch->base)
                 if b != &null && isa<NamedIdentExpr>(b) {
-                    var unsafe *p = dyn_cast<ParamDecl>(cast<NamedIdentExpr>(b)->resolved_decl)
+                    var unsafe *p = dyn_cast<ParamDecl>(
+                        cast<NamedIdentExpr>(b)->resolved_decl,
+                    )
+
                     if p != &null && p->is_self {
                         self._deref(at, "assign to a field of 'self'")
                         return
@@ -1654,7 +1681,8 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     priv fn _promise(self) -> string {
-        return if (self._level == PurityLevel::Const) => ("const") else => LangAttrs::at(LangAttrs::pure_fn())
+        return if (self._level == PurityLevel::Const) => ("const")
+               else => LangAttrs::at(LangAttrs::pure_fn())
     }
 
     priv fn _head_range(self, f: unsafe *FunctionDecl) -> SourceRange {
@@ -1679,9 +1707,17 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         b.first(at)
         if self._level == PurityLevel::Const {
-            b.note(head.start, self._who() + " is const: it may read only its own inputs")
+            b.note(
+                head.start,
+                self._who() + " is const: it may read only its own inputs",
+            )
         } else {
-            b.note(head.start, self._who() + " is " + LangAttrs::at(LangAttrs::pure_fn()) + ": it may read memory but never write it")
+            b.note(
+                head.start,
+                self._who() + " is " + LangAttrs::at(
+                    LangAttrs::pure_fn(),
+                ) + ": it may read memory but never write it",
+            )
         }
 
         b.emit()
@@ -1720,7 +1756,9 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         self._report(
             at,
-            verb + " the global '" + self._tu.decl_name(unsafe (v as unsafe *Decl)) + "'",
+            verb + " the global '" + self._tu.decl_name(
+                unsafe (v as unsafe *Decl),
+            ) + "'",
         )
     }
 
@@ -1735,7 +1773,9 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         var ok = if (self._level == PurityLevel::Const) => ("a const fn, an eval fn or a side-effect-free intrinsic")
-                 else => "a const fn, a " + LangAttrs::at(LangAttrs::pure_fn()) + " fn, an eval fn or a side-effect-free intrinsic"
+                 else => "a const fn, a " + LangAttrs::at(
+                     LangAttrs::pure_fn(),
+                 ) + " fn, an eval fn or a side-effect-free intrinsic"
         self._report(at, "call " + callee + ", which is not " + ok)
     }
 }

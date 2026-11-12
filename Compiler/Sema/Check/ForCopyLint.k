@@ -69,12 +69,7 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
-    BindingShorthand,
-    CompoundStmt,
-    IndexedForStmt,
-    IterKind,
-    LoopStmt,
-    RangedForStmt,
+    BindingShorthand, CompoundStmt, IndexedForStmt, IterKind, LoopStmt, RangedForStmt,
     WhileLoopStmt,
 }
 import AST::Node::Types::{
@@ -165,15 +160,15 @@ fn for_copy_rooted(e: unsafe *Expr, d: unsafe *Decl) -> bool {
 ///        of an assignment is walked before its target is recorded.
 ///
 pub class ForCopyScan derives RecursiveASTVisitor<ForCopyScan> {
-    pub var target:      unsafe *Decl = &null
-    pub var first_write: SourceRange
-    pub var has_write:   bool = false
-    pub var read_after:  bool = false ///< a read after the first write.
-    pub var escaped:     bool = false ///< a non-@inout `&x`, or `x` in a closure.
-    pub var inner_write: bool = false ///< a write inside a nested loop.
-    pub var inner_read:  bool = false ///< a read inside a nested loop.
-    priv var _depth:     i32  = 0
-    priv var _closure:   i32  = 0
+    pub var  target:      unsafe *Decl = &null
+    pub var  first_write: SourceRange
+    pub var  has_write:   bool         = false
+    pub var  read_after:  bool         = false ///< a read after the first write.
+    pub var  escaped:     bool         = false ///< a non-@inout `&x`, or `x` in a closure.
+    pub var  inner_write: bool         = false ///< a write inside a nested loop.
+    pub var  inner_read:  bool         = false ///< a read inside a nested loop.
+    priv var _depth:      i32          = 0
+    priv var _closure:    i32          = 0
 
     fn ForCopyScan(self, d: unsafe *Decl) {
         self.target = d
@@ -221,7 +216,10 @@ pub class ForCopyScan derives RecursiveASTVisitor<ForCopyScan> {
 
     fn traverse_assign_operator_expr(self, n: *AssignOperatorExpr) -> *AssignOperatorExpr {
         if !for_copy_place(n->lhs, self.target) {
-            return RecursiveASTVisitor<ForCopyScan>::traverse_assign_operator_expr(self, n)
+            return RecursiveASTVisitor<ForCopyScan>::traverse_assign_operator_expr(
+                self,
+                n,
+            )
         }
 
         // The value is computed first: `x.n = x.n + 1` reads, then writes.
@@ -245,19 +243,30 @@ pub class ForCopyScan derives RecursiveASTVisitor<ForCopyScan> {
             self.escaped = true
         }
 
-        return RecursiveASTVisitor<ForCopyScan>::traverse_unary_operator_expr(self, n)
+        return RecursiveASTVisitor<ForCopyScan>::traverse_unary_operator_expr(
+            self,
+            n,
+        )
     }
 
     fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {
         ++self._closure
-        var unsafe *out = RecursiveASTVisitor<ForCopyScan>::traverse_closure_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<ForCopyScan>::traverse_closure_expr(
+            self,
+            n,
+        )
+
         --self._closure
         return out
     }
 
     fn traverse_while_loop_stmt(self, n: *WhileLoopStmt) -> *WhileLoopStmt {
         ++self._depth
-        var *out = RecursiveASTVisitor<ForCopyScan>::traverse_while_loop_stmt(self, n)
+        var *out = RecursiveASTVisitor<ForCopyScan>::traverse_while_loop_stmt(
+            self,
+            n,
+        )
+
         --self._depth
         return out
     }
@@ -271,14 +280,22 @@ pub class ForCopyScan derives RecursiveASTVisitor<ForCopyScan> {
 
     fn traverse_ranged_for_stmt(self, n: unsafe *RangedForStmt) -> unsafe *RangedForStmt {
         ++self._depth
-        var unsafe *out = RecursiveASTVisitor<ForCopyScan>::traverse_ranged_for_stmt(self, n)
+        var unsafe *out = RecursiveASTVisitor<ForCopyScan>::traverse_ranged_for_stmt(
+            self,
+            n,
+        )
+
         --self._depth
         return out
     }
 
     fn traverse_indexed_for_stmt(self, n: *IndexedForStmt) -> *IndexedForStmt {
         ++self._depth
-        var *out = RecursiveASTVisitor<ForCopyScan>::traverse_indexed_for_stmt(self, n)
+        var *out = RecursiveASTVisitor<ForCopyScan>::traverse_indexed_for_stmt(
+            self,
+            n,
+        )
+
         --self._depth
         return out
     }
@@ -332,7 +349,11 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
             return n
         }
 
-        var unsafe *out = RecursiveASTVisitor<ForCopyLint>::traverse_ranged_for_stmt(self, n)
+        var unsafe *out = RecursiveASTVisitor<ForCopyLint>::traverse_ranged_for_stmt(
+            self,
+            n,
+        )
+
         self._check(n)
         return out
     }
@@ -340,9 +361,14 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
     priv fn _by_value(self, iter: IterKind) -> bool {
         // An integer range yields fresh counters, and a pack unrolls one
         // binding per element: neither has an element to write back to.
-        return iter == IterKind::Array || iter == IterKind::Slice || iter == IterKind::Vector ||
-            iter == IterKind::Set || iter == IterKind::Map || iter == IterKind::String ||
-            iter == IterKind::User || iter == IterKind::Cxx
+        return iter == IterKind::Array
+            || iter == IterKind::Slice
+            || iter == IterKind::Vector
+            || iter == IterKind::Set
+            || iter == IterKind::Map
+            || iter == IterKind::String
+            || iter == IterKind::User
+            || iter == IterKind::Cxx
     }
 
     priv fn _check(self, n: unsafe *RangedForStmt) {
@@ -368,7 +394,10 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
         }
     }
 
-    priv fn _check_binder(self, n: unsafe *RangedForStmt, v: unsafe *VariableDecl, name: SourceRange) {
+    priv fn _check_binder(self,
+                          n:    unsafe *RangedForStmt,
+                          v:    unsafe *VariableDecl,
+                          name: SourceRange) {
         if v->is_poisoned() || v->type_ == &null || !name.is_valid() {
             return
         }
@@ -406,17 +435,19 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
         }
 
         var nm = self.sc->ctx->get_spelling(name)
-        var b  = self.sc->diag->report(
+        var b = self.sc->diag->report(
             DiagID::SC275W,
             scan.first_write.start,
             "this writes to a copy of the element; the collection is not changed",
         )
+
         b.first(scan.first_write)
         b.note(
             DiagCode(DiagID::SC275N),
             name.start,
             f"'{nm}' is bound by value here; 'for *{nm}' binds a pointer to the element, and uses of '{nm}' then go through it",
         )
+
         b.insert(name.start, "*", f"bind '{nm}' to the element")
         b.emit()
     }

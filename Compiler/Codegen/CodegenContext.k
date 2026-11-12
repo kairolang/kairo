@@ -34,8 +34,8 @@ import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 pub enum CodegenPhase derives u8 {
     Ready = 0, ///< Context wired, nothing emitted.
     Planned,   ///< EmitPlan built. A borrowed plan's context (PlanLease)
-               ///< stays here: it fills again, once per stream.
-    Emitted,   ///< Token stream fully emitted; eof appended.
+    ///< stays here: it fills again, once per stream.
+    Emitted, ///< Token stream fully emitted; eof appended.
 }
 
 /// Emission switches. Every one is a build-wide decision, never per site.
@@ -137,7 +137,9 @@ pub class CodegenContext {
     pub fn advance_phase(self, p: CodegenPhase) {
         eval if defined!(DEBUG) {
             if !((p as u8) > (self.phase as u8)) {
-                kairo::std::ice_fail(r"CodegenContext: phase must advance monotonically")
+                kairo::std::ice_fail(
+                    r"CodegenContext: phase must advance monotonically",
+                )
             }
         }
 

@@ -43,6 +43,7 @@ ffi "c++" import "string"
 ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "chrono"
 
+import API::FS::LinkFS
 import DocumentStore::DocumentStore
 import Index::Snapshot::{
     SK_DIAG,
@@ -51,26 +52,25 @@ import Index::Snapshot::{
     SK_PATH,
 }
 import Index::WorkerKeys::*
-import Protocol::*
-import Resolution::ModulePath::kairo_dot_ext
-import Tuning::*
-import WorkerArgs::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import std::io
+import Protocol::*
+import Resolution::ModulePath::kairo_dot_ext
 import Server::Completion::*
 import Server::Diagnostics::*
 import Server::Output::*
 import Server::Scheduling::*
 import Server::Server::*
-import Server::Workers::*
 import Server::SyntaxWorker::*
-import API::FS::LinkFS
+import Server::Workers::*
 import Support::FileIO::Path::Path
+import Tuning::*
+import WorkerArgs::*
+import std::io
 
 extend Server {
     /// The live child of entry \p ei, or usize::MAX.
@@ -159,25 +159,38 @@ extend Server {
         }
 
         words += "\n" + self.entries[ei].entry
-        var to_child: i32 = -1
+        var to_child:   i32 = -1
         var from_child: i32 = -1
-        var pid: i64 = unsafe kals_child_spawn(unsafe &words.raw()[0], words.size() as u64, unsafe &to_child, unsafe &from_child)
+        var pid: i64 = unsafe kals_child_spawn(
+            unsafe &words.raw()[0],
+            words.size() as u64,
+            unsafe &to_child,
+            unsafe &from_child,
+        )
+
         if pid < 0 {
             self.lives[k].failed = true
-            self.say(MSG_LOG, "live index worker unavailable here: " + self.entries[ei].entry + " is analysed by a process per run")
+            self.say(
+                MSG_LOG,
+                "live index worker unavailable here: " + self.entries[ei].entry + " is analysed by a process per run",
+            )
+
             return false
         }
 
         // A new worker counts its steps from one: it sends every table.
         self.entries[ei].tb_have = 0
-        self.lives[k].pid      = pid
-        self.lives[k].steps    = 0
-        self.lives[k].base_rss = -1
+        self.lives[k].pid        = pid
+        self.lives[k].steps      = 0
+        self.lives[k].base_rss   = -1
         self.lives[k].sent.clear()
         self.lives[k].t        = Transport()
         self.lives[k].t.fd_in  = from_child
         self.lives[k].t.fd_out = to_child
-        self.trace(f"live worker started pid={pid} entry={self.entries[ei].entry}")
+        self.trace(
+            f"live worker started pid={pid} entry={self.entries[ei].entry}",
+        )
+
         return true
     }
 
@@ -186,7 +199,12 @@ extend Server {
             return
         }
 
-        unsafe kals_child_stop(self.lives[k].pid, self.lives[k].t.fd_out, self.lives[k].t.fd_in)
+        unsafe kals_child_stop(
+            self.lives[k].pid,
+            self.lives[k].t.fd_out,
+            self.lives[k].t.fd_in,
+        )
+
         self.lives[k].pid = -1
         for var q: usize = 0; q < self.lives[k].sent.size(); ++q {
             self.garbage.push_back(self.lives[k].sent[q].out)
@@ -215,7 +233,15 @@ extend Server {
         }
 
         self.trace("live completion falls back to a process: " + a->path)
-        self.complete_by_run_(ei, a->lsp_id, a->path, a->member, a->edit, a->marked, a->t0_us)
+        self.complete_by_run_(
+            ei,
+            a->lsp_id,
+            a->path,
+            a->member,
+            a->edit,
+            a->marked,
+            a->t0_us,
+        )
     }
 
     /// \brief asks entry \p ei's live worker for a completion: the marked
@@ -241,7 +267,10 @@ extend Server {
         }
 
         var k = self.live_of(ei)
-        if (k == usize::MAX) || self.lives[k].failed || (self.lives[k].pid < 0) || (!self.entries[ei].ran)
+        if (k == usize::MAX)
+            || self.lives[k].failed
+            || (self.lives[k].pid < 0)
+            || (!self.entries[ei].ran)
             || (!self.entries[ei].holds(path)) {
             return false
         }
@@ -327,7 +356,9 @@ extend Server {
 
         // One whole compile at a time unless every graph is small: the
         // rule of can_start, with a busy live worker counted as a run.
-        if (self.live_waiting_(k) == 0) && ((!self.can_start(ei)) || (self.live_busy_others(ei) > 0 && (!self.entries[ei].ran))) {
+        if (self.live_waiting_(k) == 0)
+            && ((!self.can_start(ei))
+                || (self.live_busy_others(ei) > 0 && (!self.entries[ei].ran))) {
             return true
         }
 
@@ -344,11 +375,15 @@ extend Server {
                 continue
             }
 
-            var known = self.docs.docs[b].syn.current(self.docs.docs[b].changed_at)
-            if (!known) && (self.docs.docs[b].changed_at > 0) && ((now - self.docs.docs[b].changed_ms) < LIVE_SYNTAX_WAIT_MS) {
+            var known = self.docs.docs[b].syn.current(
+                self.docs.docs[b].changed_at,
+            )
+
+            if (!known)
+                && (self.docs.docs[b].changed_at > 0)
+                && ((now - self.docs.docs[b].changed_ms) < LIVE_SYNTAX_WAIT_MS) {
                 return true
             }
-
         }
 
         if !self.live_spawn_(k, ei) {
@@ -364,7 +399,7 @@ extend Server {
         s.ms  = now
 
         var aside_files: [string]
-        var w = JsonWriter()
+        var w                     = JsonWriter()
         w.begin_object()
         w.field_int(RQ_ID, s.id)
         w.field_int(RQ_HAVE, self.entries[ei].tb_have as i64)
@@ -379,14 +414,18 @@ extend Server {
                 continue
             }
 
-            if (self.docs.docs[b].tmp_rev != self.docs.docs[b].revision) || self.docs.docs[b].tmp_path.empty() {
+            if (self.docs.docs[b].tmp_rev != self.docs.docs[b].revision)
+                || self.docs.docs[b].tmp_path.empty() {
                 if !self.docs.docs[b].tmp_path.empty() {
                     self.garbage.push_back(self.docs.docs[b].tmp_path)
                 }
 
                 self.docs.docs[b].tmp_path = self.scratch(".k")
                 self.docs.docs[b].tmp_rev  = self.docs.docs[b].revision
-                LinkFS::write(self.docs.docs[b].tmp_path, self.docs.docs[b].text)
+                LinkFS::write(
+                    self.docs.docs[b].tmp_path,
+                    self.docs.docs[b].text,
+                )
             }
 
             // Does not parse: this text is tried aside, and the text the
@@ -399,14 +438,21 @@ extend Server {
             // copy has checked it whole (live_side_).
             if path.ends_with(".k") && self.docs.docs[b].held_back() {
                 if self.docs.docs[b].idx_entry == self.entries[ei].entry {
-                    if (self.docs.docs[b].held_rev != self.docs.docs[b].idx_rev) || self.docs.docs[b].held_tmp.empty() {
+                    if (self.docs.docs[b].held_rev != self.docs.docs[b].idx_rev)
+                        || self.docs.docs[b].held_tmp.empty() {
                         if !self.docs.docs[b].held_tmp.empty() {
                             self.garbage.push_back(self.docs.docs[b].held_tmp)
                         }
 
-                        self.docs.docs[b].held_tmp = self.scratch(kairo_dot_ext())
+                        self.docs.docs[b].held_tmp = self.scratch(
+                            kairo_dot_ext(),
+                        )
+
                         self.docs.docs[b].held_rev = self.docs.docs[b].idx_rev
-                        LinkFS::write(self.docs.docs[b].held_tmp, self.docs.docs[b].idx_text)
+                        LinkFS::write(
+                            self.docs.docs[b].held_tmp,
+                            self.docs.docs[b].idx_text,
+                        )
                     }
 
                     w.begin_object()
@@ -444,7 +490,9 @@ extend Server {
             }
 
             w.end_array()
-            self.trace(f"live aside entry={self.entries[ei].entry}: {s.aside_paths.size()} buffer(s) that do not parse")
+            self.trace(
+                f"live aside entry={self.entries[ei].entry}: {s.aside_paths.size()} buffer(s) that do not parse",
+            )
         }
 
         w.key(RQ_CHANGED)
@@ -482,7 +530,12 @@ extend Server {
             if m > 0 {
                 self.progress(s.progress, "begin", f"0/{m}", 0)
             } else {
-                self.progress(s.progress, "begin", Path::filename_of(self.entries[ei].entry), -1)
+                self.progress(
+                    s.progress,
+                    "begin",
+                    Path::filename_of(self.entries[ei].entry),
+                    -1,
+                )
             }
         } else if want {
             self.say(MSG_LOG, "indexing " + self.entries[ei].entry)
@@ -492,7 +545,10 @@ extend Server {
         self.entries[ei].dirty   = false
         self.entries[ei].running = true
         self.lives[k].sent.push_back(s)
-        self.trace(f"live send entry={self.entries[ei].entry} rev={s.rev} id={s.id}")
+        self.trace(
+            f"live send entry={self.entries[ei].entry} rev={s.rev} id={s.id}",
+        )
+
         return true
     }
 
@@ -507,7 +563,10 @@ extend Server {
         self.trace("live worker " + why + " entry=" + entry)
         if self.lives[k].restarts >= LIVE_MAX_RESTARTS {
             self.lives[k].failed = true
-            self.say(MSG_WARNING, "live index worker keeps failing: " + entry + " is analysed by a process per run for the rest of the session")
+            self.say(
+                MSG_WARNING,
+                "live index worker keeps failing: " + entry + " is analysed by a process per run for the rest of the session",
+            )
         }
 
         for var i: usize = 0; i < self.entries.size(); ++i {
@@ -547,8 +606,8 @@ extend Server {
         // A completion's: the items are in what the worker's copy wrote.
         if d.get_bool(d.root, RP_ONLY) {
             var rest: [LiveAsk]
-            var mine = LiveAsk()
-            var have = false
+            var mine            = LiveAsk()
+            var have            = false
             for var q: usize = 0; q < self.lives[k].asks.size(); ++q {
                 if self.lives[k].asks[q].id == id {
                     mine = self.lives[k].asks[q]
@@ -567,7 +626,8 @@ extend Server {
             // not make, or one that refused the file (unchecked, none), has
             // no items, and a process finds them.
             var how = self.live_side_states_(mine.out)
-            if (d.get_str(d.root, RP_ASIDE) != ASIDE_OK) || ((how != AS_CHECKED) && (how != AS_PARTIAL)) {
+            if (d.get_str(d.root, RP_ASIDE) != ASIDE_OK)
+                || ((how != AS_CHECKED) && (how != AS_PARTIAL)) {
                 self.live_ask_falls_back_(&mine)
                 return
             }
@@ -659,7 +719,8 @@ extend Server {
         if bg && (ei != usize::MAX) {
             newer = self.entries[ei].has_snap && (s.rev < self.entries[ei].snap_rev)
             for var q: usize = 0; q < self.jobs.size(); ++q {
-                if (self.jobs[q].kind == JobKind::Index) && (self.jobs[q].entry_id == self.entries[ei].id) {
+                if (self.jobs[q].kind == JobKind::Index)
+                    && (self.jobs[q].entry_id == self.entries[ei].id) {
                     newer = true
                 }
             }
@@ -707,13 +768,13 @@ extend Server {
 
         self.lives[k].steps += 1
         var j = Job()
-        j.kind        = JobKind::Index
-        j.entry_id    = self.entries[ei].id
-        j.out         = out
-        j.rev         = s.rev
+        j.kind     = JobKind::Index
+        j.entry_id = self.entries[ei].id
+        j.out      = out
+        j.rev      = s.rev
         // A slice took what the worker says it took, not the time since
         // the request: `slow` is about how long an answer is waited for.
-        j.started_ms  = if (bg) => (now_ms() - (d.get_int(d.root, RP_US) / 1000)) else => (s.ms)
+        j.started_ms = if (bg) => (now_ms() - (d.get_int(d.root, RP_US) / 1000)) else => (s.ms)
         j.rooted      = true
         j.text_paths  = s.text_paths
         j.texts       = s.texts
@@ -744,22 +805,24 @@ extend Server {
         if (!bg) && (d.get_str(d.root, RP_ASIDE) != ASIDE_OK) {
             for var q: usize = 0; q < s.aside_paths.size(); ++q {
                 var udi = self.docs.index_of_path(s.aside_paths[q])
-                if (udi != usize::MAX) && (self.docs.docs[udi].changed_at <= s.rev) && self.docs.docs[udi].syn.parsed {
+                if (udi != usize::MAX)
+                    && (self.docs.docs[udi].changed_at <= s.rev)
+                    && self.docs.docs[udi].syn.parsed {
                     self.docs.docs[udi].probe_ok_at = self.docs.docs[udi].changed_at
-                    self.entries[ei].dirty = true
+                    self.entries[ei].dirty          = true
                 }
             }
         }
 
         var rooted = self.entries[ei].rooted
-        self.entries[ei].rooted = true
+        self.entries[ei].rooted       = true
         self.entries[ei].live_pending = pending as usize
         // A slice that re-checked an open buffer changed its rows with no
         // edit of its own: the editor is asked to draw it again, though
         // the revision is one a refresh already went out for.
         if bg && d.get_bool(d.root, RP_TOUCHED) {
             self.entries[ei].owe_refresh = true
-            self.refreshed_rev = 0
+            self.refreshed_rev           = 0
         }
 
         var was_dirty = self.entries[ei].dirty
@@ -774,14 +837,18 @@ extend Server {
         if !bg {
             for var q: usize = 0; q < s.text_paths.size(); ++q {
                 var kdi = self.docs.index_of_path(s.text_paths[q])
-                if (kdi != usize::MAX) && self.docs.docs[kdi].side_has && (self.docs.docs[kdi].probe_ok_at != 0)
+                if (kdi != usize::MAX)
+                    && self.docs.docs[kdi].side_has
+                    && (self.docs.docs[kdi].probe_ok_at != 0)
                     && (self.docs.docs[kdi].probe_ok_at == self.docs.docs[kdi].changed_at)
-                    && (self.docs.docs[kdi].changed_at <= s.rev) && (!self.docs.docs[kdi].held_back()) {
+                    && (self.docs.docs[kdi].changed_at <= s.rev)
+                    && (!self.docs.docs[kdi].held_back()) {
                     self.docs.docs[kdi].side_has = false
                     self.publish_doc(ei, kdi)
                 }
             }
         }
+
         self.entries[ei].rooted = rooted
         self.garbage.push_back(out)
         // A change made since is still to be sent: a slice's result is of
@@ -789,6 +856,7 @@ extend Server {
         if was_dirty {
             self.entries[ei].dirty = true
         }
+
         if !ptoken.empty() {
             self.progress(ptoken, "end", "", -1)
         }
@@ -812,8 +880,12 @@ extend Server {
         self.lives[k].last_ms = now_ms()
         var rmb = d.get_int(d.root, RP_RETIRED_MB)
         var rfi = d.get_int(d.root, RP_RETIRED_FILES)
-        self.trace(f"live done entry={self.lives[k].entry} id={id} mode={j.l_mode} rechecked={j.l_rechecked} pending={pending} rss={rss} MB retired={rfi} trees {rmb} MB")
-        if (rss > 0) && self.lives[k].sent.empty()
+        self.trace(
+            f"live done entry={self.lives[k].entry} id={id} mode={j.l_mode} rechecked={j.l_rechecked} pending={pending} rss={rss} MB retired={rfi} trees {rmb} MB",
+        )
+
+        if (rss > 0)
+            && self.lives[k].sent.empty()
             && (rss > (((self.lives[k].base_rss * LIVE_RSS_FACTOR_PCT) / 100) + LIVE_RSS_SLACK_MB)) {
             self.live_recycle_(k, ei)
         }
@@ -823,8 +895,8 @@ extend Server {
     /// `unchecked`, ...): what `$/kals/analysed` says of it.
     fn live_side_states_(self, const out: string) -> string {
         var text: string = ""
-        var doc = JsonDoc()
-        var all: string = ""
+        var doc          = JsonDoc()
+        var all:  string = ""
         if (!LinkFS::read(out, &text)) || (!doc.parse(text)) {
             return all
         }
@@ -851,7 +923,7 @@ extend Server {
         }
 
         var text: string = ""
-        var doc = JsonDoc()
+        var doc          = JsonDoc()
         if (!LinkFS::read(out, &text)) || (!doc.parse(text)) || (!doc.get_bool(doc.root, SK_OK)) {
             return
         }
@@ -863,7 +935,7 @@ extend Server {
             }
 
             var state: string = ""
-            var st = doc.first(doc.get(doc.root, AS_STATES))
+            var st            = doc.first(doc.get(doc.root, AS_STATES))
             while st != JSON_NONE() {
                 if doc.get_str(st, SK_PATH) == (*tried)[q] {
                     state = doc.get_str(st, AS_STATE)
@@ -880,8 +952,8 @@ extend Server {
             var probe = self.docs.docs[di].syn.parsed && self.docs.docs[di].syn.unsure
             if probe && (state != AS_PARTIAL) && (state != AS_UNCHECKED) {
                 self.docs.docs[di].probe_ok_at = self.docs.docs[di].changed_at
-                self.entries[ei].dirty      = true
-                self.entries[ei].change_rev = self.rev
+                self.entries[ei].dirty         = true
+                self.entries[ei].change_rev    = self.rev
             }
 
             // Nothing was found out about it: the syntax pass's errors and
@@ -891,8 +963,8 @@ extend Server {
             }
 
             var diags: string = ""
-            var n: usize = 0
-            var x = doc.first(doc.get(doc.root, SK_DIAGNOSTICS))
+            var n:     usize  = 0
+            var x             = doc.first(doc.get(doc.root, SK_DIAGNOSTICS))
             while x != JSON_NONE() {
                 if doc.get_str(x, SK_PATH) == (*tried)[q] {
                     if n > 0 {
@@ -911,7 +983,10 @@ extend Server {
             self.docs.docs[di].side_state = state
             self.docs.docs[di].side_diags = diags
             self.docs.docs[di].side_n     = n
-            self.trace(f"live aside landed: {state}, {n} diagnostics " + (*tried)[q])
+            self.trace(
+                f"live aside landed: {state}, {n} diagnostics " + (*tried)[q],
+            )
+
             self.publish_doc(ei, di)
         }
     }
@@ -922,7 +997,10 @@ extend Server {
     /// worker warm. (An edit that arrives before then waits for the rest
     /// of that check.)
     fn live_recycle_(self, k: usize, ei: usize) {
-        self.trace(f"live worker recycled after {self.lives[k].steps} steps, {self.lives[k].rss} MB (first check {self.lives[k].base_rss} MB)")
+        self.trace(
+            f"live worker recycled after {self.lives[k].steps} steps, {self.lives[k].rss} MB (first check {self.lives[k].base_rss} MB)",
+        )
+
         self.live_stop_(k)
         self.lives[k].rss = -1
         var running = self.entries[ei].running
@@ -949,13 +1027,18 @@ extend Server {
         for var k: usize = 0; k < self.lives.size(); ++k {
             // Grown, and the editor quiet: restart it now, while nobody
             // waits for it (Tuning.k, LIVE_RSS_IDLE_PCT).
-            if (self.lives[k].pid >= 0) && self.lives[k].sent.empty() && (self.lives[k].rss > 0)
-                && (self.lives[k].base_rss > 0) && ((now - self.last_change_ms) > LIVE_IDLE_RECYCLE_MS)
+            if (self.lives[k].pid >= 0)
+                && self.lives[k].sent.empty()
+                && (self.lives[k].rss > 0)
+                && (self.lives[k].base_rss > 0)
+                && ((now - self.last_change_ms) > LIVE_IDLE_RECYCLE_MS)
                 && ((now - self.lives[k].last_ms) > LIVE_IDLE_RECYCLE_MS)
                 && (self.lives[k].rss > (((self.lives[k].base_rss * LIVE_RSS_IDLE_PCT) / 100) + LIVE_RSS_SLACK_MB)) {
                 for var i: usize = 0; i < self.entries.size(); ++i {
-                    if (self.entries[i].entry == self.lives[k].entry) && (!self.entries[i].dirty)
-                        && (!self.entries[i].running) && self.entries[i].ran {
+                    if (self.entries[i].entry == self.lives[k].entry)
+                        && (!self.entries[i].dirty)
+                        && (!self.entries[i].running)
+                        && self.entries[i].ran {
                         self.live_recycle_(k, i)
                         break
                     }
@@ -965,8 +1048,10 @@ extend Server {
             }
 
             // A completion the worker has not got to: a process, now.
-            if (self.lives[k].pid >= 0) && (!self.lives[k].asks.empty()) && ((now - self.lives[k].asks[0].ms) > LIVE_ASK_TIMEOUT_MS) {
-                var late = self.lives[k].asks[0]
+            if (self.lives[k].pid >= 0)
+                && (!self.lives[k].asks.empty())
+                && ((now - self.lives[k].asks[0].ms) > LIVE_ASK_TIMEOUT_MS) {
+                var late            = self.lives[k].asks[0]
                 var rest: [LiveAsk]
                 for var q: usize = 1; q < self.lives[k].asks.size(); ++q {
                     rest.push_back(self.lives[k].asks[q])
@@ -1003,7 +1088,12 @@ extend Server {
                 }
 
                 self.lives[k].sent[q].prog_n = n
-                self.progress(self.lives[k].sent[q].progress, "report", f"{n} files", -1)
+                self.progress(
+                    self.lives[k].sent[q].progress,
+                    "report",
+                    f"{n} files",
+                    -1,
+                )
             }
 
             var waited = now - self.lives[k].sent[0].ms
@@ -1012,7 +1102,11 @@ extend Server {
             }
 
             if waited > LIVE_TIMEOUT_MS {
-                self.say(MSG_WARNING, "live index worker timed out: " + self.lives[k].entry + " is analysed by a process this time")
+                self.say(
+                    MSG_WARNING,
+                    "live index worker timed out: " + self.lives[k].entry + " is analysed by a process this time",
+                )
+
                 self.live_lost(k, "timed out")
                 continue
             }

@@ -58,7 +58,7 @@ pub class LangOptions {
     /// -fverify-interfaces, -fconst-checks, -foverflow-checks and
     /// -fstrict-null parse but have no consumer (FlagRegistry's
     /// mark_unimplemented: U005W), so nothing stores them.
-    pub var implicit_conv:     i32 = -1
+    pub var implicit_conv: i32 = -1
     /// -fcxx-implicit-conv: at a call (or initialisation) that crosses into
     /// C++, C++'s own implicit conversions apply (one user-defined
     /// conversion, a literal crossing as `const char[N]`). Off unless 1;
@@ -121,13 +121,13 @@ pub class LangOptions {
     pub var max_const_eval_steps:  i32 = DEFAULT_MAX_CONST_EVAL_STEPS
     pub var max_const_eval_depth:  i32 = DEFAULT_MAX_CONST_EVAL_DEPTH
     pub var max_const_backtrace:   i32 = DEFAULT_MAX_CONST_BACKTRACE
-    pub var max_struct_fields:     i32 = DEFAULT_MAX_STRUCT_FIELDS ///< 0 = unlimited
+    pub var max_struct_fields:     i32 = DEFAULT_MAX_STRUCT_FIELDS     ///< 0 = unlimited
     pub var max_function_params:   i32 = DEFAULT_MAX_FUNCTION_PARAMS
-    pub var max_enum_variants:     i32 = DEFAULT_MAX_ENUM_VARIANTS ///< 0 = unlimited
-    pub var max_match_arms:        i32 = DEFAULT_MAX_MATCH_ARMS ///< 0 = unlimited
+    pub var max_enum_variants:     i32 = DEFAULT_MAX_ENUM_VARIANTS     ///< 0 = unlimited
+    pub var max_match_arms:        i32 = DEFAULT_MAX_MATCH_ARMS        ///< 0 = unlimited
     pub var max_union_width:       i32 = DEFAULT_MAX_UNION_WIDTH
     pub var max_type_alias_depth:  i32 = DEFAULT_MAX_TYPE_ALIAS_DEPTH
-    pub var max_interface_impls:   i32 = DEFAULT_MAX_INTERFACE_IMPLS ///< 0 = unlimited
+    pub var max_interface_impls:   i32 = DEFAULT_MAX_INTERFACE_IMPLS   ///< 0 = unlimited
     pub var max_extend_chain:      i32 = DEFAULT_MAX_EXTEND_CHAIN
 
     /// Whether the C++ a build writes and compiles has exceptions: -fexceptions,

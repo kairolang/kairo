@@ -249,7 +249,12 @@ pub module Immediate {
                     continue
                 }
 
-                if Int128::mul_add_64(&self.value_lo, base_u64, digit, &overflow_hi) {
+                if Int128::mul_add_64(
+                    &self.value_lo,
+                    base_u64,
+                    digit,
+                    &overflow_hi,
+                ) {
                     overflowed = true
                     break
                 }
@@ -279,7 +284,12 @@ pub module Immediate {
                         continue
                     }
 
-                    if Int128::mul_add_128(&self.value_lo, &self.value_hi, base_u64, digit) {
+                    if Int128::mul_add_128(
+                        &self.value_lo,
+                        &self.value_hi,
+                        base_u64,
+                        digit,
+                    ) {
                         in_128 = false
                         break
                     }
@@ -318,7 +328,7 @@ pub module Immediate {
             if (self.flags & 0b00001000) != 0 { // has_suffix
                 var suffix_text       = sm->get_text(self.suffix)
                 var is_unsigned: bool = false
-                var suffix_bits       = parse_int_suffix(suffix_text, &is_unsigned)
+                var suffix_bits = parse_int_suffix(suffix_text, &is_unsigned)
 
                 if suffix_bits > 0 {
                     self.bits = suffix_bits
@@ -363,7 +373,9 @@ pub module Immediate {
                     if self.value_lo == 0 {
                         self.bits = 8
                     } else {
-                        var bit_width: usize = 64 - (cxx::std::countl_zero(self.value_lo) as usize)
+                        var bit_width: usize = 64 - (cxx::std::countl_zero(
+                            self.value_lo,
+                        ) as usize)
 
                         if bit_width <= 8 {
                             self.bits = 8
@@ -1099,14 +1111,32 @@ pub class ImmediateTable {
     priv var _ident_mu: kairo::std::SharedMutex
 
     pub fn initialize(self, sm: unsafe *SourceManager) {
-        self.source_manager   = sm
-        self.int_literals     = kairo::std::create<ArenaList<Immediate::IntData>>(256)
-        self.float_literals   = kairo::std::create<ArenaList<Immediate::FloatData>>(64)
-        self.char_literals    = kairo::std::create<ArenaList<Immediate::CharData>>(64)
-        self.string_literals  = kairo::std::create<ArenaList<Immediate::StringData>>(64)
-        self.macro_expansions = kairo::std::create<ArenaList<Immediate::MacroExpansionInfo>>(256)
-        self.ident_descs      = kairo::std::create<ArenaList<Immediate::IdentData>>(512)
-        self.synth_names      = kairo::std::create<ArenaList<string>>(64)
+        self.source_manager = sm
+        self.int_literals = kairo::std::create<ArenaList<Immediate::IntData>>(
+            256,
+        )
+
+        self.float_literals = kairo::std::create<ArenaList<Immediate::FloatData>>(
+            64,
+        )
+
+        self.char_literals = kairo::std::create<ArenaList<Immediate::CharData>>(
+            64,
+        )
+
+        self.string_literals = kairo::std::create<ArenaList<Immediate::StringData>>(
+            64,
+        )
+
+        self.macro_expansions = kairo::std::create<ArenaList<Immediate::MacroExpansionInfo>>(
+            256,
+        )
+
+        self.ident_descs = kairo::std::create<ArenaList<Immediate::IdentData>>(
+            512,
+        )
+
+        self.synth_names = kairo::std::create<ArenaList<string>>(64)
         kairo::Logger::debug(
             kairo::Logger::Stage::Lexer,
             "ImmediateTable::initialize: initialized with source manager at {sm}",
@@ -1308,7 +1338,9 @@ pub class ImmediateTable {
 
         var idx = (self.ident_descs->size() as u32)
         if idx >= self.MAX_IMMEDIATES {
-            kairo::std::ice_fail(f"ImmediateTable::intern_ident: overflow at {self.MAX_IMMEDIATES}")
+            kairo::std::ice_fail(
+                f"ImmediateTable::intern_ident: overflow at {self.MAX_IMMEDIATES}",
+            )
         }
 
         // store pointer directly no copy
@@ -1405,7 +1437,7 @@ pub class ImmediateTable {
         {
             var unsafe *pr = unsafe (s.raw() as kairo::std::ConstPtr<u8>)
             var        pl  = s.size()
-            var        hit = self.find_ident(pr, pl, (compute_hash(pr, pl) as u32))
+            var hit = self.find_ident(pr, pl, (compute_hash(pr, pl) as u32))
             if hit != (-1) as i32 as u32 {
                 return hit
             }

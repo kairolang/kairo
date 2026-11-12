@@ -29,32 +29,18 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Resolution::ModulePath::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
+import Resolution::ModulePath::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
-import Server::Diagnostics::*
 import Server::CompletionWords::language_words
+import Server::Diagnostics::*
 import Server::Features::*
 import Server::Formatting::*
 import Server::IndexCompletion::*
@@ -70,6 +56,20 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 extend Server {
     /// Completion runs its own worker on a copy of the buffer with a marker
@@ -93,7 +93,10 @@ extend Server {
 
         if self.running(JobKind::Complete) > 0 {
             if !self.comp_wait_id.empty() {
-                self.respond(self.comp_wait_id, "{\"isIncomplete\":true,\"items\":[]}")
+                self.respond(
+                    self.comp_wait_id,
+                    "{\"isIncomplete\":true,\"items\":[]}",
+                )
             }
 
             self.comp_wait    = d->dump(d->root)
@@ -108,7 +111,7 @@ extend Server {
             return
         }
 
-        var pos  = d->get(params, K_POSITION)
+        var pos   = d->get(params, K_POSITION)
         var *text = &self.docs.docs[i].text
         var at = self.docs.docs[i].lines.offset(
             *text,
@@ -130,14 +133,17 @@ extend Server {
         }
 
         var before = start
-        while (before > 0) && (((*text)[before - 1] == (' ' as u8)) || ((*text)[before - 1] == ('\t' as u8))) {
+        while (before > 0)
+            && (((*text)[before - 1] == (' ' as u8)) || ((*text)[before - 1] == ('\t' as u8))) {
             before -= 1
         }
 
         var member = false
         if before > 0 {
             var c = (*text)[before - 1]
-            member = (c == ('.' as u8)) || (c == (':' as u8)) || ((c == ('>' as u8)) && (before > 1) && ((*text)[before - 2] == ('-' as u8)))
+            member = (c == ('.' as u8))
+                || (c == (':' as u8))
+                || ((c == ('>' as u8)) && (before > 1) && ((*text)[before - 2] == ('-' as u8)))
         }
 
         // What an accepted item replaces: the identifier under the cursor.
@@ -182,25 +188,25 @@ extend Server {
     /// A completion as a process of its own: a compile of entry \p ei's
     /// graph with the marked buffer \p mpath in \p path's place.
     fn complete_by_run_(self,
-                        ei:           usize,
-                        const id:     string,
-                        const path:   string,
-                        member:       bool,
-                        const edit:   string,
-                        const mpath:  string,
-                        t0_us:        i64) {
+                        ei:          usize,
+                        const id:    string,
+                        const path:  string,
+                        member:      bool,
+                        const edit:  string,
+                        const mpath: string,
+                        t0_us:       i64) {
         var j = Job()
-        j.kind   = JobKind::Complete
+        j.kind     = JobKind::Complete
         j.entry_id = self.entries[ei].id
-        j.out    = self.scratch(".json")
-        j.log    = self.scratch(".log")
-        j.rev    = self.rev
-        j.id     = id
-        j.path   = path
-        j.member = member
-        j.edit   = edit
-        j.marked = mpath
-        j.t0_us  = t0_us
+        j.out      = self.scratch(".json")
+        j.log      = self.scratch(".log")
+        j.rev      = self.rev
+        j.id       = id
+        j.path     = path
+        j.member   = member
+        j.edit     = edit
+        j.marked   = mpath
+        j.t0_us    = t0_us
 
         var argv = self.worker_argv(ei, j.out, path, j.marked)
         if self.launch_job(&argv, &j, "complete") != LaunchResult::Started {
@@ -247,13 +253,20 @@ extend Server {
     /// filesystem, with no compile. A path names directories and `.k` files
     /// under the search roots, and after a file, what that file declares.
     /// True when the cursor was in an import (and the request is answered).
-    fn complete_import(self, i: usize, ei: usize, at: usize, const edit: string, const id: string) -> bool {
+    fn complete_import(self,
+                       i:          usize,
+                       ei:         usize,
+                       at:         usize,
+                       const edit: string,
+                       const id:   string) -> bool {
         var *text = &self.docs.docs[i].text
-        var ls = self.docs.docs[i].lines.starts[self.docs.docs[i].lines.line_of(at)]
+        var ls = self.docs.docs[i].lines.starts[self.docs.docs[i].lines.line_of(
+            at,
+        )]
 
         // An import may span lines inside its braces: start from the nearest
         // line above that begins the statement.
-        var stmt = ls
+        var stmt         = ls
         var guard: usize = 0
         while guard < 64 {
             var p = stmt
@@ -262,7 +275,9 @@ extend Server {
             }
 
             var line = text->subslice(p, at - p)
-            if line.starts_with("import ") || line.starts_with("pub import ") || line.starts_with("priv import ")
+            if line.starts_with("import ")
+                || line.starts_with("pub import ")
+                || line.starts_with("priv import ")
                 || line.starts_with("prot import ") {
                 stmt = p
                 break
@@ -283,7 +298,7 @@ extend Server {
         }
 
         var head = text->subslice(stmt, at - stmt)
-        var k = find_from(head, "import ", 0)
+        var k    = find_from(head, "import ", 0)
         if k == usize::MAX {
             return false
         }
@@ -309,10 +324,10 @@ extend Server {
 
         // Split at `::` into path segments; inside braces the last segment is
         // an item being typed, not part of the path.
-        var segs: [string]
-        var cur = string()
-        var in_items = false
-        var q: usize = 0
+        var segs:    [string]
+        var cur               = string()
+        var in_items          = false
+        var q:       usize    = 0
         while q < spec.size() {
             var c = spec[q]
             if in_items {
@@ -346,7 +361,12 @@ extend Server {
             roots.push_back(self.entries[ei].dir)
             for var a: usize = 0; (a + 1) < self.entries[ei].args.size(); ++a {
                 if self.entries[ei].args[a] == "-I" {
-                    roots.push_back(Path::absolute_if_exists(self.entries[ei].args[a + 1], self.entries[ei].dir))
+                    roots.push_back(
+                        Path::absolute_if_exists(
+                            self.entries[ei].args[a + 1],
+                            self.entries[ei].dir,
+                        ),
+                    )
                 }
             }
 
@@ -359,7 +379,7 @@ extend Server {
         }
 
         var seen: [string]
-        var w = JsonWriter()
+        var w              = JsonWriter()
         w.begin_object()
         w.field_bool(K_IS_INCOMPLETE, false)
         w.key(K_ITEMS)
@@ -396,7 +416,14 @@ extend Server {
 
                         if !dup {
                             seen.push_back(names[n])
-                            self.item(&w, names[n], CIK_FUNCTION, Path::filename_of(file), "1" + names[n], edit)
+                            self.item(
+                                &w,
+                                names[n],
+                                CIK_FUNCTION,
+                                Path::filename_of(file),
+                                "1" + names[n],
+                                edit,
+                            )
                         }
                     }
                 }
@@ -410,10 +437,14 @@ extend Server {
             // segment.
             var names = LinkFS::list_dir(dir)
             for var n: usize = 0; n < names.size(); ++n {
-                var name = names[n]
+                var name      = names[n]
                 var kind: i64 = CIK_FOLDER
                 if name.ends_with(kairo_dot_ext()) {
-                    name = name.subslice(0, name.size() - kairo_dot_ext().size())
+                    name = name.subslice(
+                        0,
+                        name.size() - kairo_dot_ext().size(),
+                    )
+
                     kind = CIK_MODULE
                     if name == module_file_stem() {
                         continue
@@ -428,9 +459,16 @@ extend Server {
                     // A library is a directory with a module.k: `std` sits
                     // beside `builtin` and is one whether or not this file
                     // has imported it yet.
-                    var is_lib = (kind == CIK_FOLDER) && LinkFS::is_file(Path::join_str(Path::join_str(dir, name), module_file_name()))
+                    var is_lib = (kind == CIK_FOLDER)
+                        && LinkFS::is_file(
+                            Path::join_str(
+                                Path::join_str(dir, name),
+                                module_file_name(),
+                            ),
+                        )
 
-                    var from_i = (ei != usize::MAX) && (r < (2 + (self.entries[ei].args.size() / 2)))
+                    var from_i = (ei != usize::MAX)
+                        && (r < (2 + (self.entries[ei].args.size() / 2)))
                     if (!is_lib) && (!from_i) {
                         continue
                     }
@@ -462,14 +500,14 @@ extend Server {
         }
 
         var text: string = ""
-        var doc = JsonDoc()
-        var w = JsonWriter()
+        var doc          = JsonDoc()
+        var w            = JsonWriter()
         w.begin_object()
         w.field_bool(K_IS_INCOMPLETE, false)
         w.key(K_ITEMS)
         w.begin_array()
 
-        var found = false
+        var found         = false
         var nitems: usize = 0
         if LinkFS::read(j->out, &text) && doc.parse(text) {
             var f = doc.first(doc.get(doc.root, SK_FILES))
@@ -514,9 +552,17 @@ extend Server {
             var fn_ = self.file_node(cei, j->path)
             if fn_ != JSON_NONE() {
                 var *s = &self.entries[cei].idx
-                var c = s->first(s->get(fn_, SK_SYMBOLS))
+                var c  = s->first(s->get(fn_, SK_SYMBOLS))
                 while c != JSON_NONE() {
-                    self.item(&w, s->get_str(c, K_NAME), CIK_VARIABLE, "", "", j->edit)
+                    self.item(
+                        &w,
+                        s->get_str(c, K_NAME),
+                        CIK_VARIABLE,
+                        "",
+                        "",
+                        j->edit,
+                    )
+
                     c = s->next(c)
                 }
             }
@@ -530,14 +576,26 @@ extend Server {
             }
 
             for var k: usize = 0; k < self.words.size(); ++k {
-                self.item(&w, self.words[k].text, CIK_KEYWORD, "", "9" + self.words[k].text, j->edit)
+                self.item(
+                    &w,
+                    self.words[k].text,
+                    CIK_KEYWORD,
+                    "",
+                    "9" + self.words[k].text,
+                    j->edit,
+                )
             }
         }
 
         w.end_array()
         w.end_object()
         self.respond(j->id, w.out)
-        self.completed_(j->how, if (j->member) => (WHAT_MEMBER) else => WHAT_NAME, nitems, j->t0_us)
+        self.completed_(
+            j->how,
+            if (j->member) => (WHAT_MEMBER) else => WHAT_NAME,
+            nitems,
+            j->t0_us,
+        )
     }
 
     // --- the loop --------------------------------------------------------

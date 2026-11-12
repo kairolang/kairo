@@ -23,111 +23,111 @@ import Json::{
 }
 
 // --- methods and notifications ----------------------------------------------
-pub const M_INITIALIZE: string = "initialize"
-pub const M_INITIALIZED: string = "initialized"
-pub const M_SHUTDOWN: string = "shutdown"
-pub const M_EXIT: string = "exit"
-pub const M_DID_OPEN: string = "textDocument/didOpen"
-pub const M_DID_CHANGE: string = "textDocument/didChange"
-pub const M_DID_CLOSE: string = "textDocument/didClose"
-pub const M_DID_SAVE: string = "textDocument/didSave"
+pub const M_INITIALIZE:         string = "initialize"
+pub const M_INITIALIZED:        string = "initialized"
+pub const M_SHUTDOWN:           string = "shutdown"
+pub const M_EXIT:               string = "exit"
+pub const M_DID_OPEN:           string = "textDocument/didOpen"
+pub const M_DID_CHANGE:         string = "textDocument/didChange"
+pub const M_DID_CLOSE:          string = "textDocument/didClose"
+pub const M_DID_SAVE:           string = "textDocument/didSave"
 pub const M_DID_CHANGE_WATCHED: string = "workspace/didChangeWatchedFiles"
-pub const M_CANCEL_REQUEST: string = "$/cancelRequest"
-pub const M_PROGRESS: string = "$/progress"
-pub const M_DOLLAR_PREFIX: string = "$/"
-pub const M_KALS_TEXT: string = "$/kals/text"
-pub const M_KALS_ANALYSED: string = "$/kals/analysed"
+pub const M_CANCEL_REQUEST:     string = "$/cancelRequest"
+pub const M_PROGRESS:           string = "$/progress"
+pub const M_DOLLAR_PREFIX:      string = "$/"
+pub const M_KALS_TEXT:          string = "$/kals/text"
+pub const M_KALS_ANALYSED:      string = "$/kals/analysed"
 /// Sent after each completion answer: `how` it was computed (`live`: the
 /// live worker tried the marked buffer aside; `run`: a process per
 /// request; `text`: from the buffer and the filesystem alone) and `us`,
 /// the server's own time from the request to the answer. For tests and
 /// benchmarks, as `$/kals/analysed` is.
 pub const M_KALS_COMPLETED: string = "$/kals/completed"
-pub const K_HOW:    string = "how"   ///< M_KALS_COMPLETED: a HOW_* word
-pub const K_US:     string = "us"    ///< M_KALS_COMPLETED: microseconds
-pub const HOW_LIVE: string = "live"
-pub const HOW_RUN:  string = "run"
-pub const HOW_TEXT: string = "text"
+pub const K_HOW:            string = "how"              ///< M_KALS_COMPLETED: a HOW_* word
+pub const K_US:             string = "us"               ///< M_KALS_COMPLETED: microseconds
+pub const HOW_LIVE:         string = "live"
+pub const HOW_RUN:          string = "run"
+pub const HOW_TEXT:         string = "text"
 /// `index`: from the entry's declaration tables and the buffer's text,
 /// with no compile and no worker (LanguageServer.md section 8).
 pub const HOW_INDEX: string = "index"
 /// M_KALS_COMPLETED: what was completed, a WHAT_* word, and how many items
 /// were sent.
-pub const K_WHAT:  string = "what"
-pub const K_COUNT: string = "count"
-pub const WHAT_NAME:      string = "name"       ///< a bare name: locals, the file, imports, keywords, macros
-pub const WHAT_MEMBER:    string = "member"     ///< after `.`, `->`, `::`
-pub const WHAT_ATTRIBUTE: string = "attribute"  ///< after `@`
-pub const WHAT_IMPORT:    string = "import"     ///< a Kairo import's path or names
-pub const WHAT_HEADER:    string = "header"     ///< an ffi import's header path
-pub const WHAT_NONE:      string = "none"       ///< nothing is offered there (a comment, a string, a name being declared)
+pub const K_WHAT:         string = "what"
+pub const K_COUNT:        string = "count"
+pub const WHAT_NAME:      string = "name" ///< a bare name: locals, the file, imports, keywords, macros
+pub const WHAT_MEMBER:    string = "member" ///< after `.`, `->`, `::`
+pub const WHAT_ATTRIBUTE: string = "attribute" ///< after `@`
+pub const WHAT_IMPORT:    string = "import" ///< a Kairo import's path or names
+pub const WHAT_HEADER:    string = "header" ///< an ffi import's header path
+pub const WHAT_NONE:      string = "none" ///< nothing is offered there (a comment, a string, a name being declared)
 /// Debug: the installed snapshot of a buffer's entry (the rows of every
 /// indexed file, the diagnostics, the files of the graph), for a test that
 /// compares what two ways of analysing the same text installed.
-pub const M_KALS_SNAPSHOT: string = "$/kals/snapshot"
-pub const M_TEXT_DOCUMENT_PREFIX: string = "textDocument/"
-pub const M_HOVER: string = "textDocument/hover"
-pub const M_DEFINITION: string = "textDocument/definition"
-pub const M_DECLARATION: string = "textDocument/declaration"
-pub const M_TYPE_DEFINITION: string = "textDocument/typeDefinition"
-pub const M_IMPLEMENTATION: string = "textDocument/implementation"
-pub const M_REFERENCES: string = "textDocument/references"
-pub const M_DOCUMENT_HIGHLIGHT: string = "textDocument/documentHighlight"
-pub const M_DOCUMENT_LINK: string = "textDocument/documentLink"
-pub const M_DOCUMENT_SYMBOL: string = "textDocument/documentSymbol"
-pub const M_RENAME: string = "textDocument/rename"
-pub const M_PREPARE_RENAME: string = "textDocument/prepareRename"
-pub const M_CODE_ACTION: string = "textDocument/codeAction"
-pub const M_CODE_LENS: string = "textDocument/codeLens"
-pub const M_INLAY_HINT: string = "textDocument/inlayHint"
-pub const M_COMPLETION: string = "textDocument/completion"
-pub const M_COMPLETION_RESOLVE: string = "completionItem/resolve"
-pub const M_SIGNATURE_HELP: string = "textDocument/signatureHelp"
-pub const M_FORMATTING: string = "textDocument/formatting"
-pub const M_RANGE_FORMATTING: string = "textDocument/rangeFormatting"
-pub const M_ON_TYPE_FORMATTING: string = "textDocument/onTypeFormatting"
-pub const M_FOLDING_RANGE: string = "textDocument/foldingRange"
-pub const M_SELECTION_RANGE: string = "textDocument/selectionRange"
-pub const M_SEMANTIC_TOKENS_PREFIX: string = "textDocument/semanticTokens/"
-pub const M_SEMANTIC_TOKENS_FULL: string = "textDocument/semanticTokens/full"
-pub const M_SEMANTIC_TOKENS_DELTA: string = "textDocument/semanticTokens/full/delta"
-pub const M_SEMANTIC_TOKENS_RANGE: string = "textDocument/semanticTokens/range"
-pub const M_PREPARE_CALL_HIERARCHY: string = "textDocument/prepareCallHierarchy"
-pub const M_INCOMING_CALLS: string = "callHierarchy/incomingCalls"
-pub const M_OUTGOING_CALLS: string = "callHierarchy/outgoingCalls"
-pub const M_PREPARE_TYPE_HIERARCHY: string = "textDocument/prepareTypeHierarchy"
-pub const M_SUPERTYPES: string = "typeHierarchy/supertypes"
-pub const M_SUBTYPES: string = "typeHierarchy/subtypes"
-pub const M_WORKSPACE_SYMBOL: string = "workspace/symbol"
-pub const M_PUBLISH_DIAGNOSTICS: string = "textDocument/publishDiagnostics"
-pub const M_SEMANTIC_TOKENS_REFRESH: string = "workspace/semanticTokens/refresh"
-pub const M_INLAY_HINT_REFRESH: string = "workspace/inlayHint/refresh"
+pub const M_KALS_SNAPSHOT:             string = "$/kals/snapshot"
+pub const M_TEXT_DOCUMENT_PREFIX:      string = "textDocument/"
+pub const M_HOVER:                     string = "textDocument/hover"
+pub const M_DEFINITION:                string = "textDocument/definition"
+pub const M_DECLARATION:               string = "textDocument/declaration"
+pub const M_TYPE_DEFINITION:           string = "textDocument/typeDefinition"
+pub const M_IMPLEMENTATION:            string = "textDocument/implementation"
+pub const M_REFERENCES:                string = "textDocument/references"
+pub const M_DOCUMENT_HIGHLIGHT:        string = "textDocument/documentHighlight"
+pub const M_DOCUMENT_LINK:             string = "textDocument/documentLink"
+pub const M_DOCUMENT_SYMBOL:           string = "textDocument/documentSymbol"
+pub const M_RENAME:                    string = "textDocument/rename"
+pub const M_PREPARE_RENAME:            string = "textDocument/prepareRename"
+pub const M_CODE_ACTION:               string = "textDocument/codeAction"
+pub const M_CODE_LENS:                 string = "textDocument/codeLens"
+pub const M_INLAY_HINT:                string = "textDocument/inlayHint"
+pub const M_COMPLETION:                string = "textDocument/completion"
+pub const M_COMPLETION_RESOLVE:        string = "completionItem/resolve"
+pub const M_SIGNATURE_HELP:            string = "textDocument/signatureHelp"
+pub const M_FORMATTING:                string = "textDocument/formatting"
+pub const M_RANGE_FORMATTING:          string = "textDocument/rangeFormatting"
+pub const M_ON_TYPE_FORMATTING:        string = "textDocument/onTypeFormatting"
+pub const M_FOLDING_RANGE:             string = "textDocument/foldingRange"
+pub const M_SELECTION_RANGE:           string = "textDocument/selectionRange"
+pub const M_SEMANTIC_TOKENS_PREFIX:    string = "textDocument/semanticTokens/"
+pub const M_SEMANTIC_TOKENS_FULL:      string = "textDocument/semanticTokens/full"
+pub const M_SEMANTIC_TOKENS_DELTA:     string = "textDocument/semanticTokens/full/delta"
+pub const M_SEMANTIC_TOKENS_RANGE:     string = "textDocument/semanticTokens/range"
+pub const M_PREPARE_CALL_HIERARCHY:    string = "textDocument/prepareCallHierarchy"
+pub const M_INCOMING_CALLS:            string = "callHierarchy/incomingCalls"
+pub const M_OUTGOING_CALLS:            string = "callHierarchy/outgoingCalls"
+pub const M_PREPARE_TYPE_HIERARCHY:    string = "textDocument/prepareTypeHierarchy"
+pub const M_SUPERTYPES:                string = "typeHierarchy/supertypes"
+pub const M_SUBTYPES:                  string = "typeHierarchy/subtypes"
+pub const M_WORKSPACE_SYMBOL:          string = "workspace/symbol"
+pub const M_PUBLISH_DIAGNOSTICS:       string = "textDocument/publishDiagnostics"
+pub const M_SEMANTIC_TOKENS_REFRESH:   string = "workspace/semanticTokens/refresh"
+pub const M_INLAY_HINT_REFRESH:        string = "workspace/inlayHint/refresh"
 pub const M_WORK_DONE_PROGRESS_CREATE: string = "window/workDoneProgress/create"
-pub const M_REGISTER_CAPABILITY: string = "client/registerCapability"
+pub const M_REGISTER_CAPABILITY:       string = "client/registerCapability"
 
 /// What the server asks every client to watch: the C and C++ sources (the
 /// clangd bridge reads their `#include "x.k"` lines) and the compilation
 /// database that lists them. Kairo files are the client's own configuration.
 pub const WATCH_REGISTRATION: string = "{\"registrations\":[{\"id\":\"kals-watch-cxx\",\"method\":\"workspace/didChangeWatchedFiles\",\"registerOptions\":{\"watchers\":[{\"globPattern\":\"**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}\"},{\"globPattern\":\"**/compile_commands.json\"}]}}]}"
 pub const M_SHOW_MESSAGE: string = "window/showMessage"
-pub const M_LOG_MESSAGE: string = "window/logMessage"
+pub const M_LOG_MESSAGE:  string = "window/logMessage"
 
 // --- code-action kinds and commands ----------------------------------------
-pub const KIND_QUICKFIX: string = "quickfix"
-pub const KIND_REFACTOR_INLINE: string = "refactor.inline"
-pub const KIND_REFACTOR_EXTRACT: string = "refactor.extract"
+pub const KIND_QUICKFIX:            string = "quickfix"
+pub const KIND_REFACTOR_INLINE:     string = "refactor.inline"
+pub const KIND_REFACTOR_EXTRACT:    string = "refactor.extract"
 pub const CMD_SHOW_MACRO_EXPANSION: string = "kairo.showMacroExpansion"
 
 // --- JSON-RPC ---------------------------------------------------------------
 pub const JSONRPC_VERSION: string = "2.0"
 
 // --- JSON-RPC / LSP error codes --------------------------------------------
-pub const ERR_INVALID_REQUEST:    i64 = -32600
-pub const ERR_METHOD_NOT_FOUND:   i64 = -32601
+pub const ERR_INVALID_REQUEST:        i64 = -32600
+pub const ERR_METHOD_NOT_FOUND:       i64 = -32601
 pub const ERR_SERVER_NOT_INITIALIZED: i64 = -32002
-pub const ERR_REQUEST_CANCELLED:  i64 = -32800
-pub const ERR_CONTENT_MODIFIED:   i64 = -32801
-pub const ERR_REQUEST_FAILED:     i64 = -32803
+pub const ERR_REQUEST_CANCELLED:      i64 = -32800
+pub const ERR_CONTENT_MODIFIED:       i64 = -32801
+pub const ERR_REQUEST_FAILED:         i64 = -32803
 
 // --- MessageType (window/logMessage, window/showMessage) --------------------
 pub const MSG_ERROR:   i64 = 1
@@ -193,7 +193,7 @@ pub const FRK_COMMENT: string = "comment"
 /// tokenType, tokenModifiers.
 pub const SEMTOK_STRIDE: usize = 5
 /// The tokenModifiers bit set's position within a token's five.
-pub const SEMTOK_MODS:   usize = 4
+pub const SEMTOK_MODS: usize = 4
 
 // --- JSON member names ------------------------------------------------------
 //
@@ -236,30 +236,30 @@ pub const K_CHANGES:   string = "changes"
 pub const K_NEW_NAME:  string = "newName"
 
 // symbols, hovers, completion, signature help
-pub const K_NAME:            string = "name"
-pub const K_DETAIL:          string = "detail"
-pub const K_KIND:            string = "kind"
-pub const K_SELECTION_RANGE: string = "selectionRange"
-pub const K_CHILDREN:        string = "children"
-pub const K_CONTENTS:        string = "contents"
-pub const K_VALUE:           string = "value"
-pub const K_LABEL:           string = "label"
-pub const K_ITEMS:           string = "items"
-pub const K_ITEM:            string = "item"
-pub const K_IS_INCOMPLETE:   string = "isIncomplete"
-pub const K_SORT_TEXT:       string = "sortText"
-pub const K_DOCUMENTATION:   string = "documentation"
-pub const K_DATA:            string = "data"
-pub const K_CONTEXT:            string = "context"           ///< a completion request's: why it was sent
-pub const K_TRIGGER_CHARACTER:  string = "triggerCharacter"  ///< context: the character that sent it, when one did
-pub const K_ITEM_DEFAULTS:      string = "itemDefaults"      ///< a CompletionList's: what every item shares
-pub const K_EDIT_RANGE:         string = "editRange"         ///< itemDefaults: the range each item replaces
-pub const K_TEXT_EDIT_TEXT:     string = "textEditText"      ///< an item's text when the range is the default's
+pub const K_NAME:               string = "name"
+pub const K_DETAIL:             string = "detail"
+pub const K_KIND:               string = "kind"
+pub const K_SELECTION_RANGE:    string = "selectionRange"
+pub const K_CHILDREN:           string = "children"
+pub const K_CONTENTS:           string = "contents"
+pub const K_VALUE:              string = "value"
+pub const K_LABEL:              string = "label"
+pub const K_ITEMS:              string = "items"
+pub const K_ITEM:               string = "item"
+pub const K_IS_INCOMPLETE:      string = "isIncomplete"
+pub const K_SORT_TEXT:          string = "sortText"
+pub const K_DOCUMENTATION:      string = "documentation"
+pub const K_DATA:               string = "data"
+pub const K_CONTEXT:            string = "context" ///< a completion request's: why it was sent
+pub const K_TRIGGER_CHARACTER:  string = "triggerCharacter" ///< context: the character that sent it, when one did
+pub const K_ITEM_DEFAULTS:      string = "itemDefaults" ///< a CompletionList's: what every item shares
+pub const K_EDIT_RANGE:         string = "editRange" ///< itemDefaults: the range each item replaces
+pub const K_TEXT_EDIT_TEXT:     string = "textEditText" ///< an item's text when the range is the default's
 pub const K_INSERT_TEXT_FORMAT: string = "insertTextFormat"
 pub const K_FILTER_TEXT:        string = "filterText"
-pub const ITF_SNIPPET: i64 = 2  ///< InsertTextFormat.Snippet
-pub const K_PADDING_LEFT:    string = "paddingLeft"
-pub const K_PADDING_RIGHT:   string = "paddingRight"
+pub const ITF_SNIPPET:          i64    = 2 ///< InsertTextFormat.Snippet
+pub const K_PADDING_LEFT:       string = "paddingLeft"
+pub const K_PADDING_RIGHT:      string = "paddingRight"
 
 // diagnostics, code actions, commands, progress
 pub const K_DIAGNOSTICS:         string = "diagnostics"
@@ -283,8 +283,8 @@ pub const OPT_HIGHLIGHT_PANICS:   string = "highlightPanics"
 pub const OPT_LIVE_CHECK:         string = "liveCheck"
 /// false: every completion is the marked buffer's compile (the live copy
 /// or a run), none is answered from the index. For comparing the two.
-pub const OPT_INDEX_COMPLETION:   string = "indexCompletion"
-pub const OPT_MAX_WORKERS:        string = "maxWorkers"
+pub const OPT_INDEX_COMPLETION: string = "indexCompletion"
+pub const OPT_MAX_WORKERS:      string = "maxWorkers"
 
 /// MarkupKind of every hover and documentation string the server writes.
 pub const MARKUP_MARKDOWN: string = "markdown"

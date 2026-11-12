@@ -120,7 +120,9 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
     var args = cxx::std::vector<string>()
     for var i: i32 = 1; i < argc; ++i {
-        args.push_back(string(unsafe ((argv[i] as unsafe *const u8) as *const u8)))
+        args.push_back(
+            string(unsafe ((argv[i] as unsafe *const u8) as *const u8)),
+        )
     }
 
     var gen     = SysGen()
@@ -169,7 +171,9 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             var n: usize = 0
             for var k: usize = 0; k < v.size(); ++k {
                 if v[k] < ('0' as u8) || v[k] > ('9' as u8) {
-                    return ksys_usage_error(f"-j wants a number of jobs, not {v}")
+                    return ksys_usage_error(
+                        f"-j wants a number of jobs, not {v}",
+                    )
                 }
 
                 n = n * 10 + ((v[k] - ('0' as u8)) as usize)
@@ -261,7 +265,11 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
     var c = gen.cache()
     if c.root.empty() {
-        o.refuse("no cache directory for sysroots", "set KAIRO_SYSROOT_CACHE, or pass --cache DIR")
+        o.refuse(
+            "no cache directory for sysroots",
+            "set KAIRO_SYSROOT_CACHE, or pass --cache DIR",
+        )
+
         return ksys_report(&o)
     }
 

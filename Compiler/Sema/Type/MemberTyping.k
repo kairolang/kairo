@@ -54,13 +54,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,
-    BuiltinKind,
-    QUAL_CONST,
-    RecordType,
-    canon_has_const,
-    canon_quals,
-    canon_unqual,
+    AssocType, BuiltinKind, QUAL_CONST, RecordType, canon_has_const, canon_quals, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -68,7 +62,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    EnumVariantDecl, FieldDecl,     FunctionDecl, InterfaceDecl, ParamDecl, StorageClass, TypeAliasDecl,
+    EnumVariantDecl, FieldDecl, FunctionDecl, InterfaceDecl, ParamDecl, StorageClass, TypeAliasDecl,
     VariableDecl,
 }
 import AST::Node::Expressions::{
@@ -177,7 +171,7 @@ pub class <T: type> MemberTyping {
         var sep = if (st->access_kind == ChainExpr::AccessKind::QuestionArrow) => ("?->")
                   else => "?."
         var to = if (st->access_kind == ChainExpr::AccessKind::QuestionArrow) => ("->") else => "."
-        var end  = if (i == 0) => (n->base->range.end) else => n->steps.get(i - 1)->range.end
+        var end = if (i == 0) => (n->base->range.end) else => n->steps.get(i - 1)->range.end
         var r    = SourceRange(n->range.start, end)
         var text = self.dyn()->sc->ctx->get_spelling(r)
         var b = self.dyn()->sc->diag->report(
@@ -202,7 +196,11 @@ pub class <T: type> MemberTyping {
             )
         }
 
-        b.remove(SourceRange(st->range.start, st->range.start.with_offset(1)), f"write '{to}'")
+        b.remove(
+            SourceRange(st->range.start, st->range.start.with_offset(1)),
+            f"write '{to}'",
+        )
+
         b.emit()
         self.dyn()->poison_only(n)
     }
@@ -473,10 +471,17 @@ pub class <T: type> MemberTyping {
                         && decl_is_imported(cast<RecordType>(head0)->decl)
                         && st->access_kind == ChainExpr::AccessKind::ColonColon
                         && st->name != &null {
-                        var imm0  = self.dyn()->sc->ctx->get_ident_imm(st->name->name)
+                        var imm0 = self.dyn()->sc->ctx->get_ident_imm(
+                            st->name->name,
+                        )
+
                         var probe = cxx::std::vector<*Decl>()
                         if imm0 != u32::MAX {
-                            self.dyn()->ml.lookup(head0, DeclName::ident(imm0), &probe)
+                            self.dyn()->ml.lookup(
+                                head0,
+                                DeclName::ident(imm0),
+                                &probe,
+                            )
                         }
 
                         if probe.empty() {
@@ -531,7 +536,10 @@ pub class <T: type> MemberTyping {
                     // A record with `op ->` reads the member through it, as
                     // ChainBinding bound it (Substitution::arrow_target).
                     if p == &null {
-                        p = Substitution(self.dyn()->sc).arrow_target(val, &self.dyn()->ml)
+                        p = Substitution(self.dyn()->sc).arrow_target(
+                            val,
+                            &self.dyn()->ml,
+                        )
                     }
 
                     if p != &null {
@@ -564,7 +572,12 @@ pub class <T: type> MemberTyping {
             /// ### tuple index
             if st->is_tuple_index() {
                 if cur_kind != ChainKind::Value || val == &null || !self.dyn()->tu.is_tuple(val) {
-                    self.dyn()->fail(n, DiagID::SC101E, "tuple index on a non-tuple")
+                    self.dyn()->fail(
+                        n,
+                        DiagID::SC101E,
+                        "tuple index on a non-tuple",
+                    )
+
                     return &null
                 }
 
@@ -586,14 +599,20 @@ pub class <T: type> MemberTyping {
                 cur               = elems[st->index as usize]
                 st->resolved_type = cur
                 st->resolved_decl = unsafe (self.dyn()->tu.tuple_field(val, st->index as usize) as unsafe *Decl)
-                n->value_category = MemberTyping::_field_category(cur_kind, st, obj_cat) // a field: `t.0 = x` assigns through.
-                cur_kind          = ChainKind::Value
+                n->value_category = MemberTyping::_field_category( // a field: `t.0 = x` assigns through.
+                    cur_kind,
+                    st,
+                    obj_cat,
+                )
+
+                cur_kind = ChainKind::Value
                 continue
             }
 
             /// ### operator step: `x.op+` / `Foo::op[]`
             if st->is_operator() {
-                var owner_ty: unsafe *Type = if (cur_kind == ChainKind::Type) => (cur_type) else => val
+                var owner_ty: unsafe *Type = if (cur_kind == ChainKind::Type) => (cur_type)
+                                             else => val
                 if owner_ty == &null {
                     info->unknown = true
                     self.dyn()->mark_unknown(n)
@@ -684,9 +703,14 @@ pub class <T: type> MemberTyping {
                     // resolving the base record -- the field is not seen
                     // through Base's generic args, it is seen through T's.
                     var unsafe *seen = if (cur_kind == ChainKind::Value) => (val) else => cur_type
-                    n->value_category = MemberTyping::_field_category(cur_kind, st, obj_cat)
-                    cur               = self.dyn()->ded_scratch()->member_through(seen, ft)
-                    st->through       = self._instance_through(st, cur_kind, cur_type)
+                    n->value_category = MemberTyping::_field_category(
+                        cur_kind,
+                        st,
+                        obj_cat,
+                    )
+
+                    cur = self.dyn()->ded_scratch()->member_through(seen, ft)
+                    st->through = self._instance_through(st, cur_kind, cur_type)
                     cur_kind          = ChainKind::Value
                     st->resolved_type = cur
                 } case DeclKind::VariableDecl {
@@ -703,7 +727,7 @@ pub class <T: type> MemberTyping {
                         cur = self.dyn()->sc->types->qualified(cur, QUAL_CONST)
                     }
 
-                    st->through       = self._instance_through(st, cur_kind, cur_type)
+                    st->through = self._instance_through(st, cur_kind, cur_type)
                     cur_kind          = ChainKind::Value
                     st->resolved_type = cur
                     n->value_category = Expr::ValueCategory::LValue
@@ -721,9 +745,14 @@ pub class <T: type> MemberTyping {
                     n->value_category = Expr::ValueCategory::LValue
                 } case DeclKind::EnumVariantDecl {
                     var unsafe *edc = d->semantic_dc
-                    var unsafe *ed  = if (edc != &null) => (edc->owner_decl()) else => &null
+                    var unsafe *ed = if (edc != &null) => (edc->owner_decl()) else => &null
                     if ed == &null {
-                        self.dyn()->fail(n, DiagID::SC093E, "enum variant has no owning enum")
+                        self.dyn()->fail(
+                            n,
+                            DiagID::SC093E,
+                            "enum variant has no owning enum",
+                        )
+
                         return &null
                     }
 
@@ -738,7 +767,9 @@ pub class <T: type> MemberTyping {
                         if qd != &null
                             && NameLookup::representative(
                                 self.dyn()->tu.pattern_of(qd),
-                            ) == NameLookup::representative(self.dyn()->tu.pattern_of(ed)) {
+                            ) == NameLookup::representative(
+                                self.dyn()->tu.pattern_of(ed),
+                            ) {
                             cur = cur_type
                         }
                     }
@@ -771,17 +802,28 @@ pub class <T: type> MemberTyping {
                         if cur_kind == ChainKind::Type && cur_type != &null {
                             var unsafe *ct0 = canon_unqual(cur_type)
                             if isa<GenericParamType>(ct0) || isa<AssocType>(ct0) {
-                                at = self._assoc_step(ct0, st, self.dyn()->tu.decl_name(d))
+                                at = self._assoc_step(
+                                    ct0,
+                                    st,
+                                    self.dyn()->tu.decl_name(d),
+                                )
                             } else if self.dyn()->tu.record_decl(ct0) != &null
                                 && isa<InterfaceDecl>(
                                     NameLookup::representative(
-                                        self.dyn()->tu.pattern_of(self.dyn()->tu.record_decl(ct0)),
+                                        self.dyn()->tu.pattern_of(
+                                            self.dyn()->tu.record_decl(ct0),
+                                        ),
                                     ),
                                 ) {
                                 var ai    = self.dyn()->tu.assoc_iface(ct0, d)
                                 var sargs = cxx::std::vector<unsafe *Type>()
                                 if ai != &null && self._step_type_args(st, &sargs) {
-                                    at = Substitution(self.dyn()->sc).assoc_type(ct0, ai, d, &sargs)
+                                    at = Substitution(self.dyn()->sc).assoc_type(
+                                        ct0,
+                                        ai,
+                                        d,
+                                        &sargs,
+                                    )
                                 }
                             }
                         }
@@ -803,8 +845,14 @@ pub class <T: type> MemberTyping {
                     }
 
                     if self.dyn()->tu.is_type_decl(d) {
-                        var unsafe *outer_t = if (cur_kind == ChainKind::Type) => (cur_type) else => &null
-                        cur_type = self.dyn()->type_from_type_decl(d, st->generic_args, n)
+                        var unsafe *outer_t = if (cur_kind == ChainKind::Type) => (cur_type)
+                                              else => &null
+                        cur_type = self.dyn()->type_from_type_decl(
+                            d,
+                            st->generic_args,
+                            n,
+                        )
+
                         if cur_type == &null {
                             self.dyn()->poison_only(n)
                             return &null
@@ -855,7 +903,9 @@ pub class <T: type> MemberTyping {
                 // rvalue `M?`, never `(M?)?`. CoalesceLowering expands it.
                 if saw_optional {
                     n->value_category = Expr::ValueCategory::RValue
-                    return self.dyn()->sc->types->nullable(self.dyn()->tu.strip_nullable(cur))
+                    return self.dyn()->sc->types->nullable(
+                        self.dyn()->tu.strip_nullable(cur),
+                    )
                 }
 
                 // A nullable field path is a use of its place, as a name is
@@ -967,7 +1017,15 @@ pub class <T: type> MemberTyping {
 
         var args = cxx::std::vector<ArgInfo>()
         args.push_back(self.dyn()->arg_info(n->index))
-        var r = self.dyn()->ovl.resolve(cands, &args, true, n->range, label, obj)
+        var r = self.dyn()->ovl.resolve(
+            cands,
+            &args,
+            true,
+            n->range,
+            label,
+            obj,
+        )
+
         if r.outcome == OvlOutcome::Dependent {
             self.dyn()->mark_unknown(n)
             return &null
@@ -1214,9 +1272,11 @@ pub class <T: type> MemberTyping {
             b.first(n->range)
             if sets->size() > 0 && (*sets)[0] != &null {
                 var d = (*sets)[0]
-                b.note(DiagCode(DiagID::SC279N), d->range.start, "only the place form, 'op []=', is declared")->child_first(
-                    d->range,
-                )
+                b.note(
+                    DiagCode(DiagID::SC279N),
+                    d->range.start,
+                    "only the place form, 'op []=', is declared",
+                )->child_first(d->range)
             }
 
             b.emit()
@@ -1234,9 +1294,9 @@ pub class <T: type> MemberTyping {
             return
         }
 
-        var unsafe *b0 = self.dyn()->tu.strip_parens(n->base)
-        var d: unsafe *Decl = &null
-        var unsafe *id = dyn_cast<NamedIdentExpr>(b0)
+        var unsafe *b0              = self.dyn()->tu.strip_parens(n->base)
+        var        d:  unsafe *Decl = &null
+        var unsafe *id              = dyn_cast<NamedIdentExpr>(b0)
         if id != &null {
             d = id->resolved_decl
         }
@@ -1258,14 +1318,26 @@ pub class <T: type> MemberTyping {
             msg = f"cannot write an element of '{nm}': '{nm}' is const, and 'op []=' takes 'self'"
         }
 
-        var b = self.dyn()->sc->diag->report(DiagID::SC071E, n->range.start, msg)
+        var b = self.dyn()->sc->diag->report(
+            DiagID::SC071E,
+            n->range.start,
+            msg,
+        )
+
         b.first(n->range)
         if at.is_valid() {
             b.note(at.start, f"'{nm}' declared const here")->child_first(at)
         }
 
-        if vd != &null && nm.size() > 0 && vd->storage == StorageClass::Const && vd->storage_kw.is_valid() {
-            b.fix(vd->storage_kw, "var", "declare it with \x27var\x27 to make it assignable")
+        if vd != &null
+            && nm.size() > 0
+            && vd->storage == StorageClass::Const
+            && vd->storage_kw.is_valid() {
+            b.fix(
+                vd->storage_kw,
+                "var",
+                "declare it with \x27var\x27 to make it assignable",
+            )
         }
 
         b.emit()
@@ -1286,7 +1358,8 @@ pub class <T: type> MemberTyping {
         }
 
         var upto = ce->steps.size() - 1
-        if ce->steps.get(upto)->access_kind != ChainExpr::AccessKind::Dot || !self.member_path(ce, upto) {
+        if ce->steps.get(upto)->access_kind != ChainExpr::AccessKind::Dot
+            || !self.member_path(ce, upto) {
             return
         }
 
@@ -1363,7 +1436,10 @@ pub class <T: type> MemberTyping {
     /// (`x[i][j].get()` reads `x[i]` as well). In place: the base and the
     /// index are typed already and stay so.
     priv fn _demote(self, s: unsafe *SubscriptExpr) {
-        var unsafe *bs = dyn_cast<SubscriptExpr>(self.dyn()->tu.strip_parens(s->base))
+        var unsafe *bs = dyn_cast<SubscriptExpr>(
+            self.dyn()->tu.strip_parens(s->base),
+        )
+
         if bs != &null && self._holds_place_form(bs) {
             self._demote(bs)
         }
@@ -1411,21 +1487,43 @@ pub class <T: type> MemberTyping {
         var bound = self.dyn()->bound_scopes(recv)
         if bound.size() > 0 {
             for var i: usize = 0; i < bound.size(); ++i {
-                self.dyn()->ml.lookup(bound[i], DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare), &gets)
-                self.dyn()->ml.lookup(bound[i], DeclName::subscript_set_name(), &sets)
+                self.dyn()->ml.lookup(
+                    bound[i],
+                    DeclName::op_name(
+                        TokenKind::OpLSquare,
+                        TokenKind::OpRSquare,
+                    ),
+                    &gets,
+                )
+
+                self.dyn()->ml.lookup(
+                    bound[i],
+                    DeclName::subscript_set_name(),
+                    &sets,
+                )
             }
         } else {
-            self.dyn()->ml.lookup(recv, DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare), &gets)
+            self.dyn()->ml.lookup(
+                recv,
+                DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare),
+                &gets,
+            )
+
             self.dyn()->ml.lookup(recv, DeclName::subscript_set_name(), &sets)
         }
 
         if gets.size() == 0 {
-            self._missing_read_form(unsafe (s as *SubscriptExpr), unsafe (bt as *Type), unsafe &sets)
+            self._missing_read_form(
+                unsafe (s as *SubscriptExpr),
+                unsafe (bt as *Type),
+                unsafe &sets,
+            )
+
             return
         }
 
         var obj = if (array_range) => (recv) else => self._subscript_receiver(recv, obj_q)
-        var t   = self._type_subscript_op(s, bt, recv, obj, &gets, "op []")
+        var t = self._type_subscript_op(s, bt, recv, obj, &gets, "op []")
         if t == &null {
             if !s->is_poisoned() {
                 self.dyn()->poison_only(s)
@@ -1493,7 +1591,7 @@ pub class <T: type> MemberTyping {
         }
 
         var is_range = n->index != &null && isa<RangeExpr>(self.dyn()->tu.strip_parens(n->index))
-        var usize_t  = self.dyn()->tu.builtin(BuiltinKind::USize)
+        var usize_t = self.dyn()->tu.builtin(BuiltinKind::USize)
 
         // `a[i..j]` on an array is the slice's: the array is viewed as
         // `[T;]` (the conversion an argument would take) and Slice's range
@@ -1503,7 +1601,11 @@ pub class <T: type> MemberTyping {
         if array_range {
             var view = self.dyn()->tu.array_view(n->base->type_)
             if view == &null {
-                self.dyn()->missing_lang_item(n, to_string(WellKnownType::Slice))
+                self.dyn()->missing_lang_item(
+                    n,
+                    to_string(WellKnownType::Slice),
+                )
+
                 return &null
             }
 
@@ -1525,9 +1627,13 @@ pub class <T: type> MemberTyping {
                 || self.dyn()->tu.is_tuple(bt)
                 || self.dyn()->tu.pointee(bt) != &null
             if !no_members || array_range {
-                var cands    = cxx::std::vector<*Decl>()
-                var sets     = cxx::std::vector<*Decl>()
-                var sub_name = DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare)
+                var cands = cxx::std::vector<*Decl>()
+                var sets  = cxx::std::vector<*Decl>()
+                var sub_name = DeclName::op_name(
+                    TokenKind::OpLSquare,
+                    TokenKind::OpRSquare,
+                )
+
                 var set_name = DeclName::subscript_set_name()
                 // A bounded parameter has no members of its own: its `op []`
                 // is a bound's requirement, as a binary operator's is
@@ -1550,7 +1656,14 @@ pub class <T: type> MemberTyping {
                 // element type already carries the array's const.
                 var obj = if (array_range) => (recv) else => self._subscript_receiver(recv, obj_q)
                 if sets.size() > 0 {
-                    return self._type_split_subscript(n, bt, recv, obj, &cands, &sets)
+                    return self._type_split_subscript(
+                        n,
+                        bt,
+                        recv,
+                        obj,
+                        &cands,
+                        &sets,
+                    )
                 }
 
                 if cands.size() > 0 || !has_shape || array_range {
@@ -1562,7 +1675,12 @@ pub class <T: type> MemberTyping {
         // builtin shapes
         if self.dyn()->tu.is_tuple(bt) {
             self.dyn()->type_of(n->index, &null)
-            self.dyn()->fail(n, DiagID::SC103E, "tuples are indexed with '.0', '.1', ..., not '[]'")
+            self.dyn()->fail(
+                n,
+                DiagID::SC103E,
+                "tuples are indexed with '.0', '.1', ..., not '[]'",
+            )
+
             return &null
         }
 
@@ -1594,7 +1712,12 @@ pub class <T: type> MemberTyping {
 
         if elem == &null {
             self.dyn()->type_of(n->index, &null)
-            self.dyn()->fail(n, DiagID::SC103E, f"'{self.dyn()->tu.str(bt)}' cannot be indexed")
+            self.dyn()->fail(
+                n,
+                DiagID::SC103E,
+                f"'{self.dyn()->tu.str(bt)}' cannot be indexed",
+            )
+
             return &null
         }
 

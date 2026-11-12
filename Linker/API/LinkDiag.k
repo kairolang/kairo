@@ -140,24 +140,39 @@ pub class LinkDiag {
         var pn = LinkText::find(line, ": note: ", 0)
 
         if pe < n && pe <= pw && pe <= pn {
-            return LinkDiag::make(LinkSeverity::Error, LinkText::slice(line, pe + 9, n))
+            return LinkDiag::make(
+                LinkSeverity::Error,
+                LinkText::slice(line, pe + 9, n),
+            )
         }
 
         if pw < n && pw <= pn {
-            return LinkDiag::make(LinkSeverity::Warning, LinkText::slice(line, pw + 11, n))
+            return LinkDiag::make(
+                LinkSeverity::Warning,
+                LinkText::slice(line, pw + 11, n),
+            )
         }
 
         if pn < n {
-            return LinkDiag::make(LinkSeverity::Note, LinkText::slice(line, pn + 8, n))
+            return LinkDiag::make(
+                LinkSeverity::Note,
+                LinkText::slice(line, pn + 8, n),
+            )
         }
 
         // The dispatcher's own errors (bad -flavor) carry no program prefix.
         if LinkText::starts_with(line, "error: ") {
-            return LinkDiag::make(LinkSeverity::Error, LinkText::slice(line, 7, n))
+            return LinkDiag::make(
+                LinkSeverity::Error,
+                LinkText::slice(line, 7, n),
+            )
         }
 
         if LinkText::starts_with(line, "warning: ") {
-            return LinkDiag::make(LinkSeverity::Warning, LinkText::slice(line, 9, n))
+            return LinkDiag::make(
+                LinkSeverity::Warning,
+                LinkText::slice(line, 9, n),
+            )
         }
 
         return LinkDiag::make(LinkSeverity::Note, line)

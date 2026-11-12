@@ -201,7 +201,11 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
             return n
         }
 
-        var unsafe *out = RecursiveASTVisitor<WhereGuardCheck>::traverse_function_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<WhereGuardCheck>::traverse_function_decl(
+            self,
+            n,
+        )
+
         if n->is_poisoned() {
             return out
         }
@@ -260,7 +264,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
         }
 
         // Dispatch order: the guarded members as declared, then the fallback.
-        var order                          = cxx::std::vector<unsafe *FunctionDecl>()
+        var order = cxx::std::vector<unsafe *FunctionDecl>()
         var fallback: unsafe *FunctionDecl = &null
         for var i: usize = 0; i < members.size(); ++i {
             if members[i]->has_where() {
@@ -332,8 +336,8 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
     /// What may carry a guard, and what a group may not hold yet. One
     /// error per member; false when it was reported.
     priv fn _member_ok(self, f: unsafe *FunctionDecl, const name: string) -> bool {
-        var        at     = f->range
-        var        guard  = if (f->has_where()) => (f->where_clause->range) else => f->range
+        var at = f->range
+        var guard = if (f->has_where()) => (f->where_clause->range) else => f->range
         var unsafe *owner = self._owner(f)
 
         if f->has_where() && owner != &null && isa<InterfaceDecl>(owner) {
@@ -344,7 +348,12 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
             )
 
             b.first(guard)
-            b.note(DiagCode(DiagID::SC228N), owner->range.start, "the interface is declared here")
+            b.note(
+                DiagCode(DiagID::SC228N),
+                owner->range.start,
+                "the interface is declared here",
+            )
+
             b.emit()
             f->poison()
             return false
@@ -502,7 +511,9 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
                 var unsafe *k = if (pass == 0) => (set->impl_constraints[i])
                                 else => set->derives_constraints[i]
                 var unsafe *id = dyn_cast<NamedIdentExpr>(k->lhs)
-                var unsafe *gp = if (id != &null) => (dyn_cast<GenericParamDecl>(id->resolved_decl))
+                var unsafe *gp = if (id != &null) => (dyn_cast<GenericParamDecl>(
+                                     id->resolved_decl,
+                                 ))
                                  else => &null
                 var t: unsafe *Type = &null
                 if k->rhs != &null && k->rhs->canonical != &null {
@@ -513,7 +524,10 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
                     t = sub->substitute(t)
                 }
 
-                idx.push_back(if (gp != &null) => (gp->index + pass * 65536) else => u32::MAX)
+                idx.push_back(
+                    if (gp != &null) => (gp->index + pass * 65536) else => u32::MAX,
+                )
+
                 tys.push_back(t)
             }
         }

@@ -78,13 +78,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,
-    BuiltinKind,
-    QUAL_CONST,
-    RecordType,
-    canon_has_const,
-    canon_quals,
-    canon_unqual,
+    AssocType, BuiltinKind, QUAL_CONST, RecordType, canon_has_const, canon_quals, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -92,8 +86,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    FnBodyKind, FunctionDecl, GenericParamDecl, InterfaceDecl, ModuleDecl, ParamDecl, TransferKind,
-    TypeAliasDecl, VariableDecl,
+    FnBodyKind,   FunctionDecl,  GenericParamDecl, InterfaceDecl, ModuleDecl, ParamDecl,
+    TransferKind, TypeAliasDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
     AlignOfExpr, CallExpr,     ClosureExpr,   ConstraintExpr,    NamedArgExpr, PackExpansionExpr,
@@ -104,23 +98,17 @@ import AST::Node::PrimaryExpressions::{
     IntegerLiteralExpr, NamedIdentExpr, NullLiteralExpr,      StringLiteralExpr,
 }
 import AST::Node::Types::{
-    CXXLValueRefType,
-    CXXRValueRefType,
-    ChainType,
-    FixedArrayType,
-    FunctionPointerType,
-    GenericParamType,
-    PackExpansionType,
-    VariadicPackType,
+    CXXLValueRefType, CXXRValueRefType,  ChainType,        FixedArrayType, FunctionPointerType,
+    GenericParamType, PackExpansionType, VariadicPackType,
 }
 import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::named_call_arg_value
 import Diagnostic::Code::DiagCode
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::{
     named_declared_here,
     type_declared_here,
 }
+import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Check::ClassLifecycle::moves_on_pass
 import Sema::Resolve::MemberLookup::MemberLookup
@@ -136,15 +124,8 @@ import Sema::Type::NullnessFlow::{
     NULL_READ_REFUSED,
 }
 import Sema::Type::OverloadResolution::{
-    ARG_C_VARARG,
-    ARG_PACK_TAIL,
-    ArgInfo,
-    LitKind,
-    OvlCallScope,
-    OvlOutcome,
-    OvlResult,
-    cxx_lref_inout,
-    has_opaque_ffi,
+    ARG_C_VARARG,   ARG_PACK_TAIL,  ArgInfo, LitKind, OvlCallScope, OvlOutcome, OvlResult,
+    cxx_lref_inout, has_opaque_ffi,
 }
 import Sema::Type::Substitution::Substitution
 import Support::FlagSet::FlagSet
@@ -220,7 +201,7 @@ pub class <T: type> CallTyping {
             // `&x[i]` before the parameter is known: an `@inout` / `T&`
             // argument writes it, a pointer argument may. The place form of
             // a split subscript on a mutable container, else the read form
-            // (P880-4), whose const lvalue an `@inout` then refuses.
+            //, whose const lvalue an `@inout` then refuses.
             self.dyn()->mark_subscript_use(_op, SUB_SOFT)
             self.dyn()->type_of(_op, &null)
             a.marked      = true
@@ -404,7 +385,9 @@ pub class <T: type> CallTyping {
 
         if u != &null && isa<CXXLValueRefType>(u) {
             var unsafe *lr = cast<CXXLValueRefType>(u)->referee
-            return lr != &null && isa<GenericParamType>(canon_unqual(lr)) && canon_quals(lr) == QUAL_CONST
+            return lr != &null
+                && isa<GenericParamType>(canon_unqual(lr))
+                && canon_quals(lr) == QUAL_CONST
         }
 
         if u != &null && isa<CXXRValueRefType>(u) {
@@ -416,7 +399,9 @@ pub class <T: type> CallTyping {
 
         var unsafe *s = if (pt != &null) => (canon_unqual(pt)) else => &null
         if s != &null && isa<CXXRValueRefType>(s) {
-            return self.dyn()->tu.is_c_string_param(canon_unqual(cast<CXXRValueRefType>(s)->referee))
+            return self.dyn()->tu.is_c_string_param(
+                canon_unqual(cast<CXXRValueRefType>(s)->referee),
+            )
         }
 
         return false
@@ -539,7 +524,12 @@ pub class <T: type> CallTyping {
                     )
 
                     b.first(a->range)
-                    b.insert(a->range.end, ".c_str()", "pass the string's NUL-terminated bytes")
+                    b.insert(
+                        a->range.end,
+                        ".c_str()",
+                        "pass the string's NUL-terminated bytes",
+                    )
+
                     b.emit()
                     a->expr->poison()
                     continue
@@ -570,7 +560,7 @@ pub class <T: type> CallTyping {
             // `fn <T> f(a: T)` called with an array: T is `[i32; 2]`, and the
             // parameter takes it by value, which the declaration's own check
             // (StmtTyping, SC045E) could not see. C++ would decay it to a
-            // pointer and the callee would write the caller's array (P946).
+            // pointer and the callee would write the caller's array.
             if slot_deduced && self._array_by_value(f, p, pt) {
                 var pn = self.dyn()->tu.param_name(p)
                 var b = self.dyn()->sc->diag->report(
@@ -580,14 +570,17 @@ pub class <T: type> CallTyping {
                 )
 
                 b.first(a->range)
-                b.note(p->range.start, f"'{pn}' is declared here, by value")->child_first(p->range)
+                b.note(p->range.start, f"'{pn}' is declared here, by value")->child_first(
+                    p->range,
+                )
+
                 b.emit()
                 a->expr->poison()
                 continue
             }
 
             // A C++ callee takes this argument through one implicit
-            // user-defined conversion (-fcxx-implicit-conv, P813): C++ performs
+            // user-defined conversion (-fcxx-implicit-conv): C++ performs
             // it, so the argument is emitted as written -- a string literal
             // as its bytes, the `const char[N]` C++ converts from.
             if self._listed(&r->user_convs, i) {
@@ -618,7 +611,11 @@ pub class <T: type> CallTyping {
 
             // `@inout` with the marker: the operand is the argument.
             if inout && a->marked && pi != ARG_PACK_TAIL {
-                self._commit_marker(a, if (pt != &null) => (canon_unqual(pt)) else => &null)
+                self._commit_marker(
+                    a,
+                    if (pt != &null) => (canon_unqual(pt)) else => &null,
+                )
+
                 continue
             }
 
@@ -717,7 +714,12 @@ pub class <T: type> CallTyping {
             }
 
             if pt != &null {
-                self.dyn()->lint_cast_into_slot(a->expr, pt, r->overloaded || slot_deduced)
+                self.dyn()->lint_cast_into_slot(
+                    a->expr,
+                    pt,
+                    r->overloaded || slot_deduced,
+                )
+
                 // The resolver admitted this argument by the boundary rung;
                 // check_convertible asks the plain lattice and would refuse
                 // the very widening that picked the winner.
@@ -750,7 +752,7 @@ pub class <T: type> CallTyping {
     }
 
     /// A call that binds a type parameter of \p f to a fixed array, where
-    /// \p f's body copies a value of that parameter or returns one (P971):
+    /// \p f's body copies a value of that parameter or returns one:
     /// the body was typed once, over T, and only this instance copies an
     /// array, which is not copyable (SC083E, as for a concrete one). Said at
     /// the argument T is deduced from (else the first), naming the generic,
@@ -781,9 +783,9 @@ pub class <T: type> CallTyping {
             return
         }
 
-        var scan = GenericArrayCopyScan(r->ded.bindings)
-        var site: unsafe *Expr = &null
-        var copied = ""
+        var scan                = GenericArrayCopyScan(r->ded.bindings)
+        var site:  unsafe *Expr = &null
+        var copied              = ""
         if f->return_type != &null && scan.array_param(f->return_type) {
             copied = "it returns"
         } else if f->body_kind == FnBodyKind::Block && f->body_block != &null {
@@ -809,7 +811,10 @@ pub class <T: type> CallTyping {
             }
 
             var k = pi
-            if f->params.size() > 0 && f->params[0] != &null && f->params[0]->is_self && r->receiver_bound {
+            if f->params.size() > 0
+                && f->params[0] != &null
+                && f->params[0]->is_self
+                && r->receiver_bound {
                 k += 1
             }
 
@@ -827,9 +832,11 @@ pub class <T: type> CallTyping {
         }
 
         var fname = self.dyn()->sc->ctx->get_spelling(f->name)
-        var tname = if (scan.param->param_name != &null) => (self.dyn()->sc->ctx->get_spelling(scan.param->param_name->name))
+        var tname = if (scan.param->param_name != &null) => (self.dyn()->sc->ctx->get_spelling(
+                        scan.param->param_name->name,
+                    ))
                     else => "T"
-        var arr   = self.dyn()->tu.str(scan.array)
+        var arr = self.dyn()->tu.str(scan.array)
         var b = self.dyn()->sc->diag->report(
             DiagID::SC083E,
             at->range.start,
@@ -838,9 +845,14 @@ pub class <T: type> CallTyping {
 
         b.first(at->range)
         if site != &null {
-            b.note(site->range.start, f"{copied} a '{tname}'")->child_first(site->range)
+            b.note(site->range.start, f"{copied} a '{tname}'")->child_first(
+                site->range,
+            )
         } else if f->return_type != &null {
-            b.note(f->return_type->range.start, f"'{fname}' returns its '{tname}' by value")->child_first(f->return_type->range)
+            b.note(
+                f->return_type->range.start,
+                f"'{fname}' returns its '{tname}' by value",
+            )->child_first(f->return_type->range)
         }
 
         b.emit()
@@ -850,12 +862,16 @@ pub class <T: type> CallTyping {
     /// \p p, a Kairo parameter whose declared type is generic, takes \p pt,
     /// a fixed array, by value: the case SC045E rejects on a declared
     /// `[T; N]`. A declared array type was reported at the declaration.
-    priv fn _array_by_value(self, f: unsafe *FunctionDecl, p: unsafe *ParamDecl, pt: unsafe *Type) -> bool {
+    priv fn _array_by_value(self,
+                            f:  unsafe *FunctionDecl,
+                            p:  unsafe *ParamDecl,
+                            pt: unsafe *Type) -> bool {
         if pt == &null || p->is_self || p->is_pack || p->is_const || p->mode != ParamMode::Value {
             return false
         }
 
-        if decl_is_imported(unsafe (f as unsafe *Decl)) || (!isa<FixedArrayType>(canon_unqual(pt))) {
+        if decl_is_imported(unsafe (f as unsafe *Decl))
+            || (!isa<FixedArrayType>(canon_unqual(pt))) {
             return false
         }
 
@@ -945,8 +961,8 @@ pub class <T: type> CallTyping {
         // *T`, Compiler/Memory/ArenaList.k): clang was never asked
         // (_clang_substitute), and the declared spelling names the CALLEE's
         // template parameters (`__libcpp_remove_reference_t<_Tp>&&`), which
-        // mean nothing at the call. Before P316 typed `*slot` as T the call
-        // deferred on an untyped argument; this restores exactly that (the
+        // mean nothing at the call. Deferring on the untyped argument keeps
+        // the declared spelling from being substituted (the
         // local is `auto`, no cast spells `_Tp`). Only for the dereference:
         // `move(a0)` on `a0: A0` has always carried the opaque, and an
         // enclosing Kairo call (ASTContext's `_with_cleanup(&list, ...)`)
@@ -957,10 +973,12 @@ pub class <T: type> CallTyping {
 
         // A non-template C++ function declared `auto` (`auto* as_array()`
         // on toml++'s node_view<node>) imports its placeholder, an opaque
-        // nothing can use: clang deduces it here, at the first call (P827).
+        // nothing can use: clang deduces it here, at the first call.
         // `rt` is the Kairo-side imported type, never clang's: reading it
-        // needs no set lock; deduced_return reads clang's under it (P853).
-        if r->cxx_ret == &null && f->is_imported() && has_opaque_ffi(rt)
+        // needs no set lock; deduced_return reads clang's under it.
+        if r->cxx_ret == &null
+            && f->is_imported()
+            && has_opaque_ffi(rt)
             && self.dyn()->sc->foreign != &null {
             var unsafe *dr = self.dyn()->sc->foreign->deduced_return(f)
             if dr != &null {
@@ -981,7 +999,9 @@ pub class <T: type> CallTyping {
         // An extension member's instance arguments are its extension's, then
         // its own: the order CXXSpell::template_params spells them in.
         var unsafe *ext = decl_extension_of(unsafe (f as unsafe *Decl))
-        var ext_n = if (ext != &null) => (decl_generic_params(unsafe (ext as unsafe *Decl)).size())
+        var ext_n = if (ext != &null) => (decl_generic_params(
+                        unsafe (ext as unsafe *Decl),
+                    ).size())
                     else => (0)
         if f->generic_params.size() > 0 || ext_n > 0 {
             var args = cxx::std::vector<unsafe *Type>()
@@ -999,7 +1019,12 @@ pub class <T: type> CallTyping {
                 // generic's instances to substitute (CallExpr::dep_args).
                 r->dep_args.clear()
                 var dok = (ext == &null || self._loose_args(r, ext, &r->dep_args))
-                    && self._loose_args(r, unsafe (f as unsafe *Decl), &r->dep_args)
+                    && self._loose_args(
+                        r,
+                        unsafe (f as unsafe *Decl),
+                        &r->dep_args,
+                    )
+
                 if !dok {
                     r->dep_args.clear()
                 }
@@ -1120,7 +1145,7 @@ pub class <T: type> CallTyping {
     /// the pack to `T(args...)` inside its generic body, which only C++
     /// instantiates, so the constructor the arguments reach was never
     /// resolved in Kairo and a raw pointer reached a safe `*T` parameter
-    /// unseen (P536). The arguments are resolved against T's constructors
+    /// unseen. The arguments are resolved against T's constructors
     /// as a direct `T(args)` resolves them, diagnostics included; nothing is
     /// recorded on the call, whose own arguments stay the forwarder's.
     ///
@@ -1132,9 +1157,15 @@ pub class <T: type> CallTyping {
     /// convert wrongly, and `create<T>()` of a class declaring only a
     /// transfer constructor is accepted today (Tests/Sema/Check/
     /// class_allocator_errors.k) where a direct `T()` is not.
-    priv fn _check_created_ctor(self, n: *CallExpr, f: unsafe *FunctionDecl, r: *OvlResult) -> bool {
+    priv fn _check_created_ctor(self,
+                                n: *CallExpr,
+                                f: unsafe *FunctionDecl,
+                                r: *OvlResult) -> bool {
         var sc = self.dyn()->sc
-        if f == &null || sc->well_known == &null || f->generic_params.size() == 0 || n->args.size() == 0 {
+        if f == &null
+            || sc->well_known == &null
+            || f->generic_params.size() == 0
+            || n->args.size() == 0 {
             return true
         }
 
@@ -1143,7 +1174,7 @@ pub class <T: type> CallTyping {
             return true
         }
 
-        var unsafe *fd   = NameLookup::representative(unsafe (f as unsafe *Decl))
+        var unsafe *fd = NameLookup::representative(unsafe (f as unsafe *Decl))
         var unsafe *want = NameLookup::representative(lang)
         if fd != want {
             return true
@@ -1259,12 +1290,18 @@ pub class <T: type> CallTyping {
 
         var x: unsafe *Type = &null
         for var i: usize = 0; i < args.size(); ++i {
-            var pe = dyn_cast<PackExpansionExpr>(self.dyn()->tu.strip_parens((args)[i].expr))
+            var pe = dyn_cast<PackExpansionExpr>(
+                self.dyn()->tu.strip_parens((args)[i].expr),
+            )
+
             if pe == &null {
                 continue
             }
 
-            var id = dyn_cast<NamedIdentExpr>(self.dyn()->tu.strip_parens(pe->operand))
+            var id = dyn_cast<NamedIdentExpr>(
+                self.dyn()->tu.strip_parens(pe->operand),
+            )
+
             if id == &null {
                 continue
             }
@@ -1334,7 +1371,9 @@ pub class <T: type> CallTyping {
             return true
         }
 
-        var unsafe *want = if (isa<RecordType>(iface)) => (cast<RecordType>(iface)->decl)
+        var unsafe *want = if (isa<RecordType>(iface)) => (cast<RecordType>(
+                               iface,
+                           )->decl)
                            else => &null
         if want == &null {
             return true
@@ -1391,19 +1430,32 @@ pub class <T: type> CallTyping {
             )
 
             b.first(n->range)
-            b.note(k->range.start, "required by this bound")->child_first(k->range)
+            b.note(k->range.start, "required by this bound")->child_first(
+                k->range,
+            )
+
             b.note(
                 x.start,
                 f"'{pname}' is declared here; bound it 'impl {is}' too, or by an interface that derives it",
             )->child_first(x)
             b.emit()
         } else {
-            var b = self.dyn()->sc->diag->report(DiagID::R051E, n->range.start, msg)
-            b.first(n->range)
-            b.note(k->range.start, "required by this bound")->child_first(k->range)
-            b.note(DiagCode(DiagID::R051N), x.start, f"'{pname}' is declared with no bound")->child_first(
-                x,
+            var b = self.dyn()->sc->diag->report(
+                DiagID::R051E,
+                n->range.start,
+                msg,
             )
+
+            b.first(n->range)
+            b.note(k->range.start, "required by this bound")->child_first(
+                k->range,
+            )
+
+            b.note(
+                DiagCode(DiagID::R051N),
+                x.start,
+                f"'{pname}' is declared with no bound",
+            )->child_first(x)
 
             b.insert(x.end, f" impl {is}", f"bound '{pname}' by '{is}'")
             b.emit()
@@ -1477,7 +1529,17 @@ pub class <T: type> CallTyping {
 
                 self._set_explicit(&id->generic_args)
                 var cname = self.dyn()->sc->ctx->get_spelling(id->name)
-                var rt    = self._call_candidates(n, &cands, false, &null, cname, id, &null, true)
+                var rt = self._call_candidates(
+                    n,
+                    &cands,
+                    false,
+                    &null,
+                    cname,
+                    id,
+                    &null,
+                    true,
+                )
+
                 self.dyn()->ovl.explicit_args.clear()
                 return rt
             }
@@ -1509,7 +1571,17 @@ pub class <T: type> CallTyping {
                 cands.push_back(d)
                 self._set_explicit(&id->generic_args)
                 var cname = self.dyn()->sc->ctx->get_spelling(id->name)
-                var rt    = self._call_candidates(n, &cands, false, &null, cname, id, &null, true)
+                var rt = self._call_candidates(
+                    n,
+                    &cands,
+                    false,
+                    &null,
+                    cname,
+                    id,
+                    &null,
+                    true,
+                )
+
                 self.dyn()->ovl.explicit_args.clear()
                 return rt
             }
@@ -1542,10 +1614,10 @@ pub class <T: type> CallTyping {
             // A module is not callable. `import A::B::both` with both
             // A/B/both.k and a `both` in A/B.k binds the MODULE (imports.mdx,
             // "Resolution with `::`": the module path is tried first), and the
-            // call reached codegen as CL001E "no member named '_'" (P507).
+            // call reached codegen as CL001E "no member named '_'".
             if isa<ModuleDecl>(d) {
                 var sp = self.dyn()->sc->ctx->get_spelling(id->name)
-                var b  = self.dyn()->sc->diag->report(
+                var b = self.dyn()->sc->diag->report(
                     DiagID::SC001E,
                     n->range.start,
                     f"'{sp}' is a module, not a function",
@@ -1556,6 +1628,7 @@ pub class <T: type> CallTyping {
                     d->range.start,
                     "\x27" + sp + "\x27 is this module: where a module and a declaration share a name, an import path names the module and a braced import (`::{" + sp + "}`) names the declaration",
                 )
+
                 b.emit()
                 id->poison()
                 n->poison()
@@ -1573,7 +1646,7 @@ pub class <T: type> CallTyping {
             var ce = cast<ChainExpr>(callee)
             // `x[i].m()`: whether the element is written depends on which
             // `m` wins, which needs the receiver typed. A split subscript
-            // there takes its place form for now (on a mutable container);
+            // there provisionally takes its place form (on a mutable container);
             // settle_receiver_subscript keeps it only for a `self` method.
             if ce->base != &null
                 && ce->steps.size() > 0
@@ -1633,7 +1706,10 @@ pub class <T: type> CallTyping {
                 self.dyn()->ovl.explicit_args.clear()
                 self.dyn()->ovl.recv_cat = Expr::ValueCategory::LValue
                 if !n->is_poisoned() {
-                    self.dyn()->settle_receiver_subscript(ce, last->resolved_decl)
+                    self.dyn()->settle_receiver_subscript(
+                        ce,
+                        last->resolved_decl,
+                    )
                 }
 
                 if ce->has_optional_chaining() {
@@ -1702,7 +1778,9 @@ pub class <T: type> CallTyping {
 
         var d = self.dyn()->tu.record_decl(canon_unqual(t))
         return d != &null
-            && isa<InterfaceDecl>(NameLookup::representative(self.dyn()->tu.pattern_of(d)))
+            && isa<InterfaceDecl>(
+                NameLookup::representative(self.dyn()->tu.pattern_of(d)),
+            )
     }
 
     /// \p d is none of \p cands (as a `where` group's lead and as a
@@ -1848,7 +1926,7 @@ pub class <T: type> CallTyping {
     priv fn _type_args_dependent(self, n: unsafe *CallExpr) {
         for var i: usize = 0; i < n->args.size(); ++i {
             var unsafe *a = n->args[i]
-            var        nl = dyn_cast<NullLiteralExpr>(self.dyn()->tu.strip_parens(a))
+            var nl = dyn_cast<NullLiteralExpr>(self.dyn()->tu.strip_parens(a))
             if nl != &null && nl->is_ref {
                 self.dyn()->mark_unknown(a)
                 continue
@@ -2020,7 +2098,7 @@ pub class <T: type> CallTyping {
             var _ctx = OvlCallScope(unsafe &self.dyn()->ovl)
             self.dyn()->ovl.explicit_args.clear()
             self.dyn()->ovl.recv_cat = Expr::ValueCategory::LValue
-            ok = self.build_args(n->args, &args)
+            ok                       = self.build_args(n->args, &args)
         }
 
         // ADL ([basic.lookup.argdep]): an unqualified call also sees functions
@@ -2042,7 +2120,13 @@ pub class <T: type> CallTyping {
 
             var imm = self.dyn()->sc->imm_table()->find_ident(name)
             if scopes.size() > 0 && imm != u32::MAX {
-                self.dyn()->ml.adl_candidates(&scopes, DeclName::ident(imm), name, cands, &all)
+                self.dyn()->ml.adl_candidates(
+                    &scopes,
+                    DeclName::ident(imm),
+                    name,
+                    cands,
+                    &all,
+                )
             }
         }
 
@@ -2051,7 +2135,7 @@ pub class <T: type> CallTyping {
         var recv: unsafe *Type = &null
         if receiver != &null {
             // A member of `extend T?` takes the nullable itself as `self`
-            // (P325-1), and its extension's parameters deduce from it.
+            //, and its extension's parameters deduce from it.
             recv = if (self.dyn()->cb.binds_nullable_member(step)) => (receiver)
                    else => self.dyn()->tu.strip_nullable(receiver)
             var pt = self.dyn()->tu.pointee(recv)
@@ -2096,7 +2180,10 @@ pub class <T: type> CallTyping {
                 )
 
                 d.first(n->range)
-                d.note(qd->range.start, named_declared_here(iname))->child_first(qd->range)
+                d.note(qd->range.start, named_declared_here(iname))->child_first(
+                    qd->range,
+                )
+
                 d.emit()
                 self.dyn()->poison_only(n)
                 return &null
@@ -2114,7 +2201,16 @@ pub class <T: type> CallTyping {
         // the context, so restoring call_syntax alone is the whole restore.
         var outer_cs = self.dyn()->ovl.call_syntax
         self.dyn()->ovl.call_syntax = true
-        var r = self.dyn()->ovl.resolve(&all, &args, has_receiver, n->range, name, recv, qual)
+        var r = self.dyn()->ovl.resolve(
+            &all,
+            &args,
+            has_receiver,
+            n->range,
+            name,
+            recv,
+            qual,
+        )
+
         self.dyn()->ovl.call_syntax = outer_cs
         if r.outcome == OvlOutcome::Dependent {
             self._check_forwarded_pack(n, all, args)
@@ -2250,7 +2346,14 @@ pub class <T: type> CallTyping {
         {
             var _ctx = OvlCallScope(unsafe &self.dyn()->ovl)
             self.dyn()->ovl.call_syntax = true
-            ok_as_is = self.dyn()->ovl.any_viable(cands, args, has_receiver, &null, &null, recv)
+            ok_as_is = self.dyn()->ovl.any_viable(
+                cands,
+                args,
+                has_receiver,
+                &null,
+                &null,
+                recv,
+            )
         }
 
         if ok_as_is {
@@ -2262,7 +2365,14 @@ pub class <T: type> CallTyping {
             alt[idx[j]].ty = self.dyn()->flow.narrowed_type(alt[idx[j]].ty)
         }
 
-        if !self.dyn()->ovl.any_viable(cands, &alt, has_receiver, &null, &null, recv) {
+        if !self.dyn()->ovl.any_viable(
+            cands,
+            &alt,
+            has_receiver,
+            &null,
+            &null,
+            recv,
+        ) {
             return true
         }
 
@@ -2271,7 +2381,14 @@ pub class <T: type> CallTyping {
         for var j: usize = 0; j < idx.size(); ++j {
             var unsafe *keep = alt[idx[j]].ty
             alt[idx[j]].ty = (*args)[idx[j]].ty
-            if self.dyn()->ovl.any_viable(cands, &alt, has_receiver, &null, &null, recv) {
+            if self.dyn()->ovl.any_viable(
+                cands,
+                &alt,
+                has_receiver,
+                &null,
+                &null,
+                recv,
+            ) {
                 continue
             }
 
@@ -2497,7 +2614,10 @@ pub class <T: type> CallTyping {
             why = f"'{mname}' is pure virtual: a 'virtual fn' with no body"
         }
 
-        b.note(DiagCode(DiagID::SC249N), pure->range.start, why)->child_first(pure->range)
+        b.note(DiagCode(DiagID::SC249N), pure->range.start, why)->child_first(
+            pure->range,
+        )
+
         b.emit()
         n->poison()
         return true
@@ -2616,7 +2736,9 @@ pub class <T: type> CallTyping {
                 DiagID::SC038E,
                 n->range.start,
                 f"'{self.dyn()->tu.decl_name(d)}' declares no constructor taking arguments",
-            ).first(n->range)->note(d->range.start, type_declared_here())->child_first(d->range)->emit()
+            ).first(n->range)->note(d->range.start, type_declared_here())->child_first(
+                d->range,
+            )->emit()
             n->poison()
             return &null
         }
@@ -2810,7 +2932,16 @@ pub class <T: type> CallTyping {
 
         self.dyn()->ovl.recv_cat = n->callee->value_category
         self._functor_next       = true
-        var unsafe *rt = self._call_candidates(n, unsafe &cands, true, t, "op ()", &null, &null)
+        var unsafe *rt = self._call_candidates(
+            n,
+            unsafe &cands,
+            true,
+            t,
+            "op ()",
+            &null,
+            &null,
+        )
+
         self._functor_next       = false
         self.dyn()->ovl.recv_cat = Expr::ValueCategory::LValue
         *out                     = rt
@@ -2866,7 +2997,12 @@ pub class <T: type> CallTyping {
         ft = canon_unqual(ft) // a `const` callable calls the same code.
         if ft == &null || !isa<FunctionPointerType>(ft) {
             self._type_args_blind(n)
-            self.dyn()->fail(n, DiagID::SC062E, f"'{self.dyn()->tu.str(t)}' is not callable")
+            self.dyn()->fail(
+                n,
+                DiagID::SC062E,
+                f"'{self.dyn()->tu.str(t)}' is not callable",
+            )
+
             return &null
         }
 
@@ -2904,7 +3040,7 @@ pub class <T: type> CallTyping {
                 continue
             }
 
-            var pt   = fp->params[i]
+            var pt = fp->params[i]
             var mode = if (i < fp->modes.size()) => (fp->modes[i]) else => ParamMode::Value
 
             if mode == ParamMode::Inout {
@@ -2967,7 +3103,11 @@ pub class <T: type> CallTyping {
                     self.dyn()->finish(a, _op->type_)
                 }
 
-                self.dyn()->flow.inout_arg(target, if (_op != &null) => (a) else => &null) // Compiler/Spec/Nullables.md#weakening.
+                self.dyn()->flow.inout_arg( // Compiler/Spec/Nullables.md#weakening.
+                    target,
+                    if (_op != &null) => (a) else => &null,
+                )
+
                 continue
             }
 

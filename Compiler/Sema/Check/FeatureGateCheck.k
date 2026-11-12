@@ -95,16 +95,16 @@ import AST::Node::Base::{
     Decl,
     Type,
 }
+import AST::Node::CanonicalNodes::RecordType
 import AST::Node::CanonicalNodes::canon_unqual
 import AST::Node::Casting::{
     cast,
     dyn_cast,
     isa,
 }
-import AST::Node::CanonicalNodes::RecordType
 import AST::Node::Declarations::{
-    ClassDecl,     EnumDecl,  EvalBlockDecl, ExtensionDecl, FieldDecl, FunctionDecl, GenericParamDecl,
-    InterfaceDecl, StructDecl, UnionDecl,
+    ClassDecl,        EnumDecl,      EvalBlockDecl, ExtensionDecl, FieldDecl, FunctionDecl,
+    GenericParamDecl, InterfaceDecl, StructDecl,    UnionDecl,
 }
 import AST::Node::Expressions::{
     AttributedExpr,
@@ -306,7 +306,7 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
     /// on this one; nothing builds the table yet. Reported at the
     /// member step; a `::` call keeps its own path.
     fn visit_call_expr(self, n: *CallExpr) -> bool {
-        var tu = TypeUtil(self.sc)
+        var        tu  = TypeUtil(self.sc)
         var unsafe *ch = dyn_cast<ChainExpr>(tu.strip_parens(n->callee))
         if ch == &null || ch->steps.size() == 0 {
             return true
@@ -356,7 +356,10 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
 
         var unsafe *rd = cast<RecordType>(rt)->decl
         if rd != &null && isa<InterfaceDecl>(NameLookup::representative(rd)) {
-            self._gate(st->range, "a call through an interface pointer (virtual interface dispatch)")
+            self._gate(
+                st->range,
+                "a call through an interface pointer (virtual interface dispatch)",
+            )
         }
 
         return true
@@ -364,7 +367,10 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
 
     fn visit_closure_expr(self, n: *ClosureExpr) -> bool {
         if n->generic_params.size() > 0 {
-            self._gate(SourceRange::from_bounds(n->range.start, 2 as u32), "a generic closure")
+            self._gate(
+                SourceRange::from_bounds(n->range.start, 2 as u32),
+                "a generic closure",
+            )
         }
 
         return true
@@ -423,12 +429,20 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
 
     /// Reported at the keyword; the operand is still typed and checked.
     fn visit_spawn_expr(self, n: *SpawnExpr) -> bool {
-        self._gate(SourceRange::from_bounds(n->range.start, 5 as u32), "a 'spawn' expression")
+        self._gate(
+            SourceRange::from_bounds(n->range.start, 5 as u32),
+            "a 'spawn' expression",
+        )
+
         return true
     }
 
     fn visit_thread_expr(self, n: *ThreadExpr) -> bool {
-        self._gate(SourceRange::from_bounds(n->range.start, 6 as u32), "a 'thread' expression")
+        self._gate(
+            SourceRange::from_bounds(n->range.start, 6 as u32),
+            "a 'thread' expression",
+        )
+
         return true
     }
 
@@ -525,7 +539,7 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
             return true
         }
 
-        var unsafe *odc   = n->semantic_dc
+        var unsafe *odc = n->semantic_dc
         var unsafe *owner = if (odc != &null) => (odc->owner_decl()) else => &null
         if owner != &null && decl_is_instance(owner) {
             return true
@@ -652,7 +666,12 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
     }
 
     priv fn _gate(self, at: SourceRange, const what: string) {
-        var b = self.sc->diag->report(DiagID::SC116E, at.start, f"{what} is not yet supported")
+        var b = self.sc->diag->report(
+            DiagID::SC116E,
+            at.start,
+            f"{what} is not yet supported",
+        )
+
         b.first(at)
         b.emit()
     }

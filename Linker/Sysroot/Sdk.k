@@ -83,7 +83,11 @@ pub class SysSdk {
         }
 
         var share = ShareTree::locate("")
-        dir = LinkText::join(LinkFS::parent(LinkText::strip_slash(share)), "sdk-overlays")
+        dir = LinkText::join(
+            LinkFS::parent(LinkText::strip_slash(share)),
+            "sdk-overlays",
+        )
+
         return if (LinkFS::is_dir(dir)) => (dir) else => ""
     }
 
@@ -194,7 +198,7 @@ pub class SysSdk {
         var arch   = t->arch
         var family = if (darwin) => ("darwin") else => "msvc"
         var ovs    = SysSdk::overlays()
-        var ov     = if (ovs.empty()) => ("") else => LinkText::join(ovs, f"{family}-{arch}")
+        var ov = if (ovs.empty()) => ("") else => LinkText::join(ovs, f"{family}-{arch}")
         var ov_lib = if (darwin) => ("usr/lib/libc++.a") else => "lib/libc++.lib"
         var script = if (darwin) => (f"darwin-sysroot.sh {arch}") else => f"msvc-sysroot.ps1 {arch}"
         var scripts = LinkText::join(SysSdk::prefix(), "scripts")
@@ -204,7 +208,11 @@ pub class SysSdk {
         var have = c.lookup(t->name)
         var src  = ""
         var xa   = SysSdk::msvc_arch(arch)
-        if input.empty() && !have.empty() && LinkFS::is_file(LinkText::join(have, SysrootManifest::file_name())) {
+        if input.empty()
+            && !have.empty()
+            && LinkFS::is_file(
+                LinkText::join(have, SysrootManifest::file_name()),
+            ) {
             src = if (darwin) => (SysSdk::find_macos_sdk(""))
                   else => SysSdk::find_msvc_splat("", xa)
             if src.empty() {
@@ -223,7 +231,9 @@ pub class SysSdk {
             }
 
             if !LinkFS::is_file(LinkText::join(src, "SDKSettings.json"))
-                || !LinkFS::is_file(LinkText::join(src, "usr/lib/libSystem.tbd")) {
+                || !LinkFS::is_file(
+                    LinkText::join(src, "usr/lib/libSystem.tbd"),
+                ) {
                 return out.refuse(
                     f"{src} is not a macOS SDK (no SDKSettings.json or usr/lib/libSystem.tbd)",
                     "",
@@ -234,7 +244,14 @@ pub class SysSdk {
             if src.empty() && input.empty() {
                 var vs = SysSdk::_visual_studio()
                 if !vs.empty() {
-                    return SysSdk::_run_msvc_script(&c, t, vs, tools, &path, &out)
+                    return SysSdk::_run_msvc_script(
+                        &c,
+                        t,
+                        vs,
+                        tools,
+                        &path,
+                        &out,
+                    )
                 }
             }
 
@@ -413,7 +430,10 @@ pub class SysSdk {
                     continue
                 }
 
-                return out.refuse(f"{splat} has no {d}: re-run xwin with --arch including {xa}", "")
+                return out.refuse(
+                    f"{splat} has no {d}: re-run xwin with --arch including {xa}",
+                    "",
+                )
             }
 
             if !SysSdk::_copy(s, LinkText::join(m, d), &none, &none, 0) {
@@ -444,7 +464,11 @@ pub class SysSdk {
         parts.push_back("lib")
         parts.push_back("compiler-rt")
         for var d: string in parts {
-            if !SysRun::copy_tree(LinkText::join(ov, d), LinkText::join(dst, d), &none) {
+            if !SysRun::copy_tree(
+                LinkText::join(ov, d),
+                LinkText::join(dst, d),
+                &none,
+            ) {
                 return out.fail(f"cannot copy the overlay {ov}/{d}", "")
             }
         }
@@ -542,7 +566,10 @@ pub class SysSdk {
 
         if darwin {
             if !LinkFS::is_dir(LinkText::join(r, "usr/lib/system")) {
-                return out.fail(f"{t->name}: the staged root has no usr/lib/system", "")
+                return out.fail(
+                    f"{t->name}: the staged root has no usr/lib/system",
+                    "",
+                )
             }
 
             for var f: string in LinkFS::list_dir(LinkText::join(r, "usr/lib")) {
@@ -562,7 +589,10 @@ pub class SysSdk {
         var cs = ""
         LinkFS::read(LinkText::join(r, "include/c++/v1/__config_site"), &cs)
         if !LinkText::contains(cs, "_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS") {
-            return out.fail(f"{t->name}: the overlay\x27s __config_site is not static-only", "")
+            return out.fail(
+                f"{t->name}: the overlay\x27s __config_site is not static-only",
+                "",
+            )
         }
 
         return true
@@ -581,8 +611,12 @@ pub class SysSdk {
             exe = "kcc.exe"
         }
 
-        var kcc     = LinkText::join(tools, exe)
-        var bundled = LinkText::join(LinkFS::parent(tools), f"sysroot/{t->name}")
+        var kcc = LinkText::join(tools, exe)
+        var bundled = LinkText::join(
+            LinkFS::parent(tools),
+            f"sysroot/{t->name}",
+        )
+
         if !LinkFS::is_file(kcc) || LinkFS::exists(bundled) {
             return true
         }
@@ -636,8 +670,12 @@ pub class SysSdk {
             return ""
         }
 
-        var pf      = LinkFS::env("ProgramFiles(x86)")
-        var vswhere = LinkText::join(pf, "Microsoft Visual Studio/Installer/vswhere.exe")
+        var pf = LinkFS::env("ProgramFiles(x86)")
+        var vswhere = LinkText::join(
+            pf,
+            "Microsoft Visual Studio/Installer/vswhere.exe",
+        )
+
         if pf.empty() || !LinkFS::is_file(vswhere) {
             return ""
         }
@@ -659,7 +697,11 @@ pub class SysSdk {
 
         LinkFS::remove(log)
         var vs = LinkText::trim(text)
-        var vc = LinkText::join(vs, "VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt")
+        var vc = LinkText::join(
+            vs,
+            "VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt",
+        )
+
         return if (!vs.empty() && LinkFS::is_file(vc)) => (vs) else => ""
     }
 
@@ -686,7 +728,10 @@ pub class SysSdk {
         }
 
         var stamp = SysUtil::sha256_file(
-            LinkText::join(vs, "VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt"),
+            LinkText::join(
+                vs,
+                "VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt",
+            ),
         )
 
         var fields = cxx::std::vector<SysJsonField>()
@@ -694,7 +739,12 @@ pub class SysSdk {
         SysUtil::field(&fields, "name", SysUtil::json_str(t->name))
         SysUtil::field(&fields, "vs", SysUtil::json_str(vs))
         SysUtil::field(&fields, "vc_tools", SysUtil::json_str(stamp))
-        SysUtil::field(&fields, "tool_version", SysUtil::json_str(SysSdk::_tool_version()))
+        SysUtil::field(
+            &fields,
+            "tool_version",
+            SysUtil::json_str(SysSdk::_tool_version()),
+        )
+
         var key = SysUtil::sha256(SysUtil::json_object(&fields))
 
         var lock = SysLock()
@@ -733,7 +783,10 @@ pub class SysSdk {
             var made = LinkText::join(stage, t->name)
             if rc != 0 || !LinkFS::is_file(LinkText::join(made, SysrootManifest::file_name())) {
                 LinkFS::remove_tree(stage)
-                return out.fail(f"msvc-sysroot.ps1 {t->arch} failed (exit {rc})", f"log: {log}")
+                return out.fail(
+                    f"msvc-sysroot.ps1 {t->arch} failed (exit {rc})",
+                    f"log: {log}",
+                )
             }
 
             LinkFS::write(LinkText::join(made, ".ok"), "")
@@ -759,7 +812,11 @@ pub class SysSdk {
 
     priv static fn _powershell() -> string {
         var root = LinkFS::env("SystemRoot")
-        var sys  = LinkText::join(root, "System32/WindowsPowerShell/v1.0/powershell.exe")
+        var sys = LinkText::join(
+            root,
+            "System32/WindowsPowerShell/v1.0/powershell.exe",
+        )
+
         if !root.empty() && LinkFS::is_file(sys) {
             return sys
         }
@@ -770,7 +827,9 @@ pub class SysSdk {
     /// # Helpers
 
     priv static fn _tool_version() -> string {
-        return string(unsafe ((kairo::version_string() as unsafe *const u8) as *const u8))
+        return string(
+            unsafe ((kairo::version_string() as unsafe *const u8) as *const u8),
+        )
     }
 
     /// The root's key: the target, the SDK it was staged from (the macOS
@@ -780,7 +839,11 @@ pub class SysSdk {
         var sdk = if (t->family == "darwin") => (SysUtil::sha256_file(
                       LinkText::join(src, "SDKSettings.json"),
                   ))
-                  else => SysUtil::tree_stamp(LinkText::join(src, "sdk/include/um"), true)
+                  else => SysUtil::tree_stamp(
+                      LinkText::join(src, "sdk/include/um"),
+                      true,
+                  )
+
         var rev = ""
         LinkFS::read(LinkText::join(LinkFS::parent(ov), "REVISION"), &rev)
         var fields = cxx::std::vector<SysJsonField>()
@@ -789,9 +852,24 @@ pub class SysSdk {
         SysUtil::field(&fields, "provider", SysUtil::json_str("user"))
         SysUtil::field(&fields, "source", SysUtil::json_str(src))
         SysUtil::field(&fields, "source_id", SysUtil::json_str(sdk))
-        SysUtil::field(&fields, "overlay_revision", SysUtil::json_str(LinkText::trim(rev)))
-        SysUtil::field(&fields, "overlay", SysUtil::json_str(SysUtil::tree_stamp(ov, true)))
-        SysUtil::field(&fields, "tool_version", SysUtil::json_str(SysSdk::_tool_version()))
+        SysUtil::field(
+            &fields,
+            "overlay_revision",
+            SysUtil::json_str(LinkText::trim(rev)),
+        )
+
+        SysUtil::field(
+            &fields,
+            "overlay",
+            SysUtil::json_str(SysUtil::tree_stamp(ov, true)),
+        )
+
+        SysUtil::field(
+            &fields,
+            "tool_version",
+            SysUtil::json_str(SysSdk::_tool_version()),
+        )
+
         return SysUtil::sha256(SysUtil::json_object(&fields))
     }
 

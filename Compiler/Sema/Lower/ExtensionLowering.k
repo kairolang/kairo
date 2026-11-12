@@ -358,7 +358,10 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
 
         var k = ch->steps.size()
         if k == 1 {
-            var unsafe *q = dyn_cast<NamedIdentExpr>(self.tu.strip_parens(ch->base))
+            var unsafe *q = dyn_cast<NamedIdentExpr>(
+                self.tu.strip_parens(ch->base),
+            )
+
             if q == &null {
                 return &null
             }
@@ -529,7 +532,9 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
             )
         }
 
-        kairo::std::ice_fail("ExtensionLowering: no bound of the receiver requires the callee")
+        kairo::std::ice_fail(
+            "ExtensionLowering: no bound of the receiver requires the callee",
+        )
     }
 
     /// Interface instance \p t's composed list contains requirement \p f.
@@ -539,7 +544,9 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
         }
 
         var unsafe *d = dyn_cast<InterfaceDecl>(
-            NameLookup::representative(self.tu.pattern_of(cast<RecordType>(t)->decl)),
+            NameLookup::representative(
+                self.tu.pattern_of(cast<RecordType>(t)->decl),
+            ),
         )
 
         if d == &null {
@@ -562,7 +569,9 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
         var n = ch->steps.size()
         if n == 1 {
             if ch->base == &null {
-                kairo::std::ice_fail("ExtensionLowering: a member step with no receiver")
+                kairo::std::ice_fail(
+                    "ExtensionLowering: a member step with no receiver",
+                )
             }
 
             return ch->base
@@ -576,7 +585,7 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
         }
 
         var variant = prev->resolved_decl != &null && isa<EnumVariantDecl>(prev->resolved_decl)
-        var kept    = self.list_builder<ChainExpr::Step>()
+        var kept = self.list_builder<ChainExpr::Step>()
         for var i: usize = 0; i + 1 < n; ++i {
             kept.push(*ch->steps.get(i))
         }
@@ -595,13 +604,17 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
         var tok = Token()
         if st->is_operator() {
             if st->op_tokens.size() == 0 {
-                kairo::std::ice_fail("ExtensionLowering: an operator step with no tokens")
+                kairo::std::ice_fail(
+                    "ExtensionLowering: an operator step with no tokens",
+                )
             }
 
             tok = st->op_tokens[0]
         } else {
             if st->name == &null {
-                kairo::std::ice_fail("ExtensionLowering: a named step with no name")
+                kairo::std::ice_fail(
+                    "ExtensionLowering: a named step with no name",
+                )
             }
 
             tok = st->name->name
@@ -624,8 +637,12 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
                       f:       unsafe *FunctionDecl,
                       ext:     unsafe *ExtensionDecl,
                       via_ptr: bool) -> unsafe *Expr {
-        var unsafe *x  = self.tu.strip_parens(obj)
-        var unsafe *up = self._upcast_to(f, ext, self._object_type(obj, via_ptr))
+        var unsafe *x = self.tu.strip_parens(obj)
+        var unsafe *up = self._upcast_to(
+            f,
+            ext,
+            self._object_type(obj, via_ptr),
+        )
 
         if f->is_operator && up == &null {
             if via_ptr {
@@ -688,7 +705,10 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
             return &null
         }
 
-        var unsafe *pointee = if (f->is_const()) => (self.sc->types->qualified(tgt, QUAL_CONST))
+        var unsafe *pointee = if (f->is_const()) => (self.sc->types->qualified(
+                                  tgt,
+                                  QUAL_CONST,
+                              ))
                               else => tgt
         return self.sc->types->pointer(pointee)
     }
@@ -772,7 +792,9 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
     priv fn _self_ptr(self, s_in: unsafe *Expr) -> unsafe *Expr {
         var unsafe *s = cast<NamedIdentExpr>(s_in)
         if s->type_ == &null {
-            kairo::std::ice_fail("ExtensionLowering: untyped `self`; ExprTyper gate failure")
+            kairo::std::ice_fail(
+                "ExtensionLowering: untyped `self`; ExprTyper gate failure",
+            )
         }
 
         var unsafe *use = NamedIdentExpr::create(self.ctx, s->range, s->name)
@@ -787,7 +809,9 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
     /// address is a `*const T`.
     priv fn _addr(self, e: unsafe *Expr, materialize: bool) -> unsafe *Expr {
         if e->type_ == &null {
-            kairo::std::ice_fail("ExtensionLowering: untyped receiver; ExprTyper gate failure")
+            kairo::std::ice_fail(
+                "ExtensionLowering: untyped receiver; ExprTyper gate failure",
+            )
         }
 
         var unsafe *u = UnaryOperatorExpr::create(
@@ -806,7 +830,9 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
 
     /// `*p`, an lvalue of what \p p points to.
     priv fn _deref(self, p: unsafe *Expr) -> unsafe *Expr {
-        var unsafe *pt = if (p->type_ != &null) => (self.tu.pointee(canon_unqual(p->type_)))
+        var unsafe *pt = if (p->type_ != &null) => (self.tu.pointee(
+                             canon_unqual(p->type_),
+                         ))
                          else => &null
         if pt == &null {
             kairo::std::ice_fail(

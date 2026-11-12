@@ -102,8 +102,8 @@ pub class VirtualFileManager {
     priv var _staged_data:   cxx::std::vector<kairo::std::ConstPtr<u8>>
     priv var _staged_size:   cxx::std::vector<u64>
     priv var _diag:          *DiagEngine
-    priv var _global_offset: usize                = 0
-    priv var _next_fid:      u32                  = 0
+    priv var _global_offset: usize                                      = 0
+    priv var _next_fid:      u32                                        = 0
 
     /// The phase the _segments invariant above is about, made checkable:
     /// how many preprocessor walks are running (Preprocessor brackets
@@ -375,7 +375,13 @@ pub class VirtualFileManager {
 
             var ofid = self._next_fid
             self._next_fid += 1
-            var unsafe *oseg = kairo::std::create<Self::Segment>(ofid, abs, 0, osize)
+            var unsafe *oseg = kairo::std::create<Self::Segment>(
+                ofid,
+                abs,
+                0,
+                osize,
+            )
+
             oseg->reserved = ores
             self._align_global_offset()
             oseg->global_base = self._global_offset
@@ -383,7 +389,12 @@ pub class VirtualFileManager {
             var odata: kairo::std::ConstPtr<u8> = self._staged_data[k]
             oseg->buffer.attach_raw(unsafe (odata as unsafe *u8), osize)
             self._segments.push_back(oseg)
-            self._map_pages((self._segments.size() - 1) as u32, oseg->global_base, ores)
+            self._map_pages(
+                (self._segments.size() - 1) as u32,
+                oseg->global_base,
+                ores,
+            )
+
             self._by_path[kairo::sref(abs_full)] = ofid
             return ofid
         }
@@ -429,7 +440,13 @@ pub class VirtualFileManager {
         var seg_fid = self._next_fid
         self._next_fid += 1
 
-        var unsafe *seg = kairo::std::create<Self::Segment>(seg_fid, abs, 0, total)
+        var unsafe *seg = kairo::std::create<Self::Segment>(
+            seg_fid,
+            abs,
+            0,
+            total,
+        )
+
         seg->parent   = parent   // segment owns its mapping from here
         seg->reserved = reserved
 
@@ -442,7 +459,11 @@ pub class VirtualFileManager {
         // Map the whole RESERVED span, not just the current bytes: an edit that
         // grows the file re-attaches in place, and the pages it grows into have
         // to already resolve to this segment.
-        self._map_pages((self._segments.size() - 1) as u32, seg->global_base, reserved)
+        self._map_pages(
+            (self._segments.size() - 1) as u32,
+            seg->global_base,
+            reserved,
+        )
 
         self._by_path[kairo::sref(abs_full)] = seg_fid
         return seg_fid
@@ -491,7 +512,11 @@ pub class VirtualFileManager {
                             data:            kairo::std::ConstPtr<u8>,
                             size:            usize) -> u32 {
         eval if defined!(DEBUG) {
-            self._check_not_walking("register_virtual", fake_path.full_path(), false)
+            self._check_not_walking(
+                "register_virtual",
+                fake_path.full_path(),
+                false,
+            )
         }
 
         var seg_fid = self._next_fid
@@ -513,7 +538,11 @@ pub class VirtualFileManager {
         // for a zero-byte segment it is the only one. Mapping `size` left an
         // empty virtual file with no pages at all, so its one location
         // resolved as a gap. The slot is already reserved (+1 above).
-        self._map_pages((self._segments.size() - 1) as u32, seg->global_base, size + 1)
+        self._map_pages(
+            (self._segments.size() - 1) as u32,
+            seg->global_base,
+            size + 1,
+        )
 
         return seg_fid
     }
@@ -705,7 +734,10 @@ pub class VirtualFileManager {
     /// \brief constructs a `SourceRange` covering a byte span.
     ///
     pub fn get_range(self, fid: u32, off: usize, len: usize) -> SourceRange {
-        return SourceRange::from_bounds(self.get_loc(fid, off), self.get_loc(fid, off + len))
+        return SourceRange::from_bounds(
+            self.get_loc(fid, off),
+            self.get_loc(fid, off + len),
+        )
     }
 
 

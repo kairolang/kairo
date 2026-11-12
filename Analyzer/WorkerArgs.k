@@ -18,25 +18,25 @@
 
 // --- the worker's own words -------------------------------------------------
 /// First word after the executable: the process is a worker, not the server.
-pub const WA_WORKER:        string = "--worker"
+pub const WA_WORKER: string = "--worker"
 /// The live index worker, which stays up (Index/LiveWorker.k).
-pub const WA_INDEX_SERVER:  string = "--index-server"
+pub const WA_INDEX_SERVER: string = "--index-server"
 /// The syntax worker, which stays up (Index/Worker.k syntax_server_main).
 pub const WA_SYNTAX_SERVER: string = "--syntax-server"
 /// `<file>`: one syntax pass of that file, as a process.
-pub const WA_SYNTAX_ONLY:   string = "--syntax-only"
+pub const WA_SYNTAX_ONLY: string = "--syntax-only"
 /// The clangd bridge's header job: the entry is checked as the module it is.
-pub const WA_AS_MODULE:     string = "--as-module"
+pub const WA_AS_MODULE: string = "--as-module"
 /// `<dir>`: the directory the entry's arguments are relative to.
-pub const WA_CWD:           string = "--cwd"
+pub const WA_CWD: string = "--cwd"
 /// `<dir>`: index every file under the project, not only the graph's.
-pub const WA_ROOT:          string = "--root"
+pub const WA_ROOT: string = "--root"
 /// `<path> <file>`: the buffer for \p path is the text of \p file.
-pub const WA_OVERLAY:       string = "--overlay"
+pub const WA_OVERLAY: string = "--overlay"
 /// `<file>`: where the count of checked files is written as it goes.
-pub const WA_PROGRESS:      string = "--progress"
+pub const WA_PROGRESS: string = "--progress"
 /// Ends the worker's words; the entry's kairo arguments follow.
-pub const WA_END:           string = "--"
+pub const WA_END: string = "--"
 
 // --- compiler flags the server and the workers add to an entry's ------------
 pub const CF_TYPE_CHECK_ONLY:          string = "--type-check-only"

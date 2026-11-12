@@ -25,11 +25,11 @@ import AST::Context::ASTContext::ASTContext
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::LangItems::builtin_root_name
+import AST::Node::Casting::dyn_cast
 import AST::Node::Declarations::{
     FnBodyKind,
     FunctionDecl,
 }
-import AST::Node::Casting::dyn_cast
 import Driver::CompilerInstance::CompilerInstance
 import std::io
 
@@ -75,9 +75,9 @@ extend CompilerInstance {
             }
         }
 
-        var broken   = llvm::DenseSet<u64>()
-        var in_graph = llvm::DenseSet<u64>()
-        var owned: u32 = 0
+        var broken       = llvm::DenseSet<u64>()
+        var in_graph     = llvm::DenseSet<u64>()
+        var owned:   u32 = 0
         for var f: u32 in fids {
             if self.is_foreign_fid(f) {
                 continue
@@ -102,7 +102,8 @@ extend CompilerInstance {
             return false
         }
 
-        if (!self.invocation()->pp.prelude_path.empty()) || self.invocation()->pp.force_includes.size() > 0 {
+        if (!self.invocation()->pp.prelude_path.empty())
+            || self.invocation()->pp.force_includes.size() > 0 {
             return false
         }
 
@@ -116,8 +117,8 @@ extend CompilerInstance {
                 continue
             }
 
-            var unsafe *ctx = gs->get_context(f)
-            var *segs = &ctx->module_base.segments
+            var unsafe *ctx  = gs->get_context(f)
+            var        *segs = &ctx->module_base.segments
             if segs->size() > 0 && (*segs)[0].name == bsym {
                 return false
             }
@@ -212,7 +213,9 @@ extend CompilerInstance {
         // entry (fids[0]) or only what it imports, and how much it skipped.
         if cxx::std::getenv(r"KAIRO_DEBUG_SYNTAX_RECOVERY") != &null && fids.size() > 0 {
             var entry = if skipped.contains(fids[0] as u64) => "skipped" else => "checked"
-            io::eprintln(f"syntax-recovery: entry {entry}, {skipped.size()} of {in_graph.size()} files skipped, {recovered.size()} checked without their broken bodies")
+            io::eprintln(
+                f"syntax-recovery: entry {entry}, {skipped.size()} of {in_graph.size()} files skipped, {recovered.size()} checked without their broken bodies",
+            )
         }
 
         return true
@@ -223,7 +226,10 @@ extend CompilerInstance {
     priv fn _drop_recovered_bodies(self, gs: unsafe *GlobalDisambigTable, f: u32) {
         var unsafe *rtu = gs->get_context(f)->tu
         for var i: usize = 0; i < rtu->recovered_bodies.size(); ++i {
-            var unsafe *fd = dyn_cast<FunctionDecl>(*rtu->recovered_bodies.get(i))
+            var unsafe *fd = dyn_cast<FunctionDecl>(
+                *rtu->recovered_bodies.get(i),
+            )
+
             if fd == &null {
                 continue
             }
@@ -231,11 +237,14 @@ extend CompilerInstance {
             // For Scripts/syntax_recovery_diff.py: a diagnostic inside a
             // dropped body would be a cascade; one outside it is about
             // healthy code.
-            if cxx::std::getenv(r"KAIRO_DEBUG_SYNTAX_RECOVERY") != &null && fd->body_block != &null {
+            if cxx::std::getenv(r"KAIRO_DEBUG_SYNTAX_RECOVERY") != &null
+                && fd->body_block != &null {
                 var unsafe *sm = self.sm()
-                var a = sm->get_line_col(fd->body_block->range.start)
-                var b = sm->get_line_col(fd->body_block->range.end)
-                io::eprintln(f"syntax-recovery: dropped body {sm->get_filename(f)}:{a.line}-{b.line}")
+                var        a   = sm->get_line_col(fd->body_block->range.start)
+                var        b   = sm->get_line_col(fd->body_block->range.end)
+                io::eprintln(
+                    f"syntax-recovery: dropped body {sm->get_filename(f)}:{a.line}-{b.line}",
+                )
             }
 
             fd->body_block     = &null
@@ -303,13 +312,21 @@ extend CompilerInstance {
         }
 
         var unsafe *tu = ctx->tu
-        if tu->recovered_bodies.size() == 0 || tu->recovered_errors != ctx->diag_sink.error_count() {
+        if tu->recovered_bodies.size() == 0
+            || tu->recovered_errors != ctx->diag_sink.error_count() {
             return false
         }
 
         for var i: usize = 0; i < tu->recovered_bodies.size(); ++i {
-            var unsafe *fd = dyn_cast<FunctionDecl>(*tu->recovered_bodies.get(i))
-            if fd == &null || fd->is_out_of_line() || fd->is_constexpr() || fd->is_inline() || fd->has_where() {
+            var unsafe *fd = dyn_cast<FunctionDecl>(
+                *tu->recovered_bodies.get(i),
+            )
+
+            if fd == &null
+                || fd->is_out_of_line()
+                || fd->is_constexpr()
+                || fd->is_inline()
+                || fd->has_where() {
                 return false
             }
         }

@@ -121,7 +121,10 @@ pub class CtorInitLowering derives ASTWriter<CtorInitLowering> {
     /// that is empty (an S_post with nothing after the frontier).
     priv fn _span(self, body: unsafe *CompoundStmt, from: usize, to: usize) -> SourceRange {
         if from >= to {
-            return SourceRange::from_bounds(body->range.end.with_offset(-1), 1 as u32)
+            return SourceRange::from_bounds(
+                body->range.end.with_offset(-1),
+                1 as u32,
+            )
         }
 
         return body->body[from]->range | body->body[to - 1]->range

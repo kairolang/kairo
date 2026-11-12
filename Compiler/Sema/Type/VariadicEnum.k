@@ -135,7 +135,10 @@ pub class VariadicEnum {
             return false
         }
 
-        var unsafe *g = dyn_cast<GenericParamType>(canon_unqual(f->type_->canonical))
+        var unsafe *g = dyn_cast<GenericParamType>(
+            canon_unqual(f->type_->canonical),
+        )
+
         return g != &null && g->is_pack
     }
 

@@ -166,14 +166,22 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
 
         self._resolve(n)
         self._open.push_back(n)
-        var unsafe *out = RecursiveASTVisitor<ClosureCaptures>::traverse_closure_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<ClosureCaptures>::traverse_closure_expr(
+            self,
+            n,
+        )
+
         self._open.pop_back()
         return out
     }
 
     fn traverse_function_decl(self, n: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
         self._fn_depth += 1
-        var unsafe *out = RecursiveASTVisitor<ClosureCaptures>::traverse_function_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<ClosureCaptures>::traverse_function_decl(
+            self,
+            n,
+        )
+
         self._fn_depth -= 1
         return out
     }
@@ -188,8 +196,12 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
             return n
         }
 
-        var unsafe *out = RecursiveASTVisitor<ClosureCaptures>::traverse_decl_stmt(self, n)
-        var unsafe *d   = n->decl
+        var unsafe *out = RecursiveASTVisitor<ClosureCaptures>::traverse_decl_stmt(
+            self,
+            n,
+        )
+
+        var unsafe *d = n->decl
         if d == &null {
             return out
         }
@@ -382,7 +394,12 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
 
         n->cap_decls.from_vec(unsafe &decls, self.sc->ctx)
         n->cap_modes.from_vec(unsafe &modes, self.sc->ctx)
-        n->cap_via_ptr.from_buf(unsafe (via.data() as unsafe *bool), via.size(), self.sc->ctx)
+        n->cap_via_ptr.from_buf(
+            unsafe (via.data() as unsafe *bool),
+            via.size(),
+            self.sc->ctx,
+        )
+
         n->cap_uses.from_vec(unsafe &uses, self.sc->ctx)
         n->caps_resolved = true
     }
@@ -510,15 +527,24 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
         b.first(at_use->range)
         var at = self._name_range(d)
         if at.is_valid() {
-            b.note(at.start, f"'{nm}' is declared here, outside the closure")->child_first(at)
+            b.note(at.start, f"'{nm}' is declared here, outside the closure")->child_first(
+                at,
+            )
         }
 
         if n->explicit_no_capture {
             if n->capture_range.is_valid() {
                 if is_self {
-                    b.remove(n->capture_range, "capture by default, which takes 'self'")
+                    b.remove(
+                        n->capture_range,
+                        "capture by default, which takes 'self'",
+                    )
                 } else {
-                    b.fix(n->capture_range, f"|{nm}|", f"capture '{nm}' by copy")
+                    b.fix(
+                        n->capture_range,
+                        f"|{nm}|",
+                        f"capture '{nm}' by copy",
+                    )
                 }
             }
         } else {
@@ -531,7 +557,11 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
             }
 
             if last != &null {
-                b.insert(last->name.range.end, f", {nm}", f"capture '{nm}' by copy")
+                b.insert(
+                    last->name.range.end,
+                    f", {nm}",
+                    f"capture '{nm}' by copy",
+                )
             }
         }
 

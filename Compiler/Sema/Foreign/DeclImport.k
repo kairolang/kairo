@@ -229,10 +229,12 @@ pub class DeclImport {
                   spec:    unsafe *clang::Decl,
                   own_usr: unsafe *llvm::StringMap<unsafe *Decl>) {
         if self._mode != ImportMode::HeaderWalk {
-            kairo::std::ice_fail("DeclImport::begin_fill on an importer already filling")
+            kairo::std::ice_fail(
+                "DeclImport::begin_fill on an importer already filling",
+            )
         }
 
-        self._mode        = if (own_usr != &null) => (ImportMode::VariantFill) else => (ImportMode::Fill)
+        self._mode = if (own_usr != &null) => (ImportMode::VariantFill) else => (ImportMode::Fill)
         self._fill_target = target
         self._fill_scope  = shell
         self._fill_spec   = spec
@@ -400,7 +402,10 @@ pub class DeclImport {
     }
 
     priv fn _str(self, s: llvm::StringRef) -> string {
-        return string(unsafe ((s.data() as unsafe *const u8) as *const u8), s.size())
+        return string(
+            unsafe ((s.data() as unsafe *const u8) as *const u8),
+            s.size(),
+        )
     }
 
     priv fn _qual(self, d: unsafe *const clang::NamedDecl) -> string {
@@ -411,7 +416,10 @@ pub class DeclImport {
         var os                  = llvm::raw_string_ostream(&s)
         d->printQualifiedName(&os, pol)
         os.flush()
-        return "::" + string(unsafe ((s.data() as unsafe *const u8) as *const u8), s.size())
+        return "::" + string(
+            unsafe ((s.data() as unsafe *const u8) as *const u8),
+            s.size(),
+        )
     }
 
     /// # tables
@@ -457,7 +465,10 @@ pub class DeclImport {
 
         var unsafe *rd = clang::Decl::castFromDeclContext(dc)
         if rd != &null {
-            var unsafe *kd  = self._find((TypeImport::usr_of(rd->getCanonicalDecl())).str())
+            var unsafe *kd = self._find(
+                (TypeImport::usr_of(rd->getCanonicalDecl())).str(),
+            )
+
             var unsafe *kdc = NameLookup::context_of(kd)
             if kdc != &null {
                 return kdc
@@ -475,7 +486,9 @@ pub class DeclImport {
         if dc->dc_symbols == &null {
             eval if defined!(DEBUG) {
                 if self.in_fill() && dc != self._fill_scope && !self._minted_here(dc->dc_owner) {
-                    kairo::std::ice_fail("DeclImport: a fill would give a published scope its first table (P855)")
+                    kairo::std::ice_fail(
+                        "DeclImport: a fill would give a published scope its first table (P855)",
+                    )
                 }
             }
 
@@ -581,7 +594,10 @@ pub class DeclImport {
 
         b.first(d->range, f"'{mn}' is not a member of the '{on}' Kairo uses")
         if owner != &null && owner->range.is_valid() {
-            b.note(owner->range.start, f"the definition of '{on}' Kairo uses; one program sees one definition of each C/C++ entity, so give one of the two a different name")
+            b.note(
+                owner->range.start,
+                f"the definition of '{on}' Kairo uses; one program sees one definition of each C/C++ entity, so give one of the two a different name",
+            )
         }
 
         b.emit()
@@ -593,7 +609,10 @@ pub class DeclImport {
             return "?"
         }
 
-        var unsafe *nd = llvm::dyn_cast<clang::NamedDecl>(unsafe (decl_clang(d) as unsafe *clang::Decl))
+        var unsafe *nd = llvm::dyn_cast<clang::NamedDecl>(
+            unsafe (decl_clang(d) as unsafe *clang::Decl),
+        )
+
         if nd == &null {
             return "?"
         }
@@ -619,7 +638,9 @@ pub class DeclImport {
         // `t->namespaces`, both read unlocked (see the file header).
         eval if defined!(DEBUG) {
             if self.in_fill() {
-                kairo::std::ice_fail(f"DeclImport: a fill would create namespace '{q}' in a published header (P855)")
+                kairo::std::ice_fail(
+                    f"DeclImport: a fill would create namespace '{q}' in a published header (P855)",
+                )
             }
         }
 
@@ -628,10 +649,16 @@ pub class DeclImport {
             parent = unsafe (t->tu as unsafe *DeclContext)
         }
 
-        var        at   = self.range_of(ns)
-        var        nm   = self._str(ns->getName())
-        var        name = self.ident(t, nm, self.name_range_of(ns))
-        var unsafe *m   = Declarations::ModuleDecl::create(t->ctx, at, name, parent)
+        var at   = self.range_of(ns)
+        var nm   = self._str(ns->getName())
+        var name = self.ident(t, nm, self.name_range_of(ns))
+        var unsafe *m = Declarations::ModuleDecl::create(
+            t->ctx,
+            at,
+            name,
+            parent,
+        )
+
         m->set_visibility(VisibilityKind::Public, at)
         m->is_inline   = ns->isInline()
         m->lexical_dc  = parent
@@ -754,7 +781,7 @@ pub class DeclImport {
         // A member of a variant fill's specialization is this instance's
         // own: the registry's entry under the same USR belongs to the other
         // Kairo instance of that specialization (see _fill_usr).
-        var own                    = self._mode == ImportMode::VariantFill && self._in_fill_spec(d)
+        var own = self._mode == ImportMode::VariantFill && self._in_fill_spec(d)
         var existing: unsafe *Decl = &null
         if own {
             var oi = self._fill_usr->find((usr).str())
@@ -897,7 +924,9 @@ pub class DeclImport {
             return self._str(tag->getTypedefNameForAnonDecl()->getName())
         }
 
-        return string(unsafe ((nd->getNameAsString().c_str() as unsafe *const u8) as *const u8))
+        return string(
+            unsafe ((nd->getNameAsString().c_str() as unsafe *const u8) as *const u8),
+        )
     }
 
     /// The empty Kairo node of the right kind, parented, no slots filled.
@@ -907,27 +936,54 @@ pub class DeclImport {
             return &null
         }
 
-        var at                = self.range_of(nd)
-        var name              = self.ident(t, self._display_name(nd), self.name_range_of(nd))
+        var at = self.range_of(nd)
+        var name = self.ident(t, self._display_name(nd), self.name_range_of(nd))
         var out: unsafe *Decl = &null
 
         match nd->getKind() {
             case clang::Decl::Namespace {
-                return (self.namespace_for(t, llvm::cast<clang::NamespaceDecl>(nd)))
+                return (self.namespace_for(
+                    t,
+                    llvm::cast<clang::NamespaceDecl>(nd),
+                ))
             } case clang::Decl::CXXRecord {
-                out = self._mint_record(t, llvm::cast<clang::CXXRecordDecl>(nd), at, name, parent)
+                out = self._mint_record(
+                    t,
+                    llvm::cast<clang::CXXRecordDecl>(nd),
+                    at,
+                    name,
+                    parent,
+                )
             } case clang::Decl::Record {
-                out = self._mint_record(t, llvm::cast<clang::RecordDecl>(nd), at, name, parent)
+                out = self._mint_record(
+                    t,
+                    llvm::cast<clang::RecordDecl>(nd),
+                    at,
+                    name,
+                    parent,
+                )
             } case clang::Decl::ClassTemplate {
                 var unsafe *ct = llvm::cast<clang::ClassTemplateDecl>(nd)
-                out = self._mint_record(t, ct->getTemplatedDecl(), at, name, parent)
+                out = self._mint_record(
+                    t,
+                    ct->getTemplatedDecl(),
+                    at,
+                    name,
+                    parent,
+                )
+
                 // The template decl and its templated record are one entity to us.
                 self._put(
-                    (TypeImport::usr_of(ct->getTemplatedDecl()->getCanonicalDecl())).str(),
+                    (TypeImport::usr_of(
+                        ct->getTemplatedDecl()->getCanonicalDecl(),
+                    )).str(),
                     out,
                 )
             } case clang::Decl::ClassTemplateSpecialization {
-                var unsafe *sp = llvm::cast<clang::ClassTemplateSpecializationDecl>(nd)
+                var unsafe *sp = llvm::cast<clang::ClassTemplateSpecializationDecl>(
+                    nd,
+                )
+
                 // Implicit: the registry's. Inside a fill too -- a nested
                 // implicit specialization is reached as a TYPE (`traits<A>`
                 // in a member typedef), gets its own shell from TypeImport,
@@ -938,38 +994,101 @@ pub class DeclImport {
 
                 out = self._mint_record(t, sp, at, name, parent)
             } case clang::Decl::ClassTemplatePartialSpecialization {
-                out = self._mint_record(t, llvm::cast<clang::CXXRecordDecl>(nd), at, name, parent)
+                out = self._mint_record(
+                    t,
+                    llvm::cast<clang::CXXRecordDecl>(nd),
+                    at,
+                    name,
+                    parent,
+                )
             } case clang::Decl::Enum {
-                var unsafe *e = Declarations::EnumDecl::create(t->ctx, at, name, parent)
+                var unsafe *e = Declarations::EnumDecl::create(
+                    t->ctx,
+                    at,
+                    name,
+                    parent,
+                )
+
                 // clang owns its values: open, so no niche and no checked `as`.
                 e->is_open = true
                 out        = e
             } case clang::Decl::Function {
-                out = Declarations::FunctionDecl::create(t->ctx, at, name, parent)
+                out = Declarations::FunctionDecl::create(
+                    t->ctx,
+                    at,
+                    name,
+                    parent,
+                )
             } case clang::Decl::CXXMethod {
-                out = Declarations::FunctionDecl::create(t->ctx, at, name, parent)
+                out = Declarations::FunctionDecl::create(
+                    t->ctx,
+                    at,
+                    name,
+                    parent,
+                )
             } case clang::Decl::CXXConstructor {
-                out = Declarations::FunctionDecl::create(t->ctx, at, name, parent)
+                out = Declarations::FunctionDecl::create(
+                    t->ctx,
+                    at,
+                    name,
+                    parent,
+                )
             } case clang::Decl::CXXDestructor {
-                out = Declarations::FunctionDecl::create(t->ctx, at, name, parent)
+                out = Declarations::FunctionDecl::create(
+                    t->ctx,
+                    at,
+                    name,
+                    parent,
+                )
             } case clang::Decl::CXXConversion {
-                out = Declarations::FunctionDecl::create(t->ctx, at, name, parent)
+                out = Declarations::FunctionDecl::create(
+                    t->ctx,
+                    at,
+                    name,
+                    parent,
+                )
             } case clang::Decl::FunctionTemplate {
                 var unsafe *ft = llvm::cast<clang::FunctionTemplateDecl>(nd)
-                out = Declarations::FunctionDecl::create(t->ctx, at, name, parent)
+                out = Declarations::FunctionDecl::create(
+                    t->ctx,
+                    at,
+                    name,
+                    parent,
+                )
+
                 self._put(
-                    (TypeImport::usr_of(ft->getTemplatedDecl()->getCanonicalDecl())).str(),
+                    (TypeImport::usr_of(
+                        ft->getTemplatedDecl()->getCanonicalDecl(),
+                    )).str(),
                     out,
                 )
             } case clang::Decl::Typedef {
-                out = Declarations::TypeAliasDecl::create(t->ctx, at, name, &null)
+                out = Declarations::TypeAliasDecl::create(
+                    t->ctx,
+                    at,
+                    name,
+                    &null,
+                )
             } case clang::Decl::TypeAlias {
-                out = Declarations::TypeAliasDecl::create(t->ctx, at, name, &null)
+                out = Declarations::TypeAliasDecl::create(
+                    t->ctx,
+                    at,
+                    name,
+                    &null,
+                )
             } case clang::Decl::TypeAliasTemplate {
                 var unsafe *at_ = llvm::cast<clang::TypeAliasTemplateDecl>(nd)
-                out = Declarations::TypeAliasDecl::create(t->ctx, at, name, &null)
+                out = Declarations::TypeAliasDecl::create(
+                    t->ctx,
+                    at,
+                    name,
+                    &null,
+                )
+
                 self._put(
-                    (TypeImport::usr_of(at_->getTemplatedDecl()->getCanonicalDecl())).str(),
+                    (TypeImport::usr_of(
+                        at_->getTemplatedDecl()->getCanonicalDecl(),
+                    )).str(),
                     out,
                 )
             } case clang::Decl::Var {
@@ -998,9 +1117,12 @@ pub class DeclImport {
                 fd->is_bitfield = f->isBitField()
                 out             = fd
             } case clang::Decl::EnumConstant {
-                var unsafe *ec              = llvm::cast<clang::EnumConstantDecl>(nd)
-                var unsafe *parent_enum     = llvm::dyn_cast<clang::EnumDecl>(ec->getDeclContext())
-                var        idx:         u32 = 0
+                var unsafe *ec = llvm::cast<clang::EnumConstantDecl>(nd)
+                var unsafe *parent_enum = llvm::dyn_cast<clang::EnumDecl>(
+                    ec->getDeclContext(),
+                )
+
+                var idx: u32 = 0
                 if parent_enum != &null {
                     for e in parent_enum->enumerators() {
                         if e == ec {
@@ -1011,9 +1133,20 @@ pub class DeclImport {
                     }
                 }
 
-                out = Declarations::EnumVariantDecl::create(t->ctx, at, name, idx)
+                out = Declarations::EnumVariantDecl::create(
+                    t->ctx,
+                    at,
+                    name,
+                    idx,
+                )
             } case clang::Decl::Concept {
-                var unsafe *i = Declarations::InterfaceDecl::create(t->ctx, at, name, parent)
+                var unsafe *i = Declarations::InterfaceDecl::create(
+                    t->ctx,
+                    at,
+                    name,
+                    parent,
+                )
+
                 i->is_cxx_concept = true
                 out               = i
             } default { // using, friend, static_assert, deduction guide, ...
@@ -1048,7 +1181,13 @@ pub class DeclImport {
                          name:   Token,
                          parent: unsafe *DeclContext) -> unsafe *Decl {
         if rd->isUnion() {
-            var unsafe *u = Declarations::UnionDecl::create(t->ctx, at, name, parent)
+            var unsafe *u = Declarations::UnionDecl::create(
+                t->ctx,
+                at,
+                name,
+                parent,
+            )
+
             u->ffi_is_union = true
             if rd->isCompleteDefinition() {
                 u->mark_definition()
@@ -1067,7 +1206,13 @@ pub class DeclImport {
                 || cxx_v->isPolymorphic()
                 || self._has_named_methods(cxx_v))
         if is_class || rd->isClass() {
-            var unsafe *c = Declarations::ClassDecl::create(t->ctx, at, name, parent)
+            var unsafe *c = Declarations::ClassDecl::create(
+                t->ctx,
+                at,
+                name,
+                parent,
+            )
+
             if rd->isCompleteDefinition() {
                 c->mark_definition()
             }
@@ -1080,7 +1225,13 @@ pub class DeclImport {
             return c
         }
 
-        var unsafe *s = Declarations::StructDecl::create(t->ctx, at, name, parent)
+        var unsafe *s = Declarations::StructDecl::create(
+            t->ctx,
+            at,
+            name,
+            parent,
+        )
+
         if rd->isCompleteDefinition() {
             s->mark_definition()
         }
@@ -1162,7 +1313,11 @@ pub class DeclImport {
             sp = self._display_name(nd)
         }
 
-        var us = string(unsafe ((usr.data() as unsafe *const u8) as *const u8), usr.size())
+        var us = string(
+            unsafe ((usr.data() as unsafe *const u8) as *const u8),
+            usr.size(),
+        )
+
         var unsafe *vset = unsafe (self._set as unsafe *void)
         var unsafe *vd   = unsafe (d as unsafe *void)
         decl_set_imported(kd, vd, us, sp, vset, t->fid)
@@ -1207,7 +1362,16 @@ pub class DeclImport {
             }
 
             if llvm::isa<clang::CXXDestructorDecl>(fn_) {
-                self.bind(t, dc, DeclName::op_name(TokenKind::KwFinally, TokenKind::TkUnknown), kd)
+                self.bind(
+                    t,
+                    dc,
+                    DeclName::op_name(
+                        TokenKind::KwFinally,
+                        TokenKind::TkUnknown,
+                    ),
+                    kd,
+                )
+
                 return
             }
 
@@ -1222,7 +1386,13 @@ pub class DeclImport {
             }
 
             if llvm::isa<clang::CXXConversionDecl>(fn_) {
-                self.bind(t, dc, DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), kd)
+                self.bind(
+                    t,
+                    dc,
+                    DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown),
+                    kd,
+                )
+
                 return
             }
         }
@@ -1242,7 +1412,13 @@ pub class DeclImport {
         var kw = self._hidden_tag_keyword(nd)
         if kw.size() > 0 {
             decl_set_ffi_tag_keyword(kd, kw) // monotonic: see FFILinkage::ffi_tag_keyword.
-            self.bind(t, dc, self._ident_key(t, dc, kw + " " + self._display_name(nd)), kd)
+            self.bind(
+                t,
+                dc,
+                self._ident_key(t, dc, kw + " " + self._display_name(nd)),
+                kd,
+            )
+
             return
         }
 
@@ -1263,7 +1439,12 @@ pub class DeclImport {
                 var unsafe *ins = llvm::dyn_cast<clang::NamespaceDecl>(cur)
                 if ins != &null && ins->isInline() {
                     var unsafe *idc = unsafe (self.namespace_for(t, ins) as unsafe *DeclContext)
-                    self.bind(t, idc, self._ident_key(t, idc, self._display_name(nd)), kd)
+                    self.bind(
+                        t,
+                        idc,
+                        self._ident_key(t, idc, self._display_name(nd)),
+                        kd,
+                    )
                 }
 
                 cur = cur->getParent()
@@ -1275,11 +1456,19 @@ pub class DeclImport {
         // and its enum's scope is not the using's to write into.
         var unsafe *ec = llvm::dyn_cast<clang::EnumConstantDecl>(nd)
         if ec != &null && self._redirect != NameRedirect::Using {
-            var unsafe *ed = llvm::dyn_cast<clang::EnumDecl>(ec->getDeclContext())
+            var unsafe *ed = llvm::dyn_cast<clang::EnumDecl>(
+                ec->getDeclContext(),
+            )
+
             if ed != &null && !ed->isScoped() {
                 var unsafe *outer = self.scope_for(t, ed->getDeclContext())
                 if outer != &null {
-                    self.bind(t, outer, self._ident_key(t, outer, self._display_name(nd)), kd)
+                    self.bind(
+                        t,
+                        outer,
+                        self._ident_key(t, outer, self._display_name(nd)),
+                        kd,
+                    )
                 }
             }
         }
@@ -1501,11 +1690,26 @@ pub class DeclImport {
 
         match d->getKind() {
             case clang::Decl::CXXRecord {
-                self._define_record(t, llvm::cast<clang::CXXRecordDecl>(d), kd, ti)
+                self._define_record(
+                    t,
+                    llvm::cast<clang::CXXRecordDecl>(d),
+                    kd,
+                    ti,
+                )
             } case clang::Decl::Record {
-                self._define_record_c(t, llvm::cast<clang::RecordDecl>(d), kd, ti)
+                self._define_record_c(
+                    t,
+                    llvm::cast<clang::RecordDecl>(d),
+                    kd,
+                    ti,
+                )
             } case clang::Decl::ClassTemplate {
-                self._define_class_template(t, llvm::cast<clang::ClassTemplateDecl>(d), kd, ti)
+                self._define_class_template(
+                    t,
+                    llvm::cast<clang::ClassTemplateDecl>(d),
+                    kd,
+                    ti,
+                )
             } case clang::Decl::ClassTemplateSpecialization {
                 self._define_spec(
                     t,
@@ -1525,15 +1729,45 @@ pub class DeclImport {
             } case clang::Decl::Enum {
                 self._define_enum(t, llvm::cast<clang::EnumDecl>(d), kd, ti)
             } case clang::Decl::Function {
-                self._define_function(t, llvm::cast<clang::FunctionDecl>(d), kd, ti, &null)
+                self._define_function(
+                    t,
+                    llvm::cast<clang::FunctionDecl>(d),
+                    kd,
+                    ti,
+                    &null,
+                )
             } case clang::Decl::CXXMethod {
-                self._define_function(t, llvm::cast<clang::FunctionDecl>(d), kd, ti, &null)
+                self._define_function(
+                    t,
+                    llvm::cast<clang::FunctionDecl>(d),
+                    kd,
+                    ti,
+                    &null,
+                )
             } case clang::Decl::CXXConstructor {
-                self._define_function(t, llvm::cast<clang::FunctionDecl>(d), kd, ti, &null)
+                self._define_function(
+                    t,
+                    llvm::cast<clang::FunctionDecl>(d),
+                    kd,
+                    ti,
+                    &null,
+                )
             } case clang::Decl::CXXDestructor {
-                self._define_function(t, llvm::cast<clang::FunctionDecl>(d), kd, ti, &null)
+                self._define_function(
+                    t,
+                    llvm::cast<clang::FunctionDecl>(d),
+                    kd,
+                    ti,
+                    &null,
+                )
             } case clang::Decl::CXXConversion {
-                self._define_function(t, llvm::cast<clang::FunctionDecl>(d), kd, ti, &null)
+                self._define_function(
+                    t,
+                    llvm::cast<clang::FunctionDecl>(d),
+                    kd,
+                    ti,
+                    &null,
+                )
             } case clang::Decl::FunctionTemplate {
                 var unsafe *ft = llvm::cast<clang::FunctionTemplateDecl>(d)
                 self._define_function(
@@ -1554,8 +1788,17 @@ pub class DeclImport {
             } case clang::Decl::TypeAliasTemplate {
                 var unsafe *at_ = llvm::cast<clang::TypeAliasTemplateDecl>(d)
                 var unsafe *td  = cast<Declarations::TypeAliasDecl>(kd)
-                self._generic_params(t, td, at_->getTemplateParameters(), ti, &td->generic_params)
-                td->aliased = ti->_import(at_->getTemplatedDecl()->getUnderlyingType())
+                self._generic_params(
+                    t,
+                    td,
+                    at_->getTemplateParameters(),
+                    ti,
+                    &td->generic_params,
+                )
+
+                td->aliased = ti->_import(
+                    at_->getTemplatedDecl()->getUnderlyingType(),
+                )
             } case clang::Decl::Var {
                 var unsafe *v  = llvm::cast<clang::VarDecl>(d)
                 var unsafe *kv = cast<Declarations::VariableDecl>(kd)
@@ -1563,7 +1806,10 @@ pub class DeclImport {
                 kv->is_thread = v->getTLSKind() != clang::VarDecl::TLS_None
             } case clang::Decl::Field {
                 var unsafe *f = llvm::cast<clang::FieldDecl>(d)
-                cast<Declarations::FieldDecl>(kd)->type_      = ti->_import(f->getType())
+                cast<Declarations::FieldDecl>(kd)->type_ = ti->_import(
+                    f->getType(),
+                )
+
                 cast<Declarations::FieldDecl>(kd)->is_mutable = f->isMutable()
             } case clang::Decl::EnumConstant { // value: EmitIR spells the enumerator by name.
                 0
@@ -1615,7 +1861,9 @@ pub class DeclImport {
                 return &null
             }
 
-            return self._find((TypeImport::usr_of(inner->getCanonicalDecl())).str())
+            return self._find(
+                (TypeImport::usr_of(inner->getCanonicalDecl())).str(),
+            )
         }
 
         if llvm::isa<clang::ClassTemplatePartialSpecializationDecl>(c) {
@@ -1624,12 +1872,16 @@ pub class DeclImport {
 
         var unsafe *rd = llvm::dyn_cast<clang::CXXRecordDecl>(c)
         if rd != &null && rd->getDescribedClassTemplate() != &null {
-            return self._find((TypeImport::usr_of(rd->getCanonicalDecl())).str())
+            return self._find(
+                (TypeImport::usr_of(rd->getCanonicalDecl())).str(),
+            )
         }
 
         var unsafe *fd = llvm::dyn_cast<clang::FunctionDecl>(c)
         if fd != &null && fd->getDescribedFunctionTemplate() != &null {
-            return self._find((TypeImport::usr_of(fd->getCanonicalDecl())).str())
+            return self._find(
+                (TypeImport::usr_of(fd->getCanonicalDecl())).str(),
+            )
         }
 
         return &null
@@ -1665,11 +1917,20 @@ pub class DeclImport {
         var fields = cxx::std::vector<unsafe *Declarations::FieldDecl>()
         self._collect_fields(t, def, &fields, ti)
         if isa<Declarations::StructDecl>(kd) {
-            cast<Declarations::StructDecl>(kd)->fields.from_vec(unsafe &fields, t->ctx)
+            cast<Declarations::StructDecl>(kd)->fields.from_vec(
+                unsafe &fields,
+                t->ctx,
+            )
         } else if isa<Declarations::UnionDecl>(kd) {
-            cast<Declarations::UnionDecl>(kd)->fields.from_vec(unsafe &fields, t->ctx)
+            cast<Declarations::UnionDecl>(kd)->fields.from_vec(
+                unsafe &fields,
+                t->ctx,
+            )
         } else if isa<Declarations::ClassDecl>(kd) {
-            cast<Declarations::ClassDecl>(kd)->fields.from_vec(unsafe &fields, t->ctx)
+            cast<Declarations::ClassDecl>(kd)->fields.from_vec(
+                unsafe &fields,
+                t->ctx,
+            )
         }
 
         self._layout(def, kd)
@@ -1693,7 +1954,10 @@ pub class DeclImport {
                 continue
             }
 
-            var unsafe *km = self._find((TypeImport::usr_of(m->getCanonicalDecl())).str())
+            var unsafe *km = self._find(
+                (TypeImport::usr_of(m->getCanonicalDecl())).str(),
+            )
+
             if km == &null {
                 continue
             }
@@ -1775,7 +2039,10 @@ pub class DeclImport {
                 continue
             }
 
-            var unsafe *kf = self._find((TypeImport::usr_of(f->getCanonicalDecl())).str())
+            var unsafe *kf = self._find(
+                (TypeImport::usr_of(f->getCanonicalDecl())).str(),
+            )
+
             if kf == &null {
                 continue
             }
@@ -1875,7 +2142,9 @@ pub class DeclImport {
                          ti:      unsafe *TypeImport,
                          partial: bool) {
         var unsafe *prim = self._find(
-            (TypeImport::usr_of(sp->getSpecializedTemplate()->getCanonicalDecl())).str(),
+            (TypeImport::usr_of(
+                sp->getSpecializedTemplate()->getCanonicalDecl(),
+            )).str(),
         )
 
         if prim == &null {
@@ -1934,10 +2203,19 @@ pub class DeclImport {
         )
 
         if partial {
-            var unsafe *ps  = llvm::cast<clang::ClassTemplatePartialSpecializationDecl>(sp)
+            var unsafe *ps = llvm::cast<clang::ClassTemplatePartialSpecializationDecl>(
+                sp,
+            )
+
             var unsafe *gps = decl_generic_params_slot(kd)
             if gps != &null {
-                self._generic_params(t, kd, ps->getTemplateParameters(), ti, &*gps)
+                self._generic_params(
+                    t,
+                    kd,
+                    ps->getTemplateParameters(),
+                    ti,
+                    &*gps,
+                )
             }
 
             self.instances->register_partial(rep, kd)
@@ -1958,11 +2236,20 @@ pub class DeclImport {
         decl_set_instantiated_from(kd, prim)
         // spec_args has no slot accessor: the one per-kind write left.
         if isa<Declarations::ClassDecl>(kd) {
-            cast<Declarations::ClassDecl>(kd)->spec_args.from_vec(unsafe &args, ctx)
+            cast<Declarations::ClassDecl>(kd)->spec_args.from_vec(
+                unsafe &args,
+                ctx,
+            )
         } else if isa<Declarations::StructDecl>(kd) {
-            cast<Declarations::StructDecl>(kd)->spec_args.from_vec(unsafe &args, ctx)
+            cast<Declarations::StructDecl>(kd)->spec_args.from_vec(
+                unsafe &args,
+                ctx,
+            )
         } else if isa<Declarations::UnionDecl>(kd) {
-            cast<Declarations::UnionDecl>(kd)->spec_args.from_vec(unsafe &args, ctx)
+            cast<Declarations::UnionDecl>(kd)->spec_args.from_vec(
+                unsafe &args,
+                ctx,
+            )
         }
     }
 
@@ -2068,7 +2355,10 @@ pub class DeclImport {
         ke->underlying = ti->_import(def->getIntegerType())
         var vs = cxx::std::vector<unsafe *Declarations::EnumVariantDecl>()
         for ec in def->enumerators() {
-            var unsafe *kv = self._find((TypeImport::usr_of(ec->getCanonicalDecl())).str())
+            var unsafe *kv = self._find(
+                (TypeImport::usr_of(ec->getCanonicalDecl())).str(),
+            )
+
             if kv == &null {
                 continue
             }
@@ -2103,9 +2393,14 @@ pub class DeclImport {
         var        is_ctor = llvm::isa<clang::CXXConstructorDecl>(fd)
         var        is_dtor = llvm::isa<clang::CXXDestructorDecl>(fd)
         if m != &null && !m->isStatic() {
-            var        at       = self.name_range_of(fd)
-            var        self_tok = self._tok(t, at, TokenKind::KwSelf, "self")
-            var unsafe *sp      = Declarations::ParamDecl::create_self(t->ctx, at, self_tok)
+            var at       = self.name_range_of(fd)
+            var self_tok = self._tok(t, at, TokenKind::KwSelf, "self")
+            var unsafe *sp = Declarations::ParamDecl::create_self(
+                t->ctx,
+                at,
+                self_tok,
+            )
+
             sp->type_    = ti->_import(m->getThisType()->getPointeeType())
             sp->is_const = m->isConst()
             sp->index    = 0
@@ -2216,14 +2511,25 @@ pub class DeclImport {
             kf->is_operator       = true
             kf->ffi_conversion_op = true
             var toks = cxx::std::vector<Token>()
-            toks.push_back(self._tok(t, self.name_range_of(fd), TokenKind::KwAs, "as"))
+            toks.push_back(
+                self._tok(t, self.name_range_of(fd), TokenKind::KwAs, "as"),
+            )
+
             kf->op_token.from_vec(unsafe &toks, t->ctx)
         }
 
         if is_dtor {
             kf->is_operator = true
             var toks = cxx::std::vector<Token>()
-            toks.push_back(self._tok(t, self.name_range_of(fd), TokenKind::KwFinally, "finally"))
+            toks.push_back(
+                self._tok(
+                    t,
+                    self.name_range_of(fd),
+                    TokenKind::KwFinally,
+                    "finally",
+                ),
+            )
+
             kf->op_token.from_vec(unsafe &toks, t->ctx)
         }
 

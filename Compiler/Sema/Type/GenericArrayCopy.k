@@ -66,11 +66,11 @@ pub class GenericArrayCopyScan derives RecursiveASTVisitor<GenericArrayCopyScan>
     priv var _bindings: cxx::std::vector<DeducedBinding>
 
     /// The first copy found, or null; `copied` says what it is.
-    pub var site:   unsafe *Expr             = &null
-    pub var copied: string                   = ""
+    pub var site:   unsafe *Expr = &null
+    pub var copied: string       = ""
     /// The parameter it copies, and the array the call binds it to.
-    pub var param:  unsafe *GenericParamType = &null
-    pub var array:  unsafe *Type             = &null
+    pub var param: unsafe *GenericParamType = &null
+    pub var array: unsafe *Type             = &null
 
     fn GenericArrayCopyScan(self, const bindings: cxx::std::vector<DeducedBinding>) {
         self._bindings = bindings
@@ -82,7 +82,10 @@ pub class GenericArrayCopyScan derives RecursiveASTVisitor<GenericArrayCopyScan>
             return false
         }
 
-        var unsafe *c = if (t->canonical != &null) => (canon_unqual(t->canonical)) else => canon_unqual(t)
+        var unsafe *c = if (t->canonical != &null) => (canon_unqual(
+                            t->canonical,
+                        ))
+                        else => canon_unqual(t)
         var unsafe *g = dyn_cast<GenericParamType>(c)
         if g == &null || g->is_pack {
             return false

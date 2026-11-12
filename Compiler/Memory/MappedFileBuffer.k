@@ -150,7 +150,7 @@ pub class MappedFileBuffer {
         }
 
         self._region.attach(unsafe &parent->_region, offset, length)
-        self._view        = MemoryBuffer(self._region.data(), self._region.size())
+        self._view = MemoryBuffer(self._region.data(), self._region.size())
         self._owns_region = false
     }
 
@@ -168,8 +168,12 @@ pub class MappedFileBuffer {
         self._region._size  = size
         self._region._valid = data != &null
         self._region._owns  = false
-        self._view          = MemoryBuffer(unsafe (data as kairo::std::ConstPtr<u8>), size)
-        self._owns_region   = false
+        self._view = MemoryBuffer(
+            unsafe (data as kairo::std::ConstPtr<u8>),
+            size,
+        )
+
+        self._owns_region = false
     }
 }
 

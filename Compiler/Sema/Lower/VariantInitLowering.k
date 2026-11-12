@@ -112,16 +112,28 @@ pub class VariantInitLowering derives ASTWriter<VariantInitLowering> {
     /// # entry points: the three nodes a construction is written as
 
     fn transform_named_initializer_expr(self, n: unsafe *NamedInitializerExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<VariantInitLowering>::transform_named_initializer_expr(self, n)
+        var unsafe *out = ASTWriter<VariantInitLowering>::transform_named_initializer_expr(
+            self,
+            n,
+        )
+
         if n->variant_decl == &null {
             return out
         }
 
-        return self._lower(unsafe (n as unsafe *Expr), n->variant_decl, n->fields)
+        return self._lower(
+            unsafe (n as unsafe *Expr),
+            n->variant_decl,
+            n->fields,
+        )
     }
 
     fn transform_chain_expr(self, n: unsafe *ChainExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<VariantInitLowering>::transform_chain_expr(self, n)
+        var unsafe *out = ASTWriter<VariantInitLowering>::transform_chain_expr(
+            self,
+            n,
+        )
+
         if n->variant_decl == &null {
             return out
         }
@@ -134,7 +146,11 @@ pub class VariantInitLowering derives ASTWriter<VariantInitLowering> {
     }
 
     fn transform_named_ident_expr(self, n: unsafe *NamedIdentExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<VariantInitLowering>::transform_named_ident_expr(self, n)
+        var unsafe *out = ASTWriter<VariantInitLowering>::transform_named_ident_expr(
+            self,
+            n,
+        )
+
         if n->variant_decl == &null {
             return out
         }
@@ -189,9 +205,15 @@ pub class VariantInitLowering derives ASTWriter<VariantInitLowering> {
             )
         }
 
-        var unsafe *vi = VariantInitExpr::create(self.ctx, n->range, en, idx as u32)
-        var        fl  = self.list_builder<unsafe *Expr>()
-        var        ol  = self.list_builder<u32>()
+        var unsafe *vi = VariantInitExpr::create(
+            self.ctx,
+            n->range,
+            en,
+            idx as u32,
+        )
+
+        var fl = self.list_builder<unsafe *Expr>()
+        var ol = self.list_builder<u32>()
         for var k: usize = 0; k < np; ++k {
             var unsafe *want     = unsafe (v->payload[k] as unsafe *Decl)
             var        at:   i32 = -1
@@ -249,7 +271,9 @@ pub class VariantInitLowering derives ASTWriter<VariantInitLowering> {
         }
 
         if en == &null {
-            kairo::std::ice_fail("VariantInitLowering: a variant with no owning enum")
+            kairo::std::ice_fail(
+                "VariantInitLowering: a variant with no owning enum",
+            )
         }
 
         return en
@@ -263,6 +287,8 @@ pub class VariantInitLowering derives ASTWriter<VariantInitLowering> {
             }
         }
 
-        kairo::std::ice_fail("VariantInitLowering: a variant missing from its own enum's list")
+        kairo::std::ice_fail(
+            "VariantInitLowering: a variant missing from its own enum's list",
+        )
     }
 }

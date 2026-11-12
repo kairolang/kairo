@@ -171,7 +171,11 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
             )
 
             b.first(at)
-            b.note(at.start, "LLVM implements this calling convention on x86-64 and AArch64 only")
+            b.note(
+                at.start,
+                "LLVM implements this calling convention on x86-64 and AArch64 only",
+            )
+
             b.emit()
             return true
         }
@@ -283,8 +287,15 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
     /// exists, the one the override was meant for; the fix is the base's
     /// parameter form (`const x: D` for `const D&`).
     priv fn _overrides_nothing(self, cd: unsafe *ClassDecl, m: unsafe *FunctionDecl) {
-        var        bt:    unsafe *Type = &null
-        var unsafe *meant              = overridden_at(unsafe &self._tu, cd, m, unsafe &bt, true)
+        var bt: unsafe *Type = &null
+        var unsafe *meant = overridden_at(
+            unsafe &self._tu,
+            cd,
+            m,
+            unsafe &bt,
+            true,
+        )
+
         if meant == &null {
             return
         }
@@ -302,7 +313,11 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
             )
 
             c.first(m->range)
-            c.note(meant->range.start, f"the base method of that name, which takes '{theirs}'")
+            c.note(
+                meant->range.start,
+                f"the base method of that name, which takes '{theirs}'",
+            )
+
             c.child_first(meant->range)
             c.emit()
             return
@@ -370,7 +385,9 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
         if dc != &null && dc->is_type_scope() && f->is_method() {
             var unsafe *owner = dc->owner_decl()
             if owner != &null
-                && self._tu.decl_name(unsafe (f as unsafe *Decl)) == self._tu.decl_name(owner) {
+                && self._tu.decl_name(unsafe (f as unsafe *Decl)) == self._tu.decl_name(
+                    owner,
+                ) {
                 return "a constructor"
             }
         }

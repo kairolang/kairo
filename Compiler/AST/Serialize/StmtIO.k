@@ -129,7 +129,10 @@ fn io_stmt_base(ar: unsafe *ASTArchive, s: unsafe *Stmt) {
     io_annotations<Stmt>(ar, s)
     eval if defined!(DEBUG) {
         if s->kind != StmtKind::RecoveryStmt {
-            ar->sema_is(s->recovery_kind == StmtKind::RecoveryStmt, "Stmt::recovery_kind")
+            ar->sema_is(
+                s->recovery_kind == StmtKind::RecoveryStmt,
+                "Stmt::recovery_kind",
+            )
         }
     }
 }
@@ -235,7 +238,10 @@ fn io_conditional_stmt(ar: unsafe *ASTArchive, n: unsafe *Statements::Conditiona
     ar->num8(&n->else_hint)
     eval if defined!(DEBUG) {
         ar->sema_false(n->eval_deferred, "ConditionalStmt::eval_deferred")
-        ar->sema_zero((n->eval_taken as u8) as u64, "ConditionalStmt::eval_taken")
+        ar->sema_zero(
+            (n->eval_taken as u8) as u64,
+            "ConditionalStmt::eval_taken",
+        )
     }
 }
 
@@ -258,7 +264,11 @@ fn io_ranged_for_stmt(ar: unsafe *ASTArchive, n: unsafe *Statements::RangedForSt
         ar->sema_null<Expr>(n->ev_lo, "RangedForStmt::ev_lo")
         ar->sema_null<Expr>(n->ev_hi, "RangedForStmt::ev_hi")
         ar->sema_false(n->ev_incl, "RangedForStmt::ev_incl")
-        ar->sema_is(n->iter_kind == Statements::IterKind::None, "RangedForStmt::iter_kind")
+        ar->sema_is(
+            n->iter_kind == Statements::IterKind::None,
+            "RangedForStmt::iter_kind",
+        )
+
         ar->sema_null<Decl>(n->iter_op, "RangedForStmt::iter_op")
         ar->sema_null<Type>(n->iter_elem, "RangedForStmt::iter_elem")
         ar->sema_is(n->iter_inst == &null, "RangedForStmt::iter_inst")
@@ -338,7 +348,8 @@ fn io_context_binding_stmt(ar: unsafe *ASTArchive, n: unsafe *Statements::Contex
     ar->stmt<Statements::CompoundStmt>(&n->body)
 }
 
-fn io_destructuring_decl_stmt(ar: unsafe *ASTArchive, n: unsafe *Statements::DestructuringDeclStmt) {
+fn io_destructuring_decl_stmt(ar: unsafe *ASTArchive,
+                              n:  unsafe *Statements::DestructuringDeclStmt) {
     ar->en<Statements::DestructureKind>(&n->kind_)
     ar->flag(&n->leading_is_const)
     io_bindings(ar, &n->bindings)
@@ -384,7 +395,10 @@ pub fn stmt_io(ar: unsafe *ASTArchive, s: unsafe *Stmt) {
         case StmtKind::CompoundStmt {
             io_compound_stmt(ar, unsafe (s as unsafe *Statements::CompoundStmt))
         } case StmtKind::ExpressionStmt {
-            io_expression_stmt(ar, unsafe (s as unsafe *Statements::ExpressionStmt))
+            io_expression_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::ExpressionStmt),
+            )
         } case StmtKind::DeclStmt {
             io_decl_stmt(ar, unsafe (s as unsafe *Statements::DeclStmt))
         } case StmtKind::ReturnStmt {
@@ -398,43 +412,88 @@ pub fn stmt_io(ar: unsafe *ASTArchive, s: unsafe *Stmt) {
         } case StmtKind::YieldStmt {
             io_yield_stmt(ar, unsafe (s as unsafe *Statements::YieldStmt))
         } case StmtKind::RuntimeAssertStmt {
-            io_runtime_assert_stmt(ar, unsafe (s as unsafe *Statements::RuntimeAssertStmt))
+            io_runtime_assert_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::RuntimeAssertStmt),
+            )
         } case StmtKind::StaticAssertStmt {
-            io_static_assert_stmt(ar, unsafe (s as unsafe *Statements::StaticAssertStmt))
+            io_static_assert_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::StaticAssertStmt),
+            )
         } case StmtKind::LabelIntrinsicStmt {
-            io_label_intrinsic_stmt(ar, unsafe (s as unsafe *Statements::LabelIntrinsicStmt))
+            io_label_intrinsic_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::LabelIntrinsicStmt),
+            )
         } case StmtKind::JumpIntrinsicStmt {
-            io_jump_intrinsic_stmt(ar, unsafe (s as unsafe *Statements::JumpIntrinsicStmt))
+            io_jump_intrinsic_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::JumpIntrinsicStmt),
+            )
         } case StmtKind::ConditionalStmt {
-            io_conditional_stmt(ar, unsafe (s as unsafe *Statements::ConditionalStmt))
+            io_conditional_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::ConditionalStmt),
+            )
         } case StmtKind::WhileLoopStmt {
-            io_while_loop_stmt(ar, unsafe (s as unsafe *Statements::WhileLoopStmt))
+            io_while_loop_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::WhileLoopStmt),
+            )
         } case StmtKind::LoopStmt {
             io_loop_stmt(ar, unsafe (s as unsafe *Statements::LoopStmt))
         } case StmtKind::RangedForStmt {
-            io_ranged_for_stmt(ar, unsafe (s as unsafe *Statements::RangedForStmt))
+            io_ranged_for_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::RangedForStmt),
+            )
         } case StmtKind::IndexedForStmt {
-            io_indexed_for_stmt(ar, unsafe (s as unsafe *Statements::IndexedForStmt))
+            io_indexed_for_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::IndexedForStmt),
+            )
         } case StmtKind::MatchStmt {
             io_match_stmt(ar, unsafe (s as unsafe *Statements::MatchStmt))
         } case StmtKind::LabeledStmt {
             io_labeled_stmt(ar, unsafe (s as unsafe *Statements::LabeledStmt))
         } case StmtKind::TryCatchStmt {
-            io_try_catch_stmt(ar, unsafe (s as unsafe *Statements::TryCatchStmt))
+            io_try_catch_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::TryCatchStmt),
+            )
         } case StmtKind::FinallyStmt {
             io_finally_stmt(ar, unsafe (s as unsafe *Statements::FinallyStmt))
         } case StmtKind::UnsafeBlockStmt {
-            io_unsafe_block_stmt(ar, unsafe (s as unsafe *Statements::UnsafeBlockStmt))
+            io_unsafe_block_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::UnsafeBlockStmt),
+            )
         } case StmtKind::ContextBindingStmt {
-            io_context_binding_stmt(ar, unsafe (s as unsafe *Statements::ContextBindingStmt))
+            io_context_binding_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::ContextBindingStmt),
+            )
         } case StmtKind::DestructuringDeclStmt {
-            io_destructuring_decl_stmt(ar, unsafe (s as unsafe *Statements::DestructuringDeclStmt))
+            io_destructuring_decl_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::DestructuringDeclStmt),
+            )
         } case StmtKind::InlineBlockStmt {
-            io_inline_block_stmt(ar, unsafe (s as unsafe *Statements::InlineBlockStmt))
+            io_inline_block_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::InlineBlockStmt),
+            )
         } case StmtKind::EvalBlockStmt {
-            io_eval_block_stmt(ar, unsafe (s as unsafe *Statements::EvalBlockStmt))
+            io_eval_block_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::EvalBlockStmt),
+            )
         } case StmtKind::SwitchDispatchStmt {
-            io_switch_dispatch_stmt(ar, unsafe (s as unsafe *Statements::SwitchDispatchStmt))
+            io_switch_dispatch_stmt(
+                ar,
+                unsafe (s as unsafe *Statements::SwitchDispatchStmt),
+            )
         } default {
             ar->fail("statement of an unknown kind")
         }

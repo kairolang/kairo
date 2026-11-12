@@ -29,27 +29,13 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Tuning::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
@@ -66,6 +52,20 @@ import Server::SignatureHelp::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 extend Server {
     /// Writes symbol \p c with the symbols its range contains as children.
@@ -110,7 +110,13 @@ extend Server {
     fn write_buf_range(self, w: *JsonWriter, i: usize, a: usize, b: usize) {
         var *lm = &self.docs.docs[i].lines
         var *tx = &self.docs.docs[i].text
-        write_lsp_range(w, lm->line_of(a) as i64, lm->character(*tx, a, false) as i64, lm->line_of(b) as i64, lm->character(*tx, b, false) as i64)
+        write_lsp_range(
+            w,
+            lm->line_of(a) as i64,
+            lm->character(*tx, a, false) as i64,
+            lm->line_of(b) as i64,
+            lm->character(*tx, b, false) as i64,
+        )
     }
 
     fn folding(self, d: *const JsonDoc, params: u32, const id: string) {
@@ -124,7 +130,7 @@ extend Server {
         }
 
         var sp = spans(self.docs.docs[i].text)
-        var w = JsonWriter()
+        var w  = JsonWriter()
         w.begin_array()
         for var k: usize = 0; k < sp.size(); ++k {
             if sp[k].close == usize::MAX {
@@ -169,8 +175,8 @@ extend Server {
         }
 
         var *text = &self.docs.docs[i].text
-        var sp = spans(*text)
-        var w = JsonWriter()
+        var sp    = spans(*text)
+        var w     = JsonWriter()
         w.begin_array()
         var p = d->first(d->get(params, K_POSITIONS))
         while p != JSON_NONE() {
@@ -185,7 +191,7 @@ extend Server {
             // outside, then the file. Each is the "parent" of the one before.
             var los: [usize]
             var his: [usize]
-            var ws = at
+            var ws           = at
             while (ws > 0) && is_ident_byte((*text)[ws - 1]) {
                 ws -= 1
             }
@@ -259,9 +265,9 @@ extend Server {
 
     /// Declarations whose name contains \p query, across every snapshot.
     fn workspace_symbols(self, const query: string, const id: string) {
-        var needle = lower(query)
-        var seen: [string]
-        var w = JsonWriter()
+        var needle          = lower(query)
+        var seen:  [string]
+        var w               = JsonWriter()
         w.begin_array()
         var total: usize = 0
         for var ei: usize = 0; (ei < self.entries.size()) && (total < WORKSPACE_SYMBOL_CAP); ++ei {
@@ -273,13 +279,13 @@ extend Server {
             var of = o->first(o->get(o->root, SK_FILES))
             while (of != JSON_NONE()) && (total < WORKSPACE_SYMBOL_CAP) {
                 var path = o->get_str(of, SK_PATH)
-                var sy = o->first(o->get(of, SK_SYMBOLS))
+                var sy   = o->first(o->get(of, SK_SYMBOLS))
                 while (sy != JSON_NONE()) && (total < WORKSPACE_SYMBOL_CAP) {
                     var name = o->get_str(sy, K_NAME)
                     if needle.empty() || (find_from(lower(name), needle, 0) != usize::MAX) {
                         var range = o->dump(o->get(sy, K_SELECTION_RANGE))
-                        var key = path + range
-                        var dup = false
+                        var key   = path + range
+                        var dup   = false
                         for var q: usize = 0; q < seen.size(); ++q {
                             if seen[q] == key {
                                 dup = true

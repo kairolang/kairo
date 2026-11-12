@@ -125,13 +125,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,
-    FieldDecl,
-    FnBodyKind,
-    FunctionDecl,
-    ParamDecl,
-    StructDecl,
-    TransferKind,
+    ClassDecl,    FieldDecl, FnBodyKind, FunctionDecl, ParamDecl, StructDecl, TransferKind,
     VariableDecl,
 }
 import AST::Node::Expressions
@@ -143,19 +137,19 @@ import AST::Node::PrimaryExpressions::{
 import AST::Node::Program::TopLevelKind
 import AST::Node::Statements
 import AST::Node::Statements::IterKind
-import AST::OperatorFacts::OperatorFacts
 import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
     FunctionPointerType,
 }
+import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::{
     RecursiveASTVisitor,
     named_call_arg_value,
 }
-import Diagnostic::Registry::DiagID
 import Diagnostic::NoteText::type_declared_here
+import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Check::ClassLifecycle::{
     LifecycleCategory,
@@ -375,7 +369,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// to take onto its frame (_loop); cleared there.
     /// The transfer being checked is an assignment's right-hand side
     /// (_uncopyable_place leaves a Kairo NON_TRANSFER record to SC071E).
-    priv var _assigning: bool = false
+    priv var _assigning:         bool  = false
     priv var _pending_has_label: bool  = false
     priv var _pending_label:     Token
     pub var  n_moves:            usize = 0
@@ -489,7 +483,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._reuse_site.clear()
         self._reuse_read.clear()
         self._reuse_decl.clear()
-        var unsafe *out = RecursiveASTVisitor<MoveCheck>::traverse_function_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<MoveCheck>::traverse_function_decl(
+            self,
+            n,
+        )
+
         // `fn f(p: Pair) -> Str = p.a` is `{ return p.a }` (ExprBodyDesugar,
         // which keeps the node and reads the same written-signature test),
         // so its value is transferred out exactly as that return's is.
@@ -628,9 +626,16 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return n
         }
 
-        var unsafe *out = RecursiveASTVisitor<MoveCheck>::traverse_variable_decl(self, n)
+        var unsafe *out = RecursiveASTVisitor<MoveCheck>::traverse_variable_decl(
+            self,
+            n,
+        )
+
         if n->init != &null {
-            self._transfer(n->init, f"into '{self.sc->ctx->get_spelling(n->name)}'")
+            self._transfer(
+                n->init,
+                f"into '{self.sc->ctx->get_spelling(n->name)}'",
+            )
         }
 
         self._st.clear(n, "")
@@ -645,7 +650,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return n
         }
 
-        var unsafe *out = RecursiveASTVisitor<MoveCheck>::traverse_named_initializer_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<MoveCheck>::traverse_named_initializer_expr(
+            self,
+            n,
+        )
+
         for var i: usize = 0; i < n->fields.size(); ++i {
             var unsafe *fl = n->fields.get(i)
             if fl->value != &null {
@@ -665,7 +674,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return n
         }
 
-        var unsafe *out = RecursiveASTVisitor<MoveCheck>::traverse_anon_initializer_expr(self, n)
+        var unsafe *out = RecursiveASTVisitor<MoveCheck>::traverse_anon_initializer_expr(
+            self,
+            n,
+        )
+
         for var i: usize = 0; i < n->fields.size(); ++i {
             var unsafe *fl = n->fields.get(i)
             if fl->value != &null {
@@ -702,10 +715,18 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 var        all  = false
                 var unsafe *d   = self._chain_root(c, &path, unsafe &all)
                 if d == &null {
-                    return RecursiveASTVisitor<MoveCheck>::dispatch_expr(self, e)
+                    return RecursiveASTVisitor<MoveCheck>::dispatch_expr(
+                        self,
+                        e,
+                    )
                 }
 
-                self._read_part(cast<NamedIdentExpr>(self._tu.strip_parens(c->base)), d, path)
+                self._read_part(
+                    cast<NamedIdentExpr>(self._tu.strip_parens(c->base)),
+                    d,
+                    path,
+                )
+
                 return e
             } case ExprKind::AssignOperatorExpr {
                 var unsafe *asn = cast<Expressions::AssignOperatorExpr>(e)
@@ -719,7 +740,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     if d != &null {
                         self.dispatch_expr(asn->rhs)
                         self._assigning = true
-                        self._transfer(asn->rhs, f"into '{self._spelled(asn->lhs)}'")
+                        self._transfer(
+                            asn->rhs,
+                            f"into '{self._spelled(asn->lhs)}'",
+                        )
+
                         self._assigning = false
                         self._st.clear(d, path)
                         return e
@@ -746,15 +771,28 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     }
 
                     self._assigning = true
-                    self._transfer(asn->rhs, f"into '{self._spelled(asn->lhs)}'")
+                    self._transfer(
+                        asn->rhs,
+                        f"into '{self._spelled(asn->lhs)}'",
+                    )
+
                     self._assigning = false
                     return e
                 }
 
                 // `acc += s` through a user `op +=` is a call taking `s`.
-                var unsafe *cout = RecursiveASTVisitor<MoveCheck>::dispatch_expr(self, e)
+                var unsafe *cout = RecursiveASTVisitor<MoveCheck>::dispatch_expr(
+                    self,
+                    e,
+                )
+
                 if asn->resolved_op != &null {
-                    self._operator_operands(asn->resolved_op, asn->op_via_free, asn->lhs, asn->rhs)
+                    self._operator_operands(
+                        asn->resolved_op,
+                        asn->op_via_free,
+                        asn->lhs,
+                        asn->rhs,
+                    )
                 }
 
                 return cout
@@ -776,10 +814,19 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     return e
                 }
 
-                var unsafe *out = RecursiveASTVisitor<MoveCheck>::dispatch_expr(self, e)
+                var unsafe *out = RecursiveASTVisitor<MoveCheck>::dispatch_expr(
+                    self,
+                    e,
+                )
+
                 if bo->resolved_op != &null {
                     self._derived_operand(bo)
-                    self._operator_operands(bo->resolved_op, bo->op_via_free, bo->lhs, bo->rhs)
+                    self._operator_operands(
+                        bo->resolved_op,
+                        bo->op_via_free,
+                        bo->lhs,
+                        bo->rhs,
+                    )
                 }
 
                 return out
@@ -791,10 +838,19 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
                 return RecursiveASTVisitor<MoveCheck>::dispatch_expr(self, e)
             } case ExprKind::SubscriptExpr {
-                var unsafe *sx  = cast<Expressions::SubscriptExpr>(e)
-                var unsafe *out = RecursiveASTVisitor<MoveCheck>::dispatch_expr(self, e)
+                var unsafe *sx = cast<Expressions::SubscriptExpr>(e)
+                var unsafe *out = RecursiveASTVisitor<MoveCheck>::dispatch_expr(
+                    self,
+                    e,
+                )
+
                 if sx->resolved_op != &null {
-                    self._operator_operands(sx->resolved_op, sx->op_via_free, sx->base, sx->index)
+                    self._operator_operands(
+                        sx->resolved_op,
+                        sx->op_via_free,
+                        sx->base,
+                        sx->index,
+                    )
                 }
 
                 return out
@@ -804,7 +860,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 // so a later read of the pack -- a second expansion, a `for`
                 // over it, the same expansion on a loop's next iteration --
                 // leaves this one a plain copy.
-                var unsafe *out = RecursiveASTVisitor<MoveCheck>::dispatch_expr(self, e)
+                var unsafe *out = RecursiveASTVisitor<MoveCheck>::dispatch_expr(
+                    self,
+                    e,
+                )
+
                 var unsafe *x = self._tu.strip_parens(
                     cast<Expressions::PackExpansionExpr>(e)->operand,
                 )
@@ -966,7 +1026,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         match s->kind {
             case StmtKind::CompoundStmt {
                 var unsafe *n = cast<Statements::CompoundStmt>(s)
-                self._blocks.push_back(cxx::std::vector<unsafe *Statements::FinallyStmt>())
+                self._blocks.push_back(
+                    cxx::std::vector<unsafe *Statements::FinallyStmt>(),
+                )
+
                 for var i: usize = 0; i < n->body.size(); ++i {
                     if self.stop {
                         break
@@ -990,7 +1053,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     kairo::std::ice_fail("MoveCheck: `finally` outside a block")
                 }
 
-                self._blocks[self._blocks.size() - 1].push_back(cast<Statements::FinallyStmt>(s))
+                self._blocks[self._blocks.size() - 1].push_back(
+                    cast<Statements::FinallyStmt>(s),
+                )
+
                 return s
             } case StmtKind::ConditionalStmt {
                 var unsafe *n = cast<Statements::ConditionalStmt>(s)
@@ -1013,7 +1079,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 return s
             } case StmtKind::WhileLoopStmt {
                 var unsafe *n = cast<Statements::WhileLoopStmt>(s)
-                self._loop(n->cond, n->body, &null, !self._is_true_literal(n->cond), &null)
+                self._loop(
+                    n->cond,
+                    n->body,
+                    &null,
+                    !self._is_true_literal(n->cond),
+                    &null,
+                )
+
                 return s
             } case StmtKind::LoopStmt {
                 var unsafe *n = cast<Statements::LoopStmt>(s)
@@ -1035,7 +1108,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                             }
 
                             self._for_bind.push_back(bd)
-                            self._for_over.push_back(cast<NamedIdentExpr>(it)->resolved_decl)
+                            self._for_over.push_back(
+                                cast<NamedIdentExpr>(it)->resolved_decl,
+                            )
                         }
                     }
                 }
@@ -1310,7 +1385,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         var fp: unsafe *FunctionPointerType = &null
         if f == &null && n->callee != &null && n->callee->type_ != &null {
-            var unsafe *t = canon_unqual(self._tu.strip_nullable(n->callee->type_))
+            var unsafe *t = canon_unqual(
+                self._tu.strip_nullable(n->callee->type_),
+            )
+
             if t != &null && isa<FunctionPointerType>(t) {
                 fp = cast<FunctionPointerType>(t)
             }
@@ -1355,7 +1433,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     // AssignOperatorExpr whose operator was `:` -- and the
                     // stale cast was reinterpreting `name`'s bytes as an lhs
                     // pointer, which UBSan catches as a misaligned downcast.
-                    var nm = self.sc->ctx->get_spelling(cast<Expressions::NamedArgExpr>(a)->name)
+                    var nm = self.sc->ctx->get_spelling(
+                        cast<Expressions::NamedArgExpr>(a)->name,
+                    )
+
                     for var j: usize = 0; j < view.size(); ++j {
                         if self._tu.param_name(view[j]) == nm {
                             p = view[j]
@@ -1386,7 +1467,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
             // `&x` committed as the `@inout` marker (a Kairo `@inout`, or a
             // C++ `T&` read as one) borrows; it moves nothing.
-            var unsafe *mk = dyn_cast<Expressions::UnaryOperatorExpr>(self._tu.strip_parens(e))
+            var unsafe *mk = dyn_cast<Expressions::UnaryOperatorExpr>(
+                self._tu.strip_parens(e),
+            )
+
             if mk != &null && mk->is_mode_marker {
                 mode = ParamMode::Inout
             }
@@ -1454,7 +1538,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var borrows = rref || p != &null && (p->is_const || p->is_pack)
         self._transfer_checked(
             e,
-            if (rref) => ("into a " + LangAttrs::quoted(LangAttrs::param_move()) + " parameter") else => "into a by-value parameter",
+            if (rref) => ("into a " + LangAttrs::quoted(LangAttrs::param_move()) + " parameter")
+            else => "into a by-value parameter",
             !borrows,
         )
     }
@@ -1558,7 +1643,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         if isa<NamedIdentExpr>(c) {
-            return dyn_cast<FunctionDecl>(cast<NamedIdentExpr>(c)->resolved_decl)
+            return dyn_cast<FunctionDecl>(
+                cast<NamedIdentExpr>(c)->resolved_decl,
+            )
         }
 
         if isa<ChainExpr>(c) {
@@ -1618,7 +1705,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
                     b.first(e->range)
                     if !is_tup { // a tuple is declared nowhere.
-                        b.note(rd->range.start, type_declared_here())->child_first(rd->range)
+                        b.note(rd->range.start, type_declared_here())->child_first(
+                            rd->range,
+                        )
                     }
 
                     b.emit()
@@ -1629,7 +1718,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
-        self._mark(e, "into a " + LangAttrs::quoted(LangAttrs::param_move()) + " parameter")
+        self._mark(
+            e,
+            "into a " + LangAttrs::quoted(LangAttrs::param_move()) + " parameter",
+        )
     }
 
     /// A transfer of \p e (passed by value, initialized from, assigned,
@@ -1726,7 +1818,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             )
 
             kb.first(e->range)
-            kb.note(del->range.start, "the copy constructor is deleted here")->child_first(del->range)
+            kb.note(del->range.start, "the copy constructor is deleted here")->child_first(
+                del->range,
+            )
+
             kb.emit()
             e->poison()
             self.n_errored += 1
@@ -1740,7 +1835,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             // reference, so the transfer stays a copy, which clang rejected
             // An assignment of a record with no `op =` at all is
             // ClassLifecycle's SC071E.
-            if !self._is_lref(e->type_) || self._assigning && facts->assignable == LifecycleTri::No {
+            if !self._is_lref(e->type_)
+                || self._assigning && facts->assignable == LifecycleTri::No {
                 return false
             }
 
@@ -1774,10 +1870,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// reported too: the derived `op =` is constrained the same way, and no
     /// other check sees it.
     priv fn _dropped_copy_place(self,
-                                e:          unsafe *Expr,
-                                c:          unsafe *Type,
-                                rd:         unsafe *Decl,
-                                const how:  string) -> bool {
+                                e:         unsafe *Expr,
+                                c:         unsafe *Type,
+                                rd:        unsafe *Decl,
+                                const how: string) -> bool {
         if decl_is_imported(rd) || !self._has_constrained_copy(rd) {
             return false
         }
@@ -1787,7 +1883,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return false
         }
 
-        var ts  = self._tu.str(c)
+        var ts = self._tu.str(c)
         var msg = f"cannot copy a value of type '{ts}': its copy constructor's requirements do not hold for it"
         if dc.element != &null {
             var es = self._tu.str(dc.element)
@@ -1800,7 +1896,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             e->range.start,
             f"'{ts}' is a copy type, so the transfer {how} copies it, and it has no move to fall back on (its one transfer constructor is '@copy'): take it as a 'const' parameter or through a pointer, or build it in place",
         )
-        b.note(dc.ctor->range.start, "the copy constructor is constrained here")->child_first(dc.ctor->range)
+
+        b.note(dc.ctor->range.start, "the copy constructor is constrained here")->child_first(
+            dc.ctor->range,
+        )
+
         b.emit()
         e->poison()
         self.n_errored += 1
@@ -1825,7 +1925,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         if self._tu.is_tuple(c) {
             *tf   = lifecycle_of(self.sc)->facts_of_type(c)
             facts = tf
-            *rd   = &null // a tuple is declared nowhere.
+            *rd   = &null                                   // a tuple is declared nowhere.
         } else {
             facts = lifecycle_of(self.sc)->facts_of(r)
         }
@@ -1836,15 +1936,20 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// SC182E at \p e, whose value is copied and cannot be: \p why says why
     /// the copy is the transfer here. False when the type can be copied.
     priv fn _no_copy(self, e: unsafe *Expr, const why: string) -> bool {
-        var        tf    = LifecycleFacts()
+        var tf               = LifecycleFacts()
         var rd: unsafe *Decl = &null
-        var unsafe *facts = self._uncopyable_facts(e->type_, unsafe &tf, unsafe &rd)
+        var unsafe *facts = self._uncopyable_facts(
+            e->type_,
+            unsafe &tf,
+            unsafe &rd,
+        )
+
         if facts == &null {
             return false
         }
 
         var ts = self._tu.str(self._tu.as_value(e->type_))
-        var b  = self.sc->diag->report(
+        var b = self.sc->diag->report(
             DiagID::SC182E,
             e->range.start,
             f"cannot copy a value of type '{ts}': {facts->why_not_copyable}",
@@ -1853,7 +1958,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         b.first(e->range)
         b.note(e->range.start, why)
         if rd != &null {
-            b.note(rd->range.start, type_declared_here())->child_first(rd->range)
+            b.note(rd->range.start, type_declared_here())->child_first(
+                rd->range,
+            )
         }
 
         b.emit()
@@ -1925,12 +2032,16 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         var k = n->iter_kind
-        if k != IterKind::Array && k != IterKind::Slice && k != IterKind::User && k != IterKind::Cxx {
+        if k != IterKind::Array
+            && k != IterKind::Slice
+            && k != IterKind::User
+            && k != IterKind::Cxx {
             return
         }
 
         if k == IterKind::Cxx
-            && (n->cxx_deref == &null || n->cxx_deref->value_category != Expr::ValueCategory::LValue) {
+            && (n->cxx_deref == &null
+                || n->cxx_deref->value_category != Expr::ValueCategory::LValue) {
             return
         }
 
@@ -1940,8 +2051,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
-        var unsafe *t = if (bd->type_->canonical != &null) => (bd->type_->canonical) else => bd->type_
-        var        tf = LifecycleFacts()
+        var unsafe *t = if (bd->type_->canonical != &null) => (bd->type_->canonical)
+                        else => bd->type_
+        var tf               = LifecycleFacts()
         var rd: unsafe *Decl = &null
         var unsafe *facts = self._uncopyable_facts(t, unsafe &tf, unsafe &rd)
         if facts == &null {
@@ -1950,7 +2062,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         var nm = self.sc->ctx->get_spelling(bd->name)
         var ts = self._tu.str(self._tu.as_value(t))
-        var b  = self.sc->diag->report(
+        var b = self.sc->diag->report(
             DiagID::SC182E,
             bn->range.start,
             f"cannot copy a value of type '{ts}': {facts->why_not_copyable}",
@@ -1963,7 +2075,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         )
 
         if rd != &null {
-            b.note(rd->range.start, type_declared_here())->child_first(rd->range)
+            b.note(rd->range.start, type_declared_here())->child_first(
+                rd->range,
+            )
         }
 
         b.emit()
@@ -2010,7 +2124,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// design): refused here, naming the element type, not in clang.
     fn visit_list_literal_expr(self, n: *Expressions::ListLiteralExpr) -> bool {
         if n->elements.size() > 0 && n->type_ != &null && self._tu.is_vector_like(n->type_) {
-            self._literal_elems(unsafe (n as unsafe *Expr), self._tu.container_elem(n->type_), "vector")
+            self._literal_elems(
+                unsafe (n as unsafe *Expr),
+                self._tu.container_elem(n->type_),
+                "vector",
+            )
         }
 
         return true
@@ -2018,7 +2136,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
     fn visit_set_literal_expr(self, n: *Expressions::SetLiteralExpr) -> bool {
         if n->elements.size() > 0 && n->type_ != &null && self._tu.is_set_like(n->type_) {
-            self._literal_elems(unsafe (n as unsafe *Expr), self._tu.container_elem(n->type_), "set")
+            self._literal_elems(
+                unsafe (n as unsafe *Expr),
+                self._tu.container_elem(n->type_),
+                "set",
+            )
         }
 
         return true
@@ -2047,7 +2169,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return false
         }
 
-        var        tf = LifecycleFacts()
+        var tf               = LifecycleFacts()
         var rd: unsafe *Decl = &null
         var unsafe *facts = self._uncopyable_facts(elem, unsafe &tf, unsafe &rd)
         if facts == &null {
@@ -2055,16 +2177,22 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         var ts = self._tu.str(self._tu.as_value(elem))
-        var b  = self.sc->diag->report(
+        var b = self.sc->diag->report(
             DiagID::SC182E,
             e->range.start,
             f"a {what} literal of '{ts}' elements cannot be built yet: the {what} copies each element out of the literal, and '{ts}' cannot be copied ({facts->why_not_copyable})",
         )
 
         b.first(e->range)
-        b.note(e->range.start, f"build the {what} empty and add each element instead")
+        b.note(
+            e->range.start,
+            f"build the {what} empty and add each element instead",
+        )
+
         if rd != &null {
-            b.note(rd->range.start, type_declared_here())->child_first(rd->range)
+            b.note(rd->range.start, type_declared_here())->child_first(
+                rd->range,
+            )
         }
 
         b.emit()
@@ -2121,10 +2249,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return &null
     }
 
-    priv fn _deleted_copy_in(self, methods: unsafe *FrozenList<unsafe *FunctionDecl>) -> unsafe *FunctionDecl {
+    priv fn _deleted_copy_in(self,
+                             methods: unsafe *FrozenList<unsafe *FunctionDecl>) -> unsafe *FunctionDecl {
         for var i: usize = 0; i < methods->size(); ++i {
             var unsafe *m = (*methods)[i]
-            if m != &null && m->transfer == TransferKind::Copy && m->body_kind == FnBodyKind::Delete {
+            if m != &null
+                && m->transfer == TransferKind::Copy
+                && m->body_kind == FnBodyKind::Delete {
                 return m
             }
         }
@@ -2268,7 +2399,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         while x != &null {
             if isa<Expressions::UnaryOperatorExpr>(x)
                 && cast<Expressions::UnaryOperatorExpr>(x)->is_mode_marker {
-                x = self._tu.strip_parens(cast<Expressions::UnaryOperatorExpr>(x)->operand)
+                x = self._tu.strip_parens(
+                    cast<Expressions::UnaryOperatorExpr>(x)->operand,
+                )
+
                 continue
             }
 
@@ -2278,7 +2412,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
 
             if isa<Expressions::SubscriptExpr>(x) {
-                x = self._tu.strip_parens(cast<Expressions::SubscriptExpr>(x)->base)
+                x = self._tu.strip_parens(
+                    cast<Expressions::SubscriptExpr>(x)->base,
+                )
+
                 continue
             }
 
@@ -2360,8 +2497,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return &null
         }
 
-        var        all = false
-        var unsafe *d  = self._chain_root(cast<ChainExpr>(x), &*path, unsafe &all)
+        var all = false
+        var unsafe *d = self._chain_root(
+            cast<ChainExpr>(x),
+            &*path,
+            unsafe &all,
+        )
+
         return if (all) => (d) else => &null
     }
 
@@ -2489,8 +2631,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         var b = self.sc->diag->report(DiagID::SC052E, n->range.start, msg)
         b.first(n->range)
-        b.note(mp.at.start, f"'{gone}' was moved here, {mp.how}")->child_first(mp.at)
-        b.note(n->range.start, f"assign a new value to '{gone}' before using it again")
+        b.note(mp.at.start, f"'{gone}' was moved here, {mp.how}")->child_first(
+            mp.at,
+        )
+
+        b.note(
+            n->range.start,
+            f"assign a new value to '{gone}' before using it again",
+        )
+
         b.emit()
         n->poison()
         self.n_errored += 1

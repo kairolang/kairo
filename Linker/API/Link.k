@@ -88,7 +88,10 @@ pub class Link {
         var parent = LinkFS::parent(job.output)
         if !parent.empty() && !LinkFS::make_dirs(parent) {
             res.messages.push_back(
-                LinkDiag::make(LinkSeverity::Error, f"cannot create the output directory {parent}"),
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    f"cannot create the output directory {parent}",
+                ),
             )
 
             return false
@@ -104,7 +107,10 @@ pub class Link {
 
         var run = LLDRunner::run(&argv, job.kld_path, job.out_of_process)
         if !run.spawn_error.empty() {
-            res.messages.push_back(LinkDiag::make(LinkSeverity::Fatal, run.spawn_error))
+            res.messages.push_back(
+                LinkDiag::make(LinkSeverity::Fatal, run.spawn_error),
+            )
+
             return false
         }
 

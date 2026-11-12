@@ -54,7 +54,10 @@ pub class ELFArgs {
         var *o    = job.opts
 
         if job.output.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, "link: no output path"))
+            msgs.push_back(
+                LinkDiag::make(LinkSeverity::Error, "link: no output path"),
+            )
+
             return false
         }
 
@@ -80,7 +83,10 @@ pub class ELFArgs {
 
         if shared && o->static_link {
             msgs.push_back(
-                LinkDiag::make(LinkSeverity::Error, "--shared and --static are mutually exclusive"),
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    "--shared and --static are mutually exclusive",
+                ),
             )
 
             return false
@@ -552,7 +558,13 @@ pub class ELFArgs {
         }
 
         if name.empty() {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"-l {spec}: no library name"))
+            msgs.push_back(
+                LinkDiag::make(
+                    LinkSeverity::Error,
+                    f"-l {spec}: no library name",
+                ),
+            )
+
             return
         }
 
@@ -638,7 +650,11 @@ pub class ELFArgs {
         // A manifest's libcxx_link already names its unwinder.
         var uw = cxx::std::vector<string>()
         if !tc.has_manifest {
-            var nb_uw = LinkText::join(LinkText::join(tc.native_bundle, "lib"), "libunwind.a")
+            var nb_uw = LinkText::join(
+                LinkText::join(tc.native_bundle, "lib"),
+                "libunwind.a",
+            )
+
             if tc.unwindlib == "libunwind" && !tc.native_bundle.empty() && LinkFS::is_file(nb_uw) {
                 uw.push_back(nb_uw)
             } else if tc.unwindlib == "libunwind" {

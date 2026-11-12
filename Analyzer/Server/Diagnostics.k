@@ -29,28 +29,13 @@ import DocumentStore::{
 }
 import Index::Legend::*
 import Index::Snapshot::*
-import Protocol::*
-import Tuning::*
-import WorkerArgs::*
 import Json::{
     JSON_NONE,
     JsonDoc,
     JsonWriter,
 }
 import JsonRpc::Transport
-import Support::FileIO::Path::Path
-import TextScan::{
-    InterfacePlan,
-    Span,
-    call_at,
-    interface_for,
-    spans,
-}
-import Workspace::CompileCommandsLoader::{
-    Project,
-    project_file_name,
-}
-import std::io
+import Protocol::*
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
@@ -67,6 +52,21 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::Path::Path
+import TextScan::{
+    InterfacePlan,
+    Span,
+    call_at,
+    interface_for,
+    spans,
+}
+import Tuning::*
+import WorkerArgs::*
+import Workspace::CompileCommandsLoader::{
+    Project,
+    project_file_name,
+}
+import std::io
 
 /// True for an LSP Diagnostic code the parser (not Sema) reports: `S<n>`,
 /// and not the semantic category `SC<n>`.
@@ -78,11 +78,11 @@ extend Server {
     /// Sends this entry's diagnostics, one notification per file, and clears
     /// the files that had some last time and have none now.
     fn publish(self, ei: usize) {
-        var *s = &self.entries[ei].snap
+        var *s    = &self.entries[ei].snap
         var diags = s->get(s->root, SK_DIAGNOSTICS)
 
         var paths: [string]
-        var d = s->first(diags)
+        var d               = s->first(diags)
         while d != JSON_NONE() {
             var p = s->get_str(d, SK_PATH)
             if p.empty() {
@@ -108,8 +108,10 @@ extend Server {
         // nothing for it.
         for var k: usize = 0; k < self.docs.docs.size(); ++k {
             var dp = self.docs.docs[k].path
-            if ((self.docs.docs[k].syn.landed && (self.docs.docs[k].syn.at > self.entries[ei].snap_rev))
-                || self.docs.docs[k].side_current()) && self.entries[ei].holds(dp) {
+            if ((self.docs.docs[k].syn.landed
+                && (self.docs.docs[k].syn.at > self.entries[ei].snap_rev))
+                || self.docs.docs[k].side_current())
+                && self.entries[ei].holds(dp) {
                 var seen = false
                 for var q: usize = 0; q < paths.size(); ++q {
                     if paths[q] == dp {
@@ -125,9 +127,9 @@ extend Server {
 
         var now: [string]
         for var i: usize = 0; i < paths.size(); ++i {
-            var uri = self.uri_of(paths[i])
-            var n: usize = 0
-            var arr = self.compose_diags(ei, paths[i], &n)
+            var uri       = self.uri_of(paths[i])
+            var n:  usize = 0
+            var arr       = self.compose_diags(ei, paths[i], &n)
             if n == 0 {
                 continue
             }
@@ -216,7 +218,7 @@ extend Server {
         self.trace(f"syntax done rc={rc} rev={j->rev} {took} ms " + j->path)
 
         var text: string = ""
-        var doc = JsonDoc()
+        var doc          = JsonDoc()
         if !(LinkFS::read(j->out, &text) && doc.parse(text) && doc.get_bool(doc.root, SK_OK)) {
             return // a crash costs the fast path only; the Sema run still comes
         }
@@ -232,12 +234,15 @@ extend Server {
     /// text's), and so is one older than what has landed.
     fn land_syntax(self, di: usize, rev: u64, doc: *JsonDoc, publish: bool) {
         if !self.docs.docs[di].syn.accepts(rev, self.docs.docs[di].changed_at) {
-            self.trace(f"syntax dropped rev={rev}: the buffer changed since " + self.docs.docs[di].path)
+            self.trace(
+                f"syntax dropped rev={rev}: the buffer changed since " + self.docs.docs[di].path,
+            )
+
             return
         }
 
         var diags: string = ""
-        var x = doc->first(doc->get(doc->root, SK_DIAGNOSTICS))
+        var x             = doc->first(doc->get(doc->root, SK_DIAGNOSTICS))
         while x != JSON_NONE() {
             if !diags.empty() {
                 diags += ","
@@ -248,13 +253,20 @@ extend Server {
         }
 
         var tokens: [i64]
-        var t = doc->first(doc->get(doc->root, SK_TOKENS))
+        var t             = doc->first(doc->get(doc->root, SK_TOKENS))
         while t != JSON_NONE() {
             tokens.push_back(doc->as_int(t))
             t = doc->next(t)
         }
 
-        self.docs.docs[di].syn.land(rev, self.docs.docs[di].changed_at, doc->get_bool(doc->root, SK_PARSED), doc->get_bool(doc->root, SK_UNSURE), diags, &tokens)
+        self.docs.docs[di].syn.land(
+            rev,
+            self.docs.docs[di].changed_at,
+            doc->get_bool(doc->root, SK_PARSED),
+            doc->get_bool(doc->root, SK_UNSURE),
+            diags,
+            &tokens,
+        )
 
         if publish {
             self.publish_syntax(di)
@@ -283,7 +295,8 @@ extend Server {
         }
 
         var have_snap = (ei != usize::MAX) && self.entries[ei].has_snap
-        var syn_newer = (di != usize::MAX) && self.docs.docs[di].syn.landed
+        var syn_newer = (di != usize::MAX)
+            && self.docs.docs[di].syn.landed
             && ((!have_snap) || (self.docs.docs[di].syn.at > self.entries[ei].snap_rev))
         if syn_newer && (!self.docs.docs[di].syn.diags.empty()) {
             out += self.docs.docs[di].syn.diags
@@ -292,7 +305,7 @@ extend Server {
 
         if have_snap {
             var *s = &self.entries[ei].snap
-            var d = s->first(s->get(s->root, SK_DIAGNOSTICS))
+            var d  = s->first(s->get(s->root, SK_DIAGNOSTICS))
             while d != JSON_NONE() {
                 var p = s->get_str(d, SK_PATH)
                 if p.empty() {
@@ -321,14 +334,16 @@ extend Server {
     /// the entry's last run is at least as new (it has published already).
     fn publish_syntax(self, di: usize) {
         var path = self.docs.docs[di].path
-        var ei = self.entry_of(path)
-        if (ei != usize::MAX) && self.entries[ei].has_snap && (self.entries[ei].snap_rev >= self.docs.docs[di].syn.at) {
+        var ei   = self.entry_of(path)
+        if (ei != usize::MAX)
+            && self.entries[ei].has_snap
+            && (self.entries[ei].snap_rev >= self.docs.docs[di].syn.at) {
             return
         }
 
-        var n: usize = 0
-        var arr = self.compose_diags(ei, path, &n)
-        var w = JsonWriter()
+        var n:  usize = 0
+        var arr       = self.compose_diags(ei, path, &n)
+        var w         = JsonWriter()
         w.begin_object()
         w.field(K_URI, self.docs.docs[di].uri)
         w.field_raw(K_DIAGNOSTICS, arr)
@@ -339,7 +354,7 @@ extend Server {
             return
         }
 
-        var uri = self.docs.docs[di].uri
+        var uri            = self.docs.docs[di].uri
         var kept: [string]
         for var k: usize = 0; k < self.entries[ei].published.size(); ++k {
             if self.entries[ei].published[k] != uri {
@@ -358,16 +373,16 @@ extend Server {
     /// worker's aside result landed for it), and keeps entry \p ei's list
     /// of files that show some.
     fn publish_doc(self, ei: usize, di: usize) {
-        var n: usize = 0
-        var arr = self.compose_diags(ei, self.docs.docs[di].path, &n)
-        var w = JsonWriter()
+        var n:  usize = 0
+        var arr       = self.compose_diags(ei, self.docs.docs[di].path, &n)
+        var w         = JsonWriter()
         w.begin_object()
         w.field(K_URI, self.docs.docs[di].uri)
         w.field_raw(K_DIAGNOSTICS, arr)
         w.end_object()
         self.notify(M_PUBLISH_DIAGNOSTICS, w.out)
 
-        var uri = self.docs.docs[di].uri
+        var uri            = self.docs.docs[di].uri
         var kept: [string]
         for var k: usize = 0; k < self.entries[ei].published.size(); ++k {
             if self.entries[ei].published[k] != uri {

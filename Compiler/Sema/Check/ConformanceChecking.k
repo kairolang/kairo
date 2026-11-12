@@ -111,12 +111,7 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Types::{
-    CXXLValueRefType,
-    CXXRValueRefType,
-    ChainType,
-    FixedArrayType,
-    GenericParamType,
-    NullableType,
+    CXXLValueRefType, CXXRValueRefType, ChainType, FixedArrayType, GenericParamType, NullableType,
     PointerType,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
@@ -289,7 +284,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         var names = cxx::std::vector<string>()
         for var k: usize = 0; k < (GlobalAllocFn::COUNT as u8 as usize); ++k {
-            names.push_back(AllocNames::global_alloc_member((k as u8) as GlobalAllocFn))
+            names.push_back(
+                AllocNames::global_alloc_member((k as u8) as GlobalAllocFn),
+            )
         }
 
         var unsafe *imms = self.sc->ctx->get_imm_table()
@@ -299,7 +296,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         for var i: usize = 0; i < names.size(); ++i {
             var cands = cxx::std::vector<unsafe *Decl>()
-            self.ml.lookup(c, DeclName::ident(imms->intern_ident_copy(names[i])), unsafe &cands)
+            self.ml.lookup(
+                c,
+                DeclName::ident(imms->intern_ident_copy(names[i])),
+                unsafe &cands,
+            )
+
             var found = false
             for var j: usize = 0; j < cands.size(); ++j {
                 var unsafe *f = dyn_cast<Declarations::FunctionDecl>(cands[j])
@@ -563,17 +565,27 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 return out
             }
 
-            var copyable = self._is_lang(callee, WellKnownType::IsTriviallyCopyable)
+            var copyable = self._is_lang(
+                callee,
+                WellKnownType::IsTriviallyCopyable,
+            )
+
             if !copyable && !self._is_lang(callee, WellKnownType::IsTriviallyDestructible) {
                 return out
             }
 
-            var unsafe *ni = dyn_cast<NamedIdentExpr>(self.tu.strip_parens(c->callee))
+            var unsafe *ni = dyn_cast<NamedIdentExpr>(
+                self.tu.strip_parens(c->callee),
+            )
+
             if ni == &null || ni->generic_args.size() != 1 {
                 return out
             }
 
-            return self._trait(self._subst(ni->generic_args.get(0)->ty, d), copyable)
+            return self._trait(
+                self._subst(ni->generic_args.get(0)->ty, d),
+                copyable,
+            )
         }
 
         if isa<UnaryOperatorExpr>(e) {
@@ -735,7 +747,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return out
         }
 
-        var f = lifecycle_of(self.sc)->facts_of_type_concrete(t, "ConformanceChecking")
+        var f = lifecycle_of(self.sc)->facts_of_type_concrete(
+            t,
+            "ConformanceChecking",
+        )
+
         var x = if (copyable) => (f.trivially_copyable) else => f.trivial_dtor
         if x == LifecycleTri::Unknown {
             return out
@@ -765,7 +781,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         if t != &null && t->canonical != &null && isa<AssocType>(canon_unqual(t->canonical)) {
-            self._check_assoc_args(cast<AssocType>(canon_unqual(t->canonical)), t->range)
+            self._check_assoc_args(
+                cast<AssocType>(canon_unqual(t->canonical)),
+                t->range,
+            )
         }
 
         return true
@@ -823,12 +842,20 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         if isa<Declarations::ClassDecl>(d) {
             var unsafe *cd = cast<Declarations::ClassDecl>(d)
             for var i: usize = 0; i < cd->implements.size(); ++i {
-                self._check_declared(d, self._self_type(d), cd->implements.get(i)->base)
+                self._check_declared(
+                    d,
+                    self._self_type(d),
+                    cd->implements.get(i)->base,
+                )
             }
         } else if isa<Declarations::StructDecl>(d) {
             var unsafe *sd = cast<Declarations::StructDecl>(d)
             for var i: usize = 0; i < sd->implements.size(); ++i {
-                self._check_declared(d, self._self_type(d), sd->implements.get(i)->base)
+                self._check_declared(
+                    d,
+                    self._self_type(d),
+                    sd->implements.get(i)->base,
+                )
             }
         } else if isa<Declarations::ExtensionDecl>(d) {
             var unsafe *x = cast<Declarations::ExtensionDecl>(d)
@@ -914,7 +941,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 )
 
                 b.first(ta->aliased->range)
-                b.note(c->range.start, "the bound is declared here")->child_first(c->range)
+                b.note(c->range.start, "the bound is declared here")->child_first(
+                    c->range,
+                )
+
                 b.emit()
             }
         }
@@ -941,7 +971,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 continue
             }
 
-            if self._iface_derives(canon_unqual(e->base->canonical), want, depth + 1) {
+            if self._iface_derives(
+                canon_unqual(e->base->canonical),
+                want,
+                depth + 1,
+            ) {
                 return true
             }
         }
@@ -973,7 +1007,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 continue
             }
 
-            args.push_back(self.sc->types->generic_param(rep, gps[i]->index, gps[i]->is_pack))
+            args.push_back(
+                self.sc->types->generic_param(
+                    rep,
+                    gps[i]->index,
+                    gps[i]->is_pack,
+                ),
+            )
         }
 
         return self.sc->types->record(rep, unsafe &args)
@@ -1032,13 +1072,25 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             case TypeKind::PointerType {
                 self._check_type(cast<PointerType>(c)->pointee, at, depth + 1)
             } case TypeKind::CXXLValueRefType {
-                self._check_type(cast<CXXLValueRefType>(c)->referee, at, depth + 1)
+                self._check_type(
+                    cast<CXXLValueRefType>(c)->referee,
+                    at,
+                    depth + 1,
+                )
             } case TypeKind::CXXRValueRefType {
-                self._check_type(cast<CXXRValueRefType>(c)->referee, at, depth + 1)
+                self._check_type(
+                    cast<CXXRValueRefType>(c)->referee,
+                    at,
+                    depth + 1,
+                )
             } case TypeKind::NullableType {
                 self._check_type(cast<NullableType>(c)->inner, at, depth + 1)
             } case TypeKind::FixedArrayType {
-                self._check_type(cast<FixedArrayType>(c)->element, at, depth + 1)
+                self._check_type(
+                    cast<FixedArrayType>(c)->element,
+                    at,
+                    depth + 1,
+                )
             } case TypeKind::RecordType {
                 var unsafe *r = cast<RecordType>(c)
                 for var i: usize = 0; i < r->args.size(); ++i {
@@ -1168,12 +1220,17 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                     continue
                 }
 
-                var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(id->resolved_decl)
+                var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+                    id->resolved_decl,
+                )
+
                 if gp == &null || gp->index != g->param_index {
                     continue
                 }
 
-                if NameLookup::representative(gp->owner) != NameLookup::representative(g->owner) {
+                if NameLookup::representative(gp->owner) != NameLookup::representative(
+                    g->owner,
+                ) {
                     continue
                 }
 
@@ -1198,7 +1255,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         )
 
         r.first(c->range)
-        r.note(f->range.start, f"'{self._req_name(f)}' is required here")->child_first(f->range)
+        r.note(f->range.start, f"'{self._req_name(f)}' is required here")->child_first(
+            f->range,
+        )
+
         r.emit()
         c->poison()
     }
@@ -1248,7 +1308,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// overloaded function" error. A callee is never typed (CallTyping
     /// binds it untyped), so a node with a fn type here is a value use.
     priv fn _check_fn_value(self, e: unsafe *Expr) {
-        if e->type_ == &null || e->type_->canonical == &null
+        if e->type_ == &null
+            || e->type_->canonical == &null
             || canon_unqual(e->type_->canonical)->kind != TypeKind::FunctionPointerType {
             return
         }
@@ -1307,7 +1368,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         var unsafe *rep = NameLookup::representative(unsafe (f as unsafe *Decl))
-        var unsafe *ie  = self.sc->instances->instance_for(
+        var unsafe *ie = self.sc->instances->instance_for(
             rep,
             unsafe &args,
             self.sc->ctx->fid,
@@ -1323,7 +1384,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         if e->depth > 0 {
-            self.sc->instances->note_reuse(e, if (site.start.is_valid()) => (site) else => self._cur_at)
+            self.sc->instances->note_reuse(
+                e,
+                if (site.start.is_valid()) => (site) else => self._cur_at,
+            )
+
             self._recheck(e, site)
             return
         }
@@ -1340,7 +1405,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return
         }
 
-        if !self.sc->instances->mark_live(e, site, &null, SourceRange::invalid()) {
+        if !self.sc->instances->mark_live(
+            e,
+            site,
+            &null,
+            SourceRange::invalid(),
+        ) {
             return
         }
 
@@ -1387,7 +1457,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         var unsafe *prim = e->primary
         if isa<Declarations::FunctionDecl>(prim) {
-            var unsafe *h = self._reuse_home(cast<Declarations::FunctionDecl>(prim))
+            var unsafe *h = self._reuse_home(
+                cast<Declarations::FunctionDecl>(prim),
+            )
+
             if h->move_reuse_site.size() == 0 {
                 return
             }
@@ -1433,13 +1506,17 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// True when one of \p f's `requires` value predicates is known false
     /// under \p d; an undecidable one does not count.
-    priv fn _requires_false_at(self, f: unsafe *Declarations::FunctionDecl, d: unsafe *Deduction) -> bool {
+    priv fn _requires_false_at(self,
+                               f: unsafe *Declarations::FunctionDecl,
+                               d: unsafe *Deduction) -> bool {
         return self._requires_blocker(f, d).known
     }
 
     /// _requires_false_at, and the type whose missing copy (or move) made
     /// the clause false, when one predicate names it.
-    priv fn _requires_blocker(self, f: unsafe *Declarations::FunctionDecl, d: unsafe *Deduction) -> PredFalse {
+    priv fn _requires_blocker(self,
+                              f: unsafe *Declarations::FunctionDecl,
+                              d: unsafe *Deduction) -> PredFalse {
         var out = PredFalse{}
         if f->requires_clause == &null || f->generic_params.size() > 0 {
             return out
@@ -1484,7 +1561,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         var unsafe *b = dyn_cast<BinaryOperatorExpr>(x)
-        if b != &null && (b->op_token.kind == TokenKind::OpPipePipe || b->op_token.kind == TokenKind::KwOr) {
+        if b != &null
+            && (b->op_token.kind == TokenKind::OpPipePipe || b->op_token.kind == TokenKind::KwOr) {
             var l = self._pred_false(b->lhs, d, depth + 1)
             if !l.known {
                 return out
@@ -1524,7 +1602,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return false
         }
 
-        var unsafe *ni = dyn_cast<NamedIdentExpr>(self.tu.strip_parens(c->callee))
+        var unsafe *ni = dyn_cast<NamedIdentExpr>(
+            self.tu.strip_parens(c->callee),
+        )
+
         if ni == &null || ni->generic_args.size() != 1 {
             return false
         }
@@ -1545,9 +1626,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// ClassLifecycle, reading the declaration, calls it COPY (`[Mv]`).
     /// MoveCheck asks at each copy of an lvalue.
     pub fn dropped_copy(self, rt: unsafe *Type) -> DroppedCopy {
-        var out = DroppedCopy{}
-        var unsafe *c = canon_unqual(rt)
-        if c == &null || !isa<RecordType>(c) || c->is_dependent() || c->is_instantiation_dependent() {
+        var        out = DroppedCopy{}
+        var unsafe *c  = canon_unqual(rt)
+        if c == &null
+            || !isa<RecordType>(c)
+            || c->is_dependent()
+            || c->is_instantiation_dependent() {
             return out
         }
 
@@ -1556,7 +1640,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return out
         }
 
-        var ms = self._methods_of(NameLookup::representative(self.tu.pattern_of(rd)))
+        var ms = self._methods_of(
+            NameLookup::representative(self.tu.pattern_of(rd)),
+        )
+
         for var k: usize = 0; k < ms.size(); ++k {
             var unsafe *m = ms[k]
             if m == &null
@@ -1595,7 +1682,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return &null
         }
 
-        var unsafe *ni = dyn_cast<NamedIdentExpr>(self.tu.strip_parens(c->callee))
+        var unsafe *ni = dyn_cast<NamedIdentExpr>(
+            self.tu.strip_parens(c->callee),
+        )
+
         if ni == &null || ni->generic_args.size() != 2 {
             return &null
         }
@@ -1608,7 +1698,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return &null
         }
 
-        var f = lifecycle_of(self.sc)->facts_of_type_concrete(canon_unqual(t0), "ConformanceChecking")
+        var f = lifecycle_of(self.sc)->facts_of_type_concrete(
+            canon_unqual(t0),
+            "ConformanceChecking",
+        )
+
         if f.copyable != LifecycleTri::No {
             // X's declaration says COPY, but its own instance may have lost
             // its copy the same way (`[[Mv]]`): ask it in turn. The type
@@ -1650,7 +1744,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
             var bad: unsafe *Type = &null
             if isa<PackExpansionExpr>(site) {
-                bad = self._reuse_pack_element(e, cast<PackExpansionExpr>(site), prim)
+                bad = self._reuse_pack_element(
+                    e,
+                    cast<PackExpansionExpr>(site),
+                    prim,
+                )
             } else if site->type_ != &null {
                 var unsafe *t = d->substitute(canon_unqual(site->type_))
                 if t != &null && !t->is_dependent() && !t->is_instantiation_dependent() {
@@ -1674,8 +1772,14 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             )
 
             b.first(e->use_at, f"'{inst}' is instantiated here")
-            b.note(site->range.start, f"'{nm}' was moved here, as a '{ts}'")->child_first(site->range)
-            b.note(read->range.start, "and used again here")->child_first(read->range)
+            b.note(site->range.start, f"'{nm}' was moved here, as a '{ts}'")->child_first(
+                site->range,
+            )
+
+            b.note(read->range.start, "and used again here")->child_first(
+                read->range,
+            )
+
             self.chain_notes(unsafe &b, e)
             b.emit()
         }
@@ -1698,7 +1802,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return &null
         }
 
-        var unsafe *pd = dyn_cast<Declarations::ParamDecl>(cast<NamedIdentExpr>(opd)->resolved_decl)
+        var unsafe *pd = dyn_cast<Declarations::ParamDecl>(
+            cast<NamedIdentExpr>(opd)->resolved_decl,
+        )
+
         if pd == &null || !pd->is_pack {
             return &null
         }
@@ -1846,7 +1953,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 )
 
                 bd.first(at)
-                bd.note(b->range.start, "required by this bound")->child_first(b->range)
+                bd.note(b->range.start, "required by this bound")->child_first(
+                    b->range,
+                )
+
                 if chain != &null {
                     self.chain_notes(unsafe &bd, chain)
                 }
@@ -1905,8 +2015,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             )
 
             bd.first(at)
-            var nat = if (gp->kind_bound_range.is_valid()) => (gp->kind_bound_range) else => gp->range
-            bd.note(DiagCode(DiagID::SC292N), nat.start, f"'{gn}' is bounded '{gn}: {kw}' here")->child_first(nat)
+            var nat = if (gp->kind_bound_range.is_valid()) => (gp->kind_bound_range)
+                      else => gp->range
+            bd.note(
+                DiagCode(DiagID::SC292N),
+                nat.start,
+                f"'{gn}' is bounded '{gn}: {kw}' here",
+            )->child_first(nat)
             if chain != &null {
                 self.chain_notes(unsafe &bd, chain)
             }
@@ -2084,7 +2199,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return
         }
 
-        var f = lifecycle_of(self.sc)->facts_of_type_concrete(t, "ConformanceChecking")
+        var f = lifecycle_of(self.sc)->facts_of_type_concrete(
+            t,
+            "ConformanceChecking",
+        )
+
         if f.polymorphic != LifecycleTri::Yes || f.virtual_dtor != LifecycleTri::No {
             return
         }
@@ -2126,9 +2245,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             var b  = self.sc->diag->report(x->id, e->use_at.start, x->msg)
             b.first(e->use_at, f"'{self._inst_name(e)}' is instantiated here")
             for var k: usize = 0; k < x->note_ids.size(); ++k {
-                b.note(DiagCode(x->note_ids[k]), x->note_at[k].start, x->note_msg[k])->child_first(
-                    x->note_at[k],
-                )
+                b.note(
+                    DiagCode(x->note_ids[k]),
+                    x->note_at[k].start,
+                    x->note_msg[k],
+                )->child_first(x->note_at[k])
             }
 
             self.chain_notes(unsafe &b, e)
@@ -2271,7 +2392,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             if e->depth >= self._depth_limit() {
                 var unsafe *have = self.sc->instances->find(rep, unsafe &args)
                 if have == &null || have->depth == 0 {
-                    self._too_deep_at(e, self._spell(rep, unsafe &args), c->range)
+                    self._too_deep_at(
+                        e,
+                        self._spell(rep, unsafe &args),
+                        c->range,
+                    )
+
                     return
                 }
             }
@@ -2290,7 +2416,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             self.sc->instances->add_reach(e, ne)
             // Its failure is reported at the root use, the hop notes saying
             // which body asked for it (chain_notes).
-            if self.sc->instances->mark_live(ne, SourceRange::invalid(), e, c->range) {
+            if self.sc->instances->mark_live(
+                ne,
+                SourceRange::invalid(),
+                e,
+                c->range,
+            ) {
                 self._check_bounds(ne)
             }
         }
@@ -2327,15 +2458,40 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         match c->kind {
             case TypeKind::PointerType {
-                return self._take_type(outer, cast<PointerType>(c)->pointee, at, depth + 1)
+                return self._take_type(
+                    outer,
+                    cast<PointerType>(c)->pointee,
+                    at,
+                    depth + 1,
+                )
             } case TypeKind::CXXLValueRefType {
-                return self._take_type(outer, cast<CXXLValueRefType>(c)->referee, at, depth + 1)
+                return self._take_type(
+                    outer,
+                    cast<CXXLValueRefType>(c)->referee,
+                    at,
+                    depth + 1,
+                )
             } case TypeKind::CXXRValueRefType {
-                return self._take_type(outer, cast<CXXRValueRefType>(c)->referee, at, depth + 1)
+                return self._take_type(
+                    outer,
+                    cast<CXXRValueRefType>(c)->referee,
+                    at,
+                    depth + 1,
+                )
             } case TypeKind::NullableType {
-                return self._take_type(outer, cast<NullableType>(c)->inner, at, depth + 1)
+                return self._take_type(
+                    outer,
+                    cast<NullableType>(c)->inner,
+                    at,
+                    depth + 1,
+                )
             } case TypeKind::FixedArrayType {
-                return self._take_type(outer, cast<FixedArrayType>(c)->element, at, depth + 1)
+                return self._take_type(
+                    outer,
+                    cast<FixedArrayType>(c)->element,
+                    at,
+                    depth + 1,
+                )
             } case TypeKind::RecordType {
                 var unsafe *r = cast<RecordType>(c)
                 for var i: usize = 0; i < r->args.size(); ++i {
@@ -2367,7 +2523,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                     return false
                 }
 
-                if self.sc->instances->mark_live(ne, SourceRange::invalid(), outer, at) {
+                if self.sc->instances->mark_live(
+                    ne,
+                    SourceRange::invalid(),
+                    outer,
+                    at,
+                ) {
                     self._check_bounds(ne)
                 }
 
@@ -2686,11 +2847,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         var srcs  = cxx::std::vector<unsafe *Type>()
         self._reqs(idecl, iface, &decls, &srcs)
         for var i: usize = 0; i < decls.size(); ++i {
-            var unsafe *m               = dyn_cast<Declarations::FunctionDecl>(decls[i])
-            var        w:  unsafe *Decl = &null
-            var        ea               = cxx::std::vector<unsafe *Type>()
-            var        at: unsafe *Type = &null
-            var unsafe *ta              = dyn_cast<Declarations::TypeAliasDecl>(decls[i])
+            var unsafe *m = dyn_cast<Declarations::FunctionDecl>(decls[i])
+            var w:  unsafe *Decl = &null
+            var ea               = cxx::std::vector<unsafe *Type>()
+            var at: unsafe *Type = &null
+            var unsafe *ta = dyn_cast<Declarations::TypeAliasDecl>(decls[i])
             if ta != &null {
                 w = self._assoc_implementation(x, iface, ta, unsafe &at)
                 // The supplied type must meet the associated type's own
@@ -2841,16 +3002,25 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return true
         }
 
-        var unsafe *rec = NameLookup::representative(decl_pattern(NameLookup::representative(rd)))
-        var        home = self.tu.fid_of(w)
+        var unsafe *rec = NameLookup::representative(
+            decl_pattern(NameLookup::representative(rd)),
+        )
+
+        var home = self.tu.fid_of(w)
         if self.tu.fid_of(rec) == home {
             if isa<Declarations::ClassDecl>(rec)
-                && self._impl_edges_name(&cast<Declarations::ClassDecl>(rec)->implements, idecl) {
+                && self._impl_edges_name(
+                    &cast<Declarations::ClassDecl>(rec)->implements,
+                    idecl,
+                ) {
                 return true
             }
 
             if isa<Declarations::StructDecl>(rec)
-                && self._impl_edges_name(&cast<Declarations::StructDecl>(rec)->implements, idecl) {
+                && self._impl_edges_name(
+                    &cast<Declarations::StructDecl>(rec)->implements,
+                    idecl,
+                ) {
                 return true
             }
         }
@@ -2900,7 +3070,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         if isa<Declarations::ModuleDecl>(d) {
             var unsafe *dc = unsafe (cast<Declarations::ModuleDecl>(d) as unsafe *DeclContext)
             for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-                if self._ext_declares(*dc->dc_decls.get(i), rec, idecl, depth + 1) {
+                if self._ext_declares(
+                    *dc->dc_decls.get(i),
+                    rec,
+                    idecl,
+                    depth + 1,
+                ) {
                     return true
                 }
             }
@@ -2918,7 +3093,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return false
         }
 
-        if NameLookup::representative(decl_pattern(NameLookup::representative(td))) != rec {
+        if NameLookup::representative(
+            decl_pattern(NameLookup::representative(td)),
+        ) != rec {
             return false
         }
 
@@ -3256,7 +3433,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             // (the extension-visibility rule); kept for the diagnostic.
             if !self._sees(unsafe (f as unsafe *Decl)) {
                 if self._hidden == &null {
-                    self._hidden = NameLookup::representative(unsafe (f as unsafe *Decl))
+                    self._hidden = NameLookup::representative(
+                        unsafe (f as unsafe *Decl),
+                    )
                 }
 
                 continue
@@ -3279,7 +3458,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 }
 
                 if self._signature_matches(hf, m, x, iface, idecl) {
-                    self._hidden = NameLookup::representative(unsafe (hf as unsafe *Decl))
+                    self._hidden = NameLookup::representative(
+                        unsafe (hf as unsafe *Decl),
+                    )
+
                     break
                 }
             }
@@ -3358,7 +3540,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
         }
 
-        if !self.tu.is_bool(self._as_conformer(m->return_type, x, iface, idecl, m, m)) {
+        if !self.tu.is_bool(
+            self._as_conformer(m->return_type, x, iface, idecl, m, m),
+        ) {
             return &null
         }
 
@@ -3466,7 +3650,14 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         var ready = true
         var none  = cxx::std::vector<unsafe *Type>()
-        var bs    = Substitution(self.sc).clause_bounds(ta, x, iface, unsafe &none, unsafe &ready)
+        var bs = Substitution(self.sc).clause_bounds(
+            ta,
+            x,
+            iface,
+            unsafe &none,
+            unsafe &ready,
+        )
+
         for var i: usize = 0; i < bs.size(); ++i {
             var unsafe *bt = canon_unqual(bs[i])
             if bt->is_dependent() {
@@ -3651,14 +3842,21 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         var d = Deduction(self.sc, &null)
         d.bind_from_record(x)
-        var unsafe *frep = NameLookup::representative(unsafe (f as unsafe *Decl))
+        var unsafe *frep = NameLookup::representative(
+            unsafe (f as unsafe *Decl),
+        )
+
         for var i: usize = 0; i < f->generic_params.size(); ++i {
             var unsafe *gp = f->generic_params[i]
             if gp == &null {
                 continue
             }
 
-            d.bind(frep, gp->index, self.sc->types->generic_param(frep, gp->index, gp->is_pack))
+            d.bind(
+                frep,
+                gp->index,
+                self.sc->types->generic_param(frep, gp->index, gp->is_pack),
+            )
         }
 
         var unsafe *s = d.substitute(c)
@@ -3771,14 +3969,21 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             d.bind_from_record(canon_unqual(x))
         }
 
-        var unsafe *frep = NameLookup::representative(unsafe (f as unsafe *Decl))
+        var unsafe *frep = NameLookup::representative(
+            unsafe (f as unsafe *Decl),
+        )
+
         for var i: usize = 0; i < f->generic_params.size(); ++i {
             var unsafe *gp = f->generic_params[i]
             if gp == &null {
                 continue
             }
 
-            d.bind(frep, gp->index, self.sc->types->generic_param(frep, gp->index, gp->is_pack))
+            d.bind(
+                frep,
+                gp->index,
+                self.sc->types->generic_param(frep, gp->index, gp->is_pack),
+            )
         }
 
         var unsafe *s = d.substitute(c)
@@ -3814,8 +4019,14 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         if c->is_dependent() {
             d.bind_from_record(iface)
-            var unsafe *mrep = NameLookup::representative(unsafe (m as unsafe *Decl))
-            var unsafe *frep = NameLookup::representative(unsafe (f as unsafe *Decl))
+            var unsafe *mrep = NameLookup::representative(
+                unsafe (m as unsafe *Decl),
+            )
+
+            var unsafe *frep = NameLookup::representative(
+                unsafe (f as unsafe *Decl),
+            )
+
             for var i: usize = 0; i < m->generic_params.size(); ++i {
                 var unsafe *gp = m->generic_params[i]
                 if gp == &null {
@@ -3825,7 +4036,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 d.bind(
                     mrep,
                     gp->index,
-                    self.sc->types->generic_param(frep, f->generic_params[i]->index, gp->is_pack),
+                    self.sc->types->generic_param(
+                        frep,
+                        f->generic_params[i]->index,
+                        gp->is_pack,
+                    ),
                 )
             }
 
@@ -3835,7 +4050,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
         }
 
-        return canon_unqual(d.replace_self(c, unsafe (idecl as unsafe *Decl), x))
+        return canon_unqual(
+            d.replace_self(c, unsafe (idecl as unsafe *Decl), x),
+        )
     }
 
     priv fn _canon(self, t: unsafe *Type) -> unsafe *Type {
@@ -3876,7 +4093,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         var unsafe *imms = self.sc->ctx->get_imm_table()
         return DeclName::ident(
-            imms->intern_ident_copy(self.tu.decl_name(unsafe (m as unsafe *Decl))),
+            imms->intern_ident_copy(
+                self.tu.decl_name(unsafe (m as unsafe *Decl)),
+            ),
         )
     }
 
@@ -3920,7 +4139,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return &null
         }
 
-        var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(id->resolved_decl)
+        var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+            id->resolved_decl,
+        )
+
         if gp == &null {
             return &null
         }
@@ -4035,7 +4257,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 s += ", "
             }
 
-            s += self.tu.str(self._as_conformer(p->type_, x, iface, idecl, m, m))
+            s += self.tu.str(
+                self._as_conformer(p->type_, x, iface, idecl, m, m),
+            )
+
             k += 1
         }
 
@@ -4116,12 +4341,15 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
                 bd.first(at)
                 if b != &null {
-                    bd.note(b->range.start, f"required by this bound")->child_first(b->range)
+                    bd.note(b->range.start, f"required by this bound")->child_first(
+                        b->range,
+                    )
                 }
 
-                bd.note(areq->range.start, f"'{an}' and its bounds are declared here")->child_first(
-                    areq->range,
-                )
+                bd.note(
+                    areq->range.start,
+                    f"'{an}' and its bounds are declared here",
+                )->child_first(areq->range)
 
                 if e != &null {
                     self.chain_notes(unsafe &bd, e)
@@ -4152,7 +4380,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
                 cd.first(at)
                 if b != &null {
-                    cd.note(b->range.start, f"required by this bound")->child_first(b->range)
+                    cd.note(b->range.start, f"required by this bound")->child_first(
+                        b->range,
+                    )
                 }
 
                 cd.note(dnodes[0]->range.start, f"'{i0}' gives it '{d0}' here")->child_first(
@@ -4176,9 +4406,17 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             // one a plain alias.
             var        acands = cxx::std::vector<unsafe *Decl>()
             var unsafe *aimms = self.sc->ctx->get_imm_table()
-            self.ml.lookup(x, DeclName::ident(aimms->intern_ident_copy(an)), unsafe &acands)
+            self.ml.lookup(
+                x,
+                DeclName::ident(aimms->intern_ident_copy(an)),
+                unsafe &acands,
+            )
+
             for var i: usize = 0; i < acands.size(); ++i {
-                var unsafe *al = dyn_cast<Declarations::TypeAliasDecl>(acands[i])
+                var unsafe *al = dyn_cast<Declarations::TypeAliasDecl>(
+                    acands[i],
+                )
+
                 if al == &null
                     || al->is_associated
                     || al->generic_params.size() == areq->generic_params.size() {
@@ -4195,11 +4433,19 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
                 sd.first(at)
                 if b != &null {
-                    sd.note(b->range.start, f"required by this bound")->child_first(b->range)
+                    sd.note(b->range.start, f"required by this bound")->child_first(
+                        b->range,
+                    )
                 }
 
-                sd.note(al->range.start, f"'{xs}' declares '{an}' here")->child_first(al->range)
-                sd.note(areq->range.start, f"'{an}' is required here")->child_first(areq->range)
+                sd.note(al->range.start, f"'{xs}' declares '{an}' here")->child_first(
+                    al->range,
+                )
+
+                sd.note(areq->range.start, f"'{an}' is required here")->child_first(
+                    areq->range,
+                )
+
                 if e != &null {
                     self.chain_notes(unsafe &sd, e)
                 }
@@ -4218,7 +4464,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
             ad.first(at)
             if b != &null {
-                ad.note(b->range.start, f"required by this bound")->child_first(b->range)
+                ad.note(b->range.start, f"required by this bound")->child_first(
+                    b->range,
+                )
             }
 
             if areq->aliased != &null && row->declared == &null {
@@ -4227,7 +4475,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                     f"'{an}' has a default, but a default applies only to a type that declares 'impl {is}'",
                 )->child_first(areq->range)
             } else {
-                ad.note(areq->range.start, f"'{an}' is required here")->child_first(areq->range)
+                ad.note(areq->range.start, f"'{an}' is required here")->child_first(
+                    areq->range,
+                )
             }
 
             if e != &null {
@@ -4274,7 +4524,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
             b2.first(at)
             if b != &null {
-                b2.note(b->range.start, f"required by this bound")->child_first(b->range)
+                b2.note(b->range.start, f"required by this bound")->child_first(
+                    b->range,
+                )
             }
 
             if req != &null {
@@ -4307,7 +4559,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         var d = self.sc->diag->report(DiagID::SC162E, at.start, msg)
         d.first(at)
         if b != &null {
-            d.note(b->range.start, f"required by this bound")->child_first(b->range)
+            d.note(b->range.start, f"required by this bound")->child_first(
+                b->range,
+            )
         }
 
         if req != &null {
@@ -4348,7 +4602,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         d.first(at)
         if b != &null {
-            d.note(b->range.start, f"required by this bound")->child_first(b->range)
+            d.note(b->range.start, f"required by this bound")->child_first(
+                b->range,
+            )
         }
 
         for var i: usize = 0; i < row->witnesses.size() && i < other->witnesses.size(); ++i {
@@ -4358,9 +4614,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 continue
             }
 
-            d.note(mine->range.start, "this implementation is the one visible here")->child_first(
-                mine->range,
-            )
+            d.note(
+                mine->range.start,
+                "this implementation is the one visible here",
+            )->child_first(mine->range)
 
             d.note(
                 theirs->range.start,

@@ -47,35 +47,57 @@ pub class LinkFS {
     /// Symlinks resolved; \p p unchanged if it cannot be.
     pub static fn real(p: string) -> string {
         var out: llvm::SmallString<256>
-        var ec = llvm::sys::fs::real_path(llvm::Twine(kairo::sref(p)), &out, false)
+        var ec = llvm::sys::fs::real_path(
+            llvm::Twine(kairo::sref(p)),
+            &out,
+            false,
+        )
+
         if ec.value() != 0 {
             return p
         }
 
-        return string(unsafe ((out.data() as unsafe *const u8) as *const u8), out.size())
+        return string(
+            unsafe ((out.data() as unsafe *const u8) as *const u8),
+            out.size(),
+        )
     }
 
     pub static fn parent(const p: string) -> string {
         var sr = llvm::sys::path::parent_path(kairo::sref(p))
-        return string(unsafe ((sr.data() as unsafe *const u8) as *const u8), sr.size())
+        return string(
+            unsafe ((sr.data() as unsafe *const u8) as *const u8),
+            sr.size(),
+        )
     }
 
     pub static fn filename(const p: string) -> string {
         var sr = llvm::sys::path::filename(kairo::sref(p))
-        return string(unsafe ((sr.data() as unsafe *const u8) as *const u8), sr.size())
+        return string(
+            unsafe ((sr.data() as unsafe *const u8) as *const u8),
+            sr.size(),
+        )
     }
 
     /// Entry NAMES directly in \p dir, unsorted. Empty if unreadable.
     pub static fn list_dir(const dir: string) -> cxx::std::vector<string> {
         var out                      = cxx::std::vector<string>()
         var ec: cxx::std::error_code
-        var it  = llvm::sys::fs::directory_iterator(llvm::Twine(kairo::sref(dir)), &ec, true)
+        var it = llvm::sys::fs::directory_iterator(
+            llvm::Twine(kairo::sref(dir)),
+            &ec,
+            true,
+        )
+
         var end = llvm::sys::fs::directory_iterator()
         while ec.value() == 0 && it != end {
             var p = it->path()
             out.push_back(
                 LinkFS::filename(
-                    string(unsafe ((p.data() as unsafe *const u8) as *const u8), p.size()),
+                    string(
+                        unsafe ((p.data() as unsafe *const u8) as *const u8),
+                        p.size(),
+                    ),
                 ),
             )
 
@@ -92,7 +114,11 @@ pub class LinkFS {
         }
 
         var sr = mb.get()->getBuffer()
-        out = string(unsafe ((sr.data() as unsafe *const u8) as *const u8), sr.size())
+        out = string(
+            unsafe ((sr.data() as unsafe *const u8) as *const u8),
+            sr.size(),
+        )
+
         return true
     }
 
@@ -115,7 +141,10 @@ pub class LinkFS {
             return ""
         }
 
-        return string(unsafe ((out.data() as unsafe *const u8) as *const u8), out.size())
+        return string(
+            unsafe ((out.data() as unsafe *const u8) as *const u8),
+            out.size(),
+        )
     }
 
     /// Creates a unique directory under the system temp dir; "" on failure.
@@ -129,7 +158,10 @@ pub class LinkFS {
             return ""
         }
 
-        return string(unsafe ((out.data() as unsafe *const u8) as *const u8), out.size())
+        return string(
+            unsafe ((out.data() as unsafe *const u8) as *const u8),
+            out.size(),
+        )
     }
 
     /// Last modification, in the filesystem clock's ticks; 0 if \p p cannot
@@ -173,7 +205,11 @@ pub class LinkFS {
     /// Atomic on one filesystem; false if \p to exists as a non-empty
     /// directory or the move fails.
     pub static fn rename(const from: string, const to: string) -> bool {
-        var ec = llvm::sys::fs::rename(llvm::Twine(kairo::sref(from)), llvm::Twine(kairo::sref(to)))
+        var ec = llvm::sys::fs::rename(
+            llvm::Twine(kairo::sref(from)),
+            llvm::Twine(kairo::sref(to)),
+        )
+
         if ec.value() == 0 {
             return true
         }
@@ -247,7 +283,11 @@ pub class LinkFS {
     }
 
     pub static fn make_dirs(const p: string) -> bool {
-        var ec = llvm::sys::fs::create_directories(llvm::Twine(kairo::sref(p)), true)
+        var ec = llvm::sys::fs::create_directories(
+            llvm::Twine(kairo::sref(p)),
+            true,
+        )
+
         return ec.value() == 0
     }
 
@@ -300,7 +340,9 @@ pub class LinkFS {
             return ""
         }
 
-        return string(unsafe ((v.value().c_str() as unsafe *const u8) as *const u8))
+        return string(
+            unsafe ((v.value().c_str() as unsafe *const u8) as *const u8),
+        )
     }
 
     /// Sets \p name to \p value, overwriting. Portable: Windows has no

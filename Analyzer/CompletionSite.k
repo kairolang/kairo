@@ -25,28 +25,28 @@ import TextScan::is_ident_byte
 // and a tree of a half-typed line is what the parser's recovery made of it.
 
 // --- what is being completed -------------------------------------------------
-pub const SITE_NONE:   u8 = 0  ///< nothing to offer: a comment, a string, a number, a name being declared
-pub const SITE_NAME:   u8 = 1  ///< a bare name: locals, the file, imports, keywords, macros
-pub const SITE_MEMBER: u8 = 2  ///< after `.`, `->` or `::`
-pub const SITE_ATTR:   u8 = 3  ///< after `@`
-pub const SITE_HEADER: u8 = 4  ///< inside the string of `ffi "c++" import "..."`
+pub const SITE_NONE:   u8 = 0 ///< nothing to offer: a comment, a string, a number, a name being declared
+pub const SITE_NAME:   u8 = 1 ///< a bare name: locals, the file, imports, keywords, macros
+pub const SITE_MEMBER: u8 = 2 ///< after `.`, `->` or `::`
+pub const SITE_ATTR:   u8 = 3 ///< after `@`
+pub const SITE_HEADER: u8 = 4 ///< inside the string of `ffi "c++" import "..."`
 
 // --- where a bare name stands: which keywords can start there ---------------
-pub const KC_STMT:  u32 = 1   ///< first on its line in a body: a statement can start
-pub const KC_EXPR:  u32 = 2   ///< an expression
-pub const KC_TYPE:  u32 = 4   ///< a type is written here
-pub const KC_DECL:  u32 = 8   ///< file level or a type's body: a declaration starts
-pub const KC_PARAM: u32 = 16  ///< a parameter list, before the `:`
+pub const KC_STMT:  u32 = 1  ///< first on its line in a body: a statement can start
+pub const KC_EXPR:  u32 = 2  ///< an expression
+pub const KC_TYPE:  u32 = 4  ///< a type is written here
+pub const KC_DECL:  u32 = 8  ///< file level or a type's body: a declaration starts
+pub const KC_PARAM: u32 = 16 ///< a parameter list, before the `:`
 pub const KC_ALL:   u32 = 31
 
 pub struct Site {
     var what:     u8    = SITE_NONE
-    var start:    usize = 0   ///< the identifier under the cursor, both halves
+    var start:    usize = 0 ///< the identifier under the cursor, both halves
     var end:      usize = 0
-    var recv_end: usize = 0   ///< SITE_MEMBER: one past the receiver (where the operator starts)
+    var recv_end: usize = 0 ///< SITE_MEMBER: one past the receiver (where the operator starts)
     var kc:       u32   = KC_ALL
     /// SITE_HEADER: where the path typed so far starts (after the quote).
-    var path_at:  usize = 0
+    var path_at: usize = 0
     /// SITE_HEADER: the language string of the import (`c`, `c++`).
     var lang: string = ""
     /// SITE_ATTR: the word that starts what follows the attribute (`fn`,
@@ -56,16 +56,16 @@ pub struct Site {
 
 /// A `{ ... }` of the text, with what its header says it is.
 pub struct Block {
-    var hstart: usize  = 0           ///< where its header starts (a closure's: at its `fn`)
-    var open:   usize  = 0           ///< its `{`
-    var close:  usize  = usize::MAX  ///< its `}`; usize::MAX: still open at the cursor
-    var word:   string = ""          ///< `fn`, `class`, `struct`, `enum`, `union`, `interface`, `extend`, `module`; "" for any other block
+    var hstart: usize  = 0 ///< where its header starts (a closure's: at its `fn`)
+    var open:   usize  = 0 ///< its `{`
+    var close:  usize  = usize::MAX ///< its `}`; usize::MAX: still open at the cursor
+    var word:   string = "" ///< `fn`, `class`, `struct`, `enum`, `union`, `interface`, `extend`, `module`; "" for any other block
     /// What its header declares is the block's (a function's parameters, a
     /// `for` variable, an `if var`, a `case` binding). False for braces
     /// that are a value's (`var p = Point { x: 1 }`): what stands before
     /// them is declared in the block around.
-    var scopes: bool = false
-    var name:   string = ""          ///< what it declares; for `extend`, the last name of the target's path
+    var scopes: bool   = false
+    var name:   string = "" ///< what it declares; for `extend`, the last name of the target's path
 }
 
 /// A name the text itself declares in a function (the index does not have
@@ -73,8 +73,8 @@ pub struct Block {
 pub struct LexDecl {
     var name:  string = ""
     var off:   usize  = 0
-    var type_: string = ""  ///< after the `:`, as written
-    var init:  string = ""  ///< after the `=`, as written
+    var type_: string = ""    ///< after the `:`, as written
+    var init:  string = ""    ///< after the `=`, as written
     var param: bool   = false
 }
 
@@ -107,7 +107,7 @@ fn word_before(const text: string, e: usize) -> string {
 /// `;` that ends what came before.
 pub fn stmt_start(const text: string, const cls: [u8], at: usize) -> usize {
     var depth: i64 = 0
-    var p = at
+    var p          = at
     while p > 0 {
         var c = text[p - 1]
         if cls[p - 1] != 0 {
@@ -151,7 +151,8 @@ pub fn stmt_start(const text: string, const cls: [u8], at: usize) -> usize {
                 // way (an operator first on the next line) is cut here:
                 // rare in a language with no statement terminator.
                 var q = p - 1
-                while (q > 0) && ((cls[q - 1] != 0) || blank(text[q - 1]) || (text[q - 1] == ('\r' as u8))) {
+                while (q > 0)
+                    && ((cls[q - 1] != 0) || blank(text[q - 1]) || (text[q - 1] == ('\r' as u8))) {
                     if text[q - 1] == ('\n' as u8) {
                         break
                     }
@@ -177,14 +178,32 @@ pub fn stmt_start(const text: string, const cls: [u8], at: usize) -> usize {
 }
 
 fn is_modifier(const w: string) -> bool {
-    return (w == "pub") || (w == "priv") || (w == "prot") || (w == "static") || (w == "inline") || (w == "unsafe")
-        || (w == "async") || (w == "virtual") || (w == "override") || (w == "final") || (w == "const") || (w == "eval")
+    return (w == "pub")
+        || (w == "priv")
+        || (w == "prot")
+        || (w == "static")
+        || (w == "inline")
+        || (w == "unsafe")
+        || (w == "async")
+        || (w == "virtual")
+        || (w == "override")
+        || (w == "final")
+        || (w == "const")
+        || (w == "eval")
         || (w == "ffi")
 }
 
 fn is_scope_word(const w: string) -> bool {
-    return (w == "fn") || (w == "class") || (w == "struct") || (w == "enum") || (w == "union") || (w == "interface")
-        || (w == "extend") || (w == "module") || (w == "test") || (w == "macro")
+    return (w == "fn")
+        || (w == "class")
+        || (w == "struct")
+        || (w == "enum")
+        || (w == "union")
+        || (w == "interface")
+        || (w == "extend")
+        || (w == "module")
+        || (w == "test")
+        || (w == "macro")
 }
 
 /// Reads the header [\p from, \p to) of a block into \p b: its declaring
@@ -192,7 +211,8 @@ fn is_scope_word(const w: string) -> bool {
 fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *Block) {
     var p = from
     while p < to {
-        while (p < to) && (blank(text[p]) || (text[p] == ('\n' as u8)) || (text[p] == ('\r' as u8))) {
+        while (p < to)
+            && (blank(text[p]) || (text[p] == ('\n' as u8)) || (text[p] == ('\r' as u8))) {
             p += 1
         }
 
@@ -249,8 +269,17 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
         }
 
         if !is_scope_word(w) {
-            b->scopes = (w == "for") || (w == "if") || (w == "else") || (w == "while") || (w == "match") || (w == "case")
-                || (w == "catch") || (w == "loop") || (w == "try") || (w == "finally") || (w == "default")
+            b->scopes = (w == "for")
+                || (w == "if")
+                || (w == "else")
+                || (w == "while")
+                || (w == "match")
+                || (w == "case")
+                || (w == "catch")
+                || (w == "loop")
+                || (w == "try")
+                || (w == "finally")
+                || (w == "default")
             // A closure's body (`var f = fn (a: T) -> R {`, `g(fn (x) {`):
             // the block is the closure's, from its `fn`, so its parameters
             // are the block's and what stands before the `fn` is not. The
@@ -265,7 +294,9 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
                         e -= 1
                     }
 
-                    if (e >= (p + 2)) && (text[e - 1] == ('n' as u8)) && (text[e - 2] == ('f' as u8))
+                    if (e >= (p + 2))
+                        && (text[e - 1] == ('n' as u8))
+                        && (text[e - 2] == ('f' as u8))
                         && ((e - 2 == from) || (!is_ident_byte(text[e - 3]))) {
                         b->word   = "fn"
                         b->scopes = true
@@ -309,7 +340,10 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
         // The name; for `extend a::b::C<T>` the last name of the path.
         var name = word_from(text, p)
         p += name.size()
-        while (w == "extend") && ((p + 1) < to) && (text[p] == (':' as u8)) && (text[p + 1] == (':' as u8)) {
+        while (w == "extend")
+            && ((p + 1) < to)
+            && (text[p] == (':' as u8))
+            && (text[p + 1] == (':' as u8)) {
             p += 2
             name = word_from(text, p)
             p += name.size()
@@ -322,10 +356,10 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
 
 /// Every block opened before \p at, in the order of its `{`.
 pub fn blocks_before(const text: string, const cls: [u8], at: usize) -> [Block] {
-    var out: [Block]
-    var open: [usize] // indices into `out` of the blocks still open
-    var i: usize = 0
-    var n = at
+    var out:  [Block]
+    var open: [usize]      // indices into `out` of the blocks still open
+    var i:    usize   = 0
+    var n             = at
     if n > text.size() {
         n = text.size()
     }
@@ -359,7 +393,8 @@ pub fn blocks_before(const text: string, const cls: [u8], at: usize) -> [Block] 
 /// \p blocks were read for; usize::MAX when the cursor is in none.
 pub fn function_block(const blocks: [Block]) -> usize {
     for var k: usize = 0; k < blocks.size(); ++k {
-        if (blocks[k].close == usize::MAX) && ((blocks[k].word == "fn") || (blocks[k].word == "test")) {
+        if (blocks[k].close == usize::MAX)
+            && ((blocks[k].word == "fn") || (blocks[k].word == "test")) {
             return k
         }
     }
@@ -473,7 +508,10 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
                         }
 
                         s.end = at
-                        while (s.end < n) && (text[s.end] != ('"' as u8)) && (text[s.end] != ('/' as u8)) && (text[s.end] != ('\n' as u8)) {
+                        while (s.end < n)
+                            && (text[s.end] != ('"' as u8))
+                            && (text[s.end] != ('/' as u8))
+                            && (text[s.end] != ('\n' as u8)) {
                             s.end += 1
                         }
 
@@ -518,7 +556,9 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
         // A string still open on this line: an odd number of quotes.
         var quotes: usize = 0
         for var k: usize = ls; k < at; ++k {
-            if (cls[k] == 0) && (text[k] == ('"' as u8)) && ((k == ls) || (text[k - 1] != ('\\' as u8))) {
+            if (cls[k] == 0)
+                && (text[k] == ('"' as u8))
+                && ((k == ls) || (text[k - 1] != ('\\' as u8))) {
                 quotes += 1
             }
         }
@@ -538,7 +578,8 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
         s.what = SITE_ATTR
         var q = s.end
         // `@name(args)` already written: past its arguments.
-        while (q < n) && (blank(text[q]) || (text[q] == ('\n' as u8)) || (text[q] == ('\r' as u8))) {
+        while (q < n)
+            && (blank(text[q]) || (text[q] == ('\n' as u8)) || (text[q] == ('\r' as u8))) {
             q += 1
         }
 
@@ -619,21 +660,36 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
     // --- a bare name. What stands before it says what it can be.
     s.what = SITE_NAME
     var prev = word_before(text, before)
-    if (prev == "fn") || (prev == "class") || (prev == "struct") || (prev == "enum") || (prev == "union")
-        || (prev == "interface") || (prev == "module") || (prev == "macro") || (prev == "type") || (prev == "var")
-        || (prev == "catch") || (prev == "test") || (prev == "for") || (prev == "label") {
+    if (prev == "fn")
+        || (prev == "class")
+        || (prev == "struct")
+        || (prev == "enum")
+        || (prev == "union")
+        || (prev == "interface")
+        || (prev == "module")
+        || (prev == "macro")
+        || (prev == "type")
+        || (prev == "var")
+        || (prev == "catch")
+        || (prev == "test")
+        || (prev == "for")
+        || (prev == "label") {
         // A name is being DECLARED: there is nothing to complete it from.
         // (`const` and `eval` are left out: `const self`, `eval if`.)
         s.what = SITE_NONE
         return s
     }
 
-    if (prev == "as") || (prev == "derives") || (prev == "impl") || (prev == "extend") || (prev == "is") {
+    if (prev == "as")
+        || (prev == "derives")
+        || (prev == "impl")
+        || (prev == "extend")
+        || (prev == "is") {
         s.kc = KC_TYPE
         return s
     }
 
-    var st = stmt_start(text, cls, s.start)
+    var st   = stmt_start(text, cls, s.start)
     var head = Block{}
     head.hstart = st
     read_header(text, cls, st, s.start, &head)
@@ -642,7 +698,12 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
         // or a map's (`Point { x: v }`, `{k: v}`): a type or an expression.
         var q = st
         var w = word_from(text, q)
-        while (w == "pub") || (w == "priv") || (w == "prot") || (w == "static") || (w == "unsafe") || (w == "inline") {
+        while (w == "pub")
+            || (w == "priv")
+            || (w == "prot")
+            || (w == "static")
+            || (w == "unsafe")
+            || (w == "inline") {
             q += w.size()
             while (q < s.start) && blank(text[q]) {
                 q += 1
@@ -651,7 +712,8 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
             w = word_from(text, q)
         }
 
-        s.kc = if ((w == "var") || (w == "const") || (w == "eval")) => (KC_TYPE) else => (KC_TYPE | KC_EXPR)
+        s.kc = if ((w == "var") || (w == "const") || (w == "eval")) => (KC_TYPE)
+               else => (KC_TYPE | KC_EXPR)
         return s
     }
 
@@ -668,7 +730,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
         // In a function's header: its parameter list. Before a `:` a
         // parameter is being named; `self` and `const` can stand there.
         var depth: i64 = 0
-        var colon = false
+        var colon      = false
         for var k: usize = head.hstart; k < s.start; ++k {
             if cls[k] != 0 {
                 continue
@@ -694,7 +756,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
 
     // File level, a type's body, or a function's.
     var blocks = blocks_before(text, cls, s.start)
-    var inner = usize::MAX
+    var inner  = usize::MAX
     for var k: usize = 0; k < blocks.size(); ++k {
         if blocks[k].close == usize::MAX {
             inner = k
@@ -702,7 +764,10 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
     }
 
     var first = st == s.start
-    if (inner == usize::MAX) || ((blocks[inner].word != "fn") && (blocks[inner].word != "test") && (!blocks[inner].word.empty())) {
+    if (inner == usize::MAX)
+        || ((blocks[inner].word != "fn")
+            && (blocks[inner].word != "test")
+            && (!blocks[inner].word.empty())) {
         s.kc = if (first) => (KC_DECL) else => (KC_DECL | KC_EXPR | KC_TYPE)
         return s
     }
@@ -758,14 +823,17 @@ pub fn elem_type_text(const t: string) -> string {
         return ""
     }
 
-    var close = usize::MAX
-    var cut   = usize::MAX  // `;` in a `[`, `:` in a `{`, at the outer depth
+    var close      = usize::MAX
+    var cut        = usize::MAX // `;` in a `[`, `:` in a `{`, at the outer depth
     var depth: i64 = 0
     for var k = p; k < t.size(); ++k {
         var c = t[k]
         if (c == ('[' as u8)) || (c == ('{' as u8)) || (c == ('(' as u8)) || (c == ('<' as u8)) {
             depth += 1
-        } else if (c == (']' as u8)) || (c == ('}' as u8)) || (c == (')' as u8)) || (c == ('>' as u8)) {
+        } else if (c == (']' as u8))
+            || (c == ('}' as u8))
+            || (c == (')' as u8))
+            || (c == ('>' as u8)) {
             depth -= 1
             if depth == 0 {
                 close = k
@@ -774,8 +842,10 @@ pub fn elem_type_text(const t: string) -> string {
         } else if (depth == 1) && (cut == usize::MAX) {
             if (t[p] == ('[' as u8)) && (c == (';' as u8)) {
                 cut = k
-            } else if (t[p] == ('{' as u8)) && (c == (':' as u8))
-                && (!(((k + 1) < t.size()) && (t[k + 1] == (':' as u8)))) && (!((k > 0) && (t[k - 1] == (':' as u8)))) {
+            } else if (t[p] == ('{' as u8))
+                && (c == (':' as u8))
+                && (!(((k + 1) < t.size()) && (t[k + 1] == (':' as u8))))
+                && (!((k > 0) && (t[k - 1] == (':' as u8)))) {
                 cut = k
             }
         }
@@ -820,7 +890,7 @@ pub fn elem_type_text(const t: string) -> string {
 pub fn decl_type_text(const line: string, const name: string, result: bool) -> string {
     if result {
         // The last `->` at the outer depth: the function's result.
-        var at = usize::MAX
+        var at         = usize::MAX
         var depth: i64 = 0
         for var k: usize = 0; (k + 1) < line.size(); ++k {
             var c = line[k]
@@ -861,13 +931,16 @@ pub fn decl_type_text(const line: string, const name: string, result: bool) -> s
     }
 
     p += 1
-    var e = p
+    var e          = p
     var depth: i64 = 0
     while e < line.size() {
         var c = line[e]
         if (c == ('(' as u8)) || (c == ('[' as u8)) || (c == ('{' as u8)) || (c == ('<' as u8)) {
             depth += 1
-        } else if (c == (')' as u8)) || (c == (']' as u8)) || (c == ('}' as u8)) || (c == ('>' as u8)) {
+        } else if (c == (')' as u8))
+            || (c == (']' as u8))
+            || (c == ('}' as u8))
+            || (c == ('>' as u8)) {
             depth -= 1
         } else if (depth == 0) && (c == ('=' as u8)) {
             break
@@ -883,7 +956,8 @@ pub fn decl_type_text(const line: string, const name: string, result: bool) -> s
 fn find_word_(const s: string, const w: string, from: usize) -> usize {
     var k = from
     while (k + w.size()) <= s.size() {
-        if (s.subslice(k, w.size()) == w) && ((k == 0) || (!is_ident_byte(s[k - 1])))
+        if (s.subslice(k, w.size()) == w)
+            && ((k == 0) || (!is_ident_byte(s[k - 1])))
             && (((k + w.size()) == s.size()) || (!is_ident_byte(s[k + w.size()]))) {
             return k
         }
@@ -896,10 +970,19 @@ fn find_word_(const s: string, const w: string, from: usize) -> usize {
 
 /// Reads one declared name at \p p (after `var` / `const` / in a parameter
 /// list) up to \p to: `unsafe *name: T = init`.
-fn read_decl(const text: string, const cls: [u8], p_in: usize, to: usize, out: *[LexDecl], param: bool) {
+fn read_decl(const text: string,
+             const cls:  [u8],
+             p_in:       usize,
+             to:         usize,
+             out:        *[LexDecl],
+             param:      bool) {
     var p = p_in
     while p < to {
-        while (p < to) && (blank(text[p]) || (text[p] == ('*' as u8)) || (text[p] == ('&' as u8)) || (text[p] == ('\n' as u8))) {
+        while (p < to)
+            && (blank(text[p])
+                || (text[p] == ('*' as u8))
+                || (text[p] == ('&' as u8))
+                || (text[p] == ('\n' as u8))) {
             p += 1
         }
 
@@ -935,20 +1018,27 @@ fn read_decl(const text: string, const cls: [u8], p_in: usize, to: usize, out: *
 
     // The rest of the declaration: to the line's end, or for a parameter
     // to the `,` or `)` that ends it.
-    var e = p
+    var e          = p
     var depth: i64 = 0
     while e < to {
         var c = text[e]
         if cls[e] == 0 {
-            if (c == ('(' as u8)) || (c == ('[' as u8)) || (c == ('<' as u8)) || (c == ('{' as u8)) {
+            if (c == ('(' as u8))
+                || (c == ('[' as u8))
+                || (c == ('<' as u8))
+                || (c == ('{' as u8)) {
                 depth += 1
-            } else if (c == (')' as u8)) || (c == (']' as u8)) || (c == ('>' as u8)) || (c == ('}' as u8)) {
+            } else if (c == (')' as u8))
+                || (c == (']' as u8))
+                || (c == ('>' as u8))
+                || (c == ('}' as u8)) {
                 if depth == 0 {
                     break
                 }
 
                 depth -= 1
-            } else if (depth == 0) && ((c == ('\n' as u8)) || (c == (';' as u8)) || (param && (c == (',' as u8)))) {
+            } else if (depth == 0)
+                && ((c == ('\n' as u8)) || (c == (';' as u8)) || (param && (c == (',' as u8)))) {
                 break
             }
         }
@@ -956,16 +1046,19 @@ fn read_decl(const text: string, const cls: [u8], p_in: usize, to: usize, out: *
         e += 1
     }
 
-    var rest = text.subslice(p, e - p)
-    var eq = usize::MAX
-    var dd: i64 = 0
+    var rest     = text.subslice(p, e - p)
+    var eq       = usize::MAX
+    var dd:  i64 = 0
     for var k: usize = 0; k < rest.size(); ++k {
         var c = rest[k]
         if (c == ('(' as u8)) || (c == ('[' as u8)) || (c == ('<' as u8)) {
             dd += 1
         } else if (c == (')' as u8)) || (c == (']' as u8)) || (c == ('>' as u8)) {
             dd -= 1
-        } else if (c == ('=' as u8)) && (dd <= 0) && (eq == usize::MAX) && (!(((k + 1) < rest.size()) && (rest[k + 1] == ('=' as u8)))) {
+        } else if (c == ('=' as u8))
+            && (dd <= 0)
+            && (eq == usize::MAX)
+            && (!(((k + 1) < rest.size()) && (rest[k + 1] == ('=' as u8)))) {
             eq = k
         }
     }
@@ -988,7 +1081,7 @@ fn read_decl(const text: string, const cls: [u8], p_in: usize, to: usize, out: *
 /// has no rows of (typed since it was built).
 pub fn lex_decls(const text: string, const cls: [u8], from: usize, to: usize) -> [LexDecl] {
     var out: [LexDecl]
-    var p = from
+    var p              = from
     while p < to {
         if (cls[p] != 0) || (!is_ident_byte(text[p])) || ((p > 0) && is_ident_byte(text[p - 1])) {
             p += 1
@@ -1032,7 +1125,7 @@ pub fn lex_decls(const text: string, const cls: [u8], from: usize, to: usize) ->
 /// The parameters a function's header [\p from, \p to) declares.
 pub fn lex_params(const text: string, const cls: [u8], from: usize, to: usize) -> [LexDecl] {
     var out: [LexDecl]
-    var p = from
+    var p              = from
     // The parameter list is the first `(` after the name (a generic list
     // has no parenthesis).
     while (p < to) && (!((cls[p] == 0) && (text[p] == ('(' as u8)))) {
@@ -1045,7 +1138,7 @@ pub fn lex_params(const text: string, const cls: [u8], from: usize, to: usize) -
 
     p += 1
     var depth: i64 = 0
-    var item = p
+    var item       = p
     while p < to {
         var c = text[p]
         if cls[p] == 0 {
@@ -1085,11 +1178,11 @@ pub struct RecvStep {
 /// access (`x?.`) is passed over. Empty when it is not a chain of names: a
 /// literal, any other expression.
 pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvStep] {
-    var rev: [RecvStep]
+    var rev:  [RecvStep]
     var none: [RecvStep]
-    var p = end
+    var p                = end
     // Code, or the inside of the f-string the cursor is in.
-    var here: u8 = if (end > 0) => (cls[end - 1]) else => (0 as u8)
+    var here:  u8    = if (end > 0) => (cls[end - 1]) else => (0 as u8)
     var guard: usize = 0
     while guard < 32 {
         guard += 1
@@ -1099,7 +1192,10 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
 
         // `x?.`: a nullable's safe access names the members of what it
         // holds, which is the record the tables give a `T?` (through `?`).
-        if (p > 0) && (text[p - 1] == ('?' as u8)) && (cls[p - 1] == here) && (!((p > 1) && (text[p - 2] == ('?' as u8)))) {
+        if (p > 0)
+            && (text[p - 1] == ('?' as u8))
+            && (cls[p - 1] == here)
+            && (!((p > 1) && (text[p - 2] == ('?' as u8)))) {
             p -= 1
             while (p > 0) && blank(text[p - 1]) {
                 p -= 1
@@ -1110,9 +1206,9 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
         // `v[i]`, `m[k][j]`: the subscripts after the step, back over
         // their brackets (these went to the compiler).
         while (p > 0) && (text[p - 1] == (']' as u8)) && (cls[p - 1] == here) {
-            var close_at = p - 1
-            var bd: i64 = 0
-            var opened = false
+            var close_at     = p - 1
+            var bd:      i64 = 0
+            var opened       = false
             while p > 0 {
                 var c = text[p - 1]
                 if cls[p - 1] == here {
@@ -1151,7 +1247,7 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
         // `name<T>(args)` / `name(args)`: back over the call's brackets.
         var paren_close = usize::MAX
         var paren_open  = usize::MAX
-        var generic = false
+        var generic     = false
         if (p > 0) && (text[p - 1] == (')' as u8)) && (cls[p - 1] == here) {
             paren_close = p - 1
             var depth: i64 = 0
@@ -1208,7 +1304,7 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
         // of names, the receiver is that chain (with the subscripts after
         // the brackets applied to its last step), and it is the head.
         if (p == e) && (paren_open != usize::MAX) && (!generic) {
-            var open = paren_open
+            var open  = paren_open
             var inner = receiver_steps(text, cls, paren_close)
             var first = open + 1
             while (first < paren_close) && (blank(text[first]) || (text[first] == ('\n' as u8))) {
@@ -1236,8 +1332,13 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
 
             // Nothing that would make the brackets part of a larger
             // expression this does not read (`x.(a)`, `f()(a)`, `@(a)`).
-            if (q0 > 0) && ((text[q0 - 1] == ('.' as u8)) || (text[q0 - 1] == (':' as u8)) || (text[q0 - 1] == ('>' as u8))
-                || (text[q0 - 1] == (')' as u8)) || (text[q0 - 1] == (']' as u8)) || (text[q0 - 1] == ('@' as u8))) {
+            if (q0 > 0)
+                && ((text[q0 - 1] == ('.' as u8))
+                    || (text[q0 - 1] == (':' as u8))
+                    || (text[q0 - 1] == ('>' as u8))
+                    || (text[q0 - 1] == (')' as u8))
+                    || (text[q0 - 1] == (']' as u8))
+                    || (text[q0 - 1] == ('@' as u8))) {
                 return none
             }
 
@@ -1269,7 +1370,9 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
             continue
         }
 
-        if (q > 1) && (((text[q - 1] == ('>' as u8)) && (text[q - 2] == ('-' as u8))) || ((text[q - 1] == (':' as u8)) && (text[q - 2] == (':' as u8)))) {
+        if (q > 1)
+            && (((text[q - 1] == ('>' as u8)) && (text[q - 2] == ('-' as u8)))
+                || ((text[q - 1] == (':' as u8)) && (text[q - 2] == (':' as u8)))) {
             p = q - 2
             continue
         }
@@ -1277,7 +1380,10 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
         // What stands before the head must not make it part of something
         // this does not read: `x[i].y`, `f(a).b` are handled above; a `)`
         // or `]` here is an expression's end.
-        if (q > 0) && ((text[q - 1] == (')' as u8)) || (text[q - 1] == (']' as u8)) || (text[q - 1] == ('@' as u8))) {
+        if (q > 0)
+            && ((text[q - 1] == (')' as u8))
+                || (text[q - 1] == (']' as u8))
+                || (text[q - 1] == ('@' as u8))) {
             return none
         }
 
@@ -1285,7 +1391,7 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
     }
 
     var out: [RecvStep]
-    var k = rev.size()
+    var k               = rev.size()
     while k > 0 {
         out.push_back(rev[k - 1])
         k -= 1
@@ -1312,7 +1418,7 @@ pub fn doc_above(const text: string, line: usize) -> string {
     }
 
     var lines: [string]
-    var k = line
+    var k               = line
     while k > 0 {
         var ls = starts[k - 1]
         var le = starts[k] - 1
@@ -1321,7 +1427,10 @@ pub fn doc_above(const text: string, line: usize) -> string {
             p += 1
         }
 
-        if ((p + 2) < le) && (text[p] == ('/' as u8)) && (text[p + 1] == ('/' as u8)) && (text[p + 2] == ('/' as u8)) {
+        if ((p + 2) < le)
+            && (text[p] == ('/' as u8))
+            && (text[p + 1] == ('/' as u8))
+            && (text[p + 2] == ('/' as u8)) {
             var b = p + 3
             if (b < le) && (text[b] == (' ' as u8)) {
                 b += 1
@@ -1338,7 +1447,12 @@ pub fn doc_above(const text: string, line: usize) -> string {
         }
 
         // An attribute or a visibility keyword on a line of its own.
-        if lines.empty() && (p < le) && ((text[p] == ('@' as u8)) || (word_from(text, p) == "pub") || (word_from(text, p) == "priv") || (word_from(text, p) == "prot")) {
+        if lines.empty()
+            && (p < le)
+            && ((text[p] == ('@' as u8))
+                || (word_from(text, p) == "pub")
+                || (word_from(text, p) == "priv")
+                || (word_from(text, p) == "prot")) {
             k -= 1
             continue
         }
@@ -1347,7 +1461,7 @@ pub fn doc_above(const text: string, line: usize) -> string {
     }
 
     var out: string = ""
-    var q = lines.size()
+    var q           = lines.size()
     while q > 0 {
         out += lines[q - 1]
         if q > 1 {

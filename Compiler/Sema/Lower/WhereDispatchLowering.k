@@ -153,7 +153,11 @@ pub class WhereGuardRemap derives ASTWriter<WhereGuardRemap> {
     }
 
     fn transform_named_ident_expr(self, n: unsafe *NamedIdentExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<WhereGuardRemap>::transform_named_ident_expr(self, n)
+        var unsafe *out = ASTWriter<WhereGuardRemap>::transform_named_ident_expr(
+            self,
+            n,
+        )
+
         for var i: usize = 0; i < self.from.size(); ++i {
             if n->resolved_decl == self.from[i] {
                 n->resolved_decl = self.to[i]
@@ -206,7 +210,11 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
 
     fn transform_function_decl(self, n: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
         // Children first: a body may hold a block-scope group of its own.
-        var out = ASTWriter<WhereDispatchLowering>::transform_function_decl(self, n)
+        var out = ASTWriter<WhereDispatchLowering>::transform_function_decl(
+            self,
+            n,
+        )
+
         if n->where_lead == &null || n->is_poisoned() {
             return out
         }
@@ -262,7 +270,9 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         }
 
         if order.size() == 0 {
-            kairo::std::ice_fail("WhereDispatchLowering: a lead with no filed group")
+            kairo::std::ice_fail(
+                "WhereDispatchLowering: a lead with no filed group",
+            )
         }
 
         var name = self.tu.decl_name(unsafe (lead as unsafe *Decl))
@@ -278,7 +288,10 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
             var k = self._source_rank(m, order)
             var unsafe *c = self._mint(
                 m,
-                self.synth.ident(m->range, LowerTargets::where_candidate(name, k)),
+                self.synth.ident(
+                    m->range,
+                    LowerTargets::where_candidate(name, k),
+                ),
             )
 
             self._members.push_back(m)
@@ -357,7 +370,9 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
             }
         }
 
-        kairo::std::ice_fail("WhereDispatchLowering: the lead is not in its own group")
+        kairo::std::ice_fail(
+            "WhereDispatchLowering: the lead is not in its own group",
+        )
     }
 
     /// A candidate: \p m's parameters, body and contract under \p name,
@@ -371,7 +386,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         c->init_annotations(unsafe &self.ctx->ast_alloc)
         c->init_dc(DeclContextKind::Function, self.ctx, m->semantic_dc, c)
         c->init_redecl()
-        c->generic_params  = create_empty_frozen_list<unsafe *GenericParamDecl>()
+        c->generic_params = create_empty_frozen_list<unsafe *GenericParamDecl>()
         c->op_token        = create_empty_frozen_list<Token>()
         c->spec_args       = create_empty_frozen_list<unsafe *Type>()
         c->spec_kind       = SpecKind::None
@@ -431,7 +446,12 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
     /// gates them).
     priv fn _clone_param(self, p: unsafe *ParamDecl) -> unsafe *ParamDecl {
         var unsafe *q = self.ctx->alloc<ParamDecl>()
-        cxx::std::memcpy(unsafe (q as unsafe *void), unsafe (p as unsafe *void), sizeof(ParamDecl))
+        cxx::std::memcpy(
+            unsafe (q as unsafe *void),
+            unsafe (p as unsafe *void),
+            sizeof(ParamDecl),
+        )
+
         q->default_val   = &null
         q->default_thunk = &null
         return q
@@ -477,9 +497,20 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         var unsafe *rt                = self._ret(c)
         var        call: unsafe *Expr = &null
         if recv != &null {
-            call = self.synth.member_call(at, recv, unsafe (c as unsafe *Decl), &args, rt)
+            call = self.synth.member_call(
+                at,
+                recv,
+                unsafe (c as unsafe *Decl),
+                &args,
+                rt,
+            )
         } else {
-            call = self.synth.free_call(at, unsafe (c as unsafe *Decl), unsafe &args, rt)
+            call = self.synth.free_call(
+                at,
+                unsafe (c as unsafe *Decl),
+                unsafe &args,
+                rt,
+            )
         }
 
         if c->generic_params.size() > 0 {
@@ -517,14 +548,17 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
             )
         }
 
-        var unsafe *rep = NameLookup::representative(unsafe (lead as unsafe *Decl))
-        var        v    = cxx::std::vector<ChainType::GenericArg>()
+        var unsafe *rep = NameLookup::representative(
+            unsafe (lead as unsafe *Decl),
+        )
+
+        var v = cxx::std::vector<ChainType::GenericArg>()
         for var i: usize = 0; i < lead->generic_params.size(); ++i {
             var unsafe *gp = lead->generic_params[i]
             var        a   = ChainType::GenericArg{}
             a.name       = &null
             a.name_range = SourceRange::invalid()
-            a.ty         = self.sc->types->generic_param(rep, gp->index, gp->is_pack)
+            a.ty = self.sc->types->generic_param(rep, gp->index, gp->is_pack)
             v.push_back(a)
         }
 

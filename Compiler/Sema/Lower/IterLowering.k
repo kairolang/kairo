@@ -246,7 +246,11 @@ pub class ShiftBinderScan derives RecursiveASTVisitor<ShiftBinderScan> {
 
     fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {
         self._closures += 1
-        var unsafe *r = RecursiveASTVisitor<ShiftBinderScan>::traverse_closure_expr(self, n)
+        var unsafe *r = RecursiveASTVisitor<ShiftBinderScan>::traverse_closure_expr(
+            self,
+            n,
+        )
+
         self._closures -= 1
         return r
     }
@@ -302,7 +306,10 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         // An `eval for` stays for EmitIR's expansion (Compiler/Spec/Eval.md#eval-for); only the
         // loops in its body are lowered, and a range's bounds are kept.
         if n->is_eval {
-            var unsafe *r = dyn_cast<RangeExpr>(self.tu.strip_parens(n->iterable))
+            var unsafe *r = dyn_cast<RangeExpr>(
+                self.tu.strip_parens(n->iterable),
+            )
+
             if n->iter_kind == IterKind::RangeLit && r != &null {
                 n->ev_lo    = r->begin
                 n->ev_hi    = r->end
@@ -451,7 +458,12 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             body.push(unsafe (n->body as unsafe *Stmt))
             return self._while(
                 at,
-                self._cmp(at, self._use(i, at), self._use(hi, at), TokenKind::OpLess),
+                self._cmp(
+                    at,
+                    self._use(i, at),
+                    self._use(hi, at),
+                    TokenKind::OpLess,
+                ),
                 unsafe &body,
             )
         }
@@ -461,7 +473,12 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             at,
             "more",
             self._bool(),
-            self._cmp(at, self._use(lo, at), self._use(hi, at), TokenKind::OpLessEqual),
+            self._cmp(
+                at,
+                self._use(lo, at),
+                self._use(hi, at),
+                TokenKind::OpLessEqual,
+            ),
         )
 
         body.push(
@@ -469,7 +486,12 @@ pub class IterLowering derives ASTWriter<IterLowering> {
                 self._assign(
                     at,
                     self._use(more, at),
-                    self._cmp(at, self._use(i, at), self._use(hi, at), TokenKind::OpExclaimEqual),
+                    self._cmp(
+                        at,
+                        self._use(i, at),
+                        self._use(hi, at),
+                        TokenKind::OpExclaimEqual,
+                    ),
                 ),
             ),
         )
@@ -543,7 +565,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
 
         for var i: usize = 0; i < scan.assigns.size(); ++i {
             var unsafe *asg = scan.assigns[i]
-            var        w    = self.tu.int_bits(self.tu.as_value(asg->lhs->type_))
+            var w = self.tu.int_bits(self.tu.as_value(asg->lhs->type_))
             if w != 0 && bound <= (w as u64) {
                 asg->no_wrap = true
             }
@@ -585,7 +607,10 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             self.synth.field_of(
                 at,
                 self._use(r, at),
-                self._lang_member(WellKnownType::Range, LangMembers::range_begin()),
+                self._lang_member(
+                    WellKnownType::Range,
+                    LangMembers::range_begin(),
+                ),
                 t,
             ),
         )
@@ -598,7 +623,10 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             self.synth.field_of(
                 at,
                 self._use(r, at),
-                self._lang_member(WellKnownType::Range, LangMembers::range_end()),
+                self._lang_member(
+                    WellKnownType::Range,
+                    LangMembers::range_end(),
+                ),
                 t,
             ),
         )
@@ -611,7 +639,10 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             self.synth.field_of(
                 at,
                 self._use(r, at),
-                self._lang_member(WellKnownType::Range, LangMembers::range_inclusive()),
+                self._lang_member(
+                    WellKnownType::Range,
+                    LangMembers::range_inclusive(),
+                ),
                 self._bool(),
             ),
         )
@@ -621,7 +652,12 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             at,
             "more",
             self._bool(),
-            self._cmp(at, self._use(i, at), self._use(hi, at), TokenKind::OpLess),
+            self._cmp(
+                at,
+                self._use(i, at),
+                self._use(hi, at),
+                TokenKind::OpLess,
+            ),
         )
 
         var to_le = self.list_builder<unsafe *Stmt>()
@@ -630,7 +666,12 @@ pub class IterLowering derives ASTWriter<IterLowering> {
                 self._assign(
                     at,
                     self._use(more, at),
-                    self._cmp(at, self._use(i, at), self._use(hi, at), TokenKind::OpLessEqual),
+                    self._cmp(
+                        at,
+                        self._use(i, at),
+                        self._use(hi, at),
+                        TokenKind::OpLessEqual,
+                    ),
                 ),
             ),
         )
@@ -674,7 +715,12 @@ pub class IterLowering derives ASTWriter<IterLowering> {
                 self._assign(
                     at,
                     self._use(more, at),
-                    self._cmp(at, self._use(i, at), self._use(last, at), TokenKind::OpExclaimEqual),
+                    self._cmp(
+                        at,
+                        self._use(i, at),
+                        self._use(last, at),
+                        TokenKind::OpExclaimEqual,
+                    ),
                 ),
             ),
         )
@@ -696,7 +742,9 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         var unsafe *elem = n->iter_elem
         var unsafe *arr  = canon_unqual(n->iterable->type_)
         if arr == &null || !isa<FixedArrayType>(arr) {
-            kairo::std::ice_fail("IterLowering: Array kind on a non-array iterable")
+            kairo::std::ice_fail(
+                "IterLowering: Array kind on a non-array iterable",
+            )
         }
 
         var unsafe *fa = cast<FixedArrayType>(arr)
@@ -740,12 +788,24 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         )
 
         var body = self.list_builder<unsafe *Stmt>()
-        self._bind(n, unsafe &body, at, self._subscript(at, base, self._use(k, at), elem), true)
+        self._bind(
+            n,
+            unsafe &body,
+            at,
+            self._subscript(at, base, self._use(k, at), elem),
+            true,
+        )
+
         body.push(self._expr_stmt(self._preinc(self._use(k, at))))
         body.push(n->body)
         return self._while(
             at,
-            self._cmp(at, self._use(k, at), self._use(cnt, at), TokenKind::OpLess),
+            self._cmp(
+                at,
+                self._use(k, at),
+                self._use(cnt, at),
+                TokenKind::OpLess,
+            ),
             unsafe &body,
         )
     }
@@ -761,8 +821,16 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         var unsafe *s = self._local(pre, at, "seq", st, n->iterable)
         self._extend(n->iterable)
 
-        var unsafe *data = self._lang_member(WellKnownType::Slice, LangMembers::slice_data())
-        var unsafe *len  = self._lang_member(WellKnownType::Slice, LangMembers::slice_len())
+        var unsafe *data = self._lang_member(
+            WellKnownType::Slice,
+            LangMembers::slice_data(),
+        )
+
+        var unsafe *len = self._lang_member(
+            WellKnownType::Slice,
+            LangMembers::slice_len(),
+        )
+
         var unsafe *p = self._local(
             pre,
             at,
@@ -800,7 +868,12 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         body.push(n->body)
         return self._while(
             at,
-            self._cmp(at, self._use(k, at), self._use(cnt, at), TokenKind::OpLess),
+            self._cmp(
+                at,
+                self._use(k, at),
+                self._use(cnt, at),
+                TokenKind::OpLess,
+            ),
             unsafe &body,
         )
     }
@@ -832,30 +905,57 @@ pub class IterLowering derives ASTWriter<IterLowering> {
 
                 addr->type_          = self.sc->types->pointer(gen_ty, false)
                 addr->value_category = Expr::ValueCategory::RValue
-                it                   = self._local(pre, at, "gen", addr->type_, addr)
-                by_addr              = true
+                it      = self._local(pre, at, "gen", addr->type_, addr)
+                by_addr = true
             } else {
                 it = self._local(pre, at, "it", gen_ty, src)
             }
         } else {
             var recv: unsafe *Expr = n->iterable
             if !recv->is_lvalue() {
-                var unsafe *tmp = self._local(pre, at, "seq", canon_unqual(recv->type_), recv)
+                var unsafe *tmp = self._local(
+                    pre,
+                    at,
+                    "seq",
+                    canon_unqual(recv->type_),
+                    recv,
+                )
+
                 recv = self._use(tmp, at)
             }
 
-            var        none  = self.list_builder<unsafe *Expr>()
-            var unsafe *call = self.synth.member_call(at, recv, n->iter_op, &none, gen_ty)
+            var none = self.list_builder<unsafe *Expr>()
+            var unsafe *call = self.synth.member_call(
+                at,
+                recv,
+                n->iter_op,
+                &none,
+                gen_ty,
+            )
+
             cast<CallExpr>(call)->instance = n->iter_inst
-            it                             = self._local(pre, at, "it", gen_ty, call)
+            it = self._local(pre, at, "it", gen_ty, call)
         }
 
-        var unsafe *next_d = self._lang_member(WellKnownType::Yield, LangMembers::yield_next())
-        var unsafe *cur_d  = self._lang_member(WellKnownType::Yield, LangMembers::yield_current())
+        var unsafe *next_d = self._lang_member(
+            WellKnownType::Yield,
+            LangMembers::yield_next(),
+        )
 
-        var unsafe *gen_cur = if (by_addr) => (self._deref(self._use(it, at), gen_ty))
+        var unsafe *cur_d = self._lang_member(
+            WellKnownType::Yield,
+            LangMembers::yield_current(),
+        )
+
+        var unsafe *gen_cur = if (by_addr) => (self._deref(
+                                  self._use(it, at),
+                                  gen_ty,
+                              ))
                               else => self._use(it, at)
-        var unsafe *gen_next = if (by_addr) => (self._deref(self._use(it, at), gen_ty))
+        var unsafe *gen_next = if (by_addr) => (self._deref(
+                                   self._use(it, at),
+                                   gen_ty,
+                               ))
                                else => self._use(it, at)
 
         var no_cur = self.list_builder<unsafe *Expr>()
@@ -909,7 +1009,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
 
             addr->type_          = self.sc->types->pointer(obj, false)
             addr->value_category = Expr::ValueCategory::RValue
-            rng                  = self._local(pre, at, "rng", addr->type_, addr)
+            rng = self._local(pre, at, "rng", addr->type_, addr)
             // The place's constness is C++'s to deduce: a field read through a
             // `const self` has a non-const Kairo type but a const address, and
             // its begin()/end() are the const overloads, so a spelled `T*` or
@@ -921,8 +1021,26 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             rng = self._local(pre, at, "seq", canon_unqual(obj), n->iterable)
         }
 
-        itv->init  = self._cxx_call(n, at, rng, obj, n->cxx_begin_fn, n->cxx_begin_inst, itv->type_)
-        endv->init = self._cxx_call(n, at, rng, obj, n->cxx_end_fn, n->cxx_end_inst, endv->type_)
+        itv->init = self._cxx_call(
+            n,
+            at,
+            rng,
+            obj,
+            n->cxx_begin_fn,
+            n->cxx_begin_inst,
+            itv->type_,
+        )
+
+        endv->init = self._cxx_call(
+            n,
+            at,
+            rng,
+            obj,
+            n->cxx_end_fn,
+            n->cxx_end_inst,
+            endv->type_,
+        )
+
         pre->push(
             unsafe (DeclStmt::create(self.ctx, at, unsafe (itv as unsafe *Decl)) as unsafe *Stmt),
         )
@@ -1060,10 +1178,18 @@ pub class IterLowering derives ASTWriter<IterLowering> {
 
             var unsafe *fd = self.tu.tuple_field(t, i)
             if fd == &null {
-                kairo::std::ice_fail("IterLowering: tuple record with fewer fields than its arity")
+                kairo::std::ice_fail(
+                    "IterLowering: tuple record with fewer fields than its arity",
+                )
             }
 
-            var unsafe *pi = self.synth.field_of(b->range, self._use(el, at), fd, elems[i])
+            var unsafe *pi = self.synth.field_of(
+                b->range,
+                self._use(el, at),
+                fd,
+                elems[i],
+            )
+
             self._bind_one(b, body, at, pi, true)
         }
     }
@@ -1079,7 +1205,9 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         }
 
         if b->shorthand.has(BindingShorthand::Nullable) {
-            kairo::std::ice_fail("IterLowering: a nullable binder; NullableTypeLowering owns it")
+            kairo::std::ice_fail(
+                "IterLowering: a nullable binder; NullableTypeLowering owns it",
+            )
         }
 
         var unsafe *vd = dyn_cast<VariableDecl>(b->decl)
@@ -1088,7 +1216,9 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         }
 
         if vd->type_ == &null {
-            kairo::std::ice_fail("IterLowering: untyped binder; StmtTyping::_bind_one gate failure")
+            kairo::std::ice_fail(
+                "IterLowering: untyped binder; StmtTyping::_bind_one gate failure",
+            )
         }
 
         var as_ptr = b->shorthand.has(BindingShorthand::Pointer) && b->type_ == &null
@@ -1097,7 +1227,14 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         } else if stable {
             vd->init = self.synth.addr_of(place)
         } else {
-            var unsafe *copy = self._local(body, at, "v", canon_unqual(place->type_), place)
+            var unsafe *copy = self._local(
+                body,
+                at,
+                "v",
+                canon_unqual(place->type_),
+                place,
+            )
+
             vd->init = self.synth.addr_of(self._use(copy, at))
         }
 
@@ -1112,7 +1249,9 @@ pub class IterLowering derives ASTWriter<IterLowering> {
     priv fn _lang_member(self, k: WellKnownType, const name: string) -> unsafe *Decl {
         var unsafe *d = self.sc->well_known->get(k)
         if d == &null {
-            kairo::std::ice_fail(f"IterLowering: the '{to_string(k)}' lang item is unbound")
+            kairo::std::ice_fail(
+                f"IterLowering: the '{to_string(k)}' lang item is unbound",
+            )
         }
 
         var unsafe *body = self.tu.pattern_of(NameLookup::representative(d))
@@ -1176,7 +1315,14 @@ pub class IterLowering derives ASTWriter<IterLowering> {
                  lhs: unsafe *Expr,
                  rhs: unsafe *Expr,
                  k:   TokenKind) -> unsafe *Expr {
-        var unsafe *b = BinaryOperatorExpr::create(self.ctx, at, lhs, rhs, self.synth.punct(at, k))
+        var unsafe *b = BinaryOperatorExpr::create(
+            self.ctx,
+            at,
+            lhs,
+            rhs,
+            self.synth.punct(at, k),
+        )
+
         b->type_          = self._bool()
         b->value_category = Expr::ValueCategory::RValue
         return b
@@ -1188,7 +1334,14 @@ pub class IterLowering derives ASTWriter<IterLowering> {
                    rhs: unsafe *Expr,
                    k:   TokenKind,
                    ty:  unsafe *Type) -> unsafe *Expr {
-        var unsafe *b = BinaryOperatorExpr::create(self.ctx, at, lhs, rhs, self.synth.punct(at, k))
+        var unsafe *b = BinaryOperatorExpr::create(
+            self.ctx,
+            at,
+            lhs,
+            rhs,
+            self.synth.punct(at, k),
+        )
+
         b->type_          = ty
         b->value_category = Expr::ValueCategory::RValue
         return b
@@ -1269,7 +1422,12 @@ pub class IterLowering derives ASTWriter<IterLowering> {
                    at:   SourceRange,
                    cond: unsafe *Expr,
                    body: unsafe *ListBuilder<unsafe *Stmt>) -> unsafe *Stmt {
-        return WhileLoopStmt::create(self.ctx, at, cond, self._block(at, &*body))
+        return WhileLoopStmt::create(
+            self.ctx,
+            at,
+            cond,
+            self._block(at, &*body),
+        )
     }
 
     /// A slice literal bound to a local here lives to the end of the block,

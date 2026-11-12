@@ -308,12 +308,17 @@ pub class TypeUtil {
                 continue
             }
 
-            var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(id->resolved_decl)
+            var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+                id->resolved_decl,
+            )
+
             if gp == &null || gp->index != g->param_index {
                 continue
             }
 
-            if NameLookup::representative(gp->owner) != NameLookup::representative(g->owner) {
+            if NameLookup::representative(gp->owner) != NameLookup::representative(
+                g->owner,
+            ) {
                 continue
             }
 
@@ -352,12 +357,17 @@ pub class TypeUtil {
                 continue
             }
 
-            var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(id->resolved_decl)
+            var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+                id->resolved_decl,
+            )
+
             if gp == &null || gp->index != g->param_index {
                 continue
             }
 
-            if NameLookup::representative(gp->owner) != NameLookup::representative(g->owner) {
+            if NameLookup::representative(gp->owner) != NameLookup::representative(
+                g->owner,
+            ) {
                 continue
             }
 
@@ -730,7 +740,9 @@ pub class TypeUtil {
         // on its empty one); EvalUsageChecking named every `eval fn op ==`
         // through here and aborted the compile.
         if isa<Declarations::FunctionDecl>(d) && cast<Declarations::FunctionDecl>(d)->is_operator {
-            return "op " + OperatorFacts::symbol(cast<Declarations::FunctionDecl>(d))
+            return "op " + OperatorFacts::symbol(
+                cast<Declarations::FunctionDecl>(d),
+            )
         }
 
         if isa<Declarations::FunctionDecl>(d) {
@@ -750,11 +762,15 @@ pub class TypeUtil {
         }
 
         if isa<Declarations::EnumVariantDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::EnumVariantDecl>(d)->name)
+            return ctx->get_spelling(
+                cast<Declarations::EnumVariantDecl>(d)->name,
+            )
         }
 
         if isa<Declarations::GenericParamDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::GenericParamDecl>(d)->name)
+            return ctx->get_spelling(
+                cast<Declarations::GenericParamDecl>(d)->name,
+            )
         }
 
         return "<decl>"
@@ -805,7 +821,13 @@ pub class TypeUtil {
 
         var chain  = cxx::std::vector<unsafe *Decl>()
         var depths = cxx::std::vector<u32>()
-        self._chain_walk(NameLookup::representative(d), unsafe &chain, unsafe &depths, 0)
+        self._chain_walk(
+            NameLookup::representative(d),
+            unsafe &chain,
+            unsafe &depths,
+            0,
+        )
+
         for var i: usize = 0; i < chain.size(); ++i {
             var unsafe *cd = dyn_cast<Declarations::ClassDecl>(chain[i])
             if cd == &null {
@@ -892,7 +914,12 @@ pub class TypeUtil {
 
             var unsafe *bd = self.record_decl(e->base->canonical)
             if bd != &null {
-                self._chain_walk(NameLookup::representative(bd), out, depths, depth + 1)
+                self._chain_walk(
+                    NameLookup::representative(bd),
+                    out,
+                    depths,
+                    depth + 1,
+                )
             }
         }
 
@@ -1351,7 +1378,10 @@ pub class TypeUtil {
         }
 
         for var i: usize = 0; i < cell.cell->size(); ++i {
-            var unsafe *f = dyn_cast<Declarations::FunctionDecl>(cell.cell->get(i))
+            var unsafe *f = dyn_cast<Declarations::FunctionDecl>(
+                cell.cell->get(i),
+            )
+
             if f == &null {
                 continue
             }
@@ -1515,7 +1545,11 @@ pub class TypeUtil {
                     continue
                 }
 
-                var bw = self._why_no_default(canon_unqual(e->base->canonical), depth + 1)
+                var bw = self._why_no_default(
+                    canon_unqual(e->base->canonical),
+                    depth + 1,
+                )
+
                 if !bw.empty() {
                     return f"'{nm}' has no default constructor: the implicit one cannot build its base ({bw})"
                 }
@@ -1552,7 +1586,11 @@ pub class TypeUtil {
                 continue
             }
 
-            var fw = self._why_no_default(canon_unqual(f->type_->canonical), depth + 1)
+            var fw = self._why_no_default(
+                canon_unqual(f->type_->canonical),
+                depth + 1,
+            )
+
             if !fw.empty() {
                 return f"'{nm}' has no default constructor: the implicit one cannot build field '{fnm}', which has no initializer ({fw})"
             }
@@ -1568,7 +1606,9 @@ pub class TypeUtil {
     /// the emitted class has to agree with.
     fn declares_ctor(self, d: unsafe *Decl) -> bool {
         var nm = self.decl_name(d)
-        var ms = if (isa<Declarations::ClassDecl>(d)) => (cast<Declarations::ClassDecl>(d)->methods)
+        var ms = if (isa<Declarations::ClassDecl>(d)) => (cast<Declarations::ClassDecl>(
+                     d,
+                 )->methods)
                  else => cast<Declarations::StructDecl>(d)->methods
         for var i: usize = 0; i < ms.size(); ++i {
             var unsafe *m = ms[i]
@@ -1632,7 +1672,9 @@ pub class TypeUtil {
     /// value, not from none), every parameter but `self` defaulted.
     fn default_ctor_of(self, d: unsafe *Decl) -> unsafe *Declarations::FunctionDecl {
         var nm = self.decl_name(d)
-        var ms = if (isa<Declarations::ClassDecl>(d)) => (cast<Declarations::ClassDecl>(d)->methods)
+        var ms = if (isa<Declarations::ClassDecl>(d)) => (cast<Declarations::ClassDecl>(
+                     d,
+                 )->methods)
                  else => cast<Declarations::StructDecl>(d)->methods
         for var i: usize = 0; i < ms.size(); ++i {
             var unsafe *m = ms[i]
@@ -1838,11 +1880,15 @@ pub class TypeUtil {
     /// spelling they offer is the one the parser takes back.
     pub fn return_str(self, t: unsafe *Type) -> string {
         if t != &null && isa<Types::CXXLValueRefType>(t) {
-            return "ffi::ref<" + self.str(cast<Types::CXXLValueRefType>(t)->referee) + ">"
+            return "ffi::ref<" + self.str(
+                cast<Types::CXXLValueRefType>(t)->referee,
+            ) + ">"
         }
 
         if t != &null && isa<Types::CXXRValueRefType>(t) {
-            return "ffi::mref<" + self.str(cast<Types::CXXRValueRefType>(t)->referee) + ">"
+            return "ffi::mref<" + self.str(
+                cast<Types::CXXRValueRefType>(t)->referee,
+            ) + ">"
         }
 
         return self.str(t)
@@ -1862,9 +1908,9 @@ pub class TypeUtil {
             core = cast<Types::CXXRValueRefType>(written)->referee
         }
 
-        var unsafe *wc = canon_unqual(want)
-        var unsafe *wr = wc
-        var wconst     = false
+        var unsafe *wc    = canon_unqual(want)
+        var unsafe *wr    = wc
+        var        wconst = false
         if wc != &null && isa<Types::CXXLValueRefType>(wc) {
             wr     = cast<Types::CXXLValueRefType>(wc)->referee
             wconst = canon_has_const(wr)
@@ -1873,7 +1919,9 @@ pub class TypeUtil {
             wconst = canon_has_const(wr)
         }
 
-        if core == &null || core->canonical == &null || (!core->range.is_valid())
+        if core == &null
+            || core->canonical == &null
+            || (!core->range.is_valid())
             || canon_unqual(core->canonical) != canon_unqual(wr) {
             return self.return_str(want)
         }
@@ -2011,7 +2059,9 @@ pub class TypeUtil {
                 }
 
                 if a->extent_param != &null {
-                    return "[" + self.str(a->element) + "; " + self.str(a->extent_param) + "]"
+                    return "[" + self.str(a->element) + "; " + self.str(
+                        a->extent_param,
+                    ) + "]"
                 }
 
                 return f"[{self.str(a->element)}; {a->size_bits}]"
@@ -2052,7 +2102,9 @@ pub class TypeUtil {
                             v->vtok,
                         ) + " " + self.str(v->vops[1]) + ")"
                     } case Types::ValueOp::Cast {
-                        return "(" + self.str(v->vops[0]) + " as " + self.str(v->vty) + ")"
+                        return "(" + self.str(v->vops[0]) + " as " + self.str(
+                            v->vty,
+                        ) + ")"
                     } case Types::ValueOp::Str {
                         // The bytes as a literal: printable ASCII as is, the
                         // rest (and `"` / `\`) escaped as `\xNN`.

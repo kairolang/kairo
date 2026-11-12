@@ -62,12 +62,12 @@ ffi "c++" import "cstring"
 ffi "c++" import "Native/KShims.hh"
 
 import API::FS::*
+import Sema::SemaContext::SemaContext
 import Support::FileIO::Path::Path
 import Support::TimeReport::{
     time_enabled,
     time_print,
 }
-import Sema::SemaContext::SemaContext
 import Tooling::LiveCheck::LiveCheck
 import Tooling::SemaObserver::SemaObserver
 import std::c_char
@@ -96,8 +96,8 @@ fn replay_find(const hay: string, const needle: string, from: usize) -> usize {
 
 /// `\n` (two characters) becomes a line break.
 fn replay_unescape(const s: string) -> string {
-    var out = ""
-    var i: usize = 0
+    var out       = ""
+    var i:  usize = 0
     while i < s.size() {
         if s[i] == (92 as u8) && i + 1 < s.size() && s[i + 1] == ('n' as u8) {
             out += "\n"
@@ -165,7 +165,7 @@ class ReplayObserver derives SemaObserver {
 /// The buffers of an overlay session (--incr-replay-overlay): the text of
 /// each file an edit has touched, which the disk does not have.
 class ReplayBuffers {
-    pub var on:    bool = false
+    pub var on:    bool                     = false
     pub var paths: cxx::std::vector<string>
     pub var texts: cxx::std::vector<string>
 
@@ -204,7 +204,9 @@ class ReplayBuffers {
 }
 
 /// One edit command; "" when applied, else why not. \p touched gets the file.
-fn replay_apply(const line: string, touched: *cxx::std::vector<string>, bufs: *ReplayBuffers) -> string {
+fn replay_apply(const line: string,
+                touched:    *cxx::std::vector<string>,
+                bufs:       *ReplayBuffers) -> string {
     if line.starts_with("replace ") {
         var f = replay_fields(line.subslice(8, line.size() - 8))
         if f.size() != 3 {
@@ -286,7 +288,11 @@ fn replay_apply(const line: string, touched: *cxx::std::vector<string>, bufs: *R
 /// On stdout what it did; on stderr `== incr-replay fg <n> <file>` and the
 /// diagnostics \p file owns now, which Scripts/incr_replay_check.py
 /// compares with that file's part of the step's fresh run.
-fn replay_fg(live: *LiveCheck, bufs: *ReplayBuffers, const file: string, n: usize, const what: string) {
+fn replay_fg(live:       *LiveCheck,
+             bufs:       *ReplayBuffers,
+             const file: string,
+             n:          usize,
+             const what: string) {
     var full = Path(file).full_path()
     if bufs->on {
         for var bi: usize = 0; bi < bufs->paths.size(); ++bi {
@@ -300,7 +306,10 @@ fn replay_fg(live: *LiveCheck, bufs: *ReplayBuffers, const file: string, n: usiz
     live->replace_file(full)
     var ms = replay_now_ms() - t0
     replay_times(f"{what} {n}")
-    io::println(f"incr-replay:   {what} {file}: {live->mode} ({live->why}), {ms} ms")
+    io::println(
+        f"incr-replay:   {what} {file}: {live->mode} ({live->why}), {ms} ms",
+    )
+
     if !live->detail.empty() {
         io::println(f"incr-replay:   detail: {live->detail}")
     }
@@ -313,7 +322,9 @@ fn replay_fg(live: *LiveCheck, bufs: *ReplayBuffers, const file: string, n: usiz
             // Its own, and what was reported for it before Sema (the
             // preprocessor's, the parser's: no file owns those).
             var owner: string = fd->owners[i]
-            var early = owner.empty() && fd->diags[i]->has_loc && live->ci()->sm()->get_filename(fd->diags[i]->loc) == full
+            var early = owner.empty()
+                && fd->diags[i]->has_loc
+                && live->ci()->sm()->get_filename(fd->diags[i]->loc) == full
             if owner == full || early {
                 io::eprint(f"{live->ci()->incr_render(fd->diags[i])}")
             }
@@ -337,7 +348,7 @@ fn replay_aside(live: *LiveCheck, bufs: *ReplayBuffers, const edit: string, n: u
 
     if pid == 0 {
         var touched = cxx::std::vector<string>()
-        var why = replay_apply(edit, &touched, bufs)
+        var why     = replay_apply(edit, &touched, bufs)
         if !why.empty() {
             io::eprintln(f"error [U001E]: --incr-replay aside: {why}")
             kairo::aside_exit(3)
@@ -401,14 +412,18 @@ pub fn incr_replay_main(argc:         i32,
                         argv:         unsafe *(unsafe *c_char),
                         const script: string,
                         const dump:   string) -> i32 {
-    var words    = cxx::std::vector<string>()
+    var words      = cxx::std::vector<string>()
     var in_place   = false
     var strict_cxx = false
     var bufs       = ReplayBuffers()
     var observe    = false
     var two        = false
     for var i: i32 = 1; i < argc; ++i {
-        var w = string(unsafe ((argv[i] as unsafe *const u8) as *const u8), cxx::std::strlen(argv[i]))
+        var w = string(
+            unsafe ((argv[i] as unsafe *const u8) as *const u8),
+            cxx::std::strlen(argv[i]),
+        )
+
         if w == "--incr-replay-in-place" {
             in_place = true
         }
@@ -444,7 +459,10 @@ pub fn incr_replay_main(argc:         i32,
 
     var text = ""
     if !LinkFS::read(script, &text) {
-        io::eprintln(f"error [U023E]: cannot read the --incr-replay script '{script}'")
+        io::eprintln(
+            f"error [U023E]: cannot read the --incr-replay script '{script}'",
+        )
+
         return 1
     }
 
@@ -453,7 +471,7 @@ pub fn incr_replay_main(argc:         i32,
         return 1
     }
 
-    var live = LiveCheck(words)
+    var        live   = LiveCheck(words)
     var unsafe *watch = kairo::std::create<ReplayObserver>()
     finally {
         kairo::std::destroy(watch)
@@ -468,7 +486,7 @@ pub fn incr_replay_main(argc:         i32,
     two             = live.two_tier
     live.strict_cxx = strict_cxx
     var n: usize = 0
-    var t0 = replay_now_ms()
+    var t0       = replay_now_ms()
     if !dump.empty() {
         live.dump_interface = f"{dump}/step{n}.interface.json"
     }
@@ -478,12 +496,12 @@ pub fn incr_replay_main(argc:         i32,
 
     // The script's lines, a step at a time: its edits, then one
     // replace_file per file they touched.
-    var name    = ""
-    var open_   = false
-    var touched = cxx::std::vector<string>()
-    var at: usize = 0
-    var pref = cxx::std::vector<string>() ///< `prefer` lines of the open step
-    var asides: usize = 0                  ///< `aside` lines of the open step
+    var name          = ""
+    var open_         = false
+    var touched       = cxx::std::vector<string>()
+    var at:     usize = 0
+    var pref          = cxx::std::vector<string>() ///< `prefer` lines of the open step
+    var asides: usize = 0                          ///< `aside` lines of the open step
     while at <= text.size() {
         var e = at
         while e < text.size() && text[e] != ('\n' as u8) {
@@ -495,13 +513,25 @@ pub fn incr_replay_main(argc:         i32,
         at = e + 1
         if line.starts_with("aside ") {
             if !open_ {
-                io::eprintln(f"error [U001E]: --incr-replay: an edit before the first `step`: {line}")
+                io::eprintln(
+                    f"error [U001E]: --incr-replay: an edit before the first `step`: {line}",
+                )
+
                 return 1
             }
 
-            var no = replay_aside(&live, &bufs, line.subslice(6, line.size() - 6), n + 1)
+            var no = replay_aside(
+                &live,
+                &bufs,
+                line.subslice(6, line.size() - 6),
+                n + 1,
+            )
+
             if !no.empty() {
-                io::eprintln(f"error [U001E]: --incr-replay step '{name}': {no}")
+                io::eprintln(
+                    f"error [U001E]: --incr-replay step '{name}': {no}",
+                )
+
                 return 1
             }
 
@@ -511,10 +541,18 @@ pub fn incr_replay_main(argc:         i32,
 
         var is_step = line.starts_with("step ")
         if (is_step || last) && open_ {
-            if last && (!line.empty()) && (!is_step) && line[0] != ('#' as u8) && (!line.starts_with("drain ")) && !line.starts_with("prefer ") {
+            if last
+                && (!line.empty())
+                && (!is_step)
+                && line[0] != ('#' as u8)
+                && (!line.starts_with("drain "))
+                && !line.starts_with("prefer ") {
                 var why = replay_apply(line, &touched, &bufs)
                 if !why.empty() {
-                    io::eprintln(f"error [U001E]: --incr-replay step '{name}': {why}")
+                    io::eprintln(
+                        f"error [U001E]: --incr-replay step '{name}': {why}",
+                    )
+
                     return 1
                 }
 
@@ -551,7 +589,10 @@ pub fn incr_replay_main(argc:         i32,
                 for var ti: usize = 0; ti < touched.size(); ++ti {
                     for var bi: usize = 0; bi < bufs.paths.size(); ++bi {
                         if bufs.paths[bi] == touched[ti] {
-                            live.set_overlay(Path(touched[ti]).full_path(), bufs.texts[bi])
+                            live.set_overlay(
+                                Path(touched[ti]).full_path(),
+                                bufs.texts[bi],
+                            )
                         }
                     }
                 }
@@ -566,10 +607,11 @@ pub fn incr_replay_main(argc:         i32,
             } else {
                 live.replace_file(first)
             }
+
             replay_report(&live, n, name, t0)
             touched.clear()
             asides = 0
-            open_ = false
+            open_  = false
         }
 
         if is_step {
@@ -589,7 +631,10 @@ pub fn incr_replay_main(argc:         i32,
         }
 
         if !open_ {
-            io::eprintln(f"error [U001E]: --incr-replay: an edit before the first `step`: {line}")
+            io::eprintln(
+                f"error [U001E]: --incr-replay: an edit before the first `step`: {line}",
+            )
+
             return 1
         }
 
@@ -613,7 +658,10 @@ pub fn incr_replay_main(argc:         i32,
                 }
 
                 live.drain(k, pref)
-                io::println(f"incr-replay:   drain {k}: {live.mode} ({live.why})")
+                io::println(
+                    f"incr-replay:   drain {k}: {live.mode} ({live.why})",
+                )
+
                 cxx::std::fflush(kairo::std_out())
             }
 

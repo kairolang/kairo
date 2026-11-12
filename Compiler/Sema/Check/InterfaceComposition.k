@@ -361,7 +361,12 @@ pub class InterfaceComposition {
 
             var unsafe *fa = cast<FunctionDecl>(a->decl)
             var unsafe *fb = cast<FunctionDecl>(b->decl)
-            if self._norm(id, a, fa->return_type, &null) != self._norm(id, b, fb->return_type, fa) {
+            if self._norm(id, a, fa->return_type, &null) != self._norm(
+                id,
+                b,
+                fb->return_type,
+                fa,
+            ) {
                 var nm = self._name(a->decl)
                 var d = self.sc->diag->report(
                     DiagID::SC167E,
@@ -404,13 +409,15 @@ pub class InterfaceComposition {
             )
 
             d.first(at)
-            d.note(a->decl->range.start, f"'{nm} = {self.tu.str(da)}' is declared here")->child_first(
-                a->decl->range,
-            )
+            d.note(
+                a->decl->range.start,
+                f"'{nm} = {self.tu.str(da)}' is declared here",
+            )->child_first(a->decl->range)
 
-            d.note(b->decl->range.start, f"'{nm} = {self.tu.str(db)}' is declared here")->child_first(
-                b->decl->range,
-            )
+            d.note(
+                b->decl->range.start,
+                f"'{nm} = {self.tu.str(db)}' is declared here",
+            )->child_first(b->decl->range)
 
             d.emit()
             return false
@@ -436,7 +443,12 @@ pub class InterfaceComposition {
                 continue
             }
 
-            var and_tok = self.sc->ctx->make_token(at, TokenKind::OpAmpAmp, "&&")
+            var and_tok = self.sc->ctx->make_token(
+                at,
+                TokenKind::OpAmpAmp,
+                "&&",
+            )
+
             a->bounds = unsafe (BinaryOperatorExpr::create(self.sc->ctx, at, a->bounds, unsafe (add[i] as unsafe *Expr), and_tok) as unsafe *Expr)
         }
 
@@ -465,7 +477,12 @@ pub class InterfaceComposition {
                 continue
             }
 
-            var and_tok = self.sc->ctx->make_token(mine[i]->range, TokenKind::OpAmpAmp, "&&")
+            var and_tok = self.sc->ctx->make_token(
+                mine[i]->range,
+                TokenKind::OpAmpAmp,
+                "&&",
+            )
+
             kept = unsafe (BinaryOperatorExpr::create(self.sc->ctx, mine[i]->range, kept, unsafe (mine[i] as unsafe *Expr), and_tok) as unsafe *Expr)
         }
 
@@ -481,7 +498,9 @@ pub class InterfaceComposition {
                 continue
             }
 
-            out->push_back(self._req(unsafe (m as unsafe *Decl), me, &null, &null))
+            out->push_back(
+                self._req(unsafe (m as unsafe *Decl), me, &null, &null),
+            )
         }
 
         var unsafe *dc = unsafe (id as unsafe *DeclContext)
@@ -583,7 +602,12 @@ pub class InterfaceComposition {
                 return false
             }
 
-            if self._norm(id, a, pa->type_, &null) != self._norm(id, b, pb->type_, fa) {
+            if self._norm(id, a, pa->type_, &null) != self._norm(
+                id,
+                b,
+                pb->type_,
+                fa,
+            ) {
                 return false
             }
         }
@@ -593,7 +617,12 @@ pub class InterfaceComposition {
         // witness names carry the target (LowerTargets::witness_conversion).
         if fa->is_operator
             && OperatorFacts::op_kind(fa) == TokenKind::KwAs
-            && self._norm(id, a, fa->return_type, &null) != self._norm(id, b, fb->return_type, fa) {
+            && self._norm(id, a, fa->return_type, &null) != self._norm(
+                id,
+                b,
+                fb->return_type,
+                fa,
+            ) {
             return false
         }
 
@@ -742,8 +771,11 @@ pub class InterfaceComposition {
             d.bind_from_record(r->source)
             var unsafe *f = dyn_cast<FunctionDecl>(r->decl)
             if f != &null && other != &null {
-                var unsafe *fr   = NameLookup::representative(r->decl)
-                var unsafe *orep = NameLookup::representative(unsafe (other as unsafe *Decl))
+                var unsafe *fr = NameLookup::representative(r->decl)
+                var unsafe *orep = NameLookup::representative(
+                    unsafe (other as unsafe *Decl),
+                )
+
                 for var i: usize = 0; i < f->generic_params.size() && i < other->generic_params.size(); ++i {
                     d.bind(
                         fr,
@@ -828,7 +860,10 @@ pub class InterfaceComposition {
                 )
 
                 d.first(at)
-                d.note(uses.ranges[k].start, f"'{nm}' names it here")->child_first(uses.ranges[k])
+                d.note(uses.ranges[k].start, f"'{nm}' names it here")->child_first(
+                    uses.ranges[k],
+                )
+
                 d.emit()
                 ok = false
             }
@@ -890,7 +925,9 @@ pub class InterfaceComposition {
                     s += ", "
                 }
 
-                s += self.tu.decl_name(unsafe (f->generic_params[i] as unsafe *Decl))
+                s += self.tu.decl_name(
+                    unsafe (f->generic_params[i] as unsafe *Decl),
+                )
             }
 
             s += "> "
@@ -954,7 +991,9 @@ pub class InterfaceComposition {
         if k != &null
             && isa<RecordType>(c)
             && cast<RecordType>(c)->args.size() == 0
-            && NameLookup::representative(self.tu.pattern_of(cast<RecordType>(c)->decl)) == k {
+            && NameLookup::representative(
+                self.tu.pattern_of(cast<RecordType>(c)->decl),
+            ) == k {
             return "Self"
         }
 
@@ -1018,15 +1057,20 @@ pub class InterfaceComposition {
 
     /// \p id's own instance: record(id) at its own parameters.
     priv fn _self_instance(self, id: unsafe *InterfaceDecl) -> unsafe *Type {
-        var unsafe *rep = NameLookup::representative(unsafe (id as unsafe *Decl))
-        var        args = cxx::std::vector<unsafe *Type>()
+        var unsafe *rep = NameLookup::representative(
+            unsafe (id as unsafe *Decl),
+        )
+
+        var args = cxx::std::vector<unsafe *Type>()
         for var i: usize = 0; i < id->generic_params.size(); ++i {
             var unsafe *gp = id->generic_params[i]
             if gp == &null {
                 continue
             }
 
-            args.push_back(self.sc->types->generic_param(rep, gp->index, gp->is_pack))
+            args.push_back(
+                self.sc->types->generic_param(rep, gp->index, gp->is_pack),
+            )
         }
 
         return self.sc->types->record(rep, unsafe &args)
@@ -1038,7 +1082,10 @@ pub class InterfaceComposition {
             return &null
         }
 
-        var unsafe *d = NameLookup::representative(self.tu.pattern_of(cast<RecordType>(c)->decl))
+        var unsafe *d = NameLookup::representative(
+            self.tu.pattern_of(cast<RecordType>(c)->decl),
+        )
+
         return dyn_cast<InterfaceDecl>(d)
     }
 

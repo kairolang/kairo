@@ -143,7 +143,9 @@ pub class TokenSource {
     /// something before its first token was pulled.
     priv fn _check_unpulled(self, what: string) {
         if self._pulled_count != 0 || self._eof_seen {
-            kairo::std::ice_fail(f"TokenSource::{what} after the first pull ({self._pulled_count} tokens read)")
+            kairo::std::ice_fail(
+                f"TokenSource::{what} after the first pull ({self._pulled_count} tokens read)",
+            )
         }
     }
 

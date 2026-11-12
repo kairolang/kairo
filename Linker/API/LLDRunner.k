@@ -261,15 +261,23 @@ pub class LLDRunner {
         var redir: cxx::std::vector<cxx::std::optional<llvm::StringRef>>
         redir.push_back(cxx::std::optional<llvm::StringRef>(cxx::std::nullopt))
         if nout.empty() {
-            redir.push_back(cxx::std::optional<llvm::StringRef>(cxx::std::nullopt))
+            redir.push_back(
+                cxx::std::optional<llvm::StringRef>(cxx::std::nullopt),
+            )
         } else {
-            redir.push_back(cxx::std::optional<llvm::StringRef>(llvm::StringRef(nout)))
+            redir.push_back(
+                cxx::std::optional<llvm::StringRef>(llvm::StringRef(nout)),
+            )
         }
 
         if nerr.empty() {
-            redir.push_back(cxx::std::optional<llvm::StringRef>(cxx::std::nullopt))
+            redir.push_back(
+                cxx::std::optional<llvm::StringRef>(cxx::std::nullopt),
+            )
         } else {
-            redir.push_back(cxx::std::optional<llvm::StringRef>(llvm::StringRef(nerr)))
+            redir.push_back(
+                cxx::std::optional<llvm::StringRef>(llvm::StringRef(nerr)),
+            )
         }
 
         var emsg:  cxx::std::string
@@ -277,7 +285,9 @@ pub class LLDRunner {
         var rc = llvm::sys::ExecuteAndWait(
             refs[0],
             llvm::ArrayRef<llvm::StringRef>(refs),
-            cxx::std::optional<llvm::ArrayRef<llvm::StringRef>>(cxx::std::nullopt),
+            cxx::std::optional<llvm::ArrayRef<llvm::StringRef>>(
+                cxx::std::nullopt,
+            ),
             llvm::ArrayRef<cxx::std::optional<llvm::StringRef>>(redir),
             0,
             0,

@@ -144,8 +144,8 @@ import AST::Context::DeclContext::DeclContext
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
-    adt_expansion_at,    adt_pack_param,   adt_pack_variant, adt_variant_at,       adt_variant_pos,
-    decl_generic_params, decl_is_imported, decl_is_instance, decl_pattern, decl_requires_clause,
+    adt_expansion_at,    adt_pack_param,   adt_pack_variant, adt_variant_at, adt_variant_pos,
+    decl_generic_params, decl_is_imported, decl_is_instance, decl_pattern,   decl_requires_clause,
 }
 import AST::EnumNiche::{
     adt_declared_tag_kind,
@@ -186,12 +186,7 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    BinaryOperatorExpr,
-    CallExpr,
-    CastMode,
-    PanicOp,
-    PanicOpExpr,
-    UnaryOperatorExpr,
+    BinaryOperatorExpr, CallExpr, CastMode, PanicOp, PanicOpExpr, UnaryOperatorExpr,
     VariantInitExpr,
 }
 import AST::Node::PrimaryExpressions::{
@@ -208,13 +203,13 @@ import AST::Node::Types::{
     NullableType,
     PointerType,
 }
-import AST::Visitor::ASTWriter::{
-    ASTWriter,
-    ListBuilder,
-}
 import AST::VisibilityFacts::{
     default_visibility_of,
     tu_module_dir,
+}
+import AST::Visitor::ASTWriter::{
+    ASTWriter,
+    ListBuilder,
 }
 import Codegen::Emit::CXXSpell::{
     CXXSpell,
@@ -233,9 +228,9 @@ import Sema::Check::ClassLifecycle::{
     lifecycle_of,
     lifecycle_open,
 }
+import Sema::Foreign::TypeExport::TypeExport
 import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
-import Sema::Foreign::TypeExport::TypeExport
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
     SemaContext,
@@ -449,7 +444,9 @@ pub class EnumLayoutQuery {
     fn tag_value(self, t: unsafe *Type, en: unsafe *Declarations::EnumDecl, index: u32) -> u64 {
         var unsafe *v = adt_variant_at(en, index as usize)
         if v == &null {
-            kairo::std::ice_fail("EnumLayoutQuery: tag_value past the last variant")
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: tag_value past the last variant",
+            )
         }
 
         var k = adt_expansion_at(en, index as usize)
@@ -756,7 +753,12 @@ pub class EnumLayoutQuery {
                 for var i: usize = 0; i < en->variants.size(); ++i {
                     var unsafe *v = en->variants[i]
                     for var j: usize = 0; j < v->payload.size(); ++j {
-                        var unsafe *ft = self.field_type_at(en, args, v->payload[j]->type_)
+                        var unsafe *ft = self.field_type_at(
+                            en,
+                            args,
+                            v->payload[j]->type_,
+                        )
+
                         if ft == &null {
                             return -1
                         }
@@ -863,9 +865,12 @@ pub class EnumLayoutQuery {
             return self._twin_size(c, size, align)
         }
 
-        if self.foreign && decl_is_instance(cast<RecordType>(c)->decl)
+        if self.foreign
+            && decl_is_instance(cast<RecordType>(c)->decl)
             && !decl_is_imported(cast<RecordType>(c)->decl)
-            && dyn_cast<Declarations::EnumDecl>(self.tu.pattern_of(cast<RecordType>(c)->decl)) == &null {
+            && dyn_cast<Declarations::EnumDecl>(
+                self.tu.pattern_of(cast<RecordType>(c)->decl),
+            ) == &null {
             return self._instance_size(c, size, align)
         }
 
@@ -874,7 +879,11 @@ pub class EnumLayoutQuery {
         )
 
         if en == &null {
-            return self._plain_record_size(cast<RecordType>(c)->decl, size, align)
+            return self._plain_record_size(
+                cast<RecordType>(c)->decl,
+                size,
+                align,
+            )
         }
 
         if !en->is_adt {
@@ -888,7 +897,11 @@ pub class EnumLayoutQuery {
                 return false
             }
 
-            return self.size_of(self.sc->builtin(enum_niche_kind(en)), size, align)
+            return self.size_of(
+                self.sc->builtin(enum_niche_kind(en)),
+                size,
+                align,
+            )
         }
 
         if !self.has_layout(en) {
@@ -903,7 +916,11 @@ pub class EnumLayoutQuery {
         var args     = self.tu.record_args(c)
         var ts:  u64 = 0
         var ta:  u64 = 0
-        if !self.size_of(self.sc->builtin(adt_tag_kind(en)), unsafe &ts, unsafe &ta) {
+        if !self.size_of(
+            self.sc->builtin(adt_tag_kind(en)),
+            unsafe &ts,
+            unsafe &ta,
+        ) {
             return false
         }
 
@@ -934,7 +951,10 @@ pub class EnumLayoutQuery {
                 var sal: u64 = if (prefix) => (ta) else => 1
                 for var j: usize = 0; j < v->payload.size(); ++j {
                     var unsafe *ft = v->payload[j]->type_
-                    var unsafe *pg = dyn_cast<GenericParamType>(canon_unqual(ft->canonical))
+                    var unsafe *pg = dyn_cast<GenericParamType>(
+                        canon_unqual(ft->canonical),
+                    )
+
                     if v->is_pack_expansion && pg != &null && pg->is_pack {
                         ft = args[pp + e]
                     } else if en->generic_params.size() > 0 {
@@ -1182,9 +1202,9 @@ pub class EnumLayoutQuery {
                 continue
             }
 
-            var unsafe *ft = self._type_at(pat, args, f->type_)
-            var fs: u64 = 0
-            var fa: u64 = 0
+            var unsafe *ft     = self._type_at(pat, args, f->type_)
+            var        fs: u64 = 0
+            var        fa: u64 = 0
             if ft == &null || !self.size_of(ft, unsafe &fs, unsafe &fa) {
                 return false
             }
@@ -1213,13 +1233,15 @@ pub class EnumLayoutQuery {
         var unsafe *sd = dyn_cast<Declarations::StructDecl>(d)
         if cd != &null {
             for var i: usize = 0; i < cd->fields.size(); ++i {
-                if cd->fields[i] != &null && unsafe (cd->fields[i] as unsafe *Decl)->has_attribute() {
+                if cd->fields[i] != &null
+                    && unsafe (cd->fields[i] as unsafe *Decl)->has_attribute() {
                     return true
                 }
             }
         } else if sd != &null {
             for var i: usize = 0; i < sd->fields.size(); ++i {
-                if sd->fields[i] != &null && unsafe (sd->fields[i] as unsafe *Decl)->has_attribute() {
+                if sd->fields[i] != &null
+                    && unsafe (sd->fields[i] as unsafe *Decl)->has_attribute() {
                     return true
                 }
             }
@@ -1346,7 +1368,7 @@ pub class EnumLayoutQuery {
     /// no `ffi` import still has a clang AST in reach (the builtins' sets),
     /// and a twin of Kairo-only parts needs nothing more than the target.
     priv fn _twin_sets(self, d: unsafe *Decl) -> cxx::std::vector<unsafe *HeaderSet> {
-        var out = cxx::std::vector<unsafe *HeaderSet>()
+        var        out   = cxx::std::vector<unsafe *HeaderSet>()
         var unsafe *mine = self.sc->tu
         if mine != &null && mine->header_set != &null {
             out.push_back(unsafe (mine->header_set as unsafe *HeaderSet))
@@ -1421,12 +1443,12 @@ pub class EnumLayoutQuery {
             // The set's AST is shared with every TU's parallel Sema: the
             // twin is built under its lock, as a fill is (ForeignInstantiate).
             var slock = kairo::std::LockGuard(*hs->sema_lock())
-            var tx    = TypeExport(cctx, hs->sema(), unsafe (hs as unsafe *void))
-            var was   = tx.twin_quiet(true)
-            var memo  = TwinMemo()
-            var unc   = false
-            var q     = self._twin_type(unsafe &tx, c, unsafe &memo, 0, unsafe &unc)
-            var ok    = (!q.isNull()) && tx.twin_measure(q, size, align)
+            var tx   = TypeExport(cctx, hs->sema(), unsafe (hs as unsafe *void))
+            var was  = tx.twin_quiet(true)
+            var memo = TwinMemo()
+            var unc  = false
+            var q = self._twin_type(unsafe &tx, c, unsafe &memo, 0, unsafe &unc)
+            var ok = (!q.isNull()) && tx.twin_measure(q, size, align)
             tx.twin_quiet(was)
             if ok {
                 return true
@@ -1452,7 +1474,10 @@ pub class EnumLayoutQuery {
             return clang::QualType()
         }
 
-        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
         if c == &null {
             return clang::QualType()
         }
@@ -1473,12 +1498,21 @@ pub class EnumLayoutQuery {
 
         if isa<BuiltinType>(c) && cast<BuiltinType>(c)->lang_decl != &null {
             // `string` and the other lang items: the record they are.
-            var unsafe *ld = NameLookup::representative(cast<BuiltinType>(c)->lang_decl)
+            var unsafe *ld = NameLookup::representative(
+                cast<BuiltinType>(c)->lang_decl,
+            )
+
             if ld == &null || self.sc->types == &null {
                 return clang::QualType()
             }
 
-            return self._twin_type(tx, self.sc->types->record(ld, &null), memo, depth + 1, unc)
+            return self._twin_type(
+                tx,
+                self.sc->types->record(ld, &null),
+                memo,
+                depth + 1,
+                unc,
+            )
         }
 
         if !isa<RecordType>(c) && !isa<FixedArrayType>(c) {
@@ -1580,10 +1614,10 @@ pub class EnumLayoutQuery {
             return clang::QualType()
         }
 
-        var args = self.tu.record_args(c)
-        var unsafe *sd = dyn_cast<Declarations::StructDecl>(pat)
-        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(pat)
-        var unsafe *ud = dyn_cast<Declarations::UnionDecl>(pat)
+        var        args = self.tu.record_args(c)
+        var unsafe *sd  = dyn_cast<Declarations::StructDecl>(pat)
+        var unsafe *cd  = dyn_cast<Declarations::ClassDecl>(pat)
+        var unsafe *ud  = dyn_cast<Declarations::UnionDecl>(pat)
         if sd != &null && (sd->adt_of != &null || sd->tuple_arity > 0 || sd->is_adt_payload) {
             return clang::QualType()
         }
@@ -1592,9 +1626,9 @@ pub class EnumLayoutQuery {
             return clang::QualType()
         }
 
-        var packed    = AttrFacts::is_packed(pat)
-        var any_unc   = false
-        var unsafe *rd = tx->twin_begin(ud != &null)
+        var        packed  = AttrFacts::is_packed(pat)
+        var        any_unc = false
+        var unsafe *rd     = tx->twin_begin(ud != &null)
 
         if cd != &null && cd->derives_list.size() > 0 {
             var bq   = cxx::std::vector<clang::QualType>()
@@ -1611,7 +1645,7 @@ pub class EnumLayoutQuery {
                 }
 
                 var bunc = false
-                var bqt  = self._twin_type(tx, bt, memo, depth + 1, unsafe &bunc)
+                var bqt = self._twin_type(tx, bt, memo, depth + 1, unsafe &bunc)
                 // A base lays out by its data size, which only a record
                 // has, and by its POD bit, which must be certain.
                 if bqt.isNull() || bqt->getAsCXXRecordDecl() == &null || bunc {
@@ -1619,7 +1653,9 @@ pub class EnumLayoutQuery {
                 }
 
                 bq.push_back(bqt)
-                virt.push_back(if (e->is_virtual) => (1 as u8) else => (0 as u8))
+                virt.push_back(
+                    if (e->is_virtual) => (1 as u8) else => (0 as u8),
+                )
             }
 
             if !tx->twin_bases(rd, bq, virt) {
@@ -1631,10 +1667,10 @@ pub class EnumLayoutQuery {
             tx->twin_virtual(rd)
         }
 
-        var fields  = self._twin_fields_of(pat)
-        var payload = sd != &null && sd->is_adt_payload
-        var first   = true
-        var n: usize = 0
+        var fields        = self._twin_fields_of(pat)
+        var payload       = sd != &null && sd->is_adt_payload
+        var first         = true
+        var n:      usize = 0
         for var i: usize = 0; i < fields.size(); ++i {
             var unsafe *f = fields[i]
             if f == &null || f->is_static() {
@@ -1645,15 +1681,24 @@ pub class EnumLayoutQuery {
             var fu  = false
             var nsd = false
             if f->is_anonymous_union {
-                ft = self._twin_anon_union(tx, pat, args, inst, f, memo, depth, unsafe &fu)
+                ft = self._twin_anon_union(
+                    tx,
+                    pat,
+                    args,
+                    inst,
+                    f,
+                    memo,
+                    depth,
+                    unsafe &fu,
+                )
             } else {
                 var unsafe *t = f->type_
                 if inst {
                     t = self._type_at(pat, args, f->type_)
                 }
 
-                ft  = self._twin_type(tx, t, memo, depth + 1, unsafe &fu)
-                nsd = self._twin_nsdmi(f, ud != &null, first, payload)
+                ft    = self._twin_type(tx, t, memo, depth + 1, unsafe &fu)
+                nsd   = self._twin_nsdmi(f, ud != &null, first, payload)
                 first = false
             }
 
@@ -1731,8 +1776,8 @@ pub class EnumLayoutQuery {
             return clang::QualType()
         }
 
-        var unsafe *rd = tx->twin_begin(true)
-        var n: usize = 0
+        var unsafe *rd       = tx->twin_begin(true)
+        var        n:  usize = 0
         for var i: usize = 0; i < u->fields.size(); ++i {
             var unsafe *m = u->fields[i]
             if m == &null || m->is_static() {
@@ -1761,7 +1806,11 @@ pub class EnumLayoutQuery {
     /// (InterfaceEmitter::_field_default), else `{}` -- a union's first
     /// member, or a field _twin_zero_by_default names. Never in an ADT's
     /// payload struct.
-    priv fn _twin_nsdmi(self, f: unsafe *Declarations::FieldDecl, is_union: bool, first: bool, payload: bool) -> bool {
+    priv fn _twin_nsdmi(self,
+                        f:        unsafe *Declarations::FieldDecl,
+                        is_union: bool,
+                        first:    bool,
+                        payload:  bool) -> bool {
         if f->init_fold != Declarations::FieldFold::None {
             return true
         }
@@ -1870,7 +1919,7 @@ pub class EnumLayoutQuery {
             return -1
         }
 
-        var v = (fdl->visibility as u8)
+        var        v  = (fdl->visibility as u8)
         var unsafe *r = NameLookup::representative(fdl)
         if v == VIS_NONE() && r != &null && r != fdl {
             v = (r->visibility as u8)
@@ -1896,13 +1945,17 @@ pub class EnumLayoutQuery {
     }
 
     /// \p m is a constructor of \p owner: a method named after it.
-    priv fn _twin_is_ctor(self, m: unsafe *Declarations::FunctionDecl, owner: unsafe *Decl) -> bool {
+    priv fn _twin_is_ctor(self,
+                          m:     unsafe *Declarations::FunctionDecl,
+                          owner: unsafe *Decl) -> bool {
         if m->is_operator || !m->is_method() {
             return false
         }
 
-        return sema_dump_decl_name(self.sc->ctx, unsafe (m as unsafe *Decl))
-            == sema_dump_decl_name(self.sc->ctx, owner)
+        return sema_dump_decl_name(self.sc->ctx, unsafe (m as unsafe *Decl)) == sema_dump_decl_name(
+            self.sc->ctx,
+            owner,
+        )
     }
 
     /// The emitted class has a user-provided special member: 1, 0, or -1
@@ -1913,10 +1966,10 @@ pub class EnumLayoutQuery {
     /// defaulted transfers _defaulted_transfers writes are not.
     priv fn _twin_user_special(self, pat: unsafe *Decl) -> i8 {
         var methods = create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
-        var form    = Declarations::AssignForm::Implicit
-        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(pat)
-        var unsafe *sd = dyn_cast<Declarations::StructDecl>(pat)
-        var unsafe *ud = dyn_cast<Declarations::UnionDecl>(pat)
+        var        form = Declarations::AssignForm::Implicit
+        var unsafe *cd  = dyn_cast<Declarations::ClassDecl>(pat)
+        var unsafe *sd  = dyn_cast<Declarations::StructDecl>(pat)
+        var unsafe *ud  = dyn_cast<Declarations::UnionDecl>(pat)
         if cd != &null {
             methods = cd->methods
             form    = cd->assign_form
@@ -2194,7 +2247,12 @@ pub class EnumLayoutQuery {
             return &null
         }
 
-        return self.synth.cast_to(at, t, self.sc->builtin(BuiltinKind::U32), CastMode::Default)
+        return self.synth.cast_to(
+            at,
+            t,
+            self.sc->builtin(BuiltinKind::U32),
+            CastMode::Default,
+        )
     }
 
     /// Variant \p index's discriminant in a value of type \p t, as a case
@@ -2204,7 +2262,11 @@ pub class EnumLayoutQuery {
                 t:     unsafe *Type,
                 en:    unsafe *Declarations::EnumDecl,
                 index: u32) -> unsafe *Expr {
-        return self.synth.int_literal(at, self.tag_value(t, en, index), BuiltinKind::U32)
+        return self.synth.int_literal(
+            at,
+            self.tag_value(t, en, index),
+            BuiltinKind::U32,
+        )
     }
 
     /// `x` holds variant \p index. Niche-filled: a dataless variant is its
@@ -2217,7 +2279,12 @@ pub class EnumLayoutQuery {
                     index: u32) -> unsafe *Expr {
         var unsafe *w = self.tag_word(at, x, en)
         if w != &null {
-            return self._bin(at, w, self.tag_case(at, x->type_, en, index), TokenKind::OpEqualEqual)
+            return self._bin(
+                at,
+                w,
+                self.tag_case(at, x->type_, en, index),
+                TokenKind::OpEqualEqual,
+            )
         }
 
         var        p   = adt_niche_payload_variant(en)
@@ -2264,7 +2331,9 @@ pub class EnumLayoutQuery {
                    en:    unsafe *Declarations::EnumDecl,
                    index: u32) -> unsafe *Expr {
         if !self.has_payload(en, index) {
-            kairo::std::ice_fail("EnumLayoutQuery: payload_ref of a variant with no payload")
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: payload_ref of a variant with no payload",
+            )
         }
 
         var unsafe *m = adt_variant_at(en, index as usize)->adt_member
@@ -2287,7 +2356,12 @@ pub class EnumLayoutQuery {
                  index: u32,
                  field: unsafe *Declarations::FieldDecl,
                  ty:    unsafe *Type) -> unsafe *Expr {
-        return self.synth.field_of(at, self.payload_ref(at, x, en, index), field, ty)
+        return self.synth.field_of(
+            at,
+            self.payload_ref(at, x, en, index),
+            field,
+            ty,
+        )
     }
 
     /// An ADT's built-in `==` / `!=`: the variants compared, under the
@@ -2309,7 +2383,14 @@ pub class EnumLayoutQuery {
             r = self._which(b->range, b, en)
         }
 
-        var unsafe *cmp = BinaryOperatorExpr::create(self.sc->ctx, at, l, r, tok)
+        var unsafe *cmp = BinaryOperatorExpr::create(
+            self.sc->ctx,
+            at,
+            l,
+            r,
+            tok,
+        )
+
         return cmp
     }
 
@@ -2349,7 +2430,13 @@ pub class EnumLayoutQuery {
         var        cmp_op = if (neg) => (TokenKind::OpExclaimEqual) else => TokenKind::OpEqualEqual
         var unsafe *c     = canon_unqual(ft->canonical)
         if isa<NullableType>(c) {
-            return self._pattern_test(at, e, cast<NullableType>(c)->lowered, i, neg)
+            return self._pattern_test(
+                at,
+                e,
+                cast<NullableType>(c)->lowered,
+                i,
+                neg,
+            )
         }
 
         if isa<PointerType>(c) || isa<FunctionPointerType>(c) {
@@ -2364,15 +2451,27 @@ pub class EnumLayoutQuery {
         )
 
         if en == &null {
-            kairo::std::ice_fail("EnumLayoutQuery: a niche pattern in a type niche_of gives none")
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: a niche pattern in a type niche_of gives none",
+            )
         }
 
         // A plain enum's niche is the values past its variants; an ADT's,
         // its first spare tag (EnumNiche), the one place that arithmetic is.
         var n = if (en->is_adt) => (adt_first_spare_tag(en)) else => (en->variants.size() as u64)
         if !en->is_adt {
-            var unsafe *lit = self.synth.int_literal(at, n + i, enum_niche_kind(en))
-            return self._bin(at, e, self.synth.cast_to(at, lit, ft, CastMode::Default), cmp_op)
+            var unsafe *lit = self.synth.int_literal(
+                at,
+                n + i,
+                enum_niche_kind(en),
+            )
+
+            return self._bin(
+                at,
+                e,
+                self.synth.cast_to(at, lit, ft, CastMode::Default),
+                cmp_op,
+            )
         }
 
         if self.shape_at(c) == AdtShape::Tagged {
@@ -2383,7 +2482,12 @@ pub class EnumLayoutQuery {
                 CastMode::Default,
             )
 
-            return self._bin(at, tw, self.synth.int_literal(at, n + i, BuiltinKind::U32), cmp_op)
+            return self._bin(
+                at,
+                tw,
+                self.synth.int_literal(at, n + i, BuiltinKind::U32),
+                cmp_op,
+            )
         }
 
         var        p   = adt_niche_payload_variant(en)
@@ -2450,10 +2554,17 @@ pub class EnumLayoutQuery {
     fn panic_is_ok(self, at: SourceRange, x: unsafe *Expr) -> unsafe *Expr {
         var unsafe *en = self.panic_adt(x->type_)
         if en == &null {
-            kairo::std::ice_fail("EnumLayoutQuery: panic_is_ok on a value that is no panic result")
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: panic_is_ok on a value that is no panic result",
+            )
         }
 
-        return self.variant_test(at, x, en, adt_variant_pos(en, self._panic_ok(en)) as u32)
+        return self.variant_test(
+            at,
+            x,
+            en,
+            adt_variant_pos(en, self._panic_ok(en)) as u32,
+        )
     }
 
     /// `x` holds error \p e: the tag compared with e's type id, the one
@@ -2461,7 +2572,9 @@ pub class EnumLayoutQuery {
     fn panic_holds(self, at: SourceRange, x: unsafe *Expr, e: unsafe *Type) -> unsafe *Expr {
         var unsafe *en = self.panic_adt(x->type_)
         if en == &null {
-            kairo::std::ice_fail("EnumLayoutQuery: panic_holds on a value that is no panic result")
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: panic_holds on a value that is no panic result",
+            )
         }
 
         // A dependent set (a generic body, Compiler/Spec/Panic.md#generic-bodies): e's id, and where
@@ -2519,7 +2632,14 @@ pub class EnumLayoutQuery {
         }
 
         var unsafe *ok = self._panic_ok(en)
-        return self.field_ref(at, x, en, adt_variant_pos(en, ok) as u32, ok->payload[0], ty)
+        return self.field_ref(
+            at,
+            x,
+            en,
+            adt_variant_pos(en, ok) as u32,
+            ok->payload[0],
+            ty,
+        )
     }
 
     /// Error \p e held by \p x, an lvalue of \p e: the union's element at
@@ -2544,14 +2664,23 @@ pub class EnumLayoutQuery {
         }
 
         var unsafe *pv = adt_pack_variant(en)
-        return self.field_ref(at, x, en, self.panic_elem_index(x->type_, e), pv->payload[0], e)
+        return self.field_ref(
+            at,
+            x,
+            en,
+            self.panic_elem_index(x->type_, e),
+            pv->payload[0],
+            e,
+        )
     }
 
     /// The site word of \p x (§1.4), an lvalue `u32`.
     fn panic_site_ref(self, at: SourceRange, x: unsafe *Expr) -> unsafe *Expr {
         var unsafe *en = self.panic_adt(x->type_)
         if en == &null || en->adt_site_field == &null {
-            kairo::std::ice_fail("EnumLayoutQuery: panic_site_ref on a value with no site slot")
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: panic_site_ref on a value with no site slot",
+            )
         }
 
         var unsafe *sf = en->adt_site_field
@@ -2563,7 +2692,9 @@ pub class EnumLayoutQuery {
     fn panic_ok(self, at: SourceRange, t: unsafe *Type, v: unsafe *Expr) -> unsafe *Expr {
         var unsafe *en = self.panic_adt(t)
         if en == &null {
-            kairo::std::ice_fail("EnumLayoutQuery: panic_ok of a type that is no panic result")
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: panic_ok of a type that is no panic result",
+            )
         }
 
         var unsafe *ok = self._panic_ok(en)
@@ -2598,15 +2729,23 @@ pub class EnumLayoutQuery {
                  v:    unsafe *Expr) -> unsafe *Expr {
         var unsafe *en = self.panic_adt(t)
         if en == &null {
-            kairo::std::ice_fail("EnumLayoutQuery: panic_err of a type that is no panic result")
+            kairo::std::ice_fail(
+                "EnumLayoutQuery: panic_err of a type that is no panic result",
+            )
         }
 
         var unsafe *pv = adt_pack_variant(en)
         var        pos = adt_variant_pos(en, pv)
         var        idx = self.panic_elem_index(t, e)
-        var unsafe *n  = VariantInitExpr::create(self.sc->ctx, at, en, pos as u32)
-        var        fs  = ListBuilder<unsafe *Expr>(self.sc->ctx)
-        var        so  = ListBuilder<u32>(self.sc->ctx)
+        var unsafe *n = VariantInitExpr::create(
+            self.sc->ctx,
+            at,
+            en,
+            pos as u32,
+        )
+
+        var fs = ListBuilder<unsafe *Expr>(self.sc->ctx)
+        var so = ListBuilder<u32>(self.sc->ctx)
         fs.push(v)
         so.push(0 as u32)
         fs.freeze_into(&n->fields)
@@ -2629,7 +2768,9 @@ pub class EnumLayoutQuery {
             }
         }
 
-        kairo::std::ice_fail("EnumLayoutQuery: the Panic lang item without its Ok variant")
+        kairo::std::ice_fail(
+            "EnumLayoutQuery: the Panic lang item without its Ok variant",
+        )
     }
 
     priv fn _bin(self,
@@ -2637,7 +2778,14 @@ pub class EnumLayoutQuery {
                  l:  unsafe *Expr,
                  r:  unsafe *Expr,
                  k:  TokenKind) -> unsafe *Expr {
-        var unsafe *b = BinaryOperatorExpr::create(self.sc->ctx, at, l, r, self.synth.punct(at, k))
+        var unsafe *b = BinaryOperatorExpr::create(
+            self.sc->ctx,
+            at,
+            l,
+            r,
+            self.synth.punct(at, k),
+        )
+
         b->type_          = self.sc->builtin(BuiltinKind::Bool)
         b->value_category = Expr::ValueCategory::RValue
         return b
@@ -2722,8 +2870,12 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
     /// the enum yet, so a construction above its enum is decided the same
     /// way as one below it.
     fn transform_variant_init_expr(self, n: unsafe *VariantInitExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<EnumLayoutLowering>::transform_variant_init_expr(self, n)
-        var unsafe *en  = dyn_cast<Declarations::EnumDecl>(n->en)
+        var unsafe *out = ASTWriter<EnumLayoutLowering>::transform_variant_init_expr(
+            self,
+            n,
+        )
+
+        var unsafe *en = dyn_cast<Declarations::EnumDecl>(n->en)
         if en == &null || !en->is_adt || (n->variant as usize) >= en->variants.size() {
             return out
         }
@@ -2772,7 +2924,12 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
             }
 
             if fu != au || self._literal_retyped(fe, cast<BuiltinType>(au)->builtin) {
-                (*n->fields.get(i)) = self.synth.cast_to(fe->range, fe, fu, CastMode::Default)
+                (*n->fields.get(i)) = self.synth.cast_to(
+                    fe->range,
+                    fe,
+                    fu,
+                    CastMode::Default,
+                )
             }
         }
 
@@ -2809,7 +2966,11 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
     /// item's own body is never what answers). The layouts T holds are
     /// built first, so the answer is the one a layout reading it would get.
     fn transform_call_expr(self, n: unsafe *CallExpr) -> unsafe *Expr {
-        var unsafe *out = ASTWriter<EnumLayoutLowering>::transform_call_expr(self, n)
+        var unsafe *out = ASTWriter<EnumLayoutLowering>::transform_call_expr(
+            self,
+            n,
+        )
+
         if out != n {
             return out
         }
@@ -2863,12 +3024,21 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
                 ) + "' needs a type whose layout is known here; this one depends on a generic parameter",
             )
 
-            b.first(n->range, "answered at compile time, before any instantiation")
+            b.first(
+                n->range,
+                "answered at compile time, before any instantiation",
+            )
+
             b.emit()
             cnt = 0
         }
 
-        var unsafe *lit = self.synth.int_literal(n->range, cnt, BuiltinKind::U64)
+        var unsafe *lit = self.synth.int_literal(
+            n->range,
+            cnt,
+            BuiltinKind::U64,
+        )
+
         lit->adopt_sema(unsafe (n as unsafe *Expr))
         return lit
     }
@@ -2903,7 +3073,11 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
                 ) + "' needs a type every TU spells the same way; this one depends on a generic parameter or has no C++ type",
             )
 
-            b.first(n->range, "answered at compile time, before any instantiation")
+            b.first(
+                n->range,
+                "answered at compile time, before any instantiation",
+            )
+
             b.emit()
         }
 
@@ -2973,7 +3147,11 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
                 ) + "' needs a concrete type; this one depends on a generic parameter",
             )
 
-            b.first(n->range, "answered at compile time, before any instantiation")
+            b.first(
+                n->range,
+                "answered at compile time, before any instantiation",
+            )
+
             b.emit()
             t = &null
         }
@@ -2984,7 +3162,12 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         }
 
         if k == WellKnownType::TupleArity {
-            var unsafe *lit = self.synth.int_literal(n->range, arity as u64, BuiltinKind::USize)
+            var unsafe *lit = self.synth.int_literal(
+                n->range,
+                arity as u64,
+                BuiltinKind::USize,
+            )
+
             lit->adopt_sema(unsafe (n as unsafe *Expr))
             return lit
         }
@@ -3010,7 +3193,10 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
             }
 
             if rd != &null {
-                var unsafe *pd = self.tu.pattern_of(NameLookup::representative(rd))
+                var unsafe *pd = self.tu.pattern_of(
+                    NameLookup::representative(rd),
+                )
+
                 if k == WellKnownType::IsAdtEnum {
                     v = isa<Declarations::EnumDecl>(pd) && cast<Declarations::EnumDecl>(pd)->is_adt
                 }
@@ -3094,7 +3280,13 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
 
         // The enum's own name and generic parameters: to C++ this record IS
         // the enum, so anything that asks it for either gets the enum's.
-        var unsafe *lay = Declarations::StructDecl::create(self.ctx, en->range, en->name, edc)
+        var unsafe *lay = Declarations::StructDecl::create(
+            self.ctx,
+            en->range,
+            en->name,
+            edc,
+        )
+
         // Synthesized whole, so a definition (decl_only_forward reads a
         // record with no defining link as only forward-declared).
         lay->mark_definition()
@@ -3116,7 +3308,10 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         if shaped && !generic {
             var unsafe *npv = en->variants[adt_niche_payload_variant(en) as usize]
             self._prebuild(npv->payload[0]->type_)
-            niche = EnumLayoutQuery(self.sc).niche_verdict(en, npv->payload[0]->type_) == 1
+            niche = EnumLayoutQuery(self.sc).niche_verdict(
+                en,
+                npv->payload[0]->type_,
+            ) == 1
         }
 
         // A generic ADT whose niche field names no parameter (`enum <T> GK
@@ -3130,8 +3325,10 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         if shaped && generic {
             var unsafe *gpv = en->variants[adt_niche_payload_variant(en) as usize]
             var unsafe *gft = gpv->payload[0]->type_
-            if gft != &null && gft->canonical != &null
-                && (!gft->canonical->is_dependent()) && !gft->canonical->is_instantiation_dependent() {
+            if gft != &null
+                && gft->canonical != &null
+                && (!gft->canonical->is_dependent())
+                && !gft->canonical->is_instantiation_dependent() {
                 self._prebuild(gft)
                 if EnumLayoutQuery(self.sc).niche_verdict(en, gft) == 0 {
                     shaped = false
@@ -3139,7 +3336,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
             }
         }
 
-        var        prefix = !generic && !niche && !knobs.any() && self._prefix_ok(en)
+        var prefix = !generic && !niche && !knobs.any() && self._prefix_ok(en)
         var unsafe *ttype = self._type_of(tag)
 
         // A struct and a union member for each variant that has a payload.
@@ -3151,8 +3348,14 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
                 continue
             }
 
-            var        vn  = self.tu.decl_name(unsafe (v as unsafe *Decl))
-            var unsafe *ps = self._payload_struct(v, vn, edc, if (prefix) => (ttype) else => &null)
+            var vn = self.tu.decl_name(unsafe (v as unsafe *Decl))
+            var unsafe *ps = self._payload_struct(
+                v,
+                vn,
+                edc,
+                if (prefix) => (ttype) else => &null,
+            )
+
             // `Err { e: E }...`: the struct is a template over one element,
             // and its union member holds one per element (InterfaceEmitter).
             if v->is_pack_expansion {
@@ -3163,7 +3366,10 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
             var unsafe *m = Declarations::FieldDecl::create(
                 self.ctx,
                 v->name.range,
-                self.synth.ident(v->name.range, LowerTargets::adt_payload_field(vn)),
+                self.synth.ident(
+                    v->name.range,
+                    LowerTargets::adt_payload_field(vn),
+                ),
                 Declarations::StorageClass::Var,
                 self._type_of(ps),
                 members.size() as u32,
@@ -3231,13 +3437,19 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         // No name, and declared only by the field that holds it: its members
         // are the record's to C++, and that field is in no field_of chain
         // (FieldDecl::is_anonymous_union).
-        var unsafe *un = Declarations::UnionDecl::create(self.ctx, at, Token(), edc)
+        var unsafe *un = Declarations::UnionDecl::create(
+            self.ctx,
+            at,
+            Token(),
+            edc,
+        )
+
         un->mark_definition()
         self._place(un, edc, VisibilityKind::Public, at)
-        un->is_anonymous   = true
-        un->methods        = create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
+        un->is_anonymous = true
+        un->methods = create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
         un->generic_params = create_empty_frozen_list<unsafe *Declarations::GenericParamDecl>()
-        un->spec_args      = create_empty_frozen_list<unsafe *Type>()
+        un->spec_args = create_empty_frozen_list<unsafe *Type>()
         if prefix {
             // The tag-only member, first: reading the tag through it is the
             // common-initial-sequence read every payload struct allows.
@@ -3424,9 +3636,9 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         )
 
         tag->generic_params = create_empty_frozen_list<unsafe *Declarations::GenericParamDecl>()
-        tag->spec_args      = create_empty_frozen_list<unsafe *Type>()
+        tag->spec_args = create_empty_frozen_list<unsafe *Type>()
         var unsafe *tdc = unsafe (tag as unsafe *DeclContext)
-        var        vs   = self.list_builder<unsafe *Declarations::EnumVariantDecl>()
+        var vs = self.list_builder<unsafe *Declarations::EnumVariantDecl>()
         // The tag enum is nested in the record, which C++ writes inside
         // `template <class T>`: an enumerator named like a type parameter
         // shadows it, which is ill-formed. Such a one gets `_`
@@ -3436,18 +3648,24 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         // name and nothing else sees the change.
         var taken = cxx::std::vector<string>()
         for var i: usize = 0; i < en->generic_params.size(); ++i {
-            taken.push_back(self.tu.decl_name(unsafe (en->generic_params[i] as unsafe *Decl)))
+            taken.push_back(
+                self.tu.decl_name(
+                    unsafe (en->generic_params[i] as unsafe *Decl),
+                ),
+            )
         }
 
         var nparams = taken.size()
         for var i: usize = 0; i < en->variants.size(); ++i {
-            taken.push_back(self.tu.decl_name(unsafe (en->variants[i] as unsafe *Decl)))
+            taken.push_back(
+                self.tu.decl_name(unsafe (en->variants[i] as unsafe *Decl)),
+            )
         }
 
         for var i: usize = 0; i < en->variants.size(); ++i {
-            var unsafe *v = en->variants[i]
-            var        nm = v->name
-            var        vn = self.tu.decl_name(unsafe (v as unsafe *Decl))
+            var unsafe *v    = en->variants[i]
+            var        nm    = v->name
+            var        vn    = self.tu.decl_name(unsafe (v as unsafe *Decl))
             var        clash = false
             for var k: usize = 0; k < nparams; ++k {
                 if taken[k] == vn {
@@ -3553,7 +3771,10 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
                 }
 
                 if isa<RecordType>(c) {
-                    var unsafe *pe = dyn_cast<Declarations::EnumDecl>(cast<RecordType>(c)->decl)
+                    var unsafe *pe = dyn_cast<Declarations::EnumDecl>(
+                        cast<RecordType>(c)->decl,
+                    )
+
                     if pe != &null && !pe->is_adt {
                         continue
                     }
@@ -3961,7 +4182,9 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         // FeatureGateCheck reports exactly this case (the same
         // lifecycle_open), so reaching it means that gate has a hole.
         if lifecycle_open(f) {
-            kairo::std::ice_fail("EnumLayoutLowering: non-generic ADT with unknown lifecycle facts")
+            kairo::std::ice_fail(
+                "EnumLayoutLowering: non-generic ADT with unknown lifecycle facts",
+            )
         }
 
         var copy_form = Declarations::AdtForm::Trivial
@@ -4068,7 +4291,14 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         self._member(
             ldc,
             methods,
-            self._role(en, en->name, role, Declarations::AdtForm::Body, 0, VisibilityKind::Public),
+            self._role(
+                en,
+                en->name,
+                role,
+                Declarations::AdtForm::Body,
+                0,
+                VisibilityKind::Public,
+            ),
         )
 
         self._member(
@@ -4097,11 +4327,17 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
                   variant: u32,
                   vis:     VisibilityKind) -> unsafe *Declarations::FunctionDecl {
         var unsafe *edc = unsafe (en as unsafe *DeclContext)
-        var unsafe *f   = Declarations::FunctionDecl::create(self.ctx, name.range, name, edc)
+        var unsafe *f = Declarations::FunctionDecl::create(
+            self.ctx,
+            name.range,
+            name,
+            edc,
+        )
+
         self._place(f, edc, vis, name.range)
-        f->params          = create_empty_frozen_list<unsafe *Declarations::ParamDecl>()
-        f->op_token        = create_empty_frozen_list<Token>()
-        f->generic_params  = create_empty_frozen_list<unsafe *Declarations::GenericParamDecl>()
+        f->params = create_empty_frozen_list<unsafe *Declarations::ParamDecl>()
+        f->op_token = create_empty_frozen_list<Token>()
+        f->generic_params = create_empty_frozen_list<unsafe *Declarations::GenericParamDecl>()
         f->spec_args       = create_empty_frozen_list<unsafe *Type>()
         f->requires_clause = &null
         f->is_implicit     = true
@@ -4144,11 +4380,11 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
     }
 
     priv fn _no_members(self, s: unsafe *Declarations::StructDecl) {
-        s->fields         = create_empty_frozen_list<unsafe *Declarations::FieldDecl>()
-        s->methods        = create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
-        s->implements     = create_empty_frozen_list<Declarations::InheritEdge>()
+        s->fields = create_empty_frozen_list<unsafe *Declarations::FieldDecl>()
+        s->methods = create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
+        s->implements = create_empty_frozen_list<Declarations::InheritEdge>()
         s->generic_params = create_empty_frozen_list<unsafe *Declarations::GenericParamDecl>()
-        s->spec_args      = create_empty_frozen_list<unsafe *Type>()
+        s->spec_args = create_empty_frozen_list<unsafe *Type>()
     }
 
     priv fn _type_of(self, d: unsafe *Decl) -> unsafe *Type {

@@ -70,8 +70,8 @@ pub class WaveExecutor {
             dispatched += ready.size()
             var sinks = cxx::std::vector<unsafe *BufferedDiagSink>()
             for fid in ready {
-                var mod_path = graph->mod_paths[fid]
-                var sink: unsafe *BufferedDiagSink = &null
+                var mod_path                          = graph->mod_paths[fid]
+                var sink:    unsafe *BufferedDiagSink = &null
                 if diag != &null {
                     sink = kairo::std::create<BufferedDiagSink>()
                     sinks.push_back(sink)
@@ -85,7 +85,10 @@ pub class WaveExecutor {
                                 return
                             }
 
-                            var _cap = DiagCapture(unsafe (sink as unsafe *DiagEngineVBase))
+                            var _cap = DiagCapture(
+                                unsafe (sink as unsafe *DiagEngineVBase),
+                            )
+
                             cxx::std::invoke(*task_fn, fid, mod_path)
                         },
                     ),

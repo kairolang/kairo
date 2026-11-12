@@ -89,7 +89,9 @@ extend CompilerInstance {
 
     fn get_target_triple(self) -> string {
         var triple = llvm::Triple(
-            llvm::Triple::normalize(llvm::StringRef(llvm::sys::getProcessTriple())),
+            llvm::Triple::normalize(
+                llvm::StringRef(llvm::sys::getProcessTriple()),
+            ),
         )
 
         if triple.getVendor() == llvm::Triple::UnknownVendor && triple.isOSLinux() {
@@ -108,7 +110,10 @@ extend CompilerInstance {
     /// otherwise; the eabi/eabihf float ABI is kept on 32-bit ARM. Any other
     /// host keeps its own triple. --native uses the same triple.
     fn get_default_target_triple(self) -> string {
-        var triple = llvm::Triple(llvm::Triple::normalize(kairo::sref(self.get_target_triple())))
+        var triple = llvm::Triple(
+            llvm::Triple::normalize(kairo::sref(self.get_target_triple())),
+        )
+
         if triple.isOSWindows() {
             triple.setVendor(llvm::Triple::PC)
             triple.setEnvironment(llvm::Triple::GNU)
@@ -134,7 +139,10 @@ extend CompilerInstance {
             var an:  llvm::StringRef = triple.getArchName()
             var glibc = HostSystem::host_libc(
                 Toolchain::canon_arch(
-                    string(unsafe ((an.data() as unsafe *const u8) as *const u8), an.size()),
+                    string(
+                        unsafe ((an.data() as unsafe *const u8) as *const u8),
+                        an.size(),
+                    ),
                 ),
                 hf,
             ) == "glibc"
@@ -147,7 +155,9 @@ extend CompilerInstance {
                     if (glibc) => (llvm::Triple::GNUEABI) else => llvm::Triple::MuslEABI,
                 )
             } else {
-                triple.setEnvironment(if (glibc) => (llvm::Triple::GNU) else => llvm::Triple::Musl)
+                triple.setEnvironment(
+                    if (glibc) => (llvm::Triple::GNU) else => llvm::Triple::Musl,
+                )
             }
         }
 
@@ -171,7 +181,10 @@ extend CompilerInstance {
             return
         }
 
-        var tri    = llvm::Triple(llvm::Triple::normalize(kairo::sref(bcfg.triple)))
+        var tri = llvm::Triple(
+            llvm::Triple::normalize(kairo::sref(bcfg.triple)),
+        )
+
         var darwin = tri.isOSDarwin()
 
         var root  = sr
@@ -356,7 +369,10 @@ extend CompilerInstance {
         // ensure --input, the SDK= of the scripts) serves any host.
         var cache  = SysCache(SysCache::default_root())
         var cached = if (cache.root.empty()) => ("") else => cache.lookup(name)
-        if !cached.empty() && LinkFS::is_file(LinkText::join(cached, SysrootManifest::file_name())) {
+        if !cached.empty()
+            && LinkFS::is_file(
+                LinkText::join(cached, SysrootManifest::file_name()),
+            ) {
             tg->sysroot = cached
             return true
         }
@@ -390,7 +406,9 @@ extend CompilerInstance {
         }
 
         if sdk {
-            io::eprintln(f"staging sysroot for {name} from the installed SDK, first time only")
+            io::eprintln(
+                f"staging sysroot for {name} from the installed SDK, first time only",
+            )
         } else {
             io::eprintln(f"building sysroot for {name}, first time only")
         }
@@ -418,7 +436,9 @@ extend CompilerInstance {
     priv fn _unshipped_sdk(self, const want: string) -> bool {
         var want_tri = llvm::Triple(llvm::Triple::normalize(kairo::sref(want)))
         var host_tri = llvm::Triple(
-            llvm::Triple::normalize(kairo::sref(self.get_default_target_triple())),
+            llvm::Triple::normalize(
+                kairo::sref(self.get_default_target_triple()),
+            ),
         )
 
         return want_tri.isOSDarwin() && !host_tri.isOSDarwin()
@@ -475,7 +495,7 @@ extend CompilerInstance {
 
         if tg->m32 || tg->m64 {
             var tt = llvm::Triple(llvm::Triple::normalize(kairo::sref(want)))
-            tt   = if (tg->m32) => (tt.get32BitArchVariant()) else => tt.get64BitArchVariant()
+            tt = if (tg->m32) => (tt.get32BitArchVariant()) else => tt.get64BitArchVariant()
             want = kairo::std::from_std_string<string>(tt.getTriple())
         }
 
@@ -488,7 +508,13 @@ extend CompilerInstance {
             var cands   = cxx::std::vector<string>()
             var why     = ""
             want = spelled
-            if SysNames::parse(spelled, glibc_default_version(), &tgt, &cands, &why) {
+            if SysNames::parse(
+                spelled,
+                glibc_default_version(),
+                &tgt,
+                &cands,
+                &why,
+            ) {
                 want = tgt.name
             }
         }
@@ -592,8 +618,11 @@ extend CompilerInstance {
         var err:       cxx::std::string
         var triple_str                  = triple
 
-        var        llvm_triple = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple_str)))
-        var unsafe *T          = llvm::TargetRegistry::lookupTarget(llvm_triple, &err)
+        var llvm_triple = llvm::Triple(
+            llvm::Triple::normalize(kairo::sref(triple_str)),
+        )
+
+        var unsafe *T = llvm::TargetRegistry::lookupTarget(llvm_triple, &err)
 
         if T == &null {
             (err_out) = kairo::std::from_std_string<string>(err)
@@ -619,7 +648,10 @@ extend CompilerInstance {
     prot fn _backend_config(self) -> ClangBackendConfig {
         var bcfg = ClangBackendConfig{}
         bcfg.triple = self._effective_triple()
-        bcfg.wargs  = FlagTranslator::warnings(&self.invocation()->diag, ClangSpelling::CC1)
+        bcfg.wargs = FlagTranslator::warnings(
+            &self.invocation()->diag,
+            ClangSpelling::CC1,
+        )
 
         // The target flags clang has a spelling for. Parsed into the
         // invocation long before this; until they are copied here they reach
@@ -678,7 +710,10 @@ extend CompilerInstance {
         // The triple's environment as a macro (`__kairo_env_musl__`):
         // clang predefines the arch and OS, but nothing tells musl from
         // glibc, which `__builtin_target_info()` (Lib/builtin) must.
-        var env_tt = llvm::Triple(llvm::Triple::normalize(kairo::sref(bcfg.triple)))
+        var env_tt = llvm::Triple(
+            llvm::Triple::normalize(kairo::sref(bcfg.triple)),
+        )
+
         var env_sr: llvm::StringRef = env_tt.getEnvironmentName()
         var env_nm = string(
             unsafe ((env_sr.data() as unsafe *const u8) as *const u8),
@@ -689,7 +724,10 @@ extend CompilerInstance {
             env_nm = "unknown"
         }
 
-        bcfg.extra_cc1.push_back(f"-D{LowerTargets::reserved_prefix()}env_{env_nm}__=1")
+        bcfg.extra_cc1.push_back(
+            f"-D{LowerTargets::reserved_prefix()}env_{env_nm}__=1",
+        )
+
         // The runtime root, after the user's: `rt/fmt.h` names the same file
         // from Lib/builtin/fmt/fmt_buf.k (an ffi header set copies this
         // invocation) and from Lib/rt/fmt_*.c (native_invocation shares these
@@ -830,19 +868,48 @@ extend CompilerInstance {
         CompilerInstance::_absolutize_all(&inv->macro_paths, base)
 
         CompilerInstance::_absolutize_all(&inv->pp.force_includes, base)
-        inv->pp.prelude_path = Path::absolute_if_exists(inv->pp.prelude_path, base)
-        inv->pp.builtins_dir = Path::absolute_if_exists(inv->pp.builtins_dir, base)
-        inv->pp.std_dir      = Path::absolute_if_exists(inv->pp.std_dir, base)
+        inv->pp.prelude_path = Path::absolute_if_exists(
+            inv->pp.prelude_path,
+            base,
+        )
 
-        inv->target.sysroot      = Path::absolute_if_exists(inv->target.sysroot, base)
-        inv->target.resource_dir = Path::absolute_if_exists(inv->target.resource_dir, base)
+        inv->pp.builtins_dir = Path::absolute_if_exists(
+            inv->pp.builtins_dir,
+            base,
+        )
+
+        inv->pp.std_dir = Path::absolute_if_exists(inv->pp.std_dir, base)
+
+        inv->target.sysroot = Path::absolute_if_exists(
+            inv->target.sysroot,
+            base,
+        )
+
+        inv->target.resource_dir = Path::absolute_if_exists(
+            inv->target.resource_dir,
+            base,
+        )
 
         CompilerInstance::_absolutize_all(&inv->linker.lib_dirs, base)
-        inv->linker.linker_script  = Path::absolute_if_exists(inv->linker.linker_script, base)
-        inv->linker.version_script = Path::absolute_if_exists(inv->linker.version_script, base)
-        inv->linker.macos_sdk      = Path::absolute_if_exists(inv->linker.macos_sdk, base)
+        inv->linker.linker_script = Path::absolute_if_exists(
+            inv->linker.linker_script,
+            base,
+        )
 
-        inv->codegen.profile_use = Path::absolute_if_exists(inv->codegen.profile_use, base)
+        inv->linker.version_script = Path::absolute_if_exists(
+            inv->linker.version_script,
+            base,
+        )
+
+        inv->linker.macos_sdk = Path::absolute_if_exists(
+            inv->linker.macos_sdk,
+            base,
+        )
+
+        inv->codegen.profile_use = Path::absolute_if_exists(
+            inv->codegen.profile_use,
+            base,
+        )
     }
 
     /// The toolchain prefix: the directory above the one this binary is in
@@ -903,7 +970,10 @@ extend CompilerInstance {
 
         var rd_given = !inv->target.resource_dir.empty()
         if !rd_given {
-            var rd = CompilerInstance::_pick_resource_dir(LinkText::join(lib, ResourceLayout::clang_subdir()))
+            var rd = CompilerInstance::_pick_resource_dir(
+                LinkText::join(lib, ResourceLayout::clang_subdir()),
+            )
+
             if !rd.empty() {
                 inv->target.resource_dir = rd
             } else {
@@ -921,7 +991,10 @@ extend CompilerInstance {
         if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
             var legacy = ""
             if rd_given {
-                legacy = LinkText::join(inv->target.resource_dir, ResourceLayout::builtin_subdir())
+                legacy = LinkText::join(
+                    inv->target.resource_dir,
+                    ResourceLayout::builtin_subdir(),
+                )
             }
 
             var dir = LinkText::join(lib, ResourceLayout::builtin_subdir())
@@ -940,7 +1013,10 @@ extend CompilerInstance {
         if inv->pp.std_dir.empty() && !inv->pp.no_stdlib {
             var legacy = ""
             if rd_given {
-                legacy = LinkText::join(inv->target.resource_dir, ResourceLayout::std_subdir())
+                legacy = LinkText::join(
+                    inv->target.resource_dir,
+                    ResourceLayout::std_subdir(),
+                )
             }
 
             var dir = LinkText::join(lib, ResourceLayout::std_subdir())
@@ -988,12 +1064,23 @@ extend CompilerInstance {
                 want = self._effective_triple()
             }
 
-            var root = LinkText::join(CompilerInstance::_toolchain_prefix(), ResourceLayout::sysroot_subdir())
+            var root = LinkText::join(
+                CompilerInstance::_toolchain_prefix(),
+                ResourceLayout::sysroot_subdir(),
+            )
+
             if self._unshipped_sdk(want) {
-                var want_tri = llvm::Triple(llvm::Triple::normalize(kairo::sref(want)))
+                var want_tri = llvm::Triple(
+                    llvm::Triple::normalize(kairo::sref(want)),
+                )
+
                 var script = if (want_tri.isOSDarwin()) => ("darwin-sysroot.sh")
                              else => "msvc-sysroot.sh"
-                var scripts = LinkText::join(CompilerInstance::_toolchain_prefix(), ResourceLayout::scripts_subdir())
+                var scripts = LinkText::join(
+                    CompilerInstance::_toolchain_prefix(),
+                    ResourceLayout::scripts_subdir(),
+                )
+
                 self._diag->report(
                     DiagID::P008E,
                     f"no sysroot for target '{want}': its SDK is never shipped with the compiler",
@@ -1010,7 +1097,10 @@ extend CompilerInstance {
                 note,
             )
         } else if !LinkFS::is_dir(sr) {
-            self._queue_root_warning(f"sysroot not found: {sr} is not a directory", note)
+            self._queue_root_warning(
+                f"sysroot not found: {sr} is not a directory",
+                note,
+            )
         }
 
         return true
@@ -1037,7 +1127,10 @@ extend CompilerInstance {
             return false
         }
 
-        var host = llvm::Triple(llvm::Triple::normalize(kairo::sref(self.get_target_triple())))
+        var host = llvm::Triple(
+            llvm::Triple::normalize(kairo::sref(self.get_target_triple())),
+        )
+
         if !host.isOSLinux() {
             self._diag->report(
                 DiagID::U017E,
@@ -1074,8 +1167,14 @@ extend CompilerInstance {
     priv fn _apply_host_system(self, sysroot_given: bool) -> bool {
         var *inv = self.invocation()
         var *tg  = &inv->target
-        var host = llvm::Triple(llvm::Triple::normalize(kairo::sref(self.get_target_triple())))
-        var eff = llvm::Triple(llvm::Triple::normalize(kairo::sref(self._effective_triple())))
+        var host = llvm::Triple(
+            llvm::Triple::normalize(kairo::sref(self.get_target_triple())),
+        )
+
+        var eff = llvm::Triple(
+            llvm::Triple::normalize(kairo::sref(self._effective_triple())),
+        )
+
         var freestanding = inv->lang.freestanding || inv->linker.freestanding
         var mode         = ""
         if tg->native {
@@ -1094,16 +1193,26 @@ extend CompilerInstance {
         if !mode.empty() {
             var an: llvm::StringRef = eff.getArchName()
             var arch = Toolchain::canon_arch(
-                string(unsafe ((an.data() as unsafe *const u8) as *const u8), an.size()),
+                string(
+                    unsafe ((an.data() as unsafe *const u8) as *const u8),
+                    an.size(),
+                ),
             )
 
             var en: llvm::StringRef = eff.getEnvironmentName()
-            var env  = string(unsafe ((en.data() as unsafe *const u8) as *const u8), en.size())
+            var env = string(
+                unsafe ((en.data() as unsafe *const u8) as *const u8),
+                en.size(),
+            )
+
             var is64 = eff.isArch64Bit()
 
             var inc  = cxx::std::vector<string>()
             var seen = cxx::std::vector<string>()
-            var nixc = HostSystem::split_words(LinkFS::env(EnvNames::nix_cflags_compile()))
+            var nixc = HostSystem::split_words(
+                LinkFS::env(EnvNames::nix_cflags_compile()),
+            )
+
             for var i: usize = 0; i + 1 < nixc.size(); ++i {
                 if nixc[i] == "-isystem" || nixc[i] == "-idirafter" {
                     HostSystem::add_dir(&inc, &seen, nixc[i + 1])
@@ -1119,7 +1228,10 @@ extend CompilerInstance {
 
             var libs  = cxx::std::vector<string>()
             var seenl = cxx::std::vector<string>()
-            var nixl  = HostSystem::split_words(LinkFS::env(EnvNames::nix_ldflags()))
+            var nixl = HostSystem::split_words(
+                LinkFS::env(EnvNames::nix_ldflags()),
+            )
+
             for var i: usize = 0; i < nixl.size(); ++i {
                 var w = nixl[i]
                 if (w == "-L" || w == "-rpath") && i + 1 < nixl.size() {
@@ -1131,7 +1243,11 @@ extend CompilerInstance {
 
                     i += 1
                 } else if LinkText::starts_with(w, "-L") {
-                    HostSystem::add_dir(&libs, &seenl, LinkText::slice(w, 2, w.size()))
+                    HostSystem::add_dir(
+                        &libs,
+                        &seenl,
+                        LinkText::slice(w, 2, w.size()),
+                    )
                 }
             }
 
@@ -1178,7 +1294,10 @@ extend CompilerInstance {
             try {
                 HostSystem::pkg_config(*name, &words)
             } catch e: PkgConfigError {
-                self._diag->report(DiagID::U019E, f"--pkg-config {(*name)}: {e.message}").emit()
+                self._diag->report(
+                    DiagID::U019E,
+                    f"--pkg-config {(*name)}: {e.message}",
+                ).emit()
                 ok = false
                 continue
             }
@@ -1356,7 +1475,10 @@ extend CompilerInstance {
         // consumer, so it is refused rather than rendered as pretty.
         if !d.format_known {
             if d.format == "msvc" {
-                self._diag->report(DiagID::U021E, "error format 'msvc' is not implemented").emit()
+                self._diag->report(
+                    DiagID::U021E,
+                    "error format 'msvc' is not implemented",
+                ).emit()
             } else {
                 self._diag->report(
                     DiagID::U021E,
@@ -1369,16 +1491,28 @@ extend CompilerInstance {
         }
 
         if renders_through_basic(d.error_format) {
-            self._diag->remove_consumer(unsafe (self._pretty as unsafe *PrettyDiagConsumer))
-            self._diag->add_consumer(unsafe (self._basic as unsafe *BasicDiagConsumer))
+            self._diag->remove_consumer(
+                unsafe (self._pretty as unsafe *PrettyDiagConsumer),
+            )
+
+            self._diag->add_consumer(
+                unsafe (self._basic as unsafe *BasicDiagConsumer),
+            )
+
             self._basic->set_json(d.error_format == ErrorFormat::Json)
             // Flag-parse diagnostics (U005W, -D shape errors) are already in
             // the pretty buffer; carry them over or basic mode never shows them.
-            self._pretty->drain_into(unsafe (self._basic as unsafe *BasicDiagConsumer))
+            self._pretty->drain_into(
+                unsafe (self._basic as unsafe *BasicDiagConsumer),
+            )
         }
 
         self._basic->set_absolute_paths(d.absolute_paths)
-        self._pretty->configure(d.show_context, d.max_context_lines as u32, d.absolute_paths)
+        self._pretty->configure(
+            d.show_context,
+            d.max_context_lines as u32,
+            d.absolute_paths,
+        )
 
         if d.no_color {
             self._pretty->set_color(false)
@@ -1527,7 +1661,7 @@ extend CompilerInstance {
         // The rest of the derived target facts, off the SAME Triple, so
         // pointer width and ISA can never disagree about which target this
         // is. Sema reads these; Config/ still never sees LLVM.
-        var full: string          = kairo::std::from_std_string<string>(tt.getTriple())
+        var full: string = kairo::std::from_std_string<string>(tt.getTriple())
         var arch: llvm::StringRef = tt.getArchName()
         var vend: llvm::StringRef = tt.getVendorName()
         var osn:  llvm::StringRef = tt.getOSName()
@@ -1537,24 +1671,36 @@ extend CompilerInstance {
 
         var *t = &self.invocation()->target
         t->effective_triple = full
-        t->arch_name = string(unsafe ((arch.data() as unsafe *const u8) as *const u8), arch.size())
+        t->arch_name = string(
+            unsafe ((arch.data() as unsafe *const u8) as *const u8),
+            arch.size(),
+        )
+
         t->vendor_name = string(
             unsafe ((vend.data() as unsafe *const u8) as *const u8),
             vend.size(),
         )
 
-        t->os_name = string(unsafe ((osn.data() as unsafe *const u8) as *const u8), osn.size())
-        t->env_name = string(unsafe ((env.data() as unsafe *const u8) as *const u8), env.size())
+        t->os_name = string(
+            unsafe ((osn.data() as unsafe *const u8) as *const u8),
+            osn.size(),
+        )
+
+        t->env_name = string(
+            unsafe ((env.data() as unsafe *const u8) as *const u8),
+            env.size(),
+        )
+
         t->object_format_kind = objfmt
         t->object_format      = object_format_name(objfmt)
-        t->is_little_endian = tt.isLittleEndian()
-        t->is_x86           = tt.isX86()
-        t->has_os           = tt.getOS() != llvm::Triple::UnknownOS
+        t->is_little_endian   = tt.isLittleEndian()
+        t->is_x86             = tt.isX86()
+        t->has_os             = tt.getOS() != llvm::Triple::UnknownOS
         self._fill_clang_type_facts(&tt)
         t->resolved = true
 
-        var        err: cxx::std::string
-        var unsafe *T                    = llvm::TargetRegistry::lookupTarget(tt, &err)
+        var err: cxx::std::string
+        var unsafe *T = llvm::TargetRegistry::lookupTarget(tt, &err)
         if T == &null {
             self._diag->report(
                 DiagID::P004F,
@@ -1577,8 +1723,10 @@ extend CompilerInstance {
                     DiagID::P006E,
                     f"'--mcpu native' names the host CPU and cannot be used with --target '{self._inv.target.triple}'",
                 ).emit()
-                self._diag->report(DiagID::P006N,
-                    f"name the CPU explicitly; run with --print-cpus --target={t->effective_triple} to list valid values").emit()
+                self._diag->report(
+                    DiagID::P006N,
+                    f"name the CPU explicitly; run with --print-cpus --target={t->effective_triple} to list valid values",
+                ).emit()
                 self.invocation()->ok = false
                 return
             }
@@ -1591,7 +1739,12 @@ extend CompilerInstance {
         }
 
         if !self._inv.target.mcpu.empty() {
-            var unsafe *STI = T->createMCSubtargetInfo(tt, kairo::sref(r""), kairo::sref(r""))
+            var unsafe *STI = T->createMCSubtargetInfo(
+                tt,
+                kairo::sref(r""),
+                kairo::sref(r""),
+            )
+
             finally {
                 @cxx::delete STI
             }
@@ -1692,7 +1845,7 @@ extend CompilerInstance {
         // char/short/int/long/long long and answers `long` for 64 on every
         // LP64 target, Darwin included, where Int64Type is `long long` --
         // which is exactly the case this exists to tell apart.
-        var pw_bits                            = ti->getPointerWidth(clang::LangAS::Default)
+        var pw_bits = ti->getPointerWidth(clang::LangAS::Default)
         var want_u: clang::TargetInfo::IntType = clang::TargetInfo::NoInt
         var want_s: clang::TargetInfo::IntType = clang::TargetInfo::NoInt
         if pw_bits == 64 {

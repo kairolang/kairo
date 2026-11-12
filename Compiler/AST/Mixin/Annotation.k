@@ -284,7 +284,9 @@ pub class <T> Annotation {
 
     pub fn add_annotation(self, kind: AnnotationKind, name: u32, range: SourceRange) {
         if !self.annotations.has_allocator() {
-            kairo::std::ice_fail("Annotation::add_* called before init_annotations()")
+            kairo::std::ice_fail(
+                "Annotation::add_* called before init_annotations()",
+            )
         }
 
         self.annotations.push(AnnotationEntry(kind, name, range))
@@ -297,7 +299,9 @@ pub class <T> Annotation {
                           range: SourceRange,
                           args:  FrozenList<unsafe *Expr>) {
         if !self.annotations.has_allocator() {
-            kairo::std::ice_fail("Annotation::add_* called before allocator wiring")
+            kairo::std::ice_fail(
+                "Annotation::add_* called before allocator wiring",
+            )
         }
 
         var e = AnnotationEntry(kind, name, range)

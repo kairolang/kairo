@@ -12,19 +12,17 @@
 /// ------------------------------------------------------------------------ ///
 
 
-import Index::Snapshot::*
-import Protocol::*
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
-import AST::Context::ImportOverlay::{
-    ImportOverlay,
-    OverlayVisibility,
-}
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
+}
+import AST::Context::ImportOverlay::{
+    ImportOverlay,
+    OverlayVisibility,
 }
 import AST::Context::SymbolTable::{
     DeclName,
@@ -32,17 +30,13 @@ import AST::Context::SymbolTable::{
     SymbolTable,
 }
 import AST::Context::TranslationUnit::TranslationUnit
-import AST::Mixin::Annotation::VisibilityKind
-import AST::VisibilityFacts::{
-    default_visibility_of,
-    tu_module_dir,
-}
 import AST::DeclFacts::{
     decl_extension_of,
     decl_is_ffi,
     decl_name_tok,
     decl_requires_clause,
 }
+import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -53,7 +47,6 @@ import AST::Node::CanonicalNodes::{
     RecordType,
     canon_unqual,
 }
-import Index::Primitives::primitive_spelling
 import AST::Node::Casting::{
     cast,
     isa,
@@ -66,18 +59,34 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Types
+import AST::VisibilityFacts::{
+    default_visibility_of,
+    tu_module_dir,
+}
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Engine::DiagEngine
 import DocumentStore::{
     LineMap,
     fnv1a,
 }
+import Index::Bases::*
+import Index::CompletionItems::*
+import Index::Hovers::*
+import Index::Indexer::*
+import Index::Legend::*
+import Index::Macros::*
+import Index::Primitives::primitive_spelling
+import Index::Refs::*
+import Index::Snapshot::*
+import Index::Tokens::*
+import Index::Writer::*
 import Json::JsonWriter
 import Lexer::Immediate::ImmediateTable
 import Lexer::Lexer::Lexer
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Protocol::*
 import Sema::Resolve::AccessCheck::AccessCheck
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -87,20 +96,11 @@ import Sema::SemaContext::{
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
-import Token::TokenText::TokenText
 import Token::TokenKind::{
     TokenKind,
     is_keyword,
 }
-import Index::Bases::*
-import Index::CompletionItems::*
-import Index::Hovers::*
-import Index::Indexer::*
-import Index::Legend::*
-import Index::Macros::*
-import Index::Refs::*
-import Index::Tokens::*
-import Index::Writer::*
+import Token::TokenText::TokenText
 
 extend IndexWalker {
     // The tables are what completion is answered from with no compile
@@ -191,7 +191,11 @@ extend IndexWalker {
         var ch:   usize = 0
         if off >= 0 {
             line = self.files[0].lines.line_of(off as usize)
-            ch   = self.files[0].lines.character(self.files[0].text, off as usize, false)
+            ch = self.files[0].lines.character(
+                self.files[0].text,
+                off as usize,
+                false,
+            )
         }
 
         // the DC_* columns of Snapshot.k, in that order
@@ -241,16 +245,35 @@ extend IndexWalker {
         }
 
         if isa<Declarations::ExtensionDecl>(d) {
-            var unsafe *e = cast<Declarations::ExtensionDecl>(d)
-            var tfi:  i64 = -1
-            var toff: i64 = -1
+            var unsafe *e        = cast<Declarations::ExtensionDecl>(d)
+            var        tfi:  i64 = -1
+            var        toff: i64 = -1
             self.t_key_(self.type_decl_(e->target, 0), &tfi, &toff)
             // A primitive has no record to point at (`extend i32`): the
             // row's detail spells it, which is how `i32::` finds the
-            // block's statics (P1004).
-            var row = self.t_put_(w, "", 0, parent, -1, VIS_PUB, DF_EXT, self.ext_primitive_(e->target), tfi, toff, -1, -1)
+            // block's statics.
+            var row = self.t_put_(
+                w,
+                "",
+                0,
+                parent,
+                -1,
+                VIS_PUB,
+                DF_EXT,
+                self.ext_primitive_(e->target),
+                tfi,
+                toff,
+                -1,
+                -1,
+            )
+
             for var i: usize = 0; i < e->methods.size(); ++i {
-                self.t_decl_(w, unsafe (e->methods[i] as unsafe *Decl), row, depth + 1)
+                self.t_decl_(
+                    w,
+                    unsafe (e->methods[i] as unsafe *Decl),
+                    row,
+                    depth + 1,
+                )
             }
 
             return row
@@ -273,13 +296,28 @@ extend IndexWalker {
         // Another FILE, bound here as the module it is (`pub import io` in
         // a module.k): the row names the file.
         var unsafe *mctx = NameLookup::ctx_of(d)
-        if isa<Declarations::ModuleDecl>(d) && (mctx != &null) && (mctx->tu != &null)
+        if isa<Declarations::ModuleDecl>(d)
+            && (mctx != &null)
+            && (mctx->tu != &null)
             && (unsafe (mctx->tu->module_self as unsafe *Decl) == d) {
             if mctx->fid == self.fid {
                 return -1
             }
 
-            return self.t_put_(w, name, CIK_MODULE, parent, -1, VIS_PUB, DF_ALIAS | DF_SCOPE, "", self.tfile_(mctx->fid), -1, -1, -1)
+            return self.t_put_(
+                w,
+                name,
+                CIK_MODULE,
+                parent,
+                -1,
+                VIS_PUB,
+                DF_ALIAS | DF_SCOPE,
+                "",
+                self.tfile_(mctx->fid),
+                -1,
+                -1,
+                -1,
+            )
         }
 
         var tok = decl_name_tok(d).range
@@ -292,7 +330,20 @@ extend IndexWalker {
         if (res.fid as u32) != self.fid {
             // Bound in this file, declared in another (what an import
             // leaves in the file's own context): the row names it there.
-            return self.t_put_(w, name, kind, parent, -1, VIS_PUB, DF_ALIAS, "", self.tfile_(res.fid as u32), res.offset as i64, -1, -1)
+            return self.t_put_(
+                w,
+                name,
+                kind,
+                parent,
+                -1,
+                VIS_PUB,
+                DF_ALIAS,
+                "",
+                self.tfile_(res.fid as u32),
+                res.offset as i64,
+                -1,
+                -1,
+            )
         }
 
         var flags: i64 = DF_STATIC
@@ -316,22 +367,36 @@ extend IndexWalker {
         self.t_key_(self.type_decl_(self.value_type_(d), 0), &tfi, &toff)
         var efi:  i64 = -1
         var eoff: i64 = -1
-        self.t_key_(self.type_decl_(self.elem_type_(self.value_type_(d)), 0), &efi, &eoff)
+        self.t_key_(
+            self.type_decl_(self.elem_type_(self.value_type_(d)), 0),
+            &efi,
+            &eoff,
+        )
+
         var kids: [unsafe *Decl]
         if dc != &null {
             self.own_members_(d, &kids)
             // A type's row: what a subscript of a value of it is, the
-            // record its `op []` overloads agree on (P1002). Their rows are
+            // record its `op []` overloads agree on. Their rows are
             // not in the table (no completion offers an operator).
             var seen = false
             for var i: usize = 0; i < kids.size(); ++i {
-                if (!isa<Declarations::FunctionDecl>(kids[i])) || (sema_dump_decl_name(ctx, kids[i]) != "op []") {
+                if (!isa<Declarations::FunctionDecl>(kids[i]))
+                    || (sema_dump_decl_name(ctx, kids[i]) != "op []") {
                     continue
                 }
 
                 var ofi:  i64 = -1
                 var ooff: i64 = -1
-                self.t_key_(self.type_decl_(cast<Declarations::FunctionDecl>(kids[i])->return_type, 0), &ofi, &ooff)
+                self.t_key_(
+                    self.type_decl_(
+                        cast<Declarations::FunctionDecl>(kids[i])->return_type,
+                        0,
+                    ),
+                    &ofi,
+                    &ooff,
+                )
+
                 if !seen {
                     efi  = ofi
                     eoff = ooff
@@ -343,7 +408,21 @@ extend IndexWalker {
             }
         }
 
-        var row = self.t_put_(w, name, kind, parent, res.offset as i64, self.vis_of_(d), flags, self.signature_(d), tfi, toff, efi, eoff)
+        var row = self.t_put_(
+            w,
+            name,
+            kind,
+            parent,
+            res.offset as i64,
+            self.vis_of_(d),
+            flags,
+            self.signature_(d),
+            tfi,
+            toff,
+            efi,
+            eoff,
+        )
+
         if dc == &null {
             return row
         }
@@ -357,11 +436,17 @@ extend IndexWalker {
             for var i: usize = 0; i < c->derives_list.size(); ++i {
                 var bfi:  i64 = -1
                 var boff: i64 = -1
-                if self.t_key_(self.type_decl_(c->derives_list[i].base, 0), &bfi, &boff) {
+                if self.t_key_(
+                    self.type_decl_(c->derives_list[i].base, 0),
+                    &bfi,
+                    &boff,
+                ) {
                     self.t_bases_.push_back(row)
                     self.t_bases_.push_back(bfi)
                     self.t_bases_.push_back(boff)
-                    self.t_bases_.push_back(c->derives_list[i].visibility as i64)
+                    self.t_bases_.push_back(
+                        c->derives_list[i].visibility as i64,
+                    )
                 }
             }
         }
@@ -375,9 +460,9 @@ extend IndexWalker {
             return
         }
 
-        var unsafe *m = cast<Declarations::MacroDecl>(d)
-        var off = self.own_off_(m->name.range.start)
-        var name = self.ast_()->get_spelling(m->name)
+        var unsafe *m   = cast<Declarations::MacroDecl>(d)
+        var        off  = self.own_off_(m->name.range.start)
+        var        name = self.ast_()->get_spelling(m->name)
         if name.ends_with("!") {
             name = name.subslice(0, name.size() - 1)
         }
@@ -412,13 +497,26 @@ extend IndexWalker {
             vis = VIS_PROT
         }
 
-        self.t_put_(w, name, CIK_SNIPPET, -1, off as i64, vis, DF_MACRO | DF_STATIC, use, -1, -1, -1, -1)
+        self.t_put_(
+            w,
+            name,
+            CIK_SNIPPET,
+            -1,
+            off as i64,
+            vis,
+            DF_MACRO | DF_STATIC,
+            use,
+            -1,
+            -1,
+            -1,
+            -1,
+        )
     }
 
     /// Builds `table`: this file's declarations (Snapshot.k, DC_* / TB_*).
     fn build_table_(self) {
         var unsafe *tu = self.sc->tu
-        var ac = AccessCheck(self.sc)
+        var        ac  = AccessCheck(self.sc)
         self.t_ac_ = unsafe &ac
         finally {
             self.t_ac_ = &null
@@ -428,7 +526,11 @@ extend IndexWalker {
         w.begin_object()
         w.field(SK_PATH, self.files[0].path)
         w.field(SK_MOD, tu_module_dir(tu))
-        w.field_bool(SK_BUILTIN, (self.sc->g != &null) && self.sc->g->is_builtin_fid(self.fid))
+        w.field_bool(
+            SK_BUILTIN,
+            (self.sc->g != &null) && self.sc->g->is_builtin_fid(self.fid),
+        )
+
         w.key(SK_DECLS)
         w.begin_array()
         // Macros first: one that is also among the items is then a macro row.
@@ -506,7 +608,9 @@ extend IndexWalker {
         f.kind = self.item_kind_(d)
         // A file IS a module: the name stands for the file.
         var unsafe *mctx = NameLookup::ctx_of(d)
-        if isa<Declarations::ModuleDecl>(d) && (mctx != &null) && (mctx->tu != &null)
+        if isa<Declarations::ModuleDecl>(d)
+            && (mctx != &null)
+            && (mctx->tu != &null)
             && (unsafe (mctx->tu->module_self as unsafe *Decl) == d) {
             f.fid = mctx->fid
             f.off = -1
@@ -521,7 +625,9 @@ extend IndexWalker {
         }
 
         // No table has a C or C++ declaration: its row says what it is.
-        if decl_is_ffi(d) || (!tok.start.is_valid()) || ((mctx != &null) && (mctx->tu != &null) && mctx->tu->is_foreign) {
+        if decl_is_ffi(d)
+            || (!tok.start.is_valid())
+            || ((mctx != &null) && (mctx->tu != &null) && mctx->tu->is_foreign) {
             f.detail = self.signature_(d)
         }
 
@@ -535,12 +641,12 @@ extend IndexWalker {
             return
         }
 
-        var f = ScopeFact{}
+        var f   = ScopeFact{}
         var key = (d as usize) as u64
         var loc = decl_name_tok(d).range.start.id
         var tag = (d->kind as u8) as u32
         if (self.facts == &null) || (!self.facts->get(key, loc, tag, &f)) {
-            f = self.scope_fact_(d)
+            f     = self.scope_fact_(d)
             f.loc = loc
             f.tag = tag
             if self.facts != &null {
@@ -605,7 +711,7 @@ extend IndexWalker {
         // order of the paths' hashes, which no load order changes.
         var paths: [string]
         var keys:  [u64]
-        var fids = self.sc->g->all_fids()
+        var fids            = self.sc->g->all_fids()
         for var i: usize = 0; i < fids.size(); ++i {
             var f = fids[i]
             if (f == self.fid) || self.sc->g->is_builtin_fid(f) {
@@ -619,7 +725,10 @@ extend IndexWalker {
 
             if self.sc->sees_extension_file(f) {
                 var path = self.sm->get_filename(f)
-                keys.push_back((fnv1a(path) << 16) | ((paths.size() as u64) & 0xFFFF))
+                keys.push_back(
+                    (fnv1a(path) << 16) | ((paths.size() as u64) & 0xFFFF),
+                )
+
                 paths.push_back(path)
             }
         }
