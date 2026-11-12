@@ -4,9 +4,9 @@
 // RUN: %t.exe
 //
 // `@cxx::delete v[i]` (was `delete v[i]`, 0.2.0) on a `vector<*T>`: the operand is the imported `T*&` that
-// `operator[]` returns, read as its value, a pointer. It used to be SC090E
-// "'delete' requires a pointer, not 'unsafe *N&'" (the migrated
-// Location/SourceManager.k, self-host phase 5.2).
+// `operator[]` returns, read as its value, a pointer. It is not SC090E
+// "'delete' requires a pointer, not 'unsafe *N&'".
+//
 
 // DIAG-NOT: error
 

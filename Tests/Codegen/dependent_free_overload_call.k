@@ -1,7 +1,7 @@
 // A call to an overloaded Kairo free function (`is_rec(x)`, two
 // candidates) whose argument is deduced from a duck call (`x` of a
 // `<T: type>` type) cannot be picked until an instance fixes the argument.
-// EmitIR used to ICE "unpromoted callee"; it now goes out as written and
+// EmitIR does not ICE "unpromoted callee"; it goes out as written and
 // clang picks the overload per instance. A local initialised from a call
 // with such an argument (`var prec = self.prec_of(cur)`) is `auto`, not an
 // "no inferred type" I011W.

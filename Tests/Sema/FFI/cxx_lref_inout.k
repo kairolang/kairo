@@ -4,9 +4,9 @@
 // `pick(&x)` takes `int&` over `int*` (a safe `&x` is the marker),
 // `pick(unsafe &x)` the pointer. std::getline's `istream&` overload takes
 // a move-only istringstream by reference; its `istream&&` overload is not
-// viable for a marked argument. All of these used to be SC063E ("cannot
-// convert '*i32' to 'i32&'") or SC064E (getline ambiguous), and a bare
-// argument bound silently (CXX-LVALUE-ARG, decided 2026-11-08).
+// viable for a marked argument. None of these is SC063E ("cannot
+// convert '*i32' to 'i32&'") or SC064E (getline ambiguous); a bare
+// argument does not bind silently.
 
 ffi "c++" import "cxx_lref_inout.h"
 ffi "c++" import "sstream"

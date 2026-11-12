@@ -1,7 +1,7 @@
 // A branch of an `eval if typeof T == U` over a generic parameter is typed
 // once with its diagnostics held back (which branch runs is per instance).
-// An error in it that was only dropped left a poisoned node, no diagnostic at
-// type-check and an EmitIR ICE at -c. It is reported now. Here `usize > u32`
+// An error in it is reported, not only dropped (which would leave a poisoned
+// node, no diagnostic at type-check and an EmitIR error at -c). Here `usize > u32`
 // has no common type.
 
 ffi "c++" import "eval_if_dependent_branch_error.h"

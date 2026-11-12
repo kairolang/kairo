@@ -1130,6 +1130,13 @@ pub class InterfaceEmitter {
     }
 
     priv fn _wrapped(self, d: unsafe *Decl, body: fn()) {
+        // A definition of a C++-declared function declares nothing, so it
+        // opens no namespace either (it is not in the module's).
+        var unsafe *df = dyn_cast<Declarations::FunctionDecl>(d)
+        if df != &null && CXXSpell::defines_foreign(df) {
+            return
+        }
+
         var ns     = self._spell->ns_segments(d)
         var opened = self._ns_open(d, &ns, CXXSpell::is_anon(d))
         body()
@@ -6124,6 +6131,11 @@ pub class InterfaceEmitter {
     priv fn _free_fn_decl(self,
                           f:   unsafe *Declarations::FunctionDecl,
                           ext: unsafe *Declarations::ExtensionDecl) {
+        // A definition of a C++-declared function: the header declares it.
+        if CXXSpell::defines_foreign(f) {
+            return
+        }
+
         // A namespace-scope default argument names its thunk at the point of
         // declaration, and the thunk is placed after `f`: declare it first.
         if ext == &null && CXXSpell::template_params(unsafe (f as unsafe *Decl)).size() == 0 {

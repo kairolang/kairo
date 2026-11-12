@@ -100,7 +100,7 @@ import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::OverloadCell
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
-    decl_extension_of, decl_fold_pin, decl_generic_params, decl_is_imported,      decl_is_instance,
+    decl_cxx_spelling, decl_extension_of, decl_fold_pin, decl_generic_params, decl_is_imported,      decl_is_instance,
     decl_name_tok,     decl_pattern,  param_is_type_pack,  param_type_pack_param,
 }
 import AST::Kind::DeclKind::{
@@ -761,6 +761,11 @@ pub class EmitIR {
 
         match d->kind {
             case DeclKind::FunctionDecl {
+                if CXXSpell::defines_foreign(cast<FunctionDecl>(d)) {
+                    self._foreign_def(cast<FunctionDecl>(d))
+                    return
+                }
+
                 self._free_fn(cast<FunctionDecl>(d), &null)
             } case DeclKind::ClassDecl {
                 self._record_bodies(d)
@@ -1111,6 +1116,97 @@ pub class EmitIR {
         self._req_in_head = false
         self._eval_field_def(m, owner, at)
         self._close_ns(m->range, wrap)
+    }
+
+    /// A Kairo definition of a function C++ declares (`fn W::at`, `fn
+    /// ns::f`; CXXSpell::defines_foreign, P506), at global scope in the C++
+    /// declaration's own signature: its return, its parameter types (a
+    /// `const T&` the Kairo side reads as `x: T` stays `const T&`), its
+    /// `const`, and `noexcept` only when C++ says so. Anything else would
+    /// declare a second function beside the one C++ calls, and the C++
+    /// declaration would stay undefined. The names are the definition's
+    /// own, so the body reads them as written.
+    priv fn _foreign_def(self, f: unsafe *FunctionDecl) {
+        if !f->has_body() || self._in_pch(f) {
+            return
+        }
+
+        if f->body_kind != FnBodyKind::Block {
+            self._unsupported_body(f)
+            return
+        }
+
+        var unsafe *cxx = f->first_decl()
+        var at          = CXXSpell::at(unsafe (f as unsafe *Decl))
+        // The C++ name as imported; qual_name would go through CXXSpell::rep,
+        // which is this Kairo definition, and spell it under the module.
+        var nm          = decl_cxx_spelling(unsafe (cxx as unsafe *Decl))
+        if nm.starts_with("::") {
+            nm = nm.subslice(2, nm.size())
+        }
+
+        // Not yet (P506 stays open for them): a constructor or destructor
+        // (no return type, member initializers) and a template's member.
+        // They stay unemitted, as every such definition was before.
+        var last = nm
+        var prev = ""
+        var cut  = nm.rfind("::")
+        if cut != usize::MAX {
+            last = nm.subslice(cut + 2, nm.size())
+            var outer = nm.subslice(0, cut)
+            var cut2  = outer.rfind("::")
+            prev = if (cut2 != usize::MAX) => (outer.subslice(cut2 + 2, outer.size())) else => outer
+        }
+
+        if last.starts_with("~") || last == prev || decl_generic_params(unsafe (f as unsafe *Decl)).size() > 0
+            || nm.rfind("<") != usize::MAX {
+            return
+        }
+
+        // The declarator-id is parenthesized (as InterfaceEmitter's explicit
+        // instances): after a class return type, `W ::W::at` would lex as
+        // one nested-name-specifier.
+        var head = self._ret(f) + " (" + nm + ")("
+        var fp: usize = 0
+        var first = true
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var unsafe *p = f->params[i]
+            if p == &null || p->is_self {
+                continue
+            }
+
+            while fp < cxx->params.size() && (cxx->params[fp] == &null || cxx->params[fp]->is_self) {
+                fp += 1
+            }
+
+            if fp >= cxx->params.size() {
+                self._ice(f->range, "EmitIR: a definition of a C++ function has more parameters than its declaration")
+            }
+
+            if !first {
+                head += ", "
+            }
+
+            first = false
+            head += self._spell.decl(
+                cxx->params[fp]->type_,
+                self._spell.imm_name(p->name.imm, CXXSpell::fid_of(unsafe (f as unsafe *Decl))),
+            )
+            fp += 1
+        }
+
+        head += ")"
+        if f->is_method() && f->is_const() {
+            head += " const"
+        }
+
+        if cxx->ffi_noexcept {
+            head += " noexcept"
+        }
+
+        self._cg->sink->spell(at, head)
+        self._body(f, &null)
+        self._cg->sink->brk()
     }
 
     /// `inline constexpr T const R::k = R::__kairo_init_k();` for the eval

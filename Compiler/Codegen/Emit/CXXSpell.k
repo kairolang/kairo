@@ -712,15 +712,48 @@ pub class CXXSpell {
                 return unsafe (c as unsafe *TranslationUnit)
             }
 
+            // Inside a definition of a C++-declared function (a parameter, a
+            // local): the file it is written in, as tu_of says.
+            if c->dc_kind == DeclContextKind::Function && c->dc_owner != &null {
+                var unsafe *of = dyn_cast<Declarations::FunctionDecl>(c->dc_owner)
+                if of != &null && CXXSpell::defines_foreign(of) && of->lexical_dc != &null {
+                    c = of->lexical_dc
+                    continue
+                }
+            }
+
             c = c->dc_parent
         }
 
         return &null
     }
 
+    /// \p f is a Kairo definition of a function C++ declares: an
+    /// out-of-line `fn W::at` / `fn ns::f` whose chain starts at an imported
+    /// declaration (P506). C++ already has the declaration, so nothing
+    /// declares it again; EmitIR::_foreign_def writes the definition in the
+    /// C++ declaration's own signature.
+    pub static fn defines_foreign(f: unsafe *Declarations::FunctionDecl) -> bool {
+        if f == &null || (!f->is_out_of_line()) {
+            return false
+        }
+
+        var unsafe *first = f->first_decl()
+        return first != &null && first != f && DeclFacts::decl_is_imported(unsafe (first as unsafe *Decl))
+    }
+
     pub static fn tu_of(d: unsafe *Decl) -> unsafe *TranslationUnit {
         if d == &null {
             return &null
+        }
+
+        // A Kairo definition of a C++-declared function belongs, for lookup,
+        // to the C++ class or namespace; its tokens are this file's. Every
+        // name in it (its own, its parameters', its locals') was interned
+        // here, so the table is the file's it is written in, not the header's.
+        var unsafe *of = dyn_cast<Declarations::FunctionDecl>(d)
+        if of != &null && CXXSpell::defines_foreign(of) && d->lexical_dc != &null {
+            return CXXSpell::tu_of_dc(d->lexical_dc)
         }
 
         var unsafe *dc = d->semantic_dc
@@ -1821,6 +1854,13 @@ pub class CXXSpell {
         var unsafe *r = CXXSpell::rep(d)
         if DeclFacts::decl_is_imported(r) {
             return DeclFacts::decl_cxx_spelling(r)
+        }
+
+        // A Kairo definition of a C++-declared function (P506) is called by
+        // the C++ name, not under the module it is written in.
+        var unsafe *rf = dyn_cast<Declarations::FunctionDecl>(r)
+        if rf != &null && CXXSpell::defines_foreign(rf) {
+            return DeclFacts::decl_cxx_spelling(unsafe (rf->first_decl() as unsafe *Decl))
         }
 
         // An imported enum's enumerator carries no import facts of its own

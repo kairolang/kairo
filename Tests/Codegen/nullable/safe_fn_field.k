@@ -3,8 +3,8 @@
 // access: "a call's result is the nullable").
 //
 // XFAIL: *
-// Ticket "[Sema] `?.` to a function-pointer field, then called"
-//. MemberTyping types the
+// `?.` to a function-pointer field, then called, fails:
+// MemberTyping types the
 // callee chain `F?`, CallTyping's _call_through gets a nullable fn pointer
 // and CallExpr::safe_result is never set, so CoalesceLowering does not
 // expand the call. When it XPASSes, delete the XFAIL -- the run below is

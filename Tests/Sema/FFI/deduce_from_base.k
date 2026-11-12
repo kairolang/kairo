@@ -5,7 +5,7 @@
 //
 // [temp.deduct.call]/4.3: P a class template-id, A a class derived from an
 // instance of it -- T deduces from that base. `get(d)` against `get(Base<T>&)`
-// was SC063E "cannot convert argument of type 'Derived'", which is every
+// is not SC063E "cannot convert argument of type 'Derived'", as in every
 // std::getline / operator>> on a stream. And a dependent `Base<T>&&` that is
 // not a forwarding reference takes no lvalue: `pick(d)` is the `&` overload,
 // not a tie with the `&&` one.

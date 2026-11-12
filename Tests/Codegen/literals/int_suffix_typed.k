@@ -1,8 +1,8 @@
 // A suffix is a declaration (primitives.mdx, Integers): `1u8` is a u8
 // wherever it stands, so the C++ must carry that type too. A bare `1` in
 // C++ is an int, and C++ re-resolves what it is handed: every call below
-// used to reach `pick(signed int)`, and a deduced template argument or a
-// pack element became `int` the same way.
+// would reach `pick(signed int)`, and a deduced template argument or a
+// pack element would become `int` the same way.
 
 import std::io::println
 

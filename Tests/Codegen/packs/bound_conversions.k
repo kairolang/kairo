@@ -1,8 +1,8 @@
-// A pack element is held to its pack's bounds like any other parameter
-//: `arg as string` and `f"{arg}"` in a `for arg in args` body are
+// A pack element is held to its pack's bounds like any other parameter:
+// `arg as string` and `f"{arg}"` in a `for arg in args` body are
 // calls through the bound's witness, once per element, as on a `<T impl I>`
-// (witness/bound_ops.k). They used to be SC027E / SC080E whatever the bound
-// said, and a bounded pack's C++ head named the pack unexpanded in its
+// (witness/bound_ops.k). They are not SC027E / SC080E whatever the bound
+// says, and a bounded pack's C++ head does not name the pack unexpanded in its
 // requires clause. Without a bound they are the bound error naming the
 // requirement (Sema/Check/pack_bound_conversions.k).
 pub interface Named {

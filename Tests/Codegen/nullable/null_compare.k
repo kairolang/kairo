@@ -2,7 +2,7 @@
 // run as the null test they desugar to -- `x == null` / `null == x` is
 // `x.is_null()`, `x != null` / `null != x` is `!x.is_null()` -- on a value,
 // a record, a call's result and a nullable pointer, where `&null` is the
-// same null as `null` (1.3). Before the fix every one of them ICEd in EmitIR
+// same null as `null` (1.3). Each of them is lowered, not an ICE in EmitIR
 // ("user operator; OperatorLowering must rewrite it into a call"): the
 // lowered `null` made the comparison a record operator nobody rewrote.
 //
@@ -10,7 +10,7 @@
 // Nullable's own C++ `operator==` (present on Nullable<T> when T has
 // `==`): equal when both are null, or both present with equal values. It is
 // pinned here as it behaves today. (On a record payload with a Kairo
-// `op ==` it does not type-check yet; ticketed.)
+// `op ==` it does not type-check yet.)
 
 import std::io::println
 
