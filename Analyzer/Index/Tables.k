@@ -182,7 +182,9 @@ extend IndexWalker {
               flags:        i64,
               const detail: string,
               tfi:          i64,
-              toff:         i64) -> i64 {
+              toff:         i64,
+              efi:          i64,
+              eoff:         i64) -> i64 {
         var line: usize = 0
         var ch:   usize = 0
         if off >= 0 {
@@ -203,6 +205,8 @@ extend IndexWalker {
         w->str(detail)
         w->integer(tfi)
         w->integer(toff)
+        w->integer(efi)
+        w->integer(eoff)
         w->end_array()
         self.t_count_ += 1
         return self.t_count_ - 1
@@ -219,7 +223,7 @@ extend IndexWalker {
             var tfi:  i64 = -1
             var toff: i64 = -1
             self.t_key_(self.type_decl_(e->target, 0), &tfi, &toff)
-            var row = self.t_put_(w, "", 0, parent, -1, VIS_PUB, DF_EXT, "", tfi, toff)
+            var row = self.t_put_(w, "", 0, parent, -1, VIS_PUB, DF_EXT, "", tfi, toff, -1, -1)
             for var i: usize = 0; i < e->methods.size(); ++i {
                 self.t_decl_(w, unsafe (e->methods[i] as unsafe *Decl), row, depth + 1)
             }
@@ -250,7 +254,7 @@ extend IndexWalker {
                 return -1
             }
 
-            return self.t_put_(w, name, CIK_MODULE, parent, -1, VIS_PUB, DF_ALIAS | DF_SCOPE, "", self.tfile_(mctx->fid), -1)
+            return self.t_put_(w, name, CIK_MODULE, parent, -1, VIS_PUB, DF_ALIAS | DF_SCOPE, "", self.tfile_(mctx->fid), -1, -1, -1)
         }
 
         var tok = decl_name_tok(d).range
@@ -263,7 +267,7 @@ extend IndexWalker {
         if (res.fid as u32) != self.fid {
             // Bound in this file, declared in another (what an import
             // leaves in the file's own context): the row names it there.
-            return self.t_put_(w, name, kind, parent, -1, VIS_PUB, DF_ALIAS, "", self.tfile_(res.fid as u32), res.offset as i64)
+            return self.t_put_(w, name, kind, parent, -1, VIS_PUB, DF_ALIAS, "", self.tfile_(res.fid as u32), res.offset as i64, -1, -1)
         }
 
         var flags: i64 = DF_STATIC
@@ -285,13 +289,40 @@ extend IndexWalker {
         var tfi:  i64 = -1
         var toff: i64 = -1
         self.t_key_(self.type_decl_(self.value_type_(d), 0), &tfi, &toff)
-        var row = self.t_put_(w, name, kind, parent, res.offset as i64, self.vis_of_(d), flags, self.signature_(d), tfi, toff)
+        var efi:  i64 = -1
+        var eoff: i64 = -1
+        self.t_key_(self.type_decl_(self.elem_type_(self.value_type_(d)), 0), &efi, &eoff)
+        var kids: [unsafe *Decl]
+        if dc != &null {
+            self.own_members_(d, &kids)
+            // A type's row: what a subscript of a value of it is, the
+            // record its `op []` overloads agree on (P1002). Their rows are
+            // not in the table (no completion offers an operator).
+            var seen = false
+            for var i: usize = 0; i < kids.size(); ++i {
+                if (!isa<Declarations::FunctionDecl>(kids[i])) || (sema_dump_decl_name(ctx, kids[i]) != "op []") {
+                    continue
+                }
+
+                var ofi:  i64 = -1
+                var ooff: i64 = -1
+                self.t_key_(self.type_decl_(cast<Declarations::FunctionDecl>(kids[i])->return_type, 0), &ofi, &ooff)
+                if !seen {
+                    efi  = ofi
+                    eoff = ooff
+                    seen = true
+                } else if (ofi != efi) || (ooff != eoff) {
+                    efi  = -1
+                    eoff = -1
+                }
+            }
+        }
+
+        var row = self.t_put_(w, name, kind, parent, res.offset as i64, self.vis_of_(d), flags, self.signature_(d), tfi, toff, efi, eoff)
         if dc == &null {
             return row
         }
 
-        var kids: [unsafe *Decl]
-        self.own_members_(d, &kids)
         for var i: usize = 0; i < kids.size(); ++i {
             self.t_decl_(w, kids[i], row, depth + 1)
         }
@@ -356,7 +387,7 @@ extend IndexWalker {
             vis = VIS_PROT
         }
 
-        self.t_put_(w, name, CIK_SNIPPET, -1, off as i64, vis, DF_MACRO | DF_STATIC, use, -1, -1)
+        self.t_put_(w, name, CIK_SNIPPET, -1, off as i64, vis, DF_MACRO | DF_STATIC, use, -1, -1, -1, -1)
     }
 
     /// Builds `table`: this file's declarations (Snapshot.k, DC_* / TB_*).

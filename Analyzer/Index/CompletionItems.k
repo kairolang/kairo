@@ -13,6 +13,13 @@
 
 
 import Index::Snapshot::*
+import CompletionSite::{
+    Block,
+    blocks_before,
+    declared_in_scope,
+    function_block,
+}
+import TextScan::classify
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
@@ -436,23 +443,44 @@ extend IndexWalker {
         }
     }
 
-    /// The cursor is on a bare name: locals, then the enclosing type, then
-    /// the file, then what the file imports.
-    fn complete_scope_(self) {
+    /// The cursor (the marker, at byte \p at of the file) is on a bare
+    /// name: locals, then the enclosing type, then the file, then what the
+    /// file imports.
+    fn complete_scope_(self, at: u32) {
         self.completed = true
+
+        // The locals still in scope at the marker: the walk has met every
+        // local of the function so far, those of blocks that have closed
+        // too. Which blocks are open is read off the text, by the index
+        // path's own test, so the two lists agree.
+        var blocks: [Block]
+        var fi: usize = 0
+        if at != u32::MAX {
+            var *ft = &self.files[self.file_(self.fid)]
+            var cls = classify(ft->text)
+            blocks = blocks_before(ft->text, cls, at as usize)
+            fi = function_block(blocks)
+            if fi == usize::MAX {
+                fi = 0
+            }
+        }
 
         var n = self.locals_.size()
         for var i: usize = 0; i < n; ++i {
-            self.item_(self.locals_[n - 1 - i], 0)
+            var k = n - 1 - i
+            if (at != u32::MAX) && (!declared_in_scope(blocks, fi, self.locals_at_[k] as usize)) {
+                continue
+            }
+
+            self.item_(self.locals_[k], 0)
         }
 
-        if self.cur_fn_ != &null {
+        if self.cur_dc_ != &null {
             var ac = AccessCheck(self.sc)
             var ml = MemberLookup(self.sc)
             self.ac_ = unsafe &ac
             self.ml_ = unsafe &ml
-            var unsafe *fd = unsafe (self.cur_fn_ as unsafe *Decl)
-            var unsafe *dc = fd->semantic_dc
+            var unsafe *dc = self.cur_dc_
             while dc != &null {
                 if dc->is_type_scope() {
                     self.items_of_record_(dc->dc_owner, 1)

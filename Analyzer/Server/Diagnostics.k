@@ -254,7 +254,7 @@ extend Server {
             t = doc->next(t)
         }
 
-        self.docs.docs[di].syn.land(rev, self.docs.docs[di].changed_at, doc->get_bool(doc->root, SK_PARSED), diags, &tokens)
+        self.docs.docs[di].syn.land(rev, self.docs.docs[di].changed_at, doc->get_bool(doc->root, SK_PARSED), doc->get_bool(doc->root, SK_UNSURE), diags, &tokens)
 
         if publish {
             self.publish_syntax(di)

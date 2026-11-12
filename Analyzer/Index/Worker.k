@@ -370,6 +370,11 @@ pub class DiagCollector derives DiagConsumer {
     /// the kept errors: none means the buffer parses.
     pub var syntax_only: bool  = false
     pub var errors:      usize = 0
+    /// The syntax-only pass: invocations of a macro the file does not
+    /// declare (R013E, not kept). Their expansion is another file's text,
+    /// so `parsed` holds of this file ALONE: in the graph the expansion
+    /// may not parse.
+    pub var unknown_macros: usize = 0
 
     priv var sm_:    unsafe *SourceManager
     priv var files_: [FileText]
@@ -391,7 +396,7 @@ pub class DiagCollector derives DiagConsumer {
         var size = self.sm_->get_file_size(fid)
         if size > 0 {
             // The raw bytes. get_text() decodes UTF-8 and keeps one byte per
-            // code point (P800), which both corrupts the text and shifts
+            // code point, which both corrupts the text and shifts
             // every offset after the first non-ASCII character.
             var view = self.sm_->get_view(self.sm_->get_range(fid, 0, size))
             f.text = string(unsafe ((view.data() as unsafe *const u8) as *const u8), view.size())
@@ -406,7 +411,7 @@ pub class DiagCollector derives DiagConsumer {
     ///
     /// \p widen: a zero-width range becomes the character it points at, for
     /// a range that is DRAWN. Never for an edit: widened, an insertion
-    /// replaced the character after it (`const ther` for `const other`, P860).
+    /// replaced the character after it (`const ther` for `const other`).
     priv fn range_(self, w: *JsonWriter, r: SourceRange, widen: bool) -> usize {
         var a  = self.sm_->resolve(r.start)
         var fi = self.file_(a.fid as u32)
@@ -512,6 +517,10 @@ pub class DiagCollector derives DiagConsumer {
             var code = diag->code as string
             var syn = (code.size() > 1) && (code[0] == ('S' as u8)) && (code[1] != ('C' as u8))
             if (!syn) && (sev != DiagSeverity::Fatal) {
+                if code.starts_with("R013") {
+                    self.unknown_macros += 1
+                }
+
                 return
             }
 
@@ -687,7 +696,7 @@ fn syntax_answer(const file:   string,
     // cannot resolve (not kept: not about the text), and after --max-errors
     // of those (20) the engine delivers nothing more, the parser's errors
     // included. The pass then said `parsed` of any broken file with twenty
-    // imports, which is most files of a real project (P930).
+    // imports, which is most files of a real project.
     ci->diag()->set_error_limit(0)
 
     // The bytes must outlive the pass: the source manager keeps a view.
@@ -729,6 +738,7 @@ fn syntax_answer(const file:   string,
     w.begin_object()
     w.field_bool(SK_OK, true)
     w.field_bool(SK_PARSED, collector->errors == 0)
+    w.field_bool(SK_UNSURE, collector->unknown_macros > 0)
     w.field_raw(SK_DIAGNOSTICS, "[" + collector->out + "]")
     lexical_tokens(ci->sm(), fid, &ft, &w)
     w.end_object()
@@ -1051,7 +1061,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     }
 
     w.end_array()
-    // And for a C source that reaches the module through a header (P861).
+    // And for a C source that reaches the module through a header.
     w.key(SK_C_FLAGS)
     w.begin_array()
     for var a: string in ci->c_driver_words() {

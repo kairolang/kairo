@@ -100,6 +100,14 @@ extend Server {
             e.dirty = false
             self.add_entry_(&e)
         }
+
+        // The open buffers need them now: their diagnostics were cleared
+        // above, and with no entry dirty nothing ran until a request or an
+        // edit arrived, so a reload left every open file without its
+        // errors.
+        for var k: usize = 0; k < self.docs.docs.size(); ++k {
+            self.ensure_entry(self.docs.docs[k].path)
+        }
     }
 
     fn initialize(self, d: *const JsonDoc, params: u32, const id: string) {

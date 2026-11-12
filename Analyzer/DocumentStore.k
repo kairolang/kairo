@@ -543,6 +543,9 @@ pub class SyntaxState {
     pub var landed: bool   = false
     pub var at:     u64    = 0
     pub var parsed: bool   = true
+    /// `parsed` is of the file ALONE: it invokes macros of other files,
+    /// whose expansion the pass did not see (SK_UNSURE, P977).
+    pub var unsure: bool   = false
     pub var diags:  string = ""
     pub var tokens: [i64]
 
@@ -587,7 +590,7 @@ pub class SyntaxState {
     }
 
     /// Lands an answer; false (nothing changes) when accepts() refuses it.
-    fn land(self, rev: u64, changed_at: u64, parsed: bool, const diags: string, @inout tokens: [i64]) -> bool {
+    fn land(self, rev: u64, changed_at: u64, parsed: bool, unsure: bool, const diags: string, @inout tokens: [i64]) -> bool {
         if !self.accepts(rev, changed_at) {
             return false
         }
@@ -595,6 +598,7 @@ pub class SyntaxState {
         self.landed = true
         self.at     = rev
         self.parsed = parsed
+        self.unsure = unsure
         self.diags  = diags
         self.tokens = tokens
         return true
@@ -671,12 +675,29 @@ pub class Document {
 
     pub var side_has:   bool   = false
     pub var side_at:    u64    = 0
+    /// A text whose syntax pass was `unsure` is tried aside first; when the
+    /// copy checks it whole (`checked`), the text as changed at this
+    /// revision is sent to be kept (LiveIndex.k, P977). 0: none yet.
+    pub var probe_ok_at: u64   = 0
     pub var side_state: string = ""
     pub var side_diags: string = ""
     pub var side_n:     usize  = 0
 
     fn side_current(const self) -> bool {
         return self.side_has && (self.side_at >= self.changed_at)
+    }
+
+    /// Is this text to be tried aside, not kept, by a live worker? When it
+    /// does not parse; and when it parses only as far as the syntax pass
+    /// can tell (macros of other files) and the worker's copy has not yet
+    /// checked it whole: in the graph its expansion may not parse, and a
+    /// kept text that does not parse is a whole check, and its fix another.
+    fn held_back(const self) -> bool {
+        if !self.syn.current(self.changed_at) {
+            return false
+        }
+
+        return (!self.syn.parsed) || (self.syn.unsure && (self.probe_ok_at != self.changed_at))
     }
 
     fn Document(self) = default

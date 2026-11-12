@@ -30,6 +30,7 @@ import DocumentStore::{
 import Index::Legend::*
 import Index::Snapshot::*
 import Protocol::*
+import Resolution::ModulePath::*
 import Tuning::*
 import Json::{
     JSON_NONE,
@@ -71,8 +72,19 @@ extend Server {
     /// Can entry \p ei (usize::MAX: none known yet) answer a request now?
     /// The first rows of LanguageServer.md section 9, in one place; a pure
     /// query (feature() calls ensure_entry first).
-    fn answerability(const self, ei: usize) -> Answer {
+    fn answerability(const self, ei: usize, const path: string) -> Answer {
         if ei == usize::MAX {
+            // ensure_entry gives a Kairo file no entry only while a
+            // candidate's FIRST run is due or going (the one that will say
+            // whether it holds the file; failing all, the file's own entry
+            // is made and returned). That is a first index on its way, and
+            // waits as one: as NoEntry it was answered from no snapshot
+            // after PARK_LIMIT_MS, a null hover in the middle of the run
+            // that was about to answer it.
+            if path.ends_with(kairo_dot_ext()) {
+                return Answer::FirstPending
+            }
+
             return Answer::NoEntry
         }
 
@@ -154,7 +166,7 @@ extend Server {
         // Which entry answers: found, or a run of one started, here (a
         // request is what starts the analysis of a file no entry holds yet).
         var ei = self.ensure_entry(path)
-        var can = self.answerability(ei)
+        var can = self.answerability(ei, path)
         if can != Answer::Fresh {
             // "Answer from the last snapshot" needs a last snapshot. Until
             // an entry's FIRST index exists there is nothing to answer from,

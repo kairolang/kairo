@@ -1,7 +1,9 @@
-/// --- The Kairo Project ------------- Analyzer/Server/CompletionSite.k --- ///
+/// --- The Kairo Project -------------------- Analyzer/CompletionSite.k --- ///
 ///
 ///   Where a completion is asked: read off the buffer's text alone, which
-///   as a rule does not parse while it is being typed.
+///   as a rule does not parse while it is being typed. Outside Server/ (and
+///   its import cycle) because the index walker's marker path reads the
+///   same blocks to decide which locals are in scope.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -15,7 +17,7 @@
 
 ffi "c++" import "Native/Types.hh"
 
-import Server::TextUtil::is_ident_byte
+import TextScan::is_ident_byte
 
 // Everything here reads bytes and the classes TextScan::classify gives them
 // (0 code, 1 comment, 2 string): no token stream, no tree. The syntax pass's
@@ -351,6 +353,46 @@ pub fn blocks_before(const text: string, const cls: [u8], at: usize) -> [Block] 
     }
 
     return out
+}
+
+/// The outermost function (or `test`) block still open at the cursor
+/// \p blocks were read for; usize::MAX when the cursor is in none.
+pub fn function_block(const blocks: [Block]) -> usize {
+    for var k: usize = 0; k < blocks.size(); ++k {
+        if (blocks[k].close == usize::MAX) && ((blocks[k].word == "fn") || (blocks[k].word == "test")) {
+            return k
+        }
+    }
+
+    return usize::MAX
+}
+
+/// Whether a name declared at byte \p o is in scope at the cursor \p blocks
+/// were read for (blocks_before): the block whose header declares it (a
+/// parameter, a `for` variable, an `if var`, a `case` binding), else the
+/// innermost block around it, is still open. Only blocks from \p from on
+/// are looked at (the enclosing function's, function_block); a name before
+/// all of them (a type parameter of a type around the function) is in
+/// scope. The index path and the marker path's walk both ask this, so the
+/// two lists agree on which locals a closed block took with it.
+pub fn declared_in_scope(const blocks: [Block], from: usize, o: usize) -> bool {
+    var owner = usize::MAX
+    for var q = from; q < blocks.size(); ++q {
+        if blocks[q].scopes && (blocks[q].hstart <= o) && (o < blocks[q].open) {
+            owner = q
+            break
+        }
+    }
+
+    if owner == usize::MAX {
+        for var q = from; q < blocks.size(); ++q {
+            if (blocks[q].open < o) && ((blocks[q].close == usize::MAX) || (blocks[q].close > o)) {
+                owner = q
+            }
+        }
+    }
+
+    return (owner == usize::MAX) || (blocks[owner].close == usize::MAX)
 }
 
 /// Classifies the cursor at byte \p at of \p text.
@@ -695,6 +737,163 @@ pub fn type_head(const t: string) -> string {
     return t.subslice(p, e - p)
 }
 
+/// The type of what a subscript of a value of type \p t gives, as text:
+/// the element of `[T]`, `[T; N]`, `[T;]`, the value of `{K: V}`; "" for any
+/// other type (a `?` or a pointer after or before it included: the value
+/// is not subscripted as it is).
+pub fn elem_type_text(const t: string) -> string {
+    var p: usize = 0
+    while (p < t.size()) && blank(t[p]) {
+        p += 1
+    }
+
+    if word_from(t, p) == "const" {
+        p += 5
+        while (p < t.size()) && blank(t[p]) {
+            p += 1
+        }
+    }
+
+    if (p >= t.size()) || ((t[p] != ('[' as u8)) && (t[p] != ('{' as u8))) {
+        return ""
+    }
+
+    var close = usize::MAX
+    var cut   = usize::MAX  // `;` in a `[`, `:` in a `{`, at the outer depth
+    var depth: i64 = 0
+    for var k = p; k < t.size(); ++k {
+        var c = t[k]
+        if (c == ('[' as u8)) || (c == ('{' as u8)) || (c == ('(' as u8)) || (c == ('<' as u8)) {
+            depth += 1
+        } else if (c == (']' as u8)) || (c == ('}' as u8)) || (c == (')' as u8)) || (c == ('>' as u8)) {
+            depth -= 1
+            if depth == 0 {
+                close = k
+                break
+            }
+        } else if (depth == 1) && (cut == usize::MAX) {
+            if (t[p] == ('[' as u8)) && (c == (';' as u8)) {
+                cut = k
+            } else if (t[p] == ('{' as u8)) && (c == (':' as u8))
+                && (!(((k + 1) < t.size()) && (t[k + 1] == (':' as u8)))) && (!((k > 0) && (t[k - 1] == (':' as u8)))) {
+                cut = k
+            }
+        }
+    }
+
+    if close == usize::MAX {
+        return ""
+    }
+
+    // Nothing after the brackets: `[T]?` is not subscripted as it is.
+    for var k = close + 1; k < t.size(); ++k {
+        if !blank(t[k]) {
+            return ""
+        }
+    }
+
+    var a = p + 1
+    var b = close
+    if t[p] == ('{' as u8) {
+        if cut == usize::MAX {
+            return "" // a set: no subscript
+        }
+
+        a = cut + 1
+    } else if cut != usize::MAX {
+        b = cut
+    }
+
+    while (a < b) && blank(t[a]) {
+        a += 1
+    }
+
+    while (b > a) && blank(t[b - 1]) {
+        b -= 1
+    }
+
+    return t.subslice(a, b - a)
+}
+
+/// The type a declaration's one-line text gives \p name (`var boxes:
+/// [Vault]`, `const n: i32 = 3`, `fn f() -> [T]` with \p result), or "".
+pub fn decl_type_text(const line: string, const name: string, result: bool) -> string {
+    if result {
+        // The last `->` at the outer depth: the function's result.
+        var at = usize::MAX
+        var depth: i64 = 0
+        for var k: usize = 0; (k + 1) < line.size(); ++k {
+            var c = line[k]
+            if (c == ('(' as u8)) || (c == ('[' as u8)) || (c == ('{' as u8)) {
+                depth += 1
+            } else if (c == (')' as u8)) || (c == (']' as u8)) || (c == ('}' as u8)) {
+                depth -= 1
+            } else if (depth == 0) && (c == ('-' as u8)) && (line[k + 1] == ('>' as u8)) {
+                at = k + 2
+            }
+        }
+
+        if at == usize::MAX {
+            return ""
+        }
+
+        var e = line.size()
+        var w = find_word_(line, "where", at)
+        if w != usize::MAX {
+            e = w
+        }
+
+        return line.subslice(at, e - at)
+    }
+
+    var n = find_word_(line, name, 0)
+    if n == usize::MAX {
+        return ""
+    }
+
+    var p = n + name.size()
+    while (p < line.size()) && blank(line[p]) {
+        p += 1
+    }
+
+    if (p >= line.size()) || (line[p] != (':' as u8)) {
+        return ""
+    }
+
+    p += 1
+    var e = p
+    var depth: i64 = 0
+    while e < line.size() {
+        var c = line[e]
+        if (c == ('(' as u8)) || (c == ('[' as u8)) || (c == ('{' as u8)) || (c == ('<' as u8)) {
+            depth += 1
+        } else if (c == (')' as u8)) || (c == (']' as u8)) || (c == ('}' as u8)) || (c == ('>' as u8)) {
+            depth -= 1
+        } else if (depth == 0) && (c == ('=' as u8)) {
+            break
+        }
+
+        e += 1
+    }
+
+    return line.subslice(p, e - p)
+}
+
+/// The first place at or after \p from where \p w stands as a whole word.
+fn find_word_(const s: string, const w: string, from: usize) -> usize {
+    var k = from
+    while (k + w.size()) <= s.size() {
+        if (s.subslice(k, w.size()) == w) && ((k == 0) || (!is_ident_byte(s[k - 1])))
+            && (((k + w.size()) == s.size()) || (!is_ident_byte(s[k + w.size()]))) {
+            return k
+        }
+
+        k += 1
+    }
+
+    return usize::MAX
+}
+
 /// Reads one declared name at \p p (after `var` / `const` / in a parameter
 /// list) up to \p to: `unsafe *name: T = init`.
 fn read_decl(const text: string, const cls: [u8], p_in: usize, to: usize, out: *[LexDecl], param: bool) {
@@ -871,16 +1070,19 @@ pub fn lex_params(const text: string, const cls: [u8], from: usize, to: usize) -
     return out
 }
 
-/// One step of a receiver: a name, and whether it is called.
+/// One step of a receiver: a name, whether it is called, and how many
+/// subscripts follow (`a.b()[i][j]`: b, called, then 2), in that order.
 pub struct RecvStep {
-    var name: string = ""
-    var call: bool   = false
-    var off:  usize  = 0
+    var name:  string = ""
+    var call:  bool   = false
+    var off:   usize  = 0
+    var index: usize  = 0
 }
 
 /// The receiver that ends at \p end (exclusive), as its steps from the
-/// head: `a.b().c` is a, b (called), c. Empty when it is not a chain of
-/// names: an index, a literal, a parenthesised expression.
+/// head: `a.b().c` is a, b (called), c; `a[i].b` is a (one subscript), b;
+/// a parenthesised chain (`(a.b).`) is the chain. Empty when it is not a
+/// chain of names: a literal, any other expression.
 pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvStep] {
     var rev: [RecvStep]
     var none: [RecvStep]
@@ -895,8 +1097,53 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
         }
 
         var st = RecvStep{}
+        // `v[i]`, `m[k][j]`: the subscripts after the step, back over
+        // their brackets (P1002: these went to the compiler).
+        while (p > 0) && (text[p - 1] == (']' as u8)) && (cls[p - 1] == here) {
+            var close_at = p - 1
+            var bd: i64 = 0
+            var opened = false
+            while p > 0 {
+                var c = text[p - 1]
+                if cls[p - 1] == here {
+                    if c == (']' as u8) {
+                        bd += 1
+                    } else if c == ('[' as u8) {
+                        bd -= 1
+                        if bd == 0 {
+                            p -= 1
+                            opened = true
+                            break
+                        }
+                    }
+                }
+
+                p -= 1
+            }
+
+            if !opened {
+                return none
+            }
+
+            // `v[a..b]` is a slice of `v`, not an element: not read here.
+            for var k = p + 1; (k + 1) < close_at; ++k {
+                if (cls[k] == here) && (text[k] == ('.' as u8)) && (text[k + 1] == ('.' as u8)) {
+                    return none
+                }
+            }
+
+            st.index += 1
+            while (p > 0) && blank(text[p - 1]) {
+                p -= 1
+            }
+        }
+
         // `name<T>(args)` / `name(args)`: back over the call's brackets.
+        var paren_close = usize::MAX
+        var paren_open  = usize::MAX
+        var generic = false
         if (p > 0) && (text[p - 1] == (')' as u8)) && (cls[p - 1] == here) {
+            paren_close = p - 1
             var depth: i64 = 0
             while p > 0 {
                 var c = text[p - 1]
@@ -907,6 +1154,7 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
                         depth -= 1
                         if depth == 0 {
                             p -= 1
+                            paren_open = p
                             break
                         }
                     }
@@ -921,6 +1169,7 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
             }
 
             if (p > 0) && (text[p - 1] == ('>' as u8)) {
+                generic = true
                 var ad: i64 = 0
                 while p > 0 {
                     var c = text[p - 1]
@@ -942,6 +1191,44 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
         var e = p
         while (p > 0) && is_ident_byte(text[p - 1]) {
             p -= 1
+        }
+
+        // `(a.b).`, `(a)[i].`: brackets with no name before them are a
+        // parenthesised expression; when what they hold is itself a chain
+        // of names, the receiver is that chain (with the subscripts after
+        // the brackets applied to its last step), and it is the head.
+        if (p == e) && (paren_open != usize::MAX) && (!generic) {
+            var open = paren_open
+            var inner = receiver_steps(text, cls, paren_close)
+            var first = open + 1
+            while (first < paren_close) && (blank(text[first]) || (text[first] == ('\n' as u8))) {
+                first += 1
+            }
+
+            if inner.empty() || (inner[0].off != first) {
+                return none
+            }
+
+            var q0 = open
+            while (q0 > 0) && blank(text[q0 - 1]) {
+                q0 -= 1
+            }
+
+            // Nothing that would make the brackets part of a larger
+            // expression this does not read (`x.(a)`, `f()(a)`, `@(a)`).
+            if (q0 > 0) && ((text[q0 - 1] == ('.' as u8)) || (text[q0 - 1] == (':' as u8)) || (text[q0 - 1] == ('>' as u8))
+                || (text[q0 - 1] == (')' as u8)) || (text[q0 - 1] == (']' as u8)) || (text[q0 - 1] == ('@' as u8))) {
+                return none
+            }
+
+            inner[inner.size() - 1].index += st.index
+            var ik = inner.size()
+            while ik > 0 {
+                rev.push_back(inner[ik - 1])
+                ik -= 1
+            }
+
+            break
         }
 
         if (p == e) || (cls[p] != here) || ((text[p] >= ('0' as u8)) && (text[p] <= ('9' as u8))) {

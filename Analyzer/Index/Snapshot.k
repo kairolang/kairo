@@ -283,6 +283,7 @@ pub const SK_C_FLAGS:     string = "c_flags"
 pub const SK_DIAGNOSTICS: string = "diagnostics" ///< diagnostic rows
 pub const SK_DEPS:        string = "deps"        ///< every file of the graph
 pub const SK_PARSED:      string = "parsed"      ///< syntax-only: the buffer parsed without error
+pub const SK_UNSURE:      string = "unsure"      ///< syntax-only: `parsed` is of the file alone (it invokes macros of other files)
 pub const SK_TIMING:      string = "timing"      ///< the worker's own timings, for the trace
 pub const SK_RUN_US:      string = "run_us"
 pub const SK_WALK_US:     string = "walk_us"
@@ -369,6 +370,12 @@ pub const BASE_BASE_KIND: i64 = 10
 /// through pointers and `?`), as an index into the table's `files` and a
 /// name offset there, or -1; for a DF_EXT row the record it extends, and
 /// for a DF_ALIAS row the declaration itself (in another file).
+/// `DC_EFILE`/`DC_EOFF` name, the same way, the record a SUBSCRIPT of the
+/// value is (`v[i]`, P1002): the element of a `[T]`, `[T; N]` or `[T;]`,
+/// the value of a `{K: V}`, of the variable's or field's type or of what a
+/// function returns; on a TYPE's row, the record its `op []` overloads
+/// agree on (their own rows are not in the table); -1 for anything else (a
+/// pointer, a `?`, overloads that differ).
 pub const DC_NAME:   i64 = 0
 pub const DC_KIND:   i64 = 1   ///< LSP CompletionItemKind
 pub const DC_PARENT: i64 = 2
@@ -380,6 +387,8 @@ pub const DC_FLAGS:  i64 = 7   ///< DF_* bits
 pub const DC_DETAIL: i64 = 8
 pub const DC_TFILE:  i64 = 9
 pub const DC_TOFF:   i64 = 10
+pub const DC_EFILE:  i64 = 11
+pub const DC_EOFF:   i64 = 12
 
 pub const VIS_PRIV: i64 = 1  ///< VisibilityKind's numbers, as an InheritEdge carries them
 pub const VIS_PROT: i64 = 2

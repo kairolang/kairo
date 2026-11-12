@@ -201,6 +201,38 @@ extend IndexWalker {
         return &null
     }
 
+    /// What a subscript of a value of type \p t_in is: the element of a
+    /// `[T]`, `[T; N]`, `[T;]`, the value of a `{K: V}`. Null for anything
+    /// else: a pointer's or a nullable's subscript is not `v[i]` of the
+    /// value, and a type's own `op []` is not read here.
+    fn elem_type_(self, t_in: unsafe *Type) -> unsafe *Type {
+        for var pass: usize = 0; pass < 2; ++pass {
+            var unsafe *t = t_in
+            if (pass == 1) && (t != &null) {
+                t = t->canonical
+            }
+
+            t = canon_unqual(t)
+            if t == &null {
+                continue
+            }
+
+            if isa<Types::VectorType>(t) {
+                return cast<Types::VectorType>(t)->element
+            }
+
+            if isa<Types::FixedArrayType>(t) {
+                return cast<Types::FixedArrayType>(t)->element
+            }
+
+            if isa<Types::MapType>(t) {
+                return cast<Types::MapType>(t)->value
+            }
+        }
+
+        return &null
+    }
+
     /// The record a type names, through pointers and `?`. Null for a builtin.
     fn type_decl_(self, t_in: unsafe *Type, depth: u32) -> unsafe *Decl {
         if (t_in == &null) || (depth > 8) {
@@ -278,6 +310,7 @@ extend IndexWalker {
         // locals, not type parameters.
         if (kind == TT_PARAMETER()) || (kind == TT_SELF()) || (kind == TT_TYPE_PARAM()) {
             self.locals_.push_back(d)
+            self.locals_at_.push_back(off)
             return
         }
 
@@ -292,6 +325,7 @@ extend IndexWalker {
 
         if local {
             self.locals_.push_back(d)
+            self.locals_at_.push_back(off)
             return
         }
 

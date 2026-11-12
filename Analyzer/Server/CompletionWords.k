@@ -20,7 +20,7 @@ import AST::LangItems::{
     LangIntrinsics,
     LangMacros,
 }
-import Server::CompletionSite::*
+import CompletionSite::*
 import Token::TokenKind::{
     TokenKind,
     is_annotation,

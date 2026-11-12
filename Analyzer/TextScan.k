@@ -249,8 +249,11 @@ pub struct InterfacePlan {
     pub var methods:   usize  = 0
 }
 
-fn is_ident_byte(c: u8) -> bool {
-    return ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || ((c >= ('0' as u8)) && (c <= ('9' as u8))) || (c == ('_' as u8))
+/// A byte of a name: ASCII letters, digits, `_`, and every byte of a
+/// non-ASCII character (Server::TextUtil's rule, which the completion
+/// site reads with).
+pub fn is_ident_byte(c: u8) -> bool {
+    return ((c >= ('a' as u8)) && (c <= ('z' as u8))) || ((c >= ('A' as u8)) && (c <= ('Z' as u8))) || ((c >= ('0' as u8)) && (c <= ('9' as u8))) || (c == ('_' as u8)) || (c >= 128)
 }
 
 fn is_blank_byte(c: u8) -> bool {

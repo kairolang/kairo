@@ -14,6 +14,7 @@ JsonRpc.k, kals_io.h             Content-Length framing over stdin/stdout
 Json.k                           JSON reader (flat document) and writer
 DocumentStore.k                  open buffers, incremental edits, UTF-16 positions
 TextScan.k                       brackets and comment runs: folding, selection, signature help
+CompletionSite.k                 where a completion is asked, read off the text (the server and the index walker)
 Workspace/CompileCommandsLoader.k  kairo_compile.json
 
 Server/  one class, Server, split over `extend Server` files

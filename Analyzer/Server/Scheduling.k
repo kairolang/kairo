@@ -111,7 +111,7 @@ pub enum Answer derives u8 {
     StaleSlow,      ///< a run is due or running, and runs are slow: answer from the last index
     StaleWaitable,  ///< a run is due or running, and fast: park the request
     FirstPending,   ///< no index yet, and its first is due or running: wait for it
-    NoEntry,        ///< no entry holds the file yet (one is being tried): park
+    NoEntry,        ///< no entry can hold the file (not a Kairo file): park, then answer empty
 }
 
 /// What Server::launch_job did with a worker. A start function makes its

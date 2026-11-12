@@ -50,7 +50,7 @@ import std::io
 import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
-import Server::CompletionSite::*
+import CompletionSite::*
 import Server::CompletionWords::*
 import Server::DeclTables::*
 import Server::Diagnostics::*
@@ -371,6 +371,19 @@ extend Server {
             w.end_object()
         }
 
+        // A macro's name typed before an invocation that is already there
+        // (`tw|!(a)`, the `!` after the name): a macro item replaces the
+        // name AND that `!`, with its name and `!` alone, or the edit
+        // leaves `twice!!(a)` (P1002). Its own range, on the item.
+        var *txt = &self.docs.docs[req->di].text
+        var bang_edit: string = ""
+        if (req->site.what == SITE_NAME) && (req->site.end < txt->size()) && ((*txt)[req->site.end] == ('!' as u8))
+            && (!(((req->site.end + 1) < txt->size()) && ((*txt)[req->site.end + 1] == ('=' as u8)))) { // not `a!=b`
+            var bw = JsonWriter()
+            self.write_buf_range(&bw, req->di, req->site.start, req->site.end + 1)
+            bang_edit = bw.out
+        }
+
         w.key(K_ITEMS)
         w.begin_array()
         for var i: usize = 0; i < req->out.size(); ++i {
@@ -386,7 +399,10 @@ extend Server {
             w.field(K_SORT_TEXT, f"{c->sort}{c->label}")
             var text: string = c->label
             var snip = c->snippet && self.snippet_ok
-            if (!c->insert.empty()) && (snip || (!c->snippet)) {
+            var over_bang = (!bang_edit.empty()) && c->label.ends_with("!")
+            if over_bang {
+                snip = false
+            } else if (!c->insert.empty()) && (snip || (!c->snippet)) {
                 text = c->insert
             }
 
@@ -394,7 +410,10 @@ extend Server {
                 w.field_int(K_INSERT_TEXT_FORMAT, ITF_SNIPPET)
             }
 
-            if !self.edit_default_ok {
+            if over_bang {
+                w.key(K_TEXT_EDIT)
+                write_lsp_text_edit_raw(&w, bang_edit, text)
+            } else if !self.edit_default_ok {
                 w.key(K_TEXT_EDIT)
                 write_lsp_text_edit_raw(&w, edit, text)
             } else if text != c->label {
@@ -659,6 +678,147 @@ extend Server {
         }
 
         var to = tb->follow(c.t, tb->t[c.t].tfile[c.r as usize], tb->t[c.t].toff[c.r as usize])
+        if to.t == usize::MAX {
+            return out
+        }
+
+        out.ok = true
+        out.t  = to.t
+        out.r  = to.r
+        return out
+    }
+
+    /// What \p n subscripts of candidate \p c (called first when \p called)
+    /// are, as a receiver (`boxes[0].`, `self.rows[i].`, `make()[k].`):
+    /// cand_recv_ when there is none. A declaration of a table says it
+    /// itself (`DC_EFILE`, from the compiler's type: one subscript of a
+    /// `[T]`, `[T; N]`, `[T;]`, `{K: V}`); a local, whose rows carry its type
+    /// but not its element's, by its type as written or as hover prints it,
+    /// read in this file, where the local is declared. Not ok for anything
+    /// else (a type's own `op []`, a pointer): the compiler is asked.
+    fn subscript_recv_(self, req: *CompReq, const c: Cand, called: bool, n: usize) -> Recv {
+        var out = Recv{}
+        if n == 0 {
+            return self.cand_recv_(req, c, called)
+        }
+
+        var cur  = Recv{}
+        var text: string = "" // while known: the type, as text
+        var k: usize = 0
+        if c.local {
+            if called {
+                return out
+            }
+
+            text = c.type_
+            if text.empty() {
+                text = decl_type_text(c.detail, c.label, false)
+            }
+
+            // Element types as text while they are collections; at a named
+            // type, its record (the index's type of the local when it has
+            // one) and from there its `op []`.
+            while (k < n) && (!text.empty()) {
+                var e = elem_type_text(text)
+                if e.empty() {
+                    cur  = if (c.ty.ok && (k == 0)) => (c.ty) else => (self.type_name_recv_(req, type_head(text)))
+                    text = ""
+                    break
+                }
+
+                text = e
+                k += 1
+            }
+
+            // No type as text (an inferred local): the record cand_recv_
+            // reads (the index's type, or the initialiser), and its `op []`.
+            if (k == 0) && text.empty() && (!cur.ok) {
+                cur = self.cand_recv_(req, c, false)
+            }
+
+            if k == n {
+                if text.empty() {
+                    return out
+                }
+
+                return self.type_name_recv_(req, type_head(text))
+            }
+
+            if !cur.ok {
+                return out
+            }
+
+            cur = self.op_index_recv_(req, cur)
+            k += 1
+        } else {
+            if (c.t == usize::MAX) || (c.r < 0) {
+                return out
+            }
+
+            // The value (or, called, the result) must be what cand_recv_
+            // would take: the same checks of a function's overloads and of
+            // a called value, on the element's record.
+            var *tb = &self.entries[req->ei].tb
+            var *t  = &tb->t[c.t]
+            var kd  = t->kind[c.r as usize]
+            if (kd == CIK_FUNCTION) || (kd == CIK_METHOD) {
+                if !called {
+                    return out
+                }
+
+                for var r: usize = 0; r < t->rows(); ++r {
+                    if (t->parent[r] == t->parent[c.r as usize]) && (t->name[r] == t->name[c.r as usize])
+                        && ((t->kind[r] == CIK_FUNCTION) || (t->kind[r] == CIK_METHOD))
+                        && ((t->efile[r] != t->efile[c.r as usize]) || (t->eoff[r] != t->eoff[c.r as usize])
+                            || (t->tfile[r] != t->tfile[c.r as usize]) || (t->toff[r] != t->toff[c.r as usize])) {
+                        return out
+                    }
+                }
+            } else if called || ((t->flags[c.r as usize] & DF_SCOPE) != 0) {
+                return out
+            }
+
+            // A collection's element (the value's own row); else the
+            // `op []` of the record its type is.
+            if t->efile[c.r as usize] >= 0 {
+                var to = tb->follow(c.t, t->efile[c.r as usize], t->eoff[c.r as usize])
+                if to.t != usize::MAX {
+                    cur.ok = true
+                    cur.t  = to.t
+                    cur.r  = to.r
+                }
+            } else {
+                cur = self.op_index_recv_(req, self.cand_recv_(req, c, called))
+            }
+
+            k = 1
+        }
+
+        while (k < n) && cur.ok {
+            cur = self.op_index_recv_(req, cur)
+            k += 1
+        }
+
+        return cur
+    }
+
+    /// What a subscript of a value of record \p rec is: the result its
+    /// `op []` overloads agree on, which its own row carries (`DC_EFILE`
+    /// of a type's row, Tables.k). Not ok when it declares none, they
+    /// differ, or the result is no record of the tables.
+    fn op_index_recv_(self, req: *CompReq, rec: Recv) -> Recv {
+        var out = Recv{}
+        if (!rec.ok) || rec.file || (rec.r < 0) {
+            return out
+        }
+
+        var *tb = &self.entries[req->ei].tb
+        var *t  = &tb->t[rec.t]
+        if t->efile[rec.r as usize] < 0 {
+            return out
+        }
+
+        var to = tb->follow(rec.t, t->efile[rec.r as usize], t->eoff[rec.r as usize])
         if to.t == usize::MAX {
             return out
         }
@@ -1080,14 +1240,7 @@ extend Server {
         var *text = &self.docs.docs[req->di].text
         var *lm   = &self.docs.docs[req->di].lines
         // The outermost function the cursor is in.
-        var fi = usize::MAX
-        for var k: usize = 0; k < req->blocks.size(); ++k {
-            if (req->blocks[k].close == usize::MAX) && ((req->blocks[k].word == "fn") || (req->blocks[k].word == "test")) {
-                fi = k
-                break
-            }
-        }
-
+        var fi = function_block(req->blocks)
         if fi == usize::MAX {
             return
         }
@@ -1251,32 +1404,9 @@ extend Server {
         }
 
         for var k: usize = 0; k < order.size(); ++k {
-            var o = offs[order[k]]
-            var owner = usize::MAX
-            if o >= from {
-                // The block whose header declares it (a parameter, a `for`
-                // variable), else the innermost block around it.
-                for var q: usize = fi; q < req->blocks.size(); ++q {
-                    if req->blocks[q].scopes && (req->blocks[q].hstart <= o) && (o < req->blocks[q].open) {
-                        owner = q
-                        break
-                    }
-                }
-
-                if owner == usize::MAX {
-                    for var q: usize = fi; q < req->blocks.size(); ++q {
-                        if (req->blocks[q].open < o) && ((req->blocks[q].close == usize::MAX) || (req->blocks[q].close > o)) {
-                            owner = q
-                        }
-                    }
-                }
-
-                if (owner != usize::MAX) && (req->blocks[owner].close != usize::MAX) {
-                    continue
-                }
+            if declared_in_scope(req->blocks, fi, offs[order[k]]) {
+                req->add(found[order[k]])
             }
-
-            req->add(found[order[k]])
         }
     }
 
@@ -1585,6 +1715,10 @@ extend Server {
     fn head_recv_(self, req: *CompReq, const st: RecvStep) -> Recv {
         var none = Recv{}
         if (st.name == "self") || (st.name == "Self") {
+            if st.index > 0 {
+                return none // the type's own `op []`: the compiler's
+            }
+
             var k = req->blocks.size()
             while k > 0 {
                 k -= 1
@@ -1629,7 +1763,7 @@ extend Server {
             return none
         }
 
-        return self.cand_recv_(&tmp, tmp.out[at as usize], st.call)
+        return self.subscript_recv_(&tmp, tmp.out[at as usize], st.call, st.index)
     }
 
     /// The members of the receiver before the cursor. False when the
@@ -1672,7 +1806,7 @@ extend Server {
                 return none
             }
 
-            recv = self.cand_recv_(&tmp, tmp.out[m as usize], (*steps)[k].call)
+            recv = self.subscript_recv_(&tmp, tmp.out[m as usize], (*steps)[k].call, (*steps)[k].index)
         }
 
         return recv

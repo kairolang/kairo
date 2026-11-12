@@ -42,6 +42,8 @@ pub class DeclTable {
     pub var detail: [string]
     pub var tfile:  [i64]
     pub var toff:   [i64]
+    pub var efile:  [i64]  ///< DC_EFILE: what a subscript of the value is, as `tfile`
+    pub var eoff:   [i64]
 
     /// TB_* rows, four numbers each.
     pub var bases: [i64]
@@ -118,6 +120,13 @@ pub class DeclTable {
             self.tfile.push_back(d->as_int(c))
             c = d->next(c)
             self.toff.push_back(d->as_int(c))
+            c = d->next(c)
+            self.efile.push_back(if (c == JSON_NONE()) => (-1 as i64) else => (d->as_int(c)))
+            if c != JSON_NONE() {
+                c = d->next(c)
+            }
+
+            self.eoff.push_back(if (c == JSON_NONE()) => (-1 as i64) else => (d->as_int(c)))
             if off >= 0 {
                 self.by_off[off as u64] = (self.name.size() - 1) as u32
             }

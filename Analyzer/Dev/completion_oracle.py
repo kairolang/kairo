@@ -14,6 +14,8 @@ compiler's own answer, the oracle. --entry is opened first in both, then per
            names, each possibly called (`a.b(x).`), in a function body
   name     the cursor at the start of a name used in a body: not a keyword,
            not a member, not a name being declared or a field's label
+  indexed  a member site whose receiver is subscripted or parenthesised
+           (`a.b[i].`, `f()[k].`, `(a.b).`)
 
 Each site is asked twice. "fresh": the buffer as it is on disk, so the index
 is of this text. "stale" (unless --no-stale): a new line is inserted above
@@ -32,11 +34,9 @@ not answer (no item, or the file's outline: its marked copy was not checked,
 or the compiler's walk does not visit the place as a name) is listed at the
 end with what the index path offered there, for reading.
 
-A local the oracle offers and the index list lacks is looked up in the text
-by this script: when the block it is declared in has closed before the site
-it is counted as "closed block" (the compiler's walk knows the function a
-local is in, not the block, and offers it; the index path does not), and it
-is not a miss.
+Both paths decide which locals are in scope by one test of the text
+(CompletionSite::declared_in_scope, P1002): a local of a block that has
+closed before the site is offered by neither, and is not set aside here.
 
 Prints, per kind and variant: sites, fallbacks, sites the oracle could not
 answer (its marked copy was not checked), exact matches, and every
@@ -110,55 +110,37 @@ def sites_of(text):
     return members, names
 
 
+# A receiver with a subscript in it, or a parenthesised chain (P1002: both
+# typed from the tables since): `a.b[i].`, `f()[k].`, `(a.b).`.
+INDEXED = re.compile(r"((?:[A-Za-z_]\w*(?:\([^()\n]*\))?(?:\[[^\[\]\n]*\])*)(?:(?:\.|->)[A-Za-z_]\w*(?:\([^()\n]*\))?(?:\[[^\[\]\n]*\])*)*|\([A-Za-z_][\w.]*\))(\.|->)(?=[A-Za-z_])")
+
+
+def indexed_sites_of(text):
+    """Member sites whose receiver has a subscript or is parenthesised, as
+    sites_of gives them."""
+    out = []
+    members, _ = sites_of(text)
+    lines = text.split("\n")
+    for ln, line in enumerate(lines):
+        code = code_part(line)
+        if code is None or len(line) - len(line.lstrip(" ")) < 4:
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        for m in INDEXED.finditer(code):
+            g = m.group(1)
+            if ("[" not in g and not g.startswith("(")) or in_string(code, m.start()) or ".." in g:
+                continue
+            if m.start() > 0 and (code[m.start() - 1].isalnum() or code[m.start() - 1] in "_.>:"):
+                continue
+            out.append((ln, m.end(), " " * indent + g + m.group(2)))
+    return out
+
+
 def degraded(items):
     """The oracle's copy was not checked: the server answered with the
     file's outline (every item a variable with no sort group) or nothing."""
     real = [i for i in items or [] if i.get("kind") != 14]
     return not real or all(not i.get("sortText") for i in real)
-
-
-def closed_block(text, name, site_off):
-    """Whether the nearest declaration of local `name` before `site_off` is
-    in a block that has closed by then (or opens one, as a `for` variable
-    does, that has)."""
-    best = None
-    for m in re.finditer(r"\b(?:var|const|eval)\s+(?:unsafe\s+)?[*&]?\s*" + re.escape(name) + r"\b|\bfor\s+(?:unsafe\s+)?[*&]?\s*" + re.escape(name) + r"\s+in\b|\bcatch\s+" + re.escape(name) + r"\b", text[:site_off]):
-        best = m
-    if best is None:
-        return None
-    start = best.end()
-    # Declared in a header: `for x in`, `catch e`, and the `var i` of
-    # `for var i = 0; ..; .. {`, which are the block's that follows.
-    ls = text.rfind("\n", 0, best.start()) + 1
-    header = text[best.start():best.start() + 6].startswith(("for", "catch")) or text[ls:best.start()].strip() == "for"
-    depth, opened = 0, not header
-    k = start
-    while k < site_off:
-        ch = text[k]
-        if ch == "/" and text[k:k + 2] == "//":
-            k = text.find("\n", k)
-            if k < 0:
-                break
-            continue
-        if ch == '"':
-            e = k + 1
-            while e < site_off and text[e] != '"' and text[e] != "\n":
-                e += 2 if text[e] == "\\" else 1
-            k = e + 1
-            continue
-        # A character literal: `'{'`, `'\\n'`.
-        if ch == "'" and (text[k + 2:k + 3] == "'" or (text[k + 1:k + 2] == "\\" and text[k + 3:k + 4] == "'")):
-            k += 4 if text[k + 1] == "\\" else 3
-            continue
-        if ch == "{":
-            depth += 1
-            opened = True
-        elif ch == "}":
-            depth -= 1
-            if depth < 0 or (header and opened and depth == 0):
-                return True
-        k += 1
-    return False
 
 
 def labels(items):
@@ -231,18 +213,10 @@ def main():
                                "text": src[:col] + "|" + src[col:], "index": sorted(la)[:12], "count": len(la),
                                "oracle_how": b_done.get("how")})
             return
-        offs = [0]
-        for l in text.split("\n"):
-            offs.append(offs[-1] + len(l) + 1)
-        site_off = offs[line] + col
-        # Not misses: a local of a block that has closed (see the docstring).
-        closed = {n for n in set(lb) - set(la) if lb[n][1] == "0" and closed_block(text, n, site_off)}
-        if closed:
-            st["closed"] = st.get("closed", 0) + len(closed)
-        if set(la) == set(lb) - closed:
+        if set(la) == set(lb):
             st["exact"] += 1
             return
-        for name in sorted(set(lb) - set(la) - closed):
+        for name in sorted(set(lb) - set(la)):
             k = ("missing", lb[name][0], GROUPS.get(lb[name][1], lb[name][1]))
             st.setdefault("diff", {}).setdefault(k, 0)
             st["diff"][k] += 1
@@ -253,7 +227,7 @@ def main():
             st["diff"][k] += 1
             examples.setdefault((kind, variant) + k, []).append(f"{rel}:{line + 1}:{col + 1} {name}")
         rows.append({"kind": kind, "variant": variant, "file": rel, "line": line, "col": col,
-                     "missing": sorted(set(lb) - set(la) - closed), "closed": sorted(closed),
+                     "missing": sorted(set(lb) - set(la)),
                      "extra": sorted(set(la) - set(lb))})
 
     for rel in a.file:
@@ -265,6 +239,8 @@ def main():
         members, names = sites_of(text)
         picked = [("member", s) for s in rnd.sample(members, min(a.sites, len(members)))]
         picked += [("name", s) for s in rnd.sample(names, min(a.sites, len(names)))]
+        idx_sites = indexed_sites_of(text)
+        picked += [("indexed", s) for s in rnd.sample(idx_sites, min(a.sites, len(idx_sites)))]
         lines = text.split("\n")
         for kind, (line, col, inserted) in picked:
             ai, ad = ask(idx, rel, line, col)
@@ -288,11 +264,11 @@ def main():
 
     missing = 0
     print()
-    print(f"{'kind':8} {'variant':6} {'sites':>5} {'fallback':>8} {'no oracle':>9} {'compared':>8} {'exact':>6} {'closed-block locals':>19} {'p50 us':>7} {'max us':>7}")
+    print(f"{'kind':8} {'variant':6} {'sites':>5} {'fallback':>8} {'no oracle':>9} {'compared':>8} {'exact':>6} {'p50 us':>7} {'max us':>7}")
     for (kind, variant), st in sorted(stats.items()):
         us = sorted(st["us"])
         compared = st["sites"] - st["fallback"] - st["empty_oracle"]
-        print(f"{kind:8} {variant:6} {st['sites']:5} {st['fallback']:8} {st['empty_oracle']:9} {compared:8} {st['exact']:6} {st.get('closed', 0):19} "
+        print(f"{kind:8} {variant:6} {st['sites']:5} {st['fallback']:8} {st['empty_oracle']:9} {compared:8} {st['exact']:6} "
               f"{(us[len(us) // 2] if us else 0):7} {(us[-1] if us else 0):7}")
     print()
     print("differences (labels, summed over sites):")

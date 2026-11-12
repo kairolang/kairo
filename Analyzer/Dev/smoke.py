@@ -1058,6 +1058,41 @@ def waiting(exe, root):
     check("waiting: clean shutdown", c.stop() == 0)
 
 
+def first_pending(exe, base):
+    """A request for a file whose candidate entry is still on its FIRST run
+    (no entry holds the file yet) waits for that run, as a request on an
+    entry's first index does (P909, P937). It was answered NoEntry, and
+    after PARK_LIMIT_MS (3 s) from no snapshot: a null hover. Every run is
+    held back 4 s (KALS_DEBUG_INDEX_DELAY_MS), so the 3 s limit falls
+    inside the first run whatever the machine's load."""
+    root = os.path.join(base, "first_pending")
+    project(root)
+    c = Client(exe, root, env={"KALS_DEBUG_INDEX_DELAY_MS": "4000"})
+    c.start()
+    # The entry imports shapes.k: its first run is what holds the file.
+    src = c.open("src/shapes.k")
+    t = time.time()
+    h = c.request("textDocument/hover", c.at("src/shapes.k", *pos(src, "fn norm1", 4)), timeout=120)
+    took = time.time() - t
+    check("first_pending: a file the candidate's first run holds is answered after that run, not null at 3 s",
+          h and "norm1" in h["contents"]["value"] and took >= 3.5, (h, took))
+    check("first_pending: clean shutdown", c.stop() == 0)
+    # A file the entry does not import, opened on a fresh server (smoke's
+    # macro hover): the candidate's first run, which does not hold it, then
+    # the file's own entry's.
+    c = Client(exe, root, env={"KALS_DEBUG_INDEX_DELAY_MS": "4000"})
+    c.start()
+    W = "src/stray.k"
+    text = "macro double!(x) {\n    x + x\n}\n\nfn stray() -> i32 {\n    return double!(5)\n}\n"
+    open(os.path.join(root, W), "w").write(text)
+    c.open(W, text)
+    h = c.request("textDocument/hover", c.at(W, *pos(text, "double!(5)", 2)), timeout=120)
+    v = (h or {}).get("contents", {}).get("value", "")
+    check("first_pending: a file no candidate holds is answered from its own entry's first run",
+          "```kairo\n5 + 5\n```" in v, h)
+    check("first_pending: clean shutdown of the second server", c.stop() == 0)
+
+
 def reruns(exe, root):
     """What starts a run of an entry, and what does not (P856). A run is a
     whole compile of the entry's graph, so: saving a buffer, or opening or
@@ -3200,6 +3235,68 @@ def broken_buffer(exe, base, live_mode):
     check(tag + ": clean shutdown", c.stop() == 0)
 
 
+def unsure_syntax(exe, base):
+    """A text the one-file syntax pass accepts only because it cannot see
+    another file's macros (P977): `two!()` from an import expands to `* /`,
+    which is S052E in the graph. The pass says it parses, but `unsure`; the
+    live worker's COPY tries it first. Before, the worker kept it: a whole
+    check for the broken text and another for its fix. A text whose
+    imported macro expands well is kept once the copy has checked it."""
+    root = os.path.join(base, "unsure")
+    os.makedirs(os.path.join(root, "src"))
+    good = "import m::*\n\nfn main() -> i32 {\n    var x = mf()\n    return x\n}\n"
+    bad = good.replace("mf()", "two!()")
+    fixed = good.replace("mf()", "mf() + 1")
+    fine = good.replace("mf()", "three!()")
+    open(os.path.join(root, "src", "m.k"), "w").write("pub macro two!() { * / }\n\npub macro three!() { 3 }\n\npub fn mf() -> i32 { return 2 }\n")
+    open(os.path.join(root, "src", "main.k"), "w").write(good)
+    open(os.path.join(root, "kairo_compile.json"), "w").write('{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src"] } ] }\n')
+    c = Client(exe, root, env={"KALS_LIVE_CHECK": "1"})
+    c.start({"debounceMs": 50})
+    M = "src/main.k"
+    c.open(M, good)
+    c.settle()
+    ver = [1]
+
+    def step(text, want_kept):
+        """Changes the buffer; the `$/kals/analysed` answers that follow,
+        until one is of this text and nothing is queued (and, with
+        want_kept, one that re-checked a file)."""
+        ver[0] += 1
+        start = len(c.notes)
+        c.change(M, ver[0], text)
+
+        def done():
+            an = [n["params"] for n in c.notes[start:] if n["method"] == "$/kals/analysed"]
+            ok = [a for a in an if a["revision"] >= a["current"] and a.get("pending", 0) == 0]
+            if want_kept:
+                ok = [a for a in ok if a.get("rechecked", 0) > 0]
+            return ok
+
+        wait_for(done, 120, c)
+        c.pump(0.5)
+        return [n["params"] for n in c.notes[start:] if n["method"] == "$/kals/analysed"]
+
+    an = step(bad, False)
+    d = c.diagnostics(M) or []
+    check("unsure syntax: a text that parses only alone is tried in the copy, no whole check",
+          an and not [a for a in an if a.get("mode") == "full"] and any((a.get("aside") or "") in ("partial", "unchecked") for a in an), an)
+    check("unsure syntax: and its in-graph syntax error is shown", any(x.get("code") == "S052E" for x in d), d)
+    an = step(fixed, True)
+    d = c.diagnostics(M) or []
+    check("unsure syntax: its fix is one re-check in place, not a whole check",
+          an and not [a for a in an if a.get("mode") == "full"] and any(a.get("rechecked", 0) > 0 for a in an), an)
+    check("unsure syntax: (no error left)", not [x for x in d if x.get("severity") == 1], d)
+    an = step(fine, True)
+    d = c.diagnostics(M) or []
+    check("unsure syntax: a text whose imported macro expands well is kept, after the copy checked it",
+          an and not [a for a in an if a.get("mode") == "full"] and any(a.get("rechecked", 0) > 0 for a in an)
+          and not [x for x in d if x.get("severity") == 1], (an, d))
+    h = c.request("textDocument/hover", c.at(M, *pos(fine, "three!()", 1)))
+    check("unsure syntax: and is indexed (the macro's hover)", "```kairo\n3\n```" in ((h or {}).get("contents", {}).get("value", "")), h)
+    check("unsure syntax: clean shutdown", c.stop() == 0)
+
+
 def many_imports(exe, base):
     """A file with more imports than --max-errors (20). Parsed alone, as the
     syntax pass parses it, none of them resolves, and the engine stopped
@@ -3335,6 +3432,19 @@ pub fn pick(const s: Strong) -> Strong {
 
 priv fn file_private() -> i32 {
     return 1
+}
+
+pub class Shelf {
+    pub var rows: [Vault]
+
+    pub fn op [] (self, i: usize) -> Vault {
+        return self.rows[i]
+    }
+}
+
+pub fn all_vaults() -> [Vault] {
+    var out: [Vault]
+    return out
 }
 """
 
@@ -3552,10 +3662,57 @@ def completion_index(exe, base):
     it, d = ask(M, with_line("    var twice_of = fn (seed: i32) -> i32 {\n        return seed\n    }\n    co"), "    co")
     check("index completion: and not after the closure has closed", d.get("how") == "index" and "seed" not in names(it) and "twice_of" in names(it), (d, names(it)[:8]))
 
-    # --- a receiver the tables do not type: the compiler answers
+    # --- subscripted and parenthesised receivers, from the tables (P1002)
     it, d = ask(M, with_line("    boxes[0]."), "    boxes[0].")
-    check("index completion: an indexed receiver falls back to the compiler" + (" (the live worker's copy)" if live_on else " (a run)"),
-          d.get("how") == ("live" if live_on else "run") and {"name", "open"} <= set(names(it)), (d, names(it)))
+    check("index completion: a `[T]` local's element, from the index",
+          d.get("how") == "index" and {"name", "open"} <= set(names(it)) and "code" not in names(it), (d, names(it)))
+    it, d = ask(M, with_line("    var by_name: {string: Vault}\n    by_name[\"a\"]."), "    by_name[")
+    check("index completion: a `{K: V}` local's value, typed since the last index",
+          d.get("how") == "index" and {"name", "open"} <= set(names(it)), (d, names(it)))
+    it, d = ask(M, with_line("    var shelf = vault::Shelf {}\n    shelf.rows[1]."), "    shelf.rows[")
+    check("index completion: a field's element, from its table row",
+          d.get("how") == "index" and {"name", "open"} <= set(names(it)), (d, names(it)))
+    it, d = ask(M, with_line("    vault::all_vaults()[0]."), "    vault::all_vaults()")
+    check("index completion: the element of what a call returns",
+          d.get("how") == "index" and {"name", "open"} <= set(names(it)), (d, names(it)))
+    it, d = ask(M, with_line("    (box)."), "    (box).")
+    check("index completion: a parenthesised receiver", d.get("how") == "index" and {"name", "open"} <= set(names(it)), (d, names(it)))
+    it, d = ask(M, with_line("    (boxes[0]).na"), "    (boxes[0]).na")
+    check("index completion: a parenthesised subscript", d.get("how") == "index" and {"name", "open"} <= set(names(it)), (d, names(it)))
+
+    it, d = ask(M, with_line("    var shelf = vault::Shelf {}\n    shelf[0]."), "    shelf[0].")
+    check("index completion: a type's own `op []`, from its row", d.get("how") == "index" and {"name", "open"} <= set(names(it)), (d, names(it)))
+
+    # --- a receiver the tables do not type: the compiler answers
+    it, d = ask(M, with_line("    boxes[0..1]."), "    boxes[0..1].")
+    check("index completion: a range subscript (a slice, not an element) falls back to the compiler" + (" (the live worker's copy)" if live_on else " (a run)"),
+          d.get("how") == ("live" if live_on else "run") and "name" not in names(it), (d, names(it)))
+    it, d = ask(M, with_line("    (box as Vault)."), "    (box as Vault).")
+    check("index completion: a parenthesised expression that is not a chain falls back", d.get("how") != "index", d)
+
+    # --- a `case` pattern's bindings typed since the last index (P1002)
+    it, d = ask(M, with_line("    match count {\n        case var bound where bound > 1 {\n            bo\n        }\n        default { }\n    }"), "            bo")
+    check("index completion: a `case` binding typed since, inside its arm", d.get("how") == "index" and "bound" in names(it), (d, names(it)[:8]))
+    it, d = ask(M, with_line("    match count {\n        case var bound where bound > 1 {\n            count = bound\n        }\n        default { }\n    }\n    bo"), "    bo")
+    check("index completion: and not after the arm", d.get("how") == "index" and "bound" not in names(it) and "boxes" in names(it), (d, names(it)[:8]))
+
+    # --- a macro's name typed before its `!` (P1002): the item replaces the `!` too
+    text = with_line("    var tw_ = tw!(1)")
+    line = next(i for i, l in enumerate(text.split("\n")) if "var tw_" in l)
+    col = text.split("\n")[line].index("tw!(") + 2
+    it, d = ask(M, text, "var tw_", col)
+    tw = next((i for i in it if i["label"] == "twice!"), None)
+    check("index completion: a macro before an existing `!` replaces it, and inserts no second one",
+          tw and tw["textEdit"]["range"]["end"]["character"] == col + 1 and tw["textEdit"]["newText"] == "twice!"
+          and "insertTextFormat" not in tw, tw)
+    hp = next((i for i in it if i["label"] == "helper"), None)
+    check("index completion: (the other items there do not)", hp and hp["textEdit"]["range"]["end"]["character"] == col, hp)
+    text = with_line("    var ne = count!=1")
+    line = next(i for i, l in enumerate(text.split("\n")) if "var ne" in l)
+    col = text.split("\n")[line].index("count!=") + 3
+    it, d = ask(M, text, "var ne", col)
+    tw = next((i for i in it if i["label"] == "twice!"), None)
+    check("index completion: not before `!=`", tw and tw["textEdit"]["range"]["end"]["character"] == col, tw)
 
     # --- keywords, by position
     it, d = ask(M, with_line("    re"), "    re")
@@ -3685,9 +3842,13 @@ def completion_index(exe, base):
     check("index completion off: a `for .. in` variable inside its loop", {"step", "inner"} <= set(names(it)), (d, names(it)[:8]))
     it, d = ask(M, with_line("    co"), "    co")
     n = names(it)
-    # (A local of a closed block is still in this list: the walk knows the
-    # function it is in, not the block.)
     check("index completion off: and the function's locals", d.get("how") != "index" and {"count", "box", "strong", "helper"} <= set(n), n[:12])
+    check("index completion off: a local of a block that has closed is not offered (P1002)", "inner" not in n and "step" not in n, n[:12])
+    in_field = COMP_MAIN.replace("        return self.own\n    }\n", "        var peeked = self.own\n        return peeked\n    }\n\n    pub var later: i32 = pe\n")
+    it, d = ask(M, in_field, "    pub var later: i32 = pe")
+    n = names(it)
+    check("index completion off: a field's initialiser after a method is not inside that method (P1002)",
+          d.get("how") != "index" and "peeked" not in n and "own" in n, n[:12])
     check("index completion off: clean shutdown", c.stop() == 0)
 
 
@@ -3803,6 +3964,33 @@ def entry_identity(exe, base):
     h = c.request("textDocument/hover", c.at("src/extra.k", *pos(text, "extra()")), timeout=60)
     check("entry ids: the adopted file is answered at its buffer's positions", h and "fn extra" in h["contents"]["value"], h)
     check("entry ids: retire, clean shutdown", c.stop() == 0)
+
+
+def reload_republish(exe, base):
+    """A project reload clears every published diagnostic; the open
+    buffers' entries are analysed again at once, so their errors come back
+    with no request or edit (P910). They stayed cleared until one came."""
+    root = os.path.join(base, "reload")
+    os.makedirs(os.path.join(root, "src"))
+    text = "fn main() -> i32 {\n    return nope\n}\n"
+    open(os.path.join(root, "src", "main.k"), "w").write(text)
+    cfg = '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src"] } ] }\n'
+    open(os.path.join(root, "kairo_compile.json"), "w").write(cfg)
+    c = Client(exe, root)
+    c.start({"debounceMs": 50})
+    M = "src/main.k"
+    c.open(M, text)
+    c.settle()
+    errs = lambda: [x for x in (c.diagnostics(M) or []) if x.get("severity") == 1]
+    check("reload: (the open file's error is published)", wait_for(lambda: bool(errs()), 60, c), c.diagnostics(M))
+    open(os.path.join(root, "kairo_compile.json"), "w").write(cfg.replace('"src"]', '"src", "-I", "."]'))
+    start = len(c.notes)
+    c.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": c.uri("kairo_compile.json"), "type": 2}]})
+    u = c.uri(M)
+    pubs = lambda: [n["params"]["diagnostics"] for n in c.notes[start:] if n["method"] == "textDocument/publishDiagnostics" and n["params"]["uri"] == u]
+    back = wait_for(lambda: len(pubs()) >= 2 and any(x.get("severity") == 1 for x in pubs()[-1]), 60, c)
+    check("reload: the open file's errors are published again with no request or edit", back, pubs())
+    check("reload: clean shutdown", c.stop() == 0)
 
 
 def stale_syntax(exe, base):
@@ -3963,6 +4151,8 @@ def main():
             persistent_syntax(exe, base)
         if want("waiting"):
             waiting(exe, real)
+        if want("first_pending"):
+            first_pending(exe, base)
         if want("reruns"):
             reruns(exe, real)
         if want("fixits"):
@@ -3985,6 +4175,8 @@ def main():
             launch_failures(exe, base)
         if want("stale_syntax"):
             stale_syntax(exe, base)
+        if want("reload_republish"):
+            reload_republish(exe, base)
         if want("lifecycle"):
             lifecycle(exe, base)
         if want("entry_identity"):
@@ -3993,6 +4185,8 @@ def main():
             live(exe, base)
         if want("many_imports"):
             many_imports(exe, base)
+        if want("unsure_syntax"):
+            unsure_syntax(exe, base)
         if want("completion_index"):
             completion_index(exe, base)
         if want("completion_marker"):

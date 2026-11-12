@@ -394,8 +394,10 @@ extend Server {
             // (the last that parsed), sent as any buffer is so that a
             // worker started since holds it too. When no such text is
             // known the worker has, and keeps, the disk's.
-            if path.ends_with(".k") && self.docs.docs[b].syn.current(self.docs.docs[b].changed_at)
-                && (!self.docs.docs[b].syn.parsed) {
+            // So is a text that parses only as far as the syntax pass can
+            // tell (Document::held_back): in the copy first, kept once the
+            // copy has checked it whole (live_side_).
+            if path.ends_with(".k") && self.docs.docs[b].held_back() {
                 if self.docs.docs[b].idx_entry == self.entries[ei].entry {
                     if (self.docs.docs[b].held_rev != self.docs.docs[b].idx_rev) || self.docs.docs[b].held_tmp.empty() {
                         if !self.docs.docs[b].held_tmp.empty() {
@@ -736,6 +738,19 @@ extend Server {
             j.l_aside = self.live_side_states_(s.aside_out)
         }
 
+        // A text tried only because its syntax verdict was unsure, where
+        // the copy found out nothing (no copy on this platform, a copy that
+        // failed): kept as before, a whole check if it does not parse.
+        if (!bg) && (d.get_str(d.root, RP_ASIDE) != ASIDE_OK) {
+            for var q: usize = 0; q < s.aside_paths.size(); ++q {
+                var udi = self.docs.index_of_path(s.aside_paths[q])
+                if (udi != usize::MAX) && (self.docs.docs[udi].changed_at <= s.rev) && self.docs.docs[udi].syn.parsed {
+                    self.docs.docs[udi].probe_ok_at = self.docs.docs[udi].changed_at
+                    self.entries[ei].dirty = true
+                }
+            }
+        }
+
         var rooted = self.entries[ei].rooted
         self.entries[ei].rooted = true
         self.entries[ei].live_pending = pending as usize
@@ -750,6 +765,23 @@ extend Server {
         var was_dirty = self.entries[ei].dirty
         self.finish_index(&j, 0)
         self.live_side_(ei, &tried, s.aside_out)
+        if self.entries[ei].dirty {
+            was_dirty = true
+        }
+
+        // A text the copy checked whole and this request KEPT: the index is
+        // now of it, and the copy's diagnostics give way to it.
+        if !bg {
+            for var q: usize = 0; q < s.text_paths.size(); ++q {
+                var kdi = self.docs.index_of_path(s.text_paths[q])
+                if (kdi != usize::MAX) && self.docs.docs[kdi].side_has && (self.docs.docs[kdi].probe_ok_at != 0)
+                    && (self.docs.docs[kdi].probe_ok_at == self.docs.docs[kdi].changed_at)
+                    && (self.docs.docs[kdi].changed_at <= s.rev) && (!self.docs.docs[kdi].held_back()) {
+                    self.docs.docs[kdi].side_has = false
+                    self.publish_doc(ei, kdi)
+                }
+            }
+        }
         self.entries[ei].rooted = rooted
         self.garbage.push_back(out)
         // A change made since is still to be sent: a slice's result is of
@@ -838,6 +870,18 @@ extend Server {
                 }
 
                 st = doc.next(st)
+            }
+
+            // A text that parsed as far as the syntax pass could tell
+            // (unsure) and that the copy checked whole, or about which it
+            // found out nothing: it is to be KEPT, on the next request.
+            // Partial or unchecked, it is held back as a text that
+            // does not parse is: the worker never sees it.
+            var probe = self.docs.docs[di].syn.parsed && self.docs.docs[di].syn.unsure
+            if probe && (state != AS_PARTIAL) && (state != AS_UNCHECKED) {
+                self.docs.docs[di].probe_ok_at = self.docs.docs[di].changed_at
+                self.entries[ei].dirty      = true
+                self.entries[ei].change_rev = self.rev
             }
 
             // Nothing was found out about it: the syntax pass's errors and

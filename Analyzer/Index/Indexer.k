@@ -174,14 +174,21 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     /// Locals and parameters seen so far, in walk order: what an unqualified
     /// completion offers before the file's own names.
     var locals_: [unsafe *Decl]
+    /// Parallel: the byte offset of each one's name, for the block-scope
+    /// test at the marker (CompletionSite::declared_in_scope).
+    var locals_at_: [u32]
 
     /// File-, module- and type-level declarations seen so far. A top-level
     /// `const` is in no DeclContext list a completion can read, so the walk
     /// keeps its own.
     var globals_: [unsafe *Decl]
 
-    /// The function whose body the walk is in, for its enclosing type.
+    /// The function whose body the walk is in, for the access check; null
+    /// in a declaration outside every function (a field's initialiser).
     var cur_fn_: unsafe *Declarations::FunctionDecl = &null
+    /// Where the walk stands for the enclosing types: the context of the
+    /// function, or of the field (or other declaration) outside one.
+    var cur_dc_: unsafe *DeclContext = &null
 
     // --- Tables.k ---------------------------------------------------------
 
@@ -269,16 +276,34 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     /// parameters of the types around it (\p keep_type_params).
     fn leave_locals_(self, keep_type_params: bool) {
         var kept: [unsafe *Decl]
+        var at:   [u32]
         if keep_type_params {
             for var i: usize = 0; i < self.locals_.size(); ++i {
                 var unsafe *l = self.locals_[i]
                 if isa<Declarations::GenericParamDecl>(l) && (l->semantic_dc != &null) && l->semantic_dc->is_type_scope() {
                     kept.push_back(l)
+                    at.push_back(self.locals_at_[i])
                 }
             }
         }
 
-        self.locals_ = kept
+        self.locals_    = kept
+        self.locals_at_ = at
+    }
+
+    /// Whether \p d is declared inside a function or a closure (a local
+    /// type's member is), not at file, module or type level.
+    fn in_function_(self, d: unsafe *Decl) -> bool {
+        var unsafe *dc = d->semantic_dc
+        while dc != &null {
+            if (dc->dc_kind == DeclContextKind::Function) || (dc->dc_kind == DeclContextKind::Lambda) {
+                return true
+            }
+
+            dc = dc->dc_parent
+        }
+
+        return false
     }
 
     // --- locations -------------------------------------------------------
@@ -662,11 +687,27 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             || d->semantic_dc->is_type_scope()
         if isa<Declarations::FunctionDecl>(d) {
             self.cur_fn_ = cast<Declarations::FunctionDecl>(d)
+            self.cur_dc_ = d->semantic_dc
             if outer {
                 self.leave_locals_(true)
             }
         } else if outer && (self.context_of_decl_(d) != &null) && (!d->semantic_dc->is_type_scope()) {
+            self.cur_fn_ = &null
+            self.cur_dc_ = d->semantic_dc
             self.leave_locals_(false)
+        } else if outer && (d->semantic_dc != &null) && (!d->is_implicit) && (!self.in_function_(d))
+            && (self.own_off_(self.ast_()->unwrap_token(decl_name_tok(d)).range.start) != u32::MAX) {
+            // A field (or a file-level `var`) of THIS file after a method:
+            // the walk has left that method. (A declaration of another file
+            // met in a body, such as a library type's member a desugaring
+            // names, is not one, nor one with no context at all, as a
+            // local of a nested block is: either dropped the locals
+            // mid-function.) Without this a marker in the field's
+            // initialiser was judged inside it: its locals offered, its
+            // class's members listed and access checked from it (P1002).
+            self.cur_fn_ = &null
+            self.cur_dc_ = d->semantic_dc
+            self.leave_locals_(true)
         }
 
         self.declare_(d)
@@ -720,7 +761,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     pub fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
         var unsafe *e = unsafe (n as unsafe *NamedIdentExpr)
         if self.is_marker_(e) {
-            self.complete_scope_()
+            self.complete_scope_(self.own_off_(self.ast_()->unwrap_token(e->name).range.start))
             return true
         }
 
@@ -782,7 +823,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
                     var unsafe *prev = c->segments.get(i - 1)
                     self.complete_member_(prev->resolved_type, prev->resolved_decl)
                 } else {
-                    self.complete_scope_()
+                    self.complete_scope_(self.own_off_(self.ast_()->unwrap_token(sg->name->name).range.start))
                 }
 
                 continue
