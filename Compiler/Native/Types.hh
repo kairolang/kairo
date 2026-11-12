@@ -110,9 +110,9 @@ namespace kairo {
 /// old `.raw()` crossings relied on strlen, which stops at an embedded NUL.
 /// Templated on the string (native::bytes): Stage 0 passes lib-helix's
 /// string, Stage 1 the builtin one, and neither is nameable from the other
-/// world. The return type is concrete on purpose: it used to be a defaulted
-/// template parameter (`template <class R = llvm::StringRef>`), and Stage 1
-/// cannot type a call whose return is one (the call reaches codegen unbound).
+/// world. The return type is concrete on purpose: Stage 1 cannot type a call
+/// whose return is a defaulted template parameter (`template <class R =
+/// llvm::StringRef>`); the call reaches codegen unbound.
 /// The forward-declaration trick that template served is moot: KLog.hh, below,
 /// includes LLVM anyway.
 template <class S>
@@ -635,7 +635,7 @@ template <class S>
 /// \details S is the Kairo string type, passed by the caller as
 ///          `from_std_string<string>(x)`: no Native header can name the Stage 1
 ///          builtin string. Copies the bytes and their count, so an embedded NUL
-///          survives. Ruling 2026-11-04: no implicit C++ converting constructors,
+///          survives. No implicit C++ converting constructors,
 ///          so `string(std_string)` is written through this (TODO(STD-STRING)).
 template <class S>
 S from_std_string(const ::std::string &s) {
@@ -1011,7 +1011,7 @@ void eprint(Args &&...t) {
         return;
     }
     
-    ((([&]() { // fixed so now thers no more UB with large strings
+    ((([&]() {
            auto str = std::to_string(t);
            fwrite(str.raw(), 1, str.size(), stderr);
        }())),
@@ -1027,7 +1027,7 @@ void eprintln(Args &&...t) {
         return;
     }
     
-    ((([&]() { // fixed so now thers no more UB with large strings
+    ((([&]() {
            auto str = std::to_string(t);
            fwrite(str.raw(), 1, str.size(), stderr);
        }())),

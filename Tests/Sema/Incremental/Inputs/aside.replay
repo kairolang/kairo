@@ -1,0 +1,43 @@
+# Tests/Sema/Incremental/replay_aside.k, over Inputs/aside in s/: texts that
+# are tried and thrown away (`aside`, LiveCheck::aside), between edits that
+# are kept. Each aside starts from the kept text, as each keystroke of a
+# line being typed starts from the last text that parsed.
+# A semantic error in a function that stays healthy: every aside of lib.k
+# below has to report it, beside its own syntax errors.
+step semantic_error_in_a_healthy_function
+replace s/lib.k:::return p.x + p.y:::return p.x + p.nope
+# Errors in the middle of one body, a complete statement after them.
+step break_inside_a_body
+aside replace s/lib.k:::var a = p.x * k:::var a = = 1
+aside replace s/lib.k:::var a = p.x * k:::var a = p.
+aside replace s/lib.k:::var a = p.x * k:::var a = p.x * (k +
+step fixed_by_a_kept_edit
+replace s/lib.k:::var a = p.x * k:::var a = k * p.x
+step semantic_error_fixed
+replace s/lib.k:::p.nope:::p.y
+# Outside every body: the file is left unchecked, its syntax errors alone.
+step break_outside_a_body
+aside replace s/lib.k:::// SLOT:::pub fn (
+step kept_edit_after_it
+append s/lib.k:::\n// t\n
+# other.k is broken while the importers of lib.k are still queued.
+step break_while_importers_are_queued
+replace s/lib.k:::var a = k * p.x:::var a = p.x * k
+aside replace s/other.k:::var y = x:::var y = = x
+drain 1
+aside replace s/other.k:::var y = x:::var y = = x
+# lib.k broken, another file edited and kept, lib.k still broken, then fixed.
+step break_then_edit_another_file
+aside replace s/lib.k:::var b = p.y * k:::var b = = 2
+replace s/other.k:::return y + 1:::return 1 + y
+aside replace s/lib.k:::var b = p.y * k:::var b = = 2
+step fixed
+replace s/lib.k:::var b = p.y * k:::var b = k * p.y
+# The entry: nothing imports it, so its first tier leaves no queue. A text
+# with a name nothing declares (what a completion request plants), and one
+# with an error in the middle of its body.
+step try_the_entry
+aside replace s/main.k:::    return mid() + use_other():::    kalsCompletionMarker\n    return mid() + use_other()
+aside replace s/main.k:::    return mid() + use_other():::    var m = = 1\n    return mid() + use_other()
+step entry_kept_edit
+replace s/main.k:::return mid() + use_other():::return use_other() + mid()

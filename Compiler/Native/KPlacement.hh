@@ -5,10 +5,9 @@
 ///   WHY C++: the arenas hand out raw storage and the object has to be
 ///   constructed into it (placement new) and, for the cleanup lists, later
 ///   destroyed without freeing (an explicit destructor call). Kairo has no
-///   spelling for either. These used to be inline C++ blocks spliced
-///   into ASTContext, ArenaAllocator, ArenaList, TupleRecords and
-///   InstantiationRegistry; Stage 1 does not emit inline foreign blocks, so
-///   the C++ lives here and those classes call it.
+///   spelling for either. Stage 1 does not emit inline foreign blocks, so
+///   the C++ lives here and ASTContext, ArenaAllocator, ArenaList,
+///   TupleRecords and InstantiationRegistry call it.
 ///
 ///   Both are templates, so every TU that includes this sees the same
 ///   definition and there is nothing to collide at link time.

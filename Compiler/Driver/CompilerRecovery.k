@@ -203,30 +203,8 @@ extend CompilerInstance {
         }
 
         for var f: u32 in fids {
-            if !recovered.contains(f as u64) {
-                continue
-            }
-
-            var unsafe *rtu = gs->get_context(f)->tu
-            for var i: usize = 0; i < rtu->recovered_bodies.size(); ++i {
-                var unsafe *fd = dyn_cast<FunctionDecl>(*rtu->recovered_bodies.get(i))
-                if fd == &null {
-                    continue
-                }
-
-                // For Scripts/syntax_recovery_diff.py: a diagnostic inside a
-                // dropped body would be a cascade; one outside it is about
-                // healthy code.
-                if cxx::std::getenv(r"KAIRO_DEBUG_SYNTAX_RECOVERY") != &null && fd->body_block != &null {
-                    var unsafe *sm = self.sm()
-                    var a = sm->get_line_col(fd->body_block->range.start)
-                    var b = sm->get_line_col(fd->body_block->range.end)
-                    io::eprintln(f"syntax-recovery: dropped body {sm->get_filename(f)}:{a.line}-{b.line}")
-                }
-
-                fd->body_block     = &null
-                fd->body_kind      = FnBodyKind::None
-                fd->body_recovered = true
+            if recovered.contains(f as u64) {
+                self._drop_recovered_bodies(gs, f)
             }
         }
 
@@ -235,6 +213,80 @@ extend CompilerInstance {
         if cxx::std::getenv(r"KAIRO_DEBUG_SYNTAX_RECOVERY") != &null && fids.size() > 0 {
             var entry = if skipped.contains(fids[0] as u64) => "skipped" else => "checked"
             io::eprintln(f"syntax-recovery: entry {entry}, {skipped.size()} of {in_graph.size()} files skipped, {recovered.size()} checked without their broken bodies")
+        }
+
+        return true
+    }
+
+    /// \p f's functions whose bodies hold its syntax errors become their
+    /// signatures alone.
+    priv fn _drop_recovered_bodies(self, gs: unsafe *GlobalDisambigTable, f: u32) {
+        var unsafe *rtu = gs->get_context(f)->tu
+        for var i: usize = 0; i < rtu->recovered_bodies.size(); ++i {
+            var unsafe *fd = dyn_cast<FunctionDecl>(*rtu->recovered_bodies.get(i))
+            if fd == &null {
+                continue
+            }
+
+            // For Scripts/syntax_recovery_diff.py: a diagnostic inside a
+            // dropped body would be a cascade; one outside it is about
+            // healthy code.
+            if cxx::std::getenv(r"KAIRO_DEBUG_SYNTAX_RECOVERY") != &null && fd->body_block != &null {
+                var unsafe *sm = self.sm()
+                var a = sm->get_line_col(fd->body_block->range.start)
+                var b = sm->get_line_col(fd->body_block->range.end)
+                io::eprintln(f"syntax-recovery: dropped body {sm->get_filename(f)}:{a.line}-{b.line}")
+            }
+
+            fd->body_block     = &null
+            fd->body_kind      = FnBodyKind::None
+            fd->body_recovered = true
+        }
+    }
+
+    /// \brief admit_past_syntax_errors for a live check's re-check of \p fids
+    ///        (Tooling/LiveCheck.k, LiveCheck::past_syntax): each of them
+    ///        has just been parsed again, in an instance whose other files
+    ///        are checked and stay as they are.
+    ///
+    /// \details True when every file of \p fids that has syntax errors has
+    ///          them all inside function bodies that can be dropped; those
+    ///          bodies are then dropped, and Sema checks the files as their
+    ///          signatures. False, and nothing touched, when one has an error
+    ///          anywhere else: that file, and so every file that imports it,
+    ///          cannot be checked (the caller leaves them as they were).
+    ///          \p broken gets the files that had errors and \p errors
+    ///          their number, for the caller to match against what the
+    ///          engine was handed. The builtin root and --prelude /
+    ///          --force-include never get here: LiveCheck refuses both.
+    pub fn admit_bodies_in_place(self,
+                                 gs:         unsafe *GlobalDisambigTable,
+                                 const fids: cxx::std::vector<u32>,
+                                 broken:     *cxx::std::vector<u32>,
+                                 errors:     *u32) -> bool {
+        *errors = 0
+        for var f: u32 in fids {
+            var unsafe *ctx = gs->get_context(f)
+            if ctx == &null || ctx->tu == &null {
+                return false
+            }
+
+            var n = ctx->diag_sink.error_count()
+            if n == 0 {
+                continue
+            }
+
+            if !Self::_bodies_hold_errors(ctx) {
+                return false
+            }
+
+            broken->push_back(f)
+            *errors += n
+        }
+
+        // Decided for all before any is dropped.
+        for var f: u32 in *broken {
+            self._drop_recovered_bodies(gs, f)
         }
 
         return true

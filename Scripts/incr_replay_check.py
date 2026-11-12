@@ -28,6 +28,15 @@ Usage:
 --root is edited in place and left as the last step made it: point it at a copy.
 --rss prints the live process's resident size after each step (Linux /proc).
 --expect-mode NAME=MODE fails unless step NAME reports that mode.
+
+`aside <edit>` (with --two-tier --overlay) is a text that is tried and thrown away: the
+live side re-checks that one file, with --check-past-syntax-errors' rule for syntax
+errors inside function bodies, in a COPY of its process (LiveCheck::aside), and its own
+state stays what it was. The check: the diagnostics the copy reported for the file are
+the ones a fresh `kairo --type-check-only --check-past-syntax-errors` reports there with
+the edit applied; the edit is then taken back, so every later step also proves that the
+live side was left untouched. --expect-aside NAME=MODE,MODE,.. fails unless step NAME's
+asides report those modes, in order (`refresh`: checked; `refused`: left unchecked).
 """
 
 import argparse
@@ -41,6 +50,8 @@ from pathlib import Path
 STEP = re.compile(r"^incr-replay: step (\d+) (.*?): (\S+) \((.*)\), (\d+) files, (\d+) errors, (\d+) ms$")
 MARK = re.compile(r"^== incr-replay step (\d+) (.*)$")
 FG = re.compile(r"^== incr-replay fg (\d+) (.*)$")
+ASIDE = re.compile(r"^== incr-replay aside (\d+) (.*)$")
+ASIDELINE = re.compile(r"^incr-replay:   aside (.*?): (\S+) \((.*)\), (\d+) ms$")
 FGLINE = re.compile(r"^incr-replay:   fg (.*?): (\S+) \((.*)\), (\d+) ms$")
 PRIMARY = re.compile(r":\d+:\d+: (error|warning|remark|fatal)\b")
 
@@ -82,6 +93,11 @@ def parse_script(text):
             steps[-1][1].append(("append", f[0], unescape(f[1]), ""))
         elif line.startswith("remove "):
             steps[-1][1].append(("remove", line[7:], "", ""))
+        elif line.startswith("aside "):
+            inner = parse_script("step x\n" + line[6:] + "\n")[0][1]
+            if len(inner) != 1 or inner[0][0] == "aside":
+                die(f"aside wants one edit: {line}")
+            steps[-1][1].append(("aside", inner[0][1], inner[0], ""))
         elif line.startswith("drain ") or line.startswith("prefer "):
             continue  # the live side's: how far the queue gets before the next edit, and towards what
         else:
@@ -92,6 +108,8 @@ def parse_script(text):
 def apply(root, edits):
     for op, f, a, b in edits:
         p = root / f
+        if op == "aside":
+            continue  # tried and taken back: see main
         if op == "replace":
             cur = p.read_text()
             if cur.count(a) != 1:
@@ -158,6 +176,7 @@ def main():
     ap.add_argument("--restore", action="store_true",
                     help="put every file the script touches back as it was when done (for a root that is not a copy)")
     ap.add_argument("--expect-mode", action="append", default=[], help="NAME=MODE")
+    ap.add_argument("--expect-aside", action="append", default=[], help="NAME=MODE,MODE,..")
     ap.add_argument("--timeout", type=int, default=3600)
     args = ap.parse_args()
 
@@ -202,13 +221,19 @@ def main():
     with open(err_path, "wb") as se:
         p = subprocess.Popen(cmd, cwd=root, stdout=subprocess.PIPE, stderr=se, text=True)
         fg_lines = []
+        aside_lines = []
         for line in p.stdout:
             m = STEP.match(line.rstrip("\n"))
             if m:
                 live.append({"n": int(m.group(1)), "name": m.group(2), "mode": m.group(3), "why": m.group(4),
                              "files": int(m.group(5)), "ms": int(m.group(7)), "rss": rss_kb(p.pid),
-                             "fg": fg_lines})
+                             "fg": fg_lines, "aside": aside_lines})
                 fg_lines = []
+                aside_lines = []
+                continue
+            m = ASIDELINE.match(line.rstrip("\n"))
+            if m:
+                aside_lines.append({"file": m.group(1), "mode": m.group(2), "why": m.group(3), "ms": int(m.group(4))})
                 continue
             m = FGLINE.match(line.rstrip("\n"))
             if m:
@@ -221,11 +246,15 @@ def main():
 
     # A step's block is what follows its mark; a first tier's (`fg`) comes
     # before the mark of the step it belongs to, and is kept apart.
-    blocks, fgs, cur = {}, {}, None
+    blocks, fgs, asides, cur = {}, {}, {}, None
     for line in err_path.read_text(errors="replace").splitlines(keepends=True):
         m = MARK.match(line.rstrip("\n"))
         f = FG.match(line.rstrip("\n"))
-        if m:
+        a = ASIDE.match(line.rstrip("\n"))
+        if a:
+            cur = ("aside", int(a.group(1)))
+            asides.setdefault(cur[1], []).append([a.group(2), ""])
+        elif m:
             cur = ("step", int(m.group(1)))
             blocks[cur[1]] = ""
         elif f:
@@ -233,6 +262,8 @@ def main():
             fgs.setdefault(cur[1], []).append([f.group(2), ""])
         elif cur is not None and cur[0] == "step":
             blocks[cur[1]] += line
+        elif cur is not None and cur[0] == "aside":
+            asides[cur[1]][-1][1] += line
         elif cur is not None:
             fgs[cur[1]][-1][1] += line
 
@@ -244,12 +275,38 @@ def main():
             else:
                 (root / f).write_bytes(data)
     modes = {}
+    last_dump = None
     for i, (name, edits) in enumerate(steps):
         s = live[i]
         modes[s["mode"]] = modes.get(s["mode"], 0) + 1
         verdict = "not compared"
         if not args.live_only:
-            apply(root, edits)
+            what = []
+            # In script order: an aside is compared on the files as the
+            # step's edits before it left them, and then taken back.
+            k = 0
+            for e in edits:
+                if e[0] != "aside":
+                    apply(root, [e])
+                    continue
+                p = root / e[1]
+                keep = p.read_bytes()
+                apply(root, [e[2]])
+                cp = subprocess.run([kairo, entry, *flags, "--error-format=basic", "--type-check-only",
+                                     "--check-past-syntax-errors"], cwd=root, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.PIPE, timeout=args.timeout)
+                p.write_bytes(keep)
+                if cp.returncode < 0 or cp.returncode > 1:
+                    die(f"step {i} {name}: the clean run of an aside exited {cp.returncode}")
+                at = str(p.resolve()) + ":"
+                mine = lambda t: sorted(l for l in t.splitlines() if l.startswith(at) and PRIMARY.search(l[len(at) - 1:]))
+                got = asides.get(i, [])
+                text = got[k][1] if k < len(got) else None
+                if text is None or mine(text) != mine(cp.stderr.decode(errors="replace")):
+                    what.append(f"aside {k + 1}")
+                    (scratch / f"step{i}.aside{k + 1}.live.stderr").write_text(text or "")
+                    (scratch / f"step{i}.aside{k + 1}.clean.stderr").write_bytes(cp.stderr)
+                k += 1
             clean_dump = scratch / "clean.interface.json"
             clean_dump.unlink(missing_ok=True)
             cp = subprocess.run([kairo, entry, *flags, "--error-format=basic", "--type-check-only",
@@ -257,12 +314,16 @@ def main():
                                 stderr=subprocess.PIPE, timeout=args.timeout)
             if cp.returncode < 0 or cp.returncode > 1:
                 die(f"step {i} {name}: the clean run exited {cp.returncode}")
-            what = []
             if cp.stderr.decode(errors="replace") != blocks.get(i, ""):
                 what.append("diagnostics")
                 (scratch / f"step{i}.clean.stderr").write_bytes(cp.stderr)
                 (scratch / f"step{i}.live.stderr").write_text(blocks.get(i, ""))
             live_dump = dumps / f"step{i}.interface.json"
+            # A step of asides alone kept nothing: the live side wrote no
+            # dump for it, and its interface is the last step's that did.
+            if not live_dump.exists() and edits and all(e[0] == "aside" for e in edits) and last_dump is not None:
+                live_dump = last_dump
+            last_dump = live_dump
             a = clean_dump.read_bytes() if clean_dump.exists() else b""
             b = live_dump.read_bytes() if live_dump.exists() else b""
             if a != b:
@@ -282,6 +343,7 @@ def main():
             failed = failed or bool(what)
         rss = f"  rss {s['rss'] // 1024} MB" if args.rss else ""
         fg = "".join(f"  fg {Path(x['file']).name} {x['mode']} {x['ms']} ms ({x['why']});" for x in s.get("fg", []))
+        fg += "".join(f"  aside {Path(x['file']).name} {x['mode']} {x['ms']} ms ({x['why']});" for x in s.get("aside", []))
         print(f"step {i} {name}: {s['mode']} ({s['why']})  {s['ms']} ms{fg}{rss}  {verdict}")
     if args.restore:
         for f, data in saved.items():
@@ -294,6 +356,12 @@ def main():
         got = [s["mode"] for s in live if s["name"] == n]
         if got != [want]:
             print(f"UNEXPECTED MODE: step {n} is {got}, expected {want}")
+            failed = True
+    for ea in args.expect_aside:
+        n, _, want = ea.partition("=")
+        got = [",".join(x["mode"] for x in s.get("aside", [])) for s in live if s["name"] == n]
+        if got != [want]:
+            print(f"UNEXPECTED ASIDE: step {n} is {got}, expected {want}")
             failed = True
     print("modes: " + ", ".join(f"{k} {v}" for k, v in sorted(modes.items())) + f"; {len(steps)} steps")
     return 1 if failed else 0

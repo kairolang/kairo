@@ -19,7 +19,7 @@ The reference runner for share/kairo/sysroot/wasi-libc/ (build/sysroot-share/FOR
   4. archive every [archive.*] (`llvm-ar --format=gnu qc` + symbol table), write each
      `empty` archive, and copy every [install] entry whose source now exists into {sysroot};
   5. link every [link.*] in order with wasm-ld (ksys: its lld, `kld -flavor wasm`; NOT a kcc
-     link, which injects the Kairo runtime, P591): `ld` with {members} replaced by the members
+     link, which injects the Kairo runtime): `ld` with {members} replaced by the members
      ({build}-relative, in order), then `-o {build}/<out>`; install it into {sysroot} at once
      (later links take -lc and crt1-reactor.o from there);
   6. the product root is {sysroot}'s include/ and lib/ (not its SYSROOT.toml or compiler-rt/).

@@ -1,0 +1,26 @@
+# Not a lit test: texts tried aside on this repository's own graph (entry
+# Analyzer/Driver/kals.k), run by hand with a release compiler, as
+# self_tier_kals.replay is:
+#   python3 Scripts/incr_replay_check.py --kairo <release kairo> --root <a copy of the tree> --entry Analyzer/Driver/kals.k \
+#     --flags-file <the entry's args from kairo_compile.json, one a line> --flag=--incr-replay-in-place \
+#     --two-tier --overlay --script <this file> --scratch <dir>
+# A leaf's body broken three ways, as a line is typed.
+step shellquote_broken_body
+aside replace Compiler/Support/ShellQuote.k:::out = out + one:::out = = one
+aside replace Compiler/Support/ShellQuote.k:::out = out + one:::out = out.
+aside replace Compiler/Support/ShellQuote.k:::out = out + one:::out = out + (one
+step shellquote_kept
+replace Compiler/Support/ShellQuote.k:::out = out + one:::out += one
+# A file of the 19-file Analyzer/Server cycle, an error outside every body.
+step textutil_outside_a_body
+aside append Analyzer/Server/TextUtil.k:::\npub fn (\n
+# A leaf broken while a core file's importers are queued.
+step broken_while_a_core_file_drains
+append Compiler/Location/SourceManager.k:::\n// t1\n
+drain 20
+aside replace Compiler/Support/ShellQuote.k:::out += one:::out += = one
+# A name nothing declares, in a leaf (what a completion request plants).
+step marker_in_a_leaf
+aside replace Compiler/Support/ShellQuote.k:::out += one:::kalsCompletionMarker\n            out += one
+step shellquote_back
+replace Compiler/Support/ShellQuote.k:::out += one:::out = out + one

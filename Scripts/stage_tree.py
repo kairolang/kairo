@@ -46,8 +46,8 @@
 #            the LLVM dylibs; this covers bin/ and whatever it pulls in.
 #   Windows  PE: no rpath; every non-system DLL a bin/ exe imports is copied
 #            beside it, where the loader looks first.
-# Only Linux has been run (2026-10-28); the macOS and Windows paths are
-# written against the tools' documented output and are untested.
+# Only Linux is exercised; the macOS and Windows paths are written
+# against the tools' documented output and are untested.
 #
 # Runs as kbld's post-build hook for kairo and kcc (build.k), on every host;
 # by hand:

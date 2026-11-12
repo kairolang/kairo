@@ -40,6 +40,9 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <time.h>
 #else
 // isatty / fileno (the console checks): <io.h> declares the POSIX names.
 #include <io.h>
@@ -52,6 +55,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 #if defined(__GLIBC__)
@@ -595,6 +599,78 @@ inline bool write_file_exact(llvm::StringRef path, llvm::StringRef text) noexcep
 /// The C streams as functions. stdout / stderr are macros on Darwin (__stdoutp) and
 /// MinGW (__acrt_iob_func(1)), which ffi cannot name; a function returns what
 /// the macro expands to on every libc.
+/// --- a copy of the process, to try something in and throw away -------------
+///
+/// A live check (Tooling/LiveCheck.k) keeps one checked graph. A text that
+/// must not become part of it (a buffer that does not parse yet, a buffer
+/// with a completion marker in it) is checked in a COPY of the process: the
+/// copy re-checks the file as any edit is re-checked, reports, and ends; the
+/// original never saw the text. fork() is the copy: copy-on-write, so its
+/// cost is the page tables (milliseconds per GB) and the pages the re-check
+/// touches. The copy has the calling thread only, which is all a re-check
+/// in place uses (FrontendAction::refresh runs on its caller's thread), and
+/// it must end through aside_exit: no destructor of the original's state may
+/// run in it (scratch files, child processes, joins of threads it has not).
+///
+/// Windows has no fork: aside_fork() is -1 there and the callers fall back
+/// (kals: the last good index answers, completion is a process per request).
+
+/// 0 in the copy, its pid in the original, -1 when there is no copy to be had.
+inline long long aside_fork() noexcept {
+#if defined(_WIN32)
+    return -1;
+#else
+    // Buffered output would be written by both.
+    ::fflush(stdout);
+    ::fflush(stderr);
+    return (long long)::fork();
+#endif
+}
+
+/// Ends the copy at once, with its buffered output written and nothing else.
+[[noreturn]] inline void aside_exit(int code) noexcept {
+    ::fflush(stdout);
+    ::fflush(stderr);
+    ::_exit(code);
+}
+
+/// Waits for the copy \p pid, at most \p timeout_ms: its exit status (0 to
+/// 255), -1 when it ended any other way, -2 when it was still running and
+/// has been killed.
+inline int aside_wait(long long pid, int timeout_ms) noexcept {
+#if defined(_WIN32)
+    (void)pid;
+    (void)timeout_ms;
+    return -1;
+#else
+    struct timespec t0;
+    ::clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (;;) {
+        int st = 0;
+        pid_t r = ::waitpid((pid_t)pid, &st, WNOHANG);
+        if (r == (pid_t)pid) {
+            return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+        }
+
+        if (r < 0) {
+            return -1;
+        }
+
+        struct timespec now;
+        ::clock_gettime(CLOCK_MONOTONIC, &now);
+        long long ms = (long long)(now.tv_sec - t0.tv_sec) * 1000 + (now.tv_nsec - t0.tv_nsec) / 1000000;
+        if (ms >= (long long)timeout_ms) {
+            ::kill((pid_t)pid, SIGKILL);
+            ::waitpid((pid_t)pid, &st, 0);
+            return -2;
+        }
+
+        struct timespec nap = {0, 500000}; // half a millisecond: a re-check is tens of them
+        ::nanosleep(&nap, nullptr);
+    }
+#endif
+}
+
 inline FILE *std_out() noexcept { return stdout; }
 inline FILE *std_err() noexcept { return stderr; }
 

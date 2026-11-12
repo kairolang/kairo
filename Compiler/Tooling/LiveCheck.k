@@ -113,6 +113,28 @@ pub class LiveCheck {
     pub var detail: string = ""
     /// When set, the next step writes --dump-interface there.
     pub var dump_interface: string = ""
+    /// With \c two_tier: a file whose re-parse reports syntax errors is
+    /// checked as --check-past-syntax-errors checks it, when every error is
+    /// inside function bodies that can be dropped
+    /// (CompilerInstance::admit_bodies_in_place): those functions are their
+    /// signatures, the parser's diagnostics are the file's own, and the
+    /// rest of it is checked. \c dropped_bodies says a step did that.
+    /// Off, such a re-parse is a full check ("a diagnostic from before
+    /// Sema"), as it has always been.
+    ///
+    /// FOR AN INSTANCE THAT IS THROWN AWAY (\c aside): the files that
+    /// import the file are queued as for any edit and would be re-checked
+    /// against signatures whose bodies were never checked, and the result
+    /// is not one a run without the flag prints.
+    pub var past_syntax:    bool = false
+    pub var dropped_bodies: bool = false
+    /// This object lives in a copy of the process that ends after one
+    /// replace_file (kairo::aside_fork: a text that is tried and not
+    /// kept). A re-check that cannot be done in place is then REFUSED
+    /// (\c mode "refused", \c why the reason) where it would be a full
+    /// check: the copy has nothing to bring up to date. The parser's
+    /// diagnostics of the refused file are in file_diags(), without an owner.
+    pub var aside: bool = false
 
     priv var _words:   cxx::std::vector<string>
     priv var _ci:      unsafe *CompilerInstance = &null
@@ -177,13 +199,19 @@ pub class LiveCheck {
     pub fn replace_file(self, const path: string) -> bool {
         var why = "re-checking in place is not built"
         self.detail = ""
+        self.dropped_bodies = false
         self.rechecked.clear()
         if self.in_place {
             why = "no live check"
             if self._ci != &null && self._action != &null {
                 if self.two_tier {
                     why = self._tier_begin(path)
-                    if why.empty() && self._q.empty() {
+                    // What one refresh decides at its end is about the
+                    // whole result once every importer is re-checked (an
+                    // instance's first use, a stand-in's layout). A copy
+                    // that is thrown away reports the edited file and never
+                    // gets there, so it does not ask.
+                    if why.empty() && self._q.empty() && !self.aside {
                         why = self._tier_end()
                     }
 
@@ -197,6 +225,13 @@ pub class LiveCheck {
             }
         }
 
+        if (!why.empty()) && self.aside {
+            self.mode = "refused"
+            self.why  = why
+            self._count()
+            return true
+        }
+
         if !why.empty() {
             return self._full(why)
         }
@@ -204,6 +239,58 @@ pub class LiveCheck {
         self.mode = "refresh"
         self._count()
         return true
+    }
+
+    /// \c past_syntax: the diagnostics from index \p n0 on are the re-parse's.
+    /// "" when they are all syntax errors of files of \p group that can be
+    /// checked without the bodies they are in; those bodies are dropped and
+    /// the diagnostics given to their files. Otherwise why not.
+    priv fn _admit_bodies(self, const group: cxx::std::vector<u32>, n0: usize) -> string {
+        var broken = cxx::std::vector<u32>()
+        var owned: u32 = 0
+        if !self._ci->admit_bodies_in_place(self._ci->global_scope(), group, &broken, &owned) {
+            return "a syntax error outside a function body"
+        }
+
+        // Exact, as the driver's own admission is: a diagnostic from the
+        // preprocessor, or one in a file that has no syntax error, belongs
+        // to no body.
+        var errors: u32 = 0
+        for var i: usize = n0; i < self._fd->diags.size(); ++i {
+            var unsafe *d = self._fd->diags[i]
+            if !d->has_loc {
+                return "a diagnostic from before Sema"
+            }
+
+            var at   = self._ci->sm()->resolve(d->loc).fid as u32
+            var mine = false
+            for var f: u32 in broken {
+                if f == at {
+                    mine = true
+                }
+            }
+
+            if !mine {
+                return "a diagnostic from before Sema"
+            }
+
+            var sev = d->code.severity()
+            if sev == DiagSeverity::Error || sev == DiagSeverity::Fatal {
+                errors += 1
+            }
+
+            // The file's own from here: the next re-check of it forgets
+            // them with the rest (_forget), and _plan does not read them as
+            // a diagnostic nothing replaces.
+            self._fd->owners[i] = self._ci->sm()->get_filename(at)
+        }
+
+        if errors != owned {
+            return "a diagnostic from before Sema"
+        }
+
+        self.dropped_bodies = true
+        return ""
     }
 
     /// The files of an import edge list, as fids, sorted.
@@ -760,6 +847,12 @@ pub class LiveCheck {
             io::eprintln(f"[live] one step of {group.size()} files:{all}")
         }
 
+        // The parser watches function bodies for errors they keep to
+        // themselves only under the flag (ASTParse::recover_bodies).
+        if self.past_syntax {
+            self._ci->invocation()->frontend.check_past_syntax = true
+        }
+
         var n0 = self._forget(names)
         for var i: usize = group.size(); i > 0; --i {
             if !self._reread(group[i - 1], names[i - 1], group[i - 1] == edited) {
@@ -791,7 +884,14 @@ pub class LiveCheck {
         }
 
         if self._fd->diags.size() != n0 {
-            return "a diagnostic from before Sema"
+            if !self.past_syntax {
+                return "a diagnostic from before Sema"
+            }
+
+            var no = self._admit_bodies(group, n0)
+            if !no.empty() {
+                return no
+            }
         }
 
         for var i: usize = 0; i < group.size(); ++i {

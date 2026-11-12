@@ -18,6 +18,19 @@
 ///     drain <n>                         with --incr-replay-two-tier: n of
 ///                                       the queued files are re-checked
 ///                                       before the step's next edit
+///     aside <edit>                      with --incr-replay-two-tier and
+///                                       --incr-replay-overlay: the edit
+///                                       (a replace, write or append of an
+///                                       existing .k file) is tried and
+///                                       thrown away: re-checked in a copy
+///                                       of the process (LiveCheck::aside,
+///                                       with LiveCheck::past_syntax),
+///                                       which prints `incr-replay:   aside
+///                                       <file>: <mode> (<why>), <ms> ms`
+///                                       and on stderr `== incr-replay
+///                                       aside <n> <file>` with the file's
+///                                       diagnostics; the session goes on
+///                                       from the text before it
 ///
 ///   `\n` in <old>, <new> and <text> is a line break. Paths are relative to
 ///   the working directory. Step 0 is the first check, before any edit.
@@ -44,6 +57,7 @@ ffi "c++" import "vector"
 ffi "c++" import "chrono"
 ffi "c++" import "cstdio"
 ffi "c++" import "cstring"
+ffi "c++" import "Native/KShims.hh"
 
 import API::FS::*
 import Support::FileIO::Path::Path
@@ -266,7 +280,7 @@ fn replay_apply(const line: string, touched: *cxx::std::vector<string>, bufs: *R
 /// On stdout what it did; on stderr `== incr-replay fg <n> <file>` and the
 /// diagnostics \p file owns now, which Scripts/incr_replay_check.py
 /// compares with that file's part of the step's fresh run.
-fn replay_fg(live: *LiveCheck, bufs: *ReplayBuffers, const file: string, n: usize) {
+fn replay_fg(live: *LiveCheck, bufs: *ReplayBuffers, const file: string, n: usize, const what: string) {
     var full = Path(file).full_path()
     if bufs->on {
         for var bi: usize = 0; bi < bufs->paths.size(); ++bi {
@@ -279,13 +293,13 @@ fn replay_fg(live: *LiveCheck, bufs: *ReplayBuffers, const file: string, n: usiz
     var t0 = replay_now_ms()
     live->replace_file(full)
     var ms = replay_now_ms() - t0
-    io::println(f"incr-replay:   fg {file}: {live->mode} ({live->why}), {ms} ms")
+    io::println(f"incr-replay:   {what} {file}: {live->mode} ({live->why}), {ms} ms")
     if !live->detail.empty() {
         io::println(f"incr-replay:   detail: {live->detail}")
     }
 
     cxx::std::fflush(kairo::std_out())
-    io::eprintln(f"== incr-replay fg {n} {file}")
+    io::eprintln(f"== incr-replay {what} {n} {file}")
     var unsafe *fd = live->file_diags()
     if fd != &null && live->ci() != &null {
         for var i: usize = 0; i < fd->diags.size(); ++i {
@@ -300,6 +314,47 @@ fn replay_fg(live: *LiveCheck, bufs: *ReplayBuffers, const file: string, n: usiz
     }
 
     cxx::std::fflush(kairo::std_err())
+}
+
+/// `aside <edit>`: the edit and its first tier in a copy of this process,
+/// which ends; this one is as it was. "" when the copy ran, else why not.
+fn replay_aside(live: *LiveCheck, bufs: *ReplayBuffers, const edit: string, n: usize) -> string {
+    if (!live->two_tier) || !bufs->on {
+        return "aside needs --incr-replay-two-tier and --incr-replay-overlay"
+    }
+
+    var pid = kairo::aside_fork()
+    if pid < 0 {
+        return "aside: this platform has no copy of a process"
+    }
+
+    if pid == 0 {
+        var touched = cxx::std::vector<string>()
+        var why = replay_apply(edit, &touched, bufs)
+        if !why.empty() {
+            io::eprintln(f"error [U001E]: --incr-replay aside: {why}")
+            kairo::aside_exit(3)
+        }
+
+        // Nothing of this copy is the session's: no dump of the step's,
+        // and none left over from an earlier step's path.
+        live->dump_interface = ""
+        if live->ci() != &null {
+            live->ci()->invocation()->frontend.dump_interface = ""
+        }
+
+        live->past_syntax = true
+        live->aside       = true
+        replay_fg(live, bufs, touched.back(), n, "aside")
+        kairo::aside_exit(0)
+    }
+
+    var rc = kairo::aside_wait(pid, 600000)
+    if rc != 0 {
+        return f"aside: the copy ended with {rc}"
+    }
+
+    return ""
 }
 
 fn replay_report(live: *LiveCheck, n: usize, const name: string, t0: u64) {
@@ -405,6 +460,7 @@ pub fn incr_replay_main(argc:         i32,
     var touched = cxx::std::vector<string>()
     var at: usize = 0
     var pref = cxx::std::vector<string>() ///< `prefer` lines of the open step
+    var asides: usize = 0                  ///< `aside` lines of the open step
     while at <= text.size() {
         var e = at
         while e < text.size() && text[e] != ('\n' as u8) {
@@ -414,6 +470,22 @@ pub fn incr_replay_main(argc:         i32,
         var line = text.subslice(at, e - at)
         var last = e >= text.size()
         at = e + 1
+        if line.starts_with("aside ") {
+            if !open_ {
+                io::eprintln(f"error [U001E]: --incr-replay: an edit before the first `step`: {line}")
+                return 1
+            }
+
+            var no = replay_aside(&live, &bufs, line.subslice(6, line.size() - 6), n + 1)
+            if !no.empty() {
+                io::eprintln(f"error [U001E]: --incr-replay step '{name}': {no}")
+                return 1
+            }
+
+            asides += 1
+            line = ""
+        }
+
         var is_step = line.starts_with("step ")
         if (is_step || last) && open_ {
             if last && (!line.empty()) && (!is_step) && line[0] != ('#' as u8) && (!line.starts_with("drain ")) && !line.starts_with("prefer ") {
@@ -424,7 +496,7 @@ pub fn incr_replay_main(argc:         i32,
                 }
 
                 if two {
-                    replay_fg(&live, &bufs, touched.back(), n + 1)
+                    replay_fg(&live, &bufs, touched.back(), n + 1, "fg")
                 }
             }
 
@@ -440,7 +512,8 @@ pub fn incr_replay_main(argc:         i32,
             if two {
                 // Each edit had its first tier when it was read; what is
                 // still queued is re-checked now.
-                if touched.empty() {
+                // A step of asides alone changed nothing that is kept.
+                if touched.empty() && asides == 0 {
                     live.replace_file(first)
                 }
 
@@ -472,6 +545,7 @@ pub fn incr_replay_main(argc:         i32,
             }
             replay_report(&live, n, name, t0)
             touched.clear()
+            asides = 0
             open_ = false
         }
 
@@ -530,7 +604,7 @@ pub fn incr_replay_main(argc:         i32,
         }
 
         if two {
-            replay_fg(&live, &bufs, touched.back(), n + 1)
+            replay_fg(&live, &bufs, touched.back(), n + 1, "fg")
         }
     }
 
