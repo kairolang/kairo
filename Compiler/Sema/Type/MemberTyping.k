@@ -891,6 +891,7 @@ pub class <T: type> MemberTyping {
                                n:     *SubscriptExpr,
                                bt:    *Type,
                                recv:  *Type,
+                               obj:   *Type,
                                cands: unsafe *cxx::std::vector<*Decl>) -> unsafe *Type {
         if cands->size() == 0 {
             self.dyn()->type_of(n->index, &null)
@@ -905,7 +906,7 @@ pub class <T: type> MemberTyping {
 
         var args = cxx::std::vector<ArgInfo>()
         args.push_back(self.dyn()->arg_info(n->index))
-        var r = self.dyn()->ovl.resolve(cands, &args, true, n->range, "op []", recv)
+        var r = self.dyn()->ovl.resolve(cands, &args, true, n->range, "op []", obj)
         if r.outcome == OvlOutcome::Dependent {
             self.dyn()->mark_unknown(n)
             return &null
@@ -971,6 +972,27 @@ pub class <T: type> MemberTyping {
         return rt
     }
 
+    /// The receiver a subscript's `op []` is chosen against: \p recv (the
+    /// container, unqualified) carrying the object's const \p obj_q, so a
+    /// const container offers only its `const self` overload (P921; the
+    /// unqualified receiver let the `self` overload win in Sema and clang
+    /// pick again from the real object, CL001E on every write). Today the
+    /// object's constness is the whole decision; whatever else chooses the
+    /// form of a subscript belongs here too.
+    priv fn _subscript_receiver(self, recv: unsafe *Type, obj_q: u8) -> unsafe *Type {
+        return self._with_object_const(recv, obj_q)
+    }
+
+    /// \p t, const when the object's quals \p obj_q are: an element of a
+    /// const container, or the receiver that container is.
+    priv fn _with_object_const(self, t: unsafe *Type, obj_q: u8) -> unsafe *Type {
+        if t == &null || (obj_q & QUAL_CONST) == 0 {
+            return t
+        }
+
+        return self.dyn()->sc->types->qualified(t, QUAL_CONST)
+    }
+
     fn type_subscript(self, n: unsafe *SubscriptExpr, expected: unsafe *Type) -> unsafe *Type {
         var bt = self.dyn()->type_of(n->base, &null)
         // An unknown base (`self.dyn()->xs[i]`, a field of a duck parameter)
@@ -1016,6 +1038,9 @@ pub class <T: type> MemberTyping {
             break
         }
 
+        // Kept before the strip: an element of a const array, vector or map
+        // is const, and a const container's `op []` is its `const self` one.
+        var obj_q = canon_quals(bt)
         bt = canon_unqual(bt)
 
         var ri = dyn_cast<RangeExpr>(self.dyn()->tu.strip_parens(n->index))
@@ -1073,7 +1098,10 @@ pub class <T: type> MemberTyping {
                 }
 
                 if cands.size() > 0 || !has_shape || array_range {
-                    return self._type_subscript_op(n, bt, recv, &cands)
+                    // An array's slice view is a fresh value; the view's own
+                    // element type already carries the array's const.
+                    var obj = if (array_range) => (recv) else => self._subscript_receiver(recv, obj_q)
+                    return self._type_subscript_op(n, bt, recv, obj, &cands)
                 }
             }
         }
@@ -1095,12 +1123,16 @@ pub class <T: type> MemberTyping {
             }
 
             n->value_category = Expr::ValueCategory::LValue
-            return vt
+            return self._with_object_const(vt, obj_q)
         }
 
         var elem = self.dyn()->tu.container_elem(bt)
+        // A pointer's const is the pointer's, not its pointee's: `p[i]`
+        // through a `const p: *T` is a mutable `T`.
+        var through_ptr = false
         if elem == &null && self.dyn()->tu.pointee(bt) != &null {
-            elem = self.dyn()->tu.pointee(bt)
+            elem        = self.dyn()->tu.pointee(bt)
+            through_ptr = true
         }
 
         if elem == &null && self.dyn()->tu.is_string(bt) {
@@ -1138,6 +1170,10 @@ pub class <T: type> MemberTyping {
         }
 
         n->value_category = Expr::ValueCategory::LValue
-        return elem
+        if through_ptr {
+            return elem
+        }
+
+        return self._with_object_const(elem, obj_q)
     }
 }

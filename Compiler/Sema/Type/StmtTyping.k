@@ -2534,7 +2534,12 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         self._by_value_abstract(n, elem)
-        self._bind_list(&n->bindings, elem, n->iterable, self._cxx_yields_const(n))
+        self._bind_list(
+            &n->bindings,
+            elem,
+            n->iterable,
+            self._cxx_yields_const(n) || self._const_owner_iter(n, it),
+        )
         // No condition refines it; it may run zero times, so after it is
         // the head's state joined with each `break`.
         self.dyn()->flow.loop_enter(n->body, &null)
@@ -2573,6 +2578,33 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         return self.dyn()->tu.has_const(d)
+    }
+
+    /// A const array or vector owns its elements, so what `for *x` points
+    /// at through one is const, as `&a[i]` is (P921). The builtin vector
+    /// iterates through its own `op in (const self)` (IterKind::User), which
+    /// says nothing about the element's const: without this a `for *e` over
+    /// a const `[T]` wrote the elements and compiled. A slice is a view over
+    /// storage it does not own and keeps its elements' own const.
+    priv fn _const_owner_iter(self, n: unsafe *Statements::RangedForStmt, it: unsafe *Type) -> bool {
+        if it == &null {
+            return false
+        }
+
+        var unsafe *o = it
+        if isa<CXXLValueRefType>(o) {
+            o = cast<CXXLValueRefType>(o)->referee
+        } else if isa<CXXRValueRefType>(o) {
+            o = cast<CXXRValueRefType>(o)->referee
+        }
+
+        if !self.dyn()->tu.has_const(o) {
+            return false
+        }
+
+        return n->iter_kind == Statements::IterKind::Array
+            || n->iter_kind == Statements::IterKind::Vector
+            || self.dyn()->tu.is_vector_like(canon_unqual(o))
     }
 
     /// `for h in *arr` over a C++ range whose element is an abstract class

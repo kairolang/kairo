@@ -5,8 +5,8 @@
 //    read canonical, past the typedef), so `pthread_create(unsafe &tid, ...)`
 //    had no viable candidate (SC063E).
 //  - i686-linux-musl: `pthread_t` is `unsigned long`, which is `u32`, whose
-//    C++ spelling is `unsigned int`. `&tid` was `unsigned int*` passed to
-//    `pthread_t*`, and clang rejected it (CL001E). The argument is now cast
+//    C++ spelling is `unsigned int`. `&tid` as `unsigned int*` passed to
+//    `pthread_t*` is rejected by clang (CL001E), so the argument is cast
 //    to the parameter's own spelling.
 
 ffi "c" import "pthread.h"

@@ -106,6 +106,7 @@ import AST::Node::Base::{
 }
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
+    QUAL_CONST,
     RecordType,
     canon_has_const,
     canon_quals,
@@ -122,8 +123,8 @@ import AST::Node::Declarations::{
     UnionDecl,    VariableDecl,
 }
 import AST::Node::Expressions::{
-    AssignOperatorExpr, BinaryOperatorExpr, OpRewrite, TypeCastExpr, TypeOfExpr, UnaryOperatorExpr,
-    UnwrapExpr,
+    AssignOperatorExpr, BinaryOperatorExpr, OpRewrite, SubscriptExpr, TypeCastExpr, TypeOfExpr,
+    UnaryOperatorExpr,  UnwrapExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -3124,6 +3125,41 @@ pub class <T: type> OperatorTyping {
         return &null
     }
 
+    /// The const binding whose element \p x is: `cb` for `cb[i]` or
+    /// `cb[i][j]` when every container on the way is const, so a write
+    /// through it names the container rather than "a const place" (P921).
+    /// Null when \p x is no subscript, or the const came from elsewhere (an
+    /// `op []` returning `*const T` on a mutable container).
+    priv fn _const_container_decl(self, x: unsafe *Expr) -> unsafe *Decl {
+        var unsafe *cur = x
+        while true {
+            var unsafe *s = dyn_cast<SubscriptExpr>(cur)
+            if s == &null {
+                break
+            }
+
+            var unsafe *b = self.dyn()->tu.strip_parens(s->base)
+            if b == &null || b->type_ == &null || (self._object_quals(b->type_) & QUAL_CONST) == 0 {
+                return &null
+            }
+
+            cur = b
+        }
+
+        if cur == x {
+            return &null
+        }
+
+        var unsafe *d  = self._assigned_decl(cur)
+        var unsafe *vd = if (d != &null) => (dyn_cast<VariableDecl>(d)) else => &null
+        var unsafe *pd = if (d != &null) => (dyn_cast<ParamDecl>(d)) else => &null
+        if (vd != &null && vd->is_const()) || (pd != &null && pd->is_const) {
+            return d
+        }
+
+        return &null
+    }
+
     /// SC071E for a write through a const lvalue (variables.mdx, "The
     /// `const` Binding Rule"; pointers.mdx, "Const Pointers"): a `const` or
     /// `eval` binding, a `const` parameter, or a place whose type is const
@@ -3184,6 +3220,18 @@ pub class <T: type> OperatorTyping {
             }
         }
 
+        // An element of a const container (`cb[0] = 5`, `cb` const) is
+        // the container's fault, and its declaration is the note.
+        var by_owner = false
+        if (!by_decl) && vd == &null && pd == &null {
+            var unsafe *od = self._const_container_decl(x)
+            if od != &null {
+                vd       = dyn_cast<VariableDecl>(od)
+                pd       = dyn_cast<ParamDecl>(od)
+                by_owner = true
+            }
+        }
+
         var at = SourceRange::invalid()
         var nm = ""
         if vd != &null {
@@ -3197,6 +3245,8 @@ pub class <T: type> OperatorTyping {
         var msg = "cannot " + verb + " a const place"
         if by_decl {
             msg = "cannot " + verb + " \x27" + nm + "\x27: it is const"
+        } else if by_owner {
+            msg = "cannot " + verb + " an element of \x27" + nm + "\x27: \x27" + nm + "\x27 is const"
         } else if !nm.empty() {
             msg = "cannot " + verb + " \x27*" + nm + "\x27: \x27" + nm + "\x27 points to const"
         }
@@ -3206,16 +3256,27 @@ pub class <T: type> OperatorTyping {
             b.first(lhs->range)
             if at.is_valid() {
                 var why = "declared const here"
-                if !by_decl {
+                if (!by_decl) && (!by_owner) {
                     why = "declared as a pointer to const here"
                 }
 
                 b.note(at.start, "\x27" + nm + "\x27 " + why)->first(at)
             }
 
+            // A const element of a mutable container: its `op []` hands out
+            // `*const T`, and that declaration is why.
+            var unsafe *sx = dyn_cast<SubscriptExpr>(x)
+            if (!at.is_valid()) && sx != &null && sx->resolved_op != &null {
+                b.note(sx->resolved_op->range.start, "\x27op []\x27 returns a const place here")
+                    ->first(sx->resolved_op->range)
+            }
+
             // `const n = ...` -> `var n = ...` is the one-token edit; a
             // parameter's or a pointee's const has no keyword range recorded.
-            if by_decl && vd != &null && vd->storage == StorageClass::Const && vd->storage_kw.is_valid() {
+            if (by_decl || by_owner)
+                && vd != &null
+                && vd->storage == StorageClass::Const
+                && vd->storage_kw.is_valid() {
                 b.fix(vd->storage_kw, "var", "declare it with \x27var\x27 to make it assignable")
             }
 

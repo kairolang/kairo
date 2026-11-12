@@ -1,4 +1,4 @@
-// The default visibility rule (decided 2026-11-08) for a file in no module:
+// The default visibility rule for a file in no module:
 // Inputs/visibility_nomod/lib.k has no module.k above it, so `priv`,
 // `prot` and every unmarked declaration in it are its own. Reached through
 // the module handle (`lib::priv_fn`, AccessCheck) and as members: each is

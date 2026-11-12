@@ -5,10 +5,10 @@
 // private field (line 5) and private static (line 6), calls its `priv`
 // method (line 7) and its `priv` constructor (line 8).
 //
-// Formerly an expected failure (ticket "[Sema] Access control is checked
-// only by clang: private members and `priv` constructors", GitHub #93):
-// --type-check-only accepted all four and only a full build reported them,
-// as clang CL001E. AccessCheck reports each now (SC001E, a placeholder
+// Access control is not left to clang (GitHub #93): without AccessCheck
+// --type-check-only would accept all four and only a full build report them,
+// as clang CL001E.
+// AccessCheck reports each (SC001E, a placeholder
 // code), with a note at the member and a fix-it making it `pub`.
 // access_rules.k has the full rule set; Codegen/oop/access_same_module.k
 // the same-file side, which must compile and run.

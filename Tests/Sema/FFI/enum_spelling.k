@@ -4,7 +4,7 @@
 // RUN: %t.exe; test $? -eq 7
 //
 // An imported enum's enumerator is spelled through its enum's C++ name.
-// It used to go out under the header's module, `::enum_spelling::ns::E::b`
+// It does not go out under the header's module, `::enum_spelling::ns::E::b`
 // (and `::memory_order::std::memory_order::relaxed` for libc++'s), which
 // names nothing in C++, so any use failed in clang (CL001E).
 
