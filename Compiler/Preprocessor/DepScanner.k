@@ -56,7 +56,7 @@ pub struct DepEdge {
 pub class DepGraph {
     pub var deps:                cxx::std::map<u32, cxx::std::set<u32>> ///< fid -> fids it depends on
     pub var rdeps:               cxx::std::map<u32, cxx::std::set<u32>> ///< fid -> fids that depend on it
-    pub var in_degree:           cxx::std::map<u32, i32> ///< fid -> number of unprocessed deps
+    pub var in_degree:           cxx::std::map<u32, i32> ///< fid -> number of deps, as scanned (WaveExecutor counts down its own copy)
     pub var mod_paths:           cxx::std::map<u32, ModulePath> ///< fid -> its module path
     pub var all_fids:            cxx::std::set<u32> ///< every fid in the graph
     pub var depth_exceeded_path: string                                 = "" ///< "" = under budget; else first file that hit --cmax-import-depth

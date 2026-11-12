@@ -54,7 +54,7 @@ pub type FileID = u32
 ///   - `SourceFile`: represents loaded files and their memory-backed content.
 ///
 /// conceptually, it provides a unified logical address space where each file
-/// occupies a contiguous region. a `SourceLocation` id is simply an offset
+/// occupies a contiguous region. a `SourceLocation` id is an offset
 /// into this space:
 /// **`id = file_base + local_offset`**
 ///
@@ -252,9 +252,8 @@ pub class SourceManager {
     /// \brief ensures \c _files[fid] holds a live SourceFile for \p path.
     ///
     /// \details \c _files is INDEXED BY FID, so this writes at \p fid rather
-    ///          than appending   the old push_back only worked while fids were
-    ///          handed out in load order and never reused, which stopped being
-    ///          true once identity started outliving artifacts.
+    ///          than appending: fids are not handed out in load order and can be
+    ///          reused, because identity outlives artifacts.
     ///
     ///          Idempotent: a fid that still has its entry is left alone, so
     ///          this doubles as the cache-hit path. A fid whose entry was
@@ -283,7 +282,7 @@ pub class SourceManager {
 
         var unsafe *file = unsafe (@create SourceFile(path, buf, self._total_b as usize) as unsafe *SourceFile)
 
-        /// FIXME: an overflow can occur here. (shouldn't ever happen)
+        /// Precondition: the running total cannot overflow.
         self._total_b += ((file->size_bytes) as u64)
         self._files[fid] = file
     }
@@ -500,6 +499,19 @@ pub class SourceManager {
 
         self._line_table.drop_file(file_id)
         return self._vfile_mgr->evict(file_id)
+    }
+
+    /// \brief brackets a preprocessor walk, whose lex workers read the
+    ///        VirtualFileManager unlocked. In a debug build an
+    ///        invalidate/replace/evict between the two is an ICE and a load
+    ///        that misses the cache is logged (VirtualFileManager::
+    ///        _check_not_walking says why not an ICE yet). No-ops in release.
+    pub fn begin_walk(self) {
+        self._vfile_mgr->begin_walk()
+    }
+
+    pub fn end_walk(self) {
+        self._vfile_mgr->end_walk()
     }
 
     /// Live line-table entries. Flat once the graph is loaded.
@@ -820,7 +832,7 @@ pub class SourceManager {
     /// \brief returns total bytes of all loaded files.
     ///
     fn total_bytes(self) -> u64 {
-        /// FIXME: an overflow can occur here.
+        /// Precondition: the running total cannot overflow.
         return self._total_b
     }
 
@@ -881,8 +893,7 @@ pub class SourceManager {
     ///
     pub fn get_text(self, range: SourceRange) -> string {
         // a Kairo string is UTF-8 bytes, so the range is copied verbatim.
-        // decoding to code points and pushing them back as u8 (the old wide
-        // string path) turned every non-ASCII character into one invalid byte
+        // decoding to code points and pushing them back as u8 turned every non-ASCII character into one invalid byte
         // and shifted every offset after it.
         var mbuf = self.get_view(range)
         if mbuf.size() == 0 {

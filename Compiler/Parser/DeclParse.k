@@ -77,7 +77,7 @@ import Token::TokenKind::{
     token_kind_to_readable_string,
 }
 
-// TODO(DUCK-GENERIC): T uses _consume_mode, _index_skip_block, _index_skip_stmt, _index_skip_to_body, _is_terminator_tok, _peek_mode, _pending_close_angle, _reject_mode_binding, _restore_cursor, advance, advance_raw, apply_annotations_to_decl, ... (60). Stage 0 was duck-typed; bound it or keep `: type`.
+// TODO(DUCK-GENERIC): T uses _consume_mode, _index_skip_block, _index_skip_stmt, _index_skip_to_body, _is_terminator_tok, _peek_mode, pay_close, _reject_mode_binding, _restore_cursor, advance, advance_raw, apply_annotations_to_decl, ... (60). Stage 0 was duck-typed; bound it or keep `: type`.
 pub class <T: type> DeclParse {
     /// \enum DeclSyncCtx
     /// \brief sync contexts for declaration-level error recovery.
@@ -1006,9 +1006,7 @@ pub class <T: type> DeclParse {
         self.dyn()->advance(T::SkipNL::After) // consume `<`
         self.dyn()->nl_push()
 
-        if self.dyn()->_pending_close_angle {
-            self.dyn()->_pending_close_angle = false
-        }
+        self.dyn()->forgive_close()
 
         // `<>` with no args after a name is not a valid specialization pattern.
         if self.dyn()->check(TokenKind::OpGreater) {
@@ -1026,8 +1024,7 @@ pub class <T: type> DeclParse {
             var ty = self.dyn()->parse_type(false, false, true) // gen_arg = true
             if ty == &null || is_recovery(ty) {
                 self._sync_decl_progress(Self::DeclSyncCtx::Generics)
-                if self.dyn()->_pending_close_angle {
-                    self.dyn()->_pending_close_angle = false
+                if self.dyn()->pay_close() {
                     self.dyn()->nl_pop()
                     return false
                 }
@@ -1045,8 +1042,7 @@ pub class <T: type> DeclParse {
             out.push_back(ty)
 
             // A nested `>>` may have been split, leaving us owing one `>`.
-            if self.dyn()->_pending_close_angle {
-                self.dyn()->_pending_close_angle = false
+            if self.dyn()->pay_close() {
                 self.dyn()->nl_pop()
                 return true
             }
@@ -1074,7 +1070,7 @@ pub class <T: type> DeclParse {
         }
 
         if self.dyn()->check(TokenKind::OpGreaterGreater) {
-            self.dyn()->_pending_close_angle = true
+            self.dyn()->owe_close()
             self.dyn()->nl_pop()
             self.dyn()->advance_raw()
             return true
@@ -1234,9 +1230,7 @@ pub class <T: type> DeclParse {
         // close-angle, but at the param-list opener that can't have happened
         // yet. Still, clear it defensively so a stale flag from an earlier
         // recovered parse can't leak in.
-        if self.dyn()->_pending_close_angle {
-            self.dyn()->_pending_close_angle = false
-        }
+        self.dyn()->forgive_close()
 
         if self.dyn()->check(TokenKind::OpGreater) {
             self.dyn()->diag->report(
@@ -1255,8 +1249,7 @@ pub class <T: type> DeclParse {
             if gp == &null {
                 self._sync_decl_progress(Self::DeclSyncCtx::Generics)
                 // honor a pending close-angle during recovery too
-                if self.dyn()->_pending_close_angle {
-                    self.dyn()->_pending_close_angle = false
+                if self.dyn()->pay_close() {
                     self.dyn()->nl_pop()
                     return false
                 }
@@ -1276,8 +1269,7 @@ pub class <T: type> DeclParse {
 
             // A bound type on this param (`T: Vec<U>`) may have consumed a
             // `>>` and left us owing one `>`. That closes THIS list.
-            if self.dyn()->_pending_close_angle {
-                self.dyn()->_pending_close_angle = false
+            if self.dyn()->pay_close() {
                 self.dyn()->nl_pop()
                 return true
             }
@@ -1311,7 +1303,7 @@ pub class <T: type> DeclParse {
         // comma path can land us on `>>`). Consume one level, leave the other
         // for an enclosing list via the pending flag mirroring TypeParse.
         if self.dyn()->check(TokenKind::OpGreaterGreater) {
-            self.dyn()->_pending_close_angle = true
+            self.dyn()->owe_close()
             self.dyn()->nl_pop()
             self.dyn()->advance_raw()
             return true

@@ -84,12 +84,11 @@ pub class VirtualFileManager {
     /// Canonical path -> fid. THE authority on file identity.
     ///
     /// This belongs here, at the layer that owns the mapping, and not in
-    /// SourceManager where it used to live as a linear scan over its _files
-    /// vector. That vector is indexed by fid and release() nulls entries in
-    /// place, so the scan skipped released files and re-registered them under
-    /// a BRAND NEW fid   the whole import graph was re-mmap'd and re-indexed
-    /// on every reparse, and the fid space, page table and line table grew
-    /// without bound.
+    /// SourceManager as a linear scan over its _files vector. That vector is
+    /// indexed by fid and release() nulls entries in place, so the scan
+    /// would skip released files and re-register them under a BRAND NEW fid,
+    /// re-mmapping and re-indexing the whole import graph on every reparse
+    /// while the fid space, page table and line table grew without bound.
     ///
     /// Identity outlives artifacts: releasing a file's tokens or AST must not
     /// change what fid its path resolves to. Only evict() removes an entry.
@@ -105,6 +104,16 @@ pub class VirtualFileManager {
     priv var _diag:          *DiagEngine
     priv var _global_offset: usize                = 0
     priv var _next_fid:      u32                  = 0
+
+    /// The phase the _segments invariant above is about, made checkable:
+    /// how many preprocessor walks are running (Preprocessor brackets
+    /// WaveExecutor::run with begin_walk/end_walk). Registering or re-mapping
+    /// while one runs is the race the invariant forbids   a worker indexing
+    /// _segments mid-reallocation   so a debug build reports it at the
+    /// offending call instead of as a rare null Segment somewhere else. A
+    /// count, not a flag: the phases repeat (one walk per input, and a
+    /// language server walks once per pass). Touched only in debug builds.
+    priv var _walks: kairo::std::Atomic<u32> = kairo::std::Atomic<u32>(0)
 
     ///
     /// \class Segment
@@ -125,9 +134,7 @@ pub class VirtualFileManager {
 
         /// The mapping this segment views. OWNED   a segment is the lifetime
         /// of its mapping, so evict() and invalidate() can replace or drop one
-        /// file's bytes without touching any other. (Parents used to live in a
-        /// side vector correlated only by insertion order, which no per-file
-        /// operation could index into.)
+        /// file's bytes without touching any other.
         ///
         /// Null for virtual segments: register_virtual attaches a caller-owned
         /// buffer, so there is nothing here to free or reload.
@@ -237,6 +244,49 @@ pub class VirtualFileManager {
         pub var size:   usize = 0      ///< size of the segment in bytes.
     }
 
+    /// \brief a preprocessor walk starts: from here until end_walk(), lex
+    ///        workers read _segments unlocked. Debug builds only.
+    pub fn begin_walk(self) {
+        eval if defined!(DEBUG) {
+            self._walks.fetch_add(1, kairo::std::MemoryOrder::acq_rel)
+        }
+    }
+
+    /// \brief the walk begin_walk() opened is over.
+    pub fn end_walk(self) {
+        eval if defined!(DEBUG) {
+            self._walks.fetch_sub(1, kairo::std::MemoryOrder::acq_rel)
+        }
+    }
+
+    /// \brief reports \p action, which grows or re-maps _segments, if it runs
+    ///        while a walk reads them unlocked. Called only under
+    ///        `eval if defined!(DEBUG)`, so a release build never formats
+    ///        \p what.
+    ///
+    /// \details Re-mapping or dropping a file (invalidate, replace_bytes,
+    ///          evict, reset) is an ICE: those belong between passes and
+    ///          nothing is known to do one mid-walk. A registration is only
+    ///          logged (a warning, which a debug build keeps in the log and
+    ///          does not stream): the walk DOES register files today, when
+    ///          an import resolves to a file the dependency scan did not load
+    ///          (FileImportIndex::_resolve_greedy, e.g. the plain import of a
+    ///          sibling file that R068E reports), so an ICE would turn that
+    ///          diagnostic into a crash. Make it fatal once the walk stops
+    ///          registering.
+    priv fn _check_not_walking(self, action: string, const what: string, fatal: bool) {
+        if self._walks.load(kairo::std::MemoryOrder::acquire) == 0 {
+            return
+        }
+
+        var msg = f"VirtualFileManager::{action}({what}) during a preprocessor walk: lex workers read _segments unlocked, so nothing may register or re-map a file until the walk ends"
+        if fatal {
+            kairo::std::ice_fail(msg)
+        }
+
+        kairo::Logger::warn(kairo::Logger::Stage::Driver, msg)
+    }
+
     ///
     /// \brief default constructor.
     ///
@@ -265,7 +315,7 @@ pub class VirtualFileManager {
     /// \brief destructor; releases all mapped segments and parent buffers.
     ///
     fn op finally (self) {
-        // Each segment frees its own mapping; there is no side list any more.
+        // Each segment frees its own mapping; there is no side list.
         for var seg: unsafe *Segment in self._segments {
             if seg != &null {
                 kairo::std::destroy(seg)
@@ -298,6 +348,11 @@ pub class VirtualFileManager {
         var hit = self._by_path.find(kairo::sref(abs_full))
         if hit != self._by_path.end() {
             return hit->second
+        }
+
+        // Past the cache hit: everything below grows _segments.
+        eval if defined!(DEBUG) {
+            self._check_not_walking("register_file", abs_full, false)
         }
 
         // A buffer staged for this path (stage_overlay) is what the path
@@ -435,6 +490,10 @@ pub class VirtualFileManager {
                             const fake_path: Path,
                             data:            kairo::std::ConstPtr<u8>,
                             size:            usize) -> u32 {
+        eval if defined!(DEBUG) {
+            self._check_not_walking("register_virtual", fake_path.full_path(), false)
+        }
+
         var seg_fid = self._next_fid
         self._next_fid += 1
         var unsafe *seg = kairo::std::create<Self::Segment>(
@@ -717,6 +776,10 @@ pub class VirtualFileManager {
     /// used for test isolation.
     ///
     pub fn reset(self) {
+        eval if defined!(DEBUG) {
+            self._check_not_walking("reset", "", true)
+        }
+
         kairo::Logger::debug(
             kairo::Logger::Stage::Driver,
             f"VirtualFileManager::reset: dropping {self._segments.size()} segments",
@@ -792,6 +855,10 @@ pub class VirtualFileManager {
     ///         could not be re-mapped   in which case the OLD mapping is left
     ///         intact rather than leaving the segment with nothing.
     pub fn invalidate(self, fid: u32) -> bool {
+        eval if defined!(DEBUG) {
+            self._check_not_walking("invalidate", f"fid={fid}", true)
+        }
+
         if (fid as usize) >= self._segments.size() {
             return false
         }
@@ -889,6 +956,10 @@ pub class VirtualFileManager {
     /// \return false if \p fid is unknown or the address space is full (the
     ///         old bytes are then kept).
     pub fn replace_bytes(self, fid: u32, data: kairo::std::ConstPtr<u8>, size: usize) -> bool {
+        eval if defined!(DEBUG) {
+            self._check_not_walking("replace_bytes", f"fid={fid}", true)
+        }
+
         if (fid as usize) >= self._segments.size() {
             return false
         }
@@ -959,6 +1030,10 @@ pub class VirtualFileManager {
     ///
     /// \return false if \p fid was not registered.
     pub fn evict(self, fid: u32) -> bool {
+        eval if defined!(DEBUG) {
+            self._check_not_walking("evict", f"fid={fid}", true)
+        }
+
         if (fid as usize) >= self._segments.size() {
             return false
         }

@@ -94,6 +94,14 @@ import Token::TokenKind::TokenKind
 import Token::TokenText::TokenText
 import std::io
 
+/// A PPWalker's one read of its file (PPWalker::_phase).
+pub enum WalkPhase derives u8 {
+    Fresh,      ///< constructed; set_* may still configure the read.
+    Collecting, ///< collect_macros(): macro definitions only, nothing emitted.
+    Walking,    ///< run(): the walk proper.
+    Done,       ///< the read is over; the walker is only queried and destroyed.
+}
+
 pub class PPWalker
   derives ImportGrammar<PPWalker>,
           MacroHeaderGrammar<PPWalker> {
@@ -161,14 +169,24 @@ pub class PPWalker
 
     /// # Import cycles (PreProcessor::_prelex_cycles)
 
-    /// collect_macros() is running: nothing is emitted, and only macro
-    /// definitions and scope tokens are acted on.
-    priv var _collect: bool = false
-    /// This file's macros were registered by collect_macros() ahead of the
-    /// walk; run() steps over each definition instead of defining it again.
+    /// Where this walker is. A walker does ONE read of its file: either
+    /// collect_macros() (an import cycle's first read) or run(), never both
+    /// (the collecting walker is destroyed, and the walk gets a new one told
+    /// assume_macros_known()). Collecting: nothing is emitted, and only macro
+    /// definitions and scope tokens are acted on. The set_* configuration
+    /// belongs before the read, while the walker is Fresh: the token source
+    /// takes its replay frame before the first pull.
+    priv var _phase: WalkPhase = WalkPhase::Fresh
+    /// This file's macros are registered already: by collect_macros() on an
+    /// earlier walker (assume_macros_known), or by this one's own collect.
+    /// run() steps over each definition instead of defining it again.
     priv var _macros_known: bool = false
     /// ig_err is silent: the grammar is re-read for its tokens alone, and
-    /// whatever it had to say was said on the first read.
+    /// whatever it had to say was said on the first read. Only ever turned
+    /// on around one grammar call, saved before and restored after (never
+    /// set then cleared), so a nested quiet read cannot unmute the outer
+    /// one; the calls that sit in a block of their own restore it in a
+    /// `finally`, so no exit from that block leaves the walk muted.
     priv var _quiet: bool = false
 
     fn PPWalker(self,
@@ -220,6 +238,10 @@ pub class PPWalker
     ///        in Lib/builtin), searched after its own imports so an explicit
     ///        import, or the file's own macro, of the same name wins.
     fn set_prelude_scope(self, const scope: ModulePath) {
+        eval if defined!(DEBUG) {
+            self._check_fresh("set_prelude_scope")
+        }
+
         self._prelude     = scope
         self._has_prelude = true
     }
@@ -339,12 +361,27 @@ pub class PPWalker
 
     /// Frame 0 from tokens already lexed (TokenSource::set_replay).
     fn set_replay(self, toks: unsafe *cxx::std::vector<Token>) {
+        eval if defined!(DEBUG) {
+            self._check_fresh("set_replay")
+        }
+
         self._src->set_replay(toks)
     }
 
     /// collect_macros() ran for this file on an earlier walker.
     fn assume_macros_known(self) {
+        eval if defined!(DEBUG) {
+            self._check_fresh("assume_macros_known")
+        }
+
         self._macros_known = true
+    }
+
+    /// Debug builds: \p what configures the read, so it must come before it.
+    priv fn _check_fresh(self, what: string) {
+        if self._phase != WalkPhase::Fresh {
+            kairo::std::ice_fail(f"PPWalker::{what} after the walker started reading (phase {self._phase as u8 as u32})")
+        }
     }
 
     /// The macro DEFINITIONS of this file, registered ahead of its walk.
@@ -363,7 +400,11 @@ pub class PPWalker
     ///          body is raw tokens, so no definition needs another file's
     ///          macros to be read.
     fn collect_macros(self) {
-        self._collect = true
+        eval if defined!(DEBUG) {
+            self._check_fresh("collect_macros")
+        }
+
+        self._phase = WalkPhase::Collecting
         while !self._src->at_eof() {
             var t = self._src->peek(0)
             var k = t.kind
@@ -372,27 +413,41 @@ pub class PPWalker
             }
 
             if k == TokenKind::KwImport {
-                self._quiet = true
-                self.parse_import_spec()
-                self._quiet = false
+                {
+                    var was = self._quiet
+                    self._quiet = true
+                    finally {
+                        self._quiet = was
+                    }
+
+                    self.parse_import_spec()
+                }
+
                 continue
             }
 
             if k == TokenKind::KwMacro {
-                self._handle_macro_def(3)
+                self._handle_macro_def(VisibilityKind::Public)
                 continue
             }
 
             if k == TokenKind::KwPub || k == TokenKind::KwPriv || k == TokenKind::KwProt {
-                var vis: u8 =      if (k == TokenKind::KwPub) => (3)
-                              else if (k == TokenKind::KwPriv) => (1)
-                              else => 2
+                var vis =      if (k == TokenKind::KwPub) => (VisibilityKind::Public)
+                          else if (k == TokenKind::KwPriv) => (VisibilityKind::Private)
+                          else => VisibilityKind::Protected
                 var nk = self._src->peek(1).kind
                 if nk == TokenKind::KwImport {
                     self._src->next()
-                    self._quiet = true
-                    self.parse_import_spec()
-                    self._quiet = false
+                    {
+                        var was = self._quiet
+                        self._quiet = true
+                        finally {
+                            self._quiet = was
+                        }
+
+                        self.parse_import_spec()
+                    }
+
                     continue
                 }
 
@@ -422,7 +477,7 @@ pub class PPWalker
             self._src->next()
         }
 
-        self._collect      = false
+        self._phase        = WalkPhase::Done
         self._macros_known = true
     }
 
@@ -437,9 +492,10 @@ pub class PPWalker
             return
         }
 
+        var was = self._quiet
         self._quiet = true
         var hdr = self.parse_macro_header()
-        self._quiet = false
+        self._quiet = was
         if !hdr.ok {
             self._recover_to_terminator()
             return
@@ -479,6 +535,15 @@ pub class PPWalker
     //  The walk
 
     fn run(self) -> bool {
+        eval if defined!(DEBUG) {
+            self._check_fresh("run")
+        }
+
+        self._phase = WalkPhase::Walking
+        finally {
+            self._phase = WalkPhase::Done
+        }
+
         // Resolved once per file, under the Walk region the wave opened. The
         // per-token scopes below check these for null before anything else, so
         // leaving them null when timing is off makes the instrumentation free.
@@ -501,24 +566,24 @@ pub class PPWalker
             }
 
             if k == TokenKind::KwImport {
-                self._handle_import(1)
+                self._handle_import(VisibilityKind::Private)
                 continue
-            } // 1 = priv default
+            } // an import is priv by default
 
             if k == TokenKind::KwMacro {
-                if self._macros_known { // 3 = pub default
+                if self._macros_known { // a macro is pub by default
                     self._skip_macro_def()
                 } else {
-                    self._handle_macro_def(3)
+                    self._handle_macro_def(VisibilityKind::Public)
                 }
 
                 continue
             }
 
             if k == TokenKind::KwPub || k == TokenKind::KwPriv || k == TokenKind::KwProt {
-                var vis: u8 =      if (k == TokenKind::KwPub) => (3)
-                              else if (k == TokenKind::KwPriv) => (1)
-                              else => 2
+                var vis =      if (k == TokenKind::KwPub) => (VisibilityKind::Public)
+                          else if (k == TokenKind::KwPriv) => (VisibilityKind::Private)
+                          else => VisibilityKind::Protected
                 var nk = self._src->peek(1).kind
                 if nk == TokenKind::KwImport {
                     self._src->next() // consume visibility keyword
@@ -594,7 +659,7 @@ pub class PPWalker
         // Sampled, same reasoning as _detect_invocation: the single choke
         // point every token passes through.
         var _t = TimeSampled(self._t_emit, 64, unsafe &self._c_emit)
-        if self._collect { // collect_macros: a read, not a walk.
+        if self._phase == WalkPhase::Collecting { // collect_macros: a read, not a walk.
             return
         }
 
@@ -792,11 +857,11 @@ pub class PPWalker
 
     //  Imports
 
-    priv fn _handle_import(self, default_vis: u8) {
+    priv fn _handle_import(self, default_vis: VisibilityKind) {
         var _t = TimeRegion("Import")
 
         // visibility already consumed by caller when prefixed; default_vis
-        // carries priv(1) unless caller saw pub/prot/priv.
+        // carries Private unless caller saw pub/prot/priv.
         var vis = default_vis
 
         var spec = self.parse_import_spec() // shared grammar (consumes stmt)
@@ -832,7 +897,7 @@ pub class PPWalker
         // NOTHING emitted import is PP-invisible in the output buffer.
     }
 
-    priv fn _build_import_decl(self, spec: *ImportSpec, vis: u8) -> unsafe *ImportDecl {
+    priv fn _build_import_decl(self, spec: *ImportSpec, vis: VisibilityKind) -> unsafe *ImportDecl {
         var unsafe *id = ImportDecl::create(self._ctx, spec->range, spec->kind)
 
         var segs: kairo::std::StackBuf<Token, 8>
@@ -869,7 +934,7 @@ pub class PPWalker
 
         id->alias     = spec->alias
         id->has_alias = spec->has_alias
-        id->set_visibility(self._u8_to_vis(vis), spec->range)
+        id->set_visibility(vis, spec->range)
         id->range = spec->range
         return id
     }
@@ -886,25 +951,9 @@ pub class PPWalker
         return LinkageKind::Cpp
     }
 
-    priv fn _u8_to_vis(self, vis: u8) -> VisibilityKind {
-        if vis == 1 {
-            return VisibilityKind::Private
-        }
-
-        if vis == 2 {
-            return VisibilityKind::Protected
-        }
-
-        if vis == 3 {
-            return VisibilityKind::Public
-        }
-
-        return VisibilityKind::None
-    }
-
     //  Macro definitions
 
-    priv fn _handle_macro_def(self, vis: u8) {
+    priv fn _handle_macro_def(self, vis: VisibilityKind) {
         var _t = TimeRegion("MacroDef")
 
         var kw = self._src->next() // `macro`
@@ -1071,7 +1120,7 @@ pub class PPWalker
             decl->body_span = storage->get(0)->range | storage->get((body_len as usize) - 1)->range
         }
 
-        decl->set_visibility(self._u8_to_vis(vis), kw.range | lbrace)
+        decl->set_visibility(vis, kw.range | lbrace)
         self._tu->macros.push(decl)
 
         var unsafe *entry = kairo::std::create<MacroEntry>()
@@ -1499,9 +1548,14 @@ pub class PPWalker
     priv fn _expand_buffer(self,
                            src_buf:      unsafe *(TokenBuffer<512>),
                            parent_chain: unsafe *cxx::std::vector<InvokeHop>) -> unsafe *(TokenBuffer<512>) {
+        // The sink is redirected for this expansion only: restored on every
+        // way out, so a nested expansion hands its caller's sink back intact.
         var unsafe *out   = kairo::std::create<TokenBuffer<512>>()
         var unsafe *saved = self._sink
         self._sink = out
+        finally {
+            self._sink = saved
+        }
 
         var d0 = self._src->depth()
         self._src->push_splice(src_buf, 0, SourceRange::invalid(), *parent_chain)
@@ -1523,7 +1577,6 @@ pub class PPWalker
             self._emit(next_tok, unsafe &chain)
         }
 
-        self._sink = saved
         return out
     }
 

@@ -106,8 +106,48 @@ import Token::TokenKind::{
 /// \see ASTParse, TypeQual, Type, TupleType, PointerType, FixedArrayType
 // TODO(DUCK-GENERIC): T uses _consume_mode, _peek_mode, advance, advance_raw, apply_annotations_to_node, apply_quals, at_value_expr_continuation, c_idx, check, check_peek, check_prev, consume_leading_annotations, ... (32). Stage 0 was duck-typed; bound it or keep `: type`.
 pub class <T: type> TypeParse {
-    var     inferred_type_counter: u32  = 0
-    pub var _pending_close_angle:  bool = false
+    var inferred_type_counter: u32 = 0
+
+    /// The `>>` debt. The lexer gives `>>` as one token, so a nested generic
+    /// whose `>` is the first half closes itself and owes the second half to
+    /// the list around it. owe_close() is the one writer that sets it,
+    /// pay_close() settles it (test and clear), forgive_close() drops one
+    /// nobody is owed, owes_close() looks without settling. Only 0 or 1:
+    /// `>>>` reaches the parser as `>>` then `>`, so it needs no more, and
+    /// owing twice is owing one. `>>=` is a token of its own and is not
+    /// split (`var v: A<A<i32>>= x` is S049E, P279).
+    ///
+    /// Part of a speculation's checkpoint (ASTParse::checkpoint), so a
+    /// rollback cannot leave a debt behind that a later list pays wrongly.
+    pub var _angle_debt: u8 = 0
+
+    /// \brief a nested generic consumed `>>`: the enclosing list's `>` is gone.
+    pub inline fn owe_close(self) {
+        self._angle_debt = 1
+    }
+
+    /// \brief settles the debt if there is one.
+    /// \return true if a `>` was owed (the caller's list is closed).
+    pub inline fn pay_close(self) -> bool {
+        if self._angle_debt == 0 {
+            return false
+        }
+
+        self._angle_debt = 0
+        return true
+    }
+
+    /// \brief drops a debt without using it: after a list nothing encloses
+    ///        (a `>>` there owes no one), and the defensive clears at a list's
+    ///        start, where a debt can only be stale.
+    pub inline fn forgive_close(self) {
+        self._angle_debt = 0
+    }
+
+    /// \brief is a `>` owed? Settles nothing.
+    pub inline fn owes_close(self) -> bool {
+        return self._angle_debt != 0
+    }
 
     /// Kinds that start a type: the primitive `@`-types, the builtins,
     /// identifiers and `self`. A match rather than a per-parser `std::set`
@@ -1889,7 +1929,7 @@ pub class <T: type> TypeParse {
         segments.push_back(seg)
 
         while self.dyn()->check(TokenKind::OpColonColon) {
-            if self._pending_close_angle {
+            if self.owes_close() {
                 break
             }
 
@@ -1994,8 +2034,7 @@ pub class <T: type> TypeParse {
         self.dyn()->nl_push()                 // suppress newlines inside `< >`
 
         // a prior nested generic consumed >> and left one > for us
-        if self._pending_close_angle {
-            self._pending_close_angle = false
+        if self.pay_close() {
             self.dyn()->nl_pop()
             return true
         }
@@ -2024,7 +2063,7 @@ pub class <T: type> TypeParse {
             // closers
             if self.dyn()->check(TokenKind::OpGreaterGreater) {
                 if angle_depth == 1 {
-                    self._pending_close_angle = true
+                    self.owe_close()
                     self.dyn()->nl_pop()
                     self.dyn()->advance_raw()
                     return true
@@ -2098,10 +2137,10 @@ pub class <T: type> TypeParse {
             self.dyn()->advance(T::SkipNL::Only) // skip NLs, do not move past real tokens
 
             // skip the value-continuation check when a nested generic already
-            // consumed our closing `>>` (_pending_close_angle): the list is
+            // consumed our closing `>>` (owes_close()): the list is
             // closing, so a trailing operator like the `=` of a var initializer
             // (`var v: Array<Foo<i32>> = ...`) is NOT part of this argument.
-            if !self._pending_close_angle && self.dyn()->at_value_expr_continuation() {
+            if !self.owes_close() && self.dyn()->at_value_expr_continuation() {
                 self.dyn()->tentative_rollback(saved)
                 ty = self._parse_type_expr(
                     self.dyn()->stop_on(T::ExprStopKind::StopAngle).plus(
@@ -2126,8 +2165,7 @@ pub class <T: type> TypeParse {
             // type. Asked BEFORE the comma, or `f(k: *vec<vec<u8>>, b:
             // *vec<u8>)` read `, b: *vec<u8>` as more arguments of the
             // outer `vec` (S049E).
-            if self._pending_close_angle {
-                self._pending_close_angle = false
+            if self.pay_close() {
                 self.dyn()->nl_pop()
                 return true
             }
@@ -2145,7 +2183,7 @@ pub class <T: type> TypeParse {
 
                 if self.dyn()->check(TokenKind::OpGreaterGreater) {
                     if angle_depth == 1 {
-                        self._pending_close_angle = true
+                        self.owe_close()
                         self.dyn()->nl_pop()
                         self.dyn()->advance_raw()
                         return true
@@ -2163,8 +2201,7 @@ pub class <T: type> TypeParse {
             }
 
             // a nested generic consumed >> and left a > for us
-            if self._pending_close_angle {
-                self._pending_close_angle = false
+            if self.pay_close() {
                 self.dyn()->nl_pop()
                 return true
             }

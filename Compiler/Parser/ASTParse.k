@@ -121,6 +121,35 @@ pub struct PendingComment {
     var range: SourceRange    = SourceRange::invalid()
 }
 
+/// \struct ParserCheckpoint
+/// \brief everything a speculative parse can move, taken by
+///        ASTParse::checkpoint() and applied by ASTParse::rewind().
+///
+/// \details What a rollback restores is deliberately narrower than what is
+///          recorded:
+///
+///          - restored by every rewind: the cursor and the `>>` debt (a debt
+///            run up inside the speculation belongs to tokens being given
+///            back);
+///          - restored by TentativeGuard only: nl_depth and the pending
+///            comments (the bare tentative_begin/rollback pairs never did,
+///            and their callers' newline handling depends on it);
+///          - never restored, only checked (and recorded only in a debug
+///            build): the depth counters and _no_comment_skip. Every enter/exit pair inside a speculation is
+///            balanced, so they must come back on their own; a debug build
+///            asserts that they did. A depth cap that fired inside is sticky
+///            on purpose (_depth_aborted) and is not rewound either.
+pub struct ParserCheckpoint {
+    pub var cursor:          usize = 0
+    pub var nl_depth:        u32   = 0
+    pub var comments:        usize = 0
+    pub var angle_debt:      u8    = 0
+    pub var depth:           u32   = 0
+    pub var expr_depth:      u32   = 0
+    pub var ffi_decl_depth:  u32   = 0
+    pub var no_comment_skip: bool  = false
+}
+
 /// \class ASTParse
 /// \brief the primary recursive-descent parser for the Kairo language.
 ///
@@ -185,7 +214,6 @@ pub class ASTParse
     pub var error_count_base:   u32                              = 0 ///< error count recorded at parse start.
     pub var nl_depth:           u32                              = 0 ///< if non-zero, the parser ignores newlines.
     pub var _no_comment_skip:   bool                             = false
-    pub var in_recovery:        bool                             = false ///< true if parser is currently skipping to a SyncSet.
     pub var _pending_trailing:  cxx::std::vector<PendingComment>
     pub var _last_exp_diag_loc: u32                              = 0 ///< raw loc of the last expansion-site diagnostic;
     ///  collapses repeated backtraces for one invocation.
@@ -241,19 +269,18 @@ pub class ASTParse
     var _sym_tables: cxx::std::vector<unsafe *SymbolTable> ///< tables created by _build_symbols; frozen at parse exit.
 
 
+    /// \brief a speculative parse with its diagnostics suppressed, rolled
+    ///        back on scope exit unless committed. Rolls back the checkpoint
+    ///        (rewind) and also nl_depth and the pending comments.
     class TentativeGuard {
-        priv var _parser:         *ASTParse
-        priv var _cursor:         usize
-        priv var _nl_depth:       u32
-        priv var _committed:      bool
-        priv var _saved_comments: usize
+        priv var _parser:    *ASTParse
+        priv var _cp:        ParserCheckpoint
+        priv var _committed: bool
 
         fn TentativeGuard(self, p: *ASTParse) {
-            self._parser         = p
-            self._cursor         = p->c_idx
-            self._saved_comments = p->_pending_trailing.size()
-            self._nl_depth       = p->nl_depth
-            self._committed      = false
+            self._parser    = p
+            self._cp        = p->checkpoint()
+            self._committed = false
             p->diag->push_suppress()
         }
 
@@ -269,9 +296,9 @@ pub class ASTParse
         fn op finally (self) {
             self._parser->diag->pop_suppress()
             if !self._committed {
-                self._parser->_restore_cursor(self._cursor)
-                self._parser->nl_depth = self._nl_depth
-                while self._parser->_pending_trailing.size() > self._saved_comments {
+                self._parser->rewind(self._cp)
+                self._parser->nl_depth = self._cp.nl_depth
+                while self._parser->_pending_trailing.size() > self._cp.comments {
                     self._parser->_pending_trailing.pop_back()
                 }
             }
@@ -2303,13 +2330,11 @@ pub class ASTParse
         }
 
         if resolved_kind == TokenKind::TkError {
-            if !self.in_recovery {
-                self.diag->report(
-                    DiagID::S063E,
-                    self._current->range.start,
-                    f"unexpected token found where '{token_kind_to_readable_string((resolved.imm as TokenKind))}' expected",
-                ).first(self._current->range)->emit()
-            }
+            self.diag->report(
+                DiagID::S063E,
+                self._current->range.start,
+                f"unexpected token found where '{token_kind_to_readable_string((resolved.imm as TokenKind))}' expected",
+            ).first(self._current->range)->emit()
 
             resolved_kind = (resolved.imm as TokenKind)
         }
@@ -3660,20 +3685,74 @@ pub class ASTParse
 
     //  Recovery primitives
 
-    /// \brief starts a speculative parse branch.
-    /// \return the current cursor index to be used for rollback.
-    fn tentative_begin(self) -> usize {
-        return self.c_idx
+    /// \brief records the state a speculative parse can move. See
+    ///        ParserCheckpoint for what rewind() gives back.
+    inline fn checkpoint(self) -> ParserCheckpoint {
+        var cp = ParserCheckpoint{}
+        cp.cursor     = self.c_idx
+        cp.nl_depth   = self.nl_depth
+        cp.comments   = self._pending_trailing.size()
+        cp.angle_debt = self._angle_debt
+        // Read only by the debug check in rewind(): a release build does
+        // not pay for them on every speculation.
+        eval if defined!(DEBUG) {
+            cp.depth           = self.depth
+            cp.expr_depth      = self.expr_depth
+            cp.ffi_decl_depth  = self.ffi_decl_depth
+            cp.no_comment_skip = self._no_comment_skip
+        }
+
+        return cp
     }
 
-    /// \brief commits a speculative parse.
-    fn tentative_commit(self, state: usize) {
-        // no-op currently parse proceeds. State was just a saved cursor.
+    /// \brief rolls the cursor and the `>>` debt back to \p cp, and (debug
+    ///        builds) checks that the balanced counters came back by
+    ///        themselves.
+    fn rewind(self, cp: ParserCheckpoint) {
+        eval if defined!(DEBUG) {
+            self._check_balanced(cp)
+        }
+
+        self._restore_cursor(cp.cursor)
+        self._angle_debt = cp.angle_debt
     }
 
-    /// \brief reverts the cursor to a previously saved state.
-    fn tentative_rollback(self, state: usize) {
-        self._restore_cursor(state)
+    /// \brief the debug half of rewind(): a speculation that returns with a
+    ///        depth counter or _no_comment_skip moved has an unbalanced
+    ///        enter/exit inside it, which a rollback would silently carry
+    ///        into the reparse. A fired depth cap unwinds without its exits,
+    ///        so it is the one excuse.
+    priv fn _check_balanced(self, cp: ParserCheckpoint) {
+        if self._depth_aborted {
+            return
+        }
+
+        if self.depth != cp.depth || self.expr_depth != cp.expr_depth
+            || self.ffi_decl_depth != cp.ffi_decl_depth
+            || self._no_comment_skip != cp.no_comment_skip {
+            kairo::std::ice_fail(
+                f"ASTParse::rewind: a speculative parse left its counters moved (depth {cp.depth} -> {self.depth}, expr_depth {cp.expr_depth} -> {self.expr_depth}, ffi_decl_depth {cp.ffi_decl_depth} -> {self.ffi_decl_depth})",
+            )
+        }
+    }
+
+    /// \brief starts a speculative parse branch (no suppression; see
+    ///        TentativeGuard for the suppressing form).
+    /// \return the checkpoint to hand to tentative_rollback.
+    inline fn tentative_begin(self) -> ParserCheckpoint {
+        return self.checkpoint()
+    }
+
+    /// \brief commits a speculative parse: nothing to undo, the parse proceeds.
+    fn tentative_commit(self, cp: ParserCheckpoint) {
+        // no-op: committing keeps every moved field where it is.
+    }
+
+    /// \brief reverts to \p cp: cursor and `>>` debt (rewind). nl_depth and
+    ///        the pending comments are left as they are, as they always were
+    ///        for this pair.
+    fn tentative_rollback(self, cp: ParserCheckpoint) {
+        self.rewind(cp)
     }
 
     /// \brief restores the token cursor to a previously saved index.

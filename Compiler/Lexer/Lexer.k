@@ -69,7 +69,7 @@ import std::io
 
 /// The bytes of string token \p t's FIRST segment, prefix, quotes and
 /// suffix included; \p len (its range's size) for anything else. A chain
-/// is one token whose range covers every segment (P879); a reader that
+/// is one token whose range covers every segment; a reader that
 /// handles the later segments itself -- kals' tokens colour each apart,
 /// kfmt keeps them in the gap after the head -- takes the head's own
 /// length from here.
@@ -137,6 +137,8 @@ pub enum LastTokenKind derives u8 {
 ///  - produces immediate nodes for literals
 ///  - supports f-strings, byte strings, nested comments, and unicode
 pub class Lexer {
+    /// The stream's one record of where it is: Streaming means the TkEof is
+    /// still to come, Exhausted that it went out.
     enum StreamState derives u8 {
         Closed,
         Streaming,
@@ -153,9 +155,7 @@ pub class Lexer {
     var _last_token:  usize                    = 0
     var _size:        usize                    = 0 ///< effective end of the stream: the
     ///  sub-range for a lex_slice sub-lexer,
-    ///  else the whole buffer. Replaces the
-    ///  old _end_pos, which existed only to be
-    ///  branched on inside file_size().
+    ///  else the whole buffer.
     var _fid:      u32 = 0
     var _loc_base: u32 = 0 ///< raw SourceLocation of offset 0 in _fid;
     ///  see get_source_location.
@@ -163,7 +163,6 @@ pub class Lexer {
     ///  error_count() reports the per-run delta.
     var _last_kind: LastTokenKind     = LastTokenKind::None
     var _state:     Self::StreamState = Self::StreamState::Closed
-    var _eof_sent:  bool              = false
     // ideally this should be gated to test runner only but fine for now stage2 problems
     // PORT(stage2)
     var _test_buff: unsafe *TokenBuffer<512> = &null
@@ -309,7 +308,11 @@ pub class Lexer {
     /// \brief transient context for string / char lexing
     /// \details lives only during lex_text
     struct TextCtx {
-        struct FormatSpec { /// f-string hole: `{` expr [`=`] [`:` spec] `}`
+        /// f-string hole: `{` expr [`=`] [`:` spec] `}`. 0 is "absent" for
+        /// spec_start and eq_pos, and can never be a real position: both lie
+        /// past the hole's `{`. While the hole is open, spec_start == 0 is
+        /// the expression part and != 0 the (never lexed) spec part.
+        struct FormatSpec {
             var start:      usize ///< first byte after the `{`
             var end:        usize ///< the `}`
             var spec_start: usize ///< first byte after the `:`; 0 when no spec
@@ -329,9 +332,10 @@ pub class Lexer {
         var body_start: SourceLocation
         var body_end:   SourceLocation
 
+        /// `{` nesting: 0 in literal text, 1 in a hole, more inside braces
+        /// within it. The only record of it.
         var in_format_depth:  usize
         var in_bracket_depth: usize ///< `(` `[` nesting inside the hole; a `:` or `=` decides nothing inside one
-        var terminators:      cxx::std::stack<SourceLocation>
         var fstring_specs:    llvm::SmallVector<Self::FormatSpec, 4>
 
         var has_error:   bool  = false
@@ -411,9 +415,8 @@ pub class Lexer {
 
     /// # LEXER TEST API
 
-    /// \brief legacy batch API. drives the streaming API to exhaustion.
-    /// \details tests were written against lex()/tokens(). keep them honest by
-    ///          making the batch path a client of the stream path, not a fork of it.
+    /// \brief batch API. drives the streaming API to exhaustion.
+    /// \details the batch path is a client of the stream path, not a fork of it.
     fn lex(self, fid: u32) -> bool {
         if !self.open(fid) {
             return false
@@ -496,7 +499,6 @@ pub class Lexer {
         self._cursor     = 0
         self._size       = 0
         self.cached_data = &null
-        self._eof_sent   = false
         self._last_kind  = LastTokenKind::None
 
         if !self.load_file(fid) {
@@ -580,15 +582,11 @@ pub class Lexer {
             return true
         }
 
-        // EOF contract: exactly one TkEof, then dead forever.
-        if !self._eof_sent {
-            self._eof_sent = true
-            *out           = Token(self.get_source_range(), TokenKind::TkEof, 0)
-            self._state    = Self::StreamState::Exhausted
-            return true
-        }
-
-        return false
+        // EOF contract: exactly one TkEof, then dead forever. Still
+        // Streaming (the check above), so this is the first time here.
+        *out        = Token(self.get_source_range(), TokenKind::TkEof, 0)
+        self._state = Self::StreamState::Exhausted
+        return true
     }
 
     fn drain(self) -> unsafe *TokenBuffer<512> {
@@ -1302,7 +1300,7 @@ pub class Lexer {
         var dec = self.peek_char32()
         if dec.chr == '"' || dec.chr == '\'' && length < 3 {
             // WE HAVE A STRING HERE
-            // we also now need to see if our prefix is f, b, fb, or bf
+            // the prefix may be f, b, fb or bf
             // and set the imm to 0, for invalid, 1 for format, 2 for bytes, 3 for bytes and format
             var ptype: u8 = 0
 
@@ -1425,12 +1423,10 @@ pub class Lexer {
     }
 
     /// \details scans at most 16 characters per call and reports whether the
-    ///          caller should come back for more, same contract as before. The
-    ///          batched peek_char32::<16> it used to open with is gone: the
-    ///          cursor now lives in a local pointer for the whole call, so
-    ///          decoding one character at a time costs less than staging
-    ///          sixteen DecodeResults and then re-walking them through
-    ///          advance_cursor.
+    ///          caller should come back for more. The cursor lives
+    ///          in a local pointer for the whole call, so decoding one
+    ///          character at a time costs less than staging sixteen
+    ///          DecodeResults and then re-walking them through advance_cursor.
     priv inline fn scan_number_body(self, @inout ctx: Self::NumberCtx) -> bool {
         const base: kairo::std::ConstPtr<u8> = self.file_data()
         const end:  kairo::std::ConstPtr<u8> = base + self.file_size()
@@ -1440,8 +1436,8 @@ pub class Lexer {
 
         for var i: usize = 0; i < 16; ++i {
             if p >= end {
-                // EOF used to arrive as a zero-filled DecodeResult that fell
-                // through every test below to `return false`. Say it directly.
+                // EOF is tested explicitly: a zero-filled DecodeResult would
+                // fall through every test below to `return false`.
                 self.commit_cursor(base, p, step)
                 return false
             }
@@ -1497,7 +1493,7 @@ pub class Lexer {
 
                 // A decimal point must be followed by a base digit. Without this `1.`
                 // lexes as 1.0, which (a) makes `1.foo()` unreachable and (b) is
-                // ambiguous with `1 . <tuple-index>` now that `.N` is member access.
+                // ambiguous with `1 . <tuple-index>` since `.N` is member access.
                 // Raw byte compare is safe: digits are ASCII and no continuation byte
                 // of a multibyte sequence is < 0x80 same reasoning as the `..` check
                 // directly above.
@@ -1964,8 +1960,8 @@ pub class Lexer {
         var head = self.make_text_token(&ctx)
         // A chain is one token, so its range runs to the last segment's end
         // (each segment's own range recursed through here first): what reads
-        // a token's text by its range -- stringify!, a caret -- saw only the
-        // head, and `stringify!("a" "b")` was `"a"` (P879).
+        // a token's text by its range -- stringify!, a caret -- must see the
+        // whole chain, so `stringify!("a" "b")` covers both segments.
         var tail = self.chain_adjacent_text(&ctx)
         if tail.kind == TokenKind::LitString {
             head.set_range(SourceRange::from_bounds(head.range.start, tail.range.end))
@@ -1989,11 +1985,11 @@ pub class Lexer {
     ///
     /// \note    Only `"` chains: a char literal is a single codepoint. A
     ///          continuation may carry any string prefix (`"a" r"b"`,
-    ///          `f"a{x}" f"b{y}"`, P486); each segment is lexed under its own
+    ///          `f"a{x}" f"b{y}"`); each segment is lexed under its own
     ///          prefix, so its escapes and holes are its own, and the
-    ///          consumers read every segment's prefix_kind. Before P486 only
-    ///          an unprefixed continuation chained, and a prefixed one was a
-    ///          second token: a new statement whose value was discarded.
+    ///          consumers read every segment's prefix_kind. A prefixed
+    ///          continuation that did not chain would be a second token: a
+    ///          new statement whose value was discarded.
     ///
     /// \warning the cursor is restored when no adjacent literal follows. The
     ///          newline after a lone string is a statement terminator and must
@@ -2129,7 +2125,6 @@ pub class Lexer {
 
         ctx.in_format_depth  = 0
         ctx.in_bracket_depth = 0
-        ctx.terminators      = cxx::std::stack<SourceLocation>()
         ctx.fstring_specs    = llvm::SmallVector<Self::TextCtx::FormatSpec, 4>()
 
         return ctx
@@ -2193,7 +2188,7 @@ pub class Lexer {
     ///
     /// \details every branch here needs a live _cursor, so the caller commits
     ///          before calling and re-reads _cursor after. Advances through
-    ///          advance_cursor exactly as the inlined switch used to.
+    ///          advance_cursor.
     ///
     /// \returns false once the closing delimiter has been consumed and the
     ///          literal is complete; true to keep scanning.
@@ -2232,15 +2227,14 @@ pub class Lexer {
                 if ctx.is_format {
                     ctx.in_format_depth  = 1
                     ctx.in_bracket_depth = 0
-                    ctx.terminators.push(self.get_source_location())
                     self.advance_cursor((d.len as usize))
 
                     ctx.fstring_specs.push_back(
                         Self::TextCtx::FormatSpec {
                             start:      self._cursor,
                             end:        0,
-                            spec_start: 0,
-                            eq_pos:     0,
+                            spec_start: 0, // no spec yet
+                            eq_pos:     0, // no `=` yet
                         },
                     )
 
@@ -2329,7 +2323,6 @@ pub class Lexer {
                 self.advance_cursor((d.len as usize))
             } case '{' { // {
                 ++ctx.in_format_depth
-                ctx.terminators.push(self.get_source_location())
                 self.advance_cursor((d.len as usize))
             } case '}' { // }
                 --ctx.in_format_depth
@@ -2337,7 +2330,6 @@ pub class Lexer {
                     ctx.fstring_specs.back().end = self._cursor
                 }
 
-                ctx.terminators.pop()
                 self.advance_cursor((d.len as usize))
             } case ':' { // : opens the spec, unless it is half of a `::`
                 const src: kairo::std::ConstPtr<u8> = self.file_data()
@@ -2415,7 +2407,8 @@ pub class Lexer {
             return false
         }
 
-        if !ctx.terminators.empty() {
+        // A hole still open at the closing quote.
+        if ctx.in_format_depth > 0 {
             return false
         }
 
@@ -2571,9 +2564,7 @@ pub class Lexer {
         return token
     }
 
-    /// \details switch over MACRO_UNICODE_OPERATOR_CHAR_CASES replaced by the
-    ///          ASCII_LEX_FLAGS table it is now generated from. Same set, one
-    ///          load and a mask.
+    /// \details table lookup (ASCII_LEX_FLAGS): one load and a mask.
     inline static fn is_valid_symbol(c: kairo::DecodeResult) -> bool {
         return kairo::is_operator_char(c.chr, c.len)
     }
@@ -2581,10 +2572,9 @@ pub class Lexer {
     /// \brief classifies a character for identifier/keyword scanning.
     /// \returns 0 not a name character, 1 keyword-safe ASCII, 2 identifier-only.
     ///
-    /// \details the 63-case switch over MACRO_UNICODE_KEYWORD_CASES is now the
-    ///          ASCII_LEX_FLAGS table generated from that same macro. This is
-    ///          called once per character by lex_name's scan loop, and the old
-    ///          body was far too large to inline into it.
+    /// \details table lookup (ASCII_LEX_FLAGS). This is called once per
+    ///          character by lex_name's scan loop, so the body must stay small
+    ///          enough to inline into it.
     inline static fn is_valid_name(c: kairo::DecodeResult) -> u8 {
         return kairo::name_char_kind(c.chr, c.len)
     }
@@ -2686,7 +2676,7 @@ pub class Lexer {
                     ).first(range)->emit()
                 }
 
-                /// we now validate the value
+                /// validate the value
                 var value = octal_parser.get_value()
 
                 if octal_parser.get_digits() < 1 || octal_parser.get_digits() > 3 {
@@ -5822,7 +5812,7 @@ pub fn Test() -> i32 {
     )
 
     // BALANCE TRACKING
-    // This is now no longer a part of the Lexer PP tracks balance post PP stream.
+    // Balance tracking lives in the preprocessor, which tracks it on the post-PP stream.
 
     // suite.equal::<string>("balance tracker - matched braces", "pass", fn () -> string {
     //     var res = create_lexer_from_string_with_diag("{ { } }", sm, pool, test_diag_p);

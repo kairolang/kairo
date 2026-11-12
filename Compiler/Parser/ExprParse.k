@@ -106,7 +106,7 @@ extend ExprStopBit impl FlagBit<u8> {
     }
 }
 
-// TODO(DUCK-GENERIC): T uses _consume_mode, _is_terminator_tok, _parse_and_validate_op_spelling, _parse_closure_sig, _parse_generic_args, _parse_match_core, _peek_mode, _pending_close_angle, _reject_mode_binding, _starts_decl_kw, advance, advance_raw, ... (48). Stage 0 was duck-typed; bound it or keep `: type`.
+// TODO(DUCK-GENERIC): T uses _consume_mode, _is_terminator_tok, _parse_and_validate_op_spelling, _parse_closure_sig, _parse_generic_args, _parse_match_core, _peek_mode, pay_close, _reject_mode_binding, _starts_decl_kw, advance, advance_raw, ... (48). Stage 0 was duck-typed; bound it or keep `: type`.
 pub class <T: type> ExprParse {
     /// \brief token kinds that can start a primary expression: identifiers,
     ///        builtins, and `self`.
@@ -1037,9 +1037,7 @@ pub class <T: type> ExprParse {
             var callee = NamedIdentExpr::create(self.dyn()->ctx, name_tok.range, name_tok)
             var gargs: kairo::std::StackBuf<ChainType::GenericArg, 4>
             self.dyn()->_parse_generic_args(&gargs)
-            if self.dyn()->_pending_close_angle {
-                self.dyn()->_pending_close_angle = false
-            }
+            self.dyn()->forgive_close()
 
             callee->generic_args.from_buf(gargs.data(), gargs.size(), self.dyn()->ctx)
             callee->range = name_tok.range | self.dyn()->prev().range
@@ -2198,9 +2196,7 @@ pub class <T: type> ExprParse {
                 if self._is_generic_name(*id_ptr) {
                     var generic_args: kairo::std::StackBuf<ChainType::GenericArg, 4>
                     self.dyn()->_parse_generic_args(&generic_args)
-                    if self.dyn()->_pending_close_angle {
-                        self.dyn()->_pending_close_angle = false
-                    }
+                    self.dyn()->forgive_close()
 
                     result.generic_args.from_buf(
                         generic_args.data(),
@@ -2378,9 +2374,7 @@ pub class <T: type> ExprParse {
         var t = ASTTentativeGuard(self.dyn())
         var generic_args: kairo::std::StackBuf<ChainType::GenericArg, 4>
         var ok = self.dyn()->_parse_generic_args(&generic_args)
-        if self.dyn()->_pending_close_angle {
-            self.dyn()->_pending_close_angle = false
-        }
+        self.dyn()->forgive_close()
 
         if ok && !generic_args.is_empty() {
             var k = self.dyn()->ig_kind()
@@ -2450,9 +2444,7 @@ pub class <T: type> ExprParse {
         var t = ASTTentativeGuard(self.dyn())
         var generic_args: kairo::std::StackBuf<ChainType::GenericArg, 4>
         var ok = self.dyn()->_parse_generic_args(&generic_args)
-        if self.dyn()->_pending_close_angle {
-            self.dyn()->_pending_close_angle = false
-        }
+        self.dyn()->forgive_close()
 
         if ok && !generic_args.is_empty() {
             var k = self.dyn()->ig_kind()
@@ -3174,9 +3166,7 @@ pub class <T: type> ExprParse {
             if verdict == Self::GenericVerdict::Generic {
                 var generic_args: kairo::std::StackBuf<ChainType::GenericArg, 4>
                 self.dyn()->_parse_generic_args(&generic_args)
-                if self.dyn()->_pending_close_angle {
-                    self.dyn()->_pending_close_angle = false
-                }
+                self.dyn()->forgive_close()
 
                 nte->generic_args.from_buf(
                     generic_args.data(),
@@ -3190,9 +3180,7 @@ pub class <T: type> ExprParse {
                 var generic_args: kairo::std::StackBuf<ChainType::GenericArg, 4>
                 var ok = self.dyn()->_parse_generic_args(&generic_args)
 
-                if self.dyn()->_pending_close_angle {
-                    self.dyn()->_pending_close_angle = false
-                }
+                self.dyn()->forgive_close()
 
                 if ok && !generic_args.is_empty() {
                     // check what follows: must be a valid postfix continuation
@@ -3317,9 +3305,7 @@ pub class <T: type> ExprParse {
             if self._is_generic_name(*id_ptr) {
                 var generic_args: kairo::std::StackBuf<ChainType::GenericArg, 4>
                 self.dyn()->_parse_generic_args(&generic_args)
-                if self.dyn()->_pending_close_angle {
-                    self.dyn()->_pending_close_angle = false
-                }
+                self.dyn()->forgive_close()
 
                 first_step.generic_args.from_buf(
                     generic_args.data(),

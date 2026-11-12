@@ -54,6 +54,34 @@ import std::c_char
 ///
 
 ///
+/// \enum LineEntryState
+/// \brief where one file's line index is, as a single atomic byte.
+///
+/// \details The entry records more than "ready or not" so that a file
+///          nobody will ever index, one whose build is queued, and a second
+///          claim on an in-flight build are distinguishable. Those are
+///          exactly the states the loader/pool races live in,
+///          so they are named, and the transitions below are the only
+///          writers (each one asserts its source state in a debug build):
+///
+///            Absent/Stale -> Queued     try_claim(Queued)  reserve_build, under _load_mu
+///            Absent/Stale -> Building   try_claim(Building) build_index, under _load_mu
+///            Queued       -> Building   begin_scan         the pool task
+///            Building     -> Ready      publish_lines      the scanner
+///            any at rest  -> Stale      withdraw           invalidate, after the drain
+///
+///          Queued and Building are always counted in _builds, so after
+///          _drain_builds() no entry may be in either.
+///
+pub enum LineEntryState derives u8 {
+    Absent,   ///< registered; no build claimed it.
+    Queued,   ///< reserve_build claimed it; a pool task will scan it.
+    Building, ///< a scan is filling it.
+    Ready,    ///< lines and line_count are published.
+    Stale,    ///< invalidate withdrew the old index; the rebuild follows under _load_mu.
+}
+
+///
 /// \class SourceLineTable
 /// \brief maintains file-to-line offset mapping with simd acceleration.
 ///
@@ -76,14 +104,17 @@ pub class SourceLineTable {
     /// \class FileEntry
     /// \brief represents one file's line index data.
     ///
-    /// stores file size, line count, file id, readiness flag,
+    /// stores file size, line count, file id, build state,
     /// and pointer to a vector of newline offsets.
     ///
     class FileEntry {
         pub var line_count: kairo::std::Atomic<u32>  = kairo::std::Atomic<u32>(0) ///< number of lines.
         pub var file_size:  u32 ///< total size in bytes.
         pub var file_id:    u32 ///< file index in table.
-        pub var ready:      kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(false)
+        /// A LineEntryState. Written only by the transitions below; readers on
+        /// any thread load it with acquire, which is what makes lines and
+        /// line_count (stored before Ready with release) safe to read.
+        priv var _state: kairo::std::Atomic<u8> = kairo::std::Atomic<u8>(LineEntryState::Absent as u8)
         pub var lines: kairo::std::Atomic<unsafe *cxx::std::vector<u32>> = kairo::std::Atomic<unsafe *cxx::std::vector<u32>>(
             &null,
         )
@@ -114,16 +145,111 @@ pub class SourceLineTable {
         /// \brief checks if the entry is ready (index built).
         ///
         fn is_ready(self) -> bool {
-            return self.ready.load(kairo::std::MemoryOrder::acquire)
+            return self._state.load(kairo::std::MemoryOrder::acquire) == (LineEntryState::Ready as u8)
+        }
+
+        /// The raw LineEntryState byte (acquire).
+        fn state(self) -> u8 {
+            return self._state.load(kairo::std::MemoryOrder::acquire)
+        }
+
+        /// Queued or Building: a build counted in _builds owns the entry.
+        fn in_flight(self) -> bool {
+            var s = self._state.load(kairo::std::MemoryOrder::acquire)
+            return s == (LineEntryState::Queued as u8) || s == (LineEntryState::Building as u8)
         }
 
         ///
-        /// \brief publishes the computed line offsets.
+        /// \brief claims an entry at rest (Absent or Stale) for a build,
+        ///        moving it to \p to (Queued or Building).
         ///
+        /// \details A CAS rather than a test-then-store: an is_ready()
+        ///          check would let a second claim through while the first build
+        ///          is still in flight. Only the lock makes that impossible today,
+        ///          so a debug build reports it instead of building twice.
+        ///
+        /// \return false if the entry is Ready (nothing to build) or in flight.
+        fn try_claim(self, to: LineEntryState) -> bool {
+            var from = LineEntryState::Absent as u8
+            if self._state.compare_exchange_strong(&from, to as u8) {
+                return true
+            }
+
+            from = LineEntryState::Stale as u8
+            if self._state.compare_exchange_strong(&from, to as u8) {
+                return true
+            }
+
+            eval if defined!(DEBUG) {
+                if from != (LineEntryState::Ready as u8) {
+                    kairo::std::ice_fail(
+                        f"SourceLineTable: fid={self.file_id} claimed while its line index build is in flight (state {from as u32})",
+                    )
+                }
+            }
+
+            return false
+        }
+
+        ///
+        /// \brief the pool task's start: Queued to Building.
+        ///
+        /// \return false (and an ICE in a debug build) if the entry is not
+        ///         Queued: its reservation did not come from reserve_build, or
+        ///         someone touched it while the task waited in the queue.
+        fn begin_scan(self) -> bool {
+            var from = LineEntryState::Queued as u8
+            if self._state.compare_exchange_strong(&from, LineEntryState::Building as u8) {
+                return true
+            }
+
+            eval if defined!(DEBUG) {
+                kairo::std::ice_fail(
+                    f"SourceLineTable: fid={self.file_id} reserved build ran, but the entry is not queued (state {from as u32})",
+                )
+            }
+
+            return false
+        }
+
+        ///
+        /// \brief publishes the computed line offsets: Building to Ready.
+        ///
+        /// \details lines and line_count are stored first, then the state with
+        ///          release, so a reader that sees Ready sees both.
         fn publish_lines(self, lines: unsafe *cxx::std::vector<u32>, count: u32) {
+            eval if defined!(DEBUG) {
+                var s = self._state.load(kairo::std::MemoryOrder::acquire)
+                if s != (LineEntryState::Building as u8) {
+                    kairo::std::ice_fail(
+                        f"SourceLineTable: fid={self.file_id} published without a claimed build (state {s as u32})",
+                    )
+                }
+            }
+
             self.lines.store(lines, kairo::std::MemoryOrder::release)
             self.line_count.store(count, kairo::std::MemoryOrder::release)
-            self.ready.store(true, kairo::std::MemoryOrder::release)
+            self._state.store(LineEntryState::Ready as u8, kairo::std::MemoryOrder::release)
+        }
+
+        ///
+        /// \brief withdraws the published index before its vector is freed:
+        ///        any state at rest to Stale.
+        ///
+        /// \details Stored before line_count and lines are cleared, so a
+        ///          reader that raced in sees "not ready" rather than a live
+        ///          pointer to a vector about to be deleted. The caller has
+        ///          drained _builds, so nothing may be in flight.
+        fn withdraw(self) {
+            eval if defined!(DEBUG) {
+                if self.in_flight() {
+                    kairo::std::ice_fail(
+                        f"SourceLineTable: fid={self.file_id} invalidated while its line index build is in flight (state {self.state() as u32})",
+                    )
+                }
+            }
+
+            self._state.store(LineEntryState::Stale as u8, kairo::std::MemoryOrder::release)
         }
 
         fn op as (self) -> string {
@@ -228,8 +354,8 @@ pub class SourceLineTable {
     ///          parsing. Draining is free at that point. This is the whole
     ///          reason the line index belongs to file IDENTITY and not to a
     ///          per-parse artifact: at per-pass frequency this would have to be
-    ///          a real reclamation protocol, which is exactly the cost the old
-    ///          "line entries are deliberately never dropped" note was avoiding.
+    ///          a real reclamation protocol, which is exactly the cost that
+    ///          keeping line entries for a file's whole lifetime avoids.
     priv fn _drain_builds(self) {
         while self._builds.load(kairo::std::MemoryOrder::acquire) > 0 {
             cxx::std::this_thread::sleep_for(cxx::std::chrono::microseconds(50))
@@ -277,7 +403,7 @@ pub class SourceLineTable {
 
         // Unpublish before freeing, so a reader that raced in sees "not ready"
         // rather than a live pointer to a vector about to be deleted.
-        entry->ready.store(false, kairo::std::MemoryOrder::release)
+        entry->withdraw()
         entry->line_count.store(0, kairo::std::MemoryOrder::release)
 
         var unsafe *old = entry->lines.load(kairo::std::MemoryOrder::acquire)
@@ -314,6 +440,14 @@ pub class SourceLineTable {
             return false
         }
 
+        eval if defined!(DEBUG) {
+            if entry->in_flight() {
+                kairo::std::ice_fail(
+                    f"SourceLineTable: fid={fid} dropped while its line index build is in flight (state {entry->state() as u32})",
+                )
+            }
+        }
+
         // Slot is nulled, not erased: the table is indexed by fid.
         (*tbl)[fid] = &null
 
@@ -347,7 +481,19 @@ pub class SourceLineTable {
             return
         }
 
-        self._scan((*tbl)[fid], bytes)
+        // Synchronous, so the claim goes straight to Building. A Ready entry
+        // is the legal no-op it always was.
+        var unsafe *entry = (*tbl)[fid]
+        if entry == &null || !entry->try_claim(LineEntryState::Building) {
+            kairo::Logger::debug(
+                kairo::Logger::Stage::Driver,
+                f"SourceLineTable::build_index: entry missing or already ready, skipping",
+            )
+
+            return
+        }
+
+        self._scan(entry, bytes)
     }
 
     ///
@@ -376,12 +522,20 @@ pub class SourceLineTable {
             return &null
         }
 
+        // The claim and the count go together: an entry that reads Queued is
+        // always one _drain_builds waits for. Bumped before the CAS so a
+        // drain on another thread can never see Queued uncounted.
         var unsafe *entry = (*tbl)[fid]
-        if entry == &null || entry->is_ready() {
+        if entry == &null {
             return &null
         }
 
         self._builds.fetch_add(1, kairo::std::MemoryOrder::acq_rel)
+        if !entry->try_claim(LineEntryState::Queued) {
+            self._builds.fetch_sub(1, kairo::std::MemoryOrder::acq_rel)
+            return &null
+        }
+
         return entry
     }
 
@@ -392,6 +546,10 @@ pub class SourceLineTable {
     fn run_reserved_build(self, entry: unsafe *Self::FileEntry, bytes: MemoryBuffer) {
         finally {
             self._builds.fetch_sub(1, kairo::std::MemoryOrder::acq_rel)
+        }
+
+        if !entry->begin_scan() {
+            return
         }
 
         self._scan(entry, bytes)
@@ -407,18 +565,9 @@ pub class SourceLineTable {
     ///
     /// reads only \p entry and \p buff   never _file_table, never the
     /// VirtualFileManager   so it is safe off the loader's thread. the caller
-    /// accounts for _builds.
+    /// accounts for _builds and has moved \p entry to Building.
     ///
     priv fn _scan(self, entry: unsafe *Self::FileEntry, buff: MemoryBuffer) {
-        if entry == &null || entry->is_ready() {
-            kairo::Logger::debug(
-                kairo::Logger::Stage::Driver,
-                f"SourceLineTable::build_index: entry missing or already ready, skipping",
-            )
-
-            return
-        }
-
         var fid = entry->file_id
 
         if buff.data() == &null || buff.size() == 0 {
@@ -626,6 +775,14 @@ pub class SourceLineTable {
 
         var unsafe *entry = (*tbl)[fid]
         if entry == &null {
+            return
+        }
+
+        // Absent: no build was ever claimed (load_file's skip_indexing), so
+        // nothing will make it Ready, so waiting would spin (up to ~5 s)
+        // for nothing. Stale still waits: invalidate rebuilds it under
+        // _load_mu right after withdrawing it.
+        if entry->state() == (LineEntryState::Absent as u8) {
             return
         }
 

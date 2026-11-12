@@ -35,6 +35,7 @@ ffi "c++" import "algorithm"
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::LangItems::builtin_root_name
+import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Declarations::MacroDecl
 import Config::Invocation::CompilerInvocation
 import Config::Preprocessor::PreprocessorOptions
@@ -295,7 +296,7 @@ pub class PreProcessor {
             entry->name_sym   = self._sym->intern(name)
             entry->scope      = ModulePath() // global: visible from every TU
             entry->source_fid = fid
-            entry->visibility = 3 // pub: MacroTable::find's cross-file check needs it
+            entry->visibility = VisibilityKind::Public // MacroTable::find's cross-file check needs it
 
             self._macros->register_macro(entry)
         }
@@ -980,6 +981,13 @@ pub class PreProcessor {
             var        _te   = TimeRegion("Walk")
             var unsafe *wrec = _te.record()
 
+            // Every file of the graph is registered by now (the scan loaded
+            // it); from here workers lex over the VFM unlocked.
+            self._sm->begin_walk()
+            finally {
+                self._sm->end_walk()
+            }
+
             dispatched = executor.run(
                 &graph,
                 fn(fid: u32, mod_path: ModulePath) {
@@ -1010,7 +1018,7 @@ pub class PreProcessor {
         if dispatched < graph.all_fids.size() {
             var lost = ""
             for fid in graph.all_fids {
-                if graph.in_degree[fid] == 0 {
+                if !executor.stranded(fid) {
                     continue
                 }
 

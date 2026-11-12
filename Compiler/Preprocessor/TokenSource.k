@@ -22,6 +22,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import Diagnostic::Engine::DiagEngine
@@ -116,6 +117,10 @@ pub class TokenSource {
     /// Keep AtComment in the stream (--preserve-comments). Call before the
     /// first pull; the ring is empty then, so no comment has been dropped yet.
     fn set_preserve_comments(self, on: bool) {
+        eval if defined!(DEBUG) {
+            self._check_unpulled("set_preserve_comments")
+        }
+
         self._drop_comments = !on
     }
 
@@ -126,8 +131,20 @@ pub class TokenSource {
     /// pull. Comments, the token budget and the end are handled as for the
     /// lexer, so the two walks see what one lexer pass would have shown.
     fn set_replay(self, toks: unsafe *cxx::std::vector<Token>) {
+        eval if defined!(DEBUG) {
+            self._check_unpulled("set_replay")
+        }
+
         self._replay    = toks
         self._replay_at = 0
+    }
+
+    /// Debug builds: \p what changes how frame 0 is read, which only means
+    /// something before its first token was pulled.
+    priv fn _check_unpulled(self, what: string) {
+        if self._pulled_count != 0 || self._eof_seen {
+            kairo::std::ice_fail(f"TokenSource::{what} after the first pull ({self._pulled_count} tokens read)")
+        }
     }
 
     /// # frame stack (== expansion chain)

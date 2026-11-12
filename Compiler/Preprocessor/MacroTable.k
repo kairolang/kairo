@@ -17,6 +17,7 @@ import AST::Node::Declarations::{
     MacroDecl,
     MacroParamSpec,
 }
+import AST::Mixin::Annotation::VisibilityKind
 import Preprocessor::PreprocessorSymbolTable::SymbolID
 import Resolution::ModulePath::ModulePath
 import Token::TokenBuffer::TokenBuffer
@@ -29,7 +30,7 @@ pub class MacroEntry {
     pub var name_sym:   SymbolID                 = 0
     pub var scope:      ModulePath
     pub var source_fid: u32                      = 0
-    pub var visibility: u8                       = 3 ///< 1 priv / 2 prot / 3 pub
+    pub var visibility: VisibilityKind           = VisibilityKind::Public ///< as written; `macro` alone is pub
     pub var order_idx:  u32                      = 0
 
     fn body_span(self) -> TokenSpan {
@@ -102,8 +103,8 @@ pub class MacroTable {
 
     /// exact (scope, name) lookup. visibility enforcement:
     ///   priv -> requesting_fid must equal source_fid
-    ///   prot -> TODO(step 4 + resolver same-library query); treated as priv
-    ///          for now CONSERVATIVE, loosens later, never tightens
+    ///   prot -> treated as priv until a same-library query exists
+    ///          (conservative: may loosen later, never tighten)
     ///   pub  -> always visible
     fn find(self,
             const scope:    ModulePath,
@@ -122,7 +123,8 @@ pub class MacroTable {
         }
 
         var unsafe *e = it->second
-        if e->visibility <= 2 && e->source_fid != requesting_fid {
+        var gated = e->visibility == VisibilityKind::Private || e->visibility == VisibilityKind::Protected
+        if gated && e->source_fid != requesting_fid {
             return &null // priv (and prot-as-priv) blocked cross-file
         }
 
