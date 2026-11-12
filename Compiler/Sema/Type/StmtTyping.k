@@ -43,6 +43,7 @@ import AST::DeclFacts::{
     decl_is_instance,
     decl_only_forward,
     param_is_type_pack,
+    place_has_const_root,
 }
 import AST::Kind::ExprKind::ExprKind
 import AST::LangItems::{
@@ -61,6 +62,7 @@ import AST::Node::CanonicalNodes::{
     QUAL_CONST,
     QUAL_VOLATILE,
     RecordType,
+    canon_has_const,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -82,6 +84,7 @@ import AST::Node::Declarations::{
 }
 import AST::Node::Expressions::{
     BinaryOperatorExpr,
+    CallExpr,
     ClosureExpr,
     RangeExpr,
     SubscriptExpr,
@@ -2873,7 +2876,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             &n->bindings,
             elem,
             n->iterable,
-            self._cxx_yields_const(n) || self._const_owner_iter(n, it),
+            self._cxx_yields_const(n)
+                || self._const_owner_iter(n, it)
+                || self._user_yields_readonly(n),
         )
 
         // No condition refines it; it may run zero times, so after it is
@@ -2914,6 +2919,52 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         return self.dyn()->tu.has_const(d)
+    }
+
+    /// A user generator's `for *x` points at what its `yield` hands over:
+    /// the generator's own place for a mutable lvalue, a frame copy for one
+    /// const by type or by root (EmitIR::_yield), a temporary for anything
+    /// else. A write through `x` reaches neither the container nor a later
+    /// read, so unless every `yield` names a mutable place `x` points to
+    /// const. Read off the generator's typed body: one this TU has not
+    /// typed yet (declared below the loop) is read as mutable.
+    priv fn _user_yields_readonly(self, n: unsafe *Statements::RangedForStmt) -> bool {
+        if n->iter_kind != Statements::IterKind::User {
+            return false
+        }
+
+        var unsafe *f = dyn_cast<FunctionDecl>(n->iter_op)
+        if f == &null {
+            f = self._generator_called(n->iterable)
+        }
+
+        if f == &null || f->body_kind != FnBodyKind::Block || f->body_block == &null {
+            return false
+        }
+
+        var scan = YieldPlaceScan()
+        return scan.any_readonly(f->body_block)
+    }
+
+    /// The generator a `Yield<T>` iterable is a direct call of
+    /// (`for *x in b.squares()`), or null.
+    priv fn _generator_called(self, e: unsafe *Expr) -> unsafe *FunctionDecl {
+        var unsafe *c = dyn_cast<CallExpr>(self.dyn()->tu.strip_parens(e))
+        if c == &null || c->callee == &null {
+            return &null
+        }
+
+        var unsafe *h = self.dyn()->tu.strip_parens(c->callee)
+        var d: unsafe *Decl = &null
+        if isa<NamedIdentExpr>(h) {
+            d = cast<NamedIdentExpr>(h)->resolved_decl
+        } else if isa<ChainExpr>(h) && cast<ChainExpr>(h)->steps.size() > 0 {
+            var unsafe *ch = cast<ChainExpr>(h)
+            d = ch->steps.get(ch->steps.size() - 1)->resolved_decl
+        }
+
+        var unsafe *f = dyn_cast<FunctionDecl>(d)
+        return if (f != &null && f->is_generator) => (f) else => &null
     }
 
     /// A const array or vector owns its elements, so what `for *x` points
@@ -3371,5 +3422,34 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         self.dyn()->check_convertible(n->value, elem)
         return n
+    }
+}
+
+/// The `yield`s of one generator body: whether any hands over something
+/// other than a mutable lvalue (StmtTyping::_user_yields_readonly). A yield
+/// not typed yet says nothing.
+class YieldPlaceScan derives RecursiveASTVisitor<YieldPlaceScan> {
+    pub var readonly: bool = false
+
+    fn YieldPlaceScan(self) { }
+
+    pub fn any_readonly(self, body: unsafe *Statements::CompoundStmt) -> bool {
+        self.traverse_compound_stmt(body)
+        return self.readonly
+    }
+
+    fn visit_yield_stmt(self, n: *Statements::YieldStmt) -> bool {
+        var unsafe *v = n->value
+        if v == &null || v->type_ == &null {
+            return true
+        }
+
+        if v->value_category != Expr::ValueCategory::LValue
+            || canon_has_const(v->type_)
+            || place_has_const_root(v) {
+            self.readonly = true
+        }
+
+        return true
     }
 }
