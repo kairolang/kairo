@@ -4,7 +4,7 @@
 ///
 ///   \detail
 ///     Reads the sets EffectPropagation solved at the Typed barrier and
-///     walks each body again with PanicWalk, now keeping its sites. Each
+///     walks each body again with PanicWalk, keeping its sites. Each
 ///     site's leftover -- what no enclosing `try` discharges -- must be in
 ///     the set of the body it is in:
 ///       - a function or closure with no `panic`: the empty set. An
@@ -24,7 +24,7 @@
 ///     A set that is not known says nothing (EffectPropagation).
 ///
 ///     Declaration rules: `fn main() panic`; `panic` with `-> !` (§2.8);
-///     `panic` on ANY constructor or the destructor (USER 2026-10-27: an
+///     `panic` on ANY constructor or the destructor (an
 ///     object is built whole or not at all; fallible construction is a
 ///     static factory), and a panic escaping one's body; a `panic` on what
 ///     is called where no call is written -- an `@implicit` conversion,
@@ -767,7 +767,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
     /// # `finally` after a `try`
 
     /// A `finally` written right after a `try` / `catch` is the standalone
-    /// `finally` (Compiler/Spec/Panic.md#try-and-arms, USER 2026-10-27): it is registered when
+    /// `finally` (Compiler/Spec/Panic.md#try-and-arms): it is registered when
     /// control reaches it and runs when its block is left, not when the
     /// `try` finishes, and a `return`, `break` or uncaught panic out of the
     /// `try` skips it. Readers from Java, C# or Python expect the opposite
@@ -986,7 +986,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             return
         }
 
-        // A constructor or a destructor never panics (USER 2026-10-27): an
+        // A constructor or a destructor never panics: an
         // object is either built whole or not at all, and a destructor runs
         // on every exit, where nothing could take an error.
         var life = self._lifecycle_fn(f)
@@ -1145,7 +1145,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         // with the body: in a library build, say so (a warning, §2.2).
         if self.sc->opts.library_build
             && f->is_public()
-            && !self._library_tu()
+            && !self.sc->in_library()
             && f->panic_state == Declarations::PanicSetState::Final {
             var s = cxx::std::vector<unsafe *Type>()
             for var i: usize = 0; i < f->panic_eff.size(); ++i {
@@ -1229,22 +1229,6 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
 
         var unsafe *o = dc->owner_decl()
         return o != &null && isa<Declarations::InterfaceDecl>(o)
-    }
-
-    /// The program's own file, not the builtin root or std (FlagGates'
-    /// test): a library the user cannot edit is not linted.
-    priv fn _library_tu(self) -> bool {
-        var fid = self.sc->ctx->fid
-        if self.sc->g != &null && self.sc->g->is_builtin_fid(fid) {
-            return true
-        }
-
-        var unsafe *ci = self.sc->ctx->ci
-        if ci == &null || self.sc->ctx->sm == &null {
-            return false
-        }
-
-        return ResourceLayout::is_std_file(ci, self.sc->ctx->sm->get_filename(fid))
     }
 
     /// # subset rules (§2.2)

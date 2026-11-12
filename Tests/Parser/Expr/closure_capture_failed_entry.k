@@ -1,7 +1,7 @@
 // A capture list whose only entry fails to parse is NOT the empty list.
 // `| |` and `||` capture nothing; `|3|` is S047E, and the closure keeps no
-// "captures nothing" marking. It used to be keyed on the parsed list being
-// empty, so a failed entry read as `||` and every free name in the body was
+// "captures nothing" marking. It is not keyed on the parsed list being
+// empty: a failed entry would read as `||` and every free name in the body would be
 // a follow-on "not captured" error under the syntax error.
 
 fn main() -> i32 {

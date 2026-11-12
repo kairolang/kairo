@@ -75,7 +75,10 @@ import AST::Node::Declarations::{
     SpecKind,
     StructDecl,
 }
-import AST::VisibilityFacts::same_module
+import AST::VisibilityFacts::{
+    is_library_tu,
+    reexports_to,
+}
 import Config::CodeGen::UnmatchedPolicy
 import Config::Invocation::CompilerInvocation
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
@@ -156,13 +159,8 @@ pub enum SemaPhase derives u8 {
 ///        Tri-state convention matches LangOptions: -1 unset (profile
 ///        default applies), 0 off, 1 on. Resolve through on().
 pub class SemaOptions {
-    pub var verify_interfaces: i32 = -1 ///< check extend..impl bodies against interface.
-    pub var const_checks:      i32 = -1 ///< const-correctness enforcement.
-    pub var overflow_checks:   i32 = -1 ///< arith overflow checking semantics.
-    pub var strict_null:       i32 = -1 ///< nullable strictness.
     pub var implicit_conv:     i32 = -1 ///< allow implicit conversions.
     pub var cxx_implicit_conv: i32 = -1 ///< C++'s implicit conversions at a crossing (off).
-    pub var rtti:              i32 = -1 ///< emit RTTI-dependent features.
 
     /// Longest chain of alias-through-alias expansions T will follow before
     /// giving up (--cmax-type-alias-depth). NOT a tri-state: a positive count,
@@ -231,13 +229,8 @@ pub class SemaOptions {
             return
         }
 
-        self.verify_interfaces    = ci->lang.verify_interfaces
-        self.const_checks         = ci->lang.const_checks
-        self.overflow_checks      = ci->lang.overflow_checks
-        self.strict_null          = ci->lang.strict_null
         self.implicit_conv        = ci->lang.implicit_conv
         self.cxx_implicit_conv    = ci->lang.cxx_implicit_conv
-        self.rtti                 = ci->lang.rtti
         self.max_type_alias_depth = ci->lang.max_type_alias_depth
         self.unmatched            = ci->codegen.unmatched_policy()
         self.adt_unmatched        = ci->codegen.adt_tag_policy()
@@ -617,7 +610,7 @@ pub class SemaContext {
                         continue
                     }
 
-                    if !(eid->is_public() || (eid->is_protected() && same_module(t, root))) {
+                    if !reexports_to(eid, t, root) {
                         continue
                     }
                 }
@@ -688,6 +681,32 @@ pub class SemaContext {
         }
 
         self.phase = p
+    }
+
+    /// ## The library's fixed mode (P780)
+
+    /// This TU is builtin or std. The one test every pass asks: a library
+    /// the user cannot edit is neither linted nor compiled in the user's
+    /// dialect (VisibilityFacts::is_library_tu). No TU (a hand-built
+    /// context) falls back to the builtin root by fid.
+    pub fn in_library(self) -> bool {
+        if self.tu != &null {
+            return is_library_tu(self.tu)
+        }
+
+        return self.g != &null && self.ctx != &null && self.g->is_builtin_fid(self.ctx->fid)
+    }
+
+    /// -fcxx-implicit-conv in the user's files; the library keeps the
+    /// default (off), so its overloads resolve the same way in every build.
+    pub fn cxx_implicit_conv_on(self) -> bool {
+        return (!self.in_library()) && self.opts.on(self.opts.cxx_implicit_conv, false)
+    }
+
+    /// -funwind in the user's files; a library function is `noexcept`
+    /// unless it is marked `@unwind`, whatever the user passes.
+    pub fn unwind_all_on(self) -> bool {
+        return (!self.in_library()) && self.opts.unwind_all
     }
 
     /// ## Conveniences (the every-node-hot ones only)

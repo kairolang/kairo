@@ -96,7 +96,7 @@ pub class FlagGates derives RecursiveASTVisitor<FlagGates> {
             return
         }
 
-        if self._library_tu() {
+        if self.sc->in_library() {
             return
         }
 
@@ -671,23 +671,6 @@ pub class FlagGates derives RecursiveASTVisitor<FlagGates> {
         }
 
         return o->max_extend_chain > 0
-    }
-
-    /// The builtin root by fid; std by path, against the root the driver
-    /// mounts it from (--std-dir, else <resource-dir>/std). Same test as
-    /// SemaDump::_library_tu.
-    priv fn _library_tu(self) -> bool {
-        var fid = self.sc->ctx->fid
-        if self.sc->g != &null && self.sc->g->is_builtin_fid(fid) {
-            return true
-        }
-
-        var unsafe *ci = self.sc->ctx->ci
-        if ci == &null || self.sc->ctx->sm == &null {
-            return false
-        }
-
-        return ResourceLayout::is_std_file(ci, self.sc->ctx->sm->get_filename(fid))
     }
 
     priv fn _deny(self,

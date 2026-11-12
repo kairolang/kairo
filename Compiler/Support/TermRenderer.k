@@ -560,16 +560,7 @@ pub class TermRenderer {
             return true
         }
 
-        match kind {
-            // these word tokens were never in the highlighter's list; colouring
-            // them is a visible change of its own, so they stay plain here.
-            case TokenKind::TkUnknown, TokenKind::KwMutable, TokenKind::AtByte, TokenKind::AtF8,
-                 TokenKind::AtF8E4M3,  TokenKind::AtF8E5M2,  TokenKind::AtF512, TokenKind::AtBf16 {
-                return false
-            } default {
-                return true
-            }
-        }
+        return kind != TokenKind::TkUnknown
     }
 
     priv fn highlight(self, line: string, const lang: string) -> string {

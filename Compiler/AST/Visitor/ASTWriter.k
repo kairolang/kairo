@@ -111,8 +111,8 @@ pub class <T> ListBuilder {
         // freeze_into and its slabs stay in the context's arena for good (a
         // builder is returned by value, so it cannot own an arena of its
         // own), and a lowering's list is a handful of elements. 256 slots
-        // per builder were ~2 KB of dead arena per lowered f-string or
-        // operator (perf pass).
+        // per builder would leave ~2 KB of dead arena per lowered f-string or
+        // operator.
         self._buf.set_allocator(self._arena, 16)
     }
 
@@ -315,17 +315,16 @@ pub class <D: type> ASTWriter {
     /// versions are scalar with null-drop (transform returns *F, null deletes).
     ///
     /// Copy on change: a list every element of which maps to itself is
-    /// left as it was. Each of the ~28 lowering passes rebuilt every list of
-    /// every TU, twice copied (the buffer, then from_list), changed or not:
-    /// 7.4 GB of the self-host graph's arenas, never reclaimed. The first
+    /// left as it was. Rebuilding every list in every lowering pass would copy
+    /// each list twice (the buffer, then from_list), changed or not, and the
+    /// copies are never reclaimed from the arenas. The first
     /// element that maps to something else starts the buffer, seeded with
     /// the unchanged prefix, so a changed list ends up exactly as before.
 
     /// The rebuild buffers below are scratch: from_list copies them into the
     /// context's arena, so they stay in the list's own arena, freed on
-    /// return. In ast_alloc each was a 256-slot slab left behind for good,
-    /// per list changed per pass: most of the 1.3 GB the lowerings added
-    /// to the self-build's arenas (perf pass). Load-bearing:
+    /// return. In ast_alloc each would be a 256-slot slab left behind for
+    /// good, per list changed per pass. Load-bearing:
     /// `var buf = ArenaList<T>()` must construct in place. A default-built
     /// list points at its own member arena, so a moved one would point into
     /// the dead temporary and its blocks would leak.

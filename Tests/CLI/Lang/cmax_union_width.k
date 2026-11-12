@@ -1,5 +1,5 @@
 // --cmax-union-width errors on a union with more members than the limit;
-// 0 is unlimited (the registry minimum used to be 2, which made 0 unusable).
+// 0 is unlimited (the registry minimum admits 0).
 // Three members: a limit of 3 accepts, 2 rejects.
 
 union U {

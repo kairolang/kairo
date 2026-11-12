@@ -4,8 +4,8 @@
 // RUN: %t.exe; test $? -eq 12
 //
 // A macro invocation's `( ... )` is a bracket: a newline in it terminates
-// nothing, as in a call. The argument tokens used to keep their newlines,
-// so `check!(x` newline `> 3, ...)` expanded to a condition that ended at
+// nothing, as in a call. The argument tokens must not keep their newlines:
+// `check!(x` newline `> 3, ...)` would expand to a condition that ends at
 // the line break (S052E / S057E, then a cascade into the next function).
 // A newline inside an argument's own `{ }` still separates statements.
 

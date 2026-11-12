@@ -89,6 +89,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations
+import AST::VisibilityFacts::reexports_to
 import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
@@ -569,9 +570,10 @@ pub class MemberLookup {
     /// binds foo's ModuleDecl, whose shared table is exactly that symbol
     /// table. So `foo::f` has to ask foo's overlay, which is what this does.
     ///
-    /// Returns null unless some target under that key came in through a
-    /// pub/prot import; a PRIVATE import edge in the source is never surface
-    /// (wall 1).
+    /// Returns null unless some target under that key came in through an
+    /// import that re-exports to this TU (VisibilityFacts::reexports_to): a
+    /// PRIVATE import edge in the source is never surface (wall 1), and a
+    /// `prot` one only for files of the source's module.
     fn reexport_lookup(self,
                        scope:          unsafe *DeclContext,
                        const spelling: string) -> unsafe *OverloadCell {
@@ -610,7 +612,7 @@ pub class MemberLookup {
                 continue
             }
 
-            if o->is_public() || o->is_protected() {
+            if reexports_to(o, tu, self.sc->tu) {
                 surface = true
                 break
             }

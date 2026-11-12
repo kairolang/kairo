@@ -55,10 +55,9 @@ pub class LangOptions {
     /// # -f / -fno- feature toggles
     /// -1 = unset (profile default applies), 0 = disabled, 1 = enabled
 
-    pub var verify_interfaces: i32 = -1
-    pub var const_checks:      i32 = -1
-    pub var overflow_checks:   i32 = -1
-    pub var strict_null:       i32 = -1
+    /// -fverify-interfaces, -fconst-checks, -foverflow-checks and
+    /// -fstrict-null parse but have no consumer (FlagRegistry's
+    /// mark_unimplemented: U005W), so nothing stores them.
     pub var implicit_conv:     i32 = -1
     /// -fcxx-implicit-conv: at a call (or initialisation) that crosses into
     /// C++, C++'s own implicit conversions apply (one user-defined
@@ -76,19 +75,17 @@ pub class LangOptions {
     /// -finfer-purity: FnPurityCheck::infer stamps const / pure on the
     /// functions that keep the promise unwritten (Compiler/Spec/
     /// SemanticChecks.md, FnPurityCheck). On unless 0 (-fno-infer-purity),
-    /// as `const` parameters are inferred unasked (decided 2026-11-08): the
+    /// as `const` parameters are inferred unasked: the
     /// rules are the written promise's, so what they admit is sound.
     pub var infer_purity: i32 = -1
     /// -fduck-generics: `<T: type>` is accepted, its body typed as written
     /// and emitted as an unconstrained template that clang checks per
-    /// instance (Compiler/Spec/Generics.md#duck-regime). OFF unless 1 (decided
-    /// 2026-11-08): an internal flag that build.py passes for the compiler's
+    /// instance (Compiler/Spec/Generics.md#duck-regime). OFF unless 1: an internal flag that build.py passes for the compiler's
     /// own targets only; everyone else gets real bounds. Transitional: removal
     /// is Compiler/Spec/Generics.md#duck-regime (delete the regime and the flag).
     pub var duck_generics: i32 = -1
-    /// -fdefault-visibility=spec|pub (hidden): `pub` keeps the rule from
-    /// before 2026-11-08 for unmarked declarations (public, a class's
-    /// variables private); `spec`, the default, makes them `priv`, or `prot`
+    /// -fdefault-visibility=spec|pub (hidden): `pub` keeps the older rule
+    /// for unmarked declarations (public, a class's variables private); `spec`, the default, makes them `priv`, or `prot`
     /// under a module.k (AST/VisibilityFacts.k). build.py passes `spec` for
     /// the compiler's own targets (tree_visibility_args); `pub` stays for
     /// users and tests.
@@ -181,10 +178,6 @@ pub class LangOptions {
         o.test_fold_lie      = args.get_bool("test-fold-lie")
 
         /// ## feature toggles
-        o.verify_interfaces = args.get_feature("verify-interfaces")
-        o.const_checks      = args.get_feature("const-checks")
-        o.overflow_checks   = args.get_feature("overflow-checks")
-        o.strict_null       = args.get_feature("strict-null")
         o.implicit_conv     = args.get_feature("implicit-conv")
         o.cxx_implicit_conv = args.get_feature("cxx-implicit-conv")
         o.rtti              = args.get_feature("rtti")

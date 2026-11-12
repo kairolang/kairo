@@ -408,6 +408,11 @@ fn io_function_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::FunctionDec
         ar->sema_false(n->is_generator, "FunctionDecl::is_generator")
         ar->sema_false(n->has_yield, "FunctionDecl::has_yield")
         ar->sema_false(n->no_unwind, "FunctionDecl::no_unwind")
+        // The driver drops a recovered body after the post-parse gate
+        // (CompilerRecovery::admit_past_syntax_errors); the serializer runs
+        // before it (FrontendAction::_ast_serialize), so a written tree
+        // never has one.
+        ar->sema_false(n->body_recovered, "FunctionDecl::body_recovered")
         ar->sema_null<Declarations::FunctionDecl>(n->where_lead, "FunctionDecl::where_lead")
         ar->sema_zero(n->where_group.size() as u64, "FunctionDecl::where_group")
         ar->sema_zero(n->ffi_builtin_id as u64, "FunctionDecl::ffi_builtin_id")

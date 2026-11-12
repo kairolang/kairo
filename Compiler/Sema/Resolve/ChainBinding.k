@@ -59,6 +59,7 @@ import AST::Context::SymbolTable::{
     DeclName,
     OverloadCell,
 }
+import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
     decl_cxx_spelling,
     decl_generic_params,
@@ -100,7 +101,12 @@ import AST::Node::Types::{
     NullableType,     PointerType,      SetType,   VectorType,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import AST::VisibilityFacts::{
+    same_module,
+    tu_module_dir,
+}
 import Diagnostic::Code::DiagCode
+import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Support::FileIO::Path::Path
@@ -2059,28 +2065,124 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 e->range.start,
                 f"an extension of '{tn}' in '{file}' declares '{spelled}'; import it to use it",
             )
-            var mp = self._import_spelling(Path(sm->get_filename(at.start)), epath)
-            var unsafe *tu = self.sc->tu
-            if mp.size() > 0 && tu != &null && tu->imports.size() > 0 {
-                // After the line the last import ends on: an ImportDecl's
-                // range may stop at its keyword.
-                var unsafe *last = *tu->imports.get(tu->imports.size() - 1)
-                if last != &null && last->range.start.is_valid() {
-                    var at_end = last->range.start
-                    if last->range.end.is_valid() && sm->same_file(at_end, last->range.end) &&
-                        sm->get_offset(last->range.end) > sm->get_offset(at_end) {
-                        at_end = last->range.end
-                    }
-
-                    var col  = sm->get_line_col(at_end).column
-                    var off  = sm->get_offset(at_end) + 1 - col
-                    var eol  = sm->get_loc(sm->get_fid(at_end), off + sm->get_full_line(at_end).size())
-                    b.insert(eol, f"\nimport self::{mp}", f"import 'self::{mp}'")
+            // Only a path this file may import: a file of another module
+            // is that module's to export (its module.k's `pub import`s;
+            // imports.mdx, Re-export Pattern), so naming it directly would
+            // reach past the module's surface (P945).
+            var        efid     = sm->get_fid(e->range.start) as u32
+            var unsafe *etu     = self._tu_of_fid(efid)
+            var unsafe *tu      = self.sc->tu
+            var        emod     = tu_module_dir(etu)
+            if emod.size() > 0 && tu != &null && !same_module(etu, tu) {
+                var mname = Path(emod).filename()
+                b.note(f"'{file}' is a file of module '{mname}': from outside it, its extensions come through what the module re-exports (its module.k's `pub import`s), not by importing the file")
+            } else {
+                var mp = self._import_spelling(Path(sm->get_filename(at.start)), epath)
+                if mp.size() > 0 && tu != &null {
+                    self._insert_import(&b, tu, f"import self::{mp}")
                 }
             }
         }
 
         b.emit()
+    }
+
+    priv fn _tu_of_fid(self, fid: u32) -> unsafe *TranslationUnit {
+        if self.sc->g == &null {
+            return &null
+        }
+
+        var unsafe *c = self.sc->g->get_context(fid)
+        if c == &null {
+            return &null
+        }
+
+        return c->tu
+    }
+
+    /// The fix-it that adds \p line to \p tu's file: on a new line after
+    /// the import that ends last in the text, or, in a file with none,
+    /// after the comment block it opens with. Not after the last entry of
+    /// tu->imports: that list is not in source order, and its tail holds
+    /// the imports the file did not write (the prelude's, PPWalker::
+    /// add_implicit_import), whose range is the file's first byte, so the
+    /// insertion landed at the end of line 1, inside a header comment.
+    priv fn _insert_import(self, b: *DiagBuilder, tu: unsafe *TranslationUnit, const line: string) {
+        var unsafe *sm = self.sc->ctx->sm
+        var        fid = tu->fid
+        var        best: usize = 0
+        var        found       = false
+        for var i: usize = 0; i < tu->imports.size(); ++i {
+            var unsafe *d = *tu->imports.get(i)
+            if d == &null || (!d->range.start.is_valid()) {
+                continue
+            }
+
+            var unsafe *id = dyn_cast<Declarations::ImportDecl>(d)
+            if id != &null && id->is_prelude {
+                continue
+            }
+
+            if (sm->get_fid(d->range.start) as u32) != fid {
+                continue
+            }
+
+            // An ImportDecl's range may stop at its keyword: take its end
+            // when that is later in the same file.
+            var end = sm->get_offset(d->range.start)
+            if d->range.end.is_valid() && sm->same_file(d->range.start, d->range.end) && sm->get_offset(d->range.end) > end {
+                end = sm->get_offset(d->range.end)
+            }
+
+            if (!found) || end > best {
+                best  = end
+                found = true
+            }
+        }
+
+        if found {
+            var at  = sm->get_loc(fid, best)
+            var col = sm->get_line_col(at).column
+            var bol = best + 1 - col
+            var eol = sm->get_loc(fid, bol + sm->get_full_line(sm->get_loc(fid, bol)).size())
+            b->insert(eol, "\n" + line, f"add \x27{line}\x27")
+            return
+        }
+
+        // No import: past the comment lines the file opens with, when a
+        // blank line ends them (a header); a block that runs straight into
+        // a declaration is its doc comment, so the import goes above it.
+        var size        = sm->get_file_size(fid)
+        var off: usize  = 0
+        var after: usize = 0
+        var comments    = false
+        while off < size {
+            var text = sm->get_full_line(sm->get_loc(fid, off))
+            var k: usize = 0
+            while k < text.size() && (text[k] == (' ' as u8) || text[k] == ('\t' as u8)) {
+                ++k
+            }
+
+            if k + 1 < text.size() && text[k] == ('/' as u8) && text[k + 1] == ('/' as u8) {
+                comments = true
+                after    = off + text.size()
+                off      = after + 1
+                continue
+            }
+
+            if comments && k < text.size() && text[k] != ('\r' as u8) {
+                comments = false
+            }
+
+            break
+        }
+
+        if comments {
+            b->insert(sm->get_loc(fid, after), "\n\n" + line, f"add \x27{line}\x27")
+            return
+        }
+
+        b->insert(sm->get_loc(fid, 0), line + "\n", f"add \x27{line}\x27")
     }
 
     /// The `a::b::c` that imports file \p to from \p from's directory, or

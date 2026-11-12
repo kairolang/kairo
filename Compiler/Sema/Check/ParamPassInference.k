@@ -94,7 +94,7 @@
 ///   \par Library code
 ///     Inferred in builtin and std like anywhere (the copy costs the same
 ///     there), but the warning is the user's: a library file is not one
-///     the user can edit (FlagGates::_library_tu's test).
+///     the user can edit (SemaContext::in_library).
 ///
 ///   SC001W is the placeholder until the monthly sweep gives the lint a code.
 ///
@@ -113,7 +113,7 @@
 ///     own uses were all approved starts const-able, and one with an edge to
 ///     a method that is not (a candidate that failed, or no candidate at
 ///     all: another TU, a generic) stops being so, until nothing changes.
-///     Off by default (decided 2026-11-07), so a tree is run through it once first.
+///     Off by default, so a tree is run through it once first.
 ///
 ///   Phase: LOWER, after StringLowering (the last lowering): reads the tree
 ///   EmitIR will render, writes ParamDecl::inferred_const, read only by
@@ -258,7 +258,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             return
         }
 
-        self._library = self._library_tu()
+        self._library = self.sc->in_library()
         var unsafe *ci = self.sc->ctx->ci
         self._lint = ci != &null && ci->diag.Wconst_self && !self._library
 
@@ -283,21 +283,6 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         if self._lint {
             self._decide_lint()
         }
-    }
-
-    /// The test FlagGates uses: builtin by fid, std by its directory.
-    priv fn _library_tu(self) -> bool {
-        var fid = self.sc->ctx->fid
-        if self.sc->g != &null && self.sc->g->is_builtin_fid(fid) {
-            return true
-        }
-
-        var unsafe *ci = self.sc->ctx->ci
-        if ci == &null || self.sc->ctx->sm == &null {
-            return false
-        }
-
-        return ResourceLayout::is_std_file(ci, self.sc->ctx->sm->get_filename(fid))
     }
 
     /// # functions
@@ -403,7 +388,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         // The other links spell the same parameter (an out-of-line
         // definition's in-class declaration): `const` at the definition
         // alone is a signature the declaration does not match, which C++
-        // rejects as an out-of-line definition of nothing (P446).
+        // rejects as an out-of-line definition of nothing.
         for var i: usize = 0; i < links.size(); ++i {
             var unsafe *q  = links[i]
             var        at = q->name.range.start

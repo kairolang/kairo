@@ -1129,7 +1129,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             b.emit()
         }
 
-        var spell = no_at != &null || un_at == &null && !self.dyn()->sc->opts.unwind_all
+        var spell = no_at != &null || un_at == &null && !self.dyn()->sc->unwind_all_on()
         cur = head
         while true {
             cur->no_unwind = spell

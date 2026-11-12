@@ -43,9 +43,7 @@
 ///     up only in `bindings`, a rewritten one only in `scopes`.
 ///
 ///     A section reports the ABSENCE of a result as loudly as its presence:
-///     `<UNRESOLVED>` in red is the point of the tool. The types section is
-///     wired now and will read as entirely unresolved until TypeResolution
-///     lands   that is the honest state, and it means T needs no dump work.
+///     `<UNRESOLVED>` in red is the point of the tool.
 ///
 ///   \par Not a pass
 ///     Read-only; writes nothing to the AST. Safe to run at any phase, and
@@ -641,7 +639,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return
         }
 
-        if self._library_tu() {
+        if self.sc->in_library() {
             return
         }
 
@@ -682,21 +680,6 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
             self._lifecycle_in(NameLookup::context_of(d))
         }
-    }
-
-    /// The builtin root by fid; std by path, against the root the driver
-    /// mounts it from (--std-dir, else <resource-dir>/std).
-    priv fn _library_tu(self) -> bool {
-        if self.sc->g != &null && self.sc->g->is_builtin_fid(self.fid) {
-            return true
-        }
-
-        var unsafe *ci = self.ctx->ci
-        if ci == &null || self.ctx->sm == &null {
-            return false
-        }
-
-        return ResourceLayout::is_std_file(ci, self.ctx->sm->get_filename(self.fid))
     }
 
     /// \return how many scopes actually printed, so the caller can say
@@ -888,12 +871,10 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
                 self._p.paint(Color::Ident, f"{qual}::{name}")
 
                 // Hoisted: the label below asks the chain, not the kinds.
-                // Before R ran, an all-function cell was always an overload
-                // set, so `all_fn` was a sufficient test. It no longer is:
-                // R links same-signature functions into one chain, and a
-                // merged chain and a genuine overload set are both all-fn.
-                // What tells them apart is whether the entries AGREE on a
-                // canonical.
+                // An all-function cell is either an overload set or a chain R
+                // merged (same-signature functions); both are all-fn, so
+                // `all_fn` alone cannot tell them apart. What does is whether
+                // the entries AGREE on a canonical.
                 var unsafe *canon = NameLookup::chain_canonical(cell->get(0))
 
                 var linked = false
@@ -1058,7 +1039,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
     /// Replay sc->trace: the lexical frame tree N pushed, what each frame
     /// declared, and what every declaration and every use HID. Shadowing
-    /// exists nowhere on the AST   the shadowed decl is simply never
+    /// exists nowhere on the AST   the shadowed decl is never
     /// consulted   so this section is the only place it can be seen.
     priv fn _dump_scopes(self) {
         self._p.paint(Color::NodeKind, "-- lexical scopes (declarations & shadowing) --")

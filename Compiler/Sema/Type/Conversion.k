@@ -240,15 +240,11 @@ pub class Conversion {
     /// `-fno-implicit-conv` is the user's dialect choice for their own
     /// files; Lib/builtin is written against the default lattice and is not
     /// held to it, or a user flag would print the library's errors and spend
-    /// the error cap on them (P780). Std is held to the same fixed mode:
-    /// TranslationUnit::is_lib_tu (stamped before Sema) covers builtin and std.
+    /// the error cap on them. Std is held to the same fixed mode:
+    /// SemaContext::in_library covers builtin and std.
     fn implicit_enabled(self) -> bool {
         var sc = self.sc
-        if sc->ctx != &null && sc->g != &null && sc->g->is_builtin_fid(sc->ctx->fid) {
-            return true
-        }
-
-        if sc->tu != &null && sc->tu->vis_stamped && sc->tu->is_lib_tu {
+        if sc->in_library() {
             return true
         }
 
@@ -847,7 +843,7 @@ pub class Conversion {
     /// A non-explicit C++ conversion function of the imported record \p from
     /// whose result, cv and reference dropped, is the record \p to, or null.
     /// What C++ applies implicitly at a call ([class.conv.fct]); Kairo applies
-    /// it only at a C++ callee under -fcxx-implicit-conv (P813), and
+    /// it only at a C++ callee under -fcxx-implicit-conv, and
     /// `as` reaches it through the `op as` rung regardless.
     /// \p any_explicit admits an `explicit` one too: what `as` reaches, for a
     /// diagnostic that suggests the cast.

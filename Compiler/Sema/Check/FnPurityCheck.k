@@ -566,7 +566,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return
         }
 
-        if !f->no_unwind && !self.sc->opts.unwind_all && f->has_body() {
+        if !f->no_unwind && !self.sc->unwind_all_on() && f->has_body() {
             // X stamps no_unwind on every typed function but one marked
             // `@unwind`; under -funwind none is stamped, and the attribute
             // itself then supplies the nounwind every callee also keeps.
@@ -1512,7 +1512,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// Never kairo::clang_decl_purity directly: this check runs on a pool
     /// thread while another may be filling an instance in the same clang
     /// AST, and the redeclaration walk must hold the set's sema_lock()
-    /// (P807). ForeignInstantiate::decl_purity takes it.
+    /// ForeignInstantiate::decl_purity takes it.
     priv fn _foreign_purity(self, f: unsafe *FunctionDecl) -> u8 {
         var unsafe *c    = f->canonical_decl()
         var        p: u8 = self._clang_purity(f)

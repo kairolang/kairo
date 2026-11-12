@@ -84,11 +84,6 @@ pub class UTF8View {
     ///
     /// \note
     /// invalid sequences return `{0xFFFD, 0}` to indicate replacement.
-    ///
-    /// \note the `remaining == 0` guard that used to sit here was a duplicate:
-    ///       decode_utf8_lut opens with exactly that test and returns exactly
-    ///       that value. It cost a redundant branch on every character, and it
-    ///       kept this wrapper from being a pure forwarder.
     pub static fn decode_utf8(ptr: unsafe *const u8, remaining: usize) -> kairo::DecodeResult {
         return kairo::decode_utf8_lut(ptr, remaining)
     }

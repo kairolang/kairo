@@ -2826,9 +2826,22 @@ pub class PPWalker
             }
         }
 
+        // A prefixed string's token range starts at its quote (the prefix
+        // is the StringData's own token), so the slice starts at the prefix
+        // when the first argument has one, or `stringify!(r"a" y)` lost the
+        // `r` (P906). A later argument's prefix is inside the slice anyway.
+        var head = first->range.start
+        if source_backed && first->kind == TokenKind::LitString && self._lexed_string(*first) {
+            var unsafe *ftbl = self._tcm->get_imm_table_for_token(*first)
+            var unsafe *fd   = ftbl->get<Immediate::StringData>(first->imm)
+            if fd->prefix.range.is_valid() && fd->prefix.range.start.id < head.id {
+                head = fd->prefix.range.start
+            }
+        }
+
         var text = string()
         if source_backed {
-            text = self._sm->get_text(SourceRange::from_bounds(first->range.start, last->range.end))
+            text = self._sm->get_text(SourceRange::from_bounds(head, last->range.end))
         } else {
             for var i: usize = 0; i < invoke->arg_toks.size(); ++i {
                 if i > 0 {
@@ -2848,7 +2861,7 @@ pub class PPWalker
             // also range-backed: lets unstringify! re-lex without owned-text
             // lexing support
             var unsafe *data = self._imm->get<Immediate::StringData>(tok.imm)
-            data->body = SourceRange::from_bounds(first->range.start, last->range.end)
+            data->body = SourceRange::from_bounds(head, last->range.end)
         }
 
         out->append(tok)

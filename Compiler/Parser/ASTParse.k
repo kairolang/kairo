@@ -3288,8 +3288,26 @@ pub class ASTParse
         }
     }
 
+    /// Resolved through the whole expansion chain: a `;` that a macro body
+    /// produced through another macro (`outer!()` expanding to `semi!()`)
+    /// is wrapped twice, and one step left it a TkMacroExpand, so a
+    /// statement ended by it read "expected expression, found ';'" (P958).
+    /// No report on a truncated chain here: resolve_deep owns that, at the
+    /// token's real use.
     pub inline fn _is_terminator_tok(self, t: unsafe *Token) -> bool {
-        var k = self.resolve_kind_shallow(t)
+        if t == &null {
+            return false
+        }
+
+        var k = t->kind
+        if (k as u32) == (TokenKind::TkMacroExpand as u32) {
+            if t->imm < (MacroSentinel::Threshold as u32) && self.imm == &null {
+                return false
+            }
+
+            k = unwrap_expansion(*t, self.ctx->tcm, 65536).kind
+        }
+
         return k == TokenKind::TkNewLine || k == TokenKind::OpSemicolon
     }
 

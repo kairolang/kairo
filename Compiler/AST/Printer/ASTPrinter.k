@@ -4144,10 +4144,18 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self._inline_expr(e)
         // The suffix is a separate token, not part of the literal's own
         // spelling; without it `"hi"_len` dumped as a plain string though Sema
-        // makes it a literal-operator call.
-        if e->imm != &null && e->get_suffix().range.is_valid() {
-            var sfx = e->ctx->get_spelling(e->get_suffix().range)
-            self._dim(f"suffix {sfx}")
+        // makes it a literal-operator call. It belongs to the whole joined
+        // chain, on whichever segment it is written (P878: `"12" "3"_km` is
+        // `"123"_km`), so it prints once, from the first segment that has it.
+        var unsafe *seg = e->imm
+        while seg != &null {
+            if seg->suffix.range.is_valid() {
+                var sfx = e->ctx->get_spelling(seg->suffix.range)
+                self._dim(f"suffix {sfx}")
+                break
+            }
+
+            seg = e->next_segment(seg)
         }
 
         self.p.newline()

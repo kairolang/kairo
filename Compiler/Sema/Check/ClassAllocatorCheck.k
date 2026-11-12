@@ -12,7 +12,7 @@
 ///             static fn op delete(ptr: unsafe *u8, size: usize, align: usize) { ... }  // SC149E
 ///         }
 ///
-///     Decided 2026-11-02 ( reaffirmed 2026-11-08): a per-class
+///     A per-class
 ///     allocator breaks the memory-safety model, since every block a
 ///     `@create` hands out must go back to the allocator in effect and
 ///     every C++ `delete` of a Kairo object to the global one
@@ -21,7 +21,7 @@
 ///     class_alloc_op) so the head hoists as any member does; this pass
 ///     rejects each one, at its name.
 ///
-///     The destructor is `fn op finally(self)` since 0.2.0. The parser keys
+///     The destructor is `fn op finally(self)`. The parser keys
 ///     `fn op delete(self)` as `op finally` (so nothing else sees it) and
 ///     records where `delete` was (FunctionDecl::old_dtor_at); this pass
 ///     reports it, S090E with the fix-it, except in the builtin / std
@@ -64,7 +64,7 @@ pub class ClassAllocatorCheck derives RecursiveASTVisitor<ClassAllocatorCheck> {
             return
         }
 
-        self._lib = tu->is_lib_tu || self.sc->g != &null && self.sc->g->is_builtin_fid(tu->fid)
+        self._lib = self.sc->in_library()
         var *items = &tu->program->items
         for var i: usize = 0; i < items->size(); ++i {
             if self.stop {

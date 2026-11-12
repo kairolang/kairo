@@ -73,7 +73,10 @@ import AST::Node::Declarations::{
     ClassDecl, EnumDecl,     FunctionDecl, ImportDecl, ModuleDecl, StructDecl, TypeAliasDecl,
     UnionDecl, VariableDecl,
 }
-import AST::VisibilityFacts::default_visibility_of
+import AST::VisibilityFacts::{
+    default_visibility_of,
+    reexports_to,
+}
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Lexer::Immediate::ImmediateTable
@@ -308,7 +311,8 @@ pub class ImportResolution {
     /// under the same spelling. Carries each target's existing kind, vis,
     /// cell/decl and src_fid: what is re-exported is the original thing, not
     /// a copy of it. A target whose origin import is private is never folded
-    /// (wall 1).
+    /// (wall 1), nor one whose origin is a `prot import` when this TU is not
+    /// in the source's module (P944, VisibilityFacts::reexports_to).
     priv fn _fold_reexports(self,
                             id:      unsafe *ImportDecl,
                             overlay: unsafe *ImportOverlay,
@@ -349,7 +353,7 @@ pub class ImportResolution {
                     continue
                 }
 
-                if !(o->is_public() || o->is_protected()) {
+                if !reexports_to(o, src_tu, self.sc->tu) {
                     continue
                 }
 
@@ -563,12 +567,12 @@ pub class ImportResolution {
 
         for var i: usize = 0; i < entry->targets.size(); ++i {
             var unsafe *o = dyn_cast<ImportDecl>(entry->targets[i].origin)
-            if o != &null && (o->is_public() || o->is_protected()) {
+            if o != &null && reexports_to(o, src_tu, self.sc->tu) {
                 return unsafe &entry->merged
             }
         }
 
-        return &null // private edge: not surface (wall 1).
+        return &null // private edge, or prot outside its module: not surface.
     }
 
     priv fn _fold_selective(self,

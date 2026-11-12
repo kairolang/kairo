@@ -2875,7 +2875,7 @@ pub class OverloadResolution {
             // which conversion C++ would have used.
             var uto: unsafe *Type = &null
             var        uvia = ""
-            var        cxx_conv = self.sc->opts.on(self.sc->opts.cxx_implicit_conv, false)
+            var        cxx_conv = self.sc->cxx_implicit_conv_on()
             if r == ImplicitRank::None && mode != ParamMode::Inout {
                 uto = self._cxx_conv_target(f, a, pt)
                 if uto != &null {

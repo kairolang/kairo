@@ -1919,7 +1919,7 @@ pub class ExprTyper
         // C++ would have used and the fix-it writes the cast.
         var via = self._cxx_user_conv(e, from, to)
         if via != "" {
-            if self.sc->opts.on(self.sc->opts.cxx_implicit_conv, false) {
+            if self.sc->cxx_implicit_conv_on() {
                 // C++ performs the conversion, so the value goes as written:
                 // a literal as its bytes, the `const char[N]` C++ converts
                 // from (as CallTyping does for a user_convs argument). Typed

@@ -95,6 +95,22 @@ fn _is_lib_tu(tu: unsafe *TranslationUnit) -> bool {
     return ResourceLayout::is_std_file(ci, tu->ctx->sm->get_filename(tu->fid))
 }
 
+/// \p tu is builtin or std (the library compiles in one fixed mode
+/// whatever the user passes). The stamp when the driver wrote it
+/// (FrontendAction::_sema, before any Sema pass); recomputed, never
+/// written, for a TU nothing stamped (tooling that drives Sema itself).
+pub fn is_library_tu(tu: unsafe *TranslationUnit) -> bool {
+    if tu == &null {
+        return false
+    }
+
+    if tu->vis_stamped {
+        return tu->is_lib_tu
+    }
+
+    return (!tu->is_foreign) && _is_lib_tu(tu)
+}
+
 /// Records \p tu's facts. The driver calls it for every TU of a build
 /// before Sema runs; nothing else writes them.
 pub fn stamp_tu_visibility(tu: unsafe *TranslationUnit) {
@@ -147,6 +163,27 @@ pub fn same_module(a: unsafe *TranslationUnit, b: unsafe *TranslationUnit) -> bo
     return da == tu_module_dir(b)
 }
 
+/// \p edge, an import written in \p src, re-exports what it brings in to
+/// \p importer: it is `pub`, or it is `prot` and \p importer is a file of
+/// src's module (imports.mdx: a `prot import` is for the sibling files of
+/// the module). Names (ImportResolution, MemberLookup) and extensions
+/// (SemaContext::_build_ext_visible) ask this one rule; answering `prot`
+/// without the module test let every importer of a module.k call what it
+/// imported only for its own files.
+pub fn reexports_to(edge:     unsafe *Decl,
+                    src:      unsafe *TranslationUnit,
+                    importer: unsafe *TranslationUnit) -> bool {
+    if edge == &null {
+        return false
+    }
+
+    if edge->is_public() {
+        return true
+    }
+
+    return edge->is_protected() && same_module(src, importer)
+}
+
 /// The visibility an unmarked top-level declaration of \p tu has: Public
 /// under the old rule (-fdefault-visibility=pub, builtin, std, a C/C++
 /// header), else Protected in a module and Private outside one.
@@ -162,8 +199,7 @@ pub fn tu_default_vis(tu: unsafe *TranslationUnit) -> VisibilityKind {
         return VisibilityKind::Public
     }
 
-    var lib = if (tu->vis_stamped) => (tu->is_lib_tu) else => _is_lib_tu(tu)
-    if lib {
+    if is_library_tu(tu) {
         return VisibilityKind::Public
     }
 
