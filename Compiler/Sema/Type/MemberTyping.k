@@ -982,7 +982,22 @@ pub class <T: type> MemberTyping {
         var oc  = NameLookup::ctx_of(r.decl)
         var otu = if (oc != &null) => (oc->tu) else => &null
         if otu != &null && otu->is_foreign {
+            // Only a reference result is a place. A by-value result (a
+            // const `operator[]` returning a struct, `int operator[]`) is
+            // a temporary, as a call's is: typed an lvalue, `c[0] = 2`
+            // converted 2 to the element struct (SC028E) and a same-typed
+            // write passed Sema, to be clang's error or a write into a
+            // copy. A dependent or unresolved result keeps the lvalue
+            // reading: whether it is a reference is the instance's to say.
             n->value_category = Expr::ValueCategory::LValue
+            var unsafe *rc = canon_unqual(rt)
+            if rc != &null
+                && (!rc->is_dependent())
+                && (!isa<CXXLValueRefType>(rc))
+                && !isa<CXXRValueRefType>(rc) {
+                n->value_category = Expr::ValueCategory::RValue
+            }
+
             return rt
         }
 

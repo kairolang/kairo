@@ -80,8 +80,9 @@
 ///                            stay two entities; the gate is _foreign, the
 ///                            same predicate TypeResolution uses. The
 ///                            `[]` operator
-///                            (OperatorFacts::is_subscript) is the one
-///                            exception to the restriction: `-> *T` beside
+///                            (OperatorFacts::is_subscript), and `->`
+///                            with it, are the exception to the
+///                            restriction: `-> *T` beside
 ///                            `-> *const T` is the pair a const receiver
 ///                            needs, and X ranks the two by receiver. Keyed
 ///                            on operator KIND, not on is_place: a value
@@ -701,7 +702,7 @@ pub class RedeclMerge {
 
     /// The DeclName an out-of-line def is keyed under inside \p home.
     ///
-    /// FIXME(dedup): this rule now exists in three places --
+    /// FIXME(dedup): this rule exists in three places --
     /// ASTParse::_index_symbol_decl (which writes the table),
     /// NameResolution::_member_key (which probes it), and here. Three copies
     /// of a keying rule that must agree exactly is how the probe and the
@@ -893,12 +894,16 @@ pub class RedeclMerge {
         // not merge; a Kairo `op []` is the same pair by design. By KIND
         // (is_subscript), whatever the return: a value `op []` returning
         // `[T;]` and `[const T;]` is a const pair as much as a place is.
-        // `op []=` (P880) has no const pair: it is the place form whatever
-        // the receiver, so it is held to the named-method rule.
+        // `op []=` has no const pair: it is the place form whatever
+        // the receiver, so it is held to the named-method rule. `op ->` has
+        // the same exemption as `op []` (operator-overloading.mdx: the two
+        // place operators may overload on receiver const-ness).
         var const_is_identity = fa
             || fb
             || OperatorFacts::is_subscript(a)
             || OperatorFacts::is_subscript(b)
+            || OperatorFacts::is_arrow(a)
+            || OperatorFacts::is_arrow(b)
         if const_is_identity {
             if a->is_const() != b->is_const() {
                 return false
@@ -1315,7 +1320,7 @@ pub class RedeclMerge {
     /// against code nobody wrote. Reported here, against the source, at the
     /// second decl.
     ///
-    /// The lowering compared is the BUILTIN table only, for now: `usize` and
+    /// The lowering compared is the BUILTIN table only: `usize` and
     /// `isize` are distinct Kairo types that lower to `size_t` / `ptrdiff_t`,
     /// which are the fixed-width integers of the target's pointer width.
     /// Records, pointers and references compare by canonical pointer, as
@@ -1584,9 +1589,8 @@ pub class RedeclMerge {
         // FIXME(noreturn): `-> !` may be encoded as is_noreturn with a null
         // return_type, in which case it canonicalizes to void here and a
         // `-> !` / `-> void` pair merges silently. _check_modifiers_agree
-        // catches it as a modifier disagreement for now; if OVERLOAD.md
-        // makes `!` a real return type, delete that half and let this one
-        // report it. See Tests/Sema/RedeclMerge/kairo-only/.
+        // catches it as a modifier disagreement; if `!` becomes
+        // a real return type, delete that half and let this one report it. See Tests/Sema/RedeclMerge/kairo-only/.
         var unsafe *rp = self._return_canonical(prev)
         var unsafe *rc = self._return_canonical(cur)
         if rp == &null || rc == &null { // dependent or diagnosed.
@@ -1597,7 +1601,7 @@ pub class RedeclMerge {
             return
         }
 
-        // `-> *T` defining an imported member declared `T&` (CXX-REF, decided 2026-11-08): C++
+        // `-> *T` defining an imported member declared `T&` (CXX-REF): C++
         // keeps its reference, the Kairo body returns the pointer.
         if prev->is_imported() && OperatorFacts::ptr_implements_lref(rc, rp) {
             cur->cxx_ref_return = true
@@ -1614,7 +1618,7 @@ pub class RedeclMerge {
                       else => prev->range
 
         // A definition of an imported function where either side is a C++
-        // reference (P872): the one spelling that matches is the fix-it.
+        // reference: the one spelling that matches is the fix-it.
         if prev->is_imported() && (Self::_is_cxx_ref(rp) || Self::_is_cxx_ref(rc)) {
             var tu   = TypeUtil(self.sc)
             var want = tu.return_fix(cur->return_type, rp)
@@ -1755,8 +1759,8 @@ pub class RedeclMerge {
     /// `const` is here rather than in _same_signature because Kairo does
     /// not permit const overloading -- see the header. Two links
     /// disagreeing about const are one entity with two contracts. An
-    /// `[]` pair never reaches here: const is its identity,
-    /// keyed on operator kind (is_subscript), place or value alike.
+    /// `[]` or `->` pair never reaches here: const is its identity,
+    /// keyed on operator kind (is_subscript, is_arrow), place or value alike.
     ///
     /// A `where` guard never reaches here: a guarded pair is a dispatch
     /// group, not a chain (_merge_cell), and WhereGuardCheck holds its

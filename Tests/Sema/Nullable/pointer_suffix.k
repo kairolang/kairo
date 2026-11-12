@@ -1,7 +1,7 @@
 // `*T?` is a nullable POINTER,
 // `(*T)?`, as nullables.md and pointers.md write it; a pointer TO a
-// nullable is spelled `*(T?)`. The parser used to bind the `?` to the
-// pointee, so `var p: *i32? = &a` was SC028E and every doc example failed.
+// nullable is spelled `*(T?)`. The parser binds the `?` to the
+// pointer, not the pointee, so `var p: *i32? = &a` is not SC028E.
 // The two types print distinctly in diagnostics.
 class A { pub var n: i32 = 1 }
 

@@ -146,7 +146,7 @@ pub class ImportResolution {
         var ffi_orig: unsafe *ImportDecl = &null
 
         for var i: usize = 0; i < tu->imports.size(); ++i {
-            var unsafe **slot = tu->imports[i] // *(*Decl): ArenaList::op[] yields *T
+            var unsafe **slot = tu->imports.at(i) // *(*Decl)
             if slot == &null {
                 continue
             }
@@ -204,7 +204,7 @@ pub class ImportResolution {
 
         overlay->begin_refold()
         for var i: usize = 0; i < tu->imports.size(); ++i {
-            var unsafe **slot = tu->imports[i]
+            var unsafe **slot = tu->imports.at(i)
             if slot == &null {
                 continue
             }
@@ -941,7 +941,7 @@ pub class ImportResolution {
         hidden_keys.push_back("union " + nm)
         for var pass: usize = 0; pass < 2; ++pass {
             for var i: usize = 0; i < tu->imports.size(); ++i {
-                var unsafe **slot = tu->imports[i]
+                var unsafe **slot = tu->imports.at(i)
                 if slot == &null {
                     continue
                 }

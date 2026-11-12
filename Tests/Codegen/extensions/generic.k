@@ -28,7 +28,7 @@ fn main() -> i32 {
 // A generic extension is one scope struct of static member templates, the
 // extension's T merged ahead of a member's own U. The named initializers of
 // DEPENDENT records (`Cell<U> { ... }` in `map`, `Cell<T> { ... }` in
-// `make`) are typed with that record, not left unknown -- EmitIR used to ICE
+// `make`) are typed with that record, not left unknown -- EmitIR does not ICE
 // on them. `f: fn(T) -> U` is the `::__kairo_fn<U(T)>` value type (it may
 // hold a closure; CODEGEN.md §6, Closures) with the name after it, and the
 // explicit instantiations parenthesize theirs (a class-template return

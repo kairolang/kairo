@@ -5681,7 +5681,7 @@ pub class <T: type> ExprParse {
         var probe = self.dyn()->ctx->get_spelling(tok)
 
         for var i: usize = 0; i < tu->import_edges.size(); ++i {
-            var edge = tu->import_edges[i]              // *ImportEdge
+            var edge = tu->import_edges.at(i)           // *ImportEdge
             var id   = dyn_cast<ImportDecl>(edge->decl)
             if id == &null {
                 continue

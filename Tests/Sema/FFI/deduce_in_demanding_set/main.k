@@ -5,7 +5,7 @@
 // There `std::move(e)` could spell `Err` only as an opaque blob, so the
 // return type clang substitutes (`remove_reference_t<T>&&`) was never
 // imported: the call typed as `<ffi type>&&` and `consume` had no overload
-// (SC063E). Deduction now retries in this TU's own set.
+// (SC063E). Deduction retries in this TU's own set.
 // CHECK-NOT: error
 
 ffi "c++" import "utility"

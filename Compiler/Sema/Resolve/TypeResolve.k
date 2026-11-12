@@ -138,6 +138,7 @@ import AST::Node::Types::{
     SetType,             SubstGenericParamType, TupleType,   TypeExpr,
     ValueOp,             VariadicPackType,      VectorType,
 }
+import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
@@ -5129,7 +5130,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             what = f"matches {every}"
         } else {
             if nullable {
-                self._reject_nullable_operators(n)
+                self._reject_nullable_operators(n, c)
             }
 
             return
@@ -5145,16 +5146,42 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         n->poison()
     }
 
-    /// An operator in an `extend T?` block (P325-1): the nullable's
-    /// operands are read as values by operator typing (`a + 1` on a maybe-
-    /// null `a` is the nullness error, and the operator is looked up on T),
-    /// so such an operator could never be called. Refused at its
-    /// declaration until operator typing knows a nullable's own operators;
-    /// methods, statics and `impl` work.
-    priv fn _reject_nullable_operators(self, n: unsafe *Declarations::ExtensionDecl) {
+    /// An operator in an `extend T?` block (P325-1, P967). Operator typing
+    /// reads a nullable operand as a value (`a + 1` on a maybe-null `a` is
+    /// the nullness error, and the operator is looked up on T), except a
+    /// BINARY operator the nullable itself declares when T is a record the
+    /// program declares, in a non-generic block:
+    /// OperatorTyping::_nullable_own_op selects it, and reports a use where
+    /// T has the operator too (which of the two wins is not decided). Every
+    /// other operator is refused here, where the answer is known: a
+    /// primitive's builtin operator always competes (`extend i32? { op + }`),
+    /// `==` / `!=` / `===` / `??` compare nullables natively, `<=>` would
+    /// need its derived relationals, and a unary or compound operator is
+    /// typed on paths that still read the value. \p inner is T, canonical.
+    priv fn _reject_nullable_operators(self,
+                                       n:     unsafe *Declarations::ExtensionDecl,
+                                       inner: unsafe *Type) {
+        // A record the program declares, in a non-generic block: a generic
+        // one (`extend <T> Box<T>?`) is not deduced on this path (SC063E
+        // "not an instance this extension applies to"), and on a library
+        // container's nullable (`[i32]?`) the emitted operator meets an
+        // incomplete Vector<int> in clang. Both stay refused.
+        var tu     = TypeUtil(self.sc)
+        var record = inner != &null
+            && isa<RecordType>(inner)
+            && n->generic_params.size() == 0
+            && (!tu.is_vector_like(inner))
+            && (!tu.is_map_like(inner))
+            && (!tu.is_set_like(inner))
+            && (!tu.is_slice(inner))
+            && !tu.is_string(inner)
         for var i: usize = 0; i < n->methods.size(); ++i {
             var unsafe *f = n->methods[i]
             if f == &null || !f->is_operator || f->is_implicit {
+                continue
+            }
+
+            if record && self._nullable_binary_op(f) {
                 continue
             }
 
@@ -5168,6 +5195,35 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             b.emit()
             f->poison()
         }
+    }
+
+    /// \p f is a binary operator OperatorTyping selects on a nullable
+    /// receiver: one operand besides `self`, and a kind whose operands
+    /// type_binary reads as values (OperatorTyping::_reads_operands, less
+    /// `<=>`, `&&` and `||`, which are not overloadable).
+    priv fn _nullable_binary_op(self, f: unsafe *Declarations::FunctionDecl) -> bool {
+        if OperatorFacts::arity(f) != 1 {
+            return false
+        }
+
+        var k = OperatorFacts::single_kind(f)
+        return k == TokenKind::OpPlus
+            || k == TokenKind::OpMinus
+            || k == TokenKind::OpStar
+            || k == TokenKind::OpSlash
+            || k == TokenKind::OpPercent
+            || k == TokenKind::OpAmp
+            || k == TokenKind::OpPipe
+            || k == TokenKind::OpCaret
+            || k == TokenKind::KwBitand
+            || k == TokenKind::KwBitor
+            || k == TokenKind::KwXor
+            || k == TokenKind::OpLessLess
+            || k == TokenKind::OpGreaterGreater
+            || k == TokenKind::OpLess
+            || k == TokenKind::OpLessEqual
+            || k == TokenKind::OpGreater
+            || k == TokenKind::OpGreaterEqual
     }
 
     /// `extend <T> [T; 2]`, `extend <T, eval N: usize> [T; N]` (P946): the

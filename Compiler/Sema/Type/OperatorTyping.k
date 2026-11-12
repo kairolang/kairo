@@ -81,7 +81,10 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
-import AST::Context::DeclContext::DeclContext
+import AST::Context::DeclContext::{
+    DeclContext,
+    DeclContextKind,
+}
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
@@ -119,8 +122,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtRole,      ClassDecl, EnumDecl, FieldDecl, FunctionDecl, ParamDecl, StorageClass, StructDecl,
-    UnionDecl,    VariableDecl,
+    AdtRole,      ClassDecl, EnumDecl, ExtensionDecl, FieldDecl, FunctionDecl, ParamDecl, StorageClass,
+    StructDecl,   UnionDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr, BinaryOperatorExpr, OpRewrite, SubscriptExpr, TypeCastExpr, TypeOfExpr,
@@ -136,6 +139,7 @@ import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
     FixedArrayType,
+    NullableType,
 }
 import AST::OperatorFacts::OperatorFacts
 import Diagnostic::Registry::DiagID
@@ -920,7 +924,7 @@ pub class <T: type> OperatorTyping {
 
     /// A left-leaning chain of one-line arithmetic or bitwise operators
     /// (`1 + 1 + 1 + ...`) recurses once per term through the left operand,
-    /// and a few thousand terms overflow the stack (P804). Such an operator
+    /// and a few thousand terms overflow the stack. Such an operator
     /// types its left operand first and hands it \p expected unchanged, so the
     /// chain is typed bottom-up here instead, in the order the recursion would
     /// have: each node's own typing then finds its left operand done.
@@ -1111,6 +1115,18 @@ pub class <T: type> OperatorTyping {
         // reads the receiver's cv off the operand node itself.
         lt = self.dyn()->tu.as_value(lt)
         rt = self.dyn()->tu.as_value(rt)
+
+        // An operator the nullable itself declares (`extend Foo? { fn op +
+        // (self, o: Foo?) }`) takes the operand as it is: no value is
+        // read, so neither narrowing nor the nullness error below applies,
+        // as `x.m()` on an `extend T?` method reads none (MemberLookup.md).
+        if self._reads_operands(k) && self.dyn()->tu.nullable_inner(lt) != &null {
+            var        claimed = false
+            var unsafe *own    = self._nullable_own_op(n, k, lt, rt, unsafe &claimed)
+            if claimed {
+                return own
+            }
+        }
 
         // A nullable operand of an operator that computes with it is a read
         // of its value (Compiler/Spec/Nullables.md#narrowed-reads): narrowed when its place is proven
@@ -1713,6 +1729,118 @@ pub class <T: type> OperatorTyping {
         return canon_unqual(inner)
     }
 
+    /// `a OP b` with \p lt (a's type) a nullable whose own extension
+    /// declares `op OP`. \p claimed is false when it declares none:
+    /// the operands are then read as values, as before. Selected only
+    /// where T has no such operator itself (a member, an extension member,
+    /// a free operator, or a builtin one): which of the two a nullable
+    /// operand would call is not decided, so that use is an error rather
+    /// than either reading. TypeResolve refuses the operators this path
+    /// does not type (_reject_nullable_operators).
+    priv fn _nullable_own_op(self,
+                             n:       unsafe *BinaryOperatorExpr,
+                             k:       TokenKind,
+                             lt:      unsafe *Type,
+                             rt:      unsafe *Type,
+                             claimed: unsafe *bool) -> unsafe *Type {
+        *claimed = false
+        var unsafe *vc = canon_unqual(lt)
+        if vc == &null || (!isa<NullableType>(vc)) || vc->is_dependent() {
+            return &null
+        }
+
+        var name  = DeclName::op_name(k)
+        var found = cxx::std::vector<unsafe *Decl>()
+        self.dyn()->ml.lookup(vc, name, unsafe &found)
+        var own = cxx::std::vector<unsafe *Decl>()
+        for var i: usize = 0; i < found.size(); ++i {
+            if self._of_nullable_extension(found[i]) {
+                own.push_back(found[i])
+            }
+        }
+
+        if own.size() == 0 {
+            return &null
+        }
+
+        *claimed = true
+        var unsafe *inner  = cast<NullableType>(vc)->inner
+        var        theirs  = cxx::std::vector<unsafe *Decl>()
+        var        tfrees  = cxx::std::vector<unsafe *Decl>()
+        var        builtin = inner != &null && self.dyn()->tu.kind_of(inner) != BuiltinKind::COUNT
+        // T "has" the operator when it declares it or one type_binary
+        // derives it from: `<` from `op <=>`, `+` from `op +=`.
+        var ks = cxx::std::vector<TokenKind>()
+        ks.push_back(k)
+        if self._is_relational(k) {
+            ks.push_back(TokenKind::OpLessEqualGreater)
+        }
+
+        if OperatorFacts::compound_of(k) != TokenKind::TkUnknown {
+            ks.push_back(OperatorFacts::compound_of(k))
+        }
+
+        for var j: usize = 0; inner != &null && j < ks.size(); ++j {
+            self._gather(
+                DeclName::op_name(ks[j]),
+                inner,
+                self.dyn()->tu.strip_nullable(rt),
+                -1,
+                unsafe &theirs,
+                unsafe &tfrees,
+            )
+        }
+
+        if builtin || theirs.size() > 0 || tfrees.size() > 0 {
+            var sym = self._label(n->op_token)
+            var ts  = self.dyn()->tu.str(vc)
+            var b   = self.dyn()->sc->diag->report(
+                DiagID::SC001E,
+                n->range.start,
+                f"'{sym}' on '{ts}' is ambiguous: '{ts}' declares it, and '{self.dyn()->tu.str(inner)}' has one too; which one a nullable operand calls is not decided yet",
+            )
+
+            b.first(n->range)
+            b.note(own[0]->range.start, f"declared on '{ts}' here")->child_first(own[0]->range)
+            b.emit()
+            self.dyn()->poison_only(n)
+            return &null
+        }
+
+        var args = cxx::std::vector<ArgInfo>()
+        args.push_back(self.dyn()->arg_info(n->rhs))
+        var unsafe *rcv = self._receiver_of(n->lhs)
+        var r = self.dyn()->ovl.resolve(&own, &args, true, n->range, self._label(n->op_token), rcv)
+        if r.outcome == OvlOutcome::Dependent {
+            self.dyn()->mark_unknown(n)
+            return &null
+        }
+
+        if r.outcome != OvlOutcome::Selected {
+            self.dyn()->poison_only(n)
+            return &null
+        }
+
+        self.dyn()->finish_call_args(r.decl, &args, &r)
+        var rt_out = self.dyn()->call_result_type(r.decl, &r)
+        self._record(n, r.decl, false, r.instance)
+        return rt_out
+    }
+
+    /// \p d is a member of an `extend T?` block (ChainBinding::
+    /// binds_nullable_member's test, on a decl).
+    priv fn _of_nullable_extension(self, d: unsafe *Decl) -> bool {
+        if d == &null || d->semantic_dc == &null || d->semantic_dc->dc_kind != DeclContextKind::Extension {
+            return false
+        }
+
+        var unsafe *x = dyn_cast<ExtensionDecl>(d->semantic_dc->owner_decl())
+        return x != &null
+            && x->target != &null
+            && x->target->canonical != &null
+            && isa<NullableType>(canon_unqual(x->target->canonical))
+    }
+
     /// The operators whose operands are read as values: everything but
     /// equality, `??`, `===` and `in` (and `^^`, typed on its own path).
     priv fn _reads_operands(self, k: TokenKind) -> bool {
@@ -1934,7 +2062,7 @@ pub class <T: type> OperatorTyping {
         // unify_operands fails both when neither side converts and when
         // both do (`char` and `u32`): the second is an ambiguity, and
         // "neither converts" would send the reader looking for a missing
-        // conversion (P387).
+        // conversion.
         var why = "neither converts implicitly to the other"
         if lt != &null && rt != &null {
             var unsafe *lv = self.dyn()->tu.as_value(lt)
@@ -2557,7 +2685,7 @@ pub class <T: type> OperatorTyping {
 
         // `++` / `--` write their operand; `&x[i]` prefers the place form of
         // a split subscript, falling back to the read form (`*const T`) on a
-        // const container or where `*const T` is the target (P880-4).
+        // const container or where `*const T` is the target.
         if k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus {
             self.dyn()->mark_subscript_use(n->operand, SUB_WRITE)
         } else if k == TokenKind::OpAmp && n->is_prefix() && !self._wants_const_pointer(expected) {
@@ -3150,7 +3278,7 @@ pub class <T: type> OperatorTyping {
 
     /// The const binding whose element \p x is: `cb` for `cb[i]` or
     /// `cb[i][j]` when every container on the way is const, so a write
-    /// through it names the container rather than "a const place" (P921).
+    /// through it names the container rather than "a const place".
     /// Null when \p x is no subscript, or the const came from elsewhere (an
     /// `op []` returning `*const T` on a mutable container).
     priv fn _const_container_decl(self, x: unsafe *Expr) -> unsafe *Decl {
@@ -3190,7 +3318,7 @@ pub class <T: type> OperatorTyping {
     /// `const T&` result). \p n is the write (`=`, `op=`, `++`, `--`), \p
     /// lhs what it writes. Without this the write reached clang as CL001E,
     /// or compiled silently where the binding's top-level const is not
-    /// emitted (a `const c: *i32` parameter; P347, P839).
+    /// emitted (a `const c: *i32` parameter).
     /// A const FIELD is CtorInitCheck's (SC171E): a constructor of its own
     /// record initializes it once, a write this rule cannot tell from an
     /// assignment.
@@ -3337,7 +3465,7 @@ pub class <T: type> OperatorTyping {
     fn type_assign(self, n: unsafe *AssignOperatorExpr, expected: unsafe *Type) -> unsafe *Type {
         var k = n->op_token.kind
         // The left side is written: a split subscript there takes its place
-        // form (P880), and so does the container of one it reaches.
+        // form, and so does the container of one it reaches.
         if k != TokenKind::OpColon {
             self.dyn()->mark_subscript_use(n->lhs, SUB_WRITE)
         }
@@ -3346,7 +3474,7 @@ pub class <T: type> OperatorTyping {
         if self.dyn()->propagate(n, n->lhs) || lt == &null {
             // A left side whose type is unknown (a dependent `res[i]`) must
             // not leave the right side unvisited: a brace initializer there
-            // would reach codegen untyped (O4).
+            // would reach codegen untyped.
             // A bare `&null` has no pointer type to take from the unknown
             // left side: left untyped it goes out as `nullptr`, which
             // converts to the member's pointer in each instance. Typed
@@ -3385,7 +3513,7 @@ pub class <T: type> OperatorTyping {
 
             if self._reject_const_write(n, n->lhs, verb) {
                 // The right side is still typed (a brace initializer must
-                // not reach codegen untyped, O4), against the place's type;
+                // not reach codegen untyped), against the place's type;
                 // a bare `null` there has no target to take a type from and
                 // would add SC076E to the one real error.
                 if isa<NullLiteralExpr>(self.dyn()->tu.strip_parens(n->rhs)) {

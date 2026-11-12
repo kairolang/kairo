@@ -2307,7 +2307,7 @@ pub class FrontendAction {
                               hs:   unsafe *HeaderSet,
                               view: unsafe *HeaderSet) {
         for var i: usize = 0; i < tu->imports.size(); ++i {
-            var unsafe **slot = tu->imports[i]
+            var unsafe **slot = tu->imports.at(i)
             if slot == &null {
                 continue
             }
@@ -4243,7 +4243,7 @@ pub class FrontendAction {
 
             io::println(f"fid {fid}: {tu->import_edges.size()} edge(s)")
             for var i: usize = 0; i < tu->import_edges.size(); ++i {
-                var unsafe *edge = tu->import_edges[i] // *ImportEdge (ArenaList::op[] yields *T)
+                var unsafe *edge = tu->import_edges.at(i) // *ImportEdge
                 var unsafe *id   = dyn_cast<Declarations::ImportDecl>(edge->decl)
                 if id == &null {
                     continue
@@ -4307,7 +4307,7 @@ pub class FrontendAction {
             // The injected prelude is not in the source, so naming it here is the
             // only place a reader can see WHY builtin's names are in this overlay.
             for var pi: usize = 0; pi < tu->imports.size(); ++pi {
-                var unsafe **pslot = tu->imports[pi]
+                var unsafe **pslot = tu->imports.at(pi)
                 if pslot == &null {
                     continue
                 }
@@ -4408,7 +4408,7 @@ pub class FrontendAction {
             // but flagged: the lint never touches it.
             var decls = cxx::std::vector<unsafe *Declarations::ImportDecl>()
             for var pi: usize = 0; pi < tu->imports.size(); ++pi {
-                var unsafe **pslot                                  = tu->imports[pi]
+                var unsafe **pslot                                  = tu->imports.at(pi)
                 var        imp:    unsafe *Declarations::ImportDecl = &null
                 if pslot != &null {
                     imp = dyn_cast<Declarations::ImportDecl>(*pslot)

@@ -192,7 +192,7 @@ pub class OperatorFacts {
     /// `op []`: the two bracket tokens (the parser takes no other pair
     /// after `[`), with the l/r marker, which `[]` never has, dropped. The
     /// read form when its type also declares `op []=`; otherwise today's
-    /// one operator, place or value by its return (P880 compatibility).
+    /// one operator, place or value by its return.
     pub static fn is_subscript(f: unsafe *FunctionDecl) -> bool {
         if f == &null {
             return false
@@ -202,6 +202,14 @@ pub class OperatorFacts {
         return f->op_token.size() == i + 2
             && OperatorFacts::_kind_at(f, i) == TokenKind::OpLSquare
             && OperatorFacts::_kind_at(f, i + 1) == TokenKind::OpRSquare
+    }
+
+    /// `op ->`: one token, member-only. With `op []` the one operator a
+    /// `self` / `const self` pair may declare (operator-overloading.mdx,
+    /// "Const Overloading Operators"); Substitution::arrow_target picks by
+    /// the receiver's const.
+    pub static fn is_arrow(f: unsafe *FunctionDecl) -> bool {
+        return OperatorFacts::single_kind(f) == TokenKind::OpArrow
     }
 
     /// `op []=`: the place (write) form of the subscript, three tokens
@@ -221,7 +229,7 @@ pub class OperatorFacts {
     }
 
     /// The record whose member \p f is declares an `op []=`: its subscript
-    /// is split (P880), and `op []` there is the read form only. A record
+    /// is split, and `op []` there is the read form only. A record
     /// with none keeps today's single `op []`, place or value by its return.
     /// By the record's own table: `op []=` is member-only, so it is always
     /// declared in the body the lookup scope is.
@@ -252,9 +260,10 @@ pub class OperatorFacts {
         return cell != &null && cell->size() > 0
     }
 
-    /// Token \p i's kind, through a macro expansion: an operator a macro
-    /// body declares has TkMacroExpand tokens, and symbol() spells through
-    /// them, so the kind must look through them too.
+    /// Token \p i's kind, through a macro expansion. DeclParse stores an
+    /// operator's tokens unwrapped (DeclParse::_stored_op_token),
+    /// so this is a backstop for a declaration built any other way, where
+    /// symbol() would spell through the wrapper and the kind must agree.
     priv static fn _kind_at(f: unsafe *FunctionDecl, i: usize) -> TokenKind {
         var t = f->op_token[i]
         if t.kind != TokenKind::TkMacroExpand {

@@ -2,7 +2,7 @@
 // straight-line code and conditions. A nullable place proven non-null is
 // READ AS `T` where its value is needed: every `uN = <use> + 0` below is
 // inferred `i32` only because the use was narrowed (without it, `i32? + 0`
-// was SC066E / SC067E). Covered:
+// is SC066E / SC067E). Covered:
 //   - 3.2, the value SETS the state: a literal (`var x? = 10`), `&n`, a
 //     place copied (`var z: i32? = x`), a reassignment after `= null`; a
 //     call's result needs its check;

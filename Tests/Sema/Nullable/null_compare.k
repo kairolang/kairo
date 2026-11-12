@@ -5,8 +5,8 @@
 // is the same test; against an `i32?` it is the literal's own SC076E (a
 // pointer null where no pointer is). Against a value that cannot be null
 // the comparison could only be false, and is an error, SC001E, raised
-// before the literal is typed (it used to be SC076E "cannot infer the type
-// of 'null'", which hid the real mistake): a primitive, a literal, a safe
+// before the literal is typed (not SC076E "cannot infer the type
+// of 'null'", which would hide the real mistake): a primitive, a literal, a safe
 // pointer, each with a note at the declaration when it is a name. A raw
 // pointer CAN be null, but its null is `&null`: the error says so and the
 // fix-it rewrites the literal; `raw == &null` stays a pointer comparison.

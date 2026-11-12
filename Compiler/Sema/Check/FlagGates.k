@@ -103,7 +103,7 @@ pub class FlagGates derives RecursiveASTVisitor<FlagGates> {
         // Imports are not in program->items: the PP moved them into
         // tu->imports.
         for var i: usize = 0; i < tu->imports.size(); ++i {
-            var unsafe **slot = tu->imports[i]
+            var unsafe **slot = tu->imports.at(i)
             if slot == &null {
                 continue
             }
@@ -266,7 +266,7 @@ pub class FlagGates derives RecursiveASTVisitor<FlagGates> {
     /// as written and clang checks each instance, which is the opposite of
     /// the language's rule (checked once, against the bounds). It exists for
     /// the self-host corpus until the mixin migration gives every such
-    /// parameter a real bound. The gate is shut by default (decided 2026-11-08):
+    /// parameter a real bound. The gate is shut by default:
     /// -fduck-generics is internal, passed by build.py for the compiler's own
     /// targets (SemaContext::duck_generics); without it every `: type` in a
     /// program file is this error.

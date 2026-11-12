@@ -68,7 +68,7 @@ const ARENA_LIST_DESCRIPTOR_INIT: usize = 8
 ///   emplace()   slot() + default construct, returns pointer
 ///   pop()       remove and return last element
 ///   get(idx)    O(1) random access by slab division, null if OOB
-///   operator[]  bounds-checked get, crashes on OOB
+///   at          bounds-checked get, crashes on OOB
 ///   front/back  pointer to first/last element
 ///   op in       yield-based iteration across all chunks
 ///
@@ -80,7 +80,7 @@ const ARENA_LIST_DESCRIPTOR_INIT: usize = 8
 /// Complexity:
 ///   push/slot/emplace O(1) amortized (slab alloc on exhaustion)
 ///   pop               O(1)
-///   get/operator[]    O(1)
+///   get/at            O(1)
 ///   front/back/size   O(1)
 ///   clear             O(1)
 ///   clear_zero        O(arena bytes touched)
@@ -373,15 +373,20 @@ pub class <T> ArenaList {
         self.destroy()
     }
 
-    pub fn op [](const self, idx: usize) -> unsafe *T {
+    /// The element at \p idx, which must exist (a fatal error otherwise;
+    /// get() answers null instead). A named method, not `op []`: a
+    /// subscript hands out a place (`*T` / `*const T`) or a value, never
+    /// an unsafe pointer (SC114E), and every caller here wants the pointer
+    /// itself.
+    pub fn at(const self, idx: usize) -> unsafe *T {
         if idx >= self._total {
             kairo::Logger::fatal(
                 kairo::Logger::Stage::Driver,
-                f"ArenaList::op[]: OOB idx={idx} size={self._total}",
+                f"ArenaList::at: OOB idx={idx} size={self._total}",
             )
 
             kairo::std::ice_fail(
-                f"ArenaList::operator[]: index {idx} out of bounds (size={self._total})",
+                f"ArenaList::at: index {idx} out of bounds (size={self._total})",
             )
         }
 

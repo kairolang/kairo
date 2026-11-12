@@ -2037,7 +2037,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     /// the class's own fields in order) moved to where they were written:
     /// each goes before the first own field that starts after it, so
     /// `class C { var a  eval if X { var b }  var c }` is laid out a, b, c
-    /// as C++ and an FFI mirror of it expect (P119), not a, c, b. The own
+    /// as C++ and an FFI mirror of it expect, not a, c, b. The own
     /// fields keep their relative order whatever their ranges say. Indices
     /// are renumbered to the new positions.
     priv fn _fields_in_source_order(self,
@@ -2052,7 +2052,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         var all  = cxx::std::vector<unsafe *Declarations::FieldDecl>()
         var slot = cxx::std::vector<usize>()
         for var i: usize = 0; i < n; ++i {
-            all.push_back(*((*fb)[i]))
+            all.push_back(*(fb->at(i)))
         }
 
         for var j: usize = kept; j < n; ++j {

@@ -269,7 +269,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         return true
     }
 
-    /// # the split subscript (P880)
+    /// # the split subscript
     ///
     /// A type that declares `op []=` splits its subscript: `op []` is the
     /// read form, `op []=` the place form, and MemberTyping picks one for
@@ -599,7 +599,15 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             rt = f->return_type->canonical
         }
 
-        if f->return_type != &null && (rt == &null || rt->is_dependent()) {
+        // A dependent result is the instance's to check, except an unsafe
+        // pointer: `-> unsafe *T` is one whatever T is, so a generic class's
+        // `op []` / `op ->` returning it is the same error as a plain one's
+        // (Compiler/Memory/ArenaList.k's `op []` is the case this catches).
+        var unsafe_dep = rt != &null
+            && rt->is_dependent()
+            && (subs || k == TokenKind::OpArrow)
+            && self._tu.is_unsafe_ptr(rt)
+        if f->return_type != &null && (rt == &null || rt->is_dependent()) && !unsafe_dep {
             return
         }
 

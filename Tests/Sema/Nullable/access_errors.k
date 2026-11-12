@@ -3,7 +3,7 @@
 // every mode, at the read, with a note saying what made it so:
 //   SC001E "'x' may be null here; check it with 'if x?' first"
 //   SC001E "'x' is always null here"
-// It replaces the type errors these reads used to get (SC066E / SC067E
+// It replaces the type errors of these reads (SC066E / SC067E
 // "no operator for 'i32?'", SC070E "cannot dereference nullable", R027E
 // "'->' requires a pointer", R025E "no member in 'T?'", SC028E "cannot
 // convert 'i32?' to 'i32'", SC063E "no matching overload") and is reported
