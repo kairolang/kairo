@@ -104,9 +104,11 @@ import AST::Node::Types::{
     FixedArrayType,
     PointerType,
 }
+import AST::OperatorFacts::OperatorFacts
 import Codegen::CodegenContext::CodegenContext
 import Codegen::CodegenICE::codegen_ice
 import Codegen::Emit::CXXSpell::CXXSpell
+import Codegen::Emit::WrapForms::WrapForms
 import Location::SourceRange::SourceRange
 import Token::TokenKind::TokenKind
 
@@ -561,6 +563,19 @@ pub class EmitWitness {
                 CXXSpell::at(unsafe (m as unsafe *Decl)),
                 decl + " " + gate + " { return " + call + "; }",
             )
+
+            // A builtin's own operator, for a Self no Kairo row names (a C++
+            // instantiation's `int`): the second member is constrained on
+            // the operator being built in, which no type with the member
+            // operator the first one forwards to is.
+            var ng = self._native_gate(m, me)
+            if ng.size() > 0 {
+                self._native_member(
+                    m,
+                    decl + " requires " + ng,
+                    self._member_ret(m, subs[i], me),
+                )
+            }
         }
 
         self._cg->sink->spell(at, "};")
@@ -793,6 +808,22 @@ pub class EmitWitness {
                 x,
             )
 
+            // The requirement as its own witness: the conformer's builtin
+            // operator (ConformanceChecking::_native_implementation).
+            if decl_is_requirement(unsafe (w as unsafe *Decl)) && m->is_operator {
+                self._native_member(
+                    m,
+                    decl,
+                    self._member_ret(
+                        m,
+                        if (subs[i] != &null) => (subs[i]) else => subst,
+                        x,
+                    ),
+                )
+
+                continue
+            }
+
             var ea = cxx::std::vector<unsafe *Type>()
             row->ext_args_of(i, &ea)
             var call = self._target(
@@ -889,31 +920,17 @@ pub class EmitWitness {
                     dep:      bool,
                     ptr:      bool = false) -> string {
         var args = self._forward(m)
-        // The requirement as its own witness: the conformer's native `==`
-        // (ConformanceChecking::_native_implementation), a builtin's or an
-        // imported record's, member or free -- C++ picks it here.
         if decl_is_requirement(w) {
             // The Hash lang item's `hash` (ConformanceChecking::_is_std_hash_slot,
             // the only named requirement Sema lets stand as its own
             // witness): a pointer's is its address -- HashMap mixes every
             // hash before it indexes, so an identity hash is enough -- and an
             // imported C++ type's is `std::hash<X>`.
-            if !m->is_operator {
-                if ptr {
-                    return "reinterpret_cast<" + LowerTargets::cxx_size_t() + ">(*" + LowerTargets::witness_receiver_name() + ")"
-                }
-
-                return "static_cast<" + LowerTargets::cxx_size_t() + ">(" + LowerTargets::cxx_std_hash() + "<" + x + ">{}(*" + LowerTargets::witness_receiver_name() + "))"
+            if ptr {
+                return "reinterpret_cast<" + LowerTargets::cxx_size_t() + ">(*" + LowerTargets::witness_receiver_name() + ")"
             }
 
-            if m->op_token.size() != 1 || m->op_token[0].kind != TokenKind::OpEqualEqual {
-                self._ice(
-                    CXXSpell::at(unsafe (m as unsafe *Decl)),
-                    "EmitWitness: a requirement as its own witness other than 'op =='; ConformanceChecking::_native_implementation admits only that",
-                )
-            }
-
-            return "(" + LowerTargets::witness_receiver_name() + " == " + args + ")"
+            return "static_cast<" + LowerTargets::cxx_size_t() + ">(" + LowerTargets::cxx_std_hash() + "<" + x + ">{}(*" + LowerTargets::witness_receiver_name() + "))"
         }
 
         // A generic requirement's arguments are the witness member's own
@@ -973,6 +990,83 @@ pub class EmitWitness {
             LowerTargets::witness_receiver_name(),
             tkw + self._spell->leaf(w) + targs,
         )
+    }
+
+    /// The constraint under which builtin operator requirement \p m is
+    /// met by \p self_s's own operator, or "" (not an operator a builtin
+    /// can have). The operand is the requirement's single parameter.
+    priv fn _native_gate(self, m: unsafe *FunctionDecl, const self_s: string) -> string {
+        if !m->is_operator || !m->is_method() || m->op_token.size() != 1 {
+            return ""
+        }
+
+        if self._own_args(m).size() > 0 || CXXSpell::op_is_postfix(m) {
+            return ""
+        }
+
+        // The requirement's own shape, as Sema matches it: every operand
+        // Self, and Self back from all but a comparison and an assignment.
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var unsafe *p = m->params[i]
+            if p != &null && !p->is_self && !self._self_typed(m, p->type_) {
+                return ""
+            }
+        }
+
+        var k = m->op_token[0].kind
+        if !OperatorFacts::is_compound(k)
+            && k != TokenKind::OpLessEqualGreater
+            && !OperatorFacts::returns_bool(k)
+            && !self._self_typed(m, m->return_type) {
+            return ""
+        }
+
+        var g = WrapForms::witness_gate(k, OperatorFacts::arity(m), self_s)
+        if g.size() == 0 {
+            return ""
+        }
+
+        return "(" + g + ")"
+    }
+
+    /// \p t is requirement \p m's `Self`: its interface's own record
+    /// (TypeResolve::_self_record), as CXXSpell spells it.
+    priv fn _self_typed(self, m: unsafe *FunctionDecl, t: unsafe *Type) -> bool {
+        if t == &null || m->semantic_dc == &null {
+            return false
+        }
+
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
+        if c == &null || !isa<RecordType>(c) || cast<RecordType>(c)->decl == &null {
+            return false
+        }
+
+        var unsafe *owner = (m->semantic_dc)->owner_decl()
+        return owner != &null
+            && CXXSpell::rep(
+                decl_pattern(CXXSpell::rep(cast<RecordType>(c)->decl)),
+            ) == CXXSpell::rep(owner)
+    }
+
+    /// `decl { return <the builtin operator>; }` for operator requirement
+    /// \p m, its receiver and operand as the member declares them.
+    priv fn _native_member(self, m: unsafe *FunctionDecl, const decl: string, const ret: string) {
+        var at = CXXSpell::at(unsafe (m as unsafe *Decl))
+        self._cg->sink->spell(at, decl + " { return ")
+        WrapForms::witness_op(
+            self._cg->sink,
+            at,
+            m->op_token[0].kind,
+            OperatorFacts::arity(m),
+            LowerTargets::witness_receiver_name(),
+            self._forward(m),
+            ret,
+        )
+
+        self._cg->sink->spell(at, "; }")
     }
 
     /// The call of member \p name (already carrying any `template` keyword

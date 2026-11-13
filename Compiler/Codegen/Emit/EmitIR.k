@@ -190,6 +190,7 @@ import Codegen::CodegenContext::{
 }
 import Codegen::CodegenICE::codegen_ice
 import Codegen::Emit::CXXSpell::CXXSpell
+import Codegen::Emit::WrapForms::WrapForms
 import Codegen::EmitPlan::{
     EmitPlan,
     plan_under_duck,
@@ -7938,162 +7939,6 @@ pub class EmitIR {
             && (c->kind == TypeKind::GenericParamType || c->kind == TypeKind::AssocType)
     }
 
-    /// `using T = ...; if constexpr (T is a non-bool integer) { using U = ...;`
-    /// opened inside the lambda; \p a names the bound operand T is read off.
-    priv fn _dep_open(self, at: SourceRange, const a: string, d: u32) {
-        var        tt = LowerTargets::wrap_tmp("T", d)
-        var        uu = LowerTargets::wrap_tmp("U", d)
-        var unsafe *s = self._cg->sink
-        s->spell(at, "using " + tt + " = __remove_cvref(decltype(" + a + ")); ")
-        s->spell(
-            at,
-            "if constexpr (__is_integral(" + tt + ") && (!__is_same(" + tt + ", bool))) { ",
-        )
-
-        // `__make_unsigned(T){}` does not parse as an operand; a cast does.
-        s->spell(
-            at,
-            "using " + uu + " = decltype(static_cast<__make_unsigned(" + tt + ")>(0) + 0u); ",
-        )
-    }
-
-    priv fn _scs(self, const ty: string, const x: string) -> string {
-        return "static_cast<" + ty + ">(" + x + ")"
-    }
-
-    /// The integer arm's value of op \p k on bound operands \p a and \p b (the
-    /// lambda's T and U at depth \p d), returned.
-    priv fn _dep_int_arm(self,
-                         at:      SourceRange,
-                         k:       TokenKind,
-                         const a: string,
-                         const b: string,
-                         d:       u32) {
-        var        tt = LowerTargets::wrap_tmp("T", d)
-        var        uu = LowerTargets::wrap_tmp("U", d)
-        var unsafe *s = self._cg->sink
-        if k == TokenKind::OpSlash || k == TokenKind::OpPercent {
-            var rem = k == TokenKind::OpPercent
-            s->spell(
-                at,
-                "if (" + LowerTargets::clang_expect() + "(" + b + " == 0, 0)) ::" + LowerTargets::div_zero_fn() + "(); ",
-            )
-
-            s->spell(
-                at,
-                "if constexpr (__is_signed(" + tt + ")) { if (" + b + " == " + self._scs(
-                    tt,
-                    "-1",
-                ) + ") { return ",
-            )
-
-            if rem {
-                s->spell(at, self._scs(tt, "0"))
-            } else {
-                s->spell(
-                    at,
-                    self._scs(tt, self._scs(uu, "0") + " - " + self._scs(uu, a)),
-                )
-            }
-
-            s->spell(
-                at,
-                "; } } return " + self._scs(
-                    tt,
-                    a + (if (rem) => (" % ") else => " / ") + b,
-                ) + "; ",
-            )
-
-            return
-        }
-
-        if k == TokenKind::OpLessLess || k == TokenKind::OpGreaterGreater {
-            // _shift_form per instance (SHIFT spec §3.3): R from T's size,
-            // as CXXSpell::reg_width computes it, and a signed `>>` through
-            // S, U's signed twin (U is already promoted to at least
-            // `unsigned`, so S is at least `int`: the sign-extension).
-            var rr   = LowerTargets::wrap_tmp("R", d)
-            var ss   = LowerTargets::wrap_tmp("S", d)
-            var bits = "sizeof(" + tt + ") * 8"
-            s->spell(
-                at,
-                "constexpr auto " + rr + " = (" + bits + " > 128) ? " + bits + " : ((" + bits + " > 64) ? 128 : ((" + bits + " < 32) ? 32 : " + bits + ")); ",
-            )
-
-            var mask = "(" + self._scs(uu, b) + " & " + self._scs(
-                uu,
-                rr + " - 1",
-            ) + ")"
-            if k == TokenKind::OpLessLess {
-                s->spell(
-                    at,
-                    "return static_cast<" + tt + ">(" + self._scs(uu, a),
-                )
-
-                s->punct(at, clang::tok::lessless)
-                s->spell(at, mask + "); ")
-                return
-            }
-
-            s->spell(at, "if constexpr (__is_signed(" + tt + ")) { ")
-            s->spell(at, "using " + ss + " = __make_signed(" + uu + "); ")
-            s->spell(at, "return static_cast<" + tt + ">(" + self._scs(ss, a))
-            s->punct(at, clang::tok::greatergreater)
-            s->spell(at, mask + "); } ")
-            s->spell(at, "return static_cast<" + tt + ">(" + self._scs(uu, a))
-            s->punct(at, clang::tok::greatergreater)
-            s->spell(at, mask + "); ")
-            return
-        }
-
-        var sym = if (k == TokenKind::OpPlus) => ("+")
-                  else => (if (k == TokenKind::OpMinus) => ("-") else => "*")
-        s->spell(
-            at,
-            "return " + self._scs(
-                tt,
-                self._scs(uu, a) + " " + sym + " " + self._scs(uu, b),
-            ) + "; ",
-        )
-    }
-
-    /// T's own op \p k on \p a and \p b, as text (shifts are punctuators).
-    priv fn _dep_native(self, at: SourceRange, k: TokenKind, const a: string, const b: string) {
-        var unsafe *s = self._cg->sink
-        if k == TokenKind::OpLessLess {
-            s->spell(at, a)
-            s->punct(at, clang::tok::lessless)
-            s->spell(at, b)
-            return
-        }
-
-        if k == TokenKind::OpGreaterGreater {
-            s->spell(at, a)
-            s->punct(at, clang::tok::greatergreater)
-            s->spell(at, b)
-            return
-        }
-
-        var sym = "+"
-        if k == TokenKind::OpMinus {
-            sym = "-"
-        }
-
-        if k == TokenKind::OpStar {
-            sym = "*"
-        }
-
-        if k == TokenKind::OpSlash {
-            sym = "/"
-        }
-
-        if k == TokenKind::OpPercent {
-            sym = "%"
-        }
-
-        s->spell(at, a + " " + sym + " " + b)
-    }
-
     /// `a OP b` on dependent operands: both bound, then the lambda.
     priv fn _dep_binary(self, at: SourceRange, k: TokenKind, a: fn(), b: fn()) {
         var d = self._bind_depth
@@ -8110,10 +7955,10 @@ pub class EmitIR {
         s->spell(at, "); ")
         self._form_value(at)
         s->spell(at, "[&]() { ")
-        self._dep_open(at, ta, d)
-        self._dep_int_arm(at, k, ta, tb, d)
+        WrapForms::open(self._cg->sink, at, ta, d)
+        WrapForms::int_arm(self._cg->sink, at, k, ta, tb, d)
         s->spell(at, "} else { return ")
-        self._dep_native(at, k, ta, tb)
+        WrapForms::native(self._cg->sink, at, k, ta, tb)
         s->spell(at, "; } }();")
         self._form_close(at)
         self._bind_depth = d
@@ -8162,7 +8007,7 @@ pub class EmitIR {
         }
 
         s->spell(at, "[&]() { ")
-        self._dep_open(at, p, d)
+        WrapForms::open(self._cg->sink, at, p, d)
         var uu  = LowerTargets::wrap_tmp("U", d)
         var one = "static_cast<" + uu + ">(1)"
         if incdec {
@@ -8184,7 +8029,7 @@ pub class EmitIR {
         } else {
             // The integer arm returns the new value; the lambda stores it.
             s->spell(at, p + " = [&]() { ")
-            self._dep_int_arm(at, k, p, tb, d)
+            WrapForms::int_arm(self._cg->sink, at, k, p, tb, d)
             s->spell(at, "}(); } else { ")
             var cop = p + " " + self._compound_text(k) + " " + tb
             if duck {
@@ -8927,7 +8772,7 @@ pub class EmitIR {
             s->spell(n->range, "); ")
             self._form_value(n->range)
             s->spell(n->range, "[&]() { ")
-            self._dep_open(n->range, ta, d)
+            WrapForms::open(self._cg->sink, n->range, ta, d)
             if k == TokenKind::OpMinus {
                 s->spell(
                     n->range,

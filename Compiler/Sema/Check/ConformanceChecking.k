@@ -114,6 +114,7 @@ import AST::Node::Types::{
     CXXLValueRefType, CXXRValueRefType, ChainType, FixedArrayType, GenericParamType, NullableType,
     PointerType,
 }
+import AST::OperatorFacts::OperatorFacts
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::DiagBuilder::DiagBuilder
@@ -3583,20 +3584,22 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return self._native_implementation(x, iface, idecl, m)
     }
 
-    /// An `op ==` requirement (`fn op ==(const self, other: Self) -> bool`)
-    /// met by an operator the conformer has with no decl to name: a
-    /// builtin's or a pointer's own `==`, or an imported C++ record's,
-    /// member or free, which C++ resolves (and checks) where the witness is
+    /// An operator requirement met by an operator the conformer has with no
+    /// decl to name: a builtin's own operator of the requirement's shape
+    /// (`i32 + i32 -> i32` meets `fn op +(const self, o: Self) -> Self`,
+    /// _builtin_op_result), or an imported C++ record's `==`, member or
+    /// free, which C++ resolves (and checks) where the witness is
     /// instantiated. The requirement itself stands as the witness, as for a
     /// lifecycle slot on a builtin (_transfer_implementation); EmitWitness
-    /// spells the specialization member as the native comparison. Without
-    /// it no primitive could key a `{K: V}` (Lib/builtin/base/hash.k), and
-    /// declaring `op ==` on `i32` in an extension would take over every
-    /// `i32 ==` in the program. Reached only when no member matched: a
-    /// builtin or a pointer has none, and an imported record's own
-    /// `operator==(const X&) const` is not the requirement's Kairo shape but
-    /// is what C++ calls for `self == other`. A Kairo record never takes
-    /// this path: its declared `op ==` of another shape is a real mismatch.
+    /// spells the specialization member as the builtin operation. An
+    /// extension cannot declare these (`op +` on `i32` would take over every
+    /// `i32 +` in the program), so without it no primitive could key a
+    /// `{K: V}` (Lib/builtin/base/hash.k) or meet an arithmetic bound.
+    /// Reached only when no member matched: a builtin or a pointer has none,
+    /// and an imported record's own `operator==(const X&) const` is not the
+    /// requirement's Kairo shape but is what C++ calls for `self == other`.
+    /// A Kairo record never takes this path: its declared operator of
+    /// another shape is a real mismatch.
     priv fn _native_implementation(self,
                                    x:     unsafe *Type,
                                    iface: unsafe *Type,
@@ -3606,15 +3609,17 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return m
         }
 
-        if !m->is_operator || !m->is_method() || !m->is_const() {
+        if !m->is_operator
+            || !m->is_method()
+            || m->op_token.size() != 1
+            || m->generic_params.size() > 0 {
             return &null
         }
 
-        if m->op_token.size() != 1 || m->op_token[0].kind != TokenKind::OpEqualEqual {
-            return &null
-        }
-
-        if m->generic_params.size() > 0 || self._arity(m) != 1 {
+        // A compound assignment writes its receiver; every other operator
+        // reads it.
+        var k = m->op_token[0].kind
+        if OperatorFacts::is_compound(k) == m->is_const() {
             return &null
         }
 
@@ -3623,22 +3628,15 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return &null
         }
 
-        var native = false
-        var k      = self.tu.kind_of(c)
-        if k != BuiltinKind::COUNT {
-            native = self.tu.is_numeric(c)
-                || self.tu.is_bool(c)
-                || k == BuiltinKind::Char
-                || is_c_character(k)
-                || k == BuiltinKind::Byte
-        } else if self.tu.pointee(c) != &null {
-            native = true
-        } else {
+        var unsafe *want = self._builtin_op_result(k, self._arity(m), c)
+        if want == &null && k == TokenKind::OpEqualEqual && self._arity(m) == 1 {
             var unsafe *rd = self.tu.record_decl(c)
-            native = rd != &null && decl_is_imported(NameLookup::representative(rd))
+            if rd != &null && decl_is_imported(NameLookup::representative(rd)) {
+                want = self.tu.builtin(BuiltinKind::Bool)
+            }
         }
 
-        if !native {
+        if want == &null {
             return &null
         }
 
@@ -3653,13 +3651,97 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
         }
 
-        if !self.tu.is_bool(
+        var unsafe *got = self._canon(
             self._as_conformer(m->return_type, x, iface, idecl, m, m),
-        ) {
+        )
+
+        if self.tu.is_builtin(want, BuiltinKind::Void) {
+            return if (got == &null || self.tu.is_builtin(got, BuiltinKind::Void)) => (m)
+                   else => &null
+        }
+
+        return if (got != &null && got == self._canon(want)) => (m) else => &null
+    }
+
+    /// The result of builtin operator \p k on \p c with \p arity operands
+    /// besides the receiver, each a \p c, or null when \p c has no such
+    /// operator built in: OperatorTyping's builtin rules, restricted to
+    /// what the emitted C++ computes as Kairo does. `void` for a compound
+    /// assignment, which a builtin has when its binary operator gives back
+    /// \p c. Not granted: a float's `%` and `<=>` (no C++ form gives
+    /// Kairo's answer), `^^`, `byte` beyond `==`, and `++`/`--`.
+    priv fn _builtin_op_result(self, k: TokenKind, arity: usize, c: unsafe *Type) -> unsafe *Type {
+        var bk = OperatorFacts::compound_base(k)
+        if bk != TokenKind::TkUnknown {
+            if arity != 1 || self._builtin_op_result(bk, 1, c) != c {
+                return &null
+            }
+
+            return self.tu.builtin(BuiltinKind::Void)
+        }
+
+        var kind = self.tu.kind_of(c)
+        var ptr  = kind == BuiltinKind::COUNT && self.tu.pointee(c) != &null
+        if kind == BuiltinKind::COUNT && !ptr {
             return &null
         }
 
-        return m
+        var ints = self.tu.is_integer(c)
+        var num  = self.tu.is_numeric(c)
+        var chr  = kind == BuiltinKind::Char || is_c_character(kind)
+        var flag = self.tu.is_bool(c)
+        if arity == 0 {
+            var neg = k == TokenKind::OpMinus && (self.tu.is_signed_int(c) || self.tu.is_float(c))
+            var pos = k == TokenKind::OpPlus && num
+            var inv = (k == TokenKind::OpTilde || k == TokenKind::KwCompl) && ints
+            return if (neg || pos || inv) => (c) else => &null
+        }
+
+        if arity != 1 {
+            return &null
+        }
+
+        if k == TokenKind::OpEqualEqual
+            || k == TokenKind::OpExclaimEqual
+            || k == TokenKind::KwNotEq {
+            var eq = num || flag || chr || ptr || kind == BuiltinKind::Byte
+            return if (eq) => (self.tu.builtin(BuiltinKind::Bool)) else => &null
+        }
+
+        if k == TokenKind::OpLess
+            || k == TokenKind::OpGreater
+            || k == TokenKind::OpLessEqual
+            || k == TokenKind::OpGreaterEqual {
+            return if (num || chr || ptr) => (self.tu.builtin(BuiltinKind::Bool)) else => &null
+        }
+
+        if k == TokenKind::OpLessEqualGreater {
+            if !(ints || flag || kind == BuiltinKind::Char) {
+                return &null
+            }
+
+            var a = cxx::std::vector<unsafe *Type>()
+            return self.tu.lang_record(WellKnownType::Ordering, unsafe &a)
+        }
+
+        var arith = k == TokenKind::OpPlus
+            || k == TokenKind::OpMinus
+            || k == TokenKind::OpStar
+            || k == TokenKind::OpSlash
+        var bits = k == TokenKind::OpAmp
+            || k == TokenKind::OpPipe
+            || k == TokenKind::OpCaret
+            || k == TokenKind::KwBitand
+            || k == TokenKind::KwBitor
+            || k == TokenKind::KwXor
+        var on_int = k == TokenKind::OpPercent
+            || k == TokenKind::OpLessLess
+            || k == TokenKind::OpGreaterGreater
+        if (arith && num) || (bits && (ints || flag)) || (on_int && ints) {
+            return c
+        }
+
+        return &null
     }
 
     /// The Hash lang item's `fn hash(const self) -> usize` on a pointer (its

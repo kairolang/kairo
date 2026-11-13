@@ -1509,7 +1509,7 @@ pub fn decl_is_ctor_requirement(m: unsafe *Declarations::FunctionDecl) -> bool {
 
 /// \p d is a member of an interface: a requirement. As a conformance row's
 /// WITNESS it means the conformer meets the requirement with no decl of its
-/// own -- a builtin's or an imported record's native `==`
+/// own -- a builtin's own operator or an imported record's native `==`
 /// (ConformanceChecking::_native_implementation), a lifecycle slot -- so
 /// EmitWitness spells the native operation instead of a forwarding call.
 pub fn decl_is_requirement(d: unsafe *Decl) -> bool {
