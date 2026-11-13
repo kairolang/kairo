@@ -18,6 +18,7 @@ interface Neg { fn op - (const self) -> Self }
 interface Inv { fn op ~ (const self) -> Self }
 interface BitOr { fn op | (const self, const o: Self) -> Self }
 interface AddAssign { fn op += (self, const o: Self) }
+interface Ne { fn op != (const self, const o: Self) -> bool }
 
 fn <T impl Add> twice(const a: T) -> T { return a + a }
 fn <T impl Ord> max_of(const a: T, const b: T) -> T {
@@ -42,6 +43,7 @@ fn <T impl AddAssign> thrice(const a: T) -> T {
     x += a
     return x
 }
+fn <T impl Ne> differ(const a: T, const b: T) -> bool { return a != b }
 fn <T impl AddAssign> plus(const a: T, const b: T) -> T { return a + b }
 
 class <T> Vec2 requires T impl Mul && T impl Add {
@@ -84,6 +86,10 @@ fn main() -> i32 {
     var vf = Vec2<f64>(0.5, 2.0)
     if vi.dot(Vec2<i32>(4, 5)) != 23 || vf.dot(Vec2<f64>(2.0, 0.25)) != 1.5 { r |= 8192 }
     if twice(Money(21)).c != 42 { r |= 16384 }
+    var arr = [1, 2]
+    var *p0 = &arr[0]
+    var *p1 = &arr[1]
+    if lmax(p0, p1) != p1 || !differ(p0, p1) || differ(3, 3) || !differ(1.5, 2.5) { r |= 32768 }
     return r
 }
 

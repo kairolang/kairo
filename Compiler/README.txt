@@ -41,7 +41,8 @@ Compiler/
 │   │               CodegenContext.k; CodegenICE.k: ICE reports naming the
 │   │               program node)
 │   ├── Emit/       EmitIR (bodies), InterfaceEmitter, EmitWitness (interface
-│   │               witnesses), CXXSpell (names)
+│   │               witnesses), CXXSpell (names), WrapForms (builtin
+│   │               operators on a type C++ decides)
 │   ├── Sink/       token / text sinks (--print-cxx), TokenStreamPrinter
 │   └── Backend/    CodegenBackend / CodegenAction (clang invocation), headers
 │                   (EmitCXXHeader), the #include "foo.k" emitter

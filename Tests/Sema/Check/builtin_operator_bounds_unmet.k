@@ -3,7 +3,8 @@
 // `+` taking a pointer, `f64` no `%` and no usable `<=>`, and `i32 + i32`
 // gives `i32`, not `bool`. A class meets it only by declaring the operator.
 // An interface that also declares a method is met by a builtin only when an
-// extension supplies the method.
+// extension supplies the method. A float the library implements as a class
+// (`f256`) has no builtin `+`.
 
 interface Add { fn op + (const self, const o: Self) -> Self }
 interface Ord { fn op <=> (const self, const o: Self) -> Ordering }
@@ -38,16 +39,18 @@ fn main() -> i32 {
     rem(1.0, 2.0)
     ab(1)
     sc(3)
+    twice(1 as f256)
     return sc(3 as i64)
 }
 
 // --- lit wiring ---
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: builtin_operator_bounds_unmet.k:34:5: error [SC162E]: 'bool' does not conform to 'Add': no member 'op +' with the requirement's signature
-// CHECK: builtin_operator_bounds_unmet.k:35:5: error [SC162E]: 'Plain' does not conform to 'Add': no member 'op +' with the requirement's signature
-// CHECK: builtin_operator_bounds_unmet.k:36:5: error [SC162E]: '*i32' does not conform to 'Add': no member 'op +' with the requirement's signature
-// CHECK: builtin_operator_bounds_unmet.k:37:5: error [SC162E]: 'f64' does not conform to 'Ord': no member 'op <=>' with the requirement's signature
-// CHECK: builtin_operator_bounds_unmet.k:38:5: error [SC162E]: 'f64' does not conform to 'Rem': no member 'op %' with the requirement's signature
-// CHECK: builtin_operator_bounds_unmet.k:39:5: error [SC162E]: 'i32' does not conform to 'AddBool': no member 'op +' with the requirement's signature
-// CHECK: builtin_operator_bounds_unmet.k:40:5: error [SC162E]: 'i32' does not conform to 'Scaled': no member 'scale' with the requirement's signature
+// CHECK: builtin_operator_bounds_unmet.k:35:5: error [SC162E]: 'bool' does not conform to 'Add': no member 'op +' with the requirement's signature
+// CHECK: builtin_operator_bounds_unmet.k:36:5: error [SC162E]: 'Plain' does not conform to 'Add': no member 'op +' with the requirement's signature
+// CHECK: builtin_operator_bounds_unmet.k:37:5: error [SC162E]: '*i32' does not conform to 'Add': no member 'op +' with the requirement's signature
+// CHECK: builtin_operator_bounds_unmet.k:38:5: error [SC162E]: 'f64' does not conform to 'Ord': no member 'op <=>' with the requirement's signature
+// CHECK: builtin_operator_bounds_unmet.k:39:5: error [SC162E]: 'f64' does not conform to 'Rem': no member 'op %' with the requirement's signature
+// CHECK: builtin_operator_bounds_unmet.k:40:5: error [SC162E]: 'i32' does not conform to 'AddBool': no member 'op +' with the requirement's signature
+// CHECK: builtin_operator_bounds_unmet.k:41:5: error [SC162E]: 'i32' does not conform to 'Scaled': no member 'scale' with the requirement's signature
+// CHECK: builtin_operator_bounds_unmet.k:42:5: error [SC162E]: 'f256' does not conform to 'Add': no member 'op +' with the requirement's signature
 // CHECK-NOT: error

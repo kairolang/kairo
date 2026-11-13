@@ -3669,7 +3669,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// what the emitted C++ computes as Kairo does. `void` for a compound
     /// assignment, which a builtin has when its binary operator gives back
     /// \p c. Not granted: a float's `%` and `<=>` (no C++ form gives
-    /// Kairo's answer), `^^`, `byte` beyond `==`, and `++`/`--`.
+    /// Kairo's answer), `^^`, `byte` beyond `==`, `++`/`--`, and any
+    /// operator but `==` on a float the library implements as a class
+    /// (`f8e4m3`, `f8e5m2`, `f256`, `f512`), which has no C++ operator for
+    /// the witness to call.
     priv fn _builtin_op_result(self, k: TokenKind, arity: usize, c: unsafe *Type) -> unsafe *Type {
         var bk = OperatorFacts::compound_base(k)
         if bk != TokenKind::TkUnknown {
@@ -3686,12 +3689,17 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return &null
         }
 
+        var soft = kind == BuiltinKind::F8E4M3
+            || kind == BuiltinKind::F8E5M2
+            || kind == BuiltinKind::F256
+            || kind == BuiltinKind::F512
         var ints = self.tu.is_integer(c)
-        var num  = self.tu.is_numeric(c)
+        var num  = self.tu.is_numeric(c) && !soft
         var chr  = kind == BuiltinKind::Char || is_c_character(kind)
         var flag = self.tu.is_bool(c)
         if arity == 0 {
-            var neg = k == TokenKind::OpMinus && (self.tu.is_signed_int(c) || self.tu.is_float(c))
+            var neg = k == TokenKind::OpMinus
+                && (self.tu.is_signed_int(c) || (self.tu.is_float(c) && !soft))
             var pos = k == TokenKind::OpPlus && num
             var inv = (k == TokenKind::OpTilde || k == TokenKind::KwCompl) && ints
             return if (neg || pos || inv) => (c) else => &null
@@ -3704,7 +3712,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         if k == TokenKind::OpEqualEqual
             || k == TokenKind::OpExclaimEqual
             || k == TokenKind::KwNotEq {
-            var eq = num || flag || chr || ptr || kind == BuiltinKind::Byte
+            var eq = self.tu.is_numeric(c) || flag || chr || ptr || kind == BuiltinKind::Byte
             return if (eq) => (self.tu.builtin(BuiltinKind::Bool)) else => &null
         }
 
