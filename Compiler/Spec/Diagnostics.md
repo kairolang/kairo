@@ -70,9 +70,11 @@ self.diag->report(DiagID::S055E, open.start, "...")
 | `child_first`, `child_second`, `child_fix` | a label or fix-it on the most recent child |
 | `emit()` | hands the diagnostic to the engine; idempotent |
 
+Every method returns the parent's builder, the child adders included: `b.note(loc, msg)->first(r)` labels the *parent* with `r`. A note is labelled with `b.note(loc, msg)->child_first(r)`. A note's range put on its parent is drawn on the parent's line whenever it shares that line, and a language server publishes the note without it.
+
 `DiagBuilder` is move-only: the move constructor transfers ownership and copies are deleted. A builder destroyed without `emit()` is an ICE ("DiagBuilder dropped without emit()"); emission is never implicit, because an implicit emit at scope exit would escape suppression scopes such as the parser's `TentativeGuard`. When the engine would drop the code anyway (`DiagEngineVBase::drops`), the builder allocates nothing and every attach is a no-op.
 
-An error reports its message, a `first()` label on the offending range, a `note()` at the relevant declaration where there is one, and a fix-it where the edit is obvious.
+An error reports its message, a `first()` label on the offending range, a `note()` at the relevant declaration where there is one, and a fix-it where the edit is obvious. A declaration a macro expansion made has the invocation as its range, so its errors land where the macro was used; a redeclaration error (R029E, R041E) adds `SemaContext::note_macro_origin`'s note "in expansion of macro 'm!'" at the body text that wrote the name (an operator, whose `op` token is stored unwrapped, gets none). The parser's own errors on expanded tokens go the other way: primary at the body, then the chain of invocations (`ASTParse::report_tok`).
 
 ## Registry
 
@@ -109,7 +111,7 @@ python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen \
   --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k
 ```
 
-`build.py`'s prebuild step runs exactly this ([BuildSystem.md](BuildSystem.md#buildpy)). The script skips work when a stamp next to the object matches a hash of the tables, the script itself, the `kairo` binary and its runtime headers. A link error naming `Diag` or `Registry` symbols means a stale object: delete `build/.kbld/registry.o` and rebuild. Self-hosted trees build their registry from the migrated source instead ([SelfHosting.md](SelfHosting.md#harness)).
+`build.py`'s prebuild step runs exactly this ([BuildSystem.md](BuildSystem.md#buildpy)). The script skips work when a stamp next to the object matches a hash of the tables, the script itself, the `kairo` binary and its runtime headers. A link error naming `Diag` or `Registry` symbols means a stale object: delete `build/.kbld/registry.o` and rebuild. Self-hosted trees build their registry from the migrated source instead ([SelfHosting.md](SelfHosting.md#migration)).
 
 `DiagCode` pairs a `DiagID` with its cached `DiagMeta` (brief, group, number, hash, category, severity). Two codes are equal when category, severity and number are equal.
 
@@ -129,15 +131,15 @@ python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen \
 4. Per-code policy, keyed on category and number (the severity letter is not part of the key, so `-A R020` and `-A R020E` are one entry, while `SC005` and `S005` are distinct). Precedence, highest first: `-F <code>` (force error, not overridable), `-E <code>` (warning to error), `-A <code>` (drop), then the blanket `-w` (drop all warnings) and `--Werror` (all warnings to errors). An explicit code beats a blanket flag. `-W <code>` raises an Ignored code to a warning and, given after `-A`, lifts that silence. Errors and fatals are never silenced.
 5. `--quiet`: drop warnings, notes and remarks.
 6. Warning limit (`--cmax-warnings`, 0 unlimited): past it, warnings are dropped and one U024W notice is printed.
-7. Error limit (`--cmax-errors`, default 20, 0 unlimited): errors and fatals are counted first (`error_count`, `fatal_count`), then, past the limit of delivered ones, dropped, with one I957E notice. The limit caps what is shown, not what is counted: every stage gate reads the counters (a TU's own "did it error" delta, the batch abort on a fatal), so a TU whose errors are hidden still stops where it would have (P887).
+7. Error limit (`--cmax-errors`, default 20, 0 unlimited): errors and fatals are counted first (`error_count`, `fatal_count`), then, past the limit of delivered ones, dropped, with one I957E notice. The limit caps what is shown, not what is counted: every stage gate reads the counters (a TU's own "did it error" delta, the batch abort on a fatal), so a TU whose errors are hidden still stops where it would have.
 8. The other counters, then trimming of children to `--cmax-notes` and of fix-its to `--cmax-suggestion-count` (default 5, 0 keeps none).
 9. Delivery to every registered consumer.
 
-`BufferedDiagSink` (`Compiler/Diagnostic/BufferedDiagSink.k`) is a per-file engine stand-in. The parser and a clang instance write into one; it supports suppression depth and the `@no_warn(CODE)` scopes registered by `AttributeCheck` (warnings only), and `drain_into` sorts its diagnostics by file, offset and insertion order before passing them to the engine. The driver drains parse sinks in file order, so parallel and serial runs print the same output.
+`BufferedDiagSink` (`Compiler/Diagnostic/BufferedDiagSink.k`) is a per-file engine stand-in. The parser and a clang instance write into one; it supports suppression depth and the `@no_warn(CODE)` scopes registered by `AttributeCheck` (warnings only; `quiet_in` also drops the matching warnings already buffered, which is how the parser applies a declaration's `@no_warn` to its own warnings, such as S055W, the moment the declaration is complete: `ASTParse::_quiet_parse_warnings`. Lexer and preprocessor warnings go to the engine directly and are not covered), and `drain_into` sorts its diagnostics by file, offset and insertion order before passing them to the engine. The driver drains parse sinks in file order, so parallel and serial runs print the same output.
 
 #### Order guarantee
 
-For a fixed input and fixed flags the compiler prints the same diagnostics in the same order on every run, at any thread count, and `--cmax-errors` cuts the same ones, because the engine applies the limit in delivery order and delivery order is fixed (P956). Every parallel phase buffers each file's diagnostics and hands them to the engine in an order that depends only on the input, each file's batch in source order:
+For a fixed input and fixed flags the compiler prints the same diagnostics in the same order on every run, at any thread count, and `--cmax-errors` cuts the same ones, because the engine applies the limit in delivery order and delivery order is fixed. Every parallel phase buffers each file's diagnostics and hands them to the engine in an order that depends only on the input, each file's batch in source order:
 
 - **Preprocessor walk.** The walk runs the import graph in waves, and the files of one wave walk side by side. Each walk task holds a `DiagCapture` (`Compiler/Diagnostic/Engine.k`, a thread-local set for the task). While it holds one, `DiagEngine::emit` puts whatever that thread reports, lexer included, into the task's own sink. When a wave is done, `WaveExecutor::run` drains its sinks in the wave's dispatch order. So waves come out in graph order, and within a wave the order is the ready list's. Each wave is drained as soon as it finishes, not at the end of the walk. The module-name collisions that the dependency scan finds are reported once, before the walk (`FileImportIndex::report_collisions`), rather than by whichever walk asks first.
 - **Parse.** Each file's sink is drained in fid order, as soon as every earlier file has been drained (the flusher in `FrontendAction::_parse`).
@@ -157,6 +159,8 @@ A once-per-build report goes to the first file in the one-thread order. Today th
 | `pretty` (default) | `PrettyDiagConsumer` (`PrettyConsumer.k`) | colored header, `-->` location, source context with right-aligned line numbers, label rows, children, and a fix-it on the primary line rendered in place (removed text struck, inserted text marked) |
 | `basic` | `BasicDiagConsumer` (`BasicConsumer.k`) | one line per diagnostic and per child: `file:line:col: severity [CODE]: message`, or `severity [CODE]: message` without a location; each ranged fix-it follows on its own line |
 | `json` | `BasicDiagConsumer` with `set_json` | one JSON object per line with `file`, `line`, `col`, `severity`, `code`, `message` |
+
+The pretty consumer groups diagnostics by file and line. A group's caret rows draw the labels and the fix-it that are in the group's file and start on its line; a label elsewhere, even on a line of the same number in another file, is drawn only by the child that owns it. Positions are byte columns; the rows count terminal cells: one per UTF-8 character, one per maximal ill-formed byte subpart (each shows as U+FFFD), and a tab under a tab so both rows reach the same tab stop (wide characters count one cell). A range that ends on a later line, or in another file, is drawn to the end of its first line. A point at the end of a line takes the cell just past the text. A label that runs across an inserted fix-it stretches over the insert.
 
 `msvc` and any other value are refused with U021E. Color is off with `--no-color`, when `NO_COLOR` is set, or when the stream is not a terminal. `--diag-absolute-paths` prints absolute paths; `--diag-show-context` and `--cmax-diag-context-lines` control the pretty consumer's source context. Codes are always printed; `--diag-show-ids` is accepted and does nothing.
 

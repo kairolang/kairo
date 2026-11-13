@@ -12,7 +12,9 @@ An `ffi` import imports real declarations. Clang parses the header, `Compiler/Se
 | `ffi "c++" import "h.hh" as my_h` | `my_h` to one module handle per closure header (each header TU's own `ModuleDecl`) |
 | `ffi "c" import ...` | as above, with the header included inside `extern "C"` |
 
-The language word is matched without case by one table, `Statements::ffi_lang_of` (`Compiler/AST/Node/Statements.k`): `"C"` is `"c"`, and `"c++"`, `"cpp"`, `"cxx"` and the C++ source and header extensions (`"hpp"`, `"hh"`, `"cc"`, ...) are C++. The parser, the preprocessor (`PPWalker::_ffi_lang_kind`, which decides the `extern "C"` wrapping) and the `--no-cxx` gate all ask it, so they cannot disagree about a spelling (P914).
+An ffi import names exactly one header string, optionally followed by `as name`, on one line. Anything else after `import` is S064E at the first stray token, and that line imports nothing: a brace list (`import {"a.h", "b.h"}`, a form the language reference does not have), two adjacent header strings (the lexer chains them into one token, `PPWalker::_chained_string`), a second token, `as` with no name, and no header at all. The language string must follow `ffi` on the same line: `PPWalker::_handle_ffi` copies a lone `ffi` through, so it does not take the newline as its language and the next line's `import "h"` as its own, and the parser reports it (S064E, "expected a language string").
+
+The language word is matched without case by one table, `Statements::ffi_lang_of` (`Compiler/AST/Node/Statements.k`): `"C"` is `"c"`, and `"c++"`, `"cpp"`, `"cxx"` and the C++ source and header extensions (`"hpp"`, `"hh"`, `"cc"`, ...) are C++. The parser, the preprocessor (`PPWalker::_ffi_lang_kind`, which decides the `extern "C"` wrapping) and the `--no-cxx` gate all ask it, so they cannot disagree about a spelling.
 
 ### Stages
 
@@ -36,7 +38,7 @@ Phase A parses with clang's `SkipFunctionBodies`, so `--type-check-only` does no
 
 ### Unresolved headers and header diagnostics
 
-A spelling clang cannot find leaves `resolved_fid` 0 and phase I binds nothing, so each use of its names is an ordinary R020E. A set's own clang diagnostics go through a `ClangDiagAdapter` into the Kairo engine (`HeaderSet::begin_diag`), mapping locations through the set's `cfid_to_kfid` table: at build time into the set's `diag_buf`, drained into the driver's engine once the build joins (they predate the header fids, so they carry clang's `file:line:col` in their text); during a fill, into the demanding TU's sink with real spans ([Clang diagnostics](Diagnostics.md#clang-diagnostics)).
+A spelling clang cannot find leaves `resolved_fid` 0 and phase I binds nothing, so each use of its names is an ordinary R020E. A set's own clang diagnostics go through a `ClangDiagAdapter` into the Kairo engine (`HeaderSet::begin_diag`), mapping locations through the set's `cfid_to_kfid` table: at build time into the set's `diag_buf`, drained into the driver's engine once the build joins (they predate the header fids, so they carry clang's `file:line:col` in their text); during a fill, into the demanding TU's sink with real spans ([Clang diagnostics](Diagnostics.md#clang-diagnostics)). A set clang rejected imports nothing (`HeaderIndex::index`), so every name a file takes from it is unresolved; R020E and R021E there carry a note that the file's C++ headers did not compile (`MemberLookup::headers_failed`). Two `ffi` lines whose headers both define one `struct Base` are such a set: they are one translation unit, and clang's "redefinition" error (with its note at the first definition) is the error naming both. `ClangDiagAdapter::_explain_redefinition` adds a note under it when the two definitions are in two different C++ files, naming both files and saying that every header a Kairo file imports is parsed into one translation unit, with the two ways out: import them from different Kairo files, or put one definition in a namespace.
 
 ### `cxx::std`
 
@@ -74,6 +76,8 @@ A bodiless `struct`, `class` or `union` under an `ffi` prefix or in an `ffi { }`
 The declaration sits in the TU's own table and would shadow the imported ordinary name. In a value position N (`_prefer_ordinary_over_ffi_forward`) takes the overlay's ordinary declaration instead, so `timezone` in an expression is the variable and `*timezone` in a type is the struct. The head of an expression that means the type (a struct literal) therefore reaches the variable, as C requires `(struct timezone){...}`. Enums are not covered: a C++ enum forward declaration needs its underlying type.
 
 ### Instances of imported templates
+
+An explicit (full) specialization a header declares (`template <> class tuple<>`) is registered against its primary (`DeclImport::_define_spec`), never bound as a record of its own name. A variadic primary's arguments arrive as one clang Pack and are flattened, as the registry keys an instance (`tuple<i32, f32>` is `[i32, f32]`). A Pack is accepted, so libc++'s `tuple<>`, whose only argument is an EMPTY pack, registers against the template instead of staying a plain record named `tuple` beside it, and `cxx::std::tuple<A, B>` is generic. A specialization with a non-type argument is still refused there (no registry shape).
 
 `cont<i32>` for an imported `cont` is a registry shell like any instance ([instantiation registry](Generics.md#instantiation-registry)), but clang fills it (`MemberLookup::filled_by_clang`), never Kairo's own instantiation. `MemberLookup::ensure_filled` is the one trigger, called by both readers of a shell's table: member lookup (`c.size`) and TypeResolve's `::` step (`TypeResolve::_scope_of`), so an alias target, a generic argument and a bare `X<A>::Y` in a signature all fill from one place.
 
@@ -138,13 +142,40 @@ Phase A's AST has never seen a Kairo record, so `std::vector<S>` makes TypeExpor
 
 | Kairo type | Stand-in |
 |---|---|
-| record | struct of its fields; layout only (no methods, implicit special members only) |
+| record | struct of its fields; layout only: no methods, and implicit special members except that each `@copy` / `@move` constructor the record writes (deleted or not) is declared as the emitted class declares it, `noexcept`, with the `op =` beside it and a default constructor (`TypeExport::_mirror_transfers`) |
 | generic record instance | explicit specialization of a stand-in template (`::stem::G<int>`) |
 | plain enum | scoped enum of its underlying word (`enum_niche_kind`) |
 | class with bases | the bases' stand-ins as real C++ bases, a leading `void*` for the vptr when the class is polymorphic, then its fields |
 | ADT | struct of its tag word followed by every variant's payload fields in sequence; this mirrors the copy and destruction traits phase A asks about (a union of payloads would get them wrong) and over-states the size, which phase A never asks |
 
+The transfers are what clang reads every copy and move trait of a template over the record from. With implicit members only, the stand-in of a move-only `Mv` copied, so `std::optional<Mv>` was trivially copyable in phase A, libc++'s sfinae bases (`is_copy_constructible<Mv>`) kept its copy, and the instance read COPY until phase B rejected the copy. With them clang deletes the defaulted copy of `optional`, `tuple`, `variant`, `expected` and `pair` over `Mv` itself; `DeclImport` reads it as any deleted member, so those instances are MOVE, and a view (`span<Mv>`) keeps its trivial copy. A record that writes no transfer keeps the implicit members, which fold its fields' stand-ins exactly as C++ folds the real fields. The default constructor keeps the default-constructibility the stand-in had (a declared transfer suppresses the implicit one); its triviality is not mirrored, nor is a Kairo destructor.
+
 Refused, so the fill fails: records nested in a type, classes with a virtual base (subobject placement is not modelled), generics with a pack or value parameter, an ADT with a pack-expanded variant, a field whose type has no export, and a name a header already owns. A Kairo instance a fill names first (`Nullable<i32>`) is homed in the TU that demanded the fill.
+
+A stand-in's fields and bases are spelled for its layout only (`TypeExport::_layout_spelling`), never through the asker's `allow_opaque_args` (a call deduction's permission to spell an unspellable ARGUMENT as a blob): a field this set cannot spell has its own fallbacks (`void *` for a pointer, a blob of the measured size), and a stand-in is the same whoever asked for it first. Taken through the asker's flag, a field's blob marked the argument itself opaque, so `cxx::std::move(a)` on a Kairo class holding `unsafe *z::Blk` from a header only its own file imports dropped the substituted return (SC028E under `-fno-shared-header-set`).
+
+### Reference returns: `ffi::ref` / `ffi::mref`
+
+A C++ reference return is spelled, in Kairo, only where Kairo defines a function C++ declares (spelled `ffi::ref` / `ffi::mref`):
+
+| C++ return | Kairo return |
+|---|---|
+| `T&` | `ffi::ref<T>` |
+| `const T&` | `ffi::ref<const T>` |
+| `T&&` | `ffi::mref<T>` |
+
+- Parsing. `TypeParse::_parse_ffi_ref_type` reads `ffi::ref<...>` / `ffi::mref<...>` wherever a type may stand and builds the node imports already build (`CXXLValueRefType` / `CXXRValueRefType`) with `ffi_spelled` set. Its canonical is therefore the C++ declaration's when they agree, and redeclaration and override matching compare canonicals as for any type. Any other name after `ffi::`, a missing argument list or more than one argument is S092E.
+- Where (`Sema/Check/FfiRefReturnCheck.k`, before ExprTyper). Legal only as the WHOLE return type of an out-of-line definition whose chain starts at an imported declaration (`fn Widget::at`, `fn ns::f`), or of a method of a Kairo class that overrides an imported virtual. Everything else is SC293E: parameters, variables, fields, aliases, generic arguments, nested in any type, closures, interfaces, extensions, every Kairo-declared function, and (not designed yet) a generic definition or a member of a C++ class template. A rejected node's canonical is rewritten to its referee, so nothing cascades.
+- Matching. An out-of-line definition whose return disagrees with the C++ declaration's, when either is a reference, is SC294E in RedeclMerge (in place of R037E) with the right spelling as a fix-it (`TypeUtil::return_fix`, which keeps the written spelling of a class referee). An override's return is compared in FfiRefReturnCheck the same way and so is a return with no reference on either side (`-> i64` over `int val()`): SC294E with the C++ type as the fix-it. Top-level qualifiers are ignored, a missing `->` is void, and a pointer to a record on both sides (a possible covariant return) is left to clang (`_plain_return_agrees`). The older form `-> *T` + `return &x` for a `T&` declaration (`FunctionDecl::cxx_ref_return`, Tests/Sema/FFI/cxx_ref_return_impl.k) is still accepted; whether to retire it is not decided.
+- Body. `return a` with no `&`: `a` must be an lvalue (an xvalue too for `mref`) whose storage outlives the call; a temporary, a local or a by-value parameter, or a part of one reached without a pointer or reference step, is SC295E (StmtTyping calls `check_ref_return_value`). EmitIR binds the reference: `return a;`, `return static_cast<T&&>(a);` for `mref`.
+- Call site. Unchanged: a call of such a function types as the reference (an lvalue of `T`, an xvalue for `T&&`), so `f() = x` and `&f()` (a `*T`) work, `var y = f()` copies, and `typeof(f())` is `T`.
+- Hover reads an imported reference return in this form (`-> ffi::ref<i32>`), as Analyzer/Index/Hovers.k already reads reference parameters as modes.
+
+### Kairo definitions of C++-declared functions
+
+An out-of-line definition attached to an imported declaration (`CXXSpell::defines_foreign`: `fn Widget::get(self)`, `static fn Widget::make()`, `fn ns::f(...)`) is emitted as that declaration's definition, at global scope by `EmitIR::_foreign_def`: `R (Widget::get)(params) const { ... }`, the declarator-id parenthesized and unqualified at the root. The parameter types are the C++ declaration's (a `const T&` that Kairo reads as `x: T` stays `const T&`), the names the definition's own, and `noexcept` is written only when the declaration has it (`ffi_noexcept`). InterfaceEmitter declares nothing for it and opens no namespace; a Kairo call names it by its C++ name (`CXXSpell::qual_name`). Its names are spelled through the table of the file it is written in (`CXXSpell::tu_of`: a definition's semantic scope is the C++ one, its tokens are this file's). Not yet emitted, as before: constructors, destructors, and members of class templates.
+
+A plain `fn f(...)` at file scope with the name of a C++ global declares a NEW Kairo function in the module's namespace; it does not define the C++ one (there is no spelling for "the C++ global `f`" yet: `fn ::f` is R020E). The rooted spelling `fn ::gf(...)` is S093E at the name, and the function is checked on as a Kairo `fn gf`; `fn ::ns::f` is S093E with a fix-it removing the `::`.
 
 ## Clang integration
 
@@ -236,7 +267,7 @@ An include is refused with one host error at the include location: the file is n
 
 ### A `.k` include in a header Kairo imports
 
-`#include "foo.k"` is kcc's, in a C++ TU. A header reached by `ffi import` (directly or through its own includes) that includes a `.k`, and an `ffi import` that names a `.k` itself, are R070E (P954). Clang never reads the Kairo text: `HeaderSetAction` installs `KairoIncludeHook` with `refuse` set, so every `.k` the set's parse enters is the sentinel and include-once, and nothing is reported into clang's engine (the set stays `ok`, and the rest of the header imports). `HeaderSetPPCallbacks::InclusionDirective`, which fires before clang enters the file, records the include (`HeaderSet::record_kairo_include`: the header, the file name's offset, the `ffi import` it was reached from through `_main_locs`; first build only, one entry per include line). `drain_diags` reports each on the driver thread, where the Kairo SourceManager decides the two extra sentences: the `.k` is the importing file, or it is already part of this compilation. The `.k` gets no `HeaderFile` and no `IncludeEdge`. `Tests/Sema/FFI/kairo_include_in_header/`.
+`#include "foo.k"` is kcc's, in a C++ TU. A header reached by `ffi import` (directly or through its own includes) that includes a `.k`, and an `ffi import` that names a `.k` itself, are R070E. Clang never reads the Kairo text: `HeaderSetAction` installs `KairoIncludeHook` with `refuse` set, so every `.k` the set's parse enters is the sentinel and include-once, and nothing is reported into clang's engine (the set stays `ok`, and the rest of the header imports). `HeaderSetPPCallbacks::InclusionDirective`, which fires before clang enters the file, records the include (`HeaderSet::record_kairo_include`: the header, the file name's offset, the `ffi import` it was reached from through `_main_locs`; first build only, one entry per include line). `drain_diags` reports each on the driver thread, where the Kairo SourceManager decides the two extra sentences: the `.k` is the importing file, or it is already part of this compilation. The `.k` gets no `HeaderFile` and no `IncludeEdge`. `Tests/Sema/FFI/kairo_include_in_header/`.
 
 ### Discovery and outputs
 

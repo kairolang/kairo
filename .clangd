@@ -1,5 +1,23 @@
 CompileFlags:
   CompilationDatabase: .
+  Add: [-ivfsoverlay, /mnt/linux-dev/projects/kairo-lang/.kairo/clangd/overlay.yaml, -I/mnt/linux-dev/projects/kairo-lang/.kairo/clangd]
+
+---
+# For C++ files that #include a .k file: the flags kcc compiles them with
+# (from kals's hint). Add each such file to PathMatch.
+If:
+  PathMatch: ['main\.cc']
+CompileFlags:
+  Add: ['-nostdlibinc', '-nostdinc++',
+        '-resource-dir', '/mnt/linux-dev/projects/kairo-lang/build/x86_64-linux-musl/release/lib/clang/22',
+        '-isystem', '/mnt/linux-dev/projects/kairo-lang/build/x86_64-linux-gnu/release/sysroot/x86_64-linux-gnu-glibc2.31/include/c++/v1',
+        '-isystem', '/mnt/linux-dev/projects/kairo-lang/build/x86_64-linux-musl/release/lib/clang/22/include',
+        '-isystem', '/mnt/linux-dev/projects/kairo-lang/build/x86_64-linux-gnu/release/sysroot/x86_64-linux-gnu-glibc2.31/include/x86_64-linux-gnu',
+        '-isystem', '/mnt/linux-dev/projects/kairo-lang/build/x86_64-linux-gnu/release/sysroot/x86_64-linux-gnu-glibc2.31/include',
+        '-isysroot', '/mnt/linux-dev/projects/kairo-lang/build/x86_64-linux-gnu/release/sysroot/x86_64-linux-gnu-glibc2.31',
+        '--sysroot=/mnt/linux-dev/projects/kairo-lang/build/x86_64-linux-gnu/release/sysroot/x86_64-linux-gnu-glibc2.31',
+        '--target=x86_64-unknown-linux-gnu', '-std=c++23',
+        '-I', '/mnt/linux-dev/projects/kairo-lang/build/x86_64-linux-musl/release/lib']
 
 ---
 If:

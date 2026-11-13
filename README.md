@@ -206,7 +206,7 @@ fn first(v: cxx::std::vector<i32>?) -> i32 {
 
 ### Getting Started
 
-**Download a release:** `curl -fsSL https://kairolang.org/install.sh | sh` (Linux, macOS, BSD) or `irm https://kairolang.org/install.ps1 | iex` (Windows PowerShell), or grab an archive from the [releases page](https://github.com/kairolang/kairo/releases).
+**Download a release:** `curl -fsSL https://www.kairolang.org/install.sh | sh` (Linux, macOS, BSD) or `irm https://www.kairolang.org/install.ps1 | iex` (Windows PowerShell), or grab an acrhive from the [releases page](https://github.com/kairolang/kairo/releases).
 
 **Build from source:** see [BUILD.md](BUILD.md) - covers the quick install script, manual setup, PATH configuration, the VSCode extension, and debugging.
 

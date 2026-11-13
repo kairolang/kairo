@@ -42,9 +42,10 @@ Two top-level bindings of one name are R029E in NameResolution, and the pipeline
 - an integer, float, char, bool or `null` literal;
 - a string literal that is not an f-string;
 - `sizeof` / `alignof`;
-- an integer ConstEval folds that fits the declared type (`-1`, `1 << 4`, an `eval` name).
+- an integer ConstEval folds that fits the declared type (`-1`, `1 << 4`, an `eval` name);
+- a list literal initializing a fixed array whose every element is constant, nested arrays included (`_constant_array`).
 
-Every other initializer (a call, a list literal, a read of another global) is deferred. Deferring is always correct and only slower, so the constant list can grow; it grows in `ScriptRules`, which `ScriptLowering`, `JumpLabelCheck::run_script_jumps` and `ControlFlowAnalysis` all read, so they cannot disagree about which lines are deferred. The constant test reads ExprTyper's types and ConstEval, so every reader runs after ExprTyper; the structural questions need only the parsed tree.
+Every other initializer (a call, any other list literal, a read of another global) is deferred. Deferring is always correct and only slower, so the constant list can grow; it grows in `ScriptRules`, which `ScriptLowering`, `JumpLabelCheck::run_script_jumps` and `ControlFlowAnalysis` all read, so they cannot disagree about which lines are deferred. The constant test reads ExprTyper's types and ConstEval, so every reader runs after ExprTyper; the structural questions need only the parsed tree.
 
 ## Desugaring
 
@@ -75,7 +76,9 @@ The slot constraints that fix the pass's place:
 
 The global's own declaration becomes its storage: type `T?` (the Nullable lang item), initializer `null`, same decl, same name. EmitIR spells it `::builtin::Nullable<T> g = <null>;`. A deferred `const` becomes `var` storage that `main` assigns; each read still carries the `const T` it was typed with. The name is the user's: a script is a root and is never imported, so nothing links against `g`.
 
-Two shapes are SC235E ("not supported yet"):
+Three shapes are SC235E ("not supported yet"):
+
+- a deferred binding of fixed-array type (`var a: [i32; 2] = [1, f()]`): its storage would be `Nullable<T[N]>`, which Lib/builtin's Nullable cannot construct. The note suggests a list literal of constants and assigning the elements after.
 
 - a deferred binding whose declared type is itself nullable (`var g: i32? = find()`): its storage would be `(i32?)?`, and a read the typer narrowed would need two marks, which NarrowedAccessLowering does not take. The note suggests `= null` and an assignment on the next line.
 - a top-level destructuring binding (`var (a, b) = f()`).
@@ -122,7 +125,7 @@ Only one level is followed: `relay()` calling `report()` that reads `g` is left 
 |---|---|---|
 | SC142E / SC142N | driver | two script files in one linked program |
 | SC234E / SC234N | ScriptLowering | top-level statement in an imported module, or beside `fn main` |
-| SC235E / SC235N | ScriptLowering | nullable-typed deferred binding; top-level destructuring |
+| SC235E / SC235N | ScriptLowering | nullable-typed or array-typed deferred binding; top-level destructuring |
 | SC236E / SC236N | ScriptLowering | read before the binding's line, directly or through a direct call |
 | SC237E | ScriptLowering | top-level `return` value is not an integer |
 | SC238E / SC238N | JumpLabelCheck | `jump!` crosses a deferred binding's line |

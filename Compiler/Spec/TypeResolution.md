@@ -95,7 +95,7 @@ Two function declarations are one entity when their signatures agree:
 
 R(a) never merges two constructors that both carry a marker: how many transfer constructors a class may have is ClassLifecycle's rule (SC057E), which would otherwise lose a second `@copy` differing only in `const` on `other` to R041E. R(b) includes the marker kind, so an out-of-line definition that repeats it still finds its declaration.
 
-Across a chain, return type, defaults, linkage and modifiers must agree. File scope permits repeated declarations; a type body does not ([class.mem]); a repeat is R041E.
+Across a chain, return type, defaults, linkage and modifiers must agree. File scope permits repeated declarations; a type body does not ([class.mem]); a repeat is R041E. Receiver const-ness is part of the signature for an imported declaration and for the two place operators, `op []` and `op ->` (`OperatorFacts::is_subscript`, `is_arrow`): a `self` / `const self` pair of either is two entities, chosen by the receiver's const. For any other Kairo declaration the pair is one entity with two contracts. `op []=` has no const pair.
 
 A pair with distinct signatures whose parameters all lower to the same C++ types is R052E at the second declaration (`f(u64)` / `f(usize)` on a 64-bit target, where `usize` is `size_t`), because the emitted C++ would declare one function twice. Only the builtin table is compared (`usize` / `isize` against the fixed-width integer of `target.pointer_width`); records, pointers and references compare by canonical as identity does. Kairo-authored pairs only.
 

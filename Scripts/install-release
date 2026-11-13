@@ -3,8 +3,8 @@ set "x\" <# "
 # Kairo release installer: ONE file that runs under POSIX sh (Linux, macOS, FreeBSD, NetBSD)
 # and under PowerShell (Windows PowerShell 5.1, pwsh 7).
 #
-#   Linux / macOS / BSD (any shell, fish included):  curl -fsSL https://kairolang.org/install.sh | sh
-#   Windows PowerShell:                              irm https://kairolang.org/install.ps1 | iex
+#   Linux / macOS / BSD (any shell, fish included):  curl -fsSL https://www.kairolang.org/install.sh | sh
+#   Windows PowerShell:                              irm https://www.kairolang.org/install.ps1 | iex
 #
 # How the polyglot works: line 2 is a harmless `set` to sh (the <# is inside its double quotes),
 # but PowerShell reads "x\" as a complete string and then sees the <# block-comment opener, so
@@ -84,7 +84,7 @@ detect_triple() {
                 *) die "unsupported NetBSD architecture: $arch" ;;
             esac ;;
         MINGW*|MSYS*|CYGWIN*)
-            die "this is a POSIX shell on Windows; run the installer from PowerShell instead:  irm https://kairolang.org/install.ps1 | iex" ;;
+            die "this is a POSIX shell on Windows; run the installer from PowerShell instead:  irm https://www.kairolang.org/install.ps1 | iex" ;;
         *) die "unsupported OS: $os (build from source: $BUILD_CMD)" ;;
     esac
 }
@@ -321,11 +321,11 @@ function Install-Kairo {
     if ((-not $onWindows) -and (-not $testWin)) {
         # pwsh on Linux/macOS/BSD: this is the sh installer's job; never install a Windows build here.
         $sh = Get-Command sh -ErrorAction SilentlyContinue
-        if (-not $sh) { throw 'this is not Windows and no sh was found; run the installer with: curl -fsSL https://kairolang.org/install.sh | sh' }
+        if (-not $sh) { throw 'this is not Windows and no sh was found; run the installer with: curl -fsSL https://www.kairolang.org/install.sh | sh' }
         $self = $PSCommandPath
         $tmp = $null
         if (-not ($self -and (Test-Path -LiteralPath $self))) {
-            $url = if ($env:KAIRO_INSTALL_SH_URL) { $env:KAIRO_INSTALL_SH_URL } else { 'https://kairolang.org/install.sh' }
+            $url = if ($env:KAIRO_INSTALL_SH_URL) { $env:KAIRO_INSTALL_SH_URL } else { 'https://www.kairolang.org/install.sh' }
             $tmp = Join-Path ([IO.Path]::GetTempPath()) ("kairo-install-" + [Guid]::NewGuid().ToString('N') + '.sh')
             Get-Remote $url $tmp
             $self = $tmp

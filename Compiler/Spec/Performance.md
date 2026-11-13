@@ -21,36 +21,11 @@ Machine: AMD Ryzen 9 7900X, 12 cores / 24 threads, Linux.
 - An optimization that must not change output is gated on byte-identical objects: every object of a cold self-build compared with the previous run's. Only `kairo_meta.o` (build metadata) may differ.
 - `perf_event_open` is restricted on the reference machine: only `-e cpu-clock:u` on a child process. Detailed profiles come from callgrind.
 
-### Self-build history
+### Current figures
 
-Each row adds one change to the row above. Hashes identify the commit; the changes are described in [Compile-time optimizations](#compile-time-optimizations).
+On the reference machine, the cold self-build takes about 32 s wall at a peak RSS of about 10 GB, with the runtime and ThinLTO caches warm (the first build after a compiler rebuild fills them and costs about 4.5 s more). The whole-graph `--type-check-only` takes 14.6 s at 2.9 GB. A release self-compile with the interface PCH takes 29.4 s at 6.13 GB. The optimizations behind these figures are in [Compile-time optimizations](#compile-time-optimizations).
 
-| Change | Wall | Peak RSS |
-|---|---|---|
-| baseline (1e166f8d) | 259 s (with stats) | 44.2 GB |
-| toposort, header index, tag hiding | 126 s | 42.0 GB |
-| codegen workers = pool size, claim hint | 113 s | 46.6 GB |
-| `PCHInstantiateTemplates` | 79 s | 42.0 GB |
-| `_needs_complete` memo, set index, closure memo | 66 s | 42.0 GB |
-| extension index skips headers, integer closure walk | 63.5 s | 42.1 GB |
-| merged PCH even for one set | 62 s | 35.4 GB |
-| header index skips frozen headers | 56.4 s | 35.1 GB |
-| header sets freed when done (b562d86e) | 55 s | 27.9 GB |
-| `ASTWriter` copy-on-change (7966a600) | 54 s | 21.7 GB |
-| runtime compiled during Sema (be50e6d3) | 52.5 s | 21.8 GB |
-| lld ThinLTO cache (573d2782) | 48.0 s | 21.8 GB |
-| parallel TU emptiness checks (2ee00363) | about 45 s | 21.9 GB |
-| lazy `ArenaList` arena (342e7ec0) | about 43 s | 21.8 GB |
-| header function bodies skipped (4deec0da) | 39 s | 16.2 GB |
-| ADL scopes through a set (fae70b66) | about 39 s | 16.1 GB |
-| one shared header parse (d0b2d760) | 32 s | 10 GB |
-| interface PCH (release self-compile, not the debug self-build) | 31.3 s to 29.4 s | 7.24 to 6.13 GB |
-
-Baseline user CPU was 1529 s with about 5.9 of 24 threads busy; at 39 s it was about 478 s. The 48 s and later rows assume warm runtime and ThinLTO caches; the first build after a compiler rebuild fills them and costs about 4.5 s more. The whole-graph `--type-check-only` went from 29.5 s / 27.9 GB to 22 s / 15.2 GB before the shared header parse and 14.6 s / 2.9 GB after it.
-
-The baseline's shape, by cores busy: parse on about 21 cores (0 to 10 s); header indexing and Sema on one core (10 to 60 s); the codegen pre-pass (`EmitPlan` per TU) on one core (60 to 115 s); the backend on 9 to 12 cores (115 to 250 s, 717 s CPU of clang parsing each TU's tokens).
-
-Two later changes were measured separately: the `TokenSink` claim walk took the release `Registry.k` object from 34 min to 8.4 s, and the lock-free imm-table mirror took a self-build from 34.2 s to 28.7 s on glibc and from 42.7 s to 28.8 s on static musl, where system time fell from 344 s to 11 s.
+Two further measurements: the `TokenSink` claim walk takes the release `Registry.k` object to 8.4 s, and the lock-free imm-table mirror brings a self-build to 28.7 s on glibc and 28.8 s on static musl, where system time is 11 s.
 
 ### Small program
 
@@ -97,7 +72,7 @@ The runtime's C objects (`_compile_runtime`) fan out the same way: invocations a
 
 Clang's scopes shorter than 50 µs keep only the profiler's per-name total; a dropped `Optimizer` / `CodeGenPasses` is billed from that total, and a dropped `CodeGen Function` stays in its parse row's self time (0.5% of that child row on the self-build). On the debug self-build the rows leave 0.5% of worker time untraced; before them, 67% was (most of it the trace lock).
 
-Measured on the self-build (2026-11-07): per TU, `TUSetup` is about 0.3 ms and `PCHLoad` about 6 ms in release (`ReadAST` 2.9 ms of it). The PCH's real cost is demand deserialization inside `Emission` and `SSALowering`, as Sema and IRGen reach declarations. In a debug build `PCHLoad.SSALowering` was about 39 ms per TU: the `LLVM_DUMP_METHOD` (`used`) functions of the clang headers were IRGen'd in every TU, until build.py's debug profile defined `KAIRO_LLVM_DUMP_UNUSED`, which drops `used` in the merged PCH (`CodegenPCH::llvm_dump_prologue`).
+Measured on the self-build: per TU, `TUSetup` is about 0.3 ms and `PCHLoad` about 6 ms in release (`ReadAST` 2.9 ms of it). The PCH's real cost is demand deserialization inside `Emission` and `SSALowering`, as Sema and IRGen reach declarations. In a debug build `PCHLoad.SSALowering` was about 39 ms per TU: the `LLVM_DUMP_METHOD` (`used`) functions of the clang headers were IRGen'd in every TU, until build.py's debug profile defined `KAIRO_LLVM_DUMP_UNUSED`, which drops `used` in the merged PCH (`CodegenPCH::llvm_dump_prologue`).
 
 ### PCH layout
 

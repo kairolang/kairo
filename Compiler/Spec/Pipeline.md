@@ -33,7 +33,7 @@ The graph is cut into groups (`ImportGroups`), one per strongly connected compon
 `FrontendAction::_sema_group` runs one group:
 
 1. Each Kairo TU of the group gets a `Sema`, allocated in an arena so its address never moves (Sema keeps `&self.sc`, and the context keeps `&self.lifecycle`, from its constructor on).
-2. Every TU goes to `Typed`. A one-TU group does this in one `run_to`. A larger group runs in lockstep: one phase (I, E, V, N, T, typed checks) across every member before the next, because each phase of one member reads what the same phase of another produced. Inside the T stage, `Sema::resolve_types_pre` runs for every member before any member's ChainBinding, since binding walks other members' records through `derives` edges their T resolves. After I, the group's re-exports are folded to a fixpoint (`ImportResolution::refold_reexports`): the member that ran I first folded its sources' re-exports from overlays not yet built. A member that a stage's hard stop ends goes no further (`Sema::stopped()`: its `SemaRun` is `Stopped`, which `run_to` refuses to continue, since the phase still names the stage that stopped); the others continue. A member that only has errors is not stopped: it goes on to the next phase exactly as a one-TU group does, so a file reports the same diagnostics whether or not it sits in an import cycle (P883; the lockstep used to take `run_to`'s false, which also means "has errors", for a stop).
+2. Every TU goes to `Typed`. A one-TU group does this in one `run_to`. A larger group runs in lockstep: one phase (I, E, V, N, T, typed checks) across every member before the next, because each phase of one member reads what the same phase of another produced. Inside the T stage, `Sema::resolve_types_pre` runs for every member before any member's ChainBinding, since binding walks other members' records through `derives` edges their T resolves. After I, the group's re-exports are folded to a fixpoint (`ImportResolution::refold_reexports`): the member that ran I first folded its sources' re-exports from overlays not yet built. Only the call of the lockstep that ran I does this: with the parallel driver a group's front (I to the typed checks) runs on a pool worker and the driver resumes the group for Conformance, past I, where a round found nothing and still took every overlay Frozen -> Refolding -> Frozen while later groups' fronts read them (a debug build asserts no TU past I is refolded). A member that a stage's hard stop ends goes no further (`Sema::stopped()`: its `SemaRun` is `Stopped`, which `run_to` refuses to continue, since the phase still names the stage that stopped); the others continue. A member that only has errors is not stopped: it goes on to the next phase exactly as a one-TU group does, so a file reports the same diagnostics whether or not it sits in an import cycle (the lockstep decides a stop by `Sema::stopped()`, not by `run_to`'s false, which also means "has errors").
 3. The panic-set barrier (see [Phase barriers](#phase-barriers)).
 4. Each TU continues to `Checked`, then the lowerings and mono. The TU that declares the `Nullable` lang item goes first, since every other TU's `T?` lowering reads the layout that TU's EnumLayoutLowering builds. Diagnostics are drained into the driver's sink per TU.
 
@@ -73,6 +73,7 @@ The schedule, as `Sema.k` runs it. This table is the one statement of the order;
 | T | ConstraintExtraction | `Compiler/Sema/Check/ConstraintExtraction.k` | [TypeResolution.md](TypeResolution.md#chain-binding) |
 | T | ChainBinding | `Compiler/Sema/Resolve/ChainBinding.k` | [TypeResolution.md](TypeResolution.md#chain-binding) |
 | C | AttributeCheck | `Compiler/Sema/Check/AttributeCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
+| C | FfiRefReturnCheck | `Compiler/Sema/Check/FfiRefReturnCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | TypeCycleCheck | `Compiler/Sema/Check/TypeCycleCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | OperatorSignatureCheck | `Compiler/Sema/Check/OperatorSignatureCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | ClassAllocatorCheck | `Compiler/Sema/Check/ClassAllocatorCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
@@ -81,6 +82,9 @@ The schedule, as `Sema.k` runs it. This table is the one statement of the order;
 | C | ValueCategoryPass | `Compiler/Sema/Check/ValueCategoryPass.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | ShadowCheck | `Compiler/Sema/Check/ShadowCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | ShorthandLint | `Compiler/Sema/Check/ShorthandLint.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
+| C | ForCopyLint | `Compiler/Sema/Check/ForCopyLint.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
+| C | RangeBindingLint | `Compiler/Sema/Check/RangeBindingLint.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
+| C | CRTPHookCheck | `Compiler/Sema/Check/CRTPHookCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | PatternChecking | `Compiler/Sema/Check/PatternChecking.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | ReturnPathCheck | `Compiler/Sema/Check/ReturnPathCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | FnPurityCheck | `Compiler/Sema/Check/FnPurityCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
@@ -97,6 +101,7 @@ The schedule, as `Sema.k` runs it. This table is the one statement of the order;
 | C | InitCheck | `Compiler/Sema/Check/InitCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | BaseInitCheck | `Compiler/Sema/Check/BaseInitCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | CtorInitCheck | `Compiler/Sema/Check/CtorInitCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
+| C | ArrayIndexCheck | `Compiler/Sema/Check/ArrayIndexCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | ConformanceChecking (phase becomes `Typed`) | `Compiler/Sema/Check/ConformanceChecking.k` | [Interfaces.md](Interfaces.md#conformance) |
 | barrier | EffectPropagation (driver, per group) | `Compiler/Sema/Check/EffectPropagation.k` | [SemanticChecks.md](SemanticChecks.md#effect-propagation) |
 | C | PanicEffectChecking | `Compiler/Sema/Check/PanicEffectChecking.k` | [Panic.md](Panic.md#passes) |
@@ -119,7 +124,7 @@ Three planned passes have stub files and are not scheduled: MacroExpansion (E), 
 | Stage | On error |
 |---|---|
 | I, E, V | stop before the next stage |
-| N | continue into T; N poisons every name it could not bind, and T over the rest of the TU is what gives declarations their types. T's gate counts N's errors, so nothing past T runs. |
+| N | continue into T; N poisons every name it could not bind, and T over the rest of the TU is what gives declarations their types. An undeclared expression head (R020E) is contained, as a member miss (R025E) and I's eager R016E are, so it alone does not stop the expression typer and the rest of the file keeps its types; T's gate counts N's other errors, which stop everything past T. |
 | T stage | stop before the checks |
 | typed checks, late checks | keep going; poisoned nodes carry the state. An error still keeps the TU out of the lowerings (`run_to(Checked)` returns false). |
 | M1, M2 | stop |

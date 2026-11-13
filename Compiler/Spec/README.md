@@ -83,16 +83,16 @@ The authoritative pass order and the cross-pass invariants are in [Pipeline.md](
 | [LanguageServer.md](LanguageServer.md) | kals: server and worker processes, `kairo_compile.json`, the snapshot format, the compiler hooks it uses |
 | [Diagnostics.md](Diagnostics.md) | Diagnostic codes, the registry, rendering, clang diagnostics, fix-its |
 | [BuildSystem.md](BuildSystem.md) | `build.py`, staged trees, LLVM, release packaging |
-| [SelfHosting.md](SelfHosting.md) | Stages, bootstrap, migration, the self-host harness |
+| [SelfHosting.md](SelfHosting.md) | Stages, bootstrap and the fixed-point proof, the migration rules |
 | [Portability.md](Portability.md) | Targets, standards compliance, platform specifics |
 | [Performance.md](Performance.md) | Benchmarks, parallel codegen, compile-time optimizations |
-| [TodoMarkers.md](TodoMarkers.md) | The `TODO(<CATEGORY>)` markers the source migration left, per category |
+| [TodoMarkers.md](TodoMarkers.md) | The `TODO(<CATEGORY>)` marker kinds in the source and what resolving each means |
 | [Incremental.md](Incremental.md) | Incremental compilation: interface vs object keys, global invalidation, the cache record in each object (phase 2 not implemented) |
 | [Serialization.md](Serialization.md) | The serialized AST: one file's parsed tree as bytes, the format, what is rebuilt on read, the round-trip test flags |
 
 ## Language reference
 
-The language reference is maintained on the website (https://kairolang.org/docs/language/) and mirrored read-only in `Docs/`. Spec documents refer to its pages by name; this table is the single place that maps a name to its file.
+The language reference is maintained on the website (https://www.kairolang.org/docs/language/) and mirrored read-only in `Docs/`. Spec documents refer to its pages by name; this table is the single place that maps a name to its file.
 
 | Page | File |
 |---|---|
@@ -128,11 +128,6 @@ Older text (tests, commit messages) cites the design notes this directory replac
 | `Compiler/Sema/RESOLUTION.md` | [Pipeline.md](Pipeline.md), with each pass in its own document; invariant numbers 1-19 are unchanged |
 | `Compiler/Sema/IMPORTS.md` | [Imports.md](Imports.md), [Interop.md](Interop.md); its invariants 9-13 are [Pipeline.md](Pipeline.md#invariants) 20-26 |
 | `Compiler/Codegen/CODEGEN.md` | [Codegen.md](Codegen.md), [Witnesses.md](Witnesses.md) |
-| `PANIC.md`, `NULLABLE.md`, `EVAL.md`, `SCRIPT.md`, `FMT_SPEC.md` | [Panic.md](Panic.md), [Nullables.md](Nullables.md), [Eval.md](Eval.md), [ScriptMode.md](ScriptMode.md), [FormatStrings.md](FormatStrings.md) |
-| `MONO.md`, `PLAN-interface-algebra.md` | [Generics.md](Generics.md), [Interfaces.md](Interfaces.md) |
-| `PLAN-kcc.md`, `PLAN-module-pinning.md`, `PLAN-native-inputs.md` | [Interop.md](Interop.md#kcc), [Imports.md](Imports.md#module-pinning), [Driver.md](Driver.md#native-inputs) |
-| `SELFHOST.md`, `SEMANTIC-INDEPENDENCE.md` | [SelfHosting.md](SelfHosting.md) |
-| `PERF-CHANGES.md`, `compilence.md` | [Performance.md](Performance.md), [Portability.md](Portability.md) |
 | `Spec/lexer.md`, `Spec/keywords.md`, `Spec/errors.md`, `Spec/kairo.ebnf` | [Lexing.md](Lexing.md), [Diagnostics.md](Diagnostics.md#codes), [Grammar.ebnf](Grammar.ebnf) |
 | `Spec/KLIB.md`, `Extras/KaTAR/KatarDoc.md` | [LibraryFormat.md](LibraryFormat.md), [ArchiveFormat.md](ArchiveFormat.md) |
 

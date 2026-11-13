@@ -15,13 +15,13 @@ each with its readings; none was resolved silently.
 
 Proposed defaults come from how `Compiler/**/*.k` is
 written today (the house style) and from the language reference
-(https://kairolang.org/docs/language/). Where those two disagree, the
+(https://www.kairolang.org/docs/language/). Where those two disagree, the
 rule says so.
 
 Examples use ```rs fences, as in the draft. "Before" is what someone wrote;
 "after" is what kfmt prints.
 
-The user-facing page, https://kairolang.org/docs/toolchain/kfmt/, is written (0.2.0) and summarises this spec; it was frontmatter
+The user-facing page, https://www.kairolang.org/docs/toolchain/kfmt/, is written (0.2.0) and summarises this spec; it was frontmatter
 only today. It gets written in full once the formatter is complete, from this
 spec; until then this file is the only description of kfmt's rules.
 
@@ -1174,7 +1174,7 @@ Not done (copied as written today, as section 15 says):
   respacing other than the parameter list; 6.3 / 7.1 continuation lines for
   `where` / `requires` / `derives` / `impl`; 6.8 breaking after `= expr`;
   8.5 / 8.8 loop and `eval` headers; 9.7 expression-bodied closures; 11.6.
-- https://kairolang.org/docs/toolchain/kfmt/: once the formatter is complete.
+- https://www.kairolang.org/docs/toolchain/kfmt/: once the formatter is complete.
 
 Review items found while implementing (not resolved silently):
 

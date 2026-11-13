@@ -83,7 +83,7 @@ The current directory is a search root, so a file in it reaches `./foo.k` as pla
 
 ### Migration
 
-The plain form used to probe the importing file's directory first and report R017E when a search root answered too. Now a plain import that every root misses, for every prefix of its path, is retried in the importing file's directory; a hit there resolves (to the file the import always meant) and reports R068E at the first path segment, with a fix-it inserting `self::`. A root answer always wins, so a plain import of a library is never affected by a same-named file beside the importer.
+A plain import that every root misses, for every prefix of its path, is retried in the importing file's directory; a hit there resolves (to the file the import always meant) and reports R068E at the first path segment, with a fix-it inserting `self::`. A root answer always wins, so a plain import of a library is never affected by a same-named file beside the importer.
 
 R068 is an error (it was a warning while the tests migrated; `FileImportIndex::_legacy_sibling` now reports `R068E`), but the import still resolves so it does not cascade. Removing the fallback entirely afterwards is the two `_resolve_greedy(..., true, self._dir)` / `_resolve_place(..., true, ...)` calls.
 
@@ -91,7 +91,7 @@ R068 is an error (it was a warning while the tests migrated; `FileImportIndex::_
 
 In its one place, a path segment `foo` is `foo.k` or `foo/module.k`. Both present is R005E naming the two (`ModuleResolution::file_dir`, `dir_path`); the file answers so the import does not also fail. A `module.k` names its directory, and at a root's top level the directory is the root itself: `Lib/std/module.k` is `kairo::std`, not `kairo::std::module`. A name that consumes a library's whole path resolves to that library's `module.k`, which is how `import builtin` and `import kairo::std` resolve. `module X { }` inside a file appends `X` to the file's path.
 
-A path segment is a file or directory name, spelled as a C++ identifier the same way a file stem is (`CXXSpell::cxx_segment`: `operator.k` is `operator_`).
+A path segment is a file or directory name, spelled as a C++ identifier the same way a file stem is (`CXXSpell::cxx_segment`: `operator.k` is `operator_`). A primitive type's word is a segment like any name (`ImportGrammar::is_import_path_word`): `import self::f8::*` imports `f8.k`, though `f8` lexes as a type keyword. Only where the word would be the BOUND name (`import self::i32`, an item `{u8}` without `as`) is it S046E with a fix-it adding ` as i32_mod`: `i32::f()` names the primitive type, never the module.
 
 ### Resolution order
 
@@ -222,11 +222,11 @@ A `pub` or `prot` import is part of its file's surface. A re-exported name lives
 | `import foo::{...}` | folds no re-exports; a selective import names exactly what it takes |
 | `import foo`, then `foo::name` | ChainBinding's module step consults the source overlay after missing in the table (`MemberLookup::reexport_lookup`, name re-interned into the source TU's index space, probe-only) |
 
-Both accept a target only when its `origin` import is `pub` or `prot`, so a private import edge in the source is never surface. A folded re-export takes this TU's import as its `origin`, so it is surface here only if that edge is `pub`/`prot` too. Keeping the source's origin instead leaked every target that once crossed a `pub import` through private edges and grew one duplicate per import path.
+Both (and the symbol-path walk, `_reexported_cell`) accept a target only when its `origin` import re-exports to the importer (`VisibilityFacts::reexports_to`): it is `pub`, or it is `prot` and the importer is a file of the source's module. A private import edge in the source is never surface. A folded re-export takes this TU's import as its `origin`, so it is surface here only if that edge is `pub`/`prot` too. Keeping the source's origin instead leaked every target that once crossed a `pub import` through private edges and grew one duplicate per import path.
 
 A form re-exports what it bound. `pub import bar` re-exports the name `bar`, so an importer of foo writes `foo::bar::f()`; `pub import bar::*` re-exports bar's contents, so it writes `foo::f()`.
 
-A re-export also carries the `extend` blocks of its target onward, whatever its form ([MemberLookup.md](MemberLookup.md#visibility), P842): a file sees the extensions of the files it imports and of what those re-export, and a private edge further down carries none. A `prot` edge carries them only to an importer in the module of the file that wrote it. The name overlay above does not make that last distinction yet: a `prot import`'s names fold as surface for an importer outside the module too.
+A re-export also carries the `extend` blocks of its target onward, whatever its form ([MemberLookup.md](MemberLookup.md#visibility)): a file sees the extensions of the files it imports and of what those re-export, and a private edge further down carries none. A `prot` edge carries them only to an importer in the module of the file that wrote it, the same rule (`reexports_to`) the name overlay applies.
 
 ## Module pinning
 

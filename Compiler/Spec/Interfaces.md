@@ -14,7 +14,7 @@ How the compiler normalizes interfaces, decides conformance and resolves associa
 |---|---|
 | constructor (`decl_is_ctor_requirement`) | an own constructor of `X` (its own table under `DeclName::ctor()`, never a base's) matched on the non-`self` parameters; a zero-parameter one on a record declaring none by the implicit `X()` (the record decl stands as witness); a builtin meets none (`i32()` is SC037E) (`_ctor_implementation`) |
 | lifecycle (`@copy fn Copyable(self, const other: Self)`, `@move`) | category ([Ownership.md](Ownership.md#copy-and-move)): `@copy` by COPY, `@move` by COPY or MOVE, builtins included |
-| native (`_native_implementation`) | the requirement itself, when no member matches: `op ==(const self, other: Self) -> bool` on a builtin, a pointer or an imported C++ record; the Hash lang item's `hash` on a pointer or an imported C++ type (`std::hash<X>`) |
+| native (`_native_implementation`) | the requirement itself, when no member matches: an operator requirement a builtin or a pointer has built in with the requirement's shape (`_builtin_op_result`, see [Builtin operators as witnesses](#builtin-operators-as-witnesses)), or `op ==(const self, other: Self) -> bool` on an imported C++ record; the Hash lang item's `hash` on a pointer or an imported C++ type (`std::hash<X>`) |
 
 The match is exact on canonicals after `Self` is replaced by `X` (`Substitution::replace_self`) and the interface's parameters by the bound's arguments: the same receiver constness, parameter count, modes and types, and return type. Requirement generic parameters are matched by position (`fn <U> put(u: U)` and `fn <V> put(v: V)` are one signature). A generic record's own member is matched at the instance's arguments. Exactness is required because a witness forwards to the decl the row names and must reach the same one in every TU.
 
@@ -164,3 +164,22 @@ A body uses an associated-type value only through its bounds: `TypeUtil::checked
 C++ spelling: `T::Node` is `typename I_witness<T>::Node` through the bound that declares it (`CXXSpell::assoc_spelling`, `_assoc_bound_of`). Every row of an interface with an associated type is a specialization opening with `using Node = <type>;`; the primary declares none, and the concept probes it with `typename I_witness<Self>::Node;`. A `using Node = typename Self::Node;` in the primary was rejected: instantiating the primary (any concept check, for example of another overload candidate, or a kcc host's type) would hard-error on a type without `Node` instead of failing the concept. So a C++ host type conforms to an interface with associated types only through a Kairo `impl`. Details in [Witnesses.md](Witnesses.md#the-c-shape).
 
 Not implemented: a non-generic ADT nested in a generic class is SC116E (EnumLayoutLowering keys its generic regime on the enum's own parameters). `var x: T::Node` with no initializer is not checked for a constructor bound.
+
+## Builtin operators as witnesses
+
+An extension cannot declare an operator on a builtin type, so a builtin meets an operator requirement through the operator it has built in. The requirement must be a method with no generic parameters, `const self` (a compound assignment: `self`), its operands all `Self`, and its result the builtin's result with `Self` substituted: `void` for a compound assignment, `bool` for a comparison, `Ordering` for `<=>`, `Self` otherwise. `ConformanceChecking::_builtin_op_result` is the table:
+
+| Operator | Built in on |
+|---|---|
+| `==` `!=` | integers, floats, `bool`, `char`, the C character types, `byte`, pointers |
+| `<` `<=` `>` `>=` | integers, floats, `char`, the C character types, pointers |
+| `<=>` | integers, `bool`, `char` |
+| `+` `-` `*` `/` | integers, floats |
+| `%` `<<` `>>`, unary `~` | integers |
+| `&` `\|` `^` | integers, `bool` |
+| unary `-` | signed integers, floats |
+| unary `+` | integers, floats |
+| `op=` (compound) | wherever its binary operator gives back `Self` |
+
+Not granted: a float's `%` and `<=>`, `^^`, `byte` beyond `==` / `!=`, `++` / `--`, and every operator but `==` / `!=` on a float the library implements as a class (`f8e4m3`, `f8e5m2`, `f256`, `f512`). `!` cannot be a requirement (S045E: not overloadable). A requirement that is not on the table fails with SC162E, as a missing member does. The non-operator requirements of the same interface still need a member or an extension member. An imported C++ record keeps only the `==` grant; its other operators are its members, met by the primary witness.
+

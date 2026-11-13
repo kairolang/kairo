@@ -86,7 +86,7 @@ The vendored LLVM is built with 16 backends plus the experimental Xtensa: X86, A
 | P003E | a primitive type does not exist on the target (`f80`) |
 | P004F | clang does not know the triple |
 | P005F | the target machine cannot be constructed |
-| P006E | `--mcpu` names a CPU the target does not have |
+| P006E | `--mcpu` names a CPU the target does not have; on x86, so does `--march`, which names a CPU there (clang's `-march=haswell`). Elsewhere `--march` is an ISA string only clang's per-target parsers read, and `native` is left to the clang driver |
 | P007E | a bundled sysroot is malformed |
 | P008W | a root or sysroot is not found |
 
@@ -168,7 +168,7 @@ FFI puts every name a header declares into the importing module's lookup, and Ka
 
 ### POSIX and the BSDs
 
-`Compiler/Native/KThread.hh` uses its POSIX branch on every non-Windows, non-wasm host. The branch was previously guarded by `__APPLE__ || __linux__`, which left FreeBSD and NetBSD builds with no pool workers at all.
+`Compiler/Native/KThread.hh` uses its POSIX branch on every non-Windows, non-wasm host. Guarding it by `__APPLE__ || __linux__` would leave FreeBSD and NetBSD builds with no pool workers at all.
 
 ### Darwin
 

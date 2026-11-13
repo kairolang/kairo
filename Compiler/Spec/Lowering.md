@@ -154,7 +154,7 @@ It also expands the checked casts X marked: `enum_check` into a range or per-var
 
 `CallLowering.k`. After it every call has one positional argument list in parameter order; `NamedArgExpr` is gone and `arg_map` is empty.
 
-- A default becomes a nullary thunk (`LowerTargets::default_thunk`), one per entity and parameter index, stamped as `ParamDecl::default_thunk` at that index on every link of the redeclaration chain and spliced beside the declaring link; a default written on an out-of-line definition becomes a member of the owner. `default_val` is moved into the thunk.
+- A default becomes a nullary thunk (`LowerTargets::default_thunk`), one per entity and parameter index, stamped as `ParamDecl::default_thunk` at that index on every link of the redeclaration chain and spliced beside the declaring link; a default written on an out-of-line definition becomes a member of the owner. `default_val` is moved into the thunk. The thunk of a member of a generic extension is a member of the same extension scope, so its template parameters are the extension's, then the member's own; the call registers its instance with the member call's instance arguments, and EmitIR spells them, since a nullary call deduces nothing.
 - Explicit arguments evaluate left to right as written, whatever parameter they name; defaults evaluate after them, in parameter order.
 - A pack over one type is a `Slice<E>` by value (`ParamDecl::pack_type`) over a backing array alive for the call's full-expression. A type pack (`fn <...T> f(...xs: T)`, `param_is_type_pack`) is a C++ parameter pack, its run left one argument per element. An imported pack (`Args&&... args`) is one too: its element is the expansion's pattern, which may be a reference to the pack.
 - Dependent calls are left as written.
@@ -218,7 +218,7 @@ An extension operator is a static `__kairo_op_<name>` taking `X&` / `const X&`; 
 
 `SequenceLowering.k`. Kairo evaluates left to right: a call's receiver (operand zero) then its arguments as written, a binary operator's left operand then its right, a subscript's base then its index, an assignment's place then its value then the store, an initializer's fields as written. C++ does not promise this, and clang and gcc differ in practice, so the order is written into the tree. Every operand before the last effectful one that has an effect, or reads state an effect could change, is bound in order to a `__kairo_ordN` local inside a statement expression placed where the call sat, so short circuits and per-iteration evaluation are kept. Literals, eval constants, unaliased locals, `&x` and a cast of a name never need binding.
 
-A call whose result is an lvalue (an imported `T&` return) or a record value keeps C++'s order: a statement expression yields a prvalue, which would change the category or force a copy the type may not have. The exception is a panic result held by PanicLowering, the one record result it sequences. Primitive operators are not calls and are not covered.
+A call whose result is an lvalue (an imported `T&` return) or a record value keeps C++'s order: a statement expression yields a prvalue, which would change the category or force a copy the type may not have. The exception is a panic result held by PanicLowering, the one record result it sequences. Primitive operators are not calls and are not covered. An assignment's place is bound the same way (`({ auto&& __kairo_ord0 = (a[i()]); __kairo_ord0 = v(); })`); when the assignment is a whole statement and its type is a record, the store ends the block inside a block of its own, so the statement expression is void and C++ copies no result out of it (a move-only record has no copy: `**p = X()`, `v[i()] = X()`).
 
 A receiver that is a record prvalue is bound to its own named local (`_extend_receiver_temp`). A call's result may point into that temporary (`make().first(1)` returning a pointer into it), so a call made on the block's result is moved into the block's tail (`({ B t = make(); B* p = t.first(1); p->note(..)->emit(); })`) instead of running after the block, and the temporary lives to the end of the original statement. The order is unchanged.
 
@@ -238,6 +238,14 @@ SequenceCheck runs next. No node C++ evaluates in an unspecified order may have 
 | Slice, empty | `Slice(&null, 0)` |
 
 The array prvalue has the full-expression's lifetime in C++, which is what FullExpr means; no statement is hoisted for it. Both constructor arguments carry an explicit cast because the callee is the pattern's constructor, whose parameter types are dependent.
+
+Where an Extended backing lives depends on where its owner is:
+
+- A local `var`: a local `DeclStmt` spliced ahead of the owner's. For a `static` or `thread` local the backing takes the same storage, so it is built once with the owner and outlives the frame like the owner does.
+- A namespace-scope variable (a file-scope `var` or `const`, or one in a `module` block): a namespace-scope variable in the owner's scope, spliced ahead of the owner (into a TU's item list, or a module's decl list) and named after it, `__kairo_slice_<owner>_K`. C++ initializes namespace-scope variables in definition order within a TU, so the backing is set before the owner reads it, and it lives as long as the owner. The owner's name is unique in its namespace, which several files of one module can share, so a bare per-file counter could repeat there and fail to link.
+- A script's deferred binding ([ScriptMode.md](ScriptMode.md#desugaring)): ScriptLowering has already moved the initializer into the synthesized `main` as `g = <init>`, an expression statement at main's top level, carrying its Extended mark. The backing is a local of `main` spliced ahead of that statement. It is built at the binding's line and outlives every read of `g`, because main's teardown `finally` nulls `g` on the way out.
+
+A for-init is the one slot with no statement list. An Extended literal there is an ICE that says so.
 
 ### StringLowering
 

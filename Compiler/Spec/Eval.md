@@ -156,7 +156,9 @@ An eval context is an `eval fn` body, an `eval` binding's or field's initializer
 | no `await`, `spawn`, `panic` | SC194E |
 | no local of a type with a user-written destructor | SC184E |
 | an `eval fn` has no `where` clause | SC187E |
+| a destructor is not `eval` (`eval fn op finally`): a compile-time object is never destroyed, and C++ has no `consteval` destructor | SC290E |
 | a vector, set or map value, an f-string, or an eval fn parameter or return of those types | SC116E |
+| an `eval` constant of slice type (`[T;]`): Lib/builtin's Slice has no constexpr constructor | SC116E at the declaration |
 | a compile-time value where one is required | SC192E |
 
 Eval-able: literals; `sizeof` / `alignof` / `typeof`; builtin operators and casts over eval-able operands; an `eval` variable or field; a generic value parameter; an enclosing `eval for`'s binding; a call of an `eval fn` with eval-able arguments. The pass marks every string literal C++ reads at compile time (`StringLiteralExpr::const_eval`): in eval contexts, in the arguments of an eval call from run-time code, and in an eval class's field defaults.

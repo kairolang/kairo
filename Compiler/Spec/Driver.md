@@ -50,12 +50,14 @@ The exit status is 0 when `BatchResult::ok()` holds: no error anywhere in the ba
 
 ### Batch execution
 
+`main` (`Compiler/Driver/Kairo.k`) runs `execute()` on a joined thread with the pool workers' stack, `Tuning::WORKER_STACK_BYTES` (32 MB; `kairo::execute_on_big_stack`, `Compiler/Native/KThread.hh`), so the entry file's parse, Sema and codegen do not depend on the main thread's stack, which the OS sizes (8 MB on Linux) and only a Linux-only `setrlimit` could raise (a left-deep 30000-term `+` chain overflowed it in Sema's recursive visitors; release now handles 30000, debug 7500). An exception on that thread is rethrown on the main one. Where no thread with a stack size can be made (Windows, wasm, a failing `pthread_create`) `execute()` runs on the calling thread.
+
 `execute()`:
 
 1. No inputs is I004F.
 2. `_plan_outputs` classifies every input and fixes the output plan ([Outputs and the object directory](#outputs-and-the-object-directory)). An unusable input stops the run before anything compiles, every one reported.
 3. `_discover_includes` finds `.k` files that C/C++ inputs include (`Compiler/Driver/KairoIncludes.k`; see [Interop.md](Interop.md#kcc)).
-4. `_settle_global_allocator`, then the Kairo library when linking under `--kairo-lib` ([Runtime and the Kairo library](#runtime-and-the-kairo-library)).
+4. `_settle_global_allocator`, then the Kairo library when linking under `--kairo-lib` and the link holds Kairo code (`_link_has_kairo`: a `.k` input, a C/C++ input that includes a `.k`, or an object or archive carrying the ABI note, `LinkABI::carries_note`; a pure C/C++ link is exactly clang's) ([Runtime and the Kairo library](#runtime-and-the-kairo-library)).
 5. One `FrontendAction` per Kairo input, in `_kairo_order()`. Link inputs go to the link list; C/C++ sources and headers are collected for step 7. Every input runs even after an earlier one failed, as clang does; a fatal sets `aborted`, which stops what runs after the loop.
 6. When linking: a second script (each script is a `main`; see [ScriptMode.md](ScriptMode.md#script-files)) or a second global allocator is an error.
 7. With no errors: compile native inputs (`_compile_sources`), then the runtime when Kairo objects were emitted.
@@ -132,13 +134,13 @@ Two feature toggles split the conversion rules: `-f[no-]implicit-conv` is the Ka
 
 ### Dialect flags and the library
 
-A flag that changes a language rule (`-fno-implicit-conv`, `-fduck-generics`, the `--no-*` gates and `--max-*` limits) applies to the user's files only. `Lib/builtin` and `Lib/std` always compile in one fixed mode, whatever the user passes (P780: `Conversion::implicit_enabled` and `FlagGates::_library_tu`). Not yet under this rule: `-fcxx-implicit-conv`, `-finfer-purity` and `-funwind` still reach the library (P939).
+A flag that changes a language rule (`-fno-implicit-conv`, `-fcxx-implicit-conv`, `-funwind`, `-fduck-generics`, the `--no-*` gates and `--max-*` limits) applies to the user's files only. `Lib/builtin` and `Lib/std` always compile in one fixed mode, whatever the user passes: every pass asks `SemaContext::in_library` (`VisibilityFacts::is_library_tu`, the driver's stamp). So under `-funwind` a library function is still `noexcept` unless it is marked `@unwind` (`FunctionDecl::no_unwind`, which every TU that declares the function reads), and a C++ exception thrown through such a frame (a callback the library calls) terminates. Codegen's own `-funwind` reading (`EmitOptions::unwind`: closures' call operators, `__kairo_fn`'s call path, witness and role functions) still follows the user's flag everywhere: those are spelled by every TU that emits them, so splitting them by TU could give one entity two spellings. Not yet under this rule: `-finfer-purity` (`-fno-infer-purity` turns inference off in the library too; exempting it changes `Tests/Codegen/purity/infer_purity.k`).
 
 ### Unimplemented flags
 
 A flag the parser accepts but nothing consumes is registered with `cmd->mark_unimplemented(key)` at the end of `register_kairo_flags` (`c:<name>` for config limits, the bare name for features). Setting one emits U005W ("accepted but not yet implemented; it has no effect"), once per flag, and `--help` renders it with `[not implemented]`, so a flag never appears to do something it does not. The entry is removed in the same change that wires the flag's consumer. An unknown key in the list is ignored, so a typo there cannot abort the compiler.
 
-An internal flag, one that exists for the compiler's own build rather than for users, is registered with `cmd->mark_hidden(key)` (same key forms). It parses and works as usual; `--help` leaves it out. The first is `-fduck-generics` (decided 2026-11-08: off by default so user code gets real bounds; `build.py` passes it for the compiler's own targets).
+An internal flag, one that exists for the compiler's own build rather than for users, is registered with `cmd->mark_hidden(key)` (same key forms). It parses and works as usual; `--help` leaves it out. The first is `-fduck-generics` (off by default so user code gets real bounds; `build.py` passes it for the compiler's own targets).
 
 `--help-hidden` lists the flags a user is not offered or cannot use yet: the internal ones, tagged `[internal]`, and the not-implemented ones, tagged `[not implemented]` (these also appear in `--help`). It exits like `--help`.
 
@@ -194,7 +196,7 @@ What were environment variables during the compile-time and parallel-Sema measur
 | `--interface-pch=auto\|on\|off` | the per-flavour interface PCH ([Codegen.md](Codegen.md)); `auto` (default) builds it only for 2+ TUs and 1 MiB of Kairo; under `--verbose` a failed build's clang diagnostics are shown |
 | `-fno-shared-header-set` | one clang parse per header list instead of one for the union ([Interop.md](Interop.md#header-sets)) |
 
-`--print-stats` also prints the memory probes (arena bytes by kind, largest TU, header-set AST bytes, per-stage Sema arena growth) and, with `-finfer-purity`, the inferred const / pure counts ([Performance.md](Performance.md)). `NO_COLOR`, `KAIRO_DEBUG_FORCE_ICE` (test hook) and `KAIRO_CLANG_TRACE_DIR` stay environment variables.
+`--print-stats` also prints the memory probes (arena bytes by kind, largest TU, header-set AST bytes, per-stage Sema arena growth) and, with `-finfer-purity`, the inferred const / pure counts ([Performance.md](Performance.md)), and, when the build has an import cycle and no error, `[stats] import-cycle refolds: N`, the re-export fixpoint rounds summed over the cycles' files (one per file per round of the group's I; the same at every thread count). `NO_COLOR`, `KAIRO_DEBUG_FORCE_ICE` (test hook) and `KAIRO_CLANG_TRACE_DIR` stay environment variables.
 
 ### Progress
 
@@ -265,7 +267,7 @@ The sysroot is chosen by `_use_bundled_sysroot`:
 - `--native`: the host is the sysroot (`/`); the bundle for the host's C library still supplies libc++ and compiler-rt.
 - `--target`, or no `--sysroot`: `<prefix>/sysroot/<triple>`, or the one directory there naming the same target in another spelling (same arch, sub-arch, OS and environment). A bundle that is not a directory, lacks `SYSROOT.toml`, or has a malformed one is P007E.
 - `--sysroot` without `--target`: that directory, as given.
-- No bundle and no `--sysroot`, for `--target` and for the default target alike (a macOS or BSD archive ships no root for its own host): the sysroot generator's cache, then its `ensure` in-process; macOS and MSVC roots are staged from the installed SDK plus the shipped overlay ([SysRoot.md](SysRoot.md#22-state-after-p743-p746-2026-11-09-host-roots-on-first-use-one-canonical---target)) (`_sysroot_from_generator`; [SysRoot.md](SysRoot.md#8-cli-and-driver-hook)). A refusal is P009E and exit 2; `--no-sysroot-build` makes the missing root that refusal instead of a build. Without a share tree to build from, the run keeps the P008W below. The order is: a bundled `<prefix>/sysroot/<name>`, then the cache's `by-name/<name>` (also reported by `--version`, which never builds), then the build; the build is skipped for `--help`, `--version`, `--explain` and the info queries. A build that fails is P010E and exit 3. When a sysroot's `SYSROOT.toml` records `clang_triple`, clang's `-triple`, the driver probe and C/C++ `--target` use it instead of the name's triple. The target-spelling grammar, the stages and the cache layout are [SysRoot.md](SysRoot.md); the user-facing view is the `ksys` page of the website docs.
+- No bundle and no `--sysroot`, for `--target` and for the default target alike (a macOS or BSD archive ships no root for its own host): the sysroot generator's cache, then its `ensure` in-process; macOS and MSVC roots are staged from the installed SDK plus the shipped overlay ([SysRoot.md](SysRoot.md#sdk-families)) (`_sysroot_from_generator`; [SysRoot.md](SysRoot.md#8-cli-and-driver-hook)). A refusal is P009E and exit 2; `--no-sysroot-build` makes the missing root that refusal instead of a build. Without a share tree to build from, the run keeps the P008W below. The order is: a bundled `<prefix>/sysroot/<name>`, then the cache's `by-name/<name>` (also reported by `--version`, which never builds), then the build; the build is skipped for `--help`, `--version`, `--explain` and the info queries. A build that fails is P010E and exit 3. When a sysroot's `SYSROOT.toml` records `clang_triple`, clang's `-triple`, the driver probe and C/C++ `--target` use it instead of the name's triple. The target-spelling grammar, the stages and the cache layout are [SysRoot.md](SysRoot.md); the user-facing view is the `ksys` page of the website docs.
 
 `_check_sysroot` then reports P008W when no sysroot was found or the given one is not a directory, unless `--freestanding` asked for none or `--macos-sdk` stands in for one.
 
