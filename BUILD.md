@@ -156,6 +156,8 @@ A file that no entry reaches, or a directory with no `kairo_compile.json`, is ch
 
 - **Neovim 0.11+:** clone `kairo-lsp` and put its `nvim/` directory on the runtimepath (`vim.opt.rtp:prepend("~/kairo-lsp/nvim")`). The plugin builds its parser the first time a Kairo file is opened, so it needs a C compiler. `:checkhealth kairo` reports what it found.
 
+- **Helix 25.01+:** merge `kairo-lsp/helix/languages.toml` into `~/.config/helix/languages.toml`, copy `kairo-lsp/helix/runtime/queries/kairo` into `~/.config/helix/runtime/queries/`, then run `hx --grammar fetch` and `hx --grammar build`. `hx --health kairo` reports what it found.
+
 - **Any other editor:** start `kals` with no arguments; it speaks LSP on its standard input and output.
 
 The server's options and what each client draws are in the [kals manual](https://www.kairolang.org/docs/toolchain/kals/).
