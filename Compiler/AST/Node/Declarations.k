@@ -159,6 +159,35 @@ pub enum PanicSetState derives u8 {
     Diverged,
 }
 
+/// How a function's `move_out` was arrived at, and so what a caller may
+/// take from it.
+pub enum MoveOutState derives u8 {
+    None = 0, ///< not looked at: nothing is known.
+    /// Read from the body: the list is every part some return of the body
+    /// leaves moved-from, and an empty list means none.
+    Body,
+    /// Declared in Kairo with no definition Kairo can read (implemented in
+    /// C or C++). Nothing is known, so a call takes the worst: every
+    /// argument the body could move out of is moved-from afterwards.
+    Assumed,
+}
+
+/// One part of storage a function body does not own -- `self`, an `@inout`
+/// parameter, what a parameter points at -- that is moved-from when the
+/// body returns.
+pub struct MoveOut {
+    pub var param: u32 ///< the parameter it is under: an index into FunctionDecl::params.
+    /// The path under the parameter: `count` entries of FunctionDecl::
+    /// move_out_path from `first`, a FieldDecl per `.field` step and null
+    /// per pointer followed.
+    pub var first: u32
+    pub var count: u32
+    /// Moved-from at every return of the body; false when only at some
+    /// (a caller reads both as moved-from).
+    pub var always: bool
+    pub var at:     SourceRange ///< where the body moves it.
+}
+
 /// Lifecycle attribute on a transfer constructor (@copy / @move).
 pub enum TransferKind derives u8 {
     NotTransfer = 0, ///< not a transfer ctor.
@@ -577,9 +606,17 @@ pub class FunctionDecl
     /// _check_reuse). Recorded at the definition, in its own TU.
     pub var move_reuse_site: FrozenList<unsafe *Expr>
     pub var move_reuse_read: FrozenList<unsafe *Expr>
-    pub var body_kind:       FnBodyKind               = FnBodyKind::None
-    pub var body_block:      unsafe *CompoundStmt     = &null ///< when body_kind == Block.
-    pub var body_expr:       unsafe *Expr             = &null ///< when body_kind == Expr.
+    /// What a call leaves moved-from in the caller's storage (MoveCheck):
+    /// one MoveOut per part, `move_out_path` their paths, and
+    /// `move_out_state` how the list was arrived at. Written on the
+    /// definition, in its own TU; a declaration with no definition is
+    /// stamped Assumed by the first call that consults it.
+    pub var move_out:       FrozenList<MoveOut>
+    pub var move_out_path:  FrozenList<unsafe *Decl>
+    pub var move_out_state: MoveOutState             = MoveOutState::None
+    pub var body_kind:      FnBodyKind               = FnBodyKind::None
+    pub var body_block:     unsafe *CompoundStmt     = &null ///< when body_kind == Block.
+    pub var body_expr:      unsafe *Expr             = &null ///< when body_kind == Expr.
     /// --check-past-syntax-errors only (Driver/CompilerRecovery.k): the
     /// block body had syntax errors and was dropped before Sema, so the
     /// function is its signature alone. Nothing may be inferred from the

@@ -31,12 +31,17 @@
 ///         capture, a C++ `T&` or `@inout` argument, `&a` of a `for` binding
 ///         over it): a read through that pointer is no read of the binding.
 ///
-///     (c) Use after move. A moved bare local or parameter, or a part of one
-///         (`p.a`, `p.a.b`), is MOVED-FROM from that point: a later READ that
-///         touches it -- the part, something inside it, or the whole binding
-///         -- in the same function body is an error; an assignment to it, or
-///         to something enclosing it, clears it; at a join, moved on either
-///         path means moved. A `var` declaration starts a new binding.
+///     (c) Use after move. A moved local or parameter (`self` included), or
+///         a part of one, is MOVED-FROM from that point. A part is a field
+///         path (`p.a.b`, `self.r`) or what a pointer on the path points at
+///         (`p->r`, `*p`, `h.link->a`). A later READ that touches it -- the
+///         part, something inside it, or storage that holds it by value --
+///         in the same function body is an error; the pointer itself stays
+///         readable. An assignment to it, or to something enclosing it,
+///         clears it; at a join, moved on either path means moved. A `var`
+///         declaration starts a new binding. A move out of an element
+///         (`v[i]`) leaves the container moved-from: which element is gone
+///         is not tracked. `p[i]` on a pointer is not tracked at all.
 ///
 ///     (d) Copies it cannot make. A transfer that copies a value whose type
 ///         cannot be copied is SC182E here rather than in clang: a MOVE value
@@ -49,9 +54,17 @@
 ///         the left operand of an `op +` derived from `op +=`, and the
 ///         elements of a vector, set or map literal.
 ///
-///     Intraprocedural only, bindings only: a move through a pointer, out
-///     of `self`, a capture, or into another function is not tracked and
-///     stays AMT's (Stage 2), though the cast is still made.
+///     Storage the body does not own (`self`, an `@inout` parameter, what
+///     a parameter points at, a `|*x|` capture inside its closure) that is
+///     still moved-from at a return is recorded on the function
+///     (FunctionDecl::move_out, _exit), and a call marks the same part of
+///     its argument moved-from (_call_leaves). Only the called declaration
+///     is consulted: a call through an interface, a virtual method, a
+///     function pointer or a stored closure, and a C++ function, mark
+///     nothing.
+///
+///     By name only. A second pointer to the same object does not see a
+///     move made through the first; that stays AMT's (Stage 2).
 ///
 ///     Path-insensitive by design: the right operand of `&&` moves on one
 ///     path only, so after `if a && f(x) { return }` x is maybe-moved, and a
@@ -125,8 +138,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,    FieldDecl, FnBodyKind, FunctionDecl, ParamDecl, StructDecl, TransferKind,
-    VariableDecl,
+    ClassDecl, FieldDecl,  FnBodyKind,   FunctionDecl, InterfaceDecl, MoveOut, MoveOutState,
+    ParamDecl, StructDecl, TransferKind, VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::PrimaryExpressions::{
@@ -167,14 +180,90 @@ import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 
-/// One moved part: a binding, and the field path under it that was moved
-/// out ("" for the whole binding, "a.b" for `p.a.b`).
+/// One moved part: a binding, and the path under it that was moved out
+/// ("" for the whole binding, "a.b" for `p.a.b`). A `*` segment is what a
+/// pointer points at: "*.a" for `p->a`, "link.*" for `*h.link`.
 pub class MovedPart {
-    pub var d:    unsafe *Decl
-    pub var path: string       = ""
-    pub var at:   SourceRange       ///< where it was moved.
-    pub var how:  string       = "" ///< where it went, for the note.
+    pub var d:     unsafe *Decl
+    pub var path:  string       = ""
+    pub var shown: string       = "" ///< the storage as source text: `p.a.b`, `p->a`, `*p`.
+    pub var elem:  string       = "" ///< the element expression, when one was moved out of this storage.
+    pub var at:    SourceRange ///< where it was moved.
+    pub var how:   string       = "" ///< where it went, for the note.
+    /// `path` step by step: the field per `.field`, null per pointer followed.
+    pub var segs: cxx::std::vector<unsafe *Decl>
+    /// Moved by a call: where the callee's body moves it.
+    pub var has_via: bool        = false
+    pub var via:     SourceRange
     fn MovedPart(self) { }
+}
+
+/// What an expression names in a body's bindings: a binding, and the path of
+/// `.field`, `->field` and `*` steps under it. A subscript ends the path:
+/// which element is not tracked, so the place is the container (`elem`).
+pub class MovePlace {
+    pub var d:     unsafe *Decl           = &null ///< the root binding; null when the expression names none.
+    pub var name:  unsafe *NamedIdentExpr = &null ///< the root's name node.
+    pub var path:  string                 = ""
+    pub var shown: string                 = ""
+    /// Every step of the expression is part of the place. False when a
+    /// method, a static or an operator step follows: the path is then the
+    /// storage that step reads.
+    pub var whole: bool = false
+    pub var elem:  bool = false ///< a subscript was crossed: path and shown name the container.
+    /// A pointer is followed on the way: `ptr_path` / `ptr_shown` name the
+    /// last one, the storage a store through the place reads.
+    pub var has_ptr:   bool   = false
+    pub var ptr_path:  string = ""
+    pub var ptr_shown: string = ""
+    /// `shown` ends in a dereference (`*p`), so a field after it is spelled
+    /// `p->f`; `starred` when the pointer followed was itself spelled `*q`.
+    pub var deref:   bool = false
+    pub var starred: bool = false
+    /// `path` step by step: the field per `.field`, null per pointer followed.
+    pub var segs: cxx::std::vector<unsafe *Decl>
+    /// Steps of the expression that are not part of the place (0 when
+    /// `whole`); `opaque` when the first of them is a user `op ->`, whose
+    /// result is storage of its own.
+    pub var rest:   usize = 0
+    pub var opaque: bool  = false
+    fn MovePlace(self) { }
+
+    /// The place \p self points at.
+    fn through(self) {
+        if self.elem {
+            return
+        }
+
+        self.has_ptr   = true
+        self.ptr_path  = self.path
+        self.ptr_shown = self.shown
+        self.starred   = self.deref
+        self.path = if (self.path.size() == 0) => ("*") else => self.path + ".*"
+        self.shown = "*" + self.shown
+        self.deref = true
+        var none: unsafe *Decl = &null
+        self.segs.push_back(none)
+    }
+
+    /// The field \p f of \p self, declared by \p fd.
+    fn field(self, const f: string, fd: unsafe *Decl) {
+        if self.elem {
+            return
+        }
+
+        self.segs.push_back(fd)
+
+        self.path = if (self.path.size() == 0) => (f) else => self.path + "." + f
+        if !self.deref {
+            self.shown += "." + f
+            return
+        }
+
+        self.shown = if (self.starred) => (f"({self.ptr_shown})->{f}")
+                     else => f"{self.ptr_shown}->{f}"
+        self.deref = false
+    }
 }
 
 /// A transfer that moves only if nothing reads the binding again: a value
@@ -202,6 +291,22 @@ pub fn path_within(const inner: string, const outer: string) -> bool {
 /// \p a and \p b name overlapping storage: one is the other or a part of it.
 pub fn path_overlaps(const a: string, const b: string) -> bool {
     return path_within(a, b) || path_within(b, a)
+}
+
+/// A read of \p read touches the moved part \p moved: it is that part or
+/// inside it, or it holds the part by value. Storage that only points at
+/// the part (`p`, with `p->a` moved) is read without touching it.
+pub fn read_touches(const moved: string, const read: string) -> bool {
+    if path_within(read, moved) {
+        return true
+    }
+
+    if !path_within(moved, read) {
+        return false
+    }
+
+    var star = moved.rfind("*")
+    return star == usize::MAX || star < read.size()
 }
 
 /// The moved-from set on one path. `dead` after return/break/continue/panic
@@ -253,7 +358,7 @@ pub class MoveState {
     /// The first moved part a read of \p path under \p d touches.
     fn overlap_of(self, d: unsafe *Decl, const path: string) -> usize {
         for var i: usize = 0; i < self.moved.size(); ++i {
-            if self.moved[i].d == d && path_overlaps(self.moved[i].path, path) {
+            if self.moved[i].d == d && read_touches(self.moved[i].path, path) {
                 return i
             }
         }
@@ -369,11 +474,27 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// to take onto its frame (_loop); cleared there.
     /// The transfer being checked is an assignment's right-hand side
     /// (_uncopyable_place leaves a Kairo NON_TRANSFER record to SC071E).
-    priv var _assigning:         bool  = false
-    priv var _pending_has_label: bool  = false
+    priv var _assigning: bool = false
+    /// The function whose body is being walked; null in a closure body and
+    /// at file scope. `_caps` is the by-pointer captures of the closure
+    /// being walked. `_out` is what the exits met so far leave moved-from
+    /// in storage the body does not own (_exit).
+    priv var _fn:   unsafe *FunctionDecl           = &null
+    priv var _caps: cxx::std::vector<unsafe *Decl>
+    priv var _out:  cxx::std::vector<MovedPart>
+    /// Returns of the body met so far, and at how many each `_out` entry
+    /// was moved-from (MoveOut::always).
+    priv var _exits:    usize                   = 0
+    priv var _out_hits: cxx::std::vector<usize>
+    /// Functions whose walk has started. A call into one of this TU's not
+    /// yet walked walks it first (_walk_callee), so what it leaves
+    /// moved-from is known at the call; `_depth` bounds that nesting.
+    priv var _walked:            llvm::DenseSet<u64>
+    priv var _depth:             usize               = 0
+    priv var _pending_has_label: bool                = false
     priv var _pending_label:     Token
-    pub var  n_moves:            usize = 0
-    pub var  n_errored:          usize = 0
+    pub var  n_moves:            usize               = 0
+    pub var  n_errored:          usize               = 0
     /// Every non-pack PendingMove site seen, in order, and the ones a later
     /// read demoted. What is left once every body is walked moves (run).
     priv var _tentative:      cxx::std::vector<unsafe *Expr>
@@ -476,6 +597,27 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return n
         }
 
+        // Once: a call met earlier may have walked it already.
+        if self._walked.count(n as usize as u64) != 0 {
+            return n
+        }
+
+        self._walked.insert(n as usize as u64)
+        var saved_fn    = self._fn
+        var saved_caps  = self._caps
+        var saved_out   = self._out
+        var saved_hits  = self._out_hits
+        var saved_exits = self._exits
+        var saved_asg   = self._assigning
+        var saved_hl    = self._pending_has_label
+        var saved_label = self._pending_label
+        self._fn = n
+        self._caps.clear()
+        self._out.clear()
+        self._out_hits.clear()
+        self._exits             = 0
+        self._assigning         = false
+        self._pending_has_label = false
         var saved    = self._enter_body()
         var saved_rs = self._reuse_site
         var saved_rr = self._reuse_read
@@ -498,6 +640,16 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             self._return_value(n->body_expr)
         }
 
+        self._exit()
+        self._record_out(n)
+        self._fn                = saved_fn
+        self._caps              = saved_caps
+        self._out               = saved_out
+        self._out_hits          = saved_hits
+        self._exits             = saved_exits
+        self._assigning         = saved_asg
+        self._pending_has_label = saved_hl
+        self._pending_label     = saved_label
         self._leave_body(saved)
         if self._reuse_site.size() > 0 {
             n->move_reuse_site.from_vec(unsafe &self._reuse_site, self.sc->ctx)
@@ -556,10 +708,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 }
 
                 var mp = MovedPart()
-                mp.d    = d
-                mp.path = ""
-                mp.at   = n->cap_uses[i]->range
-                mp.how  = "into the closure that captures it"
+                mp.d     = d
+                mp.path  = ""
+                mp.shown = self.sc->ctx->get_spelling(n->cap_uses[i]->name)
+                mp.at    = n->cap_uses[i]->range
+                mp.how   = "into the closure that captures it"
                 self._st.mark(mp)
             }
         } else {
@@ -573,7 +726,27 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         // A closure's demoted moves stay on the enclosing function's reuse
         // rows: the function, not the closure, is what an instance judges.
-        var saved = self._enter_body()
+        var saved       = self._enter_body()
+        var saved_fn    = self._fn
+        var saved_caps  = self._caps
+        var saved_out   = self._out
+        var saved_hits  = self._out_hits
+        var saved_exits = self._exits
+        self._fn = &null
+        self._caps.clear()
+        self._out.clear()
+        self._out_hits.clear()
+        self._exits = 0
+        if n->caps_resolved {
+            for var i: usize = 0; i < n->cap_decls.size(); ++i {
+                var cm = n->cap_modes[i]
+                if (cm == Expressions::CaptureMode::Ptr || cm == Expressions::CaptureMode::Receiver)
+                    && n->cap_decls[i] != &null {
+                    self._caps.push_back(n->cap_decls[i])
+                }
+            }
+        }
+
         for var i: usize = 0; i < n->params.size(); ++i {
             self.dyn()->dispatch_decl(*n->params.get(i))
         }
@@ -590,8 +763,429 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
+        self._exit()
+        var left = self._out
+        self._fn       = saved_fn
+        self._caps     = saved_caps
+        self._out      = saved_out
+        self._out_hits = saved_hits
+        self._exits    = saved_exits
         self._leave_body(saved)
+        // The closure may run at any time from here on, and its body leaves
+        // these moved-from: the captured storage is moved-from once the
+        // closure exists.
+        for var i: usize = 0; i < left.size(); ++i {
+            var mp = left[i]
+            // A `|*x|` capture is a pointer to `x` in the body: what it
+            // points at there is `x` here.
+            if mp.segs.size() > 0 && mp.segs[0] == &null {
+                var pl = MovePlace()
+                pl.d     = mp.d
+                pl.shown = self._tu.decl_name(mp.d)
+                for var k: usize = 1; k < mp.segs.size(); ++k {
+                    if mp.segs[k] == &null {
+                        pl.through()
+                    } else {
+                        pl.field(self._tu.decl_name(mp.segs[k]), mp.segs[k])
+                    }
+                }
+
+                mp.path  = pl.path
+                mp.shown = pl.shown
+                mp.segs  = pl.segs
+            }
+
+            mp.has_via = true
+            mp.via     = mp.at
+            mp.at      = n->range
+            mp.elem    = ""
+            mp.how     = "by the closure that captures it"
+            self._st.mark(mp)
+        }
+
         return n
+    }
+
+    /// The body returns here: what is moved-from in storage it does not own
+    /// (_outlives) stays so for the caller.
+    priv fn _exit(self) {
+        if self._st.dead {
+            return
+        }
+
+        self._exits += 1
+        for var i: usize = 0; i < self._st.moved.size(); ++i {
+            if !self._outlives(self._st.moved[i]) {
+                continue
+            }
+
+            var at = usize::MAX
+            for var k: usize = 0; k < self._out.size(); ++k {
+                if self._out[k].d == self._st.moved[i].d
+                    && self._out[k].path == self._st.moved[i].path {
+                    at = k
+                }
+            }
+
+            if at == usize::MAX {
+                self._out.push_back(self._st.moved[i])
+                self._out_hits.push_back(1)
+            } else {
+                self._out_hits[at] += 1
+            }
+        }
+    }
+
+    /// \p mp is storage the body being walked does not own: a closure's
+    /// by-pointer capture, the function's `self` (not a destructor's, which
+    /// ends the object), an `@inout` or C++ `T&` parameter, or what any
+    /// parameter points at.
+    priv fn _outlives(self, const mp: MovedPart) -> bool {
+        for var i: usize = 0; i < self._caps.size(); ++i {
+            if self._caps[i] == mp.d {
+                return true
+            }
+        }
+
+        if self._fn == &null || !isa<ParamDecl>(mp.d) {
+            return false
+        }
+
+        var unsafe *pd  = cast<ParamDecl>(mp.d)
+        var        mine = false
+        for var i: usize = 0; i < self._fn->params.size(); ++i {
+            if self._fn->params[i] == pd {
+                mine = true
+            }
+        }
+
+        if !mine {
+            return false
+        }
+
+        if pd->is_self {
+            return self._fn->op_token.size() == 0
+                || self._fn->op_token.get(0)->kind != TokenKind::KwFinally
+        }
+
+        if pd->mode == ParamMode::Inout || self._lref_param(pd) {
+            return true
+        }
+
+        for var i: usize = 0; i < mp.segs.size(); ++i {
+            if mp.segs[i] == &null {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// Files `_out` on \p n (FunctionDecl::move_out), replacing what an
+    /// earlier walk of the same node left.
+    priv fn _record_out(self, n: unsafe *FunctionDecl) {
+        var outs = cxx::std::vector<MoveOut>()
+        var path = cxx::std::vector<unsafe *Decl>()
+        for var i: usize = 0; i < self._out.size(); ++i {
+            var idx = usize::MAX
+            for var q: usize = 0; q < n->params.size(); ++q {
+                if n->params[q] == self._out[i].d {
+                    idx = q
+                }
+            }
+
+            if idx == usize::MAX {
+                continue
+            }
+
+            var mo = MoveOut{}
+            mo.param  = idx as u32
+            mo.first  = path.size() as u32
+            mo.count  = self._out[i].segs.size() as u32
+            mo.always = self._out_hits[i] == self._exits
+            mo.at     = self._out[i].at
+            for var k: usize = 0; k < self._out[i].segs.size(); ++k {
+                path.push_back(self._out[i].segs[k])
+            }
+
+            outs.push_back(mo)
+        }
+
+        n->move_out.from_vec(unsafe &outs, self.sc->ctx)
+        n->move_out_path.from_vec(unsafe &path, self.sc->ctx)
+        n->move_out_state = MoveOutState::Body
+    }
+
+    /// \p def's body is walked before the call that needs what it leaves
+    /// moved-from. Only a body of this TU, and once per run: what an
+    /// earlier run left on the node is not read. Another TU's function is
+    /// walked by its own TU, which is finished unless the two import each
+    /// other; a function already being walked (recursion) says nothing yet.
+    priv fn _walk_callee(self, def: unsafe *FunctionDecl) {
+        if def->body_kind == FnBodyKind::None
+            || def->body_recovered
+            || self._depth >= 64
+            || self._walked.count(def as usize as u64) != 0
+            || !self._tu.in_this_tu(def) {
+            return
+        }
+
+        self._depth += 1
+        self.dyn()->traverse_function_decl(def)
+        self._depth -= 1
+    }
+
+    /// The call \p n is to \p f, a function declared in Kairo with no
+    /// definition Kairo can read (implemented in C or C++). What cannot be
+    /// read is taken at its worst: every argument the body could move out
+    /// of is moved-from after the call -- a non-const receiver, an `@inout`
+    /// argument, what a pointer to non-const points at. A function imported
+    /// from a header is C++'s to describe (it moves only through `T&&`),
+    /// and an interface method is called through its conformers.
+    priv fn _call_unseen(self,
+                         n:        unsafe *Expressions::CallExpr,
+                         f:        unsafe *FunctionDecl,
+                         is_ctor:  bool,
+                         const ps: cxx::std::vector<unsafe *ParamDecl>,
+                         const es: cxx::std::vector<unsafe *Expr>) {
+        if f->clang_decl != &null || f->is_implicit || is_ctor || self._st.dead {
+            return
+        }
+
+        if f->semantic_dc != &null {
+            var unsafe *owner = f->semantic_dc->owner_decl()
+            if owner != &null && isa<InterfaceDecl>(owner) {
+                return
+            }
+        }
+
+        if f->move_out_state == MoveOutState::None && self._tu.in_this_tu(f) {
+            f->move_out_state = MoveOutState::Assumed
+        }
+
+        var name = self._tu.decl_name(f)
+        var how  = f"by the call to '{name}', which has no body to read and is taken to move it"
+        if f->is_method() && self._callee_binds_receiver(n->callee) {
+            var const_self = false
+            for var i: usize = 0; i < f->params.size(); ++i {
+                if f->params[i] != &null && f->params[i]->is_self && f->params[i]->is_const {
+                    const_self = true
+                }
+            }
+
+            var pl = self._place(n->callee)
+            if !const_self
+                && pl.d != &null
+                && pl.rest == 1
+                && !pl.opaque
+                && self._may_be_moved(self._receiver_type(n->callee)) {
+                self._mark_place(pl, n->range, how)
+            }
+        }
+
+        for var a: usize = 0; a < ps.size(); ++a {
+            var unsafe *p = ps[a]
+            if p->is_self || p->is_const {
+                continue
+            }
+
+            var by_ref = p->mode == ParamMode::Inout || self._lref_param(p)
+            var ct: unsafe *Type = &null
+            if p->type_ != &null {
+                ct = if (p->type_->canonical != &null) => (p->type_->canonical) else => p->type_
+            }
+
+            var unsafe *pt = if (ct != &null) => (self._tu.pointee(ct)) else => &null
+            if !by_ref && (pt == &null || canon_has_const(pt)) {
+                continue
+            }
+
+            var unsafe *x = self._tu.strip_parens(es[a])
+            var unsafe *u = dyn_cast<Expressions::UnaryOperatorExpr>(x)
+            var addr = u != &null
+                && u->operand != &null
+                && u->fix == Expressions::UnaryOperatorExpr::Fix::Prefix
+                && (u->is_mode_marker
+                    || u->op_token.kind == TokenKind::OpAmp && u->resolved_op == &null)
+            if addr {
+                x = u->operand
+            }
+
+            var pl = self._place(x)
+            if pl.d == &null || !pl.whole {
+                continue
+            }
+
+            // A pointer binding: what it points at, which an element that
+            // holds the pointer does not contain.
+            if !by_ref && !addr {
+                if pl.elem {
+                    continue
+                }
+
+                pl.through()
+            }
+
+            var unsafe *vt = if (by_ref || addr) => (x->type_) else => pt
+            if !self._may_be_moved(vt) {
+                continue
+            }
+
+            self._mark_place(pl, n->range, how)
+        }
+    }
+
+    /// A value of type \p t can be left moved-from: only a MOVE type can,
+    /// since taking a COPY value out of its storage copies it.
+    priv fn _may_be_moved(self, t: unsafe *Type) -> bool {
+        return t != &null && moves_on_pass(self.sc, t)
+    }
+
+    /// The type of the object `obj.m(...)` / `p->m(...)` runs on; null when
+    /// the callee is not such a chain.
+    priv fn _receiver_type(self, callee: unsafe *Expr) -> unsafe *Type {
+        var unsafe *c = self._tu.strip_parens(callee)
+        if c == &null || !isa<ChainExpr>(c) {
+            return &null
+        }
+
+        var unsafe *ce = cast<ChainExpr>(c)
+        if ce->steps.size() == 0 || ce->base == &null {
+            return &null
+        }
+
+        var unsafe *t = ce->base->type_
+        if ce->steps.size() >= 2 {
+            t = ce->steps.get(ce->steps.size() - 2)->resolved_type
+        }
+
+        if t != &null
+            && ce->steps.get(ce->steps.size() - 1)->access_kind == ChainExpr::AccessKind::Arrow {
+            t = self._tu.pointee(t)
+        }
+
+        return t
+    }
+
+    /// \p pl becomes moved-from at \p at.
+    priv fn _mark_place(self, const pl: MovePlace, at: SourceRange, const how: string) {
+        var mp = MovedPart()
+        mp.d     = pl.d
+        mp.path  = pl.path
+        mp.shown = pl.shown
+        mp.segs  = pl.segs
+        mp.at    = at
+        mp.how   = how
+        self._st.mark(mp)
+    }
+
+    /// The call \p n to \p f returned: each part \p f leaves moved-from
+    /// (FunctionDecl::move_out) is moved-from in the argument it was
+    /// reached through. \p ps / \p es are the parameters bound and their
+    /// arguments. An argument that names no place marks nothing.
+    priv fn _call_leaves(self,
+                         n:        unsafe *Expressions::CallExpr,
+                         f:        unsafe *FunctionDecl,
+                         is_ctor:  bool,
+                         const ps: cxx::std::vector<unsafe *ParamDecl>,
+                         const es: cxx::std::vector<unsafe *Expr>) {
+        var unsafe *def = f->definition()
+        if def == &null || def->body_kind == FnBodyKind::None {
+            if def == &null {
+                self._call_unseen(n, f, is_ctor, ps, es)
+            }
+
+            return
+        }
+
+        self._walk_callee(def)
+        // In this TU the list is this run's only once the walk has ended.
+        if self._tu.in_this_tu(def) && self._walked.count(def as usize as u64) == 0 {
+            return
+        }
+
+        if def->move_out_state != MoveOutState::Body || def->move_out.size() == 0 || self._st.dead {
+            return
+        }
+
+        var bound = !is_ctor && f->is_method() && self._callee_binds_receiver(n->callee)
+        var name = self._tu.decl_name(def)
+        for var k: usize = 0; k < def->move_out.size(); ++k {
+            var mo   = def->move_out[k]
+            var idx  = mo.param as usize
+            var i    = mo.first as usize
+            var j    = i + (mo.count as usize)
+            var pl   = MovePlace()
+            var have = false
+            // `&x` for a pointer parameter: the pointee is `x` itself.
+            var skip = false
+            if idx < f->params.size() && f->params[idx] != &null && j <= def->move_out_path.size() {
+                var unsafe *fp = f->params[idx]
+                if fp->is_self && bound {
+                    pl   = self._place(n->callee)
+                    have = pl.d != &null && pl.rest == 1 && !pl.opaque
+                } else if !(fp->is_self && is_ctor) {
+                    for var a: usize = 0; a < ps.size(); ++a {
+                        if ps[a] != fp {
+                            continue
+                        }
+
+                        var unsafe *x = self._tu.strip_parens(es[a])
+                        var unsafe *u = dyn_cast<Expressions::UnaryOperatorExpr>(
+                            x,
+                        )
+
+                        if u != &null
+                            && u->operand != &null
+                            && u->fix == Expressions::UnaryOperatorExpr::Fix::Prefix
+                            && (u->is_mode_marker
+                                || u->op_token.kind == TokenKind::OpAmp
+                                    && u->resolved_op == &null) {
+                            skip = !u->is_mode_marker
+                            x    = u->operand
+                        }
+
+                        pl   = self._place(x)
+                        have = pl.d != &null && pl.whole
+                    }
+                }
+            }
+
+            if have {
+                for var s = i; s < j; ++s {
+                    var unsafe *seg = def->move_out_path[s]
+                    if seg == &null {
+                        if skip {
+                            skip = false
+                            continue
+                        }
+
+                        // Behind a pointer an element holds: the container
+                        // only points at it.
+                        if pl.elem {
+                            have = false
+                        }
+
+                        pl.through()
+                    } else {
+                        pl.field(self._tu.decl_name(seg), seg)
+                    }
+                }
+            }
+
+            if have {
+                var mp = MovedPart()
+                mp.d       = pl.d
+                mp.path    = pl.path
+                mp.shown   = pl.shown
+                mp.segs    = pl.segs
+                mp.at      = n->range
+                mp.how     = f"by the call to '{name}'"
+                mp.has_via = true
+                mp.via     = mo.at
+                self._st.mark(mp)
+            }
+        }
     }
 
     /// A body starts clean: the enclosing body's flow, handed back for
@@ -707,26 +1301,19 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             } case ExprKind::ChainExpr {
                 // `p.a.b` reads the part `a.b` of `p`, not all of it: a moved
                 // `p.c` leaves it readable. The root is checked here and not
-                // walked again, or it would read as the whole binding. What
-                // is left of the chain after the base is names and type
-                // arguments, which read nothing.
-                var unsafe *c   = cast<ChainExpr>(e)
-                var        path = ""
-                var        all  = false
-                var unsafe *d   = self._chain_root(c, &path, unsafe &all)
-                if d == &null {
+                // walked again, or it would read as the whole binding. A
+                // place without a subscript is names, type arguments and
+                // dereferences, which read nothing else; one with a
+                // subscript is walked, and reads its container and index.
+                var pl = self._place(e)
+                if pl.d == &null || pl.elem {
                     return RecursiveASTVisitor<MoveCheck>::dispatch_expr(
                         self,
                         e,
                     )
                 }
 
-                self._read_part(
-                    cast<NamedIdentExpr>(self._tu.strip_parens(c->base)),
-                    d,
-                    path,
-                )
-
+                self._read_part(pl.name, pl.d, pl.path, pl.shown)
                 return e
             } case ExprKind::AssignOperatorExpr {
                 var unsafe *asn = cast<Expressions::AssignOperatorExpr>(e)
@@ -735,9 +1322,18 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 if asn->op_token.kind == TokenKind::OpEqual
                     && asn->lhs != &null
                     && asn->rhs != &null {
-                    var        path = ""
-                    var unsafe *d   = self._place_root(asn->lhs, unsafe &path)
-                    if d != &null {
+                    var pl = self._place(asn->lhs)
+                    if pl.d != &null && pl.whole && !pl.elem {
+                        // A store through a pointer reads the pointer.
+                        if pl.has_ptr {
+                            self._read_part(
+                                pl.name,
+                                pl.d,
+                                pl.ptr_path,
+                                pl.ptr_shown,
+                            )
+                        }
+
                         self.dispatch_expr(asn->rhs)
                         self._assigning = true
                         self._transfer(
@@ -746,7 +1342,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                         )
 
                         self._assigning = false
-                        self._st.clear(d, path)
+                        self._st.clear(pl.d, pl.path)
                         return e
                     }
 
@@ -834,6 +1430,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 var unsafe *u = cast<Expressions::UnaryOperatorExpr>(e)
                 if u->op_token.kind == TokenKind::OpAmp && u->operand != &null {
                     self._mark_addr(u->operand)
+                }
+
+                // `*p` reads what `p` points at, not `p`.
+                if self._is_deref(u) {
+                    var pl = self._place(e)
+                    if pl.d != &null && !pl.elem {
+                        self._read_part(pl.name, pl.d, pl.path, pl.shown)
+                        return e
+                    }
                 }
 
                 return RecursiveASTVisitor<MoveCheck>::dispatch_expr(self, e)
@@ -1175,6 +1780,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 }
 
                 self._run_finallys_to(0)
+                self._exit()
                 self._st.dead = true
                 return s
             } case StmtKind::PanicStmt {
@@ -1414,7 +2020,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
-        var pos: usize = 0
+        var bound_p       = cxx::std::vector<unsafe *ParamDecl>()
+        var bound_e       = cxx::std::vector<unsafe *Expr>()
+        var pos:    usize = 0
         for var i: usize = 0; i < n->args.size(); ++i {
             var unsafe *a = n->args[i]
             if a == &null {
@@ -1484,6 +2092,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
 
             self._pass(e, p, mode)
+            if p != &null {
+                bound_p.push_back(p)
+                bound_e.push_back(e)
+            }
+        }
+
+        if f != &null && !n->is_poisoned() {
+            self._call_leaves(n, f, is_ctor, bound_p, bound_e)
         }
 
         // `-> !`, `__builtin_trap()`, an imported `[[noreturn]]`: nothing
@@ -2307,28 +2923,29 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
-        var        path = ""
-        var unsafe *d   = self._place_root(e, unsafe &path)
-        if d == &null {
+        var pl = self._place(e)
+        if pl.d == &null || !pl.whole || pl.elem {
             return
         }
 
-        // Only storage this body owns: not a part of a const binding, and
-        // not a parameter that refers to the caller's object.
-        if self._const_root(e) {
+        // Only storage this body owns: not a part of a const binding, of
+        // `self` or of a pointee, and not a parameter that refers to the
+        // caller's object.
+        if pl.has_ptr || self._const_root(e) {
             return
         }
 
+        var unsafe *d = pl.d
         if isa<ParamDecl>(d) {
             var unsafe *pd = cast<ParamDecl>(d)
-            if pd->mode != ParamMode::Value && pd->mode != ParamMode::Move {
+            if pd->is_self || pd->mode != ParamMode::Value && pd->mode != ParamMode::Move {
                 return
             }
         }
 
         var pm = PendingMove()
         pm.d    = d
-        pm.path = path
+        pm.path = pl.path
         pm.site = e
         self._st.add_pending(pm)
         self._tentative.push_back(e)
@@ -2375,11 +2992,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// `const other`): its fields are not typed const, but C++ makes them
     /// so, and a `T&&` cast of one does not compile.
     priv fn _const_root(self, e: unsafe *Expr) -> bool {
-        var        path = ""
-        var unsafe *d   = self._place_root(e, unsafe &path)
-        if d == &null {
+        // What a const pointer binding points at is not const by it.
+        var pl = self._place(e)
+        if pl.d == &null || !pl.whole || pl.elem || pl.has_ptr {
             return false
         }
+
+        var unsafe *d = pl.d
 
         if isa<VariableDecl>(d) {
             return cast<VariableDecl>(d)->is_const()
@@ -2458,82 +3077,132 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return false
     }
 
-    /// The binding \p e is, or the part of one (`p.a.b`), becomes moved-from.
-    /// Anything else -- a temporary, `self`, a dereference -- records nothing.
+    /// The storage \p e names becomes moved-from: a binding, a part of one
+    /// (`p.a.b`, `self.r`), what a pointer in one points at (`p->r`, `*p`),
+    /// or, for an element (`v[i]`, `h.items[0].s`), the container it is in.
+    /// A temporary or a call's result records nothing.
     priv fn _mark(self, e: unsafe *Expr, const how: string) {
-        var        path = ""
-        var unsafe *d   = self._place_root(e, unsafe &path)
-        if d == &null {
+        var pl = self._place(e)
+        if pl.d == &null || !pl.whole {
             return
         }
 
         var mp = MovedPart()
-        mp.d    = d
-        mp.path = path
-        mp.at   = e->range
-        mp.how  = how
+        mp.d     = pl.d
+        mp.path  = pl.path
+        mp.shown = pl.shown
+        mp.segs  = pl.segs
+        mp.at    = e->range
+        mp.how   = how
+        if pl.elem {
+            mp.elem = self._spelled(e)
+        }
+
         self._st.mark(mp)
     }
 
-    /// The tracked binding \p e names, whole or by a field path written in
-    /// full (`p.a.b`, path "a.b"), or null.
-    priv fn _place_root(self, e: unsafe *Expr, path: unsafe *string) -> unsafe *Decl {
-        var unsafe *x = self._tu.strip_parens(e)
+    /// `*p` on a pointer: the builtin dereference, not a user `op *` and not
+    /// a call-site mode marker.
+    priv fn _is_deref(self, u: unsafe *Expressions::UnaryOperatorExpr) -> bool {
+        return u->op_token.kind == TokenKind::OpStar
+            && u->fix == Expressions::UnaryOperatorExpr::Fix::Prefix
+            && !u->is_mode_marker
+            && u->resolved_op == &null
+            && u->operand != &null
+            && u->operand->type_ != &null
+            && self._tu.pointee(u->operand->type_) != &null
+    }
+
+    /// The place \p e names (MovePlace); its `d` is null when \p e is not
+    /// rooted at a tracked binding.
+    priv fn _place(self, e: unsafe *Expr) -> MovePlace {
+        var        out = MovePlace()
+        var unsafe *x  = self._tu.strip_parens(e)
         if x == &null {
-            return &null
+            return out
         }
 
         if isa<NamedIdentExpr>(x) {
-            var unsafe *d = cast<NamedIdentExpr>(x)->resolved_decl
+            var unsafe *n = cast<NamedIdentExpr>(x)
+            var unsafe *d = n->resolved_decl
             if d == &null || !self._tracked(d) {
-                return &null
+                return out
             }
 
-            *path = ""
-            return d
+            out.d     = d
+            out.name  = n
+            out.shown = self.sc->ctx->get_spelling(n->name)
+            out.whole = true
+            return out
+        }
+
+        if isa<Expressions::UnaryOperatorExpr>(x) {
+            var unsafe *u = cast<Expressions::UnaryOperatorExpr>(x)
+            if !self._is_deref(u) {
+                return out
+            }
+
+            out = self._place(u->operand)
+            if out.d == &null || !out.whole {
+                return MovePlace()
+            }
+
+            out.through()
+            return out
+        }
+
+        if isa<Expressions::SubscriptExpr>(x) {
+            var unsafe *sx = cast<Expressions::SubscriptExpr>(x)
+            // `p[i]` on a pointer is pointer arithmetic over storage the
+            // program manages itself (a container's buffer, moved out of
+            // and destroyed element by element): which elements are live
+            // is not a property of `p`.
+            if sx->base == &null
+                || sx->base->type_ == &null
+                || self._tu.pointee(sx->base->type_) != &null {
+                return out
+            }
+
+            out = self._place(sx->base)
+            if out.d == &null || !out.whole {
+                return MovePlace()
+            }
+
+            out.elem = true
+            return out
         }
 
         if !isa<ChainExpr>(x) {
-            return &null
+            return out
         }
 
-        var all = false
-        var unsafe *d = self._chain_root(
-            cast<ChainExpr>(x),
-            &*path,
-            unsafe &all,
-        )
-
-        return if (all) => (d) else => &null
-    }
-
-    /// The tracked binding at the base of \p c and the field path of the
-    /// `.field` steps that lead it (\p all: every step is one). Null when
-    /// the base is not a tracked binding.
-    priv fn _chain_root(self,
-                        c:           unsafe *ChainExpr,
-                        @inout path: string,
-                        all:         unsafe *bool) -> unsafe *Decl {
+        var unsafe *c = cast<ChainExpr>(x)
         if c->base == &null {
-            return &null
+            return out
         }
 
-        var unsafe *b = self._tu.strip_parens(c->base)
-        if b == &null || !isa<NamedIdentExpr>(b) {
-            return &null
+        out = self._place(c->base)
+        if out.d == &null || !out.whole {
+            return MovePlace()
         }
 
-        var unsafe *d = cast<NamedIdentExpr>(b)->resolved_decl
-        if d == &null || !self._tracked(d) {
-            return &null
-        }
-
-        var p        = ""
-        var i: usize = 0
+        var unsafe *cur       = c->base->type_
+        var        i:   usize = 0
         while i < c->steps.size() {
-            var unsafe *st = c->steps.get(i)
-            if st->access_kind != ChainExpr::AccessKind::Dot {
+            var unsafe *st   = c->steps.get(i)
+            var        arrow = st->access_kind == ChainExpr::AccessKind::Arrow
+            if !arrow && st->access_kind != ChainExpr::AccessKind::Dot {
                 break
+            }
+
+            // `->` on a pointer; a user `op ->` returns storage of its own.
+            if arrow {
+                if cur == &null || self._tu.pointee(cur) == &null {
+                    out.opaque = true
+                    break
+                }
+
+                out.through()
             }
 
             var unsafe *fd = dyn_cast<FieldDecl>(st->resolved_decl)
@@ -2541,24 +3210,21 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 break
             }
 
-            if p.size() > 0 {
-                p += "."
-            }
-
             // `t.1` is bound to the tuple's field `_1` but has no name node
             // (an ordinal is not an identifier): the path spells the ordinal.
             if st->is_tuple_index() {
-                p += f"{st->index}"
+                out.field(f"{st->index}", fd)
             } else {
-                p += self.sc->ctx->get_spelling(st->name->name)
+                out.field(self.sc->ctx->get_spelling(st->name->name), fd)
             }
 
+            cur = st->resolved_type
             i += 1
         }
 
-        (path) = p
-        *all   = i == c->steps.size()
-        return d
+        out.whole = i == c->steps.size()
+        out.rest  = c->steps.size() - i
+        return out
     }
 
     /// The source text of \p e, for a note.
@@ -2566,10 +3232,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return self.sc->ctx->get_spelling(e->range)
     }
 
-    /// Locals and value parameters. Not `self`, not fields, not statics.
+    /// Locals and parameters, `self` included. Not fields, not statics.
     priv fn _tracked(self, d: unsafe *Decl) -> bool {
         if isa<ParamDecl>(d) {
-            return !cast<ParamDecl>(d)->is_self
+            return true
         }
 
         if isa<VariableDecl>(d) {
@@ -2587,13 +3253,18 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
-        self._read_part(n, d, "")
+        self._read_part(n, d, "", "")
     }
 
-    /// A read of \p path under \p d, through the name \p n. An error when
-    /// it touches a moved part: the part itself, something inside it, or the
-    /// whole binding while a part of it is gone.
-    priv fn _read_part(self, n: unsafe *NamedIdentExpr, d: unsafe *Decl, const path: string) {
+    /// A read of \p path under \p d, through the name \p n; \p shown is the
+    /// storage read as source text ("" for the binding itself). An error
+    /// when it touches a moved part (read_touches): the part itself,
+    /// something inside it, or storage that holds the part by value.
+    priv fn _read_part(self,
+                       n:           unsafe *NamedIdentExpr,
+                       d:           unsafe *Decl,
+                       const path:  string,
+                       const shown: string) {
         if self._st.dead { // unreachable: nothing to say.
             return
         }
@@ -2621,19 +3292,34 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st.reported.push_back(d)
 
         var mp   = self._st.moved[i]
-        var root = self.sc->ctx->get_spelling(n->name)
-        var gone = if (mp.path.size() == 0) => (root) else => root + "." + mp.path
-        var read = if (path.size() == 0) => (root) else => root + "." + path
-        var msg  = f"'{gone}' is used after being moved"
-        if !path_within(path, mp.path) {
+        var gone = mp.shown
+        var read = if (shown.size() == 0) => (self.sc->ctx->get_spelling(n->name)) else => shown
+        var part  = !path_within(path, mp.path)
+        var taken = gone
+        var msg   = f"'{gone}' is used after being moved"
+        if mp.elem.size() > 0 {
+            // An element: the container is what is moved-from.
+            taken = mp.elem
+            msg   = f"'{gone}' is used after '{taken}' was moved out of it"
+            if part {
+                msg = f"'{read}' is used after '{taken}' was moved out of its part '{gone}'"
+            }
+        } else if part {
             msg = f"'{read}' is used after its part '{gone}' was moved"
         }
 
         var b = self.sc->diag->report(DiagID::SC052E, n->range.start, msg)
         b.first(n->range)
-        b.note(mp.at.start, f"'{gone}' was moved here, {mp.how}")->child_first(
+        b.note(mp.at.start, f"'{taken}' was moved here, {mp.how}")->child_first(
             mp.at,
         )
+
+        if mp.has_via {
+            b.note(
+                mp.via.start,
+                "it is moved here, and not assigned again before the body returns",
+            )->child_first(mp.via)
+        }
 
         b.note(
             n->range.start,

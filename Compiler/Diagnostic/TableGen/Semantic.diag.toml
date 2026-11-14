@@ -1118,8 +1118,9 @@ group = "lifecycle"
     explain = """
     # use after move
 
-    a variable is read after its value was moved into a `@move` parameter. after the move the
-    variable holds no value, so reading it is an error.
+    storage is read after its value was moved out. a value of a move-only type moves when it
+    is passed by value or to a `@move` parameter, initializes a variable, is assigned, or is
+    returned. after the move the storage holds no value, so reading it is an error.
 
     ```kairo
     var s = make();
@@ -1127,9 +1128,33 @@ group = "lifecycle"
     print(s);       // s used after the move
     ```
 
+    the storage does not have to be a whole variable. moving a field leaves that field
+    moved-from and its siblings readable. the same holds for a field of `self` and for a field
+    reached through a pointer. moving an element out leaves the whole container moved-from,
+    because which element is gone is not tracked.
+
+    ```kairo
+    var a = self.name;      // self.name moved here
+    self.size();            // all of self is used while self.name is gone
+    var first = items[0];   // items[0] moved here
+    items[1];               // items is used after an element was moved out
+    ```
+
+    a call can be the move. a function that returns while a part of `self`, of an `@inout`
+    parameter or of what a parameter points at is still moved-from leaves that part moved-from
+    in the caller's object. the notes point at the call and at the move inside the function.
+
+    ```kairo
+    fn take_name(self) -> Name { return self.name }   // leaves self.name moved-from
+
+    var n = user.take_name();   // user.name moved here, by the call
+    user.name;                  // user.name used after the move
+    ```
+
     ## how to fix
 
-    assign a new value to the variable before using it again, or pass a copy instead of moving.
+    assign a new value to the moved-from storage before using it again, or pass a copy instead
+    of moving. for an element, take it out with a method that leaves the container valid.
     """
 
 [SC053]

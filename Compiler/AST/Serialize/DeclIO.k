@@ -476,6 +476,17 @@ fn io_function_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::FunctionDec
             "FunctionDecl::move_reuse_site",
         )
 
+        ar->sema_zero(n->move_out.size() as u64, "FunctionDecl::move_out")
+        ar->sema_zero(
+            n->move_out_path.size() as u64,
+            "FunctionDecl::move_out_path",
+        )
+
+        ar->sema_is(
+            n->move_out_state == Declarations::MoveOutState::None,
+            "FunctionDecl::move_out_state",
+        )
+
         ar->sema_zero(
             n->move_reuse_read.size() as u64,
             "FunctionDecl::move_reuse_read",

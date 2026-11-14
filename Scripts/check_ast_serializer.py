@@ -54,6 +54,7 @@ REFUSED = {
 NOT_AST = {
     "Requirement": "InterfaceDecl::requirements, written by InterfaceComposition",
     "FormatHole": "StringLiteralExpr::fmt_holes, written by X",
+    "MoveOut": "FunctionDecl::move_out, written by MoveCheck",
     "ForeignLayout": "FFILinkage::layout, written by Sema/Foreign",
     "FloatLayout": "a builtin type's description, not a node",
     "BuiltinInfo": "a builtin type's description, not a node",

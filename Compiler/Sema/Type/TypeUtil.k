@@ -697,6 +697,11 @@ pub class TypeUtil {
         return decl_pattern(d)
     }
 
+    /// \p d is declared in the TU being checked.
+    fn in_this_tu(self, d: unsafe *Decl) -> bool {
+        return NameLookup::ctx_of(d) == self.sc->ctx
+    }
+
     /// Spelled with the decl's OWN context (hard invariant #2).
     fn decl_name(self, d: unsafe *Decl) -> string {
         if d == &null {
