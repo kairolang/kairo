@@ -15,4 +15,4 @@ pub macro two!() { "ab" "cd" }
 pub macro greet!() { f"v={helper_fn(40) + 2}" }
 // An inline block's language string, from this file's literal list (type
 // checked only: EmitIR does not emit inline blocks yet).
-pub macro mark!() { inline "c++" { } }
+pub macro mark!() { unsafe { inline "asm" { "nop" } } }

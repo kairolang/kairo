@@ -1,11 +1,11 @@
 // `for x in m` resolves the iterable's `op in` on the iterable's own
-// cv. Before, the const was dropped and a const map or set (whose builtin
-// `op in` takes `self`) failed only in clang ("'__kairo_iter' ... not
-// marked const"). Now the loop is SC063E, the same rule a call of a
-// non-const method on a const object meets; `op in (const self)` iterates
-// a const value as before. With several
-// binders the const element reaches each one: `for (a, *b) in` over a
-// const vector of tuples points `b` at a const element.
+// cv: iterating a const value needs an `op in (const self)`. The builtin
+// map and set have one, so a const map or set iterates; a class whose
+// `op in` takes `self` is SC063E on a const object, the same rule a call
+// of a non-const method on a const object meets.
+//
+// With several binders the const element reaches each one: `for (a, *b) in`
+// over a const vector of tuples points `b` at a const element.
 
 class Bag {
     var v: i32 = 0
@@ -41,13 +41,7 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // RUN: { %kairo --type-check-only %s 2>&1 || true; } | %FileCheck %s --implicit-check-not=error
-// CHECK: for_in_const_receiver.k:22:19: error [SC063E]: no matching overload for call to 'op in'
-// CHECK-NEXT: hash_map.k:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: candidate not viable: 'op in' is not const; it cannot be called on a const object
-// CHECK-NEXT: for_in_const_receiver.k:32:19: error [SC063E]: no matching overload for call to 'op in'
-// CHECK-NEXT: hash_map.k:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: candidate not viable: 'op in' is not const; it cannot be called on a const object
-// CHECK-NEXT: for_in_const_receiver.k:33:14: error [SC063E]: no matching overload for call to 'op in'
-// CHECK-NEXT: hash_set.k:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: candidate not viable: 'op in' is not const; it cannot be called on a const object
-// CHECK-NEXT: for_in_const_receiver.k:34:14: error [SC063E]: no matching overload for call to 'op in'
+// CHECK: for_in_const_receiver.k:34:14: error [SC063E]: no matching overload for call to 'op in'
 // CHECK-NEXT: for_in_const_receiver.k:12:5: note [I900N]: candidate not viable: 'op in' is not const; it cannot be called on a const object
 // CHECK-NEXT: for_in_const_receiver.k:38:25: error [SC071E]: cannot assign to '*c': 'c' points to const
 // CHECK-NEXT: for_in_const_receiver.k:38:14: note [I900N]: 'c' declared as a pointer to const here

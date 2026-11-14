@@ -211,7 +211,7 @@ pub class <K impl Hash, V> HashMap {
     }
 
     /// Iterates `(key, value)` pairs in insertion order: `for (k, v) in m`. Each pair is a copy.
-    pub fn op in (self) -> yield (K, V) {
+    pub fn op in (const self) -> yield (K, V) {
         var i: usize = 0
         while i < self.len {
             unsafe {

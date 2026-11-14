@@ -7,7 +7,7 @@
 //   - `fn` alone on a line before a function: the closure parse skipped
 //     `fn main()` to the `->` without a word (the body was then a closure
 //     with no name); S047E now names the skipped token;
-//   - `inline "c++" { }` at the top level: parse_decl declines it, and it
+//   - `inline "asm" { }` at the top level: parse_decl declines it, and it
 //     goes to the statement path (which owns inline blocks) instead of
 //     ending the loop, so `fn after` is parsed.
 //
@@ -28,5 +28,5 @@
 // RUN: { %kairo %S/Inputs/top_level_failed_item/inline_block_top.k --syntax-only 2>&1 || true; } | %FileCheck %s --check-prefix=BLOCK --allow-empty
 // BLOCK-NOT: error
 // RUN: { %kairo %S/Inputs/top_level_failed_item/inline_block_top.k --syntax-only --print-ast=flat 2>&1 || true; } | %FileCheck %s --check-prefix=BLOCK-AST
-// BLOCK-AST: inline "c++" { ... }
+// BLOCK-AST: inline "asm" { ... }
 // BLOCK-AST-NEXT: fn after() {}

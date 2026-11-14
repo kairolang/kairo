@@ -2128,3 +2128,29 @@ group = "syntax"
     var a = [i32; 4]::make()            // error: an array has no members
     ```
     """
+
+[S095]
+brief = "inline foreign block in a language Kairo does not embed"
+group = "ast"
+
+    [S095.E]
+    explain = """
+    # inline foreign block in a language Kairo does not embed
+
+    Kairo does not embed C or C++ source. An `inline "c++" { ... }` or
+    `inline "c" { ... }` block, or one in any language but "asm", is an
+    error wherever it is written: at the top of a file, in a function body,
+    in a type body or in a module body. The only inline foreign block is
+    `inline "asm"`, inside `unsafe`.
+
+    ## how to fix
+
+    put the C or C++ code in a header (or a source file kcc compiles), and
+    import its declarations:
+
+        ffi "c++" import "helpers.hpp"
+
+        fn main() -> i32 { return helper_one() }
+
+    the imported declarations are called like Kairo functions.
+    """

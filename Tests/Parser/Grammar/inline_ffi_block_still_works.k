@@ -2,6 +2,6 @@
 // by a language string is still an ffi block, not a malformed function.
 // RUN: { %kairo %s --syntax-only 2>&1 || true; } | %FileCheck %s --check-prefix=OK --allow-empty
 // OK-NOT: error
-inline "c++" {
-    int cxx_side() { return 1; }
+inline "asm" {
+    "nop"
 }

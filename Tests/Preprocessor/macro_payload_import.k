@@ -9,7 +9,7 @@
 // - a two-part string `"ab" "cd"` followed its chain in the expanding
 //   file's table (StringLowering): a null or a different literal.
 // - an f-string's hole tokens are lib.k's, so `helper_fn` was R020E.
-// - `inline "c++"` in a body was S060E: the language string's kind was
+// - `inline "asm"` in a body was S060E: the language string's kind was
 //   read off the wrapper.
 //
 // Inputs/macro_payload_import: main.k (the input) imports lib.k;

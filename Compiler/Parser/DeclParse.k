@@ -860,6 +860,10 @@ pub class <T: type> DeclParse {
                 )->child_first(start)->emit()
             }
 
+            if self._member_inline_block("type") {
+                continue
+            }
+
             var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
 
             var is_method_lead = self._mods_lead_to_fn(false)
@@ -4292,6 +4296,30 @@ pub class <T: type> DeclParse {
         }
     }
 
+    /// An inline foreign block where a member belongs (a type body, a
+    /// visibility group in one, a module body; \p scope says which):
+    /// parsed by StmtParse::_parse_inline_block, which gives every language
+    /// but "asm" its one S095E. An `inline "asm"` block is a statement, so
+    /// here it is S048E.
+    /// \return true if the cursor was on one (it is consumed).
+    priv fn _member_inline_block(self, const scope: string) -> bool {
+        if !self.dyn()->check(TokenKind::KwInline)
+            || !self.dyn()->check_peek(TokenKind::LitString) {
+            return false
+        }
+
+        var unsafe *s = self.dyn()->_parse_inline_block()
+        if s != &null && !s->is_error() {
+            self.dyn()->diag->report(
+                DiagID::S048E,
+                s->range.start,
+                f"an 'inline \"asm\"' block is a statement, not a member of a {scope} body; put it in a function body",
+            ).first(s->range)->emit()
+        }
+
+        return true
+    }
+
     /// \brief true if `fd` names the type it is declared in, i.e. it is a
     ///        constructor rather than a named method.
     ///
@@ -4420,6 +4448,10 @@ pub class <T: type> DeclParse {
                     owner->add_decl(ev)
                 }
 
+                continue
+            }
+
+            if self._member_inline_block("type") {
                 continue
             }
 
@@ -5704,6 +5736,12 @@ pub class <T: type> DeclParse {
             if self.dyn()->check(TokenKind::TkNewLine)
                 || self.dyn()->check(TokenKind::OpSemicolon) {
                 self.dyn()->advance()
+                continue
+            }
+
+            // parse_decl has no decl for an inline foreign block, and the
+            // loop would stop on it (S051E for a `}` that is there).
+            if self._member_inline_block("module") {
                 continue
             }
 

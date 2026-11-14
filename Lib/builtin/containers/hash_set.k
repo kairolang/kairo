@@ -140,7 +140,7 @@ pub class <T impl Hash> HashSet {
     }
 
     /// Iterates the elements in insertion order: `for x in s`. Each element is a copy.
-    pub fn op in (self) -> yield T {
+    pub fn op in (const self) -> yield T {
         var i: usize = 0
         while i < self.len {
             unsafe {

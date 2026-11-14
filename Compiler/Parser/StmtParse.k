@@ -2708,7 +2708,13 @@ pub class <T: type> StmtParse {
     ///          between the braces and skip the raw tokens with brace-balanced
     ///          counting. The lexer is expected to have tokenized the body as a
     ///          raw run; here we balance braces to find the matching `}`.
-    priv fn _parse_inline_block(self) -> unsafe *Stmt {
+    ///
+    ///          Only `inline "asm"` is part of the language. Every other
+    ///          language, `"c++"` and `"c"` above all, is S095E here, once,
+    ///          wherever the block stands (a function body, the file's top
+    ///          level, a type or module body: DeclParse calls this too), and
+    ///          the result is a recovery node, so nothing downstream sees it.
+    fn _parse_inline_block(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
         self.dyn()->advance(T::SkipNL::After) // consume `inline`
 
@@ -2779,6 +2785,22 @@ pub class <T: type> StmtParse {
                 "expected '}' to close inline foreign block",
             ).first(lbrace_range)->emit()
             full_range = start_range | self.dyn()->prev().range
+        }
+
+        if lang != Statements::FFILang::Asm {
+            var msg = "this inline foreign block's language is not part of Kairo; only 'inline \"asm\"' is"
+            if lang == Statements::FFILang::Cpp || lang == Statements::FFILang::C {
+                var w = if (lang == Statements::FFILang::C) => ("c") else => "c++"
+                msg = f"'inline \"{w}\"' is not part of Kairo: declare the code in a header and import it with 'ffi \"{w}\" import'"
+            }
+
+            self.dyn()->diag->report(DiagID::S095E, start_range.start, msg).first(
+                full_range,
+            )->emit()
+            return (Statements::InlineBlockStmt::create_error(
+                self.dyn()->ctx,
+                full_range,
+            ))
         }
 
         var node = Statements::InlineBlockStmt::create(

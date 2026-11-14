@@ -10,8 +10,8 @@
 // emitted, swap in the next unemitted construct and keep the checks, rather
 // than deleting the test.
 
-fn apply(x: i32) -> i32 {
-    if x > 3 { inline "c++" { int y = 0; } }
+fn apply(x: i32) unsafe -> i32 {
+    if x > 3 { inline "asm" { "nop" } }
     return x
 }
 
