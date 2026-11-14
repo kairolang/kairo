@@ -175,13 +175,14 @@ pub class DepScanner {
     ///          lang-item fill keys on the qualified path, and an empty one
     ///          would make `builtin::Vector` unaddressable.
     ///
-    /// \returns the module's fid, or 0 when it does not resolve. Silent on a
+    /// \returns the module's fid, or u32::MAX when it does not resolve (0 is
+    ///          a real fid: the first file loaded). Silent on a
     ///          miss, as everything else in the scanner is: the PP walk
     ///          re-resolves and owns the diagnostic.
     fn add_module_dependency(self, segments: cxx::std::vector<string>, graph: *DepGraph) -> u32 {
         var dep = self.resolve_segments(segments, false, Path(), Path(), false)
         if dep.fid == u32::MAX {
-            return 0
+            return u32::MAX
         }
 
         self.visit(dep.fid, dep.mod_path, graph, 0)

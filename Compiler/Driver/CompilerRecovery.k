@@ -125,7 +125,7 @@ extend CompilerInstance {
         }
 
         var bfid = gs->builtin_fid()
-        if bfid != 0 && in_graph.contains(bfid as u64) {
+        if bfid != u32::MAX && in_graph.contains(bfid as u64) {
             var seen  = llvm::DenseSet<u64>()
             var stack = cxx::std::vector<u32>()
             stack.push_back(bfid)

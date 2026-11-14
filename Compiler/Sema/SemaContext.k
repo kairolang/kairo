@@ -881,7 +881,7 @@ pub class SemaContext {
         }
 
         var fid = self.g->builtin_fid()
-        if fid == 0 {
+        if fid == u32::MAX {
             return &null
         }
 

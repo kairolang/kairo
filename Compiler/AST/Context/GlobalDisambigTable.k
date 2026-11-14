@@ -96,8 +96,12 @@ pub class GlobalDisambigTable {
     /// NameLookup and DeclName -- putting it here would make AST depend on
     /// Sema. This layer owns the table, the builtin fid, and the guarantee that
     /// the fill runs once.
-    priv var _well_known:  WellKnownDecls
-    priv var _builtin_fid: kairo::std::Atomic<u32> = kairo::std::Atomic<u32>(0) ///< 0 = no builtin root this build.
+    priv var _well_known: WellKnownDecls
+    /// u32::MAX when this build has no builtin root; never 0, which is a file.
+    priv var _builtin_fid: kairo::std::Atomic<u32> = kairo::std::Atomic<u32>(
+        u32::MAX,
+    )
+
     /// Every fid under the builtin root, the root included. NOT a bool latch:
     /// the lang items are filled by whichever builtin TU DECLARES each one,
     /// because a leaf is type-resolved before the root that re-exports it.
@@ -459,7 +463,7 @@ pub class GlobalDisambigTable {
     /// the caller (Sema) casts, since this layer cannot name TranslationUnit.
     pub fn tuple_pattern(self, arity: usize, root_dc: unsafe *DeclContext) -> unsafe *Decl {
         var fid = self.builtin_fid()
-        if fid == 0 {
+        if fid == u32::MAX {
             return &null
         }
 

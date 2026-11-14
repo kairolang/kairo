@@ -78,12 +78,41 @@ import std::c_char
 pub struct PPResult {
     pub var ok:   bool                  = false
     pub var fids: cxx::std::vector<u32>         ///< entry's transitive graph, sorted ascending.
-    /// The builtin module's fid (`builtin/module.k`), or 0 when there is no
-    /// builtin root or the prelude is off. Handed out rather than rediscovered:
-    /// the prelude fold already resolved it, and sema cannot find it on its own
-    /// -- ModulePath segments are PreprocessorSymbolTable SymbolIDs, a name
-    /// domain nothing in Sema can reach.
-    pub var builtin_fid: u32 = 0
+    /// The builtin module's fid (`builtin/module.k`), or u32::MAX when there
+    /// is no builtin root or the prelude is off. Not 0: that is the first
+    /// file loaded, which is builtin's module.k when that file is the entry.
+    /// Handed out rather than rediscovered: the prelude fold already resolved
+    /// it, and sema cannot find it on its own -- ModulePath segments are
+    /// PreprocessorSymbolTable SymbolIDs, a name domain nothing in Sema can
+    /// reach.
+    pub var builtin_fid: u32 = u32::MAX
+}
+
+/// \p to is \p from or one of the files \p from's imports reach in
+/// \p graph.
+fn _graph_reaches(graph: *DepGraph, from: u32, to: u32) -> bool {
+    var seen = llvm::DenseSet<u64>()
+    var work = cxx::std::vector<u32>()
+    work.push_back(from)
+    while !work.empty() {
+        var f = work.back()
+        work.pop_back()
+        if f == to {
+            return true
+        }
+
+        if !seen.insert(f as u64).second {
+            continue
+        }
+
+        if graph->deps.contains(f) {
+            for d in graph->deps[f] {
+                work.push_back(d)
+            }
+        }
+    }
+
+    return false
 }
 
 /// A file on an import cycle, lexed and its macros collected ahead of the
@@ -121,7 +150,7 @@ pub class PreProcessor {
     /// closure (the builtin files): the macro prelude. Set by preprocess()
     /// when the real builtin root is folded in; read by _walk_one.
     priv var _prelude_scope: ModulePath
-    priv var _prelude_fid:   u32                 = 0
+    priv var _prelude_fid:   u32                 = u32::MAX
     priv var _prelude_files: llvm::DenseSet<u64>
     /// Per file that names `f256` / `f512`: the class files it imports
     /// implicitly (_add_wide_floats). Written before the waves start and
@@ -533,7 +562,7 @@ pub class PreProcessor {
             kairo::std::destroy(walker)
         }
 
-        if self._prelude_fid != 0 && !self._prelude_files.contains(fid as u64) {
+        if self._prelude_fid != u32::MAX && !self._prelude_files.contains(fid as u64) {
             walker->set_prelude_scope(self._prelude_scope)
         }
 
@@ -594,7 +623,7 @@ pub class PreProcessor {
         segs.push_back(dir)
         segs.push_back(leaf)
         var w_fid = scanner->add_module_dependency(segs, graph)
-        if w_fid == 0 || w_fid == u32::MAX {
+        if w_fid == u32::MAX {
             return
         }
 
@@ -766,7 +795,7 @@ pub class PreProcessor {
         // about a library the user cannot change. No user file closes one: the
         // root imports none.
         for var i: usize = 0; i < n; ++i {
-            if (cyc)[i] != 0 && (cyc)[i] == self._prelude_fid {
+            if self._prelude_fid != u32::MAX && (cyc)[i] == self._prelude_fid {
                 return
             }
         }
@@ -879,13 +908,13 @@ pub class PreProcessor {
         // canonical `builtin` segments, which is what the lang-item fill keys
         // on. A custom --prelude REPLACES it (a plain file, folded like a
         // force-include); --no-prelude and --freestanding turn it off; and a
-        // builtin file reached as the entry is its own prelude, so the
-        // self-edge is skipped.
+        // builtin file reached as the entry is part of its own prelude, so
+        // it gets no edge to the root.
         if !self._opts.no_prelude {
-            var p_fid: u32 = 0
+            var p_fid: u32 = u32::MAX
             if self._opts.prelude_path.size() > 0 {
                 p_fid = self._sm->load_file(Path(self._opts.prelude_path))
-                if p_fid != u32::MAX && p_fid != 0 && p_fid != entry_fid {
+                if p_fid != u32::MAX && p_fid != entry_fid {
                     scanner.add_root_dependency(p_fid, &graph)
                 }
             } else {
@@ -895,14 +924,20 @@ pub class PreProcessor {
                 // Only the real builtin module is reported: a custom --prelude
                 // is a file, not the lang-item root, and sema must not read
                 // lang items out of it.
-                if p_fid != 0 && p_fid != u32::MAX {
+                if p_fid != u32::MAX {
                     out.builtin_fid     = p_fid
                     self._prelude_fid   = p_fid
                     self._prelude_scope = graph.mod_paths[p_fid]
                 }
             }
 
-            if p_fid != 0 && p_fid != u32::MAX && p_fid != entry_fid {
+            // An entry the prelude already reaches is a builtin file: it is
+            // part of the prelude, as every builtin file of an ordinary
+            // build is, and an edge back to the root would close a cycle
+            // the scan never saw (the walk would then never reach either).
+            if p_fid != u32::MAX
+                && p_fid != entry_fid
+                && !_graph_reaches(&graph, p_fid, entry_fid) {
                 graph.add_edge(entry_fid, p_fid)
             }
         }
@@ -941,7 +976,7 @@ pub class PreProcessor {
             }
 
             var a_fid = scanner.add_module_dependency(asegs, &graph)
-            if a_fid != 0 && a_fid != u32::MAX {
+            if a_fid != u32::MAX {
                 for var ui: usize = 0; ui < users.size(); ++ui {
                     if users[ui] != a_fid {
                         graph.add_edge(users[ui], a_fid)
@@ -1000,7 +1035,7 @@ pub class PreProcessor {
         // the entry's edge to it. Every other file outside the builtin
         // root's own closure gets one too; a builtin file never does, or a
         // builtin import of it would close a cycle.
-        if self._prelude_fid != 0 && graph.all_fids.contains(self._prelude_fid) {
+        if self._prelude_fid != u32::MAX && graph.all_fids.contains(self._prelude_fid) {
             self._prelude_files.clear()
             var work = cxx::std::vector<u32>()
             work.push_back(self._prelude_fid)

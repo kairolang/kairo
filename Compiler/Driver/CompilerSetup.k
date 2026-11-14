@@ -42,7 +42,11 @@ import API::HostSystem::{
 import API::SysrootManifest::SysrootManifest
 import API::Text::LinkText
 import API::Toolchain::Toolchain
-import AST::LangItems::LowerTargets
+import AST::LangItems::{
+    LowerTargets,
+    builtin_root_name,
+    std_root_name,
+}
 import Command::FlagTranslator::{
     ClangSpelling,
     FlagTranslator,
@@ -66,6 +70,11 @@ import Diagnostic::Registry::DiagID
 import Driver::CompilerInstance::CompilerInstance
 import Driver::CompilerNative
 import Interop::Clang::ClangBackend::ClangBackendConfig
+import Resolution::SearchRoot::{
+    read_module_pin,
+    root_names_equal,
+    split_module_name,
+}
 import Support::FileIO::Path::Path
 import Sysroot::Cache::SysCache
 import Sysroot::Generator::SysGen
@@ -958,6 +967,12 @@ extend CompilerInstance {
     /// well: its builtin/ and std/ are used when they exist, before the
     /// layout, so an install that put them there still works.
     ///
+    /// Next after a flag comes the library an input belongs to
+    /// (_input_library_dir): a file inside a source copy of builtin or std
+    /// (a checkout's Lib/std/io.k) is checked against THAT copy, not the
+    /// toolchain's. Otherwise the toolchain's copy and the source copy would
+    /// both claim the one root name, which is R018E.
+    ///
     /// A root that is still missing is a P001W (queued; initialize()
     /// reports it): without the builtin tree every lang item is unbound and
     /// `string` does not resolve, which otherwise reads as a sema bug rather
@@ -989,6 +1004,10 @@ extend CompilerInstance {
         // (lib/rt: stdlib.h) into a bare-metal build; --builtins-dir still
         // adds it on purpose.
         if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
+            inv->pp.builtins_dir = self._input_library_dir(builtin_root_name())
+        }
+
+        if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
             var legacy = ""
             if rd_given {
                 legacy = LinkText::join(
@@ -1008,6 +1027,10 @@ extend CompilerInstance {
                     "pass --builtins-dir=<dir> naming the directory that holds builtin's module.k; without it the prelude does not load and lang items such as `string` stay unbound",
                 )
             }
+        }
+
+        if inv->pp.std_dir.empty() && !inv->pp.no_stdlib {
+            inv->pp.std_dir = self._input_library_dir(std_root_name())
         }
 
         if inv->pp.std_dir.empty() && !inv->pp.no_stdlib {
@@ -1031,6 +1054,56 @@ extend CompilerInstance {
                 )
             }
         }
+    }
+
+    /// The directory of library \p name that a Kairo input lies in, or "".
+    ///
+    /// An input's library is the nearest directory at or above it whose
+    /// module.k pins a name, the same walk the import resolver makes for
+    /// the input's module path (ImportResolver::_library_of), so the root
+    /// registered here is the one the resolver would have found anyway.
+    /// Directories are compared by real path. Inputs in two different
+    /// copies of the library give "": the default root is then registered
+    /// and the resolver reports both copies as the R018E they are.
+    priv fn _input_library_dir(self, const name: string) -> string {
+        var want  = split_module_name(name)
+        var found = ""
+        for *f in self.invocation()->input_files {
+            if !(*f).ends_with(".k") {
+                continue
+            }
+
+            var walk = Path::parent_of(*f)
+            while !walk.empty() {
+                var mod_k = Path::join_str(walk, "module.k")
+                var pin   = cxx::std::vector<string>()
+                if Path::exists_at(mod_k) {
+                    pin = read_module_pin(mod_k)
+                }
+
+                if pin.size() > 0 {
+                    if root_names_equal(pin, want) {
+                        var real = LinkFS::real(walk)
+                        if found.empty() {
+                            found = real
+                        } else if found != real {
+                            return ""
+                        }
+                    }
+
+                    break
+                }
+
+                var up = Path::parent_of(walk)
+                if up.empty() || up.size() >= walk.size() {
+                    break
+                }
+
+                walk = up
+            }
+        }
+
+        return found
     }
 
     /// No usable sysroot is a P001W unless --freestanding asked for none:

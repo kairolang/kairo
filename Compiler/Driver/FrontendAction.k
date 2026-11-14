@@ -587,9 +587,9 @@ pub class FrontendAction {
         // Which fid is the builtin module, recorded once for the build. Sema fills
         // the lang-item table from it (NameResolution); it cannot identify the fid
         // itself, because ModulePath segments are PP SymbolIDs and Sema has no
-        // symbol table. 0 means no builtin root -- the lang items stay unbound and
-        // whichever pass needs one diagnoses it at the use.
-        if pp_res.builtin_fid != 0 {
+        // symbol table. u32::MAX means no builtin root -- the lang items stay
+        // unbound and whichever pass needs one diagnoses it at the use.
+        if pp_res.builtin_fid != u32::MAX {
             self._global_scope->set_builtin_fid(pp_res.builtin_fid)
         }
 
@@ -1162,7 +1162,7 @@ pub class FrontendAction {
         // unmarked one resolves `[T;]` against an empty lang-item table and
         // reports the item missing from inside Lib/builtin itself.
         var bfid = self._global_scope->builtin_fid()
-        if bfid != 0 {
+        if bfid != u32::MAX {
             var bsym = self._ci->pp()->get_symbol_table()->intern(
                 builtin_root_name(),
             )
@@ -2403,7 +2403,7 @@ pub class FrontendAction {
     /// ImportDecl and why it is stamped rather than resolved).
     priv fn _inject_prelude_one(self, fid: u32) {
         var bfid = self._global_scope->builtin_fid()
-        if bfid == 0 || fid == bfid || self._ci->invocation()->pp.no_builtins {
+        if bfid == u32::MAX || fid == bfid || self._ci->invocation()->pp.no_builtins {
             return
         }
 
