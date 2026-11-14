@@ -13,7 +13,7 @@ priv class Good {
     fn Good(self, b: u64) { self.base = b }
 
     @preserve_most
-    fn grow(const self, n: u64) -> u64 { return self.base + n }
+    pub fn grow(const self, n: u64) -> u64 { return self.base + n }
 }
 
 priv class Bad {

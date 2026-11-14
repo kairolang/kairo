@@ -24,8 +24,8 @@ interface Store {
 class Coin {
     pub var v: i32
     fn Coin(self, v: i32) { self.v = v }
-    fn show(const self) -> i32 { return self.v }
-    fn weight(const self) -> i32 { return 2 }
+    pub fn show(const self) -> i32 { return self.v }
+    pub fn weight(const self) -> i32 { return 2 }
 }
 
 struct Gem {

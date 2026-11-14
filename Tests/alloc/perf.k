@@ -5,14 +5,14 @@ class P2 { var a: i64  var b: i64  fn P2(self, a: i64, b: i64) { self.a = a; sel
 static buf: [u8; 4096]
 static cur: usize = 0
 class Bump {
-    static fn alloc(size: usize, align: usize) -> unsafe *u8 { var at = align_up(cur, align); cur = at + size; unsafe { return (&buf[0] as unsafe *u8) + at } }
-    static fn free(ptr: unsafe *u8, size: usize, align: usize) { }
-    static fn resize(ptr: unsafe *u8, o: usize, n: usize, align: usize) -> bool { return n <= o }
-    static fn realloc(ptr: unsafe *u8, o: usize, n: usize, align: usize) -> unsafe *u8 { return realloc_by_copy<Bump>(ptr, o, n, align) }
-    static fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 { return Bump::alloc(size, align) }
-    static fn enter() -> usize { return cur }
-    static fn leave(m: usize) { cur = m }
-    static fn range() -> (unsafe *u8, unsafe *u8) { unsafe { return (&buf[0] as unsafe *u8, (&buf[0] as unsafe *u8) + 4096) } }
+    pub static fn alloc(size: usize, align: usize) -> unsafe *u8 { var at = align_up(cur, align); cur = at + size; unsafe { return (&buf[0] as unsafe *u8) + at } }
+    pub static fn free(ptr: unsafe *u8, size: usize, align: usize) { }
+    pub static fn resize(ptr: unsafe *u8, o: usize, n: usize, align: usize) -> bool { return n <= o }
+    pub static fn realloc(ptr: unsafe *u8, o: usize, n: usize, align: usize) -> unsafe *u8 { return realloc_by_copy<Bump>(ptr, o, n, align) }
+    pub static fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 { return Bump::alloc(size, align) }
+    pub static fn enter() -> usize { return cur }
+    pub static fn leave(m: usize) { cur = m }
+    pub static fn range() -> (unsafe *u8, unsafe *u8) { unsafe { return (&buf[0] as unsafe *u8, (&buf[0] as unsafe *u8) + 4096) } }
 }
 
 @no_inline fn k_create() -> *P2 { return create<P2>(1i64, 2i64) }

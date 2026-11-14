@@ -33,8 +33,8 @@ struct Seven {
 
 class Zero {
     pub var z: i32
-    fn Zero(self) { self.z = 0 }
-    fn val(const self) -> i32 { return self.z + 1 }
+    pub fn Zero(self) { self.z = 0 }
+    pub fn val(const self) -> i32 { return self.z + 1 }
 }
 
 extend Seven impl Make {

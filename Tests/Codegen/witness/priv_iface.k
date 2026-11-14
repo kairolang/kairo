@@ -8,7 +8,7 @@ struct Metric {
     var base: i32
 }
 extend Metric {
-    fn scale(const self, factor: i32) -> i32 = self.base * factor
+    pub fn scale(const self, factor: i32) -> i32 = self.base * factor
 }
 fn <T impl Scalable> twice(a: T) -> i32 {
     return a.scale(2)

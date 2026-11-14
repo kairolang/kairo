@@ -15,9 +15,9 @@ pub interface <T> Cloneable { fn Cloneable(self, source: T) }
 
 pub class Counter {
     pub var n: i32 = 0
-    fn Counter(self) { }
-    fn Counter(self, n: i32) { self.n = n }
-    fn Counter(self, other: Counter, k: i32) { self.n = other.n + k }
+    pub fn Counter(self) { }
+    pub fn Counter(self, n: i32) { self.n = n }
+    pub fn Counter(self, other: Counter, k: i32) { self.n = other.n + k }
 }
 extend Counter {
     pub fn show(const self) -> i32 = self.n + 100
@@ -25,7 +25,7 @@ extend Counter {
 pub struct Plain { pub var n: i32 = 7 }
 pub class <E> Box {
     pub var n: i32 = 0
-    fn Box(self, e: E) { self.n = 40 }
+    pub fn Box(self, e: E) { self.n = 40 }
 }
 
 pub fn <T impl Defaultable> fresh(like: T) -> T { return T() }

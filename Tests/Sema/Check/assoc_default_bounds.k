@@ -12,7 +12,7 @@
 interface Display { fn show(const self) -> i32 }
 
 class Shown {
-    fn show(const self) -> i32 { return 1 }
+    pub fn show(const self) -> i32 { return 1 }
 }
 
 interface Bad {

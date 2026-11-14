@@ -20,7 +20,7 @@ class Bad derives Doubler<Bad> {
 
 // Names the instance over a class that is not a Doubler.
 class Plain {
-    fn value(const self) -> i32 { return 3 }
+    pub fn value(const self) -> i32 { return 3 }
 }
 class Wrong derives Doubler<Plain> {
 }

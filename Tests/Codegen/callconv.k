@@ -51,7 +51,7 @@ priv class Seed {
     fn Seed(self, b: u64) { self.base = b }
 
     @preserve_most
-    fn grow(const self, n: u64) -> u64 { return self.base + n }
+    pub fn grow(const self, n: u64) -> u64 { return self.base + n }
 }
 
 priv fn <T impl Grower> drive(a: T) -> u64 { return a.grow(1) }

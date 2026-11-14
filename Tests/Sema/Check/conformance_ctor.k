@@ -10,9 +10,9 @@ pub interface Sized { fn Sized(self, n: i32) }
 pub interface Twin { fn Twin(self, other: Self, k: i32) }
 pub class Counter {
     pub var n: i32 = 0
-    fn Counter(self) { }
-    fn Counter(self, n: i32) { self.n = n }
-    fn Counter(self, other: Counter, k: i32) { self.n = other.n + k }
+    pub fn Counter(self) { }
+    pub fn Counter(self, n: i32) { self.n = n }
+    pub fn Counter(self, other: Counter, k: i32) { self.n = other.n + k }
 }
 pub class Flag {
     fn Flag(self, b: bool) { }
@@ -20,7 +20,7 @@ pub class Flag {
 pub struct Plain { pub var n: i32 = 7 }
 pub class Base { fn Base(self, n: i32) { } }
 pub class Kid derives Base { fn Kid(self) { } }
-pub class <E> Box { fn Box(self, e: E) { } }
+pub class <E> Box { pub fn Box(self, e: E) { } }
 pub fn <T impl Defaultable> fresh(like: T) -> T { return T() }
 pub fn <T impl Sized> sized(like: T, n: i32) -> T { return T(n) }
 pub fn <T impl Twin> twin(a: T) -> T { return T(a, 5) }

@@ -4326,6 +4326,34 @@ def lifecycle(exe, base):
     check("lifecycle: exit after shutdown exits 0", rc == 0, rc)
 
 
+def library_files(exe, base):
+    """The library's own sources, opened from a copy of the checkout's Lib/
+    (as an editor opens Lib/ of a source tree, beside the copy the toolchain
+    stages): each file is checked against the copy it is in, not the staged
+    one (no duplicate module root), and as library code (a builtin file
+    gets none of the user-code errors), and the features answer in it."""
+    root = os.path.join(base, "libcopy")
+    # rt/ too: builtin's ffi imports name its headers beside the builtin
+    # root. Links are kept as links (a submodule there can be one).
+    for lib in ("builtin", "std", "rt"):
+        shutil.copytree(os.path.join(ROOT, "Lib", lib), os.path.join(root, "Lib", lib), symlinks=True)
+    c = Client(exe, root)
+    c.start()
+    for rel, needle in (("Lib/builtin/string.k", "cmp_(self.data, other.data, n)"),
+                        ("Lib/std/io.k", "write_line_(1, s)")):
+        text = c.open(rel)
+        c.settle()
+        errs = [x for x in c.diagnostics(rel) or [] if x["severity"] == 1]
+        check("library files: %s has no errors" % rel, not errs, errs)
+        name = needle[:needle.index("(")]
+        d = c.request("textDocument/definition", c.at(rel, *pos(text, needle)))
+        check("library files: definition in %s stays in the opened copy" % rel,
+              d and d["uri"] == c.uri(rel) and d["range"]["start"]["line"] == pos(text, "fn " + name)[0], d)
+        h = c.request("textDocument/hover", c.at(rel, *pos(text, needle)))
+        check("library files: hover in %s" % rel, h and ("fn " + name) in h["contents"]["value"], h)
+    check("library files: clean shutdown", c.stop() == 0)
+
+
 def main():
     exe = find_kals()
     print("kals:", exe)
@@ -4388,6 +4416,8 @@ def main():
             styles(exe, real)
         if want("member_test_name"):
             member_test_name(exe, real)
+        if want("library_files"):
+            library_files(exe, base)
         if want("macro_styles"):
             macro_styles(exe, real)
         if want("bridge"):

@@ -7,19 +7,19 @@ static frees: [i32; 64]
 fn base(k: usize) -> unsafe *u8 { unsafe { return (&arenas[0] as unsafe *u8) + k * 4096 } }
 fn level_of(p: unsafe *u8) -> usize { return ((p as usize) - (base(0) as usize)) / 4096 }
 class Bump {
-    static fn alloc(size: usize, align: usize) -> unsafe *u8 {
+    pub static fn alloc(size: usize, align: usize) -> unsafe *u8 {
         var k = level - 1
         var at = align_up(cursor[k], align)
         cursor[k] = at + size
         return base(k) + at
     }
-    static fn free(ptr: unsafe *u8, size: usize, align: usize) { frees[level_of(ptr)] += 1 }
-    static fn resize(ptr: unsafe *u8, o: usize, n: usize, align: usize) -> bool { return n <= o }
-    static fn realloc(ptr: unsafe *u8, o: usize, n: usize, align: usize) -> unsafe *u8 { return realloc_by_copy<Bump>(ptr, o, n, align) }
-    static fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 { return Bump::alloc(size, align) }
-    static fn enter() -> usize { return cursor[level - 1] }
-    static fn leave(m: usize) { cursor[level - 1] = m }
-    static fn range() -> (unsafe *u8, unsafe *u8) { return (base(level - 1), base(level - 1) + 4096) }
+    pub static fn free(ptr: unsafe *u8, size: usize, align: usize) { frees[level_of(ptr)] += 1 }
+    pub static fn resize(ptr: unsafe *u8, o: usize, n: usize, align: usize) -> bool { return n <= o }
+    pub static fn realloc(ptr: unsafe *u8, o: usize, n: usize, align: usize) -> unsafe *u8 { return realloc_by_copy<Bump>(ptr, o, n, align) }
+    pub static fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 { return Bump::alloc(size, align) }
+    pub static fn enter() -> usize { return cursor[level - 1] }
+    pub static fn leave(m: usize) { cursor[level - 1] = m }
+    pub static fn range() -> (unsafe *u8, unsafe *u8) { return (base(level - 1), base(level - 1) + 4096) }
 }
 fn check(c: bool, what: string) { if !c { println(f"FAIL: {what}"); __builtin_abort() } }
 static blocks: [usize; 64]

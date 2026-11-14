@@ -33,7 +33,7 @@ class C impl Iface {
 
 class D {
     type Node = i32
-    fn <T> foo(self, x: T) -> Node {
+    pub fn <T> foo(self, x: T) -> Node {
         return 7
     }
     pub var y: i32

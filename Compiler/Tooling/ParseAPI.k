@@ -114,7 +114,8 @@ pub struct ParseOptions {
     /// Check the file as the module the driver would name it (its stem
     /// under the -I roots), not as a pathless entry: a C++ header of it
     /// (--emit-headers) needs the module path, and kals' clangd bridge
-    /// asks for exactly that header.
+    /// asks for exactly that header. A file inside a library is always
+    /// checked as its module (entry_module_path).
     pub var as_module: bool = false
 }
 
@@ -340,6 +341,24 @@ pub fn _apply_stop_at(ci: unsafe *CompilerInstance, stop_at: TUStage) -> Fronten
 ///
 /// \pre CompilerInstance::initialize(cwd) must have run   it builds the
 ///      ImportResolver and PreProcessor this depends on.
+/// \brief the module path a tool checks the entry \p path under: none (a
+///        pathless entry, as a program's main file is) unless \p as_module
+///        asks for the driver's name, or the file lies in a library.
+///
+/// \details A library's file is the module its path names whatever the
+///          caller asks, as it is to `kairo`: the builtin files, the lang
+///          items and the library-only rules are found by that path, and a
+///          pathless builtin file is checked as user code.
+pub fn entry_module_path(ci:         unsafe *CompilerInstance,
+                         const path: Path,
+                         as_module:  bool) -> ModulePath {
+    if as_module || ci->imp()->in_library(path) {
+        return ci->input_module_path(path.full_path())
+    }
+
+    return ModulePath()
+}
+
 pub fn parse_file(ci: unsafe *CompilerInstance, path: Path, opts: ParseOptions) -> ParsedUnit {
     if ci == &null {
         return ParsedUnit::failure(u32::MAX, TUStage::Failed)
@@ -390,10 +409,7 @@ pub fn parse_file(ci: unsafe *CompilerInstance, path: Path, opts: ParseOptions) 
         }
     }
 
-    var mp = ModulePath()
-    if opts.as_module {
-        mp = ci->input_module_path(path.full_path())
-    }
+    var mp = entry_module_path(ci, path, opts.as_module)
 
     var unsafe *action = kairo::std::create<FrontendAction>(
         path,

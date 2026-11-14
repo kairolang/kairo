@@ -11,8 +11,8 @@ static blocks: i64 = 0
 static bytes: i64 = 0
 
 class Counting {
-    static fn alloc(size: usize, align: usize) -> unsafe *u8 { blocks += 1; bytes += size as i64; return System::alloc(size, align) }
-    static fn free(ptr: unsafe *u8, size: usize, align: usize) { blocks -= 1; bytes -= size as i64; System::free(ptr, size, align) }
+    pub static fn alloc(size: usize, align: usize) -> unsafe *u8 { blocks += 1; bytes += size as i64; return System::alloc(size, align) }
+    pub static fn free(ptr: unsafe *u8, size: usize, align: usize) { blocks -= 1; bytes -= size as i64; System::free(ptr, size, align) }
     static fn resize(ptr: unsafe *u8, o: usize, n: usize, align: usize) -> bool { return false }
     static fn realloc(ptr: unsafe *u8, o: usize, n: usize, align: usize) -> unsafe *u8 { return realloc_by_copy<Counting>(ptr, o, n, align) }
     static fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 { blocks += 1; bytes += size as i64; return System::alloc_zeroed(size, align) }

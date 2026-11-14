@@ -1337,6 +1337,13 @@ pub class ImportResolver {
         return out
     }
 
+    /// \brief \p file lies in a library: under a named root (builtin, std, a
+    ///        pinned -I dir), or below a module.k that pins a name.
+    pub fn in_library(self, const file: Path) -> bool {
+        var lock = kairo::std::LockGuard(self._mu)
+        return self._library_of(Path::parent_of(file.full_path())).found
+    }
+
     /// A pinned directory that no root registered (a pin deeper than a
     /// root's immediate subdirectories, or one above every root) names a
     /// library all the same, so it collides like a registered one: with a

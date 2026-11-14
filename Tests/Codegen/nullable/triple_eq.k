@@ -16,7 +16,7 @@ import std::io::println
 struct Pt {
     var x: i32
     var y: i32
-    fn op ==(self, o: Pt) -> bool { return self.x == o.x }
+    pub fn op ==(self, o: Pt) -> bool { return self.x == o.x }
 }
 
 enum Shape { Dot, Line { len: i32 } }

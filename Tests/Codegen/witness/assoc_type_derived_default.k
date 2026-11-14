@@ -36,7 +36,7 @@ class Crate impl Boxed {
 class Plain {
     type Node = i16
     fn Plain(self) { }
-    fn first(const self) -> i16 { return 1 }
+    pub fn first(const self) -> i16 { return 1 }
 }
 
 fn <G impl Graph> pick(g: G) -> G::Node { return g.first() }

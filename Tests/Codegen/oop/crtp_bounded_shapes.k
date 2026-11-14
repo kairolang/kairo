@@ -33,8 +33,8 @@ class <X derives Tagger<X> impl Named> Tagger {
 // Structural: Valued and Named are met by the members, not declared.
 class Both derives Doubler<Both>, Tagger<Both> {
     pub var v: i32 = 21
-    fn value(const self) -> i32 { return self.v }
-    fn id(const self) -> i32 { return 7 }
+    pub fn value(const self) -> i32 { return self.v }
+    pub fn id(const self) -> i32 { return 7 }
 }
 
 class <T impl Valued> Box {
@@ -45,7 +45,7 @@ class <T impl Valued> Box {
 class Lit {
     pub var n: i32
     fn Lit(self, n: i32) { self.n = n }
-    fn value(const self) -> i32 { return self.n }
+    pub fn value(const self) -> i32 { return self.n }
 }
 
 fn main() -> i32 {

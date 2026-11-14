@@ -29,8 +29,8 @@ class Road impl Graph {
 class Map {
     type Node = City
     fn Map(self) { }
-    fn first(const self) -> City { return City { id: 7 } }
-    fn weight(const self, n: City) -> i32 { return n.id }
+    pub fn first(const self) -> City { return City { id: 7 } }
+    pub fn weight(const self, n: City) -> i32 { return n.id }
 }
 
 class Both impl Big {

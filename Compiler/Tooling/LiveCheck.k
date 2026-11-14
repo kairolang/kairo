@@ -53,6 +53,7 @@ import Resolution::ModulePath::ModulePath
 import Support::FileIO::Path::Path
 import Tooling::ParseAPI::{
     _apply_stop_at,
+    entry_module_path,
     release_all,
 }
 import std::io
@@ -1544,10 +1545,7 @@ pub class LiveCheck {
         // record's layout with the one it had (FrontendAction::refresh).
         self._ci->invocation()->frontend.incremental_sema = true
         _apply_stop_at(self._ci, TUStage::Sema)
-        var mp = ModulePath()
-        if self.as_module {
-            mp = self._ci->input_module_path(Path(inputs[0]).full_path())
-        }
+        var mp = entry_module_path(self._ci, Path(inputs[0]), self.as_module)
 
         self._action = kairo::std::create<FrontendAction>(
             Path(inputs[0]),

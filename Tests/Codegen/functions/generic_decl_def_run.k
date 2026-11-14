@@ -10,7 +10,7 @@
 interface Graph { fn first(const self) -> i32 }
 class R {
     fn R(self) { }
-    fn first(const self) -> i32 { return 3 }
+    pub fn first(const self) -> i32 { return 3 }
 }
 
 fn <T impl Graph> g(x: T) -> i32

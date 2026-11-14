@@ -15,11 +15,11 @@ interface <E> Src {
 }
 
 class Plain {
-    fn read(self, n: i32) -> i32 { return n * 2 }
+    pub fn read(self, n: i32) -> i32 { return n * 2 }
 }
 
 class Small {
-    fn read(self, n: i32) panic(A) -> i32 {
+    pub fn read(self, n: i32) panic(A) -> i32 {
         if n < 0 { panic A { n: n } }
         return n + 1
     }

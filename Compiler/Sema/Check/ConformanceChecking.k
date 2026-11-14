@@ -115,6 +115,7 @@ import AST::Node::Types::{
     PointerType,
 }
 import AST::OperatorFacts::OperatorFacts
+import AST::VisibilityFacts::default_visibility_of
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::DiagBuilder::DiagBuilder
@@ -3105,6 +3106,15 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         var        v  = w->visibility
         if v == VisibilityKind::None && r != &null {
             v = r->visibility
+        }
+
+        // An unmarked member has the documented default visibility, not
+        // `pub`: `priv` outside a module, `prot` in one
+        // (VisibilityFacts::default_visibility_of). So a member meant to
+        // satisfy an interface structurally is written `pub`, in its own
+        // file as in any other.
+        if v == VisibilityKind::None {
+            v = default_visibility_of(if (r != &null) => (r) else => w)
         }
 
         if v != VisibilityKind::Private && v != VisibilityKind::Protected {

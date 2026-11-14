@@ -73,7 +73,7 @@ fn main() -> i32 {
 }
 
 class Loose {
-    fn read(self) panic(A, B) -> i32 { panic B { n: 1 } }
+    pub fn read(self) panic(A, B) -> i32 { panic B { n: 1 } }
 }
 fn <T impl Src<A>> through_loose(t: T) panic -> i32 { return t.read() }
 fn structural() -> i32 { return try through_loose(Loose {}) catch e: A => e.n }
@@ -100,7 +100,7 @@ fn structural() -> i32 { return try through_loose(Loose {}) catch e: A => e.n }
 // CHECK-NEXT: generics.k:46:55: note [SC209N]: and so does this one
 // CHECK-NEXT: generics.k:49:34: note [I900N]: in instantiation of 'dup<A>' required here
 // CHECK: generics.k:79:37: error [SC208E]: 'Loose' does not meet 'Src<A>' here: 'B' is not in the panic set of 'Src::read', which 'Loose::read' implements
-// CHECK-NEXT: generics.k:76:5: note [SC208N]: 'Loose::read' may panic with 'B'
+// CHECK-NEXT: generics.k:76:9: note [SC208N]: 'Loose::read' may panic with 'B'
 // CHECK-NEXT: generics.k:28:5: note [SC208N]: 'Src::read' is declared here
 // LIB: generics.k:67:22: warning [SC217W]: the panic set of public function 'lib' is inferred ('T'); declare it, or a change to the body changes its callers' contract
 // LIB-NEXT: fix-it:"{{.*}}generics.k":{67:22-67:27}:"panic(T)"

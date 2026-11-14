@@ -46,8 +46,8 @@ class Path {
     type Node = i64
     type Edge = i64
     fn Path(self) { }
-    fn first(const self) -> i64 { return 1 }
-    fn edge(const self) -> i64 { return 2 }
+    pub fn first(const self) -> i64 { return 1 }
+    pub fn edge(const self) -> i64 { return 2 }
 }
 
 // Structural, relying on the default: does not conform.
@@ -72,11 +72,11 @@ class Wrong {
     type Edge = i32
     fn Wrong(self) { }
     fn first(const self) -> i32 { return 1 }
-    fn edge(const self) -> i32 { return 2 }
+    pub fn edge(const self) -> i32 { return 2 }
 }
 
-class GoodShelf { type Item = Shown  fn GoodShelf(self) { }  fn get(const self) -> Shown { return Shown { v: 1 } } }
-class BadShelf  { type Item = Plain  fn BadShelf(self) { }   fn get(const self) -> Plain { return Plain { v: 1 } } }
+class GoodShelf { type Item = Shown  fn GoodShelf(self) { }  pub fn get(const self) -> Shown { return Shown { v: 1 } } }
+class BadShelf  { type Item = Plain  fn BadShelf(self) { }   pub fn get(const self) -> Plain { return Plain { v: 1 } } }
 
 fn <G impl Graph> use(g: G) -> i32 { return 0 }
 fn <C impl Catalog> shelve(c: C) -> i32 { return 0 }

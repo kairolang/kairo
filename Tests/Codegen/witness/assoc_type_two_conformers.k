@@ -23,8 +23,8 @@ class Road impl Graph {
 class Map {
     type Node = City
     fn Map(self) { }
-    fn first(const self) -> City { return City { id: 7 } }
-    fn weight(const self, n: City) -> i32 { return n.id * 2 }
+    pub fn first(const self) -> City { return City { id: 7 } }
+    pub fn weight(const self, n: City) -> i32 { return n.id * 2 }
 }
 
 fn <G impl Graph> heaviest(g: G) -> i32 {

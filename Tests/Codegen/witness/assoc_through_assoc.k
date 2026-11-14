@@ -53,9 +53,9 @@ class Leaf {
     pub var v: i32
     fn Leaf(self) { self.v = 2 }
     fn Leaf(self, v: i32) { self.v = v }
-    static fn make() -> Leaf { return Leaf(5) }
-    fn show(const self) -> i32 { return self.v * 10 }
-    fn val(const self) -> i32 { return self.v }
+    pub static fn make() -> Leaf { return Leaf(5) }
+    pub fn show(const self) -> i32 { return self.v * 10 }
+    pub fn val(const self) -> i32 { return self.v }
 }
 
 class Mid impl BigHolder {
