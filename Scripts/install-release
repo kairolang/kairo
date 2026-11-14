@@ -100,6 +100,20 @@ fetch() { # url dest
     esac
 }
 
+# The release's checksum list: its SHA256SUMS asset, or, for a GitHub release published
+# without one, the same "<sha256>  <asset>" lines read from the release's asset digests.
+fetch_sums() { # dest
+    fetch "$BASE/SHA256SUMS" "$1" 2>/dev/null && return 0
+    case "$BASE" in
+        https://github.com/*/releases/download/*) ;;
+        *) return 1 ;;
+    esac
+    api=$(printf '%s\n' "$BASE" | sed 's|^https://github.com/\(.*\)/releases/download/\(.*\)$|https://api.github.com/repos/\1/releases/tags/\2|')
+    fetch "$api" "$1.json" || return 1
+    awk -F'"' '$2 == "name" { n = $4 } $2 == "digest" && $4 ~ /^sha256:/ { print substr($4, 8) "  " n }' "$1.json" > "$1"
+    [ -s "$1" ]
+}
+
 sha256_of() {
     if have sha256sum; then sha256sum "$1" | cut -d' ' -f1
     elif have shasum; then shasum -a 256 "$1" | cut -d' ' -f1
@@ -180,7 +194,7 @@ main() {
     trap 'rm -rf "$TMP" ${STAGE:+"$STAGE"}' EXIT INT TERM
 
     say "installing Kairo $VERSION for $TRIPLE"
-    fetch "$BASE/SHA256SUMS" "$TMP/SHA256SUMS" || die "could not download $BASE/SHA256SUMS"
+    fetch_sums "$TMP/SHA256SUMS" || die "could not get the checksums for this release ($BASE/SHA256SUMS)"
     want=$(awk -v f="$ARCHIVE" '$2 == f { print $1 }' "$TMP/SHA256SUMS")
     if [ -z "$want" ]; then
         avail=$(sed -n -e "s/^[0-9a-fA-F]*  kairo-$VERSION-\\(.*\\)\\.tar\\.xz\$/\\1/p" \
@@ -359,7 +373,18 @@ function Install-Kairo {
     $stage = $null
     try {
         Write-Host "kairo-install: installing Kairo $ver for $triple"
-        try { Get-Remote "$base/SHA256SUMS" (Join-Path $tmp 'SHA256SUMS') } catch { throw "could not download $base/SHA256SUMS : $($_.Exception.Message)" }
+        # SHA256SUMS, or, for a GitHub release published without one, the same lines from the release's asset digests.
+        $sums = Join-Path $tmp 'SHA256SUMS'
+        try { Get-Remote "$base/SHA256SUMS" $sums } catch {
+            $why = $_.Exception.Message
+            if ($base -notmatch '^https://github\.com/(.+)/releases/download/(.+)$') { throw "could not download $base/SHA256SUMS : $why" }
+            try {
+                $rel = Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/repos/$($Matches[1])/releases/tags/$($Matches[2])"
+                $lines = @($rel.assets | Where-Object { $_.digest -like 'sha256:*' } | ForEach-Object { $_.digest.Substring(7) + '  ' + $_.name })
+            } catch { throw "could not download $base/SHA256SUMS ($why) or the release's asset digests: $($_.Exception.Message)" }
+            if (-not $lines.Count) { throw "could not download $base/SHA256SUMS : $why" }
+            Set-Content -LiteralPath $sums -Value $lines -Encoding ASCII
+        }
         $want = $null
         $avail = @()
         foreach ($line in (Get-Content -LiteralPath (Join-Path $tmp 'SHA256SUMS'))) {
