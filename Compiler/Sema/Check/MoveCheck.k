@@ -155,8 +155,8 @@ import AST::Node::Casting::{
 import AST::Node::Declarations::{
     ClassDecl,     FieldDecl,        FnBodyKind,   FnModifier,    FunctionDecl,  InterfaceDecl,
     MOVE_ON_FALSE, MOVE_ON_NON_NULL, MOVE_ON_NULL, MOVE_ON_OTHER, MOVE_ON_PANIC, MOVE_ON_RETURN,
-    MOVE_ON_TRUE,  MoveOut,          MoveOutState, ParamDecl,     StructDecl,    TransferKind,
-    VariableDecl,
+    MOVE_ON_TRUE,  MoveOut,          MoveOutState, ParamDecl,     StorageClass,  StructDecl,
+    TransferKind,  VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::PrimaryExpressions::{
@@ -183,6 +183,7 @@ import Diagnostic::NoteText::type_declared_here
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Check::ClassLifecycle::{
+    ClassLifecycle,
     LifecycleCategory,
     LifecycleFacts,
     LifecycleTri,
@@ -2894,6 +2895,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // that takes it, and a record whose only transfer is a `@copy` its
         // instance dropped has none (`return a` with `a: [Mv]`).
         if v != &null && (!v->is_poisoned()) && (!moves_on_pass(self.sc, v->type_)) {
+            if self._mutable_copy_place(v, "out of the function", true) {
+                return
+            }
+
             var unsafe *c  = self._tu.as_value(v->type_)
             var unsafe *rd = self._tu.record_decl(c)
             if rd != &null && !self._tu.is_tuple(c) {
@@ -3088,6 +3093,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         if !moves_on_pass(self.sc, e->type_) {
+            if copies && self._mutable_copy_place(e, how, false) {
+                return
+            }
+
             if copies && self._uncopyable_place(e, how) {
                 return
             }
@@ -3204,6 +3213,128 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         e->poison()
         self.n_errored += 1
         return true
+    }
+
+    /// A copy of a Kairo record that copies only from a non-const source
+    /// that is not a temporary (ClassLifecycle::mutable_source_copy: a
+    /// `@copy` whose `other` is not const, C++ `X(X&)`, and no move): from a
+    /// const place, from a temporary that is assigned (the derived `op =`
+    /// takes `X&`; a temporary that initializes is built in place and never
+    /// copied), or, with \p returned, a returned local or by-value
+    /// parameter, which C++ treats as an rvalue. SC302E with the `const`
+    /// fix at the constructor. True when reported.
+    priv fn _mutable_copy_place(self, e: unsafe *Expr, const how: string, returned: bool) -> bool {
+        if e == &null || e->is_poisoned() {
+            return false
+        }
+
+        var unsafe *x = self._tu.strip_parens(e)
+        var unsafe *c = self._tu.as_value(e->type_)
+        if x == &null || c == &null || c->is_dependent() || self._tu.is_tuple(c) {
+            return false
+        }
+
+        var unsafe *rd = self._tu.record_decl(c)
+        if rd == &null {
+            return false
+        }
+
+        var lvalue = x->value_category == Expr::ValueCategory::LValue
+        var konst = lvalue
+            && (self._const_place(x) || self._const_root(e) || place_has_const_root(x))
+        var moved = returned && !konst && self._returned_local(x)
+        if !konst && !moved && (lvalue || !self._assigning) {
+            return false
+        }
+
+        var via:   unsafe *FieldDecl = &null
+        var owner: unsafe *Decl      = &null
+        var unsafe *ctor = lifecycle_of(self.sc)->mutable_source_copy(
+            rd,
+            unsafe &via,
+            unsafe &owner,
+        )
+
+        if ctor == &null {
+            return false
+        }
+
+        var unsafe *src = ClassLifecycle::copy_source_param(ctor)
+        if src == &null {
+            return false
+        }
+
+        var ts = self._tu.str(c)
+        var cs = self._record_name(owner)
+        if cs.empty() {
+            cs = ts
+        }
+
+        var pn = self.sc->ctx->get_spelling(src->name)
+        var cause = f"the copy constructor of '{cs}' takes a non-const '{pn}' (C++ '{cs}({cs}&)'), and '{cs}' has no move constructor"
+        if via != &null {
+            cause = f"'{ts}' declares no copy constructor and its field '{self.sc->ctx->get_spelling(via->name)}' is a '{cs}', whose copy constructor takes a non-const '{pn}' (C++ '{cs}({cs}&)'), and '{cs}' has no move constructor"
+        }
+
+        var msg = ""
+        if konst {
+            msg = f"cannot copy '{self._spelled(x)}' {how}: it is const, and {cause}"
+        } else if moved {
+            msg = f"cannot return '{self._spelled(x)}': C++ moves a returned local or by-value parameter, and {cause}"
+        } else {
+            msg = f"cannot assign a temporary {how}: {cause}"
+        }
+
+        var b = self.sc->diag->report(DiagID::SC302E, e->range.start, msg)
+        b.first(e->range)
+        b.insert(src->name.range.start, "const ", f"make '{pn}' const")
+        b.note(
+            src->name.range.start,
+            f"the copy constructor of '{cs}' is declared here; with 'const {pn}' it copies from const objects and temporaries too",
+        )->child_first(src->name.range)
+
+        b.emit()
+        e->poison()
+        self.n_errored += 1
+        return true
+    }
+
+    /// The name a Kairo class or struct is declared with, or "".
+    priv fn _record_name(self, d: unsafe *Decl) -> string {
+        if d != &null && isa<ClassDecl>(d) {
+            return self.sc->ctx->get_spelling(cast<ClassDecl>(d)->name)
+        }
+
+        if d != &null && isa<StructDecl>(d) {
+            return self.sc->ctx->get_spelling(cast<StructDecl>(d)->name)
+        }
+
+        return ""
+    }
+
+    /// \p x names a local variable or a by-value parameter of the function
+    /// being checked: what C++ moves from when it is returned by name.
+    priv fn _returned_local(self, x: unsafe *Expr) -> bool {
+        if !isa<NamedIdentExpr>(x) || self._fn == &null {
+            return false
+        }
+
+        var unsafe *d = cast<NamedIdentExpr>(x)->resolved_decl
+        if d == &null {
+            return false
+        }
+
+        if isa<ParamDecl>(d) {
+            var unsafe *p = cast<ParamDecl>(d)
+            return !p->is_self && p->mode == ParamMode::Value
+        }
+
+        if isa<VariableDecl>(d) {
+            var unsafe *v = cast<VariableDecl>(d)
+            return v->storage == StorageClass::Var && self._fn->range.contains(v->range.start)
+        }
+
+        return false
     }
 
     /// A copy of an lvalue of a Kairo generic record whose declared `@copy`

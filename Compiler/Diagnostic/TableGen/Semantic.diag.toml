@@ -6240,3 +6240,49 @@ group = "operators"
 
     [SC299.N]
     explain = "Points at the other iteration form."
+
+[SC302]
+brief = "a copy needs a non-const source its copy constructor cannot take"
+group = "lifecycle"
+
+    [SC302.E]
+    explain = """
+    # a class whose copy takes a non-const `other` cannot copy a const or a temporary
+
+    `@copy fn X(self, other: Self)` without `const` is C++ `X(X&)`. It binds
+    only a non-const object that is not a temporary, and a class that writes
+    it has no move constructor, so nothing builds an `X` from a `const`
+    object or from a temporary. A class that holds such a class by value and
+    writes no transfer of its own is the same: C++ gives it `Y(Y&)` too.
+
+    ```kairo
+    class Box {
+        var v: i32
+        fn Box(self) = default
+        @copy fn Box(self, other: Self) { self.v = other.v }
+    }
+
+    fn make() -> Box { return Box() }
+
+    const k = Box()
+    var a = k        // error: 'k' is const
+    a = make()       // error: assigns from a temporary
+    ```
+
+    The same holds where C++ makes the copy: `std::vector<Box>::push_back`
+    copies from a `const Box&`, and growing the vector moves, so a C++
+    container of such a class does not compile. The error is reported at the
+    Kairo code that uses the container.
+
+    A temporary that initializes a variable or a by-value parameter directly
+    (`var b = make()`, `take(Box())`) is built in place, not copied, and is
+    accepted.
+
+    ## how to fix
+
+    declare the source `const`: `@copy fn Box(self, const other: Self)`, which
+    is C++ `Box(const Box&)` and copies from anything.
+    """
+
+    [SC302.N]
+    explain = "Points at the copy constructor whose `other` is not const."

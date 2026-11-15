@@ -104,6 +104,9 @@ pub class DiagnosticOptions {
     pub var cascade:        bool = true  ///< cascade suppression via poisoned scopes
     pub var absolute_paths: bool = false
     pub var show_context:   bool = true  ///< print surrounding source lines
+    /// --diag-cxx-chain: under an error re-anchored at the Kairo code that
+    /// instantiated a C++ template (CL002E), every instantiation step.
+    pub var cxx_chain: bool = false
     /// # severity overrides
 
     pub var warnings_as_errors: bool = false ///< --Werror
@@ -132,6 +135,7 @@ pub class DiagnosticOptions {
         o.cascade               = args.get_bool("diag-cascade")
         o.absolute_paths        = args.get_bool("diag-absolute-paths")
         o.show_context          = args.get_bool("diag-show-context")
+        o.cxx_chain             = args.get_bool("diag-cxx-chain")
         o.max_errors            = args.get_cfg_i32("max-errors")
         o.max_warnings          = args.get_cfg_i32("max-warnings")
         o.max_notes             = args.get_cfg_i32("max-notes")

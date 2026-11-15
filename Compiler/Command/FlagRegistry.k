@@ -1715,6 +1715,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
 
     cmd->define<FlagKind::Bool>(
+        "diag-cxx-chain",
+        "",
+        "diag-cxx-chain",
+        "under an error reported at the Kairo code that instantiated a C++ template, print every C++ instantiation step",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
         "dump-type-info",
         "",
         "dump-type-info",

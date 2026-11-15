@@ -28,3 +28,33 @@ group = "Uncategorized"
     explain = "This is placeholder diagnostics. (Error)"
     [CL001.F]
     explain = "This is placeholder diagnostics. (Fatal)"
+[CL002]
+brief = "a C++ template this Kairo code instantiates does not compile"
+group = "ffi"
+
+    [CL002.E]
+    explain = """
+    # a C++ template instantiated from Kairo code does not compile
+
+    A call into a C++ function template or a member of a class template
+    type-checks against its declaration. Its body is instantiated only when
+    the C++ is compiled, and an error there is inside the C++ header. The
+    error is reported at the Kairo code that caused the instantiation, with
+    clang's first error as the reason and its location as a note. The chain
+    of instantiations between the two is counted; `--diag-cxx-chain` prints
+    every step.
+
+    ```kairo
+    ffi "c++" import "count.h" // template <class T> int count_of(const T& t) { return t.count(); }
+
+    class Bag { var n: i32 }   // no `count`
+
+    var b = Bag()
+    count_of(b)                // error: no member named 'count' in 'Bag'
+    ```
+
+    ## how to fix
+
+    give the type what the template's body uses (an operator, a method, a
+    constructor), or call a different overload.
+    """

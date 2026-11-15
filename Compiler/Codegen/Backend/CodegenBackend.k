@@ -84,6 +84,7 @@ import Codegen::EmitPlan::{
 import Codegen::Sink::HashSink::HashSink
 import Codegen::Sink::TokenSink::TokenSink
 import Codegen::Sink::TokenStreamPrinter::TokenStreamPrinter
+import Config::ResourceLayout::ResourceLayout
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
 import Diagnostic::ClangDiagAdapter::ClangDiagAdapter
 import Interop::Clang::ClangBackend::{
@@ -678,10 +679,30 @@ pub class CodegenJob {
         // diagnostic.
         var unsafe *locmap = kairo::std::create<ClangLocMap>(be->ksm())
         var unsafe *a      = kairo::std::create<ClangDiagAdapter>()
-        a->sink   = unsafe &self.sink
-        a->ksm    = be->ksm()
-        a->kfid   = self.fid
-        a->locmap = locmap
+        a->sink     = unsafe &self.sink
+        a->ksm      = be->ksm()
+        a->kfid     = self.fid
+        a->locmap   = locmap
+        a->reanchor = true
+        var unsafe *ci = self.ctx->ci
+        if ci != &null {
+            a->cxx_chain = ci->diag.cxx_chain
+            // The library's own files are never the anchor: its root as the
+            // resource layout places it, and the directories passed in its
+            // place.
+            if !ci->target.resource_dir.empty() {
+                a->lib_roots.push_back(
+                    ci->target.resource_dir + "/" + ResourceLayout::builtin_subdir(),
+                )
+
+                a->lib_roots.push_back(
+                    ci->target.resource_dir + "/" + ResourceLayout::std_subdir(),
+                )
+            }
+
+            a->lib_roots.push_back(ci->pp.builtins_dir)
+            a->lib_roots.push_back(ResourceLayout::std_root_of(ci))
+        }
 
         var cg = CodegenBackend(
             be,

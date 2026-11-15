@@ -2499,6 +2499,146 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         return m->op_token[0].kind == TokenKind::KwFinally
     }
 
+    /// The `@copy` constructor that makes a copy of Kairo record \p d_in
+    /// need a non-const source that is not a temporary, or null: the
+    /// record's own `@copy fn X(self, other: Self)` (C++ `X(X&)`; a class
+    /// declares one transfer constructor, so it then has no move either),
+    /// or, for a record that declares no transfer constructor, that of a
+    /// base or a by-value field: C++ then gives it `X(X&)` and defines its
+    /// move as deleted. \p via is set to the first field on that path, and
+    /// left null for the record's own constructor or a base's; \p owner to
+    /// the record that declares the constructor. An imported record is
+    /// clang's to diagnose; a dependent field decides nothing.
+    pub fn mutable_source_copy(self,
+                               d_in:  unsafe *Decl,
+                               via:   unsafe *(unsafe *FieldDecl),
+                               owner: unsafe *(unsafe *Decl)) -> unsafe *FunctionDecl {
+        return self._mutable_source_copy(d_in, via, owner, 0)
+    }
+
+    priv fn _mutable_source_copy(self,
+                                 d_in:  unsafe *Decl,
+                                 via:   unsafe *(unsafe *FieldDecl),
+                                 owner: unsafe *(unsafe *Decl),
+                                 depth: u32) -> unsafe *FunctionDecl {
+        if d_in == &null || depth > 8 {
+            return &null
+        }
+
+        var unsafe *d = NameLookup::representative(d_in)
+        if d == &null || decl_is_imported(d) {
+            return &null
+        }
+
+        var unsafe *pat = self._tu.pattern_of(d)
+        if pat == &null {
+            pat = d
+        }
+
+        var ms                           = self._methods(pat)
+        var written                      = false
+        var nc:     unsafe *FunctionDecl = &null
+        for var i: usize = 0; i < ms.size(); ++i {
+            var unsafe *m = ms[i]
+            if m == &null || m->transfer == TransferKind::NotTransfer {
+                continue
+            }
+
+            written = true
+            if m->transfer == TransferKind::Move || m->body_kind == FnBodyKind::Delete {
+                return &null
+            }
+
+            if ClassLifecycle::copy_source_param(m) == &null
+                || ClassLifecycle::copy_source_param(m)->is_const {
+                return &null
+            }
+
+            nc = m
+        }
+
+        if written {
+            if nc != &null && owner != &null {
+                *owner = pat
+            }
+
+            return nc
+        }
+
+        if isa<ClassDecl>(pat) {
+            var unsafe *c = cast<ClassDecl>(pat)
+            for var i: usize = 0; i < c->derives_list.size(); ++i {
+                var unsafe *be = c->derives_list.get(i)
+                if be == &null || be->base == &null || be->base->canonical == &null {
+                    continue
+                }
+
+                if be->base->canonical->is_dependent() {
+                    continue
+                }
+
+                var none: unsafe *FieldDecl = &null
+                var unsafe *r = self._mutable_source_copy(
+                    self._tu.record_decl(canon_unqual(be->base->canonical)),
+                    unsafe &none,
+                    owner,
+                    depth + 1,
+                )
+
+                if r != &null {
+                    return r
+                }
+            }
+        }
+
+        var fs = self._fields(pat)
+        for var i: usize = 0; i < fs.size(); ++i {
+            var unsafe *fd = fs[i]
+            if fd == &null
+                || fd->is_static()
+                || fd->type_ == &null
+                || fd->type_->canonical == &null
+                || fd->type_->canonical->is_dependent() {
+                continue
+            }
+
+            var none: unsafe *FieldDecl = &null
+            var unsafe *r = self._mutable_source_copy(
+                self._tu.record_decl(canon_unqual(fd->type_->canonical)),
+                unsafe &none,
+                owner,
+                depth + 1,
+            )
+
+            if r != &null {
+                if via != &null && *via == &null {
+                    *via = fd
+                }
+
+                return r
+            }
+        }
+
+        return &null
+    }
+
+    /// The source parameter of transfer constructor \p m (the first after
+    /// `self`), or null.
+    pub static fn copy_source_param(m: unsafe *FunctionDecl) -> unsafe *ParamDecl {
+        if m == &null {
+            return &null
+        }
+
+        for var j: usize = 0; j < m->params.size(); ++j {
+            var unsafe *q = m->params[j]
+            if q != &null && !q->is_self {
+                return q
+            }
+        }
+
+        return &null
+    }
+
     priv fn _methods(self, d: unsafe *Decl) -> cxx::std::vector<unsafe *FunctionDecl> {
         var out = cxx::std::vector<unsafe *FunctionDecl>()
         var lst: unsafe *FrozenList<unsafe *FunctionDecl> = &null

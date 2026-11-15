@@ -34,6 +34,61 @@ import Location::SourceManager::{
 import Location::SourceRange::SourceRange
 import Support::FileIO::Path::Path
 
+/// One clang primary and its notes, collected by ClangDiagAdapter until the
+/// group is whole (see ClangDiagAdapter::_g). Parallel vectors per note.
+pub class ClangDiagGroup {
+    pub var on: bool = false
+    pub var code: DiagCode = DiagCode(Diag::CL(1, DiagSeverity::Error))
+    pub var at:      SourceRange                   = SourceRange::invalid()
+    pub var msg:     string                        = ""
+    pub var hl:      cxx::std::vector<SourceRange> ///< highlighted ranges
+    pub var fx_at:   cxx::std::vector<SourceRange> ///< fix-its: the range ...
+    pub var fx_text: cxx::std::vector<string> ///< ... and its text ("" removes)
+    pub var n_at:    cxx::std::vector<SourceRange>
+    pub var n_msg:   cxx::std::vector<string>
+    pub var n_frame: cxx::std::vector<u8> ///< 1: an instantiation-context note
+    /// A record of the group that copies only from a non-const lvalue
+    /// (kairo::clang_diag_mutable_copy): its name, the record whose copy
+    /// constructor forces that and the field leading to it ("" for its
+    /// own), that constructor's source parameter, and where both are.
+    pub var why_rec:      string      = ""
+    pub var why_ctor_rec: string      = ""
+    pub var why_field:    string      = ""
+    pub var why_param:    string      = ""
+    pub var why_ctor_at:  SourceRange = SourceRange::invalid()
+    pub var why_param_at: SourceRange = SourceRange::invalid()
+    /// Some text of the group is about building or copying a value, so the
+    /// record above is the cause, not a bystander named in a frame.
+    pub var about_copy: bool = false
+
+    fn ClangDiagGroup(self) { }
+
+    fn reset(self) {
+        self.on  = false
+        self.at  = SourceRange::invalid()
+        self.msg = ""
+        self.hl.clear()
+        self.fx_at.clear()
+        self.fx_text.clear()
+        self.n_at.clear()
+        self.n_msg.clear()
+        self.n_frame.clear()
+        self.why_rec      = ""
+        self.why_ctor_rec = ""
+        self.why_field    = ""
+        self.why_param    = ""
+        self.why_ctor_at  = SourceRange::invalid()
+        self.why_param_at = SourceRange::invalid()
+        self.about_copy   = false
+    }
+
+    /// The group names a Kairo record that copies only from a non-const
+    /// lvalue, and is about copying one.
+    fn explained(self) -> bool {
+        return self.about_copy && !self.why_rec.empty() && self.why_ctor_at.is_valid()
+    }
+}
+
 /// One instance per bridged clang CompilerInstance (i.e. per TU).
 /// Thread-confined: writes only to this TU's BufferedDiagSink, preserving
 /// the byte-identical serial/parallel guarantee.
@@ -63,14 +118,36 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     priv var _lo:       unsafe *const clang::LangOptions            = &null ///< owned by the CI, valid for the action.
 
     /// Note-attachment state: clang emits notes as separate HandleDiagnostic
-    /// calls (lvl == Note) immediately after their primary. We hold the
-    /// builder open (heap-allocated, owned) until the next primary or flush.
-    priv var _open:       unsafe *DiagBuilder = &null ///< owned; freed in _flush_open
-    priv var _last_fwded: bool                = false
+    /// calls (lvl == Note) immediately after their primary, which stays
+    /// open in _g until the next primary or flush.
+    priv var _last_fwded: bool = false
     /// The open primary is clang's "redefinition of 'X'" in a C++ file:
     /// the file it is in, and X (see _explain_redefinition). Empty otherwise.
     priv var _redef_file: string = ""
     priv var _redef_name: string = ""
+
+    /// The codegen compile of a Kairo TU (CodegenJob): an error inside C++
+    /// that a template instantiation from Kairo code reached is reported at
+    /// that Kairo code (_flush_group). Off for a header set's own parse and
+    /// fills and for a C/C++ input, whose chains end in C++ or at an import.
+    pub var reanchor: bool = false
+    /// Show the re-anchored error's C++ instantiation chain (--diag-cxx-chain).
+    pub var cxx_chain: bool = false
+    /// Directories whose `.k` files are the library's (builtin, std): a frame
+    /// there is never the anchor, the user's call into it is.
+    pub var lib_roots: cxx::std::vector<string>
+
+    /// The group being collected: clang's primary and the notes after it,
+    /// built into one Diagnostic when the next primary arrives or at
+    /// flush. The anchor of a re-anchored error is in a note (the outermost
+    /// instantiation frame), so nothing is built before the group is whole;
+    /// what needs the clang::Diagnostic (ranges, fix-its, the record a
+    /// copy fails for) is read in HandleDiagnostic, the only place it lives.
+    priv var _g: ClangDiagGroup
+    /// A re-anchored error not yet emitted: the next group re-anchored at
+    /// the same Kairo place is folded into it, so one call gets one error.
+    priv var _held:    unsafe *DiagBuilder = &null ///< owned; emitted by _emit_held
+    priv var _held_at: SourceRange         = SourceRange::invalid()
 
     /// # clang::DiagnosticConsumer overrides
 
@@ -81,7 +158,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     }
 
     pub override fn EndSourceFile(self) {
-        self._flush_open()
+        self._flush_all()
         self._lo = &null
     }
 
@@ -122,8 +199,9 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             return
         }
 
-        if is_note && self._last_fwded && self._open != &null {
-            self._attach_child_note(kloc, msg)
+        if is_note && self._last_fwded && self._g.on {
+            self._add_note(kloc, msg, ClangDiagAdapter::_is_frame(msg))
+            self._note_cause(info, msg)
             self._explain_redefinition(kloc, msg)
             return
         }
@@ -165,38 +243,36 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         }
 
         if kloc.is_valid() {
-            self._open = kairo::std::create<DiagBuilder>(
-                self.sink,
-                code,
-                kloc.start,
-                msg,
-            )
-
-            self._open->first(kloc)
-            self._apply_ranges_and_fixits(self._open, info)
-            // stays open for trailing notes; emitted in _flush_open
+            self._g.reset()
+            self._g.on   = true
+            self._g.code = code
+            self._g.at   = kloc
+            self._g.msg  = msg
+            self._collect_ranges_and_fixits(info)
+            self._note_cause(info, msg)
+            // stays open for trailing notes; built in _flush_open
         } else {
             // loc-less (cc1 args, target setup, header-blamed): plain no-loc
+            self._emit_held()
             self.sink->report(code, msg).emit()
-            self._open = &null // nothing to attach notes to
         }
 
         self._last_fwded = true
     }
 
     pub override fn finish(self) {
-        self._flush_open()
+        self._flush_all()
     }
 
     // IncludeInDiagnosticCounts: leave defaulted (true).
 
     fn ClangDiagAdapter(self) = default
 
-    // Not transferable: clang holds it as its consumer and it owns the open DiagBuilder; a copy would flush it twice.
+    // Not transferable: clang holds it as its consumer and it owns the held DiagBuilder; a copy would flush it twice.
     @copy fn ClangDiagAdapter(self, const other: Self) = delete
 
     fn op finally (self) {
-        self._flush_open()
+        self._flush_all()
     }
 
     /// # internals
@@ -523,7 +599,8 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         return DiagCode(Diag::CL(1, sev))
     }
 
-    priv fn _apply_ranges_and_fixits(self, b: unsafe *DiagBuilder, const info: clang::Diagnostic) {
+    /// The primary's highlighted ranges and its fix-its, into _g.
+    priv fn _collect_ranges_and_fixits(self, const info: clang::Diagnostic) {
         if !info.hasSourceManager() {
             return
         }
@@ -532,7 +609,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         for var i: u32 = 0; i < nr; ++i {
             var r = self._range_in_kfid(info.getRange(i), info)
             if r.is_valid() {
-                b->highlight(r)
+                self._g.hl.push_back(r)
             }
         }
 
@@ -566,14 +643,9 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
                 h.CodeToInsert.size(),
             )
 
-            // No text: the edit is the whole message, and the pretty form
-            // shows it inline as a diff. A fixed sentence here only repeated it.
-            var msg = ""
-            if text.length() == 0 {
-                b->remove(rr, msg)
-            } else {
-                b->fix(rr, text, msg)
-            }
+            // No text: the edit is a removal (_replay).
+            self._g.fx_at.push_back(rr)
+            self._g.fx_text.push_back(text)
         }
     }
 
@@ -666,23 +738,453 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     }
 
     priv fn _attach_child_note(self, kloc: SourceRange, msg: string) {
-        if self._open == &null {
+        self._add_note(kloc, msg, false)
+    }
+
+    priv fn _add_note(self, kloc: SourceRange, const msg: string, frame: bool) {
+        if !self._g.on {
             return
         }
 
-        if kloc.is_valid() {
-            self._open->note(kloc.start, msg)
-            self._open->child_first(kloc)
-        } else {
-            self._open->note(msg)
+        self._g.n_at.push_back(kloc)
+        self._g.n_msg.push_back(msg)
+        self._g.n_frame.push_back(if (frame) => (1 as u8) else => (0 as u8))
+    }
+
+    /// The open group is whole: build it. A held re-anchored error stays
+    /// held, since the next group may fold into it (_flush_all ends that).
+    priv fn _flush_open(self) {
+        if !self._g.on {
+            return
+        }
+
+        self._g.on = false
+        var ai = self._anchor()
+        if ai != usize::MAX {
+            self._reanchor_group(ai)
+            return
+        }
+
+        self._emit_held()
+        self._replay()
+    }
+
+    priv fn _flush_all(self) {
+        self._flush_open()
+        self._emit_held()
+    }
+
+    priv fn _emit_held(self) {
+        if self._held != &null {
+            self._held->emit()
+            kairo::std::destroy(self._held)
+            self._held    = &null
+            self._held_at = SourceRange::invalid()
         }
     }
 
-    priv fn _flush_open(self) {
-        if self._open != &null {
-            self._open->emit()
-            kairo::std::destroy(self._open)
-            self._open = &null
+    /// The group as clang reported it, at clang's location, every note in
+    /// order. A Kairo record it fails to copy adds the Kairo reason and
+    /// the `const` fix (_explain_copy).
+    priv fn _replay(self) {
+        var unsafe *b = kairo::std::create<DiagBuilder>(
+            self.sink,
+            self._g.code,
+            self._g.at.start,
+            self._g.msg,
+        )
+
+        b->first(self._g.at)
+        for var i: usize = 0; i < self._g.hl.size(); ++i {
+            b->highlight(self._g.hl[i])
         }
+
+        // No message on a fix-it: the edit is the whole message, and the
+        // pretty form shows it inline as a diff.
+        for var i: usize = 0; i < self._g.fx_at.size(); ++i {
+            var msg = ""
+            if self._g.fx_text[i].length() == 0 {
+                b->remove(self._g.fx_at[i], msg)
+            } else {
+                b->fix(self._g.fx_at[i], self._g.fx_text[i], msg)
+            }
+        }
+
+        for var i: usize = 0; i < self._g.n_at.size(); ++i {
+            self._note_into(b, i)
+        }
+
+        if self._g.explained() {
+            b->note(
+                f"'{self._g.why_rec}' cannot be copied from a const object or a temporary: {self._copy_cause()}",
+            )
+
+            self._explain_copy(b)
+        }
+
+        b->emit()
+        kairo::std::destroy(b)
+    }
+
+    priv fn _note_into(self, b: unsafe *DiagBuilder, i: usize) {
+        var at = self._g.n_at[i]
+        if at.is_valid() {
+            b->note(at.start, self._g.n_msg[i])->child_first(at)
+        } else {
+            b->note(self._g.n_msg[i])
+        }
+    }
+
+    /// The note index of the frame to report the group at, or usize::MAX:
+    /// the OUTERMOST instantiation frame (clang prints them innermost
+    /// first) in a Kairo file of the user's, when the error itself is not
+    /// in one. That frame is the Kairo code whose use of a C++ (or library)
+    /// template made clang instantiate the body that does not compile; an
+    /// error already in the user's Kairo code is reported where it is.
+    priv fn _anchor(self) -> usize {
+        if !self.reanchor || self._user_kairo(self._g.at) {
+            return usize::MAX
+        }
+
+        var found = usize::MAX
+        for var i: usize = 0; i < self._g.n_at.size(); ++i {
+            if self._g.n_frame[i] != 0 && self._user_kairo(self._g.n_at[i]) {
+                found = i
+            }
+        }
+
+        return found
+    }
+
+    /// \p r is in a `.k` file outside the library roots.
+    priv fn _user_kairo(self, r: SourceRange) -> bool {
+        if !r.is_valid() || !self._in_kairo_source(r) {
+            return false
+        }
+
+        var nm = self.ksm->get_filename(r)
+        for var i: usize = 0; i < self.lib_roots.size(); ++i {
+            var root = self.lib_roots[i]
+            if root.empty() {
+                continue
+            }
+
+            if !root.ends_with("/") {
+                root += "/"
+            }
+
+            if nm.starts_with(root) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// One error at the Kairo frame \p ai for the open group: clang's
+    /// message as the reason, its location as a note, the frames folded
+    /// into a count (all of them under --diag-cxx-chain). A group at the
+    /// place of the held error is folded into that one.
+    priv fn _reanchor_group(self, ai: usize) {
+        var at = self._g.n_at[ai]
+        if self._held != &null && self._held_at == at {
+            self._held->note(
+                self._g.at.start,
+                f"C++ also reports: {self._g.msg}",
+            )->child_first(self._g.at)
+
+            if self.cxx_chain {
+                for var i: usize = 0; i < self._g.n_at.size(); ++i {
+                    self._note_into(self._held, i)
+                }
+            }
+
+            return
+        }
+
+        self._emit_held()
+        var what      = ClangDiagAdapter::_frame_entity(self._g.n_msg[ai])
+        var explained = self._g.explained()
+        var code      = DiagCode(DiagID::CL002E)
+        var text      = f"instantiating {what} here does not compile in C++: {self._g.msg}"
+        if explained {
+            code = DiagCode(DiagID::SC302E)
+            text = f"'{self._g.why_rec}' cannot be copied here: instantiating {what} copies it from a const object or a temporary, and {self._copy_cause()}"
+        }
+
+        var unsafe *b = kairo::std::create<DiagBuilder>(
+            self.sink,
+            code,
+            at.start,
+            text,
+        )
+
+        b->first(at)
+        if explained {
+            self._explain_copy(b)
+        }
+
+        var at_text = "the C++ error is here, in the template's body"
+        if explained {
+            at_text = f"C++ reports: {self._g.msg}"
+        }
+
+        b->note(self._g.at.start, at_text)->child_first(self._g.at)
+        var frames: usize = 0
+        for var i: usize = 0; i < self._g.n_at.size(); ++i {
+            var frame = self._g.n_frame[i] != 0
+            if frame {
+                frames += 1
+            }
+
+            if self.cxx_chain || (!frame && !explained) {
+                self._note_into(b, i)
+            }
+        }
+
+        if frames > 1 && !self.cxx_chain {
+            b->note(
+                f"{frames} C++ instantiation steps lead from this use to the error; --diag-cxx-chain shows them",
+            )
+        }
+
+        b->note(
+            "C++ reports a template that does not compile once, at its first use: a later use of the same template fails for the same reason",
+        )
+
+        self._held    = b
+        self._held_at = at
+    }
+
+    /// What the frame \p msg instantiates: "member function 'X::f'" of
+    /// "in instantiation of member function 'X::f' requested here".
+    static fn _frame_entity(const msg: string) -> string {
+        var pre = "in instantiation of "
+        var suf = " requested here"
+        if msg.starts_with(pre) {
+            var n = msg.size() - pre.size()
+            if msg.ends_with(suf) && n > suf.size() {
+                n -= suf.size()
+            }
+
+            return msg.subslice(pre.size(), n)
+        }
+
+        return "a C++ template"
+    }
+
+    /// \p msg is one of clang's instantiation-context notes: the stack of
+    /// template instantiations, default arguments, substitutions and
+    /// implicit members that leads from the use to the error.
+    static fn _is_frame(const msg: string) -> bool {
+        return msg.starts_with("in instantiation of ")
+            || msg.starts_with("while substituting ")
+            || msg.starts_with("while checking ")
+            || msg.starts_with("in evaluation of exception specification ")
+            || msg.starts_with("during template argument deduction ")
+            || msg.ends_with(" first required here")
+            || msg.ends_with(" requested here")
+    }
+
+    /// Why the group's record copies only from a non-const lvalue.
+    priv fn _copy_cause(self) -> string {
+        var c    = self._g.why_ctor_rec
+        var p    = self._g.why_param
+        var tail = f"takes a non-const '{p}' (C++ '{c}({c}&)')"
+        if self._g.why_field.empty() {
+            return f"its copy constructor {tail} and it has no move constructor"
+        }
+
+        return f"its field '{self._g.why_field}' is a '{c}', whose copy constructor {tail} and which has no move constructor"
+    }
+
+    /// The Kairo fix on \p b: a note at the copy constructor and, where
+    /// the parameter's Kairo text is its name, `const` inserted before it.
+    priv fn _explain_copy(self, b: unsafe *DiagBuilder) {
+        var p = self._g.why_param
+        if self._g.why_param_at.is_valid() {
+            b->insert(self._g.why_param_at.start, "const ", f"make '{p}' const")
+        }
+
+        b->note(
+            self._g.why_ctor_at.start,
+            f"the copy constructor of '{self._g.why_ctor_rec}' is declared here; with 'const {p}' it copies from const objects and temporaries too",
+        )->child_first(self._g.why_ctor_at)
+    }
+
+    /// Reads off one diagnostic of the open group whether it is about
+    /// copying, and the first Kairo record among its arguments that copies
+    /// only from a non-const lvalue (kairo::clang_diag_mutable_copy).
+    priv fn _note_cause(self, const info: clang::Diagnostic, const msg: string) {
+        if !self._g.on {
+            return
+        }
+
+        if !self._g.about_copy {
+            self._g.about_copy = self._has(msg, "construct")
+                || self._has(msg, "initialization of")
+                || self._has(msg, "overloaded '='")
+                || self._has(msg, "Insertable")
+                || self._has(msg, "copy")
+                || self._has(msg, "move")
+                || self._has(msg, "conversion")
+        }
+
+        if !self._g.why_rec.empty() || !info.hasSourceManager() {
+            return
+        }
+
+        var c = kairo::clang_diag_mutable_copy(info)
+        if c.ctor == &null || c.rec == &null {
+            return
+        }
+
+        var unsafe *csm = unsafe &info.getSourceManager()
+        var ctor_rec = ClangDiagAdapter::_std(
+            c.ctor->getParent()->getNameAsString(),
+        )
+
+        var ctor_at = self._kairo_range_at(
+            c.ctor->getLocation(),
+            csm,
+            ctor_rec.size(),
+        )
+
+        // Only a Kairo record has a Kairo declaration to point at and fix.
+        if !ctor_at.is_valid() || !self._in_kairo_source(ctor_at) {
+            return
+        }
+
+        var unsafe *src  = kairo::clang_ctor_source(c.ctor)
+        var        pname = "other"
+        var        p_at  = SourceRange::invalid()
+        if src != &null {
+            var nm = ClangDiagAdapter::_std(src->getNameAsString())
+            if !nm.empty() {
+                pname = nm
+                p_at  = self._param_in_decl(ctor_at, nm)
+            }
+        }
+
+        // The parameter's own name is the better place for the note: it is
+        // what the fix changes.
+        if p_at.is_valid() {
+            ctor_at = p_at
+        }
+
+        self._g.why_rec      = ClangDiagAdapter::_std(c.rec->getNameAsString())
+        self._g.why_ctor_rec = ctor_rec
+        self._g.why_param    = pname
+        self._g.why_ctor_at  = ctor_at
+        self._g.why_param_at = p_at
+        if c.field != &null {
+            self._g.why_field = ClangDiagAdapter::_std(
+                c.field->getNameAsString(),
+            )
+        }
+    }
+
+    /// \p loc (its expansion) in Kairo terms, \p len bytes long, or invalid.
+    priv fn _kairo_range_at(self,
+                            loc: clang::SourceLocation,
+                            csm: unsafe *const clang::SourceManager,
+                            len: usize) -> SourceRange {
+        if loc.isInvalid() || csm == &null {
+            return SourceRange::invalid()
+        }
+
+        var dec = csm->getDecomposedExpansionLoc(loc)
+        if self.main_locs != &null && dec.first == csm->getMainFileID() {
+            return SourceRange::invalid()
+        }
+
+        var kf = self._kfid_of(dec.first, *csm)
+        if kf == (u32::MAX as FileID) {
+            return SourceRange::invalid()
+        }
+
+        return self.ksm->get_range(
+            kf,
+            dec.second as usize,
+            if (len > 0) => (len) else => 1,
+        )
+    }
+
+    /// Where the Kairo declaration starting on the line of \p at names its
+    /// parameter \p nm (`nm:`, as a whole word, not already `const`), or
+    /// invalid. The emitted constructor's tokens carry locations near, not
+    /// exactly at, the Kairo tokens they come from, so the name is found in
+    /// the Kairo text, up to the body's `{` or a `;`.
+    priv fn _param_in_decl(self, at: SourceRange, const nm: string) -> SourceRange {
+        if !at.is_valid() || nm.empty() {
+            return SourceRange::invalid()
+        }
+
+        var res  = self.ksm->resolve(at.start)
+        var kf   = (res.fid as FileID)
+        var off  = res.offset as usize
+        var col  = self.ksm->get_line_col(at.start).column
+        var size = self.ksm->get_file_size(kf)
+        if col == 0 || col - 1 > off || off >= size {
+            return SourceRange::invalid()
+        }
+
+        off -= col - 1
+        var n = size - off
+        if n > 512 {
+            n = 512
+        }
+
+        var text = self.ksm->get_text(self.ksm->get_range(kf, off, n))
+        var m    = nm.size()
+        for var i: usize = 0; i + m <= text.size(); ++i {
+            var ch = text[i]
+            if ch == ('{' as u8) || ch == (';' as u8) {
+                break
+            }
+
+            if text.subslice(i, m) != nm {
+                continue
+            }
+
+            if i > 0 && ClangDiagAdapter::_ident_char(text[i - 1]) {
+                continue
+            }
+
+            var j = i + m
+            if j < text.size() && ClangDiagAdapter::_ident_char(text[j]) {
+                continue
+            }
+
+            while j < text.size() && text[j] == (' ' as u8) {
+                j += 1
+            }
+
+            if j >= text.size() || text[j] != (':' as u8) {
+                continue
+            }
+
+            if i >= 6 && text.subslice(i - 6, 6) == "const " {
+                return SourceRange::invalid()
+            }
+
+            return self.ksm->get_range(kf, off + i, m)
+        }
+
+        return SourceRange::invalid()
+    }
+
+    static fn _ident_char(c: u8) -> bool {
+        return (c >= ('a' as u8) && c <= ('z' as u8))
+            || (c >= ('A' as u8) && c <= ('Z' as u8))
+            || (c >= ('0' as u8) && c <= ('9' as u8))
+            || c == ('_' as u8)
+    }
+
+    static fn _std(const s: cxx::std::string) -> string {
+        return string(
+            unsafe ((s.c_str() as unsafe *const u8) as *const u8),
+            s.size(),
+        )
     }
 }
