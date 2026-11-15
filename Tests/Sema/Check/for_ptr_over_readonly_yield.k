@@ -2,7 +2,9 @@
 // A field read through `const self` is yielded from a frame copy, and a
 // computed value is a temporary: a write through `x` would change neither
 // the container nor a later read, so `x` points to const there. A
-// generator that yields a mutable place keeps a writable `x`.
+// generator that yields a mutable place keeps a writable `x`. A type's
+// `op in` that yields values takes no `for *x` at all (SC298E): the
+// element's address comes from `-> yield *T`.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 
 class Bag {
@@ -32,6 +34,7 @@ class Bag {
 fn main() -> i32 {
     var cell = 0
     var b    = Bag(&cell)
+    // CHECK: for_ptr_over_readonly_yield.k:[[@LINE+1]]:9: error [SC298E]: 'for *x' does not bind what 'op in (const self)' yields: 'i32' binds 'for x' or 'for const x'
     for *x in b {
         // CHECK: for_ptr_over_readonly_yield.k:[[@LINE+1]]:9: error [SC071E]: cannot assign to '*x': 'x' points to const
         *x = 10
@@ -43,6 +46,7 @@ fn main() -> i32 {
     }
 
     var t = 0
+    // CHECK: for_ptr_over_readonly_yield.k:[[@LINE+1]]:9: error [SC298E]: 'for *r' does not bind what 'op in (const self)' yields: 'i32' binds 'for r' or 'for const r'
     for *r in b {
         t += *r
     }
