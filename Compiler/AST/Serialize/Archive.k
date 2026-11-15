@@ -58,7 +58,10 @@ import AST::Node::Base::{
     Stmt,
     Type,
 }
-import AST::Node::Casting::isa
+import AST::Node::Casting::{
+    isa,
+    isa_recovery,
+}
 import AST::Serialize::ByteBuffer::{
     ByteReader,
     ByteWriter,
@@ -671,7 +674,7 @@ pub class ASTArchive {
             return
         }
 
-        if id == 0xFFFFFFFF {
+        if id == u32::MAX {
             self.put(1)
             return
         }
@@ -700,7 +703,7 @@ pub class ASTArchive {
         }
 
         if cls == 1 {
-            return SourceLocation::from_raw(0xFFFFFFFF)
+            return SourceLocation::from_raw(u32::MAX)
         }
 
         if cls == 2 {
@@ -796,7 +799,7 @@ pub class ASTArchive {
             return
         }
 
-        if s != 0 && s != 0xFFFFFFFF && e != 0xFFFFFFFF && e >= s {
+        if s != 0 && s != u32::MAX && e != u32::MAX && e >= s {
             var len           = (e - s) as u64
             var mine          = self._in_self(s)
             var other         = u32::MAX
@@ -1585,61 +1588,27 @@ pub class ASTArchive {
     }
 
     /// A recovery node is an object of the class its `recovery_kind` names
-    /// with `kind` set to the family's Recovery kind, so `isa` (which
-    /// compares `kind`) is asked with the class's own kind in place.
+    /// with `kind` set to the family's Recovery kind: `isa` (which compares
+    /// `kind`) misses it and `isa_recovery` (which compares
+    /// `recovery_kind`) finds it.
     priv fn <T: type> _decl_is(self, d: unsafe *Decl) -> bool {
-        if d->kind != DeclKind::RecoveryDecl {
-            return isa<T>(d)
-        }
-
-        d->kind = d->recovery_kind
-        var ok = isa<T>(d)
-        d->kind = DeclKind::RecoveryDecl
-        return ok
+        return isa<T>(d) || isa_recovery<T>(d)
     }
 
     priv fn <T: type> _expr_is(self, e: unsafe *Expr) -> bool {
-        if e->kind != ExprKind::RecoveryExpr {
-            return isa<T>(e)
-        }
-
-        e->kind = e->recovery_kind
-        var ok = isa<T>(e)
-        e->kind = ExprKind::RecoveryExpr
-        return ok
+        return isa<T>(e) || isa_recovery<T>(e)
     }
 
     priv fn <T: type> _stmt_is(self, s: unsafe *Stmt) -> bool {
-        if s->kind != StmtKind::RecoveryStmt {
-            return isa<T>(s)
-        }
-
-        s->kind = s->recovery_kind
-        var ok = isa<T>(s)
-        s->kind = StmtKind::RecoveryStmt
-        return ok
+        return isa<T>(s) || isa_recovery<T>(s)
     }
 
     priv fn <T: type> _type_is(self, t: unsafe *Type) -> bool {
-        if t->kind != TypeKind::RecoveryType {
-            return isa<T>(t)
-        }
-
-        t->kind = t->recovery_kind
-        var ok = isa<T>(t)
-        t->kind = TypeKind::RecoveryType
-        return ok
+        return isa<T>(t) || isa_recovery<T>(t)
     }
 
     priv fn <T: type> _pattern_is(self, p: unsafe *Pattern) -> bool {
-        if p->kind != PatternKind::RecoveryPattern {
-            return isa<T>(p)
-        }
-
-        p->kind = p->recovery_kind
-        var ok = isa<T>(p)
-        p->kind = PatternKind::RecoveryPattern
-        return ok
+        return isa<T>(p) || isa_recovery<T>(p)
     }
 
     /// A pointer to a declaration, whatever the field's static class: the

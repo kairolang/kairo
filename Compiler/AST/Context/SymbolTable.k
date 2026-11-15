@@ -402,7 +402,7 @@ pub class SymbolTable {
         }
 
         var src_imm = src_imms->find_ident(spelling)
-        if src_imm != ((-1) as i32 as u32) {
+        if src_imm != u32::MAX {
             return tbl->lookup_ident(src_imm)
         }
 
@@ -422,7 +422,7 @@ pub class SymbolTable {
                 spelling.subslice(1, spelling.size() - 1),
             )
 
-            if src_imm != ((-1) as i32 as u32) {
+            if src_imm != u32::MAX {
                 return tbl->lookup_ident(src_imm)
             }
         }

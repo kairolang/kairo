@@ -29,6 +29,7 @@ import AST::Context::DeclContext::{
     DeclContextKind,
 }
 import AST::Context::TranslationUnit::TranslationUnit
+import AST::DeclFacts::tu_of
 import AST::LangItems::LangAttrs
 import AST::Mixin::Annotation::{
     AnnotationEntry,
@@ -48,19 +49,6 @@ pub fn attr_max_align() -> u64 {
 }
 
 pub class AttrFacts {
-    priv static fn _tu_of(dc: unsafe *DeclContext) -> unsafe *TranslationUnit {
-        var unsafe *c = dc
-        while c != &null {
-            if c->dc_kind == DeclContextKind::TranslationUnit {
-                return unsafe (c as unsafe *TranslationUnit)
-            }
-
-            c = c->dc_parent
-        }
-
-        return &null
-    }
-
     /// \p d's attribute named \p name, or null. \p local is the table of
     /// the file \p d is written in, for a decl no scope reaches (a local
     /// variable has no semantic_dc): the caller knows the file it is in.
@@ -72,9 +60,9 @@ pub class AttrFacts {
         }
 
         var unsafe *tbl = local
-        var unsafe *tu  = AttrFacts::_tu_of(d->semantic_dc)
+        var unsafe *tu  = tu_of(d->semantic_dc)
         if tu == &null {
-            tu = AttrFacts::_tu_of(d->lexical_dc)
+            tu = tu_of(d->lexical_dc)
         }
 
         if tu != &null && tu->ctx != &null && tu->ctx->get_imm_table() != &null {

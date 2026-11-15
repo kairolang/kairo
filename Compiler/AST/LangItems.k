@@ -62,6 +62,7 @@ import API::LinkABI::{
 }
 import AST::Node::Base::Decl
 import AST::Node::CanonicalNodes::BuiltinKind
+import AST::OperatorFacts::operator_table
 
 /// \enum WellKnownType
 /// \brief The lang items. One row per decl a lowering needs a handle to.
@@ -2193,118 +2194,6 @@ pub class LowerTargets {
     /// reach here. "" for a symbol with no row; the caller ICEs.
     pub static fn ext_op(const sym: string) -> string {
         var p = "__kairo_op_"
-        if sym == "+" {
-            return p + "plus"
-        }
-
-        if sym == "-" {
-            return p + "minus"
-        }
-
-        if sym == "*" {
-            return p + "mul"
-        }
-
-        if sym == "/" {
-            return p + "div"
-        }
-
-        if sym == "%" {
-            return p + "mod"
-        }
-
-        if sym == "==" {
-            return p + "eq"
-        }
-
-        if sym == "!=" {
-            return p + "ne"
-        }
-
-        if sym == "<" {
-            return p + "lt"
-        }
-
-        if sym == "<=" {
-            return p + "le"
-        }
-
-        if sym == ">" {
-            return p + "gt"
-        }
-
-        if sym == ">=" {
-            return p + "ge"
-        }
-
-        if sym == "<=>" {
-            return p + "cmp"
-        }
-
-        if sym == "&" {
-            return p + "band"
-        }
-
-        if sym == "|" {
-            return p + "bor"
-        }
-
-        if sym == "^" {
-            return p + "bxor"
-        }
-
-        if sym == "~" {
-            return p + "bnot"
-        }
-
-        if sym == "<<" {
-            return p + "shl"
-        }
-
-        if sym == ">>" {
-            return p + "shr"
-        }
-
-        if sym == "+=" {
-            return p + "plus_eq"
-        }
-
-        if sym == "-=" {
-            return p + "minus_eq"
-        }
-
-        if sym == "*=" {
-            return p + "mul_eq"
-        }
-
-        if sym == "/=" {
-            return p + "div_eq"
-        }
-
-        if sym == "%=" {
-            return p + "mod_eq"
-        }
-
-        if sym == "&=" {
-            return p + "band_eq"
-        }
-
-        if sym == "|=" {
-            return p + "bor_eq"
-        }
-
-        if sym == "^=" {
-            return p + "bxor_eq"
-        }
-
-        if sym == "<<=" {
-            return p + "shl_eq"
-        }
-
-        if sym == ">>=" {
-            return p + "shr_eq"
-        }
-
         if sym == "l++" {
             return p + "preinc"
         }
@@ -2321,8 +2210,12 @@ pub class LowerTargets {
             return p + "postdec"
         }
 
-        if sym == "!" {
-            return p + "not"
+        // Every other operator: the row of the symbol it is spelled with.
+        var *t = operator_table()
+        for var i: usize = 0; i < t->size(); ++i {
+            if (*t)[i].ext.size() > 0 && (*t)[i].cxx == sym {
+                return p + (*t)[i].ext
+            }
         }
 
         return ""

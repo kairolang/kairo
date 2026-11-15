@@ -45,7 +45,8 @@ import AST::Node::Base::{
 /// Recovery casting:
 ///   isa_recovery<T>(ptr)     checks recovery_kind instead of kind
 ///   cast_recovery<T>(ptr)    cast via recovery_kind, debug assert
-///   dyn_cast_recovery<T>(ptr)safe cast via recovery_kind
+///   dyn_cast_recovery<T>(ptr)safe cast via recovery_kind; like dyn_cast,
+///                            `*T?` for a safe `*B`
 ///
 /// Safe pointers (decided 2026-11-08): for a non-null `*B`,
 /// `isa` tests the kind, `cast` returns a non-null `*T` (the
@@ -1208,9 +1209,9 @@ pub fn <T: type> cast_recovery(ptr: *Expr, tag: SafePtrTag = SafePtrTag()) -> *T
 }
 
 // TODO(DUCK-GENERIC): T uses expr_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: *Expr, tag: SafePtrTag = SafePtrTag()) -> unsafe *T {
+pub fn <T: type> dyn_cast_recovery(ptr: *Expr, tag: SafePtrTag = SafePtrTag()) -> *T? {
     if ptr != &null && ptr->kind == ExprKind::RecoveryExpr && ptr->recovery_kind == T::expr_kind() {
-        return unsafe (ptr as unsafe *T)
+        return unsafe (ptr as unsafe *T as *T)
     }
 
     return &null
@@ -1277,9 +1278,9 @@ pub fn <T: type> cast_recovery(ptr: *Stmt, tag: SafePtrTag = SafePtrTag()) -> *T
 }
 
 // TODO(DUCK-GENERIC): T uses stmt_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: *Stmt, tag: SafePtrTag = SafePtrTag()) -> unsafe *T {
+pub fn <T: type> dyn_cast_recovery(ptr: *Stmt, tag: SafePtrTag = SafePtrTag()) -> *T? {
     if ptr != &null && ptr->kind == StmtKind::RecoveryStmt && ptr->recovery_kind == T::stmt_kind() {
-        return unsafe (ptr as unsafe *T)
+        return unsafe (ptr as unsafe *T as *T)
     }
 
     return &null
@@ -1346,9 +1347,9 @@ pub fn <T: type> cast_recovery(ptr: *Decl, tag: SafePtrTag = SafePtrTag()) -> *T
 }
 
 // TODO(DUCK-GENERIC): T uses decl_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: *Decl, tag: SafePtrTag = SafePtrTag()) -> unsafe *T {
+pub fn <T: type> dyn_cast_recovery(ptr: *Decl, tag: SafePtrTag = SafePtrTag()) -> *T? {
     if ptr != &null && ptr->kind == DeclKind::RecoveryDecl && ptr->recovery_kind == T::decl_kind() {
-        return unsafe (ptr as unsafe *T)
+        return unsafe (ptr as unsafe *T as *T)
     }
 
     return &null
@@ -1415,9 +1416,9 @@ pub fn <T: type> cast_recovery(ptr: *Type, tag: SafePtrTag = SafePtrTag()) -> *T
 }
 
 // TODO(DUCK-GENERIC): T uses type_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: *Type, tag: SafePtrTag = SafePtrTag()) -> unsafe *T {
+pub fn <T: type> dyn_cast_recovery(ptr: *Type, tag: SafePtrTag = SafePtrTag()) -> *T? {
     if ptr != &null && ptr->kind == TypeKind::RecoveryType && ptr->recovery_kind == T::type_kind() {
-        return unsafe (ptr as unsafe *T)
+        return unsafe (ptr as unsafe *T as *T)
     }
 
     return &null
@@ -1484,11 +1485,11 @@ pub fn <T: type> cast_recovery(ptr: *Pattern, tag: SafePtrTag = SafePtrTag()) ->
 }
 
 // TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: *Pattern, tag: SafePtrTag = SafePtrTag()) -> unsafe *T {
+pub fn <T: type> dyn_cast_recovery(ptr: *Pattern, tag: SafePtrTag = SafePtrTag()) -> *T? {
     if ptr != &null
         && ptr->kind == PatternKind::RecoveryPattern
         && ptr->recovery_kind == T::pattern_kind() {
-        return unsafe (ptr as unsafe *T)
+        return unsafe (ptr as unsafe *T as *T)
     }
 
     return &null

@@ -33,7 +33,12 @@ import AST::ASTSupport::{
     FrozenList,
     create_empty_frozen_list,
 }
-import AST::Context::DeclContext::DeclContextKind
+import AST::Context::ASTContext::ASTContext
+import AST::Context::DeclContext::{
+    DeclContext,
+    DeclContextKind,
+}
+import AST::Context::TranslationUnit::TranslationUnit
 import AST::Mixin::TemplateParams::ForeignFill
 import AST::Node::Base::{
     Decl,
@@ -66,7 +71,9 @@ import AST::Node::Types::{
     GenericParamType,
     PointerType,
 }
+import AST::OperatorFacts::OperatorFacts
 import Token::Token::Token
+import Token::TokenKind::TokenKind
 
 /// # Namespace scopes
 
@@ -1212,6 +1219,398 @@ pub fn decl_name_tok(d: unsafe *Decl) -> Token {
     return Token()
 }
 
+/// The ASTContext \p d's names live in, or null when no scope of \p d
+/// reaches a file. Names are interned per file, so a decl reached through
+/// an import is spelled with this context, never the importing file's.
+pub fn decl_ctx(d: unsafe *Decl) -> unsafe *ASTContext {
+    if d == &null {
+        return &null
+    }
+
+    var unsafe *dc = dc_of(d)
+    if dc == &null {
+        if d->semantic_dc != &null {
+            dc = d->semantic_dc
+        } else if d->lexical_dc != &null {
+            dc = d->lexical_dc
+        }
+    }
+
+    var unsafe *tu = tu_of(dc)
+    if tu == &null {
+        return &null
+    }
+
+    return tu->ctx
+}
+
+/// The spelling of \p d's name, read in the file that declares \p d
+/// (decl_ctx), or in \p fallback when no scope of \p d reaches a file.
+/// An operator is "op " and its symbol. "<null>" for a null decl; "<decl>"
+/// for an unnamed kind and when there is no context to spell with.
+pub fn decl_name(d: unsafe *Decl, fallback: unsafe *ASTContext = &null) -> string {
+    if d == &null {
+        return "<null>"
+    }
+
+    // An operator has no name token to spell.
+    if isa<Declarations::FunctionDecl>(d) && cast<Declarations::FunctionDecl>(d)->is_operator {
+        return "op " + OperatorFacts::symbol(
+            cast<Declarations::FunctionDecl>(d),
+        )
+    }
+
+    var t = decl_name_tok(d)
+    if t.kind == TokenKind::TkUnknown {
+        return "<decl>"
+    }
+
+    var unsafe *ctx = decl_ctx(d)
+    if ctx == &null {
+        ctx = fallback
+    }
+
+    if ctx == &null {
+        return "<decl>"
+    }
+
+    return ctx->get_spelling(t)
+}
+
+/// The identifier imm of \p d's name in \p ctx, or in the file that
+/// declares \p d when \p ctx is null. u32::MAX for a null decl, an
+/// operator, an unnamed kind, and a name \p ctx never interned. An imm
+/// compares only against imms of the same context.
+pub fn decl_name_imm(d: unsafe *Decl, ctx: unsafe *ASTContext = &null) -> u32 {
+    if d == &null {
+        return u32::MAX
+    }
+
+    if isa<Declarations::FunctionDecl>(d) && cast<Declarations::FunctionDecl>(d)->is_operator {
+        return u32::MAX
+    }
+
+    var t = decl_name_tok(d)
+    if t.kind == TokenKind::TkUnknown {
+        return u32::MAX
+    }
+
+    var unsafe *c = ctx
+    if c == &null {
+        c = decl_ctx(d)
+    }
+
+    if c == &null {
+        return u32::MAX
+    }
+
+    return c->get_ident_imm(t)
+}
+
+/// # Scopes and entities
+
+/// The TranslationUnit scope \p dc is in, or null.
+pub fn tu_of(dc: unsafe *DeclContext) -> unsafe *TranslationUnit {
+    var unsafe *c = dc
+    while c != &null {
+        if c->dc_kind == DeclContextKind::TranslationUnit {
+            return unsafe (c as unsafe *TranslationUnit)
+        }
+
+        c = c->dc_parent
+    }
+
+    return &null
+}
+
+/// The scope \p d opens for the declarations written in it: a class,
+/// struct, union, enum, interface, module or extension. Null for every
+/// other kind, a function included: its DeclContext holds parameters and
+/// locals, which no name lookup from outside reaches.
+pub fn dc_of(d: unsafe *Decl) -> unsafe *DeclContext {
+    if d == &null {
+        return &null
+    }
+
+    if isa<Declarations::ClassDecl>(d) {
+        return (cast<Declarations::ClassDecl>(d))
+    }
+
+    if isa<Declarations::StructDecl>(d) {
+        return (cast<Declarations::StructDecl>(d))
+    }
+
+    if isa<Declarations::EnumDecl>(d) {
+        return (cast<Declarations::EnumDecl>(d))
+    }
+
+    if isa<Declarations::UnionDecl>(d) {
+        return (cast<Declarations::UnionDecl>(d))
+    }
+
+    if isa<Declarations::InterfaceDecl>(d) {
+        return (cast<Declarations::InterfaceDecl>(d))
+    }
+
+    if isa<Declarations::ModuleDecl>(d) {
+        return (cast<Declarations::ModuleDecl>(d))
+    }
+
+    if isa<Declarations::ExtensionDecl>(d) {
+        return (cast<Declarations::ExtensionDecl>(d))
+    }
+
+    return &null
+}
+
+/// The canonical link of \p d's redeclaration chain, or null when \p d is
+/// not a redeclarable kind. A function's chain is linked after its
+/// signature is typed; before that each function is its own canonical.
+pub fn chain_canonical(d: unsafe *Decl) -> unsafe *Decl {
+    if d == &null {
+        return &null
+    }
+
+    if isa<Declarations::ClassDecl>(d) {
+        return (cast<Declarations::ClassDecl>(d)->canonical_decl())
+    }
+
+    if isa<Declarations::StructDecl>(d) {
+        return (cast<Declarations::StructDecl>(d)->canonical_decl())
+    }
+
+    if isa<Declarations::UnionDecl>(d) {
+        return (cast<Declarations::UnionDecl>(d)->canonical_decl())
+    }
+
+    if isa<Declarations::InterfaceDecl>(d) {
+        return (cast<Declarations::InterfaceDecl>(d)->canonical_decl())
+    }
+
+    if isa<Declarations::EnumDecl>(d) {
+        return (cast<Declarations::EnumDecl>(d)->canonical_decl())
+    }
+
+    if isa<Declarations::ModuleDecl>(d) {
+        return (cast<Declarations::ModuleDecl>(d)->canonical_decl())
+    }
+
+    if isa<Declarations::FunctionDecl>(d) {
+        return (cast<Declarations::FunctionDecl>(d)->canonical_decl())
+    }
+
+    return &null
+}
+
+/// The one decl that stands for the entity \p d declares: the header's tag
+/// for an `ffi` forward declaration of it, else the canonical link of
+/// \p d's redeclaration chain, else \p d itself. Every type and binding is
+/// keyed on it.
+pub fn representative(d: unsafe *Decl) -> unsafe *Decl {
+    var unsafe *ft = decl_ffi_tag_target(d)
+    if ft != &null {
+        return ft
+    }
+
+    var unsafe *c = chain_canonical(d)
+    if c == &null {
+        return d
+    }
+
+    return c
+}
+
+/// Calls \p visit on each declaration \p d stands for, in source order:
+/// \p d itself, or, for a wrapper that opens no scope of its own, what it
+/// holds -- a visibility group's members, an `eval` block's body, an `ffi`
+/// block's body -- through nested wrappers. A module is a scope, not a
+/// wrapper: it is visited as one decl (scope_decls flattens it).
+pub fn for_each_unwrapped_decl(d: unsafe *Decl, visit: fn(unsafe *Decl)) {
+    if d == &null {
+        return
+    }
+
+    if isa<Declarations::VisibilityGroupDecl>(d) {
+        var unsafe *g = cast<Declarations::VisibilityGroupDecl>(d)
+        for var i: usize = 0; i < g->members.size(); i++ {
+            for_each_unwrapped_decl(*g->members.get(i), visit)
+        }
+
+        return
+    }
+
+    if isa<Declarations::EvalBlockDecl>(d) {
+        var unsafe *b = cast<Declarations::EvalBlockDecl>(d)
+        for var i: usize = 0; i < b->body.size(); i++ {
+            for_each_unwrapped_decl(*b->body.get(i), visit)
+        }
+
+        return
+    }
+
+    if isa<Declarations::FFIBlockDecl>(d) {
+        var unsafe *b = cast<Declarations::FFIBlockDecl>(d)
+        for var i: usize = 0; i < b->body.size(); i++ {
+            for_each_unwrapped_decl(*b->body.get(i), visit)
+        }
+
+        return
+    }
+
+    visit(d)
+}
+
+/// # Records
+
+/// The fields of a class, struct or union; empty for every other kind.
+pub fn decl_fields(d: unsafe *Decl) -> FrozenList<unsafe *Declarations::FieldDecl> {
+    if d == &null {
+        return create_empty_frozen_list<unsafe *Declarations::FieldDecl>()
+    }
+
+    if isa<Declarations::ClassDecl>(d) {
+        return cast<Declarations::ClassDecl>(d)->fields
+    }
+
+    if isa<Declarations::StructDecl>(d) {
+        return cast<Declarations::StructDecl>(d)->fields
+    }
+
+    if isa<Declarations::UnionDecl>(d) {
+        return cast<Declarations::UnionDecl>(d)->fields
+    }
+
+    return create_empty_frozen_list<unsafe *Declarations::FieldDecl>()
+}
+
+/// The methods of a class, struct or union; empty for every other kind.
+pub fn decl_methods(d: unsafe *Decl) -> FrozenList<unsafe *Declarations::FunctionDecl> {
+    if d == &null {
+        return create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
+    }
+
+    if isa<Declarations::ClassDecl>(d) {
+        return cast<Declarations::ClassDecl>(d)->methods
+    }
+
+    if isa<Declarations::StructDecl>(d) {
+        return cast<Declarations::StructDecl>(d)->methods
+    }
+
+    if isa<Declarations::UnionDecl>(d) {
+        return cast<Declarations::UnionDecl>(d)->methods
+    }
+
+    return create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
+}
+
+/// The scope a class, struct or union opens; null for every other kind
+/// (dc_of answers for every scope-opening kind).
+pub fn decl_context(d: unsafe *Decl) -> unsafe *DeclContext {
+    if d == &null {
+        return &null
+    }
+
+    if isa<Declarations::ClassDecl>(d) {
+        return (cast<Declarations::ClassDecl>(d))
+    }
+
+    if isa<Declarations::StructDecl>(d) {
+        return (cast<Declarations::StructDecl>(d))
+    }
+
+    if isa<Declarations::UnionDecl>(d) {
+        return (cast<Declarations::UnionDecl>(d))
+    }
+
+    return &null
+}
+
+/// \p f is a constructor: a method (it takes `self`) that is not an
+/// operator, declared in a type scope and named after the decl that owns
+/// that scope. The two names are compared by spelling, each read in its
+/// own file (decl_ctx) or in \p fallback when it reaches none, because
+/// imms of different files do not compare. A transfer constructor
+/// (`@copy` / `@move`) and an enum variant's constructor (`adt_role`) are
+/// constructors here; a caller that excludes them tests that itself.
+pub fn decl_is_ctor(f:        unsafe *Declarations::FunctionDecl,
+                    fallback: unsafe *ASTContext = &null) -> bool {
+    if f == &null || f->is_operator || !f->is_method() {
+        return false
+    }
+
+    var unsafe *dc = f->semantic_dc
+    if dc == &null || !dc->is_type_scope() || dc->dc_owner == &null {
+        return false
+    }
+
+    var ot = decl_name_tok(dc->dc_owner)
+    if ot.kind == TokenKind::TkUnknown {
+        return false
+    }
+
+    var unsafe *fc = decl_ctx(f)
+    if fc == &null {
+        fc = fallback
+    }
+
+    var unsafe *oc = decl_ctx(dc->dc_owner)
+    if oc == &null {
+        oc = fallback
+    }
+
+    if fc == &null || oc == &null {
+        return false
+    }
+
+    return fc->get_spelling(f->name) == oc->get_spelling(ot)
+}
+
+/// # Storage
+
+/// \p v has static storage: a `static` or `thread` variable wherever it is
+/// declared, or one declared at file, module or type scope. An `eval`
+/// constant is a compile-time value, not storage, and is never global. A
+/// local is indexed into no scope table, so it has no semantic_dc.
+pub fn is_global_storage(v: unsafe *Declarations::VariableDecl) -> bool {
+    if v == &null || v->storage == Declarations::StorageClass::Eval {
+        return false
+    }
+
+    if v->storage == Declarations::StorageClass::Static || v->is_thread {
+        return true
+    }
+
+    var unsafe *dc = v->semantic_dc
+    if dc == &null {
+        return false
+    }
+
+    return dc->dc_kind == DeclContextKind::TranslationUnit
+        || dc->dc_kind == DeclContextKind::Module
+        || dc->is_type_scope()
+}
+
+/// # Reference types
+
+/// \p t, or what it refers to when it is a C++ `T&` / `T&&`. One level:
+/// cv qualifiers and the canonical form are left as they are. Null for null.
+pub fn peel_ref(t: unsafe *Type) -> unsafe *Type {
+    if t == &null {
+        return &null
+    }
+
+    if isa<CXXLValueRefType>(t) {
+        return cast<CXXLValueRefType>(t)->referee
+    }
+
+    if isa<CXXRValueRefType>(t) {
+        return cast<CXXRValueRefType>(t)->referee
+    }
+
+    return t
+}
+
 /// The parameter carrying the `...`, or null when there is none. This is the
 /// one walk that answers WHICH parameter is the pack; `is_variadic` is exactly
 /// `decl_pack_param(d) != null` and says only that one exists.
@@ -1242,12 +1641,7 @@ pub fn param_type_pack_param(p: unsafe *Declarations::ParamDecl) -> unsafe *Gene
         return &null
     }
 
-    var unsafe *t = canon_unqual(p->type_->canonical)
-    if isa<CXXLValueRefType>(t) {
-        t = canon_unqual(cast<CXXLValueRefType>(t)->referee)
-    } else if isa<CXXRValueRefType>(t) {
-        t = canon_unqual(cast<CXXRValueRefType>(t)->referee)
-    }
+    var unsafe *t = canon_unqual(peel_ref(canon_unqual(p->type_->canonical)))
 
     var unsafe *g = dyn_cast<GenericParamType>(t)
     if g == &null || !g->is_pack {

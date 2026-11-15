@@ -36,20 +36,37 @@
 
 ffi "c++" import "Native/KShims.hh" // std_out / std_err
 ffi "c++" import "vector"
+ffi "c++" import "algorithm"
 ffi "c++" import "cstdio"
 
 import AST::ASTSupport::FrozenList
 import AST::Context::ASTContext::ASTContext
 import AST::Context::DeclContext::DeclContext
 import AST::Context::InstantiationRegistry::InstanceEntry
-import AST::Kind::DeclKind::DeclKind
-import AST::Kind::ExprKind::ExprKind
-import AST::Kind::PatternKind::PatternKind
-import AST::Kind::StmtKind::StmtKind
-import AST::Kind::TypeKind::TypeKind
+import AST::Kind::DeclKind::{
+    DeclKind,
+    to_string,
+}
+import AST::Kind::ExprKind::{
+    ExprKind,
+    to_string,
+}
+import AST::Kind::PatternKind::{
+    PatternKind,
+    to_string,
+}
+import AST::Kind::StmtKind::{
+    StmtKind,
+    to_string,
+}
+import AST::Kind::TypeKind::{
+    TypeKind,
+    to_string,
+}
 import AST::Mixin::Annotation::{
     AnnotationEntry,
     AnnotationKind,
+    VisibilityKind,
 }
 import AST::Mixin::TypeQual::TypeQual
 import AST::Node::Base::{
@@ -103,113 +120,11 @@ import Token::TokenKind::TokenKind
 /// SemaDump can label a row with the same string the AST dump uses, without
 /// a second switch that drifts from this one.
 pub fn expr_kind_name(k: ExprKind) -> string {
-    match k {
-        case ExprKind::IntegerLiteralExpr {
-            return "IntegerLiteralExpr"
-        } case ExprKind::FloatingLiteralExpr {
-            return "FloatingLiteralExpr"
-        } case ExprKind::StringLiteralExpr {
-            return "StringLiteralExpr"
-        } case ExprKind::CharacterLiteralExpr {
-            return "CharacterLiteralExpr"
-        } case ExprKind::BooleanLiteralExpr {
-            return "BooleanLiteralExpr"
-        } case ExprKind::NullLiteralExpr {
-            return "NullLiteralExpr"
-        } case ExprKind::ListLiteralExpr {
-            return "ListLiteralExpr"
-        } case ExprKind::InitListExpr {
-            return "InitListExpr"
-        } case ExprKind::StmtExpr {
-            return "StmtExpr"
-        } case ExprKind::VariantInitExpr {
-            return "VariantInitExpr"
-        } case ExprKind::TupleLiteralExpr {
-            return "TupleLiteralExpr"
-        } case ExprKind::SetLiteralExpr {
-            return "SetLiteralExpr"
-        } case ExprKind::MapLiteralExpr {
-            return "MapLiteralExpr"
-        } case ExprKind::NamedInitializerExpr {
-            return "NamedInitializerExpr"
-        } case ExprKind::AnonInitializerExpr {
-            return "AnonInitializerExpr"
-        } case ExprKind::ChainExpr {
-            return "ChainExpr"
-        } case ExprKind::CallExpr {
-            return "CallExpr"
-        } case ExprKind::SubscriptExpr {
-            return "SubscriptExpr"
-        } case ExprKind::NamedIdentExpr {
-            return "NamedIdentExpr"
-        } case ExprKind::UnaryOperatorExpr {
-            return "UnaryOperatorExpr"
-        } case ExprKind::BinaryOperatorExpr {
-            return "BinaryOperatorExpr"
-        } case ExprKind::AssignOperatorExpr {
-            return "AssignOperatorExpr"
-        } case ExprKind::ImplConformanceExpr {
-            return "ImplConformanceExpr"
-        } case ExprKind::DerivesRelationExpr {
-            return "DerivesRelationExpr"
-        } case ExprKind::IfExpr {
-            return "IfExpr"
-        } case ExprKind::TryCatchExpr {
-            return "TryCatchExpr"
-        } case ExprKind::MatchExpr {
-            return "MatchExpr"
-        } case ExprKind::RangeExpr {
-            return "RangeExpr"
-        } case ExprKind::ClosureExpr {
-            return "ClosureExpr"
-        } case ExprKind::AwaitExpr {
-            return "AwaitExpr"
-        } case ExprKind::UnwrapExpr {
-            return "UnwrapExpr"
-        } case ExprKind::DefinedExpr {
-            return "DefinedExpr"
-        } case ExprKind::AttributedExpr {
-            return "AttributedExpr"
-        } case ExprKind::PanicOpExpr {
-            return "PanicOpExpr"
-        } case ExprKind::TypeTraitExpr {
-            return "TypeTraitExpr"
-        } case ExprKind::CxxNewExpr {
-            return "CxxNewExpr"
-        } case ExprKind::SpawnExpr {
-            return "SpawnExpr"
-        } case ExprKind::ThreadExpr {
-            return "ThreadExpr"
-        } case ExprKind::ConstraintExpr {
-            return "ConstraintExpr"
-        } case ExprKind::SizeOfExpr {
-            return "SizeOfExpr"
-        } case ExprKind::AlignOfExpr {
-            return "AlignOfExpr"
-        } case ExprKind::TypeOfExpr {
-            return "TypeOfExpr"
-        } case ExprKind::EvalExpr {
-            return "EvalExpr"
-        } case ExprKind::UnsafeExpr {
-            return "UnsafeExpr"
-        } case ExprKind::ParenExpr {
-            return "ParenExpr"
-        } case ExprKind::NamedArgExpr {
-            return "NamedArgExpr"
-        } case ExprKind::VerbatimExpr {
-            return "VerbatimExpr"
-        } case ExprKind::DeleteExpr {
-            return "DeleteExpr"
-        } case ExprKind::PackExpansionExpr {
-            return "PackExpansionExpr"
-        } case ExprKind::TypeCastExpr {
-            return "TypeCastExpr"
-        } case ExprKind::ImplicitBoundaryCastExpr {
-            return "ImplicitBoundaryCastExpr"
-        } default {
-            return "<expr>"
-        }
+    if k == ExprKind::RecoveryExpr || k == ExprKind::ExprKindCount {
+        return "<expr>"
     }
+
+    return to_string(k)
 }
 
 pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
@@ -315,14 +230,14 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
     }
 
-    /// `pub `/`prot `/`priv ` prefix from the numeric visibility code
-    /// (0 None / 1 priv / 2 prot / 3 pub). Source path.
+    /// `pub `/`prot `/`priv ` prefix from a VisibilityKind as u8. Source
+    /// path.
     fn _vis(self, v: u8) {
-        if v == 3 {
+        if v == (VisibilityKind::Public as u8) {
             self.p.paint(Color::Keyword, "pub ")
-        } else if v == 2 {
+        } else if v == (VisibilityKind::Protected as u8) {
             self.p.paint(Color::Keyword, "prot ")
-        } else if v == 1 {
+        } else if v == (VisibilityKind::Private as u8) {
             self.p.paint(Color::Keyword, "priv ")
         }
     }
@@ -5821,22 +5736,14 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self._sort_by_source(&*out)
     }
 
-    /// Stable insertion sort on range.start (offset). Member counts in a type
-    /// body are small; insertion sort keeps it simple and stable for equal
-    /// positions (which shouldn't occur but we don't want a swap if they do).
+    /// By range.start, stable: members at one position (which only minted
+    /// ones share) keep their order.
     fn _sort_by_source(self, @inout xs: cxx::std::vector<unsafe *Decl>) {
-        var n = xs.size()
-        for var i: usize = 1; i < n; ++i {
-            var unsafe *key    = (xs)[i]
-            var        key_pos = key->range.start
-            var        j       = i
-            while j > 0 && (xs)[j - 1]->range.start > key_pos {
-                (xs)[j] = (xs)[j - 1]
-                j -= 1
-            }
-
-            (xs)[j] = key
-        }
+        cxx::std::stable_sort(
+            xs.begin(),
+            xs.end(),
+            fn (a: unsafe *Decl, b: unsafe *Decl) || -> bool = b->range.start > a->range.start,
+        )
     }
 
     /// Emit annotation rows for the aggregate, then its members in source
@@ -6277,193 +6184,40 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         return expr_kind_name(k)
     }
 
+    /// A written type's kind name. The canonical kinds and a recovery node
+    /// asked for its own kind have none here.
     fn _type_kind_name_of(self, k: TypeKind) -> string {
-        match k {
-            case TypeKind::ChainType {
-                return "ChainType"
-            } case TypeKind::GenericParamType {
-                return "GenericParamType"
-            } case TypeKind::SubstGenericParamType {
-                return "SubstGenericParamType"
-            } case TypeKind::TypeOfType {
-                return "TypeOfType"
-            } case TypeKind::VariadicPackType {
-                return "VariadicPackType"
-            } case TypeKind::PackExpansionType {
-                return "PackExpansionType"
-            } case TypeKind::PointerType {
-                return "PointerType"
-            } case TypeKind::NullableType {
-                return "NullableType"
-            } case TypeKind::TupleType {
-                return "TupleType"
-            } case TypeKind::FixedArrayType {
-                return "FixedArrayType"
-            } case TypeKind::VectorType {
-                return "VectorType"
-            } case TypeKind::MapType {
-                return "MapType"
-            } case TypeKind::SetType {
-                return "SetType"
-            } case TypeKind::SelfType {
-                return "SelfType"
-            } case TypeKind::FunctionPointerType {
-                return "FunctionPointerType"
-            } case TypeKind::InferredType {
-                return "InferredType"
-            } case TypeKind::CXXLValueRefType {
-                return "CXXLValueRefType"
-            } case TypeKind::CXXRValueRefType {
-                return "CXXRValueRefType"
-            } case TypeKind::OpaqueFFIType {
-                return "OpaqueFFIType"
-            } case TypeKind::QualifiedType {
-                return "QualifiedType"
-            } case TypeKind::TypeExpr {
-                return "TypeExpr"
-            } case TypeKind::AssocType {
-                return "AssocType"
-            } default {
-                return "<type>"
-            }
+        if k == TypeKind::RecoveryType
+            || k == TypeKind::TypeKindCount
+            || k == TypeKind::BuiltinType
+            || k == TypeKind::RecordType {
+            return "<type>"
         }
+
+        return to_string(k)
     }
 
     fn _pattern_kind_name_of(self, k: PatternKind) -> string {
-        match k {
-            case PatternKind::WildcardPattern {
-                return "WildcardPattern"
-            } case PatternKind::LiteralPattern {
-                return "LiteralPattern"
-            } case PatternKind::BindingPattern {
-                return "BindingPattern"
-            } case PatternKind::TupleDestructurePattern {
-                return "TupleDestructurePattern"
-            } case PatternKind::ConstructorPattern {
-                return "ConstructorPattern"
-            } case PatternKind::UnresolvedConstructorPattern {
-                return "UnresolvedConstructorPattern"
-            } case PatternKind::AlternationPattern {
-                return "AlternationPattern"
-            } case PatternKind::RangePattern {
-                return "RangePattern"
-            } case PatternKind::SlicePattern {
-                return "SlicePattern"
-            } default {
-                return "<pattern>"
-            }
+        if k == PatternKind::RecoveryPattern {
+            return "<pattern>"
         }
+
+        return to_string(k)
     }
 
     fn _stmt_kind_name_of(self, k: StmtKind) -> string {
-        match k {
-            case StmtKind::CompoundStmt {
-                return "CompoundStmt"
-            } case StmtKind::ExpressionStmt {
-                return "ExpressionStmt"
-            } case StmtKind::DeclStmt {
-                return "DeclStmt"
-            } case StmtKind::ReturnStmt {
-                return "ReturnStmt"
-            } case StmtKind::BreakStmt {
-                return "BreakStmt"
-            } case StmtKind::ContinueStmt {
-                return "ContinueStmt"
-            } case StmtKind::PanicStmt {
-                return "PanicStmt"
-            } case StmtKind::YieldStmt {
-                return "YieldStmt"
-            } case StmtKind::RuntimeAssertStmt {
-                return "RuntimeAssertStmt"
-            } case StmtKind::StaticAssertStmt {
-                return "StaticAssertStmt"
-            } case StmtKind::LabelIntrinsicStmt {
-                return "LabelIntrinsicStmt"
-            } case StmtKind::JumpIntrinsicStmt {
-                return "JumpIntrinsicStmt"
-            } case StmtKind::ConditionalStmt {
-                return "ConditionalStmt"
-            } case StmtKind::WhileLoopStmt {
-                return "WhileLoopStmt"
-            } case StmtKind::LoopStmt {
-                return "LoopStmt"
-            } case StmtKind::RangedForStmt {
-                return "RangedForStmt"
-            } case StmtKind::IndexedForStmt {
-                return "IndexedForStmt"
-            } case StmtKind::MatchStmt {
-                return "MatchStmt"
-            } case StmtKind::LabeledStmt {
-                return "LabeledStmt"
-            } case StmtKind::TryCatchStmt {
-                return "TryCatchStmt"
-            } case StmtKind::FinallyStmt {
-                return "FinallyStmt"
-            } case StmtKind::UnsafeBlockStmt {
-                return "UnsafeBlockStmt"
-            } case StmtKind::ContextBindingStmt {
-                return "ContextBindingStmt"
-            } case StmtKind::DestructuringDeclStmt {
-                return "DestructuringDeclStmt"
-            } case StmtKind::InlineBlockStmt {
-                return "InlineBlockStmt"
-            } case StmtKind::EvalBlockStmt {
-                return "EvalBlockStmt"
-            } case StmtKind::SwitchDispatchStmt {
-                return "SwitchDispatchStmt"
-            } default {
-                return "<stmt>"
-            }
+        if k == StmtKind::RecoveryStmt || k == StmtKind::StmtKindCount {
+            return "<stmt>"
         }
+
+        return to_string(k)
     }
 
     fn _decl_kind_name_of(self, k: DeclKind) -> string {
-        match k {
-            case DeclKind::FunctionDecl {
-                return "FunctionDecl"
-            } case DeclKind::VariableDecl {
-                return "VariableDecl"
-            } case DeclKind::FieldDecl {
-                return "FieldDecl"
-            } case DeclKind::ParamDecl {
-                return "ParamDecl"
-            } case DeclKind::GenericParamDecl {
-                return "GenericParamDecl"
-            } case DeclKind::StructDecl {
-                return "StructDecl"
-            } case DeclKind::ClassDecl {
-                return "ClassDecl"
-            } case DeclKind::InterfaceDecl {
-                return "InterfaceDecl"
-            } case DeclKind::ExtensionDecl {
-                return "ExtensionDecl"
-            } case DeclKind::EnumDecl {
-                return "EnumDecl"
-            } case DeclKind::EnumVariantDecl {
-                return "EnumVariantDecl"
-            } case DeclKind::UnionDecl {
-                return "UnionDecl"
-            } case DeclKind::TypeAliasDecl {
-                return "TypeAliasDecl"
-            } case DeclKind::ModuleDecl {
-                return "ModuleDecl"
-            } case DeclKind::ImportDecl {
-                return "ImportDecl"
-            } case DeclKind::VisibilityGroupDecl {
-                return "VisibilityGroupDecl"
-            } case DeclKind::EvalBlockDecl {
-                return "EvalBlockDecl"
-            } case DeclKind::TestDecl {
-                return "TestDecl"
-            } case DeclKind::MacroDecl {
-                return "MacroDecl"
-            } case DeclKind::ProcedureMacroDecl {
-                return "ProcedureMacroDecl"
-            } case DeclKind::FFIBlockDecl {
-                return "FFIBlockDecl"
-            } default {
-                return "<decl>"
-            }
+        if k == DeclKind::RecoveryDecl || k == DeclKind::DeclKindCount {
+            return "<decl>"
         }
+
+        return to_string(k)
     }
 }

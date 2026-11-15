@@ -318,6 +318,30 @@ pub enum AssignForm derives u8 {
     Constrained, ///< a Body that an instance of a generic record may not allow: Body and Deleted, each under a C++ constraint.
 }
 
+/// -finfer-purity's verdict and the promise a body is held to. The values
+/// are the encoding of FunctionDecl::inferred_purity.
+pub enum PurityLevel derives u8 {
+    None = 0, ///< no promise.
+    Const,    ///< `const fn`: `[[gnu::const]]`.
+    Pure,     ///< `@pure`: `[[gnu::pure]]`.
+}
+
+/// Which layout lang item a function is. The values are the encoding of
+/// FunctionDecl::dynamic_layout.
+pub enum DynamicLayout derives u8 {
+    None = 0,
+    Size,  ///< the DynamicSize lang item.
+    Align, ///< the DynamicAlign lang item.
+}
+
+/// InterfaceComposition's progress on one interface. The values are the
+/// encoding of InterfaceDecl::compose_state.
+pub enum ComposeState derives u8 {
+    NotStarted = 0,
+    InProgress, ///< reaching it again is a cycle.
+    Done,
+}
+
 /// Inheritance edge: base type + how its members are re-exposed + virtual.
 pub struct InheritEdge {
     pub var base:       unsafe *Type ///< the base/interface type reference.
@@ -736,7 +760,8 @@ pub class FunctionDecl
     /// call is clang's builtin, spelled at the call site (EmitIR::_call).
     /// One writer, NameResolution::fill_lang_items, as for lowers_to_expect.
     pub var lowers_to_assume: bool = false
-    /// The DynamicSize (1) / DynamicAlign (2) lang item, else 0: EmitIR
+    /// The DynamicSize (1) / DynamicAlign (2) lang item, else 0
+    /// (a DynamicLayout as u8): EmitIR
     /// writes its body (EmitIR::_dynamic_layout_body), reading T's hidden
     /// `__kairo_layout()` when T has one. One writer, as for lowers_to_expect.
     pub var dynamic_layout: u8 = 0
@@ -776,7 +801,8 @@ pub class FunctionDecl
     /// misspelling) or the `@pure` annotation: FnPurityCheck's fix-it
     /// removes it where the promise cannot stand. Writer: the parser.
     pub var purity_at: SourceRange = SourceRange::invalid()
-    /// -finfer-purity's verdict for a function that made no promise: 0
+    /// -finfer-purity's verdict for a function that made no promise, a
+    /// PurityLevel as u8: 0
     /// none, 1 const (`[[gnu::const]]`), 2 pure (`[[gnu::pure]]`). Writer:
     /// FnPurityCheck::infer, on every link of the chain, in the defining
     /// TU's Sema; readers: CXXSpell::fn_attrs, ParamPassInference (an
@@ -837,7 +863,7 @@ pub class FunctionDecl
         node->ci_cut           = false
         node->lowers_to_expect = false
         node->lowers_to_assume = false
-        node->dynamic_layout   = 0
+        node->dynamic_layout   = DynamicLayout::None as u8
         node->class_alloc_op   = 0
         node->old_dtor_at      = SourceRange::invalid()
         node->hot_path         = false
@@ -847,7 +873,21 @@ pub class FunctionDecl
         node->call_conv        = 0
         node->is_const_fn      = false
         node->purity_at        = SourceRange::invalid()
-        node->inferred_purity  = 0
+        node->inferred_purity  = PurityLevel::None as u8
+        return node
+    }
+
+    /// A function the compiler mints (a default-argument thunk, a field
+    /// initializer, a script's `main`, a `where` candidate): create()'s
+    /// node, so every field holds its declared default, with a block body
+    /// (`body_kind`; the caller sets `body_block`). Scopes, visibility,
+    /// parameters and the rest are the caller's to fill.
+    pub static fn create_synth(ctx:    unsafe *ASTContext,
+                               range:  SourceRange,
+                               name:   Token,
+                               parent: unsafe *DeclContext) -> unsafe *FunctionDecl {
+        var unsafe *node = FunctionDecl::create(ctx, range, name, parent)
+        node->body_kind = FnBodyKind::Block
         return node
     }
 
@@ -865,7 +905,7 @@ pub class FunctionDecl
         node->adt_variant      = 0
         node->lowers_to_expect = false
         node->lowers_to_assume = false
-        node->dynamic_layout   = 0
+        node->dynamic_layout   = DynamicLayout::None as u8
         node->class_alloc_op   = 0
         node->old_dtor_at      = SourceRange::invalid()
         node->hot_path         = false
@@ -875,7 +915,7 @@ pub class FunctionDecl
         node->call_conv        = 0
         node->is_const_fn      = false
         node->purity_at        = SourceRange::invalid()
-        node->inferred_purity  = 0
+        node->inferred_purity  = PurityLevel::None as u8
         return node
     }
 
@@ -1445,8 +1485,8 @@ pub class InterfaceDecl
     /// Every requirement, own and derived, deduplicated: what binding,
     /// conformance and witnesses read. Written once by InterfaceComposition.
     pub var requirements: FrozenList<Requirement>
-    /// InterfaceComposition's progress: 0 not yet, 1 in progress (a cycle
-    /// reaching it again is an error), 2 done.
+    /// InterfaceComposition's progress, a ComposeState as u8: 0 not yet, 1
+    /// in progress (a cycle reaching it again is an error), 2 done.
     pub var compose_state: u8 = 0
 
     pub static fn create(ctx:    unsafe *ASTContext,
@@ -1459,7 +1499,7 @@ pub class InterfaceDecl
         node->name             = name
         node->derives_expr     = &null
         node->derives_composed = false
-        node->compose_state    = 0
+        node->compose_state    = ComposeState::NotStarted as u8
         node->init_annotations(unsafe &ctx->ast_alloc)
         node->init_dc(DeclContextKind::Interface, ctx, parent, node)
         node->init_redecl()

@@ -142,7 +142,7 @@ pub class CxxKeywordSet {
             var unsafe *r = unsafe (sp.data() as kairo::std::ConstPtr<u8>)
             var        l  = sp.size()
             var i = imms->find_ident(r, l, ((compute_hash(r, l)) as u32))
-            if i != ((-1) as i32 as u32) {
+            if i != u32::MAX {
                 self._idx.insert(i)
             }
         }
@@ -151,7 +151,7 @@ pub class CxxKeywordSet {
     pub fn contains(self, imm: u32) -> bool {
         // u32(-1) is "no ident" and DenseSet's empty key: a lookup with it
         // asserts, so answer it before the probe.
-        if imm == ((-1) as i32 as u32) {
+        if imm == u32::MAX {
             return false
         }
 

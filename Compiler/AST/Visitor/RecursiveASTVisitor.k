@@ -4,7 +4,7 @@
 ///
 ///   Layer contract (per node N of family F):
 ///     dispatch_F(*F)     -- switch on kind, route to traverse_N. (generated)
-///     traverse_N(*N)->*N -- walkup_N; recurse+rebind children; return n.
+///     traverse_N(*N)->*N -- walkup_N; recurse into children; return n.
 ///                           (hand-written body)
 ///     walkup_N(*N)->bool -- visit_F (family hook) THEN visit_N (leaf).
 ///                           base-first.
@@ -13,15 +13,14 @@
 ///     visit_N(*N)->bool  -- leaf hook. override for one node kind.
 ///
 ///   bool == "keep going". false anywhere short-circuits that subtree.
-///   traverse returns the (possibly rewritten) node; parent rebinds the slot.
-///   Read-only pass: returns same ptr (free). 1:1 desugar: returns new node.
 ///
-///   Node-count-changing rewrites do NOT belong here -> use ASTWriter.
-///   Child-rewrite rules:
-///     scalar child   : n->f = dispatch_F(n->f)          -- read or rewrite, OK
-///     nullable scalar : if n->f != &null { n->f = ... } -- same
-///     list child     : walk read-only, DISCARD return   -- never write a slot
-///                       any list rewrite -> ASTWriter, not RAV
+///   The visitor reads the tree. dispatch_F and traverse_N return the node
+///   they were given, and no child slot, scalar or list, is assigned from
+///   that result: an override that returns another node replaces nothing.
+///   Every rewrite, 1:1 or node-count-changing, belongs in ASTWriter.
+///
+///   run(tu) walks a whole file: each top-level item, in source
+///   order, through the dispatch of its family.
 ///
 ///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
@@ -32,6 +31,7 @@ ffi "c++" import "Native/Types.hh"
 
 import AST::Context::ASTContext::ASTContext
 import AST::Context::DeclContext::DeclContext
+import AST::Context::TranslationUnit::TranslationUnit
 import AST::Kind::DeclKind::DeclKind
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::PatternKind::PatternKind
@@ -70,6 +70,7 @@ import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
     IntegerLiteralExpr, NamedIdentExpr, NullLiteralExpr,      StringLiteralExpr,
 }
+import AST::Node::Program::TopLevelKind
 import AST::Node::Statements
 import AST::Node::Types
 
@@ -102,6 +103,33 @@ pub class <D: type> RecursiveASTVisitor {
 
     pub fn dyn(self) -> unsafe *D {
         return unsafe ((&self) as *D)
+    }
+
+    /// Walks every top-level item of \p tu in source order, each through
+    /// the dispatch of its family. Nothing for a null \p tu or one with no
+    /// program; ends early once `stop` is set.
+    pub fn run(self, tu: unsafe *TranslationUnit) {
+        if tu == &null || tu->program == &null {
+            return
+        }
+
+        var *items = &tu->program->items
+        for var i: usize = 0; i < items->size(); i++ {
+            if self.stop {
+                break
+            }
+
+            var item = *items->get(i)
+            match item.kind {
+                case TopLevelKind::Decl {
+                    self.dyn()->dispatch_decl(item.as_decl())
+                } case TopLevelKind::Stmt {
+                    self.dyn()->dispatch_stmt(item.as_stmt())
+                } case TopLevelKind::Expr {
+                    self.dyn()->dispatch_expr(item.as_expr())
+                }
+            }
+        }
     }
 
     /// # DISPATCH (generated off TypeKind)
@@ -225,8 +253,8 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->key   = self.dyn()->dispatch_type(n->key)
-        n->value = self.dyn()->dispatch_type(n->value)
+        self.dyn()->dispatch_type(n->key)
+        self.dyn()->dispatch_type(n->value)
         return n
     }
 
@@ -235,7 +263,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->element = self.dyn()->dispatch_type(n->element)
+        self.dyn()->dispatch_type(n->element)
         return n
     }
 
@@ -249,7 +277,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->expr = self.dyn()->dispatch_expr(n->expr)
+        self.dyn()->dispatch_expr(n->expr)
         return n
     }
 
@@ -304,7 +332,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->element = self.dyn()->dispatch_type(n->element)
+        self.dyn()->dispatch_type(n->element)
         return n
     }
 
@@ -313,7 +341,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->pointee = self.dyn()->dispatch_type(n->pointee)
+        self.dyn()->dispatch_type(n->pointee)
         return n
     }
 
@@ -323,7 +351,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->expr = self.dyn()->dispatch_expr(n->expr)
+        self.dyn()->dispatch_expr(n->expr)
         return n
     }
 
@@ -355,7 +383,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->inner = self.dyn()->dispatch_type(n->inner)
+        self.dyn()->dispatch_type(n->inner)
         return n
     }
 
@@ -369,9 +397,9 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->element = self.dyn()->dispatch_type(n->element)
+        self.dyn()->dispatch_type(n->element)
         if n->size_expr != &null { // null when is_incomplete
-            n->size_expr = self.dyn()->dispatch_expr(n->size_expr)
+            self.dyn()->dispatch_expr(n->size_expr)
         }
 
         return n
@@ -396,7 +424,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->pattern = self.dyn()->dispatch_type(n->pattern)
+        self.dyn()->dispatch_type(n->pattern)
         return n
     }
 
@@ -405,7 +433,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->referee = self.dyn()->dispatch_type(n->referee)
+        self.dyn()->dispatch_type(n->referee)
         return n
     }
 
@@ -414,7 +442,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->referee = self.dyn()->dispatch_type(n->referee)
+        self.dyn()->dispatch_type(n->referee)
         return n
     }
 
@@ -433,7 +461,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->return_type != &null { // null on unprototyped path
-            n->return_type = self.dyn()->dispatch_type(n->return_type)
+            self.dyn()->dispatch_type(n->return_type)
         }
 
         for var i: usize = 0; i < n->panic_set.size(); i++ {
@@ -453,7 +481,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->replacement = self.dyn()->dispatch_type(n->replacement)
+        self.dyn()->dispatch_type(n->replacement)
         return n
     }
 
@@ -1117,7 +1145,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->body = self.dyn()->traverse_block(n->body)
+        self.dyn()->traverse_block(n->body)
         return n
     }
 
@@ -1209,7 +1237,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->type_expr != &null {
-            n->type_expr = self.dyn()->dispatch_expr(n->type_expr)
+            self.dyn()->dispatch_expr(n->type_expr)
         }
 
         for var i: usize = 0; i < n->fields.size(); i++ {
@@ -1252,7 +1280,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->base != &null { // null on global-root path
-            n->base = self.dyn()->dispatch_expr(n->base)
+            self.dyn()->dispatch_expr(n->base)
         }
 
         for var i: usize = 0; i < n->steps.size(); i++ {
@@ -1281,7 +1309,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->callee != &null {
-            n->callee = self.dyn()->dispatch_expr(n->callee)
+            self.dyn()->dispatch_expr(n->callee)
         }
 
         for var i: usize = 0; i < n->args.size(); i++ {
@@ -1313,11 +1341,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->base != &null {
-            n->base = self.dyn()->dispatch_expr(n->base)
+            self.dyn()->dispatch_expr(n->base)
         }
 
         if n->index != &null {
-            n->index = self.dyn()->dispatch_expr(n->index)
+            self.dyn()->dispatch_expr(n->index)
         }
 
         return n
@@ -1347,7 +1375,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->operand != &null {
-            n->operand = self.dyn()->dispatch_expr(n->operand)
+            self.dyn()->dispatch_expr(n->operand)
         }
 
         return n
@@ -1360,11 +1388,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->lhs != &null {
-            n->lhs = self.dyn()->dispatch_expr(n->lhs)
+            self.dyn()->dispatch_expr(n->lhs)
         }
 
         if n->rhs != &null {
-            n->rhs = self.dyn()->dispatch_expr(n->rhs)
+            self.dyn()->dispatch_expr(n->rhs)
         }
 
         return n
@@ -1377,11 +1405,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->lhs != &null {
-            n->lhs = self.dyn()->dispatch_expr(n->lhs)
+            self.dyn()->dispatch_expr(n->lhs)
         }
 
         if n->rhs != &null {
-            n->rhs = self.dyn()->dispatch_expr(n->rhs)
+            self.dyn()->dispatch_expr(n->rhs)
         }
 
         return n
@@ -1394,11 +1422,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->subject != &null {
-            n->subject = self.dyn()->dispatch_type(n->subject)
+            self.dyn()->dispatch_type(n->subject)
         }
 
         if n->inter != &null {
-            n->inter = self.dyn()->dispatch_type(n->inter)
+            self.dyn()->dispatch_type(n->inter)
         }
 
         return n
@@ -1411,11 +1439,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->subject != &null {
-            n->subject = self.dyn()->dispatch_type(n->subject)
+            self.dyn()->dispatch_type(n->subject)
         }
 
         if n->base != &null {
-            n->base = self.dyn()->dispatch_type(n->base)
+            self.dyn()->dispatch_type(n->base)
         }
 
         return n
@@ -1427,11 +1455,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->condition != &null {
-            n->condition = self.dyn()->dispatch_expr(n->condition)
+            self.dyn()->dispatch_expr(n->condition)
         }
 
         if n->then_expr != &null {
-            n->then_expr = self.dyn()->dispatch_expr(n->then_expr)
+            self.dyn()->dispatch_expr(n->then_expr)
         }
 
         for var i: usize = 0; i < n->else_ifs.size(); i++ {
@@ -1458,7 +1486,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->else_expr != &null {
-            n->else_expr = self.dyn()->dispatch_expr(n->else_expr)
+            self.dyn()->dispatch_expr(n->else_expr)
         }
 
         return n
@@ -1473,7 +1501,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->try_expr != &null {
-            n->try_expr = self.dyn()->dispatch_expr(n->try_expr)
+            self.dyn()->dispatch_expr(n->try_expr)
         }
 
         for var i: usize = 0; i < n->catch_arms.size(); i++ {
@@ -1505,7 +1533,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->scrutinee != &null {
-            n->scrutinee = self.dyn()->dispatch_expr(n->scrutinee)
+            self.dyn()->dispatch_expr(n->scrutinee)
         }
 
         for var i: usize = 0; i < n->cases.size(); i++ {
@@ -1525,11 +1553,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->begin != &null {
-            n->begin = self.dyn()->dispatch_expr(n->begin)
+            self.dyn()->dispatch_expr(n->begin)
         }
 
         if n->end != &null {
-            n->end = self.dyn()->dispatch_expr(n->end)
+            self.dyn()->dispatch_expr(n->end)
         }
 
         return n
@@ -1593,15 +1621,15 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->return_type != &null {
-            n->return_type = self.dyn()->dispatch_type(n->return_type)
+            self.dyn()->dispatch_type(n->return_type)
         }
 
         if n->body_block != &null {
-            n->body_block = self.dyn()->traverse_block(n->body_block)
+            self.dyn()->traverse_block(n->body_block)
         }
 
         if n->body_expr != &null {
-            n->body_expr = self.dyn()->dispatch_expr(n->body_expr)
+            self.dyn()->dispatch_expr(n->body_expr)
         }
 
         return n
@@ -1613,7 +1641,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->operand != &null {
-            n->operand = self.dyn()->dispatch_expr(n->operand)
+            self.dyn()->dispatch_expr(n->operand)
         }
 
         return n
@@ -1631,7 +1659,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->type_arg != &null {
-            n->type_arg = self.dyn()->dispatch_type(n->type_arg)
+            self.dyn()->dispatch_type(n->type_arg)
         }
 
         return n
@@ -1643,7 +1671,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->init != &null {
-            n->init = self.dyn()->dispatch_expr(n->init)
+            self.dyn()->dispatch_expr(n->init)
         }
 
         if self.stop {
@@ -1651,7 +1679,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->elem_size != &null {
-            n->elem_size = self.dyn()->dispatch_expr(n->elem_size)
+            self.dyn()->dispatch_expr(n->elem_size)
         }
 
         if self.stop {
@@ -1659,7 +1687,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->count != &null {
-            n->count = self.dyn()->dispatch_expr(n->count)
+            self.dyn()->dispatch_expr(n->count)
         }
 
         return n
@@ -1671,7 +1699,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->operand != &null {
-            n->operand = self.dyn()->dispatch_expr(n->operand)
+            self.dyn()->dispatch_expr(n->operand)
         }
 
         return n
@@ -1706,7 +1734,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->operand != &null {
-            n->operand = self.dyn()->dispatch_expr(n->operand)
+            self.dyn()->dispatch_expr(n->operand)
         }
 
         return n
@@ -1739,7 +1767,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->operand != &null {
-            n->operand = self.dyn()->dispatch_expr(n->operand)
+            self.dyn()->dispatch_expr(n->operand)
         }
 
         return n
@@ -1751,7 +1779,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->operand != &null {
-            n->operand = self.dyn()->dispatch_expr(n->operand)
+            self.dyn()->dispatch_expr(n->operand)
         }
 
         return n
@@ -1764,7 +1792,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->lhs != &null {
-            n->lhs = self.dyn()->dispatch_expr(n->lhs)
+            self.dyn()->dispatch_expr(n->lhs)
         }
 
         if self.stop {
@@ -1772,7 +1800,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->rhs != &null {
-            n->rhs = self.dyn()->dispatch_type(n->rhs)
+            self.dyn()->dispatch_type(n->rhs)
         }
 
         return n
@@ -1784,7 +1812,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->type_arg != &null {
-            n->type_arg = self.dyn()->dispatch_type(n->type_arg)
+            self.dyn()->dispatch_type(n->type_arg)
         }
 
         return n
@@ -1796,7 +1824,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->type_arg != &null {
-            n->type_arg = self.dyn()->dispatch_type(n->type_arg)
+            self.dyn()->dispatch_type(n->type_arg)
         }
 
         return n
@@ -1808,7 +1836,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->operand != &null {
-            n->operand = self.dyn()->dispatch_expr(n->operand)
+            self.dyn()->dispatch_expr(n->operand)
         }
 
         // n->resolved_type is a sema link skip
@@ -1821,7 +1849,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->inner != &null {
-            n->inner = self.dyn()->dispatch_expr(n->inner)
+            self.dyn()->dispatch_expr(n->inner)
         }
 
         return n
@@ -1844,7 +1872,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->value != &null {
-            n->value = self.dyn()->dispatch_expr(n->value)
+            self.dyn()->dispatch_expr(n->value)
         }
 
         return n
@@ -1856,7 +1884,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->operand != &null {
-            n->operand = self.dyn()->dispatch_expr(n->operand)
+            self.dyn()->dispatch_expr(n->operand)
         }
 
         return n
@@ -1868,7 +1896,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->operand != &null {
-            n->operand = self.dyn()->dispatch_expr(n->operand)
+            self.dyn()->dispatch_expr(n->operand)
         }
 
         return n
@@ -1880,7 +1908,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->operand != &null {
-            n->operand = self.dyn()->dispatch_expr(n->operand)
+            self.dyn()->dispatch_expr(n->operand)
         }
 
         return n
@@ -1893,7 +1921,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->operand != &null {
-            n->operand = self.dyn()->dispatch_expr(n->operand)
+            self.dyn()->dispatch_expr(n->operand)
         }
 
         return n
@@ -1905,11 +1933,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->operand != &null {
-            n->operand = self.dyn()->dispatch_expr(n->operand)
+            self.dyn()->dispatch_expr(n->operand)
         }
 
         if n->target != &null {
-            n->target = self.dyn()->dispatch_type(n->target)
+            self.dyn()->dispatch_type(n->target)
         }
 
         return n
@@ -1922,15 +1950,15 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->original != &null {
-            n->original = self.dyn()->dispatch_expr(n->original)
+            self.dyn()->dispatch_expr(n->original)
         }
 
         if n->source_type != &null {
-            n->source_type = self.dyn()->dispatch_type(n->source_type)
+            self.dyn()->dispatch_type(n->source_type)
         }
 
         if n->target_type != &null {
-            n->target_type = self.dyn()->dispatch_type(n->target_type)
+            self.dyn()->dispatch_type(n->target_type)
         }
 
         return n
@@ -2713,7 +2741,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->expr != &null {
-            n->expr = self.dyn()->dispatch_expr(n->expr)
+            self.dyn()->dispatch_expr(n->expr)
         }
 
         return n
@@ -2725,7 +2753,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->decl != &null {
-            n->decl = self.dyn()->dispatch_decl(n->decl)
+            self.dyn()->dispatch_decl(n->decl)
         }
 
         return n
@@ -2737,7 +2765,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->value != &null {
-            n->value = self.dyn()->dispatch_expr(n->value)
+            self.dyn()->dispatch_expr(n->value)
         }
 
         return n
@@ -2759,7 +2787,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->payload != &null {
-            n->payload = self.dyn()->dispatch_expr(n->payload)
+            self.dyn()->dispatch_expr(n->payload)
         }
 
         return n
@@ -2771,7 +2799,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->value != &null {
-            n->value = self.dyn()->dispatch_expr(n->value)
+            self.dyn()->dispatch_expr(n->value)
         }
 
         return n
@@ -2784,11 +2812,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->condition != &null {
-            n->condition = self.dyn()->dispatch_expr(n->condition)
+            self.dyn()->dispatch_expr(n->condition)
         }
 
         if n->message != &null {
-            n->message = self.dyn()->dispatch_expr(n->message)
+            self.dyn()->dispatch_expr(n->message)
         }
 
         return n
@@ -2801,11 +2829,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->condition != &null {
-            n->condition = self.dyn()->dispatch_expr(n->condition)
+            self.dyn()->dispatch_expr(n->condition)
         }
 
         if n->message != &null {
-            n->message = self.dyn()->dispatch_expr(n->message)
+            self.dyn()->dispatch_expr(n->message)
         }
 
         return n
@@ -2830,12 +2858,12 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->cond != &null {
-            n->cond = self.dyn()->dispatch_expr(n->cond)
+            self.dyn()->dispatch_expr(n->cond)
         }
 
-        n->then_ = self.dyn()->traverse_block(n->then_)
+        self.dyn()->traverse_block(n->then_)
         if n->else_ != &null {
-            n->else_ = self.dyn()->dispatch_stmt(n->else_)
+            self.dyn()->dispatch_stmt(n->else_)
         }
 
         return n
@@ -2847,10 +2875,10 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->cond != &null {
-            n->cond = self.dyn()->dispatch_expr(n->cond)
+            self.dyn()->dispatch_expr(n->cond)
         }
 
-        n->body = self.dyn()->traverse_block(n->body)
+        self.dyn()->traverse_block(n->body)
         return n
     }
 
@@ -2859,7 +2887,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->body = self.dyn()->traverse_block(n->body)
+        self.dyn()->traverse_block(n->body)
         return n
     }
 
@@ -2871,10 +2899,10 @@ pub class <D: type> RecursiveASTVisitor {
 
         // bindings carry only a NamedIdentExpr name (name node) skip.
         if n->iterable != &null {
-            n->iterable = self.dyn()->dispatch_expr(n->iterable)
+            self.dyn()->dispatch_expr(n->iterable)
         }
 
-        n->body = self.dyn()->traverse_block(n->body)
+        self.dyn()->traverse_block(n->body)
         return n
     }
 
@@ -2885,18 +2913,18 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->init != &null {
-            n->init = self.dyn()->dispatch_stmt(n->init)
+            self.dyn()->dispatch_stmt(n->init)
         }
 
         if n->cond != &null {
-            n->cond = self.dyn()->dispatch_expr(n->cond)
+            self.dyn()->dispatch_expr(n->cond)
         }
 
         if n->update != &null {
-            n->update = self.dyn()->dispatch_expr(n->update)
+            self.dyn()->dispatch_expr(n->update)
         }
 
-        n->body = self.dyn()->traverse_block(n->body)
+        self.dyn()->traverse_block(n->body)
         return n
     }
 
@@ -2906,7 +2934,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->scrutinee != &null {
-            n->scrutinee = self.dyn()->dispatch_expr(n->scrutinee)
+            self.dyn()->dispatch_expr(n->scrutinee)
         }
 
         for var i: usize = 0; i < n->cases.size(); i++ {
@@ -2926,7 +2954,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->inner != &null {
-            n->inner = self.dyn()->dispatch_stmt(n->inner)
+            self.dyn()->dispatch_stmt(n->inner)
         }
 
         return n
@@ -2937,7 +2965,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->try_body = self.dyn()->traverse_block(n->try_body)
+        self.dyn()->traverse_block(n->try_body)
         for var i: usize = 0; i < n->arms.size(); i++ {
             if self.stop {
                 break
@@ -2966,7 +2994,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->body = self.dyn()->traverse_block(n->body)
+        self.dyn()->traverse_block(n->body)
         return n
     }
 
@@ -2976,7 +3004,7 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        n->body = self.dyn()->traverse_block(n->body)
+        self.dyn()->traverse_block(n->body)
         return n
     }
 
@@ -2988,10 +3016,10 @@ pub class <D: type> RecursiveASTVisitor {
 
         // bindings carry only NamedIdentExpr names skip.
         if n->value != &null {
-            n->value = self.dyn()->dispatch_expr(n->value)
+            self.dyn()->dispatch_expr(n->value)
         }
 
-        n->body = self.dyn()->traverse_block(n->body)
+        self.dyn()->traverse_block(n->body)
         return n
     }
 
@@ -3003,7 +3031,7 @@ pub class <D: type> RecursiveASTVisitor {
 
         // bindings carry only NamedIdentExpr names skip.
         if n->value != &null {
-            n->value = self.dyn()->dispatch_expr(n->value)
+            self.dyn()->dispatch_expr(n->value)
         }
 
         return n
@@ -3039,7 +3067,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->value != &null {
-            n->value = self.dyn()->dispatch_expr(n->value)
+            self.dyn()->dispatch_expr(n->value)
         }
 
         for var i: usize = 0; i < n->cases.size(); i++ {
@@ -3049,16 +3077,16 @@ pub class <D: type> RecursiveASTVisitor {
 
             var unsafe *c = n->cases.get(i)
             if c->lo != &null {
-                c->lo = self.dyn()->dispatch_expr(c->lo)
+                self.dyn()->dispatch_expr(c->lo)
             }
 
             if c->hi != &null {
-                c->hi = self.dyn()->dispatch_expr(c->hi)
+                self.dyn()->dispatch_expr(c->hi)
             }
         }
 
         if n->default_stmt != &null {
-            n->default_stmt = self.dyn()->dispatch_stmt(n->default_stmt)
+            self.dyn()->dispatch_stmt(n->default_stmt)
         }
 
         return n
@@ -3538,7 +3566,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->requires_clause != &null {
-            n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause)
+            self.dyn()->dispatch_expr(n->requires_clause)
         }
 
         if self.stop {
@@ -3546,7 +3574,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->where_clause != &null {
-            n->where_clause = self.dyn()->dispatch_expr(n->where_clause)
+            self.dyn()->dispatch_expr(n->where_clause)
         }
 
         // params
@@ -3575,19 +3603,19 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->return_type != &null {
-            n->return_type = self.dyn()->dispatch_type(n->return_type)
+            self.dyn()->dispatch_type(n->return_type)
         }
 
         if n->qualifier != &null { // out-of-line Class:: path
-            n->qualifier = self.dyn()->dispatch_expr(n->qualifier)
+            self.dyn()->dispatch_expr(n->qualifier)
         }
 
         if n->body_block != &null {
-            n->body_block = self.dyn()->traverse_block(n->body_block)
+            self.dyn()->traverse_block(n->body_block)
         }
 
         if n->body_expr != &null {
-            n->body_expr = self.dyn()->dispatch_expr(n->body_expr)
+            self.dyn()->dispatch_expr(n->body_expr)
         }
 
         return n
@@ -3600,11 +3628,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->type_ != &null {
-            n->type_ = self.dyn()->dispatch_type(n->type_)
+            self.dyn()->dispatch_type(n->type_)
         }
 
         if n->init != &null {
-            n->init = self.dyn()->dispatch_expr(n->init)
+            self.dyn()->dispatch_expr(n->init)
         }
 
         return n
@@ -3617,11 +3645,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->type_ != &null {
-            n->type_ = self.dyn()->dispatch_type(n->type_)
+            self.dyn()->dispatch_type(n->type_)
         }
 
         if n->init != &null {
-            n->init = self.dyn()->dispatch_expr(n->init)
+            self.dyn()->dispatch_expr(n->init)
         }
 
         return n
@@ -3633,11 +3661,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->type_ != &null { // null for self
-            n->type_ = self.dyn()->dispatch_type(n->type_)
+            self.dyn()->dispatch_type(n->type_)
         }
 
         if n->default_val != &null {
-            n->default_val = self.dyn()->dispatch_expr(n->default_val)
+            self.dyn()->dispatch_expr(n->default_val)
         }
 
         return n
@@ -3670,11 +3698,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->value_type != &null {
-            n->value_type = self.dyn()->dispatch_type(n->value_type)
+            self.dyn()->dispatch_type(n->value_type)
         }
 
         if n->default_type != &null {
-            n->default_type = self.dyn()->dispatch_type(n->default_type)
+            self.dyn()->dispatch_type(n->default_type)
         }
 
         return n
@@ -3734,7 +3762,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->requires_clause != &null {
-            n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause)
+            self.dyn()->dispatch_expr(n->requires_clause)
         }
 
         for var i: usize = 0; i < n->implements.size(); i++ {
@@ -3812,7 +3840,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->requires_clause != &null {
-            n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause)
+            self.dyn()->dispatch_expr(n->requires_clause)
         }
 
         for var i: usize = 0; i < n->derives_list.size(); i++ {
@@ -3877,7 +3905,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->requires_clause != &null {
-            n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause)
+            self.dyn()->dispatch_expr(n->requires_clause)
         }
 
         for var i: usize = 0; i < n->derives_list.size(); i++ {
@@ -3923,11 +3951,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->requires_clause != &null {
-            n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause)
+            self.dyn()->dispatch_expr(n->requires_clause)
         }
 
         if n->target != &null {
-            n->target = self.dyn()->dispatch_type(n->target)
+            self.dyn()->dispatch_type(n->target)
         }
 
         for var i: usize = 0; i < n->implements.size(); i++ {
@@ -3973,11 +4001,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->requires_clause != &null {
-            n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause)
+            self.dyn()->dispatch_expr(n->requires_clause)
         }
 
         if n->underlying != &null {
-            n->underlying = self.dyn()->dispatch_type(n->underlying)
+            self.dyn()->dispatch_type(n->underlying)
         }
 
         // MEMBERS: variants only. The enum body parser pushes to `variants`
@@ -4025,7 +4053,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->requires_clause != &null {
-            n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause)
+            self.dyn()->dispatch_expr(n->requires_clause)
         }
 
         for var i: usize = 0; i < n->fields.size(); i++ {
@@ -4034,6 +4062,15 @@ pub class <D: type> RecursiveASTVisitor {
             }
 
             self.dyn()->dispatch_decl(*n->fields.get(i)) // discard
+        }
+
+        // Constructors and operator overloads, as a struct's.
+        for var i: usize = 0; i < n->methods.size(); i++ {
+            if self.stop {
+                break
+            }
+
+            self.dyn()->dispatch_decl(*n->methods.get(i)) // discard
         }
 
         if self.stop {
@@ -4051,7 +4088,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->discriminant != &null {
-            n->discriminant = self.dyn()->dispatch_expr(n->discriminant)
+            self.dyn()->dispatch_expr(n->discriminant)
         }
 
         for var i: usize = 0; i < n->payload.size(); i++ {
@@ -4084,11 +4121,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->requires_clause != &null {
-            n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause)
+            self.dyn()->dispatch_expr(n->requires_clause)
         }
 
         if n->aliased != &null {
-            n->aliased = self.dyn()->dispatch_type(n->aliased)
+            self.dyn()->dispatch_type(n->aliased)
         }
 
         return n
@@ -4170,7 +4207,7 @@ pub class <D: type> RecursiveASTVisitor {
 
         // a member-position `eval if` / `eval for` (EvalBlockDecl::stmt)
         if n->stmt != &null && !self.stop {
-            n->stmt = self.dyn()->dispatch_stmt(n->stmt)
+            self.dyn()->dispatch_stmt(n->stmt)
         }
 
         return n
@@ -4182,11 +4219,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->label != &null { // StringLiteralExpr
-            n->label = self.dyn()->dispatch_expr(n->label)
+            self.dyn()->dispatch_expr(n->label)
         }
 
         if n->body != &null {
-            n->body = self.dyn()->traverse_block(n->body)
+            self.dyn()->traverse_block(n->body)
         }
 
         return n
@@ -4217,7 +4254,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->body != &null {
-            n->body = self.dyn()->traverse_block(n->body)
+            self.dyn()->traverse_block(n->body)
         }
 
         return n
@@ -4551,7 +4588,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->value != &null {
-            n->value = self.dyn()->dispatch_expr(n->value)
+            self.dyn()->dispatch_expr(n->value)
         }
 
         return n
@@ -4564,7 +4601,7 @@ pub class <D: type> RecursiveASTVisitor {
 
         // n->name is the bound identifier token skip.
         if n->type_ != &null {
-            n->type_ = self.dyn()->dispatch_type(n->type_)
+            self.dyn()->dispatch_type(n->type_)
         }
 
         return n
@@ -4593,7 +4630,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->head != &null { // null when dotted
-            n->head = self.dyn()->dispatch_expr(n->head)
+            self.dyn()->dispatch_expr(n->head)
         }
 
         for var i: usize = 0; i < n->subpatterns.size(); i++ {
@@ -4614,7 +4651,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->head != &null {
-            n->head = self.dyn()->dispatch_expr(n->head)
+            self.dyn()->dispatch_expr(n->head)
         }
 
         for var i: usize = 0; i < n->subpatterns.size(); i++ {
@@ -4650,11 +4687,11 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->lo != &null {
-            n->lo = self.dyn()->dispatch_expr(n->lo)
+            self.dyn()->dispatch_expr(n->lo)
         }
 
         if n->hi != &null {
-            n->hi = self.dyn()->dispatch_expr(n->hi)
+            self.dyn()->dispatch_expr(n->hi)
         }
 
         return n
@@ -4686,7 +4723,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
 
         if n->rest_binding != &null {
-            n->rest_binding = self.dyn()->dispatch_pattern(n->rest_binding)
+            self.dyn()->dispatch_pattern(n->rest_binding)
         }
 
         return n

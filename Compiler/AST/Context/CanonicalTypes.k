@@ -84,8 +84,8 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,    BuiltinKind,  BuiltinType, QUAL_CONST, QUAL_VOLATILE, QualifiedType, RecordType,
-    builtin_info, canon_unqual,
+    AssocType,  BoundsState,  BuiltinKind,  BuiltinType, QUAL_CONST, QUAL_VOLATILE, QualifiedType,
+    RecordType, builtin_info, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -1130,7 +1130,7 @@ pub class CanonicalTypeStore {
         }
 
         at->bounds.from_raw(unsafe (&null as unsafe *(unsafe *Type)), 0)
-        at->bounds_state = 0
+        at->bounds_state = BoundsState::NotComputed as u8
         at->init_annotations(unsafe &self._arena)
         at->init_spans(unsafe &self._arena)
 
@@ -1159,7 +1159,7 @@ pub class CanonicalTypeStore {
         // Readers take the list without the lock once the state reads 2
         // (Substitution::bound_ifaces): set once, never rewritten. Two TUs
         // that computed it side by side computed the same list.
-        if a->bounds_state == 2 {
+        if a->bounds_state == (BoundsState::Done as u8) {
             return
         }
 
@@ -1176,7 +1176,7 @@ pub class CanonicalTypeStore {
         }
 
         cxx::std::atomic_thread_fence(cxx::std::memory_order_release)
-        a->bounds_state = 2
+        a->bounds_state = BoundsState::Done as u8
     }
 
     /// An opaque C++ type, keyed by its spelling. Genuinely a black box:

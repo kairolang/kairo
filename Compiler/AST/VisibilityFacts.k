@@ -50,6 +50,7 @@ import AST::Context::DeclContext::{
     DeclContextKind,
 }
 import AST::Context::TranslationUnit::TranslationUnit
+import AST::DeclFacts::tu_of
 import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::Decl
 import AST::Node::Casting::{
@@ -210,20 +211,9 @@ pub fn tu_default_vis(tu: unsafe *TranslationUnit) -> VisibilityKind {
     return VisibilityKind::Protected
 }
 
-/// The TranslationUnit scope \p dc is in, or null.
+/// The TranslationUnit scope \p dc is in, or null (DeclFacts::tu_of).
 pub fn tu_of_scope(dc: unsafe *DeclContext) -> unsafe *TranslationUnit {
-    var unsafe *c         = dc
-    var        depth: u32 = 0
-    while c != &null && depth < 256 {
-        if c->dc_kind == DeclContextKind::TranslationUnit {
-            return unsafe (c as unsafe *TranslationUnit)
-        }
-
-        c = c->dc_parent
-        depth += 1
-    }
-
-    return &null
+    return tu_of(dc)
 }
 
 /// What \p d is when it writes no visibility keyword, \p home being the

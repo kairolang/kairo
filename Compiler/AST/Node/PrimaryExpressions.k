@@ -1144,7 +1144,7 @@ pub class StringLiteralExpr derives Expr {
             }
         }
 
-        return self.imm->next != ((-1) as i32 as u32)
+        return self.imm->next != u32::MAX
     }
 
     fn has_interpolation(self) -> bool {
@@ -1421,7 +1421,7 @@ pub class CharacterLiteralExpr derives Expr {
             }
         }
 
-        return self.imm->next != ((-1) as i32 as u32)
+        return self.imm->next != u32::MAX
     }
 
     fn has_interpolation(self) -> bool {

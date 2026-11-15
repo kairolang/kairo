@@ -37,6 +37,7 @@ import AST::Context::InstantiationRegistry::{
     ConformanceRow,
     InstanceEntry,
 }
+import AST::ExprFacts::strip_parens
 import AST::Kind::ExprKind::ExprKind
 import AST::LangItems::LangIntrinsics
 import AST::Node::Base::{
@@ -323,6 +324,17 @@ pub class NamedArgExpr derives Expr {
     }
 }
 
+/// What the consumer of `x[i]` does with the element: which form a split
+/// subscript (a type that declares `op []=`) selects. The values are the
+/// encoding of SubscriptExpr::place_ctx.
+pub enum PlaceCtx derives u8 {
+    Read = 0, ///< the read form, `op []`; never the place form.
+    Write,    ///< the place form, `op []=`: `=`, `op=`, `++`, `--`, a member written through.
+    Soft,     ///< the place form on a mutable container, else the read form: `&x[i]`, `for *e in`.
+    Bind,     ///< `var t = a[i..j]`: as Soft.
+    Recv,     ///< a method receiver: as Soft, then the read form unless the method takes `self`.
+}
+
 ///
 ///  SubscriptExpr
 ///  expr[index] element access or slice.
@@ -352,7 +364,7 @@ pub class SubscriptExpr derives Expr {
     pub var op_instance: unsafe *InstanceEntry = &null
     /// What the use does with the element, set by its consumer before it
     /// types the subscript: which form a SPLIT subscript (a type that
-    /// declares `op []=`) selects. One of MemberTyping's SUB_CTX_* values;
+    /// declares `op []=`) selects. A PlaceCtx as u8;
     /// 0 is a read. A type with no `op []=` ignores it. Written by X only.
     pub var place_ctx: u8 = 0
 
@@ -368,7 +380,7 @@ pub class SubscriptExpr derives Expr {
         node->resolved_op = &null
         node->op_via_free = false
         node->op_instance = &null
-        node->place_ctx   = 0
+        node->place_ctx   = PlaceCtx::Read as u8
         node->init_annotations(unsafe &ctx->ast_alloc)
         return node
     }
@@ -2489,12 +2501,7 @@ pub class ParenExpr derives Expr {
     /// Strips any number of nested ParenExpr layers. What sema/codegen want
     /// whenever a Verbatim-parsed tree reaches them.
     fn strip(self) -> unsafe *Expr {
-        var unsafe *e = self.inner
-        while e != &null && isa<ParenExpr>(e) {
-            e = cast<ParenExpr>(e)->inner
-        }
-
-        return e
+        return strip_parens(self.inner)
     }
 
     static fn classof(ptr: *const Expr) -> bool {

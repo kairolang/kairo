@@ -268,6 +268,14 @@ pub enum InstLiveness derives u8 {
     Walked,
 }
 
+/// The layout predicted for a generic ADT's instance. The values are the
+/// encoding of InstanceEntry::adt_shape.
+pub enum AdtShape derives u8 {
+    Unknown = 0,
+    Tagged,
+    NicheFilled,
+}
+
 /// \class InstanceEntry
 /// \brief One concrete instance of a generic type. Both halves of "an
 ///        instantiation" hang here: the CHECKING-side decl (what RecordType
@@ -321,7 +329,7 @@ pub class InstanceEntry {
     pub var undecided:          unsafe *Decl = &null
     pub var undecided_reported: bool         = false
     /// A generic ADT's instance: the layout Sema's niche engine predicts C++
-    /// picks (0 unknown, 1 tagged, 2 niche-filled) and its size in bytes (0
+    /// picks (an AdtShape as u8: 0 unknown, 1 tagged, 2 niche-filled) and its size in bytes (0
     /// unknown). One writer, EnumLayoutQuery::sweep; InterfaceEmitter pins
     /// both with static_asserts beside the instantiation.
     pub var adt_shape: u8  = 0

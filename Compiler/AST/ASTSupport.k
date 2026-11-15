@@ -50,7 +50,6 @@ import Memory::ArenaList::ArenaList
 pub class <T: type> FrozenList {
     pub var items: unsafe *T = &null
     pub var count: usize     = 0
-    pub var MAX:   usize     = ((cxx::std::numeric_limits<usize>::max()))
 
     ///
     /// \brief Freeze an ArenaList into a FrozenList, allocating the
@@ -199,7 +198,7 @@ pub class <T: type> FrozenList {
             }
         }
 
-        return self.MAX // not found
+        return usize::MAX // not found
     }
 
     ///

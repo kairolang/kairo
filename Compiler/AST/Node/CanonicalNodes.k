@@ -1481,6 +1481,14 @@ pub class RecordType derives Type {
     }
 }
 
+/// Whether an AssocType's `bounds` cache is filled. The values are the
+/// encoding of AssocType::bounds_state. There is no "in progress": that is
+/// per file and lives in Sema, not on the shared node.
+pub enum BoundsState derives u8 {
+    NotComputed = 0,
+    Done        = 2, ///< published under a release fence.
+}
+
 ///
 ///  AssocType
 ///  `T::Node` through a bound, `Self::Node` inside the interface.
@@ -1516,7 +1524,7 @@ pub class AssocType derives Type {
     /// the three, filled by Substitution::bound_ifaces (the one place that
     /// computes it) once the requirement's clause is resolved, so that
     /// codegen can read the bound a member type is spelled through.
-    /// `bounds_state`: 0 not computed, 2 done (published under a release
+    /// `bounds_state` (a BoundsState as u8): 0 not computed, 2 done (published under a release
     /// fence). There is no 1: "being computed" is per TU and lives in
     /// SemaContext::assoc_busy, not on this shared node.
     pub var bounds:       FrozenList<unsafe *Type>

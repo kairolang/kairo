@@ -229,61 +229,66 @@ pub class <T> ListRewriter {
     /// Rebuild the source list with every recorded op applied. No-op if
     /// nothing was recorded (the original FrozenList is left untouched, so
     /// passes that inspect-but-don't-edit pay nothing).
+    ///
+    /// One pass over the ops, then one over the list. Inserts at one index
+    /// fire in record order, before that slot's element. Of several
+    /// Replace / Remove ops recorded for one slot the last one decides it.
     pub fn apply(self) {
         if !self._dirty {
             return
         }
 
-        // Scratch, copied by from_list (see ASTWriter::rebuild_stmt_list).
-        var buf = ArenaList<T>()
-
-        for var i: usize = 0; i < self._source->size(); i++ {
-            // InsertBefore ops targeting this slot fire first, in record order.
-            for var j: usize = 0; j < self._ops.size(); j++ {
-                if self._ops[j].kind == Self::OpKind::InsertBefore && self._ops[j].index == i {
-                    buf.push(self._ops[j].item)
-                }
-            }
-
-            // Resolve remove/replace for this slot. First matching op wins;
-            // Remove dominates Replace if both somehow target the same index.
-            var removed        = false
-            var replaced       = false
-            var replacement: T
-
-            for var j: usize = 0; j < self._ops.size(); j++ {
-                if self._ops[j].index != i {
-                    continue
+        var n    = self._source->size()
+        var none = usize::MAX
+        // decides[i]: the op that decides slot i. head[i] / next[j]: the
+        // inserts before slot i as a chain through the ops, in record
+        // order; slot n collects every insert at or past the end.
+        var decides: cxx::std::vector<usize>
+        var head:    cxx::std::vector<usize>
+        var tail:    cxx::std::vector<usize>
+        var next:    cxx::std::vector<usize>
+        decides.resize(n, none)
+        head.resize(n + 1, none)
+        tail.resize(n + 1, none)
+        next.resize(self._ops.size(), none)
+        for var j: usize = 0; j < self._ops.size(); j++ {
+            var at: usize = self._ops[j].index
+            if self._ops[j].kind != Self::OpKind::InsertBefore {
+                if at < n {
+                    decides[at] = j
                 }
 
-                if self._ops[j].kind == Self::OpKind::Remove {
-                    removed = true
-                    break
-                }
-
-                if self._ops[j].kind == Self::OpKind::Replace {
-                    replaced    = true
-                    replacement = self._ops[j].item
-                    break
-                }
-            }
-
-            if removed {
                 continue
             }
 
-            if replaced {
-                buf.push(replacement)
-            } else {
-                buf.push(*self._source->get(i))
+            if at > n {
+                at = n
             }
+
+            if head[at] == none {
+                head[at] = j
+            } else {
+                next[tail[at]] = j
+            }
+
+            tail[at] = j
         }
 
-        // Trailing inserts: any InsertBefore at index >= size is an append.
-        for var j: usize = 0; j < self._ops.size(); j++ {
-            if self._ops[j].kind == Self::OpKind::InsertBefore
-                && self._ops[j].index >= self._source->size() {
+        // Scratch, copied by from_list (see ASTWriter::rebuild_stmt_list).
+        var buf = ArenaList<T>()
+        for var i: usize = 0; i <= n; i++ {
+            for var j = head[i]; j != none; j = next[j] {
                 buf.push(self._ops[j].item)
+            }
+
+            if i == n {
+                break
+            }
+
+            if decides[i] == none {
+                buf.push(*self._source->get(i))
+            } else if self._ops[decides[i]].kind == Self::OpKind::Replace {
+                buf.push(self._ops[decides[i]].item)
             }
         }
 

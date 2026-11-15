@@ -792,6 +792,14 @@ pub enum EvalTaken derives u8 {
     Else, ///< the then branch was emptied.
 }
 
+/// A written `@likely` / `@unlikely`. The values are the encoding of
+/// ConditionalStmt::else_hint.
+pub enum BranchHint derives u8 {
+    None = 0,
+    Likely,
+    Unlikely,
+}
+
 ///
 ///  ConditionalStmt
 ///  Grammar:  'if' expr block ('else' 'if' expr block)* ('else' block)?
@@ -813,7 +821,8 @@ pub class ConditionalStmt derives Stmt {
     /// One writer: EvalIfFolding.
     pub var eval_deferred: bool
     /// `@likely` / `@unlikely` written between the previous branch's `}` and
-    /// the `else` of this statement's else_ (0 none, 1 likely, 2 unlikely):
+    /// the `else` of this statement's else_ (a BranchHint as u8: 0 none, 1
+    /// likely, 2 unlikely):
     /// the hint for the else branch, as the statement's own attribute is for
     /// the then branch. EmitIR::_if reads it.
     pub var else_hint: u8
@@ -837,7 +846,7 @@ pub class ConditionalStmt derives Stmt {
         node->else_         = else_
         node->is_eval       = false
         node->eval_deferred = false
-        node->else_hint     = 0
+        node->else_hint     = BranchHint::None as u8
         node->eval_taken    = EvalTaken::Undecided
         return node
     }
@@ -848,7 +857,7 @@ pub class ConditionalStmt derives Stmt {
         node->recovery_kind = StmtKind::ConditionalStmt
         node->is_eval       = false
         node->eval_deferred = false
-        node->else_hint     = 0
+        node->else_hint     = BranchHint::None as u8
         node->eval_taken    = EvalTaken::Undecided
         node->range         = range
         node->init_annotations(unsafe &ctx->ast_alloc)
@@ -1582,61 +1591,6 @@ pub class EvalBlockStmt derives Stmt {
     static fn stmt_kind() -> StmtKind {
         return StmtKind::EvalBlockStmt
     }
-}
-
-pub enum InlineBlockLang derives u8 {
-    /// Clang: -x assembler-with-cpp
-    /// inline "asm" { }
-    Asm,
-
-    /// Clang: -x c
-    /// inline "c" { }
-    C,
-
-    /// Clang: -x c++
-    /// inline "c++" { }
-    Cxx,
-
-    /// Clang: -x cuda  (requires CUDA toolkit)
-    /// inline "cuda" { }
-    Cuda,
-
-    /// Clang: -x hip  (requires ROCm)
-    /// inline "hip" { }
-    Hip,
-
-    /// Clang: -x opencl
-    /// inline "OpenCL" { }
-    OpenCL,
-
-    /// Clang: -x hlsl  (Clang 15+)
-    /// inline "hlsl" { }
-    Hlsl,
-
-    /// Apple metal compiler (xcrun metal), NOT standard Clang
-    /// requires Apple toolchain
-    /// inline "metal" { }
-    Metal,
-
-    /// OpenCL source compiled to SPIR-V via --target=spirv32/spirv64
-    /// not a separate language, just OpenCL with a different target
-    /// inline "spirv" { }
-    SpirV,
-
-    /// naga or tint compiler, NOT Clang
-    /// requires separate WGSL toolchain
-    /// inline "wgsl" { }
-    Wgsl,
-
-    /// glslang or shaderc, NOT Clang
-    /// requires separate GLSL toolchain
-    /// inline "glsl" { }
-    Glsl,
-
-    /// does absolutely nothing, just for fucks and giggles
-    /// ACTUALLY MIGHT BE USEFUL FOR ADDING KAIRO DIRECTLY INTO C++ CODE
-    /// inline "kairo" { }
-    Kairo,
 }
 
 ///
