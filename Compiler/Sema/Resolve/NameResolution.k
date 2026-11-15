@@ -91,8 +91,9 @@ import AST::Context::SymbolTable::{
 }
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
-    decl_ffi_tag_target,  decl_generic_params, decl_is_ffi,    decl_is_ffi_tag, decl_name_tok,
-    decl_requires_clause, decl_set_spec_kind,  decl_spec_args,
+    decl_ffi_tag_target,     decl_generic_params,  decl_is_ffi,        decl_is_ffi_tag,
+    decl_name_tok,           decl_requires_clause, decl_set_spec_kind, decl_spec_args,
+    for_each_unwrapped_decl,
 }
 import AST::Kind::DeclKind::{
     DeclKind,
@@ -667,39 +668,15 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 continue
             }
 
-            self._judge_reopenings_of(d)
+            for_each_unwrapped_decl(
+                d,
+                fn (x: unsafe *Decl) { self._judge_reopenings_of(x) },
+            )
         }
     }
 
     priv fn _judge_reopenings_of(self, d: unsafe *Decl) {
         if d == &null {
-            return
-        }
-
-        if isa<Declarations::VisibilityGroupDecl>(d) {
-            var unsafe *g = cast<Declarations::VisibilityGroupDecl>(d)
-            for var i: usize = 0; i < g->members.count; ++i {
-                self._judge_reopenings_of(g->members[i])
-            }
-
-            return
-        }
-
-        if isa<Declarations::EvalBlockDecl>(d) {
-            var unsafe *b = cast<Declarations::EvalBlockDecl>(d)
-            for var i: usize = 0; i < b->body.count; ++i {
-                self._judge_reopenings_of(b->body[i])
-            }
-
-            return
-        }
-
-        if isa<Declarations::FFIBlockDecl>(d) {
-            var unsafe *b = cast<Declarations::FFIBlockDecl>(d)
-            for var i: usize = 0; i < b->body.count; ++i {
-                self._judge_reopenings_of(b->body[i])
-            }
-
             return
         }
 
@@ -1125,41 +1102,17 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 continue
             }
 
-            self._descend(d)
+            for_each_unwrapped_decl(
+                d,
+                fn (x: unsafe *Decl) { self._descend(x) },
+            )
         }
     }
 
-    /// Recurse into a child decl's own scope, seeing through the
+    /// Recurse into a child decl's own scope. The caller unwraps the
     /// table-less wrapper decls the parser also parks in dc_decls.
     priv fn _descend(self, d: unsafe *Decl) {
         if d == &null {
-            return
-        }
-
-        if isa<Declarations::VisibilityGroupDecl>(d) {
-            var unsafe *g = cast<Declarations::VisibilityGroupDecl>(d)
-            for var i: usize = 0; i < g->members.count; ++i {
-                self._descend(g->members[i])
-            }
-
-            return
-        }
-
-        if isa<Declarations::EvalBlockDecl>(d) {
-            var unsafe *b = cast<Declarations::EvalBlockDecl>(d)
-            for var i: usize = 0; i < b->body.count; ++i {
-                self._descend(b->body[i])
-            }
-
-            return
-        }
-
-        if isa<Declarations::FFIBlockDecl>(d) {
-            var unsafe *b = cast<Declarations::FFIBlockDecl>(d)
-            for var i: usize = 0; i < b->body.count; ++i {
-                self._descend(b->body[i])
-            }
-
             return
         }
 

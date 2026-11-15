@@ -79,6 +79,7 @@ import AST::DeclFacts::{
     decl_set_spec_kind,
     decl_spec_args,
     decl_spec_kind,
+    for_each_unwrapped_decl,
 }
 import AST::Kind::DeclKind::{
     DeclKind,
@@ -5996,21 +5997,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// enum, and whichever decl a reader reaches must answer alike. Every
     /// link is visited, so the last visit leaves the whole ring agreed.
     priv fn _merge_enum_open(self, n: unsafe *Declarations::EnumDecl) {
-        var unsafe *head = n->first_decl()
-        if head == &null {
-            return
-        }
-
-        var        any  = false
-        var unsafe *cur = head
-        while true {
-            if cur->is_open {
+        var links = cxx::std::vector<unsafe *Decl>()
+        NameLookup::collect_chain(unsafe (n as unsafe *Decl), &links)
+        var any = false
+        for var i: usize = 0; i < links.size(); ++i {
+            if cast<Declarations::EnumDecl>(links[i])->is_open {
                 any = true
-            }
-
-            cur = cur->next_in_chain()
-            if cur == head {
-                break
             }
         }
 
@@ -6050,13 +6042,8 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return
         }
 
-        cur = head
-        while true {
-            cur->is_open = true
-            cur          = cur->next_in_chain()
-            if cur == head {
-                break
-            }
+        for var i: usize = 0; i < links.size(); ++i {
+            cast<Declarations::EnumDecl>(links[i])->is_open = true
         }
     }
 
@@ -6351,29 +6338,14 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 continue
             }
 
-            self._register_spec_decl(d)
+            for_each_unwrapped_decl(
+                d,
+                fn (x: unsafe *Decl) { self._register_spec_decl(x) },
+            )
         }
     }
 
     priv fn _register_spec_decl(self, d: unsafe *Decl) {
-        if isa<Declarations::VisibilityGroupDecl>(d) {
-            var unsafe *g = cast<Declarations::VisibilityGroupDecl>(d)
-            for var i: usize = 0; i < g->members.size(); ++i {
-                self._register_spec_decl(g->members[i])
-            }
-
-            return
-        }
-
-        if isa<Declarations::EvalBlockDecl>(d) {
-            var unsafe *b = cast<Declarations::EvalBlockDecl>(d)
-            for var i: usize = 0; i < b->body.size(); ++i {
-                self._register_spec_decl(b->body[i])
-            }
-
-            return
-        }
-
         if isa<Declarations::ModuleDecl>(d) {
             self._register_specs_in(NameLookup::context_of(d))
             return

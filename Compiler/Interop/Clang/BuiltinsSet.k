@@ -48,6 +48,11 @@ ffi "c++" import "vector"
 ffi "c++" import "utility"
 ffi "c++" import "memory"
 
+import Interop::Clang::ClangInstance::{
+    setup_diagnostics,
+    setup_target,
+}
+
 pub class BuiltinsSet {
     priv var _ci: unsafe *clang::CompilerInstance = &null
     /// name -> builtin ID. The ONE owner of the name bytes: a StringMap
@@ -114,30 +119,10 @@ pub class BuiltinsSet {
         copy->getPreprocessorOpts().Includes.clear() // no main file is ever entered.
 
         self._ci = kairo::std::create<clang::CompilerInstance>(copy)
-        self._ci->setVirtualFileSystem(vfs)
-        self._ci->createDiagnostics(printer, false)
-        if !self._ci->hasDiagnostics() {
+        if !setup_diagnostics(self._ci, vfs, printer, false) || !setup_target(self._ci) {
             self.release()
             return false
         }
-
-        self._ci->setTarget(
-            clang::TargetInfo::CreateTargetInfo(
-                &self._ci->getDiagnostics(),
-                &self._ci->getInvocation().getTargetOpts(),
-            ),
-        )
-
-        if !self._ci->hasTarget() {
-            self.release()
-            return false
-        }
-
-        self._ci->getTarget().adjust(
-            &self._ci->getDiagnostics(),
-            &self._ci->getLangOpts(),
-            &null,
-        )
 
         self._ci->createFileManager()
         self._ci->createSourceManager()

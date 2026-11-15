@@ -505,7 +505,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
 
     cmd->define<FlagKind::PathList>("files", "run --help to see usage")
     // -x applies to the inputs that FOLLOW it, so the parser tags each input
-    // with the value in force when it is seen (ParsedArgs::file_langs).
+    // with the value in force when it is seen (ParsedArgs::inputs).
     cmd->define<FlagKind::String>(
         "language",
         "x",
@@ -4216,7 +4216,7 @@ pub fn Test() -> i32 {
                 return f"expected 1, got {r.get_string("opt")}"
             }
 
-            if r.files.size() != 1 {
+            if r.inputs.size() != 1 {
                 return "main.k was swallowed as the value"
             }
 
@@ -4396,12 +4396,12 @@ pub fn Test() -> i32 {
         "pass",
         fn () -> string {
             var r = cmd_p->parse_string("main.k")
-            if r.files.size() != 1 {
-                return f"expected 1, got {r.files.size()}"
+            if r.inputs.size() != 1 {
+                return f"expected 1, got {r.inputs.size()}"
             }
 
-            if r.files[0] != "main.k" {
-                return f"got '{r.files[0]}'"
+            if r.inputs[0].path != "main.k" {
+                return f"got '{r.inputs[0].path}'"
             }
 
             return "pass"
@@ -4414,8 +4414,8 @@ pub fn Test() -> i32 {
         "pass",
         fn () -> string {
             var r = cmd_p->parse_string("main.k util.k helper.k")
-            if r.files.size() != 3 {
-                return f"expected 3, got {r.files.size()}"
+            if r.inputs.size() != 3 {
+                return f"expected 3, got {r.inputs.size()}"
             }
 
             return "pass"
@@ -4428,8 +4428,8 @@ pub fn Test() -> i32 {
         "pass",
         fn () -> string {
             var r = cmd_p->parse_string("main.k ---g -O2 util.k")
-            if r.files.size() != 2 {
-                return f"files: {r.files.size()}"
+            if r.inputs.size() != 2 {
+                return f"files: {r.inputs.size()}"
             }
 
             if !r.get_bool("debug") {
@@ -4456,8 +4456,8 @@ pub fn Test() -> i32 {
                 return "verbose before --"
             }
 
-            if r.files.size() != 2 {
-                return f"expected 2 files after --, got {r.files.size()}"
+            if r.inputs.size() != 2 {
+                return f"expected 2 files after --, got {r.inputs.size()}"
             }
 
             return "pass"
@@ -4521,8 +4521,8 @@ pub fn Test() -> i32 {
                 return "output"
             }
 
-            if r.files.size() != 2 {
-                return f"files: {r.files.size()}"
+            if r.inputs.size() != 2 {
+                return f"files: {r.inputs.size()}"
             }
 
             return "pass"
@@ -4564,12 +4564,12 @@ pub fn Test() -> i32 {
         "pass",
         fn () -> string {
             var r = cmd_p->parse_string("test.k ---I something -Lotherlib")
-            if r.files.size() != 1 {
-                return f"files: {r.files.size()}"
+            if r.inputs.size() != 1 {
+                return f"files: {r.inputs.size()}"
             }
 
-            if r.files[0] != "test.k" {
-                return f"file: '{r.files[0]}'"
+            if r.inputs[0].path != "test.k" {
+                return f"file: '{r.inputs[0].path}'"
             }
 
             if r.get_list("include-dirs")->size() != 1 {

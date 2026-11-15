@@ -432,15 +432,6 @@ pub class NameLookup {
         return &null
     }
 
-    /// Every link of `d`'s redeclaration ring, in insertion order, into
-    /// \p out. One element (just `d`) for a non-redeclarable kind or an
-    /// unlinked decl.
-    ///
-    /// The ring is not the cell. A cell holds what a SCOPE declares; a ring
-    /// holds what one ENTITY was declared as, and they diverge wherever an
-    /// out-of-line definition is involved -- `fn C::bump` is in no symbol
-    /// table, so a member with one in-class declaration and two out-of-line
-    /// definitions is a cell of size 1 and a ring of size 3.
     /// Every scope a module DENOTES: its own, plus every other reopening
     /// in its redeclaration ring. One `module Foo { }` block is one
     /// DeclContext with one table, and a module reopened N times is N of
@@ -532,7 +523,20 @@ pub class NameLookup {
         }
     }
 
-    static fn collect_chain(d: unsafe *Decl, @inout out: cxx::std::vector<unsafe *Decl>) {
+    /// Every link of `d`'s redeclaration ring, in insertion order, into
+    /// \p out. One element (just `d`) for a non-redeclarable kind or an
+    /// unlinked decl.
+    ///
+    /// The ring is not the cell. A cell holds what a SCOPE declares; a ring
+    /// holds what one ENTITY was declared as, and they diverge wherever an
+    /// out-of-line definition is involved -- `fn C::bump` is in no symbol
+    /// table, so a member with one in-class declaration and two out-of-line
+    /// definitions is a cell of size 1 and a ring of size 3.
+    ///
+    /// Ring walks go through here: a link is never null and the ring always
+    /// closes on its head (Redeclarable), so a caller iterates \p out and
+    /// needs no step bound of its own. Appends; \p out is not cleared.
+    pub static fn collect_chain(d: unsafe *Decl, @inout out: cxx::std::vector<unsafe *Decl>) {
         if d == &null {
             return
         }

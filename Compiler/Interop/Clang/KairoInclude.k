@@ -59,12 +59,11 @@ ffi "c++" import "clang/Lex/HeaderSearch.h"
 ffi "c++" import "clang/Lex/Preprocessor.h"
 ffi "c++" import "clang/Lex/Token.h"
 ffi "c++" import "llvm/ADT/ArrayRef.h"
-ffi "c++" import "llvm/Support/CommandLine.h"
 ffi "c++" import "vector"
 ffi "c++" import "optional"
 ffi "c++" import "utility"
 
-import std::c_char
+import Interop::Clang::ClangInstance::parse_llvm_args
 
 /// \class KairoIncludeSource
 /// \brief Where a hook gets a .k file's tokens: the driver, which owns the
@@ -524,22 +523,14 @@ pub fn execute_with_kairo_includes(ci:     unsafe *clang::CompilerInstance,
 
     var errs_before = ci->getDiagnostics().getNumErrors()
     ci->LoadRequestedPlugins()
-    if !fo->LLVMArgs.empty() {
-        var argv: cxx::std::vector<kairo::std::ConstPtr<c_char>>
-        argv.push_back("clang (LLVM option parsing)".c_str())
-        for var i: usize = 0; i < fo->LLVMArgs.size(); ++i {
-            argv.push_back(fo->LLVMArgs[i].c_str())
-        }
-
-        argv.push_back(&null)
-        llvm::cl::ParseCommandLineOptions(
-            (argv.size() - 1) as i32,
-            argv.data(),
-            kairo::sref(r""),
-            &null,
-            unsafe &ci->getVirtualFileSystem(),
-        )
-    }
+    // No error stream: a rejected word exits, as under cc1.
+    parse_llvm_args(
+        fo->LLVMArgs,
+        "clang (LLVM option parsing)",
+        kairo::sref(r""),
+        &null,
+        unsafe &ci->getVirtualFileSystem(),
+    )
 
     if ci->getDiagnostics().getNumErrors() != errs_before {
         return false

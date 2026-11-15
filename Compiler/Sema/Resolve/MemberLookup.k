@@ -73,6 +73,7 @@ import AST::DeclFacts::{
     decl_is_imported,
     decl_is_instance,
     decl_name_tok,
+    for_each_unwrapped_decl,
 }
 import AST::Node::Base::{
     Decl,
@@ -95,6 +96,7 @@ import AST::Node::Types::{
     NullableType,
     PointerType,
 }
+import AST::OperatorFacts::op_decl_name
 import AST::VisibilityFacts::reexports_to
 import Diagnostic::Code::DiagCode
 import Diagnostic::DiagBuilder::DiagBuilder
@@ -182,9 +184,6 @@ pub class MemberLookup {
     /// the note does not depend on check order either.
     priv var _hidden_unresolved: cxx::std::vector<unsafe *Declarations::ExtensionDecl>
     priv var _indexed:           bool                                                  = false
-    /// This TU's spelling of the name the current lookup() is walking. See
-    /// in_scope: a foreign scope's table cannot be probed with our imm.
-    priv var _cur_spelling: string = ""
 
     // No _ext_by_shape index: `extend <T> [T]` targets
     // record(Vector, [T]) and keys on the Vector primary through
@@ -258,7 +257,10 @@ pub class MemberLookup {
                 continue
             }
 
-            self._index_decl(d, fid)
+            for_each_unwrapped_decl(
+                d,
+                fn (x: unsafe *Decl) { self._index_decl(x, fid) },
+            )
         }
     }
 
@@ -303,30 +305,13 @@ pub class MemberLookup {
             return
         }
 
-        // Extensions may sit inside modules and visibility groups.
+        // Extensions may sit inside modules; the caller unwraps visibility
+        // groups and `eval` blocks.
         if isa<Declarations::ModuleDecl>(d) {
             self._index_dc(
                 unsafe (cast<Declarations::ModuleDecl>(d) as unsafe *DeclContext),
                 fid,
             )
-
-            return
-        }
-
-        if isa<Declarations::VisibilityGroupDecl>(d) {
-            var unsafe *g = cast<Declarations::VisibilityGroupDecl>(d)
-            for var i: usize = 0; i < g->members.size(); ++i {
-                self._index_decl(g->members[i], fid)
-            }
-
-            return
-        }
-
-        if isa<Declarations::EvalBlockDecl>(d) {
-            var unsafe *b = cast<Declarations::EvalBlockDecl>(d)
-            for var i: usize = 0; i < b->body.size(); ++i {
-                self._index_decl(b->body[i], fid)
-            }
 
             return
         }
@@ -501,8 +486,10 @@ pub class MemberLookup {
 
         // Spelled once per lookup, not once per scope: the walk can cross into
         // several TUs (a base class in one file, an extension in another) and
-        // each of their tables is keyed by its own imms.
-        self._cur_spelling = self._spell(name)
+        // each of their tables is keyed by its own imms. Handed down the
+        // walk as an argument, so a lookup started from inside another one
+        // on this object cannot change the name the outer walk compares.
+        var spelling = self._spell(name)
 
         if isa<RecordType>(c) {
             var seen = llvm::DenseSet<u64>() // decl addresses: never the reserved ~0 / ~0-1 keys
@@ -517,11 +504,11 @@ pub class MemberLookup {
                 }
             }
 
-            self._walk_record(root, name, out, unsafe &seen)
+            self._walk_record(root, name, spelling, out, unsafe &seen)
         } else {
             var unsafe *exts = self.extensions_of_type(c)
             if exts != &null {
-                self._append_from_extensions(*exts, name, out)
+                self._append_from_extensions(*exts, name, spelling, out)
             }
         }
 
@@ -654,10 +641,11 @@ pub class MemberLookup {
     /// Own table -> extensions -> bases. `seen` dedups the DAG so a virtual
     /// base reached twice contributes once.
     priv fn _walk_record(self,
-                         d:    unsafe *Decl,
-                         name: DeclName,
-                         out:  unsafe *cxx::std::vector<unsafe *Decl>,
-                         seen: unsafe *llvm::DenseSet<u64>) {
+                         d:              unsafe *Decl,
+                         name:           DeclName,
+                         const spelling: string,
+                         out:            unsafe *cxx::std::vector<unsafe *Decl>,
+                         seen:           unsafe *llvm::DenseSet<u64>) {
         if d == &null {
             return
         }
@@ -682,7 +670,7 @@ pub class MemberLookup {
         if cid != &null && cid->compose_state == 2 {
             for var i: usize = 0; i < cid->requirements.size(); ++i {
                 var unsafe *rd = cid->requirements.get(i)->decl
-                if !self._names(rd, name) {
+                if !self._names(rd, name, spelling) {
                     continue
                 }
 
@@ -710,7 +698,7 @@ pub class MemberLookup {
         var        own_hit    = false
         var        before_own = out->size()
         if dc != &null {
-            var unsafe *cell = self.in_scope(dc, name, self._cur_spelling)
+            var unsafe *cell = self.in_scope(dc, name, spelling)
             if cell != &null {
                 self._append_cell(cell, &*out)
                 own_hit = cell->size() > 0
@@ -722,14 +710,14 @@ pub class MemberLookup {
         //    whether that instance is implicit or a user-written spec (#12).
         var unsafe *exts = self.extensions_of_decl(d)
         if exts != &null {
-            self._append_from_extensions(*exts, name, out)
+            self._append_from_extensions(*exts, name, spelling, out)
         }
 
         var unsafe *pat = decl_instantiated_from(d)
         if pat != &null && pat != d {
             var unsafe *pexts = self.extensions_of_decl(pat)
             if pexts != &null {
-                self._append_from_extensions(*pexts, name, out)
+                self._append_from_extensions(*pexts, name, spelling, out)
             }
 
             // 2b. An implicit instantiation nobody has filled (M2, or clang
@@ -740,7 +728,7 @@ pub class MemberLookup {
             //     selected for these args, when one was.
             if MemberLookup::unfilled(d) {
                 var unsafe *body = if (self.sc != &null) => (self.sc->body_of(d)) else => pat
-                self._walk_record(body, name, out, seen)
+                self._walk_record(body, name, spelling, out, seen)
                 return
             }
         }
@@ -769,10 +757,10 @@ pub class MemberLookup {
         if own_hit
             && decl_is_imported(d)
             && isa<Declarations::ClassDecl>(d)
-            && (self._cur_spelling.size() > 0 || name.is_op()) {
+            && (spelling.size() > 0 || name.is_op()) {
             var merged = false
             var *us    = &cast<Declarations::ClassDecl>(d)->ffi_usings
-            var want = if (!name.is_op()) => (self._cur_spelling) else => "operator"
+            var want   = if (!name.is_op()) => (spelling) else => "operator"
             for var i: usize = 0; i < us->size(); ++i {
                 if (*us)[i] == want {
                     merged = true
@@ -807,7 +795,13 @@ pub class MemberLookup {
         if isa<Declarations::ClassDecl>(d) {
             var unsafe *cd = cast<Declarations::ClassDecl>(d)
             for var i: usize = 0; i < cd->derives_list.size(); ++i {
-                self._walk_edge(cd->derives_list.get(i), name, out, seen)
+                self._walk_edge(
+                    cd->derives_list.get(i),
+                    name,
+                    spelling,
+                    out,
+                    seen,
+                )
             }
 
             return
@@ -820,7 +814,13 @@ pub class MemberLookup {
         if isa<Declarations::InterfaceDecl>(d) {
             var unsafe *id = cast<Declarations::InterfaceDecl>(d)
             for var i: usize = 0; i < id->derives_list.size(); ++i {
-                self._walk_edge(id->derives_list.get(i), name, out, seen)
+                self._walk_edge(
+                    id->derives_list.get(i),
+                    name,
+                    spelling,
+                    out,
+                    seen,
+                )
             }
 
             return
@@ -1158,10 +1158,11 @@ pub class MemberLookup {
     }
 
     priv fn _walk_edge(self,
-                       e:    unsafe *Declarations::InheritEdge,
-                       name: DeclName,
-                       out:  unsafe *cxx::std::vector<unsafe *Decl>,
-                       seen: unsafe *llvm::DenseSet<u64>) {
+                       e:              unsafe *Declarations::InheritEdge,
+                       name:           DeclName,
+                       const spelling: string,
+                       out:            unsafe *cxx::std::vector<unsafe *Decl>,
+                       seen:           unsafe *llvm::DenseSet<u64>) {
         if e == &null || e->base == &null {
             return
         }
@@ -1175,19 +1176,20 @@ pub class MemberLookup {
             return
         }
 
-        self._walk_record(cast<RecordType>(c)->decl, name, out, seen)
+        self._walk_record(cast<RecordType>(c)->decl, name, spelling, out, seen)
     }
 
     priv fn _append_from_extensions(
         self,
-        const exts: cxx::std::vector<unsafe *Declarations::ExtensionDecl>,
-        name:       DeclName,
-        out:        unsafe *cxx::std::vector<unsafe *Decl>,
+        const exts:     cxx::std::vector<unsafe *Declarations::ExtensionDecl>,
+        name:           DeclName,
+        const spelling: string,
+        out:            unsafe *cxx::std::vector<unsafe *Decl>,
     ) {
         for var i: usize = 0; i < exts.size(); ++i {
             var unsafe *e    = (exts)[i]
             var unsafe *dc   = unsafe (e as unsafe *DeclContext)
-            var unsafe *cell = self.in_scope(dc, name, self._cur_spelling)
+            var unsafe *cell = self.in_scope(dc, name, spelling)
             if cell != &null {
                 self._append_cell(cell, &*out)
             }
@@ -1197,31 +1199,18 @@ pub class MemberLookup {
     /// Append every decl of a cell, skipping duplicates by identity (a decl
     /// reached through two paths is one candidate).
     /// Requirement \p d is named \p name. The requirement may be another
-    /// TU's, so an identifier compares by this lookup's spelling, not imm.
-    priv fn _names(self, d: unsafe *Decl, name: DeclName) -> bool {
+    /// TU's, so an identifier compares by \p spelling (this TU's spelling
+    /// of \p name), not imm.
+    priv fn _names(self, d: unsafe *Decl, name: DeclName, const spelling: string) -> bool {
         var unsafe *f = dyn_cast<Declarations::FunctionDecl>(d)
         if f != &null && f->is_operator {
             if name.kind != DeclNameKind::Operator {
                 return false
             }
 
-            var k0 = TokenKind::TkUnknown
-            var k1 = TokenKind::TkUnknown
-            var k2 = TokenKind::TkUnknown
-            if f->op_token.size() > 0 {
-                k0 = f->op_token[0].kind
-            }
-
-            if f->op_token.size() > 1 {
-                k1 = f->op_token[1].kind
-            }
-
-            // `op []=` is three tokens (DeclName::op_name_of).
-            if f->op_token.size() > 2 {
-                k2 = f->op_token[2].kind
-            }
-
-            return DeclName::op_name_of(k0, k1, k2).as_key() == name.as_key()
+            // The key every lookup carries leaves the `l` / `r` marker
+            // out, so `++` on a bounded value names both requirements.
+            return op_decl_name(f).as_key() == name.as_key()
         }
 
         if name.kind != DeclNameKind::Identifier {
@@ -1233,7 +1222,7 @@ pub class MemberLookup {
             return false
         }
 
-        return ctx->get_spelling(decl_name_tok(d)) == self._cur_spelling
+        return ctx->get_spelling(decl_name_tok(d)) == spelling
     }
 
     priv fn _append_cell(self,

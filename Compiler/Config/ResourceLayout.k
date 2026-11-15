@@ -76,6 +76,24 @@ pub class ResourceLayout {
         return "rt/mimalloc/include"
     }
 
+    /// # builtin
+
+    /// \brief the builtin root the import resolver loads the prelude from:
+    ///        --builtins-dir, else <resource-dir>/builtin; "" with neither.
+    ///        As spelled: the caller makes it absolute if it needs to.
+    pub static fn builtin_root_of(ci: unsafe *CompilerInvocation) -> string {
+        if ci == &null {
+            return ""
+        }
+
+        var root = ci->pp.builtins_dir
+        if root.empty() && !ci->target.resource_dir.empty() {
+            root = ci->target.resource_dir + "/" + ResourceLayout::builtin_subdir()
+        }
+
+        return root
+    }
+
     /// # std
 
     /// \brief the std root the library tests compare against: --std-dir,

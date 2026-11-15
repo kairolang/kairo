@@ -19,7 +19,10 @@ import Command::FlagRegistry::register_kairo_flags
 import Command::ParsedArgs::ParsedArgs
 import Config::CodeGen::CodeGenOptions
 import Config::Diagnostic::DiagnosticOptions
-import Config::Frontend::FrontendOptions
+import Config::Frontend::{
+    EmitKinds,
+    FrontendOptions,
+}
 import Config::Language::LangOptions
 import Config::Linker::LinkerOptions
 import Config::Preprocessor::PreprocessorOptions
@@ -132,6 +135,14 @@ pub class CompilerInvocation {
     }
 
     pub static fn from_args(@inout args: ParsedArgs) -> CompilerInvocation {
+        // --emit and -S, parsed once: what the frontend writes and whether
+        // the run links are two readings of the one set.
+        var emit = EmitKinds::parse(
+            args.get_string("emit"),
+            args.get_bool("emit-asm"),
+            args.is_set("emit"),
+        )
+
         var inv = CompilerInvocation()
         inv.args     = args
         inv.ok       = args.ok
@@ -139,12 +150,19 @@ pub class CompilerInvocation {
         inv.diag     = DiagnosticOptions::from_args(&args)
         inv.pp       = PreprocessorOptions::from_args(&args)
         inv.codegen  = CodeGenOptions::from_args(&args)
-        inv.frontend = FrontendOptions::from_args(&args)
+        inv.frontend = FrontendOptions::from_args(&args, emit)
         inv.target   = TargetOptions::from_args(&args)
-        inv.linker   = LinkerOptions::from_args(&args)
+        inv.linker = LinkerOptions::from_args(
+            &args,
+            emit,
+            inv.codegen.opt_level > 0,
+        )
 
-        inv.input_files    = args.files
-        inv.input_langs    = args.file_langs
+        for *a in args.inputs {
+            inv.input_files.push_back(a->path)
+            inv.input_langs.push_back(a->lang)
+        }
+
         inv.working_dir    = args.get_string("working-dir")
         inv.input_encoding = args.get_string("input-encoding")
 

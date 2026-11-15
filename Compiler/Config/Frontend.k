@@ -109,7 +109,7 @@ pub class EmitKinds {
     }
 
     /// Distinct kinds named.
-    pub fn count(self) -> usize {
+    pub fn count(const self) -> usize {
         var n: usize = 0
         if self.emit_obj {
             n += 1
@@ -136,7 +136,7 @@ pub class EmitKinds {
     /// cannot name any one of them and so is the executable, the kinds
     /// written beside it (CompilerLink's _plan_outputs). No kind (`--emit=`)
     /// links nothing; codegen reports that it has nothing to write.
-    pub fn links(self, has_output: bool) -> bool {
+    pub fn links(const self, has_output: bool) -> bool {
         var n = self.count()
         if n == 1 {
             return self.emit_obj
@@ -321,11 +321,20 @@ pub class FrontendOptions {
         return if (v.empty()) => (dfl) else => v
     }
 
-    static fn from_args(@inout args: ParsedArgs) -> FrontendOptions {
+    /// \p emit is EmitKinds::parse of --emit and -S, parsed once for this
+    /// and the linker options.
+    static fn from_args(@inout args: ParsedArgs, const emit: EmitKinds) -> FrontendOptions {
         var o = FrontendOptions()
-        o.output = args.get_string("output")
-        o.emit   = args.get_string("emit")
-        FrontendOptions::_parse_emit(&o, &args)
+        o.output       = args.get_string("output")
+        o.emit         = args.get_string("emit")
+        o.emit_obj     = emit.emit_obj
+        o.emit_asm     = emit.emit_asm
+        o.emit_llvm_ir = emit.emit_llvm_ir
+        o.emit_llvm_bc = emit.emit_llvm_bc
+        for it in emit.unknown {
+            o.emit_unknown.push_back(it)
+        }
+
         o.verbose           = args.get_bool("verbose")
         o.quiet             = args.get_bool("quiet")
         o.suppress          = args.get_bool("suppress")
@@ -449,23 +458,5 @@ pub class FrontendOptions {
         }
 
         return o
-    }
-
-    /// --emit into the emit_* set (EmitKinds::parse, which the linker
-    /// options read too).
-    priv static fn _parse_emit(o: *FrontendOptions, @inout args: ParsedArgs) {
-        var k = EmitKinds::parse(
-            args.get_string("emit"),
-            args.get_bool("emit-asm"),
-            args.is_set("emit"),
-        )
-
-        o->emit_obj     = k.emit_obj
-        o->emit_asm     = k.emit_asm
-        o->emit_llvm_ir = k.emit_llvm_ir
-        o->emit_llvm_bc = k.emit_llvm_bc
-        for *it in k.unknown {
-            o->emit_unknown.push_back(*it)
-        }
     }
 }

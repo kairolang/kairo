@@ -11,48 +11,30 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "llvm/ADT/StringMap.h"
-ffi "c++" import "llvm/Support/FileSystem.h"
-ffi "c++" import "llvm/Support/Path.h"
-ffi "c++" import "llvm/ADT/SmallString.h"
-ffi "c++" import "cstring"
-ffi "c++" import "llvm/ADT/STLExtras.h"
-ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/Shims.hh" // header_set_late_uses
-ffi "c++" import "clang/AST/ASTContext.h"
 ffi "c++" import "clang/AST/ASTConsumer.h"
 ffi "c++" import "clang/Basic/Diagnostic.h"
-ffi "c++" import "clang/Basic/DiagnosticOptions.h"
-ffi "c++" import "clang/Basic/FileEntry.h"
-ffi "c++" import "clang/Basic/SourceManager.h"
-ffi "c++" import "clang/Basic/TargetInfo.h"
 ffi "c++" import "clang/Frontend/CompilerInstance.h"
 ffi "c++" import "clang/Frontend/CompilerInvocation.h"
 ffi "c++" import "clang/Frontend/FrontendAction.h"
 ffi "c++" import "clang/Frontend/FrontendOptions.h"
-ffi "c++" import "clang/Frontend/TextDiagnosticPrinter.h"
-ffi "c++" import "clang/Lex/HeaderSearchOptions.h"
-ffi "c++" import "clang/Lex/PPCallbacks.h"
 ffi "c++" import "clang/Lex/Preprocessor.h"
-ffi "c++" import "clang/Sema/Sema.h"
 ffi "c++" import "clang/Serialization/ASTWriter.h"
 ffi "c++" import "clang/Serialization/PCHContainerOperations.h"
 ffi "c++" import "llvm/ADT/IntrusiveRefCntPtr.h"
-ffi "c++" import "llvm/Support/Error.h"
 ffi "c++" import "llvm/Support/MemoryBuffer.h"
 ffi "c++" import "llvm/Support/VirtualFileSystem.h"
-ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "Native/Log.hh"
-ffi "c++" import "Native/TimeReport.hh"
 ffi "c++" import "memory"
 ffi "c++" import "vector"
 ffi "c++" import "string"
-ffi "c++" import "set"
-ffi "c++" import "utility"
-ffi "c++" import "cstdlib"
 
 import Interop::Clang::ClangBackend::ClangBackend
+import Interop::Clang::ClangInstance::{
+    begin_and_execute,
+    setup_diagnostics,
+    setup_target,
+}
 import Interop::Clang::HeaderSet::HeaderSet
 import Support::TimeReport::TimeRegion
 
@@ -196,46 +178,30 @@ pub class CodegenPCH {
                    ci:    unsafe *clang::CompilerInstance,
                    be:    unsafe *ClangBackend,
                    input: clang::FrontendInputFile) -> bool {
-        ci->setVirtualFileSystem(be->vfs())
-        ci->createDiagnostics(
+        if !setup_diagnostics(
+            ci,
+            be->vfs(),
             kairo::std::create<clang::IgnoringDiagConsumer>(),
             true,
-        )
-
-        if !ci->hasDiagnostics() {
+        ) {
             return false
         }
 
-        ci->setTarget(
-            clang::TargetInfo::CreateTargetInfo(
-                &ci->getDiagnostics(),
-                &ci->getInvocation().getTargetOpts(),
-            ),
-        )
-
-        if !ci->hasTarget() {
+        if !setup_target(ci) {
             return false
         }
-
-        ci->getTarget().adjust(&ci->getDiagnostics(), &ci->getLangOpts(), &null)
 
         var act = CodegenPCHAction()
         act._buf = self.pch
-        if !act.BeginSourceFile(&*ci, input) {
+        var began = false
+        var ran   = begin_and_execute(&act, ci, input, &began)
+        if !began {
             return false
-        }
-
-        // llvm::Error: bool(err) is TRUE ON FAILURE, and an unconsumed Error
-        // asserts on destruction.
-        var err    = act.Execute()
-        var failed = err as bool
-        if failed {
-            llvm::consumeError(cxx::std::move(err))
         }
 
         var errors = ci->getDiagnostics().getNumErrors()
         act.EndSourceFile()
-        return !failed && errors == 0 && self.pch->IsComplete
+        return ran && errors == 0 && self.pch->IsComplete
     }
 }
 

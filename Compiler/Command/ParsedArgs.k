@@ -17,12 +17,16 @@ ffi "c++" import "Native/Types.hh"
 
 import Command::FlagUtils::FlagValue
 
+/// One positional input, with the -x language in force when it was seen
+/// ("" = by extension, and always "" when the Command tags no positionals).
+pub struct InputArg {
+    pub var path: string
+    pub var lang: string
+}
+
 pub class ParsedArgs {
-    pub var files: cxx::std::vector<string> ///< positional file paths
-    /// Parallel to files: the -x language in force when each was seen ("" =
-    /// by extension). Filled only when the Command tags positionals.
-    pub var file_langs: cxx::std::vector<string>
-    pub var ok:         bool                     = true ///< false if required fields missing / bounds violated
+    pub var inputs: cxx::std::vector<InputArg> ///< positional inputs, in order
+    pub var ok:     bool                       = true ///< false if required fields missing / bounds violated
 
     /// StringMap, not DenseMap: _cell and get_list hand out pointers into
     /// the values, and a StringMap entry is its own allocation that a rehash

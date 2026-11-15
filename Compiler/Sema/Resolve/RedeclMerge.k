@@ -200,6 +200,7 @@ import AST::DeclFacts::{
     decl_name_tok,
     decl_requires_clause,
     decl_set_instantiated_from,
+    for_each_unwrapped_decl,
 }
 import AST::Kind::DeclKind::DeclKind
 import AST::Kind::ExprKind::ExprKind
@@ -228,7 +229,10 @@ import AST::Node::Types::{
     CXXRValueRefType,
     PointerType,
 }
-import AST::OperatorFacts::OperatorFacts
+import AST::OperatorFacts::{
+    OperatorFacts,
+    op_decl_name,
+}
 import AST::ParamMode::ParamMode
 import Diagnostic::Code::DiagCode
 import Diagnostic::NoteText::previously_declared_here
@@ -331,41 +335,17 @@ pub class RedeclMerge {
                 continue
             }
 
-            self._descend(d)
+            for_each_unwrapped_decl(
+                d,
+                fn (x: unsafe *Decl) { self._descend(x) },
+            )
         }
     }
 
-    /// See through the table-less wrapper decls the parser parks in
-    /// dc_decls. Mirrors NameResolution::_descend.
+    /// One child decl's own scope. The caller unwraps the table-less
+    /// wrapper decls the parser parks in dc_decls.
     priv fn _descend(self, d: unsafe *Decl) {
         if d == &null {
-            return
-        }
-
-        if isa<Declarations::VisibilityGroupDecl>(d) {
-            var unsafe *g = cast<Declarations::VisibilityGroupDecl>(d)
-            for var i: usize = 0; i < g->members.count; ++i {
-                self._descend(g->members[i])
-            }
-
-            return
-        }
-
-        if isa<Declarations::EvalBlockDecl>(d) {
-            var unsafe *b = cast<Declarations::EvalBlockDecl>(d)
-            for var i: usize = 0; i < b->body.count; ++i {
-                self._descend(b->body[i])
-            }
-
-            return
-        }
-
-        if isa<Declarations::FFIBlockDecl>(d) {
-            var unsafe *b = cast<Declarations::FFIBlockDecl>(d)
-            for var i: usize = 0; i < b->body.count; ++i {
-                self._descend(b->body[i])
-            }
-
             return
         }
 
@@ -597,7 +577,10 @@ pub class RedeclMerge {
                 continue
             }
 
-            self._descend(d)
+            for_each_unwrapped_decl(
+                d,
+                fn (x: unsafe *Decl) { self._descend(x) },
+            )
         }
     }
 
@@ -1406,20 +1389,16 @@ pub class RedeclMerge {
         }
 
         self._spec_sub = Substitution(self.sc)
-        var unsafe *head = p->first_decl()
-        var unsafe *cur  = head
-        while cur != &null {
+        var links = cxx::std::vector<unsafe *Decl>()
+        NameLookup::collect_chain(unsafe (p as unsafe *Decl), &links)
+        for var l: usize = 0; l < links.size(); ++l {
+            var unsafe *cur = cast<Declarations::FunctionDecl>(links[l])
             for var i: usize = 0; i < cur->generic_params.size(); ++i {
                 self._spec_sub.bind(
-                    unsafe (cur as unsafe *Decl),
+                    links[l],
                     i as u32,
                     s->spec_args[i]->canonical,
                 )
-            }
-
-            cur = cur->next_in_chain()
-            if cur == head {
-                break
             }
         }
 
@@ -1650,24 +1629,10 @@ pub class RedeclMerge {
     priv fn _member_key(self,
                         f:    unsafe *Declarations::FunctionDecl,
                         home: unsafe *DeclContext) -> DeclName {
+        // The table's key for an operator leaves the `l` / `r` marker out:
+        // `op l++` and `op r++` are one cell, told apart by signature.
         if f->is_operator {
-            var k0 = TokenKind::TkUnknown
-            var k1 = TokenKind::TkUnknown
-            var k2 = TokenKind::TkUnknown
-            if f->op_token.count > 0 {
-                k0 = f->op_token[0].kind
-            }
-
-            if f->op_token.count > 1 {
-                k1 = f->op_token[1].kind
-            }
-
-            // `op []=` is three tokens (DeclName::op_name_of).
-            if f->op_token.count > 2 {
-                k2 = f->op_token[2].kind
-            }
-
-            return DeclName::op_name_of(k0, k1, k2)
+            return op_decl_name(f)
         }
 
         var im = self.sc->ctx->get_ident_imm(f->name)
@@ -2929,17 +2894,17 @@ pub class RedeclMerge {
         }
     }
 
+    /// A visibility group, an `eval` block and an `ffi` block declare into
+    /// the scope they sit in, so what they hold is checked as that scope's.
     priv fn _check_inline_defined(self, d: unsafe *Decl) {
+        for_each_unwrapped_decl(
+            d,
+            fn (x: unsafe *Decl) { self._check_inline_decl(x) },
+        )
+    }
+
+    priv fn _check_inline_decl(self, d: unsafe *Decl) {
         if d == &null || d->is_poisoned() {
-            return
-        }
-
-        if isa<Declarations::VisibilityGroupDecl>(d) {
-            var unsafe *g = cast<Declarations::VisibilityGroupDecl>(d)
-            for var i: usize = 0; i < g->members.count; ++i {
-                self._check_inline_defined(g->members[i])
-            }
-
             return
         }
 

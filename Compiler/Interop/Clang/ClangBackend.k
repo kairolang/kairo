@@ -69,7 +69,6 @@ ffi "c++" import "clang/CodeGen/CodeGenAction.h"
 ffi "c++" import "clang/Lex/PreprocessorOptions.h"
 ffi "c++" import "llvm/ADT/IntrusiveRefCntPtr.h"
 ffi "c++" import "llvm/ADT/Twine.h"
-ffi "c++" import "llvm/Support/CommandLine.h"
 ffi "c++" import "llvm/Support/MemoryBuffer.h"
 ffi "c++" import "llvm/Support/TargetSelect.h"
 ffi "c++" import "llvm/Support/VirtualFileSystem.h"
@@ -87,6 +86,11 @@ import Command::FlagTranslator::{
     FlagTranslator,
 }
 import Interop::Clang::BuiltinsSet::BuiltinsSet
+import Interop::Clang::ClangInstance::{
+    parse_llvm_args,
+    setup_diagnostics,
+    setup_target,
+}
 import Interop::Clang::ClangLocMap::ClangLocMap
 import Location::SourceManager::SourceManager
 import std::c_char
@@ -845,11 +849,12 @@ pub class ClangBackend {
         // C++'s FP defaults, before the filter drops them: an ffi header
         // region is put back to these (header_fp_pragmas).
         for var i: usize = 0; i < cc1.size(); ++i {
-            var a = string(&cc1[i])
-            if a.starts_with("-ffp-contract=") {
-                self._cxx_contract = string(
-                    unsafe (((a.raw() as unsafe *const u8) + 14) as *const u8),
-                    a.size() - 14,
+            var a        = string(&cc1[i])
+            var contract = "-ffp-contract="
+            if a.starts_with(contract) {
+                self._cxx_contract = a.subslice(
+                    contract.size(),
+                    a.size() - contract.size(),
                 )
             }
 
@@ -1180,31 +1185,14 @@ pub class ClangBackend {
     ///
     /// \return false when LLVM rejected a word; LLVM has printed why.
     priv fn _apply_llvm_args(self) -> bool {
-        var n = self._cinv.get()->getFrontendOpts().LLVMArgs.size()
-        if n == 0 {
-            return true
-        }
-
-        var av: cxx::std::vector<kairo::std::ConstPtr<c_char>>
-        self._arg(&av, "kairo (LLVM option parsing)")
-        for var i: usize = 0; i < n; ++i {
-            self._arg(
-                &av,
-                kairo::std::from_std_string<string>(
-                    self._cinv.get()->getFrontendOpts().LLVMArgs[i],
-                ),
-            )
-        }
-
         // Errors go to a stream and come back as false: without one LLVM calls
         // exit(1), here on a pool thread, for a mistyped --mllvm word.
-        var        ov  = "kairo"
-        var unsafe *es = unsafe &llvm::errs()
-        if !llvm::cl::ParseCommandLineOptions(
-            av.size() as i32,
-            av.data(),
-            kairo::sref(ov),
-            es,
+        if !parse_llvm_args(
+            self._cinv.get()->getFrontendOpts().LLVMArgs,
+            "kairo (LLVM option parsing)",
+            kairo::sref(r"kairo"),
+            unsafe &llvm::errs(),
+            &null,
         ) {
             kairo::Logger::error(
                 kairo::Logger::Stage::Driver,
@@ -1288,22 +1276,12 @@ pub class ClangBackend {
         }
 
         self._ci = kairo::std::create<clang::CompilerInstance>(self._cinv)
-        self._ci->setVirtualFileSystem(self._vfs)
-        self._ci->createDiagnostics(self._printer, false)
-
-        if !self._ci->hasDiagnostics() {
+        if !setup_diagnostics(self._ci, self._vfs, self._printer, false) {
             self._failed = true
             return
         }
 
-        self._ci->setTarget(
-            clang::TargetInfo::CreateTargetInfo(
-                &self._ci->getDiagnostics(),
-                &self._ci->getInvocation().getTargetOpts(),
-            ),
-        )
-
-        if !self._ci->hasTarget() {
+        if !setup_target(self._ci) {
             kairo::Logger::error(
                 kairo::Logger::Stage::Driver,
                 f"ClangBackend: no target for triple '{self._cfg.triple}'",
@@ -1312,12 +1290,6 @@ pub class ClangBackend {
             self._failed = true
             return
         }
-
-        self._ci->getTarget().adjust(
-            &self._ci->getDiagnostics(),
-            &self._ci->getLangOpts(),
-            &null,
-        )
 
         // Persistent FileManager + SourceManager: the whole point. Header
         // ContentCaches and Kairo fid buffers load once for the batch.

@@ -98,6 +98,11 @@ import Diagnostic::Code::DiagCode
 import Diagnostic::Engine::DiagEngine
 import Diagnostic::Registry::DiagID
 import Interop::Clang::ClangBackend::ClangBackend
+import Interop::Clang::ClangInstance::{
+    begin_and_execute,
+    setup_diagnostics,
+    setup_target,
+}
 import Interop::Clang::KairoInclude::KairoIncludeHook
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
@@ -324,16 +329,14 @@ pub class HeaderSet {
     /// because ast() / sema() / alive() read it on any Sema thread unlocked.
     priv var _state: kairo::std::Atomic<u8> = kairo::std::Atomic<u8>(0)
 
-    /// closure_of / kfid_of_path indexes, built on their first call (driver
-    /// thread, after index(): `files` and `includes` are final by then).
-    /// The linear scans they replace were O(files x edges) per ffi import,
-    /// about 10 s of serial driver time over the self-host graph.
-    priv var _idx_built: bool                                   = false
-    priv var _file_at:   llvm::StringMap<u32> ///< path -> first index in `files`.
-    priv var _out_edges: llvm::StringMap<cxx::std::vector<u32>> ///< from_path -> indices in `includes`, in order.
-    /// The include graph by node number, for closure_kfids' walk: a node per
-    /// distinct path, its edges' target nodes in include order, and its kfid
-    /// (kfid_of_path, 0 when none). Built with the maps above.
+    /// closure_kfids / kfid_of_path indexes, built on their first call
+    /// (driver thread, after index(): `files` and `includes` are final by
+    /// then). The linear scans they replace were O(files x edges) per ffi
+    /// import, about 10 s of serial driver time over the self-host graph.
+    priv var _idx_built: bool                 = false
+    priv var _file_at:   llvm::StringMap<u32>         ///< path -> first index in `files`.
+    /// The include graph by node number: a node per distinct path (the
+    /// injected main is ""), its edges' target nodes in include order.
     priv var _node_of:      llvm::StringMap<u32>
     priv var _node_out:     cxx::std::vector<cxx::std::vector<u32>>
     priv var _node_path:    cxx::std::vector<string>
@@ -801,7 +804,7 @@ pub class HeaderSet {
     /// A header as written in the .k, minus the literal's quotes (and angle
     /// brackets, if someone wrote `"<vector>"`). The one spelling: the PP keys
     /// the set on it, build() wraps it in `#include "..."`, and the driver
-    /// matches it in closure_of. Two spellings of one header would silently
+    /// matches it in closure_kfids. Two spellings of one header would silently
     /// miss the closure and import nothing.
     pub static fn unquote(const lit: string) -> string {
         var s = lit
@@ -826,8 +829,6 @@ pub class HeaderSet {
         return it->second
     }
 
-    /// Transitive include closure of one header spelling, as PATHS, the
-    /// header itself first. Empty if the spelling never resolved.
     priv fn _build_path_index(self) {
         if self._idx_built {
             return
@@ -836,12 +837,6 @@ pub class HeaderSet {
         self._idx_built = true
         for var i: usize = 0; i < self.files.size(); ++i {
             self._file_at.try_emplace(kairo::sref(self.files[i].path), i as u32)
-        }
-
-        for var i: usize = 0; i < self.includes.size(); ++i {
-            self._out_edges[kairo::sref(self.includes[i].from_path)].push_back(
-                i as u32,
-            )
         }
 
         for var i: usize = 0; i < self.includes.size(); ++i {
@@ -864,81 +859,42 @@ pub class HeaderSet {
         return n
     }
 
-    fn closure_of(self, const spelled: string, @inout out: cxx::std::vector<string>) {
-        self._build_path_index()
-        // The direct include from the injected main whose spelling matches.
-        var root: string = ""
-        var mit          = self._out_edges.find(kairo::sref(""))
-        if mit == self._out_edges.end() {
-            return
-        }
-
-        for var k: usize = 0; k < mit->second.size(); ++k {
-            var *e = &self.includes[mit->second[k]]
-            if self._spelling_matches(spelled, e->to_path) {
-                root = e->to_path
-                break
-            }
-        }
-
-        if root.size() == 0 {
-            return
-        }
-
-        var seen = llvm::StringSet<llvm::MallocAllocator>() // membership only: `out` keeps the walk order
-        var work = cxx::std::vector<string>()
-        work.push_back(root)
-        while !work.empty() {
-            var p = work[work.size() - 1]
-            work.pop_back()
-            if !seen.insert(kairo::sref(p)).second {
-                continue
-            }
-
-            out.push_back(p)
-            var it = self._out_edges.find(kairo::sref(p))
-            if it == self._out_edges.end() {
-                continue
-            }
-
-            for var k: usize = 0; k < it->second.size(); ++k {
-                work.push_back(self.includes[it->second[k]].to_path)
-            }
-        }
-    }
-
-    /// closure_of(\p spelled) mapped through kfid_of_path, zeros dropped, in
-    /// closure order: what _attach_ffi_edges stamps on an ffi import. Every
-    /// TU sharing this set imports the same headers, so it is memoized per
-    /// spelling (driver thread only, after index()).
+    /// The transitive include closure of one header spelling, the header
+    /// itself first, mapped through kfid_of_path with zeros dropped: what
+    /// _attach_ffi_edges stamps on an ffi import. Empty when the spelling
+    /// never resolved. Every TU sharing this set imports the same headers,
+    /// so it is memoized per spelling (driver thread only, after index()).
     pub fn closure_kfids(self, const spelled: string) -> unsafe *cxx::std::vector<u32> {
         var it = self._closure_memo.find(kairo::sref(spelled))
         if it != self._closure_memo.end() {
             return unsafe &it->second
         }
 
-        // closure_of's walk over node numbers: the same root (the first
-        // direct include whose spelling matches), the same LIFO order with
-        // children pushed in include order, so the same sequence.
+        // The root is the first direct include (an edge from the injected
+        // main) whose spelling matches. The walk is LIFO with children
+        // pushed in include order.
         self._build_path_index()
-        var ks           = cxx::std::vector<u32>()
-        var root: string = ""
-        var mit          = self._out_edges.find(kairo::sref(""))
-        if mit != self._out_edges.end() {
-            for var k: usize = 0; k < mit->second.size(); ++k {
-                var *e = &self.includes[mit->second[k]]
-                if self._spelling_matches(spelled, e->to_path) {
-                    root = e->to_path
+        var ks   = cxx::std::vector<u32>()
+        var root = u32::MAX
+        var mit  = self._node_of.find(kairo::sref(""))
+        if mit != self._node_of.end() {
+            var *direct = &self._node_out[mit->second]
+            for var k: usize = 0; k < direct->size(); ++k {
+                if self._spelling_matches(
+                    spelled,
+                    self._node_path[(*direct)[k]],
+                ) {
+                    root = (*direct)[k]
                     break
                 }
             }
         }
 
-        if root.size() > 0 {
+        if root != u32::MAX {
             var seen = cxx::std::vector<u8>()
             seen.resize(self._node_path.size(), 0)
             var work = cxx::std::vector<u32>()
-            work.push_back(self._node(root))
+            work.push_back(root)
             while !work.empty() {
                 var p = work[work.size() - 1]
                 work.pop_back()
@@ -1130,9 +1086,7 @@ pub class HeaderSet {
         )
 
         self._ci = kairo::std::create<clang::CompilerInstance>(inv)
-        self._ci->setVirtualFileSystem(be->vfs())
-        self._ci->createDiagnostics(self._printer, false)
-        if !self._ci->hasDiagnostics() {
+        if !setup_diagnostics(self._ci, be->vfs(), self._printer, false) {
             return false
         }
 
@@ -1146,43 +1100,23 @@ pub class HeaderSet {
             self.end_diag(bda)
         }
 
-        self._ci->setTarget(
-            clang::TargetInfo::CreateTargetInfo(
-                &self._ci->getDiagnostics(),
-                &self._ci->getInvocation().getTargetOpts(),
-            ),
-        )
-
-        if !self._ci->hasTarget() {
+        if !setup_target(self._ci) {
             return false
         }
-
-        self._ci->getTarget().adjust(
-            &self._ci->getDiagnostics(),
-            &self._ci->getLangOpts(),
-            &null,
-        )
 
         self._act       = kairo::std::create<HeaderSetAction>()
         self._act->_set = &self
 
         // BeginSourceFile + Execute, NOT ExecuteAction: EndSourceFile would
         // destroy the ASTContext, and the whole point is that it lives on.
-        var input = fe->Inputs[0]
-        if !self._act->BeginSourceFile(&*self._ci, input) {
-            return false
-        }
+        var ran = begin_and_execute(
+            &*self._act,
+            self._ci,
+            fe->Inputs[0],
+            &self._began,
+        )
 
-        self._began = true
-        // llvm::Error: bool(err) is TRUE ON FAILURE, and an unconsumed Error
-        // asserts on destruction.
-        var err    = self._act->Execute()
-        var failed = err as bool
-        if failed {
-            llvm::consumeError(cxx::std::move(err))
-        }
-
-        return !failed && self._ci->getDiagnostics().getNumErrors() == 0
+        return ran && self._ci->getDiagnostics().getNumErrors() == 0
     }
 
     /// # diagnostics

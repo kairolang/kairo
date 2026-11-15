@@ -62,10 +62,17 @@ import Command::FlagUtils::{
     FlagDef,
     FlagKind,
 }
-import Command::ParsedArgs::ParsedArgs
+import Command::ParsedArgs::{
+    InputArg,
+    ParsedArgs,
+}
 import Diagnostic::Code::DiagCode
 import Diagnostic::Engine::DiagEngine
 import Diagnostic::Registry::DiagID
+import Support::Ascii::{
+    find,
+    split,
+}
 import std::c_char
 import std::io
 
@@ -297,7 +304,7 @@ pub class Command {
     /// key is its bare feature name. An unknown key is ignored on purpose: the
     /// list lives in the registry, and a typo there must not abort the compiler.
     /// \brief tags every positional input with the value \p key has when the
-    ///        input is seen, in ParsedArgs::file_langs (parallel to files).
+    ///        input is seen, in each ParsedArgs::inputs entry's lang.
     ///        clang's -x semantics: it applies to the inputs that FOLLOW it.
     fn tag_positionals_with(self, const key: string) {
         self._tag_key = key
@@ -543,21 +550,6 @@ pub class Command {
         return 9999
     }
 
-    /// split a flag name on '-' into its words, dropping empties
-    priv fn _split_words(self, const s: string, @inout out: cxx::std::vector<string>) {
-        var n        = s.length()
-        var b: usize = 0
-        for var i: usize = 0; i <= n; ++i {
-            if i == n || s[i] == ('-' as u8) {
-                if i > b {
-                    out.push_back(s.subslice(b, i - b))
-                }
-
-                b = i + 1
-            }
-        }
-    }
-
     /// how close is `cand` to what the user typed? lower is better,
     /// _no_match() means "do not suggest this". three independent routes:
     ///   - prefix:  --type-check   -> --type-check-only  (truncated flag)
@@ -578,10 +570,8 @@ pub class Command {
 
         // route 2: word-by-word. every word the user typed must line up with
         // some word of the candidate; extra candidate words are free.
-        var nw: cxx::std::vector<string>
-        var cw: cxx::std::vector<string>
-        self._split_words(name, &nw)
-        self._split_words(cand, &cw)
+        var nw = split(name, '-' as u8, false)
+        var cw = split(cand, '-' as u8, false)
 
         if nw.size() > 0 && cw.size() > 0 {
             var total: usize = 0
@@ -830,24 +820,6 @@ pub class Command {
         result->ok = false
     }
 
-    /// \brief true when a flag's help already states its default; the
-    ///        renderer must not append a second "(default: X)"
-    priv fn _contains(self, const hay: string, const needle: string) -> bool {
-        var n = hay.length()
-        var m = needle.length()
-        if m > n {
-            return false
-        }
-
-        for var i: usize = 0; i + m <= n; ++i {
-            if hay.subslice(i, m) == needle {
-                return true
-            }
-        }
-
-        return false
-    }
-
     priv fn _apply(self, def: unsafe *FlagDef, const raw: string, result: *ParsedArgs) {
         var *cell = result->_cell(def->key)
         if !self._tag_key.empty() && def->key == self._tag_key {
@@ -1005,13 +977,13 @@ pub class Command {
 
     /// One positional input, with the tag flag's value at this point.
     priv fn _push_file(self, result: *ParsedArgs, const path: string) {
-        result->files.push_back(path)
-        var lang = ""
+        var input = InputArg()
+        input.path = path
         if !self._tag_key.empty() && result->has(self._tag_key) {
-            lang = result->get_string(self._tag_key)
+            input.lang = result->get_string(self._tag_key)
         }
 
-        result->file_langs.push_back(lang)
+        result->inputs.push_back(input)
         self._tag_dirty = false
     }
 
@@ -1072,7 +1044,26 @@ pub class Command {
                 continue
             }
 
-            if elem[0] == ('-' as u8) {
+            // On Windows `/flag` is `-flag`, every form of it, and a message
+            // names it with its own `/`. `/` alone and `/-...` are no flag there.
+            var slash = _IS_WINDOWS && elem[0] == ('/' as u8)
+            if slash && elen == 1 {
+                i += 1
+                continue
+            }
+
+            if slash && elem[1] == ('-' as u8) {
+                self._diag->report(
+                    DiagCode(DiagID::U003E),
+                    "'/-' is not a valid flag prefix; use '-flag', '--flag', or '/flag'",
+                ).emit()
+                result.ok = false
+                i += 1
+                continue
+            }
+
+            if elem[0] == ('-' as u8) || slash {
+                var lead = elem.subslice(0, 1)
                 // bare '-' -> stdin file (POSIX convention)
                 if elen == 1 {
                     self._push_file(&result, "-")
@@ -1191,8 +1182,8 @@ pub class Command {
 
                     if def == &null {
                         var hint = self._suggest(name)
-                        var msg = if (hint.length() > 0) => (f"unknown flag '-{name}'; did you mean '{hint}'; run '--help' to see available options")
-                                  else => f"unknown flag '-{name}'; run '--help' to see available options"
+                        var msg = if (hint.length() > 0) => (f"unknown flag '{lead}{name}'; did you mean '{hint}'; run '--help' to see available options")
+                                  else => f"unknown flag '{lead}{name}'; run '--help' to see available options"
                         self._diag->report(DiagCode(DiagID::U002E), msg).emit()
                         result.ok = false
                         i += 1
@@ -1232,7 +1223,7 @@ pub class Command {
                         if def == &null {
                             self._diag->report(
                                 DiagCode(DiagID::U002E),
-                                f"unknown flag '-{ch}'; run '--help' to see available options",
+                                f"unknown flag '{lead}{ch}'; run '--help' to see available options",
                             ).emit()
                             result.ok = false
                             j += 1
@@ -1244,95 +1235,6 @@ pub class Command {
                             j += 1
                         } else {
                             // remaining chars are the inline value, or next element
-                            if j + 1 < elen {
-                                self._apply(
-                                    def,
-                                    elem.subslice(j + 1, elem.size()),
-                                    &result,
-                                )
-                            } else {
-                                pending = def
-                                gstate  = Self::GlobalState::AwaitValue
-                            }
-
-                            break
-                        }
-                    }
-                }
-            } else if elem[0] == ('/' as u8) && _IS_WINDOWS {
-                if elen == 1 {
-                    i += 1
-                    continue
-                }
-
-                if elem[1] == ('-' as u8) { // '/-' is invalid
-                    self._diag->report(
-                        DiagCode(DiagID::U003E),
-                        "'/-' is not a valid flag prefix; use '-flag', '--flag', or '/flag'",
-                    ).emit()
-                    result.ok = false
-                    i += 1
-                    continue
-                }
-
-                if self.IS_LONG_FLAG[elem[1]] {
-                    var j: usize = 1
-                    while j < elen && elem[j] != ('=' as u8) {
-                        j += 1
-                    }
-
-                    var        name           = elem.subslice(1, j - 1)
-                    var        joined: string
-                    var unsafe *def           = self._find_split(name, &joined)
-
-                    if def == &null {
-                        var hint = self._suggest(name)
-                        var msg = if (hint.length() > 0) => (f"unknown flag '/{name}'; did you mean '{hint}'; run '--help' to see available options")
-                                  else => f"unknown flag '/{name}'; run '--help' to see available options"
-                        self._diag->report(DiagCode(DiagID::U002E), msg).emit()
-                        result.ok = false
-                    } else if j < elen {
-                        var evalue: string = elem.subslice(j + 1, elem.size())
-                        if def->kind == FlagKind::Bool {
-                            self._apply_bool_value(def, evalue, &result)
-                        } else if joined.length() > 0
-                            && (def->kind == FlagKind::String
-                                || def->kind == FlagKind::StringList
-                                || def->kind == FlagKind::Path) {
-                            self._apply(def, f"{joined}={evalue}", &result)
-                        } else {
-                            self._apply(def, evalue, &result)
-                        }
-                    } else if def->kind == FlagKind::Bool {
-                        self._apply(def, "", &result)
-                    } else if joined.length() > 0 {
-                        self._apply(def, joined, &result)
-                    } else if def->has_bare {
-                        self._apply(def, def->bare_, &result)
-                    } else {
-                        pending = def
-                        gstate  = Self::GlobalState::AwaitValue
-                    }
-                } else { // '/g' '/c' short cluster
-                    var j: usize = 1
-                    while j < elen {
-                        var        ch   = elem.subslice(j, 1)
-                        var unsafe *def = self._find(ch)
-
-                        if def == &null {
-                            self._diag->report(
-                                DiagCode(DiagID::U002E),
-                                f"unknown flag '/{ch}'",
-                            ).emit()
-                            result.ok = false
-                            j += 1
-                            continue
-                        }
-
-                        if def->kind == FlagKind::Bool {
-                            self._apply(def, "", &result)
-                            j += 1
-                        } else {
                             if j + 1 < elen {
                                 self._apply(
                                     def,
@@ -1382,7 +1284,7 @@ pub class Command {
             }
 
             if def->kind == FlagKind::PathList {
-                if result.files.size() == 0 {
+                if result.inputs.size() == 0 {
                     self._diag->report(
                         DiagCode(DiagID::U004E),
                         f"no input files ({def->help})",
@@ -1556,7 +1458,7 @@ pub class Command {
             var rhs: string = def->help
             // Many help strings already state their default ("(default: X)",
             // "-O0 (default)"); appending the rendered one printed it twice.
-            var help_has_default = self._contains(def->help, "(default")
+            var help_has_default = find(def->help, "(default", 0) != usize::MAX
             if def->default_.is_required {
                 rhs += " (required)"
             } else if !help_has_default {

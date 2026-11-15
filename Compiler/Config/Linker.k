@@ -142,7 +142,12 @@ pub class LinkerOptions {
         return self.emit_scope == "inputs"
     }
 
-    static fn from_args(@inout args: ParsedArgs) -> LinkerOptions {
+    /// \p emit is the frontend's EmitKinds, so the two cannot read one
+    /// --emit spelling two ways; \p optimized is CodeGenOptions' resolved
+    /// level above 0 (-O and --profile, resolved there once).
+    static fn from_args(@inout args: ParsedArgs,
+                        const emit:  EmitKinds,
+                        optimized:   bool) -> LinkerOptions {
         var o = LinkerOptions()
 
         /// ## output shape and inputs
@@ -163,16 +168,8 @@ pub class LinkerOptions {
         o.entry           = args.get_string("entry")
         o.cache_dir       = args.get_string("cache-dir")
         o.save_temps      = args.get_bool("save-temps")
-        // Whether --emit links is the frontend's own parse of it (EmitKinds),
-        // so the two cannot read one spelling two ways. -S stops at assembly
-        // even beside an explicit --emit (`--emit=obj -S`), as -c stops at
-        // objects.
-        var emit = EmitKinds::parse(
-            args.get_string("emit"),
-            args.get_bool("emit-asm"),
-            args.is_set("emit"),
-        )
-
+        // -S stops at assembly even beside an explicit --emit
+        // (`--emit=obj -S`), as -c stops at objects.
         o.compile_only = args.get_bool("compile-only")
             || args.get_bool("emit-asm")
             || !emit.links(!args.get_string("output").empty())
@@ -185,22 +182,6 @@ pub class LinkerOptions {
         // address-significance table (-faddrsig, ClangBackend), so lld folds
         // only functions whose address is never compared. Off at -O0, where
         // merged functions would confuse a debugger. --no-icf opts out.
-        var opt_val = args.get_string("opt")
-        if args.is_set("profile") && !args.is_set("opt") {
-            var prof = args.get_string("profile")
-            if prof == "release" {
-                opt_val = "2"
-            } else if prof == "min-size" {
-                opt_val = "s"
-            }
-        }
-
-        var optimized = opt_val == "1"
-            || opt_val == "2"
-            || opt_val == "3"
-            || opt_val == "s"
-            || opt_val == "z"
-            || opt_val == "g"
         // wasm-ld has no identical code folding, and its flavor rejects a request for it, so
         // the optimised-build default skips wasm targets; an explicit --icf still reaches the
         // flavor and gets its error.
