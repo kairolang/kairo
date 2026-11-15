@@ -1380,6 +1380,11 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
 
     cmd->define<FlagKind::Feature>(
+        "strict-cxx-moves",
+        "a MOVE value passed by `T&` / `T*` to a C++ function whose body cannot be inspected is moved-from after the call, instead of borrowed on an unchecked assumption (off)",
+    )
+
+    cmd->define<FlagKind::Feature>(
         "infer-purity",
         "infer `fn f() const` / `@pure` for functions that keep the promise without saying so, and emit __attribute__((const)) / __attribute__((pure)) for them (on; -fno-infer-purity turns it off)",
     )
@@ -2396,6 +2401,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "",
         "print-imports",
         "dump the import resolution graph, followed by the overlay section",
+        false,
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "print-unchecked-assumptions",
+        "",
+        "print-unchecked-assumptions",
+        "after sema, print each file's unchecked assumptions: the C++ calls taken not to move out of a MOVE argument although their body could not be inspected",
         false,
     )
 

@@ -58,6 +58,7 @@ ffi "c++" import "llvm/ADT/SmallString.h"
 ffi "c++" import "cstring"
 ffi "c++" import "llvm/ADT/STLExtras.h"
 ffi "c++" import "llvm/ADT/DenseMap.h"
+ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/KShims.hh" // header_set_late_uses
 ffi "c++" import "clang/AST/ASTContext.h"
@@ -207,6 +208,21 @@ pub class HeaderSetPPCallbacks derives clang::PPCallbacks {
                                    file_type:         clang::SrcMgr::CharacteristicKind)
 }
 
+/// The set's consumer: decides which function bodies the parse keeps
+/// (FrontendOptions::SkipFunctionBodies is on). A body is kept when its
+/// function is declared in a header a Kairo file imports by name
+/// (HeaderSet::body_files): MoveCheck reads such bodies to learn whether a
+/// call moves out of a `T&` / `T*` argument (Native/KCxxMoveWalk.hh). The
+/// headers those include keep none, so a call into them is an unchecked
+/// assumption. Whether clang counts the header a system one does not
+/// matter: the driver passes every include directory as `-isystem`.
+pub class HeaderSetConsumer derives clang::ASTConsumer {
+    pub var _set: *HeaderSet
+    pub var csm:  unsafe *clang::SourceManager
+
+    override fn shouldSkipFunctionBody(self, d: unsafe *clang::Decl) -> bool
+}
+
 /// The action: a plain ASTConsumer (no PCH), TU_Prefix like GeneratePCHAction,
 /// our callbacks installed before the parse. BeginSourceFile + Execute are
 /// called by HeaderSet::build; EndSourceFile by HeaderSet::release.
@@ -261,6 +277,14 @@ pub class HeaderSet {
     /// keys reach 0xFFFFFFFE / 0xFFFFFFFF -- DenseMap<u32>'s tombstone and
     /// empty keys. Zero-extended to u64 they can never be ~0 / ~0-1.
     pub var cfid_to_kfid: llvm::DenseMap<u64, u32>
+    /// clang FileID hashes (widened, as `cfid_to_kfid`) of the headers whose
+    /// function bodies the parse keeps (HeaderSetConsumer): each file whose
+    /// path is, or ends in `/` and, one of `headers` as spelled. By path, not
+    /// by who included it first: in the shared set a header the import names
+    /// is often entered first from another header, and `#pragma once` keeps
+    /// the main buffer's own include from entering it again. Written on the
+    /// parse thread when the file is entered, before any of its bodies.
+    pub var body_files: llvm::DenseSet<u64>
 
     // The live phase-A instance.
     priv var _ci:  unsafe *clang::CompilerInstance = &null
@@ -1488,6 +1512,12 @@ override fn HeaderSetPPCallbacks::FileChanged(self,
     hf.cfid_hash = fid.getHashValue()
     hf.is_system = clang::SrcMgr::isSystem(kind)
     self._set->files.push_back(hf)
+    for *h in self._set->headers {
+        if p == *h || p.ends_with("/" + *h) {
+            self._set->body_files.insert(hf.cfid_hash as u64)
+            break
+        }
+    }
 }
 
 override fn HeaderSetPPCallbacks::InclusionDirective(
@@ -1561,7 +1591,19 @@ override fn HeaderSetAction::CreateASTConsumer(self, @inout ci: clang::CompilerI
     // never to a set's own PCH. Serializing each of the self-host graph's
     // 115 sets was ~11% of their build CPU, and the bytes were kept for the
     // whole run. The parse is still a TU prefix (getTranslationUnitKind).
-    return cxx::std::make_unique<clang::ASTConsumer>()
+    var c = cxx::std::make_unique<HeaderSetConsumer>()
+    c->_set = self._set
+    c->csm  = unsafe &ci.getSourceManager()
+    return cxx::std::unique_ptr<clang::ASTConsumer>(c.release())
+}
+
+override fn HeaderSetConsumer::shouldSkipFunctionBody(self, d: unsafe *clang::Decl) -> bool {
+    if d == &null {
+        return true
+    }
+
+    var fid = self.csm->getFileID(self.csm->getExpansionLoc(d->getLocation()))
+    return self._set->body_files.count(fid.getHashValue() as u64) == 0
 }
 
 override fn HeaderSetAction::getTranslationUnitKind(self) -> clang::TranslationUnitKind {

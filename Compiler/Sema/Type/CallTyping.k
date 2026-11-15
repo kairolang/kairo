@@ -2289,7 +2289,9 @@ pub class <T: type> CallTyping {
         }
 
         var rt = self.call_result_type(r.decl, &r)
-        n->instance = r.instance
+        n->instance     = r.instance
+        n->cxx_spec     = r.cxx_spec
+        n->cxx_spec_set = r.cxx_spec_set
         if r.instance == &null && r.dep_args.size() > 0 {
             var arr = self.dyn()->sc->ctx->alloc_array<*Type>(r.dep_args.size())
             for var i: usize = 0; i < r.dep_args.size(); ++i {

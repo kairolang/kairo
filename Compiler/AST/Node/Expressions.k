@@ -114,6 +114,14 @@ pub class CallExpr derives Expr {
     /// CallTyping::_ctor_call at Selected.
     pub var ctor_decl: unsafe *Decl = &null
 
+    /// An imported function template's clang specialization this call
+    /// selected (a `clang::FunctionDecl`) and the HeaderSet it lives in;
+    /// null for any other callee. Written by CallTyping at Selected; read by
+    /// MoveCheck, which asks what the instance's body moves
+    /// (ForeignInstantiate::cxx_moves_out).
+    pub var cxx_spec:     unsafe *void = &null
+    pub var cxx_spec_set: unsafe *void = &null
+
     /// A call of a C++ function object, `f(args)` with `f` a value whose
     /// class has `operator()`: the selected operator, which `arg_map` is
     /// parallel to (its `self` is the callee object). EmitIR writes the

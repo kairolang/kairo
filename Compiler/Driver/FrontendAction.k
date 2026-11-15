@@ -180,6 +180,7 @@ import Sema::Resolve::TypeResolve::TypeResolution
 import Sema::Sema::Sema
 import Sema::SemaContext::{
     OnceMention,
+    SemaContext,
     SemaPhase,
 }
 import Sema::SemaDump::SemaDump
@@ -2805,6 +2806,10 @@ pub class FrontendAction {
                 SemaDump(unsafe &sem->sc, sema_opts).run()
             }
 
+            if self._ci->invocation()->frontend.print_unchecked_assumptions {
+                self._print_unchecked(unsafe &sem->sc)
+            }
+
             // The same pin, for incremental Sema's facts: an interface is
             // what the CHECKED tree says, and the lowerings below rewrite it
             // (Compiler/Spec/IncrementalSema.md).
@@ -3245,6 +3250,24 @@ pub class FrontendAction {
 
     /// Give back a finished group's hold on its TUs' header sets; the last
     /// owner's release frees a set that contributed nothing (see _sema).
+    /// --print-unchecked-assumptions: one line per assumption of \p sc's TU,
+    /// `file:line:col: unchecked assumption: text`, at the call it is about.
+    priv fn _print_unchecked(self, sc: unsafe *SemaContext) {
+        var unsafe *sm = self._ci->sm()
+        for var i: usize = 0; i < sc->unchecked.size(); ++i {
+            var *u = &sc->unchecked[i]
+            if !u->at.is_valid() {
+                io::println(f"<unknown>: unchecked assumption: {u->text}")
+                continue
+            }
+
+            var lc = sm->get_line_col(u->at.start)
+            io::println(
+                f"{sm->get_filename(u->at.start)}:{lc.line}:{lc.column}: unchecked assumption: {u->text}",
+            )
+        }
+    }
+
     priv fn _release_group_sets(self,
                                 const members: cxx::std::vector<u32>,
                                 set_owners:    unsafe *llvm::DenseMap<u64, u64>) {

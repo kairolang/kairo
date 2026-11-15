@@ -78,6 +78,10 @@ pub class LangOptions {
     /// as `const` parameters are inferred unasked: the
     /// rules are the written promise's, so what they admit is sound.
     pub var infer_purity: i32 = -1
+    /// -fstrict-cxx-moves: MoveCheck takes a C++ call it cannot inspect at
+    /// its worst, as it takes a Kairo function with no body (Compiler/Spec/
+    /// Ownership.md, "C++ bodies"). Off unless 1.
+    pub var strict_cxx_moves: i32 = -1
     /// -fduck-generics: `<T: type>` is accepted, its body typed as written
     /// and emitted as an unconstrained template that clang checks per
     /// instance (Compiler/Spec/Generics.md#duck-regime). OFF unless 1: an internal flag that build.py passes for the compiler's
@@ -185,6 +189,7 @@ pub class LangOptions {
         o.exceptions        = args.get_feature("exceptions")
         o.unwind            = args.get_feature("unwind")
         o.infer_purity      = args.get_feature("infer-purity")
+        o.strict_cxx_moves  = args.get_feature("strict-cxx-moves")
         o.duck_generics     = args.get_feature("duck-generics")
         o.default_vis_pub   = args.get_string("default-visibility") == "pub"
         o.unsafe_feature    = args.get_feature("unsafe")

@@ -176,12 +176,16 @@ pub class SemaOptions {
     pub var no_unsafe: bool = false ///< --no-unsafe or -fno-unsafe.
     /// The C++ this build compiles has exceptions (LangOptions::cxx_exceptions):
     /// a `catch e: cxx::...` arm needs them (Compiler/Spec/Panic.md#c-exception-arms).
-    pub var cxx_exceptions:  bool = true
-    pub var unwind_all:      bool = false ///< -funwind: no Kairo function is spelled noexcept (but @no_unwind).
-    pub var infer_purity:    bool = true ///< -finfer-purity (on; -fno-infer-purity turns it off): FnPurityCheck::infer runs before ParamPassInference.
-    pub var print_stats:     bool = false ///< --print-stats: Sema also reports its per-stage arena growth.
-    pub var log_import_uses: bool = false ///< --dump-import-uses: I gives each overlay an ImportUseLog.
-    pub var log_deps:        bool = false ///< --dump-deps / --dump-interface: the TU gets a DepLog.
+    pub var cxx_exceptions: bool = true
+    pub var unwind_all:     bool = false ///< -funwind: no Kairo function is spelled noexcept (but @no_unwind).
+    pub var infer_purity:   bool = true ///< -finfer-purity (on; -fno-infer-purity turns it off): FnPurityCheck::infer runs before ParamPassInference.
+    /// -fstrict-cxx-moves: a C++ call whose body MoveCheck cannot inspect
+    /// takes its MOVE argument at its worst (moved-from), instead of
+    /// borrowing it on an unchecked assumption.
+    pub var strict_cxx_moves: bool = false
+    pub var print_stats:      bool = false ///< --print-stats: Sema also reports its per-stage arena growth.
+    pub var log_import_uses:  bool = false ///< --dump-import-uses: I gives each overlay an ImportUseLog.
+    pub var log_deps:         bool = false ///< --dump-deps / --dump-interface: the TU gets a DepLog.
     /// -fduck-generics: `<T: type>` is the C++-checked regime rather than an
     /// error (FlagGates; Compiler/Spec/Generics.md#duck-regime). OFF by default:
     /// internal, build.py turns it on for the compiler's
@@ -234,11 +238,12 @@ pub class SemaOptions {
         // Language gates and declaration limits. -fno-unsafe is the same
         // switch as --no-unsafe spelled as a feature, so both fold in here
         // rather than making the pass know two spellings.
-        self.no_unsafe       = ci->lang.no_unsafe || ci->lang.unsafe_feature == 0
-        self.unwind_all      = ci->lang.unwind == 1
-        self.infer_purity    = ci->lang.infer_purity != 0
-        self.print_stats     = ci->frontend.print_stats
-        self.log_import_uses = !ci->frontend.dump_import_uses.empty()
+        self.no_unsafe        = ci->lang.no_unsafe || ci->lang.unsafe_feature == 0
+        self.unwind_all       = ci->lang.unwind == 1
+        self.infer_purity     = ci->lang.infer_purity != 0
+        self.strict_cxx_moves = ci->lang.strict_cxx_moves == 1
+        self.print_stats      = ci->frontend.print_stats
+        self.log_import_uses  = !ci->frontend.dump_import_uses.empty()
         self.log_deps = (!ci->frontend.dump_deps.empty())
             || (!ci->frontend.dump_interface.empty())
             || ci->frontend.incremental_sema
@@ -285,6 +290,15 @@ pub class SemaOptions {
 /// entry first is a race, so the claim waits for the driver, which takes
 /// the group's mentions in the order the front met them, at the group's
 /// turn in the one-thread order (FrontendAction::_settle_once).
+/// A fact a check took without proving it (Ownership.md, "Unchecked
+/// assumptions"): MoveCheck borrowing a MOVE argument across a C++ call
+/// whose body it could not inspect. `at` is the call.
+pub class UncheckedAssumption {
+    pub var at:   SourceRange = SourceRange::invalid()
+    pub var text: string      = ""
+    fn UncheckedAssumption(self) { }
+}
+
 pub struct OnceMention {
     pub var sc:    unsafe *SemaContext   = &null ///< the TU whose T met it; the report goes in its sink.
     pub var entry: unsafe *InstanceEntry = &null
@@ -464,6 +478,24 @@ pub class SemaContext {
     /// the TU still fails. Writers: I's eager R016E, N's R020E for an
     /// undeclared expression head, ChainBinding's member misses (R025E).
     pub var contained_errors: u32 = 0
+
+    /// This TU's unchecked assumptions, in the order the checks made them,
+    /// each once; --print-unchecked-assumptions prints them.
+    pub var unchecked: cxx::std::vector<UncheckedAssumption>
+
+    /// Adds \p text at \p at to `unchecked` unless it is there already.
+    fn assume(self, at: SourceRange, const text: string) {
+        for var i: usize = 0; i < self.unchecked.size(); ++i {
+            if self.unchecked[i].at == at && self.unchecked[i].text == text {
+                return
+            }
+        }
+
+        var u = UncheckedAssumption()
+        u.at   = at
+        u.text = text
+        self.unchecked.push_back(u)
+    }
 
     /// Default ctor: leaves the context UNWIRED (null handles, Parsed phase).
     /// Exists so a by-value SemaContext member (e.g. Sema::sc) can be

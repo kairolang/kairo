@@ -184,11 +184,12 @@ pub class FrontendOptions {
     pub var time_passes: bool = false
     pub var print_stats: bool = false
     // post-stage dump flags (independent of primary action)
-    pub var dump_preprocessed: bool   = false ///< --dump-preprocessed: print reconstructed source to stdout
-    pub var print_tokens:      bool   = false
-    pub var print_macros:      bool   = false
-    pub var print_imports:     bool   = false
-    pub var dump_import_uses:  string = "" ///< --dump-import-uses=<path.json>: Scripts/import_lint.py's input
+    pub var dump_preprocessed:           bool   = false ///< --dump-preprocessed: print reconstructed source to stdout
+    pub var print_tokens:                bool   = false
+    pub var print_macros:                bool   = false
+    pub var print_imports:               bool   = false
+    pub var print_unchecked_assumptions: bool   = false ///< --print-unchecked-assumptions: each TU's list, after its checks.
+    pub var dump_import_uses:            string = "" ///< --dump-import-uses=<path.json>: Scripts/import_lint.py's input
     /// --dump-interface=<path.json> / --dump-deps=<path.json>: incremental
     /// Sema's phase 1 facts (Compiler/Spec/IncrementalSema.md). Either one
     /// turns dependency logging on for the run.
@@ -342,10 +343,14 @@ pub class FrontendOptions {
         o.max_threads       = args.get_cfg_i32("max-threads")
 
         // post-stage dump flags
-        o.dump_preprocessed    = args.get_bool("dump-preprocessed")
-        o.print_tokens         = args.get_bool("print-tokens")
-        o.print_macros         = args.get_bool("print-macros")
-        o.print_imports        = args.get_bool("print-imports")
+        o.dump_preprocessed = args.get_bool("dump-preprocessed")
+        o.print_tokens      = args.get_bool("print-tokens")
+        o.print_macros      = args.get_bool("print-macros")
+        o.print_imports     = args.get_bool("print-imports")
+        o.print_unchecked_assumptions = args.get_bool(
+            "print-unchecked-assumptions",
+        )
+
         o.dump_import_uses     = args.get_string("dump-import-uses")
         o.dump_interface       = args.get_string("dump-interface")
         o.dump_deps            = args.get_string("dump-deps")

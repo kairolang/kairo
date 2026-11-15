@@ -72,6 +72,8 @@ ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "Native/KLog.hh"
 ffi "c++" import "Native/KClangPurity.hh" // decl_purity
+ffi "c++" import "Native/KCxxMoveWalk.hh" // cxx_moves_out
+ffi "c++" import "clang/Lex/Lexer.h"
 ffi "c++" import "Native/KThread.hh" // sema_mint_rank
 ffi "c++" import "atomic"
 ffi "c++" import "vector"
@@ -100,6 +102,7 @@ import AST::Node::Casting::dyn_cast
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
 import Diagnostic::ClangDiagAdapter::ClangDiagAdapter
 import Interop::Clang::HeaderSet::HeaderSet
+import Location::SourceRange::SourceRange
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Sema::Foreign::DeclImport::{
     DeclImport,
@@ -127,8 +130,40 @@ struct UnspelledRec {
     var set:   unsafe *HeaderSet = &null
 }
 
+/// What a C++ function's body does to the object one of its `T&` / `T*`
+/// parameters (or its implicit object) refers to: cxx_moves_out's answer
+/// (Native/KCxxMoveWalk.hh).
+pub enum CxxMoveKind derives u8 {
+    None,    ///< the body reads or changes it, and moves nothing out of it.
+    Moves,   ///< some path binds it to a `T&&`.
+    Unknown, ///< nothing moves it in what could be read, and something could not be.
+}
+
+pub class CxxMoveVerdict {
+    pub var kind: CxxMoveKind = CxxMoveKind::Unknown
+    /// Unknown: 1 no visible body, 2 a virtual call, 3 a call through a
+    /// pointer, 4 the depth limit, 5 a body that does not instantiate for
+    /// these arguments, 6 the template instance is not known.
+    pub var why: u8 = 1
+    /// Moves: the expression that moves it. Unknown: the call that could not
+    /// be read, invalid when it is the function asked about or the header
+    /// has no Kairo file.
+    pub var at:          SourceRange = SourceRange::invalid()
+    pub var in_name:     string      = "" ///< the function whose body holds `at`.
+    pub var blocker:     string      = "" ///< Unknown 1, 2, 5: the callee that could not be read.
+    pub var in_top:      bool        = true ///< `in_name` is the function asked about.
+    pub var blocker_top: bool        = true ///< `blocker` is the function asked about.
+    fn CxxMoveVerdict(self) { }
+}
+
+/// How many calls deep cxx_moves_out follows the object.
+pub const CXX_MOVE_DEPTH: u32 = 8
+
 pub class ForeignInstantiate {
-    priv var _mu:        kairo::std::RecursiveMutex ///< ONE lock for all fills; see the file header.
+    priv var _mu: kairo::std::RecursiveMutex ///< ONE lock for all fills; see the file header.
+    /// cxx_moves_out's answers per (clang function, parameter); guarded by
+    /// `_mu`. Every set it holds decls of is pinned for the build.
+    priv var _moves:     kairo::CxxMoveCache
     priv var _active:    cxx::std::vector<unsafe *Decl> ///< shells mid-fill, outermost first; guarded by `_mu`.
     priv var _hindex:    *HeaderIndex
     priv var _reg:       unsafe *ForeignRegistry
@@ -701,19 +736,22 @@ pub class ForeignInstantiate {
     /// Kairo imported opaque (`enable_if_t<..., int>`, `-> decltype(...)`).
     /// \p fid is the calling TU (-1 none), as for fill(); \p alt_set its own
     /// HeaderSet (null for none), the retry when \p f's set cannot spell the
-    /// arguments.
+    /// arguments. \p spec / \p spec_set receive the clang specialization a
+    /// success deduced and the set it lives in (cxx_moves_out reads its body).
     fn deduce_call(self,
-                   f:             unsafe *Decl,
-                   explicit_args: unsafe *cxx::std::vector<unsafe *Type>,
-                   arg_tys:       unsafe *cxx::std::vector<unsafe *Type>,
-                   arg_cats:      unsafe *cxx::std::vector<Expr::ValueCategory>,
-                   sink:          unsafe *BufferedDiagSink,
-                   why:           unsafe *string,
-                   want_ret:      bool,
-                   @inout ret:    unsafe *Type,
-                   fid:           i64 = -1,
-                   alt_set:       unsafe *void = &null,
-                   conv_at:       unsafe *cxx::std::vector<usize> = &null) -> i8 {
+                   f:               unsafe *Decl,
+                   explicit_args:   unsafe *cxx::std::vector<unsafe *Type>,
+                   arg_tys:         unsafe *cxx::std::vector<unsafe *Type>,
+                   arg_cats:        unsafe *cxx::std::vector<Expr::ValueCategory>,
+                   sink:            unsafe *BufferedDiagSink,
+                   why:             unsafe *string,
+                   want_ret:        bool,
+                   @inout ret:      unsafe *Type,
+                   @inout spec:     unsafe *void,
+                   @inout spec_set: unsafe *void,
+                   fid:             i64 = -1,
+                   alt_set:         unsafe *void = &null,
+                   conv_at:         unsafe *cxx::std::vector<usize> = &null) -> i8 {
         var unsafe *cd = unsafe (decl_clang(f) as unsafe *clang::Decl)
         if cd == &null {
             return -1
@@ -747,9 +785,10 @@ pub class ForeignInstantiate {
             return -1
         }
 
-        var unsafe *alt   = unsafe (alt_set as unsafe *HeaderSet)
-        var        lock   = kairo::std::LockGuard(self._mu)
-        var        opaque = false
+        var unsafe *alt                = unsafe (alt_set as unsafe *HeaderSet)
+        var        lock                = kairo::std::LockGuard(self._mu)
+        var        opaque              = false
+        var        found: unsafe *void = &null
         var r = self._deduce_in(
             f,
             ftd,
@@ -764,7 +803,13 @@ pub class ForeignInstantiate {
             fid,
             &opaque,
             conv_at,
+            &found,
         )
+
+        if r == 1 && found != &null {
+            spec     = found
+            spec_set = unsafe (hs as unsafe *void)
+        }
 
         // The function's set is the FIRST to import its header, not the
         // caller's: `std::move` belongs to whichever set reached <utility>
@@ -800,6 +845,7 @@ pub class ForeignInstantiate {
         var aret:   unsafe *Type = &null
         var awhy                 = ""
         var aopaque              = false
+        var afound: unsafe *void = &null
         var r2 = self._deduce_in(
             f,
             aftd,
@@ -814,7 +860,13 @@ pub class ForeignInstantiate {
             fid,
             &aopaque,
             conv_at,
+            &afound,
         )
+
+        if r2 == 1 && afound != &null && (r == -1 || spec == &null) {
+            spec     = afound
+            spec_set = unsafe (alt as unsafe *void)
+        }
 
         if r == -1 {
             *why = awhy
@@ -845,7 +897,8 @@ pub class ForeignInstantiate {
                        @inout ret:           unsafe *Type,
                        fid:                  i64,
                        @inout opaque:        bool,
-                       conv_at:              unsafe *cxx::std::vector<usize>) -> i8 {
+                       conv_at:              unsafe *cxx::std::vector<usize>,
+                       @inout found:         unsafe *void) -> i8 {
         var unsafe *cctx  = hs->ast()
         var unsafe *csema = hs->sema()
         var        slock  = kairo::std::LockGuard(*hs->sema_lock())
@@ -1047,6 +1100,7 @@ pub class ForeignInstantiate {
         }
 
         if r == clang::TemplateDeductionResult::Success {
+            found = unsafe (spec as unsafe *void)
             if want_ret && spec != &null && !tx.used_opaque {
                 // `decltype(auto)` / `auto` (llvm::dyn_cast, cast, isa): the
                 // specialization's declared return type is the placeholder
@@ -1150,6 +1204,109 @@ pub class ForeignInstantiate {
         // so a non-null one is live; the mutex itself always is.
         var slock = kairo::std::LockGuard(*hs->sema_lock())
         return kairo::clang_decl_purity(cd)
+    }
+
+    /// Does the C++ function \p f move out of what its parameter \p idx (the
+    /// clang index, -1 for the implicit object) refers to? \p spec, when not
+    /// null, is the clang specialization the call selected (CallExpr::
+    /// cxx_spec) and \p spec_set its HeaderSet; else \p f's own clang decl is
+    /// read. The walk is Native/KCxxMoveWalk.hh's; it instantiates bodies,
+    /// so it runs under `_mu` and then the set's sema_lock(), the fill order,
+    /// with the set's diagnostics quiet.
+    fn cxx_moves_out(self,
+                     f:        unsafe *Decl,
+                     spec:     unsafe *void,
+                     spec_set: unsafe *void,
+                     idx:      i32) -> CxxMoveVerdict {
+        var        v   = CxxMoveVerdict()
+        var unsafe *cd = unsafe (decl_clang(f) as unsafe *clang::Decl)
+        var unsafe *hs = unsafe (decl_origin_set(f) as unsafe *HeaderSet)
+        if spec != &null {
+            cd = unsafe (spec as unsafe *clang::Decl)
+            hs = unsafe (spec_set as unsafe *HeaderSet)
+        }
+
+        if cd == &null
+            || hs == &null
+            || (!hs->alive())
+            || hs->ast() == &null
+            || hs->sema() == &null {
+            return v
+        }
+
+        var        lock   = kairo::std::LockGuard(self._mu)
+        var unsafe *csema = hs->sema()
+        var        slock  = kairo::std::LockGuard(*hs->sema_lock())
+        var unsafe *fd    = llvm::dyn_cast<clang::FunctionDecl>(cd)
+        // A template the call's deduction never reached (a dependent
+        // argument, a list literal): no instance to read.
+        if fd == &null || fd->isDependentContext() || fd->getDescribedFunctionTemplate() != &null {
+            v.why = 6
+            return v
+        }
+
+        var walk = kairo::CxxMoveWalk(&*csema, &self._moves, CXX_MOVE_DEPTH)
+        var a    = walk.top(fd, idx)
+        v.kind =      if (a.kind == 1) => (CxxMoveKind::Moves)
+                 else if (a.kind == 2) => (CxxMoveKind::Unknown)
+                 else => CxxMoveKind::None
+        v.why         = a.why
+        v.in_name     = kairo::std::from_std_string<string>(a.in_name())
+        v.blocker     = kairo::std::from_std_string<string>(a.blocker_name())
+        v.in_top      = a.inside == &null || a.in_is(fd)
+        v.blocker_top = a.blocker == &null || a.blocker_is(fd)
+        v.at          = self._header_range(hs, a.begin, a.end)
+        return v
+    }
+
+    /// The Kairo range of clang's \p b .. \p e in \p hs, invalid when the
+    /// file has no Kairo fid (a header no declaration was imported from).
+    /// Under the set's sema_lock().
+    priv fn _header_range(self,
+                          hs: unsafe *HeaderSet,
+                          b:  clang::SourceLocation,
+                          e:  clang::SourceLocation) -> SourceRange {
+        if !b.isValid() {
+            return SourceRange::invalid()
+        }
+
+        var unsafe *csm = hs->csm()
+        if csm == &null {
+            return SourceRange::invalid()
+        }
+
+        var db = csm->getDecomposedExpansionLoc(b)
+        var kb = hs->kfid_for(db.first)
+        if kb == 0 {
+            return SourceRange::invalid()
+        }
+
+        var        len:  usize = 1
+        var unsafe *cctx       = hs->ast()
+        if e.isValid() && cctx != &null {
+            var de = csm->getDecomposedExpansionLoc(e)
+            if de.first == db.first && de.second >= db.second {
+                var el = clang::Lexer::MeasureTokenLength(
+                    csm->getExpansionLoc(e),
+                    *csm,
+                    cctx->getLangOpts(),
+                )
+
+                len = ((de.second - db.second) as usize) + (el as usize)
+            }
+        }
+
+        var buf = csm->getBufferData(db.first)
+        var off = db.second as usize
+        if off >= buf.size() {
+            return SourceRange::invalid()
+        }
+
+        if len == 0 || off + len > buf.size() {
+            len = 1
+        }
+
+        return self._hindex->ksm()->get_range(kb, off, len)
     }
 
     /// The return type clang deduces for the imported non-template \p f

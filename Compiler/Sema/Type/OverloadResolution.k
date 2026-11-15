@@ -453,6 +453,10 @@ pub class Candidate {
     /// when Kairo's import of the declared one is opaque; else null.
     /// Written by _clang_substitute.
     pub var cxx_ret: unsafe *Type = &null
+    /// An imported template's clang specialization and its HeaderSet, as
+    /// _clang_substitute's deduction found them; null when it was not asked.
+    pub var cxx_spec:     unsafe *void = &null
+    pub var cxx_spec_set: unsafe *void = &null
     /// SfinaeDeferred, and the dependent argument is a dereference (`*slot`
     /// on `slot: *T`): see OvlResult::deref_dep.
     pub var deref_dep: bool = false
@@ -525,6 +529,9 @@ pub class OvlResult {
     /// Copied off the winner (Candidate::cxx_ret): call_result_type's answer
     /// where the declared return type has no Kairo shape.
     pub var cxx_ret: unsafe *Type = &null
+    /// Copied off the winner (Candidate::cxx_spec / cxx_spec_set).
+    pub var cxx_spec:     unsafe *void = &null
+    pub var cxx_spec_set: unsafe *void = &null
     /// Copied off the winner (Candidate::deref_dep): clang was not asked,
     /// because an argument is a dereference of a pointer to the enclosing
     /// generic's parameter, so an opaque declared return type is the
@@ -970,6 +977,8 @@ pub class OverloadResolution {
         out.inout_params   = w->inout_params
         out.user_convs     = w->user_convs
         out.cxx_ret        = w->cxx_ret
+        out.cxx_spec       = w->cxx_spec
+        out.cxx_spec_set   = w->cxx_spec_set
         out.deref_dep      = w->deref_dep
         return out
     }
@@ -2151,6 +2160,24 @@ pub class OverloadResolution {
                 }
             }
 
+            // `&x` as the marker on a C++ `T&` is `x` itself, an lvalue,
+            // which is what EmitIR writes and what C++ deduces `T` from:
+            // shown as the pointer, `steal(&h)` against `steal(T&)` deduced
+            // `T = Res*`.
+            var marked_ref = false
+            if a->marked && t != &null && a->lit == LitKind::None {
+                var k = c->arg_to_param[order[j]]
+                if k < params.size() && params[k]->type_ != &null {
+                    var unsafe *pk = if (params[k]->type_->canonical != &null) => (params[k]->type_->canonical)
+                                     else => params[k]->type_
+                    var unsafe *pe = self.tu.pointee(t)
+                    if isa<CXXLValueRefType>(canon_unqual(pk)) && pe != &null {
+                        t          = pe
+                        marked_ref = true
+                    }
+                }
+            }
+
             if t == &null { // `null`, `.V`: nothing clang can be shown.
                 return
             }
@@ -2170,7 +2197,9 @@ pub class OverloadResolution {
 
             tys.push_back(t)
             cats.push_back(
-                if (a->lit != LitKind::None) => (Expr::ValueCategory::RValue) else => a->cat,
+                     if (marked_ref) => (Expr::ValueCategory::LValue)
+                else if (a->lit != LitKind::None) => (Expr::ValueCategory::RValue)
+                else => a->cat,
             )
         }
 
@@ -2194,8 +2223,10 @@ pub class OverloadResolution {
             want_ret = true
         }
 
-        var ret: unsafe *Type = &null
-        var fid: i64          = -1
+        var ret:      unsafe *Type = &null
+        var spec:     unsafe *void = &null
+        var spec_set: unsafe *void = &null
+        var fid:      i64          = -1
         if self.sc->ctx != &null {
             fid = (self.sc->ctx->fid)
         }
@@ -2216,10 +2247,17 @@ pub class OverloadResolution {
             unsafe &why,
             want_ret,
             &ret,
+            &spec,
+            &spec_set,
             fid,
             alt,
             unsafe &conv_at,
         )
+
+        if keep == 1 {
+            c->cxx_spec     = spec
+            c->cxx_spec_set = spec_set
+        }
 
         // An opaque in clang's answer is taken only when it is not the
         // declared type over again: `std::move(v)` of a `__m128i` returns

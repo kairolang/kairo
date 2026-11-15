@@ -116,6 +116,11 @@ pub class HeaderIndex {
         self._targets.clear()
     }
 
+    /// The Kairo SourceManager the headers' fids are minted in.
+    fn ksm(self) -> *SourceManager {
+        return self._sm
+    }
+
     fn target_for_fid(self, fid: u32) -> unsafe *HeaderTarget {
         var it = self._targets.find(fid)
         if it == self._targets.end() {

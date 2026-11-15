@@ -60,8 +60,10 @@
 ///     (FunctionDecl::move_out, _exit), and a call marks the same part of
 ///     its argument moved-from (_call_leaves). Only the called declaration
 ///     is consulted: a call through an interface, a virtual method, a
-///     function pointer or a stored closure, and a C++ function, mark
-///     nothing.
+///     function pointer or a stored closure marks nothing. A C++ function's
+///     body is read instead (_call_cxx): a MOVE argument it moves out of
+///     through a `T&` / `T*` is moved-from, and one it cannot be inspected
+///     for is an unchecked assumption.
 ///
 ///     Each record says on which outcomes of the call the part is
 ///     moved-from (MoveOut::when), from the exits that leave it so: `return
@@ -187,6 +189,11 @@ import Sema::Check::ClassLifecycle::{
     moves_on_pass,
 }
 import Sema::Check::ConformanceChecking::ConformanceChecking
+import Sema::Foreign::ForeignInstantiate::{
+    CXX_MOVE_DEPTH,
+    CxxMoveKind,
+    CxxMoveVerdict,
+}
 import Sema::SemaContext::{
     SemaContext,
     SemaPhase,
@@ -1084,6 +1091,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                          is_ctor:  bool,
                          const ps: cxx::std::vector<unsafe *ParamDecl>,
                          const es: cxx::std::vector<unsafe *Expr>) {
+        if f->clang_decl != &null && !f->is_implicit && !is_ctor && !self._st.dead {
+            self._call_cxx(n, f, ps, es)
+        }
+
         if f->clang_decl != &null || f->is_implicit || is_ctor || self._st.dead {
             return
         }
@@ -1169,6 +1180,190 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
             self._mark_place(pl, n->range, how, f)
         }
+    }
+
+    /// The call \p n is to \p f, a C or C++ function. A MOVE argument bound
+    /// to a `T&` / `T*` to non-const, or a MOVE object a non-const method
+    /// runs on, is moved-from after the call when the callee's body moves
+    /// out of it (ForeignInstantiate::cxx_moves_out). One whose body cannot
+    /// be inspected borrows, on an unchecked assumption the TU records
+    /// (SemaContext::assume); -fstrict-cxx-moves takes it at its worst
+    /// instead. A pack parameter is not asked about.
+    priv fn _call_cxx(self,
+                      n:        unsafe *Expressions::CallExpr,
+                      f:        unsafe *FunctionDecl,
+                      const ps: cxx::std::vector<unsafe *ParamDecl>,
+                      const es: cxx::std::vector<unsafe *Expr>) {
+        if self.sc->foreign == &null {
+            return
+        }
+
+        var name = self._tu.decl_name(f)
+        if f->is_method() && self._callee_binds_receiver(n->callee) {
+            var pl = self._place(n->callee)
+            if pl.d != &null
+                && pl.rest == 1
+                && !pl.opaque
+                && self._may_be_moved(self._receiver_type(n->callee)) {
+                self._cxx_verdict(n, f, name, pl, -1)
+            }
+        }
+
+        for var a: usize = 0; a < ps.size(); ++a {
+            var unsafe *p = ps[a]
+            if p->is_self || p->is_pack {
+                continue
+            }
+
+            var by_ref = p->mode == ParamMode::Inout || self._lref_param(p)
+            var ct: unsafe *Type = &null
+            if p->type_ != &null {
+                ct = if (p->type_->canonical != &null) => (p->type_->canonical) else => p->type_
+            }
+
+            var unsafe *pt = if (ct != &null) => (self._tu.pointee(ct)) else => &null
+            if !by_ref && pt == &null {
+                continue
+            }
+
+            // `unsafe &h` for a C++ `T*` is the address of `h` as well.
+            var unsafe *x = self._tu.strip_parens(es[a])
+            while x != &null && isa<Expressions::UnsafeExpr>(x) {
+                x = self._tu.strip_parens(
+                    cast<Expressions::UnsafeExpr>(x)->operand,
+                )
+            }
+
+            var unsafe *u = dyn_cast<Expressions::UnaryOperatorExpr>(x)
+            var addr = u != &null
+                && u->operand != &null
+                && u->fix == Expressions::UnaryOperatorExpr::Fix::Prefix
+                && (u->is_mode_marker
+                    || u->op_token.kind == TokenKind::OpAmp && u->resolved_op == &null)
+            if addr {
+                x = u->operand
+            }
+
+            var pl = self._place(x)
+            if pl.d == &null || !pl.whole {
+                continue
+            }
+
+            if !by_ref && !addr {
+                if pl.elem {
+                    continue
+                }
+
+                pl.through()
+            }
+
+            var unsafe *vt = if (by_ref || addr) => (x->type_) else => pt
+            if !self._may_be_moved(vt) {
+                continue
+            }
+
+            // The clang index: the parameters before p, the receiver not counted.
+            var idx: i32 = 0
+            for var q: usize = 0; q < f->params.size(); ++q {
+                if f->params[q] == p {
+                    break
+                }
+
+                if f->params[q] != &null && !f->params[q]->is_self {
+                    idx += 1
+                }
+            }
+
+            self._cxx_verdict(n, f, name, pl, idx)
+        }
+    }
+
+    /// What the C++ call \p n to \p f does to \p pl, reached through clang
+    /// parameter \p idx (-1 the receiver): moved-from, borrowed, or
+    /// borrowed on an assumption.
+    priv fn _cxx_verdict(self,
+                         n:          unsafe *Expressions::CallExpr,
+                         f:          unsafe *FunctionDecl,
+                         const name: string,
+                         const pl:   MovePlace,
+                         idx:        i32) {
+        var v = self.sc->foreign->cxx_moves_out(
+            f,
+            n->cxx_spec,
+            n->cxx_spec_set,
+            idx,
+        )
+
+        if v.kind == CxxMoveKind::None {
+            return
+        }
+
+        var mp = MovedPart()
+        mp.d       = pl.d
+        mp.path    = pl.path
+        mp.shown   = pl.shown
+        mp.segs    = pl.segs
+        mp.at      = n->range
+        mp.has_via = true
+        mp.via     = if (v.at.is_valid()) => (v.at) else => f->range
+        if v.kind == CxxMoveKind::Moves {
+            mp.how      = f"by the call to '{name}'"
+            mp.via_text = f"'{v.in_name}' moves it here"
+            if !v.in_top {
+                mp.via_text += f", called from '{name}'"
+            }
+
+            if !v.at.is_valid() {
+                mp.via_text = f"declared here; '{v.in_name}' moves it, in a header with no source this build can show"
+            }
+
+            self._st.mark(mp)
+            return
+        }
+
+        var why = self._cxx_unknown(v)
+        // A language flag: Lib/builtin and Lib/std keep the default
+        // (Compiler/Spec/Driver.md, dialect flags and the library).
+        if !self.sc->opts.strict_cxx_moves || self.sc->in_library() {
+            self.sc->assume(
+                n->range,
+                f"'{name}' is assumed not to move out of '{pl.shown}': {why}",
+            )
+
+            return
+        }
+
+        mp.how = f"by the call to '{name}', whose body cannot be inspected and is taken to move it under -fstrict-cxx-moves"
+        mp.via_text = f"not inspected: {why}"
+        self._st.mark(mp)
+    }
+
+    /// Why cxx_moves_out could not decide, for the assumption and the note.
+    priv fn _cxx_unknown(self, const v: CxxMoveVerdict) -> string {
+        if v.why == 2 {
+            return if (v.blocker_top) => ("it is virtual, so an override may run instead")
+                   else => f"it passes it to '{v.blocker}', a virtual call"
+        }
+
+        if v.why == 3 {
+            return f"'{v.in_name}' passes it to a call through a pointer"
+        }
+
+        if v.why == 4 {
+            return f"the inspection stops {CXX_MOVE_DEPTH} calls deep, in '{v.in_name}'"
+        }
+
+        if v.why == 5 {
+            return if (v.blocker_top) => ("its body does not compile for this argument")
+                   else => f"it passes it to '{v.blocker}', whose body does not compile for this argument"
+        }
+
+        if v.why == 6 {
+            return "the template instance it calls is not known"
+        }
+
+        return if (v.blocker_top) => ("its body is not visible")
+               else => f"it passes it to '{v.blocker}', whose body is not visible"
     }
 
     /// A value of type \p t can be left moved-from: only a MOVE type can,
