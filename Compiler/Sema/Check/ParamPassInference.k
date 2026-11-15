@@ -1255,7 +1255,10 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             return false
         }
 
-        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
         return c != &null
             && c->kind == TypeKind::PointerType
             && canon_has_const(cast<PointerType>(c)->pointee)
