@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Pre-commit hook: format the staged Kairo sources with kfmt.
+
+Formats every staged `.k` file outside `Tests/` and stages the result, so a
+commit never carries unformatted source. Test files are left alone: many pin
+`line:col` positions, and their layout is part of what they test. Generated
+files are left alone too (GENERATED below).
+
+A file that also has UNSTAGED changes is not rewritten: formatting it and
+staging the result would pull those changes into the commit. If such a file
+is not formatted, the commit stops and names it.
+
+A file kfmt refuses (it does not parse) is reported and committed as it is.
+
+Install, once per clone:
+    git config core.hooksPath Scripts/git-hooks
+
+Skip for one commit: `git commit --no-verify`, or KAIRO_NO_FORMAT_HOOK=1.
+kfmt is taken from $KAIRO_KFMT, else PATH, else a release build in the tree
+that runs on this machine.
+"""
+import glob
+import os
+import shutil
+import subprocess
+import sys
+
+GENERATED = {"Compiler/Diagnostic/Registry.k"}
+
+
+def git(*args, check=True):
+    return subprocess.run(["git", *args], capture_output=True, text=True, check=check)
+
+
+def runs(exe):
+    """A build for another target sits beside the host's: only take one that starts."""
+    try:
+        return subprocess.run([exe, "--help"], capture_output=True).returncode in (0, 1, 2)
+    except OSError:
+        return False
+
+
+def find_kfmt(root):
+    env = os.environ.get("KAIRO_KFMT")
+    if env:
+        return env
+    on_path = shutil.which("kfmt")
+    if on_path and runs(on_path):
+        return on_path
+    exe = "kfmt.exe" if os.name == "nt" else "kfmt"
+    # A linked worktree has no build of its own: look in the main checkout too.
+    common = git("rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
+    for base in (root, os.path.dirname(common)):
+        for hit in sorted(glob.glob(os.path.join(base, "build", "*", "release", "bin", exe))):
+            if runs(hit):
+                return hit
+    return None
+
+
+def run_kfmt(kfmt, mode, files):
+    """kfmt's last line: `kfmt: N file(s): A would change|reformatted, B refused`."""
+    out = subprocess.run([kfmt, mode, *files], capture_output=True, text=True)
+    return out.returncode, (out.stdout + out.stderr).strip()
+
+
+def main():
+    if os.environ.get("KAIRO_NO_FORMAT_HOOK"):
+        return 0
+
+    root = git("rev-parse", "--show-toplevel").stdout.strip()
+    os.chdir(root)
+    staged = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").stdout.split("\0")
+    files = [
+        f for f in staged
+        if f.endswith(".k") and not f.startswith("Tests/") and f not in GENERATED and os.path.isfile(f)
+    ]
+    if not files:
+        return 0
+
+    kfmt = find_kfmt(root)
+    if not kfmt or not os.path.exists(kfmt):
+        print("pre-commit: kfmt not found (set KAIRO_KFMT); committing unformatted", file=sys.stderr)
+        return 0
+
+    dirty = set(git("diff", "--name-only", "-z", "--", *files).stdout.split("\0")) - {""}
+    clean = [f for f in files if f not in dirty]
+
+    blocked = []
+    for f in sorted(dirty):
+        _, text = run_kfmt(kfmt, "--check", [f])
+        if ": 1 would change" in text:
+            blocked.append(f)
+    if blocked:
+        print("pre-commit: these files are not formatted and also have unstaged changes,", file=sys.stderr)
+        print("so they were left as they are. Format and stage them yourself:", file=sys.stderr)
+        for f in blocked:
+            print(f"    kfmt --write {f}", file=sys.stderr)
+        return 1
+
+    if clean:
+        before = {f: open(f, "rb").read() for f in clean}
+        _, text = run_kfmt(kfmt, "--write", clean)
+        changed = [f for f in clean if open(f, "rb").read() != before[f]]
+        if changed:
+            git("add", "--", *changed)
+            print(f"pre-commit: kfmt reformatted {len(changed)} file(s):", file=sys.stderr)
+            for f in changed:
+                print(f"    {f}", file=sys.stderr)
+        if ", 0 refused" not in text and "refused" in text:
+            print("pre-commit: kfmt refused a file (it does not parse); committed as it is:", file=sys.stderr)
+            print("    " + text.splitlines()[-1], file=sys.stderr)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
