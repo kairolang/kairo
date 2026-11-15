@@ -275,10 +275,76 @@ pub class SourceLineTable {
     /// \brief constructs the global table with initial capacity.
     ///
     fn SourceLineTable(self) {
+        self._file_table.store(
+            Self::_new_table(),
+            kairo::std::MemoryOrder::relaxed,
+        )
+    }
+
+    /// \brief an empty file table, sized for a typical import graph.
+    priv static fn _new_table() -> unsafe *cxx::std::vector<unsafe *Self::FileEntry> {
         var unsafe *tbl = unsafe (@create cxx::std::vector<unsafe *Self::FileEntry>() as unsafe *cxx::std::vector<unsafe *Self::FileEntry>)
         tbl->reserve(256)
+        return tbl
+    }
 
-        self._file_table.store(tbl, kairo::std::MemoryOrder::relaxed)
+    /// \brief \p fid's entry, or null when the table is torn down, \p fid is
+    ///        past its end, or its slot is empty.
+    priv inline fn _entry(self, fid: u32) -> unsafe *Self::FileEntry {
+        var unsafe *tbl = self._file_table.load(
+            kairo::std::MemoryOrder::acquire,
+        )
+
+        if tbl == &null || (fid as usize) >= tbl->size() {
+            return &null
+        }
+
+        return (*tbl)[fid]
+    }
+
+    /// \brief \p fid's entry if its line index is published, else null.
+    priv inline fn _ready_entry(self, fid: u32) -> unsafe *Self::FileEntry {
+        var unsafe *entry = self._entry(fid)
+        if entry == &null || !entry->is_ready() {
+            return &null
+        }
+
+        return entry
+    }
+
+    /// \brief frees \p entry and its line vector.
+    ///
+    /// \note The caller has drained _builds and unlinked or is discarding
+    ///       the slot that held \p entry.
+    priv static fn _free_entry(entry: unsafe *Self::FileEntry) {
+        var unsafe *lines = entry->lines.load(kairo::std::MemoryOrder::acquire)
+        if lines != &null {
+            @destroy unsafe (lines as *cxx::std::vector<u32>)
+        }
+
+        @destroy unsafe (entry as *Self::FileEntry)
+    }
+
+    /// \brief frees every entry of the current table and the table itself,
+    ///        leaving _file_table dangling for the caller to replace.
+    ///
+    /// \note The caller has drained _builds.
+    priv fn _free_table(self) {
+        var unsafe *tbl = self._file_table.load(
+            kairo::std::MemoryOrder::acquire,
+        )
+
+        if tbl == &null {
+            return
+        }
+
+        for var f: unsafe *Self::FileEntry in *tbl {
+            if f != &null {
+                Self::_free_entry(f)
+            }
+        }
+
+        @destroy unsafe (tbl as *cxx::std::vector<unsafe *Self::FileEntry>)
     }
 
     ///
@@ -295,30 +361,11 @@ pub class SourceLineTable {
         /// wait for any active builds to finish
         self._drain_builds()
 
-        var unsafe *tbl = self._file_table.load(
-            kairo::std::MemoryOrder::acquire,
-        )
-
-        if tbl == &null {
+        if self._file_table.load(kairo::std::MemoryOrder::acquire) == &null {
             return
         }
 
-        for var f: *FileEntry? in *tbl {
-            if f != &null {
-                var unsafe *lines = f->lines.load(
-                    kairo::std::MemoryOrder::relaxed,
-                )
-
-                if lines != &null {
-                    @destroy unsafe (lines as *cxx::std::vector<u32>)
-                }
-
-                @destroy unsafe (f as *Self::FileEntry)
-            }
-        }
-
-        @destroy unsafe (tbl as *cxx::std::vector<unsafe *Self::FileEntry>)
-
+        self._free_table()
         self._file_table.store(&null, kairo::std::MemoryOrder::release)
         self._file_count.store(0, kairo::std::MemoryOrder::release)
     }
@@ -410,19 +457,7 @@ pub class SourceLineTable {
     fn invalidate(self, fid: u32, bytes: MemoryBuffer) -> bool {
         self._drain_builds()
 
-        var unsafe *tbl = self._file_table.load(
-            kairo::std::MemoryOrder::acquire,
-        )
-
-        if tbl == &null {
-            return false
-        }
-
-        if (fid as usize) >= tbl->size() {
-            return false
-        }
-
-        var unsafe *entry = (*tbl)[fid]
+        var unsafe *entry = self._entry(fid)
         if entry == &null {
             return false
         }
@@ -452,19 +487,7 @@ pub class SourceLineTable {
     fn drop_file(self, fid: u32) -> bool {
         self._drain_builds()
 
-        var unsafe *tbl = self._file_table.load(
-            kairo::std::MemoryOrder::acquire,
-        )
-
-        if tbl == &null {
-            return false
-        }
-
-        if (fid as usize) >= tbl->size() {
-            return false
-        }
-
-        var unsafe *entry = (*tbl)[fid]
+        var unsafe *entry = self._entry(fid)
         if entry == &null {
             return false
         }
@@ -478,14 +501,12 @@ pub class SourceLineTable {
         }
 
         // Slot is nulled, not erased: the table is indexed by fid.
+        var unsafe *tbl = self._file_table.load(
+            kairo::std::MemoryOrder::acquire,
+        )
+
         (*tbl)[fid] = &null
-
-        var unsafe *lines = entry->lines.load(kairo::std::MemoryOrder::acquire)
-        if lines != &null {
-            @destroy unsafe (lines as *cxx::std::vector<u32>)
-        }
-
-        @destroy unsafe (entry as *Self::FileEntry)
+        Self::_free_entry(entry)
 
         self._file_count.fetch_sub(1, kairo::std::MemoryOrder::relaxed)
         return true
@@ -505,17 +526,9 @@ pub class SourceLineTable {
             self._builds.fetch_sub(1, kairo::std::MemoryOrder::acq_rel)
         }
 
-        var unsafe *tbl = self._file_table.load(
-            kairo::std::MemoryOrder::acquire,
-        )
-
-        if tbl == &null || (fid as usize) >= tbl->size() {
-            return
-        }
-
         // Synchronous, so the claim goes straight to Building. A Ready entry
         // is the legal no-op it always was.
-        var unsafe *entry = (*tbl)[fid]
+        var unsafe *entry = self._entry(fid)
         if entry == &null || !entry->try_claim(LineEntryState::Building) {
             kairo::Logger::debug(
                 kairo::Logger::Stage::Driver,
@@ -549,18 +562,10 @@ pub class SourceLineTable {
     /// \return the entry to fill, or null if there is nothing to build.
     ///
     fn reserve_build(self, fid: u32) -> unsafe *Self::FileEntry {
-        var unsafe *tbl = self._file_table.load(
-            kairo::std::MemoryOrder::acquire,
-        )
-
-        if tbl == &null || (fid as usize) >= tbl->size() {
-            return &null
-        }
-
         // The claim and the count go together: an entry that reads Queued is
         // always one _drain_builds waits for. Bumped before the CAS so a
         // drain on another thread can never see Queued uncounted.
-        var unsafe *entry = (*tbl)[fid]
+        var unsafe *entry = self._entry(fid)
         if entry == &null {
             return &null
         }
@@ -801,16 +806,7 @@ pub class SourceLineTable {
     /// \brief checks if the file entry is ready (index built).
     ///
     fn is_ready(self, fid: u32) -> bool {
-        var unsafe *tbl = self._file_table.load(
-            kairo::std::MemoryOrder::acquire,
-        )
-
-        if tbl == &null || (fid as usize) >= tbl->size() {
-            return false
-        }
-
-        var unsafe *entry = (*tbl)[fid]
-        return entry != &null && entry->is_ready()
+        return self._ready_entry(fid) != &null
     }
 
     ///
@@ -818,15 +814,7 @@ pub class SourceLineTable {
     ///
     fn wait_until_ready(self, fid: u32) {
         // check if fid is even registered before waiting
-        var unsafe *tbl = self._file_table.load(
-            kairo::std::MemoryOrder::acquire,
-        )
-
-        if tbl == &null || (fid as usize) >= tbl->size() {
-            return
-        }
-
-        var unsafe *entry = (*tbl)[fid]
+        var unsafe *entry = self._entry(fid)
         if entry == &null {
             return
         }
@@ -880,16 +868,8 @@ pub class SourceLineTable {
     /// corresponding line number and column within that line.
     ///
     fn get_line_col(self, fid: u32, offset: u32, const file_name: Path) -> FullSourceLocation {
-        var unsafe *tbl = self._file_table.load(
-            kairo::std::MemoryOrder::acquire,
-        )
-
-        if tbl == &null || (fid as usize) >= tbl->size() {
-            return FullSourceLocation((fid as usize), 0, 0, file_name)
-        }
-
-        var unsafe *entry = (*tbl)[fid]
-        if entry == &null || !entry->is_ready() {
+        var unsafe *entry = self._ready_entry(fid)
+        if entry == &null {
             return FullSourceLocation((fid as usize), 0, 0, file_name)
         }
 
@@ -966,16 +946,8 @@ pub class SourceLineTable {
     /// \return byte offset of line start, or 0 if invalid.
     ///
     fn get_line_offset(self, fid: u32, line_num: u32) -> u32 {
-        var unsafe *tbl = self._file_table.load(
-            kairo::std::MemoryOrder::acquire,
-        )
-
-        if tbl == &null || (fid as usize) >= tbl->size() {
-            return 0
-        }
-
-        var unsafe *entry = (*tbl)[fid]
-        if entry == &null || !entry->is_ready() {
+        var unsafe *entry = self._ready_entry(fid)
+        if entry == &null {
             return 0
         }
 
@@ -1004,16 +976,8 @@ pub class SourceLineTable {
     /// \return byte offset where line ends (exclusive).
     ///
     fn get_line_end_offset(self, fid: u32, line_num: u32) -> u32 {
-        var unsafe *tbl = self._file_table.load(
-            kairo::std::MemoryOrder::acquire,
-        )
-
-        if tbl == &null || (fid as usize) >= tbl->size() {
-            return 0
-        }
-
-        var unsafe *entry = (*tbl)[fid]
-        if entry == &null || !entry->is_ready() {
+        var unsafe *entry = self._ready_entry(fid)
+        if entry == &null {
             return 0
         }
 
@@ -1049,34 +1013,12 @@ pub class SourceLineTable {
     fn reset(self) {
         // wait for any active builds
         self._drain_builds()
-
-        var unsafe *tbl = self._file_table.load(
-            kairo::std::MemoryOrder::acquire,
+        self._free_table()
+        self._file_table.store(
+            Self::_new_table(),
+            kairo::std::MemoryOrder::release,
         )
 
-        if tbl != &null {
-            for var f: *FileEntry? in *tbl {
-                if f != &null {
-                    var unsafe *lines = f->lines.load(
-                        kairo::std::MemoryOrder::relaxed,
-                    )
-
-                    if lines != &null {
-                        @destroy unsafe (lines as *cxx::std::vector<u32>)
-                    }
-
-                    @destroy unsafe (f as *Self::FileEntry)
-                }
-            }
-
-            @destroy unsafe (tbl as *cxx::std::vector<unsafe *Self::FileEntry>)
-        }
-
-        // reallocate fresh table
-        var unsafe *new_tbl = unsafe (@create cxx::std::vector<unsafe *Self::FileEntry>() as unsafe *cxx::std::vector<unsafe *Self::FileEntry>)
-        new_tbl->reserve(256)
-
-        self._file_table.store(new_tbl, kairo::std::MemoryOrder::release)
         self._file_count.store(0, kairo::std::MemoryOrder::release)
     }
 }

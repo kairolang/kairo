@@ -294,19 +294,22 @@ pub class SourceRange {
         return self.shrink(n)
     }
 
+    /// Ordering is lexicographic on (start, end), so it agrees with `==`:
+    /// two ranges are neither less nor greater than each other exactly
+    /// when they are equal.
     fn op < (const self, other: SourceRange) -> bool {
-        return self.start < other.start
+        return self.start < other.start || (self.start == other.start && self.end < other.end)
     }
 
     fn op <= (const self, other: SourceRange) -> bool {
-        return self.start <= other.start
+        return !(other < self)
     }
 
     fn op > (const self, other: SourceRange) -> bool {
-        return self.start > other.start
+        return other < self
     }
 
     fn op >= (const self, other: SourceRange) -> bool {
-        return self.start >= other.start
+        return !(self < other)
     }
 }

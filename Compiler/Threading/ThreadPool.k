@@ -134,49 +134,14 @@ pub class ThreadPool {
     /// \see worker_loop
     ///
     fn ThreadPool(self) {
-        var n: usize = ((Self::Thread::hardware_concurrency()) as usize)
-        if n == 0 {
-            n = 1
-        }
-
-        self._count = n
-        self._queues.reserve(n)
-
-        for gi in (0 as usize)..256 {
-            self._groups[gi].store(0, kairo::std::MemoryOrder::relaxed)
-        }
-
-        // Single-threaded: no workers. enqueue() runs inline.
-        if n == 1 {
-            kairo::Logger::info(
-                kairo::Logger::Stage::ThreadPool,
-                "ThreadPool: single-threaded (inline) mode",
-            )
-
-            return // skip thread spawning entirely
-        }
-
-        self._live_workers.store(n, kairo::std::MemoryOrder::release)
-
-        // Allocate all queues first before any thread can index into _queues
-        for _ in (0 as usize)..n {
-            self._queues.push_back(
-                unsafe (@create PartitionQueue(DEFAULT_QUEUE_SIZE) as unsafe *PartitionQueue),
-            )
-        }
-
-        // Now spawn threads all queues are guaranteed present. Each runs
-        // worker_loop(i) on a detached native thread with a 32 MiB stack;
-        // the pthread / CreateThread calls are in Native/Thread.hh.
-        kairo::spawn_pool_workers(unsafe &self, self._count, WORKER_STACK_BYTES)
-
-        kairo::Logger::info(
-            kairo::Logger::Stage::ThreadPool,
-            f"ThreadPool: initialized {self._count} workers",
-        )
+        self._init((Self::Thread::hardware_concurrency()) as usize)
     }
 
     fn ThreadPool(self, n: usize) {
+        self._init(n)
+    }
+
+    priv fn _init(self, n: usize) {
         if n == 0 {
             n = 1
         }
@@ -626,7 +591,10 @@ pub class ThreadPool {
             f"ThreadPool::warmup: {self._count} threads spins={spins}",
         )
 
-        fn heat_task(barrier: unsafe *kairo::std::Atomic<usize>, iterations: i32) {
+        // Each task holds its worker until all `total` have started, so the
+        // barrier waits for the pool's own size: a pool smaller than the
+        // machine never reaches hardware_concurrency().
+        fn heat_task(barrier: unsafe *kairo::std::Atomic<usize>, iterations: i32, total: usize) {
             var x: i64 = 1
 
             for var j: i32 = 0; j < iterations; ++j {
@@ -635,9 +603,7 @@ pub class ThreadPool {
 
             barrier->fetch_add(1, cxx::std::memory_order::release)
 
-            while barrier->load(
-                cxx::std::memory_order::acquire,
-            ) < (Self::Thread::hardware_concurrency() as usize) {
+            while barrier->load(cxx::std::memory_order::acquire) < total {
                 kairo::thread_pause()
             }
 
@@ -646,14 +612,16 @@ pub class ThreadPool {
             }
         }
 
+        var total = self._count
         for var i: usize = 0; i < self._count; ++i {
             // the barrier is shared, never copied (atomics are not copyable)
             self.enqueue(
                 kairo::SmallFunction<64>(
-                    fn() |heat_task, *barrier, spins| {
+                    fn() |heat_task, *barrier, spins, total| {
                         heat_task(
                             unsafe (barrier as unsafe *kairo::std::Atomic<usize>),
                             spins,
+                            total,
                         )
                     },
                 ),
@@ -661,8 +629,12 @@ pub class ThreadPool {
             )
         }
 
-        while barrier.load(kairo::std::MemoryOrder::acquire) < self._count {
-            kairo::thread_pause()
+        // The barrier lives in this frame and every task reads it until the
+        // task returns, so warmup waits for the tasks to finish, not for the
+        // barrier to fill: the last increment comes before the other tasks'
+        // final loads of it.
+        for var g: usize = 0; g < self._count && g < 256; ++g {
+            self.wait_group(g as u8)
         }
 
         kairo::Logger::debug(

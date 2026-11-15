@@ -29,9 +29,7 @@ import Memory::MemoryBuffer::MemoryBuffer
 import Support::Assert::Assert
 import Support::FileIO::Path::Path
 import Support::FileIO::VirtualFileManager::VirtualFileManager
-import Support::UTF8View::UTF8View
 import Threading::ThreadPool::ThreadPool
-import std::io
 
 pub type FileID = u32
 
@@ -80,7 +78,6 @@ pub type FileID = u32
 pub class SourceManager {
     pub  var _line_table: SourceLineTable ///< global line mapping table
     priv var _files:      cxx::std::vector<unsafe *SourceFile> ///< all loaded files
-    priv var _total_b:    u64                                  = 0 ///< total bytes mapped
     priv var _pool:       unsafe *ThreadPool ///< background worker pool
     priv var _vfile_mgr:  unsafe *VirtualFileManager ///< underlying virtual filesystem
     priv var _load_mu:    kairo::std::Mutex ///< mutex for synchronizing file loads
@@ -119,7 +116,6 @@ pub class SourceManager {
         self._diag      = diag
         self._pool      = pool
         self._files     = cxx::std::vector<unsafe *SourceFile>()
-        self._total_b   = 0
         self._vfile_mgr = vfile_mgr
         kairo::Logger::info(
             kairo::Logger::Stage::Driver,
@@ -132,8 +128,11 @@ pub class SourceManager {
     ///
     fn op finally (self) {
         self._line_table.shutdown()
-        // self._pool->wait_all();
+        self._destroy_files()
+    }
 
+    /// \brief destroys every loaded SourceFile and empties \c _files.
+    priv fn _destroy_files(self) {
         for var f: *SourceFile? in self._files {
             if f != &null {
                 @destroy unsafe (f as *SourceFile)
@@ -219,7 +218,7 @@ pub class SourceManager {
         self._materialize(base_fid, path)
         kairo::Logger::info(
             kairo::Logger::Stage::Driver,
-            f"SourceManager::load_file: loaded fid={base_fid} path={path.full_path()} size={size}B total={self._total_b}B",
+            f"SourceManager::load_file: loaded fid={base_fid} path={path.full_path()} size={size}B",
         )
 
         if skip_indexing {
@@ -295,11 +294,7 @@ pub class SourceManager {
             return
         }
 
-        var unsafe *file = unsafe (@create SourceFile(path, buf, self._total_b as usize) as unsafe *SourceFile)
-
-        /// Precondition: the running total cannot overflow.
-        self._total_b += ((file->size_bytes) as u64)
-        self._files[fid] = file
+        self._files[fid] = unsafe (@create SourceFile(path, buf) as unsafe *SourceFile)
     }
 
     ///
@@ -392,17 +387,41 @@ pub class SourceManager {
     ///
     /// \return false if the fid was never loaded.
     pub fn release(self, file_id: FileID) -> bool {
-        if (file_id as usize) >= self._files.size() {
-            return false
-        }
+        return self._drop_file(file_id)
+    }
 
-        if self._files[file_id] == &null {
+    /// \brief destroys \p file_id's SourceFile and nulls its slot.
+    ///
+    /// \return false if the fid has no live SourceFile.
+    priv fn _drop_file(self, file_id: FileID) -> bool {
+        if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
             return false
         }
 
         @destroy unsafe (self._files[file_id] as *SourceFile)
         self._files[file_id] = &null
         return true
+    }
+
+    /// \brief \p file_id's path: its SourceFile's, or the
+    ///        VirtualFileManager's when the SourceFile was released.
+    priv fn _path_of(self, file_id: FileID) -> Path {
+        if (file_id as usize) < self._files.size() && self._files[file_id] != &null {
+            return self._files[file_id]->path
+        }
+
+        return Path(self._vfile_mgr->get_info(file_id).path.full_path())
+    }
+
+    /// \brief rebuilds \p file_id's SourceFile and line index over the
+    ///        bytes the VirtualFileManager now holds for it.
+    ///
+    /// \note Caller must hold \c _load_mu and have drained the line
+    ///       table's builds before the bytes changed.
+    priv fn _remap(self, file_id: FileID, path: Path) {
+        self._drop_file(file_id)
+        self._materialize(file_id, path)
+        self._line_table.invalidate(file_id, self._bytes_of(file_id))
     }
 
     ///
@@ -435,17 +454,7 @@ pub class SourceManager {
             return false
         }
 
-        var path = Path()
-        if (file_id as usize) < self._files.size() && self._files[file_id] != &null {
-            path = self._files[file_id]->path
-            @destroy unsafe (self._files[file_id] as *SourceFile)
-            self._files[file_id] = &null
-        } else {
-            path = Path(self._vfile_mgr->get_info(file_id).path.full_path())
-        }
-
-        self._materialize(file_id, path)
-        self._line_table.invalidate(file_id, self._bytes_of(file_id))
+        self._remap(file_id, self._path_of(file_id))
         return true
     }
 
@@ -464,24 +473,12 @@ pub class SourceManager {
         var lock = kairo::std::LockGuard(self._load_mu)
         self._line_table.drain_builds()
 
-        var path = Path()
-        if (file_id as usize) < self._files.size() && self._files[file_id] != &null {
-            path = self._files[file_id]->path
-        } else {
-            path = Path(self._vfile_mgr->get_info(file_id).path.full_path())
-        }
-
+        var path = self._path_of(file_id)
         if !self._vfile_mgr->replace_bytes(file_id, data, size) {
             return false
         }
 
-        if (file_id as usize) < self._files.size() && self._files[file_id] != &null {
-            @destroy unsafe (self._files[file_id] as *SourceFile)
-            self._files[file_id] = &null
-        }
-
-        self._materialize(file_id, path)
-        self._line_table.invalidate(file_id, self._bytes_of(file_id))
+        self._remap(file_id, path)
         return true
     }
 
@@ -504,14 +501,7 @@ pub class SourceManager {
     ///
     pub fn evict(self, file_id: FileID) -> bool {
         var lock = kairo::std::LockGuard(self._load_mu)
-
-        if (file_id as usize) < self._files.size() {
-            if self._files[file_id] != &null {
-                @destroy unsafe (self._files[file_id] as *SourceFile)
-                self._files[file_id] = &null
-            }
-        }
-
+        self._drop_file(file_id)
         self._line_table.drop_file(file_id)
         return self._vfile_mgr->evict(file_id)
     }
@@ -608,13 +598,6 @@ pub class SourceManager {
     ///
     pub fn resolve(self, loc: SourceLocation) -> VirtualFileManager::SegmentResolve {
         return self._vfile_mgr->resolve_loc(loc)
-    }
-
-    ///
-    /// \brief placeholder for async line index status.
-    ///
-    fn is_line_index_ready(self, file_id: FileID) -> bool {
-        return false
     }
 
     ///
@@ -844,14 +827,6 @@ pub class SourceManager {
     }
 
     ///
-    /// \brief returns total bytes of all loaded files.
-    ///
-    fn total_bytes(self) -> u64 {
-        /// Precondition: the running total cannot overflow.
-        return self._total_b
-    }
-
-    ///
     /// \brief retrieves a MemoryBuffer view for a SourceRange.
     ///
     pub fn get_view(self, range: SourceRange) -> MemoryBuffer {
@@ -881,6 +856,19 @@ pub class SourceManager {
             kairo::Logger::warn(
                 kairo::Logger::Stage::Driver,
                 f"SourceManager::get_view: null file/buffer for fid {file_id}",
+            )
+
+            return MemoryBuffer()
+        }
+
+        // An end in another file gives the range no length here, and the
+        // clamp below would return the rest of this file instead. An end in
+        // the alignment gap past this file still clamps.
+        var end_fid = self.resolve(range.end).fid
+        if end_fid != usize::MAX && end_fid != file_id {
+            kairo::Logger::warn(
+                kairo::Logger::Stage::Driver,
+                f"SourceManager::get_view: range starts in fid {file_id} and ends in fid {end_fid}",
             )
 
             return MemoryBuffer()
@@ -922,20 +910,6 @@ pub class SourceManager {
     }
 
     ///
-    /// \brief prints loaded file metadata for debugging.
-    ///
-    fn dump_files(self) {
-        io::println("=== SourceManager File Dump ===")
-
-        for i in (0 as usize)..self._files.size() {
-            var unsafe *file = self._files[i]
-            io::println(f"[{i}] {file->path.full_path()}")
-            io::println(f"     size: {file->size_bytes} bytes")
-            io::println(f"     base offset: {file->base_offset}")
-        }
-    }
-
-    ///
     /// \brief computes byte distance between two source locations.
     ///
     /// \param a first location.
@@ -966,32 +940,22 @@ pub class SourceManager {
     }
 
     ///
-    /// \brief extracts a single character at a location.
+    /// \brief the source byte at a location.
+    ///
+    /// \details A byte, not a code point: a non-ASCII character yields its
+    ///          first byte, which compares unequal to every ASCII character.
     ///
     /// \param loc location to read from.
-    /// \return UTF-32 codepoint, or 0 if invalid.
+    /// \return the byte, or 0 if \p loc is invalid or at the end of its file.
     ///
     pub fn get_char_at(self, loc: SourceLocation) -> u8 {
-        var range = SourceRange::single(loc)
-        var buf   = self.get_view(range)
-
+        var buf = self.get_view(SourceRange::single(loc))
         if buf.size() == 0 {
             return 0
         }
 
-        var res = UTF8View::decode_utf8(buf.data(), buf.size())
-        return (res.chr as u8)
-    }
-
-    ///
-    /// \brief checks if a location points to whitespace.
-    ///
-    fn is_whitespace_at(self, loc: SourceLocation) -> bool {
-        var chr = self.get_char_at(loc)
-        return chr == (' ' as u8)
-            || chr == ('\t' as u8)
-            || chr == ('\n' as u8)
-            || chr == ('\r' as u8)
+        const p: kairo::std::ConstPtr<u8> = buf.data()
+        return p[0]
     }
 
     ///
@@ -1130,18 +1094,10 @@ pub class SourceManager {
         self._line_table.shutdown()
         kairo::Logger::debug(
             kairo::Logger::Stage::Driver,
-            f"SourceManager::reset: releasing {self._files.size()} files, {self._total_b}B total",
+            f"SourceManager::reset: releasing {self._files.size()} files",
         )
 
-        for var f: *SourceFile? in self._files {
-            if f != &null {
-                @destroy unsafe (f as *SourceFile)
-            }
-        }
-
-        self._files.clear()
-
-        self._total_b = 0
+        self._destroy_files()
         self._vfile_mgr->reset()
 
         // reinitialize line table if needed
@@ -1208,20 +1164,6 @@ pub fn Test() -> i32 {
         fn () -> string {
             if fid1 != 1 {
                 return f"expected fid1=1, got {fid1}"
-            }
-
-            return "pass"
-        },
-    )
-
-    suite.equal<string>(
-        "total bytes = sum of file sizes",
-        "pass",
-        fn () -> string {
-            var expected = file0_str.size() + file1_str.size()
-            var actual   = sm->total_bytes()
-            if actual != (expected as u64) {
-                return f"expected total_bytes={expected}, got {actual}"
             }
 
             return "pass"

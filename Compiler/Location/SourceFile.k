@@ -42,15 +42,14 @@ import Support::FileIO::Path::Path
 ///
 /// \details
 /// represents a contiguous section of a source file stored in memory.
-/// provides metadata such as file path, total size, and base offset.
+/// provides metadata such as file path and total size.
 /// this type is purely referential and does not manage lifetime of the
 /// underlying buffer.
 ///
 pub class SourceFile {
-    pub var path:        Path                         ///< filesystem path of the file.
-    pub var buffer:      unsafe *MappedFileBuffer     ///< pointer to mapped memory region.
-    pub var base_offset: usize                    = 0 ///< base offset within global space.
-    pub var size_bytes:  usize                    = 0 ///< size of the file in bytes.
+    pub var path:       Path                         ///< filesystem path of the file.
+    pub var buffer:     unsafe *MappedFileBuffer     ///< pointer to mapped memory region.
+    pub var size_bytes: usize                    = 0 ///< size of the file in bytes.
 
     /// Set once by SourceManager::validate_utf8. Checked-and-valid is two
     /// flags rather than one because "not yet scanned" must not read as
@@ -64,28 +63,17 @@ pub class SourceFile {
     ///
     /// \param path   absolute or canonical file path.
     /// \param buffer pointer to a valid `MappedFileBuffer`.
-    /// \param base   base offset within the virtual memory space.
     ///
     /// \throws RuntimeError if buffer is null or invalid.
     ///
-    fn SourceFile(self, const path: Path, buffer: unsafe *MappedFileBuffer, base: usize) {
+    fn SourceFile(self, const path: Path, buffer: unsafe *MappedFileBuffer) {
         if buffer == &null || !buffer->is_valid() {
             kairo::std::ice_fail("SourceFile: Invalid buffer for SourceFile")
         }
 
-        self.path        = path
-        self.buffer      = buffer
-        self.base_offset = base
-        self.size_bytes  = buffer->bytes().size()
-    }
-
-    ///
-    /// \brief computes the byte offset immediately after the file.
-    ///
-    /// \return `base_offset + size_bytes`.
-    ///
-    fn end_offset(const self) -> usize {
-        return self.base_offset + self.size_bytes
+        self.path       = path
+        self.buffer     = buffer
+        self.size_bytes = buffer->bytes().size()
     }
 
     ///
