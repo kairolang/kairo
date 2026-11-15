@@ -108,10 +108,6 @@ pub class <T: type> StmtParse {
         return Statements::ExpressionStmt::create_error(self.dyn()->ctx, range)
     }
 
-    priv inline fn is_fatal_stmt(self, s: unsafe *Stmt) -> bool {
-        return self.dyn()->is_fatal<Stmt>(s)
-    }
-
     //  Statement-boundary helpers
 
     /// \brief consumes the optional statement terminator (newline or `;`).
@@ -205,10 +201,6 @@ pub class <T: type> StmtParse {
             var unsafe *s     = self.parse_stmt()
             if s == &null {
                 break // EOF mid-statement
-            }
-
-            if self.is_fatal_stmt(s) {
-                break // fatal error in statement
             }
 
             stmts.push_back(s)
@@ -367,7 +359,7 @@ pub class <T: type> StmtParse {
         }
 
         var unsafe *s = self._dispatch_stmt()
-        if s != &null && !self.is_fatal_stmt(s) {
+        if s != &null {
             // DeclStmt annotations (incl. visibility) belong to the decl;
             // the Stmt overload would drop visibility (with a diagnostic).
             if isa<Statements::DeclStmt>(s) {
@@ -382,6 +374,20 @@ pub class <T: type> StmtParse {
         }
 
         return s
+    }
+
+    /// \brief a local function declaration (`fn`, or modifiers leading to
+    ///        one) as its DeclStmt, or null when parse_decl declined it.
+    /// \details A local `fn` belongs to the function it is written in, as a
+    ///          local type does (_parse_decl_stmt): codegen hoists both.
+    priv fn _parse_local_fn(self) -> unsafe *Stmt {
+        var unsafe *d = self.dyn()->parse_decl(true)
+        if d == &null {
+            return &null
+        }
+
+        self._attach_local_decl(d)
+        return Statements::DeclStmt::create(self.dyn()->ctx, d->range, d)
     }
 
     /// A named decl at statement scope is reachable only through its DeclStmt;
@@ -475,13 +481,13 @@ pub class <T: type> StmtParse {
             case TokenKind::KwReturn {
                 return self._parse_return()
             } case TokenKind::KwBreak {
-                return self._parse_break()
+                return self._parse_break_continue(false)
             } case TokenKind::KwContinue {
-                return self._parse_continue()
+                return self._parse_break_continue(true)
             } case TokenKind::KwPanic {
-                return self._parse_panic()
+                return self._parse_panic_yield(false)
             } case TokenKind::KwYield {
-                return self._parse_yield()
+                return self._parse_panic_yield(true)
             } case TokenKind::KwAssert {
                 return self._parse_assert()
             }
@@ -540,18 +546,9 @@ pub class <T: type> StmtParse {
                 // module. Left to the expression path, `eval` took the
                 // `fn` as a closure and its parameters were undeclared.
                 if self.dyn()->_mods_lead_to_fn() {
-                    var d = self.dyn()->parse_decl(true)
-                    if d != &null {
-                        if self.dyn()->is_fatal_decl(d) {
-                            return self.dyn()->fatal_ptr<Stmt>()
-                        }
-
-                        self._attach_local_decl(d)
-                        return Statements::DeclStmt::create(
-                            self.dyn()->ctx,
-                            d->range,
-                            d,
-                        )
+                    var unsafe *s = self._parse_local_fn()
+                    if s != &null {
+                        return s
                     }
                 }
 
@@ -576,18 +573,9 @@ pub class <T: type> StmtParse {
             /// them, and the ffi block is the fallback.
             case TokenKind::KwInline {
                 if self.dyn()->_mods_lead_to_fn() {
-                    var d = self.dyn()->parse_decl(true)
-                    if d != &null {
-                        if self.dyn()->is_fatal_decl(d) {
-                            return self.dyn()->fatal_ptr<Stmt>()
-                        }
-
-                        self._attach_local_decl(d)
-                        return Statements::DeclStmt::create(
-                            self.dyn()->ctx,
-                            d->range,
-                            d,
-                        )
+                    var unsafe *s = self._parse_local_fn()
+                    if s != &null {
+                        return s
                     }
                 }
 
@@ -601,11 +589,11 @@ pub class <T: type> StmtParse {
         if k == TokenKind::LitIdentifier && self.dyn()->check_peek(TokenKind::OpExclaim) {
             var sp = self.dyn()->ctx->get_spelling(self.dyn()->current())
             if sp == LangIntrinsics::label() {
-                return self._parse_label_intrinsic()
+                return self._parse_label_jump(false)
             }
 
             if sp == LangIntrinsics::jump() {
-                return self._parse_jump_intrinsic()
+                return self._parse_label_jump(true)
             }
         }
 
@@ -617,18 +605,9 @@ pub class <T: type> StmtParse {
         /// # var / const: plain decl, destructuring decl
         /// `const fn f()`: a (local) function declaration, not a binding.
         if k == TokenKind::KwConst && self.dyn()->_mods_lead_to_fn() {
-            var d = self.dyn()->parse_decl(true)
-            if d != &null {
-                if self.dyn()->is_fatal_decl(d) {
-                    return self.dyn()->fatal_ptr<Stmt>()
-                }
-
-                self._attach_local_decl(d)
-                return Statements::DeclStmt::create(
-                    self.dyn()->ctx,
-                    d->range,
-                    d,
-                )
+            var unsafe *s = self._parse_local_fn()
+            if s != &null {
+                return s
             }
         }
 
@@ -637,19 +616,12 @@ pub class <T: type> StmtParse {
         }
 
         if k == TokenKind::KwFn {
-            var d = self.dyn()->parse_decl(true)
-            if d == &null {
+            var unsafe *s = self._parse_local_fn()
+            if s == &null {
                 return self._parse_expr_or_context() // cursor on `fn`
             }
 
-            if self.dyn()->is_fatal_decl(d) {
-                return self.dyn()->fatal_ptr<Stmt>()
-            }
-
-            // A local `fn` belongs to the function it is written in, as a
-            // local type does (_parse_decl_stmt): codegen hoists both.
-            self._attach_local_decl(d)
-            return Statements::DeclStmt::create(self.dyn()->ctx, d->range, d)
+            return s
         }
 
         /// # thread-local binding: `thread n: T` (not `thread work()`)
@@ -770,6 +742,8 @@ pub class <T: type> StmtParse {
 
     /// \brief parses a binding spec into `out`.
     ///  Grammar:  ('var'|'const') (binding | '(' binding (',' binding)* ')')
+    ///            with the leading keyword optional when \p keyword_required
+    ///            is false
     ///    binding := ('var'|'const')? shorthand? (identifier | '_')
     ///    shorthand := 'unsafe'? '*' | '?'      (suffix '?' handled per-binding)
     ///
@@ -784,11 +758,24 @@ pub class <T: type> StmtParse {
     ///          binding's resolution.
     ///
     /// \param out         buffer to collect parsed bindings.
-    /// \param ctx_range   range for diagnostics (the `as`/`for`/decl keyword).
+    ///          Without \p keyword_required (a for loop's bindings) an absent
+    ///          leading keyword is the mutable default, not an error.
+    ///
+    /// \param out              buffer to collect parsed bindings.
+    /// \param ctx_range        range for diagnostics (the `as`/`for`/decl keyword).
+    /// \param keyword_required whether the leading 'var'/'const' must be written.
     /// \return true if the spec parsed and closed cleanly.
     fn _parse_binding_spec(self,
-                           out:       unsafe *kairo::std::StackBuf<Statements::Binding, 4>,
-                           ctx_range: SourceRange) -> bool {
+                           out:              unsafe *kairo::std::StackBuf<Statements::Binding, 4>,
+                           ctx_range:        SourceRange,
+                           keyword_required: bool = true) -> bool {
+        // `for @move y in`: taken before the keyword probe, which would not
+        // recognise `@` as a binding start. _parse_binding asks again; the
+        // mode is consumed here, so it is never reported twice.
+        if !keyword_required {
+            self.dyn()->_reject_mode_binding()
+        }
+
         // leading 'var' | 'const' sets the default mutability.
         var leading_const = false
         var have_leading  = false
@@ -802,7 +789,7 @@ pub class <T: type> StmtParse {
             self.dyn()->advance()
         }
 
-        if !have_leading {
+        if keyword_required && !have_leading {
             self.dyn()->diag->report(
                 DiagID::S058E,
                 ctx_range.start,
@@ -868,88 +855,6 @@ pub class <T: type> StmtParse {
         return true
     }
 
-    /// \brief parses a binding spec where the leading 'var'/'const' is OPTIONAL.
-    ///  Grammar:  ('var'|'const')? (binding | '(' binding (',' binding)* ')')
-    ///
-    /// \details when no leading keyword is present, bindings default to mutable
-    ///          (var). A per-element 'var'/'const' still overrides per binding.
-    ///          Unlike _parse_binding_spec, absence of a leading keyword is NOT
-    ///          an error here it's the mutable-by-default case.
-    fn _parse_binding_spec_opt(self,
-                               out:       unsafe *kairo::std::StackBuf<Statements::Binding, 4>,
-                               ctx_range: SourceRange) -> bool {
-        // `for @move y in`: taken before the keyword probe, which would not
-        // recognise `@` as a binding start. _parse_binding asks again; the
-        // mode is consumed here, so it is never reported twice.
-        self.dyn()->_reject_mode_binding()
-        // leading 'var' | 'const' sets the default mutability; absent => mutable.
-        var leading_const = false
-        if self.dyn()->check(TokenKind::KwVar) {
-            leading_const = false
-            self.dyn()->advance()
-        } else if self.dyn()->check(TokenKind::KwConst) {
-            leading_const = true
-            self.dyn()->advance()
-        }
-
-        // no else: missing keyword is fine, leading_const stays false (mutable).
-
-        // parenthesized tuple binding list
-        if self.dyn()->check(TokenKind::OpLParen) {
-            self.dyn()->advance(T::SkipNL::After) // consume `(`
-
-            if self.dyn()->check(TokenKind::OpRParen) {
-                self.dyn()->diag->report(
-                    DiagID::S058E,
-                    ctx_range.start,
-                    "empty binding list is not allowed",
-                ).first(ctx_range)->emit()
-                self.dyn()->advance() // consume `)`
-                return false
-            }
-
-            while !self.dyn()->is_eof() {
-                var b = self._parse_binding(leading_const)
-                if !b.is_discard && b.name == &null {
-                    return false // malformed binding element
-                }
-
-                out->push_back(b)
-
-                if self.dyn()->check(TokenKind::OpComma) {
-                    self.dyn()->advance(T::SkipNL::After)
-                    if self.dyn()->check(TokenKind::OpRParen) { // trailing comma
-                        break
-                    }
-
-                    continue
-                }
-
-                break
-            }
-
-            if !self.dyn()->check(TokenKind::OpRParen) {
-                self.dyn()->diag->report(
-                    DiagID::S058E,
-                    ctx_range.start,
-                    "expected ')' to close binding list",
-                ).first(ctx_range)->emit()
-                return false
-            }
-
-            self.dyn()->advance() // consume `)`
-            return true
-        }
-
-        // single bare binding
-        var b = self._parse_binding(leading_const)
-        if !b.is_discard && b.name == &null {
-            return false
-        }
-
-        out->push_back(b)
-        return true
-    }
 
     /// \brief parses a single binding element.
     ///  Grammar:  ('var'|'const')? ('unsafe'? '*')? (identifier | '_') '?'?
@@ -1372,9 +1277,9 @@ pub class <T: type> StmtParse {
         // `} @unlikely else`: a branch hint for the else branch. It is only
         // taken when `else` follows it (_else_attr_kind looks ahead), so an
         // attribute that opens the next statement is left alone.
-        var else_hint: u8 = 0
+        var else_hint: u8 = (Statements::BranchHint::None as u8)
         var hint_kind     = self.dyn()->_else_attr_kind()
-        if hint_kind != 0 {
+        if hint_kind != T::ElseAttr::None {
             if self.dyn()->nl_depth == 0 && self.dyn()->check(TokenKind::TkNewLine) {
                 self.dyn()->advance(T::SkipNL::Only)
             }
@@ -1382,7 +1287,7 @@ pub class <T: type> StmtParse {
             var at_r = self.dyn()->current_ptr()->range
             self.dyn()->advance()                 // `@`
             self.dyn()->advance(T::SkipNL::After) // the name, then up to `else`
-            if hint_kind == 3 {
+            if hint_kind == T::ElseAttr::Other {
                 var b = self.dyn()->diag->report(
                     DiagID::S081E,
                     at_r.start,
@@ -1399,7 +1304,8 @@ pub class <T: type> StmtParse {
 
                 b.emit()
             } else {
-                else_hint = (hint_kind as u8)
+                else_hint = if (hint_kind == T::ElseAttr::Likely) => (Statements::BranchHint::Likely as u8)
+                            else => (Statements::BranchHint::Unlikely as u8)
             }
         }
 
@@ -1408,7 +1314,7 @@ pub class <T: type> StmtParse {
         //     else if d { ... }
         // `else` cannot begin a statement, so a newline in front of it is never
         // ambiguous with the start of a new one.
-        if hint_kind == 0
+        if hint_kind == T::ElseAttr::None
             && self.dyn()->nl_depth == 0
             && self.dyn()->ig_kind() == TokenKind::TkNewLine {
             if self.dyn()->peek_past_nl_kind() == TokenKind::KwElse {
@@ -1568,7 +1474,7 @@ pub class <T: type> StmtParse {
         var saved = self.dyn()->tentative_begin()
 
         var bindings: kairo::std::StackBuf<Statements::Binding, 4>
-        var spec_ok = self._parse_binding_spec_opt(&bindings, start_range)
+        var spec_ok = self._parse_binding_spec(&bindings, start_range, false)
 
         if spec_ok && self.dyn()->check(TokenKind::KwIn) {
             /// ## ranged form
@@ -1648,7 +1554,7 @@ pub class <T: type> StmtParse {
             init = self._parse_decl_stmt()
         }
 
-        if !empty_init && (init == &null || self.is_fatal_stmt(init)) {
+        if !empty_init && init == &null {
             self.dyn()->exit_scope()
             self.dyn()->exit_depth()
             return (Statements::IndexedForStmt::create_error(
@@ -2115,118 +2021,68 @@ pub class <T: type> StmtParse {
         return node
     }
 
-    /// \brief parses a break statement.
-    ///  Grammar:  'break' | 'break' identifier
-    priv fn _parse_break(self) -> unsafe *Stmt {
+    /// \brief parses a break statement, or a continue statement when
+    ///        \p is_continue.
+    ///  Grammar:  ('break' | 'continue') identifier?
+    priv fn _parse_break_continue(self, is_continue: bool) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
-        self.dyn()->advance() // consume `break` (no NL skip: optional label is same-line)
+        self.dyn()->advance() // consume `break` / `continue` (no NL skip: optional label is same-line)
 
+        var range     = start_range
+        var has_label = false
+        var label     = Token()
         if self.dyn()->check(TokenKind::LitIdentifier) {
-            var label = self.dyn()->current()
+            label     = self.dyn()->current()
+            has_label = true
+            range     = start_range | label.range
             self.dyn()->advance()
-            var node = Statements::BreakStmt::create(
+        }
+
+        if is_continue {
+            return Statements::ContinueStmt::create(
                 self.dyn()->ctx,
-                start_range | label.range,
-                true,
+                range,
+                has_label,
                 label,
             )
-
-            return node
         }
 
-        var node = Statements::BreakStmt::create(
+        return Statements::BreakStmt::create(
             self.dyn()->ctx,
-            start_range,
-            false,
-            Token(),
+            range,
+            has_label,
+            label,
         )
-
-        return node
     }
 
-    /// \brief parses a continue statement.
-    ///  Grammar:  'continue' | 'continue' identifier
-    priv fn _parse_continue(self) -> unsafe *Stmt {
-        var start_range = self.dyn()->current_ptr()->range
-        self.dyn()->advance() // consume `continue`
-
-        if self.dyn()->check(TokenKind::LitIdentifier) {
-            var label = self.dyn()->current()
-            self.dyn()->advance()
-            var node = Statements::ContinueStmt::create(
-                self.dyn()->ctx,
-                start_range | label.range,
-                true,
-                label,
-            )
-
-            return node
-        }
-
-        var node = Statements::ContinueStmt::create(
-            self.dyn()->ctx,
-            start_range,
-            false,
-            Token(),
-        )
-
-        return node
-    }
-
-    /// \brief parses a panic statement.
-    ///  Grammar:  'panic' expr
-    priv fn _parse_panic(self) -> unsafe *Stmt {
-        var start_range = self.dyn()->current_ptr()->range
-        self.dyn()->advance(T::SkipNL::After) // consume `panic`
-
-        var payload = self.dyn()->parse_expr()
-        if payload == &null || is_recovery(payload) {
-            self.dyn()->diag->report(
-                DiagID::S052E,
-                start_range.start,
-                "expected expression after 'panic'",
-            ).first(start_range)->emit()
-            return (Statements::PanicStmt::create_error(
-                self.dyn()->ctx,
-                start_range | self.dyn()->prev().range,
-            ))
-        }
-
-        var node = Statements::PanicStmt::create(
-            self.dyn()->ctx,
-            start_range | payload->range,
-            payload,
-        )
-
-        return node
-    }
-
-    /// \brief parses a yield statement.
-    ///  Grammar:  'yield' expr
-    priv fn _parse_yield(self) -> unsafe *Stmt {
-        var start_range = self.dyn()->current_ptr()->range
-        self.dyn()->advance(T::SkipNL::After) // consume `yield`
+    /// \brief parses a panic statement, or a yield statement when \p is_yield.
+    ///  Grammar:  ('panic' | 'yield') expr
+    priv fn _parse_panic_yield(self, is_yield: bool) -> unsafe *Stmt {
+        var word:       string = if (is_yield) => ("yield") else => "panic"
+        var start_range        = self.dyn()->current_ptr()->range
+        self.dyn()->advance(T::SkipNL::After) // consume `panic` / `yield`
 
         var value = self.dyn()->parse_expr()
         if value == &null || is_recovery(value) {
             self.dyn()->diag->report(
                 DiagID::S052E,
                 start_range.start,
-                "expected expression after 'yield'",
+                f"expected expression after '{word}'",
             ).first(start_range)->emit()
-            return (Statements::YieldStmt::create_error(
-                self.dyn()->ctx,
-                start_range | self.dyn()->prev().range,
-            ))
+            var err = start_range | self.dyn()->prev().range
+            if is_yield {
+                return Statements::YieldStmt::create_error(self.dyn()->ctx, err)
+            }
+
+            return Statements::PanicStmt::create_error(self.dyn()->ctx, err)
         }
 
-        var node = Statements::YieldStmt::create(
-            self.dyn()->ctx,
-            start_range | value->range,
-            value,
-        )
+        var full = start_range | value->range
+        if is_yield {
+            return Statements::YieldStmt::create(self.dyn()->ctx, full, value)
+        }
 
-        return node
+        return Statements::PanicStmt::create(self.dyn()->ctx, full, value)
     }
 
     /// \brief parses a runtime or static assertion.
@@ -2552,150 +2408,70 @@ pub class <T: type> StmtParse {
 
     //  label! / jump! intrinsics
 
-    /// \brief parses a label intrinsic.
-    ///  Grammar:  'label' '!' '(' identifier ')'
-    priv fn _parse_label_intrinsic(self) -> unsafe *Stmt {
-        var start_range = self.dyn()->current_ptr()->range
-        self.dyn()->advance() // consume `label`
+    /// \brief parses a label intrinsic, or a jump intrinsic when \p is_jump.
+    ///  Grammar:  ('label' | 'jump') '!' '(' identifier ')'
+    priv fn _parse_label_jump(self, is_jump: bool) -> unsafe *Stmt {
+        var word:       string = if (is_jump) => ("jump") else => "label"
+        var noun:       string = if (is_jump) => ("target") else => "label"
+        var start_range        = self.dyn()->current_ptr()->range
+        self.dyn()->advance() // consume `label` / `jump`
 
+        var problem: string = ""
+        var name            = Token()
         if !self.dyn()->check(TokenKind::OpExclaim) {
-            self.dyn()->diag->report(
-                DiagID::S060E,
-                start_range.start,
-                "expected '!' after 'label' intrinsic",
-            ).first(start_range)->emit()
-            return (Statements::LabelIntrinsicStmt::create_error(
-                self.dyn()->ctx,
-                start_range | self.dyn()->prev().range,
-            ))
+            problem = f"expected '!' after '{word}' intrinsic"
+        } else {
+            self.dyn()->advance() // consume `!`
+            if !self.dyn()->check(TokenKind::OpLParen) {
+                problem = f"expected '(' after '{word}!'"
+            } else {
+                self.dyn()->advance(T::SkipNL::After) // consume `(`
+                if !self.dyn()->check(TokenKind::LitIdentifier) {
+                    problem = f"expected {noun} name inside '{word}!(...)'"
+                } else {
+                    name = self.dyn()->current()
+                    self.dyn()->advance(T::SkipNL::After) // consume identifier
+                    if !self.dyn()->check(TokenKind::OpRParen) {
+                        problem = f"expected ')' to close '{word}!(...)'"
+                    }
+                }
+            }
         }
 
-        self.dyn()->advance() // consume `!`
+        if !problem.empty() {
+            self.dyn()->diag->report(DiagID::S060E, start_range.start, problem).first(
+                start_range,
+            )->emit()
+            var err = start_range | self.dyn()->prev().range
+            if is_jump {
+                return Statements::JumpIntrinsicStmt::create_error(
+                    self.dyn()->ctx,
+                    err,
+                )
+            }
 
-        if !self.dyn()->check(TokenKind::OpLParen) {
-            self.dyn()->diag->report(
-                DiagID::S060E,
-                start_range.start,
-                "expected '(' after 'label!'",
-            ).first(start_range)->emit()
-            return (Statements::LabelIntrinsicStmt::create_error(
+            return Statements::LabelIntrinsicStmt::create_error(
                 self.dyn()->ctx,
-                start_range | self.dyn()->prev().range,
-            ))
-        }
-
-        self.dyn()->advance(T::SkipNL::After) // consume `(`
-
-        if !self.dyn()->check(TokenKind::LitIdentifier) {
-            self.dyn()->diag->report(
-                DiagID::S060E,
-                start_range.start,
-                "expected label name inside 'label!(...)'",
-            ).first(start_range)->emit()
-            return (Statements::LabelIntrinsicStmt::create_error(
-                self.dyn()->ctx,
-                start_range | self.dyn()->prev().range,
-            ))
-        }
-
-        var name = self.dyn()->current()
-        self.dyn()->advance(T::SkipNL::After) // consume identifier
-
-        if !self.dyn()->check(TokenKind::OpRParen) {
-            self.dyn()->diag->report(
-                DiagID::S060E,
-                start_range.start,
-                "expected ')' to close 'label!(...)'",
-            ).first(start_range)->emit()
-            return (Statements::LabelIntrinsicStmt::create_error(
-                self.dyn()->ctx,
-                start_range | self.dyn()->prev().range,
-            ))
+                err,
+            )
         }
 
         var end = self.dyn()->current_ptr()->range
         self.dyn()->advance() // consume `)`
 
-        var node = Statements::LabelIntrinsicStmt::create(
+        if is_jump {
+            return Statements::JumpIntrinsicStmt::create(
+                self.dyn()->ctx,
+                start_range | end,
+                name,
+            )
+        }
+
+        return Statements::LabelIntrinsicStmt::create(
             self.dyn()->ctx,
             start_range | end,
             name,
         )
-
-        return node
-    }
-
-    /// \brief parses a jump intrinsic.
-    ///  Grammar:  'jump' '!' '(' identifier ')'
-    priv fn _parse_jump_intrinsic(self) -> unsafe *Stmt {
-        var start_range = self.dyn()->current_ptr()->range
-        self.dyn()->advance() // consume `jump`
-
-        if !self.dyn()->check(TokenKind::OpExclaim) {
-            self.dyn()->diag->report(
-                DiagID::S060E,
-                start_range.start,
-                "expected '!' after 'jump' intrinsic",
-            ).first(start_range)->emit()
-            return (Statements::JumpIntrinsicStmt::create_error(
-                self.dyn()->ctx,
-                start_range | self.dyn()->prev().range,
-            ))
-        }
-
-        self.dyn()->advance() // consume `!`
-
-        if !self.dyn()->check(TokenKind::OpLParen) {
-            self.dyn()->diag->report(
-                DiagID::S060E,
-                start_range.start,
-                "expected '(' after 'jump!'",
-            ).first(start_range)->emit()
-            return (Statements::JumpIntrinsicStmt::create_error(
-                self.dyn()->ctx,
-                start_range | self.dyn()->prev().range,
-            ))
-        }
-
-        self.dyn()->advance(T::SkipNL::After) // consume `(`
-
-        if !self.dyn()->check(TokenKind::LitIdentifier) {
-            self.dyn()->diag->report(
-                DiagID::S060E,
-                start_range.start,
-                "expected target name inside 'jump!(...)'",
-            ).first(start_range)->emit()
-            return (Statements::JumpIntrinsicStmt::create_error(
-                self.dyn()->ctx,
-                start_range | self.dyn()->prev().range,
-            ))
-        }
-
-        var target = self.dyn()->current()
-        self.dyn()->advance(T::SkipNL::After) // consume identifier
-
-        if !self.dyn()->check(TokenKind::OpRParen) {
-            self.dyn()->diag->report(
-                DiagID::S060E,
-                start_range.start,
-                "expected ')' to close 'jump!(...)'",
-            ).first(start_range)->emit()
-            return (Statements::JumpIntrinsicStmt::create_error(
-                self.dyn()->ctx,
-                start_range | self.dyn()->prev().range,
-            ))
-        }
-
-        var end = self.dyn()->current_ptr()->range
-        self.dyn()->advance() // consume `)`
-
-        var node = Statements::JumpIntrinsicStmt::create(
-            self.dyn()->ctx,
-            start_range | end,
-            target,
-        )
-
-        return node
     }
 
     //  Inline foreign block
@@ -2892,7 +2668,7 @@ pub class <T: type> StmtParse {
         }
 
         var unsafe *inner = self._dispatch_stmt()
-        if inner == &null || self.is_fatal_stmt(inner) {
+        if inner == &null {
             return (Statements::LabeledStmt::create_error(
                 self.dyn()->ctx,
                 start_range | self.dyn()->prev().range,

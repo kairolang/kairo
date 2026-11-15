@@ -28,6 +28,7 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
+import AST::Context::ASTContext::ASTContext
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
@@ -72,12 +73,94 @@ import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Parser::LexicalScope::ScopeKind
+import Parser::Shared::ImportGrammar::is_primitive_type_word
 import Support::FlagSet::FlagSet
 import Token::Token::Token
 import Token::TokenKind::{
     TokenKind,
     is_annotation,
+    is_builtin,
     token_kind_to_readable_string,
+}
+
+/// The type a name, a `::` path or a generic application denotes, as the
+/// type parser would have built it: a ChainType in \p ctx, one segment per
+/// name, each with its generic arguments. Null for any other expression.
+/// It reads no parser state, so code outside the parser can call it.
+pub fn expr_as_type(ctx: unsafe *ASTContext, e: unsafe *Expr) -> unsafe *Type {
+    var segs = cxx::std::vector<ChainType::ChainSegment>()
+    if isa<NamedIdentExpr>(e) {
+        _push_type_segment(
+            ctx,
+            &segs,
+            cast<NamedIdentExpr>(e)->name,
+            cast<NamedIdentExpr>(e)->generic_args,
+            e->range,
+            ChainType::SegmentSeparator::None,
+        )
+    } else if isa<ChainExpr>(e) {
+        var unsafe *ch   = cast<ChainExpr>(e)
+        var unsafe *base = dyn_cast<NamedIdentExpr>(ch->base)
+        if base == &null {
+            return &null
+        }
+
+        _push_type_segment(
+            ctx,
+            &segs,
+            base->name,
+            base->generic_args,
+            base->range,
+            ChainType::SegmentSeparator::None,
+        )
+
+        for var i: usize = 0; i < ch->steps.size(); ++i {
+            var unsafe *st = ch->steps.get(i)
+            if st->access_kind != ChainExpr::AccessKind::ColonColon
+                || st->is_operator()
+                || st->name == &null {
+                return &null
+            }
+
+            _push_type_segment(
+                ctx,
+                &segs,
+                st->name->name,
+                st->generic_args,
+                st->range,
+                ChainType::SegmentSeparator::ColonColon,
+            )
+        }
+    } else {
+        return &null
+    }
+
+    var buf = ctx->alloc_array<ChainType::ChainSegment>(segs.size())
+    for var i: usize = 0; i < segs.size(); ++i {
+        buf[i] = segs[i]
+    }
+
+    var ct = ChainType::create(ctx, e->range)
+    ct->segments.from_raw(buf, segs.size())
+    return ct
+}
+
+fn _push_type_segment(ctx:        unsafe *ASTContext,
+                      @inout out: cxx::std::vector<ChainType::ChainSegment>,
+                      name:       Token,
+                      args:       FrozenList<ChainType::GenericArg>,
+                      range:      SourceRange,
+                      sep:        ChainType::SegmentSeparator) {
+    var seg = ChainType::ChainSegment{}
+    seg.name          = NamedIdentExpr::create(ctx, name.range, name)
+    seg.generic_args  = args
+    seg.resolved_type = &null
+    seg.resolved_decl = &null
+    seg.range         = range
+    seg.sep           = sep
+    seg.seg_kind = if (args.size() > 0) => (ChainType::SegmentKind::GenericApp)
+                   else => ChainType::SegmentKind::Named
+    out.push_back(seg)
 }
 
 // TODO(DUCK-GENERIC): T uses _consume_mode, _index_skip_block, _index_skip_stmt, _index_skip_to_body, _is_terminator_tok, _peek_mode, pay_close, _reject_mode_binding, _restore_cursor, advance, advance_raw, apply_annotations_to_decl, ... (60). Stage 0 was duck-typed; bound it or keep `: type`.
@@ -148,97 +231,20 @@ pub class <T: type> DeclParse {
         return last->range
     }
 
-    pub inline fn is_fatal_decl(self, d: unsafe *Decl) -> bool {
-        return self.dyn()->is_fatal<Decl>(d)
-    }
-
-    /// Switches on the RESOLVED kind, like check(): a token a macro expanded
-    /// carries the expansion's kind, not the identifier's, so reading the raw
-    /// kind rejected every name a macro body declared.
+    /// \brief a name, a primitive type's word or a builtin other than `Self`.
+    /// \details Reads the RESOLVED kind, like check(): a token a macro
+    ///          expanded carries the expansion's kind, not the identifier's,
+    ///          so reading the raw kind rejected every name a macro body
+    ///          declared.
     priv inline fn check_is_ident(self) -> bool {
         if self.dyn()->current_ptr() == &null {
             return false
         }
 
-        match self.dyn()->resolve_kind_deep(self.dyn()->current_ptr()) {
-            case TokenKind::AtVoid {
-                return true
-            } case TokenKind::AtBool {
-                return true
-            } case TokenKind::AtByte {
-                return true
-            } case TokenKind::AtChar {
-                return true
-            } case TokenKind::AtUsize {
-                return true
-            } case TokenKind::AtIsize {
-                return true
-            } case TokenKind::AtF8 {
-                return true
-            } case TokenKind::AtF8E4M3 {
-                return true
-            } case TokenKind::AtF8E5M2 {
-                return true
-            } case TokenKind::AtBf16 {
-                return true
-            } case TokenKind::AtF16 {
-                return true
-            } case TokenKind::AtF32 {
-                return true
-            } case TokenKind::AtF64 {
-                return true
-            } case TokenKind::AtF80 {
-                return true
-            } case TokenKind::AtF128 {
-                return true
-            } case TokenKind::AtF256 {
-                return true
-            } case TokenKind::AtF512 {
-                return true
-            } case TokenKind::AtU8 {
-                return true
-            } case TokenKind::AtU16 {
-                return true
-            } case TokenKind::AtU32 {
-                return true
-            } case TokenKind::AtU64 {
-                return true
-            } case TokenKind::AtU128 {
-                return true
-            } case TokenKind::AtU256 {
-                return true
-            } case TokenKind::AtU512 {
-                return true
-            } case TokenKind::AtI8 {
-                return true
-            } case TokenKind::AtI16 {
-                return true
-            } case TokenKind::AtI32 {
-                return true
-            } case TokenKind::AtI64 {
-                return true
-            } case TokenKind::AtI128 {
-                return true
-            } case TokenKind::AtI256 {
-                return true
-            } case TokenKind::AtI512 {
-                return true
-            } case TokenKind::BiFile {
-                return true
-            } case TokenKind::BiLine {
-                return true
-            } case TokenKind::BiColumn {
-                return true
-            } case TokenKind::BiFunction {
-                return true
-            } case TokenKind::BiModule {
-                return true
-            } case TokenKind::LitIdentifier {
-                return true
-            } default {
-                return false
-            }
-        }
+        var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
+        return k == TokenKind::LitIdentifier
+            || is_primitive_type_word(k)
+            || (is_builtin(k) && k != TokenKind::BiSelf)
     }
 
     /// \brief true if the resolved token can begin a declaration.
@@ -373,7 +379,7 @@ pub class <T: type> DeclParse {
         }
 
         var unsafe *d = self._dispatch_decl(allow_closure_fallback)
-        if d != &null && !self.is_fatal_decl(d) {
+        if d != &null {
             if !isa<Declarations::VisibilityGroupDecl>(d) {
                 self.dyn()->apply_annotations_to_decl(d, &annot)
             }
@@ -722,6 +728,46 @@ pub class <T: type> DeclParse {
 
     //  Visibility group   pub { decl* }
 
+    /// \brief a visibility group's head, the keyword and its `{`, as the
+    ///        group node; the members are the caller's.
+    priv fn _open_vis_group(self) -> unsafe *Declarations::VisibilityGroupDecl {
+        var start = self._cur_range()
+        var vis   = VisibilityKind::Public
+        if self.dyn()->check(TokenKind::KwPriv) {
+            vis = VisibilityKind::Private
+        } else if self.dyn()->check(TokenKind::KwProt) {
+            vis = VisibilityKind::Protected
+        }
+
+        self.dyn()->advance(T::SkipNL::After) // consume visibility keyword
+        self.dyn()->advance(T::SkipNL::After) // consume `{`
+        return Declarations::VisibilityGroupDecl::create(
+            self.dyn()->ctx,
+            start,
+            (vis as u8),
+        )
+    }
+
+    /// \brief a visibility group's `}` (S051E when it is missing) and its
+    ///        members; \p start is the group keyword's range.
+    priv fn _close_vis_group(self,
+                             vg:      unsafe *Declarations::VisibilityGroupDecl,
+                             start:   SourceRange,
+                             members: unsafe *kairo::std::StackBuf<unsafe *Decl, 8>) {
+        if self.dyn()->check(TokenKind::OpRBrace) {
+            self.dyn()->advance(T::SkipNL::Before)
+        } else {
+            self.dyn()->diag->report(
+                DiagID::S051E,
+                start.start,
+                "expected '}' to close visibility group",
+            ).first(start)->emit()
+        }
+
+        vg->members.from_buf(members->data(), members->size(), self.dyn()->ctx)
+        vg->range = start | self.dyn()->prev().range
+    }
+
     /// \brief parses a visibility group at decl scope.
     ///  Grammar:  ('pub'|'priv'|'prot') '{' decl* '}'
     ///
@@ -734,25 +780,9 @@ pub class <T: type> DeclParse {
     ///          rejected by parse_decl (see annotation check there); members
     ///          carry their own annotations normally.
     priv fn _parse_visibility_group(self) -> unsafe *Decl {
-        var start = self._cur_range()
-
-        var vis: u8 = 3 // Public
-        if self.dyn()->check(TokenKind::KwPriv) {
-            vis = 1
-        } else if self.dyn()->check(TokenKind::KwProt) {
-            vis = 2
-        }
-
-        var vis_kind = (vis as VisibilityKind)
-
-        self.dyn()->advance(T::SkipNL::After) // consume visibility keyword
-        self.dyn()->advance(T::SkipNL::After) // consume `{`
-
-        var vg = Declarations::VisibilityGroupDecl::create(
-            self.dyn()->ctx,
-            start,
-            vis,
-        )
+        var start    = self._cur_range()
+        var vg       = self._open_vis_group()
+        var vis_kind = (vg->group_visibility as VisibilityKind)
 
         var members: kairo::std::StackBuf<unsafe *Decl, 8>
 
@@ -765,10 +795,6 @@ pub class <T: type> DeclParse {
 
             var unsafe *d = self.parse_decl()
             if d == &null {
-                break
-            }
-
-            if self.is_fatal_decl(d) {
                 break
             }
 
@@ -790,18 +816,7 @@ pub class <T: type> DeclParse {
             members.push_back(d)
         }
 
-        if self.dyn()->check(TokenKind::OpRBrace) {
-            self.dyn()->advance(T::SkipNL::Before)
-        } else {
-            self.dyn()->diag->report(
-                DiagID::S051E,
-                start.start,
-                "expected '}' to close visibility group",
-            ).first(start)->emit()
-        }
-
-        vg->members.from_buf(members.data(), members.size(), self.dyn()->ctx)
-        vg->range = start | self.dyn()->prev().range
+        self._close_vis_group(vg, start, unsafe &members)
         return vg
     }
 
@@ -818,25 +833,9 @@ pub class <T: type> DeclParse {
         allow_methods:      bool,
         field_idx:          unsafe *u32,
     ) {
-        var start = self._cur_range()
-
-        var vis: u8 = 3
-        if self.dyn()->check(TokenKind::KwPriv) {
-            vis = 1
-        } else if self.dyn()->check(TokenKind::KwProt) {
-            vis = 2
-        }
-
-        var vis_kind = (vis as VisibilityKind)
-
-        self.dyn()->advance(T::SkipNL::After) // visibility keyword
-        self.dyn()->advance(T::SkipNL::After) // `{`
-
-        var vg = Declarations::VisibilityGroupDecl::create(
-            self.dyn()->ctx,
-            start,
-            vis,
-        )
+        var start    = self._cur_range()
+        var vg       = self._open_vis_group()
+        var vis_kind = (vg->group_visibility as VisibilityKind)
 
         var members: kairo::std::StackBuf<unsafe *Decl, 8>
 
@@ -944,7 +943,7 @@ pub class <T: type> DeclParse {
 
             // nested types etc.
             var unsafe *nested = self._dispatch_decl()
-            if nested != &null && !self.is_fatal_decl(nested) {
+            if nested != &null {
                 self.dyn()->apply_annotations_to_decl(nested, unsafe &m_annot)
                 nested->set_visibility(vis_kind, start)
                 owner->add_decl(nested)
@@ -955,18 +954,7 @@ pub class <T: type> DeclParse {
             self._sync_decl(Self::DeclSyncCtx::TypeBody)
         }
 
-        if self.dyn()->check(TokenKind::OpRBrace) {
-            self.dyn()->advance(T::SkipNL::Before)
-        } else {
-            self.dyn()->diag->report(
-                DiagID::S051E,
-                start.start,
-                "expected '}' to close visibility group",
-            ).first(start)->emit()
-        }
-
-        vg->members.from_buf(members.data(), members.size(), self.dyn()->ctx)
-        vg->range = start | self.dyn()->prev().range
+        self._close_vis_group(vg, start, unsafe &members)
         owner->add_decl(unsafe (vg as unsafe *Decl))
     }
 
@@ -1564,24 +1552,7 @@ pub class <T: type> DeclParse {
 
             var e_start = self._cur_range()
             var edge    = Declarations::InheritEdge{}
-            edge.visibility = 0
-            edge.is_virtual = false
-
-            if self.dyn()->check(TokenKind::KwVirtual) {
-                edge.is_virtual = true
-                self.dyn()->advance()
-            }
-
-            if self.dyn()->check(TokenKind::KwPub) {
-                edge.visibility = 3
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwProt) {
-                edge.visibility = 2
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwPriv) {
-                edge.visibility = 1
-                self.dyn()->advance()
-            }
+            self._parse_edge_head(&edge)
 
             var bty = self.dyn()->parse_bound_type()
             if bty == &null || is_recovery(bty) {
@@ -2376,6 +2347,18 @@ pub class <T: type> DeclParse {
         return ce
     }
 
+    /// \brief S071E: `const x: const T`, a \p what ("parameter",
+    ///        "binding") already 'const' with a second 'const' on its type
+    ///        \p ty. The second one is at fault and the fix-it removes it.
+    priv fn _report_second_const(self, ty: unsafe *Type, const what: string) {
+        var c_range = self.dyn()->top_const_range(ty)
+        self.dyn()->diag->report(
+            DiagID::S071E,
+            c_range.start,
+            f"the {what} is already 'const'; a second 'const' on its type is not allowed",
+        ).first(c_range)->remove(c_range, "remove the second 'const'")->emit()
+    }
+
     /// \brief parses a parameter list `( param (',' param)* )`.
     ///  Grammar:  param := 'self' | '...'? name ':' type ('=' expr)?
     /// \returns true if a trailing variadic pack `...name: T` was seen.
@@ -2682,12 +2665,7 @@ pub class <T: type> DeclParse {
             } else if is_named && p_const && pty->is_const() {
                 // `const x: const T`: the same rule as a variable, a hard error
                 // on the second const.
-                var c_range = self.dyn()->top_const_range(pty)
-                self.dyn()->diag->report(
-                    DiagID::S071E,
-                    c_range.start,
-                    "the parameter is already 'const'; a second 'const' on its type is not allowed",
-                ).first(c_range)->remove(c_range, "remove the second 'const'")->emit()
+                self._report_second_const(pty, "parameter")
             }
 
             // default value
@@ -3116,54 +3094,6 @@ pub class <T: type> DeclParse {
 
         recv->is_const = true
         fd->modifiers |= Declarations::FnModifier::IsConst
-    }
-
-    priv fn _parse_closure_fn_modifiers(self, fd: *ClosureExpr) {
-        while true {
-            if self.dyn()->check(TokenKind::KwConst) {
-                fd->modifiers |= Declarations::FnModifier::IsConst
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwVolatile) {
-                fd->modifiers |= Declarations::FnModifier::IsVolatile
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwUnsafe) {
-                fd->modifiers |= Declarations::FnModifier::IsUnsafe
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwEval) {
-                fd->modifiers |= Declarations::FnModifier::IsEval
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwAsync) {
-                fd->modifiers |= Declarations::FnModifier::IsAsync
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwFinal) {
-                fd->modifiers |= Declarations::FnModifier::IsFinal
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwPanic) {
-                fd->modifiers |= Declarations::FnModifier::IsPanic
-                var pk = self._cur_range()
-                self.dyn()->advance()
-                // `panic(E1, E2)`: the declared set (TypeParse::parse_panic_set
-                // has the disambiguation rule).
-                if self.dyn()->check(TokenKind::OpLParen) {
-                    var pset: kairo::std::StackBuf<unsafe *Type, 4>
-                    self.dyn()->parse_panic_set(&pset)
-                    fd->panic_set.from_buf(
-                        pset.data(),
-                        pset.size(),
-                        self.dyn()->ctx,
-                    )
-                }
-
-                // The specifier as written, its set included: what a fix-it
-                // removes or rewrites.
-                fd->panic_range = pk | self._prev_range()
-            } else if self.dyn()->check(TokenKind::KwInline) {
-                fd->modifiers |= Declarations::FnModifier::IsInline
-                self.dyn()->advance()
-            } else {
-                break
-            }
-        }
     }
 
     /// \brief parses the function body, setting body_kind + body_block/expr.
@@ -3612,15 +3542,7 @@ pub class <T: type> DeclParse {
                     && ty->is_const() {
                     // `const x: const T` says it twice. The second is the one
                     // at fault: the binding keyword is the idiomatic place.
-                    var c_range = self.dyn()->top_const_range(ty)
-                    self.dyn()->diag->report(
-                        DiagID::S071E,
-                        c_range.start,
-                        "the binding is already 'const'; a second 'const' on its type is not allowed",
-                    ).first(c_range)->remove(
-                        c_range,
-                        "remove the second 'const'",
-                    )->emit()
+                    self._report_second_const(ty, "binding")
                 }
             }
         }
@@ -3817,6 +3739,20 @@ pub class <T: type> DeclParse {
 
     //  Inheritance clauses:  derives <edges> | impl <edges>
 
+    /// \brief an inheritance edge's head, `'virtual'? ('pub' | 'prot' |
+    ///        'priv')?`, into \p edge (no keyword: VisibilityKind::None).
+    priv fn _parse_edge_head(self, edge: *Declarations::InheritEdge) {
+        edge->is_virtual = self.dyn()->match_tok(TokenKind::KwVirtual)
+        edge->visibility = (VisibilityKind::None as u8)
+        if self.dyn()->match_tok(TokenKind::KwPub) {
+            edge->visibility = (VisibilityKind::Public as u8)
+        } else if self.dyn()->match_tok(TokenKind::KwProt) {
+            edge->visibility = (VisibilityKind::Protected as u8)
+        } else if self.dyn()->match_tok(TokenKind::KwPriv) {
+            edge->visibility = (VisibilityKind::Private as u8)
+        }
+    }
+
     /// \brief parses an inheritance edge list following `derives` or `impl`.
     ///  Grammar:  ('derives'|'impl') ('virtual'? visibility? type)
     ///            (',' 'virtual'? visibility? type)*
@@ -3832,25 +3768,7 @@ pub class <T: type> DeclParse {
         while true {
             var e_start = self._cur_range()
             var edge    = Declarations::InheritEdge{}
-            edge.visibility = 0
-            edge.is_virtual = false
-
-            if self.dyn()->check(TokenKind::KwVirtual) {
-                edge.is_virtual = true
-                self.dyn()->advance()
-            }
-
-            // per-edge visibility (derives pub/prot/priv Base)
-            if self.dyn()->check(TokenKind::KwPub) {
-                edge.visibility = 3
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwProt) {
-                edge.visibility = 2
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwPriv) {
-                edge.visibility = 1
-                self.dyn()->advance()
-            }
+            self._parse_edge_head(&edge)
 
             var bty = self.dyn()->parse_bound_type()
             if bty == &null || is_recovery(bty) {
@@ -4043,7 +3961,7 @@ pub class <T: type> DeclParse {
             return false
         }
 
-        var unsafe *t = self._expr_as_type(e)
+        var unsafe *t = expr_as_type(self.dyn()->ctx, e)
         if t == &null {
             self.dyn()->diag->report(
                 DiagID::S083E,
@@ -4054,7 +3972,7 @@ pub class <T: type> DeclParse {
         }
 
         var edge = Declarations::InheritEdge{}
-        edge.visibility = 0
+        edge.visibility = (VisibilityKind::None as u8)
         edge.is_virtual = false
         edge.base       = t
         edge.range      = e->range
@@ -4105,85 +4023,6 @@ pub class <T: type> DeclParse {
             "a 'derives' clause composes whole interfaces; a single member cannot be removed. "
             "Declare an interface with that member and subtract it",
         ).first(at)->emit()
-    }
-
-    /// The type a name, a `::` path or a generic application denotes, as the
-    /// type parser would have built it: a ChainType, one segment per name,
-    /// each with its generic arguments. Null for any other expression.
-    priv fn _expr_as_type(self, e: unsafe *Expr) -> unsafe *Type {
-        var segs = cxx::std::vector<ChainType::ChainSegment>()
-        if isa<NamedIdentExpr>(e) {
-            self._push_segment(
-                &segs,
-                cast<NamedIdentExpr>(e)->name,
-                cast<NamedIdentExpr>(e)->generic_args,
-                e->range,
-                ChainType::SegmentSeparator::None,
-            )
-        } else if isa<ChainExpr>(e) {
-            var unsafe *ch   = cast<ChainExpr>(e)
-            var unsafe *base = dyn_cast<NamedIdentExpr>(ch->base)
-            if base == &null {
-                return &null
-            }
-
-            self._push_segment(
-                &segs,
-                base->name,
-                base->generic_args,
-                base->range,
-                ChainType::SegmentSeparator::None,
-            )
-
-            for var i: usize = 0; i < ch->steps.size(); ++i {
-                var unsafe *st = ch->steps.get(i)
-                if st->access_kind != ChainExpr::AccessKind::ColonColon
-                    || st->is_operator()
-                    || st->name == &null {
-                    return &null
-                }
-
-                self._push_segment(
-                    &segs,
-                    st->name->name,
-                    st->generic_args,
-                    st->range,
-                    ChainType::SegmentSeparator::ColonColon,
-                )
-            }
-        } else {
-            return &null
-        }
-
-        var buf = self.dyn()->ctx->alloc_array<ChainType::ChainSegment>(
-            segs.size(),
-        )
-
-        for var i: usize = 0; i < segs.size(); ++i {
-            buf[i] = segs[i]
-        }
-
-        var ct = ChainType::create(self.dyn()->ctx, e->range)
-        ct->segments.from_raw(buf, segs.size())
-        return ct
-    }
-
-    priv fn _push_segment(self,
-                          @inout out: cxx::std::vector<ChainType::ChainSegment>,
-                          name:       Token,
-                          args:       FrozenList<ChainType::GenericArg>,
-                          range:      SourceRange,
-                          sep:        ChainType::SegmentSeparator) {
-        var seg = ChainType::ChainSegment{}
-        seg.name = NamedIdentExpr::create(self.dyn()->ctx, name.range, name)
-        seg.generic_args  = args
-        seg.resolved_type = &null
-        seg.resolved_decl = &null
-        seg.range         = range
-        seg.sep           = sep
-        seg.seg_kind = if (args.size() > 0) => (ChainType::SegmentKind::GenericApp)
-                       else => ChainType::SegmentKind::Named
-        out.push_back(seg)
     }
 
     /// \brief rejects a `where` clause on a type declaration. `where` is
@@ -4291,7 +4130,7 @@ pub class <T: type> DeclParse {
                 var unsafe *d = self.parse_decl()
                 if d == &null {
                     self.dyn()->_index_skip_stmt()
-                } else if !self.is_fatal_decl(d) {
+                } else {
                     owner->add_decl(d)
                 }
             } else {
@@ -4451,7 +4290,7 @@ pub class <T: type> DeclParse {
                 && (self.dyn()->check_peek(TokenKind::KwIf)
                     || self.dyn()->check_peek(TokenKind::KwFor)) {
                 var unsafe *ev = self._parse_eval_stmt_decl()
-                if ev != &null && !self.is_fatal_decl(ev) {
+                if ev != &null {
                     self.dyn()->apply_annotations_to_decl(ev, unsafe &m_annot)
                     owner->add_decl(ev)
                 }
@@ -4538,7 +4377,7 @@ pub class <T: type> DeclParse {
                 || k == TokenKind::KwInterface
                 || k == TokenKind::KwType {
                 var unsafe *nested = self._dispatch_decl()
-                if nested != &null && !self.is_fatal_decl(nested) {
+                if nested != &null {
                     self.dyn()->apply_annotations_to_decl(
                         nested,
                         unsafe &m_annot,
@@ -5758,10 +5597,6 @@ pub class <T: type> DeclParse {
                 break
             }
 
-            if self.is_fatal_decl(inner) {
-                break
-            }
-
             (unsafe (md as unsafe *DeclContext))->add_decl(inner)
         }
 
@@ -6236,10 +6071,6 @@ pub class <T: type> DeclParse {
                     break
                 }
 
-                if self.is_fatal_decl(d) {
-                    break
-                }
-
                 if !self._stamp_ffi_linkage(
                     d,
                     linkage_kind,
@@ -6275,7 +6106,7 @@ pub class <T: type> DeclParse {
         self.dyn()->ffi_decl_depth = self.dyn()->ffi_decl_depth + 1
         var unsafe *d = self._dispatch_decl()
         self.dyn()->ffi_decl_depth = self.dyn()->ffi_decl_depth - 1
-        if d == &null || self.is_fatal_decl(d) {
+        if d == &null {
             self.dyn()->diag->report(
                 DiagID::S064E,
                 start.start,
@@ -6382,12 +6213,29 @@ pub class <T: type> DeclParse {
 
     //  eval { decl* }  decl block
 
-    /// \brief index mode: crosses an `eval if` / `eval for` without parsing
-    ///        it. _index_skip_stmt stops at a `;` or a newline, which a C-style
-    ///        `for` header and an `else` on its own line both contain: here
-    ///        the header runs to the body's `{`, the body to its `}`, and an
-    ///        `else` (same line or the next) continues the chain.
-    priv fn _index_skip_eval_stmt(self) {
+    /// \brief index mode: crosses an `eval if` / `eval for` chain without
+    ///        parsing its statements. With \p out, an `eval if`'s branches
+    ///        are walked and the declarations written in them land in
+    ///        \p out; with &null every body is skipped.
+    ///
+    /// \details _index_skip_stmt stops at a `;` or a newline, which a C-style
+    ///          `for` header and an `else` on its own line both contain: here
+    ///          the header runs to the body's `{`, the body to its `}`, and an
+    ///          `else` (same line or the next) continues the chain.
+    ///
+    ///          The walk exists for the importer's parser: EvalIfFolding
+    ///          (phase E) hoists the taken branch's declarations, so an
+    ///          importer's Sema sees them, but the disambig table built here
+    ///          is what the importer's PARSER asks whether `name<T>` is
+    ///          generic, and it is frozen long before the fold. A branch that
+    ///          hoisted nothing left `pick<i32> + 1` a chain of comparisons in
+    ///          every importer. Which branch is taken is not known here, so
+    ///          all of them are indexed, like an overload set: a generic in
+    ///          any branch makes the name generic, the same over-approximation
+    ///          the full-mode symbol index makes (ASTParse::_index_eval_branches).
+    ///          The hoist recursion (ASTParse::_index_hoist_decl, EvalBlockDecl)
+    ///          puts \p out in the table as if hoisted.
+    priv fn _index_eval_chain(self, out: unsafe *kairo::std::StackBuf<unsafe *Decl, 8>) {
         while !self.dyn()->is_eof() {
             var depth: u32 = 0
             while !self.dyn()->is_eof() {
@@ -6416,107 +6264,53 @@ pub class <T: type> DeclParse {
                 return
             }
 
-            self.dyn()->advance_raw()       // `{`
-            self.dyn()->_index_skip_block() // through the matching `}`
+            self.dyn()->advance_raw() // `{`
 
-            if self.dyn()->nl_depth == 0
-                && self.dyn()->ig_kind() == TokenKind::TkNewLine
-                && self.dyn()->peek_past_nl_kind() == TokenKind::KwElse {
-                self.dyn()->advance(T::SkipNL::Only)
-            }
+            if out == &null {
+                self.dyn()->_index_skip_block() // through the matching `}`
+            } else {
+                // The branch body: the loop of _index_walk_body, into \p out.
+                // A nested `eval if` is a decl lead-in, so it recurses through
+                // _parse_eval_stmt_decl and is hoisted from its own carrier.
+                var prev_idx: usize = 0
+                var have_prev       = false
+                while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
+                    if have_prev && self.dyn()->c_idx == prev_idx {
+                        self.dyn()->advance()
+                        continue
+                    }
 
-            if !self.dyn()->check(TokenKind::KwElse) {
-                return
-            }
+                    prev_idx  = self.dyn()->c_idx
+                    have_prev = true
 
-            self.dyn()->advance_raw() // `else`
-        }
-    }
+                    if self.dyn()->check(TokenKind::TkNewLine)
+                        || self.dyn()->check(TokenKind::OpSemicolon) {
+                        self.dyn()->advance()
+                        continue
+                    }
 
-    /// \brief index mode: walks EVERY branch of an `eval if` chain and lands
-    ///        the declarations written in them in \p out, so the hoist
-    ///        recursion (ASTParse::_index_hoist_decl, EvalBlockDecl) puts
-    ///        them in the disambig table as if hoisted.
-    ///
-    /// \details EvalIfFolding (phase E) hoists the taken branch's
-    ///          declarations, so an importer's Sema sees them; but the table
-    ///          built here is what the importer's PARSER asks whether
-    ///          `name<T>` is generic, and is frozen long before the fold. A
-    ///          branch that hoisted nothing left `pick<i32> + 1` a chain of
-    ///          comparisons in every importer. Which branch is taken is not
-    ///          known here, so all of them are indexed, like an overload set:
-    ///          a generic in any branch makes the name generic, the same
-    ///          over-approximation the full-mode symbol index makes
-    ///          (ASTParse::_index_eval_branches). The header and the
-    ///          condition are crossed as _index_skip_eval_stmt crosses them.
-    priv fn _index_eval_if_branches(self, @inout out: kairo::std::StackBuf<unsafe *Decl, 8>) {
-        while !self.dyn()->is_eof() {
-            var depth: u32 = 0
-            while !self.dyn()->is_eof() {
-                var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
-                if depth == 0 && k == TokenKind::OpLBrace {
-                    break
+                    var k = self.dyn()->resolve_kind_deep(
+                        self.dyn()->current_ptr(),
+                    )
+
+                    if self._starts_decl_here(k) {
+                        var unsafe *d = self.parse_decl()
+                        if d == &null {
+                            self.dyn()->_index_skip_stmt()
+                        } else {
+                            out->push_back(d)
+                        }
+                    } else {
+                        self.dyn()->_index_skip_stmt()
+                    }
                 }
 
-                if depth == 0 && k == TokenKind::OpRBrace {
+                if self.dyn()->is_eof() {
                     return
                 }
 
-                if k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
-                    depth += 1
-                } else if k == TokenKind::OpRParen || k == TokenKind::OpRSquare {
-                    if depth > 0 {
-                        depth -= 1
-                    }
-                }
-
-                self.dyn()->advance_raw()
+                self.dyn()->advance_raw() // `}`
             }
-
-            if self.dyn()->is_eof() {
-                return
-            }
-
-            self.dyn()->advance_raw() // `{`
-
-            // The branch body: the loop of _index_walk_body, into \p out. A
-            // nested `eval if` is a decl lead-in, so it recurses through
-            // _parse_eval_stmt_decl and is hoisted from its own carrier.
-            var prev_idx: usize = 0
-            var have_prev       = false
-            while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRBrace) {
-                if have_prev && self.dyn()->c_idx == prev_idx {
-                    self.dyn()->advance()
-                    continue
-                }
-
-                prev_idx  = self.dyn()->c_idx
-                have_prev = true
-
-                if self.dyn()->check(TokenKind::TkNewLine)
-                    || self.dyn()->check(TokenKind::OpSemicolon) {
-                    self.dyn()->advance()
-                    continue
-                }
-
-                var k = self.dyn()->resolve_kind_deep(self.dyn()->current_ptr())
-                if self._starts_decl_here(k) {
-                    var unsafe *d = self.parse_decl()
-                    if d == &null {
-                        self.dyn()->_index_skip_stmt()
-                    } else if !self.is_fatal_decl(d) {
-                        out.push_back(d)
-                    }
-                } else {
-                    self.dyn()->_index_skip_stmt()
-                }
-            }
-
-            if self.dyn()->is_eof() {
-                return
-            }
-
-            self.dyn()->advance_raw() // `}`
 
             if self.dyn()->nl_depth == 0
                 && self.dyn()->ig_kind() == TokenKind::TkNewLine
@@ -6546,7 +6340,7 @@ pub class <T: type> DeclParse {
     ///          stay branch-local (eval_branch_dc keeps a module body from
     ///          absorbing them), and FeatureGateCheck reports the form as not
     ///          yet supported. Index mode walks an `eval if`'s branches into
-    ///          the carrier's `body` (_index_eval_if_branches) and skips an
+    ///          the carrier's `body` (_index_eval_chain) and skips an
     ///          `eval for`, whose body hoists nothing.
     priv fn _parse_eval_stmt_decl(self) -> unsafe *Decl {
         var start = self._cur_range()
@@ -6555,13 +6349,13 @@ pub class <T: type> DeclParse {
         if self.dyn()->mode == T::ParseMode::Index {
             if self.dyn()->check_peek(TokenKind::KwIf) {
                 var decls: kairo::std::StackBuf<unsafe *Decl, 8>
-                self._index_eval_if_branches(&decls)
+                self._index_eval_chain(unsafe &decls)
                 eb->body.from_buf(decls.data(), decls.size(), self.dyn()->ctx)
                 eb->range = start | self.dyn()->prev().range
                 return eb
             }
 
-            self._index_skip_eval_stmt()
+            self._index_eval_chain(&null)
             eb->range = start | self.dyn()->prev().range
             return eb
         }
@@ -6575,7 +6369,7 @@ pub class <T: type> DeclParse {
         var s = self.dyn()->parse_stmt()
         self.dyn()->eval_branch_dc = saved_dc
 
-        if s == &null || self.dyn()->is_fatal<Stmt>(s) {
+        if s == &null {
             return (Declarations::EvalBlockDecl::create_error(
                 self.dyn()->ctx,
                 start | self.dyn()->prev().range,
@@ -6620,10 +6414,6 @@ pub class <T: type> DeclParse {
 
             var unsafe *d = self.parse_decl()
             if d == &null {
-                break
-            }
-
-            if self.is_fatal_decl(d) {
                 break
             }
 
@@ -6853,65 +6643,28 @@ pub class <T: type> DeclParse {
             self._parse_capture_list(&captures)
         }
 
-        // trailing modifiers: const / unsafe / async / eval
+        // trailing modifiers: panic(set) / volatile / async; the other
+        // function modifiers are reported (S047E) and skipped
         var modifiers = Declarations::FnModifier::None
         self.dyn()->closure_panic_set   = FrozenList<unsafe *Type>::empty()
         self.dyn()->closure_panic_range = SourceRange::invalid()
         while true {
-            if self.dyn()->check(TokenKind::KwConst) {
+            if self.dyn()->check(TokenKind::KwConst)
+                || self.dyn()->check(TokenKind::KwUnsafe)
+                || self.dyn()->check(TokenKind::KwEval)
+                || self.dyn()->check(TokenKind::KwFinal)
+                || self.dyn()->check(TokenKind::KwInline)
+                || self.dyn()->check(TokenKind::KwVirtual)
+                || self.dyn()->check(TokenKind::KwOverride) {
                 var r = self._cur_range()
+                var kw = token_kind_to_readable_string(
+                    self.dyn()->resolve_kind_deep(self.dyn()->current_ptr()),
+                )
+
                 self.dyn()->diag->report(
                     DiagID::S047E,
                     r.start,
-                    "'const' is not a valid closure modifier",
-                ).first(r)->emit()
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwUnsafe) {
-                var r = self._cur_range()
-                self.dyn()->diag->report(
-                    DiagID::S047E,
-                    r.start,
-                    "'unsafe' is not a valid closure modifier",
-                ).first(r)->emit()
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwEval) {
-                var r = self._cur_range()
-                self.dyn()->diag->report(
-                    DiagID::S047E,
-                    r.start,
-                    "'eval' is not a valid closure modifier",
-                ).first(r)->emit()
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwFinal) {
-                var r = self._cur_range()
-                self.dyn()->diag->report(
-                    DiagID::S047E,
-                    r.start,
-                    "'final' is not a valid closure modifier",
-                ).first(r)->emit()
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwInline) {
-                var r = self._cur_range()
-                self.dyn()->diag->report(
-                    DiagID::S047E,
-                    r.start,
-                    "'inline' is not a valid closure modifier",
-                ).first(r)->emit()
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwVirtual) {
-                var r = self._cur_range()
-                self.dyn()->diag->report(
-                    DiagID::S047E,
-                    r.start,
-                    "'virtual' is not a valid closure modifier",
-                ).first(r)->emit()
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwOverride) {
-                var r = self._cur_range()
-                self.dyn()->diag->report(
-                    DiagID::S047E,
-                    r.start,
-                    "'override' is not a valid closure modifier",
+                    f"'{kw}' is not a valid closure modifier",
                 ).first(r)->emit()
                 self.dyn()->advance()
             } else if self.dyn()->check(TokenKind::KwPanic) {

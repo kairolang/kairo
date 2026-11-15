@@ -21,6 +21,11 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "set"
 
+import API::LinkABI::{
+    CALL_CONV_PRESERVE_ALL,
+    CALL_CONV_PRESERVE_MOST,
+    CALL_CONV_PRESERVE_NONE,
+}
 import AST::CodeCompleteConsumer::CompletionContextKind
 import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::{
@@ -47,10 +52,15 @@ import AST::ParamMode::ParamMode
 import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
-import Parser::ExprParse::ExprStopBit
+import Parser::ExprParse::{
+    ExprStopBit,
+    SyncCtx,
+}
+import Parser::Shared::ImportGrammar::is_primitive_type_word
 import Support::FlagSet::FlagSet
 import Token::TokenKind::{
     TokenKind,
+    is_builtin,
     token_kind_to_readable_string,
 }
 
@@ -82,7 +92,7 @@ import Token::TokenKind::{
 /// `create_error` factory methods to produce recovery sentinels that suppress
 /// cascading diagnostics in sema. `_sync_type` implements delimiter-aware token
 /// skipping with a 64-token runaway cap and configurable sync contexts
-/// (`TypeSyncCtx`).
+/// (`SyncCtx`).
 ///
 /// \par code completion
 /// `TkCodeComplete` tokens are checked at each delimiter boundary and forwarded
@@ -150,186 +160,50 @@ pub class <T: type> TypeParse {
     }
 
     /// Kinds that start a type: the primitive `@`-types, the builtins,
-    /// identifiers and `self`. A match rather than a per-parser `std::set`
-    /// (see ExprParse::_is_expr_ident_kind).
+    /// identifiers and `self`: ExprParse::_is_expr_ident_kind's set plus the
+    /// primitive types.
     static fn _is_type_tok_kind(k: TokenKind) -> bool {
-        match k {
-            case TokenKind::AtVoid,   TokenKind::AtBool,        TokenKind::AtByte,
-                 TokenKind::AtChar,   TokenKind::AtUsize,       TokenKind::AtIsize,
-                 TokenKind::AtF8,     TokenKind::AtF8E4M3,      TokenKind::AtF8E5M2,
-                 TokenKind::AtBf16,   TokenKind::AtF16,         TokenKind::AtF32,
-                 TokenKind::AtF64,    TokenKind::AtF80,         TokenKind::AtF128,
-                 TokenKind::AtF256,   TokenKind::AtF512,        TokenKind::AtU8,
-                 TokenKind::AtU16,    TokenKind::AtU32,         TokenKind::AtU64,
-                 TokenKind::AtU128,   TokenKind::AtU256,        TokenKind::AtU512,
-                 TokenKind::AtI8,     TokenKind::AtI16,         TokenKind::AtI32,
-                 TokenKind::AtI64,    TokenKind::AtI128,        TokenKind::AtI256,
-                 TokenKind::AtI512,   TokenKind::BiFile,        TokenKind::BiLine,
-                 TokenKind::BiColumn, TokenKind::BiFunction,    TokenKind::BiModule,
-                 TokenKind::BiSelf,   TokenKind::LitIdentifier, TokenKind::KwSelf {
-                return true
-            } default {
-                return false
-            }
-        }
+        return k == TokenKind::LitIdentifier
+            || k == TokenKind::KwSelf
+            || is_primitive_type_word(k)
+            || is_builtin(k)
     }
 
-    enum TypeSyncCtx derives u8 {
-        TopLevel, // sync to newline, ;, EOF
-        Paren,    // sync to ) at depth 0
-        Square,   // sync to ] at depth 0
-        Brace,    // sync to } at depth 0
-        Comma,    // sync to , or the closing delimiter
-    }
-
-    /// \brief attempts to recover from a parse error by skipping tokens until a
-    ///        stable
-    ///        type-position boundary is reached.
-    ///
-    /// \details this method implements a heuristic sync strategy to prevent
-    ///          error
-    ///          cascades. it tracks the nesting depth of `()`, `[]`, and `{}`
-    ///          to ensure it does not stop on a delimiter that belongs to a
-    ///          sub-expression. it stops when it encounters a token that
-    ///          canonically terminates or separates types in the current `ctx`.
-    ///
-    /// recovery stops immediately if:
-    ///   1. `MAX_SYNC` (64) tokens are consumed, to prevent runaway skipping in
-    ///      heavily malformed files.
-    ///   2. a closing delimiter is found while the corresponding depth counter
-    ///      is 0.
-    ///   3. a synchronization token (e.g., `,`, `;`, `->`) is found at depth 0.
-    ///
-    /// \param ctx             the syntactic context where the error occurred.
-    /// \param paren_depth initial `()` nesting level, usually 0 unless recovery
-    ///                        starts inside a partially parsed parameter list.
-    /// \param square_depth initial `[]` nesting level, usually 0 unless
-    ///        recovery
-    ///                        starts inside an array or slice type.
-    /// \param brace_depth     initial `{}` nesting level.
-    /// \param stop_at_newline if true, the first `TkNewLine` encountered at
-    ///        depth 0
-    ///                        will terminate recovery regardless of `ctx`.
+    /// \brief ExprParse::_sync_expr in a type position, where a `->` at
+    ///        depth 0 is a boundary too.
     inline fn _sync_type(self,
-                         ctx:             Self::TypeSyncCtx,
+                         ctx:             SyncCtx,
                          paren_depth:     i32  = 0,
                          square_depth:    i32  = 0,
                          brace_depth:     i32  = 0,
                          stop_at_newline: bool = false) {
-        var   balance_paren:   i32 = paren_depth
-        var   balance_square:  i32 = square_depth
-        var   balance_brace:   i32 = brace_depth
-        var   tokens_consumed: u32 = 0
-        const MAX_SYNC:        u32 = 64
-
-        while !self.dyn()->is_eof() {
-            if tokens_consumed >= MAX_SYNC {
-                return
-            }
-
-            ++tokens_consumed
-
-            var k = self.dyn()->ig_kind()
-
-            // hard stop: caller is recovering from an unclosed delimiter and
-            // wants us to bail at the next newline rather than eat the next
-            // top-level construct.
-            if stop_at_newline
-                && k == TokenKind::TkNewLine
-                && balance_paren == 0
-                && balance_square == 0
-                && balance_brace == 0 {
-                return
-            }
-
-            if k == TokenKind::OpLParen {
-                ++balance_paren
-            } else if k == TokenKind::OpLSquare {
-                ++balance_square
-            } else if k == TokenKind::OpLBrace {
-                ++balance_brace
-            } else if k == TokenKind::OpRParen {
-                if balance_paren == 0 {
-                    // closing delimiter at our level always stops us; caller
-                    // owns the decision of whether to consume it.
-                    return
-                }
-
-                --balance_paren
-            } else if k == TokenKind::OpRSquare {
-                if balance_square == 0 {
-                    return
-                }
-
-                --balance_square
-            } else if k == TokenKind::OpRBrace {
-                if balance_brace == 0 {
-                    return
-                }
-
-                --balance_brace
-            } else if balance_paren == 0 && balance_square == 0 && balance_brace == 0 {
-                // at depth zero across all delimiter kinds: stop on tokens
-                // that end a type-position production.
-                if k == TokenKind::OpComma {
-                    if ctx == Self::TypeSyncCtx::Comma
-                        || ctx == Self::TypeSyncCtx::Paren
-                        || ctx == Self::TypeSyncCtx::Square {
-                        return
-                    }
-                }
-
-                if k == TokenKind::TkNewLine && ctx == Self::TypeSyncCtx::TopLevel {
-                    return
-                }
-
-                if k == TokenKind::OpSemicolon {
-                    return
-                }
-
-                if k == TokenKind::OpArrow {
-                    return
-                }
-            }
-
-            self.dyn()->advance()
-        }
-    }
-
-    /// Sync, then guarantee the cursor moved. For use inside recovery LOOPS:
-    /// _sync_type stops ON a boundary token without consuming it, which is
-    /// correct positioning but spins a caller that retries from the same spot.
-    ///
-    /// Except on a closing bracket, as _sync_expr_progress: it closes the
-    /// list or something around it. Returns true when the cursor is left on
-    /// a closer (or EOF), and the caller leaves its loop.
-    priv fn _sync_type_progress(self,
-                                ctx:             Self::TypeSyncCtx,
-                                paren_depth:     i32  = 0,
-                                square_depth:    i32  = 0,
-                                brace_depth:     i32  = 0,
-                                stop_at_newline: bool = false) -> bool {
-        var before = self.dyn()->c_idx
-        self._sync_type(
+        self.dyn()->_sync_expr(
             ctx,
             paren_depth,
             square_depth,
             brace_depth,
             stop_at_newline,
+            true,
         )
+    }
 
-        var k = self.dyn()->ig_kind()
-        if self.dyn()->is_eof()
-            || ((k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare)
-                && self.dyn()->closer_is_owned()) {
-            return true
-        }
-
-        if self.dyn()->c_idx == before {
-            self.dyn()->advance()
-        }
-
-        return false
+    /// \brief ExprParse::_sync_expr_progress in a type position (a `->` at
+    ///        depth 0 is a boundary too): returns true when the cursor is
+    ///        left on an owned closer or EOF.
+    priv fn _sync_type_progress(self,
+                                ctx:             SyncCtx,
+                                paren_depth:     i32  = 0,
+                                square_depth:    i32  = 0,
+                                brace_depth:     i32  = 0,
+                                stop_at_newline: bool = false) -> bool {
+        return self.dyn()->_sync_expr_progress(
+            ctx,
+            paren_depth,
+            square_depth,
+            brace_depth,
+            stop_at_newline,
+            true,
+        )
     }
 
     /// \brief performs a static downcast of `self` to the generic parser type
@@ -819,7 +693,7 @@ pub class <T: type> TypeParse {
                 "expected type after '('",
             ).first(start_range)->emit()
 
-            self._sync_type(Self::TypeSyncCtx::Paren, 1, 0, 0, true)
+            self._sync_type(SyncCtx::Paren, 1, 0, 0, true)
             return self._error_type(start_range | self.dyn()->prev().range)
         }
 
@@ -897,7 +771,7 @@ pub class <T: type> TypeParse {
             var unsafe *elem = self.parse_type(false, true)
             if elem == &null || is_recovery(elem) {
                 // no stop_at_newline we're mid-tuple, newlines are legal
-                if self._sync_type_progress(Self::TypeSyncCtx::Comma) {
+                if self._sync_type_progress(SyncCtx::Comma) {
                     break
                 }
 
@@ -1104,7 +978,7 @@ pub class <T: type> TypeParse {
                 "expected ']' after type in square brackets",
             ).first(start_range)->emit()
             // try to sync to ']' to continue parsing
-            self._sync_type(Self::TypeSyncCtx::Square, 0, 1, 0, true)
+            self._sync_type(SyncCtx::Square, 0, 1, 0, true)
             return Types::VectorType::create_error(
                 self.dyn()->ctx,
                 start_range | self.dyn()->prev().range,
@@ -1205,7 +1079,7 @@ pub class <T: type> TypeParse {
                 semicolon_range.start,
                 "unexpected ',' in array type, did you mean to use parentheses for a tuple type?",
             ).first(semicolon_range)->emit()
-            self._sync_type(Self::TypeSyncCtx::Square, 0, 1) // sync to closing `]` to continue parsing
+            self._sync_type(SyncCtx::Square, 0, 1) // sync to closing `]` to continue parsing
             return Types::FixedArrayType::create_error(
                 self.dyn()->ctx,
                 start_range | size_expr->range,
@@ -1220,7 +1094,7 @@ pub class <T: type> TypeParse {
                 "expected ']' after array size expression in array type",
             ).first(semicolon_range)->emit()
             // try to sync to ']' to continue parsing
-            self._sync_type(Self::TypeSyncCtx::Square, 0, 1, 0, true)
+            self._sync_type(SyncCtx::Square, 0, 1, 0, true)
             return Types::FixedArrayType::create_error(
                 self.dyn()->ctx,
                 start_range | self.dyn()->prev().range,
@@ -1311,12 +1185,12 @@ pub class <T: type> TypeParse {
                 "expected type after '{'",
             ).first(start_range)->emit()
 
-            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1, true)
+            self._sync_type(SyncCtx::Brace, 0, 0, 1, true)
             return self._error_type(start_range)
         }
 
         if is_recovery(key_type) {
-            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1, true)
+            self._sync_type(SyncCtx::Brace, 0, 0, 1, true)
 
             var err = Types::SetType::create_error(
                 self.dyn()->ctx,
@@ -1353,7 +1227,7 @@ pub class <T: type> TypeParse {
                 "or '(' for a tuple type?",
             )
 
-            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
+            self._sync_type(SyncCtx::Brace, 0, 0, 1)
             return Types::SetType::create_error(
                 self.dyn()->ctx,
                 start_range | self.dyn()->prev().range,
@@ -1383,7 +1257,7 @@ pub class <T: type> TypeParse {
             "expected '}' to close set type or ':' to begin map type value",
         ).first(start_range)->emit()
 
-        self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1, true)
+        self._sync_type(SyncCtx::Brace, 0, 0, 1, true)
 
         return Types::SetType::create_error(
             self.dyn()->ctx,
@@ -1452,7 +1326,7 @@ pub class <T: type> TypeParse {
                 sep_range.start,
                 "expected value type after ':' in map type '{K: V}'",
             ).first(sep_range)->emit()
-            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
+            self._sync_type(SyncCtx::Brace, 0, 0, 1)
             var err = Types::MapType::create_error(
                 self.dyn()->ctx,
                 start_range | self.dyn()->prev().range,
@@ -1463,7 +1337,7 @@ pub class <T: type> TypeParse {
         }
 
         if is_recovery(val_type) {
-            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
+            self._sync_type(SyncCtx::Brace, 0, 0, 1)
             var err = Types::MapType::create_error(
                 self.dyn()->ctx,
                 start_range | val_type->range,
@@ -1482,7 +1356,7 @@ pub class <T: type> TypeParse {
                 "unexpected ',' in map type, map types take exactly one key and one value type '{K: V}'",
             )
 
-            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
+            self._sync_type(SyncCtx::Brace, 0, 0, 1)
             var err = Types::MapType::create_error(
                 self.dyn()->ctx,
                 start_range | self.dyn()->prev().range,
@@ -1501,7 +1375,7 @@ pub class <T: type> TypeParse {
                 "unexpected ':' in map type, expected '}' after value type",
             )
 
-            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
+            self._sync_type(SyncCtx::Brace, 0, 0, 1)
             var err = Types::MapType::create_error(
                 self.dyn()->ctx,
                 start_range | self.dyn()->prev().range,
@@ -1518,7 +1392,7 @@ pub class <T: type> TypeParse {
                 start_range.start,
                 "expected '}' to close map type",
             ).first(start_range)->emit()
-            self._sync_type(Self::TypeSyncCtx::Brace, 0, 0, 1)
+            self._sync_type(SyncCtx::Brace, 0, 0, 1)
             var err = Types::MapType::create_error(
                 self.dyn()->ctx,
                 start_range | self.dyn()->prev().range,
@@ -1645,7 +1519,7 @@ pub class <T: type> TypeParse {
                 start_range.start,
                 "unexpected '<' after 'fn' in function pointer type, generic parameters are not supported here",
             ).first(start_range)->emit()
-            self._sync_type(Self::TypeSyncCtx::TopLevel, 0, 0, 0, true)
+            self._sync_type(SyncCtx::TopLevel, 0, 0, 0, true)
             return Types::FunctionPointerType::create_error(
                 self.dyn()->ctx,
                 start_range | self.dyn()->prev().range,
@@ -1663,7 +1537,7 @@ pub class <T: type> TypeParse {
                 "unexpected identifier after 'fn' in function pointer type, "
                 "did you mean to write a function declaration?",
             ).first(start_range)->emit()
-            self._sync_type(Self::TypeSyncCtx::TopLevel, 0, 0, 0, true)
+            self._sync_type(SyncCtx::TopLevel, 0, 0, 0, true)
             return Types::FunctionPointerType::create_error(
                 self.dyn()->ctx,
                 start_range | self.dyn()->prev().range,
@@ -1677,7 +1551,7 @@ pub class <T: type> TypeParse {
                 start_range.start,
                 "expected '(' after 'fn' in function pointer type",
             ).first(start_range)->emit()
-            self._sync_type(Self::TypeSyncCtx::TopLevel, 0, 0, 0, true)
+            self._sync_type(SyncCtx::TopLevel, 0, 0, 0, true)
             return Types::FunctionPointerType::create_error(
                 self.dyn()->ctx,
                 start_range | self.dyn()->prev().range,
@@ -1702,28 +1576,28 @@ pub class <T: type> TypeParse {
                 start_range.start,
                 "expected ')' to close function pointer parameter list",
             ).first(start_range)->emit()
-            self._sync_type(Self::TypeSyncCtx::Paren, 1, 0, 0, true)
+            self._sync_type(SyncCtx::Paren, 1, 0, 0, true)
         }
 
         // `fn(A) @preserve_most -> R`: the calling convention, right after
         // the parameter list (FunctionPointerType::call_conv). Only the three
         // convention names are taken; any other `@x` here is not this type's
         // and is left where it is.
-        var fn_cc: u8 = 0
+        var fn_cc: u8 = 0 // the default convention
         if self.dyn()->check(TokenKind::OpAt) && self.dyn()->check_peek(TokenKind::LitIdentifier) {
             var an = self.dyn()->ctx->hoisted->intern_tok(self.dyn()->peek())
             if an == self.dyn()->ctx->hoisted->intern(
                 LangAttrs::preserve_most(),
             ) {
-                fn_cc = 1
+                fn_cc = CALL_CONV_PRESERVE_MOST
             } else if an == self.dyn()->ctx->hoisted->intern(
                 LangAttrs::preserve_all(),
             ) {
-                fn_cc = 2
+                fn_cc = CALL_CONV_PRESERVE_ALL
             } else if an == self.dyn()->ctx->hoisted->intern(
                 LangAttrs::preserve_none(),
             ) {
-                fn_cc = 3
+                fn_cc = CALL_CONV_PRESERVE_NONE
             }
 
             if fn_cc != 0 {
@@ -1965,13 +1839,7 @@ pub class <T: type> TypeParse {
                     "unexpected '=' in function pointer type parameter list, default values are not allowed here",
                 )
 
-                if self._sync_type_progress(
-                    Self::TypeSyncCtx::Paren,
-                    0,
-                    0,
-                    0,
-                    true,
-                ) {
+                if self._sync_type_progress(SyncCtx::Paren, 0, 0, 0, true) {
                     return
                 }
 
@@ -1987,7 +1855,7 @@ pub class <T: type> TypeParse {
 
             var unsafe *param_ty = self.parse_type(false, true)
             if param_ty == &null || is_recovery(param_ty) {
-                if self._sync_type_progress(Self::TypeSyncCtx::Paren) {
+                if self._sync_type_progress(SyncCtx::Paren) {
                     return
                 }
 
@@ -2009,7 +1877,7 @@ pub class <T: type> TypeParse {
                     "expected ',' or ')' after parameter type in function pointer type",
                 )
 
-                self._sync_type(Self::TypeSyncCtx::Paren, 1, 0, 0, true)
+                self._sync_type(SyncCtx::Paren, 1, 0, 0, true)
             }
         }
     }
@@ -2320,9 +2188,7 @@ pub class <T: type> TypeParse {
             return false
         }
 
-        var angle_depth: u32 = 1
-
-        while !self.dyn()->is_eof() && angle_depth > 0 {
+        while !self.dyn()->is_eof() {
             if self.dyn()->check(TokenKind::TkCodeComplete) {
                 self.dyn()->maybe_complete(CompletionContextKind::TypeRef)
                 self.dyn()->advance(T::SkipNL::After)
@@ -2330,27 +2196,7 @@ pub class <T: type> TypeParse {
                 return false
             }
 
-            // closers
-            if self.dyn()->check(TokenKind::OpGreaterGreater) {
-                if angle_depth == 1 {
-                    self.owe_close()
-                    self.dyn()->nl_pop()
-                    self.dyn()->advance_raw()
-                    return true
-                }
-
-                if angle_depth >= 2 {
-                    angle_depth -= 2
-                    self.dyn()->nl_pop()
-                    self.dyn()->advance_raw()
-                    return true
-                }
-            }
-
-            if self.dyn()->check(TokenKind::OpGreater) {
-                angle_depth -= 1
-                self.dyn()->nl_pop()
-                self.dyn()->advance_raw()
+            if self._close_generic_args() {
                 return true
             }
 
@@ -2392,13 +2238,13 @@ pub class <T: type> TypeParse {
                     start_range.start,
                     "expected type argument in generic parameter list",
                 ).first(start_range)->emit()
-                self._sync_generic_args(angle_depth)
+                self._sync_generic_args()
                 self.dyn()->nl_pop()
                 return false
             }
 
             if is_recovery(ty) {
-                self._sync_generic_args(angle_depth)
+                self._sync_generic_args()
                 self.dyn()->nl_pop()
                 return false
             }
@@ -2424,7 +2270,7 @@ pub class <T: type> TypeParse {
                 )
 
                 if ty == &null || is_recovery(ty) {
-                    self._sync_generic_args(angle_depth)
+                    self._sync_generic_args()
                     self.dyn()->nl_pop()
                     return false
                 }
@@ -2449,27 +2295,8 @@ pub class <T: type> TypeParse {
                 self.dyn()->advance(T::SkipNL::After) // consume `,`
 
                 // trailing comma before closer
-                if self.dyn()->check(TokenKind::OpGreater) {
-                    angle_depth -= 1
-                    self.dyn()->nl_pop()
-                    self.dyn()->advance_raw()
+                if self._close_generic_args() {
                     return true
-                }
-
-                if self.dyn()->check(TokenKind::OpGreaterGreater) {
-                    if angle_depth == 1 {
-                        self.owe_close()
-                        self.dyn()->nl_pop()
-                        self.dyn()->advance_raw()
-                        return true
-                    }
-
-                    if angle_depth >= 2 {
-                        angle_depth -= 2
-                        self.dyn()->nl_pop()
-                        self.dyn()->advance_raw()
-                        return true
-                    }
                 }
 
                 continue
@@ -2488,24 +2315,37 @@ pub class <T: type> TypeParse {
                     self.dyn()->prev().range.start,
                     "expected ',' or '>' after type argument in generic parameter list",
                 ).first(self.dyn()->prev().range)->emit()
-                self._sync_generic_args(angle_depth)
+                self._sync_generic_args()
                 self.dyn()->nl_pop()
                 return false
             }
         }
 
         self.dyn()->nl_pop()
-        return angle_depth == 0
+        return false // EOF inside the list
+    }
+
+    /// \brief at the list's closer, `>` or `>>`: consumes it, pops the
+    ///        list's newline guard and returns true. A `>>` also closes the
+    ///        enclosing list, which owe_close records for it.
+    inline fn _close_generic_args(self) -> bool {
+        if self.dyn()->check(TokenKind::OpGreaterGreater) {
+            self.owe_close()
+        } else if !self.dyn()->check(TokenKind::OpGreater) {
+            return false
+        }
+
+        self.dyn()->nl_pop()
+        self.dyn()->advance_raw()
+        return true
     }
 
     /// \brief synchronizes past a malformed generic argument list.
     ///
-    /// \details skips tokens tracking nested `<`/`>` pairs until a closer
-    ///          or statement-level delimiter is found.
-    ///
-    /// \param angle_depth  current nesting depth of angle brackets.
-    inline fn _sync_generic_args(self, angle_depth: u32) {
-        var depth = angle_depth
+    /// \details skips tokens tracking nested `<`/`>` pairs until the list's
+    ///          own closer or a statement-level delimiter is found.
+    inline fn _sync_generic_args(self) {
+        var depth: u32 = 1
 
         // No token budget: the scan ends at the closer, at a statement-level
         // delimiter or at EOF. A token cap is not safe: it parks the cursor
@@ -2609,7 +2449,7 @@ pub class <T: type> TypeParse {
                 end_range.start,
                 "unexpected '??' after type, did you mean to write a nullable type with a single '?'?",
             ).first(end_range)->emit()
-            self._sync_type(Self::TypeSyncCtx::TopLevel, 0, 0, 0, true)
+            self._sync_type(SyncCtx::TopLevel, 0, 0, 0, true)
             return Types::NullableType::create_error(self.dyn()->ctx, end_range)
         }
 

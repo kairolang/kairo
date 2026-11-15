@@ -84,10 +84,21 @@ import Token::Token::Token
 import Token::TokenKind::{
     TokenKind,
     is_annotation,
+    is_builtin,
     is_unary_operator,
     token_kind_to_readable_string,
 }
 import Token::TokenSpan::TokenSpan
+
+/// \brief the boundary _sync_expr (and TypeParse::_sync_type) recovers to.
+///        At module scope so the type parser can name it.
+pub enum SyncCtx derives u8 {
+    TopLevel, ///< sync to newline, ;, EOF
+    Paren,    ///< sync to ) at depth 0
+    Square,   ///< sync to ] at depth 0
+    Brace,    ///< sync to } at depth 0
+    Comma,    ///< sync to , or closing delimiter
+}
 
 /// \brief what, besides `;` / newline / EOF, terminates an expression: one bit
 ///        each. A stop set is a FlagSet of them (ExprParse<T>::ExprStop),
@@ -116,20 +127,12 @@ pub class <T: type> ExprParse {
     /// \brief token kinds that can start a primary expression: identifiers,
     ///        builtins, and `self`.
     ///
-    /// \details A match, not a per-parser `std::set` built in every ExprParse
-    ///          and probed as a red-black tree on each test; the kinds are
-    ///          hashes (no dense range for a bitset), so clang lowers this to a
-    ///          compare tree over constants.
+    /// \details Matches over constants (is_builtin), not a per-parser
+    ///          `std::set` built in every ExprParse and probed as a red-black
+    ///          tree on each test; the kinds are hashes (no dense range for a
+    ///          bitset), so clang lowers this to a compare tree.
     static fn _is_expr_ident_kind(k: TokenKind) -> bool {
-        match k {
-            case TokenKind::LitIdentifier, TokenKind::KwSelf,   TokenKind::BiSelf,
-                 TokenKind::BiFile,        TokenKind::BiLine,   TokenKind::BiColumn,
-                 TokenKind::BiFunction,    TokenKind::BiModule {
-                return true
-            } default {
-                return false
-            }
-        }
+        return k == TokenKind::LitIdentifier || k == TokenKind::KwSelf || is_builtin(k)
     }
 
     /// `if`/`try` expressions written inside grouping `( )`; see
@@ -141,13 +144,8 @@ pub class <T: type> ExprParse {
     /// _parse_try_catch_expr.
     priv var _bare_try_at: usize = 0
 
-    enum ExprSyncCtx derives u8 {
-        TopLevel, ///< sync to newline, ;, EOF
-        Paren,    ///< sync to ) at depth 0
-        Square,   ///< sync to ] at depth 0
-        Brace,    ///< sync to } at depth 0
-        Comma,    ///< sync to , or closing delimiter
-    }
+    /// \brief SyncCtx, as the expression parser names it.
+    type ExprSyncCtx = SyncCtx
 
     /// \brief one stop bit (ExprStopBit above), as the parsers name it:
     ///        `T::ExprStopKind::StopComma`.
@@ -178,12 +176,20 @@ pub class <T: type> ExprParse {
 
     //  Sync / recovery
 
-    priv inline fn _sync_expr(self,
-                              ctx:             Self::ExprSyncCtx,
-                              paren_depth:     i32  = 0,
-                              square_depth:    i32  = 0,
-                              brace_depth:     i32  = 0,
-                              stop_at_newline: bool = false) {
+    /// \brief skips tokens to a recovery boundary of \p ctx, tracking
+    ///        `()` / `[]` / `{}` depth from the given starting depths, and
+    ///        stops ON the boundary without consuming it: a closer at depth
+    ///        0, `;`, and at depth 0 a `,` (Comma, Paren, Square) or a
+    ///        newline (TopLevel). \p stop_at_newline stops at any newline at
+    ///        depth 0; \p stop_at_arrow (type positions) at a `->` there. At
+    ///        most 64 tokens are skipped.
+    inline fn _sync_expr(self,
+                         ctx:             Self::ExprSyncCtx,
+                         paren_depth:     i32  = 0,
+                         square_depth:    i32  = 0,
+                         brace_depth:     i32  = 0,
+                         stop_at_newline: bool = false,
+                         stop_at_arrow:   bool = false) {
         var   balance_paren:   i32 = paren_depth
         var   balance_square:  i32 = square_depth
         var   balance_brace:   i32 = brace_depth
@@ -247,6 +253,10 @@ pub class <T: type> ExprParse {
                 if k == TokenKind::OpSemicolon {
                     return
                 }
+
+                if stop_at_arrow && k == TokenKind::OpArrow {
+                    return
+                }
             }
 
             self.dyn()->advance()
@@ -266,12 +276,13 @@ pub class <T: type> ExprParse {
     /// loop and lets its own closer check, or the construct around it, deal
     /// with the token. Retrying from a closer would only report the same
     /// "expected expression" on it again.
-    priv fn _sync_expr_progress(self,
-                                ctx:             Self::ExprSyncCtx,
-                                paren_depth:     i32  = 0,
-                                square_depth:    i32  = 0,
-                                brace_depth:     i32  = 0,
-                                stop_at_newline: bool = false) -> bool {
+    fn _sync_expr_progress(self,
+                           ctx:             Self::ExprSyncCtx,
+                           paren_depth:     i32  = 0,
+                           square_depth:    i32  = 0,
+                           brace_depth:     i32  = 0,
+                           stop_at_newline: bool = false,
+                           stop_at_arrow:   bool = false) -> bool {
         var before = self.dyn()->c_idx
         self._sync_expr(
             ctx,
@@ -279,6 +290,7 @@ pub class <T: type> ExprParse {
             square_depth,
             brace_depth,
             stop_at_newline,
+            stop_at_arrow,
         )
 
         if self.dyn()->is_eof() || self._at_owned_closer() {
@@ -458,8 +470,8 @@ pub class <T: type> ExprParse {
                 continue
             }
 
-            /// ### exponentiation (right-associative)
-            if cur_kind == TokenKind::OpCaretCaret {
+            /// ### exponentiation `^^`, null-coalescing `??` (right-associative)
+            if cur_kind == TokenKind::OpCaretCaret || cur_kind == TokenKind::OpQuestionQuestion {
                 var op_tok = self.dyn()->current()
                 self.dyn()->advance(T::SkipNL::After)
 
@@ -468,7 +480,7 @@ pub class <T: type> ExprParse {
                     self.dyn()->diag->report(
                         DiagID::S052E,
                         op_tok.range.start,
-                        "expected expression after '^^'",
+                        f"expected expression after '{token_kind_to_readable_string(cur_kind)}'",
                     ).first(op_tok.range)->emit()
                     return lhs
                 }
@@ -482,39 +494,6 @@ pub class <T: type> ExprParse {
 
                 self._warn_open_operand(rhs)
 
-                lhs = Expressions::BinaryOperatorExpr::create(
-                    self.dyn()->ctx,
-                    lhs->range | rhs->range,
-                    lhs,
-                    rhs,
-                    op_tok,
-                )
-
-                continue
-            }
-
-            /// ### null-coalescing (right-associative)
-            if cur_kind == TokenKind::OpQuestionQuestion {
-                var op_tok = self.dyn()->current()
-                self.dyn()->advance(T::SkipNL::After)
-                var unsafe *rhs = self._parse_cast_expr(stop)
-                if rhs == &null {
-                    self.dyn()->diag->report(
-                        DiagID::S052E,
-                        op_tok.range.start,
-                        "expected expression after '??'",
-                    ).first(op_tok.range)->emit()
-                    return lhs
-                }
-
-                // right-associative: recurse at prec - 1
-                rhs = self._parse_expr_prec(
-                    rhs,
-                    ((prec as u8) - 1) as u8 as Self::Precedence,
-                    stop,
-                )
-
-                self._warn_open_operand(rhs)
                 lhs = Expressions::BinaryOperatorExpr::create(
                     self.dyn()->ctx,
                     lhs->range | rhs->range,
@@ -1669,12 +1648,12 @@ pub class <T: type> ExprParse {
 
         /// # keyword prefix: sizeof
         if self.dyn()->check(TokenKind::KwSizeOf) {
-            return self._parse_sizeof_expr()
+            return self._parse_size_align_expr(false)
         }
 
         /// # keyword prefix: alignof
         if self.dyn()->check(TokenKind::KwAlignOf) {
-            return self._parse_alignof_expr()
+            return self._parse_size_align_expr(true)
         }
 
         /// # keyword prefix: typeof
@@ -1721,9 +1700,12 @@ pub class <T: type> ExprParse {
 
     //  sizeof / alignof / typeof
 
-    inline fn _parse_sizeof_expr(self) -> unsafe *Expr {
-        var kw_range = self.dyn()->current_ptr()->range
-        self.dyn()->advance() // consume `sizeof`
+    /// \brief `sizeof T` / `sizeof(T)`, or the same with `alignof` when
+    ///        \p is_align.
+    inline fn _parse_size_align_expr(self, is_align: bool) -> unsafe *Expr {
+        var word:    string = if (is_align) => ("alignof") else => "sizeof"
+        var kw_range        = self.dyn()->current_ptr()->range
+        self.dyn()->advance() // consume `sizeof` / `alignof`
 
         var has_paren = self.dyn()->check(TokenKind::OpLParen)
         if has_paren {
@@ -1735,8 +1717,15 @@ pub class <T: type> ExprParse {
             self.dyn()->diag->report(
                 DiagID::S053E,
                 kw_range.start,
-                "expected type after 'sizeof'",
+                f"expected type after '{word}'",
             ).first(kw_range)->emit()
+            if is_align {
+                return Expressions::AlignOfExpr::create_error(
+                    self.dyn()->ctx,
+                    kw_range,
+                )
+            }
+
             return Expressions::SizeOfExpr::create_error(
                 self.dyn()->ctx,
                 kw_range,
@@ -1748,59 +1737,19 @@ pub class <T: type> ExprParse {
                 self.dyn()->diag->report(
                     DiagID::S054E,
                     kw_range.start,
-                    "expected ')' after type in 'sizeof(T)'",
+                    f"expected ')' after type in '{word}(T)'",
                 ).first(kw_range)->emit()
             } else {
                 self.dyn()->advance() // consume )
             }
         }
 
-        return Expressions::SizeOfExpr::create(
-            self.dyn()->ctx,
-            kw_range | self.dyn()->prev().range,
-            ty,
-        )
-    }
-
-    inline fn _parse_alignof_expr(self) -> unsafe *Expr {
-        var kw_range = self.dyn()->current_ptr()->range
-        self.dyn()->advance() // consume `alignof`
-
-        var has_paren = self.dyn()->check(TokenKind::OpLParen)
-        if has_paren {
-            self.dyn()->advance(T::SkipNL::After)
+        var full = kw_range | self.dyn()->prev().range
+        if is_align {
+            return Expressions::AlignOfExpr::create(self.dyn()->ctx, full, ty)
         }
 
-        var ty = self.dyn()->parse_type()
-        if ty == &null {
-            self.dyn()->diag->report(
-                DiagID::S053E,
-                kw_range.start,
-                "expected type after 'alignof'",
-            ).first(kw_range)->emit()
-            return Expressions::AlignOfExpr::create_error(
-                self.dyn()->ctx,
-                kw_range,
-            )
-        }
-
-        if has_paren {
-            if !self.dyn()->check(TokenKind::OpRParen) {
-                self.dyn()->diag->report(
-                    DiagID::S054E,
-                    kw_range.start,
-                    "expected ')' after type in 'alignof(T)'",
-                ).first(kw_range)->emit()
-            } else {
-                self.dyn()->advance()
-            }
-        }
-
-        return Expressions::AlignOfExpr::create(
-            self.dyn()->ctx,
-            kw_range | self.dyn()->prev().range,
-            ty,
-        )
+        return Expressions::SizeOfExpr::create(self.dyn()->ctx, full, ty)
     }
 
     /// The operand of `typeof` with no parentheses: one prefix-level
@@ -2530,8 +2479,8 @@ pub class <T: type> ExprParse {
             return false
         }
 
-        // bit4 = has_prefix (0x/0b/0o), bit3 = has_suffix
-        if (idata->flags & 0b00011000) != 0 {
+        if idata->has_flag(Immediate::IntFlags::HasPrefix)
+            || idata->has_flag(Immediate::IntFlags::HasSuffix) {
             return false
         }
 
@@ -2583,6 +2532,27 @@ pub class <T: type> ExprParse {
         return true
     }
 
+    /// \brief true for a token that may follow a member step's generic
+    ///        arguments (`.f<T>(`, `.f<T>.g`, `.f<T>,` ...); anything else
+    ///        after a `<...>` that parsed makes it a comparison instead.
+    static fn _follows_generic_args(k: TokenKind) -> bool {
+        return k == TokenKind::OpLParen
+            || k == TokenKind::OpDot
+            || k == TokenKind::OpArrow
+            || k == TokenKind::OpColonColon
+            || k == TokenKind::OpQuestionDot
+            || k == TokenKind::OpQuestionArrow
+            || k == TokenKind::OpLSquare
+            || k == TokenKind::OpLBrace
+            || k == TokenKind::OpComma
+            || k == TokenKind::OpSemicolon
+            || k == TokenKind::OpRParen
+            || k == TokenKind::OpRSquare
+            || k == TokenKind::OpRBrace
+            || k == TokenKind::TkNewLine
+            || k == TokenKind::TkEof
+    }
+
     inline fn _try_step_generic_args(self,
                                      step:      *ChainExpr::Step,
                                      id_range:  SourceRange,
@@ -2595,22 +2565,7 @@ pub class <T: type> ExprParse {
         self.dyn()->forgive_close()
 
         if ok && !generic_args.is_empty() {
-            var k = self.dyn()->ig_kind()
-            if k == TokenKind::OpLParen
-                || k == TokenKind::OpDot
-                || k == TokenKind::OpArrow
-                || k == TokenKind::OpColonColon
-                || k == TokenKind::OpQuestionDot
-                || k == TokenKind::OpQuestionArrow
-                || k == TokenKind::OpLSquare
-                || k == TokenKind::OpLBrace
-                || k == TokenKind::OpComma
-                || k == TokenKind::OpSemicolon
-                || k == TokenKind::OpRParen
-                || k == TokenKind::OpRSquare
-                || k == TokenKind::OpRBrace
-                || k == TokenKind::TkNewLine
-                || k == TokenKind::TkEof {
+            if Self::_follows_generic_args(self.dyn()->ig_kind()) {
                 step->generic_args.from_buf(
                     generic_args.data(),
                     generic_args.size(),
@@ -2672,22 +2627,7 @@ pub class <T: type> ExprParse {
         self.dyn()->forgive_close()
 
         if ok && !generic_args.is_empty() {
-            var k = self.dyn()->ig_kind()
-            if k == TokenKind::OpLParen
-                || k == TokenKind::OpDot
-                || k == TokenKind::OpArrow
-                || k == TokenKind::OpColonColon
-                || k == TokenKind::OpQuestionDot
-                || k == TokenKind::OpQuestionArrow
-                || k == TokenKind::OpLSquare
-                || k == TokenKind::OpLBrace
-                || k == TokenKind::OpComma
-                || k == TokenKind::OpSemicolon
-                || k == TokenKind::OpRParen
-                || k == TokenKind::OpRSquare
-                || k == TokenKind::OpRBrace
-                || k == TokenKind::TkNewLine
-                || k == TokenKind::TkEof {
+            if Self::_follows_generic_args(self.dyn()->ig_kind()) {
                 var ops: kairo::std::StackBuf<Token, 3>
                 ops.push_back(op_tok)
                 result->op_tokens.from_buf(
@@ -3124,44 +3064,20 @@ pub class <T: type> ExprParse {
         var cur_range = cur_ptr->range
 
         while true {
-            if self.dyn()->check(TokenKind::KwFinal) {
+            if self.dyn()->check(TokenKind::KwFinal)
+                || self.dyn()->check(TokenKind::KwInline)
+                || self.dyn()->check(TokenKind::KwPanic)
+                || self.dyn()->check(TokenKind::KwVolatile)
+                || self.dyn()->check(TokenKind::KwAsync) {
                 var r = self.dyn()->current_ptr()->range
+                var kw = token_kind_to_readable_string(
+                    self.dyn()->resolve_kind_deep(self.dyn()->current_ptr()),
+                )
+
                 self.dyn()->diag->report(
                     DiagID::S052E,
                     r.start,
-                    "'final' is not valid in this position of an expression",
-                ).first(r)->emit()
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwInline) {
-                var r = self.dyn()->current_ptr()->range
-                self.dyn()->diag->report(
-                    DiagID::S052E,
-                    r.start,
-                    "'inline' is not valid in this position of an expression",
-                ).first(r)->emit()
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwPanic) {
-                var r = self.dyn()->current_ptr()->range
-                self.dyn()->diag->report(
-                    DiagID::S052E,
-                    r.start,
-                    "'panic' is not valid in this position of an expression",
-                ).first(r)->emit()
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwVolatile) {
-                var r = self.dyn()->current_ptr()->range
-                self.dyn()->diag->report(
-                    DiagID::S052E,
-                    r.start,
-                    "'volatile' is not valid in this position of an expression",
-                ).first(r)->emit()
-                self.dyn()->advance()
-            } else if self.dyn()->check(TokenKind::KwAsync) {
-                var r = self.dyn()->current_ptr()->range
-                self.dyn()->diag->report(
-                    DiagID::S052E,
-                    r.start,
-                    "'async' is not valid in this position of an expression",
+                    f"'{kw}' is not valid in this position of an expression",
                 ).first(r)->emit()
                 self.dyn()->advance()
             } else {
@@ -4082,7 +3998,7 @@ pub class <T: type> ExprParse {
     // String literal
 
     priv fn _parse_string_literal(self, tok: Token) -> *Expr {
-        // The token reaching here passed check(LitString), but _resolve_and_check
+        // The token reaching here passed check(LitString), but _checked_kind
         // re-badges a failed-string TkError (whose recovery imm == LitString) as
         // LitString, so a lex error can launder itself into this branch. Resolve
         // the macro chain and inspect the TRUE kind: if it's TkError, the string

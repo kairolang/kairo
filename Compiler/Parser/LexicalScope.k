@@ -35,39 +35,7 @@ import AST::Node::Base::{
     Type,
 }
 import Location::SourceRange::SourceRange
-import Support::FlagSet::{
-    FlagBit,
-    FlagSet,
-}
-
-/// \enum SyncSet
-/// \brief synchronization points used for error recovery during parsing, one
-///        bit each; a recovery set is a `FlagSet<SyncSet, u32>`
-///        (Support/FlagSet.k), empty for no barriers.
-///
-/// \details each `parse_*` method in `ASTParse` defines a set of tokens that act as
-///          barriers to prevent error cascades. when a syntax error is encountered,
-///          the parser consumes tokens until it finds a member of the current `SyncSet`.
-///
-/// for example, a `SyncSet::TopLevel` recovery allows the parser to skip a malformed
-/// `class` body and resume at the next `fn` or `struct` declaration.
-pub enum SyncSet derives u32 {
-    TopLevel   = 1 << 0, ///< declaration keywords: `fn`, `class`, `struct`, `enum`, `module`.
-    StmtStart  = 1 << 1, ///< statement lead-ins: `var`, `const`, `return`, `if`, `while`.
-    ExprEnd    = 1 << 2, ///< expression delimiters: `;`, `,`, `)`, `]`.
-    BlockEnd   = 1 << 3, ///< scope closing brace: `}`.
-    GenericEnd = 1 << 4, ///< template/generic closer: `>`.
-    ParenEnd   = 1 << 5, ///< closing parenthesis: `)`.
-    BracketEnd = 1 << 6, ///< closing square bracket: `]`.
-    LineEnd    = 1 << 7, ///< physical or virtual newline.
-}
-
-/// SyncSet's variants are its FlagSet's bits (Support/FlagSet.k).
-extend SyncSet impl FlagBit<u32> {
-    inline fn bit(const self) -> u32 {
-        return self as u32
-    }
-}
+import Support::FlagSet::FlagSet
 
 /// \enum ScopeKind
 /// \brief discriminates the syntactic and semantic origin of a `LexicalScope`.

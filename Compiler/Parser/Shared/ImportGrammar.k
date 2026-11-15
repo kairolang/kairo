@@ -22,6 +22,13 @@
 ///     fn ig_err_insert(self, r: SourceRange, msg: string, code: DiagID,
 ///                   at: SourceRange, text: string, fix_msg: string) // + insertion fix-it
 ///
+///   The three ig_err* methods share one diagnostic shape: a host that
+///   reports starts the builder on its own sink (a host scanning silently
+///   returns first) and finishes it with ig_finish, ig_finish_remove or
+///   ig_finish_insert below. The cursor methods stay the host's: each host
+///   reads a different token source (the parser's resolved cursor, a
+///   TokenSource, a lexed TokenBuffer).
+///
 ///   The grammar does NOT consume a trailing `;` and does NOT handle visibility
 ///   prefixes or `ffi` -- both are the caller's.
 ///
@@ -37,6 +44,7 @@
 ffi "c++" import "vector"
 
 import AST::Node::Declarations::ImportKind
+import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Token::Token::Token
@@ -69,6 +77,34 @@ pub struct ImportSpec {
     pub var ok:                bool        = false
 }
 
+/// \brief finishes an import-grammar diagnostic \p b (made by the host's
+///        sink at r.start): labelled at \p r, then emitted.
+pub fn ig_finish(@inout b: DiagBuilder, r: SourceRange) {
+    b.first(r)
+    b.emit()
+}
+
+/// \brief ig_finish, plus a fix-it removing \p cut.
+pub fn ig_finish_remove(@inout b:      DiagBuilder,
+                        r:             SourceRange,
+                        cut:           SourceRange,
+                        const fix_msg: string) {
+    b.first(r)
+    b.remove(cut, fix_msg)
+    b.emit()
+}
+
+/// \brief ig_finish, plus a fix-it inserting \p text at the start of \p at.
+pub fn ig_finish_insert(@inout b:      DiagBuilder,
+                        r:             SourceRange,
+                        at:            SourceRange,
+                        const text:    string,
+                        const fix_msg: string) {
+    b.first(r)
+    b.insert(at.start, text, fix_msg)
+    b.emit()
+}
+
 // TODO(DUCK-GENERIC): T uses ig_bump, ig_bump_nl, ig_eof, ig_err, ig_err_remove, ig_kind, ig_peek_kind, ig_tok. Stage 0 was duck-typed; bound it or keep `: type`.
 /// \brief true for a token that can be an import path segment: a name, or a
 ///        primitive type's word.
@@ -79,7 +115,15 @@ pub struct ImportSpec {
 ///         . Only where the word would become the BOUND name does it
 ///          clash with the type (_check_bound_word).
 pub fn is_import_path_word(k: TokenKind) -> bool {
-    return k == TokenKind::LitIdentifier || (is_annotation(k) && k != TokenKind::AtComment)
+    return k == TokenKind::LitIdentifier || is_primitive_type_word(k)
+}
+
+/// \brief true for a primitive type's word (`i32`, `f8`, `bool`, `usize`,
+///        ...): every `@`-kind but the comment. The parser's name and type
+///        predicates (DeclParse::check_is_ident, TypeParse::_is_type_tok_kind)
+///        and is_import_path_word build on it.
+pub fn is_primitive_type_word(k: TokenKind) -> bool {
+    return is_annotation(k) && k != TokenKind::AtComment
 }
 
 pub class <T: type> ImportGrammar {

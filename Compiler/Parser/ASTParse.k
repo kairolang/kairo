@@ -19,6 +19,11 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import API::LinkABI::{
+    CALL_CONV_PRESERVE_ALL,
+    CALL_CONV_PRESERVE_MOST,
+    CALL_CONV_PRESERVE_NONE,
+}
 import AST::ASTSupport::{
     FrozenList,
     create_empty_frozen_list,
@@ -43,6 +48,12 @@ import AST::Context::SymbolTable::{
 import AST::Context::TranslationUnit::{
     ParentRef,
     TranslationUnit,
+}
+import AST::DeclFacts::{
+    decl_context,
+    decl_fields,
+    decl_methods,
+    decl_name_tok,
 }
 import AST::LangItems::{
     LangAttrs,
@@ -115,7 +126,12 @@ import Parser::LexicalScope::{
     PendingQuals as PendingQualsDecl,
 }
 import Parser::PatternParse::PatternParse
-import Parser::Shared::ImportGrammar::ImportGrammar
+import Parser::Shared::ImportGrammar::{
+    ImportGrammar,
+    ig_finish,
+    ig_finish_insert,
+    ig_finish_remove,
+}
 import Parser::Shared::MacroHeaderGrammar::MacroHeaderGrammar
 import Parser::StmtParse::StmtParse
 import Parser::TypeParse::TypeParse
@@ -211,8 +227,7 @@ pub class ASTParse
 
     /// # Recovery state
 
-    pub var _fatal_sentinels: u32 = 0 ///< special marker type used to signal unrecoverable errors during type parsing.
-    pub var depth:            u32 = 0 ///< current recursion depth.
+    pub var depth: u32 = 0 ///< current recursion depth.
     /// >0 while parsing the declaration(s) an `ffi "..."` prefix or block
     /// applies to: there a bodiless `struct S` / `union U` is a foreign
     /// forward declaration (it names the header's tag, Compiler/Spec/Interop.md#ffi-imports)
@@ -889,10 +904,6 @@ pub class ASTParse
             return false
         }
 
-        if self.is_fatal<Decl>(d) {
-            return false
-        }
-
         self._top_item_failed = is_recovery(d)
         if isa<VisibilityGroupDecl>(d) {
             self._diag_annot_on_vis_group(annot)
@@ -912,16 +923,12 @@ pub class ASTParse
     /// \details DeclStmt unwraps so annotations land on the inner decl, not
     ///          the statement wrapper.
     ///
-    /// \return false to stop the top-level loop (null or fatal).
+    /// \return false to stop the top-level loop (null).
     priv fn _parse_top_stmt(self,
                             program: unsafe *Program,
                             annot:   unsafe *Self::PendingAnnotations) -> bool {
         var unsafe *s = self.parse_stmt()
         if s == &null {
-            return false
-        }
-
-        if self.is_fatal<Stmt>(s) {
             return false
         }
 
@@ -976,12 +983,6 @@ pub class ASTParse
         }
 
         b.emit()
-    }
-
-    /// \brief routes parsing to specific top-level declaration logic.
-    pub fn dispatch_top_level(self) -> TopLevelItem {
-        self.advance()
-        return TopLevelItem::from_decl(&null)
     }
 
     //  Hoisted-scope wiring (post-parse)
@@ -1408,84 +1409,34 @@ pub class ASTParse
                                table_dc:       unsafe *DeclContext,
                                owner_name_imm: u32,
                                tabled:         bool = true) {
-        if isa<ClassDecl>(d) {
-            var unsafe *n = cast<ClassDecl>(d)
-            self._table_or_link(table_dc, walk_dc, n->name, d, tabled)
+        if isa<ClassDecl>(d) || isa<StructDecl>(d) || isa<UnionDecl>(d) {
+            var name = decl_name_tok(d)
+            self._table_or_link(table_dc, walk_dc, name, d, tabled)
 
-            var unsafe *dc   = unsafe (n as unsafe *DeclContext)
-            var        owner = self.ctx->get_ident_imm(n->name)
+            var unsafe *dc   = decl_context(d)
+            var        owner = self.ctx->get_ident_imm(name)
             // Members live in the typed FrozenLists (fields/methods), NOT in
             // dc_decls; only nested types are add_decl'd. Route each member
-            // back through _index_symbol_decl so operator/ctor detection fires.
-            for var mi: usize = 0; mi < n->fields.size(); ++mi {
-                var unsafe *fd = n->fields[mi]
+            // back through _index_symbol_decl so operator/ctor detection
+            // fires. A struct or union body holds only the ctors and
+            // operators it admits (named methods are rejected at parse).
+            var fields = decl_fields(d)
+            for var mi: usize = 0; mi < fields.size(); ++mi {
+                var unsafe *fd = fields[mi]
                 if fd != &null {
                     self._index_symbol_decl(fd, dc, dc, owner)
                 }
             }
 
-            for var mi: usize = 0; mi < n->methods.size(); ++mi {
-                var unsafe *md = n->methods[mi]
+            var methods = decl_methods(d)
+            for var mi: usize = 0; mi < methods.size(); ++mi {
+                var unsafe *md = methods[mi]
                 if md != &null {
                     self._index_symbol_decl(md, dc, dc, owner)
                 }
             }
 
             self._collect_symbols(dc, dc, owner) // nested types from dc_decls
-
-            return
-        }
-
-        if isa<StructDecl>(d) {
-            var unsafe *n = cast<StructDecl>(d)
-            self._table_or_link(table_dc, walk_dc, n->name, d, tabled)
-
-            var unsafe *dc   = unsafe (n as unsafe *DeclContext)
-            var        owner = self.ctx->get_ident_imm(n->name)
-            // struct: fields + nested types, plus the ctors/operators the body
-            // does admit (named methods are rejected at parse).
-            for var mi: usize = 0; mi < n->fields.size(); ++mi {
-                var unsafe *fd = n->fields[mi]
-                if fd != &null {
-                    self._index_symbol_decl(fd, dc, dc, owner)
-                }
-            }
-
-            for var mi: usize = 0; mi < n->methods.size(); ++mi {
-                var unsafe *md = n->methods[mi]
-                if md != &null {
-                    self._index_symbol_decl(md, dc, dc, owner)
-                }
-            }
-
-            self._collect_symbols(dc, dc, owner)
-
-            return
-        }
-
-        if isa<UnionDecl>(d) {
-            var unsafe *n = cast<UnionDecl>(d)
-            self._table_or_link(table_dc, walk_dc, n->name, d, tabled)
-
-            var unsafe *dc   = unsafe (n as unsafe *DeclContext)
-            var        owner = self.ctx->get_ident_imm(n->name)
-            // union: fields + nested types, plus ctors/operators - same rule as
-            // struct.
-            for var mi: usize = 0; mi < n->fields.size(); ++mi {
-                var unsafe *fd = n->fields[mi]
-                if fd != &null {
-                    self._index_symbol_decl(fd, dc, dc, owner)
-                }
-            }
-
-            for var mi: usize = 0; mi < n->methods.size(); ++mi {
-                var unsafe *md = n->methods[mi]
-                if md != &null {
-                    self._index_symbol_decl(md, dc, dc, owner)
-                }
-            }
-
-            self._collect_symbols(dc, dc, owner)
 
             return
         }
@@ -1863,7 +1814,7 @@ pub class ASTParse
             // distinguishable from not-found (which stays tentative for
             // unqualified imported generics).
             var e = DisambigEntry{}
-            e.kind = if (n->is_operator) => (DisambigKind::Operator) else => DisambigKind::Function
+            e.kind        = DisambigKind::Function
             e.generic     = n->is_generic()
             e.is_foreign  = foreign
             e.extended    = false
@@ -2391,7 +2342,8 @@ pub class ASTParse
     }
 
     pub fn ig_err(self, r: SourceRange, const msg: string, code: DiagID) {
-        self.diag->report(code, r.start, msg).first(r)->emit()
+        var b = self.diag->report(code, r.start, msg)
+        ig_finish(&b, r)
     }
 
     pub fn ig_err_remove(self,
@@ -2401,9 +2353,7 @@ pub class ASTParse
                          cut:           SourceRange,
                          const fix_msg: string) {
         var b = self.diag->report(code, r.start, msg)
-        b.first(r)
-        b.remove(cut, fix_msg)
-        b.emit()
+        ig_finish_remove(&b, r, cut, fix_msg)
     }
 
     pub fn ig_err_insert(self,
@@ -2414,9 +2364,7 @@ pub class ASTParse
                          const text:    string,
                          const fix_msg: string) {
         var b = self.diag->report(code, r.start, msg)
-        b.first(r)
-        b.insert(at.start, text, fix_msg)
-        b.emit()
+        ig_finish_insert(&b, r, at, text, fix_msg)
     }
 
     //  Token resolution
@@ -2505,78 +2453,57 @@ pub class ASTParse
 
     //  Token checking unified core + convenience wrappers
 
-    /// \brief internal shared logic for token checking and attribute skipping.
+    /// \brief the resolved kind of \p tok for the check family, in \p out;
+    ///        false when there is none to compare (null, a comment).
     ///
-    /// \param tok            the pointer to the token to check.
-    /// \param kind           the expected token kind.
-    /// \param advance_on_at  if true, encountering an `AtComment` advances the stream.
-    inline fn _resolve_and_check(self,
-                                 tok:           unsafe *Token,
-                                 kind:          TokenKind,
-                                 advance_on_at: bool) -> bool {
+    /// \details A TkError recovery token reports S063E and answers the kind
+    ///          recovery expected (its imm).
+    inline fn _checked_kind(self, tok: unsafe *Token, out: *TokenKind) -> bool {
         if tok == &null {
             return false
         }
 
-        var resolved      = self.resolve_deep(tok)
-        var resolved_kind = resolved.kind
-
-        if resolved_kind == TokenKind::AtComment {
+        var resolved = self.resolve_deep(tok)
+        if resolved.kind == TokenKind::AtComment {
             return false
         }
 
-        if resolved_kind == TokenKind::TkError {
-            // the imm of this token stores the expected kind from recovery
+        if resolved.kind == TokenKind::TkError {
             self.diag->report(
                 DiagID::S063E,
                 tok->range.start,
                 f"unexpected token found where '{token_kind_to_readable_string((resolved.imm as TokenKind))}' expected",
             ).first(tok->range)->emit()
-            resolved_kind = (resolved.imm as TokenKind)
+            *out = (resolved.imm as TokenKind)
+            return true
         }
 
-        return resolved_kind == kind
+        *out = resolved.kind
+        return true
     }
 
     /// \brief checks if the current resolved token matches `kind`.
     pub inline fn check(self, kind: TokenKind) -> bool {
-        return self._resolve_and_check(self._current, kind, true)
+        var k = TokenKind::TkUnknown
+        return self._checked_kind(self._current, &k) && k == kind
     }
 
     /// \brief checks if the current resolved token satisfies a predicate.
     pub inline fn check(self, pre: fn (TokenKind) -> bool) -> bool {
-        if self._current == &null {
-            return false
-        }
-
-        var resolved      = self.resolve_deep(self._current)
-        var resolved_kind = resolved.kind
-
-        if resolved_kind == TokenKind::AtComment {
-            return false
-        }
-
-        if resolved_kind == TokenKind::TkError {
-            self.diag->report(
-                DiagID::S063E,
-                self._current->range.start,
-                f"unexpected token found where '{token_kind_to_readable_string((resolved.imm as TokenKind))}' expected",
-            ).first(self._current->range)->emit()
-
-            resolved_kind = (resolved.imm as TokenKind)
-        }
-
-        return pre(resolved_kind)
+        var k = TokenKind::TkUnknown
+        return self._checked_kind(self._current, &k) && pre(k)
     }
 
     /// \brief checks the previous token without advancing the stream.
     pub inline fn check_prev(self, kind: TokenKind) -> bool {
-        return self._resolve_and_check(self._prev, kind, false)
+        var k = TokenKind::TkUnknown
+        return self._checked_kind(self._prev, &k) && k == kind
     }
 
     /// \brief checks the lookahead token without advancing the stream.
     pub inline fn check_peek(self, kind: TokenKind) -> bool {
-        return self._resolve_and_check(self._peek, kind, true)
+        var k = TokenKind::TkUnknown
+        return self._checked_kind(self._peek, &k) && k == kind
     }
 
     /// \brief advances the cursor if the current token matches `kind`.
@@ -3001,45 +2928,53 @@ pub class ASTParse
         // guard dtor rolls back unconditionally (never commit)
     }
 
+    /// \brief an attribute between a branch's `}` and its `else`
+    ///        (_else_attr_kind).
+    enum ElseAttr derives u8 {
+        None,     ///< no attribute followed by `else`
+        Likely,   ///< `@likely`
+        Unlikely, ///< `@unlikely`
+        Other,    ///< any other name
+    }
+
     /// \brief what attribute, if any, sits between a branch's `}` and the
-    ///        `else` that follows it: 0 none, 1 `@likely`, 2 `@unlikely`,
-    ///        3 any other name.
+    ///        `else` that follows it.
     ///
     /// \details `} @unlikely else {`, with the attribute and `else` possibly
     ///          on lines of their own. Only an attribute that IS followed by
     ///          `else` counts: `@x` before anything else belongs to the next
     ///          statement, so it must be left unconsumed. The guard rolls back
     ///          unconditionally; the caller consumes what this found.
-    pub fn _else_attr_kind(self) -> u32 {
+    pub fn _else_attr_kind(self) -> Self::ElseAttr {
         var t = Self::TentativeGuard(&self)
         if self.nl_depth == 0 && self.check(TokenKind::TkNewLine) {
             self.advance(Self::SkipNL::Only)
         }
 
         if !self.check(TokenKind::OpAt) {
-            return 0
+            return Self::ElseAttr::None
         }
 
         self.advance() // `@`
         if !self.check(TokenKind::LitIdentifier) {
-            return 0
+            return Self::ElseAttr::None
         }
 
         var name = self.ctx->hoisted->intern_tok(self.current())
         self.advance(Self::SkipNL::After) // the name, and any newlines
         if !self.check(TokenKind::KwElse) {
-            return 0
+            return Self::ElseAttr::None
         }
 
         if name == self.ctx->hoisted->intern(LangAttrs::likely()) {
-            return 1
+            return Self::ElseAttr::Likely
         }
 
         if name == self.ctx->hoisted->intern(LangAttrs::unlikely()) {
-            return 2
+            return Self::ElseAttr::Unlikely
         }
 
-        return 3
+        return Self::ElseAttr::Other
         // guard dtor rolls back unconditionally (never commit)
     }
 
@@ -3782,13 +3717,13 @@ pub class ASTParse
                 continue
             }
 
-            var cc: u8 = 0
+            var cc: u8 = 0 // the default convention
             if e->name == k_pm {
-                cc = 1
+                cc = CALL_CONV_PRESERVE_MOST
             } else if e->name == k_pa {
-                cc = 2
+                cc = CALL_CONV_PRESERVE_ALL
             } else if e->name == k_pn {
-                cc = 3
+                cc = CALL_CONV_PRESERVE_NONE
             }
 
             if cc == 0 {
@@ -4531,41 +4466,5 @@ pub class ASTParse
         }
 
         return TokenKind::TkEof
-    }
-
-    ///
-    /// Sentinel checks
-    ///
-
-    fn <T> fatal_ptr(self) -> unsafe *T {
-        var unsafe *base = unsafe ((&self._fatal_sentinels) as unsafe *u8)
-        eval if cxx::std::is_same<T, Type>::value {
-            return unsafe ((base + 0) as unsafe *T)
-        } else if cxx::std::is_same<T, Expr>::value {
-            return unsafe ((base + 1) as unsafe *T)
-        } else if cxx::std::is_same<T, Stmt>::value {
-            return unsafe ((base + 2) as unsafe *T)
-        } else if cxx::std::is_same<T, Decl>::value {
-            return unsafe ((base + 3) as unsafe *T)
-        } else {
-            assert static false, r"unsupported sentinel type"
-            return &null
-        }
-    }
-
-    fn <T> is_fatal(self, ptr: unsafe *T) -> bool {
-        var unsafe *base = unsafe ((&self._fatal_sentinels) as unsafe *u8)
-        eval if cxx::std::is_same<T, Type>::value {
-            return (unsafe ((base + 0) as unsafe *T)) == ptr
-        } else if cxx::std::is_same<T, Expr>::value {
-            return (unsafe ((base + 1) as unsafe *T)) == ptr
-        } else if cxx::std::is_same<T, Stmt>::value {
-            return (unsafe ((base + 2) as unsafe *T)) == ptr
-        } else if cxx::std::is_same<T, Decl>::value {
-            return (unsafe ((base + 3) as unsafe *T)) == ptr
-        } else {
-            assert static false, r"unsupported sentinel type"
-            return false
-        }
     }
 }
