@@ -184,7 +184,6 @@
 
 ffi "c++" import "vector"
 
-import AST::ASTSupport::FrozenList
 import AST::Context::DeclContext::DeclContext
 import AST::Context::SymbolTable::{
     DeclName,
@@ -197,6 +196,7 @@ import AST::DeclFacts::{
     decl_generic_params,
     decl_instantiated_from,
     decl_is_instance,
+    decl_methods,
     decl_name_tok,
     decl_requires_clause,
     decl_set_instantiated_from,
@@ -229,10 +229,7 @@ import AST::Node::Types::{
     CXXRValueRefType,
     PointerType,
 }
-import AST::OperatorFacts::{
-    OperatorFacts,
-    op_decl_name,
-}
+import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
 import Diagnostic::Code::DiagCode
 import Diagnostic::NoteText::previously_declared_here
@@ -264,6 +261,18 @@ pub class SigShape {
     pub var mode: ParamMode    = ParamMode::Value
     pub var ty:   unsafe *Type = &null
     fn SigShape(self) { }
+}
+
+/// One bound a `requires` conjunct puts on a generic parameter: the
+/// canonical it names, and whether it is a `derives` bound (else `impl`).
+pub class ParamBound {
+    pub var ty:         unsafe *Type = &null
+    pub var is_derives: bool         = false
+    fn ParamBound(self) { }
+    fn ParamBound(self, ty: unsafe *Type, is_derives: bool) {
+        self.ty         = ty
+        self.is_derives = is_derives
+    }
 }
 
 pub class RedeclMerge {
@@ -1510,7 +1519,7 @@ pub class RedeclMerge {
                      else => self.sc->ctx->get_spelling(f->name)
             var unsafe *cell = ml.in_scope(
                 home,
-                self._member_key(f, home),
+                NameLookup::member_key(self.sc->ctx, f, home),
                 if (f->is_operator) => ("") else => nm,
             )
 
@@ -1617,44 +1626,6 @@ pub class RedeclMerge {
             // with the in-class declaration.
             self._link(nm, hit, f, false)
         }
-    }
-
-    /// The DeclName an out-of-line def is keyed under inside \p home.
-    ///
-    /// FIXME(dedup): this rule exists in three places --
-    /// ASTParse::_index_symbol_decl (which writes the table),
-    /// NameResolution::_member_key (which probes it), and here. Three copies
-    /// of a keying rule that must agree exactly is how the probe and the
-    /// table silently diverge; hoist to NameLookup as a static.
-    priv fn _member_key(self,
-                        f:    unsafe *Declarations::FunctionDecl,
-                        home: unsafe *DeclContext) -> DeclName {
-        // The table's key for an operator leaves the `l` / `r` marker out:
-        // `op l++` and `op r++` are one cell, told apart by signature.
-        if f->is_operator {
-            return op_decl_name(f)
-        }
-
-        var im = self.sc->ctx->get_ident_imm(f->name)
-        if im != u32::MAX && home->is_type_scope() {
-            var unsafe *owner = home->owner_decl()
-            // By spelling, each through its own context (NameResolution::
-            // _member_key): an imported owner's imm is the header TU's.
-            if owner != &null {
-                var unsafe *oc = NameLookup::ctx_of(owner)
-                if oc == &null {
-                    oc = self.sc->ctx
-                }
-
-                if oc->get_spelling(decl_name_tok(owner)) == self.sc->ctx->get_spelling(
-                    f->name,
-                ) {
-                    return DeclName::ctor()
-                }
-            }
-        }
-
-        return DeclName::ident(im)
     }
 
     /// True when \p d's names live outside this TU: another TU's decl, or
@@ -1974,17 +1945,9 @@ pub class RedeclMerge {
         self._conjuncts(prev->requires_clause, unsafe &ca)
         self._conjuncts(cur->requires_clause, unsafe &cb)
         for var i: usize = 0; i < n; ++i {
-            var ta = cxx::std::vector<unsafe *Type>()
-            var ka = cxx::std::vector<u8>()
-            var tb = cxx::std::vector<unsafe *Type>()
-            var kb = cxx::std::vector<u8>()
-            if !self._param_bounds(
-                &ca,
-                prev->generic_params[i],
-                &null,
-                &ta,
-                &ka,
-            ) {
+            var ba = cxx::std::vector<ParamBound>()
+            var bb = cxx::std::vector<ParamBound>()
+            if !self._param_bounds(&ca, prev->generic_params[i], &null, &ba) {
                 continue
             }
 
@@ -1992,13 +1955,12 @@ pub class RedeclMerge {
                 &cb,
                 cur->generic_params[i],
                 unsafe &sub,
-                &tb,
-                &kb,
+                &bb,
             ) {
                 continue
             }
 
-            if !self._bounds_within(ta, ka, tb, &kb) || !self._bounds_within(tb, kb, ta, &ka) {
+            if !self._bounds_within(ba, bb) || !self._bounds_within(bb, ba) {
                 return self.sc->ctx->get_spelling(cur->generic_params[i]->name)
             }
         }
@@ -2030,16 +1992,15 @@ pub class RedeclMerge {
         }
     }
 
-    /// The bounds the conjuncts \p cs put on \p gp: each one's canonical
-    /// (read through \p sub when given) into \p tys, and whether it is a
-    /// `derives` bound into \p kinds. False when one did not resolve: it was
-    /// diagnosed, and comparing around it would only add a second error.
+    /// The bounds the conjuncts \p cs put on \p gp, into \p out: each
+    /// one's canonical (read through \p sub when given) and whether it is
+    /// a `derives` bound. False when one did not resolve: it was diagnosed,
+    /// and comparing around it would only add a second error.
     priv fn _param_bounds(self,
-                          @inout cs:    cxx::std::vector<unsafe *ConstraintExpr>,
-                          gp:           unsafe *Declarations::GenericParamDecl,
-                          sub:          unsafe *Substitution,
-                          @inout tys:   cxx::std::vector<unsafe *Type>,
-                          @inout kinds: cxx::std::vector<u8>) -> bool {
+                          @inout cs:  cxx::std::vector<unsafe *ConstraintExpr>,
+                          gp:         unsafe *Declarations::GenericParamDecl,
+                          sub:        unsafe *Substitution,
+                          @inout out: cxx::std::vector<ParamBound>) -> bool {
         if gp == &null {
             return false
         }
@@ -2063,23 +2024,20 @@ pub class RedeclMerge {
                 }
             }
 
-            tys.push_back(canon_unqual(t))
-            kinds.push_back(c->is_derives() as u8)
+            out.push_back(ParamBound(canon_unqual(t), c->is_derives()))
         }
 
         return true
     }
 
-    /// Every bound of (\p xt, \p xk) is one of (\p yt, \p yk).
+    /// Every bound of \p x is one of \p y.
     priv fn _bounds_within(self,
-                           const xt:  cxx::std::vector<unsafe *Type>,
-                           const xk:  cxx::std::vector<u8>,
-                           const yt:  cxx::std::vector<unsafe *Type>,
-                           @inout yk: cxx::std::vector<u8>) -> bool {
-        for var i: usize = 0; i < xt.size(); ++i {
+                           const x: cxx::std::vector<ParamBound>,
+                           const y: cxx::std::vector<ParamBound>) -> bool {
+        for var i: usize = 0; i < x.size(); ++i {
             var hit = false
-            for var j: usize = 0; j < yt.size(); ++j {
-                if (yt)[j] == (xt)[i] && (yk)[j] != 0 == ((xk)[i] != 0) {
+            for var j: usize = 0; j < y.size(); ++j {
+                if y[j].ty == x[i].ty && y[j].is_derives == x[i].is_derives {
                     hit = true
                     break
                 }
@@ -2928,17 +2886,9 @@ pub class RedeclMerge {
         if isa<Declarations::ClassDecl>(d)
             || isa<Declarations::StructDecl>(d)
             || isa<Declarations::UnionDecl>(d) {
-            var methods: unsafe *FrozenList<unsafe *Declarations::FunctionDecl> = &null
-            if isa<Declarations::ClassDecl>(d) {
-                methods = unsafe &cast<Declarations::ClassDecl>(d)->methods
-            } else if isa<Declarations::StructDecl>(d) {
-                methods = unsafe &cast<Declarations::StructDecl>(d)->methods
-            } else {
-                methods = unsafe &cast<Declarations::UnionDecl>(d)->methods
-            }
-
-            for var i: usize = 0; i < methods->size(); ++i {
-                self._check_inline_fn((*methods)[i])
+            var methods = decl_methods(d)
+            for var i: usize = 0; i < methods.size(); ++i {
+                self._check_inline_fn(methods[i])
             }
 
             // Nested records only: the methods were just checked off the list.

@@ -36,6 +36,7 @@
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
+import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::DeclFacts::decl_generic_params
 import AST::Node::Base::{
     Decl,
@@ -418,5 +419,22 @@ pub class GenericArgs {
         }
 
         return true
+    }
+
+    /// The registry entry for \p primary instantiated with the complete,
+    /// concrete argument list \p args: the explicit or partial
+    /// specialization registered for them, else the implicit instance,
+    /// minted on first mention. The entry is asked for from \p sc's file,
+    /// with \p primary's names read in the file that declares it.
+    /// Null when the registry refuses the instance.
+    static fn instance(sc:      unsafe *SemaContext,
+                       primary: unsafe *Decl,
+                       args:    unsafe *cxx::std::vector<unsafe *Type>) -> unsafe *InstanceEntry {
+        return sc->instances->instance_for(
+            primary,
+            args,
+            sc->ctx->fid,
+            NameLookup::ctx_of(primary),
+        )
     }
 }

@@ -93,6 +93,7 @@ import AST::Node::Declarations
 import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
+    ChainType,
     NullableType,
     PointerType,
 }
@@ -137,27 +138,26 @@ pub fn extension_visible(sc:   unsafe *SemaContext,
     return rc != &null && rc->fid == efid
 }
 
-/// `a::b::Point<T>` -> `Point`: the last path segment of a written type,
-/// generic arguments dropped. Spelling only; for a note, never for lookup.
-pub fn type_spelling_leaf(const s: string) -> string {
-    var o: string = ""
-    for var i: usize = 0; i < s.size(); ++i {
-        var c = s[i]
-        if c == ('<' as u8) {
-            break
-        }
-
-        if c == (':' as u8) {
-            o = ""
-            continue
-        }
-
-        if c != (' ' as u8) {
-            o.push_back(c)
-        }
+/// `a::b::Point<T>` -> `Point`: the name the written target of extension
+/// \p e ends with, read off its path node; "" for a target that is no path
+/// (`[T]`, `*T`, `T?`). Spelling only; for a note, never for lookup.
+pub fn extension_target_leaf(e: unsafe *Declarations::ExtensionDecl) -> string {
+    if e == &null {
+        return ""
     }
 
-    return o
+    var unsafe *ct = dyn_cast<ChainType>(e->target)
+    var unsafe *ec = NameLookup::ctx_of(unsafe (e as unsafe *Decl))
+    if ct == &null || ec == &null || ct->segments.size() == 0 {
+        return ""
+    }
+
+    var unsafe *seg = ct->segments.get(ct->segments.size() - 1)
+    if seg == &null || seg->name == &null {
+        return ""
+    }
+
+    return ec->get_spelling(seg->name->name)
 }
 
 pub class MemberLookup {
@@ -418,13 +418,8 @@ pub class MemberLookup {
 
         var leaf = rc->get_spelling(decl_name_tok(rd))
         for var i: usize = 0; i < self._hidden_unresolved.size(); ++i {
-            var unsafe *e  = self._hidden_unresolved[i]
-            var unsafe *ec = NameLookup::ctx_of(unsafe (e as unsafe *Decl))
-            if ec == &null || e->target == &null {
-                continue
-            }
-
-            if type_spelling_leaf(ec->get_spelling(e->target->range)) != leaf {
+            var unsafe *e = self._hidden_unresolved[i]
+            if e->target == &null || extension_target_leaf(e) != leaf {
                 continue
             }
 
@@ -667,7 +662,7 @@ pub class MemberLookup {
         // applied. Not its table plus a walk of its derives edges -- that
         // would answer `X - Y` with Y's members too.
         var unsafe *cid = dyn_cast<Declarations::InterfaceDecl>(d)
-        if cid != &null && cid->compose_state == 2 {
+        if cid != &null && cid->compose_state == (Declarations::ComposeState::Done as u8) {
             for var i: usize = 0; i < cid->requirements.size(); ++i {
                 var unsafe *rd = cid->requirements.get(i)->decl
                 if !self._names(rd, name, spelling) {

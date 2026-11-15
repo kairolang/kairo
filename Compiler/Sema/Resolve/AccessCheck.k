@@ -72,10 +72,10 @@
 
 ffi "c++" import "vector"
 
-import AST::ASTSupport::FrozenList
 import AST::Context::DeclContext::DeclContextKind
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
+    decl_fields,
     decl_is_imported,
     decl_name_tok,
     decl_pattern,
@@ -107,13 +107,11 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Types::ChainType
 import AST::VisibilityFacts::{
     default_visibility_of,
     same_module,
     tu_module_dir,
-    tu_of_scope,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
@@ -127,6 +125,18 @@ import Sema::SemaContext::{
 }
 import Sema::Type::TypeUtil::TypeUtil
 import Support::Tuning::DERIVES_WALK_DEPTH_MAX
+
+/// One `derives` edge on a path from a class up to a base of it, with the
+/// class that wrote the edge.
+pub class DerivesStep {
+    pub var edge:   unsafe *InheritEdge = &null
+    pub var holder: unsafe *Decl        = &null
+    fn DerivesStep(self) { }
+    fn DerivesStep(self, edge: unsafe *InheritEdge, holder: unsafe *Decl) {
+        self.edge   = edge
+        self.holder = holder
+    }
+}
 
 pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
     pub var  sc:  unsafe *SemaContext
@@ -180,28 +190,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
     fn run(self) {
         self.sc->require_phase(SemaPhase::TypesResolved)
-        var unsafe *tu = self.sc->tu
-        if tu == &null || tu->program == &null {
-            return
-        }
-
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(self.sc->tu)
     }
 
     /// # where the use is
@@ -334,23 +323,15 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         return true
     }
 
-    /// The record a chain starts at: the value's type, or the type the head
-    /// names (`Acc::hidden`).
+    /// The type of the value a chain starts at. Null for a head that is no
+    /// value (`Acc::hidden` names a type): that member is reached through
+    /// no object, and no inheritance edge is judged for it.
     priv fn _chain_head_type(self, e: unsafe *Expr) -> unsafe *Type {
         if e == &null {
             return &null
         }
 
-        if e->type_ != &null {
-            return e->type_
-        }
-
-        var unsafe *ni = dyn_cast<NamedIdentExpr>(e)
-        if ni == &null || ni->resolved_decl == &null {
-            return &null
-        }
-
-        return &null
+        return e->type_
     }
 
     /// A construction (`Base(5)`), never a base initializer: that form
@@ -446,20 +427,8 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             body = decl_pattern(rd)
         }
 
-        var fields: unsafe *FrozenList<unsafe *FieldDecl> = &null
-        if isa<ClassDecl>(body) {
-            fields = unsafe &cast<ClassDecl>(body)->fields
-        } else if isa<StructDecl>(body) {
-            fields = unsafe &cast<StructDecl>(body)->fields
-        } else if isa<UnionDecl>(body) {
-            fields = unsafe &cast<UnionDecl>(body)->fields
-        }
-
-        if fields == &null {
-            return true
-        }
-
-        var unsafe *fctx = NameLookup::ctx_of(body)
+        var        fields = decl_fields(body)
+        var unsafe *fctx  = NameLookup::ctx_of(body)
         if fctx == &null {
             return true
         }
@@ -471,8 +440,8 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             }
 
             var want = self.sc->ctx->get_spelling(fi->name)
-            for var j: usize = 0; j < fields->size(); ++j {
-                var unsafe *f = (*fields)[j]
+            for var j: usize = 0; j < fields.size(); ++j {
+                var unsafe *f = fields[j]
                 if f == &null || fctx->get_spelling(f->name) != want {
                     continue
                 }
@@ -770,7 +739,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             return
         }
 
-        var unsafe *home = tu_of_scope(dc)
+        var unsafe *home = NameLookup::tu_of(dc)
         if home == &null || home == self.sc->tu || home->is_foreign {
             return
         }
@@ -942,38 +911,32 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             return
         }
 
-        var seen    = cxx::std::vector<unsafe *Decl>()
-        var path    = cxx::std::vector<unsafe *InheritEdge>()
-        var holders = cxx::std::vector<unsafe *Decl>()
-        if !self._path(
-            from,
-            owner,
-            unsafe &path,
-            unsafe &holders,
-            unsafe &seen,
-            0,
-        ) {
+        var seen = cxx::std::vector<unsafe *Decl>()
+        var path = cxx::std::vector<DerivesStep>()
+        if !self._path(from, owner, unsafe &path, unsafe &seen, 0) {
             return
         }
 
+        var priv_edge = VisibilityKind::Private as u8
+        var prot_edge = VisibilityKind::Protected as u8
         for var i: usize = 0; i < path.size(); ++i {
-            var unsafe *e = path[i]
+            var unsafe *e = path[i].edge
             var        ev = e->visibility
-            if ev != 1 && ev != 2 { // VIS_PRIV / VIS_PROT; none and pub are public.
+            if ev != priv_edge && ev != prot_edge { // none and pub are public.
                 continue
             }
 
-            var unsafe *holder = holders[i]
+            var unsafe *holder = path[i].holder
             var        users   = self._use_classes()
             var unsafe *htu = NameLookup::tu_of(NameLookup::context_of(holder))
-            var ok = htu == self.sc->tu || ev == 2 && same_module(htu, self.sc->tu)
+            var ok = htu == self.sc->tu || ev == prot_edge && same_module(htu, self.sc->tu)
             for var k: usize = 0; k < users.size() && !ok; ++k {
                 if users[k] == holder {
                     ok = true
                 }
 
                 var s2 = cxx::std::vector<unsafe *Decl>()
-                if ev == 2 && self._derives(users[k], holder, unsafe &s2, 0) {
+                if ev == prot_edge && self._derives(users[k], holder, unsafe &s2, 0) {
                     ok = true
                 }
             }
@@ -990,8 +953,8 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             var nm   = self._name(d)
             var hn   = self._tu.decl_name(holder)
             var bn   = self._tu.decl_name(owner)
-            var word = if (ev == 1) => ("private") else => "protected"
-            var kw   = if (ev == 1) => ("priv") else => "prot"
+            var word = if (ev == priv_edge) => ("private") else => "protected"
+            var kw   = if (ev == priv_edge) => ("priv") else => "prot"
             var b = self.sc->diag->report(
                 DiagID::SC242E,
                 at.start,
@@ -1032,12 +995,11 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
     /// One `derives` path from \p d up to \p base: the edges, and for each
     /// the class that wrote it.
     priv fn _path(self,
-                  d:       unsafe *Decl,
-                  base:    unsafe *Decl,
-                  path:    unsafe *cxx::std::vector<unsafe *InheritEdge>,
-                  holders: unsafe *cxx::std::vector<unsafe *Decl>,
-                  seen:    unsafe *cxx::std::vector<unsafe *Decl>,
-                  depth:   u32) -> bool {
+                  d:     unsafe *Decl,
+                  base:  unsafe *Decl,
+                  path:  unsafe *cxx::std::vector<DerivesStep>,
+                  seen:  unsafe *cxx::std::vector<unsafe *Decl>,
+                  depth: u32) -> bool {
         if d == &null || depth > DERIVES_WALK_DEPTH_MAX || !isa<ClassDecl>(d) {
             return false
         }
@@ -1057,18 +1019,16 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                 continue
             }
 
-            path->push_back(e)
-            holders->push_back(d)
+            path->push_back(DerivesStep(e, d))
             if bd == base {
                 return true
             }
 
-            if self._path(bd, base, path, holders, seen, depth + 1) {
+            if self._path(bd, base, path, seen, depth + 1) {
                 return true
             }
 
             path->pop_back()
-            holders->pop_back()
         }
 
         return false

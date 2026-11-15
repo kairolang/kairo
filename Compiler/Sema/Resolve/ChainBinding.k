@@ -64,9 +64,11 @@ import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
     decl_cxx_spelling,
     decl_generic_params,
+    decl_name,
     decl_pattern,
     ffi_hide_tags,
 }
+import AST::ExprFacts::strip_parens
 import AST::Kind::DeclKind::DeclKind
 import AST::LangItems::WellKnownType
 import AST::Node::Base::{
@@ -95,7 +97,6 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::ConditionalStmt
 import AST::Node::Types::{
     CXXLValueRefType, CXXRValueRefType, ChainType, FunctionPointerType, GenericParamType, MapType,
@@ -203,24 +204,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         self.prepare()
-
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     /// # The chain
@@ -437,12 +421,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             return a
         }
 
-        var unsafe *e = self.sc->instances->instance_for(
-            canon,
-            unsafe &args,
-            self.sc->ctx->fid,
-            NameLookup::ctx_of(canon),
-        )
+        var unsafe *e = GenericArgs::instance(self.sc, canon, unsafe &args)
 
         var unsafe *inst = if (e != &null) => (e->decl) else => canon
         a.kind = AnchorKind::Type
@@ -916,7 +895,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 self._err(
                     DiagID::R027E,
                     at,
-                    f"'::' cannot follow a value; use '.' to access a member of '{self._decl_name_str(a.decl)}'",
+                    f"'::' cannot follow a value; use '.' to access a member of '{decl_name(a.decl, self.sc->ctx)}'",
                 )
 
                 st->name->poison()
@@ -1005,7 +984,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
                 if cands.empty() {
                     var mn = if (a.decl == &null) => ("the global scope")
-                             else => f"module '{self._decl_name_str(a.decl)}'"
+                             else => f"module '{decl_name(a.decl, self.sc->ctx)}'"
                     self._err_contained(
                         DiagID::R025E,
                         at,
@@ -1046,7 +1025,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             }
 
             if cands.empty() {
-                var dn = self._decl_name_str(a.decl)
+                var dn = decl_name(a.decl, self.sc->ctx)
                 self._err_member_miss(
                     at,
                     f"no member named '{spelled}' in '{dn}'",
@@ -1071,7 +1050,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             self._err(
                 DiagID::R027E,
                 at,
-                f"'.' cannot follow a module; use '::' to name a member of '{self._decl_name_str(a.decl)}'",
+                f"'.' cannot follow a module; use '::' to name a member of '{decl_name(a.decl, self.sc->ctx)}'",
             )
 
             st->name->poison()
@@ -1085,7 +1064,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             self._err(
                 DiagID::R027E,
                 at,
-                f"'.' cannot follow a type; use '::' to name a member of '{self._decl_name_str(a.decl)}'",
+                f"'.' cannot follow a type; use '::' to name a member of '{decl_name(a.decl, self.sc->ctx)}'",
             )
 
             st->name->poison()
@@ -1616,9 +1595,9 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
         // The `eval if gp impl I` branches this step stands in: I is a bound
         // there (traverse_conditional_stmt).
-        for var i: usize = 0; i < self._narrow_params.size(); ++i {
-            if self._narrow_params[i] == gp {
-                b.interfaces.push_back(self._narrow_ifaces[i])
+        for var i: usize = 0; i < self._narrowed.size(); ++i {
+            if self._narrowed[i].param == gp {
+                b.interfaces.push_back(self._narrowed[i].iface)
             }
         }
 
@@ -1636,10 +1615,20 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// everything after see the declared bounds only. Only conjuncts narrow
     /// (`A impl I && B impl J`); a test under `||` or `!` promises nothing.
 
-    /// Parallel stacks: while a taken branch is walked, its parameters and
-    /// the interface each one gained. Pushed and popped around then_ only.
-    priv var _narrow_params: cxx::std::vector<unsafe *Declarations::GenericParamDecl>
-    priv var _narrow_ifaces: cxx::std::vector<unsafe *Decl>
+    /// A parameter and an interface it gained for the branch being walked.
+    class Narrowing {
+        pub var param: unsafe *Declarations::GenericParamDecl = &null
+        pub var iface: unsafe *Decl                           = &null
+        fn Narrowing(self) { }
+        fn Narrowing(self, param: unsafe *Declarations::GenericParamDecl, iface: unsafe *Decl) {
+            self.param = param
+            self.iface = iface
+        }
+    }
+
+    /// A stack: while a taken branch is walked, its parameters and the
+    /// interface each one gained. Pushed and popped around then_ only.
+    priv var _narrowed: cxx::std::vector<Narrowing>
 
     /// A member's `requires P impl I` (P a parameter of its record) holds
     /// wherever the member exists: C++ drops the member from an instance
@@ -1647,7 +1636,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// I's members on P, as a taken `eval if P impl I` branch does.
     fn traverse_function_decl(self,
                               n: unsafe *Declarations::FunctionDecl) -> unsafe *Declarations::FunctionDecl {
-        var mark = self._narrow_params.size()
+        var mark = self._narrowed.size()
         if n != &null && n->requires_clause != &null {
             self._narrow_from(n->requires_clause)
         }
@@ -1657,9 +1646,8 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             n,
         )
 
-        while self._narrow_params.size() > mark {
-            self._narrow_params.pop_back()
-            self._narrow_ifaces.pop_back()
+        while self._narrowed.size() > mark {
+            self._narrowed.pop_back()
         }
 
         return out
@@ -1686,7 +1674,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         // are not checked (eval.md "Type-based branching"), so no branch
         // reports here; C++ checks the one each instance takes.
         var dep  = self._typeof_param(n->cond)
-        var mark = self._narrow_params.size()
+        var mark = self._narrowed.size()
         self._narrow_from(n->cond)
         if dep {
             self.sc->diag->push_suppress()
@@ -1697,9 +1685,8 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             self.sc->diag->pop_suppress()
         }
 
-        while self._narrow_params.size() > mark {
-            self._narrow_params.pop_back()
-            self._narrow_ifaces.pop_back()
+        while self._narrowed.size() > mark {
+            self._narrowed.pop_back()
         }
 
         var sup_else = dep && n->else_ != &null && !isa<ConditionalStmt>(n->else_)
@@ -1720,10 +1707,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
     /// \p e0 holds `typeof P` with P a generic parameter.
     priv fn _typeof_param(self, e0: unsafe *Expr) -> bool {
-        var unsafe *e = e0
-        while e != &null && isa<ParenExpr>(e) {
-            e = cast<ParenExpr>(e)->inner
-        }
+        var unsafe *e = strip_parens(e0)
 
         if e == &null {
             return false
@@ -1731,10 +1715,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
         var unsafe *t = dyn_cast<TypeOfExpr>(e)
         if t != &null {
-            var unsafe *o = t->operand
-            while o != &null && isa<ParenExpr>(o) {
-                o = cast<ParenExpr>(o)->inner
-            }
+            var unsafe *o = strip_parens(t->operand)
 
             var unsafe *id = dyn_cast<NamedIdentExpr>(o)
             return id != &null
@@ -1758,10 +1739,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// Pushes each `P impl I` conjunct of \p e0 whose P is a generic
     /// parameter and whose I names a record.
     priv fn _narrow_from(self, e0: unsafe *Expr) {
-        var unsafe *e = e0
-        while e != &null && isa<ParenExpr>(e) {
-            e = cast<ParenExpr>(e)->inner
-        }
+        var unsafe *e = strip_parens(e0)
 
         if e == &null {
             return
@@ -1798,8 +1776,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             return
         }
 
-        self._narrow_params.push_back(gp)
-        self._narrow_ifaces.push_back(d)
+        self._narrowed.push_back(Narrowing(gp, d))
     }
 
     /// Whether conjunct \p c constrains \p gp. The lhs is an ordinary
@@ -1940,7 +1917,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             return a
         }
 
-        var pname = self._decl_name_str(unsafe (gp as unsafe *Decl))
+        var pname = decl_name(unsafe (gp as unsafe *Decl), self.sc->ctx)
         if b.interfaces.size() == 0 && b.bases.size() == 0 {
             var what = "this member"
             if st->name != &null {
@@ -2472,7 +2449,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             return
         }
 
-        if spelled != self._decl_name_str(a.decl) {
+        if spelled != decl_name(a.decl, self.sc->ctx) {
             return
         }
 
@@ -2531,75 +2508,6 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return if (cands.empty()) => (&null) else => bt
     }
 
-    priv fn _decl_name_str(self, d: unsafe *Decl) -> string {
-        if d == &null {
-            return "<null>"
-        }
-
-        var unsafe *ctx = NameLookup::ctx_of(d)
-        if ctx == &null {
-            ctx = self.sc->ctx
-        }
-
-        if isa<Declarations::ClassDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::ClassDecl>(d)->name)
-        }
-
-        if isa<Declarations::StructDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::StructDecl>(d)->name)
-        }
-
-        if isa<Declarations::UnionDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::UnionDecl>(d)->name)
-        }
-
-        if isa<Declarations::InterfaceDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::InterfaceDecl>(d)->name)
-        }
-
-        if isa<Declarations::EnumDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::EnumDecl>(d)->name)
-        }
-
-        if isa<Declarations::TypeAliasDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::TypeAliasDecl>(d)->name)
-        }
-
-        if isa<Declarations::ModuleDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::ModuleDecl>(d)->name)
-        }
-
-        if isa<Declarations::FunctionDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::FunctionDecl>(d)->name)
-        }
-
-        if isa<Declarations::ParamDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::ParamDecl>(d)->name)
-        }
-
-        if isa<Declarations::VariableDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::VariableDecl>(d)->name)
-        }
-
-        if isa<Declarations::FieldDecl>(d) {
-            return ctx->get_spelling(cast<Declarations::FieldDecl>(d)->name)
-        }
-
-        if isa<Declarations::EnumVariantDecl>(d) {
-            return ctx->get_spelling(
-                cast<Declarations::EnumVariantDecl>(d)->name,
-            )
-        }
-
-        if isa<Declarations::GenericParamDecl>(d) {
-            return ctx->get_spelling(
-                cast<Declarations::GenericParamDecl>(d)->name,
-            )
-        }
-
-        return "<decl>"
-    }
-
     /// Diagnostic spelling of a canonical. Kept minimal on purpose: the
     /// TypePrinter is the real renderer and this must not grow into a second
     /// one.
@@ -2622,7 +2530,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 return if cxx.starts_with("::") => cxx.subslice(2, cxx.length() - 2) else => cxx
             }
 
-            return self._decl_name_str(cast<RecordType>(t)->decl)
+            return decl_name(cast<RecordType>(t)->decl, self.sc->ctx)
         }
 
         if isa<PointerType>(t) {

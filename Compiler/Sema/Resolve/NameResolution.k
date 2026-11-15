@@ -91,9 +91,9 @@ import AST::Context::SymbolTable::{
 }
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
-    decl_ffi_tag_target,     decl_generic_params,  decl_is_ffi,        decl_is_ffi_tag,
-    decl_name_tok,           decl_requires_clause, decl_set_spec_kind, decl_spec_args,
-    for_each_unwrapped_decl,
+    decl_ffi_tag_target, decl_generic_params,     decl_is_ffi,          decl_is_ffi_tag,
+    decl_name_imm,       decl_name_tok,           decl_requires_clause, decl_set_spec_kind,
+    decl_spec_args,      for_each_unwrapped_decl,
 }
 import AST::Kind::DeclKind::{
     DeclKind,
@@ -143,7 +143,6 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     Binding,   CompoundStmt,  ContextBindingStmt, DeclStmt, DestructuringDeclStmt, IndexedForStmt,
     MatchCase, RangedForStmt, TryCatchStmt,
@@ -153,7 +152,6 @@ import AST::OperatorFacts::OperatorFacts
 import AST::VisibilityFacts::{
     same_module,
     tu_module_dir,
-    tu_of_scope,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Config::ResourceLayout::ResourceLayout
@@ -235,6 +233,15 @@ pub class LocalScope {
     fn has(self, imm: u32) -> bool {
         return self.index_of(imm) != usize::MAX
     }
+}
+
+/// The resolver's state as it was before _enter_type_body; handed back to
+/// _leave_type_body unchanged.
+pub class SavedTypeBody {
+    pub var dc:     unsafe *DeclContext = &null
+    pub var depth:  usize               = 0
+    pub var pushed: bool                = false
+    fn SavedTypeBody(self) { }
 }
 
 ///
@@ -334,28 +341,7 @@ pub class NameBindingVerifier derives RecursiveASTVisitor<NameBindingVerifier> {
     }
 
     fn run(self) {
-        var unsafe *tu = self.sc->tu
-        if tu == &null {
-            return
-        }
-
-        if tu->program == &null {
-            return
-        }
-
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(self.sc->tu)
     }
 
     fn visit_named_ident_expr(self, n: unsafe *NamedIdentExpr) -> bool {
@@ -495,7 +481,8 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     priv var _ext_target: unsafe *DeclContext = &null
     /// Where the out-of-line definition being resolved was WRITTEN, while its
     /// owning scope (cur_dc) lives in another TU; null otherwise. Set and
-    /// restored by traverse_function_decl; read by _lookup_unqualified.
+    /// restored by traverse_function_decl; handed to
+    /// NameLookup::unqualified_in_body.
     priv var _ool_lexical: unsafe *DeclContext = &null
 
     fn NameResolution(self, sc: unsafe *SemaContext) {
@@ -893,8 +880,8 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         )
 
         if dsz != &null && (dsz->semantic_dc) == self.sc->tu {
-            dsz->dynamic_layout                   = 1
-            dsz->canonical_decl()->dynamic_layout = 1
+            dsz->dynamic_layout = Declarations::DynamicLayout::Size as u8
+            dsz->canonical_decl()->dynamic_layout = Declarations::DynamicLayout::Size as u8
         }
 
         var unsafe *dal = dyn_cast<Declarations::FunctionDecl>(
@@ -902,8 +889,8 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         )
 
         if dal != &null && (dal->semantic_dc) == self.sc->tu {
-            dal->dynamic_layout                   = 2
-            dal->canonical_decl()->dynamic_layout = 2
+            dal->dynamic_layout = Declarations::DynamicLayout::Align as u8
+            dal->canonical_decl()->dynamic_layout = Declarations::DynamicLayout::Align as u8
         }
 
         // `byte` is spelled as the Byte enum, so a TU that uses it must
@@ -1634,7 +1621,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         for var n: u32 = 2; n < 1000; ++n {
             var cand = f"{name}{n}"
             var imm  = self.sc->imm_table()->find_ident(cand)
-            if imm == ((-1) as i32 as u32) {
+            if imm == u32::MAX {
                 return cand
             }
 
@@ -1692,7 +1679,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             // spelling the empty token ICE'd in a debug build, so every
             // `fn T::op [] (...)` failed there): its key is token kinds,
             // which in_scope compares across TUs as they are.
-            var key = self._member_key(f, home)
+            var key = NameLookup::member_key(self.sc->ctx, f, home)
             var ml  = MemberLookup(self.sc)
             var nm = if (f->is_operator) => ("op " + OperatorFacts::symbol(f))
                      else => self.sc->ctx->get_spelling(f->name)
@@ -1714,40 +1701,6 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
             f->semantic_dc = home
         }
-    }
-
-    /// The DeclName an out-of-line def would have been keyed under inside
-    /// \p home: ctor when the name matches the owning type, operator when
-    /// `fn op`, plain identifier otherwise. Mirrors ASTParse::
-    /// _index_symbol_decl so the probe and the table agree.
-    priv fn _member_key(self,
-                        f:    unsafe *Declarations::FunctionDecl,
-                        home: unsafe *DeclContext) -> DeclName {
-        if f->is_operator {
-            return OperatorFacts::key(f)
-        }
-
-        var im = self.sc->ctx->get_ident_imm(f->name)
-        if im != u32::MAX && home->is_type_scope() {
-            var unsafe *owner = home->owner_decl()
-            // By SPELLING, each side through the context its token lives in:
-            // an imported owner's name is interned in the header's TU, so
-            // comparing imms across the two is a coincidence, not an answer.
-            if owner != &null {
-                var unsafe *oc = NameLookup::ctx_of(owner)
-                if oc == &null {
-                    oc = self.sc->ctx
-                }
-
-                if oc->get_spelling(decl_name_tok(owner)) == self.sc->ctx->get_spelling(
-                    f->name,
-                ) {
-                    return DeclName::ctor()
-                }
-            }
-        }
-
-        return DeclName::ident(im)
     }
 
     /// Walk `Class::` / `Outer::Inner::` and return the context the
@@ -1855,23 +1808,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     priv fn _bind(self, tu: unsafe *TranslationUnit) {
         self.cur_dc = unsafe (tu as unsafe *DeclContext)
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     /// THE core lookup policy, in binding order:
@@ -1893,7 +1830,13 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             }
         }
 
-        var r = self._lookup_unqualified(self.cur_dc, imm)
+        var r = self.sc->lookup.unqualified_in_body(
+            self.cur_dc,
+            imm,
+            self._ool_lexical,
+            self.sc->ctx->get_imm_table(),
+        )
+
         if !r.found() && self._ext_target != &null {
             r = self.sc->lookup.in_context(
                 self._ext_target,
@@ -1919,7 +1862,13 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 break
             }
 
-            var r2 = self._lookup_unqualified(outer, imm)
+            var r2 = self.sc->lookup.unqualified_in_body(
+                outer,
+                imm,
+                self._ool_lexical,
+                self.sc->ctx->get_imm_table(),
+            )
+
             if !r2.found() {
                 break
             }
@@ -2071,7 +2020,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             home        = self.cur_dc
             // Owning scope in ANOTHER TU (an imported record): its tables are
             // keyed by that TU, and the file this body was written in is not
-            // on its parent chain. _lookup_unqualified bridges both.
+            // on its parent chain. unqualified_in_body bridges both.
             var unsafe *lex = n->lexical_dc
             if lex != &null && NameLookup::tu_of(self.cur_dc) != NameLookup::tu_of(lex) {
                 self._ool_lexical = lex
@@ -2127,31 +2076,6 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         self._ool_lexical = saved_ool
         self._join_block  = saved_join
         return out
-    }
-
-    /// sc->lookup.unqualified, except from inside an out-of-line body whose
-    /// owning scope is in another TU (see NameLookup::unqualified_out_of_line).
-    /// Only a walk that STARTS in that foreign chain is rerouted: a walk
-    /// resuming in this TU (the trace's "what did it hide") keys correctly
-    /// already.
-    priv fn _lookup_unqualified(self, from: unsafe *DeclContext, imm: u32) -> SemaLookupResult {
-        var name = DeclName::ident(imm)
-        if self._ool_lexical == &null || from == &null {
-            return self.sc->lookup.unqualified(from, name)
-        }
-
-        if NameLookup::tu_of(from) == NameLookup::tu_of(self._ool_lexical) {
-            return self.sc->lookup.unqualified(from, name)
-        }
-
-        var unsafe *imms = self.sc->ctx->get_imm_table()
-        var sp = if (imms != &null) => (imms->get_ident(imm)) else => ""
-        return self.sc->lookup.unqualified_out_of_line(
-            from,
-            name,
-            sp,
-            self._ool_lexical,
-        )
     }
 
     fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {
@@ -2293,31 +2217,49 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         self.locals.pop_back()
     }
 
+    /// Enter the body of type \p owner, whose scope is \p dc: its generic
+    /// parameters are declared (resolved from the enclosing scope), it is
+    /// the current scope, and the function depth is 0, since a type body
+    /// is not executable code.
+    priv fn _enter_type_body(self,
+                             owner: unsafe *Decl,
+                             dc:    unsafe *DeclContext,
+                             gps:   FrozenList<unsafe *Declarations::GenericParamDecl>,
+                             at:    SourceRange) -> SavedTypeBody {
+        var saved = SavedTypeBody()
+        saved.dc       = self.cur_dc
+        saved.pushed   = self._open_type_generics(owner, gps, at, saved.dc)
+        saved.depth    = self._fn_depth
+        self.cur_dc    = dc
+        self._fn_depth = 0
+        return saved
+    }
+
+    priv fn _leave_type_body(self, const saved: SavedTypeBody) {
+        self._fn_depth = saved.depth
+        self.cur_dc    = saved.dc
+        self._close_type_generics(saved.pushed)
+    }
+
     fn traverse_class_decl(self,
                            n: unsafe *Declarations::ClassDecl) -> unsafe *Declarations::ClassDecl {
         if n == &null {
             return n
         }
 
-        var unsafe *saved = self.cur_dc
-        var pushed = self._open_type_generics(
+        var saved = self._enter_type_body(
             n,
+            unsafe (n as unsafe *DeclContext),
             n->generic_params,
             n->range,
-            saved,
         )
 
-        self.cur_dc = unsafe (n as unsafe *DeclContext)
-        var saved_depth = self._fn_depth
-        self._fn_depth = 0 // a type body is not executable code.
         var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_class_decl(
             self,
             n,
         )
 
-        self._fn_depth = saved_depth
-        self.cur_dc    = saved
-        self._close_type_generics(pushed)
+        self._leave_type_body(saved)
         return out
     }
 
@@ -2327,25 +2269,19 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return n
         }
 
-        var unsafe *saved = self.cur_dc
-        var pushed = self._open_type_generics(
+        var saved = self._enter_type_body(
             n,
+            unsafe (n as unsafe *DeclContext),
             n->generic_params,
             n->range,
-            saved,
         )
 
-        self.cur_dc = unsafe (n as unsafe *DeclContext)
-        var saved_depth = self._fn_depth
-        self._fn_depth = 0 // a type body is not executable code.
         var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_struct_decl(
             self,
             n,
         )
 
-        self._fn_depth = saved_depth
-        self.cur_dc    = saved
-        self._close_type_generics(pushed)
+        self._leave_type_body(saved)
         return out
     }
 
@@ -2355,25 +2291,19 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return n
         }
 
-        var unsafe *saved = self.cur_dc
-        var pushed = self._open_type_generics(
+        var saved = self._enter_type_body(
             n,
+            unsafe (n as unsafe *DeclContext),
             n->generic_params,
             n->range,
-            saved,
         )
 
-        self.cur_dc = unsafe (n as unsafe *DeclContext)
-        var saved_depth = self._fn_depth
-        self._fn_depth = 0 // a type body is not executable code.
         var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_union_decl(
             self,
             n,
         )
 
-        self._fn_depth = saved_depth
-        self.cur_dc    = saved
-        self._close_type_generics(pushed)
+        self._leave_type_body(saved)
         return out
     }
 
@@ -2383,25 +2313,19 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return n
         }
 
-        var unsafe *saved = self.cur_dc
-        var pushed = self._open_type_generics(
+        var saved = self._enter_type_body(
             n,
+            unsafe (n as unsafe *DeclContext),
             n->generic_params,
             n->range,
-            saved,
         )
 
-        self.cur_dc = unsafe (n as unsafe *DeclContext)
-        var saved_depth = self._fn_depth
-        self._fn_depth = 0 // a type body is not executable code.
         var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_enum_decl(
             self,
             n,
         )
 
-        self._fn_depth = saved_depth
-        self.cur_dc    = saved
-        self._close_type_generics(pushed)
+        self._leave_type_body(saved)
         return out
     }
 
@@ -2411,25 +2335,19 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return n
         }
 
-        var unsafe *saved = self.cur_dc
-        var pushed = self._open_type_generics(
+        var saved = self._enter_type_body(
             n,
+            unsafe (n as unsafe *DeclContext),
             n->generic_params,
             n->range,
-            saved,
         )
 
-        self.cur_dc = unsafe (n as unsafe *DeclContext)
-        var saved_depth = self._fn_depth
-        self._fn_depth = 0 // a type body is not executable code.
         var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_interface_decl(
             self,
             n,
         )
 
-        self._fn_depth = saved_depth
-        self.cur_dc    = saved
-        self._close_type_generics(pushed)
+        self._leave_type_body(saved)
         return out
     }
 
@@ -2439,28 +2357,22 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return n
         }
 
-        var unsafe *saved = self.cur_dc
-        var pushed = self._open_type_generics(
+        var saved = self._enter_type_body(
             n,
+            unsafe (n as unsafe *DeclContext),
             n->generic_params,
             n->range,
-            saved,
         )
 
         var unsafe *saved_ext = self._ext_target
-        self._ext_target = self._extension_target_dc(n, saved)
-        self.cur_dc      = unsafe (n as unsafe *DeclContext)
-        var saved_depth = self._fn_depth
-        self._fn_depth = 0 // a type body is not executable code.
+        self._ext_target = self._extension_target_dc(n, saved.dc)
         var unsafe *out = RecursiveASTVisitor<NameResolution>::traverse_extension_decl(
             self,
             n,
         )
 
-        self._fn_depth   = saved_depth
-        self.cur_dc      = saved
         self._ext_target = saved_ext
-        self._close_type_generics(pushed)
+        self._leave_type_body(saved)
         return out
     }
 
@@ -2678,7 +2590,13 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return out
         }
 
-        var r = self._lookup_unqualified(from, imm)
+        var r = self.sc->lookup.unqualified_in_body(
+            from,
+            imm,
+            self._ool_lexical,
+            self.sc->ctx->get_imm_table(),
+        )
+
         if !r.found() {
             return out
         }
@@ -3781,7 +3699,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return &null
         }
 
-        return tu_of_scope(d->semantic_dc)
+        return NameLookup::tu_of(d->semantic_dc)
     }
 
     /// R047E for a name every import of which is out of reach here: why
@@ -3965,39 +3883,19 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         if isa<Declarations::FunctionDecl>(d) {
-            var unsafe *f = cast<Declarations::FunctionDecl>(d)
-            if f->is_operator || f->is_out_of_line() {
+            if cast<Declarations::FunctionDecl>(d)->is_out_of_line() {
                 return u32::MAX
             }
-
-            return self._name_imm(f->name)
+        } else if !(isa<Declarations::ClassDecl>(d)
+            || isa<Declarations::StructDecl>(d)
+            || isa<Declarations::UnionDecl>(d)
+            || isa<Declarations::InterfaceDecl>(d)
+            || isa<Declarations::EnumDecl>(d)
+            || isa<Declarations::TypeAliasDecl>(d)) {
+            return u32::MAX
         }
 
-        if isa<Declarations::ClassDecl>(d) {
-            return self._name_imm(cast<Declarations::ClassDecl>(d)->name)
-        }
-
-        if isa<Declarations::StructDecl>(d) {
-            return self._name_imm(cast<Declarations::StructDecl>(d)->name)
-        }
-
-        if isa<Declarations::UnionDecl>(d) {
-            return self._name_imm(cast<Declarations::UnionDecl>(d)->name)
-        }
-
-        if isa<Declarations::InterfaceDecl>(d) {
-            return self._name_imm(cast<Declarations::InterfaceDecl>(d)->name)
-        }
-
-        if isa<Declarations::EnumDecl>(d) {
-            return self._name_imm(cast<Declarations::EnumDecl>(d)->name)
-        }
-
-        if isa<Declarations::TypeAliasDecl>(d) {
-            return self._name_imm(cast<Declarations::TypeAliasDecl>(d)->name)
-        }
-
-        return u32::MAX
+        return decl_name_imm(d, self.sc->ctx)
     }
 
     /// ## pattern heads
@@ -4078,52 +3976,6 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         // unbound (the I003E invariant error for `check!(self.x, ...)`).
         if self.sc->ctx->unwrap_token(tok).kind == TokenKind::KwSelf {
             return self._self_imm
-        }
-
-        return u32::MAX
-    }
-
-    /// The imm of a decl's own name, for ctor-key detection. u32(-1) for
-    /// kinds that have no name token.
-    priv fn _decl_name_imm(self, d: unsafe *Decl) -> u32 {
-        if d == &null {
-            return u32::MAX
-        }
-
-        if isa<Declarations::ClassDecl>(d) {
-            return self.sc->ctx->get_ident_imm(
-                cast<Declarations::ClassDecl>(d)->name,
-            )
-        }
-
-        if isa<Declarations::StructDecl>(d) {
-            return self.sc->ctx->get_ident_imm(
-                cast<Declarations::StructDecl>(d)->name,
-            )
-        }
-
-        if isa<Declarations::UnionDecl>(d) {
-            return self.sc->ctx->get_ident_imm(
-                cast<Declarations::UnionDecl>(d)->name,
-            )
-        }
-
-        if isa<Declarations::InterfaceDecl>(d) {
-            return self.sc->ctx->get_ident_imm(
-                cast<Declarations::InterfaceDecl>(d)->name,
-            )
-        }
-
-        if isa<Declarations::EnumDecl>(d) {
-            return self.sc->ctx->get_ident_imm(
-                cast<Declarations::EnumDecl>(d)->name,
-            )
-        }
-
-        if isa<Declarations::ModuleDecl>(d) {
-            return self.sc->ctx->get_ident_imm(
-                cast<Declarations::ModuleDecl>(d)->name,
-            )
         }
 
         return u32::MAX

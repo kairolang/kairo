@@ -34,16 +34,17 @@ import AST::Context::SymbolTable::{
     SymbolTable,
 }
 import AST::Context::TranslationUnit::TranslationUnit
-import AST::DeclFacts::decl_ffi_tag_target
+import AST::DeclFacts
 import AST::Node::Base::Decl
 import AST::Node::Casting::{
     cast,
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, EnumDecl, ExtensionDecl, FunctionDecl, InterfaceDecl, ModuleDecl, StructDecl,
-    UnionDecl,
+    ClassDecl, EnumDecl, FunctionDecl, InterfaceDecl, ModuleDecl, StructDecl, UnionDecl,
 }
+import AST::OperatorFacts::op_decl_name
+import Lexer::Immediate::ImmediateTable
 
 /// \class SemaLookupResult
 /// \brief One lookup's outcome: the frozen cell + where it was found.
@@ -267,6 +268,31 @@ pub class NameLookup {
         return SemaLookupResult::not_found()
     }
 
+    /// unqualified() for an identifier met while walking a body: \p imm in
+    /// the walking TU's table \p imms, from scope \p from. \p ool is the
+    /// scope an out-of-line definition was written in while its body is
+    /// walked and its owning scope is another TU's, else null. Only a walk
+    /// that STARTS in that foreign owning chain goes through
+    /// unqualified_out_of_line; one that starts in a scope of \p ool's own
+    /// TU keys correctly as it is.
+    fn unqualified_in_body(self,
+                           from: unsafe *DeclContext,
+                           imm:  u32,
+                           ool:  unsafe *DeclContext,
+                           imms: unsafe *ImmediateTable) -> SemaLookupResult {
+        var name = DeclName::ident(imm)
+        if ool == &null || from == &null {
+            return self.unqualified(from, name)
+        }
+
+        if NameLookup::tu_of(from) == NameLookup::tu_of(ool) {
+            return self.unqualified(from, name)
+        }
+
+        var sp = if (imms != &null) => (imms->get_ident(imm)) else => ""
+        return self.unqualified_out_of_line(from, name, sp, ool)
+    }
+
     /// unqualified() for the body of an out-of-line definition whose OWNING
     /// scope lives in another TU -- `fn S::g` in a Kairo file, S imported from
     /// a header. Two halves, in C++'s order for a member body:
@@ -304,22 +330,9 @@ pub class NameLookup {
 
     /// # Primitive 3: decl -> owned scope
 
-    /// The scope a decl OWNS (its body), or null for non-scope-owning
-    /// decls. Type aliases return null on purpose: alias expansion is
-    /// TypeResolution's job; qualified lookup through an alias must go
-    /// through T's expansion, not silently through here.
     /// The TranslationUnit a scope ultimately lives in, or null.
     pub static fn tu_of(dc: unsafe *DeclContext) -> unsafe *TranslationUnit {
-        var unsafe *c = dc
-        while c != &null {
-            if c->dc_kind == DeclContextKind::TranslationUnit {
-                return unsafe (c as unsafe *TranslationUnit)
-            }
-
-            c = c->dc_parent
-        }
-
-        return &null
+        return DeclFacts::tu_of(dc)
     }
 
     /// The ASTContext a decl's NAMES live in, or null when it has no scope to
@@ -352,40 +365,12 @@ pub class NameLookup {
         return tu->ctx
     }
 
+    /// The scope a decl OWNS (its body), or null for non-scope-owning
+    /// decls. Type aliases return null on purpose: alias expansion is
+    /// TypeResolution's job; qualified lookup through an alias must go
+    /// through T's expansion, not silently through here.
     pub static fn context_of(d: unsafe *Decl) -> unsafe *DeclContext {
-        if d == &null {
-            return &null
-        }
-
-        if isa<ClassDecl>(d) {
-            return (cast<ClassDecl>(d))
-        }
-
-        if isa<StructDecl>(d) {
-            return (cast<StructDecl>(d))
-        }
-
-        if isa<EnumDecl>(d) {
-            return (cast<EnumDecl>(d))
-        }
-
-        if isa<UnionDecl>(d) {
-            return (cast<UnionDecl>(d))
-        }
-
-        if isa<InterfaceDecl>(d) {
-            return (cast<InterfaceDecl>(d))
-        }
-
-        if isa<ModuleDecl>(d) {
-            return (cast<ModuleDecl>(d))
-        }
-
-        if isa<ExtensionDecl>(d) {
-            return (cast<ExtensionDecl>(d))
-        }
-
-        return &null
+        return DeclFacts::dc_of(d)
     }
 
     /// The canonical link of `d`'s redecl chain, or null when `d` is not a
@@ -397,39 +382,7 @@ pub class NameLookup {
     /// as its own canonical, because that is what the chain says at that
     /// point.
     static fn chain_canonical(d: unsafe *Decl) -> unsafe *Decl {
-        if d == &null {
-            return &null
-        }
-
-        if isa<ClassDecl>(d) {
-            return (cast<ClassDecl>(d)->canonical_decl())
-        }
-
-        if isa<StructDecl>(d) {
-            return (cast<StructDecl>(d)->canonical_decl())
-        }
-
-        if isa<UnionDecl>(d) {
-            return (cast<UnionDecl>(d)->canonical_decl())
-        }
-
-        if isa<InterfaceDecl>(d) {
-            return (cast<InterfaceDecl>(d)->canonical_decl())
-        }
-
-        if isa<EnumDecl>(d) {
-            return (cast<EnumDecl>(d)->canonical_decl())
-        }
-
-        if isa<ModuleDecl>(d) {
-            return (cast<ModuleDecl>(d)->canonical_decl())
-        }
-
-        if isa<FunctionDecl>(d) {
-            return (cast<FunctionDecl>(d)->canonical_decl())
-        }
-
-        return &null
+        return DeclFacts::chain_canonical(d)
     }
 
     /// Every scope a module DENOTES: its own, plus every other reopening
@@ -579,20 +532,7 @@ pub class NameLookup {
     /// canonical (the definition once N(a) retargeted it), else `d` itself.
     /// THE identity every canonical type keys on. Use nothing else.
     static fn representative(d: unsafe *Decl) -> unsafe *Decl {
-        // `ffi "c" struct timezone`: a forward declaration of the HEADER's
-        // tag. It denotes that entity, so every type and binding keyed on
-        // the representative is the header's (Compiler/Spec/Interop.md#ffi-imports).
-        var unsafe *ft = decl_ffi_tag_target(d)
-        if ft != &null {
-            return ft
-        }
-
-        var unsafe *c = NameLookup::chain_canonical(d)
-        if c == &null {
-            return d
-        }
-
-        return c
+        return DeclFacts::representative(d)
     }
 
     /// Explicit/partial specialization: its own entity, never a chain link,
@@ -627,6 +567,44 @@ pub class NameLookup {
         }
 
         return false
+    }
+
+    /// The name member function \p f, written in the file of \p ctx, has in
+    /// the table of \p home: the operator key for `fn op` (the `l` / `r`
+    /// marker of `++` / `--` is no part of it), the constructor key when
+    /// \p home is a type and \p f is named after it, else its identifier.
+    /// The parser keys the table by the same rule (ASTParse::
+    /// _index_symbol_decl), which is what lets an out-of-line definition
+    /// find its declaration.
+    ///
+    /// The owner's name is compared by spelling, each side through the
+    /// context its token lives in: an imported owner's name is interned in
+    /// the header's TU, so the two imms are not comparable.
+    static fn member_key(ctx:  unsafe *ASTContext,
+                         f:    unsafe *FunctionDecl,
+                         home: unsafe *DeclContext) -> DeclName {
+        if f->is_operator {
+            return op_decl_name(f)
+        }
+
+        var im = ctx->get_ident_imm(f->name)
+        if im != u32::MAX && home->is_type_scope() {
+            var unsafe *owner = home->owner_decl()
+            if owner != &null {
+                var unsafe *oc = NameLookup::ctx_of(owner)
+                if oc == &null {
+                    oc = ctx
+                }
+
+                if oc->get_spelling(DeclFacts::decl_name_tok(owner)) == ctx->get_spelling(
+                    f->name,
+                ) {
+                    return DeclName::ctor()
+                }
+            }
+        }
+
+        return DeclName::ident(im)
     }
 
     /// # Primitive 4: one qualified segment
