@@ -1,8 +1,8 @@
 // A `fn` value converted to a NULLABLE `fn` type with a wider panic set
 //: EmitIR::_fn_effect_value looks through the `?`, so the value is
 // wrapped as it is for a plain `fn` target and the wrapper becomes the
-// Nullable. Before, the target was not seen and the C++ step failed ("no
-// matching conversion for static_cast ... to Nullable<__kairo_fn<...>>").
+// Null. Before, the target was not seen and the C++ step failed ("no
+// matching conversion for static_cast ... to Null<__kairo_fn<...>>").
 // Covered: a function that does not panic and one with a smaller set, as
 // an argument, an initializer and an assignment, and a nullable source
 // into a wider nullable target, null and not.
@@ -44,5 +44,5 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>/dev/null || true; } | %FileCheck %s
 // The plain value is wrapped; the nullable source is tested, then wrapped.
 // CHECK: run( ::__kairo_fn<{{.*}}>::own(new auto([__kairo_w = ::__kairo_fn<signed int(signed int)>(
-// CHECK: k =[](auto && __kairo_h) noexcept-> ::builtin::Nullable<
+// CHECK: k =[](auto && __kairo_h) noexcept-> ::builtin::Null<
 // CHECK-NEXT: if(__kairo_h.is_null()) {

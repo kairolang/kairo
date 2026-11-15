@@ -62,6 +62,7 @@ import AST::Node::Declarations::{
     StorageClass,
     VariableDecl,
 }
+import AST::Node::Expressions
 import Sema::Check::ClassLifecycle::{
     LifecycleTri,
     lifecycle_of,
@@ -206,6 +207,9 @@ pub class LocalEndRow {
     pub var disarm_bad:    bool         = false
     pub var disarm_ok:     bool         = false
     pub var alive_unmoved: bool         = false
+    /// Whole assignments that construct it again after a `finally()`
+    /// (AssignOperatorExpr::remake).
+    pub var remakes: cxx::std::vector<unsafe *Expressions::AssignOperatorExpr>
     fn LocalEndRow(self) { }
 }
 
@@ -254,6 +258,22 @@ pub class LocalEnds {
         if i != usize::MAX {
             self.rows[i].ends += 1
         }
+    }
+
+    /// \p asn constructs \p d again after a `finally()`.
+    fn remade_at(self, d: unsafe *Decl, asn: unsafe *Expressions::AssignOperatorExpr) {
+        var i = self.index_of(d)
+        if i == usize::MAX {
+            return
+        }
+
+        for var k: usize = 0; k < self.rows[i].remakes.size(); ++k {
+            if self.rows[i].remakes[k] == asn {
+                return
+            }
+        }
+
+        self.rows[i].remakes.push_back(asn)
     }
 
     /// An exit of \p d's scope is reached with \p d not ended on every path.
@@ -318,7 +338,19 @@ pub class LocalEnds {
             if r.refusal.size() > 0 {
                 m = LocalDtor::Scope
             } else if r.ends > 0 {
-                m = if (r.alive || may_unwind) => (LocalDtor::Flagged) else => LocalDtor::Elided
+                // A construction that may find an object there tests `live`.
+                var maybe = false
+                for var k: usize = 0; k < r.remakes.size(); ++k {
+                    var b = r.remakes[k]->remake
+                    if (b & Expressions::REMAKE_MAYBE) != 0
+                        || (b & Expressions::REMAKE_DEAD) != 0
+                            && (b & Expressions::REMAKE_LIVE) != 0 {
+                        maybe = true
+                    }
+                }
+
+                m = if (r.alive || maybe || may_unwind) => (LocalDtor::Flagged)
+                    else => LocalDtor::Elided
             } else if sc->opts.union_locals_all
                 && union_storage_refusal(r.d).size() == 0
                 && local_has_dtor(sc, r.d) == LifecycleTri::Yes {

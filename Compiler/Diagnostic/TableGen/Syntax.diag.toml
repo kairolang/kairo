@@ -1234,7 +1234,7 @@ group = "ast"
 
     a `?` nullable suffix was applied to a type that is already nullable,
     `(T?)?`. this is legal: the result is a distinct type,
-    `Nullable<Nullable<T>>`, whose outer null is not its inner null, and it
+    `Null<Null<T>>`, whose outer null is not its inner null, and it
     is not collapsed to `T?`. it is rarely what you want outside generic
     code, where `V?` with `V = T?` produces it on its own.
 

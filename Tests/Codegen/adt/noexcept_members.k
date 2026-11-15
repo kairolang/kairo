@@ -60,17 +60,17 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=NUL
 // NUL-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}noexcept_members.k
-// NUL:       template<class T> struct Nullable {
-// NUL:       Nullable(::__kairo_vt<1>) noexcept : __kairo_tag(
-// NUL:       Nullable(const Nullable& o) noexcept requires
-// NUL:       Nullable() noexcept : __kairo_tag(
-// NUL:       Nullable(::builtin::null_t) noexcept : __kairo_tag(
-// NUL:       Nullable(const T& v) noexcept requires __kairo_copyable :
-// NUL:       Nullable(T&& v) noexcept requires __kairo_movable :
+// NUL:       template<class T> struct Null {
+// NUL:       Null(::__kairo_vt<1>) noexcept : __kairo_tag(
+// NUL:       Null(const Null& o) noexcept requires
+// NUL:       Null() noexcept : __kairo_tag(
+// NUL:       Null(::builtin::null_t) noexcept : __kairo_tag(
+// NUL:       Null(const T& v) noexcept requires __kairo_copyable :
+// NUL:       Null(T&& v) noexcept requires __kairo_movable :
 // NUL:       bool is_null() const noexcept {
 // NUL:       T& __value() noexcept {
 // NUL:       const T& __value() const noexcept {
-// NUL:       bool operator==(const Nullable& o) const noexcept requires
+// NUL:       bool operator==(const Null& o) const noexcept requires
 
 // The construction site's lambda.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR

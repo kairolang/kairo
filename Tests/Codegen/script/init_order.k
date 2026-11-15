@@ -25,11 +25,11 @@ println(f"sum {a + b + K} {twice()}")
 // their line; the constant one keeps its static initializer.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      signed int const K = 7;
-// CXX:      ::builtin::Nullable<signed int> a =
-// CXX:      ::builtin::Nullable<signed int> b =
+// CXX:      ::builtin::Null<signed int> a =
+// CXX:      ::builtin::Null<signed int> b =
 // CXX:      int main() {
-// CXX:      init_order::a = static_cast<{{ ?}}::builtin::Nullable<signed int>>({{ ?}}::init_order::trace(1)));
-// CXX:      init_order::b = static_cast<{{ ?}}::builtin::Nullable<signed int>>({{ ?}}::init_order::trace(static_cast<signed int>(static_cast<unsigned int>({{ ?}}::init_order::a.__value()) + static_cast<unsigned int>(1)))));
+// CXX:      init_order::a = static_cast<{{ ?}}::builtin::Null<signed int>>({{ ?}}::init_order::trace(1)));
+// CXX:      init_order::b = static_cast<{{ ?}}::builtin::Null<signed int>>({{ ?}}::init_order::trace(static_cast<signed int>(static_cast<unsigned int>({{ ?}}::init_order::a.__value()) + static_cast<unsigned int>(1)))));
 // CXX:      return 0;
 //
 // REQUIRES: clang

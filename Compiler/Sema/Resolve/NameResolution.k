@@ -836,7 +836,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         self._bind_lang(root, WellKnownType::Ordering)
         self._bind_lang(root, WellKnownType::Future)
         self._bind_lang(root, WellKnownType::Yield)
-        self._bind_lang(root, WellKnownType::Nullable)
+        self._bind_lang(root, WellKnownType::Null)
         self._bind_lang(root, WellKnownType::NullT)
         self._bind_lang(root, WellKnownType::Panic)
 

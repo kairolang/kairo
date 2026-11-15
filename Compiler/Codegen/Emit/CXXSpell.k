@@ -35,7 +35,10 @@ import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
 }
-import AST::Context::InstantiationRegistry::InstanceEntry
+import AST::Context::InstantiationRegistry::{
+    InstanceEntry,
+    InstantiationRegistry,
+}
 import AST::Context::SymbolTable::DeclName
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::CxxReservedWords::is_cxx_keyword
@@ -339,7 +342,7 @@ pub class CXXSpell {
     ///   - the special members (a transfer constructor, the destructor):
     ///     compiler-made aggregates and prelude templates in other
     ///     namespaces copy, move and destroy user values (tuple structs, ADT
-    ///     payloads, `Nullable<T>`, `__kairo_fn`, `__kairo_destroy_at`) and
+    ///     payloads, `Null<T>`, `__kairo_fn`, `__kairo_destroy_at`) and
     ///     cannot all be befriended; private, the probes they use
     ///     (`__is_constructible`, a `requires` on the copy) turn false
     ///     silently. AccessCheck still enforces them in Kairo.
@@ -1757,6 +1760,19 @@ pub class CXXSpell {
     /// module; owner_types supplies the struct), otherwise the decl's
     /// semantic scope.
     priv fn _home_dc(self, d: unsafe *Decl) -> unsafe *DeclContext {
+        // A function specialization is declared in its primary's namespace
+        // ([temp.expl.spec]), which is another module's when it was written
+        // away from the primary.
+        if CXXSpell::is_fn_spec(d) {
+            var unsafe *prim = CXXSpell::rep(
+                DeclFacts::decl_instantiated_from(d),
+            )
+
+            if prim != &null && prim->semantic_dc != &null {
+                return prim->semantic_dc
+            }
+        }
+
         var unsafe *lex = d->lexical_dc
         if lex != &null && lex->dc_kind == DeclContextKind::Extension {
             return lex->dc_parent
@@ -1849,7 +1865,7 @@ pub class CXXSpell {
         }
 
         // `extend i32?`, `extend <T> [T]?`: a nullable is its
-        // `::builtin::Nullable<T>` record to C++, but EmitPlan keys a
+        // `::builtin::Null<T>` record to C++, but EmitPlan keys a
         // non-record target's scope by the exact canonical (_same_scope), so
         // each nullable gets its own struct, named from its C++ spelling as
         // a fixed array's is: a function of the type and the target alone.
@@ -4722,7 +4738,11 @@ pub class CXXSpell {
     /// to \p out in declaration order. A specialization lives in its
     /// primary's scope (RedeclMerge pairs within one scope), so that scope's
     /// declarations are all there is to read.
-    static fn fn_specs_of(prim0: unsafe *Decl, out: unsafe *cxx::std::vector<unsafe *Decl>) {
+    /// With \p reg, those written in another module than the primary's too
+    /// (InstantiationRegistry::register_fn_spec), after the scope's own.
+    static fn fn_specs_of(prim0: unsafe *Decl,
+                          out:   unsafe *cxx::std::vector<unsafe *Decl>,
+                          reg:   unsafe *InstantiationRegistry = &null) {
         var unsafe *prim = CXXSpell::rep(prim0)
         if prim == &null || !isa<Declarations::FunctionDecl>(prim) || prim->semantic_dc == &null {
             return
@@ -4778,6 +4798,10 @@ pub class CXXSpell {
         var unsafe *dc = prim->semantic_dc
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
             CXXSpell::_fn_spec_in(*dc->dc_decls.get(i), prim, out)
+
+            if reg != &null {
+                reg->fn_specs_of(prim, out)
+            }
         }
     }
 
@@ -4821,9 +4845,10 @@ pub class CXXSpell {
     /// instance is the specialization's body, so no explicit instantiation
     /// of the primary is written for it.
     static fn fn_spec_for(prim: unsafe *Decl,
-                          args: unsafe *cxx::std::vector<unsafe *Type>) -> unsafe *Decl {
+                          args: unsafe *cxx::std::vector<unsafe *Type>,
+                          reg:  unsafe *InstantiationRegistry = &null) -> unsafe *Decl {
         var specs = cxx::std::vector<unsafe *Decl>()
-        CXXSpell::fn_specs_of(prim, unsafe &specs)
+        CXXSpell::fn_specs_of(prim, unsafe &specs, reg)
         for var i: usize = 0; i < specs.size(); ++i {
             var sargs = DeclFacts::decl_spec_args(specs[i])
             if sargs.size() != args->size() {

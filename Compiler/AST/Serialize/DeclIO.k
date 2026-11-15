@@ -660,6 +660,7 @@ fn io_interface_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::InterfaceD
     io_ffi<Declarations::InterfaceDecl>(ar, n)
     ar->tok(&n->name)
     ar->flag(&n->derives_composed)
+    ar->flag(&n->is_virtual)
     ar->decl_list<Declarations::FunctionDecl>(&n->methods)
     io_inherit_edges(ar, &n->derives_list)
     ar->expr<Expr>(&n->derives_expr)

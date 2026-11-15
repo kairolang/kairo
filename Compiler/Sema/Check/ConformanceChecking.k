@@ -931,7 +931,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     }
 
     /// A generic associated type named at concrete arguments (`T::Map<i32>`
-    /// of `type <K impl Hashable> Map`): each meets its parameter's bounds,
+    /// of `type <K impl Hash> Map`): each meets its parameter's bounds,
     /// as a generic record's arguments do. A dependent argument is its own
     /// declaration's to bound.
     priv fn _check_assoc_args(self, a: unsafe *AssocType, at: SourceRange) {
@@ -5060,7 +5060,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return &null
     }
 
-    /// A LIFECYCLE requirement (`@copy fn Copyable(self, const other: Self)`)
+    /// A LIFECYCLE requirement (`@copy fn Copy(self, const other: Self)`)
     /// asks for a category, not a declared constructor (Doc: Interface
     /// Requirements): `@copy` is met by COPY types, `@move` by COPY and
     /// MOVE, NON_TRANSFER by neither -- an implicit transfer counts, and a

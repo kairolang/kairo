@@ -134,7 +134,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         }
 
         // No builtin root: no `T?` was typed, so there is nothing to expand.
-        if self.sc->well_known->get(WellKnownType::Nullable) == &null {
+        if self.sc->well_known->get(WellKnownType::Null) == &null {
             return
         }
 

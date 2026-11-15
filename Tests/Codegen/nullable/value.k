@@ -1,6 +1,6 @@
-//: every `T?` is ::builtin::Nullable<T> in C++, and every
+//: every `T?` is ::builtin::Null<T> in C++, and every
 // implicit conversion into one is a constructor of it: a value becomes the
-// present Nullable, `null` (and `&null` against a nullable pointer, 1.3)
+// present Null, `null` (and `&null` against a nullable pointer, 1.3)
 // the null one. Covered sites: local initialisers, assignment both ways,
 // return, arguments (a `T` and `null`), a default argument, field
 // initialisers, if-expression arms (one arm `null`), `(*i32)?`, `(i32?)?`.
@@ -112,17 +112,17 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}value.k
-// CXX:      ::builtin::Nullable< ::value::Widget> cache = __kairo_init_cache();
-// CXX:      ::builtin::Nullable<signed int> find(signed int n) noexcept;
-// CXX:      signed int ptr( ::builtin::Nullable<signed int *> p) noexcept;
-// CXX:      return static_cast< ::builtin::Nullable<signed int>>(n);
-// CXX:      return static_cast< ::builtin::Nullable<signed int>>( ::builtin::Nullable<signed int>( ::__kairo_vt<1> {
-// CXX:      ::builtin::Nullable<decltype(sizeof(0))> __kairo_default_opt_x() {
-// CXX:      return(c ? static_cast< ::builtin::Nullable<signed int>>(5): static_cast< ::builtin::Nullable<signed int>>( ::builtin::Nullable<signed int>( ::__kairo_vt<1> {
-// CXX:      ::builtin::Nullable<signed int> a = static_cast< ::builtin::Nullable<signed int>>(5);
-// CXX:      ::builtin::Nullable<signed int> u {
-// CXX:      ::builtin::Nullable<{{ ?}}::builtin::Nullable<signed int>> nn =
-// CXX:      ::builtin::Nullable<{{ ?}}::builtin::Nullable<signed int>> nested = static_cast<{{ ?}}::builtin::Nullable<{{ ?}}::builtin::Nullable<signed int>>>({{ ?}}ni);
+// CXX:      ::builtin::Null< ::value::Widget> cache = __kairo_init_cache();
+// CXX:      ::builtin::Null<signed int> find(signed int n) noexcept;
+// CXX:      signed int ptr( ::builtin::Null<signed int *> p) noexcept;
+// CXX:      return static_cast< ::builtin::Null<signed int>>(n);
+// CXX:      return static_cast< ::builtin::Null<signed int>>( ::builtin::Null<signed int>( ::__kairo_vt<1> {
+// CXX:      ::builtin::Null<decltype(sizeof(0))> __kairo_default_opt_x() {
+// CXX:      return(c ? static_cast< ::builtin::Null<signed int>>(5): static_cast< ::builtin::Null<signed int>>( ::builtin::Null<signed int>( ::__kairo_vt<1> {
+// CXX:      ::builtin::Null<signed int> a = static_cast< ::builtin::Null<signed int>>(5);
+// CXX:      ::builtin::Null<signed int> u {
+// CXX:      ::builtin::Null<{{ ?}}::builtin::Null<signed int>> nn =
+// CXX:      ::builtin::Null<{{ ?}}::builtin::Null<signed int>> nested = static_cast<{{ ?}}::builtin::Null<{{ ?}}::builtin::Null<signed int>>>({{ ?}}ni);
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

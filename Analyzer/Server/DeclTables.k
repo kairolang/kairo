@@ -313,7 +313,7 @@ pub class DeclTables {
             self.exts_stale_ = false
         }
 
-        return &self.exts_
+        return const &self.exts_
     }
 
     /// Whether class row \p d reaches class row \p base through `derives`

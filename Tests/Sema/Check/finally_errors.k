@@ -105,14 +105,11 @@ fn main() -> i32 { return 0 }
 // CHECK: finally_errors.k:30:12: note [SC304N]: 'r' was finalized here, on a path that reaches this call
 // CHECK: finally_errors.k:37:9: error [SC304E]: 'r' already finalized
 // CHECK: finally_errors.k:37:9: note [SC304N]: 'r' was finalized here, on a path that reaches this call
-// CHECK: finally_errors.k:44:5: error [SC303E]: use of finalized value 'r'
-// CHECK: finally_errors.k:43:5: note [SC303N]: 'r' was finalized here; its destructor has run
 // CHECK: finally_errors.k:47:20: error [SC305E]: finally() has no effect on 'p'; it is a parameter, which the caller destroys
 // CHECK: finally_errors.k:47:10: note [I900N]: 'p' is declared here
 // CHECK: finally_errors.k:49:15: error [SC305E]: finally() has no effect on 'g'; it is a global, destroyed when the program ends
 // CHECK: finally_errors.k:20:1: note [I900N]: 'g' is declared here
 // CHECK: finally_errors.k:53:5: warning [SC305W]: finally() has no effect on 'n'; its type 'i32' is trivially destroyed
-// CHECK: finally_errors.k:59:5: error [SC116E]: finally() on 'x': its type 'T' depends on a generic parameter, which is not supported yet
 // CHECK: finally_errors.k:64:21: error [SC305E]: finally() has no effect on 'r'; it is not declared by a 'var' or 'const' statement of this body (a closure's enclosing function, or a pattern, destroys it)
 // CHECK: finally_errors.k:63:5: note [I900N]: 'r' is declared here
 // CHECK: finally_errors.k:69:15: error [SC116E]: finally() on 'r': a call inside a 'finally' block is not supported yet

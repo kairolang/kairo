@@ -57,8 +57,8 @@ pub import fmt::fmt_buf::*
 //
 // What stays here, and why, until it can move: a file is one C++ namespace,
 // so the root's own declarations are the only ones in `::builtin`.
-//   null_t, Nullable  a C++ host spells them `::builtin::null_t`,
-//                     `::builtin::null` and `::builtin::Nullable`.
+//   null_t, Null      a C++ host spells them `::builtin::null_t`,
+//                     `::builtin::null` and `::builtin::Null`.
 //   __builtin_*       each is an expression-bodied fn, and one that ends
 //                     its file ICEs in codegen (TokenSink: "span runs past
 //                     the end of its buffer"), so a file of
@@ -81,7 +81,7 @@ pub struct null_t {}
 /// pointer as the null case, for instance), so nothing may depend on the layout.
 ///
 /// \see __builtin_niche_of
-pub enum <T> Nullable {
+pub enum <T> Null {
     /// A present value: `T?` holding `v`.
     Value { v: T },
     /// No value: what `null` assigns to a `T?`.

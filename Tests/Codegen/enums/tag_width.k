@@ -36,7 +36,7 @@ fn main() -> i32 {
 // CXX-NEXT:  enum class __kairo_Tag : unsigned char {
 // CXX:       struct Wide {
 // CXX-NEXT:  enum class __kairo_Tag : unsigned short {
-// CXX:       template<class T> struct Nullable {
+// CXX:       template<class T> struct Null {
 // CXX-NEXT:  enum class __kairo_Tag : unsigned char {
 
 // REQUIRES: clang

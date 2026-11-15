@@ -440,6 +440,12 @@ pub class InstantiationRegistry {
     /// DenseMap rehash would move it.
     priv var _partials:       llvm::DenseMap<u64, unsafe *cxx::std::vector<unsafe *Decl>>
     priv var _partials_arena: llvm::SpecificBumpPtrAllocator<cxx::std::vector<unsafe *Decl>>
+    /// A generic function's full specializations written in another module
+    /// than the primary (RedeclMerge::_pair_spec), keyed by the primary's
+    /// representative. One written beside its primary is found in the
+    /// primary's scope and is not here. Same lifetime rule as _partials.
+    priv var _fn_specs:       llvm::DenseMap<u64, unsafe *cxx::std::vector<unsafe *Decl>>
+    priv var _fn_specs_arena: llvm::SpecificBumpPtrAllocator<cxx::std::vector<unsafe *Decl>>
     /// implicit node -> the entry it was minted for. An implicit node's own
     /// `spec_args` stay EMPTY (they are the user-written `<...>` of an
     /// explicit spec, and every printer reads them that way), so this is how
@@ -648,6 +654,50 @@ pub class InstantiationRegistry {
                     self._select_into(e)
                 }
             }
+        }
+    }
+
+    /// # Function specializations in another module
+
+    /// \p spec specializes \p primary (a representative) from a module other
+    /// than the primary's. Idempotent.
+    pub fn register_fn_spec(self, primary: unsafe *Decl, spec: unsafe *Decl) {
+        if primary == &null || spec == &null {
+            return
+        }
+
+        var        lock   = kairo::std::LockGuard(self._mu)
+        var unsafe **slot = unsafe &self._fn_specs[primary as usize as u64]
+        if *slot == &null {
+            var unsafe *v = self._fn_specs_arena.Allocate(1)
+            cxx::std::construct_at(v)
+            *slot = v
+        }
+
+        for var i: usize = 0; i < (*slot)->size(); ++i {
+            if (**slot)[i] == spec {
+                return
+            }
+        }
+
+        (*slot)->push_back(spec)
+    }
+
+    /// Every specialization register_fn_spec recorded for \p primary, in
+    /// registration order, appended to \p out.
+    pub fn fn_specs_of(self, primary: unsafe *Decl, out: unsafe *cxx::std::vector<unsafe *Decl>) {
+        if primary == &null || out == &null {
+            return
+        }
+
+        var rlock = kairo::std::SharedLock(self._mu)
+        var it    = self._fn_specs.find(primary as usize as u64)
+        if it == self._fn_specs.end() {
+            return
+        }
+
+        for var i: usize = 0; i < it->second->size(); ++i {
+            out->push_back((*it->second)[i])
         }
     }
 
@@ -1773,7 +1823,26 @@ pub class InstantiationRegistry {
                       dead:      unsafe *kairo::AddrRanges,
                       types:     unsafe *llvm::DenseSet<u64>,
                       rows_only: bool) -> usize {
-        var lock   = kairo::std::LockGuard(self._mu)
+        var lock = kairo::std::LockGuard(self._mu)
+        // A retracted file's specializations, and those of a retracted
+        // primary, leave the table with their trees.
+        for var it = self._fn_specs.begin(); it != self._fn_specs.end(); ++it {
+            var unsafe *v   = it->second
+            var        keep = cxx::std::vector<unsafe *Decl>()
+            if !dead->has(unsafe ((it->first as usize) as unsafe *const void)) {
+                for var i: usize = 0; i < v->size(); ++i {
+                    if !dead->has(unsafe ((*v)[i] as unsafe *const void)) {
+                        keep.push_back((*v)[i])
+                    }
+                }
+            }
+
+            v->clear()
+            for var i: usize = 0; i < keep.size(); ++i {
+                v->push_back(keep[i])
+            }
+        }
+
         var shells = llvm::DenseSet<u64>()
         for var i: usize = 0; i < self._dropped.size(); ++i {
             var unsafe *e = self._dropped[i]

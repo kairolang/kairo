@@ -827,7 +827,7 @@ extend Server {
 
         var was_dirty = self.entries[ei].dirty
         self.finish_index(&j, 0)
-        self.live_side_(ei, &tried, s.aside_out)
+        self.live_side_(ei, const &tried, s.aside_out)
         if self.entries[ei].dirty {
             was_dirty = true
         }

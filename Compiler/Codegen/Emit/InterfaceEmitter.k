@@ -3183,15 +3183,26 @@ pub class InterfaceEmitter {
         var ob = LowerTargets::union_local_obj()
         var en = LowerTargets::union_local_end()
         var dr = LowerTargets::union_local_drop()
+        var kl = LowerTargets::union_local_kill()
+        var pt = LowerTargets::union_local_place()
+        var ds = LowerTargets::union_local_destroy()
+        // The destroy takes an array as well (a generic body's T may be
+        // one): elements last to first, as C++ destroys an array.
         self._cg->sink->spell(
             at,
-            "template <class T> union " + ul + " { T " + ob + "; ~" + ul + "() {} void " + en + "() noexcept { " + ob + ".~T(); } static void " + dr + "(void* p) noexcept { static_cast<" + ul + "*>(p)->" + ob + ".~T(); } };",
+            "struct " + pt + " {}; inline void* operator new(decltype(sizeof(0)), void* p, " + pt + ") noexcept { return p; } inline void operator delete(void*, void*, " + pt + ") noexcept {} " + "template <class T> inline void " + ds + "(T& x) noexcept { x.~T(); } template <class T, decltype(sizeof(0)) N> inline void " + ds + "(T (&a)[N]) noexcept { for (decltype(sizeof(0)) i = N; i > 0; --i) { " + ds + "(a[i - 1]); } }",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            "template <class T> struct " + uf + " { " + ul + "<T> s; bool live; void " + en + "() noexcept { live = false; s." + ob + ".~T(); } static void " + dr + "(void* p) noexcept { " + uf + "* f = static_cast<" + uf + "*>(p); if (f->live) { f->live = false; f->s." + ob + ".~T(); } } };",
+            "template <class T> union " + ul + " { T " + ob + "; ~" + ul + "() {} void " + en + "() noexcept { " + ds + "(" + ob + "); } static void " + dr + "(void* p) noexcept { " + ds + "(static_cast<" + ul + "*>(p)->" + ob + "); } };",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + uf + " { " + ul + "<T> s; bool live; void " + en + "() noexcept { live = false; " + ds + "(s." + ob + "); } void " + kl + "() noexcept { if (live) { live = false; " + ds + "(s." + ob + "); } } static void " + dr + "(void* p) noexcept { static_cast<" + uf + "*>(p)->" + kl + "(); } };",
         )
 
         self._cg->sink->brk()
@@ -4272,7 +4283,7 @@ pub class InterfaceEmitter {
             self._spell->leaf(self._payload_struct_of(pv)) + " " + mem + ";",
         )
 
-        // A generic ADT's flags, which the Nullable surface's constraints
+        // A generic ADT's flags, which the Null surface's constraints
         // read: true by the specialization's own constraint.
         for var i: usize = 0; i < lay->fields.size(); ++i {
             var unsafe *f = lay->fields[i]
@@ -4445,7 +4456,7 @@ pub class InterfaceEmitter {
         return cast<RecordType>(c)->decl
     }
 
-    /// The Nullable lang item's surface over the niche-filled record: null is
+    /// The Null lang item's surface over the niche-filled record: null is
     /// pattern 0 in the field, present is any other value, `==` is the
     /// field's own (two nulls hold the same pattern).
     priv fn _niche_nullable_member(self,
@@ -4468,7 +4479,7 @@ pub class InterfaceEmitter {
                 if m->params.size() != 1 {
                     self._ice(
                         at,
-                        "InterfaceEmitter: Nullable(null_t) without its parameter",
+                        "InterfaceEmitter: Null(null_t) without its parameter",
                     )
 
                     return ""
@@ -4497,10 +4508,7 @@ pub class InterfaceEmitter {
             }
         }
 
-        self._ice(
-            at,
-            "InterfaceEmitter: a Nullable role with no niche rendering",
-        )
+        self._ice(at, "InterfaceEmitter: a Null role with no niche rendering")
 
         return ""
     }
@@ -5452,7 +5460,7 @@ pub class InterfaceEmitter {
         // Every member the record is written with: its nested types and
         // fields (EnumLayoutLowering's), the union members a variant's
         // payload lives in, the role functions, and the members the
-        // emitter spells itself (the niche and Nullable surfaces).
+        // emitter spells itself (the niche and Null surfaces).
         var unsafe *dc = unsafe (lay as unsafe *DeclContext)
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
             var unsafe *nd = *dc->dc_decls.get(i)
@@ -5495,7 +5503,7 @@ pub class InterfaceEmitter {
         taken.push_back(LowerTargets::adt_which())
         taken.push_back(LowerTargets::niche_count())
         taken.push_back(LowerTargets::niche_test())
-        // The Nullable surface's names are not reserved (`is_null`), so
+        // The Null surface's names are not reserved (`is_null`), so
         // only the record that has that surface takes them.
         for var i: usize = 0; i < lay->methods.size(); ++i {
             var unsafe *m = lay->methods[i]
@@ -5600,7 +5608,7 @@ pub class InterfaceEmitter {
         return " noexcept"
     }
 
-    /// One member of the Nullable lang item's surface (AdtRole, from
+    /// One member of the Null lang item's surface (AdtRole, from
     /// NullDefault on). The enum is `Value { v: T }, Null` and nothing else
     /// (Lib/builtin/module.k): the present variant is the one with a
     /// payload, the null one the one without, and both are found, not
@@ -5630,7 +5638,7 @@ pub class InterfaceEmitter {
         if some == &null || none == &null || some->payload.size() != 1 {
             self._ice(
                 at,
-                "InterfaceEmitter: the Nullable lang item is not one one-field variant and one empty one",
+                "InterfaceEmitter: the Null lang item is not one one-field variant and one empty one",
             )
 
             return ""
@@ -5654,7 +5662,7 @@ pub class InterfaceEmitter {
                 if m->params.size() != 1 {
                     self._ice(
                         at,
-                        "InterfaceEmitter: Nullable(null_t) without its parameter",
+                        "InterfaceEmitter: Null(null_t) without its parameter",
                     )
 
                     return ""
@@ -5672,7 +5680,7 @@ pub class InterfaceEmitter {
             // one field is built straight from the argument. Constrained by
             // the ADT's own flags, because an explicit instantiation defines
             // every member whose constraints hold: an unconstrained copy
-            // constructor of a `Nullable<MoveOnly>` is a hard error there.
+            // constructor of a `Null<MoveOnly>` is a hard error there.
             case Declarations::AdtRole::ValueCopy {
                 return nm + "(const " + t + "& v)" + nx + " requires " + LowerTargets::adt_copyable() + " : " + present_init + "{v} {}"
             } case Declarations::AdtRole::ValueMove {
@@ -5690,7 +5698,7 @@ pub class InterfaceEmitter {
             }
         }
 
-        self._ice(at, "InterfaceEmitter: a Nullable role with no rendering")
+        self._ice(at, "InterfaceEmitter: a Null role with no rendering")
         return ""
     }
 

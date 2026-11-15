@@ -1111,7 +1111,7 @@ pub class CompilerInstance {
         )
 
         self._freg = kairo::std::create<ForeignRegistry>()
-        // `T?` crosses into and out of a header as `::builtin::Nullable<T>`
+        // `T?` crosses into and out of a header as `::builtin::Null<T>`
         // (TypeExport / TypeImport): both ask the registry for the lang item.
         self._freg->well_known = self._g_scope->well_known()
         self._hindex = kairo::std::create<HeaderIndex>(

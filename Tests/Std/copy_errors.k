@@ -24,5 +24,5 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK: copy_errors.k:19:13: error [SC063E]: no matching overload for call to 'copy'
 // CHECK-NEXT: utility.k:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: candidate not viable: its 'requires' clause does not hold: 'Neither' does not implement 'CopiesItself': it has no 'copy'
-// CHECK-NEXT: utility.k:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: candidate not viable: its 'requires' clause does not hold: 'Neither' does not implement 'CopyConstructible': it cannot be copied by a copy constructor
+// CHECK-NEXT: utility.k:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: candidate not viable: its 'requires' clause does not hold: 'Neither' does not implement 'Copy': it cannot be copied by a copy constructor
 // CHECK-NOT: error

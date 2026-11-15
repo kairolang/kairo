@@ -1,7 +1,7 @@
 /// --- The Kairo Project ---------- Sema/Lower/NarrowedAccessLowering.k --- ///
 ///
 ///   \brief Every narrowed read of a nullable becomes a call of the
-///          Nullable's unchecked `__value()`.
+///          Null's unchecked `__value()`.
 ///
 ///   \detail
 ///     Compiler/Spec/Nullables.md#narrowed-reads, §5 step 3. The nullness analysis (Sema/Type/
@@ -24,7 +24,7 @@
 ///
 ///     `__value()` is UNCHECKED: it is called only where the analysis
 ///     proved a value, which is the whole point of the analysis. It is one
-///     of the members EnumLayoutLowering mints on the Nullable lang item's
+///     of the members EnumLayoutLowering mints on the Null lang item's
 ///     layout (AdtRole::ValueRef / ValueCref) and InterfaceEmitter writes in
 ///     C++, found by role as NullTestLowering finds `is_null()`. It returns
 ///     `T&` (`const T&` on a const nullable), so the call is an LVALUE: a
@@ -104,7 +104,7 @@ pub class NarrowedAccessLowering derives ASTWriter<NarrowedAccessLowering> {
         }
 
         // No builtin root: no `T?` was typed, so nothing was narrowed.
-        if !self.sc->well_known->has(WellKnownType::Nullable) {
+        if !self.sc->well_known->has(WellKnownType::Null) {
             return
         }
 
@@ -120,7 +120,7 @@ pub class NarrowedAccessLowering derives ASTWriter<NarrowedAccessLowering> {
 
         if self._ref == &null || self._cref == &null {
             kairo::std::ice_fail(
-                "NarrowedAccessLowering: the Nullable layout has no " + LowerTargets::nullable_value() + "(); EnumLayoutLowering::_nullable_surface mints it",
+                "NarrowedAccessLowering: the Null layout has no " + LowerTargets::nullable_value() + "(); EnumLayoutLowering::_nullable_surface mints it",
             )
         }
 

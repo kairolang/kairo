@@ -630,6 +630,7 @@ fn io_assign_operator_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::Assig
         ar->sema_is(n->op_instance == &null, "AssignOperatorExpr::op_instance")
         ar->sema_false(n->ci_elem_init, "AssignOperatorExpr::ci_elem_init")
         ar->sema_false(n->no_wrap, "AssignOperatorExpr::no_wrap")
+        ar->sema_zero(n->remake as u64, "AssignOperatorExpr::remake")
     }
 }
 

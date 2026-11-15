@@ -1,5 +1,5 @@
 // `var x? = e` end to end. Each binding
-// is the ::builtin::Nullable of its initializer's type, one level (a `T?`
+// is the ::builtin::Null of its initializer's type, one level (a `T?`
 // initializer is not wrapped again), and holds the value it was given:
 // a present Widget is destroyed exactly once, at reassignment, at `= null`
 // or at scope exit, and a moved-in Widget leaves its source empty. No null
@@ -60,15 +60,15 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      template<class T> signed int gen(T t) noexcept {
-// CXX-NEXT:     ::builtin::Nullable<T> x = static_cast<T &&>(t);
-// CXX:      ::builtin::Nullable<signed int> g = static_cast< ::builtin::Nullable<signed int>>(4);
-// CXX:      ::builtin::Nullable<signed int> a = static_cast< ::builtin::Nullable<signed int>>(10);
-// CXX:      const{{ ?}}::builtin::Nullable<signed int> b = {{.*}}find(3);
-// CXX:      ::builtin::Nullable<signed int *> c =
-// CXX:      ::builtin::Nullable< {{.*}}shorthand::P> s =
-// CXX:      ::builtin::Nullable<signed int> pa = __kairo_tup{{[0-9]+}}._0;
-// CXX:      ::builtin::Nullable< {{.*}}shorthand::Widget> m = {{.*}}make(3);
-// CXX-NOT:  Nullable<{{ ?}}::builtin::Nullable
+// CXX-NEXT:     ::builtin::Null<T> x = static_cast<T &&>(t);
+// CXX:      ::builtin::Null<signed int> g = static_cast< ::builtin::Null<signed int>>(4);
+// CXX:      ::builtin::Null<signed int> a = static_cast< ::builtin::Null<signed int>>(10);
+// CXX:      const{{ ?}}::builtin::Null<signed int> b = {{.*}}find(3);
+// CXX:      ::builtin::Null<signed int *> c =
+// CXX:      ::builtin::Null< {{.*}}shorthand::P> s =
+// CXX:      ::builtin::Null<signed int> pa = __kairo_tup{{[0-9]+}}._0;
+// CXX:      ::builtin::Null< {{.*}}shorthand::Widget> m = {{.*}}make(3);
+// CXX-NOT:  Null<{{ ?}}::builtin::Null
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

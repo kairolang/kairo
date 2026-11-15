@@ -1,6 +1,6 @@
 /// --- The Kairo Project ---------------- Sema/Lower/NullTestLowering.k --- ///
 ///
-///   \brief Every null test becomes a call of the Nullable's `is_null()`.
+///   \brief Every null test becomes a call of the Null's `is_null()`.
 ///
 ///   \detail
 ///     Compiler/Spec/Nullables.md#null-test, 2.2, §5 step 2. Each spelling `null_test_of`
@@ -15,7 +15,7 @@
 ///     level is tested: on a `(T?)?` it asks the outer nullable.
 ///
 ///     `is_null()` is one of the members EnumLayoutLowering mints on the
-///     Nullable lang item's layout (AdtRole::IsNull) and InterfaceEmitter
+///     Null lang item's layout (AdtRole::IsNull) and InterfaceEmitter
 ///     writes in C++; it is found on the pattern's layout by role (an
 ///     instance shares the pattern's layout), and called through LowerSynth::member_call, so EmitIR spells
 ///     `x.is_null()` like any member call. The operand is evaluated once, as
@@ -87,7 +87,7 @@ pub class NullTestLowering derives ASTWriter<NullTestLowering> {
         }
 
         // No builtin root: no `T?` was typed, so there is no test to lower.
-        if !self.sc->well_known->has(WellKnownType::Nullable) {
+        if !self.sc->well_known->has(WellKnownType::Null) {
             return
         }
 
@@ -98,7 +98,7 @@ pub class NullTestLowering derives ASTWriter<NullTestLowering> {
 
         if self._is_null == &null {
             kairo::std::ice_fail(
-                "NullTestLowering: the Nullable layout has no " + LowerTargets::nullable_is_null() + "(); EnumLayoutLowering::_nullable_surface mints it",
+                "NullTestLowering: the Null layout has no " + LowerTargets::nullable_is_null() + "(); EnumLayoutLowering::_nullable_surface mints it",
             )
         }
 

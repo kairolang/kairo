@@ -879,16 +879,16 @@ pub class SemaContext {
         return self.types->record(inst, unsafe &trimmed)
     }
 
-    /// The Nullable lang item's pattern, the enum every `T?` lowers to, or
+    /// The Null lang item's pattern, the enum every `T?` lowers to, or
     /// null: no builtin root bound it, or what it bound is no enum (a pass
     /// that needs it ICEs on that, with its own name). By identity, never
-    /// by name: a user may declare an enum called Nullable.
+    /// by name: a user may declare an enum called Null.
     pub fn nullable_enum(self) -> unsafe *EnumDecl {
         if self.well_known == &null {
             return &null
         }
 
-        var unsafe *nd = self.well_known->get(WellKnownType::Nullable)
+        var unsafe *nd = self.well_known->get(WellKnownType::Null)
         if nd == &null {
             return &null
         }
@@ -896,7 +896,7 @@ pub class SemaContext {
         return dyn_cast<EnumDecl>(NameLookup::representative(nd))
     }
 
-    /// The member of the Nullable lang item's layout that plays \p role
+    /// The member of the Null lang item's layout that plays \p role
     /// (EnumLayoutLowering::_nullable_surface mints them; InterfaceEmitter
     /// writes them in C++), or null when the layout has none. Found by role
     /// on the PATTERN's layout, as MatchLowering finds the tag field: an
@@ -906,15 +906,13 @@ pub class SemaContext {
     fn nullable_member(self, role: AdtRole, const pass: string) -> unsafe *FunctionDecl {
         var unsafe *en = self.nullable_enum()
         if en == &null {
-            kairo::std::ice_fail(
-                pass + ": the Nullable lang item is not an enum",
-            )
+            kairo::std::ice_fail(pass + ": the Null lang item is not an enum")
         }
 
         var unsafe *lay = dyn_cast<StructDecl>(en->adt_layout)
         if lay == &null {
             kairo::std::ice_fail(
-                pass + ": the Nullable lang item has no layout; EnumLayoutLowering runs first",
+                pass + ": the Null lang item has no layout; EnumLayoutLowering runs first",
             )
         }
 

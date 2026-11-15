@@ -2603,7 +2603,7 @@ pub class FrontendAction {
             // Placing every remaining file at once in list order would drop the
             // dependency order for the whole rest of the program -- and the
             // builtin prelude has a cycle (module.k -> containers -> alloc.k ->
-            // module.k for Nullable), so every program would hit it.
+            // module.k for Null), so every program would hit it.
             // ImportGroups keeps each cycle's members together either way.
             if !progressed {
                 for var i: usize = 0; i < n; ++i {
@@ -2749,7 +2749,7 @@ pub class FrontendAction {
             effects->solve()
         }
 
-        // The TU that declares the Nullable lang item lowers first: every `T?`
+        // The TU that declares the Null lang item lowers first: every `T?`
         // in another TU is lowered through its layout, which that TU's
         // EnumLayoutLowering builds. Import order already puts the builtin root
         // ahead of what imports it, except around a cycle: a builtin file the

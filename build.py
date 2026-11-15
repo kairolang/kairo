@@ -259,7 +259,8 @@ def write_compile_json(src: Path, common: list) -> Path:
         entries.append({"entry": entry, "args": args, "directory": "."})
     doc = {"version": 1, "entries": entries,
            # A file no target reaches yet (a new tool, a scratch file under the roots).
-           "default_args": [x for r in STAGE1_ROOTS for x in ("-I", r)]}
+           # It takes the tree's strict C++ moves opt-out, as every target does.
+           "default_args": [x for r in STAGE1_ROOTS for x in ("-I", r)] + ["-fno-strict-cxx-moves"]}
     path = src / "kairo_compile.json"
     text = json.dumps(doc, indent=2) + "\n"
     if not path.exists() or path.read_text() != text:

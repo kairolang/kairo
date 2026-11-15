@@ -471,7 +471,15 @@ pub class <T: type> DeclParse {
             } case TokenKind::KwEnum {
                 return self._parse_enum()
             } case TokenKind::KwInterface {
-                return self._parse_interface()
+                var unsafe *iface = self._parse_interface()
+                // `virtual interface`: the lead `virtual` is the interface's.
+                if lead.abi == Declarations::AbiKind::Virtual
+                    && iface != &null
+                    && isa<Declarations::InterfaceDecl>(iface) {
+                    cast<Declarations::InterfaceDecl>(iface)->is_virtual = true
+                }
+
+                return iface
             } case TokenKind::KwUnion {
                 return self._parse_union()
             } case TokenKind::KwExtend {

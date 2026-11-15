@@ -2631,8 +2631,7 @@ group = "unimplemented"
     ```
 
     currently reported for a `for ... in` loop over a vector `[T]`, a set `{T}`, a map `{K: V}` or
-    a `string`, and for `x.finally()` on a local it cannot yet end early: one whose type depends
-    on a generic parameter, a fixed-size array, a local of an `eval fn`, the variable of a C-style
+    a `string`, and for `x.finally()` on a local it cannot yet end early: a fixed-size array, a local of an `eval fn`, the variable of a C-style
     `for`, and a call written inside a `finally { }` block. arrays, slices, ranges and types with `fn op in (self) -> yield T` are
     supported.
 
@@ -6379,12 +6378,13 @@ group = "lifecycle"
     f.write("late")      // error: use of finalized value 'f'
     ```
 
-    an assignment counts as a use: the assignment operator would run on an object whose
-    destructor has already run.
+    a whole assignment of a new value, `f = File("next.txt")`, is not a use: it constructs a new
+    object in `f`, which is usable again and is destroyed at the scope's end (or by another
+    `finally()`). writing a part of it, `f.name = "x"`, is a use.
 
     ## how to fix
 
-    move the use before the `finally()` call, or declare a new local for the new value.
+    move the use before the `finally()` call, or assign the local a new value first.
     """
 
     [SC303.N]

@@ -324,7 +324,7 @@ var x = __builtin_construct_at( // this stays cuz then it becomes a clean placem
 
 module std {
     ///
-    ///   Storage strategy for `Nullable<T>` (the desugaring of `T?`). Three
+    ///   Storage strategy for `Null<T>` (the desugaring of `T?`). Three
     ///   specializations selected by `requires`:
     ///     * safe-pointer T  -> niche-filled, null == 0x0, no tag, sizeof(T).
     ///     * niche-capable T  -> niche-filled in a spare bit pattern (e.g. bool).
@@ -356,7 +356,7 @@ module std {
 
     //  Default: tagged fallback. Unconstrained, matches any T with no niche.
     //  (A more-specialized specialization wins when its `requires` holds.)
-    struct <T> NullableStorage {
+    struct <T> NullStorage {
         var value:   T
         var present: bool
     }
@@ -367,15 +367,15 @@ module std {
     //  For align>1 T, packing would save bytes only by misaligning `value` in
     //  aggregates, a hidden access cost we don't impose by default. A user who
     //  wants the packed layout expresses it with @packed at their own declaration.
-    extend <T> NullableStorage {
+    extend <T> NullStorage {
         @copy
-        inline fn NullableStorage(self, other: Self) {
+        inline fn NullStorage(self, other: Self) {
             self.value = other.value; self.present = other.present
         }
-        inline fn NullableStorage(self, value: T) { self.value = value; self.present = true }
-        inline fn NullableStorage(self)            { self.value = T(); self.present = false }
+        inline fn NullStorage(self, value: T) { self.value = value; self.present = true }
+        inline fn NullStorage(self)            { self.value = T(); self.present = false }
 
-        inline static fn null() -> NullableStorage<T> = NullableStorage()
+        inline static fn null() -> NullStorage<T> = NullStorage()
 
         inline fn is_null(self) -> bool = !self.present
 
@@ -389,20 +389,20 @@ module std {
 
     //  Safe-pointer specialization: niche-filled. null == 0x0. No tag. sizeof(P).
     @kairo::__intrinsic_always_safe()   // suppress AMT on the raw-pointer slot; std-only
-    struct <P> NullableStorage<P>
+    struct <P> NullStorage<P>
       requires is_safe_pointer_t<P>() {
         priv var ptr: unsafe P       // holds P's bits raw; 0x0 == None
     }
 
     @kairo::__intrinsic_always_safe()
-    extend <P> NullableStorage<P>
+    extend <P> NullStorage<P>
       requires is_safe_pointer_t<P>() {
         @copy
-        inline fn NullableStorage(self, other: Self) { self.ptr = other.ptr }
-        inline fn NullableStorage(self, value: P)    { self.ptr = value as unsafe P }
-        inline fn NullableStorage(self)              { self.ptr = 0x0 as unsafe P }
+        inline fn NullStorage(self, other: Self) { self.ptr = other.ptr }
+        inline fn NullStorage(self, value: P)    { self.ptr = value as unsafe P }
+        inline fn NullStorage(self)              { self.ptr = 0x0 as unsafe P }
 
-        inline static fn null() -> NullableStorage<P> = NullableStorage()
+        inline static fn null() -> NullStorage<P> = NullStorage()
 
         inline fn is_null(self) -> bool = self.ptr == (0x0 as unsafe P)
 
@@ -417,20 +417,20 @@ module std {
     //  bool specialization: niche in the spare bit patterns (bool uses 0/1).
     //  INVALID (0x02) is the None pattern. One byte, no tag.
     @kairo::__intrinsic_always_safe()
-    struct <> NullableStorage<bool> {
+    struct <> NullStorage<bool> {
         priv var byte: u8   // 0x00 == Some(false), 0x01 == Some(true), 0x02 == None
     }
 
     @kairo::__intrinsic_always_safe()
-    extend <> NullableStorage<bool> {
+    extend <> NullStorage<bool> {
         eval INVALID: u8 = 0x02
 
         @copy
-        inline fn NullableStorage(self, other: Self) { self.byte = other.byte }
-        inline fn NullableStorage(self, value: bool) { self.byte = value as u8 }   // 0/1
-        inline fn NullableStorage(self)              { self.byte = INVALID }
+        inline fn NullStorage(self, other: Self) { self.byte = other.byte }
+        inline fn NullStorage(self, value: bool) { self.byte = value as u8 }   // 0/1
+        inline fn NullStorage(self)              { self.byte = INVALID }
 
-        inline static fn null() -> NullableStorage<bool> = NullableStorage()
+        inline static fn null() -> NullStorage<bool> = NullStorage()
 
         inline fn is_null(self) -> bool = self.byte == INVALID
 
@@ -442,8 +442,8 @@ module std {
     }
 
     // the ONE user-facing type, methods live here, storage delegated.
-    struct <T> Nullable {
-        var storage: NullableStorage<T>
+    struct <T> Null {
+        var storage: NullStorage<T>
 
         fn is_null(self) -> bool  { return self.storage.is_null(); }
         fn unwrap(self) -> T      { /* panic if null, else return value */ }

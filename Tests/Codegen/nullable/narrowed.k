@@ -131,7 +131,7 @@ fn main() -> i32 {
 // CXX:      (o.cache.__value().v = 9);
 // CXX:      (o.mid.__value().inner.__value().w = 11);
 // CXX:      static_cast< ::narrowed::Widget &&>(w.__value())
-// CXX-NOT:  static_cast< ::builtin::Nullable< ::narrowed::Widget> &&>
+// CXX-NOT:  static_cast< ::builtin::Null< ::narrowed::Widget> &&>
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

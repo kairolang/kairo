@@ -67,6 +67,15 @@ import Location::SourceRange::SourceRange
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 
+/// AssignOperatorExpr::remake bits: the states a whole assignment to a
+/// local `finally()` ends was reached in (MoveCheck). Live only: an
+/// ordinary assignment. Dead only: it constructs the object again in the
+/// storage. Maybe dead, or reached both live and dead: it destroys the
+/// object if `live` says one is there, then constructs.
+pub const REMAKE_LIVE:  u8 = 1
+pub const REMAKE_DEAD:  u8 = 2
+pub const REMAKE_MAYBE: u8 = 4
+
 /// CallExpr::finalize: an ordinary call, or `x.finally()` at each stage.
 pub enum FinalizeKind derives u8 {
     None = 0,  ///< not a `finally()` call.
@@ -1064,6 +1073,11 @@ pub class AssignOperatorExpr derives Expr {
     /// leaves the count mask out (see BinaryOperatorExpr::no_wrap). Written by
     /// X (OperatorTyping, a constant or masked count) and IterLowering.
     pub var no_wrap: bool = false
+    /// `x = e` to a local some `finally()` ends: REMAKE_* bits, the states
+    /// it was reached in (Compiler/Spec/Lowering.md#union-storage-locals).
+    /// Written by MoveCheck; read by OperatorLowering (a construction runs
+    /// no `op =`) and EmitIR. 0 on every other assignment.
+    pub var remake: u8 = 0
 
     pub static fn create(ctx:      unsafe *ASTContext,
                          range:    SourceRange,
@@ -2285,7 +2299,7 @@ pub class TypeCastExpr derives Expr {
     /// `p as (*D)?` from a `*B` with D below B: the CHECKED downcast
     /// (casting.md), null when the dynamic type is not a D. Written by
     /// CastTyping; EmitIR spells it as a dynamic_cast whose null pointer
-    /// becomes the null nullable (a static_cast to `Nullable<D*>` would
+    /// becomes the null nullable (a static_cast to `Null<D*>` would
     /// neither check nor map null).
     pub var checked_downcast: bool = false
 

@@ -1,6 +1,6 @@
 // The checked
 // downcast `p as (*D)?` is C++'s dynamic_cast on a pointer, its null
-// pointer the NULL nullable (storage is tagged: a `Nullable<D*>` holding
+// pointer the NULL nullable (storage is tagged: a `Null<D*>` holding
 // nullptr would be present). Null when the dynamic type is not D or a
 // class below it; the right pointer -- adjusted, from a second base --
 // when it is. Spelled `as (*Dog)?` (`*Dog?` means the same).
@@ -78,8 +78,8 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      Nullable< ::checked_downcast::Dog *> d =[]( ::checked_downcast::Dog * __kairo_dc) noexcept-> ::builtin::Nullable< ::checked_downcast::Dog *> {
-// CXX-NEXT:     return __kairo_dc ? ::builtin::Nullable< ::checked_downcast::Dog *>(__kairo_dc): ::builtin::Nullable< ::checked_downcast::Dog *>();
+// CXX:      Null< ::checked_downcast::Dog *> d =[]( ::checked_downcast::Dog * __kairo_dc) noexcept-> ::builtin::Null< ::checked_downcast::Dog *> {
+// CXX-NEXT:     return __kairo_dc ? ::builtin::Null< ::checked_downcast::Dog *>(__kairo_dc): ::builtin::Null< ::checked_downcast::Dog *>();
 // CXX-NEXT: }
 // CXX-NEXT: (dynamic_cast< ::checked_downcast::Dog *>(a));
 // CXX:      (dynamic_cast<const::checked_downcast::Dog *>(a));

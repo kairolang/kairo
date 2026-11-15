@@ -210,8 +210,9 @@ follows the pipeline.
        -> LLVM IR safety -> Link
 
 Built: Load, Lex, Preprocess, Index (the parser's hoisting pass), Parse,
-Import Resolution, Sema, lowering, CodeGen, Link. Designed, not built: Sema
-agreement, LLVM IR safety.
+Import Resolution, Sema, lowering, CodeGen, Link, and the callee check of
+Sema agreement (Compiler/Spec/SemaAgreement.md). Designed, not built: the
+rest of Sema agreement (template choice, conversions, ADL), LLVM IR safety.
 
 Index and Import Resolution are real stages, not sub-steps. C++ FFI is not
 a linear stage, it's a guest invoke that fires during Index (see Pipeline 1).
@@ -384,16 +385,19 @@ Per-Action pipeline (parallelism shown explicitly):
         *=================================================*
                                 v
         *=================================================*
-        |  SEMA AGREEMENT -- parallel over TUs            |   (walk of clang's AST; not built)
-        |  clang has parsed and type-checked the tokens   |
-        |  CodeGen built. Walk what it produced and check |
-        |  clang's Sema reached Kairo's decisions: each   |
-        |  call's overload ranking and chosen callee,     |
-        |  ADL candidates and ranking, conversions,       |
-        |  template / specialization picked. A            |
-        |  disagreement is a Kairo bug (CodeGen left      |
-        |  clang a choice, or Sema ranked wrongly), so    |
-        |  it is an internal error naming both answers.   |
+        |  SEMA AGREEMENT -- parallel over TUs            |   Spec/SemaAgreement.md
+        |  clang has parsed and type-checked the tokens   |   Native/KSemaAgree.hh
+        |  CodeGen built. Before clang's CodeGen takes a  |   Codegen/Backend/CodegenAction.k
+        |  declaration, walk it and check clang's Sema    |
+        |  reached Kairo's decisions. Built: each call's  |
+        |  chosen callee. Not built: overload ranking,    |
+        |  ADL candidates, conversions, the template /    |
+        |  specialization picked. A disagreement is a     |
+        |  Kairo bug (CodeGen left clang a choice, or     |
+        |  Sema ranked wrongly): an internal warning      |
+        |  naming both answers (I012W). The call is       |
+        |  pointed at Kairo's answer where the two have   |
+        |  one type; compilation continues either way.    |
         *=================================================*
                                 v
                   *------------------------------*

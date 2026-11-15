@@ -661,7 +661,9 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
 
         var tu = TypeUtil(self.sc)
         var nm = tu.decl_name(unsafe (iface as unsafe *Decl))
-        if via_ptr {
+        // Only a `virtual interface` has a pointer: dispatch through it is
+        // not compiled yet. A plain interface has none at all.
+        if via_ptr && iface->is_virtual {
             self._gate(
                 t->range,
                 f"a pointer to the interface '{nm}' (virtual interface dispatch)",
@@ -670,12 +672,12 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
             return
         }
 
-        var b = self.sc->diag->report(
-            DiagID::SC332E,
-            t->range.start,
-            f"'{nm}' is an interface, not a type; it can only bound a generic parameter (`T impl {nm}`)",
-        )
+        var msg = f"'{nm}' is an interface, not a type; it can only bound a generic parameter (`T impl {nm}`)"
+        if via_ptr {
+            msg = f"'{nm}' is an interface, not a type, and a plain interface has no pointer; bound a generic parameter (`T impl {nm}`), or declare it `virtual interface` for dispatch through a pointer"
+        }
 
+        var b = self.sc->diag->report(DiagID::SC332E, t->range.start, msg)
         b.first(t->range)
         b.emit()
     }

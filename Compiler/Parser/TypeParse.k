@@ -2636,7 +2636,7 @@ pub class <T: type> TypeParse {
             return err_nt
         }
 
-        // `(T?)?` is a real type, Nullable<Nullable<T>> (Compiler/Spec/Nullables.md#nested-nullables):
+        // `(T?)?` is a real type, Null<Null<T>> (Compiler/Spec/Nullables.md#nested-nullables):
         // it is warned about, never collapsed -- a collapse here would make
         // the written type disagree with the same type reached by generic
         // substitution (`V?` with `V = T?`), which never collapses.

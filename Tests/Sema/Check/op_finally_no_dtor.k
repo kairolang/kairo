@@ -1,8 +1,5 @@
-// XFAIL: *
-// Waits on the planned 0.3 design: `x.finally()`
-// is an explicit early destructor call; before 0.3 it is a "not implemented
-// yet" error (SC116E) for every receiver. This is the §77 assertion for a
-// class with no declared destructor, kept as written.
+// `x.finally()` on a local whose type is trivially destroyed runs nothing:
+// it is accepted with a warning (SC305W), not an error.
 
 class Plain { var a: i32 = 0 }
 
@@ -14,4 +11,4 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error [" --implicit-check-not="warning ["
-// CHECK: op_finally_no_dtor.k:10:5: error [SC102E]: 'Plain' declares no destructor for 'finally()' to run; declare 'fn op finally(self)' (a body, or '= default')
+// CHECK: op_finally_no_dtor.k:8:5: warning [SC305W]: finally() has no effect on 'p'; its type 'Plain' is trivially destroyed

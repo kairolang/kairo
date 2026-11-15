@@ -305,7 +305,7 @@ pub fn encode_tokens(all: *const [SemTok], f: *const FileText, w: *JsonWriter) {
 
                 w->uint(dl)
                 w->uint(dc)
-                w->uint(utf16_len(&f->text, seg, stop - seg))
+                w->uint(utf16_len(const &f->text, seg, stop - seg))
                 w->uint((*all)[i].kind as usize)
                 w->uint((*all)[i].mods as usize)
                 prev_line = line
@@ -355,10 +355,10 @@ pub fn lexical_tokens(sm: unsafe *SourceManager, fid: u32, f: *const FileText, w
             var off       = r.offset as u32
             var len       = chain_head_len(imm, t, t.range.size() as u32)
             var mods: u32 = 0
-            var kind      = lexical_kind(t, &f->text, off, len, &mods)
-            var ml        = macro_token_len(t, &f->text, off, len)
+            var kind      = lexical_kind(t, const &f->text, off, len, &mods)
+            var ml        = macro_token_len(t, const &f->text, off, len)
             if ml != 0 {
-                mods = macro_token_mods(&f->text, off, len, prev)
+                mods = macro_token_mods(const &f->text, off, len, prev)
                 kind = TT_MACRO()
                 len  = ml
             }
@@ -382,7 +382,7 @@ pub fn lexical_tokens(sm: unsafe *SourceManager, fid: u32, f: *const FileText, w
         lx->close()
     }
 
-    encode_tokens(&all, f, w)
+    encode_tokens(const &all, f, w)
 }
 
 /// Sorts \p keys ascending (a bottom-up merge sort: the tree has no sort).
@@ -500,13 +500,19 @@ extend IndexWalker {
             // A macro name is the raw lex's, as in the syntax-only pass: the
             // tree keeps no invocation, and an import path's last segment
             // `name!` would otherwise read as a module.
-            var ml = macro_token_len(t, &self.files[0].text, off, len)
+            var ml = macro_token_len(t, const &self.files[0].text, off, len)
             if ml != 0 {
                 var st = SemTok{}
                 st.off  = off
                 st.len  = ml
                 st.kind = TT_MACRO()
-                st.mods = macro_token_mods(&self.files[0].text, off, len, tk)
+                st.mods = macro_token_mods(
+                    const &self.files[0].text,
+                    off,
+                    len,
+                    tk,
+                )
+
                 out->push_back(st)
                 continue
             }
@@ -533,7 +539,14 @@ extend IndexWalker {
             }
 
             var mods: u32 = 0
-            var kind = lexical_kind(t, &self.files[0].text, off, len, &mods)
+            var kind = lexical_kind(
+                t,
+                const &self.files[0].text,
+                off,
+                len,
+                &mods,
+            )
+
             if kind == TT_NONE() {
                 continue
             }

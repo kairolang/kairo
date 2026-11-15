@@ -298,7 +298,7 @@ pub fn niche_unknown() -> u64 {
 /// spells a constructor either.
 ///
 /// Consumers: MatchLowering, OperatorLowering (an ADT's `==`), and
-/// PanicLowering when it lands. The Nullable lang item's surface
+/// PanicLowering when it lands. The Null lang item's surface
 /// (`is_null()`, `__value()`, its constructors) is layout-independent by
 /// construction and is named through SemaContext::nullable_member.
 pub class EnumLayoutQuery {
@@ -4023,10 +4023,10 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         fields->push(f)
     }
 
-    /// # the Nullable lang item
+    /// # the Null lang item
 
     /// By identity with the lang item, never by name: a user may declare an
-    /// enum called Nullable.
+    /// enum called Null.
     priv fn _is_nullable(self, en: unsafe *Declarations::EnumDecl) -> bool {
         var unsafe *nd = self.sc->nullable_enum()
         return nd != &null && nd == en
@@ -4068,7 +4068,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         var unsafe *nt = self.sc->well_known->get(WellKnownType::NullT)
         if nt == &null {
             kairo::std::ice_fail(
-                "EnumLayoutLowering: the Nullable lang item without null_t; Lib/builtin declares both",
+                "EnumLayoutLowering: the Null lang item without null_t; Lib/builtin declares both",
             )
         }
 

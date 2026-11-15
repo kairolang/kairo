@@ -93,8 +93,8 @@ import AST::Node::Declarations::{
     VariableDecl,
 }
 import AST::Node::Expressions::{
-    AssignOperatorExpr, BinaryOperatorExpr, CallExpr, ImplicitBoundaryCastExpr,
-    OpRewrite,          ParenExpr,          StmtExpr, SubscriptExpr,
+    AssignOperatorExpr, BinaryOperatorExpr, CallExpr,     ImplicitBoundaryCastExpr, OpRewrite,
+    ParenExpr,          REMAKE_DEAD,        REMAKE_MAYBE, StmtExpr,                 SubscriptExpr,
     TypeCastExpr,       UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
@@ -377,6 +377,11 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             return out
         }
 
+        // A construction after `finally()` (MoveCheck): no `op =` runs.
+        if (n->remake & (REMAKE_DEAD | REMAKE_MAYBE)) != 0 {
+            return out
+        }
+
         var unsafe *f   = self._fn(n->resolved_op)
         var        args = cxx::std::vector<unsafe *Expr>()
         args.push_back(n->rhs)
@@ -453,7 +458,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
 
         if n->enum_check != &null && out != &null && isa<TypeCastExpr>(out) {
             // The enum was recorded at typing: the cast's own type may be a
-            // `Nullable<E>` record by now (NullableTypeLowering).
+            // `Null<E>` record by now (NullableTypeLowering).
             var unsafe *oc = cast<TypeCastExpr>(out)
             var unsafe *en = dyn_cast<EnumDecl>(n->enum_check)
             oc->enum_check = &null // checked once: a later walk must not wrap it again.

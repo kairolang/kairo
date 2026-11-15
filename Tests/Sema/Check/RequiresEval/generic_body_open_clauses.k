@@ -52,7 +52,7 @@ fn <T> dup(const x: T) -> T {
 // CHECK-NEXT: generic_body_open_clauses.k:28:1: note [SC320N]: no bound selects this candidate: its clause tests the parameter with a condition no bound can promise
 // CHECK: generic_body_open_clauses.k:41:12: error [SC320E]: call to 'copy'
 // CHECK-NEXT: utility.k:{{[0-9]+}}:{{[0-9]+}}: note [SC320N]: this candidate is selected when 'T' implements 'CopiesItself': add the bound 'T impl CopiesItself', though the interface is not public, so this file cannot name it
-// CHECK-NEXT: utility.k:{{[0-9]+}}:{{[0-9]+}}: note [SC320N]: no bound selects this candidate: it applies when 'T' implements 'CopyConstructible' and 'T' does not implement 'CopiesItself', and no bound can promise that 'T' does not implement 'CopiesItself'
+// CHECK-NEXT: utility.k:{{[0-9]+}}:{{[0-9]+}}: note [SC320N]: no bound selects this candidate: it applies when 'T' implements 'Copy' and 'T' does not implement 'CopiesItself', and no bound can promise that 'T' does not implement 'CopiesItself'
 // CHECK-NOT: error [SC064E]
 
 // A constrained overload beside an unconstrained one: constraints order

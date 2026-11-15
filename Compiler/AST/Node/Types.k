@@ -368,7 +368,7 @@ pub class PointerType derives Type {
 ///
 pub class NullableType derives Type {
     pub var inner: unsafe *Type
-    /// On a canonical: the `::builtin::Nullable<inner>` record this `T?` IS
+    /// On a canonical: the `::builtin::Null<inner>` record this `T?` IS
     /// to C++, or null before NullableTypeLowering. Every pass up to that
     /// one asks the NullableType (Compiler/Spec/Nullables.md#the-canonical-type-and-its-record); codegen spells and plans
     /// the record instead. A slot rather than a rewrite: canonicals are

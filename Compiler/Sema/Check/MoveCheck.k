@@ -2620,6 +2620,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
                         self._assigning = false
                         self._st.clear(pl.d, pl.path)
+                        if self._remake(asn, pl) {
+                            return e
+                        }
+
                         // A store into a finalized local runs on a destroyed object.
                         var fi = self._st.finalized_at(pl.d)
                         if fi != usize::MAX
@@ -5385,8 +5389,17 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         var has = local_has_dtor(self.sc, v)
+        // A type that depends on a generic parameter is decided per instance:
+        // the union storage is valid for every T, and a trivially destroyed
+        // instance runs nothing (no SC305W: the body is checked once).
+        if has == LifecycleTri::Unknown
+            && v->type_ != &null
+            && (v->type_->canonical == &null || v->type_->canonical->is_dependent()) {
+            has = LifecycleTri::Yes
+        }
+
         if unsup.size() == 0 && has == LifecycleTri::Unknown {
-            unsup = f"its type '{self._tu.str(v->type_)}' depends on a generic parameter, which is not supported yet"
+            unsup = f"its type '{self._tu.str(v->type_)}' is not known, which is not supported yet"
         }
 
         if unsup.size() > 0 {
@@ -5417,6 +5430,44 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         n->finalize = Expressions::FinalizeKind::Ends
+        return true
+    }
+
+    /// `x = e` with \p pl the whole local `x` of this body: an assignment
+    /// revives a finalized local as it revives a moved-from one, but the
+    /// storage holds no object, so it is a construction (the old value's
+    /// destructor and `op =` do not run). The states it is reached in are
+    /// recorded on the node (AssignOperatorExpr::remake); maybe dead is
+    /// legal, decided at run time by the `live` flag (LocalEnds::settle).
+    /// False for anything else: a write to a part of a finalized local
+    /// stays SC303E.
+    priv fn _remake(self,
+                    asn:      unsafe *Expressions::AssignOperatorExpr,
+                    const pl: MovePlace) -> bool {
+        if pl.path.size() != 0 || pl.has_ptr || !self._ends.has(pl.d) {
+            return false
+        }
+
+        var fi = self._st.finalized_at(pl.d)
+        if fi == usize::MAX || self._st.dead {
+            asn->remake = asn->remake | Expressions::REMAKE_LIVE
+            return fi == usize::MAX
+        }
+
+        asn->remake = asn->remake | (if (self._st.is_ended(pl.d)) => (Expressions::REMAKE_DEAD)
+                                     else => Expressions::REMAKE_MAYBE)
+        self._st.moved.erase(self._st.moved.cbegin() + (fi as isize))
+        var k: usize = 0
+        while k < self._st.ended.size() {
+            if self._st.ended[k] == pl.d {
+                self._st.ended.erase(self._st.ended.cbegin() + (k as isize))
+                continue
+            }
+
+            k += 1
+        }
+
+        self._ends.remade_at(pl.d, asn)
         return true
     }
 

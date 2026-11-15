@@ -503,7 +503,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
     ///
     /// Everything else clang rejects: another value type (`-> i64` over
     /// `-> i32`, `-> D` over `-> B`), a pointer to an unrelated record, a
-    /// nullable pointer of a derived record (`*D?` over `*B?`: `Nullable<D*>`
+    /// nullable pointer of a derived record (`*D?` over `*B?`: `Null<D*>`
     /// is not covariant), a value over `void` and the reverse.
     priv fn _kairo_return_agrees(self, mc: unsafe *Type, bc: unsafe *Type) -> bool {
         var mvoid = mc == &null || self._tu.is_void(mc)

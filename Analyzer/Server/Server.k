@@ -365,7 +365,7 @@ pub class Server {
             return // a reply to one of our own requests
         }
 
-        var about = text_document_uri(&d, params)
+        var about = text_document_uri(const &d, params)
         if about.size() > 40 {
             about = about.subslice(about.size() - 40, 40)
         }
@@ -434,7 +434,7 @@ pub class Server {
 
             self.trace(have)
             self.trace("client: " + d.dump(d.get(params, "clientInfo")))
-            self.initialize(&d, params, id)
+            self.initialize(const &d, params, id)
             self.session = Session::Initializing
             return
         }
@@ -512,7 +512,7 @@ pub class Server {
                 self.docs.change(
                     i,
                     d.get_int(td, K_VERSION),
-                    &d,
+                    const &d,
                     d.get(params, K_CONTENT_CHANGES),
                 )
 
@@ -523,7 +523,7 @@ pub class Server {
         }
 
         if method == M_DID_CLOSE {
-            var uri = text_document_uri(&d, params)
+            var uri = text_document_uri(const &d, params)
             var i   = self.docs.index_of(uri)
             if i != usize::MAX {
                 var path = self.docs.docs[i].path
@@ -544,7 +544,7 @@ pub class Server {
         }
 
         if method == M_DID_SAVE {
-            var path = self.path_of(text_document_uri(&d, params))
+            var path = self.path_of(text_document_uri(const &d, params))
             if Path::filename_of(path) == project_file_name() {
                 self.rev += 1
                 self.load_project()
@@ -585,34 +585,34 @@ pub class Server {
         }
 
         if method == M_FORMATTING {
-            self.formatting(&d, params, id)
+            self.formatting(const &d, params, id)
             return
         }
 
         if method == M_COMPLETION {
-            self.completion(&d, params, id)
+            self.completion(const &d, params, id)
             return
         }
 
         // Answered from the buffer's text, so never parked and never stale.
         if method == M_FOLDING_RANGE {
-            self.folding(&d, params, id)
+            self.folding(const &d, params, id)
             return
         }
 
         if method == M_SELECTION_RANGE {
-            self.selection(&d, params, id)
+            self.selection(const &d, params, id)
             return
         }
 
         if method == M_SIGNATURE_HELP {
-            self.signature_help(&d, params, id)
+            self.signature_help(const &d, params, id)
             return
         }
 
         if (method == M_INCOMING_CALLS) || (method == M_OUTGOING_CALLS) {
             self.calls(
-                &d,
+                const &d,
                 d.get(params, K_ITEM),
                 method == M_INCOMING_CALLS,
                 id,
@@ -634,7 +634,7 @@ pub class Server {
                 method == M_SUPERTYPES,
                 &w,
                 true,
-                &nosh,
+                const &nosh,
             )
 
             w.end_array()
@@ -643,7 +643,7 @@ pub class Server {
         }
 
         if method == M_RANGE_FORMATTING {
-            self.formatting(&d, params, id)
+            self.formatting(const &d, params, id)
             return
         }
 
@@ -670,7 +670,7 @@ pub class Server {
             if (d.get(params, K_DOCUMENTATION) == JSON_NONE())
                 && (d.get(params, K_DATA) != JSON_NONE())
                 && (out.size() > 1) {
-                var doc = self.resolve_doc_(&d, params)
+                var doc = self.resolve_doc_(const &d, params)
                 if !doc.empty() {
                     var dw = JsonWriter()
                     dw.begin_object()
@@ -686,7 +686,7 @@ pub class Server {
         }
 
         if method == M_ON_TYPE_FORMATTING {
-            self.on_type(&d, params, id)
+            self.on_type(const &d, params, id)
             return
         }
 
@@ -741,7 +741,7 @@ pub class Server {
         if method == M_KALS_TEXT {
             // Debug: what the server holds for a buffer, for a test to
             // compare with its own copy after a run of incremental edits.
-            var i = self.docs.index_of(text_document_uri(&d, params))
+            var i = self.docs.index_of(text_document_uri(const &d, params))
             if i == usize::MAX {
                 self.respond(id, "null")
                 return
@@ -761,7 +761,10 @@ pub class Server {
         }
 
         if method == M_KALS_SNAPSHOT {
-            var sei = self.entry_of(self.path_of(text_document_uri(&d, params)))
+            var sei = self.entry_of(
+                self.path_of(text_document_uri(const &d, params)),
+            )
+
             if (sei == usize::MAX) || (!self.entries[sei].has_snap) {
                 self.respond(id, "null")
                 return

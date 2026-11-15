@@ -202,7 +202,7 @@ pub class ForeignInstantiate {
     /// if it is filled afterwards, by this call or an earlier one. clang's
     /// own diagnostics for the fill go to \p sink, the demanding TU's; null
     /// leaves them on the set's fallback printer. \p fid is that TU: a
-    /// Kairo instance the fill names first (`Nullable<i32>` behind
+    /// Kairo instance the fill names first (`Null<i32>` behind
     /// `vector<i32?>`) is homed there, as one its own typing named would be.
     /// -1 when no TU demands it (fid 0 is a TU: the first file loaded).
     /// \p alt is that TU's own header set, the fallback when the primary's

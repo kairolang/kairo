@@ -108,7 +108,7 @@ extend Server {
         var out: [i64]
         var pl:  i64          = 0
         var pc:  i64          = 0
-        var e:   *const Entry = &self.entries[ei]
+        var e:   *const Entry = const &self.entries[ei]
         for var pass: usize = 0; pass < 3; ++pass {
             if pass == 1 {
                 // The changed middle, from the buffer's own lexical pass.

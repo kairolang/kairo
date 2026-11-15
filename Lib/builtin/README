@@ -92,9 +92,9 @@ emitted C++ (and a link error) spells Vector
 
 What module.k declares itself, and why it cannot move yet:
 
-  null_t, Nullable  A C++ host spells them `::builtin::null_t`,
+  null_t, Null      A C++ host spells them `::builtin::null_t`,
                     `::builtin::null` (the constant InterfaceEmitter writes
-                    after null_t) and `::builtin::Nullable` (Spec,
+                    after null_t) and `::builtin::Null` (Spec,
                     c-cpp-exposing). Only the root's own declarations are in
                     `::builtin`.
   __builtin_niche_of, __builtin_type_id, __builtin_panic_site
@@ -124,7 +124,7 @@ share a file (coro/generator.k).
 A container or string that owns memory allocates through the non-_in
 family (alloc_raw / free_raw / resize_raw: the allocator in effect), never
 mi_* or malloc; see Allocation below for which file to import. alloc.k does
-not import the root: `T?` binds Nullable without it, and the import closed
+not import the root: `T?` binds Null without it, and the import closed
 a cycle (module.k -> containers/vector.k -> alloc.k -> module.k) that
 warned R001W on every compile.
 
@@ -153,7 +153,7 @@ namespace (and CanonicalNodes.k spells Byte's: "::builtin::base::byte_t::Byte").
     RangeTo         RangeTo                  base/range.k
     Yield           Yield                    coro/generator.k
     Ordering        Ordering                 base/ordering.k
-    Nullable        Nullable                 module.k
+    Null            Null                     module.k
     NullT           null_t                   module.k
     Panic           Panic                    errors/panic_result.k
     String          string                   string.k

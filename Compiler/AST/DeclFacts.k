@@ -1481,7 +1481,7 @@ pub fn decl_extension_of(d: unsafe *Decl) -> unsafe *Declarations::ExtensionDecl
 /// # Interface requirements
 
 /// \p m is a CONSTRUCTOR requirement: a method of an interface named after
-/// that interface (`interface Defaultable { fn Defaultable(self) }`). A
+/// that interface (`interface Default { fn Default(self) }`). A
 /// conformer meets it with its own constructor, named after ITSELF, so a
 /// lookup by the requirement's name can never find the witness; Sema and
 /// Codegen both branch on this. The owner is the semantic one, the

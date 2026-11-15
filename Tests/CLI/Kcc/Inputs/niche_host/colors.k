@@ -10,5 +10,5 @@ pub fn pick(s: Slot) -> i32 = match s {
     case .Empty      => -1
 }
 
-// Names `Color?` and `*Pixel?`, so the module's header carries Nullable.
+// Names `Color?` and `*Pixel?`, so the module's header carries Null.
 pub fn first(c: Color?, p: *Pixel?) -> bool = c? && p?

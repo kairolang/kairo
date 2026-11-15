@@ -5,21 +5,21 @@
 #include "shapes.k"
 #include <cstdio>
 
-using ::builtin::Nullable;
+using ::builtin::Null;
 
-static_assert(sizeof(Nullable<colors::Color>) == 1, "Color? is one byte: null is 3");
-static_assert(sizeof(Nullable<colors::Pixel*>) == sizeof(colors::Pixel*), "a nullable pointer is the pointer");
+static_assert(sizeof(Null<colors::Color>) == 1, "Color? is one byte: null is 3");
+static_assert(sizeof(Null<colors::Pixel*>) == sizeof(colors::Pixel*), "a nullable pointer is the pointer");
 static_assert(sizeof(colors::Slot) == sizeof(colors::Pixel*), "Slot is niche-filled");
 static_assert(sizeof(shapes::Mark) == sizeof(shapes::Kind), "Mark stores Clear as Kind 3");
 static_assert(sizeof(shapes::Pin) == sizeof(shapes::Kind*), "Pin stores Loose as null");
 static_assert(sizeof(shapes::Wrap) == 2 * sizeof(shapes::Bits), "Wrap keeps its tag: an @open Bits has no niche");
 
 int main() {
-    Nullable<colors::Color> n = ::builtin::null;
-    Nullable<colors::Color> g = colors::Color::Green;
+    Null<colors::Color> n = ::builtin::null;
+    Null<colors::Color> g = colors::Color::Green;
     colors::Pixel px{};
-    Nullable<colors::Pixel*> p = &px;
-    Nullable<colors::Pixel*> q;
+    Null<colors::Pixel*> p = &px;
+    Null<colors::Pixel*> q;
     std::printf("n %d g %d p %d q %d\n", n.is_null(), g.is_null(), p.is_null(), q.is_null());
     return 0;
 }

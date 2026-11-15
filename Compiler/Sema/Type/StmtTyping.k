@@ -621,7 +621,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         if self.dyn()->nullable_unbound() {
             if v->init != &null {
-                self.dyn()->missing_lang_item(v->init, "Nullable")
+                self.dyn()->missing_lang_item(v->init, "Null")
             }
 
             return self._cxx_referee(c)

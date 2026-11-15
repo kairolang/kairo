@@ -137,14 +137,14 @@ fn main() -> i32 {
 // IR:       signed int layered(
 // IR:       if(static_cast<unsigned int>(__kairo_m0_s.__kairo_Some.v.__kairo_tag) != 2) {
 // IR:       int main()
-// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Foo *>) == 8);
-// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Color>) == 1);
-// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::builtin::Nullable< ::{{.*}}::Color>>) == 1);
-// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::builtin::Nullable< ::{{.*}}::Foo *>>) == 16);
-// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Inst>) == 8);
+// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Null< ::{{.*}}::Foo *>) == 8);
+// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Null< ::{{.*}}::Color>) == 1);
+// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Null< ::builtin::Null< ::{{.*}}::Color>>) == 1);
+// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Null< ::builtin::Null< ::{{.*}}::Foo *>>) == 16);
+// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Null< ::{{.*}}::Inst>) == 8);
 // IR-DAG:   static_assert(sizeof({{ ?}}::{{.*}}::Opt<signed int>) == 8);
 // IR-DAG:   static_assert(sizeof({{ ?}}::{{.*}}::Opt< ::{{.*}}::Opt< ::{{.*}}::Box<signed int>>>) == sizeof({{ ?}}::{{.*}}::Opt< ::{{.*}}::Opt< ::{{.*}}::Box<signed int>>>::__kairo_Some_t) && __is_standard_layout(
-// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Foo *>) == sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Foo *>::__kairo_Value_t) && __is_standard_layout({{ ?}}::builtin::Nullable< ::{{.*}}::Foo *>));
+// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Null< ::{{.*}}::Foo *>) == sizeof({{ ?}}::builtin::Null< ::{{.*}}::Foo *>::__kairo_Value_t) && __is_standard_layout({{ ?}}::builtin::Null< ::{{.*}}::Foo *>));
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d %t.o2

@@ -678,7 +678,7 @@ fn syntax_main(const out_path: string,
         named.push_back((*real)[k])
     }
 
-    var out = syntax_answer(file, &named, &held, &words)
+    var out = syntax_answer(file, const &named, const &held, &words)
     if !LinkFS::write(out_path, out) {
         return 1
     }
@@ -763,7 +763,7 @@ fn syntax_answer(const file:   string,
     w.field_bool(SK_PARSED, collector->errors == 0)
     w.field_bool(SK_UNSURE, collector->unknown_macros > 0)
     w.field_raw(SK_DIAGNOSTICS, "[" + collector->out + "]")
-    lexical_tokens(ci->sm(), fid, &ft, &w)
+    lexical_tokens(ci->sm(), fid, const &ft, &w)
     w.end_object()
     return w.out
 }
@@ -841,7 +841,7 @@ fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
             real.push_back(files[k])
             var txt: [string]
             txt.push_back(texts[k])
-            var body = syntax_answer(files[k], &real, &txt, &words)
+            var body = syntax_answer(files[k], const &real, const &txt, &words)
             var idn  = ids[k]
             // `{"id":N,` spliced before the answer's own members.
             var msg: string = "{\"" + RP_ID + "\":"
@@ -959,7 +959,13 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         // costs more to start and stop (and to schedule on a busy machine)
         // than the parse it would run.
         words.push_back(CF_THREADS_ONE)
-        return syntax_main(out_path, syntax_file, &real, &tmps, &words)
+        return syntax_main(
+            out_path,
+            syntax_file,
+            const &real,
+            const &tmps,
+            &words,
+        )
     }
 
     // A test knob: a run that takes at least this long, so a test can order

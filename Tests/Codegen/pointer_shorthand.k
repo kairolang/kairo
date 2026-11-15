@@ -34,7 +34,7 @@ fn main() -> i32 {
 // CXX-NEXT: signed int * * pp =(& p);
 // CXX-NEXT: signed int * * * ppp =(& pp);
 // CXX:      const signed int * cp =
-// CXX:      ::builtin::Nullable<signed int *> n =
+// CXX:      ::builtin::Null<signed int *> n =
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

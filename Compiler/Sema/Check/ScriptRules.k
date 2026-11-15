@@ -236,7 +236,7 @@ pub class ScriptRules {
 
     /// A list literal initializing a fixed array, every element constant:
     /// C++'s static `{...}` initializer. A deferred array would need
-    /// `Nullable<T[N]>` storage, which the library cannot build.
+    /// `Null<T[N]>` storage, which the library cannot build.
     priv fn _constant_array(self, l: unsafe *ListLiteralExpr, t: unsafe *Type) -> bool {
         var unsafe *a = dyn_cast<FixedArrayType>(canon_unqual(t))
         if a == &null || a->element == &null {

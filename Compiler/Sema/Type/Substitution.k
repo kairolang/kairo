@@ -1311,8 +1311,8 @@ pub class Substitution {
     /// base (an interface's own spelling `I<V>` included), the declaring
     /// interface's parameters := \p iface's arguments, \p ta's own (a
     /// generic associated type's) := \p args. A bound naming Self or another
-    /// associated type (`type Item impl Comparable<Self::Key>`) is thereby
-    /// `Comparable<T::Key>` for `T::Item`, and `Comparable<i64>` for a
+    /// associated type (`type Item impl Ord<Self::Key>`) is thereby
+    /// `Ord<T::Key>` for `T::Item`, and `Ord<i64>` for a
     /// concrete conformer. \p ready is cleared when part of the clause is
     /// not resolved yet.
     fn clause_bounds(self,

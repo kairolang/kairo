@@ -1,10 +1,10 @@
-//: ::builtin::Nullable, the type `T?` lowers to, used from
+//: ::builtin::Null, the type `T?` lowers to, used from
 // a C++ host (Inputs/nullable_host: widgets.k, nullable_main.cpp). Both
 // constructors convert implicitly (`= ::builtin::null`, `= 5`), is_null()
 // and `==` / `!=` test it, `__value()` reads the payload. A null nullable
 // of a class holds no object (nothing is destroyed for it), a present one
 // destroys its payload exactly once -- on replacement and at scope exit --
-// and a Nullable of a move-only class is move-only (static_asserts in the
+// and a Null of a move-only class is move-only (static_asserts in the
 // host). Widget has no default constructor, so neither does the payload.
 // widgets.k returns a `Widget?` built from a value and from `null`, so the
 // host also sees what Kairo's `T?` lowers to. Widget is COPY (its move is

@@ -1,6 +1,6 @@
-//: the builtin `Nullable<T>` and `null_t` from the Kairo
+//: the builtin `Null<T>` and `null_t` from the Kairo
 // side, before any `T?` lowers to them. Kairo code never names
-// Nullable (type-system.md); Sema does not refuse the name yet, so this
+// Null (type-system.md); Sema does not refuse the name yet, so this
 // test does, to build instances of the lang item directly: a null one of
 // a class with no default constructor holds nothing (no destructor runs),
 // a present one destroys its payload exactly once, a move-only payload
@@ -16,11 +16,11 @@ class Widget {
     fn op finally(self) { if self.id != 0 { println(f"~Widget {self.id}") } }
 }
 
-fn present(id: i32) -> Nullable<Widget> { return Nullable<Widget>::Value { v: Widget(id) } }
+fn present(id: i32) -> Null<Widget> { return Null<Widget>::Value { v: Widget(id) } }
 
-fn relay(@move n: Nullable<Widget>) -> Nullable<Widget> { return n }
+fn relay(@move n: Null<Widget>) -> Null<Widget> { return n }
 
-fn id_of(const n: Nullable<Widget>) -> i32 {
+fn id_of(const n: Null<Widget>) -> i32 {
     return match n {
         case .Value(const v) => v.id
         case .Null           => -1
@@ -30,17 +30,17 @@ fn id_of(const n: Nullable<Widget>) -> i32 {
 fn main() -> i32 {
     var r = 0
     {
-        var none: Nullable<Widget> = .Null
+        var none: Null<Widget> = .Null
         if id_of(none) == -1 { r += 1 }
-        // Nullable<Widget> is MOVE, as Widget is (its own lifecycle facts,
+        // Null<Widget> is MOVE, as Widget is (its own lifecycle facts,
         //), so even a by-value `const` parameter takes `one`: it is
         // read once, through the relay.
         var one = present(4)
         if id_of(relay(one)) == 4 { r += 6 }    // the move-only payload moves out; ~Widget 4 with the temporary
         println("scope end")
     }                                           // nothing: the one live Widget died with the relayed temporary
-    var n: Nullable<i32> = .Null
-    if n == Nullable<i32>::Null { r += 8 }
+    var n: Null<i32> = .Null
+    if n == Null<i32>::Null { r += 8 }
     println("done")
     return r                                    // 15
 }
@@ -53,15 +53,15 @@ fn main() -> i32 {
 // CXX-LABEL: CODEGEN C++: {{.*}}builtin{{/|\\}}module.k
 // CXX:      struct null_t {
 // CXX:      inline constexpr null_t null {
-// CXX:      template<class T> struct Nullable {
-// CXX:      Nullable() noexcept: __kairo_tag(__kairo_Tag::Null) {
-// CXX:      Nullable( ::builtin::null_t) noexcept: __kairo_tag(__kairo_Tag::Null) {
-// CXX:      Nullable(const T & v) noexcept requires __kairo_copyable: __kairo_tag(__kairo_Tag::Value), __kairo_Value {
-// CXX:      Nullable(T && v) noexcept requires __kairo_movable: __kairo_tag(__kairo_Tag::Value), __kairo_Value {
+// CXX:      template<class T> struct Null {
+// CXX:      Null() noexcept: __kairo_tag(__kairo_Tag::Null) {
+// CXX:      Null( ::builtin::null_t) noexcept: __kairo_tag(__kairo_Tag::Null) {
+// CXX:      Null(const T & v) noexcept requires __kairo_copyable: __kairo_tag(__kairo_Tag::Value), __kairo_Value {
+// CXX:      Null(T && v) noexcept requires __kairo_movable: __kairo_tag(__kairo_Tag::Value), __kairo_Value {
 // CXX:      bool is_null() const noexcept {
 // CXX:      T & __value() noexcept {
 // CXX:      const T & __value() const noexcept {
-// CXX:      bool operator ==(const Nullable & o) const noexcept requires requires(const T & a) {
+// CXX:      bool operator ==(const Null & o) const noexcept requires requires(const T & a) {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

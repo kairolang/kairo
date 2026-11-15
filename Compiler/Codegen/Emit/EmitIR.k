@@ -155,14 +155,15 @@ import AST::Node::Declarations::{
     VisibilityGroupDecl,
 }
 import AST::Node::Expressions::{
-    AlignOfExpr,    AnonInitializerExpr,  AssignOperatorExpr,       BinaryOperatorExpr,
-    CallExpr,       CaptureMode,          CastMode,                 ClosureExpr,
-    ConstraintExpr, CxxNewExpr,           DeleteExpr,               EvalExpr,
-    FinalizeKind,   IfExpr,               ImplicitBoundaryCastExpr, InitField,
-    InitListExpr,   NamedInitializerExpr, PackExpansionExpr,        PanicOp,
-    PanicOpExpr,    ParenExpr,            SizeOfExpr,               StmtExpr,
-    SubscriptExpr,  TypeCastExpr,         TypeTraitExpr,            UnaryOperatorExpr,
-    UnsafeExpr,     VariantInitExpr,      type_trait_cxx,
+    AlignOfExpr,     AnonInitializerExpr,  AssignOperatorExpr,       BinaryOperatorExpr,
+    CallExpr,        CaptureMode,          CastMode,                 ClosureExpr,
+    ConstraintExpr,  CxxNewExpr,           DeleteExpr,               EvalExpr,
+    FinalizeKind,    IfExpr,               ImplicitBoundaryCastExpr, InitField,
+    InitListExpr,    NamedInitializerExpr, PackExpansionExpr,        PanicOp,
+    PanicOpExpr,     ParenExpr,            REMAKE_DEAD,              REMAKE_LIVE,
+    REMAKE_MAYBE,    SizeOfExpr,           StmtExpr,                 SubscriptExpr,
+    TypeCastExpr,    TypeTraitExpr,        UnaryOperatorExpr,        UnsafeExpr,
+    VariantInitExpr, type_trait_cxx,
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
@@ -2131,6 +2132,42 @@ pub class EmitIR {
         self._cg->sink->spell(n->range, ")")
     }
 
+    /// `x = e` that constructs a finalized local again
+    /// (AssignOperatorExpr::remake): `e` built in place in the storage, as
+    /// `T x = e` would build it, and `live` set when flagged. Maybe dead,
+    /// the object a flagged `live` says is there is destroyed first.
+    priv fn _remake(self, n: unsafe *AssignOperatorExpr) {
+        var unsafe *ni = dyn_cast<NamedIdentExpr>(n->lhs)
+        var r = if (ni != &null) => (self._ul_use(ni->resolved_decl)) else => usize::MAX
+        var b     = n->remake
+        var maybe = (b & REMAKE_MAYBE) != 0 || (b & REMAKE_DEAD) != 0 && (b & REMAKE_LIVE) != 0
+        if r == usize::MAX
+            || self._ul_decl[r]->dtor_mode == LocalDtor::Cleanup
+            || maybe && self._ul_decl[r]->dtor_mode != LocalDtor::Flagged {
+            self._ice(
+                n->range,
+                "EmitIR: a construction after finally() on a local whose mode cannot take it; its mode and its sites disagree",
+            )
+        }
+
+        var obj = self._ul_obj[r]
+        var st  = self._ul_store[r]
+        var s   = "("
+        if maybe {
+            s += st + "." + LowerTargets::union_local_kill() + "(), "
+        }
+
+        s += "::new (static_cast<void*>(&" + obj + "), ::" + LowerTargets::union_local_place() + "{}) decltype(" + obj + ")("
+        self._cg->sink->spell(n->range, s)
+        self._value(n->rhs, n->lhs->type_)
+        var t = ")"
+        if self._ul_decl[r]->dtor_mode == LocalDtor::Flagged {
+            t += ", " + st + ".live = true"
+        }
+
+        self._cg->sink->spell(n->range, t + ", void())")
+    }
+
     /// 1 for the DynamicSize lang item, 2 for DynamicAlign, else 0
     /// (FunctionDecl::dynamic_layout, on the decl or its representative).
     priv fn _dynamic_layout_of(self, f: unsafe *FunctionDecl) -> u8 {
@@ -4044,7 +4081,7 @@ pub class EmitIR {
     }
 
     /// `T? -> U?` with different inners that convert (`*D? -> *B?`,
-    /// `*B? -> *const B?`, `i32? -> i64?`). Nullable has no
+    /// `*B? -> *const B?`, `i32? -> i64?`). Null has no
     /// converting constructor, so the static_cast every other exactness
     /// conversion gets is ill-formed C++ here. A parameter lambda (no
     /// capture-default, so it is valid in a global's initializer too)
@@ -4192,7 +4229,7 @@ pub class EmitIR {
     ///       (A __kairo_a0) noexcept -> R' { return ::__kairo_pcall<R'>(__kairo_w, a0); }))
     ///
     /// A `(fn ...)?` target is looked through: the wrapper is the
-    /// `T` whose non-explicit `Nullable(T&&)` makes the Nullable at every
+    /// `T` whose non-explicit `Null(T&&)` makes the Null at every
     /// copy-initialization site. A `(fn ...)?` SOURCE as well keeps its
     /// null: a parameter lambda (one with no capture-default, so it is valid
     /// in a global's initializer too) tests it once and wraps only the
@@ -9435,6 +9472,11 @@ pub class EmitIR {
     }
 
     priv fn _assign(self, n: unsafe *AssignOperatorExpr) {
+        if (n->remake & (REMAKE_DEAD | REMAKE_MAYBE)) != 0 {
+            self._remake(n)
+            return
+        }
+
         // S_pre's `self.x = e` fills x's slot: `init` for a const field (its
         // one assignment, CtorInitCheck), `put` for a `var` one, which S_pre
         // may assign again.
@@ -9876,8 +9918,8 @@ pub class EmitIR {
 
         // `v as E?` from an integer, `e as u8?` from a plain enum: the cast
         // is to the inner type, which then converts to the nullable.
-        // Nullable<E> has no constructor from E's underlying integer (nor
-        // Nullable<u8> from an enum class), so the one-step static_cast
+        // Null<E> has no constructor from E's underlying integer (nor
+        // Null<u8> from an enum class), so the one-step static_cast
         // into it is a C++ error. A closed enum's check has already
         // wrapped the operand (OperatorLowering), so it still runs first.
         if kind == "static_cast" && n->target != &null && n->target->canonical != &null {
@@ -9935,7 +9977,7 @@ pub class EmitIR {
     ///
     ///   [](D* __kairo_dc) noexcept -> N { return __kairo_dc ? N(__kairo_dc) : N(); }(dynamic_cast<D*>(p))
     ///
-    /// `N()` is Nullable's null (AdtRole::NullDefault). With the pointer
+    /// `N()` is Null's null (AdtRole::NullDefault). With the pointer
     /// niche (G2b) this becomes the dynamic_cast alone.
     priv fn _checked_downcast(self, n: unsafe *TypeCastExpr) {
         var unsafe *tc = n->target->canonical

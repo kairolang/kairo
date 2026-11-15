@@ -31,7 +31,7 @@
 ///         types, parameter modes and `self` constness. C++ types, because
 ///         a dyn call in a `: type` base is resolved by clang per instance:
 ///         `*T` and `unsafe *T` are both `T*` there, so the derived method
-///         does hide the base's, while `*T?` is a Nullable and does not. A
+///         does hide the base's, while `*T?` is a Null and does not. A
 ///         base method whose parameters depend on a type parameter is not
 ///         compared (it is not claimed to differ), nor is a generic M.
 ///
@@ -606,7 +606,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
     /// pointers that differ only in safety (`*T` and `unsafe *T` are both
     /// `T*`, so the derived one does hide the base's in C++), level by
     /// level with the pointees' qualifiers. A parameter's own top-level
-    /// `const` is no part of a C++ signature. `*T?` is a Nullable in C++,
+    /// `const` is no part of a C++ signature. `*T?` is a Null in C++,
     /// never a `T*`: it stays apart (RedeclMerge::_cxx_same, the same rule).
     priv fn _cxx_same(self, a_in: unsafe *Type, b_in: unsafe *Type) -> bool {
         var unsafe *a = canon_unqual(a_in)

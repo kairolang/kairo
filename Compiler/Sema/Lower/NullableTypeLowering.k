@@ -1,13 +1,13 @@
 /// --- The Kairo Project ------------ Sema/Lower/NullableTypeLowering.k --- ///
 ///
-///   \brief `T?` is `::builtin::Nullable<T>` to C++, and the `null` literal
+///   \brief `T?` is `::builtin::Null<T>` to C++, and the `null` literal
 ///          is that record's null.
 ///
 ///   \detail
 ///     Two rewrites (Compiler/Spec/Nullables.md#the-canonical-type-and-its-record, §5 step 4):
 ///
-///       i32?            canonical NullableType  ->  lowered = record(Nullable, [i32])
-///       null : i32?     NullLiteralExpr         ->  VariantInitExpr Nullable<i32>::Null
+///       i32?            canonical NullableType  ->  lowered = record(Null, [i32])
+///       null : i32?     NullLiteralExpr         ->  VariantInitExpr Null<i32>::Null
 ///       &null : (*T)?   NullLiteralExpr         ->  the same: a nullable pointer's
 ///                                                   null is the nullable's (1.3)
 ///
@@ -20,27 +20,27 @@
 ///     repointing that breaks deduction. So the pass walks the
 ///     canonical TABLE, not the tree: whatever `T?` any TU minted is lowered,
 ///     and one this TU never uses costs one record. `T?`'s inner is the
-///     record's argument as it is: `(i32?)?` is Nullable<i32?>, which spells
-///     Nullable<Nullable<int>> through the inner's own slot, and since this
+///     record's argument as it is: `(i32?)?` is Null<i32?>, which spells
+///     Null<Null<int>> through the inner's own slot, and since this
 ///     is the only writer there is one instance per C++ type. A dependent
 ///     inner gives the primary over it (SemaContext::lang_record), which is
-///     what a generic body's `::builtin::Nullable<T>` is.
+///     what a generic body's `::builtin::Null<T>` is.
 ///
 ///     No VALUE conversion is rewritten. Sema checks `T -> T?` and
 ///     `null -> T?` (Conversion::_seq) but records no conversion node, as
 ///     for every implicit conversion; the record's two non-explicit
-///     constructors (`Nullable(const T&)` / `Nullable(T&&)`, and the null
+///     constructors (`Null(const T&)` / `Null(T&&)`, and the null
 ///     ones) make each of them C++ copy-initialization at every site --
 ///     initializer, assignment, return, argument, default, field default,
 ///     element. The null literal is the exception: bare, it has no C++
 ///     type, so an if-expression arm `null` against `5` would be a ternary
-///     over `null_t` and `int`; typed, it is a Nullable, and the other arm
+///     over `null_t` and `int`; typed, it is a Null, and the other arm
 ///     converts to it.
 ///
 ///   Phase: LOWER, after CopyMoveLowering and immediately before
 ///   OperatorLowering. After: CopyMoveLowering decides a transfer from the
 ///   value's lifecycle, which ClassLifecycle answers for a NullableType
-///   from its inner; a freshly minted Nullable<Uniq> instance would have
+///   from its inner; a freshly minted Null<Uniq> instance would have
 ///   no facts yet, the `T&&` would be lost and clang would pick the
 ///   deleted copy. Before OperatorLowering, so the null tests and coalesces
 ///   that land later (CoalesceLowering, NullTestLowering,
@@ -86,7 +86,7 @@ import Sema::Type::TypeUtil::TypeUtil
 pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
     pub var  sc:       unsafe *SemaContext
     priv var tu:       TypeUtil
-    priv var _en:      unsafe *EnumDecl    = &null ///< the Nullable lang item's pattern.
+    priv var _en:      unsafe *EnumDecl    = &null ///< the Null lang item's pattern.
     priv var _null_ix: u32                 = 0     ///< its payload-less variant's tag.
 
     fn NullableTypeLowering(self, sc: unsafe *SemaContext) {
@@ -105,14 +105,14 @@ pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
         // A build with no builtin root has no `T?` to lower to; a `T?` that
         // reaches codegen then ICEs naming this pass (CXXSpell), which is the
         // truth: nothing could lower it.
-        if !self.sc->well_known->has(WellKnownType::Nullable) {
+        if !self.sc->well_known->has(WellKnownType::Null) {
             return
         }
 
         self._en = self.sc->nullable_enum()
         if self._en == &null {
             kairo::std::ice_fail(
-                "NullableTypeLowering: the Nullable lang item is not an enum",
+                "NullableTypeLowering: the Null lang item is not an enum",
             )
         }
 
@@ -127,7 +127,7 @@ pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
 
         if !found {
             kairo::std::ice_fail(
-                "NullableTypeLowering: the Nullable lang item has no payload-less variant",
+                "NullableTypeLowering: the Null lang item has no payload-less variant",
             )
         }
 
@@ -163,7 +163,7 @@ pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
             var args = cxx::std::vector<unsafe *Type>()
             args.push_back(n->inner)
             var unsafe *r = self.sc->lang_record(
-                WellKnownType::Nullable,
+                WellKnownType::Null,
                 unsafe &args,
             )
 

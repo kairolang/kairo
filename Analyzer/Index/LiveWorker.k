@@ -454,7 +454,7 @@ fn live_take(t: *Transport, r: *LiveReq, asks: *[LiveReq]) {
         var c = d.first(d.get(d.root, RQ_CHANGED))
         while c != JSON_NONE() {
             var p = d.str(c)
-            if !live_has(&r->changed, p) {
+            if !live_has(const &r->changed, p) {
                 r->changed.push_back(p)
             }
 
@@ -534,7 +534,7 @@ fn live_step(st:   *LiveState,
             live->set_overlay(r->open_paths[k], text)
         }
 
-        if !live_has(&changed, r->open_paths[k]) {
+        if !live_has(const &changed, r->open_paths[k]) {
             changed.push_back(r->open_paths[k])
         }
     }
@@ -544,7 +544,7 @@ fn live_step(st:   *LiveState,
     var hp: [string]
     var ht: [string]
     for var h: usize = 0; h < st->held_paths.size(); ++h {
-        if live_has(&r->open_paths, st->held_paths[h]) {
+        if live_has(const &r->open_paths, st->held_paths[h]) {
             hp.push_back(st->held_paths[h])
             ht.push_back(st->held_texts[h])
             continue
@@ -553,7 +553,7 @@ fn live_step(st:   *LiveState,
         live->clear_overlay(st->held_paths[h])
         var disk: string = ""
         if (!LinkFS::read(st->held_paths[h], &disk)) || (disk != st->held_texts[h]) {
-            if !live_has(&changed, st->held_paths[h]) {
+            if !live_has(const &changed, st->held_paths[h]) {
                 changed.push_back(st->held_paths[h])
             }
         }
@@ -592,9 +592,9 @@ fn live_step(st:   *LiveState,
         // and was not open when its file was last checked) is checked
         // again to be walked.
         for var k: usize = 0; k < r->open_paths.size(); ++k {
-            if live_has(&st->deps, r->open_paths[k])
-                && (!live_has(&obs->k_paths, r->open_paths[k]))
-                && (!live_has(&changed, r->open_paths[k])) {
+            if live_has(const &st->deps, r->open_paths[k])
+                && (!live_has(const &obs->k_paths, r->open_paths[k]))
+                && (!live_has(const &changed, r->open_paths[k])) {
                 changed.push_back(r->open_paths[k])
             }
         }
@@ -603,7 +603,7 @@ fn live_step(st:   *LiveState,
             // A file the graph does not hold: nothing of the result reads
             // it (a file that an import now FINDS is found by that
             // importer's own edit, or by the entry's next full check).
-            if (!live_has(&st->deps, changed[k])) && (live->errors == 0) {
+            if (!live_has(const &st->deps, changed[k])) && (live->errors == 0) {
                 continue
             }
 
@@ -628,7 +628,7 @@ fn live_step(st:   *LiveState,
 
             for var q: usize = 0; q < live->rechecked.size(); ++q {
                 var name: string = live->rechecked[q]
-                if !live_has(&rechecked, name) {
+                if !live_has(const &rechecked, name) {
                     rechecked.push_back(name)
                 }
             }
@@ -645,7 +645,7 @@ fn live_step(st:   *LiveState,
         full,
         mode,
         why,
-        &rechecked,
+        const &rechecked,
         false,
         r->out,
         t0,
@@ -697,7 +697,7 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
         var text: string = ""
         whys.push_back("")
         if stopped
-            || (!live_has(&st->deps, r->aside_paths[k]))
+            || (!live_has(const &st->deps, r->aside_paths[k]))
             || (!LinkFS::read(r->aside_files[k], &text)) {
             states.push_back(AS_NONE)
             continue
@@ -780,7 +780,7 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
                 owner = live->ci()->sm()->get_filename(fd->diags[i]->loc)
             }
 
-            if !live_has(&r->aside_paths, owner) {
+            if !live_has(const &r->aside_paths, owner) {
                 continue
             }
 
@@ -842,7 +842,7 @@ fn live_finish(st:         *LiveState,
         var kp: [string]
         var kb: [string]
         for var i: usize = 0; i < obs->k_paths.size(); ++i {
-            if live_has(&st->deps, obs->k_paths[i]) {
+            if live_has(const &st->deps, obs->k_paths[i]) {
                 kp.push_back(obs->k_paths[i])
                 kb.push_back(obs->k_blocks[i])
             }
@@ -854,7 +854,7 @@ fn live_finish(st:         *LiveState,
         var tb: [string]
         var ts: [u64]
         for var i: usize = 0; i < obs->t_paths.size(); ++i {
-            if live_has(&st->deps, obs->t_paths[i]) {
+            if live_has(const &st->deps, obs->t_paths[i]) {
                 tp.push_back(obs->t_paths[i])
                 tb.push_back(obs->t_blocks[i])
                 ts.push_back(obs->t_seq[i])
@@ -885,13 +885,13 @@ fn live_finish(st:         *LiveState,
     }
 
     for var i: usize = 0; i < obs->unchecked.size(); ++i {
-        if !live_has(&up, obs->unchecked[i]) {
+        if !live_has(const &up, obs->unchecked[i]) {
             up.push_back(obs->unchecked[i])
         }
     }
 
     for var i: usize = 0; i < obs->partial.size(); ++i {
-        if !live_has(&pp, obs->partial[i]) {
+        if !live_has(const &pp, obs->partial[i]) {
             pp.push_back(obs->partial[i])
         }
     }
@@ -902,7 +902,7 @@ fn live_finish(st:         *LiveState,
         var kp: [string]
         var kb: [string]
         for var i: usize = 0; i < obs->k_paths.size(); ++i {
-            if !live_has(&st->unchecked, obs->k_paths[i]) {
+            if !live_has(const &st->unchecked, obs->k_paths[i]) {
                 kp.push_back(obs->k_paths[i])
                 kb.push_back(obs->k_blocks[i])
             }
@@ -919,7 +919,7 @@ fn live_finish(st:         *LiveState,
     // with no edit of its own: the server asks the editor to draw it again.
     var touched = false
     for var k: usize = 0; k < rechecked->size(); ++k {
-        if live_has(&r->open_paths, (*rechecked)[k]) {
+        if live_has(const &r->open_paths, (*rechecked)[k]) {
             touched = true
         }
     }
@@ -933,7 +933,15 @@ fn live_finish(st:         *LiveState,
     if bg && (!full) && (!touched) && (!diags_moved) && (!narrow) && (live->pending > 0) {
         wrote = ""
     } else {
-        var snap = live_snapshot(st, obs, live, &r->open_paths, took, r->have)
+        var snap = live_snapshot(
+            st,
+            obs,
+            live,
+            const &r->open_paths,
+            took,
+            r->have,
+        )
+
         if !LinkFS::write(out, snap) {
             live_fail(t, r->id, "cannot write " + out)
             return
@@ -1011,7 +1019,7 @@ fn live_slice(st:   *LiveState,
         full,
         live->mode,
         live->why,
-        &rechecked,
+        const &rechecked,
         true,
         r->out + f".{seq}",
         t0,

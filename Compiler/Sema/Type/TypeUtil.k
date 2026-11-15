@@ -664,7 +664,7 @@ pub class TypeUtil {
 
     /// Associated type \p ta's OWN `impl` bounds (`type Item impl Display`),
     /// in clause order. A generic one's clause also holds its parameters'
-    /// (`type <K impl Hashable> Map`, hoisted as `K impl Hashable`), which
+    /// (`type <K impl Hash> Map`, hoisted as `K impl Hash`), which
     /// bound K, not the type.
     fn assoc_own_bounds(self,
                         ta:         unsafe *Declarations::TypeAliasDecl,

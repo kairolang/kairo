@@ -1271,7 +1271,7 @@ pub class Sema {
         }
 
         // Every null test (`x?`, `x == null` and its spellings) -> a call of
-        // the Nullable's `is_null()` (Compiler/Spec/Nullables.md#lowering-passes step 2). After
+        // the Null's `is_null()` (Compiler/Spec/Nullables.md#lowering-passes step 2). After
         // EnumLayoutLowering, which mints `is_null()`; before
         // NullableTypeLowering, so the operand is still a NullableType to
         // classify and a compared `null` is dropped before it becomes a
@@ -1298,7 +1298,7 @@ pub class Sema {
             self._arena_note("L:NarrowedAccessLowering", _ma)
         }
 
-        // `T?` -> `::builtin::Nullable<T>`, and `null` -> its null (Compiler/Spec/Nullables.md
+        // `T?` -> `::builtin::Null<T>`, and `null` -> its null (Compiler/Spec/Nullables.md
         // §5). After CopyMoveLowering: a transfer is decided from the value's
         // lifecycle, which ClassLifecycle answers for `T?` from T; the minted
         // record instance has no facts yet. Before OperatorLowering. The last

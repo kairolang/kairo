@@ -1331,7 +1331,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     }
 
     /// `?.`/`?->` peel the nullable they guard. `T?` may have been lowered to
-    /// `Nullable<T>` (lang item), so that spelling peels too. `?.` on a
+    /// `Null<T>` (lang item), so that spelling peels too. `?.` on a
     /// non-nullable proceeds as-is here; MemberTyping reports it (SC001E,
     /// Compiler/Spec/Nullables.md#safe-access).
     priv fn _peel_maybe(self, t: unsafe *Type, st: unsafe *ChainExpr::Step) -> unsafe *Type {
@@ -1348,7 +1348,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         if isa<RecordType>(t) {
             var unsafe *rt = cast<RecordType>(t)
             var unsafe *null_decl = self.sc->well_known->get(
-                WellKnownType::Nullable,
+                WellKnownType::Null,
             )
 
             if null_decl != &null && rt->decl == null_decl && rt->args.size() == 1 {

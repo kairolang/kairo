@@ -59,7 +59,7 @@ pub enum DeclKind derives u8 {
     /// class Foo<T> derives Bar impl Baz { }
     ClassDecl,
 
-    /// interface Printable<T> { }
+    /// interface Print<T> { }
     InterfaceDecl,
 
     /// extend Foo<T> impl Bar { }  (adds methods/conformance)

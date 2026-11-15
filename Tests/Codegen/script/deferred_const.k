@@ -14,9 +14,9 @@ println(f"limit {LIMIT} {show()}")
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      ::builtin::Nullable<signed int> LIMIT =
+// CXX:      ::builtin::Null<signed int> LIMIT =
 // CXX:      int main() {
-// CXX:      deferred_const::LIMIT = static_cast<{{ ?}}::builtin::Nullable<signed int>>({{ ?}}::deferred_const::load()));
+// CXX:      deferred_const::LIMIT = static_cast<{{ ?}}::builtin::Null<signed int>>({{ ?}}::deferred_const::load()));
 //
 // REQUIRES: clang
 // RUN: rm -rf %t.d

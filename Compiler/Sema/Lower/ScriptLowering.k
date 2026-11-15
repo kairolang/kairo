@@ -21,7 +21,7 @@
 ///     observable: a constant one (a literal, an integer ConstEval folds)
 ///     stays the C++ static initializer, `eval` is always constant, and a
 ///     `thread` one keeps C++'s per-thread first-use initialization. Every
-///     other one is DEFERRED: its storage becomes `T?` (the Nullable lang
+///     other one is DEFERRED: its storage becomes `T?` (the Null lang
 ///     item), null until main assigns it at the statement's position.
 ///
 ///     Reads of a deferred global:
@@ -529,8 +529,8 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
                     continue
                 }
 
-                // Its storage would be `Nullable<T[N]>`, which Lib/builtin's
-                // Nullable cannot construct. A list literal of
+                // Its storage would be `Null<T[N]>`, which Lib/builtin's
+                // Null cannot construct. A list literal of
                 // constants is not deferred (ScriptRules::constant).
                 if isa<FixedArrayType>(c) {
                     var ab = self.sc->diag->report(
@@ -581,9 +581,9 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         }
 
         if ok && self._deferred.size() > 0 {
-            if !self.sc->well_known->has(WellKnownType::Nullable) {
+            if !self.sc->well_known->has(WellKnownType::Null) {
                 kairo::std::ice_fail(
-                    "ScriptLowering: a deferred script variable needs the Nullable lang item; the builtin root declares it",
+                    "ScriptLowering: a deferred script variable needs the Null lang item; the builtin root declares it",
                 )
             }
         }

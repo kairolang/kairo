@@ -254,7 +254,7 @@ pub class PanicTypeIds derives PackSetOrder {
 
     /// The spelling \p t's id hashes: its C++ spelling, written here rather
     /// than by CXXSpell::_type so that it is the same before and after the
-    /// lowerings (a `T?` is its Nullable record either way), needs no emit
+    /// lowerings (a `T?` is its Null record either way), needs no emit
     /// state, and takes no lock (record() and the registry call it while
     /// forming a type). "" when \p t has no id: dependent, a reference, an
     /// interface, unresolved.
@@ -302,7 +302,7 @@ pub class PanicTypeIds derives PackSetOrder {
             } case TypeKind::NullableType {
                 var inner = self.spelling(cast<NullableType>(c)->inner)
                 var unsafe *nd = if (self.well_known != &null) => (self.well_known->get(
-                                     WellKnownType::Nullable,
+                                     WellKnownType::Null,
                                  ))
                                  else => &null
                 if inner.size() == 0 || nd == &null {

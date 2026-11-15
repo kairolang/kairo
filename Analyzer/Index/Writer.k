@@ -155,7 +155,7 @@ extend IndexWalker {
         var all: [SemTok]
         self.lexical_(&all)
 
-        encode_tokens(&all, &self.files[0], w)
+        encode_tokens(const &all, const &self.files[0], w)
 
         // --- refs: [line, char, len, declFile, declLine, declChar, declLen, hover, isDecl,
         //            typeFile, typeLine, typeChar, typeLen, kind]

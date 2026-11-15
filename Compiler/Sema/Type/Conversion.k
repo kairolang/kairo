@@ -655,7 +655,7 @@ pub class Conversion {
             var unsafe *from_inner = self.tu.nullable_inner(fu)
             // One level per conversion (Compiler/Spec/Nullables.md#nested-nullables): a value becomes
             // present in ONE `?`. `T -> (T?)?` would be two wraps, which no
-            // single constructor of Nullable<Nullable<T>> is -- C++ refuses
+            // single constructor of Null<Null<T>> is -- C++ refuses
             // the second user conversion, and so does Kairo. `T? -> (T?)?`
             // wraps the whole nullable, its null included, as the present
             // outer value.

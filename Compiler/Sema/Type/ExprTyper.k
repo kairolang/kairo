@@ -208,6 +208,25 @@ pub fn ice_source_loc(sc: unsafe *SemaContext, loc: SourceLocation) -> string {
     return f"{full.path.full_path()}:{full.line}:{full.column}"
 }
 
+/// An expression the typer left in no terminal state (finish, and an
+/// expression body that was never typed): a typer bug, already reported
+/// as I011W at \p e. A debug build of the compiler aborts there, so the
+/// bug is found; a release build reports it as an internal error at
+/// \p e, poisons it and goes on, so the file stops before its lowerings
+/// and the language server keeps running.
+pub fn typer_hole(sc: unsafe *SemaContext, e: unsafe *Expr, const msg: string) {
+    eval if defined!(DEBUG) {
+        kairo::std::ice_fail(msg)
+    }
+
+    sc->diag->report(
+        DiagID::I003E,
+        e->range.start,
+        f"internal compiler error: {msg}; this is a bug in the Kairo compiler",
+    ).first(e->range)->emit()
+    e->poison()
+}
+
 ///
 /// \class ExprBodyVerifier
 /// \brief ExprTyper's exit test for expression bodies: every expr-bodied
@@ -217,8 +236,9 @@ pub fn ice_source_loc(sc: unsafe *SemaContext, loc: SourceLocation) -> string {
 ///        A body the typer never visited never passes through finish(),
 ///        so finish()'s own gate cannot see it. ExprBodyDesugar would then
 ///        move it untyped into a `return`, and EmitIR would ICE naming
-///        itself. Report I011W at the function, and put the same location
-///        in the ICE text, which is what survives the abort.
+///        itself. Report I011W at the function, then typer_hole: in a debug
+///        build the ICE text carries the same location, which is what
+///        survives the abort.
 ///
 ///        Runs in every build: the walk is one visit per function, and
 ///        release builds pass -DNDEBUG (see NameBindingVerifier).
@@ -290,9 +310,14 @@ pub class ExprBodyVerifier derives RecursiveASTVisitor<ExprBodyVerifier> {
             n->range.start,
             f"internal: the body of '{nm}' left ExprTyper untyped, unpoisoned and non-dependent; typer bug",
         ).first(e->range)->emit()
-        kairo::std::ice_fail(
+        typer_hole(
+            self.sc,
+            e,
             f"ExprTyper: expression body of '{nm}' ({to_string(e->kind)}) was never typed, at {ice_source_loc(self.sc, n->range.start)}",
         )
+
+        n->poison()
+        return true
     }
 }
 
@@ -571,9 +596,14 @@ pub class ExprTyper
                             e->range.start,
                             f"internal: {to_string(e->kind)} left untyped, unpoisoned and non-dependent; typer bug",
                         ).first(e->range)->emit()
-                        kairo::std::ice_fail(
+                        typer_hole(
+                            self.sc,
+                            e,
                             f"ExprTyper: {to_string(e->kind)} reached finish() in no terminal state, at {ice_source_loc(self.sc, e->range.start)}",
                         )
+
+                        self.n_errored += 1
+                        return
                     }
                 }
             } else {
@@ -583,10 +613,10 @@ pub class ExprTyper
             return
         }
 
-        // A `T?` value is a `Nullable<T>` to C++: with no builtin root it is
+        // A `T?` value is a `Null<T>` to C++: with no builtin root it is
         // missing its lang item at its first use, as a string or a tuple is.
         if isa<NullableType>(canon_unqual(t)) && self.nullable_unbound() {
-            self.missing_lang_item(e, "Nullable")
+            self.missing_lang_item(e, "Null")
             e->type_ = &null
             self.n_errored += 1
             return
@@ -2430,11 +2460,11 @@ pub class ExprTyper
 
     /// # lang items / panic sites
 
-    /// `T?` has no lang item to lower to: no builtin root declares Nullable.
+    /// `T?` has no lang item to lower to: no builtin root declares Null.
     /// A file of the builtin root itself may be typed before the one that
     /// declares it.
     fn nullable_unbound(self) -> bool {
-        if self.sc->well_known->has(WellKnownType::Nullable) {
+        if self.sc->well_known->has(WellKnownType::Null) {
             return false
         }
 

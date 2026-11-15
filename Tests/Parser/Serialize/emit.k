@@ -37,7 +37,7 @@ fn main() -> i32 {
 //
 // The file starts with the magic and format version 1.
 // RUN: head -c 8 %t.a | od -An -c | %FileCheck %s --check-prefix=MAGIC
-// MAGIC: K   A   S   T 002  \0  \0  \0
+// MAGIC: K   A   S   T 003  \0  \0  \0
 //
 // Nothing of where it was written from is in it.
 // RUN: not grep -a -c -e "%/S" -e "%/t.d" %t.a

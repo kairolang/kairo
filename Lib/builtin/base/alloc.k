@@ -44,7 +44,7 @@
 
 import builtin::base::intrinsics::*;
 // The string lang item, for the messages here; not the root (`import
-// builtin::Nullable`, which `T?` does not need): that closed a cycle,
+// builtin::Null`, which `T?` does not need): that closed a cycle,
 // module.k -> containers/vector.k -> alloc.k -> module.k, warning R001W on
 // every compile once a builtin the root imports allocates.
 import builtin::string::*;

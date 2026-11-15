@@ -44,9 +44,9 @@ priv interface CopiesItself {
 }
 
 /// A type with a copy constructor (every COPY class, every primitive and pointer).
-priv interface CopyConstructible {
+priv interface Copy {
     @copy
-    fn CopyConstructible(self, const other: Self)
+    fn Copy(self, const other: Self)
 }
 
 /// Returns a copy of `x`, leaving `x` untouched.
@@ -71,6 +71,6 @@ pub fn <T> copy(const x: T) -> T requires T impl CopiesItself {
 }
 
 /// The copy-constructor case of `copy`; see above.
-pub fn <T> copy(const x: T) -> T requires T impl CopyConstructible && !(T impl CopiesItself) {
+pub fn <T> copy(const x: T) -> T requires T impl Copy && !(T impl CopiesItself) {
     return x
 }

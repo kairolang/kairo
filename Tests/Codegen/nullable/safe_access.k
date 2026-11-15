@@ -91,13 +91,13 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      a =((!f.is_null()) ? static_cast<{{ ?}}::builtin::Nullable<signed int>>(f.__value().v):
+// CXX:      a =((!f.is_null()) ? static_cast<{{ ?}}::builtin::Null<signed int>>(f.__value().v):
 // CXX:      d =((!f.is_null()) ? f.__value().maybe():
 // CXX:      if((!f.is_null())) {
 // CXX-NEXT:     f.__value().bump();
-// CXX:      ((((!p.is_null()) &&(!p.__value()->next.is_null())) &&(!p.__value()->next.__value()->next.is_null())) ? static_cast<{{ ?}}::builtin::Nullable<signed int>>(p.__value()->next.__value()->next.__value()->v):
-// CXX:      (((!f.is_null()) &&(!f.__value().inner.is_null())) ? static_cast<{{ ?}}::builtin::Nullable<signed int>>(f.__value().inner.__value().w):
-// CXX:      ::builtin::Nullable<{{.*}}Foo> __kairo_safe{{[0-9]+}} ={{ ?}}::{{.*}}mk(4);
+// CXX:      ((((!p.is_null()) &&(!p.__value()->next.is_null())) &&(!p.__value()->next.__value()->next.is_null())) ? static_cast<{{ ?}}::builtin::Null<signed int>>(p.__value()->next.__value()->next.__value()->v):
+// CXX:      (((!f.is_null()) &&(!f.__value().inner.is_null())) ? static_cast<{{ ?}}::builtin::Null<signed int>>(f.__value().inner.__value().w):
+// CXX:      ::builtin::Null<{{.*}}Foo> __kairo_safe{{[0-9]+}} ={{ ?}}::{{.*}}mk(4);
 // CXX-NOT:  ?.
 
 // REQUIRES: clang

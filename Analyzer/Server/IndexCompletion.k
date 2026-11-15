@@ -811,7 +811,7 @@ extend Server {
             sub.site   = req->site
             sub.depth  = req->depth + 1
             sub.typing = true
-            return self.chain_recv_(&sub, &steps)
+            return self.chain_recv_(&sub, const &steps)
         }
 
         if c.t == usize::MAX {
@@ -2176,7 +2176,7 @@ extend Server {
             }
         }
 
-        var recv = self.chain_recv_(req, &steps)
+        var recv = self.chain_recv_(req, const &steps)
         if !recv.ok {
             return false
         }

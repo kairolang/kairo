@@ -733,10 +733,10 @@ pub class TypeImport {
             }
 
             var unsafe *rep = NameLookup::representative(prim)
-            // `::builtin::Nullable<T>` is `T?`, never a record: TypeExport
+            // `::builtin::Null<T>` is `T?`, never a record: TypeExport
             // spells every `T?` as it (a fill's `vector<*Node?>`), and the
             // record has no Kairo surface before NullableTypeLowering -- a
-            // member typed `Nullable<*Node>` would take neither `null` nor a
+            // member typed `Null<*Node>` would take neither `null` nor a
             // `*Node`, nor answer `?`. Build-wide, as the export is.
             if self._is_nullable(rep) && args.size() == 1 {
                 return self.store->nullable(args[0])
@@ -806,7 +806,7 @@ pub class TypeImport {
         return self.store->record(rep, unsafe &args)
     }
 
-    /// \p rep is the Nullable lang item (ForeignRegistry::nullable_lang).
+    /// \p rep is the Null lang item (ForeignRegistry::nullable_lang).
     priv fn _is_nullable(self, rep: unsafe *Decl) -> bool {
         if self.reg == &null || rep == &null {
             return false
@@ -946,7 +946,7 @@ pub class TypeImport {
 
         var unsafe *ku = canon_unqual(kt)
         var unsafe *cu = ct.getCanonicalType().getTypePtr()
-        // `T?` is `Nullable<T>` to C++ (TypeExport::_nullable): its one
+        // `T?` is `Null<T>` to C++ (TypeExport::_nullable): its one
         // argument is T, so `*Node?` keeps `*Node` inside.
         var unsafe *kn = dyn_cast<NullableType>(ku)
         if kn != &null {

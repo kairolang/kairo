@@ -59,9 +59,9 @@
 ///     (_standin_enum). An ADT's is a struct (_shape): its tag word, then
 ///     every variant's payload fields in sequence, which keeps the real
 ///     record's traits (it copies exactly when every payload does) where a
-///     union would delete its copy. `T?` is the Nullable lang item's
+///     union would delete its copy. `T?` is the Null lang item's
 ///     instance over T (_nullable), so `vector<*Node?>` is
-///     `::std::vector<::builtin::Nullable<::stem::Node *>>`, and TypeImport
+///     `::std::vector<::builtin::Null<::stem::Node *>>`, and TypeImport
 ///     reads that specialization back as `T?`.
 ///
 ///   \par Threading
@@ -1149,9 +1149,9 @@ pub class TypeExport {
         return v
     }
 
-    /// `T?`: the Nullable lang item's instance over T, which is what
+    /// `T?`: the Null lang item's instance over T, which is what
     /// NullableTypeLowering makes it and what EmitIR spells
-    /// (`::builtin::Nullable<T>`), so its stand-in is that generic ADT's
+    /// (`::builtin::Null<T>`), so its stand-in is that generic ADT's
     /// specialization like any other. Through the lang item, never the
     /// lowered slot: a fill runs during typing, long before that pass.
     priv fn _nullable(self, n: unsafe *NullableType) -> clang::QualType {
@@ -2376,7 +2376,7 @@ pub class TypeExport {
             return clang::QualType()
         }
 
-        self.used_standin = true // a Kairo generic's instance, `T?` (Nullable) included.
+        self.used_standin = true // a Kairo generic's instance, `T?` (Null) included.
         var unsafe *prim = NameLookup::representative(prim_in)
         var unsafe *ct   = self._standin_template(prim)
         if ct == &null {

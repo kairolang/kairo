@@ -98,9 +98,9 @@ fn main() -> i32 {
 // CXX:      return((!t.is_null()) ? t.__value(): d);
 // CXX:      ((!a.is_null()) ? a.__value(): 0);
 // CXX:      (*((!p.is_null()) ? p.__value():(& m)));
-// CXX:      ::builtin::Nullable<signed int> __kairo_coal0 ={{ ?}}::{{.*}}find(5);
+// CXX:      ::builtin::Null<signed int> __kairo_coal0 ={{ ?}}::{{.*}}find(5);
 // CXX-NEXT: ((!__kairo_coal0.is_null()) ? static_cast<signed int &&>(__kairo_coal0.__value()): 100);
-// CXX:      static_cast<{{ ?}}::builtin::Nullable<signed int> &&>(__kairo_coal{{[0-9]+}}.__value()): b);
+// CXX:      static_cast<{{ ?}}::builtin::Null<signed int> &&>(__kairo_coal{{[0-9]+}}.__value()): b);
 // CXX:      ((!x.cache.is_null()) ? x.cache.__value(): 11);
 // CXX:      static_cast<{{ ?}}::{{.*}}Widget &&>(__kairo_coal{{[0-9]+}}.__value()):{{ ?}}::{{.*}}Widget(9));
 // CXX-NOT:  ??

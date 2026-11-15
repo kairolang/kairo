@@ -256,10 +256,10 @@ extend IndexWalker {
             var eo      = ge
             var line    = ft->lines.line_of(so)
             var el      = ft->lines.line_of(eo)
-            var row_len = utf16_len(&ft->text, so, eo - so)
+            var row_len = utf16_len(const &ft->text, so, eo - so)
             if el != line {
                 row_len = utf16_len(
-                    &ft->text,
+                    const &ft->text,
                     so,
                     ft->lines.line_end(ft->text, line) - so,
                 )

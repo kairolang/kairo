@@ -660,6 +660,14 @@ pub class RedeclMerge {
             name = "op " + OperatorFacts::symbol(specs[0])
         }
 
+        // No primary in the specialization's own scope: at file scope, a
+        // function specialization may specialize an imported primary
+        // (generics.mdx, Function specializations). A record's may not: it
+        // is extended instead.
+        if prims.empty() && !in_type_body && e.name.is_ident() {
+            self._imported_prims(specs[0], e.name.payload, &prims)
+        }
+
         for var i: usize = 0; i < specs.size(); ++i {
             if decl_instantiated_from(unsafe (specs[i] as unsafe *Decl)) == &null {
                 self._pair_spec(name, specs[i], &prims)
@@ -807,6 +815,65 @@ pub class RedeclMerge {
         }
 
         decl_set_instantiated_from(sd, unsafe (p as unsafe *Decl))
+        // Away from its primary's module the specialization is in no scope
+        // the primary's users read: the registry carries it to every TU that
+        // declares the primary (EmitPlan::_admit_specs).
+        if NameLookup::tu_of(sd->semantic_dc) != NameLookup::tu_of(
+            p->semantic_dc,
+        ) {
+            self.sc->instances->register_fn_spec(
+                NameLookup::representative(unsafe (p as unsafe *Decl)),
+                sd,
+            )
+        }
+    }
+
+    /// The generic functions named \p imm that the import overlay of \p s's
+    /// file brings in, when \p s is written at that file's top level.
+    priv fn _imported_prims(self,
+                            s:     unsafe *Declarations::FunctionDecl,
+                            imm:   u32,
+                            prims: *cxx::std::vector<unsafe *Declarations::FunctionDecl>) {
+        var unsafe *dc = (unsafe (s as unsafe *Decl))->semantic_dc
+        var unsafe *tu = self.sc->tu
+        if dc == &null || tu == &null || dc != unsafe (tu as unsafe *DeclContext) {
+            return
+        }
+
+        if tu->import_overlay == &null {
+            return
+        }
+
+        var unsafe *cell = tu->import_overlay->lookup_ident(imm)
+        if cell == &null {
+            return
+        }
+
+        for var i: usize = 0; i < cell->size(); ++i {
+            var unsafe *f = dyn_cast<Declarations::FunctionDecl>(cell->get(i))
+            if f == &null
+                || f->is_poisoned()
+                || f->generic_params.size() == 0
+                || NameLookup::is_specialization(unsafe (f as unsafe *Decl)) {
+                continue
+            }
+
+            var unsafe *r = cast<Declarations::FunctionDecl>(
+                NameLookup::representative(unsafe (f as unsafe *Decl)),
+            )
+
+            var seen = false
+            for var j: usize = 0; j < prims->size(); ++j {
+                if (*prims)[j] == r {
+                    seen = true
+                    break
+                }
+            }
+
+            if !seen {
+                prims->push_back(r)
+            }
+        }
     }
 
     /// \p s's arguments fill \p p's generic parameters one for one, and
@@ -1894,7 +1961,7 @@ pub class RedeclMerge {
     /// `f(p: *B)` beside `f(p: unsafe *B)` is one C++ function twice.
     /// The pointee is compared the same way, level by level, with
     /// its qualifiers: `*const B` is `const B*`, a different type. A `*T?`
-    /// is a Nullable in C++, never a `T*`, so it stays apart.
+    /// is a Null in C++, never a `T*`, so it stays apart.
     priv fn _cxx_same(self, a: unsafe *Type, b: unsafe *Type, pw: usize) -> bool {
         if a == &null || b == &null {
             return false

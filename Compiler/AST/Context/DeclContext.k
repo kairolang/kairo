@@ -63,7 +63,7 @@ pub enum DeclContextKind derives u8 {
     /// union Foo { }
     Union,
 
-    /// interface Printable<T> { }
+    /// interface Print<T> { }
     Interface,
 
     /// extend Foo<T> impl Bar { } adds methods/conformance to an

@@ -70,7 +70,7 @@ pub enum WellKnownType derives u8 {
     Range, ///< 1..2 | 1..=2 desugar type: Range(a, b, t/f).
     Yield, ///< yield T desugar target: Yield<T>.
     Ordering, ///< <=> builtin value type: Ordering::Less | Equal | Greater.
-    Nullable, ///< T? lowering target: Nullable<T> (NullableTypeLowering).
+    Null, ///< T? lowering target: Null<T> (NullableTypeLowering).
     NullT, ///< `null`'s type: null_t, whose constant C++ spells `null`.
     Panic, ///< fn () panic -> T result type: `enum <T, ...E> Panic` (Compiler/Spec/Panic.md#the-result-type).
 
@@ -180,8 +180,8 @@ pub fn to_string(k: WellKnownType) -> string {
             return "Yield"
         } case WellKnownType::Ordering {
             return "Ordering"
-        } case WellKnownType::Nullable {
-            return "Nullable"
+        } case WellKnownType::Null {
+            return "Null"
         } case WellKnownType::NullT {
             return "null_t"
         } case WellKnownType::Panic {
@@ -441,7 +441,7 @@ pub class LangMembers {
 ///
 ///          string.k   as_ptr / length / codepoints / capacity: `return
 ///                     self.<field>`, const self.
-///          Nullable   is_null / __value (both): EnumLayoutLowering's
+///          Null       is_null / __value (both): EnumLayoutLowering's
 ///                     IsNull / ValueRef / ValueCref roles, which
 ///                     InterfaceEmitter renders as a tag or niche test and a
 ///                     reference to the payload. `__value()` is unchecked;
@@ -451,8 +451,8 @@ pub class LangMembers {
 ///                     `const`, returning the tag or the niche tests' answer.
 ///
 ///        Matched by declaration, never by spelling: string's are looked up
-///        in the String lang item's own scope (these names), Nullable's by
-///        AdtRole (the Nullable roles only that lang item's record carries). Slice has no
+///        in the String lang item's own scope (these names), Null's by
+///        AdtRole (the Null roles only that lang item's record carries). Slice has no
 ///        getters: its `data` / `len` are fields, a plain read already.
 pub class PureAccessors {
     pub static fn string_count() -> usize {
@@ -2706,7 +2706,7 @@ pub class LowerTargets {
         return "__KAIRO_PACK_UNION"
     }
 
-    /// The Nullable lang item's C++ members and `null_t`'s constant (writer:
+    /// The Null lang item's C++ members and `null_t`'s constant (writer:
     /// EnumLayoutLowering names the roles, InterfaceEmitter spells them).
     /// Not `__kairo_`-prefixed: a C++ host calls them.
     pub static fn nullable_is_null() -> string {
@@ -2721,7 +2721,7 @@ pub class LowerTargets {
         return "null"
     }
 
-    /// The parameter of Nullable's `null_t` constructor (EnumLayoutLowering
+    /// The parameter of Null's `null_t` constructor (EnumLayoutLowering
     /// mints the ParamDecl). Unprefixed like the members above: a C++ host
     /// sees it in the declaration.
     pub static fn nullable_null_param() -> string {
@@ -2924,6 +2924,22 @@ pub class LowerTargets {
 
     pub static fn union_local_drop() -> string {
         return "__drop"
+    }
+
+    /// A flagged storage's member that destroys the object if `live` says
+    /// one is there; the placement tag a construction in the storage uses
+    /// (its own `operator new`, so no <new>); the destroy that also takes
+    /// an array.
+    pub static fn union_local_kill() -> string {
+        return "__kill"
+    }
+
+    pub static fn union_local_place() -> string {
+        return "__kairo_ulp"
+    }
+
+    pub static fn union_local_destroy() -> string {
+        return "__kairo_ul_kill"
     }
 
     /// A union-stored local's storage and hook names, from its C++ name.

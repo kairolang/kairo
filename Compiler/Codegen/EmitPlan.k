@@ -4369,6 +4369,17 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// required). A Complete primary admits them Complete so an instance
     /// selected into a partial is laid out by it.
     fn _admit_specs(self, c: unsafe *Decl, need: PlanNeed) {
+        // A function specialization is declared after its primary, which a
+        // file that specializes an imported one may otherwise never name.
+        if CXXSpell::is_fn_spec(c) {
+            self._admit(
+                CXXSpell::rep(DeclFacts::decl_instantiated_from(c)),
+                PlanNeed::Fwd,
+            )
+
+            return
+        }
+
         if DeclFacts::decl_generic_params(c).size() == 0 || CXXSpell::is_record_spec(c) {
             return
         }
@@ -4383,7 +4394,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 return
             }
 
-            CXXSpell::fn_specs_of(c, unsafe &specs)
+            CXXSpell::fn_specs_of(c, unsafe &specs, self._cg->instances)
             for var i: usize = 0; i < specs.size(); ++i {
                 self._admit(specs[i], PlanNeed::Fwd)
             }
@@ -5580,7 +5591,11 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             // explicit instantiation after it would have no effect
             // ([temp.explicit]/4) and draws clang's warning.
             if isa<Declarations::FunctionDecl>(prim)
-                && CXXSpell::fn_spec_for(prim, unsafe &ie->args) != &null {
+                && CXXSpell::fn_spec_for(
+                    prim,
+                    unsafe &ie->args,
+                    self._cg->instances,
+                ) != &null {
                 continue
             }
 

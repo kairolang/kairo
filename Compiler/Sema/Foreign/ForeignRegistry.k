@@ -50,7 +50,7 @@ pub class ForeignRegistry {
     priv var _opaque_qt: llvm::DenseMap<unsafe *void, cxx::std::vector<unsafe *void>>
 
     /// The build's lang items, for the one Kairo type both directions of the
-    /// mapping treat specially: `T?`, which is `::builtin::Nullable<T>` to
+    /// mapping treat specially: `T?`, which is `::builtin::Null<T>` to
     /// C++ (nullable_lang). Null until the driver binds it; a `T?` argument
     /// then has no phase-A spelling, as before.
     pub var  well_known: unsafe *WellKnownDecls                 = &null
@@ -61,7 +61,7 @@ pub class ForeignRegistry {
         self._by_usr = llvm::StringMap<unsafe *Decl>(4096)
     }
 
-    /// The Nullable lang item's decl, or null (no builtin root, or not bound
+    /// The Null lang item's decl, or null (no builtin root, or not bound
     /// yet). Read at every use rather than cached: the lang items are bound
     /// once the builtin root has resolved, which may be after the driver
     /// wired this registry.
@@ -70,7 +70,7 @@ pub class ForeignRegistry {
             return &null
         }
 
-        return self.well_known->get(WellKnownType::Nullable)
+        return self.well_known->get(WellKnownType::Null)
     }
 
     fn find(self, usr: llvm::StringRef) -> unsafe *Decl {

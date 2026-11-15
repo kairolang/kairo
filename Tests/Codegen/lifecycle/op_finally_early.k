@@ -1,8 +1,6 @@
-// XFAIL: *
-// Waits on the planned 0.3 design: `x.finally()`
-// and `x.op finally()` are an explicit early destructor call, in place, with
-// reuse afterwards; before 0.3 both are a "not implemented yet" error (SC116E).
-// These are the assertions of the design as first built (§77), kept as written.
+// `x.finally()` and `x.op finally()` run a local's destructor early, in
+// place. A whole assignment afterwards constructs the local again, and the
+// scope's end destroys what is then there.
 import std::io::println
 
 class Res {
@@ -24,9 +22,9 @@ fn main() -> i32 {
     var r = Res(4)
     r.finally()
     println("after early")
-    r.acquire(5)
+    r = Res(5)
     r.op finally()
-    r.acquire(6)
+    r = Res(6)
     println("end of main")
     return 0
 }
@@ -35,9 +33,9 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}
 
-// `x.finally()` is C++'s explicit destructor call.
+// `x.finally()` ends the local's union storage.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: r.~Res()
+// CXX: __k_s_r.__end();
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

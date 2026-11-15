@@ -119,7 +119,7 @@ extend Server {
 
         var id     = d.dump(idn)
         var params = d.get(d.root, K_PARAMS)
-        var path   = self.path_of(text_document_uri(&d, params))
+        var path   = self.path_of(text_document_uri(const &d, params))
 
         // A buffer that does not parse has no index for its current text,
         // and may not get one until it parses again. Its syntax pass lexed
@@ -155,18 +155,31 @@ extend Server {
                         var lsh = self.line_shift(lei, ldi)
                         var lk  = self.cache_slot(lei, lf)
                         if lsh.active && (lk != usize::MAX) {
-                            var merged = self.merged_tokens(lei, lk, ldi, &lsh)
-                            self.send_tokens(&d, params, id, method, &merged)
+                            var merged = self.merged_tokens(
+                                lei,
+                                lk,
+                                ldi,
+                                const &lsh,
+                            )
+
+                            self.send_tokens(
+                                const &d,
+                                params,
+                                id,
+                                method,
+                                const &merged,
+                            )
+
                             return true
                         }
                     }
 
                     self.send_tokens(
-                        &d,
+                        const &d,
                         params,
                         id,
                         method,
-                        &self.docs.docs[ldi].syn.tokens,
+                        const &self.docs.docs[ldi].syn.tokens,
                     )
 
                     return true
@@ -227,10 +240,10 @@ extend Server {
             }
 
             self.code_action(
-                &d,
+                const &d,
                 params,
                 id,
-                &self.entries[ei].snap,
+                const &self.entries[ei].snap,
                 path,
                 ei,
                 mf,
@@ -342,10 +355,10 @@ extend Server {
                 self.respond(id, "null")
             } else if (method == M_CODE_ACTION) {
                 self.code_action(
-                    &d,
+                    const &d,
                     params,
                     id,
-                    &self.entries[ei].snap,
+                    const &self.entries[ei].snap,
                     path,
                     ei,
                     JSON_NONE(),
@@ -368,7 +381,7 @@ extend Server {
             var now: [i64]
             var k          = self.cache_slot(ei, f)
             if sh.active && (k != usize::MAX) {
-                now = self.merged_tokens(ei, k, di, &sh)
+                now = self.merged_tokens(ei, k, di, const &sh)
             } else if k != usize::MAX {
                 now.reserve(
                     self.entries[ei].ct_hi[k] - self.entries[ei].ct_lo[k],
@@ -379,12 +392,12 @@ extend Server {
                 }
             }
 
-            self.send_tokens(&d, params, id, method, &now)
+            self.send_tokens(const &d, params, id, method, const &now)
             return true
         }
 
         if method == M_CODE_LENS {
-            self.code_lens(s, f, path, id, &sh)
+            self.code_lens(s, f, path, id, const &sh)
             return true
         }
 
@@ -446,10 +459,10 @@ extend Server {
             // Fix-its belong to the CURRENT diagnostics, not to the last
             // run that happened to index.
             self.code_action(
-                &d,
+                const &d,
                 params,
                 id,
-                &self.entries[ei].snap,
+                const &self.entries[ei].snap,
                 path,
                 ei,
                 f,
@@ -519,7 +532,7 @@ extend Server {
             self.write_range(
                 &w,
                 self.shift_out(
-                    &sh,
+                    const &sh,
                     ei,
                     path,
                     s->as_int(self.nth(s, row, REF_LINE)),
@@ -590,7 +603,7 @@ extend Server {
                 false,
                 &w,
                 false,
-                &sh,
+                const &sh,
             )
 
             w.end_array()
@@ -662,7 +675,7 @@ extend Server {
 
             var tpath = s->str(self.nth(s, s->get(f, SK_FILES), ti))
             var tl = self.shift_out(
-                &sh,
+                const &sh,
                 ei,
                 tpath,
                 s->as_int(self.nth(s, row, REF_TYPE_LINE)),
@@ -724,7 +737,7 @@ extend Server {
 
             var dpath = s->str(self.nth(s, s->get(f, SK_FILES), fi))
             var dl = self.shift_out(
-                &sh,
+                const &sh,
                 ei,
                 dpath,
                 s->as_int(self.nth(s, row, REF_DEF_LINE)),
@@ -755,7 +768,7 @@ extend Server {
             var w = JsonWriter()
             w.begin_array()
             if row != JSON_NONE() {
-                self.uses(s, f, row, &w, 1, path, "", true, &sh)
+                self.uses(s, f, row, &w, 1, path, "", true, const &sh)
             }
 
             w.end_array()
@@ -772,7 +785,7 @@ extend Server {
             var w = JsonWriter()
             w.begin_array()
             if row != JSON_NONE() {
-                self.uses(s, f, row, &w, 0, "", "", with_decl, &sh)
+                self.uses(s, f, row, &w, 0, "", "", with_decl, const &sh)
             }
 
             w.end_array()
@@ -799,7 +812,7 @@ extend Server {
                 "",
                 d.get_str(params, K_NEW_NAME),
                 true,
-                &sh,
+                const &sh,
             )
 
             w.end_object()

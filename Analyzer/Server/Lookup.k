@@ -349,7 +349,7 @@ extend Server {
             return JSON_NONE()
         }
 
-        var s: *const JsonDoc = &self.entries[ei].idx
+        var s: *const JsonDoc = const &self.entries[ei].idx
         var r                 = s->first(s->get(f, SK_REFS))
         while r != JSON_NONE() {
             var a = s->first(r)

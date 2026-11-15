@@ -256,14 +256,14 @@ pub enum AdtRole derives u8 {
     ConstructFrom, ///< builds a payload from another value's: `__kairo_construct_from(o)`.
     Which,         ///< the variant held, as the tag enum: `__kairo_which()`, in either layout.
 
-    // The Nullable lang item's C++ surface (Compiler/Spec/Nullables.md#the-library-type); only that
+    // The Null lang item's C++ surface (Compiler/Spec/Nullables.md#the-library-type); only that
     // enum's record has them. Every implicit `T -> T?` / `null -> T?` is one
     // of the four constructors, so none is `explicit`. Kept last:
     // adt_role_is_nullable is the range from NullDefault on.
-    NullDefault, ///< `Nullable()`: null.
-    NullFrom,  ///< `Nullable(null_t)`: null. Its one parameter carries null_t's type.
-    ValueCopy, ///< `Nullable(const T&)`: present, the payload copied in place.
-    ValueMove, ///< `Nullable(T&&)`: present, the payload moved in place.
+    NullDefault, ///< `Null()`: null.
+    NullFrom,  ///< `Null(null_t)`: null. Its one parameter carries null_t's type.
+    ValueCopy, ///< `Null(const T&)`: present, the payload copied in place.
+    ValueMove, ///< `Null(T&&)`: present, the payload moved in place.
     IsNull,    ///< `bool is_null() const`.
     ValueRef,  ///< `T& __value()`, UNCHECKED: the desugars call it only where non-null is proven.
     ValueCref, ///< `const T& __value() const`, the same.
@@ -290,7 +290,7 @@ pub enum AdtCtorForm derives u8 {
     Both,
 }
 
-/// \p r is one of the Nullable lang item's surface roles, which
+/// \p r is one of the Null lang item's surface roles, which
 /// InterfaceEmitter renders apart from every other ADT member.
 pub fn adt_role_is_nullable(r: AdtRole) -> bool {
     return (r as u8) >= (AdtRole::NullDefault as u8)
@@ -1400,7 +1400,7 @@ pub class ClassDecl
 
 ///
 ///  InterfaceDecl
-///  interface Printable<T> derives Other { fn draw(self) const -> string }
+///  interface Print<T> derives Other { fn draw(self) const -> string }
 ///
 ///  Body holds only method/operator/ctor/static SIGNATURES (no bodies). Stored
 ///  as FunctionDecl with body_kind == None. `derives_list` is interface
@@ -1436,6 +1436,10 @@ pub class InterfaceDecl
     /// The clause uses `-` or `&`: not a plain union. Until composition is
     /// compiled such an interface is rejected (InterfaceComposition).
     pub var derives_composed: bool = false
+    /// `virtual interface I`: a pointer to it (`*I`) is runtime dispatch
+    /// through a witness table (interfaces.mdx, Virtual Interfaces). A
+    /// plain interface is a bound only and has no pointer.
+    pub var is_virtual: bool = false
     /// End of the derives clause: where an LSP shows the derived body.
     pub var derives_end: SourceRange
     /// Every requirement, own and derived, deduplicated: what binding,

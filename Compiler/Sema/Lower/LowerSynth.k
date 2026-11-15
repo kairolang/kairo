@@ -825,7 +825,7 @@ pub class LowerSynth {
     }
 
     /// \p d is one of the pure accessors (PureAccessors), by identity: the
-    /// Nullable layout's IsNull / ValueRef / ValueCref members (roles only
+    /// Null layout's IsNull / ValueRef / ValueCref members (roles only
     /// that lang item's record carries, AdtRole), any ADT layout's
     /// `__kairo_which()` (AdtRole::Which), or one of string's
     /// PureAccessors::string_member, looked up once in the String lang item.

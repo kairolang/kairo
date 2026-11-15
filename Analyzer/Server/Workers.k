@@ -651,7 +651,7 @@ extend Server {
         // walked since the last snapshot installed): kept whatever becomes
         // of the rows below, since a table is of a file that was checked.
         var tt0  = now_us()
-        var ntab = self.entries[ei].tb.merge(&doc)
+        var ntab = self.entries[ei].tb.merge(const &doc)
         if doc.get(doc.root, SK_TABLES_SEQ) != JSON_NONE() {
             self.entries[ei].tb_have = doc.get_int(doc.root, SK_TABLES_SEQ) as u64
         }
@@ -662,7 +662,7 @@ extend Server {
         self.entries[ei].snap_rev = j->rev
         var t3 = now_us()
         var t4 = t3
-        if (doc.count(doc.get(doc.root, SK_FILES)) > 0) && self.index_installs(ei, &doc) {
+        if (doc.count(doc.get(doc.root, SK_FILES)) > 0) && self.index_installs(ei, const &doc) {
             self.entries[ei].idx     = doc
             self.entries[ei].has_idx = true
             self.entries[ei].idx_rev = j->rev

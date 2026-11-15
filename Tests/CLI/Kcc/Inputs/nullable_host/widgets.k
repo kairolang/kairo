@@ -1,4 +1,4 @@
-// widgets.k: the payloads nullable_main.cpp wraps in ::builtin::Nullable.
+// widgets.k: the payloads nullable_main.cpp wraps in ::builtin::Null.
 // Widget prints when a LIVE one is destroyed (a moved-from one has id 0),
 // so each value's destruction shows exactly once; Uniq is move-only.
 import std::io::println
@@ -19,6 +19,6 @@ pub class Uniq {
 }
 
 /// Nullables built on the Kairo side and handed to the host: `T?` is the
-/// same ::builtin::Nullable the host names.
+/// same ::builtin::Null the host names.
 pub fn boxed(id: i32) -> Widget? { return Widget(id) }
 pub fn nothing() -> Widget? { return null }

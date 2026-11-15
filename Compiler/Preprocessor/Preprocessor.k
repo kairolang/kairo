@@ -790,7 +790,7 @@ pub class PreProcessor {
 
         // A cycle through the builtin root is the builtin's own, and allowed:
         // a builtin file that names a lang item module.k declares (alloc.k's
-        // `T?` needs Nullable) imports the root back. Once a container in the
+        // `T?` needs Null) imports the root back. Once a container in the
         // prelude imports such a file, every compile would carry the warning
         // about a library the user cannot change. No user file closes one: the
         // root imports none.
