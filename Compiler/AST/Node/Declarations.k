@@ -182,11 +182,29 @@ pub struct MoveOut {
     /// per pointer followed.
     pub var first: u32
     pub var count: u32
-    /// Moved-from at every return of the body; false when only at some
-    /// (a caller reads both as moved-from).
+    /// Moved-from at every exit of the body, each return and each panic
+    /// that leaves it; false when only at some.
     pub var always: bool
-    pub var at:     SourceRange ///< where the body moves it.
+    /// The outcomes on which the part may be moved-from: the MOVE_ON_* bits
+    /// of every exit that leaves it so. A caller marks it on a path only
+    /// when the outcomes that reach the path meet these bits.
+    pub var when: u8
+    pub var at:   SourceRange ///< where the body moves it.
 }
+
+/// MoveOut::when: how the body left at an exit. A `return true` / `return
+/// false` of a `bool` function, a `return null` / a return of a value that
+/// cannot be null from a `T?` function, any other return (a value the
+/// pass does not read, a function of another type, the end of the body),
+/// and a panic that leaves the body.
+pub const MOVE_ON_TRUE:     u8 = 1
+pub const MOVE_ON_FALSE:    u8 = 2
+pub const MOVE_ON_NULL:     u8 = 4
+pub const MOVE_ON_NON_NULL: u8 = 8
+pub const MOVE_ON_OTHER:    u8 = 16
+pub const MOVE_ON_PANIC:    u8 = 32
+/// Every way of returning normally.
+pub const MOVE_ON_RETURN: u8 = 31
 
 /// Lifecycle attribute on a transfer constructor (@copy / @move).
 pub enum TransferKind derives u8 {

@@ -63,6 +63,19 @@
 ///     function pointer or a stored closure, and a C++ function, mark
 ///     nothing.
 ///
+///     Each record says on which outcomes of the call the part is
+///     moved-from (MoveOut::when), from the exits that leave it so: `return
+///     true` / `return false` of a `bool` function, `return null` / a return
+///     of a value that cannot be null of a `T?` function, any other return,
+///     and a panic that leaves the body (a `panic`, or a call that may panic
+///     outside a `try` that catches it). A call that is a condition -- of an
+///     `if`, an `else if`, a `while` or a C-style `for`, alone or under `!`,
+///     `&&`, `||`, a postfix `?`, or `== null` / `!= null` -- marks each
+///     branch with the outcomes that reach it (_cond); a call anywhere else,
+///     its result stored or passed on, marks what any return leaves. The
+///     path a panic takes from a call marks what a panic leaves: the catch
+///     arms of the enclosing `try`, or the caller's own panic exit.
+///
 ///     By name only. A second pointer to the same object does not see a
 ///     move made through the first; that stays AMT's (Stage 2).
 ///
@@ -138,14 +151,16 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, FieldDecl,  FnBodyKind,   FunctionDecl, InterfaceDecl, MoveOut, MoveOutState,
-    ParamDecl, StructDecl, TransferKind, VariableDecl,
+    ClassDecl,        FieldDecl,    FnBodyKind,    FnModifier,    FunctionDecl,  InterfaceDecl,  MOVE_ON_FALSE,
+    MOVE_ON_NON_NULL, MOVE_ON_NULL, MOVE_ON_OTHER, MOVE_ON_PANIC, MOVE_ON_RETURN, MOVE_ON_TRUE,
+    MoveOut,          MoveOutState, ParamDecl,     StructDecl,    TransferKind,   VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr,
     ChainExpr,
     NamedIdentExpr,
+    NullLiteralExpr,
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Statements
@@ -445,12 +460,42 @@ pub fn move_join(a: MoveState, b: MoveState) -> MoveState {
 
 /// One enclosing loop: the states at each `break` / `continue` inside it.
 pub class LoopFrame {
-    pub var breaks:      cxx::std::vector<MoveState>
-    pub var continues:   cxx::std::vector<MoveState>
-    pub var block_depth: usize                       = 0 ///< _blocks.size() when the loop was entered; its body's block sits at this index.
-    pub var has_label:   bool                        = false ///< written `label: loop`; a labeled break/continue finds its frame by it.
+    pub var breaks:    cxx::std::vector<MoveState>
+    pub var continues: cxx::std::vector<MoveState>
+    /// The join of the condition's false state at each evaluation: where
+    /// the loop is left by its condition.
+    pub var done:        MoveState
+    pub var block_depth: usize     = 0 ///< _blocks.size() when the loop was entered; its body's block sits at this index.
+    pub var has_label:   bool      = false ///< written `label: loop`; a labeled break/continue finds its frame by it.
     pub var label:       Token
     fn LoopFrame(self) { }
+}
+
+/// One enclosing `try` body: the state at each point inside it where a
+/// panic can leave it for its catch arms.
+pub class TryFrame {
+    pub var panics:      cxx::std::vector<MoveState>
+    pub var block_depth: usize                       = 0 ///< _blocks.size() when the `try` was entered.
+    /// A bare `catch` arm catches whatever reaches it: no panic passes the
+    /// `try` to an enclosing one or out of the body.
+    pub var catch_all: bool = false
+    fn TryFrame(self) { }
+}
+
+/// The parts a call's callee leaves moved-from in the caller's storage,
+/// each with the outcomes on which it does (MoveOut::when). Applied by the
+/// context the call is in (MoveCheck::_apply): the condition of an `if` or
+/// a loop marks each branch with the outcomes that reach it.
+pub struct CallMarks {
+    pub var parts: cxx::std::vector<MovedPart>
+    pub var when:  cxx::std::vector<u8>
+}
+
+/// A condition's state when it is true and when it is false
+/// (MoveCheck::_cond).
+pub struct CondStates {
+    pub var t: MoveState
+    pub var f: MoveState
 }
 
 /// What one body's walk carries and a nested body (a function, a closure)
@@ -460,6 +505,7 @@ pub struct BodyFlow {
     pub var st:     MoveState
     pub var loops:  cxx::std::vector<LoopFrame>
     pub var blocks: cxx::std::vector<cxx::std::vector<unsafe *Statements::FinallyStmt>>
+    pub var tries:  cxx::std::vector<TryFrame>
 }
 
 pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
@@ -471,6 +517,21 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// header, Flow). Per body: saved and cleared across a nested function
     /// or closure like _st is.
     priv var _blocks: cxx::std::vector<cxx::std::vector<unsafe *Statements::FinallyStmt>>
+    /// The `try` bodies open in this body, innermost last; per body like
+    /// _blocks.
+    priv var _tries: cxx::std::vector<TryFrame>
+    /// Finally bodies being walked: a panic met inside one does not walk
+    /// the pending bodies again, its own among them.
+    priv var _fin_depth: usize = 0
+    /// The body being walked is marked `panic`: a panic that no enclosing
+    /// `try` stops leaves it. False at file scope.
+    priv var _body_panics: bool = false
+    /// The call being dispatched is a condition (_cond): it leaves its
+    /// marks in `_split` for the branches instead of applying them, and
+    /// sets `_split_done`.
+    priv var _split_req:  bool      = false
+    priv var _split_done: bool      = false
+    priv var _split:      CallMarks
     /// The label of the LabeledStmt being entered, for the loop it wraps
     /// to take onto its frame (_loop); cleared there.
     /// The transfer being checked is an assignment's right-hand side
@@ -487,6 +548,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// was moved-from (MoveOut::always).
     priv var _exits:    usize                   = 0
     priv var _out_hits: cxx::std::vector<usize>
+    /// Parallel to `_out`: the outcomes of the exits it was moved-from at
+    /// (MoveOut::when).
+    priv var _out_when: cxx::std::vector<u8>
     /// Functions whose walk has started. A call into one of this TU's not
     /// yet walked walks it first (_walk_callee), so what it leaves
     /// moved-from is known at the call; `_depth` bounds that nesting.
@@ -604,18 +668,22 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         self._walked.insert(n as usize as u64)
+        var saved_bp    = self._body_panics
         var saved_fn    = self._fn
         var saved_caps  = self._caps
         var saved_out   = self._out
         var saved_hits  = self._out_hits
+        var saved_when  = self._out_when
         var saved_exits = self._exits
         var saved_asg   = self._assigning
         var saved_hl    = self._pending_has_label
         var saved_label = self._pending_label
-        self._fn = n
+        self._fn          = n
+        self._body_panics = n->is_panic()
         self._caps.clear()
         self._out.clear()
         self._out_hits.clear()
+        self._out_when.clear()
         self._exits             = 0
         self._assigning         = false
         self._pending_has_label = false
@@ -634,19 +702,23 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // `fn f(p: Pair) -> Str = p.a` is `{ return p.a }` (ExprBodyDesugar,
         // which keeps the node and reads the same written-signature test),
         // so its value is transferred out exactly as that return's is.
+        var end_kind = MOVE_ON_RETURN
         if n->body_kind == FnBodyKind::Expr
             && n->body_expr != &null
             && !n->is_noreturn
             && n->return_type != &null {
             self._return_value(n->body_expr)
+            end_kind = self._return_kind(n->body_expr)
         }
 
-        self._exit()
+        self._exit(end_kind)
         self._record_out(n)
+        self._body_panics       = saved_bp
         self._fn                = saved_fn
         self._caps              = saved_caps
         self._out               = saved_out
         self._out_hits          = saved_hits
+        self._out_when          = saved_when
         self._exits             = saved_exits
         self._assigning         = saved_asg
         self._pending_has_label = saved_hl
@@ -732,11 +804,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var saved_caps  = self._caps
         var saved_out   = self._out
         var saved_hits  = self._out_hits
+        var saved_when  = self._out_when
         var saved_exits = self._exits
+        var saved_bp    = self._body_panics
+        self._body_panics = ((n->modifiers as u16) & (FnModifier::IsPanic as u16)) != 0
         self._fn = &null
         self._caps.clear()
         self._out.clear()
         self._out_hits.clear()
+        self._out_when.clear()
         self._exits = 0
         if n->caps_resolved {
             for var i: usize = 0; i < n->cap_decls.size(); ++i {
@@ -764,13 +840,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
-        self._exit()
+        self._exit(MOVE_ON_RETURN)
         var left = self._out
         self._fn       = saved_fn
         self._caps     = saved_caps
         self._out      = saved_out
         self._out_hits = saved_hits
-        self._exits    = saved_exits
+        self._out_when    = saved_when
+        self._exits       = saved_exits
+        self._body_panics = saved_bp
         self._leave_body(saved)
         // The closure may run at any time from here on, and its body leaves
         // these moved-from: the captured storage is moved-from once the
@@ -807,9 +885,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return n
     }
 
-    /// The body returns here: what is moved-from in storage it does not own
-    /// (_outlives) stays so for the caller.
-    priv fn _exit(self) {
+    /// The body leaves here, by the outcome \p kind (a MOVE_ON_* bit, or
+    /// several when the outcome is not known): what is moved-from in
+    /// storage it does not own (_outlives) stays so for the caller.
+    priv fn _exit(self, kind: u8) {
         if self._st.dead {
             return
         }
@@ -831,10 +910,62 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             if at == usize::MAX {
                 self._out.push_back(self._st.moved[i])
                 self._out_hits.push_back(1)
+                self._out_when.push_back(kind)
             } else {
                 self._out_hits[at] += 1
+                self._out_when[at] = self._out_when[at] | kind
             }
         }
+    }
+
+    /// The outcome a `return` of \p v is (MoveOut::when): read from a
+    /// `true` / `false` literal in a `bool` function, and from a `null`
+    /// literal, or a value whose type cannot be null, in a `T?` function.
+    /// Any other value may be either outcome of its type.
+    priv fn _return_kind(self, v: unsafe *Expr) -> u8 {
+        if self._fn == &null {
+            return MOVE_ON_RETURN
+        }
+
+        var unsafe *rt = self._canon(self._fn->return_type)
+        var unsafe *x  = self._tu.strip_parens(v)
+        if rt == &null {
+            return MOVE_ON_OTHER
+        }
+
+        if self._tu.is_bool(rt) {
+            if x != &null && isa<BooleanLiteralExpr>(x) {
+                return if (cast<BooleanLiteralExpr>(x)->value) => (MOVE_ON_TRUE)
+                       else => (MOVE_ON_FALSE)
+            }
+
+            return MOVE_ON_TRUE | MOVE_ON_FALSE
+        }
+
+        if self._tu.nullable_inner(rt) != &null {
+            if x != &null && isa<NullLiteralExpr>(x) {
+                return if (cast<NullLiteralExpr>(x)->is_ref) => (MOVE_ON_NULL | MOVE_ON_NON_NULL)
+                       else => (MOVE_ON_NULL)
+            }
+
+            var unsafe *vt = if (x != &null) => (self._canon(x->type_)) else => &null
+            if vt != &null && self._tu.nullable_inner(self._tu.as_value(vt)) == &null {
+                return MOVE_ON_NON_NULL
+            }
+
+            return MOVE_ON_NULL | MOVE_ON_NON_NULL
+        }
+
+        return MOVE_ON_OTHER
+    }
+
+    /// \p t's canonical type, or \p t when it has none.
+    priv fn _canon(self, t: unsafe *Type) -> unsafe *Type {
+        if t != &null && t->canonical != &null {
+            return t->canonical
+        }
+
+        return t
     }
 
     /// \p mp is storage the body being walked does not own: a closure's
@@ -904,6 +1035,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             mo.first  = path.size() as u32
             mo.count  = self._out[i].segs.size() as u32
             mo.always = self._out_hits[i] == self._exits
+            mo.when   = self._out_when[i]
             mo.at     = self._out[i].at
             for var k: usize = 0; k < self._out[i].segs.size(); ++k {
                 path.push_back(self._out[i].segs[k])
@@ -1094,33 +1226,37 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st.mark(mp)
     }
 
-    /// The call \p n to \p f returned: each part \p f leaves moved-from
-    /// (FunctionDecl::move_out) is moved-from in the argument it was
-    /// reached through. \p ps / \p es are the parameters bound and their
-    /// arguments. An argument that names no place marks nothing.
+    /// The call \p n to \p f: each part \p f leaves moved-from
+    /// (FunctionDecl::move_out) is that part of the argument it was reached
+    /// through, returned with the outcomes on which it is moved-from for
+    /// the caller to mark (_apply). \p ps / \p es are the parameters bound
+    /// and their arguments. An argument that names no place marks nothing.
+    /// A function with no readable body marks its worst case here, on every
+    /// outcome (_call_unseen).
     priv fn _call_leaves(self,
                          n:        unsafe *Expressions::CallExpr,
                          f:        unsafe *FunctionDecl,
                          is_ctor:  bool,
                          const ps: cxx::std::vector<unsafe *ParamDecl>,
-                         const es: cxx::std::vector<unsafe *Expr>) {
+                         const es: cxx::std::vector<unsafe *Expr>) -> CallMarks {
+        var        cm   = CallMarks{}
         var unsafe *def = f->definition()
         if def == &null || def->body_kind == FnBodyKind::None {
             if def == &null {
                 self._call_unseen(n, f, is_ctor, ps, es)
             }
 
-            return
+            return cm
         }
 
         self._walk_callee(def)
         // In this TU the list is this run's only once the walk has ended.
         if self._tu.in_this_tu(def) && self._walked.count(def as usize as u64) == 0 {
-            return
+            return cm
         }
 
         if def->move_out_state != MoveOutState::Body || def->move_out.size() == 0 || self._st.dead {
-            return
+            return cm
         }
 
         var bound = !is_ctor && f->is_method() && self._callee_binds_receiver(n->callee)
@@ -1198,9 +1334,119 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 mp.how     = f"by the call to '{name}'"
                 mp.has_via = true
                 mp.via     = mo.at
-                self._st.mark(mp)
+                cm.parts.push_back(mp)
+                cm.when.push_back(mo.when)
             }
         }
+
+        return cm
+    }
+
+    /// Marks each part of \p cm that is moved-from on an outcome in \p on
+    /// (MOVE_ON_* bits): the outcomes that reach the current path. The note
+    /// names the outcome when only one of them moves it.
+    priv fn _apply(self, const cm: CallMarks, on: u8) {
+        if self._st.dead {
+            return
+        }
+
+        for var i: usize = 0; i < cm.parts.size(); ++i {
+            var hit = cm.when[i] & on
+            if hit == 0 {
+                continue
+            }
+
+            var mp = cm.parts[i]
+            if hit == MOVE_ON_TRUE {
+                mp.how = mp.how + ", when it returns true"
+            } else if hit == MOVE_ON_FALSE {
+                mp.how = mp.how + ", when it returns false"
+            } else if hit == MOVE_ON_NULL {
+                mp.how = mp.how + ", when it returns null"
+            } else if hit == MOVE_ON_NON_NULL {
+                mp.how = mp.how + ", when it does not return null"
+            } else if hit == MOVE_ON_PANIC {
+                mp.how      = mp.how + ", when it panics"
+                mp.via_text = "it is moved here, and not assigned again before the body panics"
+            }
+
+            self._st.mark(mp)
+        }
+    }
+
+    /// The current path may leave by a panic here, with the parts of \p cm
+    /// a panic of the call leaves moved-from: the state goes to the catch
+    /// arms of each enclosing `try` up to one that catches everything, and
+    /// past them out of the body when the body may panic. The current path
+    /// itself goes on unchanged.
+    priv fn _panic_path(self, const cm: CallMarks) {
+        if self._st.dead {
+            return
+        }
+
+        if self._tries.empty() && !self._body_panics {
+            return
+        }
+
+        var saved = self._st
+        self._apply(cm, MOVE_ON_PANIC)
+        self._leave_by_panic()
+        self._st = saved
+    }
+
+    /// A panic leaves the current path (it is dead after): the pending
+    /// finally bodies of the blocks it leaves run over it, each enclosing
+    /// `try` it reaches takes the state for its catch arms, and one that
+    /// passes them all leaves the body (_exit).
+    priv fn _leave_by_panic(self) {
+        if self._st.dead {
+            return
+        }
+
+        // Each block is left once: its bodies run before the first `try`
+        // outside it takes the state.
+        var open = self._blocks.size()
+        var i    = self._tries.size()
+        while i > 0 {
+            i = i - 1
+            if self._fin_depth == 0 {
+                self._run_finallys_between(open, self._tries[i].block_depth)
+            }
+
+            open = self._tries[i].block_depth
+
+            if self._st.dead {
+                return
+            }
+
+            self._tries[i].panics.push_back(self._st)
+            if self._tries[i].catch_all {
+                self._st.dead = true
+                return
+            }
+        }
+
+        if self._fin_depth == 0 {
+            self._run_finallys_between(open, 0)
+        }
+
+        self._exit(MOVE_ON_PANIC)
+        self._st.dead = true
+    }
+
+    /// A call to \p f, or through a value of type \p fp, can leave by a
+    /// panic: either is marked `panic`. A call whose callee is neither is
+    /// taken to.
+    priv fn _may_panic(self, f: unsafe *FunctionDecl, fp: unsafe *FunctionPointerType) -> bool {
+        if f != &null {
+            return f->is_panic()
+        }
+
+        if fp != &null {
+            return fp->canon_panics || fp->is_panic()
+        }
+
+        return true
     }
 
     /// A body starts clean: the enclosing body's flow, handed back for
@@ -1210,9 +1456,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         saved.st     = self._st
         saved.loops  = self._loops
         saved.blocks = self._blocks
+        saved.tries  = self._tries
         self._st     = MoveState()
         self._loops  = cxx::std::vector<LoopFrame>()
         self._blocks = cxx::std::vector<cxx::std::vector<unsafe *Statements::FinallyStmt>>()
+        self._tries = cxx::std::vector<TryFrame>()
         return saved
     }
 
@@ -1225,6 +1473,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st     = saved.st
         self._loops  = saved.loops
         self._blocks = saved.blocks
+        self._tries  = saved.tries
     }
 
     /// `var b = a` moves a MOVE `a` into `b`. The declaration also makes `b`
@@ -1456,7 +1705,21 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     }
                 }
 
-                return RecursiveASTVisitor<MoveCheck>::dispatch_expr(self, e)
+                var unsafe *uout = RecursiveASTVisitor<MoveCheck>::dispatch_expr(
+                    self,
+                    e,
+                )
+
+                self._operator_panics(u->resolved_op)
+                return uout
+            } case ExprKind::TypeCastExpr {
+                var unsafe *tout = RecursiveASTVisitor<MoveCheck>::dispatch_expr(
+                    self,
+                    e,
+                )
+
+                self._operator_panics(cast<Expressions::TypeCastExpr>(e)->resolved_op)
+                return tout
             } case ExprKind::SubscriptExpr {
                 var unsafe *sx = cast<Expressions::SubscriptExpr>(e)
                 var unsafe *out = RecursiveASTVisitor<MoveCheck>::dispatch_expr(
@@ -1528,15 +1791,28 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             } case ExprKind::TryCatchExpr {
                 var unsafe *t     = cast<Expressions::TryCatchExpr>(e)
                 var        before = self._st
+                var        frame  = TryFrame()
+                var        cxx    = false
+                frame.block_depth = self._blocks.size()
+                for var i: usize = 0; i < t->catch_arms.size(); ++i {
+                    var unsafe *arm = t->catch_arms.get(i)
+                    if arm->is_cxx {
+                        cxx = true
+                    } else if arm->filter == &null {
+                        frame.catch_all = true
+                    }
+                }
+
+                self._tries.push_back(frame)
                 if t->try_expr != &null {
                     self.dispatch_expr(t->try_expr)
                 }
 
+                var met = self._tries[self._tries.size() - 1]
+                self._tries.pop_back()
                 var after_try = self._st
-                // A catch arm may run after any prefix of the try: its entry
-                // is the join of before and after.
-                var entry = move_join(before, after_try)
-                var acc   = after_try
+                var entry     = self._arm_entry_of(before, after_try, met, cxx)
+                var acc       = after_try
                 for var i: usize = 0; i < t->catch_arms.size(); ++i {
                     var unsafe *arm = t->catch_arms.get(i)
                     self._st = entry
@@ -1555,40 +1831,38 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
     }
 
+    /// Each arm runs on its condition's true state; the next condition, and
+    /// the `else`, on the previous one's false state.
     priv fn _if_expr(self, n: unsafe *Expressions::IfExpr) {
-        if n->condition != &null {
-            self.dispatch_expr(n->condition)
-        }
-
-        self._arms_start()
-        self._arm_begin()
+        var r   = self._cond(n->condition)
+        var acc = MoveState()
+        acc.dead = true
+        self._st = r.t
         if n->then_expr != &null {
             self.dispatch_expr(n->then_expr)
         }
 
-        self._arm_end()
+        acc = move_join(acc, self._st)
+        var rest = r.f
         for var i: usize = 0; i < n->else_ifs.size(); ++i {
             var unsafe *arm = n->else_ifs.get(i)
-            self._arm_begin()
-            if arm->condition != &null {
-                self.dispatch_expr(arm->condition)
-            }
-
+            self._st = rest
+            var ar = self._cond(arm->condition)
+            self._st = ar.t
             if arm->body != &null {
                 self.dispatch_expr(arm->body)
             }
 
-            self._arm_end()
+            acc  = move_join(acc, self._st)
+            rest = ar.f
         }
 
-        var has_else = n->else_expr != &null
-        if has_else {
-            self._arm_begin()
+        self._st = rest
+        if n->else_expr != &null {
             self.dispatch_expr(n->else_expr)
-            self._arm_end()
         }
 
-        self._arms_finish(!has_else)
+        self._st = move_join(acc, self._st)
     }
 
     /// ## arm bookkeeping: N alternatives from one entry state
@@ -1679,23 +1953,19 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
                 return s
             } case StmtKind::ConditionalStmt {
+                // The then block runs on the condition's true state, the
+                // else (or the fallthrough) on its false state.
                 var unsafe *n = cast<Statements::ConditionalStmt>(s)
-                if n->cond != &null {
-                    self.dispatch_expr(n->cond)
-                }
-
-                self._arms_start()
-                self._arm_begin()
+                var        r  = self._cond(n->cond)
+                self._st = r.t
                 self.dyn()->traverse_block(n->then_)
-                self._arm_end()
-                var has_else = n->else_ != &null
-                if has_else {
-                    self._arm_begin()
+                var taken = self._st
+                self._st = r.f
+                if n->else_ != &null {
                     self.dispatch_stmt(n->else_)
-                    self._arm_end()
                 }
 
-                self._arms_finish(!has_else)
+                self._st = move_join(taken, self._st)
                 return s
             } case StmtKind::WhileLoopStmt {
                 var unsafe *n = cast<Statements::WhileLoopStmt>(s)
@@ -1771,9 +2041,24 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             } case StmtKind::TryCatchStmt {
                 var unsafe *n     = cast<Statements::TryCatchStmt>(s)
                 var        before = self._st
+                var        frame  = TryFrame()
+                var        cxx    = false
+                frame.block_depth = self._blocks.size()
+                for var i: usize = 0; i < n->arms.size(); ++i {
+                    var unsafe *arm = n->arms.get(i)
+                    if arm->is_cxx {
+                        cxx = true
+                    } else if arm->filter == &null {
+                        frame.catch_all = true
+                    }
+                }
+
+                self._tries.push_back(frame)
                 self.dyn()->traverse_block(n->try_body)
+                var met = self._tries[self._tries.size() - 1]
+                self._tries.pop_back()
                 var after_try = self._st
-                var entry     = move_join(before, after_try)
+                var entry     = self._arm_entry_of(before, after_try, met, cxx)
                 var acc       = after_try
                 for var i: usize = 0; i < n->arms.size(); ++i {
                     var unsafe *arm = n->arms.get(i)
@@ -1788,14 +2073,18 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 self._st = acc
                 return s
             } case StmtKind::ReturnStmt {
-                var unsafe *n = cast<Statements::ReturnStmt>(s)
+                var unsafe *n   = cast<Statements::ReturnStmt>(s)
+                var        kind = MOVE_ON_OTHER
                 if n->value != &null {
                     self.dispatch_expr(n->value)
                     self._return_value(n->value)
+                    kind = self._return_kind(n->value)
+                } else if self._fn == &null {
+                    kind = MOVE_ON_RETURN
                 }
 
                 self._run_finallys_to(0)
-                self._exit()
+                self._exit(kind)
                 self._st.dead = true
                 return s
             } case StmtKind::PanicStmt {
@@ -1804,7 +2093,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     self.dispatch_expr(n->payload)
                 }
 
-                self._run_finallys_to(0)
+                self._leave_by_panic()
                 self._st.dead = true
                 return s
             } case StmtKind::LabeledStmt {
@@ -1848,7 +2137,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// visible to a read on iteration two. `continue` states join the back
     /// edge; `break` states join the exit. The exit is reachable without
     /// entering the body at all (a false condition), so the entry state is
-    /// a path too -- when \p finite. An infinite loop (`loop`, `while
+    /// a path too -- when \p finite. With a condition, the body starts from
+    /// its true state and the loop is left from its false state, at the
+    /// entry, at the second pass's head, and once more over the second
+    /// pass's back edge. An infinite loop (`loop`, `while
     /// true`, a C-style `for` with no condition; ReturnPathCheck's rule) is
     /// left only by a `break`, so its exit is the join of the breaks alone:
     /// neither the entry state nor the back edge reaches past it, and with
@@ -1867,6 +2159,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         frame.block_depth       = self._blocks.size()
         frame.has_label         = self._pending_has_label
         frame.label             = self._pending_label
+        frame.done.dead         = true
         self._pending_has_label = false
         self._loops.push_back(frame)
 
@@ -1874,13 +2167,21 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st = move_join(entry, exit1)
         var head  = self._st
         var exit2 = self._loop_pass(cond, body, update, rf)
+        if finite && cond != &null {
+            self._st = move_join(head, exit2)
+            var last = self._cond(cond)
+            var top  = self._loops.size() - 1
+            self._loops[top].done = move_join(self._loops[top].done, last.f)
+        }
 
         var fr = self._loops[self._loops.size() - 1]
         self._loops.pop_back()
 
         var out = MoveState()
         out.dead = true
-        if finite {
+        if finite && cond != &null {
+            out = fr.done
+        } else if finite {
             out = move_join(head, exit2)
             out = move_join(out, entry)
         }
@@ -1902,15 +2203,47 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             k = k - 1
             var unsafe *fin = self._blocks[i][k]
             if fin != &null && fin->body != &null {
+                self._fin_depth += 1
                 self.dispatch_stmt(fin->body)
+                self._fin_depth -= 1
             }
         }
+    }
+
+    /// The state a catch arm of a `try` starts from. A panic reaches the
+    /// arms only from the points \p met recorded (_leave_by_panic): every
+    /// call and user operator that may panic, every `panic`, every
+    /// iteration of a `for`. A C++
+    /// exception arm catches what C++ code throws, at points the walk does
+    /// not see, so its entry is the join of the state before the body and
+    /// after it, which is also the entry when no point was recorded.
+    priv fn _arm_entry_of(self,
+                          const before: MoveState,
+                          const after:  MoveState,
+                          const met:    TryFrame,
+                          cxx:          bool) -> MoveState {
+        var entry = before
+        if cxx || met.panics.empty() {
+            entry = move_join(entry, after)
+        }
+
+        for var i: usize = 0; i < met.panics.size(); ++i {
+            entry = move_join(entry, met.panics[i])
+        }
+
+        return entry
     }
 
     /// A jump out of every block from the innermost down to index \p to:
     /// their pending bodies run, innermost block first.
     priv fn _run_finallys_to(self, to: usize) {
-        var i = self._blocks.size()
+        self._run_finallys_between(self._blocks.size(), to)
+    }
+
+    /// The blocks below index \p from down to index \p to are left:
+    /// their pending bodies run, innermost block first.
+    priv fn _run_finallys_between(self, from: usize, to: usize) {
+        var i = from
         while i > to {
             i = i - 1
             self._run_block_finallys(i)
@@ -1957,8 +2290,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                        rf:     unsafe *Statements::RangedForStmt) -> MoveState {
         var top = self._loops.size() - 1
         self._loops[top].continues.clear()
+        // Each step of a `for` may panic (its `op in`).
+        if rf != &null {
+            self._panic_path(CallMarks{})
+        }
+
         if cond != &null {
-            self.dispatch_expr(cond)
+            var r = self._cond(cond)
+            self._loops[top].done = move_join(self._loops[top].done, r.f)
+            self._st              = r.t
         }
 
         // A `for` binding is a new binding each iteration, bound to the next
@@ -1990,6 +2330,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// # calls
 
     priv fn _call(self, n: unsafe *Expressions::CallExpr) {
+        // Only this call is the condition, not one inside its operands.
+        var split = self._split_req
+        self._split_req = false
         if n->callee != &null {
             self.dispatch_expr(n->callee)
         }
@@ -2113,8 +2456,29 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
+        var cm = CallMarks{}
         if f != &null && !n->is_poisoned() {
-            self._call_leaves(n, f, is_ctor, bound_p, bound_e)
+            cm = self._call_leaves(n, f, is_ctor, bound_p, bound_e)
+        }
+
+        var panics = !is_ctor && self._may_panic(f, fp)
+        for var i: usize = 0; i < cm.when.size(); ++i {
+            if (cm.when[i] & MOVE_ON_PANIC) != 0 {
+                panics = true
+            }
+        }
+
+        if panics {
+            self._panic_path(cm)
+        }
+
+        // The rest of the path is the call's return: a condition marks
+        // each branch with the returns that reach it.
+        if split {
+            self._split      = cm
+            self._split_done = true
+        } else {
+            self._apply(cm, MOVE_ON_RETURN)
         }
 
         // `-> !`, `__builtin_trap()`, an imported `[[noreturn]]`: nothing
@@ -2122,6 +2486,148 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         if n->type_ != &null && self._tu.is_never(n->type_) {
             self._st.dead = true
         }
+    }
+
+    /// Walks the condition \p e and returns the state on each of its
+    /// outcomes. A call that is the condition, or its operand under `!`,
+    /// `&&`, `||`, a postfix `?` or a comparison with `null`, marks what
+    /// its callee leaves moved-from only on the branch whose outcomes move
+    /// it (MoveOut::when). Any other condition is one state for both.
+    priv fn _cond(self, e: unsafe *Expr) -> CondStates {
+        var unsafe *x = self._tu.strip_parens(e)
+        var        r  = CondStates{}
+        if x == &null {
+            r.t = self._st
+            r.f = self._st
+            return r
+        }
+
+        if isa<Expressions::UnaryOperatorExpr>(x) {
+            var unsafe *u = cast<Expressions::UnaryOperatorExpr>(x)
+            if u->resolved_op == &null && u->operand != &null {
+                if u->fix == Expressions::UnaryOperatorExpr::Fix::Prefix
+                    && u->op_token.kind == TokenKind::OpExclaim {
+                    var inner = self._cond(u->operand)
+                    r.t = inner.f
+                    r.f = inner.t
+                    return r
+                }
+
+                if u->fix == Expressions::UnaryOperatorExpr::Fix::Postfix
+                    && u->op_token.kind == TokenKind::OpQuestion {
+                    var unsafe *c = self._tu.strip_parens(u->operand)
+                    if c != &null && isa<Expressions::CallExpr>(c) {
+                        return self._split_call(
+                            cast<Expressions::CallExpr>(c),
+                            MOVE_ON_RETURN & ~MOVE_ON_NULL,
+                            MOVE_ON_RETURN & ~MOVE_ON_NON_NULL,
+                        )
+                    }
+                }
+            }
+        }
+
+        if isa<Expressions::BinaryOperatorExpr>(x) {
+            var unsafe *bo = cast<Expressions::BinaryOperatorExpr>(x)
+            var        k   = bo->op_token.kind
+            if bo->resolved_op == &null && bo->lhs != &null && bo->rhs != &null {
+                if k == TokenKind::OpAmpAmp {
+                    var a = self._cond(bo->lhs)
+                    self._st = a.t
+                    var b = self._cond(bo->rhs)
+                    r.t = b.t
+                    r.f = move_join(a.f, b.f)
+                    return r
+                }
+
+                if k == TokenKind::OpPipePipe {
+                    var a = self._cond(bo->lhs)
+                    self._st = a.f
+                    var b = self._cond(bo->rhs)
+                    r.t = move_join(a.t, b.t)
+                    r.f = b.f
+                    return r
+                }
+
+                if k == TokenKind::OpEqualEqual || k == TokenKind::OpExclaimEqual {
+                    var unsafe *l               = self._tu.strip_parens(bo->lhs)
+                    var unsafe *rr              = self._tu.strip_parens(bo->rhs)
+                    var        c:  unsafe *Expr = &null
+                    if l != &null
+                        && rr != &null
+                        && self._is_null_literal(rr)
+                        && isa<Expressions::CallExpr>(l) {
+                        c = l
+                    } else if l != &null
+                        && rr != &null
+                        && self._is_null_literal(l)
+                        && isa<Expressions::CallExpr>(rr) {
+                        c = rr
+                    }
+
+                    if c != &null {
+                        var nul = MOVE_ON_RETURN & ~MOVE_ON_NON_NULL
+                        var val = MOVE_ON_RETURN & ~MOVE_ON_NULL
+                        if k == TokenKind::OpEqualEqual {
+                            return self._split_call(
+                                cast<Expressions::CallExpr>(c),
+                                nul,
+                                val,
+                            )
+                        }
+
+                        return self._split_call(
+                            cast<Expressions::CallExpr>(c),
+                            val,
+                            nul,
+                        )
+                    }
+                }
+            }
+        }
+
+        if isa<Expressions::CallExpr>(x) {
+            return self._split_call(
+                cast<Expressions::CallExpr>(x),
+                MOVE_ON_RETURN & ~MOVE_ON_FALSE,
+                MOVE_ON_RETURN & ~MOVE_ON_TRUE,
+            )
+        }
+
+        self.dispatch_expr(x)
+        r.t = self._st
+        r.f = self._st
+        return r
+    }
+
+    /// The call \p c is a condition: \p on_t and \p on_f are the returns
+    /// that make it true and false.
+    priv fn _split_call(self, c: unsafe *Expressions::CallExpr, on_t: u8, on_f: u8) -> CondStates {
+        var r = CondStates{}
+        self._split_req  = true
+        self._split_done = false
+        self.dispatch_expr(c)
+        self._split_req = false
+        if !self._split_done {
+            r.t = self._st
+            r.f = self._st
+            return r
+        }
+
+        self._split_done = false
+        var cm   = self._split
+        var base = self._st
+        self._apply(cm, on_t)
+        r.t      = self._st
+        self._st = base
+        self._apply(cm, on_f)
+        r.f      = self._st
+        self._st = base
+        return r
+    }
+
+    priv fn _is_null_literal(self, e: unsafe *Expr) -> bool {
+        return e != &null && isa<NullLiteralExpr>(e) && !cast<NullLiteralExpr>(e)->is_ref
     }
 
     /// \p e passed to \p p (null for a pack tail) in \p mode. By value
@@ -2243,6 +2749,16 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             if ops[i] != &null {
                 self._pass(ops[i], view[i], view[i]->mode)
             }
+        }
+
+        self._operator_panics(opd)
+    }
+
+    /// A user operator \p opd marked `panic` may leave the path by a panic.
+    priv fn _operator_panics(self, opd: unsafe *Decl) {
+        var unsafe *f = dyn_cast<FunctionDecl>(opd)
+        if f != &null && f->is_panic() {
+            self._panic_path(CallMarks{})
         }
     }
 
