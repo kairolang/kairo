@@ -71,6 +71,7 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
     StringLiteralExpr,
 }
+import AST::Node::Statements::IterYield
 import AST::Node::Types
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::param_mode_prefix
@@ -202,6 +203,39 @@ pub class TypeUtil {
         }
 
         return cast<Types::PointerType>(u)->is_unsafe
+    }
+
+    /// The binder rule of what a generator yields (\p y, the `T` of
+    /// `Yield<T>`): Pointer for `*T`, UnsafePointer for `unsafe *T`, Value
+    /// for anything else (a nullable pointer `*T?` included).
+    fn iter_yield_of(self, y: unsafe *Type) -> IterYield {
+        if self.pointee(y) == &null {
+            return IterYield::Value
+        }
+
+        return if (self.is_unsafe_ptr(y)) => (IterYield::UnsafePointer) else => IterYield::Pointer
+    }
+
+    /// The binder rule \p f declares: iter_yield_of its written `Yield<T>`'s
+    /// `T`, read off the declaration, never an instance's substitution (a
+    /// `-> yield T` over `T = *P` yields values), or Free when \p f does
+    /// not return a `Yield<T>`.
+    fn fn_iter_yield(self, f: unsafe *Declarations::FunctionDecl) -> IterYield {
+        if f == &null || f->return_type == &null || f->return_type->canonical == &null {
+            return IterYield::Free
+        }
+
+        var unsafe *rt = f->return_type->canonical
+        if !self.is_lang(rt, WellKnownType::Yield) {
+            return IterYield::Free
+        }
+
+        var args = self.record_args(rt)
+        if args.size() == 0 || args[0] == &null {
+            return IterYield::Free
+        }
+
+        return self.iter_yield_of(args[0])
     }
 
     fn nullable_inner(self, t: unsafe *Type) -> unsafe *Type {

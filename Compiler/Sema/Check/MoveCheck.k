@@ -3216,9 +3216,16 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         )
 
         b.first(bn->range)
+        // A value-yielding `op in` takes no `*x` binder (StmtTyping::
+        // _iter_yield_rule): the element's address comes from `-> yield *T`.
+        var how = f"bind '*{nm}' for the element's address instead"
+        if n->iter_yield == Statements::IterYield::Value {
+            how = f"its 'op in' yields values; declare it '-> yield *{ts}' and bind '*{nm}' for the element's address"
+        }
+
         b.note(
             bn->range.start,
-            f"the loop binder '{nm}' is a copy of each element; bind '*{nm}' for the element's address instead",
+            f"the loop binder '{nm}' is a copy of each element; {how}",
         )
 
         if rd != &null {

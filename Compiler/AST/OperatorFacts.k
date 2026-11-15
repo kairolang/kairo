@@ -207,12 +207,31 @@ pub class OperatorFacts {
             && OperatorFacts::_kind_at(f, i + 1) == TokenKind::OpRSquare
     }
 
-    /// `op ->`: one token, member-only. With `op []` the one operator a
-    /// `self` / `const self` pair may declare (operator-overloading.mdx,
-    /// "Const Overloading Operators"); Substitution::arrow_target picks by
-    /// the receiver's const.
+    /// `op ->`: one token, member-only. With `op []` and the iteration
+    /// `op in` (is_iteration) an operator a `self` / `const self` pair may
+    /// declare (operator-overloading.mdx, "Const Overloading Operators");
+    /// Substitution::arrow_target picks by the receiver's const.
     pub static fn is_arrow(f: unsafe *FunctionDecl) -> bool {
         return OperatorFacts::single_kind(f) == TokenKind::OpArrow
+    }
+
+    /// `op in (self)` / `op in (const self)`: the iteration form, a member
+    /// `in` with no parameter but the receiver. `op in (self, x)` is
+    /// containment, never this. The third operator a `self` / `const self`
+    /// pair may declare (operator-overloading.mdx); StmtTyping::_iter_own_op
+    /// picks by the iterable's const.
+    pub static fn is_iteration(f: unsafe *FunctionDecl) -> bool {
+        if OperatorFacts::single_kind(f) != TokenKind::KwIn || !f->is_method() {
+            return false
+        }
+
+        for var i: usize = 0; i < f->params.size(); ++i {
+            if f->params[i] != &null && !f->params[i]->is_self {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// `op []=`: the place (write) form of the subscript, three tokens

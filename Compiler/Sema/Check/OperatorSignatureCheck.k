@@ -83,6 +83,7 @@ import AST::Node::Declarations::{
     UnionDecl,
 }
 import AST::Node::Program::TopLevelKind
+import AST::Node::Statements::IterYield
 import AST::OperatorFacts::OperatorFacts
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
@@ -593,6 +594,74 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         s->poison()
     }
 
+    /// A type's `op in (self)` and `op in (const self)` yield one form: a
+    /// value (`T`), a pointer (`*T`) or an unsafe pointer (`unsafe *T`).
+    /// The form decides which binders a loop may write (StmtTyping::
+    /// _iter_yield_rule), so a pair that differed would change what
+    /// `for *x in s` means with the constness of `s`.
+    priv fn _iteration_forms(self, dc: unsafe *DeclContext) {
+        var unsafe *cell = dc->lookup_symbol(
+            DeclName::op_name(TokenKind::KwIn, TokenKind::TkUnknown),
+        )
+
+        if cell == &null {
+            return
+        }
+
+        var first: unsafe *FunctionDecl = &null
+        var form0                       = IterYield::Free
+        for var i: usize = 0; i < cell->size(); ++i {
+            var unsafe *f = dyn_cast<FunctionDecl>(cell->get(i))
+            if f == &null
+                || f->is_poisoned()
+                || f->is_out_of_line()
+                || !OperatorFacts::is_iteration(f) {
+                continue
+            }
+
+            var form = self._tu.fn_iter_yield(f)
+            if form == IterYield::Free {
+                continue
+            }
+
+            if first == &null {
+                first = f
+                form0 = form
+                continue
+            }
+
+            if form == form0 {
+                continue
+            }
+
+            var b = self.sc->diag->report(
+                DiagID::SC299E,
+                f->range.start,
+                f"'op in' yields {self._yield_form_text(form)} here and {self._yield_form_text(form0)} in its other form; 'op in (self)' and 'op in (const self)' yield one form",
+            )
+
+            b.first(f->range)
+            b.note(
+                DiagCode(DiagID::SC299N),
+                first->range.start,
+                "the other form is declared here",
+            )->child_first(first->range)
+            b.emit()
+        }
+    }
+
+    priv fn _yield_form_text(self, form: IterYield) -> string {
+        if form == IterYield::Pointer {
+            return "a pointer ('*T')"
+        }
+
+        if form == IterYield::UnsafePointer {
+            return "an unsafe pointer ('unsafe *T')"
+        }
+
+        return "a value ('T')"
+    }
+
     /// \p k is OperatorFacts::single_kind: TkUnknown for `[]` / `()`.
     priv fn _arity_ok(self, k: TokenKind, n: usize) -> bool {
         if k == TokenKind::OpPlus || k == TokenKind::OpMinus || k == TokenKind::KwIn {
@@ -809,6 +878,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
     priv fn _table(self, dc: unsafe *DeclContext, at: *Decl) {
         self._pairs(dc, at)
         self._cmp_shadows(dc, dc)
+        self._iteration_forms(dc)
         if !isa<ExtensionDecl>(at) {
             self._split_pairs(dc, at)
         }

@@ -6164,3 +6164,79 @@ group = "classes"
 
     [SC297.N]
     explain = "Points at the return type of the virtual method the override must match."
+
+[SC298]
+brief = "a loop binder that the selected 'op in' does not bind"
+group = "control-flow"
+
+    [SC298.E]
+    explain = """
+    # the loop binder does not fit what `op in` yields
+
+    What a type's `op in` yields decides the binders a `for` over it may
+    write. The loop calls `op in (const self)` over a const object and
+    `op in (self)` over a mutable one.
+
+    | `op in` | binders |
+    |---|---|
+    | `(self) -> yield T` | `for x` |
+    | `(const self) -> yield T` | `for x`, `for const x` |
+    | `(self) -> yield *T` | `for x` (a copy), `for *x` (the element) |
+    | `(const self) -> yield *T` | `for x`, `for const x`, `for const *x` |
+    | `(self) -> yield unsafe *T` | `for unsafe *x` |
+    | `(const self) -> yield unsafe *T` | `for unsafe *x`, `for const unsafe *x` |
+
+    ```kairo
+    class Bag {
+        var xs: [i32]
+        fn op in (self) -> yield i32 {
+            for x in self.xs { yield x }
+        }
+    }
+
+    fn zero(b: Bag) {
+        for *p in b { *p = 0 }      // error: a value yield has no element to point at
+    }
+    ```
+
+    ## how to fix
+
+    write the binder the message names (the fix-it does), or, to bind a
+    pointer to each element, make `op in` yield one:
+    `fn op in (self) -> yield *i32 { for *x in self.xs { yield x } }`.
+
+    The builtin containers (`[T]`, `{T}`, `{K: V}`) keep `for *x` over
+    their `-> yield T`.
+    """
+
+    [SC298.N]
+    explain = "Points at the `op in` the loop selected."
+
+[SC299]
+brief = "a type's two iteration forms yield different forms"
+group = "operators"
+
+    [SC299.E]
+    explain = """
+    # `op in (self)` and `op in (const self)` yield one form
+
+    A type may declare both iteration forms; a loop picks one by the
+    constness of what it iterates. Both yield the same form: a value
+    (`T`), a pointer (`*T`) or an unsafe pointer (`unsafe *T`), because
+    the form decides which binders the loop may write.
+
+    ```kairo
+    class Bag {
+        var xs: [i32]
+        fn op in (self) -> yield *i32 { for *x in self.xs { yield x } }
+        fn op in (const self) -> yield i32 { for x in self.xs { yield x } }  // error
+    }
+    ```
+
+    ## how to fix
+
+    give both the same yield form: here `fn op in (const self) -> yield *i32`.
+    """
+
+    [SC299.N]
+    explain = "Points at the other iteration form."

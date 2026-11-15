@@ -122,8 +122,8 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import AST::Node::Statements::{
-    Binding,  BindingShorthand, CompoundStmt,  ConditionalStmt, DeclStmt, ExpressionStmt,
-    IterKind, LabeledStmt,      RangedForStmt, WhileLoopStmt,
+    Binding,   BindingShorthand, CompoundStmt,  ConditionalStmt, DeclStmt, ExpressionStmt, IterKind,
+    IterYield, LabeledStmt,      RangedForStmt, WhileLoopStmt,
 }
 import AST::Node::Types::{
     CXXLValueRefType,
@@ -972,8 +972,27 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             self.sc->types->pointer(elem),
         )
 
-        var body = self.list_builder<unsafe *Stmt>()
-        self._bind(n, unsafe &body, at, self._deref(cur, elem), true)
+        var        body = self.list_builder<unsafe *Stmt>()
+        var unsafe *got = self._deref(cur, elem)
+        if n->iter_yield == IterYield::Pointer || n->iter_yield == IterYield::UnsafePointer {
+            // `-> yield *T`: the element is what the yielded pointer points
+            // at, so a `*x` binder is that pointer and never the address of
+            // the generator's own slot.
+            var unsafe *pe = self.tu.pointee(elem)
+            if n->bindings.size() == 1 && self._binds_pointer(n->bindings.get(0)) {
+                var unsafe *b  = n->bindings.get(0)
+                var unsafe *vd = cast<VariableDecl>(b->decl)
+                vd->init = got
+                body.push(
+                    unsafe (DeclStmt::create(self.ctx, b->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
+                )
+            } else {
+                self._bind(n, unsafe &body, at, self._deref(got, pe), true)
+            }
+        } else {
+            self._bind(n, unsafe &body, at, got, true)
+        }
+
         body.push(n->body)
 
         var no_next = self.list_builder<unsafe *Expr>()
@@ -1246,6 +1265,16 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         body->push(
             unsafe (DeclStmt::create(self.ctx, b->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
         )
+    }
+
+    /// A named `*x` / `unsafe *x` binder with no type written.
+    priv fn _binds_pointer(self, b: unsafe *Binding) -> bool {
+        return b != &null
+            && !b->is_discard
+            && b->decl != &null
+            && b->type_ == &null
+            && b->shorthand.has(BindingShorthand::Pointer)
+            && !b->shorthand.has(BindingShorthand::Nullable)
     }
 
     /// # lang-item members

@@ -272,6 +272,11 @@ fn io_ranged_for_stmt(ar: unsafe *ASTArchive, n: unsafe *Statements::RangedForSt
         ar->sema_null<Decl>(n->iter_op, "RangedForStmt::iter_op")
         ar->sema_null<Type>(n->iter_elem, "RangedForStmt::iter_elem")
         ar->sema_is(n->iter_inst == &null, "RangedForStmt::iter_inst")
+        ar->sema_is(
+            n->iter_yield == Statements::IterYield::Free,
+            "RangedForStmt::iter_yield",
+        )
+
         ar->sema_null<Decl>(n->cxx_begin_fn, "RangedForStmt::cxx_begin_fn")
         ar->sema_null<Decl>(n->cxx_end_fn, "RangedForStmt::cxx_end_fn")
         ar->sema_false(n->cxx_free, "RangedForStmt::cxx_free")

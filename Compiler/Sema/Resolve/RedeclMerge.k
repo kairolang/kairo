@@ -89,6 +89,10 @@
 ///                            `op [] -> [T;]` beside its `-> [const T;]`
 ///                            pair is two entities too, and the exception
 ///                            takes no part in the place/value decision.
+///                            The iteration `op in` (OperatorFacts::
+///                            is_iteration) is the third: a loop picks
+///                            `op in (self)` or `op in (const self)` by
+///                            the iterable's const.
 ///
 ///     Fixity is INCLUDED: `op l++` and `op r++` share a name cell
 ///     (OperatorFacts::key) and X picks between them by is_postfix, so the
@@ -903,13 +907,17 @@ pub class RedeclMerge {
         // `op []=` has no const pair: it is the place form whatever
         // the receiver, so it is held to the named-method rule. `op ->` has
         // the same exemption as `op []` (operator-overloading.mdx: the two
-        // place operators may overload on receiver const-ness).
+        // place operators may overload on receiver const-ness), and so does
+        // the iteration `op in (self)`: a loop over a const object takes its
+        // `op in (const self)`, over a mutable one its `op in (self)`.
         var const_is_identity = fa
             || fb
             || OperatorFacts::is_subscript(a)
             || OperatorFacts::is_subscript(b)
             || OperatorFacts::is_arrow(a)
             || OperatorFacts::is_arrow(b)
+            || OperatorFacts::is_iteration(a)
+            || OperatorFacts::is_iteration(b)
         if const_is_identity {
             if a->is_const() != b->is_const() {
                 return false
@@ -1784,8 +1792,9 @@ pub class RedeclMerge {
     /// `const` is here rather than in _same_signature because Kairo does
     /// not permit const overloading -- see the header. Two links
     /// disagreeing about const are one entity with two contracts. An
-    /// `[]` or `->` pair never reaches here: const is its identity,
-    /// keyed on operator kind (is_subscript, is_arrow), place or value alike.
+    /// `[]`, `->` or iteration `in` pair never reaches here: const is its
+    /// identity, keyed on operator kind (is_subscript, is_arrow,
+    /// is_iteration), place or value alike.
     ///
     /// A `where` guard never reaches here: a guarded pair is a dispatch
     /// group, not a chain (_merge_cell), and WhereGuardCheck holds its

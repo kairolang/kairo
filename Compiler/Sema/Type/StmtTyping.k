@@ -2872,15 +2872,30 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         self._by_value_abstract(n, elem)
-        self._bind_list(
-            &n->bindings,
-            elem,
-            n->iterable,
-            self._cxx_yields_const(n)
-                || self._const_owner_iter(n, it)
-                || self._user_yields_readonly(n)
-                || self._const_slice_iter(it),
-        )
+        n->iter_yield = self._iter_yield_rule(n, elem)
+        if n->iter_yield == Statements::IterYield::Pointer
+            || n->iter_yield == Statements::IterYield::UnsafePointer {
+            // The binders take the pointee: `for x` copies it, `for *x` is
+            // the yielded pointer, read-only through `op in (const self)`.
+            var unsafe *pe = self.dyn()->tu.pointee(elem)
+            var unsafe *of = dyn_cast<FunctionDecl>(n->iter_op)
+            self._bind_list(
+                &n->bindings,
+                pe,
+                n->iterable,
+                (of != &null && of->is_const()) || self.dyn()->tu.has_const(pe),
+            )
+        } else {
+            self._bind_list(
+                &n->bindings,
+                elem,
+                n->iterable,
+                self._cxx_yields_const(n)
+                    || self._const_owner_iter(n, it)
+                    || self._user_yields_readonly(n)
+                    || self._const_slice_iter(it),
+            )
+        }
 
         // No condition refines it; it may run zero times, so after it is
         // the head's state joined with each `break`.
@@ -2893,6 +2908,175 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var brk = self.dyn()->flow.loop_leave()
         self.dyn()->flow.env = self.dyn()->flow.join(&head, &brk)
         return n
+    }
+
+    /// # the binder rule of a record's `op in`
+
+    /// Which binders a loop over a record's own `op in` may write, read off
+    /// what it yields and whether the selected form takes `const self`:
+    ///
+    ///   yield T             `for x`; through `const self` also `for const x`
+    ///   yield *T            `for x` (a copy), `for *x`; through `const self`
+    ///                       `for x`, `for const x`, `for const *x`
+    ///   yield unsafe *T     `for unsafe *x`; through `const self` also
+    ///                       `for const unsafe *x`
+    ///
+    /// Every other binder is SC298E, with the spelling the form takes. Free
+    /// (no rule) for a loop that is not over a record's `op in`, and for a
+    /// value-yielding `op in` declared in Lib/builtin: its containers yield
+    /// `T` and their `for *x` points at the element
+    /// (Compiler/Spec/ExprTyping.md). A pointer-yielding one there is held
+    /// to the rule like any other.
+    priv fn _iter_yield_rule(self,
+                             n:    unsafe *Statements::RangedForStmt,
+                             elem: unsafe *Type) -> Statements::IterYield {
+        var free = Statements::IterYield::Free
+        if n->iter_kind != Statements::IterKind::User || n->iter_op == &null || elem == &null {
+            return free
+        }
+
+        var unsafe *f = dyn_cast<FunctionDecl>(n->iter_op)
+        if f == &null {
+            return free
+        }
+
+        var unsafe *home = self.dyn()->tu.pattern_of(n->iter_op)
+        var form = self.dyn()->tu.fn_iter_yield(dyn_cast<FunctionDecl>(home))
+        if form == Statements::IterYield::Free {
+            return free
+        }
+
+        var unsafe *g = self.dyn()->sc->g
+        if form == Statements::IterYield::Value
+            && g != &null
+            && g->is_builtin_fid(self.dyn()->tu.fid_of(home)) {
+            return free
+        }
+
+        var by_const = f->is_const()
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var unsafe *b = n->bindings.get(i)
+            if b != &null && !b->is_discard {
+                self._check_iter_binder(n, f, b, elem, form, by_const)
+            }
+        }
+
+        return form
+    }
+
+    /// One binder against the rule (see _iter_yield_rule): SC298E with the
+    /// nearest spelling the form takes, a note at the `op in`, and the edit.
+    priv fn _check_iter_binder(self,
+                               n:        unsafe *Statements::RangedForStmt,
+                               f:        unsafe *FunctionDecl,
+                               b:        unsafe *Statements::Binding,
+                               elem:     unsafe *Type,
+                               form:     Statements::IterYield,
+                               by_const: bool) {
+        var cst = b->is_const
+        var ptr = b->shorthand.has(Statements::BindingShorthand::Pointer)
+        var uns = b->shorthand.has(Statements::BindingShorthand::Unsafe)
+
+        var nm = if (b->name != &null) => (self.dyn()->sc->ctx->get_spelling(
+                     b->name->name,
+                 ))
+                 else => "_"
+        var want_cst = cst
+        var want_ptr = ptr
+        var want_uns = false
+        var takes    = ""
+        if form == Statements::IterYield::Value {
+            want_ptr = false
+            want_cst = cst && by_const
+            takes = if (by_const) => (f"'for {nm}' or 'for const {nm}'") else => f"only 'for {nm}'"
+        } else if form == Statements::IterYield::Pointer {
+            if by_const {
+                want_cst = cst || ptr
+                takes    = f"'for {nm}', 'for const {nm}' or 'for const *{nm}'"
+            } else {
+                want_cst = false
+                takes    = f"'for {nm}' or 'for *{nm}'"
+            }
+        } else {
+            want_ptr = true
+            want_uns = true
+            want_cst = cst && by_const
+            takes = if (by_const) => (f"'for unsafe *{nm}' or 'for const unsafe *{nm}'")
+                    else => f"only 'for unsafe *{nm}'"
+        }
+
+        if want_cst == cst && want_ptr == ptr && want_uns == uns {
+            return
+        }
+
+        var have = self._binder_spelling(cst, ptr, uns, nm)
+        var want = self._binder_spelling(want_cst, want_ptr, want_uns, nm)
+        var recv = if (by_const) => ("const self") else => "self"
+        var ys   = self.dyn()->tu.str(elem)
+        // One binder of a tuple list is named on its own: `(a, *c)`.
+        var who = if (n->bindings.size() > 1) => (f"the binder '{have}'") else => f"'for {have}'"
+        var msg = f"{who} does not bind what 'op in ({recv})' yields: '{ys}' binds {takes}"
+        if form == Statements::IterYield::Value && ptr {
+            var pt = if (by_const) => ("*const ") else => "*"
+            msg = msg + f"; to bind a pointer to the element, declare 'op in ({recv}) -> yield {pt}{ys}'"
+        } else if by_const && form != Statements::IterYield::UnsafePointer && ptr && !cst {
+            msg = msg + "; through 'const self' the element is read-only"
+        }
+
+        var d = self.dyn()->sc->diag->report(
+            DiagID::SC298E,
+            b->range.start,
+            msg,
+        )
+
+        d.first(b->range)
+        d.note(
+            DiagCode(DiagID::SC298N),
+            f->range.start,
+            f"'op in ({recv})' is declared here",
+        )->child_first(f->range)
+        // The binder's range covers its own `var` / `const` only when it
+        // wrote one; a leading keyword of the whole header is outside it.
+        // So a change of const is an edit inside the range: the binder's
+        // own keyword rewritten, or `const ` added to an element of a list
+        // (valid under any header keyword) or to a lone binder written
+        // right after `for ` (no header keyword to clash with).
+        var bare = n->bindings.size() > 1 || n->range.start.advance(4) == b->range.start
+        if want_cst == cst || b->is_explicit || (want_cst && !cst && bare) {
+            var kw = ""
+            if b->is_explicit || want_cst != cst {
+                kw = if (want_cst) => ("const ") else => "var "
+            }
+
+            d.fix(
+                b->range,
+                kw + self._binder_spelling(false, want_ptr, want_uns, nm),
+                f"write 'for {want}'",
+            )
+        }
+
+        d.emit()
+        if b->decl != &null {
+            b->decl->poison()
+        }
+    }
+
+    /// `const unsafe *x`, `*x`, `x`: a binder as it is written.
+    priv fn _binder_spelling(self, cst: bool, ptr: bool, uns: bool, const nm: string) -> string {
+        var out = ""
+        if cst {
+            out = "const "
+        }
+
+        if uns {
+            out = out + "unsafe "
+        }
+
+        if ptr {
+            out = out + "*"
+        }
+
+        return out + nm
     }
 
     /// A C++ range whose `*it` is a reference to const (std::set, a

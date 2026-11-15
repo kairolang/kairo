@@ -967,6 +967,29 @@ pub enum IterKind derives u8 {
 }
 
 ///
+///  IterYield
+///
+///  What a record's own `op in` yields, which decides the binders a loop
+///  over it may write (Compiler/Spec/ExprTyping.md, `for x in c`):
+///    Value          `-> yield T`: `for x` (and `for const x` through
+///                   `op in (const self)`); no pointer binder.
+///    Pointer        `-> yield *T`: `for x` copies the element, `for *x` is
+///                   the yielded pointer; through `op in (const self)` the
+///                   pointer binder is `for const *x`, a `*const T`.
+///    UnsafePointer  `-> yield unsafe *T`: `for unsafe *x` (and
+///                   `for const unsafe *x` through the const form) only.
+///  Free means no rule applies: not a record's `op in` (a container
+///  shape, an array, a C++ range, a generator value), or a value-yielding
+///  `op in` declared in Lib/builtin, which keeps pointer binders.
+///
+pub enum IterYield derives u8 {
+    Free = 0,
+    Value,
+    Pointer,
+    UnsafePointer,
+}
+
+///
 ///  RangedForStmt
 ///  Grammar:  'eval'? 'for' binding_spec 'in' expr block
 ///    binding_spec := ('var'|'const')? (binding | '(' binding (',' binding)* ')')
@@ -999,6 +1022,10 @@ pub class RangedForStmt derives Stmt {
     pub var iter_op:   unsafe *Decl          = &null ///< User: the selected `op in (self)`; null when the iterable is a Yield<T> itself.
     pub var iter_elem: unsafe *Type          = &null ///< the element type, canonical and unqualified.
     pub var iter_inst: unsafe *InstanceEntry = &null ///< User: a generic `op in`'s instance (an extension's on `[T]`), as CallExpr::instance.
+    /// User: the binder rule of the selected `op in`. Pointer and
+    /// UnsafePointer leave iter_elem the yielded pointer type; the binders
+    /// are typed over its pointee, and IterLowering dereferences once more.
+    pub var iter_yield: IterYield = IterYield::Free
     // Cxx only.
     pub var cxx_begin_fn:   unsafe *Decl          = &null ///< `begin`, a member or (cxx_free) a free function.
     pub var cxx_end_fn:     unsafe *Decl          = &null
@@ -1025,16 +1052,17 @@ pub class RangedForStmt derives Stmt {
         node->kind  = StmtKind::RangedForStmt
         node->range = range
         node->init_annotations(unsafe &ctx->ast_alloc)
-        node->iterable  = iterable
-        node->body      = body
-        node->is_eval   = is_eval
-        node->ev_lo     = &null
-        node->ev_hi     = &null
-        node->ev_incl   = false
-        node->iter_kind = IterKind::None
-        node->iter_op   = &null
-        node->iter_elem = &null
-        node->iter_inst = &null
+        node->iterable   = iterable
+        node->body       = body
+        node->is_eval    = is_eval
+        node->ev_lo      = &null
+        node->ev_hi      = &null
+        node->ev_incl    = false
+        node->iter_kind  = IterKind::None
+        node->iter_op    = &null
+        node->iter_elem  = &null
+        node->iter_inst  = &null
+        node->iter_yield = IterYield::Free
         return node
     }
 
@@ -1044,10 +1072,11 @@ pub class RangedForStmt derives Stmt {
         node->recovery_kind = StmtKind::RangedForStmt
         node->range         = range
         node->init_annotations(unsafe &ctx->ast_alloc)
-        node->iter_kind = IterKind::None
-        node->iter_op   = &null
-        node->iter_elem = &null
-        node->iter_inst = &null
+        node->iter_kind  = IterKind::None
+        node->iter_op    = &null
+        node->iter_elem  = &null
+        node->iter_inst  = &null
+        node->iter_yield = IterYield::Free
         return node
     }
 

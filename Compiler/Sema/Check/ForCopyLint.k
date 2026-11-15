@@ -69,7 +69,7 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
-    BindingShorthand, CompoundStmt, IndexedForStmt, IterKind, LoopStmt, RangedForStmt,
+    BindingShorthand, CompoundStmt, IndexedForStmt, IterKind, IterYield, LoopStmt, RangedForStmt,
     WhileLoopStmt,
 }
 import AST::Node::Types::{
@@ -442,6 +442,19 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
         )
 
         b.first(scan.first_write)
+        // A value-yielding `op in` takes no `*x` binder (SC298E): the
+        // element is reached only once it yields `*T`.
+        if n->iter_yield == IterYield::Value {
+            b.note(
+                DiagCode(DiagID::SC275N),
+                name.start,
+                f"'{nm}' is bound by value here, and this 'op in' yields values; with '-> yield *T' a 'for *{nm}' would point at the element",
+            )
+
+            b.emit()
+            return
+        }
+
         b.note(
             DiagCode(DiagID::SC275N),
             name.start,
