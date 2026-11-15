@@ -158,11 +158,9 @@ pub class PartitionQueue {
     /// \param v Task to enqueue (moved on success).
     /// \return `true` if the task was successfully enqueued, otherwise `false` if full.
     ///
-    /// \p v is moved from only when the push succeeds, and the caller keeps
-    /// it across a failed attempt. A `@inout` parameter cannot say that (a
-    /// body that moves out of one leaves the caller's argument moved-from),
-    /// so the task is taken by address and moved out of by hand.
-    inline fn push(self, v: *Task) -> bool {
+    /// \p v is moved from only when the push succeeds (it returns true), and
+    /// the caller keeps it whole across a failed attempt.
+    inline fn push(self, @inout v: Task) -> bool {
         var pos = self._enqueue_pos.load(kairo::std::MemoryOrder::relaxed)
 
         while true {
@@ -178,8 +176,7 @@ pub class PartitionQueue {
                     kairo::std::MemoryOrder::acq_rel,
                     kairo::std::MemoryOrder::relaxed,
                 ) {
-                    var unsafe *task = unsafe (v as unsafe *Task)
-                    cell->val = cxx::std::move(task[0])
+                    cell->val = cxx::std::move(v)
                     cell->seq.store(pos + 1, kairo::std::MemoryOrder::release)
                     return true
                 }

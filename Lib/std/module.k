@@ -21,13 +21,16 @@
 
 module kairo::std
 
-/// The `std::io` module: `print`, `println`, `eprint`, `eprintln` and `flush`.
-pub import io
-/// The `std::env` module: the process's view of its host (`exe_path`).
-pub import env
 /// C and C++ character types (`c_char`, `c_wchar`, `c_char16`, `c_char8`), re-exported at
 /// the std root, so they are spelled `std::c_char` and so on.
 pub import ctypes::*
+/// The `std::env` module: the process's view of its host (`exe_path`).
+pub import env
+/// The `std::io` module: `print`, `println`, `eprint`, `eprintln` and `flush`.
+pub import io
 /// The allocation API from `std::mem` (`create`, `destroy`, `AllocatorScope`, ...),
 /// re-exported at the std root.
 pub import mem::*
+/// Explicit value transfer from `std::utility` (`move`), re-exported at the std root, so it
+/// is spelled `std::move`.
+pub import utility::*
