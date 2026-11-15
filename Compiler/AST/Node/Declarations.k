@@ -979,6 +979,13 @@ pub class VariableDecl derives Decl, FFILinkage<VariableDecl> {
     /// this in, so every const reader is too. Never set with Const or Eval
     /// storage (`eval const` is plain `eval`).
     pub var const_binding: bool = false
+    /// A body local that shadows a visible local of the same name, as a
+    /// `const` rebinding in one scope or any binding in an inner one
+    /// (variables.mdx, Shadowing): one more than the binding it hides, 0
+    /// otherwise. C++ allows no rebinding in one scope and reads a shadowing
+    /// initializer's name as the new binding itself, so EmitIR spells this
+    /// one apart (LowerTargets::rebound_local). Written by NameResolution.
+    pub var rebind: u32 = 0
     /// `var x? = e`, the nullable shorthand (variables.md, Declaration
     /// Shorthands): the type is inferred from `init` and then made nullable,
     /// once (`typeof(e)?`, or `typeof(e)` when that is already nullable).

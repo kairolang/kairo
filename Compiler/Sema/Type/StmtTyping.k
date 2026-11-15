@@ -346,6 +346,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var saved_unsafe = self.dyn()->unsafe_depth
         self.dyn()->unsafe_depth = 0
         var t = self.dyn()->type_of(f->body_expr, &null)
+        if t == &null {
+            self.dyn()->reject_non_value(f->body_expr)
+        }
+
         self.dyn()->unsafe_depth = saved_unsafe
         self.pop_frame()
 
@@ -1845,7 +1849,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         // inferring
         if t == &null {
-            self.dyn()->reject_type_value(n->value)
+            self.dyn()->reject_non_value(n->value)
             return n
         }
 

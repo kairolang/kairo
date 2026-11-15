@@ -1053,6 +1053,7 @@ pub class EmitIR {
         }
 
         head += self._spell.leaf(n)
+        head += self._spell.spec_suffix(n) // `p<int>`: the specialization defined.
         head += "("
         head += self._params_text(n, ext)
         head += ")"
@@ -1136,7 +1137,7 @@ pub class EmitIR {
         } else {
             head += self._ret(m)
             head += " "
-            head += qual + "::" + nm
+            head += qual + "::" + nm + self._spell.spec_suffix(m)
         }
 
         head += "("
@@ -2577,7 +2578,7 @@ pub class EmitIR {
             && canon_unqual(cast<PointerType>(c)->pointee)->kind == TypeKind::FixedArrayType
         if c != &null && (c->kind == TypeKind::FixedArrayType || ptr_to_array) {
             // `T name[N]`: the name sits inside the declarator.
-            var nm = self._spell.tok_name(n->name, self._owning_fid())
+            var nm = self._local_name(unsafe (n as unsafe *Decl))
             self._cg->sink->spell(n->name.range, self._spell.decl(n->type_, nm))
         } else {
             // Deduced from a duck chain: `auto` is the type, the instance's.
@@ -2602,7 +2603,7 @@ pub class EmitIR {
                 self._cg->sink->spell(n->name.range, ts)
             }
 
-            self._name(n->name)
+            self._local_ref(unsafe (n as unsafe *Decl), n->name)
         }
 
         self._var_init(n, c)
@@ -4783,7 +4784,7 @@ pub class EmitIR {
         }
 
         if self._is_local(d) || self._captures_global(self._closure, d) {
-            self._name(n->name)
+            self._local_ref(d, n->name)
             return
         }
 
@@ -7045,7 +7046,7 @@ pub class EmitIR {
                 continue
             }
 
-            var nm = self._spell.tok_name(decl_name_tok(d), self._owning_fid())
+            var nm = self._local_name(d)
             // A script's top-level `var` is a global: C++ captures no
             // global, so the copy is an init-capture from its qualified name,
             // unless an enclosing closure holds it already under `nm`.
@@ -7201,6 +7202,31 @@ pub class EmitIR {
 
     priv fn _is_type_decl(self, d: unsafe *Decl) -> bool {
         return isa<ClassDecl>(d) || isa<StructDecl>(d) || isa<UnionDecl>(d) || isa<EnumDecl>(d)
+    }
+
+    /// A local's C++ name: its own, or for one that shadows a visible local
+    /// of the same name (VariableDecl::rebind) a name of its own, so C++
+    /// neither sees a redefinition nor reads the new binding in the
+    /// initializer that still names the old one.
+    priv fn _local_name(self, d: unsafe *Decl) -> string {
+        var nm = self._spell.tok_name(decl_name_tok(d), self._owning_fid())
+        var unsafe *v = dyn_cast<VariableDecl>(d)
+        if v != &null && v->rebind > 0 {
+            return LowerTargets::rebound_local(nm, v->rebind)
+        }
+
+        return nm
+    }
+
+    /// \p t, a declaration or use of local \p d, spelled as _local_name.
+    priv fn _local_ref(self, d: unsafe *Decl, t: Token) {
+        var unsafe *v = dyn_cast<VariableDecl>(d)
+        if v == &null || v->rebind == 0 {
+            self._name(t)
+            return
+        }
+
+        self._cg->sink->create_ident(t.range, self._local_name(d))
     }
 
     /// An identifier is spelled from its IMM, never borrowed: TokenSink takes

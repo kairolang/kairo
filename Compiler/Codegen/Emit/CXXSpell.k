@@ -4618,6 +4618,10 @@ pub class CXXSpell {
             }
         }
 
+        if CXXSpell::is_fn_spec(d) {
+            return "template <> "
+        }
+
         var gps = CXXSpell::template_params(d)
         if gps.size() == 0 {
             return ""
@@ -4653,8 +4657,8 @@ pub class CXXSpell {
     /// # Specializations of a generic record
 
     /// \p d is a registered explicit or partial specialization of a record
-    /// (TypeResolve sets `instantiated_from` to the primary). A function
-    /// spec is OverloadResolution's and never a C++ specialization here.
+    /// (TypeResolve sets `instantiated_from` to the primary). A function's
+    /// is is_fn_spec.
     static fn is_record_spec(d: unsafe *Decl) -> bool {
         if d == &null
             || !(isa<Declarations::ClassDecl>(d)
@@ -4669,6 +4673,147 @@ pub class CXXSpell {
         }
 
         return DeclFacts::decl_instantiated_from(d) != &null
+    }
+
+    /// \p d is a full specialization of a generic function (`fn <> p<i32>`)
+    /// paired with its primary (RedeclMerge sets `instantiated_from`): C++'s
+    /// explicit specialization `template <> R p<int>(...)` of that primary,
+    /// so a call of the primary at those arguments runs its body.
+    static fn is_fn_spec(d: unsafe *Decl) -> bool {
+        if d == &null || !isa<Declarations::FunctionDecl>(d) {
+            return false
+        }
+
+        return DeclFacts::decl_spec_kind(d) == Declarations::SpecKind::Explicit
+            && DeclFacts::decl_instantiated_from(d) != &null
+    }
+
+    /// Every paired specialization of generic function \p prim0, appended
+    /// to \p out in declaration order. A specialization lives in its
+    /// primary's scope (RedeclMerge pairs within one scope), so that scope's
+    /// declarations are all there is to read.
+    static fn fn_specs_of(prim0: unsafe *Decl, out: unsafe *cxx::std::vector<unsafe *Decl>) {
+        var unsafe *prim = CXXSpell::rep(prim0)
+        if prim == &null || !isa<Declarations::FunctionDecl>(prim) || prim->semantic_dc == &null {
+            return
+        }
+
+        if DeclFacts::decl_generic_params(prim).size() == 0 {
+            return
+        }
+
+        // A member's scope lists it among its owner's methods.
+        var unsafe *ext = DeclFacts::decl_extension_of(prim)
+        var unsafe *own = if (ext != &null) => (unsafe (ext as unsafe *Decl))
+                          else => prim->semantic_dc->dc_owner
+        if own != &null && isa<Declarations::ExtensionDecl>(own) {
+            var *ms = &cast<Declarations::ExtensionDecl>(own)->methods
+            for var i: usize = 0; i < ms->size(); ++i {
+                CXXSpell::_fn_spec_in(
+                    unsafe ((*ms)[i] as unsafe *Decl),
+                    prim,
+                    out,
+                )
+            }
+
+            return
+        }
+
+        if own != &null && isa<Declarations::ClassDecl>(own) {
+            var *ms = &cast<Declarations::ClassDecl>(own)->methods
+            for var i: usize = 0; i < ms->size(); ++i {
+                CXXSpell::_fn_spec_in(
+                    unsafe ((*ms)[i] as unsafe *Decl),
+                    prim,
+                    out,
+                )
+            }
+
+            return
+        }
+
+        if own != &null && isa<Declarations::StructDecl>(own) {
+            var *ms = &cast<Declarations::StructDecl>(own)->methods
+            for var i: usize = 0; i < ms->size(); ++i {
+                CXXSpell::_fn_spec_in(
+                    unsafe ((*ms)[i] as unsafe *Decl),
+                    prim,
+                    out,
+                )
+            }
+
+            return
+        }
+
+        var unsafe *dc = prim->semantic_dc
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            CXXSpell::_fn_spec_in(*dc->dc_decls.get(i), prim, out)
+        }
+    }
+
+    /// \p d, or each declaration a visibility group or `eval` block of it
+    /// holds, when it is a specialization of \p prim.
+    priv static fn _fn_spec_in(d:    unsafe *Decl,
+                               prim: unsafe *Decl,
+                               out:  unsafe *cxx::std::vector<unsafe *Decl>) {
+        if d == &null {
+            return
+        }
+
+        if isa<Declarations::VisibilityGroupDecl>(d) {
+            var unsafe *g = cast<Declarations::VisibilityGroupDecl>(d)
+            for var i: usize = 0; i < g->members.size(); ++i {
+                CXXSpell::_fn_spec_in(g->members[i], prim, out)
+            }
+
+            return
+        }
+
+        if isa<Declarations::EvalBlockDecl>(d) {
+            var unsafe *b = cast<Declarations::EvalBlockDecl>(d)
+            for var i: usize = 0; i < b->body.size(); ++i {
+                CXXSpell::_fn_spec_in(b->body[i], prim, out)
+            }
+
+            return
+        }
+
+        if d->is_poisoned() || !CXXSpell::is_fn_spec(d) {
+            return
+        }
+
+        if CXXSpell::rep(DeclFacts::decl_instantiated_from(d)) == prim {
+            out->push_back(d)
+        }
+    }
+
+    /// The specialization of \p prim at canonical \p args, or null: its
+    /// instance is the specialization's body, so no explicit instantiation
+    /// of the primary is written for it.
+    static fn fn_spec_for(prim: unsafe *Decl,
+                          args: unsafe *cxx::std::vector<unsafe *Type>) -> unsafe *Decl {
+        var specs = cxx::std::vector<unsafe *Decl>()
+        CXXSpell::fn_specs_of(prim, unsafe &specs)
+        for var i: usize = 0; i < specs.size(); ++i {
+            var sargs = DeclFacts::decl_spec_args(specs[i])
+            if sargs.size() != args->size() {
+                continue
+            }
+
+            var same = true
+            for var k: usize = 0; k < sargs.size(); ++k {
+                if sargs[k] == &null || sargs[k]->canonical != (*args)[k] {
+                    same = false
+                    break
+                }
+            }
+
+            if same {
+                return specs[i]
+            }
+        }
+
+        return &null
     }
 
     /// The head of a record's own declaration and definition: an explicit
@@ -4692,7 +4837,7 @@ pub class CXXSpell {
     /// qualifier of its out-of-line members -- because C++ has no other way
     /// to say which specialization of `Store` is meant.
     fn spec_suffix(self, d: unsafe *Decl) -> string {
-        if !CXXSpell::is_record_spec(d) {
+        if !CXXSpell::is_record_spec(d) && !CXXSpell::is_fn_spec(d) {
             return ""
         }
 

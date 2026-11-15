@@ -1281,7 +1281,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 continue
             }
 
-            if self._spell.cxx_access(m) != VIS_PUB() {
+            if self._spell.cxx_access(m) != VIS_PUB() || self._included_private(m) {
                 return true
             }
         }
@@ -1301,12 +1301,30 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 continue
             }
 
-            if self._spell.cxx_access(nd) != VIS_PUB() {
+            if self._spell.cxx_access(nd) != VIS_PUB() || self._included_private(nd) {
                 return true
             }
         }
 
         return false
+    }
+
+    /// \p d has no visibility written and is `priv` by default, so what C++
+    /// includes (a header, a kcc `#include "x.k"` stream) writes it
+    /// `private:` (InterfaceEmitter::_cxx_vis) though cxx_access, which is
+    /// the module's own object's view, reads it public. The record's file
+    /// must still reach it there: a `pub inline` or generic function of the
+    /// file that calls it is compiled in the includer's TU.
+    priv fn _included_private(self, d: unsafe *Decl) -> bool {
+        if self.mode() == PlanMode::Preamble || d == &null || d->is_implicit || is_operator_fn(d) {
+            return false
+        }
+
+        if self._spell.cxx_vis(d) != VIS_NONE() {
+            return false
+        }
+
+        return default_visibility_of(d) == VisibilityKind::Private
     }
 
     /// Record \p d's friends (FileFriends), from \p d's file's declarations.
@@ -1578,9 +1596,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     fn _ff_fn_kind(self,
                    f:  unsafe *Declarations::FunctionDecl,
                    ns: unsafe *cxx::std::vector<string>) -> u8 {
+        // A specialization is befriended with its primary: a friend
+        // template declaration names every specialization of it.
         if f->is_poisoned()
             || f->is_method()
-            || DeclFacts::decl_extension_of(unsafe (f as unsafe *Decl)) != &null {
+            || DeclFacts::decl_extension_of(unsafe (f as unsafe *Decl)) != &null
+            || CXXSpell::is_fn_spec(unsafe (f as unsafe *Decl)) {
             return 0
         }
 
@@ -4353,6 +4374,23 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         }
 
         var specs = cxx::std::vector<unsafe *Decl>()
+        // A generic function's explicit specializations, the same way: a
+        // TU that declares `p` and calls `p<int>()` without having seen
+        // `template <> int p<int>()` instantiates the primary's body. A
+        // member's are declared by its owner's definition.
+        if isa<Declarations::FunctionDecl>(c) {
+            if c->semantic_dc == &null || c->semantic_dc->is_type_scope() {
+                return
+            }
+
+            CXXSpell::fn_specs_of(c, unsafe &specs)
+            for var i: usize = 0; i < specs.size(); ++i {
+                self._admit(specs[i], PlanNeed::Fwd)
+            }
+
+            return
+        }
+
         self._cg->instances->specs_of(c, unsafe &specs)
         for var i: usize = 0; i < specs.size(); ++i {
             var unsafe *sd = CXXSpell::rep(specs[i])
@@ -5526,6 +5564,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         }
 
         self._sort(&t2)
+        self._specs_after_primary(&t2)
         for var i: usize = 0; i < t2.size(); ++i {
             self.entries.push_back(t2[i])
         }
@@ -5537,6 +5576,14 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         for var i: usize = 0; i < self._insts.size(); ++i {
             var unsafe *ie   = self._insts[i]
             var unsafe *prim = CXXSpell::rep(ie->primary)
+            // An explicit specialization is the instance's definition; an
+            // explicit instantiation after it would have no effect
+            // ([temp.explicit]/4) and draws clang's warning.
+            if isa<Declarations::FunctionDecl>(prim)
+                && CXXSpell::fn_spec_for(prim, unsafe &ie->args) != &null {
+                continue
+            }
+
             var e = self._entry(
                 prim,
                 PlanNeed::Complete,
@@ -5907,7 +5954,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 var unsafe *d = (v)[i].decl
                 if (v)[i].scope != &null
                     || (v)[i].witness != &null
-                    || !CXXSpell::is_record_spec(d) {
+                    || !CXXSpell::is_record_spec(d) && !CXXSpell::is_fn_spec(d) {
                     continue
                 }
 

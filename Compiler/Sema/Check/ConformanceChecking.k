@@ -2850,10 +2850,49 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         self._conjuncts(self._clause_of(f), unsafe &cs)
         for var i: usize = 0; i < cs.size(); ++i {
             var v = self._conjunct_vp(cs[i], d)
-            if !v.known && self._tests_open(cs[i], d, 0) {
+            if !v.known && self._tests_open(f, cs[i], d, 0) {
                 out->push_back(cs[i])
             }
         }
+    }
+
+    /// Every top-level conjunct of \p f's clause is known true under \p d
+    /// (no clause holds). OverloadResolution orders candidates by their
+    /// constraints only then: one it cannot decide here (an open parameter,
+    /// the `sizeof` of a class) may be false where C++ decides it, and C++
+    /// would then call the other candidate.
+    pub fn clause_decided_true(self,
+                               f: unsafe *Declarations::FunctionDecl,
+                               d: unsafe *Deduction) -> bool {
+        var cs = cxx::std::vector<unsafe *Expr>()
+        self._conjuncts(self._clause_of(f), unsafe &cs)
+        for var i: usize = 0; i < cs.size(); ++i {
+            var v = self._conjunct_vp(cs[i], d)
+            if !v.known || v.v == 0 {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// \p d binds one of \p f's generic parameters to a dependent type: the
+    /// call is in a generic body and an argument's type is open there.
+    priv fn _binds_open(self, f: unsafe *Declarations::FunctionDecl, d: unsafe *Deduction) -> bool {
+        var unsafe *fd = unsafe (f as unsafe *Decl)
+        for var i: usize = 0; i < f->generic_params.size(); ++i {
+            var unsafe *x = d->lookup(fd, i as u32)
+            if x == &null {
+                x = d->lookup(NameLookup::representative(fd), i as u32)
+            }
+
+            var unsafe *cx = if (x != &null) => (self._canon(x)) else => &null
+            if cx != &null && (cx->is_dependent() || cx->is_instantiation_dependent()) {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// Conjunct \p c under \p d.
@@ -2867,9 +2906,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     }
 
     /// \p e tests an open parameter: a conformance or `derives` of one,
-    /// under any connective, or any other predicate of a candidate whose
-    /// arguments include one.
-    priv fn _tests_open(self, e0: unsafe *Expr, d: unsafe *Deduction, depth: u32) -> bool {
+    /// under any connective, or any other predicate of a candidate \p f
+    /// whose arguments include one (_binds_open).
+    priv fn _tests_open(self,
+                        f:     unsafe *Declarations::FunctionDecl,
+                        e0:    unsafe *Expr,
+                        d:     unsafe *Deduction,
+                        depth: u32) -> bool {
         var unsafe *e = self.tu.strip_parens(e0)
         if e == &null || depth > 16 {
             return false
@@ -2881,15 +2924,16 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         var unsafe *u = dyn_cast<UnaryOperatorExpr>(e)
         if u != &null {
-            return self._tests_open(u->operand, d, depth + 1)
+            return self._tests_open(f, u->operand, d, depth + 1)
         }
 
         var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
         if b != &null {
-            return self._tests_open(b->lhs, d, depth + 1) || self._tests_open(b->rhs, d, depth + 1)
+            return self._tests_open(f, b->lhs, d, depth + 1)
+                || self._tests_open(f, b->rhs, d, depth + 1)
         }
 
-        return true
+        return self._binds_open(f, d)
     }
 
     /// How open conjunct \p c reads in a note, and whether a bound on the

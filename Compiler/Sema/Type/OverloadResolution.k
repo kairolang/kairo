@@ -1137,24 +1137,22 @@ pub class OverloadResolution {
         return ConformanceChecking(self.sc).more_constrained(a->f, b->f)
     }
 
-    /// \p c's clause tests an open parameter its bounds leave undecided
-    /// (ConformanceChecking::open_conjuncts). Constraints order only
+    /// \p c's clause is not known to hold for its arguments
+    /// (ConformanceChecking::clause_decided_true). Constraints order only
     /// candidates whose clauses are decided: C++ orders them after the
-    /// clauses have admitted both, so an undecided one cannot be preferred
-    /// before the instance says it holds, and the tie is _report_open_tie's.
+    /// clauses have admitted both, so one Kairo cannot decide (an open
+    /// parameter, the `sizeof` of a class) may be false where C++ decides
+    /// it, and C++ would call the other candidate. A tie this leaves in a
+    /// generic body is _report_open_tie's.
     priv fn _clause_open(self, c: *Candidate) -> bool {
         if c->f == &null || c->f->is_imported() {
-            return false
+            return true
         }
 
-        var os = cxx::std::vector<unsafe *Expr>()
-        ConformanceChecking(self.sc).open_conjuncts(
+        return !ConformanceChecking(self.sc).clause_decided_true(
             c->f,
             unsafe &c->ded,
-            unsafe &os,
         )
-
-        return os.size() > 0
     }
 
     /// \p a and \p b, each at least as specialized as the other, have
@@ -1165,7 +1163,7 @@ pub class OverloadResolution {
     priv fn _equivalent_heads(self, a: *Candidate, b: *Candidate) -> bool {
         var ga = a->f->generic_params
         var gb = b->f->generic_params
-        if ga.size() != gb.size() {
+        if ga.size() != gb.size() || self._own_param_count(a) != self._own_param_count(b) {
             return false
         }
 
@@ -1220,6 +1218,21 @@ pub class OverloadResolution {
         }
 
         return true
+    }
+
+    /// \p c's parameters other than its receiver, defaulted ones included:
+    /// two function parameter lists of different lengths are not
+    /// equivalent ([temp.over.link]), whatever the call passes.
+    priv fn _own_param_count(self, c: *Candidate) -> usize {
+        var n: usize = 0
+        for var i: usize = 0; i < c->f->params.size(); ++i {
+            var unsafe *p = c->f->params[i]
+            if p != &null && !(p->is_self && !c->free) {
+                n += 1
+            }
+        }
+
+        return n
     }
 
     /// Whether \p a is at least as specialized as \p b ([temp.deduct.partial]):

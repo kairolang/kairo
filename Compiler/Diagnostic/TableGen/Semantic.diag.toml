@@ -6499,3 +6499,33 @@ group = "interfaces"
 
     [SC320.N]
     explain = "Points at a candidate and says which bound, if any, selects it."
+
+[SC330]
+brief = "explicit function specialization does not match a primary template"
+group = "specialization"
+
+    [SC330.E]
+    explain = """
+    # the specialization specializes no primary template
+
+    `fn <> name<Args>(...)` is a full explicit specialization: it replaces the body of one
+    generic function, the primary template, for exactly those generic arguments. Its arguments
+    fill every generic parameter of the primary, and its signature is the primary's with them
+    substituted: the same parameter types and modes, the same return type, and the same
+    `const`, `unsafe`, `async`, `eval` and `panic` qualifiers. A call always resolves to the
+    primary; the specialization is the body that runs for those arguments.
+
+    ```kairo
+    fn <T> size() -> i32 { return 1 }
+    fn <> size<i32>() -> i32 { return 4 }     // ok
+    fn <> size<u8>() -> bool { return true }  // error: the primary returns `i32`
+    ```
+
+    ## how to fix
+
+    write the specialization's signature as the primary's with the arguments substituted, or
+    declare the matching primary template first.
+    """
+
+    [SC330.N]
+    explain = "Points at a primary template the specialization was compared against."

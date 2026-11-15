@@ -1649,9 +1649,12 @@ pub class InterfaceEmitter {
             self._cg->sink->spell(f->name.range, fs)
         }
 
-        for var i: usize = 0; i < methods.size(); ++i {
-            var unsafe *m = methods[i]
-            if m == &null {
+        // Two passes: an explicit specialization is declared after every
+        // primary it may specialize, wherever it was written.
+        for var k: usize = 0; k < methods.size() * 2; ++k {
+            var unsafe *m = methods[k % methods.size()]
+            if m == &null
+                || CXXSpell::is_fn_spec(unsafe (m as unsafe *Decl)) != (k >= methods.size()) {
                 continue
             }
 
@@ -6437,7 +6440,9 @@ pub class InterfaceEmitter {
             s += "[[noreturn]] "
         }
 
-        if !is_method && !is_ctor && !is_dtor {
+        // An explicit specialization takes no storage class: it is static
+        // as its primary is ([temp.expl.spec]/2).
+        if !is_method && !is_ctor && !is_dtor && !CXXSpell::is_fn_spec(m) {
             s += "static "
         }
 
@@ -6464,7 +6469,7 @@ pub class InterfaceEmitter {
         } else {
             s += self._ret(m, owner)
             s += " "
-            s += nm
+            s += nm + self._spell->spec_suffix(m)
         }
 
         s += "("
@@ -6610,7 +6615,7 @@ pub class InterfaceEmitter {
 
         s += CXXSpell::fn_attrs(f)
 
-        if ext != &null {
+        if ext != &null && !CXXSpell::is_fn_spec(f) { // a specialization is static as its primary is.
             s += "static "
         }
 
@@ -6620,7 +6625,7 @@ pub class InterfaceEmitter {
 
         s += self._ret(f)
         s += " "
-        s += self._fn_name(f)
+        s += self._fn_name(f) + self._spell->spec_suffix(f)
         s += "("
         s += self._params(
             f,
@@ -6648,11 +6653,17 @@ pub class InterfaceEmitter {
     priv fn _scope_def(self, sc: unsafe *ExtScope) {
         var at = self._at(sc->anchor)
         self._cg->sink->spell(at, "struct " + sc->name + " {")
-        for var i: usize = 0; i < sc->members.size(); ++i {
-            var unsafe *m = sc->members[i]
+        // Specializations after every primary (as _record_def's members).
+        var n = sc->members.size()
+        for var k: usize = 0; k < n * 2; ++k {
+            var unsafe *m = sc->members[k % n]
+            if CXXSpell::is_fn_spec(unsafe (m as unsafe *Decl)) != (k >= n) {
+                continue
+            }
+
             self._cg->sink->spell(
                 self._at(m),
-                self._free_fn_text(m, sc->exts[i]),
+                self._free_fn_text(m, sc->exts[k % n]),
             )
         }
 

@@ -192,7 +192,12 @@ import AST::Context::SymbolTable::{
     SymbolTable,
 }
 import AST::Context::TranslationUnit::TranslationUnit
-import AST::DeclFacts::decl_name_tok
+import AST::DeclFacts::{
+    decl_generic_params,
+    decl_instantiated_from,
+    decl_name_tok,
+    decl_set_instantiated_from,
+}
 import AST::Kind::DeclKind::DeclKind
 import AST::Kind::ExprKind::ExprKind
 import AST::LangItems::LangAttrs
@@ -261,6 +266,9 @@ pub class SigShape {
 
 pub class RedeclMerge {
     pub var sc: unsafe *SemaContext
+    /// _descend walks for _pair_specs_in instead of _merge_in.
+    var _pairing:  bool         = false
+    var _spec_sub: Substitution
 
     fn RedeclMerge(self, sc: unsafe *SemaContext) {
         self.sc = sc
@@ -281,6 +289,11 @@ pub class RedeclMerge {
 
         self._merge_in(tu)
         self._merge_out_of_line(tu)
+        // After both merges: a primary's representative is final, and the
+        // pairing records it.
+        self._pairing = true
+        self._pair_specs_in(tu)
+        self._pairing = false
         // After both merges: an in-class declaration's body may be an
         // out-of-line definition, and only the linked chain knows.
         self._check_inline_defined_in(tu)
@@ -353,6 +366,11 @@ pub class RedeclMerge {
                 self._descend(b->body[i])
             }
 
+            return
+        }
+
+        if self._pairing {
+            self._pair_specs_in(NameLookup::context_of(d))
             return
         }
 
@@ -549,6 +567,387 @@ pub class RedeclMerge {
         }
 
         return out
+    }
+
+    /// # function specializations
+
+    /// Every scope, as _merge_in walks them: each cell holding an explicit
+    /// function specialization (`fn <> p<i32>()`) is paired with its primary.
+    priv fn _pair_specs_in(self, dc: unsafe *DeclContext) {
+        if dc == &null {
+            return
+        }
+
+        var type_body = dc->is_type_scope()
+        if dc->dc_symbols != &null {
+            var rows = cxx::std::vector<SymbolTable::Entry>()
+            dc->dc_symbols->collect_entries(&rows)
+            for var i: usize = 0; i < rows.size(); ++i {
+                self._pair_specs(rows[i], type_body)
+            }
+        }
+
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var unsafe *d = *dc->dc_decls.get(i)
+            if d == &null {
+                continue
+            }
+
+            if type_body && isa<Declarations::VisibilityGroupDecl>(d) {
+                continue
+            }
+
+            self._descend(d)
+        }
+    }
+
+    /// A full specialization of a generic function is the C++ explicit
+    /// specialization of one primary template in the same scope
+    /// ([temp.expl.spec]): its arguments fill every generic parameter of the
+    /// primary, and its signature is the primary's with them substituted.
+    /// Pairing sets `instantiated_from` to the primary's representative,
+    /// which is what codegen spells the specialization from. A call still
+    /// resolves to the primary (OverloadResolution never takes a
+    /// specialization as a candidate), exactly as C++ selects among primary
+    /// templates only; the body that runs is the specialization's, chosen
+    /// by C++ from the emitted `template <>` declaration.
+    priv fn _pair_specs(self, e: SymbolTable::Entry, in_type_body: bool) {
+        if e.cell == &null {
+            return
+        }
+
+        var specs = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        var prims = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        for var i: usize = 0; i < e.cell->size(); ++i {
+            var unsafe *f = dyn_cast<Declarations::FunctionDecl>(e.cell->get(i))
+            if f == &null || f->is_poisoned() {
+                continue
+            }
+
+            if f->spec_kind == Declarations::SpecKind::Explicit {
+                specs.push_back(f)
+                continue
+            }
+
+            if NameLookup::is_specialization(unsafe (f as unsafe *Decl))
+                || f->generic_params.size() == 0 {
+                continue
+            }
+
+            var unsafe *r = cast<Declarations::FunctionDecl>(
+                NameLookup::representative(unsafe (f as unsafe *Decl)),
+            )
+
+            var seen = false
+            for var j: usize = 0; j < prims.size(); ++j {
+                if prims[j] == r {
+                    seen = true
+                    break
+                }
+            }
+
+            if !seen {
+                prims.push_back(r)
+            }
+        }
+
+        if specs.empty() {
+            return
+        }
+
+        var name = e.name.describe(self.sc->ctx)
+        if specs[0]->is_operator {
+            name = "op " + OperatorFacts::symbol(specs[0])
+        }
+
+        for var i: usize = 0; i < specs.size(); ++i {
+            if decl_instantiated_from(unsafe (specs[i] as unsafe *Decl)) == &null {
+                self._pair_spec(name, specs[i], &prims)
+            }
+        }
+
+        // Two specializations for one argument list are one entity: a
+        // declaration and its definition, or a redefinition (_link).
+        for var i: usize = 0; i < specs.size(); ++i {
+            var unsafe *a = specs[i]
+            if a->is_poisoned() {
+                continue
+            }
+
+            for var j: usize = i + 1; j < specs.size(); ++j {
+                var unsafe *b = specs[j]
+                if b->is_poisoned()
+                    || b->canonical_decl() == a->canonical_decl()
+                    || !self._same_spec(a, b) {
+                    continue
+                }
+
+                self._link(name, a, b, in_type_body)
+            }
+        }
+    }
+
+    /// \p a and \p b specialize one primary at the same arguments.
+    priv fn _same_spec(self,
+                       a: unsafe *Declarations::FunctionDecl,
+                       b: unsafe *Declarations::FunctionDecl) -> bool {
+        var unsafe *pa = decl_instantiated_from(unsafe (a as unsafe *Decl))
+        var unsafe *pb = decl_instantiated_from(unsafe (b as unsafe *Decl))
+        if pa == &null || pa != pb || a->spec_args.size() != b->spec_args.size() {
+            return false
+        }
+
+        for var i: usize = 0; i < a->spec_args.size(); ++i {
+            var unsafe *ta = a->spec_args[i]
+            var unsafe *tb = b->spec_args[i]
+            if ta == &null
+                || tb == &null
+                || ta->canonical == &null
+                || ta->canonical != tb->canonical {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    priv fn _pair_spec(self,
+                       const name: string,
+                       s:          unsafe *Declarations::FunctionDecl,
+                       prims:      *cxx::std::vector<unsafe *Declarations::FunctionDecl>) {
+        var unsafe *sd = unsafe (s as unsafe *Decl)
+        if prims->empty() {
+            self.sc->diag->report(
+                DiagID::R042E,
+                s->range.start,
+                f"'{name}' is declared as a specialization, but no primary template named '{name}' is visible here",
+            ).first(s->name.range)->emit()
+            s->poison()
+            return
+        }
+
+        // C++ writes the member of an unspecialized class template's
+        // explicit specialization only inside the class, and Kairo emits
+        // member definitions out of line, where the enclosing parameters
+        // would be left free ([temp.expl.spec]/17).
+        var unsafe *dc = sd->semantic_dc
+        while dc != &null && dc->dc_owner != &null {
+            if decl_generic_params(dc->dc_owner).size() > 0 {
+                self.sc->diag->report(
+                    DiagID::SC116E,
+                    s->range.start,
+                    f"an explicit specialization of '{name}' inside a generic type or extension is not yet supported",
+                ).first(s->name.range)->emit()
+                s->poison()
+                return
+            }
+
+            dc = dc->dc_owner->semantic_dc
+        }
+
+        if s->is_operator {
+            self.sc->diag->report(
+                DiagID::SC116E,
+                s->range.start,
+                f"an explicit specialization of '{name}' is not yet supported",
+            ).first(s->name.range)->emit()
+            s->poison()
+            return
+        }
+
+        var matches = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        for var i: usize = 0; i < prims->size(); ++i {
+            if self._spec_matches((*prims)[i], s) {
+                matches.push_back((*prims)[i])
+            }
+        }
+
+        if matches.size() != 1 {
+            var what = if (matches.empty()) => ("matches no primary template")
+                       else => "matches more than one primary template"
+            var b = self.sc->diag->report(
+                DiagID::SC330E,
+                s->range.start,
+                f"explicit specialization of '{name}' {what}: its generic arguments and signature must be a primary's with those arguments substituted",
+            )
+
+            b.first(s->name.range)
+            var cands = if (matches.empty()) => (prims) else => (&matches)
+            for var i: usize = 0; i < cands->size(); ++i {
+                b.note(
+                    DiagCode(DiagID::SC330N),
+                    (*cands)[i]->range.start,
+                    "primary template is here",
+                )->child_first((*cands)[i]->name.range)
+            }
+
+            b.emit()
+            s->poison()
+            return
+        }
+
+        var unsafe *p   = matches[0]
+        var        what = self._spec_disagrees(p, s)
+        if what.size() > 0 {
+            var b = self.sc->diag->report(
+                DiagID::SC330E,
+                s->range.start,
+                f"explicit specialization of '{name}' differs from its primary template in {what}",
+            )
+
+            b.first(s->name.range)
+            b.note(
+                DiagCode(DiagID::SC330N),
+                p->range.start,
+                "primary template is here",
+            )->child_first(p->name.range)
+            b.emit()
+            s->poison()
+            return
+        }
+
+        decl_set_instantiated_from(sd, unsafe (p as unsafe *Decl))
+    }
+
+    /// \p s's arguments fill \p p's generic parameters one for one, and
+    /// \p s's parameters are \p p's with them substituted, mode for mode.
+    priv fn _spec_matches(self,
+                          p: unsafe *Declarations::FunctionDecl,
+                          s: unsafe *Declarations::FunctionDecl) -> bool {
+        if p->generic_params.size() != s->spec_args.size() || s->generic_params.size() > 0 {
+            return false
+        }
+
+        if p->is_variadic || s->is_variadic || p->params.size() != s->params.size() {
+            return false
+        }
+
+        var sub = self._spec_substitution(p, s)
+        if sub == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < p->params.size(); ++i {
+            var unsafe *pp = p->params[i]
+            var unsafe *sp = s->params[i]
+            if pp == &null || sp == &null || pp->type_ == &null || sp->type_ == &null {
+                return false
+            }
+
+            if pp->is_self != sp->is_self || pp->mode != sp->mode {
+                return false
+            }
+
+            var unsafe *pc = pp->type_->canonical
+            var unsafe *sc = sp->type_->canonical
+            if pc == &null || sc == &null {
+                return false
+            }
+
+            var unsafe *pt = sub->substitute(pc)
+            if pt == &null || canon_unqual(pt) != canon_unqual(sc) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// \p p's generic parameters bound to \p s's arguments, on every link
+    /// of \p p's chain: a parameter's canonical names the link that was the
+    /// representative when T resolved it. Null when an argument is not a
+    /// resolved concrete type.
+    priv fn _spec_substitution(self,
+                               p: unsafe *Declarations::FunctionDecl,
+                               s: unsafe *Declarations::FunctionDecl) -> unsafe *Substitution {
+        for var i: usize = 0; i < p->generic_params.size(); ++i {
+            var unsafe *gp = p->generic_params[i]
+            var unsafe *a  = s->spec_args[i]
+            if gp == &null || gp->is_pack || gp->is_const_param {
+                return &null
+            }
+
+            if a == &null || a->canonical == &null || a->canonical->is_dependent() {
+                return &null
+            }
+        }
+
+        self._spec_sub = Substitution(self.sc)
+        var unsafe *head = p->first_decl()
+        var unsafe *cur  = head
+        while cur != &null {
+            for var i: usize = 0; i < cur->generic_params.size(); ++i {
+                self._spec_sub.bind(
+                    unsafe (cur as unsafe *Decl),
+                    i as u32,
+                    s->spec_args[i]->canonical,
+                )
+            }
+
+            cur = cur->next_in_chain()
+            if cur == head {
+                break
+            }
+        }
+
+        return unsafe &self._spec_sub
+    }
+
+    /// What \p s, already matching \p p's parameters, disagrees with \p p
+    /// on, or "" when nothing: C++ gives an explicit specialization the
+    /// primary's function type with the arguments substituted, and Kairo
+    /// types every call against the primary's declaration.
+    priv fn _spec_disagrees(self,
+                            p: unsafe *Declarations::FunctionDecl,
+                            s: unsafe *Declarations::FunctionDecl) -> string {
+        if p->is_const() != s->is_const() {
+            return "'const'"
+        }
+
+        if p->is_unsafe() != s->is_unsafe() {
+            return "'unsafe'"
+        }
+
+        if p->is_async() != s->is_async() {
+            return "'async'"
+        }
+
+        if p->is_eval() != s->is_eval() {
+            return "'eval'"
+        }
+
+        if p->is_panic() != s->is_panic() {
+            return "'panic'"
+        }
+
+        if p->is_noreturn != s->is_noreturn {
+            return "its return type"
+        }
+
+        // An inferred return (an expression body with no `->`) is known only
+        // after the typer; the C++ type check sees it.
+        if p->return_type == &null && p->body_kind == Declarations::FnBodyKind::Expr
+            || s->return_type == &null && s->body_kind == Declarations::FnBodyKind::Expr {
+            return ""
+        }
+
+        var unsafe *pr = self._return_canonical(p)
+        var unsafe *sr = self._return_canonical(s)
+        if pr == &null || sr == &null {
+            return "its return type"
+        }
+
+        var sub = self._spec_substitution(p, s)
+        if sub == &null {
+            return "its return type"
+        }
+
+        var unsafe *pt = sub->substitute(pr)
+        if pt == &null || pt != sr {
+            return "its return type"
+        }
+
+        return ""
     }
 
     /// # R(b): out-of-line definitions

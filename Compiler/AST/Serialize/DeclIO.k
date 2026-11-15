@@ -559,6 +559,7 @@ fn io_variable_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::VariableDec
         ar->sema_false(n->raw_slot, "VariableDecl::raw_slot")
         ar->sema_false(n->place_ref, "VariableDecl::place_ref")
         ar->sema_false(n->auto_copy, "VariableDecl::auto_copy")
+        ar->sema_zero(n->rebind as u64, "VariableDecl::rebind")
         ar->sema_zero(n->fold_pin as u64, "VariableDecl::fold_pin")
         ar->sema_false(n->fold_pin_neg, "VariableDecl::fold_pin_neg")
         ar->sema_zero(n->fold_pin_mag, "VariableDecl::fold_pin_mag")

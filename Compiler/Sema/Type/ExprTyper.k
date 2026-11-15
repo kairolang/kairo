@@ -1099,6 +1099,7 @@ pub class ExprTyper
                         n->range.start,
                         "'cxx' names the C++ std overlay; write `cxx::std`",
                     ).first(n->range)->emit()
+                    n->poison()
                     return &null
                 }
 
@@ -1533,6 +1534,18 @@ pub class ExprTyper
             return false
         }
 
+        // A module or namespace names a scope: it has no value to read.
+        if self.denotes_module(x) || self.denotes_module(e) {
+            var mtext = self.sc->ctx->get_spelling(e->range)
+            self.sc->diag->report(
+                DiagID::SC094E,
+                e->range.start,
+                f"'{mtext}' is a module, not a value",
+            ).first(e->range, "a module is used here where a value is required")->emit()
+            e->poison()
+            return true
+        }
+
         if isa<Expressions::TypeOfExpr>(x) {
             // TypeInfo (type-system.mdx) is the value form; it does not exist
             // yet. An operand that left typeof unknown is the generic's.
@@ -1589,6 +1602,15 @@ pub class ExprTyper
         b.emit()
         e->poison()
         return true
+    }
+
+    /// \p e names a type, a module or a callable where a value is required:
+    /// reported once at \p e (reject_callable_value, reject_type_value), \p e
+    /// poisoned. Every value consumer that receives an untyped child asks
+    /// this, directly or through propagate, so none returns null with no
+    /// outcome (finish).
+    fn reject_non_value(self, e: unsafe *Expr) -> bool {
+        return self.reject_callable_value(e) || self.reject_type_value(e)
     }
 
     fn denotes_module(self, e: unsafe *Expr) -> bool {
@@ -1796,6 +1818,17 @@ pub class ExprTyper
         )
     }
 
+    /// \p e came back as a callable with no type: a generic function short
+    /// of its arguments, an overload set or a method (finish).
+    fn names_callable(self, e: unsafe *Expr) -> bool {
+        if e == &null || e->is_poisoned() || e->type_ != &null || e->is_instantiation_dependent() {
+            return false
+        }
+
+        var it = self._chains.find(e as usize as u64)
+        return it != self._chains.end() && it->second->callable_cands.size() > 0
+    }
+
     /// \p child came back as a callable, not a value, where its parent needs
     /// a value: an operand, a cast's source. A callable has no type
     /// by design (finish), and every such parent returned null with no
@@ -1803,18 +1836,11 @@ pub class ExprTyper
     /// with a type (a plain function, a generic one's instance) never gets
     /// here. \return reported.
     fn reject_callable_value(self, child: unsafe *Expr) -> bool {
-        if child == &null
-            || child->is_poisoned()
-            || child->type_ != &null
-            || child->is_instantiation_dependent() {
+        if !self.names_callable(child) {
             return false
         }
 
-        var it = self._chains.find(child as usize as u64)
-        if it == self._chains.end() || it->second->callable_cands.size() == 0 {
-            return false
-        }
-
+        var        it   = self._chains.find(child as usize as u64)
         var        text = self.sc->ctx->get_spelling(child->range)
         var unsafe *f   = dyn_cast<FunctionDecl>(it->second->callable_cands[0])
         var        msg  = f"'{text}' is a function, not a value here; call it"
@@ -1938,7 +1964,7 @@ pub class ExprTyper
                 var unsafe *info = ci->second // before the insert below moves the buckets.
                 self._chains[e as usize as u64] = info
             }
-        } else if self.reject_callable_value(child) {
+        } else if self.reject_non_value(child) {
             e->poison()
             return true
         }
@@ -1992,8 +2018,8 @@ pub class ExprTyper
         }
 
         var unsafe *from = e->type_
-        if from == &null { // unknown: nothing to check here; a type is no value.
-            return !self.reject_type_value(e)
+        if from == &null { // unknown: nothing to check here; a type, a module or a callable is no value.
+            return !self.reject_non_value(e)
         }
 
         if to->is_dependent() {

@@ -2527,6 +2527,14 @@ pub class LowerTargets {
         return f"__kairo_local_{line}_{col}_{name}"
     }
 
+    /// `__kairo_rebind<n>_<name>`: a body local that shadows a visible one
+    /// of the same name (VariableDecl::rebind, writer: EmitIR), at its
+    /// declaration and every use. A digit follows `rebind`, so no user name
+    /// makes two of them collide.
+    pub static fn rebound_local(const name: string, n: u32) -> string {
+        return f"__kairo_rebind{n}_" + name
+    }
+
     /// # finally (writer: FinallyLowering)
 
     /// `__kairo_FinK` is the record a `finally` becomes, `__kairo_finK` the

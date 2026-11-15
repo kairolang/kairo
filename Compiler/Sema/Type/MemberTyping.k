@@ -342,6 +342,11 @@ pub class <T: type> MemberTyping {
                 cur_type = denoted
             } else if self.dyn()->denotes_module(n->base) {
                 cur_kind = ChainKind::Module
+            } else if bt == &null && self.dyn()->names_callable(n->base) {
+                // A generic function short of its arguments, an overload
+                // set or a method: no value to read a member of. Left
+                // unknown, the chain reached codegen with no callee.
+                cur_kind = ChainKind::Callable
             } else if bt == &null {
                 cur_kind = ChainKind::Unknown
             } else {

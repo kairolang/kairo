@@ -439,8 +439,10 @@ pub class NameBindingVerifier derives RecursiveASTVisitor<NameBindingVerifier> {
 pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     pub var sc: unsafe *SemaContext
 
-    var cur_dc: unsafe *DeclContext          = &null ///< table-owning scope cursor.
-    var locals: cxx::std::vector<LocalScope>         ///< executable-scope stack.
+    var cur_dc: unsafe *DeclContext = &null ///< table-owning scope cursor.
+    /// The declaration the innermost DeclStmt holds, while it is walked.
+    var _stmt_var: unsafe *Decl                 = &null
+    var locals:    cxx::std::vector<LocalScope>         ///< executable-scope stack.
 
     /// `self` lexes as KwSelf, not LitIdentifier, so ASTContext::
     /// get_ident_imm rejects it. We intern the spelling once and key both
@@ -2570,6 +2572,10 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             n,
         )
 
+        if unsafe (n as unsafe *Decl) == self._stmt_var {
+            n->rebind = self._rebind_of(self._name_imm(n->name))
+        }
+
         // Only body locals go on the stack. A file/type-scope `var` was
         // keyed into a real SymbolTable at parse time and is found by the
         // unqualified walk instead; declaring it here too would make it
@@ -3965,8 +3971,32 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             self._declare_local(imm, d, d->range)
         }
 
-        n->decl = self.dyn()->dispatch_decl(d)
+        var unsafe *saved = self._stmt_var
+        self._stmt_var = d
+        n->decl        = self.dyn()->dispatch_decl(d)
+        self._stmt_var = saved
         return n
+    }
+
+    /// VariableDecl::rebind for a statement's local named \p imm, read
+    /// before it enters its frame: one more than the visible local it
+    /// hides, innermost frame first, or 0 when it hides none.
+    priv fn _rebind_of(self, imm: u32) -> u32 {
+        if imm == u32::MAX {
+            return 0
+        }
+
+        for var k: usize = 0; k < self.locals.size(); ++k {
+            var unsafe *prev = self.locals[self.locals.size() - 1 - k].find(imm)
+            if prev == &null {
+                continue
+            }
+
+            var unsafe *pv = dyn_cast<Declarations::VariableDecl>(prev)
+            return if (pv != &null) => (pv->rebind + 1) else => 1
+        }
+
+        return 0
     }
 
     /// Name imm for the decl kinds traverse_decl_stmt declares; u32(-1) for

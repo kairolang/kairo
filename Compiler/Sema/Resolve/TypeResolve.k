@@ -2696,6 +2696,16 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 break
             }
 
+            // `traits::size_type` with traits an imported class template:
+            // C++ names no member of a template without its arguments.
+            if prev->generic_args.is_empty()
+                && decl_is_imported(cur)
+                && !decl_is_instance(cur)
+                && decl_generic_params(cur).size() > 0
+                && !self._check_arity(cur, decl_generic_params(cur), prev, ct) {
+                return
+            }
+
             // `Foo<Args>::Inner` with Foo IMPORTED and every arg concrete:
             // clang can answer now, so step into the registry instance and
             // let _scope_of fill it. A Kairo primary stays deferred to M2; so
