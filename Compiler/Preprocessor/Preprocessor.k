@@ -219,7 +219,7 @@ pub class PreProcessor {
             var eq = kairo::std::to_std_string(raw).find(('=' as u8) as c_char)
             if eq != cxx::std::string::npos {
                 name  = raw.subslice(0, eq)
-                value = raw.subslice(eq + 1, raw.size())
+                value = raw.subslice(eq + 1, raw.size() - (eq + 1))
             } else {
                 name  = raw
                 value = "1"

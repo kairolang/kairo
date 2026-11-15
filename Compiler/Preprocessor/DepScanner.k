@@ -17,11 +17,12 @@ ffi "c++" import "set"
 ffi "c++" import "vector"
 
 import AST::LangItems::LangAttrs
-import AST::Node::Declarations::ImportKind
 import Location::SourceManager::{
     FileID,
     SourceManager,
 }
+import Location::SourceRange::SourceRange
+import Preprocessor::ImportPlace::resolve_import_place
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Preprocessor::StreamCursor::StreamCursor
 import Preprocessor::TokenSource::TokenSource
@@ -30,7 +31,6 @@ import Resolution::ImportProbe::{
     ModuleResolution,
 }
 import Resolution::ModulePath::ModulePath
-import Resolution::SearchRoot::module_dir_at_or_above
 import Support::FileIO::Path::Path
 import Support::TimeReport::TimeRegion
 import Token::IdentifierToken::IdentifierToken
@@ -430,16 +430,15 @@ pub class DepScanner {
             return
         }
 
-        // which segments name the FILE?
-        //   wildcard / braced / bang-on-last: base is all-but-nothing / all-but-last
-        //   plain path: try full, then drop last (it may be a symbol, not a module)
-        var dep = Self::DepResult()
-
+        // Which segments name the FILE: a bang on the last segment drops
+        // it (the macro name) unless the import is a wildcard or braced;
+        // resolve_import_place then takes the longest prefix that names a
+        // module, the rest being symbols in it.
+        //
         // Resolution is keyed on the IMPORTING file's directory and on the
         // form's one place, so the graph reaches the same files the PP walk
-        // will (FileImportIndex::_resolve applies the identical rule, the
-        // plain form's migration fallback included, through the same
-        // resolver entry points).
+        // will: FileImportIndex::_resolve applies the same rule, the plain
+        // form's migration fallback included, through resolve_import_place.
         var from_dir = self._sm->get_file_dir(from_fid)
         var has_dir  = from_dir.full_path().size() > 0
 
@@ -450,36 +449,26 @@ pub class DepScanner {
             }
         }
 
-        // A path may end in symbols, not modules: _resolve_place tries
-        // every prefix, longest first, as the walk does.
-        if spec.kind == ImportKind::Native {
-            dep = self._resolve_place(segs, false, from_dir, from_dir, has_dir)
-            if dep.fid == u32::MAX && has_dir {
-                dep = self._resolve_place(
-                    segs,
-                    true,
-                    from_dir,
-                    from_dir,
-                    has_dir,
-                )
-            }
-        } else if has_dir {
-            var anchor = from_dir
-            if spec.kind == ImportKind::ModuleRelative {
-                var mdir = module_dir_at_or_above(from_dir.full_path())
-                if mdir.empty() { // the PP walk reports it
-                    return
-                }
+        // Silent: the PP walk re-resolves through the same rule and owns
+        // every diagnostic.
+        var place = resolve_import_place(
+            self._resolver,
+            self._sm,
+            spec.kind,
+            segs,
+            from_dir,
+            has_dir,
+            &null,
+            SourceRange::invalid(),
+        )
 
-                anchor = Path(mdir)
-            }
-
-            dep = self._resolve_place(segs, true, anchor, from_dir, has_dir)
-        }
-
-        if dep.fid == u32::MAX { // unresolved: silent here; the PP walk errors
+        if !place.found {
             return
         }
+
+        var dep = Self::DepResult()
+        dep.fid      = place.fid
+        dep.mod_path = self.segments_to_module_path(place.canonical)
 
         // A BACK edge -- the target is still on the scan's stack, so this
         // import closes a cycle (`a` imports `b` imports `a`, or a file that
@@ -513,43 +502,13 @@ pub class DepScanner {
     struct DepResult {
         /// u32(-1) when unresolved. Not 0: that is the first file loaded,
         /// an input a later input may import (`kairo foo.k main.k`).
-        var fid:      u32
+        var fid: u32
+        /// The resolution's CANONICAL identity (segments from the owning
+        /// search root), never the written spelling. It becomes the file's
+        /// ASTContext::module_base and, from there, its C++ namespace path,
+        /// so it is a property of where the file lives, not of whoever
+        /// imported it first.
         var mod_path: ModulePath
-    }
-
-    /// \details `mod_path` is the resolution's CANONICAL identity (segments
-    ///          from the owning search root), never the written spelling.
-    ///          This path becomes the file's ASTContext::module_base and, from
-    ///          there, its C++ namespace path - so it must be a property of
-    ///          where the file lives, not of whoever imported it first.
-    ///          Ambiguity is not diagnosed here (no DiagEngine in the scanner);
-    ///          the PP walk re-resolves and owns that error.
-    priv fn _resolve_place(self,
-                           segments:       cxx::std::vector<string>,
-                           in_dir:         bool,
-                           const dir:      Path,
-                           const from_dir: Path,
-                           has_from:       bool) -> Self::DepResult {
-        // Every prefix, longest first: FileImportIndex::_resolve_greedy's
-        // rule. With only the full path (and one segment off a plain path)
-        // the walk still found a shorter prefix -- `import Dg::Dg::*` beside
-        // Dg.k, the R068E sibling case -- and loaded that file itself, mid
-        // walk, while lex workers read the file table unlocked.
-        var dep = self.resolve_segments(
-            segments,
-            in_dir,
-            dir,
-            from_dir,
-            has_from,
-        )
-
-        var tail = segments
-        while dep.fid == u32::MAX && tail.size() > 1 {
-            tail.pop_back()
-            dep = self.resolve_segments(tail, in_dir, dir, from_dir, has_from)
-        }
-
-        return dep
     }
 
     priv fn resolve_segments(self,

@@ -55,6 +55,7 @@ import Interop::Clang::HeaderSetCache::HeaderSetCache
 import Lexer::Immediate::{
     Immediate,
     ImmediateTable,
+    next_string_segment,
 }
 import Lexer::Lexer::Lexer
 import Location::SourceManager::SourceManager
@@ -84,6 +85,11 @@ import Preprocessor::TokenSource::{
 }
 import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
+import Support::Ascii::{
+    is_ident_char,
+    is_ident_start,
+}
+import Support::FlagSet::FlagSet
 import Support::TimeReport::{
     TimeRegion,
     TimeSampled,
@@ -104,6 +110,55 @@ pub enum WalkPhase derives u8 {
     Collecting, ///< collect_macros(): macro definitions only, nothing emitted.
     Walking,    ///< run(): the walk proper.
     Done,       ///< the read is over; the walker is only queried and destroyed.
+}
+
+/// Splits a run of macro-argument tokens at the commas outside every `()`,
+/// `[]` and `{}`. It is fed one token at a time, so a user macro's raw
+/// arguments (split before expansion) and a value-position builtin's
+/// expanded ones (split after it) share one rule without a copy of the run.
+class ArgSplitter {
+    var args:    cxx::std::vector<unsafe *TokenBuffer<512>>
+    var current: unsafe *TokenBuffer<512>                   = &null
+    var paren:   i32                                        = 0
+    var square:  i32                                        = 0
+    var brace:   i32                                        = 0
+
+    fn ArgSplitter(self) {
+        self.current = kairo::std::create<TokenBuffer<512>>()
+    }
+
+    fn feed(self, tok: Token) {
+        if tok.kind == TokenKind::OpLParen {
+            self.paren += 1
+        } else if tok.kind == TokenKind::OpRParen {
+            self.paren -= 1
+        } else if tok.kind == TokenKind::OpLSquare {
+            self.square += 1
+        } else if tok.kind == TokenKind::OpRSquare {
+            self.square -= 1
+        } else if tok.kind == TokenKind::OpLBrace {
+            self.brace += 1
+        } else if tok.kind == TokenKind::OpRBrace {
+            self.brace -= 1
+        } else if tok.kind == TokenKind::OpComma
+            && self.paren == 0
+            && self.square == 0
+            && self.brace == 0 {
+            self.args.push_back(self.current)
+            self.current = kairo::std::create<TokenBuffer<512>>()
+            return
+        }
+
+        self.current->append(tok)
+    }
+
+    /// Every argument fed, the run after the last top-level comma included;
+    /// the caller owns the buffers.
+    fn finish(self) -> cxx::std::vector<unsafe *TokenBuffer<512>> {
+        self.args.push_back(self.current)
+        self.current = &null
+        return self.args
+    }
 }
 
 pub class PPWalker
@@ -1707,18 +1762,6 @@ pub class PPWalker
             return
         }
 
-        if self._opts.max_expansions > 0 && self._expansion_count >= self._opts.max_expansions {
-            self._report_expand_err(
-                DiagID::R008E,
-                inv,
-                "macro expansion budget exhausted",
-                "expanded from here",
-                f"budget can be increased with --cmax-macro-expansions=N, current budget is {self._opts.max_expansions}",
-            )
-
-            return
-        }
-
         var cyclic = false
         for s in inv->chain {
             if s == entry->name_sym {
@@ -2197,7 +2240,7 @@ pub class PPWalker
                 return d
             }
 
-            seg = self._fstring_next(tbl, seg)
+            seg = next_string_segment(tbl, seg)
         }
 
         return &null
@@ -2224,17 +2267,6 @@ pub class PPWalker
 
         var unsafe *d = tbl->get<Immediate::StringData>(tok.imm)
         return d != &null && d->next != u32::MAX
-    }
-
-    /// The segment chained after \p seg in \p tbl, or null.
-    priv fn _fstring_next(self,
-                          tbl: unsafe *ImmediateTable,
-                          seg: unsafe *Immediate::StringData) -> unsafe *Immediate::StringData {
-        if seg->next == u32::MAX {
-            return &null
-        }
-
-        return tbl->get<Immediate::StringData>(seg->next)
     }
 
     /// A fresh slot in this file's table with \p d's text and hole specs and
@@ -2280,7 +2312,7 @@ pub class PPWalker
 
             segs->push_back(seg)
             copies->push_back(idx)
-            seg = self._fstring_next(tbl, seg)
+            seg = next_string_segment(tbl, seg)
         }
 
         return (*copies)[0]
@@ -2400,7 +2432,7 @@ pub class PPWalker
                 }
             }
 
-            scan = self._fstring_next(tbl, scan)
+            scan = next_string_segment(tbl, scan)
         }
 
         if !any {
@@ -2460,9 +2492,9 @@ pub class PPWalker
             data->value_hi = 0
             data->bits     = 32
             data->base     = 10
-            data->flags    = 0
-            data->body     = range
-            tok.imm        = idx
+            data->assign_flags(FlagSet<Immediate::IntFlags, u8>())
+            data->body = range
+            tok.imm    = idx
         }
 
         return tok
@@ -2555,15 +2587,27 @@ pub class PPWalker
 
         // deferred code generation
         if name == LangMacros::todo() {
-            return self._builtin_todo(invoke)
+            return self._builtin_sentinel(
+                invoke,
+                TokenKind::TkMacroExpand,
+                MacroSentinel::Todo,
+            )
         }
 
         if name == LangMacros::unreachable() {
-            return self._builtin_unreachable(invoke)
+            return self._builtin_sentinel(
+                invoke,
+                TokenKind::TkMacroExpand,
+                MacroSentinel::Unreachable,
+            )
         }
 
         if name == LangMacros::unreachable_unchecked() {
-            return self._builtin_unreachable_unchecked(invoke)
+            return self._builtin_sentinel(
+                invoke,
+                TokenKind::TkMacroExpand,
+                MacroSentinel::UnreachableUnchecked,
+            )
         }
 
         if name == LangMacros::unique_id() {
@@ -2571,15 +2615,27 @@ pub class PPWalker
         }
 
         if name == LangMacros::include() {
-            return self._builtin_include(invoke)
+            return self._builtin_sentinel(
+                invoke,
+                TokenKind::TkMacroExpand,
+                MacroSentinel::Include,
+            )
         }
 
         if name == LangMacros::embed_str() {
-            return self._builtin_embed_str(invoke)
+            return self._builtin_sentinel(
+                invoke,
+                TokenKind::LitString,
+                MacroSentinel::EmbedStr,
+            )
         }
 
         if name == LangMacros::embed() {
-            return self._builtin_embed(invoke)
+            return self._builtin_sentinel(
+                invoke,
+                TokenKind::TkMacroExpand,
+                MacroSentinel::Embed,
+            )
         }
 
         // diagnostics
@@ -2601,26 +2657,25 @@ pub class PPWalker
     /// Builtin names are reserved unqualified: a user definition would never
     /// be reachable (dispatch checks builtins first), so `_handle_macro_def`
     /// rejects the definition outright instead of silently hijacking it.
-    /// MUST mirror the dispatch table in `_try_builtin`; both spell every
-    /// name through LangMacros / LangIntrinsics, so a rename cannot split them.
+    /// Every LangMacros row is reserved through LangMacros::known, so a row
+    /// added there is reserved here; `_try_builtin` dispatches the same rows.
     priv fn _is_builtin_name(self, const name: string) -> bool {
-        return name == LangMacros::file()        || name == LangMacros::line()
-            || name == LangMacros::column()      || name == LangMacros::module_path()
-            || name == LangMacros::count()       || name == LangMacros::first()
-            || name == LangMacros::last()        || name == LangMacros::rest()
-            || name == LangMacros::butlast()     || name == LangMacros::paste()
-            || name == LangMacros::stringify()   || name == LangMacros::unstringify()
-            || name == LangIntrinsics::defined()     || name == LangMacros::todo()
-            || name == LangMacros::unreachable() || name == LangMacros::unreachable_unchecked()
-            || name == LangMacros::unique_id()   || name == LangMacros::include()
-            || name == LangMacros::embed_str()   || name == LangMacros::embed()
-            || name == LangMacros::compile_error()
-            || name == LangMacros::compile_warn()
-            || name == LangMacros::compile_note()
-            // parser intrinsics (no _try_builtin entry: _detect_invocation
-            // passes them through raw): reserved so a user macro named
-            // label/jump can never be reached at an unqualified call site.
-            || name == LangIntrinsics::label()       || name == LangIntrinsics::jump()
+        var i: usize = 0
+        while !LangMacros::known(i).empty() {
+            if name == LangMacros::known(i) {
+                return true
+            }
+
+            i += 1
+        }
+
+        // defined! is a builtin with a _try_builtin entry; label!, jump! and
+        // unwrap! are parser intrinsics (_detect_invocation passes them
+        // through raw), reserved so a user macro of that name is never
+        // unreachable at an unqualified call site.
+        return name == LangIntrinsics::defined()
+            || name == LangIntrinsics::label()
+            || name == LangIntrinsics::jump()
             || name == LangIntrinsics::unwrap()
     }
 
@@ -2663,65 +2718,12 @@ pub class PPWalker
             return args
         }
 
-        var unsafe *current = kairo::std::create<TokenBuffer<512>>()
-
-        var paren_depth:  i32 = 0
-        var square_depth: i32 = 0
-        var brace_depth:  i32 = 0
-
+        var split = ArgSplitter()
         for var i: usize = 0; i < invoke->arg_toks.size(); ++i {
-            var tok = invoke->arg_toks[i]
-
-            if tok.kind == TokenKind::OpLParen {
-                paren_depth += 1
-                current->append(tok)
-                continue
-            }
-
-            if tok.kind == TokenKind::OpRParen {
-                paren_depth -= 1
-                current->append(tok)
-                continue
-            }
-
-            if tok.kind == TokenKind::OpLSquare {
-                square_depth += 1
-                current->append(tok)
-                continue
-            }
-
-            if tok.kind == TokenKind::OpRSquare {
-                square_depth -= 1
-                current->append(tok)
-                continue
-            }
-
-            if tok.kind == TokenKind::OpLBrace {
-                brace_depth += 1
-                current->append(tok)
-                continue
-            }
-
-            if tok.kind == TokenKind::OpRBrace {
-                brace_depth -= 1
-                current->append(tok)
-                continue
-            }
-
-            if tok.kind == TokenKind::OpComma
-                && paren_depth == 0
-                && square_depth == 0
-                && brace_depth == 0 {
-                args.push_back(current)
-                current = kairo::std::create<TokenBuffer<512>>()
-                continue
-            }
-
-            current->append(tok)
+            split.feed(invoke->arg_toks[i])
         }
 
-        args.push_back(current)
-        return args
+        return split.finish()
     }
 
     /// Builtin argument pre-expansion policy (documented-asymmetric, C model):
@@ -2781,54 +2783,13 @@ pub class PPWalker
         }
 
         // 3. split the EXPANDED stream on top-level commas
-        var unsafe *current = kairo::std::create<TokenBuffer<512>>()
-
-        var paren_depth:  i32 = 0
-        var square_depth: i32 = 0
-        var brace_depth:  i32 = 0
-
+        var split = ArgSplitter()
         for var i: usize = 0; i < run->size(); ++i {
-            var tok = *run->get(i)
-
-            if tok.kind == TokenKind::OpLParen {
-                paren_depth += 1
-            }
-
-            if tok.kind == TokenKind::OpRParen {
-                paren_depth -= 1
-            }
-
-            if tok.kind == TokenKind::OpLSquare {
-                square_depth += 1
-            }
-
-            if tok.kind == TokenKind::OpRSquare {
-                square_depth -= 1
-            }
-
-            if tok.kind == TokenKind::OpLBrace {
-                brace_depth += 1
-            }
-
-            if tok.kind == TokenKind::OpRBrace {
-                brace_depth -= 1
-            }
-
-            if tok.kind == TokenKind::OpComma
-                && paren_depth == 0
-                && square_depth == 0
-                && brace_depth == 0 {
-                args.push_back(current)
-                current = kairo::std::create<TokenBuffer<512>>()
-                continue
-            }
-
-            current->append(tok)
+            split.feed(*run->get(i))
         }
 
-        args.push_back(current)
         kairo::std::destroy(run)
-        return args
+        return split.finish()
     }
 
     priv fn _append_builtin_argument(self,
@@ -3056,23 +3017,12 @@ pub class PPWalker
             return false
         }
 
-        var c0 = s[0]
-        var head_ok = c0 >= ('a' as u8) && c0 <= ('z' as u8)
-            || c0 >= ('A' as u8) && c0 <= ('Z' as u8)
-            || c0 == ('_' as u8)
-            || c0 == ('#' as u8)
-        if !head_ok {
+        if !is_ident_start(s[0]) && s[0] != ('#' as u8) {
             return false
         }
 
         for var i: usize = 1; i < s.length(); ++i {
-            var c = s[i]
-            var ok = c >= ('a' as u8) && c <= ('z' as u8)
-                || c >= ('A' as u8) && c <= ('Z' as u8)
-                || c >= ('0' as u8) && c <= ('9' as u8)
-                || c == ('_' as u8)
-                || c == ('#' as u8)
-            if !ok {
+            if !is_ident_char(s[i]) && s[i] != ('#' as u8) {
                 return false
             }
         }
@@ -3376,44 +3326,21 @@ pub class PPWalker
 
     //  Deferred/sentinel builtins
 
-    priv fn _builtin_todo(self,
-                          invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
+    /// One `TkMacroExpand` token (an `embed_str!` slot is a `LitString`)
+    /// at the invocation's name, its imm the \p sentinel the parser lowers.
+    /// `unreachable!` is the safe form: a panic if reached.
+    /// `unreachable_unchecked!` tells the optimizer the path is dead;
+    /// reaching it at run time is undefined behaviour.
+    priv fn _builtin_sentinel(self,
+                              invoke:   unsafe *Self::InvocationInfo,
+                              kind:     TokenKind,
+                              sentinel: MacroSentinel) -> unsafe *(TokenBuffer<512>) {
         var unsafe *out = kairo::std::create<TokenBuffer<512>>()
 
         var tok = Token()
-        tok.kind  = TokenKind::TkMacroExpand
+        tok.kind  = kind
         tok.range = invoke->name.range
-        tok.imm   = (MacroSentinel::Todo as u32)
-
-        out->append(tok)
-        return out
-    }
-
-    /// `unreachable!` SAFE: lowers to a panic if reached (Rust semantics).
-    /// The UB/optimizer-assume variant is `unreachable_unchecked!`.
-    priv fn _builtin_unreachable(self,
-                                 invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
-
-        var tok = Token()
-        tok.kind  = TokenKind::TkMacroExpand
-        tok.range = invoke->name.range
-        tok.imm   = (MacroSentinel::Unreachable as u32)
-
-        out->append(tok)
-        return out
-    }
-
-    /// `unreachable_unchecked!` UNSAFE: hard assertion to the optimizer that
-    /// the path is dead. Reaching it at runtime is undefined behavior.
-    priv fn _builtin_unreachable_unchecked(self,
-                                           invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
-
-        var tok = Token()
-        tok.kind  = TokenKind::TkMacroExpand
-        tok.range = invoke->name.range
-        tok.imm   = (MacroSentinel::UnreachableUnchecked as u32)
+        tok.imm   = (sentinel as u32)
 
         out->append(tok)
         return out
@@ -3491,72 +3418,6 @@ pub class PPWalker
         )
 
         return out
-    }
-
-    priv fn _builtin_include(self,
-                             invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
-
-        var tok = Token()
-        tok.kind  = TokenKind::TkMacroExpand
-        tok.range = invoke->name.range
-        tok.imm   = (MacroSentinel::Include as u32)
-
-        out->append(tok)
-        return out
-    }
-
-    priv fn _builtin_embed_str(self,
-                               invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
-
-        var tok = Token()
-        tok.kind  = TokenKind::LitString
-        tok.range = invoke->name.range
-        tok.imm   = (MacroSentinel::EmbedStr as u32)
-
-        out->append(tok)
-        return out
-    }
-
-    priv fn _builtin_embed(self,
-                           invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
-
-        var tok = Token()
-        tok.kind  = TokenKind::TkMacroExpand
-        tok.range = invoke->name.range
-        tok.imm   = (MacroSentinel::Embed as u32)
-
-        out->append(tok)
-        return out
-
-        /// we have to put some like [ bytes, ... ]
-        // if !(invoke->has_args) {
-        //     self._builtin_report(
-        //         invoke->range,
-        //         "builtin 'embed!()' requires at least one argument",
-        //         DiagID::R009E
-        //     );
-        //     return out;
-        // }
-
-        // var args = self._parse_builtin_arguments(invoke);
-
-        // // we need to open the file in byte mode read it and store its contents
-
-
-        // var make_int_tok = fn (value: u8) -> Token {
-        //     /// so we need to make a TkMacroExpand and make its underlying point
-        //     /// into our buffer
-
-        //     var outer: Token;
-
-        // };
-
-
-
-        // return out;
     }
 
     //  Diagnostic builtins

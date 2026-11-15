@@ -30,11 +30,12 @@ import AST::Node::Declarations::{
 import Diagnostic::Code::DiagCode
 import Diagnostic::Engine::DiagEngine
 import Diagnostic::Registry::DiagID
-import Location::SourceManager::{
-    FileID,
-    SourceManager,
-}
+import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Preprocessor::ImportPlace::{
+    join_import_segments,
+    resolve_import_place,
+}
 import Preprocessor::MacroTable::{
     MacroEntry,
     MacroTable,
@@ -43,10 +44,7 @@ import Preprocessor::PreprocessorSymbolTable::{
     PreprocessorSymbolTable,
     SymbolID,
 }
-import Resolution::ImportProbe::{
-    ImportResolver,
-    ModuleResolution,
-}
+import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
 import Resolution::SearchRoot::module_dir_at_or_above
 import Support::FileIO::Path::Path
@@ -353,8 +351,8 @@ pub class FileImportIndex {
         var seg_count:    usize      = 0     ///< leading segments consumed to reach that file
     }
 
-    /// greedy longest-prefix resolution behavior ported from
-    /// ImportProcessor::resolve_module_greedy (that logic was correct).
+    /// Longest-prefix resolution through resolve_import_place, the rule the
+    /// dependency scan applies too.
     ///
     /// Path semantics live in ImportResolver: each import form looks in one
     /// place -- the search roots (plain), this file's directory (`self::`)
@@ -371,117 +369,54 @@ pub class FileImportIndex {
             return out
         }
 
-        // The one place this form looks.
-        var in_dir = id->import_kind != ImportKind::Native
-        var anchor = self._dir
-        if id->import_kind == ImportKind::ModuleRelative {
-            var mdir = if (self._has_dir) => (module_dir_at_or_above(
-                           self._dir.full_path(),
-                       ))
-                       else => ""
-            if mdir.empty() {
-                self._no_module_root(id, segs)
-                return out
-            }
+        var place = resolve_import_place(
+            self._res,
+            self._sm,
+            id->import_kind,
+            segs,
+            self._dir,
+            self._has_dir,
+            unsafe (self._diag as unsafe *DiagEngine),
+            id->range,
+        )
 
-            anchor = Path(mdir)
-        } else if in_dir && !self._has_dir {
-            return out // no file, no directory: _unresolved reports it
+        if place.no_module_root {
+            self._no_module_root(id, segs)
+            return out
         }
 
-        out = self._resolve_greedy(segs, id, in_dir, anchor)
+        if !place.found {
+            // A `self::` import in a file with no directory looked nowhere,
+            // so the resolver's sweeps found nothing new to report.
+            if id->import_kind == ImportKind::Native || self._has_dir {
+                self._drain_collisions()
+            }
+
+            return out
+        }
+
+        // canonical ++ whatever the import spelled past the file: for a
+        // root-relative import this is exactly `segs`.
+        var src = place.canonical
+        for var i: usize = place.seg_count; i < segs.size(); ++i {
+            src.push_back(segs[i])
+        }
+
+        out.found        = true
+        out.source_scope = self._segs_to_path(src)
+        out.full_scope   = self._segs_to_path(place.canonical)
+        out.target_fid   = place.fid
+        out.seg_count    = place.seg_count
 
         // Compatibility (Compiler/Spec/Imports.md#migration): the plain form
         // once resolved beside the importing file. A path only that
         // directory holds still resolves -- to the file it always meant --
-        // and is reported with the `self::` that says so. Tried only once
-        // every root has missed every prefix, so a root answer is never
-        // overridden by it.
-        if !out.found && id->import_kind == ImportKind::Native && self._has_dir {
-            out = self._resolve_greedy(segs, id, true, self._dir)
-            if out.found {
-                self._legacy_sibling(id, segs, out.seg_count)
-            }
+        // and is reported with the `self::` that says so.
+        if place.legacy_sibling {
+            self._legacy_sibling(id, segs, out.seg_count)
         }
 
         self._drain_collisions()
-        return out
-    }
-
-    /// The longest prefix of \p segs that names a module, in the search
-    /// roots or (\p in_dir) in \p dir alone.
-    priv fn _resolve_greedy(self,
-                            segs:      cxx::std::vector<string>,
-                            id:        unsafe *ImportDecl,
-                            in_dir:    bool,
-                            const dir: Path) -> Self::ResolveOut {
-        var out     = Self::ResolveOut()
-        var at      = id->range
-        var try_len = segs.size()
-        while try_len > 0 {
-            var try_segs = cxx::std::vector<string>()
-            for var i: usize = 0; i < try_len; ++i {
-                try_segs.push_back(segs[i])
-            }
-
-            var rr: ModuleResolution
-            if in_dir {
-                rr = self._res->resolve_module_in(try_segs, dir)
-            } else {
-                rr = self._res->resolve_module_rel(
-                    try_segs,
-                    self._dir,
-                    self._has_dir,
-                )
-            }
-
-            if rr.found {
-                if rr.ambiguous && rr.cross_root {
-                    // Two unnamed search dirs hold one path. Qualifying
-                    // cannot help: an unnamed dir has no name to write. One
-                    // file has to go, or be pinned into a library of its own.
-                    self._diag->report(
-                        DiagCode(DiagID::R017E),
-                        at.start,
-                        f"ambiguous import '{self._join(try_segs)}': it matches both '{rr.path.full_path()}' and '{rr.other_path.full_path()}', in two search directories; a search directory adds nothing to a module path, so no spelling tells them apart: remove or rename one, or pin one as a library with a module.k",
-                    ).first(at)->emit()
-                }
-
-                if rr.file_dir {
-                    // `foo.k` and `foo/module.k` in the one place this form
-                    // looks. Each would be module `foo`; the file answers so
-                    // the import does not cascade into "not found".
-                    self._diag->report(
-                        DiagCode(DiagID::R005E),
-                        at.start,
-                        f"ambiguous module '{self._join(try_segs)}': both '{rr.path.full_path()}' and '{rr.dir_path.full_path()}' are that module; rename or remove one",
-                    ).first(at)->emit()
-                }
-
-                // u32(-1) is the miss. 0 is a file: the first input, which a
-                // later input may import (`kairo foo.k main.k`).
-                var fid = self._sm->load_file(rr.path)
-                if fid != (u32::MAX as FileID) {
-                    // canonical ++ whatever the import spelled past the file:
-                    // for a root-relative import this is exactly
-                    // `segs`, so nothing changes for existing code.
-                    var src = rr.canonical
-                    for var i: usize = try_len; i < segs.size(); ++i {
-                        src.push_back(segs[i])
-                    }
-
-                    out.found        = true
-                    out.source_scope = self._segs_to_path(src)
-                    out.full_scope   = self._segs_to_path(rr.canonical)
-                    out.target_fid   = fid
-                    out.seg_count    = try_len
-                    return out
-                }
-            }
-
-            try_len -= 1
-        }
-
         return out
     }
 
@@ -496,14 +431,13 @@ pub class FileImportIndex {
         }
 
         var first = id->path_segments[0].range
-        // An error since the fixtures migrated to `self::`. The import still
-        // resolves (to the file the author meant) so one stale line does not
-        // cascade into unresolved-name errors; removing the fallback is the
-        // two `_resolve_greedy`/`_resolve_place` calls passing self._dir.
+        // An error. The import still resolves (to the file the author
+        // meant) so one stale line does not cascade into unresolved-name
+        // errors; the fallback itself is the retry in resolve_import_place.
         var b = self._diag->report(
             DiagCode(DiagID::R068E),
             first.start,
-            f"'{self._join(file)}' is not in any library or search directory; it is the file beside this one, which a plain import no longer reaches: write 'self::{self._join(segs)}'",
+            f"'{join_import_segments(file)}' is not in any library or search directory; it is the file beside this one, which a plain import no longer reaches: write 'self::{join_import_segments(segs)}'",
         )
 
         b.first(id->range)
@@ -521,7 +455,7 @@ pub class FileImportIndex {
         var b = self._diag->report(
             DiagCode(DiagID::R069E),
             id->range.start,
-            f"cannot import 'module::{self._join(segs)}': this file is in no module",
+            f"cannot import 'module::{join_import_segments(segs)}': this file is in no module",
         )
 
         b.first(id->range)
@@ -587,26 +521,13 @@ pub class FileImportIndex {
         return p
     }
 
-    priv fn _join(self, const segs: cxx::std::vector<string>) -> string {
-        var s = ""
-        for var i: usize = 0; i < segs.size(); ++i {
-            if i > 0 {
-                s += "::"
-            }
-
-            s += segs[i]
-        }
-
-        return s
-    }
-
     priv fn _unresolved(self, id: unsafe *ImportDecl, segs: cxx::std::vector<string>) {
         // `import module::x` with no module root already said why.
         if id->import_kind == ImportKind::ModuleRelative && !self._has_module_root() {
             return
         }
 
-        var shown = self._join(segs)
+        var shown = join_import_segments(segs)
         if id->import_kind == ImportKind::SelfRelative {
             shown = "self::" + shown
         }
