@@ -99,8 +99,8 @@ fn if_not_ok() -> i32 {
 }
 
 fn const_ok() -> i32 {
-    var q    = Queue()
-    var t    = Task()
+    var   q  = Queue()
+    var   t  = Task()
     const ok = q.push(&t)
     if ok {
         return 0
