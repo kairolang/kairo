@@ -41,8 +41,9 @@ hand it is only needed to inspect the output:
 
 Compiler/Diagnostic/Registry.k carries the declarations the tree imports;
 build/registry/ holds declarations plus bodies, which each build compiles into
-its own registry object (<out>/obj/registry/registry.o, see build.py
-gen_registry / selfhost_registry). Both are rewritten only when their text
+its own registry object (<cache root>/registry/registry.o, where the
+cache root is --cache-dir or <out>/obj; see build.py gen_registry /
+selfhost_registry). Both are rewritten only when their text
 changes, so an edited table needs nothing beyond a rebuild; the object is also
 recompiled when a module it imports changes (selfhost_registry keys on them).
 
@@ -52,4 +53,4 @@ compiled --emit-scope=inputs. So it must be self-contained: it may reference
 no symbol of a compiler module, only types and inline bodies. That is why
 diag_from_string's hash is written out by gen_diag.py (constants from
 Scripts/Migration/eval_hash.py) instead of calling Support/EvalHash.k's
-compute_hash. Check with `llvm-nm -u -C <out>/obj/registry/registry.o`.
+compute_hash. Check with `llvm-nm -u -C <cache root>/registry/registry.o`.

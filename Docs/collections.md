@@ -20,7 +20,7 @@ rgb[0] = 10
 // rgb.push(42)  // compile error: fixed size
 ```
 
-An array is **not a value type**. It cannot be copied, assigned, passed by value, or returned. It can be a local, a field, or an element of another array; it can be viewed by a slice, pointed to, and passed as a `const` or [`@inout` parameter](/docs/language/functions-parameter-modes/). Each of the following is a compile error, and each diagnostic names the fix:
+An array is **not a value type**. It cannot be copied, assigned, passed by value, or returned. It can be a local, a field, or an element of another array; it can be viewed by a slice, pointed to, and passed as a `const` or [`@inout` parameter](/docs/language/functions-parameter-modes/). Each of the following is a compile error, and each diagnostic names the fix: The same error (SC045E) is reported at a call that passes an array to a generic parameter taken by value (`fn <T> f(a: T)`). A constant index outside `0..N-1` is a compile error (SC291E). A generic function that copies its `T` cannot be called with a fixed array (SC083E at the call). A vector, set or map literal copies its elements; a literal of move-only elements is not supported yet (SC182E).
 
 ```kairo
 var a = [1, 2, 3]              // [i32; 3]

@@ -550,7 +550,8 @@ pub fn is_valid_token_kind(kind: u32) -> bool {
              TokenKind::AtBf16,                TokenKind::AtU512,
              TokenKind::AtI512,                TokenKind::AtF256,
              TokenKind::BiSelf,                TokenKind::KwRequires,
-             TokenKind::KwUnion,               TokenKind::KwVirtual {
+             TokenKind::KwUnion,               TokenKind::KwVirtual,
+             TokenKind::TkCodeComplete {
             return true
         } default {
             return false
@@ -584,6 +585,8 @@ pub fn token_kind_to_string(kind: TokenKind) -> string {
             return "tk-generated"
         } case TokenKind::TkMacroExpand {
             return "tk-macro-expand"
+        } case TokenKind::TkCodeComplete {
+            return "tk-code-complete"
         } case TokenKind::LitIdentifier {
             return "lit-identifier"
         } case TokenKind::LitNull {
@@ -814,6 +817,8 @@ pub fn token_kind_to_string(kind: TokenKind) -> string {
             return "kw-async"
         } case TokenKind::KwInline {
             return "kw-inline"
+        } case TokenKind::KwAtomic {
+            return "kw-atomic"
         } case TokenKind::KwSelf {
             return "kw-self"
         } case TokenKind::KwTrue {
@@ -878,6 +883,8 @@ pub fn token_kind_to_string(kind: TokenKind) -> string {
             return "at-f80"
         } case TokenKind::AtF128 {
             return "at-f128"
+        } case TokenKind::AtF256 {
+            return "at-f256"
         } case TokenKind::AtU8 {
             return "at-u8"
         } case TokenKind::AtU16 {
@@ -890,6 +897,8 @@ pub fn token_kind_to_string(kind: TokenKind) -> string {
             return "at-u128"
         } case TokenKind::AtU256 {
             return "at-u256"
+        } case TokenKind::AtU512 {
+            return "at-u512"
         } case TokenKind::AtI8 {
             return "at-i8"
         } case TokenKind::AtI16 {
@@ -902,6 +911,8 @@ pub fn token_kind_to_string(kind: TokenKind) -> string {
             return "at-i128"
         } case TokenKind::AtI256 {
             return "at-i256"
+        } case TokenKind::AtI512 {
+            return "at-i512"
         } case TokenKind::KwAwait {
             return "kw-await"
         } case TokenKind::KwThread {
@@ -936,7 +947,7 @@ pub fn token_kind_to_string(kind: TokenKind) -> string {
             return "kw-virtual"
         } case TokenKind::KwMutable {
             return "kw-mutable"
-        } default { } // TkCodeComplete, TkCount, ...: the return below
+        } default { } // a value that is not a kind (the enum is @open)
     }
 
     return "tk-unknown"
@@ -964,6 +975,8 @@ pub fn token_kind_to_readable_string(kind: TokenKind) -> string {
             return "GENERATED"
         } case TokenKind::TkMacroExpand {
             return "MACRO EXPANDED"
+        } case TokenKind::TkCodeComplete {
+            return "CODE COMPLETION"
         } case TokenKind::LitIdentifier {
             return "identifier"
         } case TokenKind::LitNull {
@@ -1324,7 +1337,7 @@ pub fn token_kind_to_readable_string(kind: TokenKind) -> string {
             return "atomic"
         } case TokenKind::KwMutable {
             return "mutable"
-        } default { } // TkCodeComplete, TkCount, ...: the return below
+        } default { } // a value that is not a kind (the enum is @open)
     }
 
     return "UNKNOWN"
@@ -1367,7 +1380,8 @@ pub fn is_keyword(kind: TokenKind) -> bool {
              TokenKind::KwImport,  TokenKind::KwAssert,   TokenKind::KwOverride,
              TokenKind::KwOp,      TokenKind::KwProt,     TokenKind::KwInterface,
              TokenKind::KwInline,  TokenKind::KwYield,    TokenKind::KwRequires,
-             TokenKind::KwUnion {
+             TokenKind::KwUnion,   TokenKind::KwAtomic,   TokenKind::KwVolatile,
+             TokenKind::KwVirtual, TokenKind::KwMutable {
             return true
         } default {
             return false
@@ -1502,27 +1516,8 @@ pub fn word_token_kinds() -> [TokenKind] {
 /// `op bitand` and `a & b` are one operator, and op_name must not know
 /// which spelling reached it.
 pub fn canonical_operator_kind(k: TokenKind) -> TokenKind {
-    match k {
-        case TokenKind::KwBitand {
-            return TokenKind::OpAmp
-        } case TokenKind::KwBitor {
-            return TokenKind::OpPipe
-        } case TokenKind::KwXor {
-            return TokenKind::OpCaret
-        } case TokenKind::KwCompl {
-            return TokenKind::OpTilde
-        } case TokenKind::KwNotEq {
-            return TokenKind::OpExclaimEqual
-        } case TokenKind::KwAndEq {
-            return TokenKind::OpAmpEqual
-        } case TokenKind::KwOrEq {
-            return TokenKind::OpPipeEqual
-        } case TokenKind::KwXorEq {
-            return TokenKind::OpCaretEqual
-        } default {
-            return k
-        }
-    }
+    var sub = substitute(k)
+    return if (sub != TokenKind::TkUnknown) => sub else => k
 }
 
 pub fn is_unary_operator(kind: TokenKind) -> bool {
@@ -1612,9 +1607,8 @@ pub fn is_operator(kind: TokenKind) -> bool {
 
 pub fn is_builtin(kind: TokenKind) -> bool {
     match kind {
-        case TokenKind::BiFile,    TokenKind::BiLine, TokenKind::BiColumn,  TokenKind::BiFunction,
-             TokenKind::BiModule,  TokenKind::BiSelf, TokenKind::KwVirtual, TokenKind::KwVolatile,
-             TokenKind::KwMutable {
+        case TokenKind::BiFile,   TokenKind::BiLine, TokenKind::BiColumn, TokenKind::BiFunction,
+             TokenKind::BiModule, TokenKind::BiSelf {
             return true
         } default {
             return false
@@ -1627,7 +1621,7 @@ pub fn is_special(kind: TokenKind) -> bool {
         case TokenKind::KwSelf,       TokenKind::TkUnknown,     TokenKind::TkEof,
              TokenKind::TkError,      TokenKind::AtComment,     TokenKind::TkNewLine,
              TokenKind::TkWhitespace, TokenKind::TkFileStart,   TokenKind::TkFileEnd,
-             TokenKind::TkGenerated,  TokenKind::TkMacroExpand {
+             TokenKind::TkGenerated,  TokenKind::TkMacroExpand, TokenKind::TkCodeComplete {
             return true
         } default {
             return false
@@ -1637,9 +1631,9 @@ pub fn is_special(kind: TokenKind) -> bool {
 
 pub fn is_internal(kind: TokenKind) -> bool {
     match kind {
-        case TokenKind::TkUnknown,     TokenKind::TkEof,     TokenKind::TkError,
-             TokenKind::TkFileStart,   TokenKind::TkFileEnd, TokenKind::TkGenerated,
-             TokenKind::TkMacroExpand {
+        case TokenKind::TkUnknown,     TokenKind::TkEof,          TokenKind::TkError,
+             TokenKind::TkFileStart,   TokenKind::TkFileEnd,      TokenKind::TkGenerated,
+             TokenKind::TkMacroExpand, TokenKind::TkCodeComplete {
             return true
         } default {
             return false

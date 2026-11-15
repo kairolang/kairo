@@ -121,11 +121,11 @@ const b: *i32 = &x
 b = &y       // compile error: the pointer is const
 *b = 10      // ok
 
-var c: *const i32 = &x
+var c: *const i32 = const &x
 c = &y       // ok
 *c = 10      // compile error: the pointee is const
 
-const d: *const i32 = &x
+const d: *const i32 = const &x
 d = &y       // compile error
 *d = 10      // compile error
 ```
@@ -135,6 +135,18 @@ Each question has exactly one place it can be answered. `var ptr: const *const i
 See [Variables](/docs/language/variables/#the-const-binding-rule) for the full `const` model.
 
 ---
+
+### Taking a const address
+
+`const &x` is the address of `x` as a `*const T`, whatever `x`'s own mutability. `unsafe const &x` is an `unsafe *const T`: the words come in the order of the type, and `const unsafe &x` is an error with a fix-it (S096E). It works wherever `&x` does.
+
+```kairo
+var x = 5
+var *p = const &x     // *const i32
+*p = 6                // error: writes through a pointer to const
+```
+
+Passing a plain `&x` where a `*const T` is expected warns (SC310W); the fix-it writes `const &x`. `const &x` is never the `&` marker of an `@inout` argument.
 
 ## Pointer Arithmetic
 
@@ -348,7 +360,7 @@ See [Functions](/docs/language/functions/#function-pointers) for function pointe
 
 ## Pointers and Nullable Types
 
-`*T` is non-null by construction. To represent a pointer that might not exist, use `*T?` which wraps the pointer in the standard [`Nullable<T>` system](/docs/language/nullables/#pointers-and-nullability).
+`*T` is non-null by construction. To represent a pointer that might not exist, use `*T?` which wraps the pointer in the standard [`Null<T>` system](/docs/language/nullables/#pointers-and-nullability).
 
 `*T?` reads as `(*T)?`: the `?` applies to the whole pointer type, so the pointer itself may be null. A pointer to a nullable value is a different type, written with parentheses as `*(T?)`: the pointer is never null, and the value it points to may be.
 
@@ -366,7 +378,7 @@ A nullable safe pointer is one pointer wide: null is stored as `0x0`, with no se
 | Dereference null | Cannot happen | Compile error (must check first) | Undefined behavior |
 | Tether tracked | Yes | Yes | No |
 
-`*T?` supports the same null-handling operators as any other nullable type. `unsafe *T` uses manual null comparison, it does not participate in the `Nullable<T>` system.
+`*T?` supports the same null-handling operators as any other nullable type. `unsafe *T` uses manual null comparison, it does not participate in the `Null<T>` system.
 
 ```kairo
 var p: *i32 = &x            // always valid, no null check needed
@@ -403,7 +415,7 @@ if maybe? {
 }
 
 // Const pointer
-var ptr: *const i32 = &x    // can change the pointer, cannot change the pointee
+var ptr: *const i32 = const &x    // can change the pointer, cannot change the pointee
 const ptr: *i32 = &x        // cannot change the pointer, can change the pointee
 
 // Pointer arithmetic

@@ -131,6 +131,12 @@ pub class CodegenBackend derives TokenFiller {
     /// string literal (ObjectCache::record_asm), or "": written as the
     /// stream's last item, so the object carries the key it was built under.
     priv var _record: string = ""
+    /// The Sema agreement pass (Compiler/Spec/SemaAgreement.md): whether a
+    /// run of this TU has reported yet (a TU runs once per output kind, and
+    /// again without the interface PCH), and how many disagreements it
+    /// reported.
+    priv var _agree_said:  bool  = false
+    priv var _agree_found: usize = 0
 
     fn CodegenBackend(self,
                       be:        unsafe *ClangBackend,
@@ -523,24 +529,28 @@ pub class CodegenBackend derives TokenFiller {
                 self._wire(&act.inj)
                 ok = ci->ExecuteAction(&act)
                 kairo::ktime_clang_end(clang_time)
+                self._agree_report(&act.inj)
                 t_teardown = time_clock()
             } case EmitKind::LLVMIR {
                 var act = KairoEmitLLVMIR()
                 self._wire(&act.inj)
                 ok = ci->ExecuteAction(&act)
                 kairo::ktime_clang_end(clang_time)
+                self._agree_report(&act.inj)
                 t_teardown = time_clock()
             } case EmitKind::LLVMBC {
                 var act = KairoEmitLLVMBC()
                 self._wire(&act.inj)
                 ok = ci->ExecuteAction(&act)
                 kairo::ktime_clang_end(clang_time)
+                self._agree_report(&act.inj)
                 t_teardown = time_clock()
             } default {
                 var act = KairoEmitObj()
                 self._wire(&act.inj)
                 ok = ci->ExecuteAction(&act)
                 kairo::ktime_clang_end(clang_time)
+                self._agree_report(&act.inj)
                 t_teardown = time_clock()
             }
         }
@@ -557,6 +567,32 @@ pub class CodegenBackend derives TokenFiller {
         inj->kfid   = self._kfid
         inj->ksize  = self._ksize
         inj->arena  = self._arena
+        var unsafe *ci = self._ctx->ci
+        if ci != &null {
+            inj->agree_start(
+                ci->codegen.sema_agreement,
+                ci->codegen.test_sema_agreement_quiet,
+                ci->codegen.sema_agreement_repair != 0,
+                ci->frontend.verbose,
+            )
+        }
+    }
+
+    /// The agreement walk's findings for the run \p inj drove, reported by
+    /// the first run only: every run of one TU walks the same stream.
+    priv fn _agree_report(self, inj: *KairoInject) {
+        if self._agree_said {
+            return
+        }
+
+        self._agree_said  = true
+        self._agree_found = inj->agree_report(self._ctx, self._path)
+    }
+
+    /// How many calls clang bound to a declaration Kairo did not choose
+    /// were reported (I012W).
+    fn agree_found(self) -> usize {
+        return self._agree_found
     }
 }
 
@@ -669,6 +705,10 @@ pub class CodegenJob {
     /// TU that compiles drops what the hash's fill reported, since its own
     /// fill reports the same again.
     pub var diag_mark: usize = 0
+    /// How many disagreements the Sema agreement pass reported for this TU
+    /// (I012W). Such an object is not stored: a stored object replays no
+    /// diagnostics, and the warning is said on every build.
+    pub var agree_found: usize = 0
 
     pub fn run(self, r: *CodegenRun) {
         // The Kairo side of the TU's setup; CodegenBackend::run bills clang's.
@@ -724,7 +764,8 @@ pub class CodegenJob {
         time_bill_since("TUSetup", t_setup)
 
         self._run_kinds(&cg, a, be)
-        self.iface_used = self.iface != &null && self.iface->ok
+        self.agree_found = cg.agree_found()
+        self.iface_used  = self.iface != &null && self.iface->ok
         // Clang said something about this TU under the interface PCH: it is
         // said again from the whole stream, so a diagnostic names the bytes
         // and the order it always did. The PCH moves where a declaration's

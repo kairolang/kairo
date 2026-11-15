@@ -1,6 +1,6 @@
 # Kairo Primitive Conversion Lattice
 
-Normative specification for implicit and explicit conversions between primitive types. This document is the single source of truth for `-f[no-]implicit-conv`, overload resolution ranking, and binary operator result typing.
+Normative specification for implicit and explicit conversions between primitive types. This document is the single source of truth for `-f[no-]implicit-conv`, overload resolution ranking, and binary operator result typing. C++'s own implicit conversions where a value crosses into C++ are `-f[no-]cxx-implicit-conv` ([Calling C and C++](/docs/language/c-cpp-calling/#argument-conversions)); this document does not govern them.
 
 ---
 
@@ -230,3 +230,5 @@ None of these participate in overload resolution or operand unification.
 - [Operators](/docs/language/operators/)
 - [Function Overloading](/docs/language/functions-overloading/)
 - [Calling C/C++](/docs/language/c-cpp-calling/#argument-conversions)
+
+`[T;]` and `[T]` convert implicitly to `[const T;]`, ranked like `*T` to `*const T`; the reverse does not convert, and the conversion does not apply under `?`.

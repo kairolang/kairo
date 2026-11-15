@@ -681,7 +681,7 @@ The one place the import looks holds both a file `x.k` and a library entry `x/mo
 
 ### S089E: `'import module foo' was removed`
 
-`import module foo` (with a space) forced the library form of a module. Each import form now looks in one place where a file and a library entry with one name are already an error, so the form is gone. A fix-it deletes `module`, and the line is then read as a plain `import foo`.
+`import module foo` (with a space) forced the library form of a module. Each import form looks in one place where a file and a library entry with one name are already an error, so the form is gone. A fix-it deletes `module`, and the line is then read as a plain `import foo`.
 
 **Fix:** apply the fix-it and pick the form for where `foo` is: `import foo` (a library or search directory), `import self::foo` (beside this file) or `import module::foo` (from the module root).
 
@@ -697,7 +697,7 @@ Since 0.2.0 the [destructor](/docs/language/classes-lifecycle/#destructors---op-
 
 ### S091E: `Kairo has no 'delete' expression`
 
-Running a destructor and freeing memory are separate steps. Memory from `@create` is freed with `@destroy p` (the fix-it), which runs the destructor and returns the block to the allocator it came from. Memory C++ allocated is freed with `@cxx::delete p`, or `@cxx::delete [] p` for an array (the fix-it for `delete [] p`). `x.finally()` (run a destructor early without freeing) is planned for 0.3 and is an error until then. See [Freeing memory](/docs/language/classes-lifecycle/#freeing-memory).
+Running a destructor and freeing memory are separate steps. Memory from `@create` is freed with `@destroy p` (the fix-it), which runs the destructor and returns the block to the allocator it came from. Memory C++ allocated is freed with `@cxx::delete p`, or `@cxx::delete [] p` for an array (the fix-it for `delete [] p`). `x.finally()` runs a local's destructor early without freeing anything ([Running cleanup early](/docs/language/classes-lifecycle/#running-cleanup-early)). See [Freeing memory](/docs/language/classes-lifecycle/#freeing-memory).
 
 **Fix:** apply the fix-it, or use `@cxx::delete` for C++ memory.
 
@@ -964,19 +964,19 @@ The construct is part of the language but the current compiler does not handle i
 
 It is reported for:
 
-- iterating a vector, set, map, or string
+- `for ... in` over a Kairo `string` (`iterating a string is not yet supported`); vectors, sets, maps, slices, arrays and ranges work
 - `label!` and `jump!` in user code
-- `x.finally()` and `x.op finally()`, the explicit early destructor call (`'finally()' is not implemented yet (planned for 0.3)`); a local is destroyed at the end of its scope and a heap object with `@destroy`
+- `x.finally()` on a fixed-size array, a local of an `eval fn`, the variable of a C-style `for`, or a call inside a `finally { }` block (`finally() on 'x': ... is not supported yet`)
 - matching a string against a pattern that isn't a string literal or a constant initialized with one
 - matching a record value against a literal-style pattern
-- an initializer on an `eval` field, and one on an array-typed field that is `static`, an array of arrays, or not a list literal
-- in a constructor that initializes a `const` field or a field without a default: a generic constructor or one with an expression body; `try`, `finally`, an `inline` block, `label!` or `jump!` before the last such initialization; a `static` or array local declared before it and used after it; initializing an array field of arrays, or one whose length is a generic parameter
+- an initializer on an `eval` array-typed field (`eval E: [i32; 2] = [1, 2]`)
+- in a constructor that initializes a `const` field or a field without a default: a constructor with an expression body; `try`, `finally`, an `inline` block, `label!` or `jump!` before the last such initialization; a `static` or array local declared before it and used after it
 - a vector, set, map or f-string in an `eval` context (`a vector in an eval context is not yet supported`); a string literal is fine
 - an array length computed by C++ from an `eval` constant of the field's own class (`an array length computed by C++ from 'J', an 'eval' constant of the field's own class, is not supported`): inside its own body the class is incomplete. A note points at the constant; the fix-it moves it to module scope
 - an array length or generic value argument that calls an `eval fn` (or reads an `eval` constant computed by one) in a declaration's type, a field or a signature (`... is not yet supported in a declaration's type; write it inside a function body, or make the constant fold`); inside a function body it is accepted
 - a generic value parameter whose type is neither an integer nor an eval class (`<eval B: bool>`)
 - a generic record's field default that reads another field
-- an attribute applied to an expression, such as `@create T(args)` (`the expression attribute '@create' is not yet supported`)
+- an attribute applied to an expression other than `@create T(args)` and `@destroy p`, which compile (`the expression attribute '@likely' is not yet supported`); the initializer form `@create T{...}` is rejected too
 - `@unreachable`, and a user-defined attribute macro (`the attribute macro '@trace' is not yet supported: attribute macros are not expanded yet`)
 - building or matching a [pack-expanded variant](/docs/language/enums-adt/#variadic-enums) at a type that depends on a generic parameter, and a pack-expanded variant's field whose type is built from the pack (`e: *E`)
 - naming the panic result type `Panic<T, E...>` in source (`a panic result type cannot be named yet`): a panicking call's result is handled with `try` or propagated, not stored
@@ -988,7 +988,7 @@ It is reported for:
 - a call whose callee's panic set names a generic parameter the call does not bind (no bound declares the requirement it calls)
 - a `fn`, class, struct, union or enum declared in a function body that uses a generic parameter of the function or class around it (`'echo' is declared in a body and uses 'T', a generic parameter of 'wraps'; that is not yet supported`); a note points at the parameter. One that is generic in its own right, or names no outer parameter, compiles
 - an `extend` in a function body
-- [`where` dispatch](/docs/language/where/) on a generic function, a `virtual` or `override` method, an `extend` member, an operator, a constructor, an out-of-line definition, a forward declaration, a generator, an `async` function, a variadic function, or an overload with a default argument (`'where' dispatch on a generic function is not yet supported`)
+- [`where` dispatch](/docs/language/where/) on a generic function with a pack parameter, a `virtual` or `override` method, an `extend` member, an operator, a constructor, an out-of-line definition, a forward declaration, a generator, an `async` function, a variadic function, or an overload with a default argument (`'where' dispatch on a generic function with a pack parameter is not yet supported`)
 
 It means "not yet supported", not "invalid": the code is correct Kairo that the current compiler cannot build.
 
@@ -1139,6 +1139,21 @@ A by-value parameter of a record type that is never mutated is SC224W, which is 
 
 ## Generators
 
+
+### SC290E: a destructor cannot be `eval`
+
+`eval fn op finally` is rejected: a compile-time object is never destroyed, and C++ has no constant-evaluated destructor to map it to.
+
+### SC291E: a constant index past a fixed array's extent
+
+`index {k} is out of range for '[T; N]', which has N elements`. A constant index into a fixed array is checked at compile time; valid indices are `0..N-1`.
+
+### SC292E: a kind bound is not met
+
+`'T' is not a class, so it cannot be 'T'`. A generic parameter bounded `: class`, `: struct`, `: enum` or `: union` was given an argument of another kind. The note points at the bound.
+
+SC249E also covers a by-value parameter, return or field of an abstract class, and SC227E a by-value parameter of a record that is only forward-declared.
+
 ### SC111E: `yield` where nothing can yield
 
 `yield` is allowed only in a function declared `-> yield T`. It is an error outside a function, inside a closure, or in a function with any other return type.
@@ -1163,6 +1178,88 @@ fn main() -> yield i32 { }   // error SC112E
 **Fix:** move the sequence into a separate `-> yield T` function and call it from here.
 
 ---
+
+## Moves, Loops and Foreign Blocks
+
+### SC052E: a value is used after being moved
+
+`'h.p.a' is used after being moved`. The storage does not have to be a whole variable: a field, a field of `self`, what a pointer points at, or a container an element was moved out of. The notes say where the move happened:
+
+- `'x' was moved here, into 'a'`: a move in the same function.
+- `by the call to 'take_a'`, with a second note at the move inside that function: the function returned while a part of `self`, of an `@inout` argument or of a pointee was still moved-from.
+- `by the call to 'push', when it returns true` (or `when it does not return null`, `when it panics`): the function moves only on that outcome, and the use is on a path where it happened.
+- `by the call to 'native', whose body cannot be read and is taken to move it`: a function with no body. Write its parameter `@move` if it takes the value, or `const` if it only reads it.
+- `by the call to 'steal'`, with a note in a C++ header: the C++ body moves out of a `T&` or `T*` argument.
+
+Assign a new value to the storage before using it again. See [Ownership](/docs/language/ownership/#moving-a-part).
+
+### SC298E: a loop binder the `op in` does not bind
+
+`'for *p' does not bind what 'op in (self)' yields: 'i32' binds only 'for p'; to bind a pointer to the element, declare 'op in (self) -> yield *i32'`. What a type's `op in` yields decides which loop binders are allowed; the fix-it rewrites the binder to the nearest allowed one. See [Iteration: `op in` and loop binders](/docs/language/operator-overloading/#iteration-op-in-and-loop-binders).
+
+### SC299E: the two iteration forms yield different kinds
+
+A type's `op in (self)` and `op in (const self)` must both yield values, both `*T`, or both `unsafe *T`.
+
+### S096E: `'unsafe' comes before 'const' in an address-of`
+
+`const unsafe &x` is written `unsafe const &x`, the order of the type it makes (`unsafe *const T`). The fix-it swaps the two words.
+
+### S095E: an inline foreign block in a language Kairo does not embed
+
+`'inline "c++"' is not part of Kairo: declare the code in a header and import it with 'ffi "c++" import'`. Only `inline "asm"`, inside `unsafe`, is an inline foreign block.
+
+### SC300E: a `requires` clause does not hold
+
+`'Dog' implements 'Named' and 'Dog' derives 'Base'` ... `this is false for T = i64`. A declaration was used with arguments for which its `requires` clause is false. The note says which part of the clause is false and why.
+
+### SC301E: a `const` argument to a `@move` parameter
+
+`'a' is const, so it cannot be passed to a '@move' parameter`. A `@move` parameter takes the value out of its argument, which a `const` binding does not allow. Pass a non-const value, or a copy.
+
+### SC302E: a copy the class cannot make
+
+`'Box' cannot be copied here: ... its copy constructor takes a non-const 'other' (C++ 'Box(Box&)') and it has no move constructor`. A class whose `@copy` constructor takes a non-const `other` is copied from a `const` object, assigned a temporary, returned, or put in a C++ container. The fix-it writes `@copy fn X(self, const other: Self)`.
+
+### CL002E: a C++ template instantiated from this Kairo code does not compile
+
+`instantiating function template specialization 'count_of<Bag>' here does not compile in C++: no member named 'count' in 'Bag'`. The error is placed at the Kairo call; clang's own message is the reason and its location in the header is a note. `--diag-cxx-chain` prints every instantiation step. C++ reports a failing instantiation once, at its first use.
+
+### SC303E: a local is used after `finally()`
+
+`x.finally()` ran the local's destructor, and something reads, calls or assigns `x` afterwards on a path from the call (`use of finalized value 'x'`). Assigning the whole local a new value is not a use: it builds a new object there. Writing a part of it is. The note points at the `finally()` call. Move the use before the call, or declare a new local for the new value.
+
+### SC304E: a local is finalized twice
+
+A second `x.finally()` is reached on a path where the first already ran (`'x' already finalized`), for example once in a branch and again after it, or once in a loop body. Call it once on each path.
+
+### SC305E: `finally()` on something that is not a local
+
+`finally()` ends a local variable declared in the body that calls it. A parameter, `self`, a field, a global, a static, or a local of an enclosing function seen from a closure is destroyed by its owner (`finally() has no effect on 'p'; it is a parameter, which the caller destroys`). Move the value into a local first. With a trivially destroyed local the call is accepted and does nothing (SC305W, `finally() has no effect on 'n'; its type 'i32' is trivially destroyed`).
+
+### SC320E: overloads a generic's bounds do not decide
+
+`call to 'say' cannot be resolved in this generic body: ...`. Overloads that differ only in their `requires` clauses are chosen from the generic's bounds where the call is written. Each note names the bound that selects a candidate, or says none can (a negated conformance, a value predicate).
+
+### SC330E: a function specialization that matches no primary
+
+`fn <> name<Args>(...)` replaces the body of one generic function for those arguments. It is an error when no generic `name` is in scope, when the arguments do not fill every generic parameter, when the signature is not the primary's with the arguments substituted (parameter types and modes, return type, qualifiers), or when more than one primary matches. The note points at the primary and names the part that differs.
+
+### SC331E: a primitive type's name cannot name a declaration
+
+`var u8 = 1` is an error: `u8` always denotes the type, so the variable could never be read. Choose another name; a name containing `#`, such as `#u8`, is a plain identifier.
+
+### SC310W: `&x` converted to a pointer to const
+
+`'&' makes a '*T' where a '*const T' is expected; write 'const &' to take a pointer to const`. The fix-it inserts `const `. Not reported for the `&` marker of an `@inout` argument, for `const &x` or `unsafe &x`, for a pointer held in a variable, inside macro bodies, or in library code. On by default; `-A SC310W` silences it.
+
+### SC332E: an interface is not a type
+
+An interface is a set of requirements with no values of its own. A pointer to an interface not declared `virtual` is this error too. It cannot be the type of a variable, parameter, field or return value, an element or generic argument, or the operand of `sizeof` / `alignof`. Bound a generic parameter with it (`fn <T impl Shape> f(x: T)`).
+
+### SC162E: an unmarked member does not satisfy an interface
+
+`'Bump' does not conform to 'Allocator': its 'alloc' is not public`. A member with no visibility written is not public, so it does not make its type conform. Write `pub` on the member. The same code reports `cannot choose an overload here: 'Cfg' has a 'copy' that would implement 'CopiesItself', but it is not public`, with a fix-it adding `pub`.
 
 ## Portability
 
@@ -1418,11 +1515,11 @@ priv class Derived derives Base {
 '@preserve_most' cannot cross the C/C++ boundary: GCC cannot call it
 ```
 
-GCC has no spelling for these conventions. An `ffi "c"` / `ffi "c++"` declaration, or any function that is not `priv` (functions are `pub` by default), is in the module's emitted C++ header and its `#include "x.k"` interface, where code GCC compiled could call it.
+GCC has no spelling for these conventions. An `ffi "c"` / `ffi "c++"` declaration, or any function that is not `priv`, written or by default (an unmarked function is `priv` when no `module.k` is above its file, and `prot` under one), is in the module's emitted C++ header and its `#include "x.k"` interface, where code GCC compiled could call it.
 
 ```kairo
 @preserve_most
-fn grow(n: usize) { }            // error SC136E: pub by default
+pub fn grow(n: usize) { }        // error SC136E: not priv
 
 @preserve_most
 priv fn grow_slow(n: usize) { }  // fine

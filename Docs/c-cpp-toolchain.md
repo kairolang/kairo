@@ -59,7 +59,7 @@ How `--target` finds its sysroot:
 - A `--target` uses the sysroot for it, looked up in order: `<prefix>/sysroot/<dir>` beside the compiler (`<prefix>` is the directory above the one holding `kairo`), then the [ksys](/docs/toolchain/ksys/) cache, then a build by `ksys` from the shipped input tree (first use only; `--no-sysroot-build` refuses it with `P009E`).
 - The folder is matched by target, not by spelling. Vendor, OS version, and LLVM's aliases do not matter, but the sub-architecture does. So `x86_64-pc-windows-msvc` finds `x86_64-windows-msvc`, `x86_64-linux-gnu` finds `x86_64-linux-gnu-glibc2.31`, `aarch64-apple-darwin` finds `arm64-apple-macosx`, and `arm64e` does not match `arm64`.
 - `-m32` / `-m64` look up the architecture they switch to: `--target=x86_64-linux-musl -m32` uses `i686-linux-musl`.
-- A bundled sysroot takes precedence over `--sysroot`. With no matching folder, `--sysroot` is used if given; otherwise the compiler warns ([P008W](/docs/language/diagnostics/)) and there are no system headers.
+- A bundled sysroot takes precedence over `--sysroot`, unless `--sysroot-exact` is given: then `--sysroot` is used exactly as written and no bundled or cached sysroot is substituted. With no matching folder, `--sysroot` is used if given; otherwise the compiler warns ([P008W](/docs/language/diagnostics/)) and there are no system headers.
 - A matching folder without a loadable `SYSROOT.toml` is an error: [P007E](/docs/language/diagnostics/#p007e-bundled-sysroot-for-the-target-is-malformed) "bundled sysroot for the target is malformed".
 
 ### Host headers and libraries
@@ -260,6 +260,8 @@ Without `--tls-model`, each `thread` global gets a TLS model of its own. Builtin
 ### No passthrough with `--`
 
 `kairo` has no raw Clang passthrough. After a bare `--`, every word is an input file, so `kairo main.k -- -ftls-model=initial-exec` is an error that names the Kairo spelling. To pass a Clang flag to the C and C++ inputs alone, use `--cxx-flags=<flag>` (repeatable). Kairo's own code never sees those flags.
+
+A `kcc` link with no Kairo code (no `.k` input, no `#include` of a `.k`, no Kairo object) is linked exactly as clang links it, without the Kairo runtime.
 
 ## See also
 

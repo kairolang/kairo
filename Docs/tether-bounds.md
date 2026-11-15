@@ -86,7 +86,7 @@ No pointer value outside `[base, base + count]` ever exists in a safe program, s
 
 This is a larger expressiveness envelope than safe Rust, which routes all of this through slices and iterators. The safety **guarantee** is the same no out-of-bounds access reaches memory but the cost model is pay-only-when-unprovable rather than always-checked-unless-elided, and the surface syntax is C-style arithmetic rather than slice methods.
 
-> Tether does not present an unprovable bounds access as a *warning*. The programmer did nothing questionable; the allocation size is simply runtime data. It is reported as an **optimization remark** when remarks are enabled, naming the fact that blocked the proof: `[amt] runtime bounds check at <loc>: allocation size depends on runtime value 'n'; cost: one check; to eliminate: bound the index by a compile-time constant or hoist the proof.`
+> Tether does not present an unprovable bounds access as a *warning*. The programmer did nothing questionable; the allocation size is runtime data. It is reported as an **optimization remark** when remarks are enabled, naming the fact that blocked the proof: `[amt] runtime bounds check at <loc>: allocation size depends on runtime value 'n'; cost: one check; to eliminate: bound the index by a compile-time constant or hoist the proof.`
 
 ---
 

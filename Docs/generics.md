@@ -29,19 +29,23 @@ fn <T: enum>   stringify(item: T) { ... }
 fn <T: union>  inspect(item: T)   { ... }
 ```
 
+An argument of another kind is an error (SC292E) where the generic is used.
+
+A bound may be a rooted path, `fn <T impl ::m::I>`, naming the interface from the file's root.
+
 **Interface bounds** restrict `T` to types that satisfy a given [interface](/docs/language/interfaces/). The standard library will provide interfaces describing [lifecycle capabilities](/docs/language/classes-lifecycle/#lifecycle-categories), allowing constraints like "T must be copyable" or "T must be movable" to be written as interface bounds. The exact names and shapes of these interfaces are still being finalized in `std` write your own if you need them now:
 
 ```kairo
-interface Copyable {
+interface Copy {
     @copy
-    fn Copyable(self, const other: Self)
+    fn Copy(self, const other: Self)
 }
 
-interface Defaultable {
-    fn Defaultable(self)
+interface Default {
+    fn Default(self)
 }
 
-fn <T impl Copyable> store(item: T) -> T { ... }
+fn <T impl Copy> store(item: T) -> T { ... }
 ```
 
 See [Requires Clauses](/docs/language/requires/) for the full constraint system.
@@ -64,6 +68,8 @@ class Node derives Counter<Node> impl Weighted {
 ```
 
 Without the `impl Weighted` bound, `self.dyn()->weight()` is an error in the base: the body may use only what its bounds grant. See [Casting: the CRTP downcast](/docs/language/casting/#downcasting-base-to-derived) for the cast's rules.
+
+A failed bound on one overload of several removes that overload, like a false `requires`. A call whose overloads differ only in `requires` clauses is resolved by the bounds too; if the bounds do not decide every candidate's clause, it is SC320E.
 
 ## Value parameters
 
@@ -132,6 +138,20 @@ var w = Widget<SMALL>()
 
 The argument is an `eval` binding of the class or a call of its `eval` constructor (`Grid<Pt(2, 3)>`, `Widget<Config(4, "small")>`, string literals included). Two arguments with the same value are the same type: `Widget<Config(4, "small")>` is `Widget<SMALL>`, because `SMALL` is that same constructor call over the same literals. A binding computed by an `eval fn` is compared by its name instead, as a computed length is. A class that breaks a rule is an error naming the first field or constructor at fault.
 
+## Function specializations
+
+`fn <> name<Args>(...)` replaces the body of a generic function for exactly those arguments.
+
+```kairo
+fn <T> width() -> i32 { return 1 }
+fn <> width<i32>() -> i32 { return 4 }
+
+width<u8>()    // 1
+width<i32>()   // 4
+```
+
+Its signature is the primary's with the arguments substituted: the same parameter types and modes, the same return type and the same qualifiers (SC330E otherwise). It may be written in another module than its primary: `import lib::*`, then `fn <> pick<u8>() -> i32 { ... }`. Every part of the program that calls `pick<u8>()` runs it, including modules that do not import the one that defines it. Code compiled separately from that module, such as a prebuilt library or a C++ file that includes only the primary's header, does not see it. A class specialization stays in its primary's module (R042E otherwise); extend the class instead. A call always names the primary; for those arguments the specialization's body runs, in Kairo and in C++ callers. A specialization that more than one primary matches is SC330E. A specialization of a member of a generic type is not supported yet.
+
 ---
 
 ## See also
@@ -144,3 +164,5 @@ The argument is an `eval` binding of the class or a call of its `eval` construct
 - [Generic Functions](/docs/language/functions/#generic-functions)
 - [Generic Structs](/docs/language/structures/#generic-structs)
 - [Class Lifecycle](/docs/language/classes-lifecycle/#lifecycle-categories)
+
+A vector, set or map type can head a static path: `[i32]::with_capacity(8)` is `Vector<i32>::with_capacity(8)`, and likewise `{T}::f()` and `{K: V}::f()`.

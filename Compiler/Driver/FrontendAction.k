@@ -115,7 +115,10 @@ import AST::Serialize::Serializer::{
     write_ast_file,
 }
 import AST::VisibilityFacts::stamp_tu_visibility
-import Codegen::Backend::CodegenAction::EmitKind
+import Codegen::Backend::CodegenAction::{
+    EmitKind,
+    sema_agree_reports,
+}
 import Codegen::Backend::CodegenBackend::{
     CODEGEN_GROUP,
     CodegenJob,
@@ -3950,6 +3953,17 @@ pub class FrontendAction {
                 gedges,
             )
 
+            // An object compiled while the Sema agreement pass only counts
+            // may hold a finding nobody was told of, so a run that reports
+            // keys its objects apart and compiles such a TU itself.
+            var *cgo = &self._ci->invocation()->codegen
+            if sema_agree_reports(
+                cgo->sema_agreement,
+                cgo->test_sema_agreement_quiet,
+            ) {
+                ocache.run_part += "agree reports\n"
+            }
+
             {
                 var *cr  = &crun
                 var locs = ocache.with_locs
@@ -4211,6 +4225,7 @@ pub class FrontendAction {
                 && job->ok
                 && !job->reused
                 && job->sink.size() == 0
+                && job->agree_found == 0
                 && job->written.size() == 1
                 // The key says whether the TU compiled under the interface
                 // PCH (iface_on); an object compiled without it, after a

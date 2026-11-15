@@ -2220,7 +2220,11 @@ pub class OverloadResolution {
                 continue
             }
 
-            if NameLookup::is_specialization(unsafe (f as unsafe *Decl)) { // OverloadResolution pairs later.
+            // A specialization is never a candidate: C++ selects among primary
+            // templates, and the call names the primary whose body (or a
+            // member specialization's, FunctionDecl::member_spec_of) runs.
+            if NameLookup::is_specialization(unsafe (f as unsafe *Decl))
+                || f->member_spec_of != &null {
                 continue
             }
 

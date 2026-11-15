@@ -104,7 +104,11 @@ An import makes a name reachable, not visible: a name the imported file declares
 
 ### Re-export Pattern
 
-Use `pub import` explicitly in library entry files to curate the public API:
+Use `pub import` explicitly in library entry files to curate the public API: A re-export also carries the `extend` blocks of the file it names; a private import does not.
+
+A macro is imported by its `!` name: `import Foo::mac!`, or in a list `import Foo::{mac!, f}`. Without the `!` the name is a declaration, not the macro.
+
+A file may be named like a primitive type (`f8.k`, `i32.k`): import it like any other. Since `i32::` names the type, a plain `import self::i32` must give the module another name with `as`, or import its contents with `::*`.
 
 ```kairo
 // network/module.k
@@ -174,6 +178,8 @@ m::Vector3(1.0, 2.0, 3.0)
 The alias replaces the module name in the current scope. The original name (`math`) is **not** available, only `m`.
 
 ## FFI Header Imports
+
+Each `ffi` import names one header; write one line per header. The language string and the import, declaration or block it applies to must be on the same line. A list (`import {"a.h", "b.h"}`) is an error.
 
 C and C++ headers are imported via the [`ffi` keyword](/docs/language/c-cpp-calling/#the-ffi-keyword):
 

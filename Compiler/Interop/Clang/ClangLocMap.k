@@ -160,7 +160,7 @@ pub class ClangLocMap {
     }
 
     /// Number of Kairo fids currently mapped.
-    fn mapped_count(self) -> usize {
+    pub fn mapped_count(self) -> usize {
         return self._n
     }
 
@@ -336,7 +336,7 @@ pub class ClangLocMap {
     /// is how Kairo renders spans). Invalid for anything outside the Kairo
     /// block   headers, predefines, scratch buffers. The caller's policy layer
     /// classifies those, typically as a loc-less forward.
-    fn to_kairo(self, cloc: clang::SourceLocation) -> SourceLocation {
+    pub fn to_kairo(self, cloc: clang::SourceLocation) -> SourceLocation {
         if !self._ready {
             kairo::std::ice_fail("ClangLocMap::to_kairo before rebind()")
         }
@@ -462,7 +462,7 @@ pub class ClangLocMap {
     /// The clang FileID block base. Exposed for tests and --print-locmap; the
     /// arithmetic in kairo_fid() is only auditable if you can see the base it
     /// is subtracting.
-    fn block_base(self) -> u32 {
+    pub fn block_base(self) -> u32 {
         return self._cfid0.getHashValue()
     }
 

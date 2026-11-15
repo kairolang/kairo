@@ -163,7 +163,7 @@ var old_config: Config
 
 An attribute can also be applied to an expression: `@name operand`, or `@name(args) operand`. The operand is one unary expression, including its calls, member accesses and initializers, so `@create Config(8080)` applies to the whole constructor call. Binary operators bind looser (`@a x + 1` is `(@a x) + 1`), and a member access on the result needs parentheses: `(@create Config(8080))->port`. At the start of a statement, an `@name` is an expression attribute when an expression follows it on the same line (`@destroy p`, `@create Config(8080)`); it attaches to the statement or declaration instead when what follows is a declaration (`@deprecated var`, `@copy fn`), a keyword statement (`@likely if`), a block (`@repeat(3) { ... }`), a loop label, or a line break.
 
-> Expression attributes parse, but none has a meaning yet: `@create` and every other one are rejected with [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported). See [Status](/docs/status/).
+> Two expression attributes have a meaning: `@create T(args)` and `@destroy p` (see [Heap Allocation](/docs/language/pointers/#heap-allocation)). Every other one parses but is rejected with [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported), as is the initializer form `@create T{...}`. See [Status](/docs/status/).
 
 ---
 
@@ -425,6 +425,8 @@ struct CacheLine {
     fast_operation()
 }
 ```
+
+`@no_warn` also covers warnings the parser reports inside the declaration, such as S055W. Lexer and preprocessor warnings, such as S025W, are not covered.
 
 ## See also
 

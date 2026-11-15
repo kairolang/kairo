@@ -1404,6 +1404,18 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "parse the build's C++ header lists once, as one union, instead of once per list (on)",
     )
 
+    // Compiler/Spec/SemaAgreement.md: the walk of clang's AST that checks
+    // clang bound each call to the declaration Kairo's Sema chose.
+    cmd->define<FlagKind::Feature>(
+        "sema-agreement",
+        "after clang type-checks each file, check that it bound every call to the declaration Kairo chose, and report a difference as a warning (the check always runs; unasked, only a debug build of the compiler reports; -fno-sema-agreement turns the check off)",
+    )
+
+    cmd->define<FlagKind::Feature>(
+        "sema-agreement-repair",
+        "point a call clang bound differently at Kairo's declaration where the two have the same type (on; -fno-sema-agreement-repair only reports)",
+    )
+
     cmd->define<FlagKind::Feature>(
         "strict-cxx-moves",
         "a MOVE value passed by `T&` / `T*` to a C++ function whose body cannot be inspected is moved-from after the call, instead of borrowed on an unchecked assumption; a call into the toolchain's own standard library borrows either way, on a listed assumption (on; -fno-strict-cxx-moves borrows every such call)",
@@ -2716,6 +2728,32 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
 
     cmd->mark_hidden("test-disarm-moved-locals")
+
+    // A test harness for the Sema agreement pass: the disagreements it can
+    // repair do not arise between Kairo functions, so this misreports one
+    // decision to it. Hidden from --help.
+    cmd->define<FlagKind::String>(
+        "test-sema-agreement-swap",
+        "",
+        "test-sema-agreement-swap",
+        "compiler tests only: <from>:<to>, the agreement pass is told a call bound to <from> was bound to <to>",
+        "",
+    )
+
+    cmd->mark_hidden("test-sema-agreement-swap")
+
+    // The default of a release-built compiler, on any build: the Sema
+    // agreement pass counts and does not report unless -fsema-agreement is
+    // given. Hidden from --help.
+    cmd->define<FlagKind::Bool>(
+        "test-sema-agreement-quiet",
+        "",
+        "test-sema-agreement-quiet",
+        "compiler tests only: without -fsema-agreement the agreement pass counts and reports nothing, as a release build of the compiler does",
+        false,
+    )
+
+    cmd->mark_hidden("test-sema-agreement-quiet")
 
     cmd->define<FlagKind::Bool>(
         "test-fold-lie",

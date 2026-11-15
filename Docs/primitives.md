@@ -68,6 +68,8 @@ If the target hardware supports wide registers (e.g., AVX-512), these types map 
 
 Extended-width integers are always stack-allocated they are value types, not heap-allocated objects.
 
+`i128` and `u128` exist on 32-bit targets too (`i686`, `armv7`, `wasm32`, ...), as structs of smaller integers.
+
 ---
 
 ## Floating-Point
@@ -83,6 +85,8 @@ All floating-point types except `f80` follow the IEEE 754 standard. A float lite
 | `f128` | 16 bytes | Quadruple | `__float128` |
 | `f256` | 32 bytes | IEEE binary256, in software | `::builtin::num::f256_t::F256` |
 | `f512` | 64 bytes | binary512 (see below), in software | `::builtin::num::f512_t::F512` |
+
+`f8e4m3` (OCP E4M3, finite-only) and `f8e5m2` (OCP E5M2) are 1-byte floats. A literal is rounded once; an `f8e4m3` overflow saturates to ±448 and an infinity converts to NaN. Arithmetic rounds the exact result once. `as` converts to and from every float and integer type, and `{x}` prints the shortest digits that read back as the same value. They have no methods yet, are not supported in eval contexts (SC116E), and convert to `f256`/`f512` only through `f32` or `f64` (SC116E).
 
 ```kairo
 var x = 3.14        // f64 (default)
@@ -126,7 +130,7 @@ Both behave as every other IEEE format does: each operation (`+ - * /`, conversi
 | AArch64 and RISC-V Linux | binary128 | not available |
 | Apple ARM, Windows on ARM | binary64 | not available |
 
-Anywhere else, writing `f80` is an error ([P003E](/docs/language/diagnostics/#p003e-a-primitive-type-is-not-available-on-the-target)). The error names the target and what its `long double` is, and suggests `f64` where `long double` is binary64 and `f128` where it is binary128. Kairo never silently substitutes another float type for `f80`.
+Anywhere else, writing `f80` is an error ([P003E](/docs/language/diagnostics/#p003e-a-primitive-type-is-not-available-on-the-target)). The error names the target and what its `long double` is, and suggests `f64` where `long double` is binary64 and `f128` where it is binary128. Kairo never silently substitutes another float type for `f80`. Where `f80` exists it formats in an f-string like the other floats (`f"{x}"` with `x: f80`).
 
 ```kairo
 // building for x86_64-unknown-linux-gnu
@@ -138,7 +142,7 @@ var y: f80 = 1.0    // error P003E: long double is binary128 here; use f128
 
 ### Float methods
 
-Every float type has the same methods: `f16`, `bf16`, `f32`, `f64`, `f80` and `f128` (where the target has them), `f256` and `f512`. They are called on a value, a literal or a limit:
+Every float type has the same methods: `f16`, `bf16`, `f32`, `f64`, `f80` and `f128` (where the target has them), `f256` and `f512`. The one exception is `bf16` on WebAssembly, which has no methods yet. They are called on a value, a literal or a limit:
 
 ```kairo
 var x: f64 = 2.0
@@ -290,6 +294,14 @@ struct string {
 ```kairo
 var greeting = "Hello, Kairo! 📣"   // len 18, cp_len 15, no allocation
 var name     = "Name"               // len 4, cp_len 4
+```
+
+String literals written next to each other, separated only by spaces, tabs or newlines, are one string, whatever their prefixes: `"a" "b"`, `"a" r"\b"` and `"total: " f"{n}" " items"` are each a single literal. Each piece keeps its own prefix, so a raw piece keeps its backslashes and an `f` piece has its own `{...}` holes. If any piece is an f-string, the whole is the formatted `string` you would get by joining the pieces with `+`, holes evaluated left to right. Otherwise it stays a compile-time literal. A prefix must touch its quote (`f "b"` is a name and a string), and a character literal never joins. A literal suffix on any piece belongs to the whole string, as in C++: `"12" "3"_km` passes `"123"` to `operator""_km`, and so does `"12"_km "3"`. Because a suffix on one piece reads as if it were only that piece's, the compiler warns (SC276W) on every joined string with a suffix, with a fix-it that writes it as one literal (`"123"_km`) when the pieces can be joined as text: all have the first piece's prefix, none is an `f` or triple-quoted piece or comes from a macro, and joining does not change an escape. Two pieces with different suffixes are an error (SC277E), and a joined string with an `f` piece takes no suffix at all (SC074E).
+
+```kairo
+var n = 3
+var s = "total: " f"{n}" r" \items"   // "total: 3 \items"
+var p = "C:" r"\path"                // one literal, still compile-time
 ```
 
 Because UTF-8 is a variable-width encoding, indexing by codepoint (`s[i]`) complexity depends on how the string was constructed. For string literals, the compiler pre-populates a breadcrumb cache at codegen time mapping codepoint positions to byte offsets, making indexing O(1) with zero runtime cost. For strings constructed at runtime from a raw pointer, no cache is available and indexing is O(n). Indexing by byte (`s.bytes[i]`) is always O(1) but returns raw `u8` bytes, not characters.

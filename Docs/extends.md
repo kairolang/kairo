@@ -62,6 +62,12 @@ extend Tree {
 | Classes | Yes |
 | Unions | No |
 | Interfaces | No |
+| Primitive types (`i8`–`u512`, `isize`, `usize`, the floats, `bool`, `char`, `byte`, `void`, `string`) | Yes. A static is called through the type: `i32::make()` |
+| `[T]`, `[T;]`, `[T; N]`, `{T}`, `{K: V}`, tuples | Yes (operators and `impl` on a concrete `[T; N]` work; a generic `[T; N]` extension is not supported yet, SC116E) |
+| Pointers (`*T`, `*const T`, `unsafe *T`) | No (SC282E): extend the pointee type. A container of pointers (`[*T]`) can be extended |
+| Nullables (`T?`: `i32?`, `string?`, `Foo?`, `<T> [T]?`) | Yes. `self` is the `T?`, so a method can be called on a null value. A static is called through an alias (`type OI = i32?`, `OI::make()`). A binary operator (`+ - * / % & \| ^ << >> < <= > >=`) in a non-generic extension of a struct's or class's nullable is the nullable's own: `a + b` with `a: Foo?` calls it whether `a` is null or not. Where `Foo` has that operator too, the use is an error. Other operators on a nullable, and any operator on a primitive's or a library container's nullable, are not supported yet |
+| Function types (`fn(A) -> R`, `unsafe fn`) | No (SC283E): write a free function, or wrap the function in a struct |
+| A bare type parameter (`extend <T> T`, `<T impl I> T`, `<T> T?`) | No (SC284E): it would add members to every type; extend a named type or a generic type such as `[T]` |
 
 ---
 
@@ -110,11 +116,11 @@ Classes already support methods and operators in their body. `extend` on a class
 `extend ... impl` declares that a type satisfies an interface and provides the required methods:
 
 ```kairo
-interface Drawable {
+interface Draw {
     fn draw(const self) -> string
 }
 
-extend Point impl Drawable {
+extend Point impl Draw {
     fn draw(const self) -> string {
         return f"({self.x}, {self.y})"
     }
@@ -129,11 +135,11 @@ The compiler verifies at the `extend` declaration that all interface requirement
 A type can conform to multiple interfaces through separate `extend` blocks:
 
 ```kairo
-extend Point impl Drawable {
+extend Point impl Draw {
     fn draw(const self) -> string { ... }
 }
 
-extend Point impl Serializable {
+extend Point impl Serialize {
     fn serialize(const self) -> [byte] { ... }
     fn byte_size(const self) -> i32 { ... }
 }
@@ -183,14 +189,14 @@ extend <T> Wrap<Box<T>> {
 Constraints on an extension's parameters are written with `impl`, `derives`, or a [`requires` clause](/docs/language/requires/):
 
 ```kairo
-extend <T impl Comparable> Pair<T> {
+extend <T impl Ord> Pair<T> {
     fn max(const self) -> T {
         return if self.first > self.second => self.first else => self.second
     }
 }
 ```
 
-This `max` method is only available on `Pair<T>` when `T` satisfies `Comparable`. Calling `pair_of_noncomparable.max()` (or `Pair<SomeNonComparable>::max(p)`) is a compile error.
+This `max` method is only available on `Pair<T>` when `T` satisfies `Ord`. Calling `pair_of_noncomparable.max()` (or `Pair<SomeNonComparable>::max(p)`) is a compile error.
 
 > [!NOTE]
 > The current compiler does not check an extension's bounds at the call site yet. See [Implementation Status](/docs/status/#not-diagnosed).
@@ -236,6 +242,37 @@ An extension member with no modifier is `priv`, or `prot` when the `extend` bloc
 
 An `extend` in another file of the type's module reads the type's `prot` members (written, or unmarked under the `module.k`), so a large class can be split across the files of one module; its `priv` members stay with the file that declares the type.
 
+An `extend` is outside code, not a subclass: an `extend Derived` does not get the `prot` members of Derived's base. It can use them only where any code can, in a file of the module that declares them (the base's module); the error says so and names that module's root.
+
+### Which files see an extension
+
+The members an `extend` block adds (methods, statics, operators, and the conformance of an `extend X impl I`) are visible in a file only when the block is:
+
+1. in that file itself;
+2. in a file it imports (any import form: `import m`, `import m::*`, `import m::{x}`, `import m as n`), or in a file one of those re-exports: through a `pub import` (a library's `module.k` exports are its `pub import`s), or a `prot import` when your file is in that module. A `priv import` further down the chain carries nothing: what a file imports privately is its own business;
+3. in the file that declares the extended type: an extension written beside its type goes wherever the type goes;
+4. in the builtin library, which every file sees.
+
+The conformance an `extend X impl I` declares follows the same rule: an impl your file cannot see cannot satisfy a bound in it.
+
+```kairo
+// shapes.k
+pub struct Point { pub var x: i32 }
+extend Point { pub fn half(self) -> i32 = self.x / 2 }      // rule 3: travels with Point
+
+// ext.k
+import shapes::*
+extend Point { pub fn twice(self) -> i32 = self.x * 2 }
+
+// user.k
+import shapes::*
+fn f(p: Point) -> i32 {
+    return p.half() + p.twice()   // error R025E: no member named 'twice'; ext.k is not imported
+}
+```
+
+The error names the file whose extension declares the member and offers the import. Which other files the program happens to compile has no effect: `user.k` reads the same in every build.
+
 ---
 
 ## `Self` in Extend Blocks
@@ -279,13 +316,13 @@ For `extend ... impl` blocks (interface conformance), the rule is looser: either
 // drawable.k
 import self::point::Point
 
-interface Drawable {
+interface Draw {
     fn draw(const self) -> string
 }
 
 // This is legal even though Point is defined in point.k,
-// because Drawable is defined here:
-extend Point impl Drawable {
+// because Draw is defined here:
+extend Point impl Draw {
     fn draw(const self) -> string {
         return f"({self.x}, {self.y})"
     }
@@ -322,13 +359,13 @@ extend Color {
 }
 
 // Serialization
-extend Color impl Serializable {
+extend Color impl Serialize {
     fn serialize(const self) -> [byte] { ... }
     fn byte_size(const self) -> i32 { return 3 }
 }
 
 // Display
-extend Color impl Drawable {
+extend Color impl Draw {
     fn draw(const self) -> string {
         return f"rgb({self.r}, {self.g}, {self.b})"
     }
@@ -360,7 +397,7 @@ class Server {
 }
 
 // Interface conformance separated
-extend Server impl Loggable {
+extend Server impl Log {
     fn to_log_string(const self) -> string {
         return f"Server(:{self.port})"
     }
@@ -394,12 +431,12 @@ extend Direction {
 }
 
 // Interface conformance
-extend Vec2 impl Drawable {
+extend Vec2 impl Draw {
     fn draw(const self) -> string = f"({self.x}, {self.y})"
 }
 
 // Generic extend with constraints
-extend <T impl Comparable> Pair<T> {
+extend <T impl Ord> Pair<T> {
     fn max(const self) -> T = if self.first > self.second => self.first else => self.second
 }
 ```

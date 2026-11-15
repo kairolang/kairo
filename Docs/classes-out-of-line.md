@@ -61,6 +61,8 @@ This pattern keeps the class body small and readable as an API surface, with imp
 - **Default arguments** must appear on the in-class declaration, not the out-of-line definition.
 - Parameter names may differ between declaration and definition; the definition's names are used in the body.
 
+A member of a C++ class, or a function in a C++ namespace, that an imported header declares can be defined in Kairo the same way (`fn Widget::get(self) -> i32 { ... }`, `static fn Widget::make() -> ...`, `fn ns::f(...)`). The definition is the C++ declaration's: C++ code that calls it runs the Kairo body. Constructors, destructors and members of class templates can't be defined this way yet.
+
 ## Generic classes
 
 For [generic classes](/docs/language/classes/#generic-classes), the type parameters are re-declared on the out-of-line definition and the class name carries its generic arguments:

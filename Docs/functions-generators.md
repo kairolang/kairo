@@ -69,6 +69,8 @@ These return type modifiers interact with Kairo's concurrency and type system. E
 | `yield T` | Generator: produces a sequence of `T` values | [Generators](#generators) |
 | `atomic T` | Atomic wrapper thread-safe operations | [Concurrency](/docs/language/concurrency/) |
 
+Yielding a const place (a field in a `const self` generator) yields a copy; a move-only value cannot be yielded from a const place (SC182E).
+
 ## See also
 
 - [Functions](/docs/language/functions/)

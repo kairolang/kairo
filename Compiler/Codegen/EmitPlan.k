@@ -4380,6 +4380,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return
         }
 
+        // A class's methods' member specializations: the methods' bodies
+        // call them (EmitIR::_member_spec_dispatch), so wherever the class
+        // is, their scope structs are declared.
+        self._admit_member_specs(c)
         if DeclFacts::decl_generic_params(c).size() == 0 || CXXSpell::is_record_spec(c) {
             return
         }
@@ -4410,6 +4414,32 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             }
 
             self._admit(sd, need)
+        }
+    }
+
+    fn _admit_member_specs(self, c: unsafe *Decl) {
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(c)
+        if cd == &null {
+            return
+        }
+
+        for var i: usize = 0; i < cd->methods.size(); ++i {
+            var unsafe *m = cd->methods[i]
+            if m == &null
+                || m->generic_params.size() == 0 && DeclFacts::decl_generic_params(c).size() == 0 {
+                continue
+            }
+
+            var ms = cxx::std::vector<unsafe *Decl>()
+            CXXSpell::member_specs_of(
+                unsafe (m as unsafe *Decl),
+                unsafe &ms,
+                self._cg->instances,
+            )
+
+            for var k: usize = 0; k < ms.size(); ++k {
+                self._admit(ms[k], PlanNeed::Fwd)
+            }
         }
     }
 

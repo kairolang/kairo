@@ -54,19 +54,19 @@ The narrowing applies to members reached through `Derived`. The conversion from 
 ### Multiple inheritance
 
 ```kairo
-class Serializable {
+class Serialize {
     fn serialize(self) -> [byte] { ... }
 }
 
-class Printable {
+class Print {
     fn print(self) { ... }
 }
 
-class Document derives Serializable, Printable {
+class Document derives Serialize, Print {
     // inherits both serialize() and print()
 }
 
-class Widget derives pub Drawable, prot EventHandler { ... }
+class Widget derives pub Draw, prot EventHandler { ... }
 ```
 
 ### Calling base class methods
@@ -82,6 +82,8 @@ class Derived derives Base {
 ```
 
 The qualified call is not virtual: `Base::method(self)` runs `Base`'s version even when `method` is `virtual` and overridden further down. A derived method with the same parameters (and the same `const self` or plain `self`) overrides or hides the base's, so `d.method()` on a derived value calls the derived one; a base overload with different parameters stays callable on the derived value (Kairo merges the overload sets, as C++ does with a `using` declaration). A C++ class keeps C++'s lookup: a name it declares hides the base's unless its definition says `using Base::name;`.
+
+A derived method meant to replace a hook its generic base calls through `self.dyn()` (the [mixin pattern](/docs/language/generics/#mixins-a-base-that-calls-its-derived-class)) must take the hook's exact parameters. One with the same name and number of parameters but a different parameter type (`*Node?` for `unsafe *Node`) is a second overload, and the base's `self.dyn()->hook(n)` keeps calling the base's own `hook`. The compiler warns (SC278W), with notes at the base's hook and at the call, and a fix-it when only the pointer's safety, nullability or `const` differs. `*T` and `unsafe *T` count as the same parameter here (both are `T*` in C++), so that pair does replace the hook. To keep a deliberate second overload, put `@no_warn(SC278W)` on it.
 
 ### Protected members from another file
 
@@ -221,6 +223,8 @@ shape->area()   // 78.539... dynamic dispatch
 
 A `virtual` method that may [panic](/docs/language/panic/) must declare its panic set (`virtual fn load(self) panic(IOError) -> Data`), since it is the contract for every override. An `override` may leave its own set inferred, but that set must be a subset of the base method's. See [Declared Panic Sets](/docs/language/panic/#declared-panic-sets).
 
+An override returns the virtual method's type, or a pointer to a class derived from the one the virtual returns a pointer to, with no more `const` (a covariant return). A nullable pointer is not covariant; any other mismatch is SC297E.
+
 ### Abstract classes (pure virtual)
 
 A `virtual` method declared with no body is pure virtual: it must be overridden by any non-abstract derived class:
@@ -249,7 +253,7 @@ class Circle derives Shape {
 var c = Circle(5.0)  // ok: all pure virtuals overridden
 ```
 
-A class with a pure virtual method is abstract, and so is a derived class that leaves any of its bases' pure methods unoverridden. Creating an object of an abstract class (`Shape()`, `Shape{ }`) is a compile error that points at the method keeping it abstract; a pointer to one (`*Shape`) is fine. In C++ a pure virtual method is `virtual R f() = 0`, so a C++ class can derive a Kairo abstract class and a Kairo class can derive a C++ one.
+A class with a pure virtual method is abstract, and so is a derived class that leaves any of its bases' pure methods unoverridden. Creating an object of an abstract class (`Shape()`, `Shape{ }`) is a compile error that points at the method keeping it abstract; a pointer to one (`*Shape`) is fine. In C++ a pure virtual method is `virtual R f() = 0`, so a C++ class can derive a Kairo abstract class and a Kairo class can derive a C++ one. Taking or returning one by value, or holding one in a field, is also an error (SC249E); take a pointer, or a `const` or `@inout` parameter.
 
 Kairo methods are `noexcept` in C++ (see [Exceptions](/docs/language/c-cpp-exceptions/#c-exceptions-through-kairo-frames)), so a C++ class overriding a Kairo `virtual fn` must declare its override `noexcept` as well, unless the Kairo method is `@unwind`:
 

@@ -6609,3 +6609,32 @@ group = "type-check"
     choose another name. a name containing `#` is never a keyword, so `#u8` is a plain
     identifier.
     """
+
+[SC333]
+brief = "two member specializations overlap"
+group = "specialization"
+
+    [SC333.E]
+    explain = """
+    # two specializations of a method both apply
+
+    a method of a generic class can be specialized from an extension in two ways: for one
+    argument list of the method on every instance (`extend <T> G<T> { fn <> m<i32>(self) }`),
+    or for one instance of the class with every argument list (`extend G<u8> { fn <U> m(self) }`).
+    where both exist, they both apply to `G<u8>` and `m<i32>`, and neither is more specialized
+    than the other. the same holds for two specializations that fix the same arguments.
+
+    ```kairo
+    class <T> G { fn <U> m(self) -> i32 = 1 }
+    extend <T> G<T> { fn <> m<i32>(self) -> i32 = 2 }
+    extend G<u8> { fn <U> m(self) -> i32 = 3 }       // error: G<u8>.m<i32> is ambiguous
+    ```
+
+    ## how to fix
+
+    write the combination itself in an extension of the instance:
+    `extend G<u8> { fn <> m<i32>(self) -> i32 = 4 }`, or remove one of the two.
+    """
+
+    [SC333.N]
+    explain = "Points at the other specialization that applies."

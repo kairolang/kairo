@@ -29,7 +29,7 @@ var opr: fn(i32, i32) -> i32 = fn (a: i32, b: i32) -> i32 { return a + b }
 
 ## Capture Modes
 
-By default, closures [capture variables](/docs/language/ownership/#closure-captures) **by copy**. The closure receives its own copy of each captured variable, mutations inside the closure do not affect the original.
+By default, closures [capture variables](/docs/language/ownership/#closure-captures) **by copy**. The closure receives its own copy of each captured variable, mutations inside the closure do not affect the original. In a script, a closure written in the top-level code captures the script's top-level variables by copy too; a function of the script reads the variable itself. A closure nested in such a closure sees the outer closure's copy: an inner `|*|` points at the copy, not the script's variable.
 
 ```kairo
 var x = 10

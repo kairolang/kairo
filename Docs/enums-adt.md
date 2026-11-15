@@ -171,11 +171,11 @@ fn main() -> i32 {
 Constrain type parameters with `impl` or `derives` bounds:
 
 ```kairo
-interface Serializable {
+interface Serialize {
     fn serialize(const self) -> [byte]
 }
 
-enum <T impl Serializable> CacheEntry {
+enum <T impl Serialize> CacheEntry {
     Valid   { data: T, expires: i64 },
     Expired { last_data: T },
     Empty,

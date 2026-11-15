@@ -2420,6 +2420,13 @@ pub class LowerTargets {
         return f"__kairo_local_{line}_{col}_{name}"
     }
 
+    /// `__kairo_mspec_<line>_<col>_<name>`: an extension member that
+    /// specializes a class method (FunctionDecl::member_spec_of, writer:
+    /// CXXSpell::leaf), from the position of its own name.
+    pub static fn member_spec(const name: string, line: u32, col: u32) -> string {
+        return f"__kairo_mspec_{line}_{col}_{name}"
+    }
+
     /// `__kairo_rebind<n>_<name>`: a body local that shadows a visible one
     /// of the same name (VariableDecl::rebind, writer: EmitIR), at its
     /// declaration and every use. A digit follows `rebind`, so no user name

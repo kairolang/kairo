@@ -285,11 +285,11 @@ Inheritance and virtual dispatch are covered in [Inheritance and Virtual Dispatc
 A class can declare interface conformance with `impl`. The compiler verifies at declaration time that the class satisfies all interface requirements:
 
 ```kairo
-interface Hashable {
+interface Hash {
     fn hash(const self) -> u64
 }
 
-class UserId impl Hashable {
+class UserId impl Hash {
     var id: u64
 
     fn UserId(self, id: u64) {
@@ -312,7 +312,7 @@ class Point {
     fn hash(const self) -> u64 { ... }
 }
 
-fn <T impl Hashable> insert(set: {T}, item: T) { ... }
+fn <T impl Hash> insert(set: {T}, item: T) { ... }
 
 insert(my_set, Point(1.0, 2.0))   // compiles: Point has hash()
 ```
@@ -354,7 +354,7 @@ s.push(42)
 ```
 
 > [!NOTE]
-> A `panic` method of a generic class, like `pop` here, is not supported yet ([SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported)): a generic body's panic set will be inferred per instantiation. See [Status](/docs/status/#not-compiled-yet).
+> A `panic` method of a generic class, like `pop` here, works: the set is computed at the definition. See [Generic functions](/docs/language/panic/#generic-functions) in Panic.
 
 Generic classes can inherit from other generic classes:
 
@@ -424,6 +424,8 @@ sensor->value()        // ok: const method
 
 `const` and non-`const` methods with the same name and parameter types cannot coexist use distinct names like `get()` and `get_mut()`. See [Variables](/docs/language/variables/#the-const-binding-rule).
 
+Inside a `const self` method, assigning to a field of `self` is a compile error (SC071E) unless the field is declared `mutable var`.
+
 ### Mutable members
 
 The `mutable` qualifier allows a member to be modified even through a `const` reference or in a `const` method:
@@ -451,6 +453,8 @@ class Cache {
 > `mutable` breaks the semantic guarantee that `const` methods do not modify the object. Use it sparingly caching, reference counting, and lazy initialization are the canonical use cases. If you find yourself marking many members `mutable`, reconsider the `const` boundary.
 
 ---
+
+A method may be named `test`, and a C++ method named `test` can be called; `test` is a keyword only to open a top-level test block.
 
 ## `inline` Methods
 
@@ -650,12 +654,12 @@ class Circle derives Shape {
 }
 
 // Generic class with interface conformance
-class <T impl Comparable> PriorityQueue impl Iterable {
+class <T impl Ord> PriorityQueue impl Iterable {
     priv var heap: [T]
 
     fn PriorityQueue(self) { self.heap = [] }
     fn push(self, item: T) { ... }
-    fn pop(self) panic -> T { ... }   // `panic` in a generic class: not supported yet (SC116E)
+    fn pop(self) panic -> T { ... }
 }
 
 // Final class
@@ -667,6 +671,8 @@ final class Immutable {
 ```
 
 ---
+
+A class or struct whose only constructor is `@copy` or `@move` cannot be built with braces (SC088E).
 
 ## See also
 

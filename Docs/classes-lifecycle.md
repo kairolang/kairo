@@ -33,18 +33,24 @@ A destructor runs automatically at the end of the enclosing scope, in reverse de
 
 ### Running cleanup early
 
-**Not implemented yet; planned for 0.3.** `x.finally()` (and its spelling `x.op finally()`) will be an explicit early destructor call: it will end the lifetime of a local `x` before its scope ends, so the destructor runs once, at that point, and not again at scope exit. Until then both spellings are an error (`'finally()' is not implemented yet (planned for 0.3)`, [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported)).
-
-For now, a local is destroyed when its scope ends, so end the scope early with a block:
+`x.finally()` (or `x.op finally()`) runs the destructor of the local `x` where it is written. The scope's end does not run it again, so the destructor runs exactly once, on every path:
 
 ```kairo
-{
-    var r = Resource(open_handle())
-    // use r
-}   // r's destructor runs here
+fn copy_log(path: string) {
+    var f = File(path)
+    write_all(f)
+    f.finally()          // the file is closed here
+    report_done()        // f is already closed
+}
 ```
 
-and a heap object is destroyed with `@destroy` (see [Freeing memory](#freeing-memory)). The destructor itself, `fn op finally(self)`, is unchanged.
+`x` holds no object after the call: reading it, calling a method on it or writing one of its fields is an error on every path the call can reach ([SC303E](/docs/language/diagnostics/#sc303e-a-local-is-used-after-finally)), and so is a second `finally()` on a path where the first already ran ([SC304E](/docs/language/diagnostics/#sc304e-a-local-is-finalized-twice)). The call may sit on some paths only, `if done { f.finally() }`: on the others the scope's end destroys `x` as usual.
+
+Assigning the whole local a new value, `f = File("next.txt")`, makes it usable again: the value is built in place, nothing old is destroyed or assigned, and the new object is destroyed at the scope's end or by another `finally()`. Writing part of it (`f.name = ...`) before that is still an error.
+
+`finally()` ends a local variable declared in the function or closure that calls it. On a parameter, `self`, a field, a global or a static it is an error, since their owner destroys them ([SC305E](/docs/language/diagnostics/#sc305e-finally-on-something-that-is-not-a-local)); on a local whose type has nothing to destroy (`i32`, a pointer, a class with no destructor) it does nothing and warns (SC305W). Not supported yet ([SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported)): a fixed-size array, a local of an `eval fn`, the variable of a C-style `for`, and a call inside a `finally { }` block. In a generic function, `finally()` on a local of type `T` runs the destructor in each instance whose type has one and does nothing for a type without one.
+
+A move out of a local is unchanged by any of this: the moved-from object is still destroyed when its scope ends, or by `finally()` if the call comes first. A heap object is destroyed with `@destroy` (see [Freeing memory](#freeing-memory)). The destructor itself, `fn op finally(self)`, is unchanged.
 
 ### Constructors and destructors never panic
 
@@ -133,7 +139,7 @@ class UniqueFile {
 }
 ```
 
-`@copy` without `const` (`@copy fn X(self, other: Self)`, C++ `X(X&)`) is allowed, but it cannot copy from a `const` object or from a temporary. `@move` cannot take `const`: a move leaves its source empty.
+`@copy` without `const` (`@copy fn X(self, other: Self)`, C++ `X(X&)`) is allowed, but the class then copies only from a non-const object that is not a temporary, and it has no move. Copying it from a `const` object, assigning a temporary to it (`x = make()`), and returning a local of it are errors (SC302E) whose fix-it adds `const`. A temporary that initializes a variable or a by-value parameter is built in place and is fine. A class that holds such a class by value and declares no transfer constructor is the same. A C++ container of it (`cxx::std::vector<X>`) does not compile, because `push_back` copies from `const X&`. `@move` cannot take `const`: a move leaves its source empty.
 
 Any other constructor that takes `Self` first and defaults every later parameter is a compile error (SC110E):
 

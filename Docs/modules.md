@@ -114,7 +114,7 @@ The compiler looks for named libraries in each search directory and in its immed
 Import a library by its name. A file in a library never falls back to the search directories: a library does not depend on what one build's command line contains. Files beside each other can always use [`self::`](/docs/language/imports/#sibling-imports), and files anywhere in one module [`module::`](/docs/language/imports/#module-imports).
 
 > [!NOTE]
-> Older compilers named a directory after its folder (`-I ~/foo` was library `foo`) or with `-I name=dir`. Both are gone. An `-I` with an `=` that is not an existing directory is now an error that says where the name goes: put `module name` as the first line of that directory's `module.k`.
+> Older compilers named a directory after its folder (`-I ~/foo` was library `foo`) or with `-I name=dir`. Both are gone. An `-I` with an `=` that is not an existing directory is an error that says where the name goes: put `module name` as the first line of that directory's `module.k`.
 
 ### Collisions
 
@@ -340,6 +340,8 @@ Using a declaration where it is not visible is an error at the use, with a note 
 > Until 2026-11-08 an unmarked declaration was `pub` (a class's variables `priv`). The standard library and `builtin` still follow that rule until they are marked, and so does the compiler's own source, built with an internal flag.
 
 See [Imports](/docs/language/imports/#visibility-on-imports) for how visibility affects what is re-exported via `pub import`.
+In a script, a list literal of constants initializes a top-level array in place. An array variable with a non-constant initializer is SC235E.
+
 ## See also
 
 - [Imports](/docs/language/imports/)

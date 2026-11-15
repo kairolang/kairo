@@ -109,7 +109,7 @@ fn main() -> i32 {
 }
 ```
 
-`==` and `!=` on enums are built in and compare which variant is active, ignoring payloads. They satisfy `Equatable` the same way integer comparison does; no operator declaration is involved.
+`==` and `!=` on enums are built in and compare which variant is active, ignoring payloads. They satisfy `Eq` the same way integer comparison does; no operator declaration is involved.
 
 ---
 
@@ -170,11 +170,11 @@ Enums can implement interfaces through `extend ... impl`:
 ```kairo
 enum LogLevel { Debug, Info, Warning, Error, Fatal }
 
-interface Loggable {
+interface Log {
     fn to_log_string(const self) -> string
 }
 
-extend LogLevel impl Loggable {
+extend LogLevel impl Log {
     fn to_log_string(const self) -> string {
         if self == .Error || self == .Fatal { return "severe" }
         return "normal"

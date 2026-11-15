@@ -13,7 +13,7 @@ For runtime polymorphism over a class hierarchy, use a base [class](/docs/langua
 ## Declaration
 
 ```kairo
-interface Serializable {
+interface Serialize {
     fn serialize(const self) -> string
     fn byte_size(const self) -> i32
 }
@@ -30,12 +30,12 @@ An interface must have at least one requirement, declared or derived. An empty i
 A type declares interface conformance with `impl` on a [class](/docs/language/classes/) or through `extend ... impl` on a [struct](/docs/language/structures/), [enum](/docs/language/enums/), or class. The compiler verifies at declaration time that all required methods are present with matching signatures:
 
 ```kairo
-interface Serializable {
+interface Serialize {
     fn serialize(const self) -> string
     fn byte_size(const self) -> i32
 }
 
-class Document impl Serializable {
+class Document impl Serialize {
     var content: string
     var size: i32
 
@@ -55,12 +55,12 @@ class Document impl Serializable {
 ```
 
 > [!NOTE]
-> Conformance is structural, not nominal. A type that has all the required methods with matching signatures satisfies the interface implicitly. The check happens at the point of use. See [Structural conformance](#structural-conformance) section below for details.
+> Conformance is structural, not nominal. A type that has all the required methods with matching signatures satisfies the interface implicitly. The check happens at the point of use. See [Structural conformance](#structural-conformance) section below for details. Only `pub` members count: a member with no visibility written is not public and does not satisfy a requirement (SC162E).
 
 For structs and enums, conformance goes through `extend`:
 
 ```kairo
-interface Serializable {
+interface Serialize {
     fn serialize(const self) -> string
     fn byte_size(const self) -> i32
 }
@@ -70,7 +70,7 @@ struct Point {
     var y: f64
 }
 
-extend Point impl Serializable {
+extend Point impl Serialize {
     fn serialize(const self) -> string {
         return f"{self.x},{self.y}"
     }
@@ -88,7 +88,7 @@ See [Extends](/docs/language/extends/) for the full `extend` system.
 Explicit `impl` is not required. A type that has all the required methods with matching signatures satisfies the interface implicitly. The check happens at the point of use:
 
 ```kairo
-interface Serializable {
+interface Serialize {
     fn serialize(const self) -> string
     fn byte_size(const self) -> i32
 }
@@ -98,9 +98,9 @@ class Logger {
     fn byte_size(const self) -> i32 { return 3 }
 }
 
-// Logger never mentions Serializable, but satisfies it structurally
+// Logger never mentions Serialize, but satisfies it structurally
 
-fn <T impl Serializable> write_to_disk(data: T) -> i32 { return data.byte_size() }
+fn <T impl Serialize> write_to_disk(data: T) -> i32 { return data.byte_size() }
 
 fn main() -> i32 {
     write_to_disk(Logger())   // compiles: Logger has serialize() and byte_size()
@@ -115,17 +115,17 @@ The difference between explicit and implicit conformance is when the check happe
 A generic method requirement is matched by a method with the same number of generic parameters and the same bounds, whose signature is identical once its parameters are renamed: `fn <U> liz(self)` satisfies `fn <T> liz(self)`.
 
 ```kairo
-interface Serializable {
+interface Serialize {
     fn serialize(const self) -> string
     fn byte_size(const self) -> i32
 }
 
 interface Sink {
-    fn <T impl Serializable> push(self, item: T)
+    fn <T impl Serialize> push(self, item: T)
 }
 
 class Buffer impl Sink {
-    fn <U impl Serializable> push(self, item: U) { }   // ok: same shape, U renamed from T
+    fn <U impl Serialize> push(self, item: U) { }   // ok: same shape, U renamed from T
 }
 ```
 
@@ -166,13 +166,13 @@ class IntPair impl Container<i32> {
 Type parameters on interfaces can have [constraints](/docs/language/generics/#type-parameter-constraints):
 
 ```kairo
-interface Comparable {
+interface Ord {
     fn op <(const self, other: Self) -> bool
 }
 
 class Base { }
 
-interface <T impl Comparable, U derives Base> Registry {
+interface <T impl Ord, U derives Base> Registry {
     fn lookup(const self, key: T) -> U
     fn store(self, key: T, value: U)
 }
@@ -208,19 +208,19 @@ Inside the interface (and inside a conforming type's body), name it `Self::Node`
 
 ```kairo
 interface Store {
-    type <K impl Hashable> Map
-    fn <K impl Hashable> index(const self) -> Self::Map<K>
+    type <K impl Hash> Map
+    fn <K impl Hash> index(const self) -> Self::Map<K>
 }
 ```
 
-A generic body names a generic associated type with its arguments: `T::Map<K>`. A conformer supplies it with a generic alias of the same arity (`type <K> Map = HashMap<K, Self>`); an alias with a different number of parameters does not supply it. An argument must meet the bounds of the parameter it fills (`T::Map<K>` needs `K impl Hashable`).
+A generic body names a generic associated type with its arguments: `T::Map<K>`. A conformer supplies it with a generic alias of the same arity (`type <K> Map = HashMap<K, Self>`); an alias with a different number of parameters does not supply it. An argument must meet the bounds of the parameter it fills (`T::Map<K>` needs `K impl Hash`).
 
 A bound on an associated type is written with `impl`, and several are separated by commas. The type a conformer supplies must satisfy each of them:
 
 ```kairo
 interface Catalog {
     type Item impl Display
-    type Key impl Hashable, Comparable
+    type Key impl Hash, Ord
     fn lookup(const self, k: Self::Key) -> Self::Item
 }
 ```
@@ -278,16 +278,16 @@ Operator, constructor, static method, and `Self` requirements are covered in [In
 Interfaces can inherit from other interfaces with `derives`. A type that conforms to the derived interface must satisfy all inherited interfaces as well:
 
 ```kairo
-interface Readable {
+interface Read {
     fn read(self, buffer: [byte], count: i32) -> i32
 }
 
-interface Seekable {
+interface Seek {
     fn seek(self, position: i64)
     fn tell(const self) -> i64
 }
 
-interface Stream derives Readable, Seekable {
+interface Stream derives Read, Seek {
     fn close(self)
     fn flush(self)
 }
@@ -296,16 +296,16 @@ interface Stream derives Readable, Seekable {
 A class that `impl Stream` must provide `read`, `seek`, `tell`, `close`, and `flush`:
 
 ```kairo
-interface Readable {
+interface Read {
     fn read(self, buffer: [byte], count: i32) -> i32
 }
 
-interface Seekable {
+interface Seek {
     fn seek(self, position: i64)
     fn tell(const self) -> i64
 }
 
-interface Stream derives Readable, Seekable {
+interface Stream derives Read, Seek {
     fn close(self)
     fn flush(self)
 }
@@ -332,16 +332,16 @@ Interface inheritance is purely additive the derived interface's requirements ar
 Multiple inheritance is permitted:
 
 ```kairo
-interface Serializable {
+interface Serialize {
     fn serialize(const self) -> string
     fn byte_size(const self) -> i32
 }
 
-interface Printable {
+interface Print {
     fn print(const self) -> string
 }
 
-interface Loggable derives Serializable, Printable {
+interface Log derives Serialize, Print {
     fn log_level(const self) -> i32
 }
 ```
@@ -359,12 +359,12 @@ A `derives` clause is an expression over interfaces. It combines their requireme
 `derives A, B` is the same as `derives A + B`. Parentheses group, and `+` and `-` bind tighter than `&`: `A + B & C` is `(A + B) & C`. Writing `&` next to `+` or `-` without parentheses is a warning.
 
 ```kairo
-interface Readable { fn read(self) -> i32 }
-interface Seekable { fn seek(self, at: i64) }
-interface Closable { fn close(self) }
+interface Read { fn read(self) -> i32 }
+interface Seek { fn seek(self, at: i64) }
+interface Close { fn close(self) }
 
-interface Cursor derives (Readable + Seekable + Closable) - Closable { }   // read and seek
-interface Shared derives Readable & Stream { }                            // read: in both
+interface Cursor derives (Read + Seek + Close) - Close { }   // read and seek
+interface Shared derives Read & Stream { }                            // read: in both
 ```
 
 More requirements make an interface harder to satisfy, so `X + Y` is the stricter interface and `X & Y` the looser one. There is no `|`, no `^`, and no complement: a requirement set has nothing to take a complement against. A single member can't be removed by name; declare an interface with that member and subtract it.
@@ -373,7 +373,7 @@ Two requirements are the same requirement when they have the same name, the same
 
 - In a union, the same requirement from two sides is one requirement. Two with the same name and different parameters are both kept, as overloads. The same requirement with two different return types is a compile error.
 - `-` and `&` match requirements by that identity alone, whatever they return.
-- Generic bounds count: `fn <T> process(self, v: T)` and `fn <T impl Serializable> process(self, v: T)` are different requirements, so subtracting the second from an interface that has the first keeps it.
+- Generic bounds count: `fn <T> process(self, v: T)` and `fn <T impl Serialize> process(self, v: T)` are different requirements, so subtracting the second from an interface that has the first keeps it.
 
 [Associated types](#associated-types) are matched by name:
 
@@ -387,17 +387,19 @@ A composed interface is an ordinary interface: a type conforms to it structurall
 
 ## Using Interfaces as Bounds
 
+An interface is not a type: it cannot be the type of a variable, parameter, field or return value, an element or generic argument, or the operand of `sizeof` or `alignof` (SC332E). Use a generic parameter bounded by it. A pointer to a `virtual` interface is the exception ([Virtual Interfaces](#virtual-interfaces)).
+
 The primary use of interfaces is constraining [generic type parameters](/docs/language/generics/) with `impl`:
 
 ```kairo
-interface Serializable {
+interface Serialize {
     fn serialize(const self) -> string
     fn byte_size(const self) -> i32
 }
 
 fn write_file(path: string, text: string) { }
 
-fn <T impl Serializable> save(data: T, path: string) {
+fn <T impl Serialize> save(data: T, path: string) {
     var text = data.serialize()
     write_file(path, text)
 }
@@ -406,14 +408,14 @@ fn <T impl Serializable> save(data: T, path: string) {
 `impl` checks structural conformance the type satisfies the interface's required method signatures. This is distinct from `derives`, which checks class inheritance. See [Requires Clauses](/docs/language/requires/) for the full constraint system.
 
 ```kairo
-interface Serializable {
+interface Serialize {
     fn serialize(const self) -> string
     fn byte_size(const self) -> i32
 }
 
 class Base { }
 
-fn <T impl Serializable> save(data: T) -> i32 { return data.byte_size() }   // T has serialize() and byte_size()
+fn <T impl Serialize> save(data: T) -> i32 { return data.byte_size() }   // T has serialize() and byte_size()
 fn <T derives Base> process(data: T) { }                                    // T is a subclass of Base
 ```
 
@@ -461,6 +463,8 @@ An interface declared `virtual interface` can also be used for runtime dispatch.
 > [!NOTE]
 > Virtual interfaces are not compiled yet. See [Status](/docs/status/#not-compiled-yet).
 
+Only a `virtual interface` has a pointer type: `*Shape` for a plain interface is an error (SC332E). Use a generic parameter bounded by it.
+
 ```kairo
 virtual interface Heap {
     fn alloc(self, size: usize, align: usize) -> unsafe *u8
@@ -504,7 +508,7 @@ See [Modules](/docs/language/modules/) for module organization.
 Interface methods have no bodies. Every method is a requirement that the conforming type must fulfill:
 
 ```kairo
-interface Hashable {
+interface Hash {
     fn hash(const self) -> u64
     // fn hash(const self) -> u64 { return 0 }   // compile error: no default implementations
 }
@@ -537,17 +541,17 @@ Today an interface is always written by hand, even when it only restates the met
 
 ```kairo
 // Basic interface
-interface Drawable {
+interface Draw {
     fn draw(const self) -> string
     fn width(const self) -> f64
 }
 
-interface Comparable {
+interface Ord {
     fn op <(const self, other: Self) -> bool
 }
 
 // Generic interface with constraints
-interface <T impl Comparable> SortedContainer {
+interface <T impl Ord> SortedContainer {
     fn insert(self, item: T)
     fn min(const self) -> T
     fn max(const self) -> T
@@ -561,17 +565,17 @@ interface Arithmetic {
 }
 
 // Interface inheritance
-interface Flushable {
+interface Flush {
     fn flush(self)
 }
 
-interface BufferedWriter derives Flushable {
+interface BufferedWriter derives Flush {
     fn write(self, data: [byte])
     fn buffer_size(const self) -> i32
 }
 
 // Class conformance
-class Renderer impl Drawable {
+class Renderer impl Draw {
     fn draw(const self) -> string { return "rendering" }
     fn width(const self) -> f64 { return 100.0 }
 }
@@ -582,13 +586,13 @@ struct Point {
 }
 
 // Struct conformance via extend
-extend Point impl Drawable {
+extend Point impl Draw {
     fn draw(const self) -> string { return f"({self.x}, {self.y})" }
     fn width(const self) -> f64 { return 0.0 }
 }
 
 // Generic bound
-fn <T impl Drawable> total_width(items: [T;]) -> f64 {
+fn <T impl Draw> total_width(items: [T;]) -> f64 {
     var total = 0.0
     for item in items {
         total += item.width()
@@ -609,3 +613,5 @@ fn <T impl Drawable> total_width(items: [T;]) -> f64 {
 - [Extends](/docs/language/extends/)
 - [Classes](/docs/language/classes/)
 - [Classes: Inheritance](/docs/language/classes-inheritance/)
+
+A builtin type meets an operator requirement through its own operator when the shapes match (operands `Self`, the requirement's result with `Self` substituted): `i32` meets `fn op +(const self, o: Self) -> Self`, `fn op <(const self, o: Self) -> bool` and `fn op <=>(const self, o: Self) -> Ordering`, and `op +=` when it has `+`. A requirement the type does not have built in, such as `bool + bool`, is SC162E.

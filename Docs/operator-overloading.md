@@ -1,6 +1,6 @@
 # Operator Overloading
 
-Operators are overloaded by defining `fn op` methods on a [class](/docs/language/classes/) or [struct](/docs/language/structures/), or in an [extension](/docs/language/extends/). The syntax mirrors the operator being defined. An extension may declare any overloadable operator except `as`, `[]`, `->` and `delete`, which are **member-only**: they must be declared in the type's own body.
+Operators are overloaded by defining `fn op` methods on a [class](/docs/language/classes/) or [struct](/docs/language/structures/), or in an [extension](/docs/language/extends/). The syntax mirrors the operator being defined. An extension may declare any overloadable operator except `as`, `[]`, `[]=`, `->` and `delete`, which are **member-only**: they must be declared in the type's own body.
 
 The built-in types follow the same rules. `[T]`, `{T}`, `{K: V}`, `[T;]` and `string` are ordinary types to the compiler, so an operator they declare (for example `fn op in (self) -> yield T`, or `fn op [] (self, i: usize) -> *T`) is the one a `for` loop or a subscript calls. Only when such a type declares no operator of that kind does the compiler fall back to the built-in behavior.
 
@@ -19,6 +19,7 @@ The built-in types follow the same rules. `[T]`, `{T}`, `{K: V}`, `[T;]` and `st
 | `<=>` | ok | no | Returns `Ordering`. |
 | `l++` `r++` `l--` `r--` | ok | no | Mutating operators. |
 | `[]` | ok | ok | Returns a place into `self` (`*T` / `*const T`). Member-only. |
+| `[]=` | ok | no | Returns the place a write goes through (`*T`). Member-only. See [Reading and writing](#reading-and-writing--and-). |
 | `->` | ok | ok | Returns a place into `self` (`*T` / `*const T`). Member-only. |
 | `in` (containment) | ok | no | Returns `bool`. |
 | `in` (iteration) | ok | no | Returns `yield T`. |
@@ -34,7 +35,7 @@ The built-in types follow the same rules. `[T]`, `{T}`, `{K: V}`, `[T;]` and `st
 | Unary `&` `*` | no | no | Built-in pointer operations. Not overloadable on Kairo types. On an imported C++ class, `*x` calls the class's `operator*`, which is how C++ iterators and smart pointers are read. |
 | `&&` `\|\|` `!` | no | no | Preserve built-in short-circuit semantics. |
 | `?.` `?->` | no | no | Derived automatically from the corresponding non-null-safe operator. |
-| `..` `..=` | no | no | Implemented through the `Steppable` interface. |
+| `..` `..=` | no | no | Implemented through the `Step` interface. |
 | `sizeof` `alignof` `typeof` | no | no | Compile-time language keywords. |
 
 ## Standard binary and unary operators
@@ -104,6 +105,8 @@ Declaring `op +` instead derives `+=` the other way. Declare whichever form is n
 
 [Imported C++ types](/docs/language/c-cpp-calling/#operators-on-c-types) are not paired: they get exactly the operators their C++ declaration has.
 
+For a type that cannot be copied, `a + b` with a variable `a` is SC182E, because the derived `+` copies `a`. Write `a += b`, or use a temporary on the left.
+
 ## Increment and decrement
 
 Use the `l` (left/prefix) or `r` (right/postfix) modifier to specify which variant you are overloading. A type may declare both. An unmarked `op ++` or `op --` is taken as the prefix form, with a warning.
@@ -154,14 +157,46 @@ struct V {
 }
 ```
 
+### Iteration: `op in` and loop binders
+
+`op in` (iteration) can also be declared twice, as `op in (self)` and `op in (const self)`. A loop over a const object takes the `const self` form. Over a mutable object the loop's binders decide, as a subscript's use does: a loop with a mutable pointer binder (`*x`, `unsafe *x`, alone or in a binder list) takes `op in (self)`; every other loop (`for x`, `for const x`, `for const *x`, value binders) takes `op in (const self)` when the type declares it. Both forms must yield the same kind (SC299E).
+
+What `op in` yields decides which binders a loop may use (SC298E otherwise, with a fix-it):
+
+| `op in` | Loop binders |
+|---|---|
+| `(self) -> yield T` | `for x` |
+| `(const self) -> yield T` | `for x`, `for const x` |
+| `(self) -> yield *T` | `for x` (a copy of the element), `for *x` (a pointer to it) |
+| `(const self) -> yield *const T` | `for x`, `for const x`, `for const *x` |
+| `(self) -> yield unsafe *T` | `for unsafe *x` |
+| `(const self) -> yield unsafe *T` | `for unsafe *x`, `for const unsafe *x` |
+
+```kairo
+class Store {
+    pub var buff: [i32; 4]
+
+    fn op in (self) -> yield *i32 {
+        for var i: usize = 0; i < 4; ++i { yield &self.buff[i] }
+    }
+}
+
+for *p in s { *p = 7 }   // writes the element in the container
+for x in s { use(x) }    // a copy of each element
+```
+
+A `*const T` reads as the `const self` row through either form. `op in` may also yield a tuple of pointers, such as `-> yield (*const K, *V)`. A tuple literal converts element by element where a tuple type is expected, so `yield (&self.k, &self.v)` fits that signature without a cast; a tuple that is not a literal does not convert, and at a call `f((1, 2))` into `(u8, u8)` is still an error. A binder list destructures it, one binder per element, and each binder follows its element's row: over `*V`, `v` is a copy and `*v` the pointer; over `*const K`, `k`, `const k` or `const *k`; over a value element, the value rows. A single binder over such a tuple is an error (SC298E).
+
+The builtin containers follow the same rule. `[T]` declares `op in (self) -> yield *T` and `op in (const self) -> yield *const T`; `{T}` declares `op in (const self) -> yield *const T`; `{K: V}` declares `op in (self) -> yield (*const K, *V)` and `op in (const self) -> yield (*const K, *const V)`. So `for *x in v` writes the element, `for (k, *v) in m` writes the stored value, and over a const container the pointer binder is `for const *x`.
+
 ## Special operators
 
 | Operator | Signature | Description |
 |---|---|---|
 | `as` | `fn op as (self) -> TargetType` | Type conversion takes no parameters |
 | `in` (containment) | `fn op in (self, other: T) -> bool` | `if item in collection` checks membership |
-| `in` (iteration) | `fn op in (self) -> yield T` | `for x in collection` yields elements |
-| `finally` | `fn op finally (self)` | Custom destructor, run when the value's scope ends (an explicit `x.finally()` is planned for 0.3) |
+| `in` (iteration) | `fn op in (self) -> yield T`, `-> yield *T` or `-> yield unsafe *T` | `for x in collection` yields elements; what it yields decides the loop binders (below) |
+| `finally` | `fn op finally (self)` | Custom destructor, run when the value's scope ends, or earlier by an explicit `x.finally()` on a local |
 | `panic` | `fn op panic (const self) -> string` | The message for an error of this type, used when the error is shown (optional) |
 
 The two `in` signatures are distinguished by context: the compiler uses the `-> bool` variant in `if` expressions and the `-> yield T` variant in `for` loops.
@@ -281,12 +316,51 @@ var s = b[0..2]    // a new value
 var *p = &b[1]     // *i32 into b.data
 ```
 
+On a const object only the `const self` form of `op []` can be called; an element reached through it, or through a const array or vector, is const, so writing it, passing `&x[i]` to `@inout`, or calling a `self` method on it is an error.
+
+## Reading and writing: `[]` and `[]=`
+
+A type can declare its subscript in two forms. `op []` is the **read form**: it gives the element to read, as `*const T` or a value. `op []=` is the **place form**: it gives the place a write goes through, as `*T`.
+
+```kairo
+class Buf {
+    priv var data: [i32]
+    fn op [] (const self, i: usize) -> *const i32 { return &self.data[i] }
+    fn op []= (self, i: usize) -> *i32 { return &self.data[i] }
+}
+
+var b = Buf { data: [1, 2, 3] }
+b[0] = 10          // op []=
+b[1] += 1          // op []=, called once
+var x = b[2]       // op []
+var *p = &b[0]     // op []=, *i32
+
+const cb = Buf { data: [1, 2, 3] }
+var *q = &cb[0]    // op [], *const i32
+cb[0] = 1          // error: 'cb' is const, and 'op []=' takes 'self'
+```
+
+When a type declares `op []=`, each use of `b[i]` calls the form that matches what it does with the element. Neither the type's constness nor the return type decides.
+
+- **Writes call `op []=`:** the left side of `=` and of every compound assignment, the operand of `++` and `--`, a member written through the element (`b[i].x = 4`), the container of a written nested subscript (`g[i][j] = 0` writes `g[i]` too), and the receiver of a method or `op in` that takes `self`.
+- **`&b[i]` takes `op []=` and gives `*T`** when `b` is mutable. On a const `b`, or where `*const T` is wanted, it takes `op []` and gives `*const T`. An `@inout` argument needs the place form.
+- **`var t = b[i..j]`** on a mutable `b` binds the place form, so `t` is a view you can write through. `const t = b[i..j]` binds the read form. If `t` is never written through, SC281W suggests `const`.
+- **Every other use reads** and calls `op []`.
+
+The forms do not stand in for each other. A read through a type that declares only `op []=` is SC279E.
+
+For one index type, the two forms describe one element: `op []` returns `*const T` (or a value) where `op []=` returns `*T`. `op []` beside an `op []=` cannot return `*T`, and `op []=` takes `self` and returns `*T` or a mutable view `[T;]` (SC280E).
+
+A type that declares no `op []=` keeps the single `op []` of [Places and values](#places-and-values---). The builtin containers are such types today.
+
+C++ sees the forms as `__kairo_op_get` and `__kairo_op_set`, and the class gets `operator[]` overloads that forward to them: `T& operator[](I)` to the place form and `const T& operator[](I) const` to a `const self` read form. When both forms would be the same C++ overload, `operator[]` is the place form and the read form is `__kairo_op_get`.
+
 ## Finally Operator
 
-`op finally` defines custom destruction logic. It runs when the value's scope ends, the same idea as a standalone [`finally { }` block](/docs/language/control-flow/#standalone-finally-scope-exit), and, from 0.3, early when called as `x.finally()` (C++'s `x.~T()`; until then it is [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported)). The old spelling `op delete` is an error with a fix-it. If not defined, the compiler generates a [default destructor](/docs/language/classes-lifecycle/#destructors---op-finally). If any member has a deleted destructor (`fn op finally() = delete`), the containing type's destructor is also deleted and instances must be managed in an [unsafe](/docs/language/unsafe/) context.
+`op finally` defines custom destruction logic. It runs when the value's scope ends, the same idea as a standalone [`finally { }` block](/docs/language/control-flow/#standalone-finally-scope-exit), and early when called on a local as `x.finally()`, after which the scope's end does not run it again ([Running cleanup early](/docs/language/classes-lifecycle/#running-cleanup-early)). The old spelling `op delete` is an error with a fix-it. If not defined, the compiler generates a [default destructor](/docs/language/classes-lifecycle/#destructors---op-finally). If any member has a deleted destructor (`fn op finally() = delete`), the containing type's destructor is also deleted and instances must be managed in an [unsafe](/docs/language/unsafe/) context.
 
 > [!NOTE]
-> The `op finally` operator is **not** the same as C++'s `delete` operator, and Kairo has no `delete` expression. `op finally` is a cleanup hook that runs automatically when a value's scope ends (explicit `x.finally()` is planned for 0.3); it never frees the object's own storage. Memory allocated with `@create T()` is freed with `@destroy p`, which runs the destructor and then returns the memory to the allocator.
+> The `op finally` operator is **not** the same as C++'s `delete` operator, and Kairo has no `delete` expression. `op finally` is a cleanup hook that runs automatically when a value's scope ends (or earlier, once, through `x.finally()` on a local); it never frees the object's own storage. Memory allocated with `@create T()` is freed with `@destroy p`, which runs the destructor and then returns the memory to the allocator.
 >
 > C++'s allocation operators, `operator new` and `operator delete` and their array forms, are not overloadable in Kairo: a class defines its constructors and its destructor, never its allocation functions. Kairo defines all four for every class, bound to the global allocator, so C++ code that `new`s or `delete`s a Kairo object goes through Kairo's allocator. See [Allocators & Ownership](/docs/language/c-cpp-memory/#class-specific-operator-new-and-operator-delete).
 

@@ -148,11 +148,11 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtCtorForm,           ClassDecl,     EnumDecl,      ExtensionDecl, FFIBlockDecl,
-    FieldDecl,             FieldFold,     FnBodyKind,    FunctionDecl,  GenericParamDecl,
-    GenericParamKindBound, InterfaceDecl, LocalDtor,     ModuleDecl,    ParamDecl,
-    StorageClass,          StructDecl,    TypeAliasDecl, UnionDecl,     VariableDecl,
-    VisibilityGroupDecl,
+    AdtCtorForm,           ClassDecl,           EnumDecl,   ExtensionDecl, FFIBlockDecl,
+    FieldDecl,             FieldFold,           FnBodyKind, FunctionDecl,  GenericParamDecl,
+    GenericParamKindBound, InterfaceDecl,       LocalDtor,  ModuleDecl,    ParamDecl,
+    SpecKind,              StorageClass,        StructDecl, TypeAliasDecl, UnionDecl,
+    VariableDecl,          VisibilityGroupDecl,
 }
 import AST::Node::Expressions::{
     AlignOfExpr,     AnonInitializerExpr,  AssignOperatorExpr,       BinaryOperatorExpr,
@@ -243,6 +243,10 @@ pub class EmitIR {
     priv var _spell:     CXXSpell
     /// The function whose body is being emitted. Decides what `self` means.
     priv var _cur_fn: unsafe *FunctionDecl = &null
+    /// _agree's answer to plan_under_duck for the function it last asked
+    /// about: every call of one body asks the same question.
+    priv var _agree_fn:   unsafe *FunctionDecl = &null
+    priv var _agree_duck: bool                 = false
     /// The callee step of the call being emitted whose overload only an
     /// instance can pick because an argument is dependent (_dependent_arg_member).
     priv var _arg_dep_step: unsafe *ChainExpr::Step = &null
@@ -1173,6 +1177,201 @@ pub class EmitIR {
         self._close_ns(m->range, wrap)
     }
 
+    /// The member specializations of class method \p f
+    /// (Compiler/Spec/Generics.md#member-specializations), ahead of its own
+    /// body: `if constexpr (<its arguments>) { return <its function>(this,
+    /// args...); }` each, the ones that fix both the class's and the
+    /// method's arguments first. C++ cannot specialize a member template of
+    /// a class template for every instance, so the method itself picks the
+    /// body per instance; a C++ caller of `g.m<int>()` gets the same one.
+    /// Two that both apply where neither fixes both (one fixes the method's
+    /// arguments, the other the class's) are SC333E in the method's own TU.
+    priv fn _member_spec_dispatch(self, f: unsafe *FunctionDecl, at: SourceRange) {
+        var specs = cxx::std::vector<unsafe *Decl>()
+        CXXSpell::member_specs_of(
+            unsafe (f as unsafe *Decl),
+            unsafe &specs,
+            self._cg->instances,
+        )
+
+        if specs.empty() || f->semantic_dc == &null || f->semantic_dc->dc_owner == &null {
+            return
+        }
+
+        var unsafe *cls   = CXXSpell::rep(f->semantic_dc->dc_owner)
+        var        cgs    = decl_generic_params(cls)
+        var        fgs    = f->generic_params
+        var        cond_t = cxx::std::vector<string>()
+        var        cond_u = cxx::std::vector<string>()
+        var        calls  = cxx::std::vector<string>()
+        for var i: usize = 0; i < specs.size(); ++i {
+            var unsafe *s   = cast<FunctionDecl>(specs[i])
+            var unsafe *ext = decl_extension_of(specs[i])
+            var unsafe *rt = if (ext != &null
+                                 && ext->target != &null
+                                 && ext->target->canonical != &null) => (dyn_cast<RecordType>(
+                                 canon_unqual(ext->target->canonical),
+                             ))
+                             else => (unsafe (&null as unsafe *RecordType))
+            if rt == &null {
+                self._ice(
+                    s->range,
+                    "EmitIR: a member specialization whose extension has no record target",
+                )
+            }
+
+            var fixed_t = decl_generic_params(unsafe (ext as unsafe *Decl)).size() == 0
+            var ct = ""
+            for var k: usize = 0; fixed_t && k < cgs.size() && k < rt->args.size(); ++k {
+                if ct.size() > 0 {
+                    ct += " && "
+                }
+
+                ct += "__is_same(" + self._spell.tparam_name(
+                    cgs[k],
+                    cls,
+                ) + ", " + self._spell._type(rt->args[k]) + ")"
+            }
+
+            var cu = ""
+            if s->spec_kind == SpecKind::Explicit {
+                for var k: usize = 0; k < fgs.size() && k < s->spec_args.size(); ++k {
+                    if cu.size() > 0 {
+                        cu += " && "
+                    }
+
+                    cu += "__is_same(" + self._spell.tparam_name(
+                        fgs[k],
+                        unsafe (f as unsafe *Decl),
+                    ) + ", " + self._spell._type(s->spec_args[k]->canonical) + ")"
+                }
+            }
+
+            // Its template arguments: the extension's parameters are the
+            // class's (`extend <T> G<T>`), its own the method's.
+            var ta  = ""
+            var tps = CXXSpell::template_params(specs[i])
+            if tps.size() > 0 {
+                var names = cxx::std::vector<string>()
+                if !fixed_t {
+                    for var k: usize = 0; k < cgs.size(); ++k {
+                        names.push_back(self._spell.tparam_name(cgs[k], cls))
+                    }
+                }
+
+                if s->spec_kind != SpecKind::Explicit {
+                    for var k: usize = 0; k < fgs.size(); ++k {
+                        names.push_back(
+                            self._spell.tparam_name(
+                                fgs[k],
+                                unsafe (f as unsafe *Decl),
+                            ),
+                        )
+                    }
+                }
+
+                ta = "<"
+                for var k: usize = 0; k < names.size(); ++k {
+                    if k > 0 {
+                        ta += ", "
+                    }
+
+                    ta += names[k]
+                }
+
+                ta += ">"
+            }
+
+            var args = ""
+            if f->is_method() {
+                args = "this"
+            }
+
+            var fid = CXXSpell::fid_of(unsafe (f as unsafe *Decl))
+            for var k: usize = 0; k < f->params.size(); ++k {
+                var unsafe *p = f->params[k]
+                if p == &null || p->is_self {
+                    continue
+                }
+
+                var nm = self._spell.tok_name(p->name, fid)
+                if args.size() > 0 {
+                    args += ", "
+                }
+
+                args += "static_cast<decltype(" + nm + ")&&>(" + nm + ")"
+            }
+
+            cond_t.push_back(ct)
+            cond_u.push_back(cu)
+            calls.push_back(
+                self._spell.qual_name(specs[i]) + ta + "(" + args + ")",
+            )
+        }
+
+        // Overlap: one fixing only the method's arguments beside one fixing
+        // only the class's, with none fixing both of theirs; or two alike.
+        var home = CXXSpell::fid_of(unsafe (f as unsafe *Decl)) == self._cg->ctx->fid
+        for var i: usize = 0; home && i < specs.size(); ++i {
+            for var j: usize = 0; j < specs.size(); ++j {
+                if i == j {
+                    continue
+                }
+
+                var same = j > i && cond_t[i] == cond_t[j] && cond_u[i] == cond_u[j]
+                var cross = cond_t[i].size() == 0
+                    && cond_u[i].size() > 0
+                    && cond_t[j].size() > 0
+                    && cond_u[j].size() == 0
+                if cross {
+                    for var k: usize = 0; k < specs.size(); ++k {
+                        if cond_t[k] == cond_t[j] && cond_u[k] == cond_u[i] {
+                            cross = false
+                        }
+                    }
+                }
+
+                if !same && !cross {
+                    continue
+                }
+
+                var nm = self._spell.tok_name(
+                    f->name,
+                    CXXSpell::fid_of(unsafe (f as unsafe *Decl)),
+                )
+
+                self._cg->ctx->diag_sink.report(
+                    DiagCode(DiagID::SC333E),
+                    specs[j]->range.start,
+                    f"two specializations of '{nm}' both apply to one instance and argument list, and neither fixes both: specialize that combination itself, with `fn <> {nm}<...>` in an extension of the instance",
+                ).first(specs[j]->range)->note(
+                    DiagCode(DiagID::SC333N),
+                    specs[i]->range.start,
+                    "the other specialization is here",
+                )->child_first(specs[i]->range)->emit()
+            }
+        }
+
+        for var pass: usize = 0; pass < 2; ++pass {
+            for var i: usize = 0; i < specs.size(); ++i {
+                var full = cond_t[i].size() > 0 && cond_u[i].size() > 0
+                if full != (pass == 0) {
+                    continue
+                }
+
+                var cond = cond_t[i]
+                if cond_u[i].size() > 0 {
+                    cond = if (cond.size() > 0) => (cond + " && " + cond_u[i]) else => cond_u[i]
+                }
+
+                self._cg->sink->spell(
+                    at,
+                    "if constexpr (" + cond + ") { return " + calls[i] + "; }",
+                )
+            }
+        }
+    }
+
     /// The `operator[]` forwarder to split subscript form \p m's named member
     /// (CXXSpell::subscript_forwarded; InterfaceEmitter declares it), here,
     /// beside \p m's own definition: out of the class, where a by-value
@@ -1873,6 +2072,10 @@ pub class EmitIR {
             for var i: usize = 0; i < cba.size(); ++i {
                 self._cg->sink->spell(b->range, cba[i])
             }
+        }
+
+        if ext == &null {
+            self._member_spec_dispatch(f, b->range)
         }
 
         var egen       = f->is_generator && f->is_eval()
@@ -6016,6 +6219,7 @@ pub class EmitIR {
             self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren)
             self._args(n, f, bound, inst, true)
             self._cg->sink->synth_at_end(n->range, clang::tok::r_paren)
+            self._agree(n, f)
             return
         }
 
@@ -6173,6 +6377,94 @@ pub class EmitIR {
         self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren)
         self._args(n, f, bound, inst)
         self._cg->sink->synth_at_end(n->range, clang::tok::r_paren)
+        self._agree(n, f)
+    }
+
+    /// Tells the sink that the token just written closes \p n, which Sema
+    /// bound to \p f (EmitSink::agree_call). Nothing is said of a call that
+    /// clang resolves by design: one in a duck body, whose callee each
+    /// instance picks, and one through a witness, whose C++ callee is the
+    /// witness's member and not the requirement Sema bound.
+    priv fn _agree(self, n: unsafe *CallExpr, f: unsafe *FunctionDecl) {
+        if !self._cg->sink->agree_on || f == &null || n->witness_iface != &null {
+            return
+        }
+
+        if self._cur_fn != self._agree_fn {
+            self._agree_fn = self._cur_fn
+            self._agree_duck = self._cur_fn != &null && plan_under_duck(self._cur_fn)
+        }
+
+        if self._agree_duck {
+            return
+        }
+
+        var unsafe *d = f
+        if self._cg->opts.agree_swap_from.size() > 0 {
+            d = self._agree_swap(f)
+        }
+
+        var nr = SourceRange()
+        if !d->is_operator {
+            nr = d->name.range
+        } else if d->op_token.size() > 0 {
+            nr = d->op_token[0].range
+        }
+
+        self._cg->sink->agree_call(n->range, d->range, nr)
+
+        // Declared more than once (a prototype and its definition, an
+        // out-of-line method): the stream may have written any of them, and
+        // each is the same function.
+        var unsafe *g = d->next_in_chain()
+        for var i: u32 = 0; g != &null && g != d && i < 16; ++i {
+            if !g->is_operator {
+                self._cg->sink->agree_alt(g->name.range)
+            } else if g->op_token.size() > 0 {
+                self._cg->sink->agree_alt(g->op_token[0].range)
+            }
+
+            g = g->next_in_chain()
+        }
+    }
+
+    /// --test-sema-agreement-swap: for a call bound to a function named as
+    /// the flag's first half, the function named as its second half, looked
+    /// for in the scopes enclosing \p f, innermost first.
+    priv fn _agree_swap(self, f: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
+        if f->is_operator
+            || self._cg->ctx->get_spelling(f->name) != self._cg->opts.agree_swap_from {
+            return f
+        }
+
+        var unsafe *dc = f->semantic_dc
+        for var depth: u32 = 0; dc != &null && depth < 64; ++depth {
+            // A record's methods are its own list, not its scope's.
+            var unsafe *oc = dyn_cast<ClassDecl>(dc->dc_owner)
+            if oc != &null {
+                for var i: usize = 0; i < oc->methods.size(); ++i {
+                    var unsafe *m = oc->methods[i]
+                    if m != &null
+                        && !m->is_operator
+                        && self._cg->ctx->get_spelling(m->name) == self._cg->opts.agree_swap_to {
+                        return m
+                    }
+                }
+            }
+
+            for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+                var unsafe *g = dyn_cast<FunctionDecl>(*dc->dc_decls.get(i))
+                if g != &null
+                    && !g->is_operator
+                    && self._cg->ctx->get_spelling(g->name) == self._cg->opts.agree_swap_to {
+                    return g
+                }
+            }
+
+            dc = dc->dc_parent
+        }
+
+        return f
     }
 
     /// The receiver chain \p ch up to its last step \p last, then that step

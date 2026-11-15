@@ -99,16 +99,17 @@ Not all modifiers can be combined:
 
 ## Visibility
 
-A top-level function with no visibility written is `pub`.
+A top-level function with no visibility written is `priv` to its file, or `prot` to its module when a `module.k` sits at or above the file. Write `pub` on what other modules may use.
 
 | Keyword | Scope of a top-level function |
 |---|---|
-| `pub` (default) | Any module that imports this module |
+| `pub` | Any module that imports this module |
 | `priv` | Current file only |
 | `prot` | Current file and sibling files in the same library subtree |
 
 ```kairo
-fn api()                  { /* ... */ }   // pub by default
+pub fn api()              { /* ... */ }
+fn helper()               { /* ... */ }   // priv, or prot under a module.k
 priv fn internal_helper() { /* ... */ }
 prot fn library_helper()  { /* ... */ }
 ```
@@ -252,7 +253,7 @@ None of them changes inlining: the optimizer may still inline the function, and 
 - **Every declaration agrees.** A forward declaration and its definition, or an in-class declaration and its out-of-line definition, carry the same convention ([Signature matching](#signature-matching)). A convention alone never makes two declarations distinct overloads: the same signature with a different convention is a redeclaration error.
 - **Not on functions called by code Kairo does not write**: a constructor, a destructor (`op finally`), any operator, `main`, a generator, an `async` function, a closure or an `eval fn` ([SC134E](/docs/language/diagnostics/#sc134e)).
 - **One convention per override set.** A `virtual` or `override` method may carry a convention only if every method it overrides or is overridden by carries the same one ([SC135E](/docs/language/diagnostics/#sc135e)).
-- **Not across the C/C++ boundary.** GCC has no spelling for these conventions, so a function C or C++ can see may not carry one: an `ffi "c"` / `ffi "c++"` declaration, or any function that is not `priv` (it is in the module's emitted C++ header and its `#include "x.k"` interface). A `priv` or local function is fine ([SC136E](/docs/language/diagnostics/#sc136e)).
+- **Not across the C/C++ boundary.** GCC has no spelling for these conventions, so a function C or C++ can see may not carry one: an `ffi "c"` / `ffi "c++"` declaration, or any function that is not `priv`, written or by default (an unmarked function is `priv` when no `module.k` is above its file; under one it is `prot` and is in the header). Such a function is in the module's emitted C++ header and its `#include "x.k"` interface. A `priv` or local function is fine ([SC136E](/docs/language/diagnostics/#sc136e)).
 - **x86-64 and AArch64 only**, on any operating system. On any other target the attribute is an error, never silently ignored ([SC137E](/docs/language/diagnostics/#sc137e)).
 
 ### In a function type

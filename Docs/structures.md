@@ -163,11 +163,11 @@ v.length()   // 5.0
 Structs implement interfaces through `extend ... impl`:
 
 ```kairo
-interface Drawable {
+interface Draw {
     fn draw(self) -> string
 }
 
-extend Vec2 impl Drawable {
+extend Vec2 impl Draw {
     fn draw(self) -> string {
         return f"({self.x}, {self.y})"
     }
@@ -204,7 +204,7 @@ extend <T> Pair<T> {
 Constrain type parameters with `impl` or `derives` bounds:
 
 ```kairo
-struct <T impl Comparable> Range {
+struct <T impl Ord> Range {
     var start: T
     var end: T
 }
@@ -387,7 +387,7 @@ extend Point {
 }
 
 // Extend with interface conformance
-extend Point impl Drawable {
+extend Point impl Draw {
     fn draw(self) -> string {
         return f"({self.x}, {self.y})"
     }

@@ -243,7 +243,7 @@ See [Primitives](/docs/language/primitives/#void) for details.
 
 ## Nullable Types in the Type System
 
-`T?` is syntactic sugar for the built-in `Nullable<T>`, which holds a `T` or `null` (the one value of the empty type `null_t`). It is constructed only from a `T` or from `null`, which is what the implicit conversions `T` to `T?` and `null` to `T?` do. `Nullable` is not directly usable as a type name use the `?` suffix:
+`T?` is syntactic sugar for the built-in `Null<T>`, which holds a `T` or `null` (the one value of the empty type `null_t`). It is constructed only from a `T` or from `null`, which is what the implicit conversions `T` to `T?` and `null` to `T?` do. `Null` is not directly usable as a type name use the `?` suffix:
 
 ```kairo
 var x: i32? = 42
@@ -256,7 +256,7 @@ var y: string? = null
 
 ```kairo
 // var x: i32??     // parse error: ?? is an operator
-var x: (i32?)? = null   // ok: Nullable<Nullable<i32>>
+var x: (i32?)? = null   // ok: Null<Null<i32>>
 ```
 
 Nested nullables are rarely useful. If you find yourself writing `(T?)?`, reconsider the data model.
@@ -521,7 +521,7 @@ var y = x ?? 0                      // null coalescing
 
 // typeof
 var info = typeof x
-info.get_pretty_name()              // "Nullable<i32>"
+info.get_pretty_name()              // "Null<i32>"
 var z: typeof x = 10                // type position: resolves to i32?
 
 // Function types

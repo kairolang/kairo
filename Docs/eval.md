@@ -369,7 +369,7 @@ Inside a class, `eval` marks three different things:
 
 An `eval` field can be an array length (`[i32; Grid::W]`), also for a field of its own class when its initializer is plain arithmetic over literals and constants. One whose value has to be computed by calling an `eval fn` cannot size a field of its own class: inside its own body the class is still incomplete, so the value does not exist there yet. The compiler reports it (SC116E) and offers to move the constant to module scope, where it can size the field. For the same reason, a field's length may call an `eval fn` (`var a: [i32; size()]`) only when that function does not itself need the class: one that takes `sizeof` of it, builds a local of it or is a method of it is an error.
 
-A class can mix `eval` and regular members; regular methods simply cannot be called from compile-time code. A class with a non-trivial [destructor](/docs/language/classes-lifecycle/#destructors---op-finally) cannot be an `eval` value: a compile-time object is never destroyed.
+A class can mix `eval` and regular members; regular methods cannot be called from compile-time code. A class with a non-trivial [destructor](/docs/language/classes-lifecycle/#destructors---op-finally) cannot be an `eval` value: a compile-time object is never destroyed. A destructor cannot be `eval` (SC290E). An `eval` constant cannot have a slice type yet (SC116E); use a fixed array.
 
 ```kairo
 eval FNV_OFFSET: u64 = 2166136261

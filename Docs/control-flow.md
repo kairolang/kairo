@@ -141,7 +141,7 @@ for item in collection {
 }
 ```
 
-The range operators `..` and `..=` produce a `Range` object that implements the iterator protocol. Any type that defines `fn op in (self) -> yield T` is iterable. Defining `begin()` and `end()` on a Kairo class does not make it iterable. See [Operators](/docs/language/operators/#ranges) for the `Steppable` interface and [Operators](/docs/language/operator-overloading/#special-operators) for the `op in` overload.
+The range operators `..` and `..=` produce a `Range` object that implements the iterator protocol. Any type that defines `fn op in (self) -> yield T` is iterable. Defining `begin()` and `end()` on a Kairo class does not make it iterable. See [Operators](/docs/language/operators/#ranges) for the `Step` interface and [Operators](/docs/language/operator-overloading/#special-operators) for the `op in` overload. A `const` iterable uses `op in (const self)`, and so does any loop over a mutable iterable that has no `*x` binder, so a by-value parameter a loop only reads is passed by reference; a type whose `op in` takes `self` cannot be iterated through a const value (SC063E). A plain binder is a copy of each element. Binding an element type that cannot be copied is SC182E; bind `*x` for the element's address.
 
 An [imported C++ class](/docs/language/c-cpp-calling/) iterates the way a C++ range-based `for` does: through its member `begin()` and `end()`, or else through free `begin()` and `end()` functions found by argument-dependent lookup.
 
@@ -695,3 +695,5 @@ For C++ developers the following C++ constructs have no equivalent in Kairo:
 - [Functions](/docs/language/functions/)
 - [Variables](/docs/language/variables/#scope-and-lifetime)
 - [Attributes](/docs/language/attributes/#branch-hints)
+
+Over a type's own `op in`, including the builtin containers, what `op in` yields decides the binders: `for *x` needs an `op in` that yields `*T`, and over a const container it is `for const *x` (SC298E otherwise). Over a map, `for (k, v) in m` copies each key and value, and `for (k, *v) in m` binds a pointer to the stored value, so `*v = x` changes the map; a key is never writable through a loop. Over a generator value, `for *x` binds a pointer to const unless a mutable place is yielded (SC071E for a write through it). See [Iteration: `op in` and loop binders](/docs/language/operator-overloading/#iteration-op-in-and-loop-binders).

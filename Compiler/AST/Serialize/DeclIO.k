@@ -512,6 +512,11 @@ fn io_function_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::FunctionDec
             "FunctionDecl::where_lead",
         )
 
+        ar->sema_null<Declarations::FunctionDecl>(
+            n->member_spec_of,
+            "FunctionDecl::member_spec_of",
+        )
+
         ar->sema_zero(n->where_group.size() as u64, "FunctionDecl::where_group")
         ar->sema_zero(n->ffi_builtin_id as u64, "FunctionDecl::ffi_builtin_id")
         ar->sema_zero(n->ffi_ice_mask as u64, "FunctionDecl::ffi_ice_mask")

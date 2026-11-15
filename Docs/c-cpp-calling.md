@@ -70,6 +70,8 @@ Unary `*` on an imported C++ class calls its `operator*`, which is how C++ itera
 
 C and C++ signatures are judged by Kairo's conversion rules, with one addition: a fixed-width integer argument widens into a `size_t`, `ptrdiff_t`, `uintptr_t` or `intptr_t` parameter, and a `usize`/`isize` argument widens into a fixed-width one, whenever that is lossless on every 32- and 64-bit target. `n: u32` passes to a `size_t` directly on 32- and 64-bit targets; `n: u64` needs `as usize`. See the [Conversion Lattice section 4.1](/docs/language/conversion-lattice/#41-the-cc-boundary).
 
+C++'s own implicit conversions do not apply by default: an argument C++ would convert through a converting constructor or conversion operator (a string literal to a `std::string` or a class with a `const char*` constructor, an `A` to a `B(const A&)`) is an error whose fix-it writes ` as T`. `-fcxx-implicit-conv` lets C++ apply that one conversion at calls, initialisations and returns that cross into C++. `-fimplicit-conv` governs only Kairo's own conversions and does not turn this on.
+
 ### Tags and ordinary names
 
 C and C++ keep struct, class, union and enum names (tags) apart from variables, functions and typedefs, so a header can declare both under one name. glibc does: `struct timezone` in `<sys/time.h>` and `extern long timezone` in `<time.h>`. As in C++, the plain name means the ordinary declaration:
@@ -107,7 +109,6 @@ In a type, `timezone` is then the struct; in an expression, it is still the vari
 `ffi` controls linkage and name mangling. It is written on a declaration.
 
 > [!NOTE]
-> Not yet: the block form `ffi "c++" { fn ... }` type-checks but stops code generation with an internal compiler error (`EmitIR: decl kind FFIBlockDecl has no body to emit`). Write `ffi "c++"` or `ffi "c"` on each declaration.
 
 ```kairo
 // C++ linkage: name mangling, overloading, classes, templates all permitted
@@ -122,6 +123,8 @@ ffi "c" fn add(x: i32, y: i32) -> i32 {
 ```
 
 `ffi "c"` follows the same rules as `extern "C"` in C++: no classes, no overloading, no templates. `ffi "c++"` follows the same rules as `extern "C++"`: full C++ feature set, Itanium or MSVC mangling depending on the target.
+
+The language string is matched without case: `ffi "C"` is `ffi "c"`, and `ffi "c++"` may also be written `"cpp"` or `"cxx"`.
 
 Name mangling is covered in [ABI Contract & Verification](/docs/language/c-cpp-abi/#name-mangling).
 
@@ -150,8 +153,24 @@ fn example() {
 
 Kairo's standard library lands inside `namespace kairo`, which is why a C++ translation unit sees Kairo's library under `kairo::` and its own under the unqualified `std::` it already uses. Nothing is renamed on the C++ side. Your own code lands in its module's namespace, the files you compile included, or, for a file outside every search directory, in a namespace named after the file's stem. See [Modules](/docs/language/modules/#module-paths-are-c-namespaces).
 
+
+### Moves out of a `T&` or `T*`
+
+A C++ `T&` or `T*` parameter borrows its argument. C++ can still move out of one with nothing in the signature showing it, so the compiler reads the callee's body when the header you import by name contains it: if the body binds the argument to a `T&&`, directly or through a function it passes the argument on to, the argument is moved-from after the call.
+
+```kairo
+ffi "c++" import "steal.h"   // template <class T> void steal(T &b) { T sink = std::move(b); }
+
+var h = Res(7)
+steal(&h)                    // h is moved-from: the body moves it out
+h.id                         // compile error: h is used after being moved
+```
+
+A body the compiler cannot read (defined in a `.cpp` file, a virtual call, a call through a pointer) is taken at its worst: the argument is moved-from after the call, and the error's note names the call and why it could not be read. This is `-fstrict-cxx-moves`, on by default. `-fno-strict-cxx-moves` assumes such a call does not move, and `--print-unchecked-assumptions` lists each assumption. A call into the C++ standard library that ships with the toolchain (libc++, and the C library), whose out-of-line functions have no visible body, is assumed not to move under either setting and is listed, so `std::getline(&f, &line)` in a loop compiles under strict too. A standard library function whose body is visible and moves the argument, such as `std::swap`, still moves it.
+
+
 > [!NOTE]
-> `inline "c++"` blocks are not supported. Use `ffi "c++"` to import declarations and call them as ordinary Kairo symbols. The older `__inline_cpp("...")` form is likewise removed.
+> `inline "c++"` and `inline "c"` blocks are not supported: writing one is a compile error (S095E), and `inline "asm"` inside `unsafe` is the only inline foreign block. Use `ffi "c++"` to import declarations and call them as ordinary Kairo symbols. The older `__inline_cpp("...")` form is likewise removed.
 
 ---
 
@@ -198,7 +217,7 @@ fn syscall_example(fd: i32, buf: *u8, len: usize) -> isize {
 
 - **Volatile**: the `volatile` modifier (`inline "asm" volatile { ... }`), meant for assembly with side effects the optimizer might otherwise remove, is not accepted yet: the parser rejects it (S056E).
 - **Clobbers**: Always list registers modified by the assembly (like `memory` or specific registers) to prevent the [Tether analysis](/docs/language/tether-internals/#cc-interop) and LLVM from making incorrect assumptions about the state of the machine.
-- **Unsafe**: Assembly code is inherently unsafe and should be wrapped in an [`unsafe` block](/docs/language/unsafe/#unsafe-blocks) to indicate that the programmer is responsible for ensuring the correctness of the assembly.
+- **Unsafe**: Assembly code is inherently unsafe and must be inside an `unsafe` block or an unsafe function (SC296E otherwise); it is wrapped in an [`unsafe` block](/docs/language/unsafe/#unsafe-blocks) to indicate that the programmer is responsible for ensuring the correctness of the assembly.
 
 ---
 
@@ -240,6 +259,12 @@ fn main() {
     var x = v.at(0) + 1     // operand
 }
 ```
+
+An override of a C++ virtual must return what the virtual returns; a mismatch is SC294E with the C++ type as a fix-it.
+
+A C++ `operator[]` that returns by value gives a temporary: `c[0] = x` on it is an error. One that returns a reference is a place. `std::pair` of a move-only Kairo class is move-only: it moves, and copying it is SC182E. `std::optional`, `std::tuple`, `std::variant` and `std::expected` of a move-only Kairo class are move-only too: they move, and copying one is SC182E. A `std::span` of one is a view and copies. A field of a temporary (`f().x`, `v[0].x` through a by-value `operator[]`) is not assignable, and its address cannot be taken.
+
+Such a call is an lvalue of the referenced type (an xvalue for `T&&`): `&v.at(0)` is a `*i32`, and `var x = v.at(0)` copies. Editor hovers show these functions with the return spelling a Kairo definition uses, `-> ffi::ref<i32>`. To define or override a C++ function that returns a reference, see [Reference returns from C++](/docs/language/functions-parameter-modes/#reference-returns-from-c).
 
 See [Reference returns from C++](/docs/language/functions-parameter-modes/#reference-returns-from-c) for how these calls are typed.
 
@@ -348,9 +373,9 @@ A C++20 concept imports as a constraint-only interface, and a function template 
 // concept.h
 #pragma once
 template <typename T>
-concept Addable = requires(T a, T b) { a + b; };
+concept Add = requires(T a, T b) { a + b; };
 
-template <Addable T>
+template <Add T>
 T add_twice(T a) { return a + a; }
 ```
 
@@ -366,7 +391,7 @@ fn main() -> i32 {
 ```
 
 > [!NOTE]
-> Not yet: a Kairo generic bounded by an imported concept (`fn <T impl Addable> add(a: T, b: T) -> T { return a + b }`) is rejected with R025E, because the concept's `requires` expression grants no operations on `T`. A bound whose body does not use `T`'s operations type-checks but fails in code generation (CL001E, `no member named '<header>' in the global namespace`). A bound on a Kairo interface works: `fn <T impl Shape> twice(a: T)` becomes a `requires` clause over the concept the compiler emits for `Shape`, and a C++ call with a type that does not satisfy it fails with `'Bad' does not satisfy 'Shape_c'`. A bound on a generic class or struct is not translated (see [Generics](/docs/language/c-cpp-exposing/#generics)).
+> Not yet: a Kairo generic bounded by an imported concept (`fn <T impl Add> add(a: T, b: T) -> T { return a + b }`) is rejected with R025E, because the concept's `requires` expression grants no operations on `T`. A bound whose body does not use `T`'s operations works: the imported concept is named by its own C++ name. A bound on a Kairo interface works: `fn <T impl Shape> twice(a: T)` becomes a `requires` clause over the concept the compiler emits for `Shape`, and a C++ call with a type that does not satisfy it fails with `'Bad' does not satisfy 'Shape_c'`. A bound on a generic class or struct is not translated (see [Generics](/docs/language/c-cpp-exposing/#generics)).
 
 ### Template arguments, pointers and forwarding
 
@@ -381,6 +406,8 @@ A C++ function template with a forwarding pack (`template <class... Args> void e
 Overloaded C++ function templates are chosen as C++ chooses them, SFINAE included: an overload whose `enable_if` condition, `requires` clause, `decltype(...)` return type or `void_t` test fails for the arguments is not a candidate. So `cxx::std::make_unique<i32>(9)`, `make_unique<T[]>(n)` (through a header alias such as `using IntArr = int[];`, since `[T;]` in Kairo is a slice) and `make_shared` work, and `v.assign(n, x)` on a `cxx::std::vector` takes the count overload while `v.assign(a.begin(), a.end())` takes the iterator one. When every overload is removed, the error lists each with C++'s reason (`requirement 'std::is_integral_v<Pair>' was not satisfied`). Only the generic arguments you write are passed (`make_unique<i32>`); C++ deduces the rest from the arguments, so a variable passed through `Args&&` stays a reference to that variable. Inside a generic function, a call whose choice depends on `T` is decided for each instantiation.
 
 A C++ method with a ref-qualifier is called only on the object it accepts: `int q() &` on a variable, `int q() &&` on a temporary (`make().q()`), and with both declared a temporary calls the `&&` one. A method without a ref-qualifier can be called on either.
+
+A template body is compiled for the arguments a Kairo call gives it only when the C++ is compiled. If it does not compile (a member the type lacks, a copy it cannot make), the error is reported at the Kairo call (CL002E), with clang's message as the reason and its place in the header as a note. `--diag-cxx-chain` prints every instantiation step. C++ reports a failing instantiation once, at its first use.
 
 ## See also
 

@@ -149,6 +149,8 @@ priv macro INTERNAL_FLAG! { true }     // file-scoped
 
 ---
 
+A declaration made by a macro is reported at the macro's invocation; a duplicate adds a note "in expansion of macro" pointing into the macro body.
+
 ## Macros vs Attributes
 
 | | Macros | Attributes |
@@ -204,6 +206,8 @@ module config {
 ```
 
 ---
+
+Import a macro by its `!` name: `import lib::MAX_RETRIES!`, or `import lib::{MAX_RETRIES!, f}`.
 
 ## See also
 

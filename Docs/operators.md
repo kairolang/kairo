@@ -62,7 +62,7 @@ Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN`
 `<=>` returns an `Ordering`, matching the C++20 spaceship operator.
 
 > [!NOTE]
-> In 0.2.0, `<=>` on two primitive values (`1 <=> 2`) does not yet produce a usable `Ordering`. It works for types that define `op <=>`. On primitives, compare with `<`, `==` and `>` for now.
+> `<=>` on two floating-point values does not yet produce a usable `Ordering` (a NaN has no ordering). On integers, characters and booleans, and on types that define `op <=>`, it does. Compare floats with `<`, `==` and `>` for now.
 
 ### `==` vs `===`
 
@@ -174,17 +174,17 @@ Every operand is evaluated left to right (see [Evaluation Order](#evaluation-ord
 | `..` | Exclusive range (end excluded) | `0..10` -> 0 through 9 |
 | `..=` | Inclusive range (end included) | `0..=10` -> 0 through 10 |
 
-Range operators produce a `Range` object that implements iteration. Any type that satisfies the `Steppable` interface can be used with range operators:
+Range operators produce a `Range` object that implements iteration. Any type that satisfies the `Step` interface can be used with range operators:
 
 ```kairo
-interface <T> Steppable {
+interface <T> Step {
     fn op l++ (self) -> Self        // step forward (prefix increment)
     fn op == (self, other: T) -> bool
 }
 ```
 
 > [!NOTE]
-> Types do not need to explicitly `impl Steppable`. If a type satisfies the required method signatures, it is automatically compatible with range operators. See [Interfaces](/docs/language/interfaces/) for details on structural conformance.
+> Types do not need to explicitly `impl Step`. If a type satisfies the required method signatures, it is automatically compatible with range operators. See [Interfaces](/docs/language/interfaces/) for details on structural conformance.
 
 Ranges also work with slicing on strings and collections:
 

@@ -193,9 +193,12 @@ import AST::Context::SymbolTable::{
 }
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
+    decl_extension_of,
     decl_generic_params,
     decl_instantiated_from,
+    decl_is_instance,
     decl_name_tok,
+    decl_requires_clause,
     decl_set_instantiated_from,
 }
 import AST::Kind::DeclKind::DeclKind
@@ -207,12 +210,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind,
-    BuiltinType,
-    builtin_info,
-    canon_has_const,
-    canon_quals,
-    canon_unqual,
+    BuiltinKind, BuiltinType, RecordType, builtin_info, canon_has_const, canon_quals, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -269,6 +267,8 @@ pub class RedeclMerge {
     /// _descend walks for _pair_specs_in instead of _merge_in.
     var _pairing:  bool         = false
     var _spec_sub: Substitution
+    /// _member_owner's target record.
+    var _mo_rt: unsafe *RecordType = &null
 
     fn RedeclMerge(self, sc: unsafe *SemaContext) {
         self.sc = sc
@@ -651,6 +651,20 @@ pub class RedeclMerge {
             }
         }
 
+        // `extend G<u8> { fn <U> m(self) ... }`: an extension member of one
+        // instance that has a class method's name and signature replaces that
+        // method's body for the instance; it is no overload beside it.
+        for var i: usize = 0; i < e.cell->size(); ++i {
+            var unsafe *f = dyn_cast<Declarations::FunctionDecl>(e.cell->get(i))
+            if f != &null
+                && !f->is_poisoned()
+                && f->spec_kind != Declarations::SpecKind::Explicit
+                && f->member_spec_of == &null
+                && decl_extension_of(unsafe (f as unsafe *Decl)) != &null {
+                self._pair_instance_member(f)
+            }
+        }
+
         if specs.empty() {
             return
         }
@@ -724,6 +738,13 @@ pub class RedeclMerge {
                        s:          unsafe *Declarations::FunctionDecl,
                        prims:      *cxx::std::vector<unsafe *Declarations::FunctionDecl>) {
         var unsafe *sd = unsafe (s as unsafe *Decl)
+        // `extend <T> G<T> { fn <> m<i32>(self) ... }`: a specialization of a
+        // class-body method, written in an extension of the class.
+        if prims->empty() && decl_extension_of(sd) != &null {
+            self._pair_member_spec(name, s)
+            return
+        }
+
         if prims->empty() {
             self.sc->diag->report(
                 DiagID::R042E,
@@ -744,7 +765,7 @@ pub class RedeclMerge {
                 self.sc->diag->report(
                     DiagID::SC116E,
                     s->range.start,
-                    f"an explicit specialization of '{name}' inside a generic type or extension is not yet supported",
+                    f"an explicit specialization of '{name}' inside a generic type or extension is not supported; specialize a method of a generic class in an extension of it: `fn <> {name}<...>` in `extend <T> G<T>` for every instance, or the method itself in `extend G<X>` for one",
                 ).first(s->name.range)->emit()
                 s->poison()
                 return
@@ -873,6 +894,451 @@ pub class RedeclMerge {
             if !seen {
                 prims->push_back(r)
             }
+        }
+    }
+
+    /// # member specializations
+
+    /// The class \p f's extension extends, and that extension's target, when
+    /// the target is a Kairo class (or struct) record whose body is its
+    /// primary's: no partial or explicit specialization of the record
+    /// supplies it. Null otherwise.
+    priv fn _member_owner(self, f: unsafe *Declarations::FunctionDecl) -> unsafe *Decl {
+        self._mo_rt = &null
+        var unsafe *ext = decl_extension_of(unsafe (f as unsafe *Decl))
+        if ext == &null || ext->target == &null || ext->target->canonical == &null {
+            return &null
+        }
+
+        var unsafe *rt = dyn_cast<RecordType>(
+            canon_unqual(ext->target->canonical),
+        )
+
+        if rt == &null || rt->decl == &null {
+            return &null
+        }
+
+        var unsafe *cls = rt->decl
+        if decl_is_instance(cls) {
+            cls = decl_instantiated_from(cls)
+        }
+
+        cls = NameLookup::representative(cls)
+        if cls == &null
+            || (!isa<Declarations::ClassDecl>(cls) && !isa<Declarations::StructDecl>(cls))
+            || NameLookup::is_specialization(cls)
+            || NameLookup::tu_of(cls->semantic_dc) == &null {
+            return &null
+        }
+
+        var unsafe *body = self.sc->record_body(unsafe (rt as unsafe *Type))
+        if body != &null && NameLookup::representative(body) != cls {
+            return &null
+        }
+
+        self._mo_rt = rt
+        return cls
+    }
+
+    /// The class-body methods of \p cls named as \p f.
+    priv fn _class_methods_named(self,
+                                 cls: unsafe *Decl,
+                                 f:   unsafe *Declarations::FunctionDecl,
+                                 out: *cxx::std::vector<unsafe *Declarations::FunctionDecl>) {
+        var tu = TypeUtil(self.sc)
+        var nm = tu.decl_name(unsafe (f as unsafe *Decl))
+        var ms = if (isa<Declarations::ClassDecl>(cls)) => (cast<Declarations::ClassDecl>(
+                     cls,
+                 )->methods)
+                 else => cast<Declarations::StructDecl>(cls)->methods
+        for var i: usize = 0; i < ms.size(); ++i {
+            var unsafe *m = ms[i]
+            if m == &null || m->is_poisoned() || m->is_operator {
+                continue
+            }
+
+            if tu.decl_name(unsafe (m as unsafe *Decl)) != nm {
+                continue
+            }
+
+            var unsafe *r = cast<Declarations::FunctionDecl>(
+                NameLookup::representative(unsafe (m as unsafe *Decl)),
+            )
+
+            var seen = false
+            for var j: usize = 0; j < out->size(); ++j {
+                if (*out)[j] == r {
+                    seen = true
+                    break
+                }
+            }
+
+            if !seen {
+                out->push_back(r)
+            }
+        }
+    }
+
+    /// \p f's signature is \p m's with the class's parameters read as \p xs
+    /// and \p m's own as \p ys: the same parameter types and modes, return
+    /// type, receiver and qualifiers.
+    priv fn _member_sig_matches(self,
+                                cls: unsafe *Decl,
+                                m:   unsafe *Declarations::FunctionDecl,
+                                f:   unsafe *Declarations::FunctionDecl,
+                                xs:  *cxx::std::vector<unsafe *Type>,
+                                ys:  *cxx::std::vector<unsafe *Type>) -> bool {
+        if m->params.size() != f->params.size() || m->is_variadic || f->is_variadic {
+            return false
+        }
+
+        if m->is_method() != f->is_method()
+            || m->is_const() != f->is_const()
+            || m->is_unsafe() != f->is_unsafe()
+            || m->is_eval() != f->is_eval()
+            || m->is_panic() != f->is_panic()
+            || m->is_noreturn != f->is_noreturn {
+            return false
+        }
+
+        var sub = Substitution(self.sc)
+        for var i: usize = 0; i < xs->size(); ++i {
+            sub.bind(cls, i as u32, (*xs)[i])
+        }
+
+        var unsafe *head = m->first_decl()
+        var unsafe *cur  = head
+        while cur != &null {
+            for var j: usize = 0; j < ys->size() && j < cur->generic_params.size(); ++j {
+                sub.bind(unsafe (cur as unsafe *Decl), j as u32, (*ys)[j])
+            }
+
+            cur = cur->next_in_chain()
+            if cur == head {
+                break
+            }
+        }
+
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var unsafe *pp = m->params[i]
+            var unsafe *fp = f->params[i]
+            if pp == &null || fp == &null || pp->is_self != fp->is_self {
+                return false
+            }
+
+            if pp->is_self {
+                continue
+            }
+
+            if pp->mode != fp->mode || pp->type_ == &null || fp->type_ == &null {
+                return false
+            }
+
+            var unsafe *pc = pp->type_->canonical
+            var unsafe *fc = fp->type_->canonical
+            if pc == &null || fc == &null {
+                return false
+            }
+
+            var unsafe *pt = sub.substitute(pc)
+            if pt == &null || canon_unqual(pt) != canon_unqual(fc) {
+                return false
+            }
+        }
+
+        // An inferred return (an expression body with no `->`) is known only
+        // after the typer; the C++ check sees it.
+        if m->return_type == &null && m->body_kind == Declarations::FnBodyKind::Expr
+            || f->return_type == &null && f->body_kind == Declarations::FnBodyKind::Expr {
+            return true
+        }
+
+        var unsafe *mr = self._return_canonical(m)
+        var unsafe *fr = self._return_canonical(f)
+        if mr == &null || fr == &null {
+            return false
+        }
+
+        var unsafe *mt = sub.substitute(mr)
+        return mt != &null && canon_unqual(mt) == canon_unqual(fr)
+    }
+
+    /// Why \p m cannot be specialized from an extension, or "".
+    priv fn _member_spec_refused(self,
+                                 cls: unsafe *Decl,
+                                 m:   unsafe *Declarations::FunctionDecl,
+                                 ext: unsafe *Declarations::ExtensionDecl) -> string {
+        var tu = TypeUtil(self.sc)
+        if tu.decl_name(unsafe (m as unsafe *Decl)) == tu.decl_name(cls) {
+            return "of a constructor"
+        }
+
+        if m->abi == Declarations::AbiKind::Virtual
+            || m->abi == Declarations::AbiKind::Override
+            || m->overrides_virtual {
+            return "of a virtual method"
+        }
+
+        if m->requires_clause != &null
+            || decl_requires_clause(unsafe (ext as unsafe *Decl)) != &null {
+            return "under a `requires` clause or bounds"
+        }
+
+        for var i: usize = 0; i < m->generic_params.size(); ++i {
+            var unsafe *gp = m->generic_params[i]
+            if gp == &null || gp->is_pack || gp->is_const_param {
+                return "of a method with a pack or value parameter"
+            }
+        }
+
+        var cgs = decl_generic_params(cls)
+        for var i: usize = 0; i < cgs.size(); ++i {
+            if cgs[i] == &null || cgs[i]->is_pack || cgs[i]->is_const_param {
+                return "of a member of a class with a pack or value parameter"
+            }
+        }
+
+        var unsafe *dc = cls->semantic_dc
+        while dc != &null && dc->dc_owner != &null {
+            if decl_generic_params(dc->dc_owner).size() > 0 {
+                return "of a member of a class nested in a generic one"
+            }
+
+            dc = dc->dc_owner->semantic_dc
+        }
+
+        return ""
+    }
+
+    priv fn _member_refuse(self,
+                           f:          unsafe *Declarations::FunctionDecl,
+                           const name: string,
+                           const why:  string) {
+        self.sc->diag->report(
+            DiagID::SC116E,
+            f->range.start,
+            f"a specialization of '{name}' {why} is not yet supported",
+        ).first(f->name.range)->emit()
+        f->poison()
+    }
+
+    /// The target's arguments when they are concrete (`extend G<u8>`), or
+    /// the extension's own parameters when the target is the identity
+    /// pattern (`extend <T> G<T>`); false for any other pattern. \p fixed:
+    /// the target names one instance.
+    priv fn _member_target_args(self,
+                                cls:   unsafe *Decl,
+                                rt:    unsafe *RecordType,
+                                ext:   unsafe *Declarations::ExtensionDecl,
+                                xs:    *cxx::std::vector<unsafe *Type>,
+                                fixed: *bool) -> bool {
+        var cgs = decl_generic_params(cls)
+        var egs = decl_generic_params(unsafe (ext as unsafe *Decl))
+        if rt->args.size() != cgs.size() {
+            return false
+        }
+
+        if egs.size() == 0 {
+            for var i: usize = 0; i < rt->args.size(); ++i {
+                if rt->args[i] == &null || rt->args[i]->is_dependent() {
+                    return false
+                }
+
+                xs->push_back(rt->args[i])
+            }
+
+            *fixed = true
+            return true
+        }
+
+        if egs.size() != cgs.size() {
+            return false
+        }
+
+        var unsafe *xr = NameLookup::representative(
+            unsafe (ext as unsafe *Decl),
+        )
+
+        for var i: usize = 0; i < egs.size(); ++i {
+            var unsafe *gp = self.sc->types->generic_param(xr, i as u32, false)
+            if rt->args[i] != gp {
+                return false
+            }
+
+            xs->push_back(gp)
+        }
+
+        *fixed = false
+        return true
+    }
+
+    /// `fn <> m<i32>` in an extension of the class that declares the generic
+    /// method `m`: every instance the extension covers (`extend <T> G<T>`,
+    /// or one, `extend G<u8>`) takes this body for those arguments.
+    priv fn _pair_member_spec(self, const name: string, s: unsafe *Declarations::FunctionDecl) {
+        var unsafe *cls = self._member_owner(s)
+        var unsafe *rt  = self._mo_rt
+        var unsafe *ext = decl_extension_of(unsafe (s as unsafe *Decl))
+        if cls == &null {
+            self.sc->diag->report(
+                DiagID::R042E,
+                s->range.start,
+                f"'{name}' is declared as a specialization, but no primary template named '{name}' is visible here",
+            ).first(s->name.range)->emit()
+            s->poison()
+            return
+        }
+
+        var xs    = cxx::std::vector<unsafe *Type>()
+        var fixed = false
+        if !self._member_target_args(cls, rt, ext, &xs, &fixed) {
+            self._member_refuse(
+                s,
+                name,
+                "in an extension of a pattern other than every instance (`extend <T> G<T>`) or one instance",
+            )
+
+            return
+        }
+
+        var ms = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        self._class_methods_named(cls, s, &ms)
+        var matches = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        for var i: usize = 0; i < ms.size(); ++i {
+            var unsafe *m = ms[i]
+            if m->generic_params.size() != s->spec_args.size() || m->generic_params.size() == 0 {
+                continue
+            }
+
+            var ys = cxx::std::vector<unsafe *Type>()
+            var ok = true
+            for var j: usize = 0; j < s->spec_args.size(); ++j {
+                var unsafe *a = s->spec_args[j]
+                if a == &null || a->canonical == &null || a->canonical->is_dependent() {
+                    ok = false
+                    break
+                }
+
+                ys.push_back(a->canonical)
+            }
+
+            if ok && self._member_sig_matches(cls, m, s, &xs, &ys) {
+                matches.push_back(m)
+            }
+        }
+
+        if matches.size() != 1 {
+            var what = if (matches.empty()) => ("matches no generic method of its class")
+                       else => "matches more than one generic method of its class"
+            var b = self.sc->diag->report(
+                DiagID::SC330E,
+                s->range.start,
+                f"explicit specialization of '{name}' {what}: its generic arguments and signature must be the method's with those arguments substituted",
+            )
+
+            b.first(s->name.range)
+            var cands = if (matches.empty()) => (&ms) else => (&matches)
+            for var i: usize = 0; i < cands->size(); ++i {
+                b.note(
+                    DiagCode(DiagID::SC330N),
+                    (*cands)[i]->range.start,
+                    "primary template is here",
+                )->child_first((*cands)[i]->name.range)
+            }
+
+            b.emit()
+            s->poison()
+            return
+        }
+
+        var unsafe *m  = matches[0]
+        var        why = self._member_spec_refused(cls, m, ext)
+        if why.size() > 0 {
+            self._member_refuse(s, name, why)
+            return
+        }
+
+        s->member_spec_of = m
+        decl_set_instantiated_from(
+            unsafe (s as unsafe *Decl),
+            unsafe (m as unsafe *Decl),
+        )
+
+        self.sc->instances->register_fn_spec(
+            unsafe (m as unsafe *Decl),
+            unsafe (s as unsafe *Decl),
+        )
+    }
+
+    /// An extension member of one instance of a generic class (`extend
+    /// G<u8> { fn <U> m(self) ... }`) with a class method's name and, at
+    /// that instance, its signature: it replaces the method's body for that
+    /// instance, for every argument list of the method's own parameters.
+    /// One that does not match stays an ordinary extension member.
+    priv fn _pair_instance_member(self, f: unsafe *Declarations::FunctionDecl) {
+        var unsafe *cls = self._member_owner(f)
+        var unsafe *rt  = self._mo_rt
+        if cls == &null || decl_generic_params(cls).size() == 0 {
+            return
+        }
+
+        var unsafe *ext  = decl_extension_of(unsafe (f as unsafe *Decl))
+        var        xs    = cxx::std::vector<unsafe *Type>()
+        var        fixed = false
+        if !self._member_target_args(cls, rt, ext, &xs, &fixed) || !fixed {
+            return
+        }
+
+        var ms = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        self._class_methods_named(cls, f, &ms)
+        var unsafe *fr = NameLookup::representative(unsafe (f as unsafe *Decl))
+        for var i: usize = 0; i < ms.size(); ++i {
+            var unsafe *m = ms[i]
+            if m->generic_params.size() != f->generic_params.size() {
+                continue
+            }
+
+            var ys = cxx::std::vector<unsafe *Type>()
+            for var j: usize = 0; j < f->generic_params.size(); ++j {
+                ys.push_back(self.sc->types->generic_param(fr, j as u32, false))
+            }
+
+            if !self._member_sig_matches(cls, m, f, &xs, &ys) {
+                continue
+            }
+
+            var tu  = TypeUtil(self.sc)
+            var why = self._member_spec_refused(cls, m, ext)
+            if why.size() > 0 {
+                self._member_refuse(
+                    f,
+                    tu.decl_name(unsafe (f as unsafe *Decl)),
+                    why,
+                )
+
+                return
+            }
+
+            for var j: usize = 0; j < f->generic_params.size(); ++j {
+                var unsafe *gp = f->generic_params[j]
+                if gp == &null || gp->is_pack || gp->is_const_param {
+                    self._member_refuse(
+                        f,
+                        tu.decl_name(unsafe (f as unsafe *Decl)),
+                        "of a method with a pack or value parameter",
+                    )
+
+                    return
+                }
+            }
+
+            f->member_spec_of = m
+            self.sc->instances->register_fn_spec(
+                unsafe (m as unsafe *Decl),
+                unsafe (f as unsafe *Decl),
+            )
+
+            return
         }
     }
 

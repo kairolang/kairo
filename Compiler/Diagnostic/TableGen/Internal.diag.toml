@@ -297,3 +297,30 @@ group = "internal"
     nothing in the source is at fault. please file a bug report with the source that triggered it;
     writing the binding's type explicitly works around it.
     """
+
+[I012]
+brief = "clang resolved a call to a different declaration than Kairo's Sema chose"
+group = "internal"
+
+    [I012.W]
+    explain = """
+    # sema agreement: the two compilers chose different callees
+
+    kairo resolves every call itself (overloads, specializations, constraints) and hands clang code in
+    which the choice is already made; clang only lowers it. after clang has type-checked a translation
+    unit, the sema agreement pass compares the declaration clang bound each call to with the one
+    kairo chose. they differed here, so one of the two is wrong: either codegen left clang a choice it
+    should have spelled out, or kairo's overload resolution ranked the candidates wrongly. this is a
+    bug in the compiler, not in the program.
+
+    compilation continues. where the declaration kairo chose has the same function type and kind as
+    the one clang picked, the call is re-pointed to kairo's choice and the note says so; otherwise the
+    call is left as clang resolved it. `-fno-sema-agreement-repair` reports without changing anything,
+    and `-fno-sema-agreement` turns the pass off.
+
+    ## how to fix
+
+    nothing in the source is at fault. please file a bug report with the source that triggered it. the
+    message names both declarations; calling the intended one through a differently named wrapper
+    works around it.
+    """

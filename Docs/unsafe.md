@@ -49,6 +49,8 @@ fn main() {
 }
 ```
 
+An [`inline "asm"`](/docs/language/c-cpp/) block is also only allowed inside an `unsafe` block or an unsafe function; anywhere else it is an error (SC296E) with a fix-it that wraps it.
+
 ### When unsafe blocks are NOT required
 
 Calling C/C++ functions that use safe parameter types does not require an `unsafe` block:

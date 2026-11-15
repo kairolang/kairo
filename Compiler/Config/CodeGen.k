@@ -134,6 +134,23 @@ pub class CodeGenOptions {
     pub var mcmodel:             string = ""
     pub var zero_call_used_regs: string = ""
 
+    /// # the Sema agreement pass (Compiler/Spec/SemaAgreement.md)
+
+    /// -fsema-agreement: after clang has type-checked a TU, its AST is
+    /// walked and each call's callee compared with the declaration Kairo
+    /// chose. On unless 0.
+    pub var sema_agreement: i32 = -1
+    /// -fsema-agreement-repair: a call clang bound differently is pointed
+    /// at Kairo's declaration where that is sound. On unless 0, which
+    /// reports only.
+    pub var sema_agreement_repair: i32 = -1
+    /// --test-sema-agreement-swap=<from>:<to>: the pass is told Kairo chose
+    /// the function named <to> for every call bound to one named <from>.
+    pub var test_sema_agreement_swap: string = ""
+    /// --test-sema-agreement-quiet: with -fsema-agreement not given, the
+    /// pass only counts, as it does in a release-built compiler.
+    pub var test_sema_agreement_quiet: bool = false
+
     /// # instrumentation feature toggles
 
     pub var f_coverage:         i32 = -1
@@ -289,6 +306,12 @@ pub class CodeGenOptions {
         o.auto_var_init        = args.get_string("trivial-auto-var-init")
         o.mcmodel              = args.get_string("mcmodel")
         o.zero_call_used_regs  = args.get_string("zero-call-used-regs")
+
+        /// ## the Sema agreement pass
+        o.sema_agreement        = args.get_feature("sema-agreement")
+        o.sema_agreement_repair = args.get_feature("sema-agreement-repair")
+        o.test_sema_agreement_swap = args.get_string("test-sema-agreement-swap")
+        o.test_sema_agreement_quiet = args.get_bool("test-sema-agreement-quiet")
 
         /// ## instrumentation feature toggles
         o.f_coverage         = args.get_feature("coverage")

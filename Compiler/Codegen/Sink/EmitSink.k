@@ -123,6 +123,18 @@ pub class EmitSink {
     /// Layout hint. TextSink breaks the line; TokenSink ignores it.
     virtual fn brk(self) { }
 
+    /// The token just written closes the call at \p at, which Sema bound to
+    /// the declaration written at \p decl and named by \p name. TokenSink
+    /// keeps it for the Sema agreement pass (Compiler/Spec/SemaAgreement.md);
+    /// a sink with no clang behind it has nothing to compare.
+    virtual fn agree_call(self, at: SourceRange, decl: SourceRange, name: SourceRange) { }
+    /// The declaration of the last agree_call is declared more than once:
+    /// \p name is the name token of another of its declarations.
+    virtual fn agree_alt(self, name: SourceRange) { }
+    /// Whether agree_call records: an emitter asks before it works out what
+    /// to say. Set by the owner of a sink that has clang behind it.
+    pub var agree_on: bool = false
+
     /// Tokens until the next unanchored(false) have no Kairo bytes of their
     /// own (the lowering helpers): TokenSink gives them arena locations, so
     /// they take none of the file's bytes from the tokens that do. TextSink

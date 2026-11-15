@@ -159,7 +159,13 @@ pub fn lexical_kind(t: Token, text: *const string, off: u32, len: u32, mods: *u3
         return TT_KEYWORD()
     }
 
-    if is_keyword(t.kind) || (t.kind == TokenKind::LitNull) {
+    // The literal words take the keyword type as `null` does, and `in` as
+    // `as` does; none of them is a library name, so no defaultLibrary.
+    if is_keyword(t.kind)
+        || (t.kind == TokenKind::LitNull)
+        || (t.kind == TokenKind::KwTrue)
+        || (t.kind == TokenKind::KwFalse)
+        || (t.kind == TokenKind::KwIn) {
         return TT_KEYWORD()
     }
 

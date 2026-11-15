@@ -4,6 +4,8 @@
 
 Use the **`kcc`** driver, which makes `#include "file.k"` work transparently in C++ translation units.
 
+`#include "file.k"` works only in a C++ source file compiled by `kcc`. A header that Kairo itself imports with `ffi import` (or any header it includes) cannot include a `.k` file: the include is skipped with error R070 and the rest of the header is still imported, so the header must declare what it needs itself.
+
 ```kairo
 // my_code.k
 import std::io
@@ -127,7 +129,7 @@ A module that defines nothing (only comments, or only [`pub import` re-exports](
 | `fn m(self)` inside `extend Vec2 { }` | static function `m(Vec2* self)` of the companion struct `geo::vec::__kairo_ext_Vec2` |
 | `x: i32`, `x: f64`, `x: usize` | `std::int32_t`, `double`, `std::size_t` |
 | `p: *T` | `T*` |
-| `x: T?` | `::builtin::Nullable<T>` (see [Nullables Across the Boundary](#nullables-across-the-boundary)) |
+| `x: T?` | `::builtin::Null<T>` (see [Nullables Across the Boundary](#nullables-across-the-boundary)) |
 | `null` | `::builtin::null` |
 | `@inout x: T`, `@move x: T` | `T&`, `T&&` |
 | `type Name = T` inside a class | `using Name = T;` member, under the same access level |
@@ -150,7 +152,7 @@ Every Kairo class, struct and ADT enum in C++-facing output carries class-scope 
 
 ### Generics
 
-Kairo [generics](/docs/language/generics/) are C++ templates in the header, bodies included. Instances Kairo already compiled are listed as `extern template`, so linking against the module's objects reuses them; any other instance is instantiated by your C++ compiler like any template. An `#include "file.k"` lists none: the C++ side instantiates every instance it uses, and the linker keeps one copy. A Kairo `impl` bound on a generic function or method is a C++ constraint: each interface is emitted as a C++ concept (`Shape` is `Shape_c`, in the interface's namespace), and the template carries `requires(Shape_c<T>)`, so a C++ call with a type that does not satisfy the bound is rejected at the call. A bound on a generic class or struct is not translated: the class template is unconstrained, and instantiating it with a type that does not satisfy the bound fails inside the member that needs it. Each instance Kairo compiled also carries a `static_assert` that its bounds hold.
+Kairo [generics](/docs/language/generics/) are C++ templates in the header, bodies included. Instances Kairo already compiled are listed as `extern template`, so linking against the module's objects reuses them; any other instance is instantiated by your C++ compiler like any template. An `#include "file.k"` lists none: the C++ side instantiates every instance it uses, and the linker keeps one copy. A Kairo `impl` bound on a generic function or method is a C++ constraint: each interface is emitted as a C++ concept (`Shape` is `Shape_c`, in the interface's namespace), and the template carries `requires(Shape_c<T>)`, so a C++ call with a type that does not satisfy the bound is rejected at the call. A bound on a generic class is not part of the class template's head, since C++ would check it where the class names itself while still incomplete. Instead each of its constructors asserts the bound, so making one with a type that does not implement the interface is a compile error naming the bound (`'Holder' requires 'T' to implement 'Named'`). A struct with no constructor of its own is not checked.
 
 ### Constructing enum variants from C++
 
@@ -198,11 +200,11 @@ The type is a **structural** function of its element types, not an ordinal. Two 
 
 ## Nullables Across the Boundary
 
-A Kairo [nullable](/docs/language/nullables/) `T?` is the C++ class template `::builtin::Nullable<T>`, and Kairo's `null` is the constant `::builtin::null`, the one value of the empty type `::builtin::null_t`. `Nullable<T>` has two constructors, one from `null_t` and one from `T`, so C++ code builds one the same way Kairo's implicit conversions do:
+A Kairo [nullable](/docs/language/nullables/) `T?` is the C++ class template `::builtin::Null<T>`, and Kairo's `null` is the constant `::builtin::null`, the one value of the empty type `::builtin::null_t`. `Null<T>` has two constructors, one from `null_t` and one from `T`, so C++ code builds one the same way Kairo's implicit conversions do:
 
 ```cpp
-::builtin::Nullable<int> a = ::builtin::null;   // Kairo: var a: i32? = null
-::builtin::Nullable<int> b = 5;                 // Kairo: var b: i32? = 5
+::builtin::Null<int> a = ::builtin::null;   // Kairo: var a: i32? = null
+::builtin::Null<int> b = 5;                 // Kairo: var b: i32? = 5
 ```
 
 The layout depends on `T`:
@@ -214,7 +216,7 @@ The layout depends on `T`:
 | `bool?` | two bytes, the `bool` and a presence flag; one byte, with `0x02` as null, is planned ([Status](/docs/status/#not-compiled-yet)) |
 | any other `T?` | the `T` and a presence flag |
 
-`(T?)?` is `Nullable<Nullable<T>>`.
+`(T?)?` is `Null<Null<T>>`.
 
 ---
 

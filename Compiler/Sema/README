@@ -17,22 +17,33 @@ Layout:
             binding, access checks
 - Type/     ExprTyper and its parts: calls, overload resolution, argument
             deduction, conversions, casts, literals, operators, patterns
-- Check/    semantic checks: class lifecycle, conformance, init / move /
-            const, control flow, returns, patterns, effects, layout
-- Verify/   structural checks after resolution (arm order, labels, loop
-            context, terminators, C++ names, module pins)
-- Expand/   macro expansion, eval, requires desugaring
-- Foreign/  C++ (ffi) decls in and out: header index, decl/type import,
-            foreign instantiation
+- Check/    semantic checks: class lifecycle, conformance, init / move,
+            control flow, returns, patterns, effects (ConstChecking.k and
+            LayoutPass.k are stubs)
+- Verify/   structural checks between expansion and name resolution (arm
+            order, labels, loop context, pattern bindings, C++ names,
+            module pins)
+- Expand/   eval-if folding, primitive-limit / alloc / requires desugaring
+            (MacroExpansion.k is a stub and is not scheduled)
+- Foreign/  C++ (ffi) decls in and out: header index, decl/type import
+            and export, foreign instantiation, the C++ body walk MoveCheck
+            asks whether a C++ function moves out of a reference parameter
+- Incremental/  incremental Sema (Compiler/Spec/IncrementalSema.md):
+            declaration identities, interface hashes and dependency rows
+            (Facts), the invalidation rules (Plan), taking re-checked files
+            out of the instantiation registry for a live check (Retract)
 - Lower/    one pass per construct lowered away (match, nullable, panic,
             finally, operators, iteration, yield, ...)
 
 ## Design notes
 
-- Import folding: imports become scoped forward declarations and callers
-  are rewritten to the right target (`alloc(1024)` -> `mem::alloc(1024)`).
-  Resolve/ImportResolution.k with AST/Context/ImportOverlay.k; this is what
-  lets the rest of Sema run per TU in parallel, up to mono.
+- Import folding: phase I folds each import's source symbol table into
+  the TU's import overlay (Resolve/ImportResolution.k,
+  AST/Context/ImportOverlay.k). After it the TU is self-contained: later
+  stages only read other TUs, and the only cross-TU writes go to the two
+  locked build-wide stores (canonical types, the instantiation registry).
+  That is what lets the fronts of import groups that do not import each
+  other run in parallel.
 - Class lifecycle: Check/ClassLifecycle.k decides copyable / movable /
   trivial / destructible per record.
 - Virtual destructor rule: a class deriving a POLYMORPHIC base (one with a
@@ -42,10 +53,10 @@ Layout:
   (also in ClassLifecycle.k). Without it, deleting a Derived through a Base
   runs only Base's destructor:
 
-    class Base    { fn op delete (self) { ... } }
-    class Derived derives Base { fn op delete (self) { ... } }
+    class Base    { fn op finally (self) { ... } }
+    class Derived derives Base { fn op finally (self) { ... } }
 
-  The fix is `virtual fn op delete` on Base and `override` on Derived.
+  The fix is `virtual fn op finally` on Base and `override` on Derived.
 - Value categories (lvalue / xvalue / prvalue): assigned inline by
   ExprTyper, since overload resolution needs them while the call is still
   being typed; Check/ValueCategoryPass.k only verifies none is left Unknown.
@@ -59,7 +70,6 @@ Layout:
 
 ## Open
 
-See Compiler/Spec/Pipeline.md#remaining-work. Notably: no
-conformance check at a generic's instantiation site yet, and calls through
-an interface bound that need an extension method wait on EmitWitness
-(Compiler/Spec/Witnesses.md).
+See Compiler/Spec/Pipeline.md#remaining-work. Notably: ConstChecking and
+LayoutPass are stubs and are not scheduled, MacroExpansion (E) is a stub,
+and ExtensionOrphanCheck does not exist.

@@ -982,6 +982,21 @@ pub class CXXSpell {
             return self._local_leaf(named, nm)
         }
 
+        // A member specialization is named apart from every other member of
+        // its scope struct, from the position of its own name: the same in
+        // every TU, and unique in its file.
+        if f != &null && f->member_spec_of != &null && self._cg->ctx->sm != &null {
+            var at = DeclFacts::decl_name_tok(d).range.start
+            if at.is_valid() {
+                var lc = self._cg->ctx->sm->get_line_col(at)
+                return LowerTargets::member_spec(
+                    nm,
+                    lc.line as u32,
+                    lc.column as u32,
+                )
+            }
+        }
+
         return nm
     }
 
@@ -4732,6 +4747,7 @@ pub class CXXSpell {
 
         return DeclFacts::decl_spec_kind(d) == Declarations::SpecKind::Explicit
             && DeclFacts::decl_instantiated_from(d) != &null
+            && cast<Declarations::FunctionDecl>(d)->member_spec_of == &null
     }
 
     /// Every paired specialization of generic function \p prim0, appended
@@ -4798,9 +4814,45 @@ pub class CXXSpell {
         var unsafe *dc = prim->semantic_dc
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
             CXXSpell::_fn_spec_in(*dc->dc_decls.get(i), prim, out)
+        }
 
-            if reg != &null {
-                reg->fn_specs_of(prim, out)
+        if reg == &null {
+            return
+        }
+
+        var all = cxx::std::vector<unsafe *Decl>()
+        reg->fn_specs_of(prim, unsafe &all)
+        for var i: usize = 0; i < all.size(); ++i {
+            if CXXSpell::is_fn_spec(all[i]) {
+                out->push_back(all[i])
+            }
+        }
+    }
+
+    /// An extension member that specializes a class-body method
+    /// (FunctionDecl::member_spec_of): an ordinary member of its extension's
+    /// scope struct, under a name of its own, which the method's own body
+    /// calls for the arguments it covers (EmitIR::_member_spec_dispatch).
+    static fn is_member_spec(d: unsafe *Decl) -> bool {
+        var unsafe *f = dyn_cast<Declarations::FunctionDecl>(d)
+        return f != &null && f->member_spec_of != &null
+    }
+
+    /// The member specializations of class method \p m0 the build knows
+    /// (InstantiationRegistry::register_fn_spec), in registration order.
+    static fn member_specs_of(m0:  unsafe *Decl,
+                              out: unsafe *cxx::std::vector<unsafe *Decl>,
+                              reg: unsafe *InstantiationRegistry) {
+        var unsafe *m = CXXSpell::rep(m0)
+        if m == &null || reg == &null {
+            return
+        }
+
+        var all = cxx::std::vector<unsafe *Decl>()
+        reg->fn_specs_of(m, unsafe &all)
+        for var i: usize = 0; i < all.size(); ++i {
+            if CXXSpell::is_member_spec(all[i]) && !all[i]->is_poisoned() {
+                out->push_back(all[i])
             }
         }
     }

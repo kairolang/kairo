@@ -193,11 +193,11 @@ fn <T> identity(x: T) -> T {
 Constrain type parameters with `impl` (interface conformance) or `derives` (class inheritance):
 
 ```kairo
-fn <T impl Comparable> max(a: T, b: T) -> T {
+fn <T impl Ord> max(a: T, b: T) -> T {
     return if a > b => a else => b
 }
 
-fn <T derives Serializable> serialize(value: T) -> [byte] {
+fn <T derives Serialize> serialize(value: T) -> [byte] {
     return value.to_bytes()
 }
 ```
@@ -311,7 +311,7 @@ append(&name, "!")
 fn sink(@move s: string) { /* ... */ }
 
 // Generic with bounds
-fn <T impl Printable> show(value: T) { std::io::println(value as string) }
+fn <T impl Print> show(value: T) { std::io::println(value as string) }
 
 // Variadic
 fn <...T> log(...args: T) { /* ... */ }

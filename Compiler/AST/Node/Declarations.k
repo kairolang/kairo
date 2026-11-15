@@ -744,6 +744,13 @@ pub class FunctionDecl
     /// binds a call to it, so every call site names the one function C++
     /// will see.
     pub var where_lead: unsafe *FunctionDecl = &null
+    /// An extension member that specializes a method of the class body
+    /// (Compiler/Spec/Generics.md#member-specializations): `fn <> m<i32>` in
+    /// an `extend <T> G<T>` (every instance, those arguments), the method
+    /// itself in an `extend G<u8>` (that instance, every argument list), or
+    /// both fixed. The method's representative; written by RedeclMerge. A
+    /// call never names it: the method's own C++ body dispatches to it.
+    pub var member_spec_of: unsafe *FunctionDecl = &null
     /// On a group's lead only: every member, in dispatch order, the lead
     /// included (WhereGuardCheck files them). The dispatcher's panic set is
     /// the union of theirs (Compiler/Spec/Panic.md#crashes-are-not-panics, where.mdx): EffectPropagation

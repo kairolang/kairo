@@ -67,6 +67,10 @@ pub class EmitOptions {
     /// initial-exec access only in its REX.W movq / addq form, and x32's is a
     /// REX-less movl, so CXXSpell::tls_model never picks initial-exec there.
     pub var x32: bool = false
+    /// --test-sema-agreement-swap, split at its colon; both "" when not
+    /// given (EmitIR::_agree).
+    pub var agree_swap_from: string = ""
+    pub var agree_swap_to:   string = ""
 
     fn EmitOptions(self) { }
 }
@@ -121,6 +125,18 @@ pub class CodegenContext {
             self.opts.tls_model           = ctx->ci->codegen.tls_model
             var tt = ctx->ci->target.effective_triple
             self.opts.x32 = tt.starts_with("x86_64") && tt.ends_with("x32")
+            var sw = ctx->ci->codegen.test_sema_agreement_swap
+            for var i: usize = 0; i < sw.size(); ++i {
+                if sw[i] == (':' as u8) {
+                    self.opts.agree_swap_from = sw.subslice(0, i)
+                    self.opts.agree_swap_to = sw.subslice(
+                        i + 1,
+                        sw.size() - i - 1,
+                    )
+
+                    break
+                }
+            }
         }
     }
 

@@ -39,6 +39,8 @@ std::io::println(#type)
 
 ---
 
+The names of the primitive types (`i32`, `u8`, `bool`, `char`, ...) always denote the types and cannot name a declaration (SC331E). Write `#u8` for a plain name.
+
 ## Naming Conventions
 
 Kairo recommends the following conventions. They are not enforced as hard errors, but the compiler emits readability warnings when they are not followed.

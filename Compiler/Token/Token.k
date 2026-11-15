@@ -108,15 +108,15 @@ pub class Token { // size=16B, align=4
         self.imm = value
     }
 
-    fn op == (self, kinds: cxx::std::set<TokenKind>) -> bool {
+    fn op == (self, const kinds: cxx::std::set<TokenKind>) -> bool {
         return kinds.contains(self.kind)
     }
 
-    fn op != (self, kinds: cxx::std::set<TokenKind>) -> bool {
+    fn op != (self, const kinds: cxx::std::set<TokenKind>) -> bool {
         return !kinds.contains(self.kind)
     }
 
-    fn op == (self, kinds: cxx::std::vector<TokenKind>) -> bool {
+    fn op == (self, const kinds: cxx::std::vector<TokenKind>) -> bool {
         for kind in kinds {
             if self.kind == kind {
                 return true
@@ -126,7 +126,7 @@ pub class Token { // size=16B, align=4
         return false
     }
 
-    fn op != (self, kinds: cxx::std::vector<TokenKind>) -> bool {
+    fn op != (self, const kinds: cxx::std::vector<TokenKind>) -> bool {
         return !(self == kinds)
     }
 

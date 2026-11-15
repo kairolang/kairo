@@ -103,6 +103,22 @@ pub struct HeldByte {
     var len:    u32
 }
 
+/// One call Sema bound to a declaration (EmitSink::agree_call): the index
+/// of the token that closes it, and the Kairo ranges of the call, of the
+/// declaration and of its name.
+pub struct AgreeSite {
+    pub var tok:  u32
+    pub var at:   SourceRange
+    pub var decl: SourceRange
+    pub var name: SourceRange
+}
+
+/// A redeclaration of site \p site's declaration (EmitSink::agree_alt).
+pub struct AgreeAlt {
+    pub var site: u32
+    pub var name: SourceRange
+}
+
 pub class TokenSink derives EmitSink {
     priv var _pp:     unsafe *clang::Preprocessor
     priv var _csm:    unsafe *clang::SourceManager
@@ -169,6 +185,10 @@ pub class TokenSink derives EmitSink {
     /// System headers the stream needs (system_header), for KairoInject to
     /// enter ahead of it: a token stream has no line for an #include.
     pub var system_headers: cxx::std::vector<string>
+    /// What agree_call recorded. A site names its token by index: a
+    /// token's location is final only after finish().
+    pub var agree_sites: cxx::std::vector<AgreeSite>
+    pub var agree_alts:  cxx::std::vector<AgreeAlt>
 
     fn TokenSink(self,
                  pp:     unsafe *clang::Preprocessor,
@@ -199,6 +219,50 @@ pub class TokenSink derives EmitSink {
         self._tokens.set_allocator(arena, 512)
         self._pending.set_allocator(arena, 64)
         self._arena_text.reserve(4096)
+    }
+
+    override fn agree_call(self, at: SourceRange, decl: SourceRange, name: SourceRange) {
+        if !self.agree_on || self._tokens.size() == 0 {
+            return
+        }
+
+        var s = AgreeSite{}
+        s.tok  = (self._tokens.size() - 1) as u32
+        s.at   = at
+        s.decl = decl
+        s.name = name
+        self.agree_sites.push_back(s)
+    }
+
+    override fn agree_alt(self, name: SourceRange) {
+        if !self.agree_on || self.agree_sites.size() == 0 {
+            return
+        }
+
+        var a = AgreeAlt{}
+        a.site = (self.agree_sites.size() - 1) as u32
+        a.name = name
+        self.agree_alts.push_back(a)
+    }
+
+    /// The raw clang location of token \p i. Final after finish().
+    pub fn token_raw_loc(self, i: usize) -> u32 {
+        return self._tokens.get(i)->getLocation().getRawEncoding()
+    }
+
+    /// The raw clang location of Kairo's \p loc, 0 when its file is not
+    /// registered with clang.
+    pub fn clang_raw_loc(self, loc: SourceLocation) -> u32 {
+        if !loc.is_valid() {
+            return 0
+        }
+
+        var c = self._locmap->to_clang(loc)
+        if c.isInvalid() {
+            return 0
+        }
+
+        return c.getRawEncoding()
     }
 
     /// # Conversions

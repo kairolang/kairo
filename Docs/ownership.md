@@ -135,7 +135,7 @@ To let a callee write to the caller's object, or to take ownership of a generic 
 For MOVE types, Tether detects when a value is passed to a function and never used again. In this case, the value is moved rather than requiring explicit annotation:
 
 ```kairo
-var m = Moveable()
+var m = UniqueFile()
 foo(m)          // m is moved Tether sees m is not referenced after this line
 // m is invalidated from here
 ```
@@ -394,9 +394,117 @@ a.handle               // ok: a is live again
 
 A moved-from binding can be reassigned. After reassignment, it is live again with the new value. But between the move and the reassignment, any access is a hard error.
 
+### Moving a part
+
+A move does not have to take a whole variable. Moving a field leaves that field moved-from and the rest of the value usable. Using the moved field, or the value as a whole, is an error until the field is assigned again. The same rule covers a field of `self` and a field reached through a pointer:
+
+```kairo
+class Pair {
+    pub var a: UniqueFile
+    pub var b: UniqueFile
+}
+
+var p = Pair()
+var x = p.a            // move: p.a is moved-from
+p.b.handle             // ok: p.b is untouched
+p.a.handle             // compile error: p.a has been moved
+consume(p)             // compile error: p is used while p.a is gone
+p.a = UniqueFile()     // ok: p is whole again
+
+fn take(q: *Pair) {
+    var y = q->a       // move: q->a is moved-from
+    q->b.handle        // ok
+    q->a.handle        // compile error: q->a has been moved
+}
+```
+
+Moving an element out of an array or a container leaves the whole container moved-from, because the compiler does not track which index was taken:
+
+```kairo
+var files: [UniqueFile; 2]
+var first = files[0]   // move: files is moved-from
+files[1].handle        // compile error: files is used after files[0] was moved out of it
+```
+
+To take one element and keep the rest, use a method of the container that leaves it valid.
+
+A function that returns while a part of `self`, of an `@inout` parameter or of what a parameter points at is still moved-from leaves that part moved-from in the caller's object. Nothing is written in the signature: the compiler reads it from the function's body.
+
+```kairo
+class Holder {
+    pub var p: Pair
+
+    fn take_a(self) -> UniqueFile { return self.p.a }   // leaves self.p.a moved-from
+
+    fn swap_a(self, f: UniqueFile) -> UniqueFile {
+        var old = self.p.a
+        self.p.a = f                                    // assigned again: leaves nothing
+        return old
+    }
+}
+
+var h = Holder()
+var a = h.take_a()     // h.p.a is moved-from
+h.p.b.handle           // ok
+h.p.a.handle           // compile error: h.p.a has been moved, by the call to take_a
+h.p.a = UniqueFile()   // ok: h is whole again
+```
+
+A function that moves its argument only on one outcome leaves it moved-from only on that outcome. Three outcomes are told apart: returning `true` or `false`, returning `null` or a value, and panicking or returning.
+
+```kairo
+fn push(self, @inout v: Task) -> bool {
+    if self.full() { return false }   // v untouched
+    self.slot = v                     // v moved
+    return true
+}
+
+if q.push(&t) {
+    // t is moved-from here
+} else {
+    t.run()                           // ok: push returned false, t is whole
+}
+
+while !q.push(&t) { wait() }          // t is whole in the body, moved-from after the loop
+```
+
+The caller sees the outcome when the call is itself the condition of an `if` or a loop, alone or under `!`, `&&`, `||`, `?`, `== null` or `!= null`, and in the `catch` arms of a `try` for a panic. A local initialised from the call (`var ok = q.push(&t)`) carries the outcome too: until it is tested `t` counts as moved, and a test of `ok` marks each branch as a test of the call would, as long as `ok` is not used any other way and `t` is not moved again in between. A function that returns the call's result (`return q.push(&v)`, or `return ok`) moves its argument on the same outcome. A part moved only when the function panics with one type is moved-from only in a `catch` arm that catches that type, or a bare `catch`. Anywhere else, such as a result passed to another function, the argument counts as moved.
+
+```kairo
+var ok = q.push(&t)
+if !ok { t.run() }                            // ok: push returned false
+try { give(&t) } catch e: Other { t.run() }   // ok: give moves t only when it panics with Full
+```
+
+A function declared in Kairo and implemented in C or C++ has no body to read, so the compiler assumes the worst: after the call, a move-only value it could have moved out of is moved-from. That is a non-const receiver, an `@inout` argument, and what a pointer to non-const points at. Declare the parameter `const`, or take a pointer to const, when the function only reads; declare it `@move` when the function takes the value. The error's note at the declaration says the same.
+
+```kairo
+fn native_fill(@inout h: Holder)        // implemented in C++
+fn native_len(const h: Holder) -> usize // implemented in C++
+
+var h = Holder()
+native_len(h)      // ok: const, h is untouched
+native_fill(&h)    // h is taken to be moved-from
+h.p.a.handle       // compile error: h is used after being moved
+h = Holder()       // ok again
+```
+
+> [!NOTE]
+> The compiler reads the body of the function that is called, wherever it is defined: a method declared in its class and defined out of line, or a function in another file, is read the same way. These are not looked into yet: a call through an interface, a virtual method, a function pointer or a stored closure; a user-defined operator; a call to a C or C++ function whose body the compiler cannot read (when it can, a move out of a `T&` or `T*` argument is seen: see [Calling C and C++](/docs/language/c-cpp-calling/#moves-out-of-a-t-or-t)); a field whose type is a generic parameter; and, of two files that import each other, the one checked first. A second pointer to the same object and indexing a raw pointer (`p[i]`) are not tracked.
+
 This is enforced by Tether in both debug and release builds, and it is a **static** determination, not a runtime check there is no runtime fallback for a moved-from access the way there is for an unprovable bounds access. A use-after-move is a logic error the compiler proves at compile time, not a safety property discharged at runtime; the compiler statically tracks which bindings are live and which have been moved.
 
 ---
+
+To move a value explicitly, call `std::move(x)` (`import std`). It takes `x` through a `@move` parameter, so `x` is moved-from afterwards, for every type, until it is assigned again. `std::copy(x)` returns a copy and leaves `x` untouched: it uses the type's `copy()` method if it declares one, otherwise its copy constructor, and is an error for a type with neither. A `const` binding cannot be passed to a `@move` parameter (SC301E), and a type that cannot be moved at all cannot be moved (SC051E):
+
+```kairo
+import std
+
+var a = UniqueFile()
+var b = std::move(a)   // a is moved-from
+a = UniqueFile()       // a is usable again
+```
 
 ## Summary
 
@@ -411,13 +519,13 @@ Escape and ownership violations resolve by *transforming the program* in debug (
 
 ```kairo
 // COPY: both sides live after transfer
-var a = Copyable()
+var a = Config()
 var b = a              // copy
 a.method()             // ok
 b.method()             // ok
 
 // MOVE: source invalidated after transfer
-var x = Moveable()
+var x = UniqueFile()
 var y = x              // move
 // x.method()          // compile error
 y.method()             // ok
@@ -430,7 +538,7 @@ var *q = &val
 std::io::println(*q)       // 100
 
 // Closure capture by value (default)
-var m = Moveable()
+var m = UniqueFile()
 var f = fn () { m.use() }
 // m is moved into f
 

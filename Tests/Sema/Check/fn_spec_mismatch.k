@@ -34,5 +34,5 @@ fn main() -> i32 { return 0 }
 // CHECK: fn_spec_mismatch.k:11:{{[0-9]+}}: note [SC330N]: primary template is here
 // CHECK: fn_spec_mismatch.k:15:{{[0-9]+}}: error [SC330E]: explicit specialization of 'v' matches no primary template
 // CHECK: fn_spec_mismatch.k:19:{{[0-9]+}}: error [R029E]: redefinition of 'd'
-// CHECK: fn_spec_mismatch.k:23:{{[0-9]+}}: error [SC116E]: an explicit specialization of 'm' inside a generic type or extension is not yet supported
+// CHECK: fn_spec_mismatch.k:23:{{[0-9]+}}: error [SC116E]: an explicit specialization of 'm' inside a generic type or extension is not supported; specialize a method of a generic class in an extension of it
 // CHECK-NOT: error

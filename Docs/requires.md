@@ -40,6 +40,12 @@ error: requires expression is not compile-time evaluable
 
 Multiple conditions are combined with boolean operators in a single expression:
 
+Kairo decides the clause for the arguments a declaration is used with: `T impl I` and `T derives B` are truth values and combine with `!`, `&&`, `||` and parentheses. A false clause is an error at the use (SC300E) naming the part that is false. Among overloads, one whose clause is false for the call is not a candidate, so `requires T impl I` and `requires !(T impl I)` never tie; a clause that cannot be decided (an `eval fn`, the `sizeof` of a struct) is checked by the C++ compiler.
+
+### Choosing among overloads
+
+Among overloads, one whose clause is false is not a candidate. Of the rest, a more constrained one beats a less constrained one, as in C++: a clause (or an inline bound) beats none, `requires T impl A && T impl B` beats `requires T impl A`, and `requires T impl A` beats `requires T impl A || T impl B`. Clauses that do not include one another (`T impl A`, `T impl B`), clauses Kairo cannot decide (the `sizeof` of a class), a `derives` test, and a negation written in two places are not ordered: the call is ambiguous. In a generic body the bounds decide: `fn <T impl Loud> relay(x: T) = say(x)` calls the `say` whose clause the bound makes true; candidates the bounds do not tell apart are an error at the definition (SC320E) naming the bound that selects each.
+
 ```kairo
 fn safe_index(arr: [i32], i: i32) -> i32
   requires i >= 0 && i < arr.length() {
@@ -59,7 +65,7 @@ Any expression the compiler can evaluate statically is valid in a `requires` cla
 | `alignof T` | `requires alignof T >= 16` |
 | Arithmetic and comparisons | `requires N > 0 && N <= 1024` |
 | `eval` variables and functions | `requires is_power_of_two(N)` |
-| Type trait checks | `requires T impl Comparable` |
+| Type trait checks | `requires T impl Ord` |
 | `typeof` queries | `requires typeof T == i32` |
 
 If the expression depends on a runtime value, it belongs in a `where` clause, not `requires`.
@@ -72,8 +78,8 @@ If the expression depends on a runtime value, it belongs in a `where` clause, no
 
 ```kairo
 // These are equivalent:
-fn <T impl Serializable> save(data: T) { ... }
-fn <T> save(data: T) requires T impl Serializable { ... }
+fn <T impl Serialize> save(data: T) { ... }
+fn <T> save(data: T) requires T impl Serialize { ... }
 ```
 
 Either way, the bounds are all a generic body can rely on. The body is checked once, where it is defined, against its bounds, never per instantiation. Calling a method no bound declares is a compile error in the generic itself, even if every type it is ever instantiated with happens to have that method. See [Type parameter constraints](/docs/language/generics/#type-parameter-constraints) and [Generic Bodies](/docs/language/interfaces/#generic-bodies).
@@ -82,7 +88,7 @@ The `requires` form is preferred when constraints are long or involve relationsh
 
 ```kairo
 fn <T, U> convert(input: T) -> U
-  requires T impl Serializable && U impl Deserializable {
+  requires T impl Serialize && U impl Deserialize {
     var bytes = input.serialize()
     return U::from_bytes(bytes)
 }
@@ -117,6 +123,8 @@ enum <T> Compact
 
 Type-level constraints are always `requires`. There is no runtime dispatch on type instantiation either the type is valid or it isn't.
 
+A member's `requires P impl I` gives its body `I`'s members on `P`; the member exists only on instances that meet it, and calling it on another instance is an error (SC153E).
+
 ### Partial specializations selected by `requires`
 
 A partial specialization may carry a `requires` clause: it is chosen for an instantiation only when its pattern matches and its clause holds there. Its pattern can be the type's own parameters:
@@ -126,6 +134,8 @@ struct <T> Store { var value: T }
 struct <P> Store<P> requires sizeof P <= 8 { var small: P }   // Store<i32> is this one
 struct <P> Store<*P> requires sizeof P >= 8 { var wide: *P }  // Store<*i64> is this one
 ```
+
+A pattern argument can be qualified: `class <P> V<const P>` is chosen for `V<const i32>` with `P = i32`, and is more specialized than `V<P>`; `V<*const P>` is more specialized than `V<*P>`.
 
 The more specialized pattern wins first (`Store<*P>` over `Store<P>`); between two equal patterns, one with a clause wins over one without, and two with clauses that both hold are ambiguous (an error). The clause is decided at compile time from literals, `sizeof` and `alignof` of builtin types, pointers and arrays of them, arithmetic and comparisons. A clause the compiler cannot decide for an instantiation (the `sizeof` of a struct, an `eval` function) is an error where that instantiation is used, and a conformance (`requires P impl I`) in a partial's clause is not supported yet.
 
@@ -163,7 +173,7 @@ Because interfaces are zero-cost structural contracts, `requires` is the only va
 A `requires` clause on an interface declaration constrains which types can conform. A type that does not satisfy the `requires` cannot implement the interface, even if it has all the required methods:
 
 ```kairo
-interface <T> SmallStorable
+interface <T> SmallStore
   requires sizeof T <= 64 {
     fn store(self) -> [byte]
     fn load(data: [byte]) -> T
@@ -233,7 +243,7 @@ fn <T> stack_alloc() -> T
 
 // Type constraint in requires clause
 fn <T, U> transform(input: T) -> U
-  requires T impl Readable && U impl Writable {
+  requires T impl Read && U impl Write {
     // ...
 }
 
