@@ -210,15 +210,29 @@ pub class <K impl Hash, V> HashMap {
         unsafe { return Slice<MapEntry<K, V>>(self.entry_array() as *MapEntry<K, V>, self.len) }
     }
 
-    /// Iterates `(key, value)` pairs in insertion order: `for (k, v) in m`. Each pair is a copy.
-    pub fn op in (const self) -> yield (K, V) {
+    /// Iterates the entries in insertion order: `for (k, v) in m` copies the key and the value;
+    /// `for (k, *v) in m` binds a pointer to the stored value, so `*v = x` writes the map. A key
+    /// is never written through iteration. Do not insert or erase while iterating.
+    pub fn op in (self) -> yield (*const K, *V) {
         var i: usize = 0
         while i < self.len {
             unsafe {
                 var unsafe *e = self.entry_array() + i
-                // Named first: a prvalue tuple does not bind the promise's
-                // yield_value (CL001E, a non-const lvalue reference).
-                var kv = (e->key, e->value)
+                var kv = (&e->key as *const K, &e->value)
+                yield kv
+            }
+            i += 1
+        }
+    }
+
+    /// Iterates the entries of a const map in insertion order: `for (k, v) in m` copies;
+    /// `for (const *k, const *v) in m` binds read-only pointers to the stored key and value.
+    pub fn op in (const self) -> yield (*const K, *const V) {
+        var i: usize = 0
+        while i < self.len {
+            unsafe {
+                var unsafe *e = self.entry_array() + i
+                var kv = (&e->key as *const K, &e->value as *const V)
                 yield kv
             }
             i += 1

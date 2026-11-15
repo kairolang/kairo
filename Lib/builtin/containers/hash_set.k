@@ -139,13 +139,14 @@ pub class <T impl Hash> HashSet {
         unsafe { return Slice<T>(self.item_array() as *T, self.len) }
     }
 
-    /// Iterates the elements in insertion order: `for x in s`. Each element is a copy.
-    pub fn op in (const self) -> yield T {
+    /// Iterates the elements in insertion order: `for x in s` (a copy) or `for const *x in s`
+    /// (a read-only pointer to the element). An element is never written in place: it is a key.
+    pub fn op in (const self) -> yield *const T {
         var i: usize = 0
         while i < self.len {
             unsafe {
                 var unsafe *p = self.item_array() + i
-                yield *p
+                yield p as *const T
             }
             i += 1
         }

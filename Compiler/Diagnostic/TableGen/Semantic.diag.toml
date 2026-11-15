@@ -6214,8 +6214,8 @@ group = "control-flow"
     pointer to each element, make `op in` yield one:
     `fn op in (self) -> yield *i32 { for *x in self.xs { yield x } }`.
 
-    The builtin containers (`[T]`, `{T}`, `{K: V}`) keep `for *x` over
-    their `-> yield T`.
+    The builtin containers yield pointers: `[T]` and `{T}` `*T` (`*const T`
+    through a const one or a set), `{K: V}` `(*const K, *V)`.
     """
 
     [SC298.N]

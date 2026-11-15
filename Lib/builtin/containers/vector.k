@@ -212,12 +212,23 @@ pub class <T> Vector {
 
     /// Iterates the elements in order: `for x in v` / `for *x in v`.
     ///
-    /// `for x in v` binds each element as a value; `for *x in v` binds a pointer to the element
+    /// `for x in v` binds a copy of each element; `for *x in v` binds a pointer to the element
     /// itself, so it can be modified. Do not grow or erase while iterating.
-    pub fn op in (const self) -> yield T {
+    pub fn op in (self) -> yield *T {
         var i: usize = 0
         while i < self.len {
-            yield self.buf[i]
+            yield &self.buf[i]
+            i += 1
+        }
+    }
+
+    /// Iterates the elements of a const vector in order: `for x in v` / `for const *x in v`.
+    ///
+    /// `for const *x in v` binds a read-only pointer to the element, with no copy.
+    pub fn op in (const self) -> yield *const T {
+        var i: usize = 0
+        while i < self.len {
+            yield &self.buf[i]
             i += 1
         }
     }
