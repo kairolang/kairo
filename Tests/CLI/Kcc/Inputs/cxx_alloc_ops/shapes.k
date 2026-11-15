@@ -8,21 +8,21 @@ static last_size: usize = 0
 static last_align: usize = 0
 
 pub class Counting {
-    static fn alloc(size: usize, align: usize) -> unsafe *u8 {
+    pub static fn alloc(size: usize, align: usize) -> unsafe *u8 {
         allocs += 1
         last_size = size
         last_align = align
         return System::alloc(size, align)
     }
-    static fn free(ptr: unsafe *u8, size: usize, align: usize) {
+    pub static fn free(ptr: unsafe *u8, size: usize, align: usize) {
         frees += 1
         last_size = size
         last_align = align
         System::free(ptr, size, align)
     }
-    static fn resize(ptr: unsafe *u8, o: usize, nn: usize, align: usize) -> bool { return System::resize(ptr, o, nn, align) }
-    static fn realloc(ptr: unsafe *u8, o: usize, nn: usize, align: usize) -> unsafe *u8 { return realloc_by_copy<Counting>(ptr, o, nn, align) }
-    static fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 { return System::alloc_zeroed(size, align) }
+    pub static fn resize(ptr: unsafe *u8, o: usize, nn: usize, align: usize) -> bool { return System::resize(ptr, o, nn, align) }
+    pub static fn realloc(ptr: unsafe *u8, o: usize, nn: usize, align: usize) -> unsafe *u8 { return realloc_by_copy<Counting>(ptr, o, nn, align) }
+    pub static fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 { return System::alloc_zeroed(size, align) }
 }
 
 @set_global_allocator(Counting)

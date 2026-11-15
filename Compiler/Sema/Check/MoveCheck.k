@@ -193,8 +193,9 @@ pub class MovedPart {
     /// `path` step by step: the field per `.field`, null per pointer followed.
     pub var segs: cxx::std::vector<unsafe *Decl>
     /// Moved by a call: where the callee's body moves it.
-    pub var has_via: bool        = false
-    pub var via:     SourceRange
+    pub var has_via:  bool        = false
+    pub var via:      SourceRange
+    pub var via_text: string      = ""    ///< the note at `via`; empty for the callee's move.
     fn MovedPart(self) { }
 }
 
@@ -939,9 +940,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// definition Kairo can read (implemented in C or C++). What cannot be
     /// read is taken at its worst: every argument the body could move out
     /// of is moved-from after the call -- a non-const receiver, an `@inout`
-    /// argument, what a pointer to non-const points at. A function imported
-    /// from a header is C++'s to describe (it moves only through `T&&`),
-    /// and an interface method is called through its conformers.
+    /// argument, what a pointer to non-const points at. The note at the
+    /// declaration says how to state what the function does: `@move` when
+    /// it takes the value, `const` when it only reads. A function imported
+    /// from a header is C++'s to describe (a `T&` parameter borrows, a
+    /// `T&&` moves), and an interface method is called through its
+    /// conformers.
     priv fn _call_unseen(self,
                          n:        unsafe *Expressions::CallExpr,
                          f:        unsafe *FunctionDecl,
@@ -964,7 +968,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         var name = self._tu.decl_name(f)
-        var how  = f"by the call to '{name}', which has no body to read and is taken to move it"
+        var how  = f"by the call to '{name}', whose body cannot be read and is taken to move it"
         if f->is_method() && self._callee_binds_receiver(n->callee) {
             var const_self = false
             for var i: usize = 0; i < f->params.size(); ++i {
@@ -979,7 +983,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 && pl.rest == 1
                 && !pl.opaque
                 && self._may_be_moved(self._receiver_type(n->callee)) {
-                self._mark_place(pl, n->range, how)
+                self._mark_place(pl, n->range, how, f)
             }
         }
 
@@ -1031,7 +1035,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 continue
             }
 
-            self._mark_place(pl, n->range, how)
+            self._mark_place(pl, n->range, how, f)
         }
     }
 
@@ -1067,15 +1071,26 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return t
     }
 
-    /// \p pl becomes moved-from at \p at.
-    priv fn _mark_place(self, const pl: MovePlace, at: SourceRange, const how: string) {
+    /// \p pl becomes moved-from at \p at, by a call to \p f, whose body
+    /// cannot be read: the note at the declaration says how to state what
+    /// it does.
+    priv fn _mark_place(self,
+                        const pl:  MovePlace,
+                        at:        SourceRange,
+                        const how: string,
+                        f:         unsafe *FunctionDecl) {
         var mp = MovedPart()
-        mp.d     = pl.d
-        mp.path  = pl.path
-        mp.shown = pl.shown
-        mp.segs  = pl.segs
-        mp.at    = at
-        mp.how   = how
+        mp.d       = pl.d
+        mp.path    = pl.path
+        mp.shown   = pl.shown
+        mp.segs    = pl.segs
+        mp.at      = at
+        mp.how     = how
+        mp.has_via = true
+        mp.via     = f->range
+        var mv = LangAttrs::param_move()
+        mp.via_text = f"declared here with no body: write the parameter as '{mv}' if the function takes the value, or 'const' (a pointer to const) if it only reads it"
+
         self._st.mark(mp)
     }
 
@@ -3317,7 +3332,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         if mp.has_via {
             b.note(
                 mp.via.start,
-                "it is moved here, and not assigned again before the body returns",
+                if (mp.via_text.size() > 0) => (mp.via_text)
+                else => "it is moved here, and not assigned again before the body returns",
             )->child_first(mp.via)
         }
 

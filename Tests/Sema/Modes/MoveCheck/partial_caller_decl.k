@@ -39,7 +39,7 @@ fn out_of_line() -> i32 {
     return h.a.n
 // DIAG: partial_caller_decl.k:[[@LINE-1]]:12: error [SC052E]: 'h.a' is used after being moved
 // DIAG: partial_caller_decl.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: 'h.a' was moved here, by the call to 'take_a'
-// DIAG: partial_caller_decl.k:[[@LINE+57]]:41: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
+// DIAG: partial_caller_decl.k:[[@LINE+60]]:41: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
 }
 
 // 2.
@@ -49,7 +49,7 @@ fn declared_first() -> i32 {
     return h.b.n
 // DIAG: partial_caller_decl.k:[[@LINE-1]]:12: error [SC052E]: 'h.b' is used after being moved
 // DIAG: partial_caller_decl.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: 'h.b' was moved here, by the call to 'drain'
-// DIAG: partial_caller_decl.k:[[@LINE+48]]:44: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
+// DIAG: partial_caller_decl.k:[[@LINE+51]]:44: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
 }
 
 // 3.
@@ -58,7 +58,8 @@ fn no_body_receiver() -> i32 {
     var n = h.native_take()
     return n + h.a.n
 // DIAG: partial_caller_decl.k:[[@LINE-1]]:16: error [SC052E]: 'h' is used after being moved
-// DIAG: partial_caller_decl.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: 'h' was moved here, by the call to 'native_take', which has no body to read and is taken to move it
+// DIAG: partial_caller_decl.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: 'h' was moved here, by the call to 'native_take', whose body cannot be read and is taken to move it
+// DIAG: partial_caller_decl.k:[[@LINE-37]]:9: note [{{[A-Z0-9]+}}]: declared here with no body: write the parameter as 'move' if the function takes the value, or 'const' (a pointer to const) if it only reads it
 }
 
 fn no_body_inout() -> i32 {
@@ -66,14 +67,16 @@ fn no_body_inout() -> i32 {
     var n = native_inout(&h)
     return n + h.a.n
 // DIAG: partial_caller_decl.k:[[@LINE-1]]:16: error [SC052E]: 'h' is used after being moved
-// DIAG: partial_caller_decl.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: 'h' was moved here, by the call to 'native_inout', which has no body to read and is taken to move it
+// DIAG: partial_caller_decl.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: 'h' was moved here, by the call to 'native_inout', whose body cannot be read and is taken to move it
+// DIAG: partial_caller_decl.k:[[@LINE-41]]:1: note [{{[A-Z0-9]+}}]: declared here with no body: write the parameter as 'move' if the function takes the value, or 'const' (a pointer to const) if it only reads it
 }
 
 fn no_body_pointer(q: *Holder) -> i32 {
     var n = native_ptr(q)
     return n + q->a.n
 // DIAG: partial_caller_decl.k:[[@LINE-1]]:16: error [SC052E]: '*q' is used after being moved
-// DIAG: partial_caller_decl.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: '*q' was moved here, by the call to 'native_ptr', which has no body to read and is taken to move it
+// DIAG: partial_caller_decl.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: '*q' was moved here, by the call to 'native_ptr', whose body cannot be read and is taken to move it
+// DIAG: partial_caller_decl.k:[[@LINE-48]]:1: note [{{[A-Z0-9]+}}]: declared here with no body: write the parameter as 'move' if the function takes the value, or 'const' (a pointer to const) if it only reads it
 }
 
 fn no_body_reassigned() -> i32 {

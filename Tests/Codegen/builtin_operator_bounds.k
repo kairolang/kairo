@@ -63,7 +63,7 @@ class Money {
 
     fn Money(self) { }
     fn Money(self, c: i32) { self.c = c }
-    fn op + (const self, const o: Money) -> Money { return Money(self.c + o.c) }
+    pub fn op + (const self, const o: Money) -> Money { return Money(self.c + o.c) }
 }
 
 fn main() -> i32 {
