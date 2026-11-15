@@ -13,15 +13,15 @@
 
 ffi "c++" import "set"
 
+/// C is not a category of its own: `.c` is a CxxSource and `.h` a
+/// CxxHeader. Import resolution looks up KairoSource only; the other
+/// categories decide only that a file is indexed.
 pub enum FileCategory {
-    KairoSource,  ///< .k files
+    KairoSource, ///< .k files
     KairoLibrary, ///< .hlib archives
-    CxxSource,    ///< .cpp, .cc, .cxx, .c++ files
-    CxxHeader,    ///< .hpp, .hh, .hxx, .h++, .h files
-    CSource,      ///< .c files
-    CHeader,      ///< .h files (also in CxxHeader, duplicated for C-only lookups)
-    Other,        ///< everything else we index
-    Ignored,      ///< files we don't index
+    CxxSource, ///< .cpp, .cc, .cxx, .c++, .C, .CPP, .c files
+    CxxHeader, ///< .hpp, .hh, .hxx, .h++, .h, .tpp, .txx, .t++ and their upper-case forms, and extensionless files
+    Ignored, ///< files we don't index
 }
 
 pub class FileExtensions {
@@ -89,64 +89,6 @@ pub class FileExtensions {
 
     fn should_index(self, const ext: string) -> bool {
         return self.categorize(ext) != FileCategory::Ignored
-    }
-
-    fn is_kairo_source(self, const ext: string) -> bool {
-        return self.contains(self._kairo_source, ext)
-    }
-
-    fn is_kairo_lib(self, const ext: string) -> bool {
-        return self.contains(self._kairo_lib, ext)
-    }
-
-    fn is_cxx_source(self, const ext: string) -> bool {
-        return self.contains(self._cxx_source, ext)
-    }
-
-    fn is_cxx_header(self, const ext: string) -> bool {
-        return self.contains(self._cxx_header, ext)
-    }
-
-    fn is_any_source(self, const ext: string) -> bool {
-        return self.is_kairo_source(ext) || self.is_cxx_source(ext)
-    }
-
-    fn is_any_header(self, const ext: string) -> bool {
-        return self.is_cxx_header(ext)
-    }
-
-    fn add_kairo_source(self, const ext: string) {
-        self._kairo_source.insert(ext)
-    }
-
-    fn add_kairo_lib(self, const ext: string) {
-        self._kairo_lib.insert(ext)
-    }
-
-    fn add_cxx_source(self, const ext: string) {
-        self._cxx_source.insert(ext)
-    }
-
-    fn add_cxx_header(self, const ext: string) {
-        self._cxx_header.insert(ext)
-    }
-
-    // Views, not copies: a getter returning the set by value copied up to
-    // four sets of strings per call. The set lives as long as this object.
-    fn kairo_source_exts(self) -> unsafe *cxx::std::set<string> {
-        return unsafe &self._kairo_source
-    }
-
-    fn kairo_lib_exts(self) -> unsafe *cxx::std::set<string> {
-        return unsafe &self._kairo_lib
-    }
-
-    fn cxx_source_exts(self) -> unsafe *cxx::std::set<string> {
-        return unsafe &self._cxx_source
-    }
-
-    fn cxx_header_exts(self) -> unsafe *cxx::std::set<string> {
-        return unsafe &self._cxx_header
     }
 
     // `const`: by reference. By value, every categorize() copied up to

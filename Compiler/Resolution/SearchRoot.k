@@ -17,8 +17,11 @@ ffi "c++" import "vector"
 import Memory::MappedFileBuffer::MappedFileBuffer
 import Resolution::DirEntry::DirEntry
 import Resolution::FileExtensions::FileExtensions
+import Support::Ascii::{
+    is_ident_char,
+    is_ident_start,
+}
 import Support::FileIO::Path::Path
-import Threading::ThreadPool::ThreadPool
 
 pub class SearchRoot {
     pub var base_path: Path
@@ -79,13 +82,6 @@ pub class SearchRoot {
         self.root->ext_cfg = ext_cfg
     }
 
-    /// \deprecated Does nothing: the tree is scanned lazily.
-    fn build_index(self, pool: *ThreadPool? = &null) {
-        // Lazy: nothing to walk. Root is stamped at construction; children are
-        // materialised on demand via DirEntry::probe_* / ensure_scanned.
-        // `pool` retained only for signature compatibility.
-    }
-
     // Move-only: the destructor destroys `root`, so a copy would destroy it
     // twice. The source is left with no root.
     @move fn SearchRoot(self, other: Self) {
@@ -104,49 +100,6 @@ pub class SearchRoot {
         if self.root != &null {
             kairo::std::destroy(self.root)
         }
-    }
-
-    /// The name as written, for dumps and diagnostics. `<entry>` for an
-    /// unnamed search dir (the cwd, an unpinned -I), so a reader never sees a
-    /// blank column.
-    fn name_str(self) -> string {
-        if self.name.size() == 0 {
-            return "<entry>"
-        }
-
-        var out = string()
-        for var i: usize = 0; i < self.name.size(); ++i {
-            if i > 0 {
-                out += "::"
-            }
-
-            out += self.name[i]
-        }
-
-        return out
-    }
-
-    fn traverse(self, const segments: cxx::std::vector<string>) -> unsafe *DirEntry {
-        var unsafe *current = self.root
-        for i in (0 as usize)..segments.size() {
-            var seg     = segments[i]
-            var is_last = i == segments.size() - 1
-            if is_last {
-                var unsafe *child = current->find_dir(seg)
-                if child != &null {
-                    return child
-                }
-
-                return current->find_by_stem(seg)
-            } else {
-                current = current->find_dir(seg)
-                if current == &null {
-                    return &null
-                }
-            }
-        }
-
-        return current
     }
 }
 
@@ -316,28 +269,14 @@ pub class ModulePinScanner {
         }
     }
 
-    fn is_ident_char(self, c: u8, first: bool) -> bool {
-        if c >= ('a' as u8) && c <= ('z' as u8)
-            || c >= ('A' as u8) && c <= ('Z' as u8)
-            || c == ('_' as u8) {
-            return true
-        }
-
-        if first {
-            return false
-        }
-
-        return c >= ('0' as u8) && c <= ('9' as u8)
-    }
-
     /// The identifier at the cursor, consumed, or "" with the cursor unmoved.
     fn ident(self) -> string {
         var out = string()
-        if !self.is_ident_char(self.at(self.i), true) {
+        if !is_ident_start(self.at(self.i)) {
             return out
         }
 
-        while self.i < self.n && self.is_ident_char(self.at(self.i), false) {
+        while self.i < self.n && is_ident_char(self.at(self.i)) {
             out.push_back((self.at(self.i)))
             self.i += 1
         }

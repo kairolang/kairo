@@ -11,53 +11,29 @@
 ///
 /// ------------------------------------------------------------------------ ///
 ///
-/// \file ImportResolver.k
-/// \brief module and file resolution subsystem for the kairo compiler frontend
+/// \file ImportProbe.k
+/// \brief module resolution for the kairo compiler frontend
 ///
-/// this file implements the import resolution machinery used during semantic
-/// analysis to map qualified import paths (e.g. `Include::FileSystem`)
-/// to concrete filesystem paths. the resolver maintains a priority-ordered
-/// list of search roots and builds a trie-based directory index for fast
-/// lookups.
-///
-/// the indexing operation can be performed asynchronously via a thread pool.
-/// callers must either check `is_index_ready()` or call `wait_for_index()`
-/// before invoking resolution methods. all resolution methods block on index
-/// completion internally, so external synchronization is not strictly
-/// required but may avoid unnecessary spinning.
-///
-/// \note the cache uses a simple string key and does not track filesystem
-///       modifications. call `invalidate_cache()` or `rebuild_all()` after
-///       external changes to the search paths.
-///
-/// \warning ambiguous module resolution (file and directory with same stem)
-///          returns `ResolveError::AmbiguousModule` even though a valid path
-///          is cached. this is intentional-callers should treat ambiguity as
-///          a diagnostic-worthy condition.
+/// Maps qualified import paths (e.g. `Include::FileSystem`) to files through
+/// a priority-ordered list of search roots. Each root's directory tree is
+/// probed lazily: one stat per segment looked up, and a full readdir only of
+/// the directories module discovery sweeps (DirEntry::ensure_scanned).
+/// The entry points that read or write the resolver's lazy state take its
+/// lock, so the preprocessor may resolve from several threads at once.
 ///
 ///-----------------------------------------------------------------------------
 
-// FIXME(permission-denied): filesystem::directory_iterator throws
-//      std::filesystem::filesystem_error when it hits an unreadable directory,
-//      which currently unwinds to std::terminate. SearchRoot::build_index needs
-//      a try/catch around each directory traversal step so partial indexing can
-//      continue on accessible siblings. Denied roots should be flagged with a
-//      `permission_denied` bool so resolution skips traversal but still returns
-//      ResolveError::PermissionDenied (not NotFound) when a lookup targets a
-//      denied root giving the preprocessor enough signal to emit a useful
-//      diagnostic rather than a silent "module not found".
-
-// FIXME(async-indexing): the resolver scans directories synchronously on the
-//      calling thread, on first need (DirEntry::ensure_scanned). The scan uses
-//      llvm::sys::fs, so nothing forces that any more and scanning on worker
-//      threads can be revisited.
+// FIXME(permission-denied): DirEntry::ensure_scanned ends a directory's scan
+//      at the first error, and DirEntry::probe_* treat an unreadable entry as
+//      absent, so an import into an unreadable directory reports "not found".
+//      A denied directory should be recorded so the import site can say the
+//      directory exists but cannot be read.
 
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
 ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "llvm/ADT/StringSet.h"
-ffi "c++" import "map"
 ffi "c++" import "set"
 ffi "c++" import "algorithm"
 ffi "c++" import "string"
@@ -74,21 +50,9 @@ import Resolution::SearchRoot::{
     root_names_equal,
     split_module_name,
 }
-import Support::Assert::Assert
 import Support::FileIO::FileSystem::FileType
 import Support::FileIO::Path::Path
 import Threading::ThreadPool::ThreadPool
-import std::io
-
-/// \enum ResolveError
-/// \brief error conditions returned by resolution methods
-pub enum ResolveError {
-    NotFound,         ///< no matching file or module found in any search root
-    AmbiguousModule,  ///< both a file and directory match the final segment
-    InvalidLibrary,   ///< reserved
-    PermissionDenied, ///< reserved
-    CyclicImport,     ///< reserved
-}
 
 /// \enum ModuleOrigin
 /// \brief which candidate set produced a module resolution.
@@ -206,22 +170,17 @@ pub class ModuleIdentityCollision {
 /// \brief resolves qualified module paths and file names against a set of
 ///        indexed search roots
 ///
-/// the resolver is constructed via the nested `Builder` class. once built,
-/// the index is populated either synchronously or via a thread pool. all
-/// resolution methods block until indexing completes.
+/// the resolver is constructed via the nested `Builder` class, which
+/// registers the search roots synchronously; their trees are probed lazily.
 ///
-/// ownership semantics:
-/// - search roots are heap-allocated and owned by this resolver
-/// - the `FileExtensions` config is optionally owned depending on whether
-///   one was provided at construction time
+/// ownership semantics: the search roots and the `FileExtensions` config
+/// are heap-allocated and owned by this resolver.
 ///
 /// \note the resolver uses raw pointers (`*T`) rather than managed handles.
 ///       ensure the resolver outlives any references to returned paths.
 pub class ImportResolver {
-    priv var _cache:        cxx::std::map<string, Path> ///< resolution cache keyed by "prefix:seg1::seg2::..."
-    priv var _roots:        cxx::std::vector<unsafe *SearchRoot> ///< priority-sorted search roots (index 0 = cwd)
-    priv var _ext_cfg:      unsafe *FileExtensions ///< file extension classification config
-    priv var _owns_ext_cfg: bool ///< true if destructor should free `_ext_cfg`
+    priv var _roots:   cxx::std::vector<unsafe *SearchRoot> ///< priority-sorted search roots (index 0 = cwd)
+    priv var _ext_cfg: unsafe *FileExtensions ///< file extension classification config; owned
 
     /// Transient roots for sibling-relative probing, keyed by absolute dir.
     /// Owned; built lazily (SearchRoot construction is a couple of stats, the
@@ -284,6 +243,13 @@ pub class ImportResolver {
     /// directories again and again.
     priv var _real_paths: llvm::StringMap<string>
 
+    /// One `-I`-style search directory as the Builder recorded it.
+    struct IncludeDir {
+        var path:     Path
+        var name:     cxx::std::vector<string> ///< explicit root name; empty = the dir's pin, else unnamed.
+        var spelling: cxx::std::vector<string> ///< what an import writes; empty = the name.
+    }
+
     /// \class Builder
     /// \brief fluent builder for constructing an `ImportResolver`
     ///
@@ -291,29 +257,17 @@ pub class ImportResolver {
     /// \code
     ///   var resolver = ImportResolver::Builder()
     ///       .cwd(my_cwd)
-    ///       .add_include(some_path)
-    ///       .extensions(&ext_cfg)
-    ///       .build(&pool);
+    ///       ->add_include(some_path)
+    ///       ->create_ptr()
     /// \endcode
-    ///
-    /// if `build()` is called with a non-null thread pool, indexing is
-    /// enqueued and returns immediately. otherwise indexing blocks.
     pub class Builder {
-        priv var _cwd:               Path?
-        priv var _include_paths:     cxx::std::vector<Path>
-        priv var _include_names:     cxx::std::vector<cxx::std::vector<string>> ///< parallel to _include_paths.
-        priv var _include_spellings: cxx::std::vector<cxx::std::vector<string>> ///< parallel; empty = the name.
-        priv var _ext_cfg:           unsafe *FileExtensions
-        priv var _pool:              *ThreadPool?
+        priv var _cwd:      Path?
+        priv var _includes: cxx::std::vector<ImportResolver::IncludeDir>
 
         /// \brief default constructor; initializes all fields to null/empty
         pub fn Builder(self) {
-            self._cwd           = null
-            self._include_paths = cxx::std::vector<Path>()
-            self._include_names = cxx::std::vector<cxx::std::vector<string>>()
-            self._include_spellings = cxx::std::vector<cxx::std::vector<string>>()
-            self._ext_cfg = &null
-            self._pool    = &null
+            self._cwd      = null
+            self._includes = cxx::std::vector<ImportResolver::IncludeDir>()
         }
 
         /// \brief sets the current working directory as the highest-priority search root
@@ -345,104 +299,43 @@ pub class ImportResolver {
                            const path:     Path,
                            const name:     string = "",
                            const spelling: string = "") -> unsafe *Self {
-            self._include_paths.push_back(path)
             // Empty stays empty: build_index tells an EXPLICIT name from
             // none by it, because only a nameless dir takes its pinned
             // module.k's name.
-            self._include_names.push_back(split_module_name(name))
-            self._include_spellings.push_back(split_module_name(spelling))
+            var inc = ImportResolver::IncludeDir{}
+            inc.path     = path
+            inc.name     = split_module_name(name)
+            inc.spelling = split_module_name(spelling)
+            self._includes.push_back(inc)
             return unsafe &self
         }
 
-        /// \brief appends multiple include paths to the search list
-        /// \param paths vector of directories to add
-        /// \return pointer to self for chaining
-        fn add_includes(self, paths: cxx::std::vector<Path>) -> unsafe *Self {
-            for *p in paths {
-                self.add_include(*p, "")
-            }
-
-            return unsafe &self
-        }
-
-        /// \brief sets the file extension configuration
-        /// \param cfg pointer to an existing config; if null, a default is created
-        /// \return pointer to self for chaining
-        fn extensions(self, cfg: unsafe *FileExtensions) -> unsafe *Self {
-            self._ext_cfg = cfg
-            return unsafe &self
-        }
-
-        /// \brief constructs the resolver and initiates indexing
-        /// \param pool optional thread pool for async indexing; if null, blocks until done
+        /// \brief constructs the resolver and registers its search roots, on
+        ///        the calling thread
+        /// \param pool unused: the roots' trees are probed lazily, on first
+        ///        lookup, so there is nothing to hand a worker
         /// \return heap-allocated resolver; caller assumes ownership
         pub fn create_ptr(self, pool: unsafe *ThreadPool = &null) -> unsafe *ImportResolver {
-            var cwd_path = self._cwd ?? Path::cwd()
-            var unsafe *resolver = kairo::std::create<ImportResolver>(
-                self._ext_cfg,
-            )
-
-            // Always index synchronously on the calling (main) thread. (The
-            // original reason, libcxx::filesystem throwing on worker threads,
-            // left with the move to llvm::sys::fs.) Async indexing bought nothing since
-            // CompilationBatch::run() calls wait_for_index() before dispatching
-            // any TU tasks - the spin was immediate and free-threaded for zero gain.
-            resolver->build_index(
-                cwd_path,
-                self._include_paths,
-                &null,
-                self._include_names,
-                self._include_spellings,
-            )
-
+            var        cwd_path  = self._cwd ?? Path::cwd()
+            var unsafe *resolver = kairo::std::create<ImportResolver>()
+            resolver->build_index(cwd_path, self._includes)
             return resolver
         }
     }
 
     /// \brief direct constructor; prefer using `Builder` instead
-    /// \param ext_cfg optional extension config; if null, a default is allocated and owned
     fn ImportResolver(self) {
-        var ext_cfg: unsafe *FileExtensions = &null
-        self._roots = cxx::std::vector<unsafe *SearchRoot>()
-        self._cache = cxx::std::map<string, Path>()
-
-        if ext_cfg != &null {
-            self._ext_cfg      = ext_cfg
-            self._owns_ext_cfg = false
-        } else {
-            self._ext_cfg      = kairo::std::create<FileExtensions>()
-            self._owns_ext_cfg = true
-        }
+        self._roots   = cxx::std::vector<unsafe *SearchRoot>()
+        self._ext_cfg = kairo::std::create<FileExtensions>()
     }
 
-    fn ImportResolver(self, ext_cfg: unsafe *FileExtensions) {
-        self._roots = cxx::std::vector<unsafe *SearchRoot>()
-        self._cache = cxx::std::map<string, Path>()
-
-        if ext_cfg != &null {
-            self._ext_cfg      = ext_cfg
-            self._owns_ext_cfg = false
-        } else {
-            self._ext_cfg      = kairo::std::create<FileExtensions>()
-            self._owns_ext_cfg = true
-        }
-    }
-
-    /// \brief builds the directory index for all search roots
+    /// \brief registers the search roots
     /// \param cwd the current working directory (priority 0)
-    /// \param include_paths additional include directories (priority 1+)
-    /// \param pool optional thread pool; currently unused in body but reserved for parallel indexing
-    fn build_index(
-        self,
-        cwd:                     Path,
-        const include_paths:     cxx::std::vector<Path>,
-        pool:                    *ThreadPool? = &null,
-        const include_names:     cxx::std::vector<cxx::std::vector<string>> = cxx::std::vector<cxx::std::vector<string>>(),
-        const include_spellings: cxx::std::vector<cxx::std::vector<string>> = cxx::std::vector<cxx::std::vector<string>>(),
-    ) {
+    /// \param includes additional include directories (priority 1+)
+    fn build_index(self, cwd: Path, const includes: cxx::std::vector<Self::IncludeDir>) {
         kairo::Logger::info(
             kairo::Logger::Stage::Preprocessor,
-            f"ImportResolver::build_index: cwd='{cwd.full_path()}' roots={include_paths.size() + 1}",
+            f"ImportResolver::build_index: cwd='{cwd.full_path()}' roots={includes.size() + 1}",
         )
 
         // Build the root list. Cheap: path checks only. SearchRoot's constructor
@@ -459,16 +352,14 @@ pub class ImportResolver {
         }
 
         var priority: u32 = 1
-        for var i: usize = 0; i < include_paths.size(); ++i {
-            var p = include_paths[i]
+        for var i: usize = 0; i < includes.size(); ++i {
+            var p = includes[i].path
             if !p.exists() || !p.is_directory() {
                 continue
             }
 
-            var nm = if (i < include_names.size()) => (include_names[i])
-                     else => cxx::std::vector<string>()
-            var sp = if (i < include_spellings.size()) => (include_spellings[i])
-                     else => cxx::std::vector<string>()
+            var nm = includes[i].name
+            var sp = includes[i].spelling
             if sp.size() == 0 {
                 sp = nm
             }
@@ -595,9 +486,6 @@ pub class ImportResolver {
             }
         }
 
-        // `pool` retained for signature compatibility; lazy resolution needs no
-        // worker dispatch. Resolution methods probe on demand; wait_for_index() is
-        // a no-op.
         kairo::Logger::info(
             kairo::Logger::Stage::Preprocessor,
             f"ImportResolver::build_index: registered roots={self._roots.size()}",
@@ -711,7 +599,7 @@ pub class ImportResolver {
         return pin
     }
 
-    /// \brief destructor; frees all owned search roots and optionally the extension config
+    /// \brief destructor; frees the owned search roots and the extension config
     fn op finally (self) {
         for var root: unsafe *SearchRoot in self._roots {
             if root != &null {
@@ -720,7 +608,6 @@ pub class ImportResolver {
         }
 
         self._roots.clear()
-        self._cache.clear()
 
         for var it = self._sibling_roots.begin(); it != self._sibling_roots.end(); ++it {
             if it->second != &null {
@@ -738,141 +625,13 @@ pub class ImportResolver {
 
         self._pinned_roots.clear()
 
-        if self._owns_ext_cfg && self._ext_cfg != &null {
+        if self._ext_cfg != &null {
             kairo::std::destroy(self._ext_cfg)
         }
     }
 
-    /// \brief returns the extension configuration in use
-    /// \return non-owning pointer to the extension config
-    fn extensions(self) -> unsafe *FileExtensions {
-        return self._ext_cfg
-    }
-
-    /// \brief spin-waits until indexing is complete
-    ///
-    /// uses `libcxx::this_thread::yield()` to avoid busy-waiting.
-    pub fn wait_for_index(self) {
-        // Lazy resolution: no index to wait on. Retained for API compatibility.
-    }
-
-    /// \brief checks whether indexing has finished
-    /// \return true if the index is ready for queries
-    fn is_index_ready(self) -> bool {
-        return true
-    }
-
-    /// \brief resolves a qualified module path to a filesystem path
-    /// \param segments path segments, e.g. ["Core", "Include", "FileSystem"]
-    /// \return the resolved path; panics a ResolveError when there is none
-    ///
-    /// resolution order:
-    /// 1. traverse directories matching segments[0..n-1]
-    /// 2. look for a file with stem matching segments[n-1] and category KairoSource
-    /// 3. if no file, look for a directory with that name containing `module.k`
-    ///
-    /// \note panics `AmbiguousModule` if both a file and directory match, but still
-    ///       caches the file path, so a second call returns it. this is arguably a bug-callers catching
-    ///       `AmbiguousModule` cannot distinguish success from failure without inspecting
-    ///       the cache manually.
-    fn resolve_module(self, const segments: cxx::std::vector<string>)
-        panic(ResolveError) -> Path {
-        self.wait_for_index()
-
-        if segments.size() == 0 {
-            panic ResolveError::NotFound
-        }
-
-        var cache_key = self.make_cache_key("mod", segments)
-
-        if self._cache.contains(cache_key) {
-            return self._cache[cache_key]
-        }
-
-        for var root: *SearchRoot in self._roots {
-            var unsafe *node = root->root
-            for i in (0 as usize)..(segments.size() - 1) {
-                node = node->find_dir(segments[i])
-                if node == &null {
-                    break
-                }
-            }
-
-            if node == &null {
-                continue
-            }
-
-            var last = segments[segments.size() - 1]
-
-            var unsafe *file_node = node->find_by_stem_and_category(
-                last,
-                FileCategory::KairoSource,
-            )
-
-            if file_node != &null && file_node->file_path? {
-                self._cache[cache_key] = unwrap!(file_node->file_path)
-
-                var unsafe *dir_node = node->find_dir(last)
-                if dir_node != &null {
-                    panic ResolveError::AmbiguousModule
-                }
-
-                return unwrap!(file_node->file_path)
-            }
-
-            var unsafe *dir_node = node->find_dir(last)
-            if dir_node != &null {
-                var unsafe *mod_node = dir_node->find_by_stem_and_category(
-                    "module",
-                    FileCategory::KairoSource,
-                )
-
-                if mod_node != &null && mod_node->file_path? {
-                    self._cache[cache_key] = unwrap!(mod_node->file_path)
-                    return unwrap!(mod_node->file_path)
-                }
-            }
-        }
-
-        kairo::Logger::debug(
-            kairo::Logger::Stage::Preprocessor,
-            f"ImportResolver::resolve_module: not found key='{cache_key}'",
-        )
-
-        panic ResolveError::NotFound
-    }
-
-    /// \brief resolves a module directory path and returns its `module.k` entry point
-    /// \param segments path segments identifying the directory
-    /// \return path to `module.k` inside the directory; panics ResolveError::NotFound when there is none
-    fn resolve_module_dir(self, segments: cxx::std::vector<string>)
-        panic(ResolveError) -> Path {
-        self.wait_for_index()
-
-        for var root: *SearchRoot in self._roots {
-            var unsafe *node = root->traverse(segments)
-
-            if node == &null || !node->is_dir {
-                continue
-            }
-
-            var unsafe *mod_node = node->find_by_stem_and_category(
-                "module",
-                FileCategory::KairoSource,
-            )
-
-            if mod_node != &null && mod_node->category == FileCategory::KairoSource {
-                return unwrap!(mod_node->file_path)
-            }
-        }
-
-        kairo::Logger::debug(
-            kairo::Logger::Stage::Preprocessor,
-            f"ImportResolver::resolve_module_dir: not found segments={segments.size()}",
-        )
-
-        panic ResolveError::NotFound
-    }
+    /// No-op: the roots are probed lazily, so there is no index to wait for.
+    pub fn wait_for_index(self) { }
 
     //  Module resolution (THE home of import path semantics)
     //
@@ -1569,11 +1328,6 @@ pub class ImportResolver {
         return out
     }
 
-    /// \brief the deepest registered root that contains \p dir, or null.
-    ///
-    /// \details "The importing file's own root": what its unqualified imports
-    ///          resolve against first, and the root whose name prefixes its
-    ///          own module path (Compiler/Spec/Imports.md#path-resolution).
     /// \brief every search root's directory, in priority order: where
     ///        incremental Sema (Driver/ModuleRecords.k) watches for a module
     ///        file that would change a resolution with no source edited.
@@ -1588,6 +1342,11 @@ pub class ImportResolver {
         return out
     }
 
+    /// \brief the deepest registered root that contains \p dir, or null.
+    ///
+    /// \details "The importing file's own root": what its unqualified imports
+    ///          resolve against first, and the root whose name prefixes its
+    ///          own module path (Compiler/Spec/Imports.md#path-resolution).
     pub fn root_for_dir(self, const dir: Path) -> unsafe *SearchRoot {
         var lock                         = kairo::std::LockGuard(self._mu)
         var best:     unsafe *SearchRoot = &null
@@ -1638,10 +1397,10 @@ pub class ImportResolver {
         var dir_path: Path         ///< the `leaf/module.k`, iff file_dir
     }
 
-    /// One root, one probe. Mirrors resolve_module/resolve_module_dir for a
-    /// single root so every place is resolved by identical rules: `foo.k`,
-    /// else `foo/module.k`; both present is reported (`file_dir`), the file
-    /// still answering so the import does not cascade into "not found".
+    /// One root, one probe, so every place is resolved by identical rules:
+    /// `foo.k`, else `foo/module.k`; both present is reported (`file_dir`),
+    /// the file still answering so the import does not cascade into "not
+    /// found".
     /// Sweeps the containing directory for name collisions on the way.
     priv fn _probe_root(self,
                         root:           unsafe *SearchRoot,
@@ -1829,398 +1588,8 @@ pub class ImportResolver {
         return out
     }
 
-    /// \brief resolves a kairo library (.hlib) by name
-    /// \param name library stem without extension
-    /// \return the resolved path; panics ResolveError::NotFound when there is none
-    fn resolve_library(self, const name: string)
-        panic(ResolveError) -> Path {
-        self.wait_for_index()
-
-        for var root: *SearchRoot in self._roots {
-            var unsafe *node = root->root->find_by_stem_and_category(
-                name,
-                FileCategory::KairoLibrary,
-            )
-
-            if node != &null && node->file_path? {
-                return unwrap!(node->file_path)
-            }
-        }
-
-        panic ResolveError::NotFound
-    }
-
-    /// \brief collects all exportable module names under a given path
-    /// \param segments path to the directory to scan
-    /// \return vector of file stems (excluding "module")
-    ///
-    /// stops after the first root that yields results.
-    fn collect_exports(self, segments: cxx::std::vector<string>) -> cxx::std::vector<string> {
-        var result = cxx::std::vector<string>()
-
-        for var root: *SearchRoot in self._roots {
-            var unsafe *node = root->traverse(segments)
-
-            if node == &null || !node->is_dir {
-                continue
-            }
-
-            var files = node->collect_by_category(FileCategory::KairoSource)
-
-            for var f: *DirEntry in files {
-                if f->name != "module" {
-                    result.push_back(f->name)
-                }
-            }
-
-            if result.size() > 0 {
-                break
-            }
-        }
-
-        return result
-    }
-
-    /// \brief resolves a C++ header by stem
-    /// \param name header stem without extension
-    /// \return the resolved path; panics ResolveError::NotFound when there is none
-    fn resolve_cxx_header(self, const name: string)
-        panic(ResolveError) -> Path {
-        self.wait_for_index()
-
-        return self.resolve_by_category(name, FileCategory::CxxHeader)
-    }
-
-    /// \brief resolves a C++ source file by stem
-    /// \param name source stem without extension
-    /// \return the resolved path; panics ResolveError::NotFound when there is none
-    fn resolve_cxx_source(self, const name: string)
-        panic(ResolveError) -> Path {
-        self.wait_for_index()
-
-        return self.resolve_by_category(name, FileCategory::CxxSource)
-    }
-
-    /// \brief resolves a C header by stem
-    /// \param name header stem without extension
-    /// \return the resolved path; panics ResolveError::NotFound when there is none
-    fn resolve_c_header(self, const name: string)
-        panic(ResolveError) -> Path {
-        self.wait_for_index()
-
-        return self.resolve_by_category(name, FileCategory::CHeader)
-    }
-
-    /// \brief resolves a C source file by stem
-    /// \param name source stem without extension
-    /// \return the resolved path; panics ResolveError::NotFound when there is none
-    fn resolve_c_source(self, const name: string)
-        panic(ResolveError) -> Path {
-        self.wait_for_index()
-
-        return self.resolve_by_category(name, FileCategory::CSource)
-    }
-
-    /// \brief resolves a C/C++ include path as written in `#include` directives
-    /// \param include_path the path string, e.g. "foo/bar.h" or "baz"
-    /// \return the resolved path; panics ResolveError::NotFound when there is none
-    ///
-    /// if no extension is provided, tries all known C++ header extensions.
-    fn resolve_cxx_include(self, const include_path: string)
-        panic(ResolveError) -> Path {
-        self.wait_for_index()
-
-        var segments = self.split_path(include_path)
-
-        if segments.size() == 0 {
-            panic ResolveError::NotFound
-        }
-
-        var last = segments[segments.size() - 1]
-        segments.pop_back()
-
-        var dot_pos = last.rfind(".")
-        var stem    = last
-        var ext     = string()
-
-        if dot_pos != usize::MAX {
-            stem = last.subslice(0, dot_pos)
-            ext  = last.subslice(dot_pos + 1, last.size())
-        }
-
-        for var root: *SearchRoot in self._roots {
-            var unsafe *node = root->traverse(segments)
-
-            if node == &null {
-                node = root->root
-            }
-
-            if ext.size() > 0 {
-                var unsafe *file_node = node->find_with_ext(stem, ext)
-                if file_node != &null && file_node->file_path? {
-                    return unwrap!(file_node->file_path)
-                }
-            } else {
-                var unsafe *header_exts = self._ext_cfg->cxx_header_exts()
-                for var hext: string in *header_exts {
-                    var unsafe *file_node = node->find_with_ext(stem, hext)
-                    if file_node != &null && file_node->file_path? {
-                        return unwrap!(file_node->file_path)
-                    }
-                }
-            }
-        }
-
-        panic ResolveError::NotFound
-    }
-
-    /// \brief resolves a file by category in the root directories (non-recursive)
-    /// \param name file stem
-    /// \param cat category to match
-    /// \return the resolved path; panics ResolveError::NotFound when there is none
-    fn resolve_by_category(self, const name: string, cat: FileCategory)
-        panic(ResolveError) -> Path {
-        self.wait_for_index()
-
-        for var root: *SearchRoot in self._roots {
-            var unsafe *node = root->root->find(name)
-
-            if node != &null && node->category == cat {
-                return unwrap!(node->file_path)
-            }
-        }
-
-        panic ResolveError::NotFound
-    }
-
-    /// \brief resolves a file by stem and explicit extension
-    /// \param name file stem
-    /// \param ext extension without leading dot
-    /// \return the resolved path; panics ResolveError::NotFound when there is none
-    fn resolve_by_ext(self, const name: string, const ext: string)
-        panic(ResolveError) -> Path {
-        self.wait_for_index()
-
-        for var root: *SearchRoot in self._roots {
-            var unsafe *node = root->root->find_with_ext(name, ext)
-
-            if node != &null && node->file_path? {
-                return unwrap!(node->file_path)
-            }
-        }
-
-        panic ResolveError::NotFound
-    }
-
-    /// \brief resolves an arbitrary file given path segments
-    /// \param segments path components; last element is the filename
-    /// \return the resolved path; panics ResolveError::NotFound when there is none
-    ///
-    /// if the filename has no extension, attempts to match any file with that stem.
-    fn resolve_file(self, segments: cxx::std::vector<string>) panic(ResolveError) -> Path {
-        self.wait_for_index()
-
-        if segments.size() == 0 {
-            panic ResolveError::NotFound
-        }
-
-        var dir_segments = segments
-        var file_name    = dir_segments[dir_segments.size() - 1]
-        dir_segments.pop_back()
-
-        for var root: *SearchRoot in self._roots {
-            var unsafe *node = root->root
-
-            if dir_segments.size() > 0 {
-                node = root->traverse(dir_segments)
-            }
-
-            if node == &null {
-                continue
-            }
-
-            var unsafe *file_node = node->find(file_name)
-
-            if file_node == &null && file_name.rfind(".") == usize::MAX {
-                for var child: *DirEntry in node->sorted_children() {
-                    if !child->is_dir && child->name == file_name && child->ext.size() == 0 {
-                        file_node = child
-                        break
-                    }
-                }
-            }
-
-            if file_node != &null && !file_node->is_dir && file_node->file_path? {
-                return unwrap!(file_node->file_path)
-            }
-        }
-
-        panic ResolveError::NotFound
-    }
-
-    /// \brief resolves a relative path from the location of another file
-    /// \param rel_path the relative path string
-    /// \param from_file the file whose directory is used as the base
-    /// \return the resolved path; panics ResolveError::NotFound when there is none
-    ///
-    /// falls back to searching search roots if not found relative to `from_file`.
-    fn resolve_path(self, const rel_path: string, const from_file: Path)
-        panic(ResolveError) -> Path {
-        self.wait_for_index()
-
-        var candidate = Path::join_str(from_file.parent_path(), rel_path)
-
-        if Path::exists_at(candidate) {
-            return Path(candidate, false)
-        }
-
-        for var root: *SearchRoot in self._roots {
-            candidate = root->base_path.join(rel_path)
-
-            if Path::exists_at(candidate) {
-                return Path(candidate, false)
-            }
-        }
-
-        panic ResolveError::NotFound
-    }
-
-    /// \brief checks if a relative path exists under any search root
-    /// \param rel_path the relative path to check
-    /// \return true if the path exists
-    fn path_exists(self, const rel_path: string) -> bool {
-        for var root: *SearchRoot in self._roots {
-            var candidate = root->base_path.join(rel_path)
-
-            if Path::exists_at(candidate) {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    /// \brief collects all files matching a category across all roots (recursive)
-    /// \param cat the file category to collect
-    /// \return vector of paths; duplicates are filtered by full path string
-    fn collect_all_by_category(self, cat: FileCategory) -> cxx::std::vector<Path> {
-        var result = cxx::std::vector<Path>()
-        var seen   = llvm::StringSet<llvm::MallocAllocator>() // full paths; membership only (result keeps the order)
-
-        for var root: *SearchRoot in self._roots {
-            self.collect_recursive(
-                root->root,
-                cat,
-                unsafe &result,
-                unsafe &seen,
-            )
-        }
-
-        return result
-    }
-
-    priv fn collect_recursive(self,
-                              node:   unsafe *DirEntry,
-                              cat:    FileCategory,
-                              result: unsafe *cxx::std::vector<Path>,
-                              seen:   unsafe *llvm::StringSet<llvm::MallocAllocator>) {
-        var files = node->collect_by_category(cat)
-
-        for var f: unsafe *DirEntry in files {
-            var path_str = unwrap!(f->file_path).full_path()
-            if seen->insert(kairo::sref(path_str)).second {
-                result->push_back(unwrap!(f->file_path))
-            }
-        }
-
-        for var child: unsafe *DirEntry in node->sorted_children() {
-            if child->is_dir {
-                self.collect_recursive(child, cat, result, seen)
-            }
-        }
-    }
-
-
-    /// \brief clears the resolution cache
-    fn invalidate_cache(self) {
-        self._cache.clear()
-    }
-
-    /// \brief rebuilds a single search root by index
-    /// \param index the root index in `_roots`
-    ///
-    /// destroys and recreates the root, then invalidates the cache.
-    fn rebuild_root(self, index: usize) {
-        if index >= self._roots.size() {
-            return
-        }
-
-        var unsafe *old     = self._roots[index]
-        var        path     = old->base_path
-        var        priority = old->priority
-        // Everything a root IS, copied BEFORE the destroy. Dropping the name
-        // demoted a named root to an unnamed search dir and changed every
-        // module path under it; dropping the spelling made std reachable
-        // only as `kairo::std`; dropping `discovered` made a pinned
-        // library's files importable unqualified (the last-resort probe).
-        var name       = old->name
-        var spelling   = old->spelling
-        var discovered = old->discovered
-
-        kairo::std::destroy(old)
-        var unsafe *fresh = kairo::std::create<SearchRoot>(
-            path,
-            priority,
-            self._ext_cfg,
-            name,
-            spelling,
-        )
-
-        fresh->discovered  = discovered
-        self._roots[index] = fresh
-
-        self.invalidate_cache()
-    }
-
-    /// \brief rebuilds all search roots
-    fn rebuild_all(self) {
-        for i in (0 as usize)..self._roots.size() {
-            self.rebuild_root(i)
-        }
-    }
-
-    /// \brief returns a human-readable dump of search paths with priorities
-    fn dump_search_paths(self) -> string {
-        var result = "ImportResolver search paths:\n"
-
-        for i in (0 as usize)..self._roots.size() {
-            var unsafe *root = self._roots[i]
-            result += f"  [{root->priority}] {root->name_str()} -> {root->base_path.full_path()}\n"
-        }
-
-        return result
-    }
-
-    /// \brief returns a summary of cache statistics
-    fn cache_stats(self) -> string {
-        return f"ImportResolver cache: {self._cache.size()} entries"
-    }
-
-    /// \brief returns a human-readable dump of all indexed files matching a category
-    /// \param cat the category to dump
-    fn dump_indexed_files(self, cat: FileCategory) -> string {
-        var files  = self.collect_all_by_category(cat)
-        var result = f"Indexed files (category {(cat as u32)}):\n"
-
-        for *p in files {
-            result += f"  {p->full_path()}\n"
-        }
-
-        return result
-    }
-
-    /// A root name spelled back for a diagnostic. Mirrors SearchRoot::name_str
-    /// but takes the raw segments, which is what the collision record has.
+    /// A root name spelled back for a diagnostic, `<entry>` for an unnamed
+    /// search dir.
     priv fn _name_str(self, const segs: cxx::std::vector<string>) -> string {
         if segs.size() == 0 {
             return "<entry>"
@@ -2236,22 +1605,6 @@ pub class ImportResolver {
         }
 
         return out
-    }
-
-    priv fn make_cache_key(self,
-                           const prefix:   string,
-                           const segments: cxx::std::vector<string>) -> string {
-        var key = prefix + ":"
-
-        for i in (0 as usize)..segments.size() {
-            if i > 0 {
-                key += "::"
-            }
-
-            key += segments[i]
-        }
-
-        return key
     }
 
     priv fn split_path(self, const path: string) -> cxx::std::vector<string> {
@@ -2277,957 +1630,4 @@ pub class ImportResolver {
 
         return result
     }
-
-    /// \brief returns a complete dump of the entire index structure
-    ///
-    /// includes all roots, directory trees, and cache entries. useful for debugging.
-    fn dump_full_index(self) -> string {
-        var result = "Full ImportResolver Index Dump:\n"
-
-        for i in (0 as usize)..self._roots.size() {
-            var unsafe *root = self._roots[i]
-            result += f"\n[Root {i}] priority={root->priority} name={root->name_str()} path={root->base_path.full_path()}\n"
-            result += self.dump_node(root->root, 1)
-        }
-
-        result += f"\n=== Cache: {self._cache.size()} entries ===\n"
-        for *entry in self._cache {
-            result += f"  {entry->first} -> {entry->second.full_path()}\n"
-        }
-
-        return result
-    }
-
-    priv fn dump_node(self, node: unsafe *DirEntry, depth: usize) -> string {
-        var result = string()
-        var indent = string()
-
-        for _ in (0 as usize)..depth {
-            indent += "  "
-        }
-
-        if node->is_dir {
-            result += f"{indent}[DIR] {node->name}/\n"
-        } else {
-            var cat_str  = self.category_to_string(node->category)
-            var path_str = "<null>"
-
-            if node->file_path? {
-                path_str = unwrap!(node->file_path).full_path()
-            }
-
-            if node->ext.size() > 0 {
-                result += f"{indent}[FILE] {node->name}.{node->ext} ({cat_str})\n"
-            } else {
-                result += f"{indent}[FILE] {node->name} ({cat_str})\n"
-            }
-
-            result += f"{indent}       -> {path_str}\n"
-        }
-
-        for var child: unsafe *DirEntry in node->sorted_children() {
-            result += self.dump_node(child, depth + 1)
-        }
-
-        return result
-    }
-
-    priv fn category_to_string(self, cat: FileCategory) -> string {
-        if cat == FileCategory::KairoSource {
-            return "KairoSource"
-        }
-
-        if cat == FileCategory::KairoLibrary {
-            return "KairoLibrary"
-        }
-
-        if cat == FileCategory::CxxSource {
-            return "CxxSource"
-        }
-
-        if cat == FileCategory::CxxHeader {
-            return "CxxHeader"
-        }
-
-        if cat == FileCategory::CSource {
-            return "CSource"
-        }
-
-        if cat == FileCategory::CHeader {
-            return "CHeader"
-        }
-
-        if cat == FileCategory::Other {
-            return "Other"
-        }
-
-        return "Ignored"
-    }
-}
-
-pub fn Test() -> i32 {
-    io::println("=== ImportResolver Test ===\n")
-
-    // create a temp test directory structure
-    var tmp          = Path::temp_dir()
-    var test_root    = tmp.join("hlx_import_test")
-    var include_root = tmp.join("hlx_include_test")
-
-    // clean up if exists from previous run
-    Path::remove_tree(test_root)
-    Path::remove_tree(include_root)
-
-    // create directory structure:
-    // hlx_import_test/
-    //   ├-- std/
-    //   │   ├-- io.k
-    //   │   ├-- mem/
-    //   │   │   ├-- module.k
-    //   │   │   └-- alloc.k
-    //   │   └-- net.k
-    //   ├-- mylib.hlib
-    //   ├-- util.k
-    //   ├-- cpp/
-    //   │   ├-- helper.hpp
-    //   │   ├-- helper.cpp
-    //   │   └-- legacy.h
-    //   ├-- Assets/
-    //   │   ├-- config.json
-    //   │   ├-- data.txt
-    //   │   └-- README
-    //   └-- Makefile
-    //
-    // hlx_include_test/
-    //   ├-- util.k (conflict - should lose to cwd)
-    //   └-- extra.k (unique - should be found)
-
-    Path::make_dirs(Path::join_str(test_root, "std/mem"))
-    Path::make_dirs(Path::join_str(test_root, "cpp"))
-    Path::make_dirs(Path::join_str(test_root, "Assets"))
-    Path::make_dirs(include_root)
-
-    // create dummy files
-    var files_to_create = cxx::std::vector<string>()
-
-    // kairo files
-    files_to_create.emplace_back(Path::join_str(test_root, "std/io.k"))
-    files_to_create.emplace_back(Path::join_str(test_root, "std/net.k"))
-    files_to_create.emplace_back(Path::join_str(test_root, "std/mem/module.k"))
-    files_to_create.emplace_back(Path::join_str(test_root, "std/mem/alloc.k"))
-    files_to_create.emplace_back(Path::join_str(test_root, "mylib.hlib"))
-    files_to_create.emplace_back(Path::join_str(test_root, "util.k"))
-
-    // c++ files
-    files_to_create.emplace_back(Path::join_str(test_root, "cpp/helper.hpp"))
-    files_to_create.emplace_back(Path::join_str(test_root, "cpp/helper.cpp"))
-    files_to_create.emplace_back(Path::join_str(test_root, "cpp/legacy.h"))
-
-    // random files (json, txt, no extension)
-    files_to_create.emplace_back(
-        Path::join_str(test_root, "Assets/config.json"),
-    )
-
-    files_to_create.emplace_back(Path::join_str(test_root, "Assets/data.txt"))
-    files_to_create.emplace_back(Path::join_str(test_root, "Assets/README"))
-    files_to_create.emplace_back(Path::join_str(test_root, "Makefile"))
-
-    // include path files
-    files_to_create.emplace_back(Path::join_str(include_root, "util.k"))
-    files_to_create.emplace_back(Path::join_str(include_root, "extra.k"))
-
-    for *p in files_to_create {
-        Path::write_file(*p, "")
-    }
-
-    var test_path    = Path(test_root, false)
-    var include_path = Path(include_root, false)
-    var includes     = cxx::std::vector<Path>()
-    includes.push_back(include_path)
-
-    var unsafe *pool = kairo::std::create<ThreadPool>(4)
-
-    finally {
-        kairo::std::destroy(pool)
-    }
-
-    var unsafe *resolver = ImportResolver::Builder().cwd(test_path)->add_includes(
-        includes,
-    )->create_ptr()
-
-    finally { // cleanup
-        kairo::std::destroy(resolver)
-        Path::remove_tree(test_root)
-        Path::remove_tree(include_root)
-    }
-
-    io::println(f"{resolver->dump_full_index()}")
-
-    var failed = 0
-    var passed = 0
-
-    var fail_string = "\x1b[31m[FAIL]\x1b[0m"
-    var pass_string = "\x1b[32m[PASS]\x1b[0m"
-
-    var suite = Assert("ImportResolver Tests")
-
-    // KAIRO MODULE RESOLUTION
-
-    suite.equal<i32>(
-        "resolve_module std::io",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("std")
-            segments.push_back("io")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_module(segments)
-            } catch { }
-
-            if result? {
-                var p? = result
-                if p.filename() == "io.k" {
-                    return 1
-                } else {
-                    return 0
-                }
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "resolve directory module (std::mem -> std/mem/module.k)",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("std")
-            segments.push_back("mem")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_module(segments)
-            } catch { }
-
-            if result? {
-                var p? = result
-                if p.filename() == "module.k" {
-                    return 1
-                } else {
-                    return 0
-                }
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "resolve nested module (std::mem::alloc -> std/mem/alloc.k)",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("std")
-            segments.push_back("mem")
-            segments.push_back("alloc")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_module(segments)
-            } catch { }
-
-            if result? {
-                var p? = result
-                if p.filename() == "alloc.k" {
-                    return 1
-                } else {
-                    return 0
-                }
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "resolve library (mylib -> mylib.hlib)",
-        1,
-        fn () -> i32 {
-            var result: Path? = null
-            try {
-                result = resolver->resolve_library("mylib")
-            } catch { }
-
-            if result? {
-                var p? = result
-                if p.filename() == "mylib.hlib" {
-                    return 1
-                } else {
-                    return 0
-                }
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "resolve top-level module (util -> util.k)",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("util")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_module(segments)
-            } catch { }
-
-            if result? {
-                var p? = result
-                if p.filename() == "util.k" {
-                    return 1
-                } else {
-                    return 0
-                }
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "resolve_module_dir explicitly",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("std")
-            segments.push_back("mem")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_module_dir(segments)
-            } catch { }
-
-            if result? && result.filename() == "module.k" {
-                return 1
-            } else {
-                return 0
-            }
-
-            // should fail for non-directory module
-            var segments2: cxx::std::vector<string>
-            segments2.push_back("std")
-            segments2.push_back("io")
-            var result2: Path? = null
-            try {
-                result2 = resolver->resolve_module_dir(segments2)
-            } catch { }
-
-            if !result2? {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "module not found",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("nonexistent")
-            segments.push_back("module")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_module(segments)
-            } catch { }
-
-            if !result? {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "collect exports (std::mem::*)",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("std")
-            segments.push_back("mem")
-            var exports = resolver->collect_exports(segments)
-
-            var found_alloc  = false
-            var found_module = false
-
-            for *name in exports {
-                if *name == "alloc" {
-                    found_alloc = true
-                }
-
-                if *name == "module" {
-                    found_module = true
-                }
-            }
-
-            if found_alloc && !found_module {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    // C/C++ RESOLUTION
-
-    suite.equal<i32>(
-        "resolve c++ header with extension",
-        1,
-        fn () -> i32 {
-            var result: Path? = null
-            try {
-                result = resolver->resolve_cxx_include("cpp/helper.hpp")
-            } catch { }
-
-            if result? {
-                var p? = result
-                if p.filename() == "helper.hpp" {
-                    return 1
-                } else {
-                    return 0
-                }
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "resolve c++ header without extension",
-        1,
-        fn () -> i32 {
-            var result: Path? = null
-            try {
-                result = resolver->resolve_cxx_include("cpp/helper")
-            } catch { }
-
-            if result? {
-                var p? = result
-                if p.filename() == "helper.hpp" || p.filename() == "helper.h" {
-                    return 1
-                } else {
-                    return 0
-                }
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "resolve c header",
-        1,
-        fn () -> i32 {
-            var result: Path? = null
-            try {
-                result = resolver->resolve_cxx_include("cpp/legacy.h")
-            } catch { }
-
-            if result? {
-                var p? = result
-                if p.filename() == "legacy.h" {
-                    return 1
-                } else {
-                    return 0
-                }
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    // RANDOM FILES / NO EXTENSION
-
-    suite.equal<i32>(
-        "resolve json file",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("Assets")
-            segments.push_back("config.json")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_file(segments)
-            } catch { }
-
-            if result? && result.filename() == "config.json" {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "resolve txt file",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("Assets")
-            segments.push_back("data.txt")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_file(segments)
-            } catch { }
-
-            if result? && result.filename() == "data.txt" {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "resolve file with no extension (README)",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("Assets")
-            segments.push_back("README")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_file(segments)
-            } catch { }
-
-            if result? && result.filename() == "README" {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "resolve Makefile (no extension, root level)",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("Makefile")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_file(segments)
-            } catch { }
-
-            if result? && result.filename() == "Makefile" {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "resolve_by_ext",
-        1,
-        fn () -> i32 {
-            var result: Path? = null
-            try {
-                result = resolver->resolve_by_ext("mylib", "hlib")
-            } catch { }
-
-            if result? && result.filename() == "mylib.hlib" {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    // PATH RESOLUTION (for embed!, etc)
-
-    suite.equal<i32>(
-        "path_exists",
-        1,
-        fn () -> i32 {
-            if resolver->path_exists("std/io.k") {
-                return 1
-            } else {
-                return 0
-            }
-
-            if !resolver->path_exists("does/not/exist.k") {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "resolve_path relative to source file",
-        1,
-        fn () -> i32 {
-            var from_file = Path(Path::join_str(test_root, "std/io.k"), false)
-
-            // resolve sibling file
-            var result: Path? = null
-            try {
-                result = resolver->resolve_path("net.k", from_file)
-            } catch { }
-            if result? && result.filename() == "net.k" {
-                return 1
-            } else {
-                return 0
-            }
-
-            // resolve into subdirectory
-            var result2: Path? = null
-            try {
-                result2 = resolver->resolve_path("mem/alloc.k", from_file)
-            } catch { }
-            if result2? && result2.filename() == "alloc.k" {
-                return 1
-            } else {
-                return 0
-            }
-
-            // resolve nonexistent
-            var result3: Path? = null
-            try {
-                result3 = resolver->resolve_path("nope.k", from_file)
-            } catch { }
-            if !result3? {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    // INCLUDE PATH PRIORITY
-
-    suite.equal<i32>(
-        "cwd takes priority over include paths",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("util")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_module(segments)
-            } catch { }
-
-            if result? {
-                var p = result.full_path()
-                // should resolve to cwd version, not include path
-                if kairo::std::to_std_string(p).find(r"hlx_import_test") != cxx::std::string::npos {
-                    return 1
-                } else {
-                    return 0
-                }
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "fallback to include path for unique modules",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("extra")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_module(segments)
-            } catch { }
-
-            if result? && result.filename() == "extra.k" {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    // COLLECT BY CATEGORY
-
-    suite.equal<i32>(
-        "collect_all_by_category KairoSource",
-        1,
-        fn () -> i32 {
-            var all_hlx = resolver->collect_all_by_category(
-                FileCategory::KairoSource,
-            )
-
-            // cwd: io, net, module, alloc, util = 5
-            // include: util (dup), extra = 1 unique
-            // total = 6
-            if all_hlx.size() == 7 {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "collect_all_by_category CxxSource",
-        1,
-        fn () -> i32 {
-            var all_cpp = resolver->collect_all_by_category(
-                FileCategory::CxxSource,
-            )
-
-            if all_cpp.size() == 1 {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "collect_all_by_category CxxHeader",
-        1,
-        fn () -> i32 {
-            var all_hdr = resolver->collect_all_by_category(
-                FileCategory::CxxHeader,
-            )
-
-            // helper.hpp, legacy.h = 2
-            if all_hdr.size() == 2 {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "collect_all_by_category Other (json, txt, no-ext)",
-        1,
-        fn () -> i32 {
-            var all_other = resolver->collect_all_by_category(
-                FileCategory::Other,
-            )
-
-            // config.json, data.txt, README, Makefile = 4
-            if all_other.size() == 4 {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    // CACHE BEHAVIOR
-
-    suite.equal<i32>(
-        "cache consistency",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("std")
-            segments.push_back("io")
-
-            var r1: Path? = null
-            try {
-                r1 = resolver->resolve_module(segments)
-            } catch { }
-            var r2: Path? = null
-            try {
-                r2 = resolver->resolve_module(segments)
-            } catch { }
-
-            if r1? && r2? {
-                if r1.full_path() == r2.full_path() {
-                    return 1
-                } else {
-                    return 0
-                }
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "cache invalidation",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("std")
-            segments.push_back("io")
-
-            var r1: Path? = null
-            try {
-                r1 = resolver->resolve_module(segments)
-            } catch { }
-            resolver->invalidate_cache()
-            var r2: Path? = null
-            try {
-                r2 = resolver->resolve_module(segments)
-            } catch { }
-
-            if r1? && r2? && r1.full_path() == r2.full_path() {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    // REBUILD
-
-    suite.equal<i32>(
-        "rebuild picks up new files",
-        1,
-        fn () -> i32 {
-            // add new file after indexing
-            var new_file = Path::join_str(test_root, "newmodule.k")
-            Path::write_file(new_file, "")
-
-            // should NOT find it yet (stale index)
-            var segments: cxx::std::vector<string>
-            segments.push_back("newmodule")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_module(segments)
-            } catch { }
-
-            if !result? {
-                return 1
-            } else {
-                return 0
-            }
-
-            // rebuild and try again
-            resolver->rebuild_all()
-
-            var result2: Path? = null
-            try {
-                result2 = resolver->resolve_module(segments)
-            } catch { }
-            if result2? && result2.filename() == "newmodule.k" {
-                return 1
-            } else {
-                return 0
-            }
-
-            Path::remove_file(new_file)
-        },
-        10000,
-    )
-
-    // EDGE CASES
-
-    suite.equal<i32>(
-        "empty segments",
-        1,
-        fn () -> i32 {
-            var empty         = cxx::std::vector<string>()
-            var result: Path? = null
-            try {
-                result = resolver->resolve_module(empty)
-            } catch { }
-
-            if !result? {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "single dot path",
-        1,
-        fn () -> i32 {
-            var result: Path? = null
-            try {
-                result = resolver->resolve_cxx_include(".")
-            } catch { }
-
-            if !result? {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "empty string",
-        1,
-        fn () -> i32 {
-            var result: Path? = null
-            try {
-                result = resolver->resolve_cxx_include("")
-            } catch { }
-
-            if !result? {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    suite.equal<i32>(
-        "deeply nested path",
-        1,
-        fn () -> i32 {
-            var segments: cxx::std::vector<string>
-            segments.push_back("std")
-            segments.push_back("mem")
-            segments.push_back("module")
-            var result: Path? = null
-            try {
-                result = resolver->resolve_module(segments)
-            } catch { }
-
-            // std/mem/module.k exists but as a file, not std/mem/module/module.k
-            // this should find it as a direct file
-            if result? && result.filename() == "module.k" {
-                return 1
-            }
-
-            return 0
-        },
-        10000,
-    )
-
-    return failed
 }

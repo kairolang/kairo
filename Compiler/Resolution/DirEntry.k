@@ -72,17 +72,6 @@ pub class DirEntry {
         self.children.clear()
     }
 
-    fn get_or_create_dir(self, name: string) -> unsafe *DirEntry {
-        if self.children.contains(kairo::sref(name)) {
-            return self.children[kairo::sref(name)]
-        }
-
-        var unsafe *child = kairo::std::create<DirEntry>(name, true)
-        child->ext_cfg                   = self.ext_cfg
-        self.children[kairo::sref(name)] = child
-        return child
-    }
-
 
     /// Probe for a subdirectory named `name`. One stat. Memoized.
     fn probe_child_dir(self, name: string) -> unsafe *DirEntry {
@@ -156,8 +145,9 @@ pub class DirEntry {
         return child
     }
 
-    /// Full one-level readdir. ONLY for enumeration (collect_*). Memoized via `scanned`.
-    /// This is the only path that reads a whole directory keep it off hot lookups.
+    /// Full one-level readdir, for module discovery (the collision sweep and
+    /// the pinned-library scan). Memoized via `scanned`. The only path that
+    /// reads a whole directory: keep it off hot lookups.
     fn ensure_scanned(self) {
         if self.scanned || !self.is_dir {
             return
@@ -244,57 +234,8 @@ pub class DirEntry {
         }
     }
 
-    fn insert_file(self, stem: string, path: Path, ext: string, category: FileCategory) {
-        var key = stem
-        if ext.size() > 0 {
-            key = stem + "." + ext
-        }
-
-        if self.children.contains(kairo::sref(key)) {
-            return
-        }
-
-        var unsafe *child = kairo::std::create<DirEntry>(
-            stem,
-            path,
-            ext,
-            category,
-        )
-
-        child->ext_cfg                  = self.ext_cfg
-        self.children[kairo::sref(key)] = child
-    }
-
-    fn find(self, const key: string) -> unsafe *DirEntry {
-        if self.children.contains(kairo::sref(key)) {
-            return self.children[kairo::sref(key)]
-        }
-
-        return &null
-    }
-
-    fn find_with_ext(self, const name: string, const ext: string) -> unsafe *DirEntry {
-        return self.probe_file(name, ext)
-    }
-
     fn find_dir(self, const name: string) -> unsafe *DirEntry {
         return self.probe_child_dir(name)
-    }
-
-    fn find_by_stem(self, const stem: string) -> unsafe *DirEntry {
-        var unsafe *k = self.probe_file(stem, "k")
-        if k != &null {
-            return k
-        }
-
-        self.ensure_scanned()
-        for var child: unsafe *DirEntry in self.sorted_children() {
-            if !child->is_dir && child->name == stem {
-                return child
-            }
-        }
-
-        return &null
     }
 
     fn find_by_stem_and_category(self, const stem: string, cat: FileCategory) -> unsafe *DirEntry {
@@ -315,32 +256,6 @@ pub class DirEntry {
         }
 
         return &null
-    }
-
-    fn collect_by_category(self, cat: FileCategory) -> cxx::std::vector<unsafe *DirEntry> {
-        self.ensure_scanned()
-        var result = cxx::std::vector<unsafe *DirEntry>()
-
-        for var child: *DirEntry in self.sorted_children() {
-            if !child->is_dir && child->category == cat {
-                result.push_back(child)
-            }
-        }
-
-        return result
-    }
-
-    fn collect_by_ext(self, const ext: string) -> cxx::std::vector<unsafe *DirEntry> {
-        self.ensure_scanned()
-        var result = cxx::std::vector<unsafe *DirEntry>()
-
-        for var child: *DirEntry in self.sorted_children() {
-            if !child->is_dir && child->ext == ext {
-                result.push_back(child)
-            }
-        }
-
-        return result
     }
 
     ///
@@ -375,18 +290,5 @@ pub class DirEntry {
         }
 
         return out
-    }
-
-    fn collect_all_files(self) -> cxx::std::vector<unsafe *DirEntry> {
-        self.ensure_scanned()
-        var result = cxx::std::vector<unsafe *DirEntry>()
-
-        for var child: *DirEntry in self.sorted_children() {
-            if !child->is_dir {
-                result.push_back(child)
-            }
-        }
-
-        return result
     }
 }

@@ -14,28 +14,10 @@
 ffi "c++" import "vector"
 ffi "c++" import "algorithm"
 
-import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Token::IdentifierToken::IdentifierToken
 
 pub class ModulePath { // 256-bit class (32 bytes - max)
     pub var segments: cxx::std::vector<IdentifierToken> ///< each segment is an identifier token this does not include the "::" tokens
-
-    fn as_string(const self, sym_table: unsafe *PreprocessorSymbolTable) -> string {
-        if self.segments.size() == 0 {
-            return "<global>"
-        }
-
-        var result: string = ""
-        var back           = self.segments.back()
-
-        result.reserve(self.segments.size() * 12)
-
-        for seg in self.segments {
-            result += seg.as_string(sym_table) + (if (seg != back) => "::" else => "")
-        }
-
-        return result
-    }
 
     fn op < (const self, other: ModulePath) -> bool {
         var n = cxx::std::min(self.segments.size(), other.segments.size())
