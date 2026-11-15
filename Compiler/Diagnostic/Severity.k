@@ -44,3 +44,29 @@ pub enum DiagSeverity derives u8 {
     /// Sentinel total number of severities. Not a valid severity.
     Count,
 }
+
+/// The word every renderer prints for \p sev ("error", "note", ...);
+/// "unknown" for \c Count.
+pub fn diag_severity_name(sev: DiagSeverity) -> string {
+    match sev {
+        case DiagSeverity::Fatal {
+            return "fatal"
+        } case DiagSeverity::Error {
+            return "error"
+        } case DiagSeverity::Warning {
+            return "warning"
+        } case DiagSeverity::Note {
+            return "note"
+        } case DiagSeverity::Remark {
+            return "remark"
+        } case DiagSeverity::Debug {
+            return "debug"
+        } case DiagSeverity::Verbose {
+            return "verbose"
+        } case DiagSeverity::Ignored {
+            return "ignored"
+        } default {
+            return "unknown"
+        }
+    }
+}

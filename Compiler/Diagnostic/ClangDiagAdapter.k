@@ -12,6 +12,7 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/ClangDiag.hh"
 ffi "c++" import "clang/Basic/Diagnostic.h"
 ffi "c++" import "clang/Basic/DiagnosticIDs.h"
+ffi "c++" import "clang/Basic/DiagnosticSema.h" // err_access*
 ffi "c++" import "clang/Basic/SourceManager.h"
 ffi "c++" import "llvm/ADT/SmallString.h"
 ffi "c++" import "clang/Lex/Lexer.h"
@@ -32,21 +33,36 @@ import Location::SourceManager::{
     SourceManager,
 }
 import Location::SourceRange::SourceRange
+import Support::Ascii::{
+    find,
+    is_ident_char,
+}
 import Support::FileIO::Path::Path
 
+/// A clang fix-it edit of the Kairo source: \c at replaced by \c text
+/// ("" removes it).
+pub struct ClangFixEdit {
+    pub var at:   SourceRange = SourceRange::invalid()
+    pub var text: string      = ""
+}
+
+/// A note clang reported after the group's primary.
+pub struct ClangNote {
+    pub var at:    SourceRange = SourceRange::invalid()
+    pub var msg:   string      = ""
+    pub var frame: bool        = false ///< an instantiation-context note (ClangDiagAdapter::_is_frame)
+}
+
 /// One clang primary and its notes, collected by ClangDiagAdapter until the
-/// group is whole (see ClangDiagAdapter::_g). Parallel vectors per note.
+/// group is whole (see ClangDiagAdapter::_g).
 pub class ClangDiagGroup {
     pub var on: bool = false
     pub var code: DiagCode = DiagCode(Diag::CL(1, DiagSeverity::Error))
-    pub var at:      SourceRange                   = SourceRange::invalid()
-    pub var msg:     string                        = ""
-    pub var hl:      cxx::std::vector<SourceRange> ///< highlighted ranges
-    pub var fx_at:   cxx::std::vector<SourceRange> ///< fix-its: the range ...
-    pub var fx_text: cxx::std::vector<string> ///< ... and its text ("" removes)
-    pub var n_at:    cxx::std::vector<SourceRange>
-    pub var n_msg:   cxx::std::vector<string>
-    pub var n_frame: cxx::std::vector<u8> ///< 1: an instantiation-context note
+    pub var at:    SourceRange                    = SourceRange::invalid()
+    pub var msg:   string                         = ""
+    pub var hl:    cxx::std::vector<SourceRange>                           ///< highlighted ranges
+    pub var fixes: cxx::std::vector<ClangFixEdit>
+    pub var notes: cxx::std::vector<ClangNote>
     /// A record of the group that copies only from a non-const lvalue
     /// (kairo::clang_diag_mutable_copy): its name, the record whose copy
     /// constructor forces that and the field leading to it ("" for its
@@ -68,11 +84,8 @@ pub class ClangDiagGroup {
         self.at  = SourceRange::invalid()
         self.msg = ""
         self.hl.clear()
-        self.fx_at.clear()
-        self.fx_text.clear()
-        self.n_at.clear()
-        self.n_msg.clear()
-        self.n_frame.clear()
+        self.fixes.clear()
+        self.notes.clear()
         self.why_rec      = ""
         self.why_ctor_rec = ""
         self.why_field    = ""
@@ -202,7 +215,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         if is_note && self._last_fwded && self._g.on {
             self._add_note(kloc, msg, ClangDiagAdapter::_is_frame(msg))
             self._note_cause(info, msg)
-            self._explain_redefinition(kloc, msg)
+            self._explain_redefinition(kloc, info)
             return
         }
 
@@ -237,7 +250,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         if lvl == clang::DiagnosticsEngine::Error
             && kloc.is_valid()
             && self._in_kairo_source(kloc)
-            && self._is_access_error(msg) {
+            && self._is_access_error(info) {
             code = DiagCode(DiagID::I003E)
             msg = "the emitted C++ refuses an access Kairo accepted (AccessCheck and the record's C++ access levels or friends disagree; a compiler bug): " + msg
         }
@@ -503,42 +516,28 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         return n >= 2 && nm[n - 2] == ('.' as u8) && nm[n - 1] == ('k' as u8)
     }
 
-    /// clang's access refusals (err_access and its constructor, destructor
-    /// and base forms), by their text: their IDs are ungrouped, and the
-    /// wording is all they share.
-    priv fn _is_access_error(self, msg: string) -> bool {
-        return self._has(msg, " is a private member of ")
-            || self._has(msg, " is a protected member of ")
-            || self._has(msg, "calling a private constructor")
-            || self._has(msg, "calling a protected constructor")
-            || self._has(msg, "has private destructor")
-            || self._has(msg, "has protected destructor")
-            || self._has(msg, "is a private member")
-            || self._has(msg, "is a protected member")
+    /// clang's access refusals of a member, a constructor or a destructor:
+    /// the IDs whose text says "is a private member", "calling a private
+    /// constructor" or "has private destructor" (and their protected
+    /// forms). `calling a private destructor` (err_access_dtor) and the
+    /// special-member forms `has private copy constructor`
+    /// (err_access_base_ctor, err_access_field_ctor) are not among them.
+    priv fn _is_access_error(self, const info: clang::Diagnostic) -> bool {
+        var id = info.getID()
+        return id == (clang::diag::err_access as u32)
+            || id == (clang::diag::err_access_ctor as u32)
+            || id == (clang::diag::err_access_friend_function as u32)
+            || id == (clang::diag::err_access_dtor_base as u32)
+            || id == (clang::diag::err_access_dtor_vbase as u32)
+            || id == (clang::diag::err_access_dtor_temp as u32)
+            || id == (clang::diag::err_access_dtor_exception as u32)
+            || id == (clang::diag::err_access_dtor_field as u32)
+            || id == (clang::diag::err_access_dtor_var as u32)
+            || id == (clang::diag::err_access_dtor_ivar as u32)
     }
 
     priv fn _has(self, const s: string, const sub: string) -> bool {
-        var n = s.size()
-        var m = sub.size()
-        if m > n {
-            return false
-        }
-
-        for var i: usize = 0; i + m <= n; ++i {
-            var hit = true
-            for var j: usize = 0; j < m; ++j {
-                if s[i + j] != sub[j] {
-                    hit = false
-                    break
-                }
-            }
-
-            if hit {
-                return true
-            }
-        }
-
-        return false
+        return find(s, sub, 0) != usize::MAX
     }
 
     priv fn _map_severity(self, lvl: clang::DiagnosticsEngine::Level) -> DiagSeverity {
@@ -644,8 +643,10 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             )
 
             // No text: the edit is a removal (_replay).
-            self._g.fx_at.push_back(rr)
-            self._g.fx_text.push_back(text)
+            var fx = ClangFixEdit()
+            fx.at   = rr
+            fx.text = text
+            self._g.fixes.push_back(fx)
         }
     }
 
@@ -707,12 +708,12 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// redefinition, though neither header includes the other and C++ users
     /// would never see them together. Without this the user saw only clang's
     /// error and, under it, every name of both headers unresolved.
-    priv fn _explain_redefinition(self, kloc: SourceRange, msg: string) {
+    priv fn _explain_redefinition(self, kloc: SourceRange, const info: clang::Diagnostic) {
         if self._redef_file.empty() || (!kloc.is_valid()) || self._in_kairo_source(kloc) {
             return
         }
 
-        if msg != "previous definition is here" {
+        if info.getID() != (clang::diag::note_previous_definition as u32) {
             return
         }
 
@@ -746,9 +747,11 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             return
         }
 
-        self._g.n_at.push_back(kloc)
-        self._g.n_msg.push_back(msg)
-        self._g.n_frame.push_back(if (frame) => (1 as u8) else => (0 as u8))
+        var n = ClangNote()
+        n.at    = kloc
+        n.msg   = msg
+        n.frame = frame
+        self._g.notes.push_back(n)
     }
 
     /// The open group is whole: build it. A held re-anchored error stays
@@ -801,16 +804,17 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
         // No message on a fix-it: the edit is the whole message, and the
         // pretty form shows it inline as a diff.
-        for var i: usize = 0; i < self._g.fx_at.size(); ++i {
+        for var i: usize = 0; i < self._g.fixes.size(); ++i {
+            var fx  = self._g.fixes[i]
             var msg = ""
-            if self._g.fx_text[i].length() == 0 {
-                b->remove(self._g.fx_at[i], msg)
+            if fx.text.length() == 0 {
+                b->remove(fx.at, msg)
             } else {
-                b->fix(self._g.fx_at[i], self._g.fx_text[i], msg)
+                b->fix(fx.at, fx.text, msg)
             }
         }
 
-        for var i: usize = 0; i < self._g.n_at.size(); ++i {
+        for var i: usize = 0; i < self._g.notes.size(); ++i {
             self._note_into(b, i)
         }
 
@@ -827,11 +831,11 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     }
 
     priv fn _note_into(self, b: unsafe *DiagBuilder, i: usize) {
-        var at = self._g.n_at[i]
-        if at.is_valid() {
-            b->note(at.start, self._g.n_msg[i])->child_first(at)
+        var n = self._g.notes[i]
+        if n.at.is_valid() {
+            b->note(n.at.start, n.msg)->child_first(n.at)
         } else {
-            b->note(self._g.n_msg[i])
+            b->note(n.msg)
         }
     }
 
@@ -847,8 +851,8 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         }
 
         var found = usize::MAX
-        for var i: usize = 0; i < self._g.n_at.size(); ++i {
-            if self._g.n_frame[i] != 0 && self._user_kairo(self._g.n_at[i]) {
+        for var i: usize = 0; i < self._g.notes.size(); ++i {
+            if self._g.notes[i].frame && self._user_kairo(self._g.notes[i].at) {
                 found = i
             }
         }
@@ -886,7 +890,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// into a count (all of them under --diag-cxx-chain). A group at the
     /// place of the held error is folded into that one.
     priv fn _reanchor_group(self, ai: usize) {
-        var at = self._g.n_at[ai]
+        var at = self._g.notes[ai].at
         if self._held != &null && self._held_at == at {
             self._held->note(
                 self._g.at.start,
@@ -894,7 +898,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             )->child_first(self._g.at)
 
             if self.cxx_chain {
-                for var i: usize = 0; i < self._g.n_at.size(); ++i {
+                for var i: usize = 0; i < self._g.notes.size(); ++i {
                     self._note_into(self._held, i)
                 }
             }
@@ -903,7 +907,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         }
 
         self._emit_held()
-        var what      = ClangDiagAdapter::_frame_entity(self._g.n_msg[ai])
+        var what      = ClangDiagAdapter::_frame_entity(self._g.notes[ai].msg)
         var explained = self._g.explained()
         var code      = DiagCode(DiagID::CL002E)
         var text      = f"instantiating {what} here does not compile in C++: {self._g.msg}"
@@ -931,8 +935,8 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
         b->note(self._g.at.start, at_text)->child_first(self._g.at)
         var frames: usize = 0
-        for var i: usize = 0; i < self._g.n_at.size(); ++i {
-            var frame = self._g.n_frame[i] != 0
+        for var i: usize = 0; i < self._g.notes.size(); ++i {
+            var frame = self._g.notes[i].frame
             if frame {
                 frames += 1
             }
@@ -1147,12 +1151,12 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
                 continue
             }
 
-            if i > 0 && ClangDiagAdapter::_ident_char(text[i - 1]) {
+            if i > 0 && is_ident_char(text[i - 1]) {
                 continue
             }
 
             var j = i + m
-            if j < text.size() && ClangDiagAdapter::_ident_char(text[j]) {
+            if j < text.size() && is_ident_char(text[j]) {
                 continue
             }
 
@@ -1172,13 +1176,6 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         }
 
         return SourceRange::invalid()
-    }
-
-    static fn _ident_char(c: u8) -> bool {
-        return (c >= ('a' as u8) && c <= ('z' as u8))
-            || (c >= ('A' as u8) && c <= ('Z' as u8))
-            || (c >= ('0' as u8) && c <= ('9' as u8))
-            || c == ('_' as u8)
     }
 
     static fn _std(const s: cxx::std::string) -> string {

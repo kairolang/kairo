@@ -36,9 +36,14 @@ ffi "c++" import "system_error"
 
 import Diagnostic::Consumer::DiagConsumer
 import Diagnostic::Diagnostic::Diagnostic
-import Diagnostic::Severity::DiagSeverity
+import Diagnostic::Severity::diag_severity_name
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
+import Support::Escape::{
+    CEscapeStyle,
+    c_escape,
+    json_string,
+}
 import Support::FileIO::Path::Path
 import std::io
 
@@ -149,7 +154,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
 
     fn finalize_to_stdout(self) {
         for var i: usize = 0; i < self._diags.size(); ++i {
-            io::println(f"{self.render_diag(self._diags[i])}")
+            io::println(f"{self.stderr_text(self._diags[i])}")
         }
     }
 
@@ -169,7 +174,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
         }
 
         for var i: usize = 0; i < self._diags.size(); ++i {
-            var line = self.render_diag(self._diags[i])
+            var line = self.stderr_text(self._diags[i])
             f.write(line.c_str(), line.size())
         }
     }
@@ -177,7 +182,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
     fn finalize_to_string(self) -> string {
         var out: string
         for var i: usize = 0; i < self._diags.size(); ++i {
-            out += self.render_diag(self._diags[i])
+            out += self.stderr_text(self._diags[i])
         }
 
         return out
@@ -194,54 +199,6 @@ pub class BasicDiagConsumer derives DiagConsumer {
         var        loc_info = sm->get_line_col(loc)
         var        filename = self.display_path(sm->get_filename(loc))
         return f"{filename}:{loc_info.line}:{loc_info.column}: "
-    }
-
-    priv fn severity_string(self, sev: DiagSeverity) -> string {
-        match sev {
-            case DiagSeverity::Fatal {
-                return "fatal"
-            } case DiagSeverity::Error {
-                return "error"
-            } case DiagSeverity::Warning {
-                return "warning"
-            } case DiagSeverity::Note {
-                return "note"
-            } case DiagSeverity::Remark {
-                return "remark"
-            } case DiagSeverity::Debug {
-                return "debug"
-            } case DiagSeverity::Verbose {
-                return "verbose"
-            } case DiagSeverity::Ignored {
-                return "ignored"
-            } default {
-                return "unknown"
-            }
-        }
-    }
-
-    /// `"` and `\` escaped, and the control characters an edit can carry,
-    /// so every fix-it stays one line.
-    priv fn escape_fixit_text(self, const s: string) -> string {
-        var out = ""
-        for var i: usize = 0; i < s.size(); ++i {
-            var c = s[i]
-            if c == 0x5C {
-                out += "\\\\"
-            } else if c == 0x22 {
-                out += "\\\""
-            } else if c == 0x0A {
-                out += "\\n"
-            } else if c == 0x09 {
-                out += "\\t"
-            } else if c == 0x0D {
-                out += "\\r"
-            } else {
-                out.push_back(c)
-            }
-        }
-
-        return out
     }
 
     /// One `fix-it:` line per ranged edit of \p diag; see the class comment.
@@ -265,15 +222,15 @@ pub class BasicDiagConsumer derives DiagConsumer {
             var b    = sm->get_line_col(fi.range.start)
             var e    = sm->get_line_col(fi.range.end)
             var file = self.display_path(sm->get_filename(fi.range.start))
-            var text = self.escape_fixit_text(fi.replacement)
+            var text = c_escape(fi.replacement, CEscapeStyle::Readable)
             out += f"fix-it:\"{file}\":\x7B{b.line}:{b.column}-{e.line}:{e.column}\x7D:\"{text}\"\n"
         }
 
         return out
     }
 
-    /// One JSON object for \p diag. escape_fixit_text already produces valid
-    /// JSON string escapes for the characters a message or path can carry.
+    /// One JSON object for \p diag, its strings escaped as RFC 8259 asks
+    /// (a control byte in a message, from quoted source text, included).
     priv fn render_json(self, diag: unsafe *Diagnostic) -> string {
         var file: string = ""
         var line: u32    = 0
@@ -286,11 +243,11 @@ pub class BasicDiagConsumer derives DiagConsumer {
             col  = (li.column as u32)
         }
 
-        var sev  = self.severity_string(diag->code.severity())
+        var sev  = diag_severity_name(diag->code.severity())
         var code = diag->code as string
-        var msg  = self.escape_fixit_text(diag->message)
-        var f2   = self.escape_fixit_text(file)
-        return f"\x7B\"file\":\"{f2}\",\"line\":{line},\"col\":{col},\"severity\":\"{sev}\",\"code\":\"{code}\",\"message\":\"{msg}\"\x7D\n"
+        var msg  = json_string(diag->message)
+        var f2   = json_string(file)
+        return f"\x7B\"file\":{f2},\"line\":{line},\"col\":{col},\"severity\":\"{sev}\",\"code\":\"{code}\",\"message\":{msg}\x7D\n"
     }
 
     priv fn render_one(self, diag: unsafe *Diagnostic) -> string {
@@ -299,28 +256,17 @@ pub class BasicDiagConsumer derives DiagConsumer {
         }
 
         var loc_prefix = if diag->has_loc => (self.format_loc(diag->loc)) else => ""
-        var sev  = self.severity_string(diag->code.severity())
+        var sev  = diag_severity_name(diag->code.severity())
         var code = diag->code as string
         return f"{loc_prefix}{sev} [{code}]: {diag->message}\n"
-    }
-
-    /// Renders a diagnostic and all its children, one line each.
-    priv fn render_diag(self, diag: unsafe *Diagnostic) -> string {
-        var out = self.render_one(diag) + self.render_fixits(diag)
-        for var i: usize = 0; i < diag->children.size(); ++i {
-            out += self.render_one(diag->children[i]) + self.render_fixits(
-                diag->children[i],
-            )
-        }
-
-        return out
     }
 
     priv fn emit_diag(self, diag: unsafe *Diagnostic) {
         io::eprint(f"{self.stderr_text(diag)}")
     }
 
-    /// Exactly what finalize_to_stderr writes for \p diag and its notes.
+    /// \p diag and its notes, one line each, every ranged fix-it after the
+    /// line it belongs to: what each finalize_* writes for it.
     priv fn stderr_text(self, diag: unsafe *Diagnostic) -> string {
         var out = self.render_one(diag) + self.render_fixits(diag)
         for var i: usize = 0; i < diag->children.size(); ++i {

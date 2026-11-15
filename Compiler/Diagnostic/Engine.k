@@ -52,7 +52,10 @@ ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/StringSet.h"
 ffi "c++" import "Native/Thread.hh" // diag_capture
 
-import Diagnostic::Category::DiagCategory
+import Diagnostic::Category::{
+    DiagCategory,
+    diag_category_prefix,
+}
 import Diagnostic::Code::DiagCode
 import Diagnostic::Consumer::DiagConsumer
 import Diagnostic::DiagBuilder::DiagBuilder
@@ -63,6 +66,10 @@ import Diagnostic::Registry::DiagID
 import Diagnostic::Severity::DiagSeverity
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
+import Support::Ascii::{
+    is_digit,
+    parse_decimal,
+}
 
 
 
@@ -168,54 +175,21 @@ pub fn diag_policy_key_from_string(const code: string) -> u32 {
         break
     }
 
-    var val:  u32  = 0
-    var seen: bool = false
-    while i < n {
-        var c = code[i]
-        if c >= ('0' as u8) && c <= ('9' as u8) {
-            seen = true
-            val  = val * 10 + ((c - ('0' as u8)) as u32)
-            i += 1
-            continue
+    // The digit run; a trailing severity letter is ignored. The number is
+    // truncated to u32, and the key keeps its low 24 bits.
+    if i >= n || !is_digit(code[i]) {
+        return 0
+    }
+
+    var val = parse_decimal(code.subslice(i, n - i)) as u32
+    for var c: u8 = 0; c < (DiagCategory::Count as u8); ++c {
+        var cat = c as DiagCategory
+        if diag_category_prefix(cat) == pfx {
+            return diag_policy_key(cat, val)
         }
-
-        break // digit run ended; a trailing severity letter is ignored
     }
 
-    if !seen {
-        return 0
-    }
-
-    var idx: u32 = 0
-    if pfx == "S" {
-        idx = 1
-    } else if pfx == "U" {
-        idx = 2
-    } else if pfx == "C" {
-        idx = 3
-    } else if pfx == "M" {
-        idx = 4
-    } else if pfx == "R" {
-        idx = 5
-    } else if pfx == "L" {
-        idx = 6
-    } else if pfx == "SC" {
-        idx = 7
-    } else if pfx == "P" {
-        idx = 8
-    } else if pfx == "CL" {
-        idx = 9
-    } else if pfx == "OPT" {
-        idx = 10
-    } else if pfx == "I" {
-        idx = 11
-    }
-
-    if idx == 0 {
-        return 0
-    }
-
-    return diag_key_pack(idx, val)
+    return 0
 }
 
 
@@ -303,7 +277,7 @@ pub class DiagEngine derives DiagEngineVBase {
     priv var _policy:                llvm::DenseMap<u64, DiagAction> ///< diag_policy_key (as u64: clear of the reserved keys) -> per-code action (see DiagAction). Probed only.
     priv var _warning_limit:         u32                                  = 0 ///< 0 = unlimited.
     priv var _note_limit:            u32                                  = 0 ///< per diagnostic; 0 = unlimited.
-    priv var _fixit_limit:           u32                                  = 0xFFFFFFFF ///< per diagnostic (and per child); none = unlimited.
+    priv var _fixit_limit:           u32                                  = u32::MAX ///< per diagnostic (and per child); none = unlimited.
     priv var _quiet:                 bool                                 = false ///< --quiet: drop standalone warnings, notes, remarks.
     /// code hash : location : message of every located diagnostic delivered,
     /// so a second identical report is dropped. A file is tokenized

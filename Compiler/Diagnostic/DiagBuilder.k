@@ -29,14 +29,9 @@ import Location::SourceRange::SourceRange
 /// Fluent builder for constructing and emitting a single \c Diagnostic.
 ///
 /// Obtained from \c DiagEngine::report(). Labels, fix-its, and child
-/// diagnostics are attached via chained method calls. The diagnostic is
-/// emitted either by calling \c emit() explicitly or automatically on
-/// destruction if \c emit() was never called.
-///
-/// Ownership of the underlying \c Diagnostic transfers to \c DiagEngine
-/// on emission. If the builder is destroyed before \c emit() is called,
-/// the diagnostic is emitted first, then the pointer is not freed the
-/// engine owns it from that point.
+/// diagnostics are attached via chained method calls, and \c emit() hands
+/// the diagnostic to the engine, which owns it from then on. A builder
+/// destroyed without \c emit() is a lost diagnostic: the destructor ICEs.
 ///
 /// \note All label and fix-it methods return \c ref!(DiagBuilder) to
 ///       support method chaining.
@@ -263,27 +258,25 @@ pub class DiagBuilder {
 
     /// ## Child diagnostics
 
+    /// The one child adder: a dropped builder attaches nothing, and an
+    /// invalid \p loc makes a child with no location.
     priv fn _add_child(self, code: DiagCode, loc: SourceLocation, msg: string) -> unsafe *Self {
         if self._diag == &null {
             return unsafe &self
         }
 
         if loc == SourceLocation::invalid() {
-            return self._add_child_no_loc(code, msg)
-        }
+            self._diag->children.push_back(
+                kairo::std::create<Diagnostic>(code, msg),
+            )
 
-        var unsafe *child = kairo::std::create<Diagnostic>(code, loc, msg)
-        self._diag->children.push_back(child)
-        return unsafe &self
-    }
-
-    priv fn _add_child_no_loc(self, code: DiagCode, msg: string) -> unsafe *Self {
-        if self._diag == &null {
             return unsafe &self
         }
 
-        var unsafe *child = kairo::std::create<Diagnostic>(code, msg)
-        self._diag->children.push_back(child)
+        self._diag->children.push_back(
+            kairo::std::create<Diagnostic>(code, loc, msg),
+        )
+
         return unsafe &self
     }
 
@@ -298,23 +291,11 @@ pub class DiagBuilder {
                 const code: DiagCode,
                 loc:        SourceLocation,
                 const msg:  string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        if loc == SourceLocation::invalid() {
-            return self._add_child_no_loc(code, msg)
-        }
-
         return self._add_child(code, loc, msg)
     }
 
     pub fn note(self, const code: DiagCode, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        return self._add_child_no_loc(code, msg)
+        return self._add_child(code, SourceLocation::invalid(), msg)
     }
 
     /// Attaches a child warning.
@@ -322,56 +303,24 @@ pub class DiagBuilder {
                    const code: DiagCode,
                    loc:        SourceLocation,
                    const msg:  string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        if loc == SourceLocation::invalid() {
-            return self._add_child_no_loc(code, msg)
-        }
-
         return self._add_child(code, loc, msg)
     }
 
     fn warning(self, const code: DiagCode, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        return self._add_child_no_loc(code, msg)
+        return self._add_child(code, SourceLocation::invalid(), msg)
     }
 
     /// Attaches a child remark.
     fn remark(self, const code: DiagCode, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        if loc == SourceLocation::invalid() {
-            return self._add_child_no_loc(code, msg)
-        }
-
         return self._add_child(code, loc, msg)
     }
 
     fn remark(self, const code: DiagCode, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        return self._add_child_no_loc(code, msg)
+        return self._add_child(code, SourceLocation::invalid(), msg)
     }
 
     /// Attaches a child verbose note.
     fn verbose(self, const code: DiagCode, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        if loc == SourceLocation::invalid() {
-            return self._add_child_no_loc(code, msg)
-        }
-
         return self._add_child(code, loc, msg)
     }
 
@@ -380,31 +329,15 @@ pub class DiagBuilder {
                   const code: DiagCode,
                   loc:        SourceLocation,
                   const msg:  string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        if loc == SourceLocation::invalid() {
-            return self._add_child_no_loc(code, msg)
-        }
-
         return self._add_child(code, loc, msg)
     }
 
     fn verbose(self, const code: DiagCode, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        return self._add_child_no_loc(code, msg)
+        return self._add_child(code, SourceLocation::invalid(), msg)
     }
 
     fn debug_note(self, const code: DiagCode, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        return self._add_child_no_loc(code, msg)
+        return self._add_child(code, SourceLocation::invalid(), msg)
     }
 
     /// ## Child diagnostics (no independent code)
@@ -417,107 +350,67 @@ pub class DiagBuilder {
 
     /// Attaches a child note; label it with child_first (see the note above).
     pub fn note(self, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        if loc == SourceLocation::invalid() {
-            return self._add_child_no_loc(DiagCode(DiagID::I900N), msg)
-        }
-
         return self._add_child(DiagCode(DiagID::I900N), loc, msg)
     }
 
     pub fn note(self, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        return self._add_child_no_loc(DiagCode(DiagID::I900N), msg)
+        return self._add_child(
+            DiagCode(DiagID::I900N),
+            SourceLocation::invalid(),
+            msg,
+        )
     }
 
     /// Attaches a child warning.
     fn warning(self, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        if loc == SourceLocation::invalid() {
-            return self._add_child_no_loc(DiagCode(DiagID::I900W), msg)
-        }
-
         return self._add_child(DiagCode(DiagID::I900W), loc, msg)
     }
 
     fn warning(self, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        return self._add_child_no_loc(DiagCode(DiagID::I900W), msg)
+        return self._add_child(
+            DiagCode(DiagID::I900W),
+            SourceLocation::invalid(),
+            msg,
+        )
     }
 
     /// Attaches a child remark.
     fn remark(self, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        if loc == SourceLocation::invalid() {
-            return self._add_child_no_loc(DiagCode(DiagID::I900R), msg)
-        }
-
         return self._add_child(DiagCode(DiagID::I900R), loc, msg)
     }
 
     pub fn remark(self, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        return self._add_child_no_loc(DiagCode(DiagID::I900R), msg)
+        return self._add_child(
+            DiagCode(DiagID::I900R),
+            SourceLocation::invalid(),
+            msg,
+        )
     }
 
     /// Attaches a child verbose note.
     fn verbose(self, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        if loc == SourceLocation::invalid() {
-            return self._add_child_no_loc(DiagCode(DiagID::I900V), msg)
-        }
-
         return self._add_child(DiagCode(DiagID::I900V), loc, msg)
     }
 
     fn verbose(self, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        return self._add_child_no_loc(DiagCode(DiagID::I900V), msg)
+        return self._add_child(
+            DiagCode(DiagID::I900V),
+            SourceLocation::invalid(),
+            msg,
+        )
     }
 
     /// Attaches a child debug note (stripped in release builds).
     fn debug_note(self, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        if loc == SourceLocation::invalid() {
-            return self._add_child_no_loc(DiagCode(DiagID::I900D), msg)
-        }
-
         return self._add_child(DiagCode(DiagID::I900D), loc, msg)
     }
 
     fn debug_note(self, const msg: string) -> unsafe *Self {
-        if self._diag == &null {
-            return unsafe &self
-        }
-
-        return self._add_child_no_loc(DiagCode(DiagID::I900D), msg)
+        return self._add_child(
+            DiagCode(DiagID::I900D),
+            SourceLocation::invalid(),
+            msg,
+        )
     }
 
     /// ## Child labels

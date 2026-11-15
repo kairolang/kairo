@@ -56,3 +56,35 @@ pub enum DiagCategory derives u8 {
     /// Sentinel total number of categories. Not a valid category.
     Count,
 }
+
+/// The letters that start a code of \p cat (`SC` for Semantic, `OPT` for
+/// Optimization); "" for \c Count.
+pub fn diag_category_prefix(cat: DiagCategory) -> string {
+    match cat {
+        case DiagCategory::Syntax {
+            return "S"
+        } case DiagCategory::Uncategorized {
+            return "U"
+        } case DiagCategory::CodeGen {
+            return "C"
+        } case DiagCategory::Memory {
+            return "M"
+        } case DiagCategory::Resolution {
+            return "R"
+        } case DiagCategory::Linker {
+            return "L"
+        } case DiagCategory::Semantic {
+            return "SC"
+        } case DiagCategory::Portability {
+            return "P"
+        } case DiagCategory::Lowering {
+            return "CL"
+        } case DiagCategory::Optimization {
+            return "OPT"
+        } case DiagCategory::Internal {
+            return "I"
+        } default {
+            return ""
+        }
+    }
+}

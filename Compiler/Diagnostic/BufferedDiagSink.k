@@ -12,6 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh"
+ffi "c++" import "llvm/ADT/STLExtras.h"
 ffi "c++" import "vector"
 
 import Diagnostic::Code::DiagCode
@@ -34,8 +35,8 @@ import Location::SourceRange::SourceRange
 /// `fid == usize(-1)` back from \c SourceManager::resolve, which this key's
 /// ordering puts after every diagnostic with a real location. `seq` is the
 /// diagnostic's original push_back position; it breaks ties for diagnostics
-/// that share a location (two checks anchoring the same token) so the sort
-/// is stable even if the sort routine itself ever stops being one.
+/// that share a location (two checks anchoring the same token), so the
+/// order is total and an unstable sort keeps their push order.
 pub struct DiagSortKey {
     pub var fid:    usize = 0
     pub var offset: usize = 0
@@ -343,9 +344,8 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         self._diags.clear() // drops pointer values only; pointees owned by engine
     }
 
-    // Stable insertion sort (buffers here are one file/one pass, not a TU's
-    // worth of diagnostics) over `_diags` and a parallel `keys` array kept
-    // in lockstep, so `keys[i]` always describes `_diags[i]`.
+    /// `_diags` in (file, offset, push order): a total order, so the result
+    /// is the same whatever sort runs it.
     priv fn _sort_by_source_order(self, sm: unsafe *SourceManager) {
         var n                                   = self._diags.size()
         var keys: cxx::std::vector<DiagSortKey>
@@ -359,23 +359,22 @@ pub class BufferedDiagSink derives DiagEngineVBase {
             keys.push_back(key)
         }
 
-        for var i: usize = 1; i < n; ++i {
-            var j = i
-            while j > 0 && self._key_less(keys[j], keys[j - 1]) {
-                var unsafe *td = self._diags[j - 1]
-                self._diags[j - 1] = self._diags[j]
-                self._diags[j]     = td
+        llvm::sort(
+            keys.begin(),
+            keys.end(),
+            fn (a: DiagSortKey, b: DiagSortKey) || -> bool = BufferedDiagSink::_key_less(a, b),
+        )
 
-                var tk = keys[j - 1]
-                keys[j - 1] = keys[j]
-                keys[j]     = tk
-
-                j -= 1
-            }
+        var sorted: cxx::std::vector<unsafe *Diagnostic>
+        sorted.reserve(n)
+        for var i: usize = 0; i < n; ++i {
+            sorted.push_back(self._diags[keys[i].seq])
         }
+
+        self._diags = sorted
     }
 
-    priv fn _key_less(self, a: DiagSortKey, b: DiagSortKey) -> bool {
+    static fn _key_less(a: DiagSortKey, b: DiagSortKey) -> bool {
         if a.fid != b.fid {
             return a.fid < b.fid
         }

@@ -101,40 +101,30 @@ pub class DiagCode {
 
     /// # Comparisons
 
-    /// Equality is defined over category - severity - number.
+    /// Equality and order are DiagMeta's: category, then severity, then
+    /// number.
     fn op == (self, const other: DiagCode) -> bool {
-        return self._meta.category == other._meta.category
-            && self._meta.severity == other._meta.severity
-            && self._meta.number == other._meta.number
+        return self._meta == other._meta
     }
 
     fn op != (self, const other: DiagCode) -> bool {
-        return !(self == other)
+        return self._meta != other._meta
     }
 
-    /// Ordering: category first, then severity, then number.
     fn op < (self, const other: DiagCode) -> bool {
-        if self._meta.category != other._meta.category {
-            return (self._meta.category as u8) < (other._meta.category as u8)
-        }
-
-        if self._meta.severity != other._meta.severity {
-            return (self._meta.severity as u8) < (other._meta.severity as u8)
-        }
-
-        return self._meta.number < other._meta.number
+        return self._meta < other._meta
     }
 
     fn op >  (self, const other: DiagCode) -> bool {
-        return !(self < other) && self != other
+        return self._meta > other._meta
     }
 
     fn op <= (self, const other: DiagCode) -> bool {
-        return self < other || self == other
+        return self._meta <= other._meta
     }
 
     fn op >= (self, const other: DiagCode) -> bool {
-        return self > other || self == other
+        return self._meta >= other._meta
     }
 }
 

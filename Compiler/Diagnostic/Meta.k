@@ -13,20 +13,18 @@
 
 ffi "c++" import "Native/Types.hh"
 
-import Diagnostic::Category::DiagCategory
+import Diagnostic::Category::{
+    DiagCategory,
+    diag_category_prefix,
+}
 import Diagnostic::Severity::DiagSeverity
 
 /// Static metadata for a single diagnostic entry.
 ///
 /// Stored in the diagnostic registry and cached inside \c DiagCode.
-/// Equality and hashing are defined solely over \c hash, which encodes
-/// category - number - severity as a unique u32.
-///
-/// Ordering operators follow category -> severity -> number, consistent
-/// with \c DiagCode. Note that the relational operators use \c || rather
-/// than lexicographic chaining any field being less-than satisfies the
-/// predicate. This is intentional for range-based filtering; it is not a
-/// total order.
+/// \c hash is the registry's \c DiagID value for the code. Equality and
+/// the lexicographic order are over category -> severity -> number, the
+/// same as \c DiagCode's.
 ///
 /// The \c as string conversion produces the canonical diagnostic ID string:
 /// \code
@@ -45,74 +43,55 @@ pub struct DiagMeta {
 
     /// # Comparisons
 
-    fn op == (self, const other: DiagMeta) -> bool {
-        return self.hash == other.hash
+    /// Equality and order are over (category, severity, number). \c hash
+    /// does not take part: a severity override keeps the original hash
+    /// (DiagEngine::_override_severity), so two metas with one hash can
+    /// differ in severity.
+    fn op == (const self, const other: DiagMeta) -> bool {
+        return self.category == other.category
+            && self.severity == other.severity
+            && self.number == other.number
     }
 
-    fn op != (self, const other: DiagMeta) -> bool {
-        return self.hash != other.hash
+    fn op != (const self, const other: DiagMeta) -> bool {
+        return !(self == other)
     }
 
-    fn op <  (self, const other: DiagMeta) -> bool {
-        return (self.category as u8) < (other.category as u8)
-            || (self.severity as u8) < (other.severity as u8)
-            || self.number < other.number
+    /// Lexicographic: category, then severity, then number.
+    fn op <  (const self, const other: DiagMeta) -> bool {
+        if self.category != other.category {
+            return (self.category as u8) < (other.category as u8)
+        }
+
+        if self.severity != other.severity {
+            return (self.severity as u8) < (other.severity as u8)
+        }
+
+        return self.number < other.number
     }
 
-    fn op >  (self, const other: DiagMeta) -> bool {
-        return (self.category as u8) > (other.category as u8)
-            || (self.severity as u8) > (other.severity as u8)
-            || self.number > other.number
+    fn op >  (const self, const other: DiagMeta) -> bool {
+        return other < self
     }
 
-    fn op <= (self, const other: DiagMeta) -> bool {
-        return (self.category as u8) <= (other.category as u8)
-            || (self.severity as u8) <= (other.severity as u8)
-            || self.number <= other.number
+    fn op <= (const self, const other: DiagMeta) -> bool {
+        return !(other < self)
     }
 
-    fn op >= (self, const other: DiagMeta) -> bool {
-        return (self.category as u8) >= (other.category as u8)
-            || (self.severity as u8) >= (other.severity as u8)
-            || self.number >= other.number
+    fn op >= (const self, const other: DiagMeta) -> bool {
+        return !(self < other)
     }
 
     /// # Conversions
 
     /// Formats the metadata as a diagnostic ID string, e.g. \c "SC041E".
     fn op as (self) -> string {
-        var out: string
-
-        match self.category {
-            case DiagCategory::Syntax {
-                out += "S"
-            } case DiagCategory::Uncategorized {
-                out += "U"
-            } case DiagCategory::CodeGen {
-                out += "C"
-            } case DiagCategory::Memory {
-                out += "M"
-            } case DiagCategory::Resolution {
-                out += "R"
-            } case DiagCategory::Linker {
-                out += "L"
-            } case DiagCategory::Semantic {
-                out += "SC"
-            } case DiagCategory::Portability {
-                out += "P"
-            } case DiagCategory::Lowering {
-                out += "CL"
-            } case DiagCategory::Optimization {
-                out += "OPT"
-            } case DiagCategory::Internal {
-                out += "I"
-            } default {
-                kairo::std::ice_fail("invalid diag category")
-            }
+        var out = diag_category_prefix(self.category)
+        if out.empty() {
+            kairo::std::ice_fail("invalid diag category")
         }
 
-        /// thing is the number must be 3 digits, so we need to pad it with
-        ///     zeros if it's less than 100
+        // The number is at least three digits, zero-padded.
         if self.number < 10 {
             out += f"00{(self.number)}"
         } else if self.number < 100 {

@@ -16,6 +16,7 @@ ffi "c++" import "llvm/Support/FileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "Native/Progress.hh"
+ffi "c++" import "algorithm" // stable_sort
 ffi "c++" import "vector"
 ffi "c++" import "cstdio"
 ffi "c++" import "system_error"
@@ -28,7 +29,10 @@ import Diagnostic::Diagnostic::{
     Diagnostic,
     FixIt,
 }
-import Diagnostic::Severity::DiagSeverity
+import Diagnostic::Severity::{
+    DiagSeverity,
+    diag_severity_name,
+}
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
@@ -58,25 +62,6 @@ pub struct DiagGroupKey {
     fn op== (self, other: DiagGroupKey) -> bool {
         return self.file_id == other.file_id && self.line == other.line
     }
-
-    fn op< (self, other: DiagGroupKey) -> bool {
-        if self.file_id != other.file_id {
-            return self.file_id < other.file_id
-        }
-
-        return self.line < other.line
-    }
-}
-
-/// Key for grouping diagnostics by code AND message.
-pub struct DiagCodeMsgKey {
-    pub var code: DiagCode
-    pub var msg:  string
-    pub var sev:  DiagSeverity
-
-    fn op== (self, const other: DiagCodeMsgKey) -> bool {
-        return self.code == other.code && self.msg == other.msg
-    }
 }
 
 /// Entry tracking a caret span for coalesced rendering.
@@ -86,6 +71,7 @@ pub struct CaretSpan {
     pub var code:      DiagCode
     pub var sev:       DiagSeverity
     pub var style:     DiagLabel::Style
+    pub var text:      string           ///< the label row's text; "" draws no row
 }
 
 /// Group of diagnostics on the same file:line, to be rendered together.
@@ -318,55 +304,6 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         }
     }
 
-    /// Returns the fixed-width severity label (padded to 7 chars for alignment).
-    priv fn severity_label_padded(self, sev: DiagSeverity) -> string {
-        match sev {
-            case DiagSeverity::Fatal {
-                return "fatal"
-            } case DiagSeverity::Error {
-                return "error"
-            } case DiagSeverity::Warning {
-                return "warning"
-            } case DiagSeverity::Note {
-                return "note"
-            } case DiagSeverity::Remark {
-                return "remark"
-            } case DiagSeverity::Debug {
-                return "debug"
-            } case DiagSeverity::Verbose {
-                return "verbose"
-            } case DiagSeverity::Ignored {
-                return "ignored"
-            } default {
-                return "unknown"
-            }
-        }
-    }
-
-    priv fn severity_label_raw(self, sev: DiagSeverity) -> string {
-        match sev {
-            case DiagSeverity::Fatal {
-                return "fatal"
-            } case DiagSeverity::Error {
-                return "error"
-            } case DiagSeverity::Warning {
-                return "warning"
-            } case DiagSeverity::Note {
-                return "note"
-            } case DiagSeverity::Remark {
-                return "remark"
-            } case DiagSeverity::Debug {
-                return "debug"
-            } case DiagSeverity::Verbose {
-                return "verbose"
-            } case DiagSeverity::Ignored {
-                return "ignored"
-            } default {
-                return "unknown"
-            }
-        }
-    }
-
     priv fn render_all(self, color: bool) -> string {
         if self._sm == &null {
             return self.render_all_uncoalesced(color)
@@ -379,7 +316,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             var unsafe *diag = self._diags[i]
             if !diag->has_loc {
                 var g: DiagGroup
-                g.key.file_id = 0xFFFFFFFF
+                g.key.file_id = u32::MAX
                 g.key.line    = (i as u32)
                 g.diags.push_back(diag)
                 g.filename = ""
@@ -451,14 +388,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         // --- Fix-its: the edit is already shown inline on the primary line;
         // here we only print the trailing "> fix: <message>" line.
         for var i: usize = 0; i < group.diags.size(); ++i {
-            var unsafe *diag = group.diags[i]
-            for var j: usize = 0; j < diag->fixits.size(); ++j {
-                var fi      = diag->fixits[j]
-                var fix_pfx = if (color) => (f"{self.BOLD}{self.CYAN}fix{self.RESET}") else => "fix"
-                if fi.message.length() > 0 {
-                    out += f" > {fix_pfx}: {fi.message}" + NL
-                }
-            }
+            out += self._fix_messages(group.diags[i], " ", color)
         }
 
         /// ## Children (deduped: identical child notes render once)
@@ -521,7 +451,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var   out:     string
         var   renderer        = TermRenderer(color, 80)
 
-        if group.key.file_id == 0xFFFFFFFF {
+        if group.key.file_id == u32::MAX {
             for var i: usize = 0; i < group.diags.size(); ++i {
                 out += self.render_single(group.diags[i], color, "")
             }
@@ -538,24 +468,17 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             }
         }
 
-        var sev_name = self.severity_label_raw(highest_sev)
+        var sev_name = diag_severity_name(highest_sev)
         var sev_col  = self.severity_color(highest_sev)
         var sev_str  = if color => (f"{sev_col}{self.BOLD}{sev_name}{self.RESET}") else => sev_name
 
         // Context window properties
-        var ctx_before: u32 = self.ctx_before()
-        var ctx_after:  u32 = 0
-        var first_line = if (group.line_num > ctx_before) => (group.line_num - ctx_before) else => 1
-
-        // Skip leading blank lines in context window
-        while first_line < group.line_num {
-            var text = sm->get_line_text(group.key.file_id, first_line)
-            if self.is_line_blank(text) {
-                first_line += 1
-            } else {
-                break
-            }
-        }
+        var ctx_after: u32 = 0
+        var first_line = self._context_start(
+            sm,
+            group.key.file_id,
+            group.line_num,
+        )
 
         var last_line          = group.line_num + ctx_after
         var max_num_len: usize = f"{last_line}".length()
@@ -619,8 +542,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var        line_text   = sm->get_full_line(first_diag->loc)
         var        lang        = self.snippet_lang(group.filename)
 
-        var spans:     cxx::std::vector<CaretSpan>
-        var span_text: cxx::std::vector<string>
+        var spans: cxx::std::vector<CaretSpan>
 
         for var i: usize = 0; i < group.diags.size(); ++i {
             var unsafe *diag = group.diags[i]
@@ -663,8 +585,8 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
                 emitted_any = true
 
+                span.text = ltext
                 spans.push_back(span)
-                span_text.push_back(ltext)
             }
 
             if !emitted_any {
@@ -678,25 +600,18 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 at.end   = diag->loc
                 self._place_span(&span, line_text, at, sm)
 
+                span.text = default_text
                 spans.push_back(span)
-                span_text.push_back(default_text)
             }
         }
 
-        // Sort spans (and their labels) by start column, left to right
-        for var i: usize = 1; i < spans.size(); ++i {
-            var key_span       = spans[i]
-            var key_text       = span_text[i]
-            var j:       isize = (i as isize) - 1
-            while j >= 0 && spans[j as usize].start_col > key_span.start_col {
-                spans[(j + 1) as usize]     = spans[j as usize]
-                span_text[(j + 1) as usize] = span_text[j as usize]
-                j -= 1
-            }
-
-            spans[(j + 1) as usize]     = key_span
-            span_text[(j + 1) as usize] = key_text
-        }
+        // Left to right by start column; spans that start together keep
+        // their order (the diagnostic's, then its labels').
+        cxx::std::stable_sort(
+            spans.begin(),
+            spans.end(),
+            fn (a: CaretSpan, b: CaretSpan) || -> bool = a.start_col < b.start_col,
+        )
 
         // Find a fix-it anchored on the primary line. If present, the fix is
         // rendered IN PLACE: the primary source line shows the edited text
@@ -892,11 +807,9 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
             /// ### Stacked label rows
             var active_spans: cxx::std::vector<CaretSpan>
-            var active_texts: cxx::std::vector<string>
             for var s: usize = 0; s < spans.size(); ++s {
-                if span_text[s].length() > 0 {
+                if spans[s].text.length() > 0 {
                     active_spans.push_back(spans[s])
-                    active_texts.push_back(span_text[s])
                 }
             }
 
@@ -937,7 +850,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                     row += self._blank(shown_text, col, msg_anchor)
                 }
 
-                var msg = active_texts[ri]
+                var msg = active_spans[ri].text
                 row += if color => (f"{self.RESET}{msg}") else => msg
 
                 out += conn_gutter + row + NL
@@ -958,7 +871,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var   out: string
 
         var sev      = diag->code.severity()
-        var sev_name = self.severity_label_raw(sev)
+        var sev_name = diag_severity_name(sev)
         var sev_col  = self.severity_color(sev)
         var sev_str = if (color) => (f"{sev_col}{self.BOLD}{sev_name}{self.RESET}") else => sev_name
 
@@ -972,13 +885,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 out += indent + f"{sev_str} [{code_str}]: {diag->message}" + NL
             }
 
-            for var i: usize = 0; i < diag->fixits.size(); ++i {
-                var fi      = diag->fixits[i]
-                var fix_pfx = if (color) => (f"{self.BOLD}{self.CYAN}fix{self.RESET}") else => "fix"
-                if fi.message.length() > 0 {
-                    out += indent + f"  > {fix_pfx}: {fi.message}" + NL
-                }
-            }
+            out += self._fix_messages(diag, indent + "  ", color)
 
             for var i: usize = 0; i < diag->children.size(); ++i {
                 out += self.render_single(
@@ -1080,13 +987,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             ) + diag->message + NL
         }
 
-        for var i: usize = 0; i < diag->fixits.size(); ++i {
-            var fi      = diag->fixits[i]
-            var fix_pfx = if (color) => (f"{self.BOLD}{self.CYAN}fix{self.RESET}") else => "fix"
-            if fi.message.length() > 0 {
-                out += indent + f"  > {fix_pfx}: {fi.message}" + NL
-            }
-        }
+        out += self._fix_messages(diag, indent + "  ", color)
 
         for var i: usize = 0; i < diag->children.size(); ++i {
             out += self.render_single(
@@ -1113,30 +1014,22 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var pipe     = if (color) => (f"{self.BOLD}{self.WHITE}|{self.RESET}") else => "|"
         var renderer = TermRenderer(color, 80)
 
+        // Labels by start line; labels on one line keep their order.
         var order: cxx::std::vector<usize>
+        var lines: cxx::std::vector<usize>
         order.reserve(labels.size())
+        lines.reserve(labels.size())
         for var i: usize = 0; i < labels.size(); ++i {
             order.push_back(i)
+            lines.push_back(sm->get_line_col(labels[i].range.start).line)
         }
 
-        for var i: usize = 1; i < order.size(); ++i {
-            var key = order[i]
-            var key_line = sm->get_line_col(labels[(key)].range.start).line
-            var j: isize = (i as isize) - 1
-            while j >= 0 {
-                var cmp_line = sm->get_line_col(
-                    labels[order[j as usize]].range.start,
-                ).line
-                if cmp_line <= key_line {
-                    break
-                }
-
-                order[(j + 1) as usize] = order[j as usize]
-                j -= 1
-            }
-
-            order[(j + 1) as usize] = key
-        }
+        var *lp = &lines
+        cxx::std::stable_sort(
+            order.begin(),
+            order.end(),
+            fn (a: usize, b: usize) |lp| -> bool = (*lp)[a] < (*lp)[b],
+        )
 
         for var i: usize = 0; i < order.size(); ++i {
             var label = labels[order[i]]
@@ -1160,23 +1053,15 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             var prefix_vis = f"{indent}{num_pad}{line_col}{line_num_str} {pipe} {reset_col}"
 
             /// ### leading context window (same policy as render_group)
-            var ctx_before: u32 = self.ctx_before()
-            var res             = sm->resolve(label.range.start)
-            var fid             = res.fid
+            var fid  = sm->resolve(label.range.start).fid
             var lang = self.snippet_lang(sm->get_filename(label.range.start))
-            var first_line = if (start_lc.line > (ctx_before as usize)) => (start_lc.line - (ctx_before as usize))
-                             else => 1
+            var first_line = self._context_start(
+                sm,
+                fid as u32,
+                start_lc.line as u32,
+            )
 
-            while (first_line) < start_lc.line {
-                var t = sm->get_line_text((fid as u32), (first_line as u32))
-                if self.is_line_blank(t) {
-                    first_line += 1
-                } else {
-                    break
-                }
-            }
-
-            for var ln: u32 = (first_line as u32); (ln as usize) < start_lc.line; ++ln {
+            for var ln: u32 = first_line; (ln as usize) < start_lc.line; ++ln {
                 var t       = sm->get_line_text((fid as u32), ln)
                 var num_str = f"{ln}"
                 var npad    = string(' ' as u8, left_pad - num_str.length())
@@ -1216,6 +1101,35 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     }
 
     /// # Helpers
+
+    /// One `> fix: <message>` line, after \p lead, per fix-it of \p diag
+    /// that has a message (the edit itself is drawn on the source line).
+    priv fn _fix_messages(self,
+                          diag:       unsafe *Diagnostic,
+                          const lead: string,
+                          color:      bool) -> string {
+        var fix_pfx = if (color) => (f"{self.BOLD}{self.CYAN}fix{self.RESET}") else => "fix"
+        var out     = ""
+        for var i: usize = 0; i < diag->fixits.size(); ++i {
+            if diag->fixits[i].message.length() > 0 {
+                out += lead + f"> {fix_pfx}: {diag->fixits[i].message}\n"
+            }
+        }
+
+        return out
+    }
+
+    /// The first line shown above \p line of file \p fid: the context
+    /// window's start (ctx_before), past any blank lines at its top.
+    priv fn _context_start(self, sm: unsafe *SourceManager, fid: u32, line: u32) -> u32 {
+        var ctx_before = self.ctx_before()
+        var first      = if (line > ctx_before) => (line - ctx_before) else => 1
+        while first < line && self.is_line_blank(sm->get_line_text(fid, first)) {
+            first += 1
+        }
+
+        return first
+    }
 
     /// True when \p loc is on \p line of file \p fid. A line number alone is
     /// not a place: the call and the header declaration a note points at
@@ -1482,15 +1396,6 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 return ""
             }
         }
-    }
-
-    priv fn severity_string(self, sev: DiagSeverity, color: bool) -> string {
-        var label: string = self.severity_label_raw(sev)
-        if !color {
-            return label
-        }
-
-        return f"{self.severity_color(sev)}{self.BOLD}{label}{self.RESET}"
     }
 
     priv fn label_char(self, style: DiagLabel::Style) -> u8 {
