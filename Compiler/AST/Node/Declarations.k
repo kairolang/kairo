@@ -190,6 +190,12 @@ pub struct MoveOut {
     /// when the outcomes that reach the path meet these bits.
     pub var when: u8
     pub var at:   SourceRange ///< where the body moves it.
+    /// When `when` has MOVE_ON_PANIC: the panic types on which it is, as
+    /// `pcount` entries of FunctionDecl::move_out_panic from `pfirst`. None
+    /// when a panic whose type is not known statically moves it (a call
+    /// with no declared set, a generic type, a rethrow): every catch arm.
+    pub var pfirst: u32
+    pub var pcount: u32
 }
 
 /// MoveOut::when: how the body left at an exit. A `return true` / `return
@@ -625,12 +631,14 @@ pub class FunctionDecl
     pub var move_reuse_site: FrozenList<unsafe *Expr>
     pub var move_reuse_read: FrozenList<unsafe *Expr>
     /// What a call leaves moved-from in the caller's storage (MoveCheck):
-    /// one MoveOut per part, `move_out_path` their paths, and
+    /// one MoveOut per part, `move_out_path` their paths, `move_out_panic`
+    /// the panic types of the parts moved on a panic, and
     /// `move_out_state` how the list was arrived at. Written on the
     /// definition, in its own TU; a declaration with no definition is
     /// stamped Assumed by the first call that consults it.
     pub var move_out:       FrozenList<MoveOut>
     pub var move_out_path:  FrozenList<unsafe *Decl>
+    pub var move_out_panic: FrozenList<unsafe *Type>
     pub var move_out_state: MoveOutState             = MoveOutState::None
     pub var body_kind:      FnBodyKind               = FnBodyKind::None
     pub var body_block:     unsafe *CompoundStmt     = &null ///< when body_kind == Block.
