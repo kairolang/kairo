@@ -2,13 +2,6 @@
 // elements: `i32 -> i32?` is implicit for each element (nullables.mdx: a
 // value converts into a `T?` anywhere a `T?` is expected).
 //
-// XFAIL: *
-// A tuple literal does not convert element-wise into a
-// tuple with nullable elements.
-// Today `(5, 1)` is SC028E "cannot convert '(i32, i32)' to
-// '(i32?, i32)'" (`(null, 1)` is accepted: the literal takes the expected
-// type there). When it XPASSes, delete the XFAIL -- the run below is
-// already the real assertion.
 
 fn main() -> i32 {
     var t: (i32?, i32) = (5, 1)

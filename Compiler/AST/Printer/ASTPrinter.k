@@ -1119,6 +1119,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
     fn _e_unary(self, e: unsafe *Expressions::UnaryOperatorExpr) {
         var opr = self.tok(e->op_token)
         if e->is_prefix() {
+            if e->const_addr {
+                self.p.paint(Color::Keyword, "const ")
+            }
+
             self.p.paint(Color::Operator, opr)
             self.src_expr(e->operand)
         } else {
@@ -4243,6 +4247,10 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self._head("UnaryOperatorExpr", is_last)
         self.p.put(" ")
         self.p.paint(Color::Dim, (if (e->is_prefix()) => ("prefix ") else => "postfix "))
+        if e->const_addr {
+            self.p.paint(Color::Keyword, "const ")
+        }
+
         self.p.paint(Color::Operator, self.tok(e->op_token))
         self._instance(e->op_instance)
         self.p.newline()

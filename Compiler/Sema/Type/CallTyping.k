@@ -147,11 +147,22 @@ pub fn mode_marker_operand(e: unsafe *Expr) -> unsafe *Expr {
     }
 
     var unsafe *u = cast<UnaryOperatorExpr>(e)
-    if u->op_token.kind != TokenKind::OpAmp {
+    if u->op_token.kind != TokenKind::OpAmp || u->const_addr {
         return &null
     }
 
     return u->operand
+}
+
+/// \p e as written is `const &x`, which is never the `&` marker: it is a
+/// `*const T` wherever it is passed. Null otherwise.
+pub fn const_addr_arg(e: unsafe *Expr) -> unsafe *UnaryOperatorExpr {
+    var unsafe *u = dyn_cast<UnaryOperatorExpr>(e)
+    if u == &null || !u->const_addr {
+        return &null
+    }
+
+    return u
 }
 
 // TODO(DUCK-GENERIC): T uses chain_info, check_convertible, conv, ded_scratch, denoted_type, dotted_variant_shape, fail, finish, flow, fn_return_type, lint_cast_into_slot, list_literal_shape, ... (25). Stage 0 was duck-typed; bound it or keep `: type`.
@@ -293,6 +304,27 @@ pub class <T: type> CallTyping {
         }
 
         return false
+    }
+
+    /// `const &x` given to an `@inout` parameter (\p what names it): the
+    /// parameter writes the variable, and `const &x` is a pointer to const.
+    /// The fix-it drops `const `, leaving the `&x` marker.
+    fn _const_addr_to_inout(self, u: unsafe *UnaryOperatorExpr, what: string) {
+        var inout = LangAttrs::quoted(LangAttrs::param_inout())
+        var b = self.dyn()->sc->diag->report(
+            DiagID::SC097E,
+            u->range.start,
+            f"'const &' cannot mark an argument to {inout} {what}: the parameter writes its argument, and 'const &' makes a pointer to const",
+        )
+
+        b.first(u->range)
+        b.remove(
+            SourceRange(u->range.start, u->op_token.range.start),
+            "pass the variable marked '&' instead",
+        )
+
+        b.emit()
+        u->poison()
     }
 
     fn build_args(self,
@@ -3120,6 +3152,17 @@ pub class <T: type> CallTyping {
                 // a `&` marker, or (tolerated, warned) an unmarked lvalue. It
                 // is judged as a `T&` binding, exactly as a declared
                 // parameter's would be, and lends no type to a literal.
+                var unsafe *ca = const_addr_arg(a)
+                if ca != &null {
+                    self._const_addr_to_inout(
+                        ca,
+                        f"parameter {i + 1} of '{self.dyn()->tu.str(ft)}'",
+                    )
+
+                    bad = true
+                    continue
+                }
+
                 var unsafe *_op    = mode_marker_operand(a)
                 var unsafe *target = if (_op != &null) => (_op) else => a
                 self.dyn()->type_of(target, &null)

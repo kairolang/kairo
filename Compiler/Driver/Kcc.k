@@ -263,7 +263,7 @@ pub fn _kcc_words(argc:       i32,
 ///          normalise its triple; the rest are what CMake, autoconf
 ///          and libtool send. Both clang spellings of each (`-x` and `--x`)
 ///          are accepted, as clang accepts them.
-fn _kcc_is_clang_query(w: string) -> bool {
+fn _kcc_is_clang_query(const w: string) -> bool {
     if w == "-dumpversion" || w == "-dumpmachine" {
         return true
     }

@@ -852,6 +852,10 @@ pub class UnaryOperatorExpr derives Expr {
     /// whose UB is then unreachable, instead of the wrapping form. Never
     /// inferred by the emitter.
     pub var no_wrap: bool = false
+    /// `const &x`: the address of `x` as a pointer to const, `*const T`
+    /// (pointers.mdx). Written by the parser only; the range starts at the
+    /// `const`. Only on a prefix `&`.
+    pub var const_addr: bool = false
 
     /// The user operator overload resolution selected, or null for a builtin
     /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
@@ -887,6 +891,7 @@ pub class UnaryOperatorExpr derives Expr {
         node->is_mode_marker = false
         node->materialize    = false
         node->no_wrap        = false
+        node->const_addr     = false
         node->resolved_op    = &null
         node->op_via_free    = false
         node->op_instance    = &null

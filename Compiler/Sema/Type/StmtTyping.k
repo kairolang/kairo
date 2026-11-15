@@ -619,6 +619,14 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return self._cxx_referee(c)
         }
 
+        if self.dyn()->nullable_unbound() {
+            if v->init != &null {
+                self.dyn()->missing_lang_item(v->init, "Nullable")
+            }
+
+            return self._cxx_referee(c)
+        }
+
         // `var *p? = ptrs[0]` of a `vector<*Node?>`: the `?` is about the
         // value the reference refers to, and a nullable reference is no
         // type at all, so the slot is the referee's nullable -- `*Node?`,

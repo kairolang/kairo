@@ -2154,3 +2154,27 @@ group = "ast"
 
     the imported declarations are called like Kairo functions.
     """
+
+[S096]
+brief = "'const unsafe &x': 'unsafe' comes first"
+group = "ast"
+
+    [S096.E]
+    explain = """
+    # 'const unsafe &x': 'unsafe' comes first
+
+    `unsafe const &x` is the address of `x` as an `unsafe *const T`. The
+    qualifiers are written in the order of the type they make: the type is
+    `unsafe *const T`, so the address-of is `unsafe const &x`. The other
+    order, `const unsafe &x`, is an error.
+
+    ```kairo
+    var a = 1
+    var p: unsafe *const i32 = const unsafe &a   // error
+    var q: unsafe *const i32 = unsafe const &a   // ok
+    ```
+
+    ## how to fix
+
+    swap the two words (the fix-it does): `unsafe const &x`.
+    """

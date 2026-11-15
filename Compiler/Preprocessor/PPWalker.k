@@ -411,7 +411,7 @@ pub class PPWalker
     }
 
     /// Debug builds: \p what configures the read, so it must come before it.
-    priv fn _check_fresh(self, what: string) {
+    priv fn _check_fresh(self, const what: string) {
         if self._phase != WalkPhase::Fresh {
             kairo::std::ice_fail(
                 f"PPWalker::{what} after the walker started reading (phase {self._phase as u8 as u32})",

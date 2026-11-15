@@ -524,6 +524,20 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return
         }
 
+        // `T?` is `Nullable<T>` to C++ (NullableTypeLowering): with no
+        // builtin root to declare it, nothing could lower it. A file of the
+        // builtin root itself may be typed before the one that declares it.
+        if !self.sc->well_known->has(WellKnownType::Nullable)
+            && (self.sc->g == &null || !self.sc->g->is_builtin_fid(self.sc->ctx->fid)) {
+            self.sc->diag->report(
+                DiagID::R055E,
+                n->range.start,
+                f"lang item '{to_string(WellKnownType::Nullable)}' is not declared in the builtin root",
+            ).first(n->range)->emit()
+            n->poison()
+            return
+        }
+
         n->canonical = self.sc->types->nullable(n->inner->canonical)
     }
 

@@ -543,6 +543,7 @@ fn io_unary_operator_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::UnaryO
     ar->expr<Expr>(&n->operand)
     ar->tok(&n->op_token)
     ar->en<Expressions::UnaryOperatorExpr::Fix>(&n->fix)
+    ar->flag(&n->const_addr)
     eval if defined!(DEBUG) {
         ar->sema_false(n->is_mode_marker, "UnaryOperatorExpr::is_mode_marker")
         ar->sema_false(n->materialize, "UnaryOperatorExpr::materialize")

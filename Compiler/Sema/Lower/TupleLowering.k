@@ -61,6 +61,7 @@ import AST::Node::Base::{
     Decl,
     Expr,
     Stmt,
+    Type,
 }
 import AST::Node::CanonicalNodes::{
     QUAL_CONST,
@@ -182,6 +183,26 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
                 e->range,
                 self.tu.decl_name(unsafe (fd as unsafe *Decl)),
             )
+
+            // A numeric element converted to the tuple's numeric element
+            // type (LiteralTyping::type_tuple_literal, ExprTyper's
+            // check_convertible) is written as the conversion: a braced
+            // initializer refuses a narrowing one (`int` into `double`). A
+            // record element's conversion (`op as`) is OperatorLowering's.
+            var unsafe *et              = self.tu.tuple_elems(t)[i]
+            var        ev: unsafe *Type = &null
+            if e->type_ != &null {
+                ev = canon_unqual(self.tu.as_value(e->type_))
+            }
+
+            if ev != &null
+                && et != &null
+                && !et->is_dependent()
+                && self.tu.is_numeric(et)
+                && self.tu.is_numeric(ev)
+                && ev != canon_unqual(et) {
+                e = self.synth.cast_to(e->range, e, et, CastMode::Default)
+            }
 
             f.value      = e
             f.range      = e->range

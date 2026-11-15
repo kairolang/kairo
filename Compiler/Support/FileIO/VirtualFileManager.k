@@ -274,7 +274,7 @@ pub class VirtualFileManager {
     ///          sibling file that R068E reports), so an ICE would turn that
     ///          diagnostic into a crash. Make it fatal once the walk stops
     ///          registering.
-    priv fn _check_not_walking(self, action: string, const what: string, fatal: bool) {
+    priv fn _check_not_walking(self, const action: string, const what: string, fatal: bool) {
         if self._walks.load(kairo::std::MemoryOrder::acquire) == 0 {
             return
         }

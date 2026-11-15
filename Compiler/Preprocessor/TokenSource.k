@@ -141,7 +141,7 @@ pub class TokenSource {
 
     /// Debug builds: \p what changes how frame 0 is read, which only means
     /// something before its first token was pulled.
-    priv fn _check_unpulled(self, what: string) {
+    priv fn _check_unpulled(self, const what: string) {
         if self._pulled_count != 0 || self._eof_seen {
             kairo::std::ice_fail(
                 f"TokenSource::{what} after the first pull ({self._pulled_count} tokens read)",

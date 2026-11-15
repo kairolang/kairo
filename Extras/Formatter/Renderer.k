@@ -40,7 +40,7 @@ pub fn spaces(n: i32) -> string {
 
 /// Display width of \p s: code points, not bytes, so a `é` in a comment or a
 /// string does not push its line over the limit early.
-pub fn width_of(s: string) -> i32 {
+pub fn width_of(const s: string) -> i32 {
     return s.codepoints() as i32
 }
 
@@ -140,7 +140,7 @@ pub class Pen {
         return self.col + self.sp
     }
 
-    fn put(self, s: string) {
+    fn put(self, const s: string) {
         if s.length() == 0 {
             return
         }
@@ -426,7 +426,7 @@ pub class Renderer {
         return pen.out
     }
 
-    priv static fn _is_newline(c: Cmd) -> bool {
+    priv static fn _is_newline(const c: Cmd) -> bool {
         if c.doc == &null {
             return c.lit == "\n"
         }
@@ -912,7 +912,7 @@ pub class Renderer {
 
     /// Does \p next fit in \p rem0 columns, followed by the rest of its line?
     /// The rest is the pending stack, read from the top down in its own modes.
-    priv static fn _fits(next: Cmd, stack: unsafe *cxx::std::vector<Cmd>, rem0: i32) -> bool {
+    priv static fn _fits(const next: Cmd, stack: unsafe *cxx::std::vector<Cmd>, rem0: i32) -> bool {
         var rem  = rem0
         var rest = stack->size()
         var work = cxx::std::vector<Cmd>()

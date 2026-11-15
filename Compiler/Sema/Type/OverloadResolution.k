@@ -3254,6 +3254,11 @@ pub class OverloadResolution {
                              else => got
                     c->reject()
                     c->reason = f"parameter '{pn}' is {LangAttrs::quoted(LangAttrs::param_inout())} and needs a mutable lvalue of type '{self.tu.str(pt)}'; got '{iv}'"
+                    var unsafe *ca = dyn_cast<UnaryOperatorExpr>(a->expr)
+                    if ca != &null && ca->const_addr {
+                        c->reason = f"parameter '{pn}' is {LangAttrs::quoted(LangAttrs::param_inout())} and writes its argument; 'const &' makes a pointer to const, not the '&' marker"
+                    }
+
                     return
                 }
 
@@ -3722,6 +3727,13 @@ pub class OverloadResolution {
         // `write(int, const void*, size_t)` widens there (Conversion::abi_widen).
         if r == ImplicitRank::None && c->f != &null && c->f->is_imported() {
             r = self.conv->abi_widen(a->ty, pt)
+        }
+
+        // A tuple literal converts element by element (ExprTyper's
+        // check_convertible retypes it once the call is chosen): never
+        // Exact, since its own type is not the parameter's.
+        if r == ImplicitRank::None && self.conv->tuple_literal_fits(a->expr, pt) {
+            r = ImplicitRank::Converted
         }
 
         return r

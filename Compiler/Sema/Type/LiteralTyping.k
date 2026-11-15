@@ -79,7 +79,10 @@ import Lexer::Immediate::Immediate
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Sema::Resolve::NameLookup::NameLookup
-import Sema::Type::Conversion::literal_fits_int
+import Sema::Type::Conversion::{
+    ImplicitRank,
+    literal_fits_int,
+}
 import Sema::Type::OverloadResolution::{
     ArgInfo,
     ListShape,
@@ -2359,6 +2362,10 @@ pub class <T: type> LiteralTyping {
         var ex_elems              = self.dyn()->tu.tuple_elems(ex)
         var elems                 = cxx::std::vector<*Type>()
         var hole:    unsafe *Expr = &null
+        // Every element converted to the expected tuple's: the literal is a
+        // value of that tuple, element by element (`(&k, &v)` against
+        // `(*const K, *V)`), and TupleLowering builds it as one.
+        var converted = have_expected
         for var i: usize = 0; i < n->elements.size(); ++i {
             var e_exp: unsafe *Type = if (have_expected) => (ex_elems[i]) else => &null
             var t                   = self.dyn()->type_of(n->elements[i], e_exp)
@@ -2370,8 +2377,17 @@ pub class <T: type> LiteralTyping {
                 continue
             }
 
-            if e_exp != &null {
-                self.dyn()->check_convertible(n->elements[i], e_exp)
+            if e_exp != &null && !self.dyn()->check_convertible(n->elements[i], e_exp) {
+                converted = false
+            }
+
+            // A dependent element passes check_convertible unasked; only a
+            // conversion the lattice decides over the parameters (`*K` to
+            // `*const K`) retypes the literal.
+            if converted
+                && e_exp->is_dependent()
+                && self.dyn()->conv.implicit(n->elements[i]->type_, e_exp) == ImplicitRank::None {
+                converted = false
             }
 
             // A tuple element is a value: an imported `T&`/`T&&` result
@@ -2394,6 +2410,10 @@ pub class <T: type> LiteralTyping {
         if hole != &null {
             self._lift_hole(n, hole)
             return &null
+        }
+
+        if converted {
+            return ex
         }
 
         var t = self.dyn()->tu.tuple_of(&elems)

@@ -6529,3 +6529,29 @@ group = "specialization"
 
     [SC330.N]
     explain = "Points at a primary template the specialization was compared against."
+
+[SC332]
+brief = "an interface is not a type"
+group = "type-check"
+
+    [SC332.E]
+    explain = """
+    # an interface used as a type
+
+    an interface is a set of requirements. it constrains a generic parameter (`T impl Shape`)
+    or is implemented by a type (`class Circle impl Shape`), but it has no values of its own,
+    so it cannot be the type of a variable, parameter, field or return value, a pointer's
+    pointee, a container's element, a generic argument, or the operand of `sizeof`.
+
+    ```kairo
+    interface Shape { fn area(const self) -> f64 }
+
+    fn total(s: Shape) -> f64 { return s.area() }       // error
+    fn <T impl Shape> total(s: T) -> f64 { return s.area() } // ok
+    ```
+
+    ## how to fix
+
+    take a generic parameter bounded by the interface. runtime dispatch through a pointer to a
+    `virtual interface` is not compiled yet.
+    """

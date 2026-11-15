@@ -296,7 +296,7 @@ pub class SysCache {
         return false
     }
 
-    priv static fn _slashes(s: string) -> string {
+    priv static fn _slashes(const s: string) -> string {
         var out = s
         eval if defined!(_WIN32) {
             for var i: usize = 0; i < out.size(); ++i {

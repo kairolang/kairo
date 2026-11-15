@@ -2379,7 +2379,8 @@ pub class CXXSpell {
     }
 
     /// The C++ spelling of an unresolved member type of a generic parameter
-    /// (`T::Guard`, `T::A::B`) as `typename T::Guard`, or "" for any other
+    /// (`T::Guard`, `T::A::B`) or of a template-id over one
+    /// (`traits<T>::size_type`) as `typename T::Guard`, or "" for any other
     /// type: a type unresolved for any other reason is still a Sema gate
     /// failure, and must keep ICEing.
     fn dependent_member(self, t: unsafe *Type) -> string {
@@ -2405,6 +2406,35 @@ pub class CXXSpell {
                 s0->name->range,
                 self._cg->ctx->sm,
             ).get_text()
+        } else if s0->generic_args.size() > 0
+            && s0->resolved_type != &null
+            && s0->resolved_type->canonical != &null
+            && s0->resolved_type->canonical->is_dependent() {
+            // `traits<T>::size_type`: a member of a template-id whose
+            // arguments name a generic parameter, as dependent as `T::X`.
+            out = "typename " + self._type(s0->resolved_type)
+        } else if s0->resolved_decl != &null && s0->generic_args.size() > 0 {
+            var args = ""
+            var dep  = false
+            for var i: usize = 0; i < s0->generic_args.size(); ++i {
+                var unsafe *a = s0->generic_args.get(i)->ty
+                if a == &null || a->canonical == &null {
+                    return ""
+                }
+
+                dep = dep || a->canonical->is_dependent()
+                if i > 0 {
+                    args += ", "
+                }
+
+                args += self._type(a)
+            }
+
+            if !dep {
+                return ""
+            }
+
+            out = "typename " + self.qual_name(s0->resolved_decl) + "<" + args + ">"
         } else {
             return ""
         }

@@ -107,7 +107,7 @@ pub class Doc {
         return false
     }
 
-    static fn text(s: string) -> Doc {
+    static fn text(const s: string) -> Doc {
         var d = Doc()
         d.kind = DocKind::Text
         d.txt  = s
@@ -124,14 +124,14 @@ pub class Doc {
 
     /// Fixed-arity concat helpers: there is no braced-init conversion to a
     /// vector of Docs.
-    static fn concat2(a: Doc, b: Doc) -> Doc {
+    static fn concat2(const a: Doc, const b: Doc) -> Doc {
         var xs = cxx::std::vector<Doc>()
         xs.push_back(a)
         xs.push_back(b)
         return Doc::concat(xs)
     }
 
-    static fn concat3(a: Doc, b: Doc, c: Doc) -> Doc {
+    static fn concat3(const a: Doc, const b: Doc, const c: Doc) -> Doc {
         var xs = cxx::std::vector<Doc>()
         xs.push_back(a)
         xs.push_back(b)
@@ -139,7 +139,7 @@ pub class Doc {
         return Doc::concat(xs)
     }
 
-    static fn concat4(a: Doc, b: Doc, c: Doc, d: Doc) -> Doc {
+    static fn concat4(const a: Doc, const b: Doc, const c: Doc, const d: Doc) -> Doc {
         var xs = cxx::std::vector<Doc>()
         xs.push_back(a)
         xs.push_back(b)
@@ -148,7 +148,7 @@ pub class Doc {
         return Doc::concat(xs)
     }
 
-    static fn concat5(a: Doc, b: Doc, c: Doc, d: Doc, e: Doc) -> Doc {
+    static fn concat5(const a: Doc, const b: Doc, const c: Doc, const d: Doc, const e: Doc) -> Doc {
         var xs = cxx::std::vector<Doc>()
         xs.push_back(a)
         xs.push_back(b)
@@ -189,7 +189,7 @@ pub class Doc {
 
     /// \p child with its broken lines at the column it starts at (rule 8.3's
     /// clause layouts: `catch` under `try`, `else` under `if`).
-    static fn align(child: Doc) -> Doc {
+    static fn align(const child: Doc) -> Doc {
         var d = Doc()
         d.kind = DocKind::Align
         d.hard = child.hard
@@ -204,7 +204,7 @@ pub class Doc {
         return d
     }
 
-    static fn group(child: Doc) -> Doc {
+    static fn group(const child: Doc) -> Doc {
         var d = Doc()
         d.kind = DocKind::Group
         d.hard = child.hard
@@ -215,7 +215,7 @@ pub class Doc {
     /// \p flat when it fits on the rest of the line, else \p broken (rule
     /// 7.5's one-line type body). Unlike if_break, the broken form's hard
     /// lines do not force the choice.
-    static fn choice(flat: Doc, broken: Doc) -> Doc {
+    static fn choice(const flat: Doc, const broken: Doc) -> Doc {
         var d = Doc()
         d.kind = DocKind::Group
         d.hard = flat.hard
@@ -226,13 +226,13 @@ pub class Doc {
 
     /// A group whose flat form must also end by column \p cap (rule 4.1's
     /// 80-column limit for calls).
-    static fn group_cap(child: Doc, cap: i32) -> Doc {
+    static fn group_cap(const child: Doc, cap: i32) -> Doc {
         var d = Doc::group(child)
         d.num = cap
         return d
     }
 
-    static fn indent(child: Doc) -> Doc {
+    static fn indent(const child: Doc) -> Doc {
         var d = Doc()
         d.kind = DocKind::Indent
         d.hard = child.hard
@@ -241,7 +241,7 @@ pub class Doc {
     }
 
     /// `when_broken` if the nearest enclosing Group broke, `when_flat` if not.
-    static fn if_break(when_broken: Doc, when_flat: Doc) -> Doc {
+    static fn if_break(const when_broken: Doc, const when_flat: Doc) -> Doc {
         var d = Doc()
         d.kind = DocKind::IfBreak
         d.hard = when_broken.hard
@@ -250,7 +250,7 @@ pub class Doc {
         return d
     }
 
-    static fn line_suffix(child: Doc) -> Doc {
+    static fn line_suffix(const child: Doc) -> Doc {
         var d = Doc()
         d.kind = DocKind::LineSuffix
         d.children.push_back(child)
@@ -267,12 +267,12 @@ pub class Doc {
     /// Rule 4.1 list. \p keys / \p vals: one pair per item; an empty key is
     /// an item with no `name:` (its value is the whole item). \p flat is the
     /// one-line form, built by the caller so the renderer's fit test reads it.
-    static fn list(open:  string,
-                   close: string,
-                   keys:  cxx::std::vector<Doc>,
-                   vals:  cxx::std::vector<Doc>,
-                   flat:  Doc,
-                   flags: u32) -> Doc {
+    static fn list(const open:  string,
+                   const close: string,
+                   keys:        cxx::std::vector<Doc>,
+                   vals:        cxx::std::vector<Doc>,
+                   const flat:  Doc,
+                   flags:       u32) -> Doc {
         var d = Doc()
         d.kind  = DocKind::List
         d.flags = flags
@@ -303,7 +303,7 @@ pub class Doc {
         return d
     }
 
-    static fn join(xs: cxx::std::vector<Doc>, sep: Doc) -> Doc {
+    static fn join(xs: cxx::std::vector<Doc>, const sep: Doc) -> Doc {
         var out = cxx::std::vector<Doc>()
         for var i: usize = 0; i < xs.size(); ++i {
             if i > 0 {

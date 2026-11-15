@@ -2807,7 +2807,10 @@ pub class <T: type> OperatorTyping {
         // const container or where `*const T` is the target.
         if k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus {
             self.dyn()->mark_subscript_use(n->operand, SUB_WRITE)
-        } else if k == TokenKind::OpAmp && n->is_prefix() && !self._wants_const_pointer(expected) {
+        } else if k == TokenKind::OpAmp
+            && n->is_prefix()
+            && !n->const_addr
+            && !self._wants_const_pointer(expected) {
             self.dyn()->mark_subscript_use(n->operand, SUB_SOFT)
         }
 
@@ -3029,6 +3032,15 @@ pub class <T: type> OperatorTyping {
                 // The pointer may write the place behind the analysis's back
                 // until a consumer accounts for it (Compiler/Spec/Nullables.md#weakening, 3.7).
                 self.dyn()->flow.address_taken(n, place)
+                // `const &x` points at `x` as const: `*const T`, whatever
+                // `x`'s own const.
+                if n->const_addr {
+                    return self.dyn()->sc->types->pointer(
+                        self.dyn()->sc->types->qualified(place, QUAL_CONST),
+                        false,
+                    )
+                }
+
                 return self.dyn()->sc->types->pointer(place, false)
             } case TokenKind::OpStar {
                 self.dyn()->flow.consumed(n->operand) // `*p` reads or writes where p points; no escape.

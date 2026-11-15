@@ -28,6 +28,7 @@ import AST::DeclFacts::{
     decl_is_instance,
     decl_only_forward,
     decl_pattern,
+    param_is_type_pack,
 }
 import AST::Kind::DeclKind::{
     DeclKind,
@@ -1401,11 +1402,13 @@ pub class TypeUtil {
     }
 
     /// The type a USE of \p p has inside its function. A pack `...xs: T` is
-    /// `[T;]` (Slice<T>, by value); every other parameter is its declared
-    /// canonical. Null when the pack's element is dependent (a generic pack;
-    /// not modelled yet) or the type never resolved. The declared `type_`
-    /// stays the element: overload resolution ranks each pack argument
-    /// against it, and CallLowering builds the slice from it.
+    /// `[T;]` (Slice<T>, by value), a dependent `Slice<T>` when T is a
+    /// generic parameter of the function; every other parameter is its
+    /// declared canonical. Null for a TYPE pack (`fn <...T> f(...xs: T)`:
+    /// one value per element, never a slice) or a type that never resolved.
+    /// The declared `type_` stays the element: overload resolution ranks
+    /// each pack argument against it, and CallLowering builds the slice from
+    /// it.
     fn param_value_type(self, p: unsafe *Declarations::ParamDecl) -> unsafe *Type {
         if p == &null || p->type_ == &null || p->type_->canonical == &null {
             return &null
@@ -1417,7 +1420,7 @@ pub class TypeUtil {
         }
 
         var unsafe *elem = canon_unqual(c)
-        if elem == &null || elem->is_dependent() {
+        if elem == &null || param_is_type_pack(p) {
             return &null
         }
 

@@ -1149,7 +1149,7 @@ pub class ImportResolver {
     }
 
     /// The winning probe's `foo.k`-and-`foo/module.k` finding, onto \p out.
-    priv fn _take_file_dir(self, out: *ModuleResolution, h: Self::RootHit) {
+    priv fn _take_file_dir(self, out: *ModuleResolution, const h: Self::RootHit) {
         out->file_dir = h.file_dir
         if h.file_dir {
             out->dir_path = h.dir_path
@@ -1159,8 +1159,8 @@ pub class ImportResolver {
     /// Identity for a found resolution; shared by both entry points so a
     /// file reached through `self::` and through a root is one module.
     priv fn _finish(self,
-                    out:      ModuleResolution,
-                    segments: cxx::std::vector<string>) -> ModuleResolution {
+                    const out: ModuleResolution,
+                    segments:  cxx::std::vector<string>) -> ModuleResolution {
         var res = out
         res.canonical = self.canonical_module_path(res.path)
         self.claim_identity(res.canonical, res.path)

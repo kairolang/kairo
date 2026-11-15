@@ -1405,6 +1405,61 @@ pub class <T: type> ExprParse {
             )
         }
 
+        /// # const address-of: `const &x`, a `*const T` to `x`
+        /// `const` begins no other expression, so `const &` here is never a
+        /// binding: a statement that starts with `const` is a declaration
+        /// before the expression parser sees it.
+        if self.dyn()->check(TokenKind::KwConst) && self.dyn()->check_peek(TokenKind::OpAmp) {
+            self.dyn()->advance() // `const`
+            return self._parse_const_addr(cur_range, stop)
+        }
+
+        /// # `const unsafe &x`: the qualifiers in the other order. The
+        /// pointer type is `unsafe *const T`, so its address-of is
+        /// `unsafe const &x`; the misordered form is an error with the
+        /// swap as its fix-it, and parses as the form it meant.
+        if self.dyn()->check(TokenKind::KwConst) && self.dyn()->check_peek(TokenKind::KwUnsafe) {
+            var const_range = cur_range
+            self.dyn()->advance() // `const`
+            var unsafe *ut = self.dyn()->current_ptr()
+            if ut != &null && self.dyn()->check_peek(TokenKind::OpAmp) {
+                var unsafe_range = ut->range
+                var b = self.dyn()->diag->report(
+                    DiagID::S096E,
+                    const_range.start,
+                    "'unsafe' comes before 'const' in an address-of: write 'unsafe const &x', as the type is 'unsafe *const T'",
+                )
+
+                b.first(const_range | unsafe_range)
+                b.fix(
+                    const_range | unsafe_range,
+                    "unsafe const",
+                    "write 'unsafe const'",
+                )
+
+                b.emit()
+                self.dyn()->advance() // `unsafe`
+                var unsafe *inner = self._parse_const_addr(const_range, stop)
+
+                if inner == &null {
+                    return self._error_expr(const_range)
+                }
+
+                return Expressions::UnsafeExpr::create(
+                    self.dyn()->ctx,
+                    const_range | inner->range,
+                    inner,
+                )
+            }
+
+            self.dyn()->diag->report(
+                DiagID::S052E,
+                const_range.start,
+                "expected expression, found 'const'",
+            ).first(const_range)->emit()
+            return self._error_expr(const_range)
+        }
+
         /// # prefix unary operators
         if self.dyn()->check(TokenKind::OpExclaim)
             || self.dyn()->check(TokenKind::OpPlus)
@@ -1629,6 +1684,39 @@ pub class <T: type> ExprParse {
 
         /// # no prefix: parse postfix
         return self._parse_postfix_expr(stop)
+    }
+
+    /// \brief `const &x` after its `const`. precondition: the current token
+    ///        is the `&`, and \p cur_range is the `const`. The node is the
+    ///        `&x` the operand makes, with `const_addr` set; its range starts
+    ///        at `const`.
+    inline fn _parse_const_addr(self,
+                                cur_range: SourceRange,
+                                stop:      Self::ExprStop) -> unsafe *Expr {
+        var amp_range = self.dyn()->current_range()
+        var op_tok    = self.dyn()->current()
+        self.dyn()->advance() // `&`
+        var unsafe *operand = self._parse_unary_expr(stop)
+        if operand == &null {
+            self.dyn()->diag->report(
+                DiagID::S052E,
+                amp_range.start,
+                "expected expression after 'const &'",
+            ).first(cur_range | amp_range)->emit()
+            return self._error_expr(cur_range | amp_range)
+        }
+
+        self._warn_open_operand(operand)
+        var unsafe *u = Expressions::UnaryOperatorExpr::create(
+            self.dyn()->ctx,
+            cur_range | operand->range,
+            operand,
+            op_tok,
+            Expressions::UnaryOperatorExpr::Fix::Prefix,
+        )
+
+        u->const_addr = true
+        return u
     }
 
     //  sizeof / alignof / typeof

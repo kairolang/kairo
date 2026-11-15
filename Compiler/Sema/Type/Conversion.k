@@ -55,6 +55,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::FunctionDecl
+import AST::Node::Expressions
 import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
@@ -528,6 +529,58 @@ pub class Conversion {
     }
 
     /// # the implicit sequence
+
+    /// The tuple type \p to names, for a tuple literal of \p arity elements
+    /// to convert into: its value, nullable stripped, canonical. Null for
+    /// anything else.
+    fn tuple_literal_target(self, to: unsafe *Type, arity: usize) -> unsafe *Type {
+        if to == &null {
+            return &null
+        }
+
+        var unsafe *tt = canon_unqual(
+            self.tu.strip_nullable(canon_unqual(self.tu.as_value(to))),
+        )
+
+        if tt == &null || !self.tu.is_tuple(tt) || self.tu.tuple_arity(tt) != arity {
+            return &null
+        }
+
+        return tt
+    }
+
+    /// \p e is a tuple literal whose every element converts implicitly to
+    /// the element of \p to at the same place (a nested literal by the same
+    /// rule). Silent: nothing is diagnosed or rewritten.
+    fn tuple_literal_fits(self, e: unsafe *Expr, to: unsafe *Type) -> bool {
+        var unsafe *lit = dyn_cast<Expressions::TupleLiteralExpr>(
+            self.tu.strip_parens(e),
+        )
+
+        if lit == &null || lit->is_poisoned() {
+            return false
+        }
+
+        var unsafe *tt = self.tuple_literal_target(to, lit->elements.size())
+        if tt == &null {
+            return false
+        }
+
+        var elems = self.tu.tuple_elems(tt)
+        for var i: usize = 0; i < lit->elements.size(); ++i {
+            var unsafe *el = lit->elements[i]
+            if el == &null || el->is_poisoned() || el->type_ == &null {
+                return false
+            }
+
+            if self.implicit(el->type_, elems[i]) == ImplicitRank::None
+                && !self.tuple_literal_fits(el, elems[i]) {
+                return false
+            }
+        }
+
+        return true
+    }
 
     /// Rank of \p from -> \p to as an implicit conversion. Both canonical.
     fn implicit(self, from: unsafe *Type, to: unsafe *Type) -> ImplicitRank {

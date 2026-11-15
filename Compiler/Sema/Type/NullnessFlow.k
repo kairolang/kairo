@@ -3671,7 +3671,7 @@ pub class NullnessFlow {
     }
 
     /// The SC001E itself. \p trap, when set, adds the 4.1 fix-it.
-    priv fn _emit(self, x: unsafe *Expr, r: SourceRange, f: NullFact, trap: *NullTrap?) {
+    priv fn _emit(self, x: unsafe *Expr, r: SourceRange, const f: NullFact, trap: *NullTrap?) {
         var nm  = self.place_name(f.place)
         var msg = f"'{nm}' may be null here; check it with 'if {nm}?' first"
         if f.state == Nullness::Null {

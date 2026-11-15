@@ -87,7 +87,7 @@ fn std_to_string(s: cxx::std::string) -> string {
     )
 }
 
-fn diag_line(d: ToolDiag) -> string {
+fn diag_line(const d: ToolDiag) -> string {
     var head: string = ""
     if d.has_loc {
         head = f"{d.file}:{d.line}:{d.column}: "
@@ -159,7 +159,7 @@ fn syntax_errors(u: Parsed, show: bool) -> u32 {
 /// locations), comment annotations dropped: rule 12.4 may move a comment to
 /// another line, which can change the node it annotates without changing
 /// the code. Comments are compared on their own (check 3).
-fn tree_dump(u: Parsed) -> string {
+fn tree_dump(const u: Parsed) -> string {
     var opts = PrintOptions{}
     opts.style = PrintStyle::Debug
     opts.color = false
@@ -222,7 +222,9 @@ pub struct Sig {
 
 /// Comment tokens that travel with import \p im (5.4): the own-line ones
 /// directly above it, and one trailing its last line. Marked in \p used.
-fn import_comments(f: *Formatter, im: ImportInfo, used: unsafe *cxx::std::vector<u8>) -> string {
+fn import_comments(f:        *Formatter,
+                   const im: ImportInfo,
+                   used:     unsafe *cxx::std::vector<u8>) -> string {
     var s: string = ""
     // above: walk back over whitespace / newlines; a comment ending on the
     // line just above, which starts its own line, is part of the import
@@ -458,10 +460,10 @@ fn squeeze(s: string) -> string {
     return out
 }
 
-fn same_list(a:    cxx::std::vector<string>,
-             b:    cxx::std::vector<string>,
-             what: string,
-             why:  unsafe *string) -> bool {
+fn same_list(a:          cxx::std::vector<string>,
+             b:          cxx::std::vector<string>,
+             const what: string,
+             why:        unsafe *string) -> bool {
     var n = if a.size() < b.size() => a.size() else => b.size()
     for var i: usize = 0; i < n; ++i {
         if a[i] != b[i] {
@@ -512,16 +514,16 @@ fn first_diff(a: string, b: string) -> string {
 /// dump are \p a and \p ta (taken before the file was released: the output
 /// is parsed in the same instance, and a file that declares a `module` would
 /// otherwise meet its own macros twice). \p why gets the first failure.
-fn verify(ci:       unsafe *CompilerInstance,
-          name:     string,
-          a:        Sig,
-          ta:       string,
-          file_dir: string,
-          roots:    cxx::std::vector<string>,
-          out:      string,
-          set:      Settings,
-          buf:      unsafe *cxx::std::string,
-          why:      unsafe *string) -> bool {
+fn verify(ci:             unsafe *CompilerInstance,
+          const name:     string,
+          const a:        Sig,
+          const ta:       string,
+          const file_dir: string,
+          roots:          cxx::std::vector<string>,
+          const out:      string,
+          set:            Settings,
+          buf:            unsafe *cxx::std::string,
+          why:            unsafe *string) -> bool {
     // the source manager keeps the pointer, not the bytes: \p buf belongs
     // to the caller and outlives the virtual file
     *buf = kairo::std::to_std_string(out)
@@ -601,11 +603,11 @@ fn verify(ci:       unsafe *CompilerInstance,
 }
 
 /// 0 unchanged, 1 changed (reformatted, or would be), 2 refused or failed.
-fn format_one_file(ci:    unsafe *CompilerInstance,
-                   name:  string,
-                   mode:  FmtMode,
-                   set:   Settings,
-                   roots: cxx::std::vector<string>) -> i32 {
+fn format_one_file(ci:         unsafe *CompilerInstance,
+                   const name: string,
+                   mode:       FmtMode,
+                   set:        Settings,
+                   roots:      cxx::std::vector<string>) -> i32 {
     // the checked output's bytes: declared before the release below so they
     // outlive the virtual file that points at them
     var buf = cxx::std::string()
@@ -749,7 +751,7 @@ fn usage() {
 }
 
 /// The value of `--name=value` in \p arg, or "" when \p arg is not that flag.
-fn flag_value(arg: string, name: string) -> string {
+fn flag_value(const arg: string, const name: string) -> string {
     var p = name + "="
     if arg.size() <= p.size() || !arg.starts_with(p) {
         return ""

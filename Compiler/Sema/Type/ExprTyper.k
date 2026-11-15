@@ -99,6 +99,7 @@ import AST::Kind::ExprKind::{
 import AST::Kind::TypeKind::to_string
 import AST::LangItems::{
     LangAttrs,
+    WellKnownType,
     to_string,
 }
 import AST::Mixin::Annotation::AnnotationKind
@@ -132,6 +133,7 @@ import AST::Node::Types::{
     CXXRValueRefType,
     ChainType,
     FunctionPointerType,
+    NullableType,
 }
 import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
@@ -578,6 +580,15 @@ pub class ExprTyper
                 self.n_unknown += 1
             }
 
+            return
+        }
+
+        // A `T?` value is a `Nullable<T>` to C++: with no builtin root it is
+        // missing its lang item at its first use, as a string or a tuple is.
+        if isa<NullableType>(canon_unqual(t)) && self.nullable_unbound() {
+            self.missing_lang_item(e, "Nullable")
+            e->type_ = &null
+            self.n_errored += 1
             return
         }
 
@@ -2006,6 +2017,52 @@ pub class ExprTyper
         }
     }
 
+    /// A tuple LITERAL converts element by element, each by the conversion
+    /// an initialization of that element allows: `(&k, &v)` is a
+    /// `(*const K, *V)` where one is expected. Only a literal: a tuple value
+    /// of another type converts to nothing. On success the literal (and
+    /// each paren around it) is retyped to the target tuple, which
+    /// TupleLowering builds; false, with nothing changed or diagnosed, when
+    /// \p e is no such literal.
+    priv fn _convert_tuple_literal(self, e: unsafe *Expr, to: unsafe *Type) -> bool {
+        if !self.conv.tuple_literal_fits(e, to) {
+            return false
+        }
+
+        var unsafe *lit = cast<Expressions::TupleLiteralExpr>(
+            self.tu.strip_parens(e),
+        )
+
+        var unsafe *tt = self.conv.tuple_literal_target(
+            to,
+            lit->elements.size(),
+        )
+
+        var elems = self.tu.tuple_elems(tt)
+        var ok    = true
+        for var i: usize = 0; i < lit->elements.size(); ++i {
+            if !self.check_convertible(lit->elements[i], elems[i]) {
+                ok = false
+            }
+        }
+
+        if !ok {
+            return false
+        }
+
+        var unsafe *x = e
+        while x != &null {
+            x->type_ = tt
+            if !isa<Expressions::ParenExpr>(x) {
+                break
+            }
+
+            x = cast<Expressions::ParenExpr>(x)->inner
+        }
+
+        return self.conv.implicit(tt, to) != ImplicitRank::None
+    }
+
     /// Implicit-convert check at a use site. Diagnoses and poisons \p e on
     /// failure; silent on unknown / already poisoned.
     fn check_convertible(self, e: unsafe *Expr, to: unsafe *Type) -> bool {
@@ -2036,6 +2093,10 @@ pub class ExprTyper
         var r = self.conv.implicit(from, to)
         if r != ImplicitRank::None {
             self._note_implicit_op(e, from, to)
+            return true
+        }
+
+        if self._convert_tuple_literal(e, to) {
             return true
         }
 
@@ -2312,6 +2373,17 @@ pub class ExprTyper
     }
 
     /// # lang items / panic sites
+
+    /// `T?` has no lang item to lower to: no builtin root declares Nullable.
+    /// A file of the builtin root itself may be typed before the one that
+    /// declares it.
+    fn nullable_unbound(self) -> bool {
+        if self.sc->well_known->has(WellKnownType::Nullable) {
+            return false
+        }
+
+        return self.sc->g == &null || !self.sc->g->is_builtin_fid(self.sc->ctx->fid)
+    }
 
     /// One report per unbound lang item per TU: the "error at USE" rule from
     /// SemaContext.k, without a repeat on every use in the file.

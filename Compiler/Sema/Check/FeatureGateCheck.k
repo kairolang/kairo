@@ -104,14 +104,10 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations::{
     ClassDecl,        EnumDecl,      EvalBlockDecl, ExtensionDecl, FieldDecl, FunctionDecl,
-    GenericParamDecl, InterfaceDecl, StructDecl,    UnionDecl,
+    GenericParamDecl, InterfaceDecl, ParamDecl,     StructDecl,    UnionDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
-    AttributedExpr,
-    CallExpr,
-    ClosureExpr,
-    SpawnExpr,
-    ThreadExpr,
+    AlignOfExpr, AttributedExpr, CallExpr, ClosureExpr, SizeOfExpr, SpawnExpr, ThreadExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -125,6 +121,8 @@ import AST::Node::Statements::{
 import AST::Node::Types::{
     FixedArrayType,
     GenericParamType,
+    NullableType,
+    PointerType,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
@@ -211,6 +209,9 @@ pub class OuterGenericScan derives RecursiveASTVisitor<OuterGenericScan> {
 
 pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
     pub var sc: unsafe *SemaContext
+    /// Inside an interface's own declaration: its requirements' signatures
+    /// name the interface as `Self`, the conformer.
+    var _in_iface: u32 = 0
 
     fn FeatureGateCheck(self, sc: unsafe *SemaContext) {
         self.sc = sc
@@ -535,6 +536,7 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
     /// header, Not lowered). Reported at the initializer, once: an instance
     /// shares its pattern's fields.
     fn visit_field_decl(self, n: unsafe *FieldDecl) -> bool {
+        self._no_interface_type(unsafe (n as unsafe *Decl), n->type_)
         if n->init == &null || n->is_poisoned() || n->init->is_poisoned() || n->type_ == &null {
             return true
         }
@@ -570,6 +572,163 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
 
         self._gate(n->init->range, what)
         return true
+    }
+
+    /// # interfaces are not types
+
+    fn traverse_interface_decl(self, n: unsafe *InterfaceDecl) -> unsafe *InterfaceDecl {
+        self._in_iface += 1
+        var unsafe *out = RecursiveASTVisitor<FeatureGateCheck>::traverse_interface_decl(
+            self,
+            n,
+        )
+
+        self._in_iface -= 1
+        return out
+    }
+
+    /// An interface is a set of requirements, not a type of values
+    /// (interfaces.mdx): none is spelled in C++ except as a witness's Self,
+    /// so one written where a value's type goes is reported here, before
+    /// codegen would have to spell it. Through a pointer it is virtual
+    /// interface dispatch, which is not compiled yet.
+    fn visit_variable_decl(self, n: unsafe *VariableDecl) -> bool {
+        self._no_interface_type(unsafe (n as unsafe *Decl), n->type_)
+        return true
+    }
+
+    fn visit_param_decl(self, n: unsafe *ParamDecl) -> bool {
+        if !n->is_self {
+            self._no_interface_type(unsafe (n as unsafe *Decl), n->type_)
+        }
+
+        return true
+    }
+
+    fn visit_function_decl(self, n: unsafe *FunctionDecl) -> bool {
+        self._no_interface_type(unsafe (n as unsafe *Decl), n->return_type)
+        return true
+    }
+
+    fn visit_size_of_expr(self, n: *SizeOfExpr) -> bool {
+        self._no_interface_type(&null, n->type_arg)
+        return true
+    }
+
+    fn visit_align_of_expr(self, n: *AlignOfExpr) -> bool {
+        self._no_interface_type(&null, n->type_arg)
+        return true
+    }
+
+    /// `f<Iface>()`, `__builtin_is_trivially_copyable<Iface>()`: a generic
+    /// argument is a type its instance is spelled with.
+    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
+        for var i: usize = 0; i < n->generic_args.size(); ++i {
+            self._no_interface_type(&null, n->generic_args.get(i)->ty)
+        }
+
+        return true
+    }
+
+    fn visit_chain_expr(self, n: *ChainExpr) -> bool {
+        for var i: usize = 0; i < n->steps.size(); ++i {
+            var unsafe *st = n->steps.get(i)
+            for var j: usize = 0; j < st->generic_args.size(); ++j {
+                self._no_interface_type(&null, st->generic_args.get(j)->ty)
+            }
+        }
+
+        return true
+    }
+
+    /// Reports \p t when it names an interface as a value type. \p d is the
+    /// declaration \p t is written on, or null for an expression's type
+    /// argument.
+    priv fn _no_interface_type(self, d: unsafe *Decl, t: unsafe *Type) {
+        if t == &null || t->is_poisoned() || t->canonical == &null || !t->range.is_valid() {
+            return
+        }
+
+        if self._in_iface > 0 || d != &null && (d->is_poisoned() || d->is_implicit) {
+            return
+        }
+
+        var via_ptr = false
+        var unsafe *iface = self._interface_in(t->canonical, 0, unsafe &via_ptr)
+        if iface == &null {
+            return
+        }
+
+        var tu = TypeUtil(self.sc)
+        var nm = tu.decl_name(unsafe (iface as unsafe *Decl))
+        if via_ptr {
+            self._gate(
+                t->range,
+                f"a pointer to the interface '{nm}' (virtual interface dispatch)",
+            )
+
+            return
+        }
+
+        var b = self.sc->diag->report(
+            DiagID::SC332E,
+            t->range.start,
+            f"'{nm}' is an interface, not a type; it can only bound a generic parameter (`T impl {nm}`)",
+        )
+
+        b.first(t->range)
+        b.emit()
+    }
+
+    /// The interface \p c names as a value type, looking through pointers
+    /// (\p via_ptr set), nullables, arrays and generic arguments.
+    priv fn _interface_in(self,
+                          c0:      unsafe *Type,
+                          depth:   u32,
+                          via_ptr: unsafe *bool) -> unsafe *InterfaceDecl {
+        var unsafe *c = canon_unqual(c0)
+        if c == &null || depth > 16 {
+            return &null
+        }
+
+        var unsafe *p = dyn_cast<PointerType>(c)
+        if p != &null {
+            var unsafe *r = self._interface_in(p->pointee, depth + 1, via_ptr)
+            if r != &null {
+                *via_ptr = true
+            }
+
+            return r
+        }
+
+        var unsafe *n = dyn_cast<NullableType>(c)
+        if n != &null {
+            return self._interface_in(n->inner, depth + 1, via_ptr)
+        }
+
+        var unsafe *a = dyn_cast<FixedArrayType>(c)
+        if a != &null {
+            return self._interface_in(a->element, depth + 1, via_ptr)
+        }
+
+        var unsafe *rt = dyn_cast<RecordType>(c)
+        if rt == &null || rt->decl == &null {
+            return &null
+        }
+
+        var unsafe *rd = NameLookup::representative(rt->decl)
+        if isa<InterfaceDecl>(rd) {
+            return cast<InterfaceDecl>(rd)
+        }
+
+        for var i: usize = 0; i < rt->args.size(); ++i {
+            var unsafe *r = self._interface_in(rt->args[i], depth + 1, via_ptr)
+            if r != &null {
+                return r
+            }
+        }
+
+        return &null
     }
 
     /// # local declarations

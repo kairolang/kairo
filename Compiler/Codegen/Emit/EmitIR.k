@@ -207,7 +207,11 @@ import Lexer::Immediate::Immediate
 import Location::FullSourceLocation::FullSourceLocation
 import Location::SourceRange::SourceRange
 import Token::Token::Token
-import Token::TokenKind::TokenKind
+import Token::TokenKind::{
+    TokenKind,
+    is_annotation,
+    token_kind_to_readable_string,
+}
 import Token::TokenText::TokenText
 
 /// Which of emit_tu's passes is running (Compiler/Spec/Eval.md#eval-fn):
@@ -2020,7 +2024,9 @@ pub class EmitIR {
             ty = "const " + ty
         }
 
-        var nm    = self._spell.tok_name(n->name, self._owning_fid())
+        // From the local's own C++ name: a shadowing local (its rebind)
+        // has storage and a hook of its own beside the binding it hides.
+        var nm    = self._local_name(unsafe (n as unsafe *Decl))
         var store = LowerTargets::union_local_store(nm)
         var ul    = "::" + LowerTargets::union_local() + "<" + ty + ">"
         var st = if (m == LocalDtor::Flagged) => ("::" + LowerTargets::union_local_flagged() + "<" + ty + ">")
@@ -7246,6 +7252,20 @@ pub class EmitIR {
             return
         }
 
+        // A primitive type's name used as a local's name (`var u8 = ...`)
+        // has no identifier to spell: Sema does not yet decide whether such
+        // a name is legal, so the compile stops here with an error at it.
+        if is_annotation(t.kind) && t.kind != TokenKind::AtComment {
+            var kw = token_kind_to_readable_string(t.kind)
+            self._cg->ctx->diag_sink.report(
+                DiagCode(DiagID::U001E),
+                t.range.start,
+                f"'{kw}' is the name of a primitive type and cannot be emitted as the name of a declaration; choose another name",
+            ).first(t.range)->emit()
+            self._cg->sink->create_ident(t.range, kw)
+            return
+        }
+
         var spelled = self._spell.tok_name(t, self._owning_fid())
         if spelled == "<?>" {
             self._ice(
@@ -9134,6 +9154,14 @@ pub class EmitIR {
             return
         }
 
+        // `const &x` is `const T*` in C++ too: a bare `&x` is a `T*`, and
+        // clang would pick a C++ overload on `T*` over the `const T*` one
+        // Sema chose.
+        var as_const = n->const_addr && n->type_ != &null
+        if as_const {
+            self._sc(n->range, self._spell._type(CXXSpell::strip_ref(n->type_)))
+        }
+
         self._cg->sink->spell(n->range, "(")
         if n->is_prefix() {
             self._cg->sink->create(n->op_token)
@@ -9145,6 +9173,9 @@ pub class EmitIR {
         }
 
         self._cg->sink->spell(n->range, ")")
+        if as_const {
+            self._cg->sink->spell(n->range, ")")
+        }
     }
 
     priv fn _binary(self, n: unsafe *BinaryOperatorExpr) {

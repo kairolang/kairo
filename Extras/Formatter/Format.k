@@ -1368,7 +1368,7 @@ pub class Formatter {
 
     /// The import's text as kfmt prints it (rules 5.1, 5.2, 5.5), without
     /// the list for a braced import of two or more names: see _import_doc.
-    fn import_head(self, im: ImportInfo) -> string {
+    fn import_head(self, const im: ImportInfo) -> string {
         var s: string = ""
         if im.vis.size() > 0 {
             s += im.vis + " "
@@ -1384,7 +1384,7 @@ pub class Formatter {
     }
 
     /// The braced items in print order (5.2: sorted like 5.4).
-    fn import_items(self, im: ImportInfo) -> cxx::std::vector<string> {
+    fn import_items(self, const im: ImportInfo) -> cxx::std::vector<string> {
         var xs = im.items
         if rules().import_sort_items {
             sort_strings(unsafe &xs)
@@ -1426,7 +1426,7 @@ pub class Formatter {
     /// the anchor (Scripts/import_lint.py, Import.sort_key). The parts are
     /// joined by \x01, below every printable byte, so comparing the joined
     /// strings is comparing the tuples.
-    fn import_key(self, im: ImportInfo) -> string {
+    fn import_key(self, const im: ImportInfo) -> string {
         var path         = im.path
         var tail: string = ""
         var one          = self.unbraced_item(im)
@@ -1805,7 +1805,7 @@ pub class Formatter {
         }
     }
 
-    priv fn _gap(self, a: u32, b: u32, es: unsafe *cxx::std::vector<Entry>, cmt: string) {
+    priv fn _gap(self, a: u32, b: u32, es: unsafe *cxx::std::vector<Entry>, const cmt: string) {
         var e = Entry{}
         e.doc       = self._v(a, b)
         e.first     = self._line(a)
@@ -2603,10 +2603,10 @@ pub class Formatter {
     /// otherwise as written. \p a is where the header's text starts (after
     /// a previous block, for `else if`).
     priv fn _cond_hb(self,
-                     a:    u32,
-                     kw:   string,
-                     cond: unsafe *Expr,
-                     blk:  unsafe *CompoundStmt) -> Doc {
+                     a:        u32,
+                     const kw: string,
+                     cond:     unsafe *Expr,
+                     blk:      unsafe *CompoundStmt) -> Doc {
         if blk == &null {
             return Doc::nothing()
         }
@@ -2652,7 +2652,7 @@ pub class Formatter {
     }
 
     /// \p a equals \p b once runs of whitespace are one space.
-    priv static fn _same_words(a: string, b: string) -> bool {
+    priv static fn _same_words(a: string, const b: string) -> bool {
         var s: string = ""
         var sp        = false
         for var i: usize = 0; i < a.size(); ++i {
@@ -3310,7 +3310,13 @@ pub class Formatter {
         return self._v(st, en)
     }
 
-    priv fn _fill_row(self, e: unsafe *Entry, kind: u8, c0: Doc, c1: Doc, c2: Doc, c3: Doc) {
+    priv fn _fill_row(self,
+                      e:        unsafe *Entry,
+                      kind:     u8,
+                      const c0: Doc,
+                      const c1: Doc,
+                      const c2: Doc,
+                      const c3: Doc) {
         if e == &null {
             return
         }
@@ -3854,7 +3860,7 @@ pub class Formatter {
     /// \p d, the layout of \p e, inside its own pair of parens (if its
     /// range is one) and \p ext more around it: under `--normalize-parens`
     /// (rule 9.5) only as many as the parse needs.
-    fn _wrap(self, e: unsafe *Expr, d0: Doc, ext: u32, pc: PCtx) -> Doc {
+    fn _wrap(self, e: unsafe *Expr, const d0: Doc, ext: u32, pc: PCtx) -> Doc {
         var d = d0
         var n = ext
         if self._int_parens(e) {
@@ -4580,6 +4586,11 @@ pub class Formatter {
                     || _op[0] >= ('A' as u8) && _op[0] <= ('Z' as u8))
             if word {
                 _op += " "
+            }
+
+            // `const &x`: the keyword is part of the operator.
+            if u->const_addr {
+                _op = "const " + _op
             }
 
             return Doc::concat2(

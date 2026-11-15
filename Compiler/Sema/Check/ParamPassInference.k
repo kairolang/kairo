@@ -66,7 +66,8 @@
 ///       - an argument to a by-value or `const` parameter, Kairo or C++ (a
 ///         C++ `const T&` too); never to `@inout`, `@move`, a C++ `T&` /
 ///         `T&&`, or a type pack's forwarding `T&&...`;
-///       - an operand of a builtin operator (not `&`, `++`, `--`, `.*`);
+///       - an operand of a builtin operator (not `&`, `++`, `--`, `.*`),
+///         and of `const &p`, a `*const T` nothing writes through;
 ///       - the right side of an assignment; an initializer of a local that
 ///         is not a reference (`place_ref`) or a raw slot;
 ///       - a condition, an `assert`, a cast to a non-reference type, an
@@ -1208,6 +1209,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             || k == TokenKind::OpTilde
             || k == TokenKind::OpStar
             || k == TokenKind::KwNot
+            || k == TokenKind::OpAmp && n->const_addr // `const &p`: a `*const T`, read through only.
         if reads {
             self._approve(n->operand)
         }
