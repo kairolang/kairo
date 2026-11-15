@@ -94,6 +94,11 @@ pub class LangOptions {
     /// the compiler's own targets (tree_visibility_args); `pub` stays for
     /// users and tests.
     pub var default_vis_pub: bool = false
+    /// -funion-locals=finally|all (hidden): which automatic locals with a
+    /// non-trivial destructor get union storage (Compiler/Spec/Lowering.md#union-storage-locals).
+    /// `finally`, the default: only one whose lifetime a site ends early
+    /// (`x.finally()`). `all`: every one, as plain `T x` otherwise.
+    pub var union_locals_all: bool = false
 
     /// # hard kill-switches
 
@@ -117,6 +122,7 @@ pub class LangOptions {
     pub var test_panic_type:    bool = false ///< --test-panic-type: source may name Panic<...>.
     pub var test_panic_id_bits: i32  = 32 ///< --test-panic-id-bits: type ids masked to this many bits.
     pub var test_fold_lie:      bool = false ///< --test-fold-lie: the late eval-if fold reads every triviality fact inverted (Compiler/Spec/Eval.md#deferred-conditions).
+    pub var test_disarm_moved:  bool = false ///< --test-disarm-moved-locals: Sema/Check/TestDisarm.k.
 
     /// # sema / type system limits (from --c* config flags)
 
@@ -180,6 +186,7 @@ pub class LangOptions {
         o.test_panic_type    = args.get_bool("test-panic-type")
         o.test_panic_id_bits = args.get_i32("test-panic-id-bits")
         o.test_fold_lie      = args.get_bool("test-fold-lie")
+        o.test_disarm_moved  = args.get_bool("test-disarm-moved-locals")
 
         /// ## feature toggles
         o.implicit_conv     = args.get_feature("implicit-conv")
@@ -192,6 +199,7 @@ pub class LangOptions {
         o.strict_cxx_moves  = args.get_feature("strict-cxx-moves")
         o.duck_generics     = args.get_feature("duck-generics")
         o.default_vis_pub   = args.get_string("default-visibility") == "pub"
+        o.union_locals_all  = args.get_string("union-locals") == "all"
         o.unsafe_feature    = args.get_feature("unsafe")
 
         /// ## sema / type system limits

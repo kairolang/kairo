@@ -562,6 +562,7 @@ fn io_variable_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::VariableDec
         ar->sema_zero(n->fold_pin as u64, "VariableDecl::fold_pin")
         ar->sema_false(n->fold_pin_neg, "VariableDecl::fold_pin_neg")
         ar->sema_zero(n->fold_pin_mag, "VariableDecl::fold_pin_mag")
+        ar->sema_zero((n->dtor_mode as u8) as u64, "VariableDecl::dtor_mode")
     }
 }
 

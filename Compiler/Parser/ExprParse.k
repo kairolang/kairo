@@ -176,21 +176,6 @@ pub class <T: type> ExprParse {
         return ChainExpr::create_error(self.dyn()->ctx, range)
     }
 
-    /// `x.finally()` / `x.op finally()` is the explicit early destructor call,
-    /// planned for 0.3. SC116E is the "not yet
-    /// supported" family; reporting at the parse keeps it independent of
-    /// whether the receiver ever type-checks (generic bodies included).
-    priv fn _report_finally_call(self, at: SourceRange) {
-        var b = self.dyn()->diag->report(
-            DiagID::SC116E,
-            at.start,
-            "'finally()' is not implemented yet (planned for 0.3)",
-        )
-
-        b.first(at)
-        b.emit()
-    }
-
     //  Sync / recovery
 
     priv inline fn _sync_expr(self,
@@ -2200,13 +2185,6 @@ pub class <T: type> ExprParse {
 
             var ops: kairo::std::StackBuf<Token, 3>
             self.dyn()->_parse_and_validate_op_spelling(&ops)
-            // One error per site: `op delete` already has S090E and its
-            // fix-it, and SC116E on top would point at a `finally` the user
-            // never wrote.
-            if !spelled_delete && ops.size() > 0 && ops[0].kind == TokenKind::KwFinally {
-                self._report_finally_call(ops[0].range)
-            }
-
             result.op_tokens.from_buf(ops.data(), ops.size(), self.dyn()->ctx)
             result.range = sep_range | self.dyn()->prev().range
 
@@ -2220,14 +2198,12 @@ pub class <T: type> ExprParse {
             return result
         }
 
-        /// # `x.finally()`: an explicit early destructor call. The planned
-        /// 0.3 design; NOT implemented before it: the parse still produces the same step as `x.op finally()`
-        /// so recovery sees one shape, and the error stops codegen. Lowering
-        /// it to `x.~T()` ran the destructor twice (scope exit still runs it).
+        /// # `x.finally()`: the explicit early destructor call
+        /// (Compiler/Spec/Lowering.md#union-storage-locals). The same step as
+        /// `x.op finally()`, so Sema sees one shape for both spellings.
         if self.dyn()->check(TokenKind::KwFinally)
             && result.access_kind != ChainExpr::AccessKind::ColonColon {
             var ft = self.dyn()->current()
-            self._report_finally_call(ft.range)
             self.dyn()->advance()
             result.target = ChainExpr::StepTarget::Operator
             var fops: kairo::std::StackBuf<Token, 3>

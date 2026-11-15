@@ -141,6 +141,7 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
+import AST::Context::DeclContext::DeclContextKind
 import AST::DeclFacts::{
     decl_is_imported,
     place_has_const_root,
@@ -192,6 +193,7 @@ import AST::Visitor::RecursiveASTVisitor::{
     RecursiveASTVisitor,
     named_call_arg_value,
 }
+import Diagnostic::Code::DiagCode
 import Diagnostic::NoteText::type_declared_here
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
@@ -208,6 +210,13 @@ import Sema::Check::EffectPropagation::{
     PanicKnown, panic_call_receiver, panic_call_set, panic_dep, panic_home, panic_set_of_fn_type,
     pset_add,   pset_has,
 }
+import Sema::Check::LocalDisposition::{
+    LocalEnds,
+    local_has_dtor,
+    record_real_transfer,
+    union_storage_refusal,
+}
+import Sema::Check::TestDisarm::test_disarm_scan
 import Sema::Foreign::ForeignInstantiate::{
     CXX_MOVE_DEPTH,
     CxxMoveKind,
@@ -220,6 +229,53 @@ import Sema::SemaContext::{
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
 import Token::TokenKind::TokenKind
+
+/// What made a MovedPart. Every kind is moved-from for use-after-move;
+/// only a REAL transfer moved the object out, so only after one may a
+/// provider skip the moved-from object's destructor (disarm_local_at,
+/// Sema/Check/LocalDisposition.k). Every other kind may leave the object
+/// owning its resource, and skipping its destructor would leak it.
+pub enum MoveKind derives u8 {
+    /// Real: a Kairo move construction (a variable, a field, a by-value
+    /// parameter initialized from it), a move assignment, or a return of
+    /// its value. The site is in move_sites and C++ moves the object.
+    Transfer = 0,
+    /// `x.finally()` ended the whole local (CallExpr::finalize): a read is
+    /// SC303E, a second `finally()` SC304E, and an assignment does not
+    /// revive it (MoveState::clear keeps it; the object is destroyed).
+    Finalize,
+    /// Not real: a C++ `T&&` parameter or a forwarding pack. The callee
+    /// gets a reference and may never take the value.
+    RefParam,
+    /// Not real: a parameter no declaration names (a call through a
+    /// function value, an unresolved or a C variadic callee), whose
+    /// passing mode is not known.
+    UnknownParam,
+    /// Not real: a `@move` parameter, emitted as C++ `T&&`. The callee
+    /// holds a reference to the caller's object, not the object.
+    MoveParam,
+    /// Not real: a function with no readable body, taken to move what it
+    /// can reach (_call_unseen). It may as well have kept it in place.
+    Unseen,
+    /// Not real: a C++ body moves out of the object through a `T&` / `T*`
+    /// (_call_cxx). The object stays in the caller's storage, moved-from,
+    /// and C++ still destroys a moved-from object.
+    CxxBody,
+    /// Not real: a C++ call whose body could not be inspected, taken to
+    /// move under -fstrict-cxx-moves. Nothing is known to have moved.
+    CxxAssumed,
+    /// Not real: a part a callee's record leaves moved-from
+    /// (_call_leaves, FunctionDecl::move_out). The callee moved out of the
+    /// caller's storage, which still holds the moved-from object.
+    CalleeLeaves,
+    /// Not real: moved into a closure by capture. The closure object owns
+    /// the moved value, but the capture is built where the closure is, and
+    /// a provider has to prove that closure is built on the path, once.
+    Capture,
+    /// Not real: what a closure's body leaves moved-from in storage it
+    /// captured, applied where the closure is made, not where it runs.
+    ClosureLeaves,
+}
 
 /// One moved part: a binding, and the path under it that was moved out
 /// ("" for the whole binding, "a.b" for `p.a.b`). A `*` segment is what a
@@ -236,7 +292,15 @@ pub class MovedPart {
     /// Moved by a call: where the callee's body moves it.
     pub var has_via:  bool        = false
     pub var via:      SourceRange
-    pub var via_text: string      = ""    ///< the note at `via`; empty for the callee's move.
+    pub var via_text: string      = "" ///< the note at `via`; empty for the callee's move.
+    pub var kind:     MoveKind    = MoveKind::Transfer
+    /// The moved expression, for a Transfer, RefParam or MoveParam; null
+    /// for every other kind.
+    pub var site: unsafe *Expr = &null
+    /// Moved because -fstrict-cxx-moves took a C++ call it could not
+    /// inspect to move it, here or in a callee (MoveOut::cxx_at): that
+    /// call. Invalid otherwise.
+    pub var cxx_at: SourceRange = SourceRange::invalid()
     fn MovedPart(self) { }
 }
 
@@ -419,6 +483,14 @@ pub class MoveState {
     pub var pend: cxx::std::vector<PendingMove>
     /// Locals whose value says which of a call's marks hold (CondLink).
     pub var links: cxx::std::vector<CondLink>
+    /// Locals ended (`finally()`) on EVERY path reaching here: a join keeps
+    /// only what both sides hold. The may-side is the MoveKind::Finalize
+    /// parts of `moved`. Independent of `links`: a link says which of a
+    /// call's marks hold, an ended local has no value to test.
+    pub var ended: cxx::std::vector<unsafe *Decl>
+    /// Locals the test provider may disarm (Sema/Check/TestDisarm.k) moved
+    /// on EVERY path reaching here; joined like `ended`.
+    pub var disarmed: cxx::std::vector<unsafe *Decl>
     fn MoveState(self) { }
 
     fn link_of(self, d: unsafe *Decl) -> usize {
@@ -440,6 +512,72 @@ pub class MoveState {
             }
 
             i += 1
+        }
+    }
+
+    fn is_disarmed(self, d: unsafe *Decl) -> bool {
+        for var i: usize = 0; i < self.disarmed.size(); ++i {
+            if self.disarmed[i] == d {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    fn is_ended(self, d: unsafe *Decl) -> bool {
+        for var i: usize = 0; i < self.ended.size(); ++i {
+            if self.ended[i] == d {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// The MoveKind::Finalize part of \p d, or usize(-1).
+    fn finalized_at(self, d: unsafe *Decl) -> usize {
+        for var i: usize = 0; i < self.moved.size(); ++i {
+            if self.moved[i].d == d && self.moved[i].kind == MoveKind::Finalize {
+                return i
+            }
+        }
+
+        return usize::MAX
+    }
+
+    /// A declaration of \p d: a new binding, nothing of the last one left
+    /// (a `finally()` of it, and a link, included: clear drops the link).
+    fn forget(self, d: unsafe *Decl) {
+        self.clear(d, "")
+        var i: usize = 0
+        while i < self.moved.size() {
+            if self.moved[i].d == d {
+                self.moved.erase(self.moved.cbegin() + (i as isize))
+                continue
+            }
+
+            i += 1
+        }
+
+        var k: usize = 0
+        while k < self.ended.size() {
+            if self.ended[k] == d {
+                self.ended.erase(self.ended.cbegin() + (k as isize))
+                continue
+            }
+
+            k += 1
+        }
+
+        var m: usize = 0
+        while m < self.disarmed.size() {
+            if self.disarmed[m] == d {
+                self.disarmed.erase(self.disarmed.cbegin() + (m as isize))
+                continue
+            }
+
+            m += 1
         }
     }
 
@@ -517,9 +655,13 @@ pub class MoveState {
             }
         }
 
+        // A finalized local stays so: the store runs on a destroyed object,
+        // and the read the caller reports after it names that.
         var i: usize = 0
         while i < self.moved.size() {
-            if self.moved[i].d == d && path_within(self.moved[i].path, path) {
+            if self.moved[i].d == d
+                && self.moved[i].kind != MoveKind::Finalize
+                && path_within(self.moved[i].path, path) {
                 self.moved.erase(self.moved.cbegin() + (i as isize))
                 continue
             }
@@ -580,6 +722,23 @@ pub fn move_join(a: MoveState, b: MoveState) -> MoveState {
         out.add_pending(b.pend[i])
     }
 
+    // Ended on every path only when ended on both.
+    var both = cxx::std::vector<unsafe *Decl>()
+    for var i: usize = 0; i < a.ended.size(); ++i {
+        if b.is_ended(a.ended[i]) {
+            both.push_back(a.ended[i])
+        }
+    }
+
+    out.ended = both
+    var moved_both = cxx::std::vector<unsafe *Decl>()
+    for var i: usize = 0; i < a.disarmed.size(); ++i {
+        if b.is_disarmed(a.disarmed[i]) {
+            moved_both.push_back(a.disarmed[i])
+        }
+    }
+
+    out.disarmed = moved_both
     return out
 }
 
@@ -615,6 +774,9 @@ pub class TryFrame {
     pub var arm_ty:  cxx::std::vector<cxx::std::vector<unsafe *Type>>
     /// The typed arms' types: a panic of one of them stops here.
     pub var types: cxx::std::vector<unsafe *Type>
+    /// A C++ exception arm: a C++ call in the body can leave every block
+    /// inside it at a point the walk does not see.
+    pub var cxx_arm: bool = false
     fn TryFrame(self) { }
 }
 
@@ -649,6 +811,8 @@ pub struct BodyFlow {
     pub var loops:  cxx::std::vector<LoopFrame>
     pub var blocks: cxx::std::vector<cxx::std::vector<unsafe *Statements::FinallyStmt>>
     pub var tries:  cxx::std::vector<TryFrame>
+    pub var locals: cxx::std::vector<cxx::std::vector<unsafe *Decl>>
+    pub var ends:   LocalEnds
 }
 
 pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
@@ -663,6 +827,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// The `try` bodies open in this body, innermost last; per body like
     /// _blocks.
     priv var _tries: cxx::std::vector<TryFrame>
+    /// Parallel to _blocks: the locals each open block has declared so far,
+    /// whose scope an exit of the block leaves (_exit_check). Per body.
+    priv var _block_locals: cxx::std::vector<cxx::std::vector<unsafe *Decl>>
+    /// The body's locals and what ends them (Sema/Check/LocalDisposition.k).
+    /// Per body; settled when its walk ends (_settle_locals).
+    priv var _ends: LocalEnds
+    /// The DeclStmt being dispatched is a C-style `for`'s init.
+    priv var _for_init: bool = false
     /// Finally bodies being walked: a panic met inside one does not walk
     /// the pending bodies again, its own among them.
     priv var _fin_depth: usize = 0
@@ -877,6 +1049,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         self._exit(MOVE_ON_RETURN)
         self._record_out(n)
+        self._settle_locals(n)
         self._body_panics       = saved_bp
         self._fn                = saved_fn
         self._caps              = saved_caps
@@ -953,6 +1126,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 mp.shown = self.sc->ctx->get_spelling(n->cap_uses[i]->name)
                 mp.at    = n->cap_uses[i]->range
                 mp.how   = "into the closure that captures it"
+                mp.kind  = MoveKind::Capture
                 self._st.mark(mp)
             }
         } else {
@@ -1012,6 +1186,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         self._exit(MOVE_ON_RETURN)
+        self._settle_locals(&null)
         var left = self._out
         self._fn          = saved_fn
         self._caps        = saved_caps
@@ -1052,6 +1227,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             mp.at      = n->range
             mp.elem    = ""
             mp.how     = "by the closure that captures it"
+            mp.kind    = MoveKind::ClosureLeaves
             self._st.mark(mp)
         }
 
@@ -1370,6 +1546,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             mo.at     = self._out[i].at
             mo.pfirst = ptys.size() as u32
             mo.pcount = 0
+            mo.cxx_at = self._out[i].cxx_at
             if (mo.when & MOVE_ON_PANIC) != 0 && self._out_pany[i] == 0 {
                 for var k: usize = 0; k < self._out_pty[i].size(); ++k {
                     ptys.push_back(self._out_pty[i][k])
@@ -1523,7 +1700,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// out of it (ForeignInstantiate::cxx_moves_out). One whose body cannot
     /// be inspected borrows, on an unchecked assumption the TU records
     /// (SemaContext::assume); -fstrict-cxx-moves takes it at its worst
-    /// instead. A pack parameter is not asked about.
+    /// instead, unless what could not be inspected is the toolchain's own
+    /// library (CxxMoveKind::Assumed), which borrows on an assumption under
+    /// either. A pack parameter is not asked about.
     priv fn _call_cxx(self,
                       n:        unsafe *Expressions::CallExpr,
                       f:        unsafe *FunctionDecl,
@@ -1652,7 +1831,17 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 mp.via_text = f"declared here; '{v.in_name}' moves it, in a header with no source this build can show"
             }
 
+            mp.kind = MoveKind::CxxBody
             self._st.mark(mp)
+            return
+        }
+
+        if v.kind == CxxMoveKind::Assumed {
+            self.sc->assume(
+                n->range,
+                MoveCheck::_library_assumption(v, name, pl.shown),
+            )
+
             return
         }
 
@@ -1670,7 +1859,30 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         mp.how = f"by the call to '{name}', whose body cannot be inspected and is taken to move it under -fstrict-cxx-moves"
         mp.via_text = f"not inspected: {why}; with -fno-strict-cxx-moves the call borrows it, on an unchecked assumption"
+        mp.kind   = MoveKind::CxxAssumed
+        mp.cxx_at = n->range
         self._st.mark(mp)
+    }
+
+    /// The assumption a call to \p name makes when what the walk could not
+    /// read is library functions with no visible body (CxxMoveKind::
+    /// Assumed): it borrows \p shown, under -fstrict-cxx-moves too.
+    priv static fn _library_assumption(const v:     CxxMoveVerdict,
+                                       const name:  string,
+                                       const shown: string) -> string {
+        var lib = if (v.why == 2) => ("a C library function")
+                  else => "a C++ standard library function"
+        if v.blocker_top {
+            return f"'{name}' is {lib} whose body is not visible: assumed not to move out of '{shown}'"
+        }
+
+        return f"'{name}' passes '{shown}' to '{v.blocker}', {lib} whose body is not visible: assumed not to move out of it"
+    }
+
+    /// The note at a C++ call -fstrict-cxx-moves took to move its argument,
+    /// when a caller of the function that made it reports the move.
+    priv static fn _strict_cxx_note() -> string {
+        return "this C++ call could not be inspected and is taken to move it under -fstrict-cxx-moves; with -fno-strict-cxx-moves it borrows, on an unchecked assumption"
     }
 
     /// Why cxx_moves_out could not decide, for the assumption and the note.
@@ -1753,6 +1965,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var mv = LangAttrs::param_move()
         mp.via_text = f"declared here with no body: write the parameter as '{mv}' if the function takes the value, or 'const' (a pointer to const) if it only reads it"
 
+        mp.kind = MoveKind::Unseen
         self._st.mark(mp)
     }
 
@@ -1864,6 +2077,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 mp.how     = f"by the call to '{name}'"
                 mp.has_via = true
                 mp.via     = mo.at
+                mp.kind    = MoveKind::CalleeLeaves
+                mp.cxx_at  = mo.cxx_at
+                if mo.cxx_at.is_valid() {
+                    mp.how = f"by the call to '{name}', which calls a C++ function that could not be inspected"
+                    if mo.at == mo.cxx_at {
+                        mp.via_text = MoveCheck::_strict_cxx_note()
+                    }
+                }
+
                 var tys = cxx::std::vector<unsafe *Type>()
                 var pe  = (mo.pfirst as usize) + (mo.pcount as usize)
                 for var s = mo.pfirst as usize; s < pe && s < def->move_out_panic.size(); ++s {
@@ -2070,6 +2292,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             i = i - 1
             if self._fin_depth == 0 {
                 self._run_finallys_between(open, self._tries[i].block_depth)
+            } else {
+                self._exit_check_between(open, self._tries[i].block_depth)
             }
 
             open = self._tries[i].block_depth
@@ -2089,6 +2313,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         if self._fin_depth == 0 {
             self._run_finallys_between(open, 0)
+        } else {
+            self._exit_check_between(open, 0)
         }
 
         self._exit_by(MOVE_ON_PANIC, ty)
@@ -2114,12 +2340,16 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// _leave_body, and a fresh one in its place.
     priv fn _enter_body(self) -> BodyFlow {
         var saved = BodyFlow{}
-        saved.st     = self._st
-        saved.loops  = self._loops
-        saved.blocks = self._blocks
-        saved.tries  = self._tries
-        self._st     = MoveState()
-        self._loops  = cxx::std::vector<LoopFrame>()
+        saved.st           = self._st
+        saved.loops        = self._loops
+        saved.blocks       = self._blocks
+        saved.tries        = self._tries
+        saved.locals       = self._block_locals
+        saved.ends         = self._ends
+        self._block_locals = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
+        self._ends         = LocalEnds()
+        self._st           = MoveState()
+        self._loops        = cxx::std::vector<LoopFrame>()
         self._blocks = cxx::std::vector<cxx::std::vector<unsafe *Statements::FinallyStmt>>()
         self._tries = cxx::std::vector<TryFrame>()
         return saved
@@ -2131,10 +2361,51 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             kairo::std::ice_fail("MoveCheck: a block frame outlived its body")
         }
 
-        self._st     = saved.st
-        self._loops  = saved.loops
-        self._blocks = saved.blocks
-        self._tries  = saved.tries
+        self._st           = saved.st
+        self._loops        = saved.loops
+        self._blocks       = saved.blocks
+        self._tries        = saved.tries
+        self._block_locals = saved.locals
+        self._ends         = saved.ends
+    }
+
+    /// The modes of the locals of the body whose walk ends here: a C++
+    /// exception may leave it where the walk does not see unless it is
+    /// `noexcept`: a function by FunctionDecl::no_unwind, a closure (\p f
+    /// null) unless the build is -funwind (EmitIR's closure head).
+    priv fn _settle_locals(self, f: unsafe *FunctionDecl) {
+        var may_unwind = if (f == &null) => (self.sc->opts.unwind_all) else => !f->no_unwind
+        self._ends.settle(self.sc, may_unwind)
+        if self.sc->opts.test_disarm_moved {
+            self._ends.settle_disarms(self.sc, may_unwind)
+        }
+    }
+
+    /// Block \p i is left on the current path: a local it declared that is
+    /// not ended on every path here is alive at an exit of its scope.
+    priv fn _exit_check(self, i: usize) {
+        if self._st.dead || i >= self._block_locals.size() {
+            return
+        }
+
+        for var k: usize = 0; k < self._block_locals[i].size(); ++k {
+            var unsafe *d = self._block_locals[i][k]
+            if !self._st.is_ended(d) {
+                self._ends.alive_at_exit(d)
+                if !self._st.is_disarmed(d) {
+                    self._ends.alive_unmoved_at_exit(d)
+                }
+            }
+        }
+    }
+
+    /// The blocks below index \p from down to index \p to are left.
+    priv fn _exit_check_between(self, from: usize, to: usize) {
+        var i = from
+        while i > to {
+            i = i - 1
+            self._exit_check(i)
+        }
     }
 
     /// `var b = a` moves a MOVE `a` into `b`. The declaration also makes `b`
@@ -2158,10 +2429,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             self._transfer(
                 n->init,
                 f"into '{self.sc->ctx->get_spelling(n->name)}'",
+                n->type_,
             )
         }
 
-        self._st.clear(n, "")
+        self._st.forget(n)
         if target != &null && self._link_got == target {
             self._link_got = &null
             if !self._st.dead && self._link.parts.size() > 0 {
@@ -2343,10 +2615,21 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                         self._transfer(
                             asn->rhs,
                             f"into '{self._spelled(asn->lhs)}'",
+                            asn->lhs->type_,
                         )
 
                         self._assigning = false
                         self._st.clear(pl.d, pl.path)
+                        // A store into a finalized local runs on a destroyed object.
+                        var fi = self._st.finalized_at(pl.d)
+                        if fi != usize::MAX
+                            && !self._st.dead
+                            && !self._st.was_reported(pl.d)
+                            && !pl.name->is_poisoned() {
+                            self._st.reported.push_back(pl.d)
+                            self._finalized_use(pl.name, self._st.moved[fi])
+                        }
+
                         return e
                     }
 
@@ -2511,7 +2794,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
                 return out
             } case ExprKind::CallExpr {
-                self._call(cast<Expressions::CallExpr>(e))
+                var unsafe *ce = cast<Expressions::CallExpr>(e)
+                if ce->finalize != Expressions::FinalizeKind::None {
+                    self._finally_call(ce)
+                    return e
+                }
+
+                self._call(ce)
                 return e
             } case ExprKind::IfExpr {
                 self._if_expr(cast<Expressions::IfExpr>(e))
@@ -2539,7 +2828,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 frame.block_depth = self._blocks.size()
                 for var i: usize = 0; i < t->catch_arms.size(); ++i {
                     var unsafe *arm = t->catch_arms.get(i)
-                    if arm->is_cxx {
+                    if self._cxx_arm(arm->is_cxx, arm->filter) {
                         cxx = true
                     } else if arm->filter == &null {
                         frame.catch_all = true
@@ -2548,6 +2837,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     self._arm_of(&frame, arm->filter, arm->decl)
                 }
 
+                frame.cxx_arm = cxx
                 self._tries.push_back(frame)
                 if t->try_expr != &null {
                     self.dispatch_expr(t->try_expr)
@@ -2675,6 +2965,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     cxx::std::vector<unsafe *Statements::FinallyStmt>(),
                 )
 
+                self._block_locals.push_back(cxx::std::vector<unsafe *Decl>())
+
                 for var i: usize = 0; i < n->body.size(); ++i {
                     if self.stop {
                         break
@@ -2689,8 +2981,44 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     self._run_block_finallys(self._blocks.size() - 1)
                 }
 
+                if self.sc->opts.test_disarm_moved {
+                    test_disarm_scan(unsafe &self._ends, n)
+                }
+
                 self._blocks.pop_back()
+                self._block_locals.pop_back()
                 return s
+            } case StmtKind::DeclStmt {
+                // A local of the innermost open block: its scope is the
+                // block's rest, left by every exit of the block.
+                var unsafe *ds = cast<Statements::DeclStmt>(s)
+                var unsafe *vd = dyn_cast<VariableDecl>(ds->decl)
+                if vd != &null && !vd->is_static() && !self._block_locals.empty() {
+                    self._block_locals[self._block_locals.size() - 1].push_back(
+                        unsafe (vd as unsafe *Decl),
+                    )
+
+                    self._ends.declare(
+                        vd,
+                        if (self._for_init) => ("it is a C-style for's variable") else => "",
+                    )
+
+                    // Inside a `try` with a C++ exception arm, a C++ call
+                    // may leave this local's scope where the walk does not see.
+                    for var t: usize = 0; t < self._tries.size(); ++t {
+                        if self._tries[t].cxx_arm {
+                            self._ends.alive_at_exit(
+                                unsafe (vd as unsafe *Decl),
+                            )
+
+                            self._ends.alive_unmoved_at_exit(
+                                unsafe (vd as unsafe *Decl),
+                            )
+                        }
+                    }
+                }
+
+                return RecursiveASTVisitor<MoveCheck>::dispatch_stmt(self, s)
             } case StmtKind::FinallyStmt {
                 // Recorded, not walked: the body runs when its block is left
                 // (_run_block_finallys), never at its statement.
@@ -2762,7 +3090,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             } case StmtKind::IndexedForStmt {
                 var unsafe *n = cast<Statements::IndexedForStmt>(s)
                 if n->init != &null {
+                    self._for_init = true
                     self.dispatch_stmt(n->init)
+                    self._for_init = false
                 }
 
                 self._loop(
@@ -2797,7 +3127,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 frame.block_depth = self._blocks.size()
                 for var i: usize = 0; i < n->arms.size(); ++i {
                     var unsafe *arm = n->arms.get(i)
-                    if arm->is_cxx {
+                    if self._cxx_arm(arm->is_cxx, arm->filter) {
                         cxx = true
                     } else if arm->filter == &null {
                         frame.catch_all = true
@@ -2806,6 +3136,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     self._arm_of(&frame, arm->filter, arm->decl)
                 }
 
+                frame.cxx_arm = cxx
                 self._tries.push_back(frame)
                 self.dyn()->traverse_block(n->try_body)
                 var met = self._tries[self._tries.size() - 1]
@@ -2966,6 +3297,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 self._fin_depth -= 1
             }
         }
+
+        // After the bodies: they run before the block's locals die.
+        self._exit_check(i)
     }
 
     /// The state catch arm \p arm of a `try` starts from. A panic reaches
@@ -3546,6 +3880,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             if (rref) => ("into a " + LangAttrs::quoted(LangAttrs::param_move()) + " parameter")
             else => "into a by-value parameter",
             !borrows,
+                 if (p == &null) => (MoveKind::UnknownParam)
+            else if (rref || p->is_pack) => (MoveKind::RefParam)
+            else => MoveKind::Transfer,
+            if (p != &null) => (p->type_) else => &null,
         )
     }
 
@@ -3555,7 +3893,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// cast.
     priv fn _return_value(self, v: unsafe *Expr) {
         if !isa<NamedIdentExpr>(self._tu.strip_parens(v)) {
-            self._transfer(v, "out of the function")
+            self._transfer(
+                v,
+                "out of the function",
+                if (self._fn != &null) => (self._fn->return_type) else => &null,
+            )
+
             return
         }
 
@@ -3767,6 +4110,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._mark(
             e,
             "into a " + LangAttrs::quoted(LangAttrs::param_move()) + " parameter",
+            MoveKind::MoveParam,
         )
     }
 
@@ -3776,13 +4120,22 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// and not a const one, which cannot be moved from. The site goes to
     /// SemaContext::move_sites, where CopyMoveLowering casts it, and the
     /// binding, or the part of it, is moved-from.
-    priv fn _transfer(self, e: unsafe *Expr, const how: string) {
-        self._transfer_checked(e, how, true)
+    /// \p dest is the type of what the value initializes or is assigned
+    /// to, when the caller knows it: only a transfer into the same type is
+    /// a real one (MoveKind::Transfer); a converting constructor or `op =`
+    /// may take the source by reference.
+    priv fn _transfer(self, e: unsafe *Expr, const how: string, dest: unsafe *Type = &null) {
+        self._transfer_checked(e, how, true, MoveKind::Transfer, dest)
     }
 
     /// _transfer; \p copies is false when the receiving slot is a reference
     /// (no copy happens, so _uncopyable_place has nothing to reject).
-    priv fn _transfer_checked(self, e: unsafe *Expr, const how: string, copies: bool) {
+    priv fn _transfer_checked(self,
+                              e:         unsafe *Expr,
+                              const how: string,
+                              copies:    bool,
+                              kind:      MoveKind     = MoveKind::Transfer,
+                              dest:      unsafe *Type = &null) {
         if e == &null || e->is_poisoned() {
             return
         }
@@ -3823,7 +4176,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         self.sc->move_sites.insert(e as usize as u64)
         self.n_moves += 1
-        self._mark(e, how)
+        self._mark(e, how, kind, dest)
     }
 
     /// A transfer of an lvalue of a record whose copy constructor is
@@ -4172,6 +4525,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// by `T&&`: neither copies.
     fn traverse_yield_stmt(self, n: *Statements::YieldStmt) -> *Statements::YieldStmt {
         var out = RecursiveASTVisitor<MoveCheck>::traverse_yield_stmt(self, n)
+        // A generator destroyed while suspended here leaves every open block.
+        self._exit_check_between(self._block_locals.size(), 0)
         if n->value == &null || n->value->is_poisoned() || n->value->type_ == &null {
             return out
         }
@@ -4645,13 +5000,44 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// (`p.a.b`, `self.r`), what a pointer in one points at (`p->r`, `*p`),
     /// or, for an element (`v[i]`, `h.items[0].s`), the container it is in.
     /// A temporary or a call's result records nothing.
-    priv fn _mark(self, e: unsafe *Expr, const how: string) {
+    priv fn _mark(self,
+                  e:         unsafe *Expr,
+                  const how: string,
+                  kind:      MoveKind     = MoveKind::Transfer,
+                  dest:      unsafe *Type = &null) {
         var pl = self._place(e)
         if pl.d == &null || !pl.whole {
             return
         }
 
+        // A provider's query (is_real_transfer) asks after the walk.
+        if kind == MoveKind::Transfer
+            && pl.path.size() == 0
+            && !pl.elem
+            && self._same_type(dest, e->type_) {
+            record_real_transfer(self.sc, e, pl.d)
+            // The test provider: a move in the block that declared the
+            // local; TestDisarm.k decides at the block's end.
+            if self.sc->opts.test_disarm_moved
+                && !self._st.dead
+                && self._fin_depth == 0
+                && !self._block_locals.empty()
+                && self._ends.has(pl.d) {
+                var top = self._block_locals.size() - 1
+                for var i: usize = 0; i < self._block_locals[top].size(); ++i {
+                    if self._block_locals[top][i] == pl.d {
+                        self._ends.disarm_candidate(pl.d, e)
+                        if !self._st.is_disarmed(pl.d) {
+                            self._st.disarmed.push_back(pl.d)
+                        }
+                    }
+                }
+            }
+        }
+
         var mp = MovedPart()
+        mp.kind  = kind
+        mp.site  = e
         mp.d     = pl.d
         mp.path  = pl.path
         mp.shown = pl.shown
@@ -4809,6 +5195,251 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return false
     }
 
+    /// \p a and \p b are one type, cv aside; false when either is unknown.
+    priv fn _same_type(self, a: unsafe *Type, b: unsafe *Type) -> bool {
+        if a == &null || b == &null {
+            return false
+        }
+
+        var unsafe *ca = canon_unqual(
+            if (a->canonical != &null) => (a->canonical) else => a,
+        )
+
+        var unsafe *cb = canon_unqual(
+            if (b->canonical != &null) => (b->canonical) else => b,
+        )
+
+        return ca != &null && ca == cb
+    }
+
+    /// A `catch` arm of a C++ exception: PanicEffectChecking marks it
+    /// (`is_cxx`) only after this pass, so the filter is read the way it
+    /// reads it there, a record imported from C++.
+    priv fn _cxx_arm(self, marked: bool, filter: unsafe *Type) -> bool {
+        if marked {
+            return true
+        }
+
+        if filter == &null || filter->canonical == &null {
+            return false
+        }
+
+        var unsafe *d = self._tu.record_decl(canon_unqual(filter->canonical))
+        return d != &null && decl_is_imported(d)
+    }
+
+    /// # `x.finally()`
+
+    /// `x.finally()` (Compiler/Spec/Lowering.md#union-storage-locals): the
+    /// receiver is a local this body declares whose destructor is
+    /// non-trivial, and the call ends it on this path (a MoveKind::Finalize
+    /// part, and `ended`). What the call does is decided on its first visit,
+    /// a dead path's included: EmitIR emits the call wherever it is written.
+    /// The receiver is not read: a moved-from object is still destroyed.
+    priv fn _finally_call(self, n: unsafe *Expressions::CallExpr) {
+        if n->is_poisoned() {
+            return
+        }
+
+        var unsafe *ce = cast<ChainExpr>(self._tu.strip_parens(n->callee))
+        var unsafe *ni = cast<NamedIdentExpr>(self._tu.strip_parens(ce->base))
+        var unsafe *d  = ni->resolved_decl
+        if d == &null {
+            return
+        }
+
+        var name = self.sc->ctx->get_spelling(ni->name)
+        if n->finalize == Expressions::FinalizeKind::Unchecked && !self._finally_legal(n, d, name) {
+            return
+        }
+
+        if n->finalize != Expressions::FinalizeKind::Ends {
+            return
+        }
+
+        // Counted on a dead path too: EmitIR writes the call wherever it
+        // is, and a call needs the local's union storage.
+        self._ends.ended_at_site(d)
+        if self._st.dead {
+            return
+        }
+
+        var fi = self._st.finalized_at(d)
+        if fi != usize::MAX {
+            var at = self._st.moved[fi].at
+            var b = self.sc->diag->report(
+                DiagID::SC304E,
+                n->range.start,
+                f"'{name}' already finalized",
+            )
+
+            b.first(n->range)
+            b.note(
+                DiagCode(DiagID::SC304N),
+                at.start,
+                f"'{name}' was finalized here, on a path that reaches this call",
+            )->child_first(at)
+            b.emit()
+            n->poison()
+            self.n_errored += 1
+            return
+        }
+
+        // Ended supersedes moved: the part a move left is destroyed now.
+        var i: usize = 0
+        while i < self._st.moved.size() {
+            if self._st.moved[i].d == d {
+                self._st.moved.erase(self._st.moved.cbegin() + (i as isize))
+                continue
+            }
+
+            i += 1
+        }
+
+        // A stored call result's link (CondLink) over a part of `d` says
+        // which outcome moved it; ended, no outcome is left to say.
+        var li: usize = 0
+        while li < self._st.links.size() {
+            var mentions = false
+            for var k: usize = 0; k < self._st.links[li].parts.size(); ++k {
+                if self._st.links[li].parts[k].d == d {
+                    mentions = true
+                }
+            }
+
+            if mentions {
+                self._st.links.erase(self._st.links.cbegin() + (li as isize))
+                continue
+            }
+
+            li += 1
+        }
+
+        var mp = MovedPart()
+        mp.d     = d
+        mp.path  = ""
+        mp.shown = name
+        mp.at    = n->range
+        mp.how   = "by finally()"
+        mp.kind  = MoveKind::Finalize
+        self._st.moved.push_back(mp)
+        if !self._st.is_ended(d) {
+            self._st.ended.push_back(d)
+        }
+    }
+
+    /// Decides what `finally()` on \p d does (CallExpr::finalize: Ends or
+    /// NoEffect), or reports why it cannot run and poisons the call.
+    priv fn _finally_legal(self,
+                           n:          unsafe *Expressions::CallExpr,
+                           d:          unsafe *Decl,
+                           const name: string) -> bool {
+        var unsafe *v       = dyn_cast<VariableDecl>(d)
+        var        not_here = ""
+        if isa<ParamDecl>(d) {
+            not_here = if (cast<ParamDecl>(
+                           d,
+                       )->is_self) => ("it is 'self', which its owner destroys")
+                       else => "it is a parameter, which the caller destroys"
+        } else if v == &null {
+            not_here = "it is not a variable"
+        } else if v->is_static() || v->is_thread || v->is_eval() {
+            not_here = "it has static storage, destroyed when the program ends"
+        } else if !self._ends.has(d) {
+            var unsafe *dc = d->semantic_dc
+            var local = dc == &null
+                || dc->is_function()
+                || dc->dc_kind == DeclContextKind::Block
+                || dc->dc_kind == DeclContextKind::Lambda
+            not_here = if (local) => ("it is not declared by a 'var' or 'const' statement of this body (a closure's enclosing function, or a pattern, destroys it)")
+                       else => "it is a global, destroyed when the program ends"
+        }
+
+        if not_here.size() > 0 {
+            var b = self.sc->diag->report(
+                DiagID::SC305E,
+                n->range.start,
+                f"finally() has no effect on '{name}'; {not_here}",
+            )
+
+            b.first(n->range)
+            b.note(d->range.start, f"'{name}' is declared here")->child_first(
+                d->range,
+            )
+
+            b.emit()
+            n->poison()
+            self.n_errored += 1
+            return false
+        }
+
+        var unsup = ""
+        if self._fin_depth > 0 {
+            unsup = "a call inside a 'finally' block is not supported yet"
+        } else if self._fn != &null && self._fn->is_eval() {
+            unsup = "a local of an 'eval fn' is not supported yet"
+        } else if self._ends.refusal_of(d).size() > 0 {
+            unsup = self._ends.refusal_of(d) + ", which is not supported yet"
+        } else if union_storage_refusal(v).size() > 0 {
+            unsup = union_storage_refusal(v) + ", which is not supported yet"
+        }
+
+        var has = local_has_dtor(self.sc, v)
+        if unsup.size() == 0 && has == LifecycleTri::Unknown {
+            unsup = f"its type '{self._tu.str(v->type_)}' depends on a generic parameter, which is not supported yet"
+        }
+
+        if unsup.size() > 0 {
+            var b = self.sc->diag->report(
+                DiagID::SC116E,
+                n->range.start,
+                f"finally() on '{name}': {unsup}",
+            )
+
+            b.first(n->range)
+            b.emit()
+            n->poison()
+            self.n_errored += 1
+            return false
+        }
+
+        if has == LifecycleTri::No {
+            var b = self.sc->diag->report(
+                DiagID::SC305W,
+                n->range.start,
+                f"finally() has no effect on '{name}'; its type '{self._tu.str(v->type_)}' is trivially destroyed",
+            )
+
+            b.first(n->range)
+            b.emit()
+            n->finalize = Expressions::FinalizeKind::NoEffect
+            return true
+        }
+
+        n->finalize = Expressions::FinalizeKind::Ends
+        return true
+    }
+
+    /// A read of, or a store into, \p n after the `finally()` \p mp: SC303E.
+    /// The caller keeps it to one per binding (MoveState::reported).
+    priv fn _finalized_use(self, n: unsafe *NamedIdentExpr, const mp: MovedPart) {
+        var b = self.sc->diag->report(
+            DiagID::SC303E,
+            n->range.start,
+            f"use of finalized value '{mp.shown}'",
+        )
+
+        b.first(n->range)
+        b.note(
+            DiagCode(DiagID::SC303N),
+            mp.at.start,
+            f"'{mp.shown}' was finalized here; its destructor has run",
+        )->child_first(mp.at)
+        b.emit()
+        n->poison()
+        self.n_errored += 1
+    }
+
     /// # reads
 
     priv fn _read(self, n: unsafe *NamedIdentExpr) {
@@ -4857,7 +5488,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         self._st.reported.push_back(d)
 
-        var mp   = self._st.moved[i]
+        var mp = self._st.moved[i]
+        if mp.kind == MoveKind::Finalize {
+            self._finalized_use(n, mp)
+            return
+        }
+
         var gone = mp.shown
         var read = if (shown.size() == 0) => (self.sc->ctx->get_spelling(n->name)) else => shown
         var part  = !path_within(path, mp.path)
@@ -4886,6 +5522,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 if (mp.via_text.size() > 0) => (mp.via_text)
                 else => "it is moved here, and not assigned again before the body returns",
             )->child_first(mp.via)
+        }
+
+        // A callee made the C++ call, deeper than `via` (the call in the
+        // callee) shows: the C++ call gets its own note.
+        if mp.cxx_at.is_valid() && !(mp.cxx_at == mp.at) && !(mp.has_via && mp.via == mp.cxx_at) {
+            b.note(mp.cxx_at.start, MoveCheck::_strict_cxx_note())->child_first(
+                mp.cxx_at,
+            )
         }
 
         b.note(

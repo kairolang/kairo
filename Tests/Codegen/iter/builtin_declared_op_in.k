@@ -38,7 +38,7 @@ fn main() -> i32 {
 // Both loops call the declared operator; neither is the built-in shape.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-NOT: Internal Compiler Error
-// CXX: Yield<signed int> __kairo_it{{[0-9]+}} = v.__kairo_iter();
+// CXX: Yield<const signed int *> __kairo_it{{[0-9]+}} = v.__kairo_iter();
 // CXX: Yield<unsigned char> __kairo_it{{[0-9]+}} = {{.*}}string::__kairo_iter(__kairo_seq{{[0-9]+}});
 // CXX: Yield<unsigned char> __kairo_it{{[0-9]+}} = {{.*}}string::__kairo_iter(s);
 

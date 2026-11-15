@@ -2879,6 +2879,54 @@ pub class LowerTargets {
         return "__KAIRO_RAW_SLOT"
     }
 
+    /// Union storage for a local whose destructor a site ends early
+    /// (Compiler/Spec/Lowering.md#union-storage-locals): `__kairo_ul<T>` is
+    /// the union (an aggregate, so `{init}` is the declaration's own
+    /// copy-initialization), `__kairo_ulf<T>` the union beside its `live`
+    /// flag, `__kairo_ulh` the cleanup hook and `__kairo_ul_run` the one
+    /// non-template function the cleanup attribute names.
+    pub static fn union_local() -> string {
+        return "__kairo_ul"
+    }
+
+    pub static fn union_local_flagged() -> string {
+        return "__kairo_ulf"
+    }
+
+    pub static fn union_local_hook() -> string {
+        return "__kairo_ulh"
+    }
+
+    pub static fn union_local_run() -> string {
+        return "__kairo_ul_run"
+    }
+
+    pub static fn union_local_guard() -> string {
+        return "__KAIRO_UNION_LOCAL"
+    }
+
+    /// The member names: the object, the flag, the end and drop functions.
+    pub static fn union_local_obj() -> string {
+        return "v"
+    }
+
+    pub static fn union_local_end() -> string {
+        return "__end"
+    }
+
+    pub static fn union_local_drop() -> string {
+        return "__drop"
+    }
+
+    /// A union-stored local's storage and hook names, from its C++ name.
+    pub static fn union_local_store(const nm: string) -> string {
+        return "__k_s_" + nm
+    }
+
+    pub static fn union_local_hook_var(const nm: string) -> string {
+        return "__k_h_" + nm
+    }
+
     pub static fn raw_box() -> string {
         return "__kairo_rbox"
     }

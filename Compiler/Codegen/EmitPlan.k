@@ -384,6 +384,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// put in a slot. The preamble must define `::__kairo_raw`, which it
     /// otherwise writes with the Panic lang item's helpers.
     pub var needs_raw_slot: bool = false
+    /// A body declares a local with union storage (VariableDecl::dtor_mode
+    /// is not Scope): the preamble must define `::__kairo_ul` and its
+    /// helpers (InterfaceEmitter::_union_local_helpers).
+    pub var needs_union_local: bool = false
     /// A function under a `<T: type>` parameter: its body's member calls
     /// through T go out wrapped in `(::__kairo_nopanic(), call)`, and the
     /// preamble must define the tag (InterfaceEmitter::_nopanic_helpers).
@@ -3955,6 +3959,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             case DeclKind::VariableDecl {
                 if cast<Declarations::VariableDecl>(d)->raw_slot {
                     self.needs_raw_slot = true
+                }
+
+                if cast<Declarations::VariableDecl>(
+                    d,
+                )->dtor_mode != Declarations::LocalDtor::Scope {
+                    self.needs_union_local = true
                 }
 
                 self._admit_type(

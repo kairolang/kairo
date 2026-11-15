@@ -2631,17 +2631,16 @@ group = "unimplemented"
     ```
 
     currently reported for a `for ... in` loop over a vector `[T]`, a set `{T}`, a map `{K: V}` or
-    a `string`, and for an explicit early destructor call, `x.finally()` or `x.op finally()`
-    (planned for 0.3). arrays, slices, ranges and types with `fn op in (self) -> yield T` are
+    a `string`, and for `x.finally()` on a local it cannot yet end early: one whose type depends
+    on a generic parameter, a fixed-size array, a local of an `eval fn`, the variable of a C-style
+    `for`, and a call written inside a `finally { }` block. arrays, slices, ranges and types with `fn op in (self) -> yield T` are
     supported.
 
     ## how to fix
 
     use a supported form until the feature lands. for the loops above, iterate a slice of the
     data or an index range instead. for `x.finally()`: a local is destroyed when its scope ends,
-    so end the scope early with a block (`{ var x = ...; ... }`); a heap object is destroyed with
-    `@destroy`, and a C++-allocated one with `@cxx::delete`. the destructor itself,
-    `fn op finally(self)`, is unchanged.
+    so end the scope early with a block (`{ var x = ...; ... }`).
     """
 
     [SC116.N]
@@ -6361,3 +6360,142 @@ group = "lifecycle"
 
     [SC302.N]
     explain = "Points at the copy constructor whose `other` is not const."
+
+[SC303]
+brief = "local used after finally()"
+group = "lifecycle"
+
+    [SC303.E]
+    explain = """
+    # use of a finalized value
+
+    `x.finally()` runs the destructor of the local `x` where it is written, and the scope's end
+    does not run it again. after the call `x` holds no object, so reading it, assigning to it
+    or calling a method on it is an error, on every path that can reach the use from the call.
+
+    ```kairo
+    var f = File("log.txt")
+    f.finally()          // the file is closed here
+    f.write("late")      // error: use of finalized value 'f'
+    ```
+
+    an assignment counts as a use: the assignment operator would run on an object whose
+    destructor has already run.
+
+    ## how to fix
+
+    move the use before the `finally()` call, or declare a new local for the new value.
+    """
+
+    [SC303.N]
+    explain = "Points at the `finally()` call that ended the local."
+
+[SC304]
+brief = "local finalized twice"
+group = "lifecycle"
+
+    [SC304.E]
+    explain = """
+    # finalized twice
+
+    a second `x.finally()` is reached on a path where `x` was already finalized: the
+    destructor would run twice on the same object.
+
+    ```kairo
+    var r = Res(1)
+    if done { r.finally() }
+    r.finally()          // error: 'r' already finalized (when `done` is true)
+    ```
+
+    the paths are those of use after move: at a join, finalized on either path counts as
+    finalized.
+
+    ## how to fix
+
+    call `finally()` once on each path, for example in both branches of the `if`, or not at all
+    and let the scope's end destroy the local.
+    """
+
+    [SC304.N]
+    explain = "Points at the earlier `finally()` call on the same path."
+
+[SC305]
+brief = "finally() that runs no destructor"
+group = "lifecycle"
+
+    [SC305.W]
+    explain = """
+    # finally() has no effect
+
+    `x.finally()` on a local whose type is trivially destroyed runs nothing: a number, a
+    pointer, or a class with no destructor and no field that has one. the call is accepted and
+    compiles to nothing; `x` stays usable.
+
+    ```kairo
+    var n: i32 = 3
+    n.finally()          // warning: finally() has no effect on 'n'
+    ```
+
+    ## how to fix
+
+    remove the call.
+    """
+
+    [SC305.E]
+    explain = """
+    # finally() on something that is not a local
+
+    `finally()` ends a local variable declared in the body that calls it. a parameter, a field,
+    a global, a temporary, a binding a pattern introduced, or a local of an enclosing function
+    seen from a closure is destroyed by whatever owns it, so calling its destructor early would
+    have it destroyed twice.
+
+    ```kairo
+    fn close(r: Res) {
+        r.finally()      // error: finally() has no effect on 'r'; it is a parameter
+    }
+    ```
+
+    ## how to fix
+
+    copy or move the value into a local and call `finally()` on the local, or let the owner
+    destroy it.
+    """
+
+[SC320]
+brief = "a call in a generic body is chosen by 'requires' clauses its bounds do not decide"
+group = "interfaces"
+
+    [SC320.E]
+    explain = """
+    # the candidates' clauses are open in a generic body
+
+    A generic body is checked once, where it is defined, against its
+    bounds. A call there whose overloads differ only in their `requires`
+    clauses, where each clause tests a type parameter the bounds say
+    nothing about, cannot be resolved: which overload applies would depend
+    on the instance.
+
+    ```kairo
+    interface Loud { fn shout(const self) -> i32 }
+    interface Soft { fn hum(const self) -> i32 }
+
+    fn <T> say(const x: T) -> i32 requires T impl Loud { return x.shout() }
+    fn <T> say(const x: T) -> i32 requires !(T impl Loud) { return 0 }
+
+    fn <T> relay(const x: T) -> i32 { return say(x) }   // error
+    ```
+
+    Each note names a candidate and what selects it. A conformance can be
+    promised by a bound on the generic's parameter; a negated conformance
+    or a value predicate cannot.
+
+    ## how to fix
+
+    add the bound that selects the overload you mean, so the bounds decide
+    every candidate's clause: `fn <T impl Loud> relay(const x: T) -> i32`
+    calls the first `say`.
+    """
+
+    [SC320.N]
+    explain = "Points at a candidate and says which bound, if any, selects it."

@@ -290,6 +290,13 @@ pub fn _default_visibility_choices() -> cxx::std::vector<string> {
     return c
 }
 
+pub fn _union_locals_choices() -> cxx::std::vector<string> {
+    var c: cxx::std::vector<string>
+    c.push_back("finally")
+    c.push_back("all")
+    return c
+}
+
 pub fn _unwind_tables_choices() -> cxx::std::vector<string> {
     var c: cxx::std::vector<string>
     c.push_back("none")
@@ -1317,6 +1324,24 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
 
     cmd->mark_hidden("default-visibility")
+    // Which automatic locals with a non-trivial destructor are stored in a
+    // union whose destructor is run by a cleanup hook (Compiler/Spec/
+    // Lowering.md#union-storage-locals): only those a `finally()` ends
+    // early, or every one. INTERNAL: a measurement switch for the storage
+    // of every other local; the generated program behaves the same either way.
+    cmd->define(
+        FlagDef::str_c(
+            "union-locals",
+            "",
+            "funion-locals",
+            "internal: which locals with a destructor get union storage: finally (those a finally() ends) | all",
+            "finally",
+            _union_locals_choices(),
+            "finally",
+        ),
+    )
+
+    cmd->mark_hidden("union-locals")
     // Import cycles compile, with a warning (R001W) on each, as
     // documented (modules.mdx, Circular Dependencies). -fno-import-cycles makes each one
     // an error (R001E) and stops the build after parse.
@@ -1381,7 +1406,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
 
     cmd->define<FlagKind::Feature>(
         "strict-cxx-moves",
-        "a MOVE value passed by `T&` / `T*` to a C++ function whose body cannot be inspected is moved-from after the call, instead of borrowed on an unchecked assumption (off)",
+        "a MOVE value passed by `T&` / `T*` to a C++ function whose body cannot be inspected is moved-from after the call, instead of borrowed on an unchecked assumption; a call into the toolchain's own standard library borrows either way, on a listed assumption (off)",
     )
 
     cmd->define<FlagKind::Feature>(
@@ -2678,6 +2703,19 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         1i32,
         32i32,
     )
+
+    // A test harness for the plumbing that lets a provider skip a moved-from
+    // local's destructor (Sema/Check/TestDisarm.k); not the feature, which
+    // needs an analysis that proves the move. Hidden from --help.
+    cmd->define<FlagKind::Bool>(
+        "test-disarm-moved-locals",
+        "",
+        "test-disarm-moved-locals",
+        "compiler tests only: a local moved once, in straight-line code, is not destroyed again",
+        false,
+    )
+
+    cmd->mark_hidden("test-disarm-moved-locals")
 
     cmd->define<FlagKind::Bool>(
         "test-fold-lie",

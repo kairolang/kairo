@@ -196,6 +196,10 @@ pub struct MoveOut {
     /// with no declared set, a generic type, a rethrow): every catch arm.
     pub var pfirst: u32
     pub var pcount: u32
+    /// The C++ call, in this body or in a callee's, whose body could not be
+    /// inspected and that -fstrict-cxx-moves took to move it; invalid when
+    /// it was moved otherwise. A caller's note names it and the opt-out.
+    pub var cxx_at: SourceRange = SourceRange::invalid()
 }
 
 /// MoveOut::when: how the body left at an exit. A `return true` / `return
@@ -211,6 +215,24 @@ pub const MOVE_ON_OTHER:    u8 = 16
 pub const MOVE_ON_PANIC:    u8 = 32
 /// Every way of returning normally.
 pub const MOVE_ON_RETURN: u8 = 31
+
+/// How an automatic local's destructor runs (VariableDecl::dtor_mode;
+/// Compiler/Spec/Lowering.md#union-storage-locals). Everything but `Scope`
+/// stores the object as the member of a union whose own destructor does
+/// nothing, so C++ runs no destructor for it on its own; what runs it is
+/// the mode's. Written by the providers in Sema/Check/LocalDisposition.k
+/// (MoveCheck: `x.finally()`, and a disarmed move); EmitIR reads the mode
+/// and nothing else.
+pub enum LocalDtor derives u8 {
+    Scope = 0, ///< `T x`: C++ destroys it at scope exit. Every local by default.
+    Cleanup,   ///< union storage, destroyed by its cleanup hook at every scope exit.
+    /// Union storage with no cleanup: every exit of the scope is reached only
+    /// after a site that ends the object (a `finally()`, or a disarmed move).
+    Elided,
+    /// Union storage beside a `live` flag the cleanup hook tests: some exits
+    /// are reached with the object ended and some with it alive.
+    Flagged,
+}
 
 /// Lifecycle attribute on a transfer constructor (@copy / @move).
 pub enum TransferKind derives u8 {
@@ -989,6 +1011,11 @@ pub class VariableDecl derives Decl, FFILinkage<VariableDecl> {
     pub var fold_pin:     u8   = 0
     pub var fold_pin_neg: bool = false
     pub var fold_pin_mag: u64  = 0
+    /// How the destructor of this automatic local runs (LocalDtor). Sema
+    /// only: written by Sema/Check/LocalDisposition.k on every check of the
+    /// body, read by EmitIR. `Scope` for anything that is not a block-scope
+    /// local with a non-trivial destructor.
+    pub var dtor_mode: LocalDtor = LocalDtor::Scope
 
     pub static fn create(ctx:     unsafe *ASTContext,
                          range:   SourceRange,

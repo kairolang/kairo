@@ -140,6 +140,7 @@ import Sema::Type::ArgumentDeduction::Deduction
 import Sema::Type::Conversion::ImplicitRank
 import Sema::Type::Substitution::Substitution
 import Sema::Type::TypeUtil::TypeUtil
+import Support::Tuning::CLAUSE_NORMAL_MAX
 import Token::TokenKind::TokenKind
 
 /// The dependent uses in a generic body that name instances of their own
@@ -195,6 +196,22 @@ pub struct PredFalse {
 
 /// ConformanceChecking::clause_false: the first conjunct of a `requires`
 /// clause known false under a deduction (`part`), and why, in words.
+/// One atomic constraint of a `requires` clause in normal form
+/// ([temp.constr.normal]), as ConformanceChecking::more_constrained compares
+/// them. `P impl I` with a concrete `I` is identified by what it tests, as
+/// the concept `I_c<P>` it is emitted as is: P by its position in the
+/// candidate's own parameter list (\c param), or by the parameter itself
+/// when it is another declaration's (\c gp, a class's). Every other atom,
+/// a negation, a value predicate, a `derives` test or a dependent bound, is
+/// identified by where it is written (\c expr), as C++ identifies an atomic
+/// constraint that is not a concept-id by its appearance in the source.
+struct ClauseAtom {
+    pub var param: u32          = 0
+    pub var gp:    unsafe *Decl = &null
+    pub var iface: unsafe *Type = &null
+    pub var expr:  unsafe *Expr = &null
+}
+
 pub struct ClauseFalse {
     pub var known: bool         = false
     pub var part:  unsafe *Expr = &null
@@ -2211,6 +2228,328 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return out
     }
 
+    /// # constraint ordering
+
+    /// [temp.constr.order]: whether \p a's associated constraints are more
+    /// constrained than \p b's, for two generic candidates whose template
+    /// heads and parameter lists are otherwise equivalent (OverloadResolution
+    /// asks it to break a tie partial ordering leaves). \p a is at least as
+    /// constrained as \p b when \p b has no constraint, or when both have
+    /// and a's subsumes b's; more constrained when that holds one way only.
+    /// Inline bounds are clause conjuncts, so `<T impl I>` counts as
+    /// `requires T impl I`.
+    pub fn more_constrained(self,
+                            a: unsafe *Declarations::FunctionDecl,
+                            b: unsafe *Declarations::FunctionDecl) -> bool {
+        var        atoms = cxx::std::vector<ClauseAtom>()
+        var unsafe *ra   = self._clause_of(a)
+        var unsafe *rb   = self._clause_of(b)
+        if !self._in_cxx_head(ra, 0) || !self._in_cxx_head(rb, 0) {
+            return false
+        }
+
+        return self._at_least_as_constrained(a, ra, b, rb, unsafe &atoms)
+            && !self._at_least_as_constrained(b, rb, a, ra, unsafe &atoms)
+    }
+
+    /// Clause \p e is made only of what the emitted C++ template head
+    /// carries (CXXSpell::requires_clause, CXXSpell::fn_preds_in_head):
+    /// conformances to a concrete interface, which are concepts there, and
+    /// value predicates over literals, value parameters, `sizeof` and
+    /// `alignof`, under `!` `-` `~`, builtin arithmetic, comparisons, `&&`
+    /// and `||`. A `derives` test is not in the head, and neither is a call
+    /// or a trait test this does not know to spell, so two overloads told
+    /// apart only by one are one C++ template: ordering them in Kairo would
+    /// accept what clang rejects, and they stay ambiguous. Null holds.
+    priv fn _in_cxx_head(self, e0: unsafe *Expr, depth: u32) -> bool {
+        var unsafe *e = self.tu.strip_parens(e0)
+        if e == &null {
+            return true
+        }
+
+        if depth > 64 {
+            return false
+        }
+
+        if isa<IntegerLiteralExpr>(e)
+            || isa<BooleanLiteralExpr>(e)
+            || isa<SizeOfExpr>(e)
+            || isa<AlignOfExpr>(e) {
+            return true
+        }
+
+        var unsafe *ce = dyn_cast<ConstraintExpr>(e)
+        if ce != &null {
+            if ce->is_derives() || ce->rhs == &null || ce->rhs->canonical == &null {
+                return false
+            }
+
+            return self._iface_decl(canon_unqual(ce->rhs->canonical)) != &null
+        }
+
+        var unsafe *id = dyn_cast<NamedIdentExpr>(e)
+        if id != &null {
+            var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+                id->resolved_decl,
+            )
+
+            return gp != &null && gp->is_const_param
+        }
+
+        var unsafe *u = dyn_cast<UnaryOperatorExpr>(e)
+        if u != &null {
+            var k = u->op_token.kind
+            if u->resolved_op != &null
+                || !(k == TokenKind::OpExclaim
+                    || k == TokenKind::KwNot
+                    || k == TokenKind::OpMinus
+                    || k == TokenKind::OpTilde) {
+                return false
+            }
+
+            return self._in_cxx_head(u->operand, depth + 1)
+        }
+
+        var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
+        if b != &null {
+            if b->resolved_op != &null || !ConformanceChecking::_head_binary_op(b->op_token.kind) {
+                return false
+            }
+
+            return self._in_cxx_head(b->lhs, depth + 1) && self._in_cxx_head(b->rhs, depth + 1)
+        }
+
+        return false
+    }
+
+    /// The binary operators a predicate in a C++ head is spelled with
+    /// (CXXSpell::_pred_op).
+    static fn _head_binary_op(k: TokenKind) -> bool {
+        return k == TokenKind::OpPlus
+            || k == TokenKind::OpMinus
+            || k == TokenKind::OpStar
+            || k == TokenKind::OpSlash
+            || k == TokenKind::OpPercent
+            || k == TokenKind::OpLess
+            || k == TokenKind::OpLessEqual
+            || k == TokenKind::OpGreater
+            || k == TokenKind::OpGreaterEqual
+            || k == TokenKind::OpEqualEqual
+            || k == TokenKind::OpExclaimEqual
+            || k == TokenKind::OpAmpAmp
+            || k == TokenKind::KwAnd
+            || k == TokenKind::OpPipePipe
+            || k == TokenKind::KwOr
+            || k == TokenKind::OpAmp
+            || k == TokenKind::KwBitand
+            || k == TokenKind::OpPipe
+            || k == TokenKind::KwBitor
+            || k == TokenKind::OpCaret
+            || k == TokenKind::KwXor
+            || k == TokenKind::OpLessLess
+            || k == TokenKind::OpGreaterGreater
+    }
+
+    /// \p f's `requires` clause, its bounds included; null when it has none.
+    priv fn _clause_of(self, f: unsafe *Declarations::FunctionDecl) -> unsafe *Expr {
+        if f == &null {
+            return &null
+        }
+
+        if f->requires_clause != &null {
+            return f->requires_clause
+        }
+
+        return decl_requires_clause(
+            NameLookup::representative(unsafe (f as unsafe *Decl)),
+        )
+    }
+
+    /// P subsumes Q ([temp.constr.order]/1) when every clause of P's
+    /// disjunctive normal form shares an atom with every clause of Q's
+    /// conjunctive normal form. A normal form past CLAUSE_NORMAL_MAX clauses
+    /// subsumes nothing, so an ordering never rests on a truncated form.
+    priv fn _at_least_as_constrained(self,
+                                     a:     unsafe *Declarations::FunctionDecl,
+                                     ra:    unsafe *Expr,
+                                     b:     unsafe *Declarations::FunctionDecl,
+                                     rb:    unsafe *Expr,
+                                     atoms: unsafe *cxx::std::vector<ClauseAtom>) -> bool {
+        if rb == &null {
+            return true
+        }
+
+        if ra == &null {
+            return false
+        }
+
+        var p = cxx::std::vector<cxx::std::vector<u32>>()
+        var q = cxx::std::vector<cxx::std::vector<u32>>()
+        if !self._normal_form(a, ra, true, unsafe &p, atoms, 0)
+            || !self._normal_form(b, rb, false, unsafe &q, atoms, 0) {
+            return false
+        }
+
+        for var i: usize = 0; i < p.size(); ++i {
+            for var j: usize = 0; j < q.size(); ++j {
+                var shared = false
+                for var x: usize = 0; x < p[i].size() && !shared; ++x {
+                    for var y: usize = 0; y < q[j].size(); ++y {
+                        if p[i][x] == q[j][y] {
+                            shared = true
+                            break
+                        }
+                    }
+                }
+
+                if !shared {
+                    return false
+                }
+            }
+        }
+
+        return true
+    }
+
+    /// \p e as clauses of atom ids (into \p atoms): disjunctive normal
+    /// form when \p dnf (a disjunction of conjunctions), conjunctive
+    /// otherwise. Parentheses are transparent ([temp.constr.normal]/1.1);
+    /// `&&` and `||` are the only connectives, and anything under `!` is one
+    /// atom. False when the form outgrows CLAUSE_NORMAL_MAX.
+    priv fn _normal_form(self,
+                         f:     unsafe *Declarations::FunctionDecl,
+                         e0:    unsafe *Expr,
+                         dnf:   bool,
+                         out:   unsafe *cxx::std::vector<cxx::std::vector<u32>>,
+                         atoms: unsafe *cxx::std::vector<ClauseAtom>,
+                         depth: u32) -> bool {
+        var unsafe *e = self.tu.strip_parens(e0)
+        if e == &null || depth > 64 {
+            return false
+        }
+
+        var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
+        if b != &null {
+            var k      = b->op_token.kind
+            var is_and = k == TokenKind::OpAmpAmp || k == TokenKind::KwAnd
+            var is_or  = k == TokenKind::OpPipePipe || k == TokenKind::KwOr
+            if is_and || is_or {
+                var l = cxx::std::vector<cxx::std::vector<u32>>()
+                var r = cxx::std::vector<cxx::std::vector<u32>>()
+                if !self._normal_form(
+                    f,
+                    b->lhs,
+                    dnf,
+                    unsafe &l,
+                    atoms,
+                    depth + 1,
+                )
+                    || !self._normal_form(
+                        f,
+                        b->rhs,
+                        dnf,
+                        unsafe &r,
+                        atoms,
+                        depth + 1,
+                    ) {
+                    return false
+                }
+
+                // A conjunction in disjunctive form (a disjunction in
+                // conjunctive form) distributes: every clause of one side
+                // joined with every clause of the other.
+                if is_and == dnf {
+                    for var i: usize = 0; i < l.size(); ++i {
+                        for var j: usize = 0; j < r.size(); ++j {
+                            var c = l[i]
+                            for var x: usize = 0; x < r[j].size(); ++x {
+                                c.push_back(r[j][x])
+                            }
+
+                            out->push_back(c)
+                            if out->size() > CLAUSE_NORMAL_MAX {
+                                return false
+                            }
+                        }
+                    }
+
+                    return true
+                }
+
+                for var i: usize = 0; i < l.size(); ++i {
+                    out->push_back(l[i])
+                }
+
+                for var j: usize = 0; j < r.size(); ++j {
+                    out->push_back(r[j])
+                }
+
+                return out->size() <= CLAUSE_NORMAL_MAX
+            }
+        }
+
+        var one = cxx::std::vector<u32>()
+        one.push_back(self._atom_id(f, e, atoms))
+        out->push_back(one)
+        return true
+    }
+
+    /// The id of atom \p e of \p f's clause in \p atoms, added when new;
+    /// equal ids are identical atoms (ClauseAtom).
+    priv fn _atom_id(self,
+                     f:     unsafe *Declarations::FunctionDecl,
+                     e:     unsafe *Expr,
+                     atoms: unsafe *cxx::std::vector<ClauseAtom>) -> u32 {
+        var a = ClauseAtom{}
+        a.expr = e
+        var unsafe *ce = dyn_cast<ConstraintExpr>(e)
+        if ce != &null && !ce->is_derives() && ce->rhs != &null && ce->rhs->canonical != &null {
+            var unsafe *rhs = canon_unqual(ce->rhs->canonical)
+            var unsafe *id = dyn_cast<NamedIdentExpr>(
+                self.tu.strip_parens(ce->lhs),
+            )
+
+            var unsafe *gp = if (id != &null) => (dyn_cast<Declarations::GenericParamDecl>(
+                                 id->resolved_decl,
+                             ))
+                             else => &null
+            if gp != &null
+                && !gp->is_pack
+                && gp->owner != &null
+                && rhs != &null
+                && !rhs->is_dependent()
+                && self._iface_decl(rhs) != &null {
+                a.expr  = &null
+                a.iface = rhs
+                if NameLookup::representative(gp->owner) == NameLookup::representative(
+                    unsafe (f as unsafe *Decl),
+                ) {
+                    a.param = gp->index
+                } else {
+                    a.gp = unsafe (gp as unsafe *Decl)
+                }
+            }
+        }
+
+        for var i: usize = 0; i < atoms->size(); ++i {
+            var *o = &(*atoms)[i]
+            if a.expr != &null || o->expr != &null {
+                if a.expr == o->expr {
+                    return i as u32
+                }
+
+                continue
+            }
+
+            if o->iface == a.iface && o->gp == a.gp && o->param == a.param {
+                return i as u32
+            }
+        }
+
+        atoms->push_back(a)
+        return (atoms->size() - 1) as u32
+    }
+
     /// Every `&&` conjunct of \p e, in clause order.
     priv fn _conjuncts(self, e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
         if e == &null {
@@ -2236,7 +2575,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                            d: unsafe *Deduction) -> PartialPredValue {
         var        out = PartialPredValue{}
         var unsafe *x  = self._constraint_arg(c, d)
-        if x == &null || c->rhs == &null {
+        if c->rhs == &null {
+            return out
+        }
+
+        if x == &null {
+            out.known = self._open_bound_holds(c, d)
+            out.v     = 1
             return out
         }
 
@@ -2263,7 +2608,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         // A row that fails only because its witness is hidden from this file
         // (a `priv` member, an extension not imported) is one the emitted
         // C++ concept, which sees every member, calls met: undecided, so
-        // Kairo never selects an overload C++ would not.
+        // Kairo never selects an overload C++ would not. A call this leaves
+        // tied is reported as the hidden member (report_hidden_tie).
         var unsafe *row = self.conforms(x, rhs)
         if row != &null && !row->ok && row->hidden != &null {
             return out
@@ -2272,6 +2618,341 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         out.known = true
         out.v     = if (row != &null && row->ok) => (1) else => 0
         return out
+    }
+
+    /// SC162E for the first conformance in \p f's clause, under \p d, that
+    /// stays undecided only because its witness is hidden from this file
+    /// (a member that is not `pub`, an extension not imported:
+    /// _constraint_vp). Overload resolution
+    /// reports it in place of "ambiguous" when such a clause is what keeps
+    /// two candidates tied: the fix is the member's visibility or the
+    /// import, not a cast. False when the clause has no such conformance.
+    pub fn report_hidden_tie(self,
+                             f:  unsafe *Declarations::FunctionDecl,
+                             d:  unsafe *Deduction,
+                             at: SourceRange) -> bool {
+        return self._hidden_tie_in(self._clause_of(f), d, at, 0)
+    }
+
+    priv fn _hidden_tie_in(self,
+                           e0:    unsafe *Expr,
+                           d:     unsafe *Deduction,
+                           at:    SourceRange,
+                           depth: u32) -> bool {
+        var unsafe *e = self.tu.strip_parens(e0)
+        if e == &null || depth > 16 {
+            return false
+        }
+
+        var unsafe *u = dyn_cast<UnaryOperatorExpr>(e)
+        if u != &null {
+            return self._hidden_tie_in(u->operand, d, at, depth + 1)
+        }
+
+        var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
+        if b != &null {
+            return self._hidden_tie_in(b->lhs, d, at, depth + 1)
+                || self._hidden_tie_in(b->rhs, d, at, depth + 1)
+        }
+
+        var unsafe *ce = dyn_cast<ConstraintExpr>(e)
+        if ce == &null || ce->is_derives() || ce->rhs == &null {
+            return false
+        }
+
+        var unsafe *x = self._constraint_arg(ce, d)
+        var unsafe *r = self._subst(ce->rhs, d)
+        if x == &null || r == &null {
+            return false
+        }
+
+        r = canon_unqual(r)
+        if self._iface_decl(r) == &null {
+            return false
+        }
+
+        var unsafe *row = self.conforms(x, r)
+        if row == &null || row->ok || row->hidden == &null {
+            return false
+        }
+
+        var unsafe *hr = row->hidden
+        var unsafe *hf = dyn_cast<Declarations::FunctionDecl>(hr)
+        var hn = if (hf != &null) => (self._req_name(hf)) else => self.tu.decl_name(hr)
+        var xs  = self.tu.str(x)
+        var is  = self.tu.str(r)
+        var vis = self._sees(hr)
+        var msg = if (vis) => (f"cannot choose an overload here: '{xs}' has a '{hn}' that would implement '{is}', but it is not public")
+                  else => f"cannot choose an overload here: '{xs}' implements '{is}' only through '{hn}', in an extension this file does not import"
+        var db = self.sc->diag->report(DiagID::SC162E, at.start, msg)
+        db.first(at)
+        db.note(ce->range.start, "the overloads are told apart by this test")->child_first(
+            ce->range,
+        )
+
+        var hat = if (hf != &null
+                      && hf->is_operator
+                      && hf->op_token.size() > 0) => (hf->op_token[0].range)
+                  else => decl_name_tok(hr).range
+        if vis {
+            db.note(
+                hat.start,
+                f"'{hn}' is declared here: a member that is not public implements an interface only for an 'impl' declared in its own file",
+            )->child_first(hat)
+            var written = hr->visibility_range()
+            if written.is_valid() {
+                db.fix(written, "pub", f"make '{hn}' public")
+            } else {
+                db.insert(hr->range.start, "pub ", f"make '{hn}' public")
+            }
+        } else {
+            db.note(
+                hat.start,
+                f"'{hn}' is declared here: import the file that declares this extension",
+            )->child_first(hat)
+        }
+
+        db.emit()
+        return true
+    }
+
+    /// The parameter of an enclosing generic that \p d binds the parameter
+    /// conjunct \p c constrains to (an open type: the call is in a generic
+    /// body and its argument has that parameter's type), or null.
+    priv fn _open_param(self,
+                        c: unsafe *ConstraintExpr,
+                        d: unsafe *Deduction) -> unsafe *GenericParamType {
+        var unsafe *id = dyn_cast<NamedIdentExpr>(self.tu.strip_parens(c->lhs))
+        if id == &null {
+            return &null
+        }
+
+        var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+            id->resolved_decl,
+        )
+
+        if gp == &null || gp->is_pack || gp->owner == &null {
+            return &null
+        }
+
+        var unsafe *x = d->lookup(gp->owner, gp->index)
+        if x == &null {
+            x = d->lookup(NameLookup::representative(gp->owner), gp->index)
+        }
+
+        if x == &null {
+            return &null
+        }
+
+        var unsafe *cx = self._canon(x)
+        if cx == &null {
+            return &null
+        }
+
+        var unsafe *g = dyn_cast<GenericParamType>(canon_unqual(cx))
+        if g == &null || g->is_pack || g->owner == &null {
+            return &null
+        }
+
+        return g
+    }
+
+    /// `P impl I` / `P derives B` where \p d binds P to an open parameter
+    /// (_open_param): it holds when that parameter's declared bounds grant
+    /// it, a bound that is `I` (or an interface deriving a non-generic `I`),
+    /// or a base that is or derives `B`. A generic body is checked against
+    /// its bounds (generics.mdx), so this is what the body may rely on;
+    /// false means only that no bound promises it, since an instance may
+    /// still meet it.
+    priv fn _open_bound_holds(self, c: unsafe *ConstraintExpr, d: unsafe *Deduction) -> bool {
+        var unsafe *g = self._open_param(c, d)
+        if g == &null {
+            return false
+        }
+
+        var unsafe *rhs = self._subst(c->rhs, d)
+        if rhs == &null {
+            return false
+        }
+
+        rhs = canon_unqual(rhs)
+        var it = self.sc->bounds.find(g->owner as usize as u64)
+        if it == self.sc->bounds.end() {
+            it = self.sc->bounds.find(
+                NameLookup::representative(g->owner) as usize as u64,
+            )
+        }
+
+        if it == self.sc->bounds.end() {
+            return false
+        }
+
+        var *_set = &it->second
+        var list = if (c->is_derives()) => (&_set->derives_constraints)
+                   else => &_set->impl_constraints
+        for var i: usize = 0; i < list->size(); ++i {
+            var unsafe *b = (*list)[i]
+            var unsafe *id = if (b != &null) => (dyn_cast<NamedIdentExpr>(
+                                 self.tu.strip_parens(b->lhs),
+                             ))
+                             else => &null
+            if id == &null || b->rhs == &null || b->rhs->canonical == &null {
+                continue
+            }
+
+            var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+                id->resolved_decl,
+            )
+
+            if gp == &null || gp->index != g->param_index || gp->owner == &null {
+                continue
+            }
+
+            if NameLookup::representative(gp->owner) != NameLookup::representative(
+                g->owner,
+            ) {
+                continue
+            }
+
+            var unsafe *have = canon_unqual(b->rhs->canonical)
+            if have == rhs {
+                return true
+            }
+
+            if c->is_derives() {
+                if Substitution(self.sc).derives_from(have, rhs) {
+                    return true
+                }
+
+                continue
+            }
+
+            var unsafe *want = self._iface_decl(rhs)
+            if want != &null
+                && want->generic_params.size() == 0
+                && self._iface_decl_derives(self._iface_decl(have), want, 0) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// The top-level conjuncts of \p f's clause that \p d leaves undecided
+    /// because they test an open parameter (_open_param): what a call in a
+    /// generic body cannot choose a candidate by. A conformance the
+    /// parameter's bounds grant is decided.
+    pub fn open_conjuncts(self,
+                          f:   unsafe *Declarations::FunctionDecl,
+                          d:   unsafe *Deduction,
+                          out: unsafe *cxx::std::vector<unsafe *Expr>) {
+        var cs = cxx::std::vector<unsafe *Expr>()
+        self._conjuncts(self._clause_of(f), unsafe &cs)
+        for var i: usize = 0; i < cs.size(); ++i {
+            var v = self._conjunct_vp(cs[i], d)
+            if !v.known && self._tests_open(cs[i], d, 0) {
+                out->push_back(cs[i])
+            }
+        }
+    }
+
+    /// Conjunct \p c under \p d.
+    priv fn _conjunct_vp(self, c: unsafe *Expr, d: unsafe *Deduction) -> PartialPredValue {
+        var unsafe *e = self.tu.strip_parens(c)
+        if isa<ConstraintExpr>(e) {
+            return self._constraint_vp(cast<ConstraintExpr>(e), d)
+        }
+
+        return self._vp(e, d, 0)
+    }
+
+    /// \p e tests an open parameter: a conformance or `derives` of one,
+    /// under any connective, or any other predicate of a candidate whose
+    /// arguments include one.
+    priv fn _tests_open(self, e0: unsafe *Expr, d: unsafe *Deduction, depth: u32) -> bool {
+        var unsafe *e = self.tu.strip_parens(e0)
+        if e == &null || depth > 16 {
+            return false
+        }
+
+        if isa<ConstraintExpr>(e) {
+            return self._open_param(cast<ConstraintExpr>(e), d) != &null
+        }
+
+        var unsafe *u = dyn_cast<UnaryOperatorExpr>(e)
+        if u != &null {
+            return self._tests_open(u->operand, d, depth + 1)
+        }
+
+        var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
+        if b != &null {
+            return self._tests_open(b->lhs, d, depth + 1) || self._tests_open(b->rhs, d, depth + 1)
+        }
+
+        return true
+    }
+
+    /// How open conjunct \p c reads in a note, and whether a bound on the
+    /// open parameter can establish it: `'T' implements 'I'` can (the bound
+    /// `T impl I`, in \p bound when \p I is nameable from this file, with
+    /// \p hidden set when it is not), `'T' does not implement 'I'` and any
+    /// other predicate cannot.
+    pub fn open_conjunct_text(self,
+                              c:      unsafe *Expr,
+                              d:      unsafe *Deduction,
+                              bound:  unsafe *string,
+                              hidden: unsafe *bool) -> string {
+        var unsafe *e  = self.tu.strip_parens(c)
+        var        neg = false
+        var unsafe *u  = dyn_cast<UnaryOperatorExpr>(e)
+        if u != &null
+            && (u->op_token.kind == TokenKind::OpExclaim || u->op_token.kind == TokenKind::KwNot) {
+            neg = true
+            e   = self.tu.strip_parens(u->operand)
+        }
+
+        var unsafe *ce = dyn_cast<ConstraintExpr>(e)
+        if ce == &null || ce->rhs == &null {
+            return ""
+        }
+
+        var unsafe *g = self._open_param(ce, d)
+        var unsafe *r = self._subst(ce->rhs, d)
+        if g == &null || r == &null {
+            return ""
+        }
+
+        var ps  = self.tu.str(unsafe (g as unsafe *Type))
+        var rs  = self.tu.str(canon_unqual(r))
+        var how = if (ce->is_derives()) => ("derive") else => "implement"
+        if neg {
+            return f"'{ps}' does not {how} '{rs}'"
+        }
+
+        var kw = if (ce->is_derives()) => ("derives") else => "impl"
+        *bound = f"{ps} {kw} {rs}"
+        var unsafe *rd = self._record_of_bound(canon_unqual(r))
+        if rd != &null && self.tu.fid_of(rd) != self.sc->ctx->fid {
+            var v = rd->visibility
+            if v == VisibilityKind::None {
+                v = default_visibility_of(rd)
+            }
+
+            if v != VisibilityKind::Public {
+                *hidden = true
+            }
+        }
+
+        return f"'{ps}' {how}s '{rs}'"
+    }
+
+    /// The declaration bound type \p t names, or null.
+    priv fn _record_of_bound(self, t: unsafe *Type) -> unsafe *Decl {
+        if t == &null || !isa<RecordType>(t) {
+            return &null
+        }
+
+        return NameLookup::representative(cast<RecordType>(t)->decl)
     }
 
     /// `T = i32, U = *A`: \p owner's parameters as \p d binds them, those
@@ -2386,6 +3067,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         if ce != &null {
             var unsafe *x = self._constraint_arg(ce, d)
             var unsafe *r = self._subst(ce->rhs, d)
+            if x == &null && r != &null && self._open_bound_holds(ce, d) {
+                var how = if (ce->is_derives()) => ("derives") else => "implements"
+                var og = self._open_param(ce, d)
+                return f"'{self.tu.str(og)}' is bounded so that it {how} '{self.tu.str(canon_unqual(r))}'"
+            }
+
             if x == &null || r == &null {
                 return ""
             }

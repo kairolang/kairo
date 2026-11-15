@@ -24,6 +24,14 @@
 pub
 eval DERIVES_WALK_DEPTH_MAX: u32 = 64
 
+/// How many clauses a `requires` clause's normal form may grow to when
+/// overload resolution compares two candidates' constraints (distributing
+/// `&&` over `||` is exponential). A larger form orders nothing, and the
+/// call stays ambiguous. Higher: longer clauses are ordered; lower: a
+/// pathological clause costs less.
+pub
+eval CLAUSE_NORMAL_MAX: usize = 256
+
 
 /// Nanoseconds per second and per day, for the ages below.
 pub

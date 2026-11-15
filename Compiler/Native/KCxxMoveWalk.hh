@@ -41,6 +41,13 @@
 ///   names, so the object bound to one of them by value or by reference or
 ///   pointer to const is not moved, and bound to a `T&&` it is.
 ///
+///   A callee with no visible body that the toolchain's own library
+///   declares (CxxLibRoots) is Assumed instead: it is taken not to move,
+///   and the call is listed. It ranks below Unknown, so a body that hands
+///   the object to both an opaque library function and an opaque function
+///   of any other header is Unknown: Moves over Unknown over Assumed over
+///   None.
+///
 ///   A lambda's body is read where the lambda is written, since the calls
 ///   of the closure are not followed: a capture by reference is the object,
 ///   a capture by copy is not. A recursive call answers None for the pair
@@ -69,10 +76,15 @@
 #include "clang/AST/ExprConcepts.h"
 #include "clang/AST/Stmt.h"
 #include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/Sema/Sema.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 
 #include <cstdint>
 #include <string>
@@ -81,17 +93,20 @@
 namespace kairo {
 
 /// One answer. `kind`: 0 the body does not move it, 1 it moves it, 2 not
-/// known (a body or a call that cannot be inspected; `why` says which).
+/// known (a body or a call that cannot be inspected; `why` says which), 3
+/// assumed not to move it (what could not be read is library functions
+/// with no visible body, CxxLibRoots).
 struct CxxMoveAnswer {
     unsigned char kind = 0;
     /// Unknown: 1 no visible body, 2 virtual call, 3 call through a pointer,
     /// 4 depth limit, 5 the body does not instantiate for these arguments.
+    /// Assumed: 1 a C++ standard library function, 2 a C library one.
     unsigned char why = 0;
     /// Moves: the expression that moves. Unknown: the call that cannot be
     /// inspected (invalid when it is the function asked about).
     clang::SourceLocation begin, end;
     const clang::FunctionDecl *inside = nullptr;      ///< the function whose body holds `begin`.
-    const clang::FunctionDecl *blocker = nullptr; ///< Unknown 1/2/5: the callee that cannot be read.
+    const clang::FunctionDecl *blocker = nullptr; ///< Unknown 1/2/5, Assumed: the callee that cannot be read.
 
     bool in_is(const clang::FunctionDecl *f) const {
         return inside != nullptr && f != nullptr && inside->getCanonicalDecl() == f->getCanonicalDecl();
@@ -103,6 +118,66 @@ struct CxxMoveAnswer {
     ::std::string in_name() const { return inside ? inside->getQualifiedNameAsString() : ::std::string(); }
     ::std::string blocker_name() const {
         return blocker ? blocker->getQualifiedNameAsString() : ::std::string();
+    }
+};
+
+/// The toolchain's own library roots (ClangBackend::library_roots), as real
+/// paths. A function is the library's when its first declaration is in a
+/// file under a C++ root (libc++), or has C language linkage and is in a
+/// file under a C root (the sysroot's libc, the clang builtins). The test
+/// is the file, not clang's system-header bit (every root and anything
+/// under `#pragma GCC system_header` is a system header) nor namespace
+/// `std` (a user header can declare into it, and an explicit
+/// specialization of a std template for a user type is the user's). An
+/// implicit instance of a std template is declared where its pattern is,
+/// so a std member instantiated with a user type is the library's.
+class CxxLibRoots {
+public:
+    llvm::SmallVector<::std::string, 4> cxx;
+    llvm::SmallVector<::std::string, 4> c;
+    bool ready = false;
+
+    /// A root \p dir, of the C++ library when \p is_cxx; one that does not
+    /// exist is left out.
+    void add(bool is_cxx, llvm::StringRef dir) {
+        llvm::SmallString<256> r;
+        if (llvm::sys::fs::real_path(dir, r)) { return; }
+        if (is_cxx) {
+            cxx.push_back(::std::string(r.str()));
+        } else {
+            c.push_back(::std::string(r.str()));
+        }
+    }
+
+    /// 1 when \p fd is the C++ standard library's, 2 the C library's, 0
+    /// neither.
+    unsigned char library_of(const clang::SourceManager &sm, const clang::FunctionDecl *fd) const {
+        if (fd == nullptr || (cxx.empty() && c.empty())) { return 0; }
+        const clang::FunctionDecl *first = fd->getFirstDecl();
+        clang::SourceLocation loc = sm.getExpansionLoc(first->getLocation());
+        if (!loc.isValid()) { return 0; }
+        clang::OptionalFileEntryRef fe = sm.getFileEntryRefForID(sm.getFileID(loc));
+        if (!fe) { return 0; }
+        ::std::string path = fe->getFileEntry().tryGetRealPathName().str();
+        if (path.empty()) {
+            llvm::SmallString<256> r;
+            if (llvm::sys::fs::real_path(fe->getName(), r)) { return 0; }
+            path = ::std::string(r.str());
+        }
+        if (under(cxx, path)) { return 1; }
+        if (first->isExternC() && under(c, path)) { return 2; }
+        return 0;
+    }
+
+private:
+    static bool under(llvm::ArrayRef<::std::string> roots, llvm::StringRef path) {
+        for (const ::std::string &r : roots) {
+            // A real path uses the host's separator: `\` on Windows.
+            if (path.size() > r.size() && path.starts_with(r) && llvm::sys::path::is_separator(path[r.size()])) {
+                return true;
+            }
+        }
+        return false;
     }
 };
 
@@ -120,6 +195,7 @@ class CxxMoveWalk {
     clang::Sema &S;
     CxxMoveCache &C;
     unsigned max_depth;
+    const CxxLibRoots *roots; ///< null: no function is the library's.
     /// The (function, parameter) pairs being answered, outermost first, each
     /// with its place on that stack.
     llvm::DenseMap<::std::pair<const clang::FunctionDecl *, int>, unsigned> active;
@@ -137,10 +213,12 @@ class CxxMoveWalk {
         unsigned depth = 0;
         CxxMoveAnswer moved;   ///< kind 1 once found.
         CxxMoveAnswer unknown; ///< the first Unknown met.
+        CxxMoveAnswer assumed; ///< the first Assumed met.
     };
 
 public:
-    CxxMoveWalk(clang::Sema &s, CxxMoveCache &c, unsigned depth) : S(s), C(c), max_depth(depth) {}
+    CxxMoveWalk(clang::Sema &s, CxxMoveCache &c, unsigned depth, const CxxLibRoots *lib = nullptr)
+        : S(s), C(c), max_depth(depth), roots(lib) {}
 
     /// The question for a call from Kairo: parameter \p idx of \p fd (-1 the
     /// implicit object). One a body cannot move out of -- by value, `T&&`
@@ -245,6 +323,12 @@ private:
         bool failed = false;
         const clang::FunctionDecl *def = body_of(fd, failed);
         if (def == nullptr) {
+            unsigned char lib = failed || roots == nullptr ? 0 : roots->library_of(S.getSourceManager(), fd);
+            if (lib != 0) {
+                CxxMoveAnswer a = unknown(lib, fd, fd, clang::SourceRange());
+                a.kind = 3;
+                return a;
+            }
             return unknown(failed ? 5 : 1, fd, fd, clang::SourceRange());
         }
         Body b;
@@ -275,6 +359,7 @@ private:
         walk(b, def->getBody());
         if (b.moved.kind == 1) { return b.moved; }
         if (b.unknown.kind == 2) { return b.unknown; }
+        if (b.assumed.kind == 3) { return b.assumed; }
         return none;
     }
 
@@ -395,7 +480,12 @@ private:
         b.moved.end = at->getEndLoc();
     }
 
+    /// \p a is Unknown or Assumed: kept when it is the first of its kind.
     void note_unknown(Body &b, const CxxMoveAnswer &a) {
+        if (a.kind == 3) {
+            if (b.assumed.kind != 3) { b.assumed = a; }
+            return;
+        }
         if (b.unknown.kind != 2) { b.unknown = a; }
     }
 
@@ -412,7 +502,7 @@ private:
             b.moved = a;
             return;
         }
-        if (a.kind == 2) {
+        if (a.kind == 2 || a.kind == 3) {
             // The call in this body is where the reader can look.
             CxxMoveAnswer u = a;
             if (!u.begin.isValid()) {
@@ -555,12 +645,14 @@ private:
         }
         in.moved = CxxMoveAnswer();
         in.unknown = CxxMoveAnswer();
+        in.assumed = CxxMoveAnswer();
         walk(in, l->getBody());
         if (in.moved.kind == 1) {
             b.moved = in.moved;
             return;
         }
         if (in.unknown.kind == 2) { note_unknown(b, in.unknown); }
+        if (in.assumed.kind == 3) { note_unknown(b, in.assumed); }
     }
 
     void walk(Body &b, const clang::Stmt *s) {

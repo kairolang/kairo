@@ -90,8 +90,8 @@ import AST::Node::Declarations::{
     TransferKind, TypeAliasDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
-    AlignOfExpr, CallExpr,     ClosureExpr,   ConstraintExpr,    NamedArgExpr, PackExpansionExpr,
-    SizeOfExpr,  TypeCastExpr, TypeTraitExpr, UnaryOperatorExpr,
+    AlignOfExpr,       CallExpr,   ClosureExpr,  ConstraintExpr, FinalizeKind,      NamedArgExpr,
+    PackExpansionExpr, SizeOfExpr, TypeCastExpr, TypeTraitExpr,  UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
@@ -1506,6 +1506,72 @@ pub class <T: type> CallTyping {
 
     /// # the call
 
+    /// \p ce is `x.finally` / `x.op finally`: the callee of the explicit
+    /// early destructor call.
+    priv fn _is_finally_callee(self, ce: unsafe *ChainExpr) -> bool {
+        if ce->steps.size() == 0 {
+            return false
+        }
+
+        var unsafe *last = ce->steps.get(ce->steps.size() - 1)
+        return last->target == ChainExpr::StepTarget::Operator
+            && last->access_kind != ChainExpr::AccessKind::ColonColon
+            && last->op_tokens.size() == 1
+            && last->op_tokens[0].kind == TokenKind::KwFinally
+    }
+
+    /// `x.finally()` (Compiler/Spec/Lowering.md#union-storage-locals): typed
+    /// `void`, its receiver typed as a value. Only the shape is checked here;
+    /// whether `x` is a local this body can end, and what the call does, is
+    /// MoveCheck's (it needs the lifecycle facts and the paths). A receiver
+    /// that is not a plain name is never a local, so it is refused here.
+    priv fn _type_finally(self, n: unsafe *CallExpr, ce: unsafe *ChainExpr) -> unsafe *Type {
+        var unsafe *v = self.dyn()->tu.builtin(BuiltinKind::Void)
+        if n->args.size() > 0 {
+            self.dyn()->fail(
+                n,
+                DiagID::SC001E,
+                "'finally()' takes no arguments",
+            )
+
+            return &null
+        }
+
+        var unsafe *recv = self.dyn()->tu.strip_parens(ce->base)
+        if ce->steps.size() != 1 || recv == &null || !isa<NamedIdentExpr>(recv) {
+            var shown = "this receiver"
+            if ce->base != &null {
+                var rr = ce->base->range
+                if ce->steps.size() > 1 {
+                    rr = rr | ce->steps.get(ce->steps.size() - 2)->range
+                }
+
+                shown = self.dyn()->sc->ctx->get_spelling(rr)
+            }
+
+            self.dyn()->fail(
+                n,
+                DiagID::SC305E,
+                f"finally() has no effect on '{shown}'; only a local variable declared in this body can be ended early",
+            )
+
+            return &null
+        }
+
+        self.dyn()->type_of(ce->base, &null)
+        if ce->base->is_poisoned() {
+            self.dyn()->poison_only(n)
+            return &null
+        }
+
+        // The callee names the destructor, not a value: typed `void` so no
+        // pass after this one meets an untyped node.
+        ce->value_category = Expr::ValueCategory::RValue
+        self.dyn()->finish(ce, v)
+        n->finalize = FinalizeKind::Unchecked
+        return v
+    }
+
     fn type_call(self, n: unsafe *CallExpr, expected: unsafe *Type) -> unsafe *Type {
         var callee = self.dyn()->tu.strip_parens(n->callee)
         if callee == &null {
@@ -1644,6 +1710,10 @@ pub class <T: type> CallTyping {
         /// ## chain
         if isa<ChainExpr>(callee) {
             var ce = cast<ChainExpr>(callee)
+            if self._is_finally_callee(ce) {
+                return self._type_finally(n, ce)
+            }
+
             // `x[i].m()`: whether the element is written depends on which
             // `m` wins, which needs the receiver typed. A split subscript
             // there provisionally takes its place form (on a mutable container);

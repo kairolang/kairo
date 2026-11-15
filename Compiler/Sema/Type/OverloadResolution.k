@@ -119,6 +119,7 @@ import AST::Node::Types::{
 }
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
+import Diagnostic::Code::DiagCode
 import Diagnostic::NoteText::declared_here
 import Diagnostic::Registry::DiagID
 import Diagnostic::Registry::DiagID
@@ -954,6 +955,34 @@ pub class OverloadResolution {
             return out
         }
 
+        // A tie in a generic body among candidates whose clauses test an
+        // open parameter: the bounds decide nothing between them, and the
+        // body is checked against its bounds, not per instance.
+        if winners.size() > 1 && self._report_open_tie(unsafe &cs, &winners, at, name) {
+            out.outcome = OvlOutcome::Ambiguous
+            return out
+        }
+
+        // A tie kept by a conformance whose witness this file cannot use,
+        // where the emitted C++ would still see it: the error is the
+        // member's visibility or the missing import, named as such.
+        if winners.size() > 1 {
+            for var i: usize = 0; i < winners.size(); ++i {
+                var *c = &cs[winners[i]]
+                if c->generic
+                    && c->f != &null
+                    && !c->f->is_imported()
+                    && ConformanceChecking(self.sc).report_hidden_tie(
+                        c->f,
+                        unsafe &c->ded,
+                        at,
+                    ) {
+                    out.outcome = OvlOutcome::Ambiguous
+                    return out
+                }
+            }
+        }
+
         if winners.size() > 1 {
             self._report_ambiguous(
                 unsafe &cs,
@@ -1047,7 +1076,8 @@ pub class OverloadResolution {
     /// specialized than each of the others, or \p winners unchanged. Only
     /// candidates of one kind are ordered (all members or all free), over the
     /// parameters the call's arguments landed on; a pack or C `...` slot
-    /// leaves the tie for the ambiguity diagnostic.
+    /// leaves the tie for the ambiguity diagnostic. Two candidates equally
+    /// specialized are ordered by their constraints (_more_specialized).
     priv fn _partial_order(self,
                            cs:             unsafe *cxx::std::vector<Candidate>,
                            @inout winners: cxx::std::vector<usize>) -> cxx::std::vector<usize> {
@@ -1068,7 +1098,7 @@ pub class OverloadResolution {
                 }
 
                 var *b = &(*cs)[(((winners)[j]))]
-                if !self._as_specialized(a, b) || self._as_specialized(b, a) {
+                if !self._more_specialized(a, b) {
                     best = false
                     break
                 }
@@ -1082,6 +1112,114 @@ pub class OverloadResolution {
         }
 
         return winners
+    }
+
+    /// [temp.func.order]/2-6: \p a is more specialized than \p b when it is
+    /// at least as specialized and \p b is not, or when each is at least as
+    /// specialized as the other, their template heads are equivalent, and
+    /// \p a is more constrained (ConformanceChecking::more_constrained):
+    /// `requires T impl I` over no clause, `requires T impl I && T impl J`
+    /// over `requires T impl I`. The emitted C++ heads carry the same
+    /// clauses, so clang's own ordering picks the same candidate.
+    priv fn _more_specialized(self, a: *Candidate, b: *Candidate) -> bool {
+        if !self._as_specialized(a, b) {
+            return false
+        }
+
+        if !self._as_specialized(b, a) {
+            return true
+        }
+
+        if !self._equivalent_heads(a, b) || self._clause_open(a) || self._clause_open(b) {
+            return false
+        }
+
+        return ConformanceChecking(self.sc).more_constrained(a->f, b->f)
+    }
+
+    /// \p c's clause tests an open parameter its bounds leave undecided
+    /// (ConformanceChecking::open_conjuncts). Constraints order only
+    /// candidates whose clauses are decided: C++ orders them after the
+    /// clauses have admitted both, so an undecided one cannot be preferred
+    /// before the instance says it holds, and the tie is _report_open_tie's.
+    priv fn _clause_open(self, c: *Candidate) -> bool {
+        if c->f == &null || c->f->is_imported() {
+            return false
+        }
+
+        var os = cxx::std::vector<unsafe *Expr>()
+        ConformanceChecking(self.sc).open_conjuncts(
+            c->f,
+            unsafe &c->ded,
+            unsafe &os,
+        )
+
+        return os.size() > 0
+    }
+
+    /// \p a and \p b, each at least as specialized as the other, have
+    /// equivalent template parameter lists ([temp.over.link]/6): as many
+    /// parameters, of the same kinds, and b's parameters deduce from a's
+    /// parameter types position for position (`(x: T, y: U)` against `(x:
+    /// U, y: T)` is not equivalent, so its constraints order nothing).
+    priv fn _equivalent_heads(self, a: *Candidate, b: *Candidate) -> bool {
+        var ga = a->f->generic_params
+        var gb = b->f->generic_params
+        if ga.size() != gb.size() {
+            return false
+        }
+
+        for var k: usize = 0; k < ga.size(); ++k {
+            if ga[k] == &null || gb[k] == &null {
+                return false
+            }
+
+            if ga[k]->is_pack != gb[k]->is_pack || ga[k]->is_const_param != gb[k]->is_const_param {
+                return false
+            }
+        }
+
+        var pa = self._ordering_params(a)
+        var pb = self._ordering_params(b)
+        var d  = Deduction(self.sc, self.conv)
+        for var k: usize = 0; k < pa.size() && k < pb.size(); ++k {
+            if d.unify(
+                self._ordering_type(pb[k]),
+                self._ordering_type(pa[k]),
+                false,
+            ) != ImplicitRank::Exact {
+                return false
+            }
+        }
+
+        var unsafe *fa = NameLookup::representative(
+            unsafe (a->f as unsafe *Decl),
+        )
+
+        for var k: usize = 0; k < gb.size(); ++k {
+            var unsafe *x = d.lookup(unsafe (b->f as unsafe *Decl), k as u32)
+            if x == &null {
+                x = d.lookup(
+                    NameLookup::representative(unsafe (b->f as unsafe *Decl)),
+                    k as u32,
+                )
+            }
+
+            if x == &null {
+                continue
+            }
+
+            var unsafe *g = dyn_cast<GenericParamType>(canon_unqual(x))
+            if g == &null || g->param_index != k as u32 || g->owner == &null {
+                return false
+            }
+
+            if NameLookup::representative(g->owner) != fa {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// Whether \p a is at least as specialized as \p b ([temp.deduct.partial]):
@@ -4473,6 +4611,106 @@ pub class OverloadResolution {
 
     /// \p margs / \p fargs are the argument lists the winners were judged
     /// against, chosen per winner by Candidate::free as in _ref_tiebreak.
+    /// SC320E for a tie among \p winners when at least one has a clause
+    /// conjunct that tests an open parameter (a parameter of the generic
+    /// whose body makes the call) and its bounds leave undecided
+    /// (ConformanceChecking::open_conjuncts). A generic body is checked
+    /// against its bounds (generics.mdx), so the instance does not choose:
+    /// each candidate gets a note saying which bound selects it, or that no
+    /// bound can (a negated conformance, a value predicate). False, with
+    /// nothing reported, when no winner's clause is open.
+    priv fn _report_open_tie(self,
+                             cs:         unsafe *cxx::std::vector<Candidate>,
+                             winners:    *cxx::std::vector<usize>,
+                             at:         SourceRange,
+                             const name: string) -> bool {
+        var cc    = ConformanceChecking(self.sc)
+        var opens = cxx::std::vector<cxx::std::vector<unsafe *Expr>>()
+        var any   = false
+        for var i: usize = 0; i < winners->size(); ++i {
+            var *c = &(*cs)[(*winners)[i]]
+            var os = cxx::std::vector<unsafe *Expr>()
+            if c->generic && c->f != &null && !c->f->is_imported() {
+                cc.open_conjuncts(c->f, unsafe &c->ded, unsafe &os)
+            }
+
+            if os.size() > 0 {
+                any = true
+            }
+
+            opens.push_back(os)
+        }
+
+        if !any {
+            return false
+        }
+
+        var b = self.sc->diag->report(
+            DiagID::SC320E,
+            at.start,
+            f"call to '{name}' cannot be resolved in this generic body: its candidates' 'requires' clauses test a type parameter whose bounds do not decide them",
+        )
+
+        b.first(at)
+        for var i: usize = 0; i < winners->size() && i < 6; ++i {
+            var *c    = &(*cs)[(*winners)[i]]
+            var yes   = ""
+            var bnds  = ""
+            var no    = ""
+            var other = false
+            var hid   = false
+            for var k: usize = 0; k < opens[i].size(); ++k {
+                var bound = ""
+                var t = cc.open_conjunct_text(
+                    opens[i][k],
+                    unsafe &c->ded,
+                    unsafe &bound,
+                    unsafe &hid,
+                )
+
+                if t.size() == 0 {
+                    other = true
+                } else if bound.size() == 0 {
+                    no += if (no.size() == 0) => (t) else => " and " + t
+                } else {
+                    yes += if (yes.size() == 0) => (t) else => " and " + t
+                    bnds += if (bnds.size() == 0) => (bound) else => ", " + bound
+                }
+            }
+
+            var msg = ""
+            if opens[i].size() == 0 {
+                msg = "this candidate's clause does not test the parameter; it is chosen only where the others' clauses are known false, which no bound can promise"
+            } else if no.size() == 0 && !other {
+                msg = f"this candidate is selected when {yes}: add the bound '{bnds}'"
+                if hid {
+                    msg += ", though the interface is not public, so this file cannot name it"
+                }
+            } else if no.size() > 0 {
+                msg = "no bound selects this candidate: it applies when "
+                if yes.size() > 0 {
+                    msg += yes + " and "
+                }
+
+                msg += no + ", and no bound can promise that " + no
+            } else {
+                msg = "no bound selects this candidate: its clause tests the parameter with a condition no bound can promise"
+            }
+
+            b.note(DiagCode(DiagID::SC320N), c->f->range.start, msg)->child_first(
+                c->f->range,
+            )
+        }
+
+        b.note(
+            at.start,
+            "a generic body is checked against its bounds, not per instance, so the bounds must decide every candidate's clause",
+        )
+
+        b.emit()
+        return true
+    }
+
     priv fn _report_ambiguous(self,
                               cs:         unsafe *cxx::std::vector<Candidate>,
                               winners:    unsafe *cxx::std::vector<usize>,

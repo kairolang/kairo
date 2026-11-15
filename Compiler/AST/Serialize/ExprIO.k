@@ -452,6 +452,7 @@ fn io_call_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::CallExpr) {
         ar->sema_null<Type>(n->safe_result, "CallExpr::safe_result")
         ar->sema_false(n->recv_last, "CallExpr::recv_last")
         ar->sema_false(n->recv_reads, "CallExpr::recv_reads")
+        ar->sema_zero((n->finalize as u8) as u64, "CallExpr::finalize")
     }
 }
 
@@ -810,6 +811,7 @@ fn io_type_cast_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::TypeCastExp
         ar->sema_false(n->dynamic_only, "TypeCastExpr::dynamic_only")
         ar->sema_null<Decl>(n->enum_check, "TypeCastExpr::enum_check")
         ar->sema_false(n->base_adjust, "TypeCastExpr::base_adjust")
+        ar->sema_null<Decl>(n->disarms, "TypeCastExpr::disarms")
     }
 }
 

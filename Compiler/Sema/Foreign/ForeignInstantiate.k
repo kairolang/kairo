@@ -101,6 +101,7 @@ import AST::Node::CanonicalNodes::{
 import AST::Node::Casting::dyn_cast
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
 import Diagnostic::ClangDiagAdapter::ClangDiagAdapter
+import Interop::Clang::ClangBackend::ClangBackend
 import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceRange::SourceRange
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
@@ -137,20 +138,25 @@ pub enum CxxMoveKind derives u8 {
     None,    ///< the body reads or changes it, and moves nothing out of it.
     Moves,   ///< some path binds it to a `T&&`.
     Unknown, ///< nothing moves it in what could be read, and something could not be.
+    /// Nothing moves it in what could be read, and what could not be is
+    /// functions of the toolchain's own library with no visible body
+    /// (kairo::CxxLibRoots): taken not to move it, on a listed assumption.
+    Assumed,
 }
 
 pub class CxxMoveVerdict {
     pub var kind: CxxMoveKind = CxxMoveKind::Unknown
     /// Unknown: 1 no visible body, 2 a virtual call, 3 a call through a
     /// pointer, 4 the depth limit, 5 a body that does not instantiate for
-    /// these arguments, 6 the template instance is not known.
+    /// these arguments, 6 the template instance is not known. Assumed: 1 a
+    /// C++ standard library function, 2 a C library one.
     pub var why: u8 = 1
     /// Moves: the expression that moves it. Unknown: the call that could not
     /// be read, invalid when it is the function asked about or the header
     /// has no Kairo file.
     pub var at:          SourceRange = SourceRange::invalid()
     pub var in_name:     string      = "" ///< the function whose body holds `at`.
-    pub var blocker:     string      = "" ///< Unknown 1, 2, 5: the callee that could not be read.
+    pub var blocker:     string      = "" ///< Unknown 1, 2, 5, Assumed: the callee that could not be read.
     pub var in_top:      bool        = true ///< `in_name` is the function asked about.
     pub var blocker_top: bool        = true ///< `blocker` is the function asked about.
     fn CxxMoveVerdict(self) { }
@@ -163,7 +169,10 @@ pub class ForeignInstantiate {
     priv var _mu: kairo::std::RecursiveMutex ///< ONE lock for all fills; see the file header.
     /// cxx_moves_out's answers per (clang function, parameter); guarded by
     /// `_mu`. Every set it holds decls of is pinned for the build.
-    priv var _moves:     kairo::CxxMoveCache
+    priv var _moves: kairo::CxxMoveCache
+    /// The toolchain's library roots, filled from the first set asked
+    /// about (every set shares the build's backend); guarded by `_mu`.
+    priv var _lib:       kairo::CxxLibRoots
     priv var _active:    cxx::std::vector<unsafe *Decl> ///< shells mid-fill, outermost first; guarded by `_mu`.
     priv var _hindex:    *HeaderIndex
     priv var _reg:       unsafe *ForeignRegistry
@@ -1245,10 +1254,29 @@ pub class ForeignInstantiate {
             return v
         }
 
-        var walk = kairo::CxxMoveWalk(&*csema, &self._moves, CXX_MOVE_DEPTH)
-        var a    = walk.top(fd, idx)
+        if !self._lib.ready && hs->backend() != &null {
+            for *d in hs->backend()->library_roots(true) {
+                self._lib.add(true, kairo::sref(*d))
+            }
+
+            for *d in hs->backend()->library_roots(false) {
+                self._lib.add(false, kairo::sref(*d))
+            }
+
+            self._lib.ready = true
+        }
+
+        var walk = kairo::CxxMoveWalk(
+            &*csema,
+            &self._moves,
+            CXX_MOVE_DEPTH,
+            unsafe &self._lib,
+        )
+
+        var a = walk.top(fd, idx)
         v.kind =      if (a.kind == 1) => (CxxMoveKind::Moves)
                  else if (a.kind == 2) => (CxxMoveKind::Unknown)
+                 else if (a.kind == 3) => (CxxMoveKind::Assumed)
                  else => CxxMoveKind::None
         v.why         = a.why
         v.in_name     = kairo::std::from_std_string<string>(a.in_name())

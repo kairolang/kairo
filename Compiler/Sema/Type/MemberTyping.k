@@ -656,10 +656,15 @@ pub class <T: type> MemberTyping {
                 )
 
                 if k0 == TokenKind::KwFinally {
-                    // `x.finally()` is rejected at the parse (SC116E, planned
-                    // for 0.3); stay silent here so one call is one error.
-                    info->unknown = true
-                    self.dyn()->mark_unknown(n)
+                    // `x.finally()` is CallTyping's (_type_finally) and never
+                    // reaches here; anything else names the destructor as a
+                    // value, which has no type.
+                    self.dyn()->fail(
+                        n,
+                        DiagID::SC001E,
+                        "the destructor is called as 'x.finally()'; it is not a value",
+                    )
+
                     return &null
                 }
 

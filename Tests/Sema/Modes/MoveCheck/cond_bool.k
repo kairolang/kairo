@@ -9,9 +9,9 @@
 //   2. `while` and `while !...`: whole in the body, moved after the loop
 //   3. `!`, `&&`, `||`
 //   4. the value form `if c => a else b`
-//   5. fallbacks: the result stored in a variable, passed on, a return of a
-//      non-literal bool, a part moved at both `return true` and `return
-//      false`, the end of a `void` body
+//   5. a stored result tested later, then the fallbacks: the result passed
+//      on, a return of a non-literal bool, a part moved at both `return
+//      true` and `return false`, the end of a `void` body
 //   6. a method receiver (`self.held`), an `@inout` parameter passed on,
 //      which carries the condition to its own caller, and a callee
 //      defined after its caller
@@ -292,9 +292,6 @@ fn carried() -> i32 {
 // DIAG: cond_bool.k:39:21: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
 // DIAG: cond_bool.k:176:16: error [SC052E]: 't' is used after being moved
 // DIAG: cond_bool.k:175:16: note [{{[A-Z0-9]+}}]: 't' was moved here, by the call to 'push', when it returns true
-// DIAG: cond_bool.k:39:21: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
-// DIAG: cond_bool.k:188:12: error [SC052E]: 't' is used after being moved
-// DIAG: cond_bool.k:183:14: note [{{[A-Z0-9]+}}]: 't' was moved here, by the call to 'push', when it returns true
 // DIAG: cond_bool.k:39:21: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
 // DIAG: cond_bool.k:202:12: error [SC052E]: 't' is used after being moved
 // DIAG: cond_bool.k:198:16: note [{{[A-Z0-9]+}}]: 't' was moved here, by the call to 'push', when it returns true

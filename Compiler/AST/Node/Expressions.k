@@ -67,6 +67,14 @@ import Location::SourceRange::SourceRange
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 
+/// CallExpr::finalize: an ordinary call, or `x.finally()` at each stage.
+pub enum FinalizeKind derives u8 {
+    None = 0,  ///< not a `finally()` call.
+    Unchecked, ///< typed by CallTyping; MoveCheck has not decided it.
+    Ends,      ///< runs the local's destructor here (its dtor_mode is Elided or Flagged).
+    NoEffect,  ///< the local is trivially destroyed: nothing runs (SC305W).
+}
+
 ///
 ///  CallExpr
 ///  expr(args) function call, method call, constructor call.
@@ -191,6 +199,12 @@ pub class CallExpr derives Expr {
     /// IterLowering; ParamPassInference counts the receiver a read.
     pub var recv_reads: bool = false
 
+    /// `x.finally()` / `x.op finally()`, the explicit early destructor call
+    /// (Compiler/Spec/Lowering.md#union-storage-locals): what the call does.
+    /// CallTyping writes Unchecked (the shape, typed `void`); MoveCheck
+    /// decides Ends or NoEffect, or reports. EmitIR reads it.
+    pub var finalize: FinalizeKind = FinalizeKind::None
+
     pub static fn create(ctx:    unsafe *ASTContext,
                          range:  SourceRange,
                          callee: unsafe *Expr) -> unsafe *CallExpr {
@@ -211,6 +225,7 @@ pub class CallExpr derives Expr {
         node->safe_result   = &null
         node->recv_last     = false
         node->recv_reads    = false
+        node->finalize      = FinalizeKind::None
         node->init_annotations(unsafe &ctx->ast_alloc)
         return node
     }
@@ -233,6 +248,7 @@ pub class CallExpr derives Expr {
         node->dep_args      = create_empty_frozen_list<unsafe *Type>()
         node->recv_last     = false
         node->recv_reads    = false
+        node->finalize      = FinalizeKind::None
         node->init_annotations(unsafe &ctx->ast_alloc)
         return node
     }
@@ -2274,6 +2290,12 @@ pub class TypeCastExpr derives Expr {
     /// statement expression over a `dynamic_only` cast and a crash call,
     /// and clears it.
     pub var asserting_downcast: bool = false
+
+    /// The local whose destructor this move disarms: a cast CopyMoveLowering
+    /// made at a move site a provider disarmed (SemaContext::disarm_sites,
+    /// Sema/Check/LocalDisposition.k). EmitIR ends the local's lifetime
+    /// here without running its destructor. Null on every other cast.
+    pub var disarms: unsafe *Decl = &null
 
     /// The bare `dynamic_cast<D*>(p)`, a null pointer on a miss: only
     /// OperatorLowering's expansion of an asserting downcast makes one.

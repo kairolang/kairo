@@ -6,7 +6,8 @@
 // A. Every call form: a free call, a static call through a bounded and a
 // `: type` parameter, a method on a dependent object (both again), a
 // static of a generic class named through the parameter, and calls inside
-// a `requires` clause (emitted as a per-instance static_assert).
+// a `requires` clause (a per-instance static_assert, or the template
+// head when the predicate spells there).
 
 fn <A> size_of_a() -> usize { return sizeof A }
 eval fn <A> small() -> bool { return sizeof A <= 8 }
@@ -59,7 +60,7 @@ fn main() -> i32 {
 // IR-DAG: return( ::__kairo_nopanic(), x.template m<B>());
 // IR-DAG: G<A>::template f<B>()
 // IR-DAG: static_assert({{ ?}}::{{.*}}::small<A>(),
-// IR-DAG: static_assert({{ ?}}::{{.*}}::__builtin_is_trivially_copyable<A>(),
+// IR-DAG: requires(({{ ?}}::kairo_rt_is_trivially_copyable<A>())) decltype(sizeof(0)) req_builtin()
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

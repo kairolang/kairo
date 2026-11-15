@@ -99,6 +99,11 @@ const CLANG_STARTUP_GROUP: u8 = 9
 pub
 const NATIVE_GROUP: u8 = 13
 
+/// What a ClangBackend::_system_roots root holds.
+const ROOT_CXX_LIB:  u8 = 0
+const ROOT_BUILTINS: u8 = 1
+const ROOT_C_LIB:    u8 = 2
+
 
 pub struct ClangBackendConfig {
     pub var triple: string ///< effective target triple
@@ -894,7 +899,6 @@ pub class ClangBackend {
         var cc1 = sp == ClangSpelling::CC1
         var sr  = self._cfg.sysroot
         var rd  = self._cfg.resource_dir
-        var declared = !self._cfg.include_dirs.empty() || !self._cfg.cxx_include_dirs.empty()
         o.push_back(if (cc1) => ("-nostdsysteminc") else => "-nostdlibinc")
         o.push_back("-nostdinc++")
         if !rd.empty() {
@@ -902,38 +906,10 @@ pub class ClangBackend {
             o.push_back(rd)
         }
 
-        if declared {
-            if !is_c {
-                for *d in self._cfg.cxx_include_dirs {
-                    o.push_back("-isystem")
-                    o.push_back(*d)
-                }
-            }
-
-            if !rd.empty() {
-                o.push_back("-isystem")
-                o.push_back(f"{rd}/include")
-            }
-
-            for *d in self._cfg.include_dirs {
-                o.push_back("-isystem")
-                o.push_back(*d)
-            }
-        } else {
-            if !sr.empty() && !is_c {
-                o.push_back("-isystem")
-                o.push_back(f"{sr}/include/c++/v1")
-            }
-
-            if !rd.empty() {
-                o.push_back("-isystem")
-                o.push_back(f"{rd}/include")
-            }
-
-            if !sr.empty() {
-                o.push_back("-isystem")
-                o.push_back(f"{sr}/include")
-            }
+        var kinds = cxx::std::vector<u8>()
+        for *d in self._system_roots(is_c, &kinds) {
+            o.push_back("-isystem")
+            o.push_back(*d)
         }
 
         for *d in self._cfg.after_dirs {
@@ -973,6 +949,76 @@ pub class ClangBackend {
 
         for *d in self._cfg.defines {
             o.push_back(f"-D{(*d)}")
+        }
+
+        return o
+    }
+
+    /// The roots sysroot_words passes as -isystem, in its order: libc++
+    /// (left off when \p is_c), the clang builtins, the C library. \p kinds
+    /// gets one entry per root: ROOT_CXX_LIB, ROOT_BUILTINS or ROOT_C_LIB.
+    priv fn _system_roots(self,
+                          is_c:         bool,
+                          @inout kinds: cxx::std::vector<u8>) -> cxx::std::vector<string> {
+        var o  = cxx::std::vector<string>()
+        var sr = self._cfg.sysroot
+        var rd = self._cfg.resource_dir
+        kinds.clear()
+        var declared = !self._cfg.include_dirs.empty() || !self._cfg.cxx_include_dirs.empty()
+        if !is_c {
+            if declared {
+                for *d in self._cfg.cxx_include_dirs {
+                    o.push_back(*d)
+                    kinds.push_back(ROOT_CXX_LIB)
+                }
+            } else if !sr.empty() {
+                o.push_back(f"{sr}/include/c++/v1")
+                kinds.push_back(ROOT_CXX_LIB)
+            }
+        }
+
+        if !rd.empty() {
+            o.push_back(f"{rd}/include")
+            kinds.push_back(ROOT_BUILTINS)
+        }
+
+        if declared {
+            for *d in self._cfg.include_dirs {
+                o.push_back(*d)
+                kinds.push_back(ROOT_C_LIB)
+            }
+        } else if !sr.empty() {
+            o.push_back(f"{sr}/include")
+            kinds.push_back(ROOT_C_LIB)
+        }
+
+        return o
+    }
+
+    /// \brief the toolchain's own library roots: \p cxx_lib the C++ standard
+    ///        library's (libc++), else the C library's and the clang
+    ///        builtins'.
+    ///
+    /// \details A subset of _system_roots, never a -I, -idirafter or
+    ///          framework directory, and never a host directory: with no
+    ///          --sysroot (--native) the C library roots are the host's
+    ///          /usr/include, which holds third-party headers beside libc,
+    ///          so none counts. MoveCheck exempts a function with no visible
+    ///          body declared under one of these (Compiler/Spec/
+    ///          Ownership.md, "C++ bodies").
+    pub fn library_roots(self, cxx_lib: bool) -> cxx::std::vector<string> {
+        var kinds = cxx::std::vector<u8>()
+        var all   = self._system_roots(false, &kinds)
+        var o     = cxx::std::vector<string>()
+        for var i: usize = 0; i < all.size(); ++i {
+            var k = kinds[i]
+            if cxx_lib && k == ROOT_CXX_LIB {
+                o.push_back(all[i])
+            } else if !cxx_lib && k == ROOT_BUILTINS {
+                o.push_back(all[i])
+            } else if !cxx_lib && k == ROOT_C_LIB && !self._cfg.sysroot.empty() {
+                o.push_back(all[i])
+            }
         }
 
         return o

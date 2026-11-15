@@ -8,8 +8,8 @@
 //   1. `?` / `!...?`, both polarities, `if` and `if-else`
 //   2. `== null`, `!= null`, `null == f()`
 //   3. `&&`, `||`, `while`
-//   4. fallbacks: the result stored in a variable, a return of a value that
-//      may be null, a part moved at both outcomes
+//   4. a stored result tested later, then the fallbacks: a return of a
+//      value that may be null, a part moved at both outcomes
 //   5. a method receiver, an `@inout` parameter passed on, a callee
 //      defined after its caller
 
@@ -258,9 +258,6 @@ fn find_later(@inout v: Task) -> Task? {
 // DIAG: cond_null.k:36:21: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
 // DIAG: cond_null.k:157:12: error [SC052E]: 't' is used after being moved
 // DIAG: cond_null.k:153:11: note [{{[A-Z0-9]+}}]: 't' was moved here, by the call to 'put', when it does not return null
-// DIAG: cond_null.k:36:21: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
-// DIAG: cond_null.k:169:12: error [SC052E]: 't' is used after being moved
-// DIAG: cond_null.k:164:14: note [{{[A-Z0-9]+}}]: 't' was moved here, by the call to 'put', when it does not return null
 // DIAG: cond_null.k:36:21: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
 // DIAG: cond_null.k:179:12: error [SC052E]: 't' is used after being moved
 // DIAG: cond_null.k:175:8: note [{{[A-Z0-9]+}}]: 't' was moved here, by the call to 'put_maybe', when it returns null

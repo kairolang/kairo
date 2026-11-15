@@ -4,8 +4,8 @@
 // `op in` takes `self` is SC063E on a const object, the same rule a call
 // of a non-const method on a const object meets.
 //
-// With several binders the const element reaches each one: `for (a, *b) in`
-// over a const vector of tuples points `b` at a const element.
+// A const vector yields `*const T`, so `for (a, *c)` over a const vector of
+// tuples is SC298E (it takes `const *c`), and the write through `c` SC071E.
 
 class Bag {
     var v: i32 = 0
@@ -43,5 +43,8 @@ fn main() -> i32 {
 // RUN: { %kairo --type-check-only %s 2>&1 || true; } | %FileCheck %s --implicit-check-not=error
 // CHECK: for_in_const_receiver.k:34:14: error [SC063E]: no matching overload for call to 'op in'
 // CHECK-NEXT: for_in_const_receiver.k:12:5: note [I900N]: candidate not viable: 'op in' is not const; it cannot be called on a const object
+// CHECK-NEXT: for_in_const_receiver.k:38:13: error [SC298E]: the binder '*c' does not bind what 'op in (const self)' yields: '*const (i32, i32)' binds 'for c', 'for const c' or 'for const *c'; through 'const self' the element is read-only
+// CHECK-NEXT: fix-it:"{{.*}}for_in_const_receiver.k":{38:13-38:15}:"const *c"
+// CHECK-NEXT: vector.k:{{[0-9]+}}:{{[0-9]+}}: note [SC298N]: 'op in (const self)' is declared here
 // CHECK-NEXT: for_in_const_receiver.k:38:25: error [SC071E]: cannot assign to '*c': 'c' points to const
 // CHECK-NEXT: for_in_const_receiver.k:38:14: note [I900N]: 'c' declared as a pointer to const here

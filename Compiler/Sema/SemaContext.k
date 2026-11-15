@@ -183,6 +183,10 @@ pub class SemaOptions {
     /// takes its MOVE argument at its worst (moved-from), instead of
     /// borrowing it on an unchecked assumption.
     pub var strict_cxx_moves: bool = false
+    /// -funion-locals=all: every block-scope local with a non-trivial
+    /// destructor gets union storage, not only those a site ends early
+    /// (Sema/Check/LocalDisposition.k).
+    pub var union_locals_all: bool = false
     pub var print_stats:      bool = false ///< --print-stats: Sema also reports its per-stage arena growth.
     pub var log_import_uses:  bool = false ///< --dump-import-uses: I gives each overlay an ImportUseLog.
     pub var log_deps:         bool = false ///< --dump-deps / --dump-interface: the TU gets a DepLog.
@@ -217,6 +221,10 @@ pub class SemaOptions {
     /// triviality fact inverted, as a LifecycleFacts bug would, so a test can
     /// show the codegen pin failing the build. No other pass sees it.
     pub var test_fold_lie: bool = false
+    /// Compiler test hook (Sema/Check/TestDisarm.k): a test provider
+    /// disarms the destructor of a local moved once in straight-line code,
+    /// so the disarm plumbing runs without the analysis it is for.
+    pub var test_disarm_moved: bool = false
     /// The build produces a library (--shared): the `pub` inferred-panic-set
     /// lint is on (Compiler/Spec/Panic.md#declared-sets). Off for an executable.
     pub var library_build: bool = false
@@ -242,6 +250,7 @@ pub class SemaOptions {
         self.unwind_all       = ci->lang.unwind == 1
         self.infer_purity     = ci->lang.infer_purity != 0
         self.strict_cxx_moves = ci->lang.strict_cxx_moves == 1
+        self.union_locals_all = ci->lang.union_locals_all
         self.print_stats      = ci->frontend.print_stats
         self.log_import_uses  = !ci->frontend.dump_import_uses.empty()
         self.log_deps = (!ci->frontend.dump_deps.empty())
@@ -272,6 +281,7 @@ pub class SemaOptions {
         self.test_panic_type       = ci->lang.test_panic_type
         self.test_panic_id_bits    = ci->lang.test_panic_id_bits
         self.test_fold_lie         = ci->lang.test_fold_lie
+        self.test_disarm_moved     = ci->lang.test_disarm_moved
         self.library_build         = ci->linker.shared
     }
 
@@ -401,6 +411,15 @@ pub class SemaContext {
     /// which casts each to `T&&`. So the move C++ performs is exactly the
     /// one the checker counted.
     pub var move_sites: llvm::DenseSet<u64>
+    /// Of move_sites, those MoveCheck marked as a real transfer of a whole
+    /// local (MoveKind::Transfer): site -> the VariableDecl, both as u64.
+    /// One writer, MoveCheck (record_real_transfer); read by a provider
+    /// through is_real_transfer (Sema/Check/LocalDisposition.k).
+    pub var real_moves: llvm::DenseMap<u64, u64>
+    /// Of real_moves, those a provider disarmed (disarm_local_at): the
+    /// moved-from local is not destroyed. CopyMoveLowering moves each onto
+    /// its cast (TypeCastExpr::disarms).
+    pub var disarm_sites: llvm::DenseMap<u64, u64>
     /// AssocTypes whose bounds this TU is computing right now
     /// (Substitution::bound_ifaces): the cycle guard, kept per TU because
     /// the canonical node it guards is shared with TUs typed on other

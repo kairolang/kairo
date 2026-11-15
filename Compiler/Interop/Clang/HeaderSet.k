@@ -444,6 +444,15 @@ pub class HeaderSet {
         return unsafe &self._ci->getSourceManager()
     }
 
+    /// The backend the set was parsed with; null before its first parse.
+    pub fn backend(self) -> unsafe *ClangBackend {
+        if self._be_saved == &null && self.shared != &null {
+            return self.shared->backend()
+        }
+
+        return self._be_saved
+    }
+
     pub fn alive(self) -> bool {
         return self._ready()
     }

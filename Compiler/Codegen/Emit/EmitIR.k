@@ -148,20 +148,21 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtCtorForm,           ClassDecl,     EnumDecl,   ExtensionDecl, FFIBlockDecl,
-    FieldDecl,             FieldFold,     FnBodyKind, FunctionDecl,  GenericParamDecl,
-    GenericParamKindBound, InterfaceDecl, ModuleDecl, ParamDecl,     StorageClass,
-    StructDecl,            TypeAliasDecl, UnionDecl,  VariableDecl,  VisibilityGroupDecl,
+    AdtCtorForm,           ClassDecl,     EnumDecl,      ExtensionDecl, FFIBlockDecl,
+    FieldDecl,             FieldFold,     FnBodyKind,    FunctionDecl,  GenericParamDecl,
+    GenericParamKindBound, InterfaceDecl, LocalDtor,     ModuleDecl,    ParamDecl,
+    StorageClass,          StructDecl,    TypeAliasDecl, UnionDecl,     VariableDecl,
+    VisibilityGroupDecl,
 }
 import AST::Node::Expressions::{
-    AlignOfExpr,          AnonInitializerExpr,      AssignOperatorExpr, BinaryOperatorExpr,
-    CallExpr,             CaptureMode,              CastMode,           ClosureExpr,
-    ConstraintExpr,       CxxNewExpr,               DeleteExpr,         EvalExpr,
-    IfExpr,               ImplicitBoundaryCastExpr, InitField,          InitListExpr,
-    NamedInitializerExpr, PackExpansionExpr,        PanicOp,            PanicOpExpr,
-    ParenExpr,            SizeOfExpr,               StmtExpr,           SubscriptExpr,
-    TypeCastExpr,         TypeTraitExpr,            UnaryOperatorExpr,  UnsafeExpr,
-    VariantInitExpr,      type_trait_cxx,
+    AlignOfExpr,    AnonInitializerExpr,  AssignOperatorExpr,       BinaryOperatorExpr,
+    CallExpr,       CaptureMode,          CastMode,                 ClosureExpr,
+    ConstraintExpr, CxxNewExpr,           DeleteExpr,               EvalExpr,
+    FinalizeKind,   IfExpr,               ImplicitBoundaryCastExpr, InitField,
+    InitListExpr,   NamedInitializerExpr, PackExpansionExpr,        PanicOp,
+    PanicOpExpr,    ParenExpr,            SizeOfExpr,               StmtExpr,
+    SubscriptExpr,  TypeCastExpr,         TypeTraitExpr,            UnaryOperatorExpr,
+    UnsafeExpr,     VariantInitExpr,      type_trait_cxx,
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
@@ -293,6 +294,24 @@ pub class EmitIR {
     /// (_abi_note). Collected while the bodies are written, so a convention
     /// only an unused declaration names sets nothing.
     priv var _cc_bits: u32 = 0
+    /// The union-stored locals (VariableDecl::dtor_mode is not Scope;
+    /// Compiler/Spec/Lowering.md#union-storage-locals) whose declarations
+    /// are out in the bodies being written, innermost body last: _body
+    /// drops its own on the way out. Parallel: the storage (`__k_s_x`), the
+    /// object as a use reads it (`__k_s_x.v`, `__k_s_x.s.v` when flagged),
+    /// the sites written that end it; `_ul_row` finds the row by decl.
+    priv var _ul_decl:  cxx::std::vector<unsafe *VariableDecl>
+    priv var _ul_store: cxx::std::vector<string>
+    priv var _ul_obj:   cxx::std::vector<string>
+    priv var _ul_ends:  cxx::std::vector<usize>
+    priv var _ul_row:   llvm::DenseMap<u64, u64>
+    /// The value of the `return` being written when it is a union-stored
+    /// local's name: spelled as a move, since C++ moves only a returned
+    /// NAME on its own and the object is a member here.
+    priv var _ret_move: unsafe *Expr = &null
+    /// The declaration being written is a C-style `for`'s init, where one
+    /// declaration is all the syntax holds (_for).
+    priv var _in_for_init: bool = false
 
     fn EmitIR(self, cg: unsafe *CodegenContext) {
         self._cg    = cg
@@ -1802,6 +1821,7 @@ pub class EmitIR {
     priv fn _body(self, f: unsafe *FunctionDecl, ext: unsafe *ExtensionDecl) {
         var unsafe *saved_fn  = self._cur_fn
         var unsafe *saved_ext = self._cur_ext
+        var        ul_mark    = self._ul_decl.size()
         self._cur_fn  = f
         self._cur_ext = ext
         // Opened here rather than through emit_block: an extension operator's
@@ -1901,8 +1921,207 @@ pub class EmitIR {
 
         self._ef_gens = saved_gens
         self._cg->sink->synth_at_end(b->range, clang::tok::r_brace)
+        self._ul_leave(ul_mark)
         self._cur_fn  = saved_fn
         self._cur_ext = saved_ext
+    }
+
+    /// The body that declared the union-stored locals from row \p mark on
+    /// is written. An Elided or Flagged local no written site ended would
+    /// never be destroyed: its mode and its sites came from one provider
+    /// (Sema/Check/LocalDisposition.k), so a mismatch is an ICE, never a
+    /// silent leak.
+    priv fn _ul_leave(self, mark: usize) {
+        for var i: usize = mark; i < self._ul_decl.size(); ++i {
+            var unsafe *v = self._ul_decl[i]
+            if v->dtor_mode != LocalDtor::Cleanup && self._ul_ends[i] == 0 {
+                self._ice(
+                    v->range,
+                    "EmitIR: a local whose destructor is elided or flagged has no site that ends it; its mode and its sites disagree",
+                )
+            }
+
+            self._ul_row.erase(v as usize as u64)
+        }
+
+        while self._ul_decl.size() > mark {
+            self._ul_decl.pop_back()
+            self._ul_store.pop_back()
+            self._ul_obj.pop_back()
+            self._ul_ends.pop_back()
+        }
+    }
+
+    /// \p d's row when it is a union-stored local a use here spells through
+    /// its storage, else usize(-1). Inside a closure that captures it, the
+    /// name is the closure's own copy (_capture_list), spelled bare.
+    priv fn _ul_use(self, d: unsafe *Decl) -> usize {
+        if d == &null || self._ul_decl.empty() {
+            return usize::MAX
+        }
+
+        var it = self._ul_row.find(d as usize as u64)
+        if it == self._ul_row.end() {
+            return usize::MAX
+        }
+
+        if self._closure != &null {
+            for var i: usize = 0; i < self._closure->cap_decls.size(); ++i {
+                if self._closure->cap_decls[i] == d {
+                    return usize::MAX
+                }
+            }
+        }
+
+        return it->second as usize
+    }
+
+    /// The declaration of the union-stored local \p n, in place of
+    /// `T x = init` (no trailing `;`; _decl writes it):
+    ///   Cleanup  `::__kairo_ul<T> __k_s_x{init}; <hook>`
+    ///   Elided   `::__kairo_ul<T> __k_s_x{init}`
+    ///   Flagged  `::__kairo_ulf<T> __k_s_x{{init}, true}; <hook>`
+    /// where the hook is `__attribute__((cleanup(__kairo_ul_run)))
+    /// ::__kairo_ulh __k_h_x{&__k_s_x, &<storage type>::__drop}`, declared
+    /// after the object so a path that leaves while the initializer runs
+    /// destroys nothing. `{}` for `var x: T` value-initializes as `T x{}`
+    /// does. False when this declaration cannot take the storage: only a
+    /// Cleanup local, which is then the plain `T x` it is equivalent to.
+    priv fn _union_local_decl(self, n: unsafe *VariableDecl, in_for_init: bool) -> bool {
+        var m   = n->dtor_mode
+        var why = ""
+        if in_for_init {
+            why = "a C-style for's variable"
+        } else if n->type_ == &null || n->type_->canonical == &null {
+            why = "a local with no type"
+        } else if self._spell.names_hidden_member(n->type_) {
+            why = "a local whose type is a hidden member type"
+        } else if AttrFacts::decl_align_attr(
+            n,
+            self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid()),
+        ).size() > 0 {
+            why = "an '@align' local"
+        }
+
+        if why.size() > 0 {
+            if m == LocalDtor::Cleanup {
+                return false
+            }
+
+            self._ice(
+                n->range,
+                "EmitIR: union storage for " + why + "; LocalDisposition gives only Cleanup to one",
+            )
+        }
+
+        var ty = self._spell._type(n->type_)
+        if n->is_const() {
+            ty = "const " + ty
+        }
+
+        var nm    = self._spell.tok_name(n->name, self._owning_fid())
+        var store = LowerTargets::union_local_store(nm)
+        var ul    = "::" + LowerTargets::union_local() + "<" + ty + ">"
+        var st = if (m == LocalDtor::Flagged) => ("::" + LowerTargets::union_local_flagged() + "<" + ty + ">")
+                 else => ul
+        var at = n->name.range
+        self._cg->sink->spell(at, st + " " + store + "{")
+        if m == LocalDtor::Flagged {
+            self._cg->sink->spell(at, "{")
+        }
+
+        if n->init == &null {
+            self._cg->sink->spell(at, "{}")
+        } else {
+            self._value(n->init, n->type_)
+        }
+
+        if m == LocalDtor::Flagged {
+            self._cg->sink->spell(at, "}, true")
+        }
+
+        self._cg->sink->spell(at, "}")
+        if m != LocalDtor::Elided {
+            self._cg->sink->spell(
+                at,
+                "; __attribute__((cleanup(" + LowerTargets::union_local_run() + "))) ::" + LowerTargets::union_local_hook() + " " + LowerTargets::union_local_hook_var(
+                    nm,
+                ) + "{&" + store + ", &" + st + "::" + LowerTargets::union_local_drop() + "}",
+            )
+        }
+
+        var obj = if (m == LocalDtor::Flagged) => (store + ".s." + LowerTargets::union_local_obj())
+                  else => store + "." + LowerTargets::union_local_obj()
+        self._ul_row[n as usize as u64] = self._ul_decl.size() as u64
+        self._ul_decl.push_back(n)
+        self._ul_store.push_back(store)
+        self._ul_obj.push_back(obj)
+        self._ul_ends.push_back(0)
+        return true
+    }
+
+    /// `x.finally()` (CallExpr::finalize, decided by MoveCheck): the
+    /// storage's `__end()`, which runs the destructor and, flagged, clears
+    /// `live` first; nothing for a trivially destroyed local.
+    priv fn _finally_site(self, n: unsafe *CallExpr) {
+        if n->finalize == FinalizeKind::NoEffect {
+            self._cg->sink->spell(n->range, "(void)0")
+            return
+        }
+
+        if n->finalize != FinalizeKind::Ends {
+            self._ice(
+                n->range,
+                "EmitIR: a finally() call MoveCheck did not decide",
+            )
+        }
+
+        var unsafe *ce = dyn_cast<ChainExpr>(n->callee)
+        var unsafe *ni = if (ce != &null) => (dyn_cast<NamedIdentExpr>(ce->base)) else => &null
+        var r = if (ni != &null) => (self._ul_use(ni->resolved_decl)) else => usize::MAX
+        if r == usize::MAX || self._ul_decl[r]->dtor_mode == LocalDtor::Cleanup {
+            self._ice(
+                n->range,
+                "EmitIR: finally() on a local that is not elided or flagged; its mode and its sites disagree",
+            )
+        }
+
+        self._cg->sink->spell(
+            n->range,
+            self._ul_store[r] + "." + LowerTargets::union_local_end() + "()",
+        )
+
+        self._ul_ends[r] += 1
+    }
+
+    /// A move a provider disarmed (TypeCastExpr::disarms): the move, and
+    /// what `finally()` does minus the destructor call. Flagged, `live` is
+    /// cleared as the moved object is named, before the move constructor
+    /// runs: nothing reads the flag but the hook at the scope's end, and a
+    /// real transfer's constructor is a Kairo one, which cannot throw.
+    /// Elided, nothing is left to run.
+    priv fn _disarm_site(self, n: unsafe *TypeCastExpr) {
+        var r = self._ul_use(n->disarms)
+        if r == usize::MAX || self._ul_decl[r]->dtor_mode == LocalDtor::Cleanup {
+            self._ice(
+                n->range,
+                "EmitIR: a disarmed move of a local that is not elided or flagged; its mode and its sites disagree",
+            )
+        }
+
+        self._ul_ends[r] += 1
+        if self._ul_decl[r]->dtor_mode != LocalDtor::Flagged {
+            self._cast(n)
+            return
+        }
+
+        self._cg->sink->spell(
+            n->range,
+            "(" + self._ul_store[r] + ".live = false, ",
+        )
+
+        self._cast(n)
+        self._cg->sink->spell(n->range, ")")
     }
 
     /// 1 for the DynamicSize lang item, 2 for DynamicAlign, else 0
@@ -2206,6 +2425,14 @@ pub class EmitIR {
             case DeclKind::VariableDecl {
                 // A local S_post reads is its slot's first assignment.
                 if self._slot_of(n->decl, false) != usize::MAX {
+                    var dm = cast<VariableDecl>(n->decl)->dtor_mode
+                    if dm == LocalDtor::Elided || dm == LocalDtor::Flagged {
+                        self._ice(
+                            n->range,
+                            "EmitIR: a split constructor's carried local cannot take union storage; LocalDisposition gave it an ending mode",
+                        )
+                    }
+
                     self._slot_local_init(cast<VariableDecl>(n->decl))
                 } else {
                     self._var_decl(cast<VariableDecl>(n->decl))
@@ -2292,6 +2519,10 @@ pub class EmitIR {
             self._cg->sink->spell(n->name.range, " = (")
             self.emit(n->init)
             self._cg->sink->spell(n->name.range, ")")
+            return
+        }
+
+        if n->dtor_mode != LocalDtor::Scope && self._union_local_decl(n, self._in_for_init) {
             return
         }
 
@@ -2598,7 +2829,9 @@ pub class EmitIR {
             }
 
             if n->value != &null {
+                self._ret_move = self._returned_name(n->value)
                 self._value(n->value, crt)
+                self._ret_move = &null
             }
 
             self._cg->sink->synth_at_end(n->range, clang::tok::semi)
@@ -2695,10 +2928,27 @@ pub class EmitIR {
                 rt = cast<PointerType>(canon_unqual(rt->canonical))->pointee
             }
 
+            self._ret_move = self._returned_name(n->value)
             self._value(n->value, rt)
+            self._ret_move = &null
         }
 
         self._cg->sink->synth_at_end(n->range, clang::tok::semi)
+    }
+
+    /// \p v under its parens when it is a plain name, else null: the value
+    /// C++ moves out of a `return` on its own (_ret_move).
+    priv fn _returned_name(self, v: unsafe *Expr) -> unsafe *Expr {
+        var unsafe *x = v
+        while x != &null && isa<ParenExpr>(x) {
+            x = cast<ParenExpr>(x)->inner
+        }
+
+        if x != &null && isa<NamedIdentExpr>(x) {
+            return x
+        }
+
+        return &null
     }
 
     /// `co_yield (e);`. The operand is emitted bare when its canonical is the
@@ -3393,7 +3643,9 @@ pub class EmitIR {
                 self._ice(n->range, "EmitIR: for-init is not a variable")
             }
 
+            self._in_for_init = true
             self._var_decl(cast<VariableDecl>(ds->decl))
+            self._in_for_init = false
         }
 
         self._cg->sink->spell(n->range, ";")
@@ -3494,7 +3746,11 @@ pub class EmitIR {
                     self._nopanic_close(e->range)
                 }
             } case ExprKind::TypeCastExpr {
-                self._cast(cast<TypeCastExpr>(e))
+                if cast<TypeCastExpr>(e)->disarms != &null {
+                    self._disarm_site(cast<TypeCastExpr>(e))
+                } else {
+                    self._cast(cast<TypeCastExpr>(e))
+                }
             } case ExprKind::ImplicitBoundaryCastExpr {
                 var unsafe *n = cast<ImplicitBoundaryCastExpr>(e)
                 if !self._array_view(n->original, n->target_type, &null) {
@@ -4515,6 +4771,17 @@ pub class EmitIR {
             return
         }
 
+        var ur = self._ul_use(d)
+        if ur != usize::MAX {
+            var obj = self._ul_obj[ur]
+            if unsafe (n as unsafe *Expr) == self._ret_move {
+                obj = "static_cast<decltype(" + obj + ")&&>(" + obj + ")"
+            }
+
+            self._cg->sink->spell(n->range, obj)
+            return
+        }
+
         if self._is_local(d) || self._captures_global(self._closure, d) {
             self._name(n->name)
             return
@@ -5353,6 +5620,11 @@ pub class EmitIR {
     /// A call of a `cxx_ref_return` function: C++ returns `T&`, Kairo typed
     /// the call `*T`, so the reference's address is what the call is.
     priv fn _call(self, n: unsafe *CallExpr) {
+        if n->finalize != FinalizeKind::None {
+            self._finally_site(n)
+            return
+        }
+
         // Read off the callee as bound, without _callee_decl's gates (a
         // dependent or deferred call is checked below, by the inner path).
         var        rd:  unsafe *Decl = &null
@@ -6782,6 +7054,14 @@ pub class EmitIR {
                 origin = self._spell.qual_name(d)
             }
 
+            // A union-stored local is its storage's member out here.
+            var place = nm
+            var ur    = self._ul_use(d)
+            if ur != usize::MAX {
+                origin = self._ul_obj[ur]
+                place  = origin
+            }
+
             match m {
                 case CaptureMode::Copy {
                     s += if (origin == nm) => (nm) else => nm + " = " + origin
@@ -6790,9 +7070,9 @@ pub class EmitIR {
                         self._capture_type(d),
                     ) + "&&>(" + origin + ")"
                 } case CaptureMode::Ptr {
-                    s += nm + " = &" + nm
+                    s += nm + " = &" + place
                 } case CaptureMode::ConstPtr {
-                    var src = if (via) => (nm) else => "&" + nm
+                    var src = if (via) => (place) else => "&" + place
                     s += nm + " = static_cast<const " + self._spell._type(
                         self._capture_type(d),
                     ) + "*>(" + src + ")"

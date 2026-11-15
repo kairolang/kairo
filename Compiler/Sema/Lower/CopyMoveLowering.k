@@ -36,9 +36,16 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import AST::Node::Base::Expr
+import AST::Node::Base::{
+    Decl,
+    Expr,
+}
 import AST::Node::CanonicalNodes::canon_unqual
-import AST::Node::Expressions::CastMode
+import AST::Node::Casting::cast
+import AST::Node::Expressions::{
+    CastMode,
+    TypeCastExpr,
+}
 import AST::Visitor::ASTWriter::ASTWriter
 import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
@@ -92,6 +99,11 @@ pub class CopyMoveLowering derives ASTWriter<CopyMoveLowering> {
         )
 
         c->value_category = Expr::ValueCategory::XValue
+        var dis = self.sc->disarm_sites.find(e as usize as u64)
+        if dis != self.sc->disarm_sites.end() {
+            cast<TypeCastExpr>(c)->disarms = unsafe (dis->second as unsafe *Decl)
+        }
+
         return c
     }
 }

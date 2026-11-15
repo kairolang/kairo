@@ -180,6 +180,7 @@ pub enum HelperBlock derives u16 {
     RawSlot      = 1 << 10, ///< _raw_slot_helpers.
     Nopanic      = 1 << 11, ///< _nopanic_helpers.
     CxxAlloc     = 1 << 12, ///< _cxx_alloc_helpers.
+    UnionLocal   = 1 << 13, ///< _union_local_helpers.
 }
 
 /// HelperBlock's variants are its FlagSet's bits (Support/FlagSet.k).
@@ -598,6 +599,13 @@ pub class InterfaceEmitter {
         if !self.written.has(HelperBlock::RawSlot) && self._plan->needs_raw_slot {
             self._cg->sink->unanchored(true)
             self._raw_slot_helpers(header)
+            self._cg->sink->unanchored(false)
+        }
+
+        // Union storage for locals a site ends early (EmitPlan::needs_union_local).
+        if !self.written.has(HelperBlock::UnionLocal) && self._plan->needs_union_local {
+            self._cg->sink->unanchored(true)
+            self._union_local_helpers(header)
             self._cg->sink->unanchored(false)
         }
 
@@ -3127,6 +3135,66 @@ pub class InterfaceEmitter {
         self._cg->sink->spell(
             at,
             "template <class T> union " + rs + " { " + bx + "<T> " + bm + "; " + rs + "() noexcept {} ~" + rs + "() noexcept {} " + rs + "(const " + rs + "&) = delete; " + "T " + LowerTargets::raw_take() + "()" + nx + " { T r(static_cast<T&&>(" + bm + "." + bv + ")); " + bm + ".~" + bx + "<T>(); return r; } };",
+        )
+
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
+    }
+
+    /// Union storage for a local whose destructor is not C++'s to run
+    /// (Compiler/Spec/Lowering.md#union-storage-locals). `__kairo_ul<T>` has
+    /// no constructor, so it is an aggregate and `__kairo_ul<T> s{e}`
+    /// copy-initializes `v` from `e` exactly as `T x = e` would, a prvalue
+    /// built in place; its destructor does nothing. `__end()` runs the
+    /// object's destructor (`x.finally()`); `__kairo_ulf<T>` adds the
+    /// `live` flag its `__end()` clears and its `__drop` tests. The cleanup
+    /// attribute runs `__kairo_ul_run` on the `__kairo_ulh` declared after
+    /// the object, so it is armed only once the object is built: clang
+    /// accepts no template (it never instantiates one named there) and no
+    /// qualified name as a cleanup function, so the one function it names
+    /// calls the type's `__drop` through the hook.
+    priv fn _union_local_helpers(self, header: bool) {
+        if self.written.has(HelperBlock::UnionLocal) {
+            return
+        }
+
+        self.written.set(HelperBlock::UnionLocal)
+        var at = self._tu_at()
+        if header {
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::union_local_guard(),
+            )
+
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::union_local_guard(),
+            )
+        }
+
+        var ul = LowerTargets::union_local()
+        var uf = LowerTargets::union_local_flagged()
+        var uh = LowerTargets::union_local_hook()
+        var ob = LowerTargets::union_local_obj()
+        var en = LowerTargets::union_local_end()
+        var dr = LowerTargets::union_local_drop()
+        self._cg->sink->spell(
+            at,
+            "template <class T> union " + ul + " { T " + ob + "; ~" + ul + "() {} void " + en + "() noexcept { " + ob + ".~T(); } static void " + dr + "(void* p) noexcept { static_cast<" + ul + "*>(p)->" + ob + ".~T(); } };",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + uf + " { " + ul + "<T> s; bool live; void " + en + "() noexcept { live = false; s." + ob + ".~T(); } static void " + dr + "(void* p) noexcept { " + uf + "* f = static_cast<" + uf + "*>(p); if (f->live) { f->live = false; f->s." + ob + ".~T(); } } };",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "struct " + uh + " { void* p; void (*d)(void*) noexcept; }; inline void " + LowerTargets::union_local_run() + "(" + uh + "* h) noexcept { h->d(h->p); }",
         )
 
         self._cg->sink->brk()
