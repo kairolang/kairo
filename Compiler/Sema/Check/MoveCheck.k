@@ -153,9 +153,10 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,        FieldDecl,    FnBodyKind,    FnModifier,    FunctionDecl,  InterfaceDecl,  MOVE_ON_FALSE,
-    MOVE_ON_NON_NULL, MOVE_ON_NULL, MOVE_ON_OTHER, MOVE_ON_PANIC, MOVE_ON_RETURN, MOVE_ON_TRUE,
-    MoveOut,          MoveOutState, ParamDecl,     StructDecl,    TransferKind,   VariableDecl,
+    ClassDecl,     FieldDecl,        FnBodyKind,   FnModifier,    FunctionDecl,  InterfaceDecl,
+    MOVE_ON_FALSE, MOVE_ON_NON_NULL, MOVE_ON_NULL, MOVE_ON_OTHER, MOVE_ON_PANIC, MOVE_ON_RETURN,
+    MOVE_ON_TRUE,  MoveOut,          MoveOutState, ParamDecl,     StructDecl,    TransferKind,
+    VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::PrimaryExpressions::{
@@ -815,7 +816,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var saved_exits = self._exits
         var saved_bp    = self._body_panics
         self._body_panics = ((n->modifiers as u16) & (FnModifier::IsPanic as u16)) != 0
-        self._fn = &null
+        self._fn          = &null
         self._caps.clear()
         self._out.clear()
         self._out_hits.clear()
@@ -849,10 +850,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         self._exit(MOVE_ON_RETURN)
         var left = self._out
-        self._fn       = saved_fn
-        self._caps     = saved_caps
-        self._out      = saved_out
-        self._out_hits = saved_hits
+        self._fn          = saved_fn
+        self._caps        = saved_caps
+        self._out         = saved_out
+        self._out_hits    = saved_hits
         self._out_when    = saved_when
         self._exits       = saved_exits
         self._body_panics = saved_bp
@@ -1913,7 +1914,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     e,
                 )
 
-                self._operator_panics(cast<Expressions::TypeCastExpr>(e)->resolved_op)
+                self._operator_panics(
+                    cast<Expressions::TypeCastExpr>(e)->resolved_op,
+                )
+
                 return tout
             } case ExprKind::SubscriptExpr {
                 var unsafe *sx = cast<Expressions::SubscriptExpr>(e)
