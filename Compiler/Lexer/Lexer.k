@@ -30,12 +30,10 @@ import Diagnostic::Code::DiagCode
 import Diagnostic::Engine::DiagEngine
 import Diagnostic::Registry::DiagID
 import Lexer::BalanceTracker
-import Lexer::HexParser::HexParser
 import Lexer::Immediate::{
     Immediate,
     ImmediateTable,
 }
-import Lexer::OctalParser::OctalParser
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
@@ -106,20 +104,6 @@ pub fn chain_head_len(imm: unsafe *ImmediateTable, t: Token, len: u32) -> u32 {
     return if (n < len) => (n) else => len
 }
 
-/// \brief tracks git merge conflict marker detection state during lexing
-/// \details used to emit clean diagnostics when conflict markers are found
-///
-/// to prevent issues later down the pipeline
-/// we need to be able to detect git conflict markers in the source code.
-/// ignore them and emit clean diagnostics if they are found.
-/// this enum represents the state of conflict marker detection.
-pub enum ConflictMarker derives u8 { // TODO: add conflit erroring to show issue with git merge conflict
-    None,      ///< no conflict detected.
-    Start,     ///< conflict start "<<<<<<<<" marker detected.
-    Separator, ///< conflict separator "========" marker detected.
-    End        ///< conflict end ">>>>>>>>" marker detected.
-}
-
 /// \brief coarse classification of the previously emitted token
 /// \details used for context-sensitive lexing decisions
 pub enum LastTokenKind derives u8 {
@@ -152,7 +136,6 @@ pub class Lexer {
     var _pool:        unsafe *ThreadPool       = &null
     var _diag:        unsafe *DiagEngine       = &null
     var _cursor:      usize                    = 0 // last pos is always file_size - 1
-    var _last_token:  usize                    = 0
     var _size:        usize                    = 0 ///< effective end of the stream: the
     ///  sub-range for a lex_slice sub-lexer,
     ///  else the whole buffer.
@@ -197,155 +180,15 @@ pub class Lexer {
     const PFX_FORMAT: u8 = 1 << 0
     const PFX_RAW:    u8 = 1 << 1
 
-    /// \brief lightweight handle over string/char immediates
-    /// \details abstracts over StringData vs CharData
-    class TextImm {
-        var lexer: unsafe *Lexer
-        var delim: u8
-        var idx:   u32
+    /// HashState values of the two-character runs lex_symbol turns into
+    /// comments; no TokenKind is numbered with them.
+    const HASH_LINE_COMMENT: u64 = 2645673611 ///< `//`
+    const HASH_BLOCK_OPEN:   u64 = 2645686962 ///< `/` `*`
+    const HASH_BLOCK_CLOSE:  u64 = 2644915348 ///< `*` `/`
 
-        /// \brief default constructor
-        fn TextImm(self) {
-            self.lexer = &null
-            self.delim = 0
-            self.idx   = 0
-        }
-
-        /// \brief constructs handle for an existing immediate
-        /// \param lexer owning lexer
-        /// \param delim string delimiter (' or ")
-        /// \param idx immediate table index
-        fn TextImm(self, lexer: unsafe *Lexer, delim: u8, idx: u32) {
-            self.lexer = lexer
-            self.delim = delim
-            self.idx   = idx
-        }
-
-        /// \brief returns f-string expression list
-        /// \returns deque of token buffers + source ranges
-        fn get_exprs(self) -> unsafe *llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4> {
-            if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
-                    self.idx,
-                )
-
-                return unsafe &imm->exprs
-            } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
-                    self.idx,
-                )
-
-                return unsafe &imm->exprs
-            }
-        }
-
-        /// \brief returns the per-hole spec/self-doc list, parallel to get_exprs()
-        fn get_holes(self) -> unsafe *llvm::SmallVector<Immediate::HoleSpec, 4> {
-            if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
-                    self.idx,
-                )
-
-                return unsafe &imm->holes
-            } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
-                    self.idx,
-                )
-
-                return unsafe &imm->holes
-            }
-        }
-
-        /// \brief returns prefix token
-        /// \returns token reference
-        fn get_prefix(self) -> *Token {
-            if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
-                    self.idx,
-                )
-
-                return &imm->prefix
-            } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
-                    self.idx,
-                )
-
-                return &imm->prefix
-            }
-        }
-
-        /// \brief returns suffix token
-        /// \returns token reference
-        fn get_suffix(self) -> *Token {
-            if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
-                    self.idx,
-                )
-
-                return &imm->suffix
-            } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
-                    self.idx,
-                )
-
-                return &imm->suffix
-            }
-        }
-
-        /// \brief returns body source range
-        /// \returns source range reference
-        fn get_body(self) -> *SourceRange {
-            if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
-                    self.idx,
-                )
-
-                return &imm->body
-            } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
-                    self.idx,
-                )
-
-                return &imm->body
-            }
-        }
-
-        /// \brief returns next immediate link
-        /// \returns next index reference
-        fn get_next(self) -> unsafe *u32 {
-            if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
-                    self.idx,
-                )
-
-                return unsafe &imm->next
-            } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
-                    self.idx,
-                )
-
-                return unsafe &imm->next
-            }
-        }
-
-        /// \brief returns prefix classification
-        /// \returns prefix kind
-        fn get_prefix_kind(self) -> *FlagSet<Immediate::TextPrefixKind, u8> {
-            if self.delim == 0x22 {
-                var unsafe *imm = self.lexer->get_imm<Immediate::StringData>(
-                    self.idx,
-                )
-
-                return &imm->prefix_kind
-            } else {
-                var unsafe *imm = self.lexer->get_imm<Immediate::CharData>(
-                    self.idx,
-                )
-
-                return &imm->prefix_kind
-            }
-        }
-    }
+    /// lex_text is lexing a segment after the first of a chain of adjacent
+    /// string literals: the head's loop links the next one, not the segment.
+    var _in_chain: bool = false
 
     /// \brief transient context for string / char lexing
     /// \details lives only during lex_text
@@ -366,9 +209,9 @@ pub class Lexer {
 
         var delim:     u8
         var imm_idx:   u32
-        var is_format: bool    = false
-        var is_raw:    bool    = false
-        var imm:       TextImm
+        var is_format: bool                        = false
+        var is_raw:    bool                        = false
+        var imm:       unsafe *Immediate::TextData = &null ///< the literal's StringData or CharData
         var prefix:    Token
 
         var body_start: SourceLocation
@@ -778,19 +621,15 @@ pub class Lexer {
     ///          pointer from file_size() and run raw pointers against it, so an
     ///          over-advanced cursor reads outside the mapping.
     ///
-    /// \note the clamp restored here is NOT the one that was commented out. That
-    ///       one pinned the cursor to `file_size() - 1`, one byte SHORT of EOF,
-    ///       so is_eof() could never become true and every `while !is_eof()`
-    ///       scanner span forever on the last byte   which is why it was
-    ///       disabled. It also underflowed on an empty buffer, and it left
-    ///       _last_advanced holding the REQUESTED count rather than the distance
-    ///       actually travelled, desyncing retreat_cursor_to_last.
+    /// \note the clamp is to file_size(), not `file_size() - 1`: one byte short
+    ///       of EOF, is_eof() never becomes true and every `while !is_eof()`
+    ///       scanner spins on the last byte; it also underflows on an empty
+    ///       buffer.
     priv inline fn advance_cursor(self, count: usize = 1) {
         const size: usize = self.file_size()
         const room: usize = if (self._cursor < size) => (size - self._cursor) else => 0
         const step: usize = if (count < room) => (count) else => room
 
-        self._last_advanced = (step as isize)
         self._cursor += step
     }
 
@@ -799,42 +638,15 @@ pub class Lexer {
     /// \details the scan loops keep the position in a local `const u8*` so the
     ///          compiler can hold it in a register; this is how that position
     ///          re-enters the object. \p base is the buffer origin the scan was
-    ///          derived from and \p step is the byte length of the LAST
-    ///          character the loop consumed, which is exactly what
-    ///          advance_cursor would have left in _last_advanced. A \p step of 0
-    ///          means the loop consumed nothing, so _last_advanced is left
-    ///          alone and still describes the advance that entered the loop.
+    ///          derived from.
     ///
     /// \warning must be called before ANY helper that reads _cursor
     ///          (get_source_location, create_source_range, peek_char32, a
     ///          diagnostic, or a nested scanner), not merely before returning.
     priv inline fn commit_cursor(self,
                                  const base: kairo::std::ConstPtr<u8>,
-                                 const pos:  kairo::std::ConstPtr<u8>,
-                                 const step: usize) {
-        if step != 0 {
-            self._last_advanced = (step as isize)
-        }
-
+                                 const pos:  kairo::std::ConstPtr<u8>) {
         self._cursor = ((pos - base) as usize)
-    }
-
-    priv inline fn retreat_cursor(self, count: usize = 1) {
-        if count > self._cursor {
-            self._cursor = 0
-            return
-        }
-
-        self._last_advanced = -(count as isize)
-        self._cursor -= count
-    }
-
-    priv inline fn retreat_cursor_to_last(self) {
-        if self._last_advanced > 0 {
-            self.retreat_cursor(self._last_advanced as usize)
-        } else if self._last_advanced < 0 {
-            self.advance_cursor((-self._last_advanced) as usize)
-        }
     }
 
     /// # LEXER INTERNALS
@@ -862,27 +674,6 @@ pub class Lexer {
         }
 
         return UTF8View::decode_utf8(p, avail)
-    }
-
-    /// \brief byte length of the character ending immediately before \p q.
-    ///
-    /// \details Only for the raw-byte scanners (the comment bodies), which
-    ///          never learn a character length because they never decode. Walk
-    ///          back over UTF-8 continuation bytes once, at loop exit, so
-    ///          commit_cursor can still record the same _last_advanced a
-    ///          decoding loop would have.
-    inline static fn char_len_before(const base: kairo::std::ConstPtr<u8>,
-                                     const q:    kairo::std::ConstPtr<u8>) -> usize {
-        if q <= base {
-            return 0
-        }
-
-        var unsafe *r = q - 1
-        while r > base && (r[0] & 0xC0) == 0x80 {
-            r -= 1
-        }
-
-        return (q - r) as usize
     }
 
     /// 1 would be the immediate next char
@@ -913,16 +704,6 @@ pub class Lexer {
         }
 
         return Lexer::decode_at(data, size)
-    }
-
-    priv inline fn get_char32(self) -> kairo::DecodeResult {
-        var result = self.peek_char32()
-
-        self.advance_cursor(
-            ((if (result.len > 0) => (result.len as usize) else => 1)),
-        )
-
-        return result
     }
 
     priv inline fn <eval N: usize> peek_char32(self,
@@ -1221,15 +1002,11 @@ pub class Lexer {
         return Token(self.create_source_range(start), kind, u32::MAX)
     }
 
-    var _last_advanced: isize = 0
-
     /// # Char Classification
 
     static fn classify(chr: char) -> kairo::CharClass {
         return kairo::classify_char32(chr)
     }
-
-    var _conflict_state: ConflictMarker = ConflictMarker::None
 
     /// # Lexical Parsing Functions
 
@@ -1267,8 +1044,7 @@ pub class Lexer {
         const base: kairo::std::ConstPtr<u8> = self.file_data()
         const end:  kairo::std::ConstPtr<u8> = base + self.file_size()
 
-        var p:    kairo::std::ConstPtr<u8> = base + self._cursor
-        var step: usize                    = 0
+        var p: kairo::std::ConstPtr<u8> = base + self._cursor
 
         var unsafe *s_p  = p
         var        first = Lexer::decode_at(p, (end - p) as usize)
@@ -1288,7 +1064,6 @@ pub class Lexer {
 
         length += (first.len as usize)
         p += first.len
-        step = (first.len as usize)
 
         if first.len > 1 {
             keyword = false
@@ -1319,13 +1094,12 @@ pub class Lexer {
             }
 
             p += d.len
-            step = (d.len as usize)
             length += (d.len as usize)
         }
 
         // everything past this point (create_source_range, peek_char32,
         // get_source_location, lex_text) reads _cursor.
-        self.commit_cursor(base, p, step)
+        self.commit_cursor(base, p)
 
         if length > MAX_KEYWORD_LENGTH {
             keyword = false
@@ -1345,38 +1119,23 @@ pub class Lexer {
             return token
         }
 
-        /// we also need a quick second check to see if a string
         token.set_kind(TokenKind::LitIdentifier)
         token.set_range(self.create_source_range(start))
-        token.set_imm(self.intern_ident(s_p, length, (h as u32)))
 
-        // length is byte count; all valid prefixes are ASCII so this is fine
-        var dec = self.peek_char32()
-        if dec.chr == '"' || dec.chr == '\'' && length < 3 {
-            // WE HAVE A STRING HERE
-            // the prefix may be f, b, fb or bf
-            // and set the imm to 0, for invalid, 1 for format, 2 for bytes, 3 for bytes and format
-            var ptype: u8 = 0
-
-            match h {
-                case 3591182180 /* "f" */, 3591178436 /* "F" */ {
-                    ptype = self.PFX_FORMAT
-                } case 3591188472 /* "r" */, 3591176536 /* "R" */ {
-                    ptype = self.PFX_RAW
-                } case 2670705545 /* "fR" */, 2679377641 /* "FR" */,
-                     2679374857 /* "Fr" */, 2670219881 /* "fr" */,
-                     2678220897 /* "Rf" */, 2678207169 /* "RF" */,
-                     2678319073 /* "rF" */, 2678308417 /* "rf" */ {
-                    ptype = self.PFX_FORMAT | self.PFX_RAW
-                } default { }
-            }
-
-            if ptype != 0 {
-                token.imm = ptype
-                return self.lex_text(self.get_source_location(), token)
+        // A string prefix touching its quote is read off its bytes and never
+        // interned: it names nothing. A longer name is a name.
+        if length < 3 {
+            var dec = self.peek_char32()
+            if dec.chr == '"' || dec.chr == '\'' {
+                var ptype = self.text_prefix_bits(s_p, length)
+                if ptype != 0 {
+                    token.imm = ptype
+                    return self.lex_text(self.get_source_location(), token)
+                }
             }
         }
 
+        token.set_imm(self.intern_ident(s_p, length, (h as u32)))
         self._last_kind = LastTokenKind::Name
         return token
     }
@@ -1485,14 +1244,13 @@ pub class Lexer {
         const base: kairo::std::ConstPtr<u8> = self.file_data()
         const end:  kairo::std::ConstPtr<u8> = base + self.file_size()
 
-        var p:    kairo::std::ConstPtr<u8> = base + self._cursor
-        var step: usize                    = 0
+        var p: kairo::std::ConstPtr<u8> = base + self._cursor
 
         for var i: usize = 0; i < 16; ++i {
             if p >= end {
                 // EOF is tested explicitly: a zero-filled DecodeResult would
                 // fall through every test below to `return false`.
-                self.commit_cursor(base, p, step)
+                self.commit_cursor(base, p)
                 return false
             }
 
@@ -1502,46 +1260,42 @@ pub class Lexer {
             if ctx.has_exponent {
                 if ctx.allows_sign_next && (c == '+' || c == '-') {
                     p += d.len
-                    step                 = (d.len as usize)
                     ctx.allows_sign_next = false
                     ctx.last             = Self::NumberCtx::LastWasState::Exponent
                     continue
                 }
 
                 if !Lexer::is_decimal_digit(c) {
-                    self.commit_cursor(base, p, step)
+                    self.commit_cursor(base, p)
                     return false
                 }
 
                 p += d.len
-                step     = (d.len as usize)
                 ctx.last = Self::NumberCtx::LastWasState::Digit
                 continue
             }
 
             if c == '_' {
                 if ctx.last != Self::NumberCtx::LastWasState::Digit {
-                    self.commit_cursor(base, p, step)
+                    self.commit_cursor(base, p)
                     return false
                 }
 
                 ctx.last = Self::NumberCtx::LastWasState::Underscore
                 p += d.len
-                step = (d.len as usize)
                 continue
             }
 
             if Lexer::is_base_digit(c, ctx.base) {
                 ctx.last = Self::NumberCtx::LastWasState::Digit
                 p += d.len
-                step = (d.len as usize)
                 continue
             }
 
             if c == '.' && ctx.base != 2 && ctx.base != 8 {
                 var unsafe *q = p + d.len
                 if q < end && q[0] == ('.' as u8) {
-                    self.commit_cursor(base, p, step)
+                    self.commit_cursor(base, p)
                     return false // range operator, stop here
                 }
 
@@ -1558,7 +1312,7 @@ pub class Lexer {
                         ),
                         ctx.base,
                     ) {
-                    self.commit_cursor(base, p, step)
+                    self.commit_cursor(base, p)
                     return false
                 }
 
@@ -1566,27 +1320,26 @@ pub class Lexer {
                 // is what makes the second `.` of `t.0.1` its own separator
                 // instead of fusing `0.1` into one float.
                 if ctx.is_tuple_index {
-                    self.commit_cursor(base, p, step)
+                    self.commit_cursor(base, p)
                     return false
                 }
 
                 if ctx.has_decimal
                     || ctx.last == Self::NumberCtx::LastWasState::Dot
                     || ctx.last == Self::NumberCtx::LastWasState::Underscore {
-                    self.commit_cursor(base, p, step)
+                    self.commit_cursor(base, p)
                     return false
                 }
 
                 ctx.has_decimal = true
                 ctx.last        = Self::NumberCtx::LastWasState::Dot
                 p += d.len
-                step = (d.len as usize)
                 continue
             }
 
             if Lexer::is_exponent_char(c, ctx.base) {
                 if ctx.has_exponent || ctx.last == Self::NumberCtx::LastWasState::Underscore {
-                    self.commit_cursor(base, p, step)
+                    self.commit_cursor(base, p)
                     return false
                 }
 
@@ -1594,15 +1347,14 @@ pub class Lexer {
                 ctx.allows_sign_next = true
                 ctx.last             = Self::NumberCtx::LastWasState::Exponent
                 p += d.len
-                step = (d.len as usize)
                 continue
             }
 
-            self.commit_cursor(base, p, step)
+            self.commit_cursor(base, p)
             return false
         }
 
-        self.commit_cursor(base, p, step)
+        self.commit_cursor(base, p)
         return true // we are not done yet
     }
 
@@ -1636,26 +1388,23 @@ pub class Lexer {
         if is_float {
             var unsafe *imm = self.get_imm<Immediate::FloatData>(imm_idx)
 
-            imm->flags = 0
-            imm->base  = ctx.base
+            imm->assign_flags(FlagSet<Immediate::FloatFlags, u8>())
+            imm->base = ctx.base
             imm->body = SourceRange::from_bounds(
                 ctx.number_start,
                 ctx.number_end,
             )
 
-            // bit0: has_exponent
             if ctx.has_exponent {
-                imm->flags |= 0b00000001
+                imm->set_flag(Immediate::FloatFlags::HasExponent)
             }
 
-            // bit2: is_hex_float (0x prefix)
             if ctx.base == 16 {
-                imm->flags |= 0b00000100
+                imm->set_flag(Immediate::FloatFlags::IsHex)
             }
 
-            // bit4: has_suffix
             if ctx.has_suffix {
-                imm->flags |= 0b00010000
+                imm->set_flag(Immediate::FloatFlags::HasSuffix)
                 imm->suffix = ctx.suffix.range
             }
 
@@ -1670,8 +1419,8 @@ pub class Lexer {
         } else {
             var unsafe *imm = self.get_imm<Immediate::IntData>(imm_idx)
 
-            // lexer fully defines its flag domain
-            imm->flags = 0
+            // the lexer defines every flag
+            imm->assign_flags(FlagSet<Immediate::IntFlags, u8>())
 
             imm->base = ctx.base
             imm->body = SourceRange::from_bounds(
@@ -1679,18 +1428,16 @@ pub class Lexer {
                 ctx.number_end,
             )
 
-            // bit4: has_prefix
             if ctx.has_prefix {
-                imm->flags |= 0b00010000
+                imm->set_flag(Immediate::IntFlags::HasPrefix)
                 imm->prefix = SourceRange::from_bounds(
                     ctx.prefix_start,
                     ctx.prefix_end,
                 )
             }
 
-            // bit3: has_suffix
             if ctx.has_suffix {
-                imm->flags |= 0b00001000
+                imm->set_flag(Immediate::IntFlags::HasSuffix)
                 imm->suffix = ctx.suffix.range
             }
 
@@ -1772,17 +1519,17 @@ pub class Lexer {
             hash2.mix(C2.chr as u8)
             var h2 = hash2.finalize()
 
-            if h2 == 2645673611 /* "//" */ {
+            if h2 == self.HASH_LINE_COMMENT {
                 self.advance_cursor(2)
                 return self.lex_line_comment(start)
             }
 
-            if h2 == 2645686962 /* "/ *" */ {
+            if h2 == self.HASH_BLOCK_OPEN {
                 self.advance_cursor(2)
                 return self.lex_block_comment(start)
             }
 
-            if h2 == 2644915348 /* "* /" */ {
+            if h2 == self.HASH_BLOCK_CLOSE {
                 self.advance_cursor(2)
                 return self.create_error_token(start, TokenKind::AtComment)
             }
@@ -1821,11 +1568,13 @@ pub class Lexer {
         // `>>=>` are never valid input as `>=` `>` / `>>=` `>`, and the split
         // cannot change the meaning of a program that lexed before. The type
         // parser already splits the `>>` this leaves behind.
-        if best_hash == 2619617910 /* ">=" */ && C3.len == 1 && C3.chr == '>' {
-            best_hash = 3591191388 /* ">" */
+        if best_hash == (TokenKind::OpGreaterEqual as u32 as u64) && C3.len == 1 && C3.chr == '>' {
+            best_hash = (TokenKind::OpGreater as u32 as u64)
             best_len  = 1
-        } else if best_hash == 1861878763 /* ">>=" */ && C4.len == 1 && C4.chr == '>' {
-            best_hash = 2619618109 /* ">>" */
+        } else if best_hash == (TokenKind::OpGreaterGreaterEqual as u32 as u64)
+            && C4.len == 1
+            && C4.chr == '>' {
+            best_hash = (TokenKind::OpGreaterGreater as u32 as u64)
             best_len  = 2
         }
 
@@ -1868,16 +1617,6 @@ pub class Lexer {
                     }
 
                     self.advance_cursor((d.len as usize))
-                }
-
-                match conflict_char {
-                    case '<' {
-                        self._conflict_state = ConflictMarker::Start
-                    } case '=' {
-                        self._conflict_state = ConflictMarker::Separator
-                    } case '>' {
-                        self._conflict_state = ConflictMarker::End
-                    } default { }
                 }
 
                 // TODO: emit proper conflict diagnostic
@@ -1924,14 +1663,11 @@ pub class Lexer {
         const base: kairo::std::ConstPtr<u8> = self.file_data()
         const end:  kairo::std::ConstPtr<u8> = base + self.file_size()
 
-        var p:    kairo::std::ConstPtr<u8> = base + self._cursor
-        var step: usize                    = 0
+        var p: kairo::std::ConstPtr<u8> = base + self._cursor
 
         // A comment body needs no decoding at all: UTF-8 is self-synchronising,
         // so no byte of a multibyte sequence is ever < 0x80 and none of them can
         // be mistaken for the 0x0A/0x0D that ends the run. Scan raw bytes.
-        var unsafe *scan_start = p
-
         while p < end {
             if p[0] == 0x0A || p[0] == 0x0D {
                 break
@@ -1940,11 +1676,7 @@ pub class Lexer {
             p += 1
         }
 
-        // The loop never learned a character length, so recover the last one
-        // rather than reporting 1 and desyncing _last_advanced.
-        step = Lexer::char_len_before(scan_start, p)
-
-        self.commit_cursor(base, p, step) // create_source_range reads _cursor
+        self.commit_cursor(base, p) // create_source_range reads _cursor
 
         var token = Token()
         token.set_kind(TokenKind::AtComment)
@@ -1965,14 +1697,11 @@ pub class Lexer {
         const base: kairo::std::ConstPtr<u8> = self.file_data()
         const end:  kairo::std::ConstPtr<u8> = base + self.file_size()
 
-        var p:    kairo::std::ConstPtr<u8> = base + self._cursor
-        var step: usize                    = 0
+        var p: kairo::std::ConstPtr<u8> = base + self._cursor
 
         // Same as lex_line_comment: the body needs no decoding. Both nesting
         // markers are ASCII pairs, and no byte of a multibyte sequence can be
         // '*' or '/', so a raw byte scan finds exactly the same delimiters.
-        var unsafe *scan_start = p
-
         while p < end && nest_depth > 0 {
             var b0 = p[0]
             var b1 = if (p + 1 < end) => (p[1]) else => (0)
@@ -1992,9 +1721,7 @@ pub class Lexer {
             p += 1
         }
 
-        step = Lexer::char_len_before(scan_start, p)
-
-        self.commit_cursor(base, p, step) // both exits below read _cursor
+        self.commit_cursor(base, p) // both exits below read _cursor
 
         if nest_depth > 0 {
             kairo::Logger::warn(
@@ -2034,32 +1761,42 @@ pub class Lexer {
         self.emit_fstring_exprs(&ctx)
 
         var head = self.make_text_token(&ctx)
-        // A chain is one token, so its range runs to the last segment's end
-        // (each segment's own range recursed through here first): what reads
-        // a token's text by its range -- stringify!, a caret -- must see the
+        if self._in_chain || ctx.delim != 0x22 {
+            return head
+        }
+
+        // Each adjacent segment is linked onto the one before it. A chain is
+        // one token, so its range runs to the last segment's end: what reads a
+        // token's text by its range -- stringify!, a caret -- must see the
         // whole chain, so `stringify!("a" "b")` covers both segments.
-        var tail = self.chain_adjacent_text(&ctx)
-        if tail.kind == TokenKind::LitString {
+        self._in_chain = true
+        var unsafe *link = unsafe &ctx.imm->next
+        while true {
+            var seg = self.lex_adjacent_segment()
+            if seg.kind != TokenKind::LitString {
+                break
+            }
+
+            *link = seg.imm
+            link  = unsafe &self.get_imm<Immediate::StringData>(seg.imm)->next
             head.set_range(
-                SourceRange::from_bounds(head.range.start, tail.range.end),
+                SourceRange::from_bounds(head.range.start, seg.range.end),
             )
         }
 
+        self._in_chain = false
         return head
     }
 
-    /// \brief links an adjacent string literal onto this one via StringData::next.
+    /// \brief lexes the string literal adjacent to the one just lexed, the
+    ///        next segment of its chain; a non-string token when none follows.
     ///
     /// \details `"a" "b"`, including split across newlines, is one logical
     ///          string. Each segment keeps its own imm entry - body range,
-    ///          prefix, suffix, f-string exprs - and the entries are linked
+    ///          prefix, suffix, f-string exprs - and lex_text links the entries
     ///          head-to-tail through StringData::next, so a diagnostic can
     ///          still blame the exact segment a byte came from rather than the
     ///          fused whole. Only the head token reaches the parser.
-    ///
-    ///          lex_text recurses through this, so a run of any length links in
-    ///          a single pass: each call chains the one segment after it, and
-    ///          that segment chains the next.
     ///
     /// \note    Only `"` chains: a char literal is a single codepoint. A
     ///          continuation may carry any string prefix (`"a" r"b"`,
@@ -2072,11 +1809,7 @@ pub class Lexer {
     /// \warning the cursor is restored when no adjacent literal follows. The
     ///          newline after a lone string is a statement terminator and must
     ///          survive this lookahead.
-    priv inline fn chain_adjacent_text(self, @inout ctx: Self::TextCtx) -> Token {
-        if ctx.delim != 0x22 {
-            return Token()
-        }
-
+    priv inline fn lex_adjacent_segment(self) -> Token {
         var saved = self._cursor
 
         // inter-segment whitespace, newlines included
@@ -2108,9 +1841,7 @@ pub class Lexer {
             return Token()
         }
 
-        if seg.kind == TokenKind::LitString {
-            *ctx.imm.get_next() = seg.imm
-        } else {
+        if seg.kind != TokenKind::LitString {
             self._cursor = saved
         }
 
@@ -2121,26 +1852,48 @@ pub class Lexer {
     /// \brief the length of the string prefix at the cursor (`f`, `r`, `fr`,
     ///        `rf`, either case) when a `"` follows it directly, else 0.
     ///
-    /// \details mirrors the prefix table in lex_name, which is what actually
-    ///          lexes the literal; this only decides, without consuming, that
-    ///          the name at the cursor is a prefix and not a word. A `'` after
-    ///          it is a char literal, which never chains, so it is 0 here.
+    /// \details decides, without consuming, that the name at the cursor is a
+    ///          prefix and not a word, by the same test lex_name lexes it with.
+    ///          A `'` after it is a char literal, which never chains, so it is
+    ///          0 here.
     priv inline fn string_prefix_len(self) -> isize {
-        var c0 = self.peek_char32().chr
-        var c1 = self.peek_char32(1).chr
-        var f0 = c0 == 'f' || c0 == 'F'
-        var r0 = c0 == 'r' || c0 == 'R'
-        if (f0 || r0) && c1 == '"' {
-            return 1
-        }
-
-        var f1 = c1 == 'f' || c1 == 'F'
-        var r1 = c1 == 'r' || c1 == 'R'
-        if ((f0 && r1) || (r0 && f1)) && self.peek_char32(2).chr == '"' {
-            return 2
+        var unsafe *p = self.current_data()
+        var        n  = self.remaining_bytes()
+        for var len: usize = 1; len <= 2 && len < n; ++len {
+            if p[len] == ('"' as u8) && self.text_prefix_bits(p, len) != 0 {
+                return len as isize
+            }
         }
 
         return 0
+    }
+
+    /// \brief the PFX_* bits of the \p n bytes at \p p when they spell a
+    ///        string prefix: `f`, `r`, `fr` or `rf`, either case. 0 for
+    ///        anything else, `ff` and `rr` included.
+    priv inline fn text_prefix_bits(self, p: kairo::std::ConstPtr<u8>, n: usize) -> u8 {
+        if n == 0 || n > 2 {
+            return 0
+        }
+
+        var bits: u8 = 0
+        for var i: usize = 0; i < n; ++i {
+            var lower    = p[i] | 0x20 // 'F' -> 'f', 'R' -> 'r'; no other byte lands on either
+            var bit:  u8 = 0
+            if lower == ('f' as u8) {
+                bit = self.PFX_FORMAT
+            } else if lower == ('r' as u8) {
+                bit = self.PFX_RAW
+            }
+
+            if bit == 0 || (bits & bit) != 0 {
+                return 0
+            }
+
+            bits |= bit
+        }
+
+        return bits
     }
 
     priv inline fn init_text_ctx(self, start: SourceLocation, prefix: Token) -> Self::TextCtx {
@@ -2192,12 +1945,14 @@ pub class Lexer {
 
         ctx.body_start = self.get_source_location()
 
+        // An ArenaList element never moves, so the pointer stays good while
+        // the literal's holes add entries to the same table.
         if ctx.delim == 0x22 {
             ctx.imm_idx = self.create_imm<Immediate::StringData>()
-            ctx.imm     = Self::TextImm(unsafe &self, ctx.delim, ctx.imm_idx)
+            ctx.imm     = self.get_imm<Immediate::StringData>(ctx.imm_idx)
         } else {
             ctx.imm_idx = self.create_imm<Immediate::CharData>()
-            ctx.imm     = Self::TextImm(unsafe &self, ctx.delim, ctx.imm_idx)
+            ctx.imm     = self.get_imm<Immediate::CharData>(ctx.imm_idx)
         }
 
         ctx.is_format = false
@@ -2227,8 +1982,7 @@ pub class Lexer {
         const base: kairo::std::ConstPtr<u8> = self.file_data()
         const end:  kairo::std::ConstPtr<u8> = base + self.file_size()
 
-        var p:    kairo::std::ConstPtr<u8> = base + self._cursor
-        var step: usize                    = 0
+        var p: kairo::std::ConstPtr<u8> = base + self._cursor
 
         while p < end {
             var d = Lexer::decode_at(p, (end - p) as usize)
@@ -2242,12 +1996,10 @@ pub class Lexer {
                 && d.chr != '}'
                 && d.chr != '\\' {
                 p += d.len
-                step = (d.len as usize)
                 continue
             }
 
-            self.commit_cursor(base, p, step)
-            step = 0
+            self.commit_cursor(base, p)
 
             if !self.scan_text_special(&ctx, d) {
                 return // closing delimiter consumed
@@ -2258,7 +2010,7 @@ pub class Lexer {
             p = base + self._cursor
         }
 
-        self.commit_cursor(base, p, step)
+        self.commit_cursor(base, p)
 
         ctx.has_error = true
         var _r012 = SourceRange::from_bounds(
@@ -2525,7 +2277,7 @@ pub class Lexer {
         if self.is_valid_name(self.peek_char32()) != 0 {
             var suffix = self.lex_name(self.get_source_location())
             if suffix.kind != TokenKind::TkUnknown {
-                (*ctx.imm.get_suffix()).set_range(suffix.range)
+                ctx.imm->suffix.set_range(suffix.range)
             }
         }
     }
@@ -2549,7 +2301,7 @@ pub class Lexer {
                 expr_end = spec->eq_pos
             }
 
-            ctx.imm.get_exprs()->push_back(
+            ctx.imm->exprs.push_back(
                 (
                     self.lex_slice<16>((spec->start as u32), (expr_end as u32)),
                     self.create_source_range(spec->start, expr_end),
@@ -2568,7 +2320,7 @@ pub class Lexer {
                            doc_end,
                        ))
                        else => SourceRange::invalid()
-            ctx.imm.get_holes()->push_back(hole)
+            ctx.imm->holes.push_back(hole)
         }
     }
 
@@ -2582,12 +2334,9 @@ pub class Lexer {
         tok.imm         = ctx.imm_idx
         self._last_kind = LastTokenKind::Text
 
-        *ctx.imm.get_body() = SourceRange::from_bounds(
-            ctx.body_start,
-            ctx.body_end,
-        )
+        ctx.imm->body = SourceRange::from_bounds(ctx.body_start, ctx.body_end)
 
-        *ctx.imm.get_prefix() = ctx.prefix
+        ctx.imm->prefix = ctx.prefix
         var prefix_kind = FlagSet<Immediate::TextPrefixKind, u8>()
         if ctx.is_raw {
             prefix_kind.set(Immediate::TextPrefixKind::Raw)
@@ -2597,7 +2346,7 @@ pub class Lexer {
             prefix_kind.set(Immediate::TextPrefixKind::Format)
         }
 
-        *ctx.imm.get_prefix_kind() = prefix_kind
+        ctx.imm->prefix_kind = prefix_kind
 
         return tok
     }
@@ -2638,8 +2387,7 @@ pub class Lexer {
 
         // the first character was already classified by get_token; charge it to
         // the run here rather than paying a member round-trip for it.
-        var p:    kairo::std::ConstPtr<u8> = base + self._cursor + first_len
-        var step: usize                    = first_len
+        var p: kairo::std::ConstPtr<u8> = base + self._cursor + first_len
 
         while p < end {
             var current_char      = Lexer::decode_at(p, (end - p) as usize)
@@ -2655,7 +2403,7 @@ pub class Lexer {
                     ++nl_count
                 } default {
                     // the run ends BEFORE this character; it is not consumed.
-                    self.commit_cursor(base, p, step)
+                    self.commit_cursor(base, p)
                     token.set_range(self.create_source_range(start))
                     token.imm = (nl_count as u32)
                     return token
@@ -2663,10 +2411,9 @@ pub class Lexer {
             }
 
             p += current_char.len
-            step = (current_char.len as usize)
         }
 
-        self.commit_cursor(base, p, step)
+        self.commit_cursor(base, p)
         token.set_range(self.create_source_range(start))
         token.imm = (nl_count as u32)
         return token
@@ -2687,28 +2434,41 @@ pub class Lexer {
         return kairo::name_char_kind(c.chr, c.len)
     }
 
+    /// \brief checks the escape after the backslash at \p start and moves the
+    ///        cursor past it; false once an error is reported.
+    ///
+    /// \details What each escape means is Immediate::Escape's, the table the
+    ///          literal decoders read too, so the lexer accepts exactly what
+    ///          they decode. Escape reads bytes, so a non-ASCII character ends
+    ///          a digit run and is not a digit.
     priv inline fn is_valid_escape(self,
                                    start:     SourceLocation,
                                    is_byte:   bool,
                                    is_format: bool) -> bool {
-        var chars = self.peek_char32<10>()
+        var remain = self.remaining_bytes()
+        var letter = if remain > 0 => self.current_data()[0] else => (0 as u8)
+        var e      = Immediate::Escape(self.current_data(), remain)
 
-        // 2 classes one for octal and one for hex
-        // 2 very simple classes contains a is_digit function and a push_back function
-        // both store values in usize internally and have a check(against: usize) -> bool function
-        // and a getter to return the final value along with a digits count
+        match e.kind {
+            case Immediate::EscapeKind::Char {
+                self.advance_cursor(e.len)
+                if letter != ('b' as u8) || !is_byte {
+                    return true
+                }
 
-        match chars[0].chr {
-            /// byte escapes
-            case 'n',  'r', 't', 'v', 'f', 'a', '\'', '"',
-                 '\\' { // both
-                self.advance_cursor(((chars[0].len) as usize))
-            }
+                var range = SourceRange::from_bounds(
+                    start,
+                    self.get_source_location(),
+                )
 
-            /// standard escapes / both
-            case '{', '}' { // both
-                self.advance_cursor(((chars[0].len) as usize))
-
+                self._diag->report(
+                    DiagCode(DiagID::S032E),
+                    range.start,
+                    f"'\\b' (backspace) escape is not valid in a byte string; use '\\x08' instead",
+                ).first(range)->emit()
+                return false
+            } case Immediate::EscapeKind::Brace {
+                self.advance_cursor(e.len)
                 if is_format {
                     return true
                 }
@@ -2724,132 +2484,38 @@ pub class Lexer {
                     "'\\{' and '\\}' escapes are only valid inside format strings (f\"...\"); remove the backslash or use an f-string prefix",
                 ).first(range)->emit()
                 return false
-            } case 'x', 'X' { // both // \xHH (exactly 2 hex digits)
-                var hex_parser = HexParser()
-                self.advance_cursor(((chars[0].len) as usize))
+            } case Immediate::EscapeKind::Hex, Immediate::EscapeKind::Unicode {
+                // \xHH, \uHHHH, \UHHHHHHHH: exactly 2, 4 or 8 hex digits
+                self.advance_cursor(e.len)
+                var is_hex = e.kind == Immediate::EscapeKind::Hex
+                var name   = if e.want == 4 => "u" else => "U"
+                if e.digits < e.want {
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
 
-                for var i: usize = 1; i <= 2; ++i {
-                    if !hex_parser.is_digit(chars[i].chr) {
-                        var range = SourceRange::from_bounds(
-                            start,
-                            self.get_source_location(),
-                        )
-
-                        self.advance_cursor(((chars[i].len) as usize))
+                    // the character that is not a digit is consumed with the escape
+                    self.advance_cursor((self.peek_char32().len as usize))
+                    if is_hex {
                         self._diag->report(
                             DiagCode(DiagID::S023E),
                             range.start,
                             f"invalid '\\x' hex escape '{self._sm->get_text(range)}': expected exactly 2 hex digits (0-9, a-f, A-F)",
                         ).first(range)->emit()
-                        return false
-                    }
-
-                    hex_parser.push_back(chars[i].chr)
-                    self.advance_cursor(((chars[i].len) as usize))
-                }
-
-                var value = hex_parser.get_value()
-
-                // explicit byte-range check
-                if value > 0xFF {
-                    var range = SourceRange::from_bounds(
-                        start,
-                        self.get_source_location(),
-                    )
-
-                    self._diag->report(
-                        DiagCode(DiagID::S024E),
-                        range.start,
-                        f"hex escape '{self._sm->get_text(range)}' is out of byte range (0x00-0xFF)",
-                    ).first(range)->emit()
-                    return false
-                }
-            } case '0', '1', '2', '3', // \ooo (1-3 octal digits)
-                 '4', '5', '6', '7' { // only byte
-                var octal_parser = OctalParser()
-
-                // first digit is guaranteed to be valid
-                octal_parser.push_back(chars[0].chr)
-                self.advance_cursor(((chars[0].len) as usize))
-
-                // we have no loops since we need exactly 1-3 digits
-                if octal_parser.is_digit(chars[1].chr) {
-                    octal_parser.push_back(chars[1].chr)
-                    self.advance_cursor(((chars[1].len) as usize))
-
-                    if octal_parser.is_digit(chars[2].chr) {
-                        octal_parser.push_back(chars[2].chr)
-                        self.advance_cursor(((chars[2].len) as usize))
-                    }
-                }
-
-                if !is_byte {
-                    var range = SourceRange::from_bounds(
-                        start,
-                        self.get_source_location(),
-                    )
-
-                    self._diag->report(
-                        DiagCode(DiagID::S025W),
-                        range.start,
-                        f"octal escape '{self._sm->get_text(range)}' is only valid in byte strings (b\"...\"); use '\\u' for unicode codepoints",
-                    ).first(range)->emit()
-                }
-
-                /// validate the value
-                var value = octal_parser.get_value()
-
-                if octal_parser.get_digits() < 1 || octal_parser.get_digits() > 3 {
-                    // defensive: should never happen
-                    var range = SourceRange::from_bounds(
-                        start,
-                        self.get_source_location(),
-                    )
-
-                    self._diag->report(
-                        DiagCode(DiagID::S026E),
-                        range.start,
-                        f"octal escape '{self._sm->get_text(range)}' must contain 1 to 3 digits",
-                    ).first(range)->emit()
-                    return false
-                }
-
-                // explicit byte-range check
-                if value > 0xFF {
-                    var range = SourceRange::from_bounds(
-                        start,
-                        self.get_source_location(),
-                    )
-
-                    self._diag->report(
-                        DiagCode(DiagID::S027E),
-                        range.start,
-                        f"octal escape '{self._sm->get_text(range)}' is out of byte range (0-255, i.e., \\0-\\377)",
-                    ).first(range)->emit()
-                    return false
-                }
-            } case 'u' { // only !byte // \uHHHH (exactly 4 hex digits)
-                var hex_parser = HexParser()
-                self.advance_cursor(((chars[0].len) as usize))
-
-                for var i: usize = 1; i <= 4; ++i {
-                    if !hex_parser.is_digit(chars[i].chr) {
-                        var range = SourceRange::from_bounds(
-                            start,
-                            self.get_source_location(),
-                        )
-
-                        self.advance_cursor(((chars[i].len) as usize))
+                    } else {
                         self._diag->report(
                             DiagCode(DiagID::S028E),
                             range.start,
-                            f"invalid '\\u' unicode escape '{self._sm->get_text(range)}': expected exactly 4 hex digits (0-9, a-f, A-F)",
+                            f"invalid '\\{name}' unicode escape '{self._sm->get_text(range)}': expected exactly {e.want} hex digits (0-9, a-f, A-F)",
                         ).first(range)->emit()
-                        return false
                     }
 
-                    hex_parser.push_back(chars[i].chr)
-                    self.advance_cursor(((chars[i].len) as usize))
+                    return false
+                }
+
+                if is_hex {
+                    return true
                 }
 
                 if is_byte {
@@ -2861,86 +2527,13 @@ pub class Lexer {
                     self._diag->report(
                         DiagCode(DiagID::S029E),
                         range.start,
-                        f"unicode escape '\\u' is not valid in a byte string; use '\\x' for raw byte values",
+                        f"unicode escape '\\{name}' is not valid in a byte string; use '\\x' for raw byte values",
                     ).first(range)->emit()
                     return false
                 }
 
-                var value = hex_parser.get_value()
-
-                // check for valid unicode range
-                if value > 0xFFFF {
-                    // defensive: impossible with 4 hex digits, but documents intent
-                    var range = SourceRange::from_bounds(
-                        start,
-                        self.get_source_location(),
-                    )
-
-                    self._diag->report(
-                        DiagCode(DiagID::S030E),
-                        range.start,
-                        f"unicode escape '{self._sm->get_text(range)}' is out of the valid range (U+0000-U+FFFF for '\\u')",
-                    ).first(range)->emit()
-                    return false
-                }
-
-                // Surrogate halves are invalid Unicode scalar values
-                if value >= 0xD800 && value <= 0xDFFF {
-                    var range = SourceRange::from_bounds(
-                        start,
-                        self.get_source_location(),
-                    )
-
-                    self._diag->report(
-                        DiagCode(DiagID::S031E),
-                        range.start,
-                        f"unicode escape '{self._sm->get_text(range)}' encodes a surrogate code point (U+D800-U+DFFF), which is not a valid unicode scalar value",
-                    ).first(range)->emit()
-                    return false
-                }
-            } case 'U' { // only !byte // \UHHHHHHHH (exactly 8 hex digits)
-                var hex_parser = HexParser()
-                self.advance_cursor(((chars[0].len) as usize))
-
-                // we have no loops since we need exactly 8 digits
-                for var i: usize = 1; i <= 8; ++i {
-                    if !hex_parser.is_digit(chars[i].chr) {
-                        var range = SourceRange::from_bounds(
-                            start,
-                            self.get_source_location(),
-                        )
-
-                        self.advance_cursor(((chars[i].len) as usize))
-                        self._diag->report(
-                            DiagCode(DiagID::S028E),
-                            range.start,
-                            f"invalid '\\U' unicode escape '{self._sm->get_text(range)}': expected exactly 8 hex digits (0-9, a-f, A-F)",
-                        ).first(range)->emit()
-                        return false
-                    }
-
-                    hex_parser.push_back(chars[i].chr)
-                    self.advance_cursor(((chars[i].len) as usize))
-                }
-
-                if is_byte {
-                    var range = SourceRange::from_bounds(
-                        start,
-                        self.get_source_location(),
-                    )
-
-                    self._diag->report(
-                        DiagCode(DiagID::S029E),
-                        range.start,
-                        f"unicode escape '\\U' is not valid in a byte string; use '\\x' for raw byte values",
-                    ).first(range)->emit()
-                    return false
-                }
-
-                var value = hex_parser.get_value()
-
-                // check for valid unicode range
-                if value > 0x10FFFF {
+                // \u's four digits never pass U+10FFFF; \U's eight can
+                if e.value > 0x10FFFF {
                     var range = SourceRange::from_bounds(
                         start,
                         self.get_source_location(),
@@ -2955,7 +2548,7 @@ pub class Lexer {
                 }
 
                 // Surrogate halves are invalid Unicode scalar values
-                if value >= 0xD800 && value <= 0xDFFF {
+                if e.value >= 0xD800 && e.value <= 0xDFFF {
                     var range = SourceRange::from_bounds(
                         start,
                         self.get_source_location(),
@@ -2968,26 +2561,40 @@ pub class Lexer {
                     ).first(range)->emit()
                     return false
                 }
-            } case 'b' { // only !byte // \b (backspace)
-                self.advance_cursor(((chars[0].len) as usize))
-
+            } case Immediate::EscapeKind::Octal {
+                // \o, \oo, \ooo
+                self.advance_cursor(e.len)
                 if !is_byte {
-                    return true
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
+
+                    self._diag->report(
+                        DiagCode(DiagID::S025W),
+                        range.start,
+                        f"octal escape '{self._sm->get_text(range)}' is only valid in byte strings (b\"...\"); use '\\u' for unicode codepoints",
+                    ).first(range)->emit()
                 }
 
-                var range = SourceRange::from_bounds(
-                    start,
-                    self.get_source_location(),
-                )
+                // three octal digits reach 0o777
+                if e.value > 0xFF {
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location(),
+                    )
 
-                self._diag->report(
-                    DiagCode(DiagID::S032E),
-                    range.start,
-                    f"'\\b' (backspace) escape is not valid in a byte string; use '\\x08' instead",
-                ).first(range)->emit()
-                return false
+                    self._diag->report(
+                        DiagCode(DiagID::S027E),
+                        range.start,
+                        f"octal escape '{self._sm->get_text(range)}' is out of byte range (0-255, i.e., \\0-\\377)",
+                    ).first(range)->emit()
+                    return false
+                }
             } default {
-                self.advance_cursor(((chars[0].len) as usize))
+                // the whole character, which may be more than the one byte
+                // Escape looked at
+                self.advance_cursor((self.peek_char32().len as usize))
 
                 var range = SourceRange::from_bounds(
                     start,
@@ -3018,19 +2625,6 @@ pub class Lexer {
 
     inline fn error_count(self) -> u32 {
         return self._diag->error_count() - self._err_base
-    }
-
-    inline static fn set_kind(tok: *Token, hash_state: *HashState) {
-        var hash: u64 = hash_state->finalize()
-
-        if is_valid_token_kind((hash as u32)) {
-            tok->kind = (hash as u32 as TokenKind)
-            return
-        } else {
-            tok->kind = TokenKind::TkError
-            tok->imm  = (hash as u32)
-            return
-        }
     }
 
     fn <T> get_imm(self, imm_idx: u32) -> unsafe *T {
@@ -3898,8 +3492,7 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected value 0x{to_hex_string(((expected_values[i]) as usize))}, got 0x{to_hex_string(((imm->value_lo) as usize))}"
                 }
 
-                const has_prefix_flag: u8 = (0b00010000)
-                if (imm->flags & has_prefix_flag) == 0 {
+                if !imm->has_flag(Immediate::IntFlags::HasPrefix) {
                     return f"token {i}: expected has_prefix flag (bit4) to be set"
                 }
             }
@@ -4162,8 +3755,7 @@ pub fn Test() -> i32 {
                     tokens->get(i)->imm,
                 )
 
-                const has_suffix_flag: u8 = (0b00001000)
-                if (imm->flags & has_suffix_flag) == 0 {
+                if !imm->has_flag(Immediate::IntFlags::HasSuffix) {
                     return f"token {i}: expected has_suffix flag (bit3) to be set, flags={imm->flags}"
                 }
 
@@ -4177,8 +3769,7 @@ pub fn Test() -> i32 {
                     return f"token {i}: expected bits {expected_bits[i]}, got {imm->bits}"
                 }
 
-                const unsigned_flag: u8 = (0b00000001)
-                var   is_unsigned       = (imm->flags & unsigned_flag) != 0
+                var is_unsigned = imm->has_flag(Immediate::IntFlags::Unsigned)
                 if is_unsigned != (expected_unsigned[i] != 0) {
                     return f"token {i}: expected unsigned={(expected_unsigned[i] != 0)}, got unsigned={is_unsigned}"
                 }
@@ -4404,8 +3995,7 @@ pub fn Test() -> i32 {
             imm->evaluate(sm, lexer->get_imm_tbl())
 
             // should have is_big flag set
-            const is_big_flag: u8 = (0b00000100)
-            if (imm->flags & is_big_flag) == 0 {
+            if !imm->has_flag(Immediate::IntFlags::IsBig) {
                 return f"expected is_big flag (bit2) to be set, flags={imm->flags}"
             }
 
@@ -4702,8 +4292,7 @@ pub fn Test() -> i32 {
                     tokens->get(i)->imm,
                 )
 
-                const has_exponent_flag: u8 = (0b00000001)
-                if (imm->flags & has_exponent_flag) == 0 {
+                if !imm->has_flag(Immediate::FloatFlags::HasExponent) {
                     return f"token {i}: expected has_exponent flag (bit0) to be set, flags={imm->flags}"
                 }
 
@@ -4773,8 +4362,7 @@ pub fn Test() -> i32 {
                     tokens->get(i)->imm,
                 )
 
-                const is_hex_flag: u8 = (0b00000100)
-                if (imm->flags & is_hex_flag) == 0 {
+                if !imm->has_flag(Immediate::FloatFlags::IsHex) {
                     return f"token {i}: expected is_hex_float flag (bit2) to be set, flags={imm->flags}"
                 }
 
@@ -4915,8 +4503,7 @@ pub fn Test() -> i32 {
                     tokens->get(i)->imm,
                 )
 
-                const has_suffix_flag: u8 = (0b00010000)
-                if (imm->flags & has_suffix_flag) == 0 {
+                if !imm->has_flag(Immediate::FloatFlags::HasSuffix) {
                     return f"token {i}: expected has_suffix flag (bit4) to be set, flags={imm->flags}"
                 }
 
@@ -7125,23 +6712,6 @@ pub fn Test() -> i32 {
     )
 
     // THROUGHPUT MEASUREMENT
-
-    fn measure_timer_overhead() -> i64 {
-        const iterations                     = 1000
-        var   total                          = cxx::std::chrono::nanoseconds(0)
-        var   dummy:     kairo::volatile_i64 = 0
-
-        for var i = 0; i < iterations; ++i {
-            const s = cxx::std::chrono::steady_clock::now()
-            dummy = s.time_since_epoch().count() // force materialization
-            const e = cxx::std::chrono::steady_clock::now()
-            total += cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
-                e - s,
-            )
-        }
-
-        return total.count() / iterations
-    }
 
     io::println("\n=== Performance Benchmark ===\n")
 

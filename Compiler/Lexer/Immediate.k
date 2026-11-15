@@ -71,6 +71,24 @@ pub module Immediate {
         return 0xFF
     }
 
+    /// \brief value of a hex digit byte: '0'-'9' -> 0-9, 'A'-'F' and 'a'-'f'
+    ///        -> 10-15, 0xFF for any other byte.
+    pub inline static fn hex_digit_lut(b: u8) -> u8 {
+        if b >= 48 && b <= 57 { // '0'-'9'
+            return b - 48
+        }
+
+        if b >= 65 && b <= 70 { // 'A'-'F'
+            return b - 65 + 10
+        }
+
+        if b >= 97 && b <= 102 { // 'a'-'f'
+            return b - 97 + 10
+        }
+
+        return 0xFF
+    }
+
     /// \brief fast digit lookup with base validation
     /// \param c character to look up
     /// \param base numeric base (2, 8, 10, 16)
@@ -174,6 +192,29 @@ pub module Immediate {
         return bits as u32
     }
 
+    /// IntData::flags' bits. The values are part of the stored byte: the AST
+    /// archive writes `flags` as is and code outside the lexer tests these
+    /// masks, so a bit never moves.
+    pub enum IntFlags derives u8 {
+        Unsigned    = 1 << 0,
+        Negative    = 1 << 1, ///< no writer sets it: a sign is its own token
+        IsBig       = 1 << 2, ///< the value is wider than 128 bits, held in `big`
+        HasSuffix   = 1 << 3,
+        HasPrefix   = 1 << 4, ///< `0x`, `0b` or `0o`
+        PointerSize = 1 << 5, ///< `usize` / `isize`; Unsigned tells which
+    }
+
+    /// FloatData::flags' bits, with the same stability rule as IntFlags. The
+    /// two sets number differently: bit 3 is IntFlags::HasSuffix but
+    /// FloatFlags::UseBigFloat.
+    pub enum FloatFlags derives u8 {
+        HasExponent = 1 << 0,
+        Negative    = 1 << 1, ///< no writer sets it: a sign is its own token
+        IsHex       = 1 << 2, ///< a `0x` float, whose exponent is base 2
+        UseBigFloat = 1 << 3, ///< the value is held in `big_float`
+        HasSuffix   = 1 << 4,
+    }
+
     pub class IntData {
         pub var body:   SourceRange
         pub var prefix: SourceRange
@@ -183,16 +224,11 @@ pub module Immediate {
         pub var value_hi: u64
         pub var big:      unsafe *ImmBigInt = &null
 
-        pub var bits:  u16
-        pub var base:  u8
+        pub var bits: u16
+        pub var base: u8
+        /// IntFlags bits. Stored as the plain byte the archive writes; read
+        /// and write it through the accessors below.
         pub var flags: u8
-        // flags layout:
-        //   bit 0: unsigned
-        //   bit 1: negative
-        //   bit 2: is_big (value >128-bit)
-        //   bit 3: has_suffix
-        //   bit 4: has_prefix
-        //   bit 5: pointer-sized suffix (`usize` / `isize`; bit 0 tells which)
 
         fn IntData(self) {
             self.value_lo = 0
@@ -200,6 +236,31 @@ pub module Immediate {
             self.bits     = 0
             self.base     = 10
             self.flags    = 0
+        }
+
+        pub inline fn flag_set(const self) -> FlagSet<IntFlags, u8> {
+            var s = FlagSet<IntFlags, u8>()
+            s.bits = self.flags
+            return s
+        }
+
+        pub inline fn has_flag(const self, f: IntFlags) -> bool {
+            return self.flag_set().has(f)
+        }
+
+        pub inline fn set_flag(self, f: IntFlags) {
+            self.flags = self.flag_set().plus(f).bits
+        }
+
+        pub inline fn clear_flag(self, f: IntFlags) {
+            var s = self.flag_set()
+            s.clear(f)
+            self.flags = s.bits
+        }
+
+        /// Replaces every flag with \p s.
+        pub inline fn assign_flags(self, s: FlagSet<IntFlags, u8>) {
+            self.flags = s.bits
         }
 
         /// \brief decodes the literal text into value_lo/value_hi/big.
@@ -216,8 +277,7 @@ pub module Immediate {
                 self.big = &null
             }
 
-            // clear is_big flag, preserve others
-            self.flags &= ~(0b00000100 as u8)
+            self.clear_flag(IntFlags::IsBig)
 
             var body_text = sm->get_text(self.body)
             var body_len  = body_text.length()
@@ -297,7 +357,7 @@ pub module Immediate {
 
                 if !in_128 {
                     // phase 3: use ImmBigInt
-                    self.flags |= 0b00000100 // set is_big flag
+                    self.set_flag(IntFlags::IsBig)
 
                     self.big = kairo::std::create<ImmBigInt>(256)
                     idx      = 0
@@ -325,7 +385,7 @@ pub module Immediate {
             }
 
             // parse suffix to determine bit width and signedness
-            if (self.flags & 0b00001000) != 0 { // has_suffix
+            if self.has_flag(IntFlags::HasSuffix) {
                 var suffix_text       = sm->get_text(self.suffix)
                 var is_unsigned: bool = false
                 var suffix_bits = parse_int_suffix(suffix_text, &is_unsigned)
@@ -333,19 +393,19 @@ pub module Immediate {
                 if suffix_bits > 0 {
                     self.bits = suffix_bits
                     if is_unsigned {
-                        self.flags |= 0b00000001 // set unsigned flag
+                        self.set_flag(IntFlags::Unsigned)
                     } else {
-                        self.flags &= ~(0b00000001 as u8) // clear unsigned flag
+                        self.clear_flag(IntFlags::Unsigned)
                     }
                 } else if suffix_text == "usize" || suffix_text == "isize" {
                     // No width of its own: the target's pointer width, which only
                     // Sema knows. Without the mark the literal fell through to the
                     // minimum-width inference below and `1usize` was an i8.
-                    self.flags |= 0b00100000
+                    self.set_flag(IntFlags::PointerSize)
                     if suffix_text == "usize" {
-                        self.flags |= 0b00000001
+                        self.set_flag(IntFlags::Unsigned)
                     } else {
-                        self.flags &= ~(0b00000001 as u8)
+                        self.clear_flag(IntFlags::Unsigned)
                     }
                 }
             }
@@ -429,15 +489,11 @@ pub module Immediate {
         pub var prefix: SourceRange
         pub var suffix: SourceRange
 
-        pub var bits:  u32
-        pub var base:  u8
+        pub var bits: u32
+        pub var base: u8
+        /// FloatFlags bits. Stored as the plain byte the archive writes; read
+        /// and write it through the accessors below.
         pub var flags: u8
-        // flags layout:
-        //   bit 0: has_exponent
-        //   bit 1: negative
-        //   bit 2: is_hex_float
-        //   bit 3: use_bigfloat
-        //   bit 4: has_suffix
 
         pub var value_ieee: ImmFloat            = 0.0
         pub var big_float:  unsafe *ImmBigFloat = &null
@@ -446,6 +502,31 @@ pub module Immediate {
             self.bits  = 0
             self.base  = 10
             self.flags = 0
+        }
+
+        pub inline fn flag_set(const self) -> FlagSet<FloatFlags, u8> {
+            var s = FlagSet<FloatFlags, u8>()
+            s.bits = self.flags
+            return s
+        }
+
+        pub inline fn has_flag(const self, f: FloatFlags) -> bool {
+            return self.flag_set().has(f)
+        }
+
+        pub inline fn set_flag(self, f: FloatFlags) {
+            self.flags = self.flag_set().plus(f).bits
+        }
+
+        pub inline fn clear_flag(self, f: FloatFlags) {
+            var s = self.flag_set()
+            s.clear(f)
+            self.flags = s.bits
+        }
+
+        /// Replaces every flag with \p s.
+        pub inline fn assign_flags(self, s: FlagSet<FloatFlags, u8>) {
+            self.flags = s.bits
         }
 
         /// \brief decodes the literal text into value_ieee / big_float.
@@ -460,8 +541,7 @@ pub module Immediate {
                 self.big_float = &null
             }
 
-            // clear use_bigfloat flag, preserve others
-            self.flags &= ~(0b00001000 as u8)
+            self.clear_flag(FloatFlags::UseBigFloat)
 
             var body_text = sm->get_text(self.body)
             var body_len  = body_text.length()
@@ -472,7 +552,7 @@ pub module Immediate {
             }
 
             var *data  = body_text.raw()
-            var is_hex = (self.flags & 0b00000100) != 0
+            var is_hex = self.has_flag(FloatFlags::IsHex)
 
             // parsing state
             var integer_part:     u64  = 0
@@ -480,8 +560,6 @@ pub module Immediate {
             var frac_digits:      i32  = 0
             var exp_value:        i64  = 0
             var exp_negative:     bool = false
-            var has_integer:      bool = false
-            var has_fraction:     bool = false
             var integer_overflow: bool = false
             var frac_overflow:    bool = false
 
@@ -517,8 +595,6 @@ pub module Immediate {
                 if digit == 0xFF {
                     break
                 }
-
-                has_integer = true
 
                 if !integer_overflow {
                     var old = integer_part
@@ -559,8 +635,6 @@ pub module Immediate {
                     if digit == 0xFF {
                         break
                     }
-
-                    has_fraction = true
 
                     if !frac_overflow {
                         var old = frac_numerator
@@ -637,7 +711,7 @@ pub module Immediate {
             }
 
             if needs_big {
-                self.flags |= 0b00001000 // set use_bigfloat flag
+                self.set_flag(FloatFlags::UseBigFloat)
                 self.big_float           = kairo::std::create<ImmBigFloat>()
                 self.big_float->is_hex   = is_hex
                 self.big_float->exponent = exp_value
@@ -646,8 +720,7 @@ pub module Immediate {
                 self.big_float->mantissa = ImmBigInt(512)
                 idx                      = 0
 
-                var frac_start:   usize = 0
-                var parsing_frac: bool  = false
+                var parsing_frac: bool = false
 
                 while idx < body_len {
                     var c = data[idx]
@@ -659,7 +732,6 @@ pub module Immediate {
 
                     if c == ('.' as u8) {
                         ++idx
-                        frac_start   = idx
                         parsing_frac = true
                         continue
                     }
@@ -681,13 +753,11 @@ pub module Immediate {
 
                     self.big_float->mantissa.mul_add(base_u64, digit)
 
+                    // The mantissa takes every digit, so each fractional one
+                    // scales it down by one digit: 4 bits of a base-2 exponent
+                    // for hex, 1 of a base-10 exponent for decimal.
                     if parsing_frac {
-                        // adjust exponent for fractional digits
-                        if is_hex {
-                            self.big_float->exponent -= 4 // each hex digit = 4 bits
-                        } else {
-                            // for decimal, we track separately and convert later
-                        }
+                        self.big_float->exponent -= if is_hex => 4 else => 1
                     }
 
                     ++idx
@@ -717,7 +787,7 @@ pub module Immediate {
             }
 
             // parse suffix
-            if (self.flags & 0b00010000) != 0 { // has_suffix
+            if self.has_flag(FloatFlags::HasSuffix) {
                 var suffix_text = sm->get_text(self.suffix)
                 var suffix_bits = parse_float_suffix(suffix_text)
 
@@ -910,22 +980,46 @@ pub module Immediate {
         pub var doc:  SourceRange
     }
 
-    pub class StringData {
-        /// NOTE: the TokenBuffer is allocated in the Lexer or elsewhere, but
-        ///       StringData will be freeing it within its destructor.
-        ///
-        /// NOLINT (MA1FW) "non owner scope freeing underling memory"
-        /// ^^ remember this to implement this error.
-        pub var exprs: llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4> // exprs tokens
-        // along with the start and end from { and }
+    /// What a string and a character literal both record: lex_text fills it
+    /// the same way for either quote.
+    pub class TextData {
+        /// Each f-string hole's expression tokens, with the range from `{` to
+        /// `}`. The literal owns the TokenBuffers, wherever they were
+        /// allocated, and frees them.
+        pub var exprs: llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4>
         pub var holes: llvm::SmallVector<HoleSpec, 4> ///< parallel to exprs
 
-        pub var body:        SourceRange // string range excl quotes prefix and suffix
+        pub var body:        SourceRange ///< the text between the quotes
         pub var prefix:      Token
         pub var suffix:      Token
-        pub var next:        u32 // for chained strings, contains the next imm string idx
+        pub var next:        u32                         = u32::MAX ///< the next segment of a chain of adjacent strings; u32::MAX ends it
         pub var prefix_kind: FlagSet<TextPrefixKind, u8>
 
+        fn TextData(self) = default
+
+        // Move-only: the destructor frees every expression TokenBuffer in
+        // `exprs`, so a copy would free them twice. The source's `exprs` is
+        // cleared so its destructor frees nothing.
+        @move fn TextData(self, other: Self) {
+            self.exprs       = cxx::std::move(other.exprs)
+            self.holes       = cxx::std::move(other.holes)
+            self.body        = other.body
+            self.prefix      = other.prefix
+            self.suffix      = other.suffix
+            self.next        = other.next
+            self.prefix_kind = other.prefix_kind
+            other.exprs.clear()
+            other.holes.clear()
+        }
+
+        fn op finally (self) {
+            for var i: usize = 0; i < self.exprs.size(); ++i {
+                kairo::std::destroy(self.exprs[i].0)
+            }
+        }
+    }
+
+    pub class StringData derives TextData {
         /// OWNED-TEXT representation for synthesized strings (stringify! on
         /// synthesized tokens, file!, future gensym): bytes live in
         /// ImmediateTable::synth_names (ArenaList, pointers never move).
@@ -935,82 +1029,177 @@ pub module Immediate {
         pub var owned_ptr: kairo::std::ConstPtr<u8> = &null
         pub var owned_len: u32                      = 0
 
-        fn StringData(self) {
-            self.next = u32::MAX
-        }
-
         pub fn has_owned_text(const self) -> bool {
             return self.owned_ptr != &null
         }
+    }
 
-        // Move-only: the destructor frees every expression TokenBuffer in
-        // `exprs`, so a copy would free them twice. The source's `exprs` is
-        // cleared so its destructor frees nothing.
-        @move fn StringData(self, other: Self) {
-            self.exprs       = cxx::std::move(other.exprs)
-            self.holes       = cxx::std::move(other.holes)
-            self.body        = other.body
-            self.prefix      = other.prefix
-            self.suffix      = other.suffix
-            self.next        = other.next
-            self.prefix_kind = other.prefix_kind
-            self.owned_ptr   = other.owned_ptr
-            self.owned_len   = other.owned_len
-            other.exprs.clear()
-            other.holes.clear()
-        }
+    pub class CharData derives TextData { }
 
-        /// basic cleanup of all internally stored pools
-        fn op finally (self) {
-            self.destroy()
-        }
+    /// What the letter after a backslash introduces.
+    pub enum EscapeKind derives u8 {
+        Unknown, ///< no escape starts with this letter
+        Char,    ///< one letter for one character: `\n`, `\t`, `\"`, `\b`, ...
+        Brace,   ///< `\{` / `\}`: the lexer admits these only in f-strings
+        Hex,     ///< `\xHH`: exactly 2 hex digits, the value is a code point
+        Unicode, ///< `\uHHHH` / `\UHHHHHHHH`: exactly 4 / 8 hex digits
+        Octal,   ///< `\o`, `\oo`, `\ooo`: 1 to 3 octal digits, the first is the letter
+    }
 
-        fn destroy(self) {
-            for var i: usize = 0; i < self.exprs.size(); ++i {
-                kairo::std::destroy(self.exprs[i].0)
+    /// \brief one backslash escape: the single table of what an escape
+    ///        means, for the lexer that validates escapes and for every pass
+    ///        that decodes literal text.
+    ///
+    /// \details Bytes only: a digit is an ASCII byte, so a non-ASCII
+    ///          character ends a digit run. Hex digits stop at `want`, octal
+    ///          ones at 3. Nothing is checked beyond the digit run: a short
+    ///          run, a value above U+10FFFF or a surrogate is the caller's to
+    ///          judge.
+    pub class Escape {
+        pub var kind:   EscapeKind = EscapeKind::Unknown
+        pub var value:  u32        = 0 ///< the code point; the digits' value as far as they were read
+        pub var len:    usize      = 0 ///< bytes read after the backslash: the letter (1 byte unless Unknown) and the digits
+        pub var digits: usize      = 0 ///< hex or octal digits read (Octal counts its letter)
+        pub var want:   usize      = 0 ///< hex digits the form takes: 2, 4 or 8; 0 for every other kind
+
+        /// Reads the escape at \p p, the \p n bytes after a backslash. With
+        /// \p n == 0 it is Unknown with len 0.
+        pub fn Escape(self, p: kairo::std::ConstPtr<u8>, n: usize) {
+            if n == 0 {
+                return
             }
+
+            var c = p[0]
+            self.len = 1
+            match c {
+                case 0x6e /* 'n' */ {
+                    self.kind  = EscapeKind::Char
+                    self.value = 0x0a
+                } case 0x72 /* 'r' */ {
+                    self.kind  = EscapeKind::Char
+                    self.value = 0x0d
+                } case 0x74 /* 't' */ {
+                    self.kind  = EscapeKind::Char
+                    self.value = 0x09
+                } case 0x76 /* 'v' */ {
+                    self.kind  = EscapeKind::Char
+                    self.value = 0x0b
+                } case 0x66 /* 'f' */ {
+                    self.kind  = EscapeKind::Char
+                    self.value = 0x0c
+                } case 0x61 /* 'a' */ {
+                    self.kind  = EscapeKind::Char
+                    self.value = 0x07
+                } case 0x62 /* 'b' */ {
+                    self.kind  = EscapeKind::Char
+                    self.value = 0x08
+                } case 0x27, 0x22, 0x5c /* quote, double quote, backslash */ {
+                    self.kind  = EscapeKind::Char
+                    self.value = c as u32
+                } case 0x7b, 0x7d /* '{', '}' */ {
+                    self.kind  = EscapeKind::Brace
+                    self.value = c as u32
+                } case 0x78 /* 'x' */ {
+                    self.kind = EscapeKind::Hex
+                    self.want = 2
+                } case 0x75 /* 'u' */ {
+                    self.kind = EscapeKind::Unicode
+                    self.want = 4
+                } case 0x55 /* 'U' */ {
+                    self.kind = EscapeKind::Unicode
+                    self.want = 8
+                } case 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37 /* '0'-'7' */ {
+                    self.kind   = EscapeKind::Octal
+                    self.value  = (c - 0x30) as u32
+                    self.digits = 1
+                    while self.len < n
+                        && self.digits < 3
+                        && p[self.len] >= 0x30
+                        && p[self.len] <= 0x37 {
+                        self.value = self.value << 3 | ((p[self.len] - 0x30) as u32)
+                        self.len += 1
+                        self.digits += 1
+                    }
+                } default {
+                    self.len = 0 // a lead byte of a longer character, or no escape at all
+                }
+            }
+
+            while self.digits < self.want && self.len < n {
+                var d = hex_digit_lut(p[self.len])
+                if d == 0xFF {
+                    break
+                }
+
+                self.value = self.value << 4 | (d as u32)
+                self.len += 1
+                self.digits += 1
+            }
+        }
+
+        /// The escape is whole: a known letter with every digit its form takes.
+        pub inline fn complete(const self) -> bool {
+            return self.kind != EscapeKind::Unknown && self.digits >= self.want
         }
     }
 
-    pub class CharData {
-        pub var exprs: llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4> // exprs tokens
-        // along with the start and end from { and }
-        pub var holes: llvm::SmallVector<HoleSpec, 4> ///< parallel to exprs
-
-        pub var prefix:      Token
-        pub var suffix:      Token
-        pub var body:        SourceRange // string range excl quotes prefix and suffix
-        pub var prefix_kind: FlagSet<TextPrefixKind, u8>
-        pub var next:        u32 // for chained strings, contains the next imm string idx
-
-        fn CharData(self) {
-            self.next = u32::MAX
+    /// \brief appends code point \p cp to \p out as UTF-8.
+    pub fn push_utf8(cp: u32, out: unsafe *cxx::std::vector<u8>) {
+        if cp < 0x80 {
+            out->push_back(cp as u8)
+            return
         }
 
-        // Move-only: the destructor frees every expression TokenBuffer in
-        // `exprs`, so a copy would free them twice. The source's `exprs` is
-        // cleared so its destructor frees nothing.
-        @move fn CharData(self, other: Self) {
-            self.exprs       = cxx::std::move(other.exprs)
-            self.holes       = cxx::std::move(other.holes)
-            self.prefix      = other.prefix
-            self.suffix      = other.suffix
-            self.body        = other.body
-            self.prefix_kind = other.prefix_kind
-            self.next        = other.next
-            other.exprs.clear()
-            other.holes.clear()
+        if cp < 0x800 {
+            out->push_back((0xC0 | cp >> 6) as u8)
+            out->push_back((0x80 | cp & 0x3F) as u8)
+            return
         }
 
-        fn op finally (self) {
-            self.destroy()
+        if cp < 0x10000 {
+            out->push_back((0xE0 | cp >> 12) as u8)
+            out->push_back((0x80 | cp >> 6 & 0x3F) as u8)
+            out->push_back((0x80 | cp & 0x3F) as u8)
+            return
         }
 
-        fn destroy(self) {
-            for var i: usize = 0; i < self.exprs.size(); ++i {
-                kairo::std::destroy(self.exprs[i].0)
+        out->push_back((0xF0 | cp >> 18) as u8)
+        out->push_back((0x80 | cp >> 12 & 0x3F) as u8)
+        out->push_back((0x80 | cp >> 6 & 0x3F) as u8)
+        out->push_back((0x80 | cp & 0x3F) as u8)
+    }
+
+    /// \brief appends literal text \p p (\p n bytes, between the quotes) to
+    ///        \p out with every escape decoded; \p raw copies it verbatim.
+    ///
+    /// \details Every escape is written as UTF-8, `\xHH` and octal included
+    ///          (`\xFF` is the two bytes of U+00FF). False on an escape
+    ///          that is not complete (Escape::complete: an unknown letter, a short
+    ///          digit run, a backslash at the end), which the lexer has
+    ///          already reported for source text.
+    pub fn decode_escapes(p:   kairo::std::ConstPtr<u8>,
+                          n:   usize,
+                          raw: bool,
+                          out: unsafe *cxx::std::vector<u8>) -> bool {
+        var i: usize = 0
+        while i < n {
+            var b = p[i]
+            i += 1
+            if raw || b != 0x5c {
+                out->push_back(b)
+                continue
             }
+
+            var e = Escape(p + i, n - i)
+            if !e.complete() {
+                return false
+            }
+
+            i += e.len
+            push_utf8(e.value, out)
         }
+
+        return true
     }
 
     pub class MacroExpansionInfo {
@@ -1049,19 +1238,31 @@ pub module Immediate {
 
     /// \brief one slot of the identifier interner's open-addressed hash table.
     ///
-    /// \details 8 bytes (~8 per cache line). `idx == u32(-1)` marks an empty
+    /// \details 8 bytes (~8 per cache line). `idx == u32::MAX` marks an empty
     ///          slot. Collisions are resolved by linear probing; the stored
     ///          `hash` lets a probe reject non-matching entries with a single
     ///          u32 compare before ever touching the byte blob.
     pub class InternBucket {
         pub var hash: u32 = 0
-        pub var idx:  u32 = ((-1) as i32 as u32) ///< u32(-1) == empty slot
+        pub var idx:  u32 = u32::MAX ///< u32::MAX == empty slot
     }
 }
 
 /// Immediate::TextPrefixKind's variants are its FlagSet's bits
 /// (Support/FlagSet.k).
 extend Immediate::TextPrefixKind impl FlagBit<u8> {
+    inline fn bit(const self) -> u8 {
+        return self as u8
+    }
+}
+
+extend Immediate::IntFlags impl FlagBit<u8> {
+    inline fn bit(const self) -> u8 {
+        return self as u8
+    }
+}
+
+extend Immediate::FloatFlags impl FlagBit<u8> {
     inline fn bit(const self) -> u8 {
         return self as u8
     }
@@ -1367,7 +1568,7 @@ pub class ImmediateTable {
     }
 
     /// \brief NON-MUTATING identifier probe: index of \p data if already
-    ///        interned, else \c u32(-1). Never inserts, never grows the
+    ///        interned, else \c u32::MAX. Never inserts, never grows the
     ///        table safe against a FROZEN table read by other threads.
     ///
     /// \details The cross-TU import boundary (SymbolTable::lookup_foreign) uses
@@ -1383,7 +1584,7 @@ pub class ImmediateTable {
     pub fn find_ident(self, data: unsafe *const u8, len: usize, hash: u32) -> u32 {
         var rlock = kairo::std::SharedLock(self._ident_mu)
         if self.ident_mask == 0 {
-            return (-1) as i32 as u32
+            return u32::MAX
         }
 
         var mask = self.ident_mask
@@ -1392,7 +1593,7 @@ pub class ImmediateTable {
         while true {
             var *b = &self.ident_buckets[slot as usize]
             if b->idx == u32::MAX {
-                return (-1) as i32 as u32
+                return u32::MAX
             }
 
             if b->hash == hash && self._ident_eq(b->idx, data, len) {
@@ -1404,7 +1605,7 @@ pub class ImmediateTable {
     }
 
     /// \brief string-keyed convenience over find_ident (hashes for the caller).
-    ///        Returns \c u32(-1) on miss. NON-MUTATING.
+    ///        Returns \c u32::MAX on miss. NON-MUTATING.
     ///
     /// \details `string` is wchar-backed; identifiers were interned from UTF-8
     ///          source bytes. Convert to a string (UTF-8) FIRST so the hash and
@@ -1438,7 +1639,7 @@ pub class ImmediateTable {
             var unsafe *pr = unsafe (s.raw() as kairo::std::ConstPtr<u8>)
             var        pl  = s.size()
             var hit = self.find_ident(pr, pl, (compute_hash(pr, pl) as u32))
-            if hit != (-1) as i32 as u32 {
+            if hit != u32::MAX {
                 return hit
             }
         }
@@ -1650,4 +1851,59 @@ pub class ImmediateTable {
             },
         )
     }
+}
+
+/// \brief the segment after \p seg in its chain of adjacent literals, or
+///        null at the end of the chain or with no table.
+///
+/// \param tbl the table that holds \p seg: for a literal from an imported
+///            macro's body that is the defining file's, not the file being
+///            compiled.
+pub fn next_string_segment(tbl: unsafe *ImmediateTable,
+                           seg: unsafe *Immediate::StringData) -> unsafe *Immediate::StringData {
+    if seg == &null || tbl == &null || seg->next == u32::MAX {
+        return &null
+    }
+
+    return tbl->get<Immediate::StringData>(seg->next)
+}
+
+/// \brief appends the decoded bytes of the string literal whose first
+///        segment is \p head to \p out: every segment of the chain, in
+///        order.
+///
+/// \details A segment with owned text (stringify!, file!) is already
+///          decoded and is copied; any other segment is its body, decoded
+///          per its own Raw prefix. Reads only: the chain, and the table,
+///          are left as they are. False when a segment does not decode
+///          (see decode_escapes); \p out then holds the bytes before it.
+///
+/// \param tbl the table that holds the chain (see next_string_segment);
+///            null reads \p head alone.
+pub fn string_chain_bytes(tbl:  unsafe *ImmediateTable,
+                          sm:   unsafe *SourceManager,
+                          head: unsafe *Immediate::StringData,
+                          out:  unsafe *cxx::std::vector<u8>) -> bool {
+    var unsafe *seg = head
+    while seg != &null {
+        if seg->has_owned_text() {
+            for var i: usize = 0; i < (seg->owned_len as usize); ++i {
+                out->push_back(seg->owned_ptr[i])
+            }
+        } else if seg->body.is_valid() {
+            var view = sm->get_view(seg->body)
+            if !Immediate::decode_escapes(
+                view.data(),
+                view.size(),
+                seg->prefix_kind.has(Immediate::TextPrefixKind::Raw),
+                out,
+            ) {
+                return false
+            }
+        }
+
+        seg = next_string_segment(tbl, seg)
+    }
+
+    return true
 }
