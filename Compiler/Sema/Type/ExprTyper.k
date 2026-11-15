@@ -2063,6 +2063,61 @@ pub class ExprTyper
         return self.conv.implicit(tt, to) != ImplicitRank::None
     }
 
+    /// SC310W: the expression `&x`, a `*T`, converted where a pointer to
+    /// const is expected. `const &x` says the pointer is read-only at the
+    /// site; the fix-it inserts the `const`. Not for the `@inout` marker,
+    /// `const &x` itself, an `&` a macro expansion wrote (its range is the
+    /// invocation's, so an edit there would land in the wrong text), or
+    /// library code.
+    priv fn _lint_addr_to_const(self, e: unsafe *Expr, from: unsafe *Type, to: unsafe *Type) {
+        if !self.sc->const_addr_lint_on() {
+            return
+        }
+
+        var unsafe *u = dyn_cast<Expressions::UnaryOperatorExpr>(
+            self.tu.strip_parens(e),
+        )
+
+        if u == &null
+            || !u->is_prefix()
+            || u->op_token.kind != TokenKind::OpAmp
+            || u->is_mode_marker
+            || u->const_addr
+            || u->materialize {
+            return
+        }
+
+        var unsafe *fv = canon_unqual(self.tu.as_value(from))
+        var unsafe *fp = self.tu.pointee(fv)
+        if fp == &null || self.tu.is_unsafe_ptr(fv) || self.tu.has_const(fp) {
+            return
+        }
+
+        var unsafe *tv = canon_unqual(
+            self.tu.strip_nullable(canon_unqual(self.tu.as_value(to))),
+        )
+
+        var unsafe *tp = self.tu.pointee(tv)
+        if tp == &null || !self.tu.has_const(tp) {
+            return
+        }
+
+        var unsafe *sm = self.sc->ctx->sm
+        if sm == &null || sm->get_text(u->op_token.range) != "&" {
+            return
+        }
+
+        var b = self.sc->diag->report(
+            DiagID::SC310W,
+            u->range.start,
+            f"'&' makes a '{self.tu.str(fv)}' where a '{self.tu.str(to)}' is expected; write 'const &' to take a pointer to const",
+        )
+
+        b.first(u->range)
+        b.insert(u->op_token.range.start, "const ", "take the address as const")
+        b.emit()
+    }
+
     /// Implicit-convert check at a use site. Diagnoses and poisons \p e on
     /// failure; silent on unknown / already poisoned.
     fn check_convertible(self, e: unsafe *Expr, to: unsafe *Type) -> bool {
@@ -2093,6 +2148,7 @@ pub class ExprTyper
         var r = self.conv.implicit(from, to)
         if r != ImplicitRank::None {
             self._note_implicit_op(e, from, to)
+            self._lint_addr_to_const(e, from, to)
             return true
         }
 

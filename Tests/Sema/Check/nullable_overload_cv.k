@@ -13,7 +13,7 @@ fn main() -> i32 {
     var d = D()
     var b = B()
     var pd: *D? = &d
-    var cb: *const B? = &b
+    var cb: *const B? = const &b
     // 1 + 10 + 100 from the non-const one, 2000 from the const one: 2111 % 256 = 63.
     return (f(&d) + f(&b) * 10 + f(pd) * 100 + f(cb) * 1000) % 256
 }

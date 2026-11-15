@@ -179,10 +179,11 @@ pub class SemaOptions {
     pub var cxx_exceptions: bool = true
     pub var unwind_all:     bool = false ///< -funwind: no Kairo function is spelled noexcept (but @no_unwind).
     pub var infer_purity:   bool = true ///< -finfer-purity (on; -fno-infer-purity turns it off): FnPurityCheck::infer runs before ParamPassInference.
-    /// -fstrict-cxx-moves: a C++ call whose body MoveCheck cannot inspect
-    /// takes its MOVE argument at its worst (moved-from), instead of
-    /// borrowing it on an unchecked assumption.
-    pub var strict_cxx_moves: bool = false
+    /// -fstrict-cxx-moves (on; -fno-strict-cxx-moves turns it off): a C++
+    /// call whose body MoveCheck cannot inspect takes its MOVE argument at
+    /// its worst (moved-from), instead of borrowing it on an unchecked
+    /// assumption. The toolchain's own library borrows either way.
+    pub var strict_cxx_moves: bool = true
     /// -funion-locals=all: every block-scope local with a non-trivial
     /// destructor gets union storage, not only those a site ends early
     /// (Sema/Check/LocalDisposition.k).
@@ -249,7 +250,7 @@ pub class SemaOptions {
         self.no_unsafe        = ci->lang.no_unsafe || ci->lang.unsafe_feature == 0
         self.unwind_all       = ci->lang.unwind == 1
         self.infer_purity     = ci->lang.infer_purity != 0
-        self.strict_cxx_moves = ci->lang.strict_cxx_moves == 1
+        self.strict_cxx_moves = ci->lang.strict_cxx_moves != 0
         self.union_locals_all = ci->lang.union_locals_all
         self.print_stats      = ci->frontend.print_stats
         self.log_import_uses  = !ci->frontend.dump_import_uses.empty()
@@ -757,6 +758,12 @@ pub class SemaContext {
     /// default (off), so its overloads resolve the same way in every build.
     pub fn cxx_implicit_conv_on(self) -> bool {
         return (!self.in_library()) && self.opts.on(self.opts.cxx_implicit_conv, false)
+    }
+
+    /// SC310W (`&x` where a pointer to const is expected) in the user's
+    /// files; a library file is not one the user can edit.
+    pub fn const_addr_lint_on(self) -> bool {
+        return !self.in_library()
     }
 
     /// -funwind in the user's files; a library function is `noexcept`

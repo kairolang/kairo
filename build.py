@@ -1519,6 +1519,15 @@ def main() -> int:
         # native_common copy: the C++ native objects have no generics, and their
         # cache key should not move with a Kairo-only flag.
         common.append("-fduck-generics")
+        # The tree passes MOVE values by `T&` and as `this` to clang and LLVM
+        # functions defined in their libraries, whose bodies no header holds
+        # (CompilerInstance::ExecuteAction, BumpPtrAllocator::Allocate,
+        # StringMapImpl::LookupBucketFor). Strict C++ moves take each such
+        # call to move its argument; the tree relies on them borrowing, which
+        # only -fno-strict-cxx-moves assumes. After the native_common copy, as
+        # a Kairo-only flag; kairo_compile.json carries it, so the language
+        # server checks the tree as the build does.
+        common.append("-fno-strict-cxx-moves")
         # The tree's visibility rule (see tree_visibility_args); a Kairo-only
         # flag, after native_common as above.
         common += tree_visibility_args(kairo)

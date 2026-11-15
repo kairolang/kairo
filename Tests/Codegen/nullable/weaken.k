@@ -46,7 +46,7 @@ fn main() -> i32 {
     show("pointer", y)
 
     var z: i32? = 5
-    look(&z)
+    look(const &z)
     if z? { println(f"const: {z + 0}") }
     return 0
 }

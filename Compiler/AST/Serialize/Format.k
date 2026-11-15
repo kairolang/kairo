@@ -19,7 +19,7 @@
 /// "KAST" read as a little-endian u32.
 pub const AST_MAGIC: u32 = 0x5453414B
 
-pub const AST_FORMAT_VERSION: u32 = 1
+pub const AST_FORMAT_VERSION: u32 = 2
 
 /// Section ids. A reader skips an id it does not know by its length, which
 /// is how a later version appends a section (Sema facts) without touching

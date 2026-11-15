@@ -132,7 +132,6 @@ import AST::Node::Types::{
     FixedArrayType,
     PointerType,
 }
-import AST::OperatorFacts::OperatorFacts
 import AST::Visitor::ASTWriter::{
     ASTWriter,
     ListBuilder,
@@ -931,10 +930,10 @@ pub class IterLowering derives ASTWriter<IterLowering> {
                 recv = self._use(tmp, at)
             }
 
-            // `op in (const self)` chosen for a mutable object (a `const`
-            // binder, StmtTyping::_binders_take_const): C++ picks a member
-            // overload by the object's own cv, so the call goes through a
-            // pointer to const.
+            // `op in (const self)` chosen for a mutable object (a loop with
+            // no mutable pointer binder, StmtTyping::_binders_take_const):
+            // C++ picks a member overload by the object's own cv, so the
+            // call goes through a pointer to const.
             var unsafe *opf = dyn_cast<FunctionDecl>(n->iter_op)
             if opf != &null && opf->is_const() && !canon_has_const(self._referee(recv->type_)) {
                 var unsafe *ct = self.sc->types->qualified(
@@ -1390,38 +1389,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             }
         }
 
-        var unsafe *rd = self.tu.record_decl(
-            self.tu.strip_nullable(self.tu.as_value(n->iterable->type_)),
-        )
-
-        if rd == &null {
-            return false
-        }
-
-        var unsafe *dc = NameLookup::context_of(
-            self.tu.pattern_of(NameLookup::representative(rd)),
-        )
-
-        if dc == &null {
-            return false
-        }
-
-        var unsafe *cell = dc->lookup_symbol(
-            DeclName::op_name(TokenKind::KwIn, TokenKind::TkUnknown),
-        )
-
-        if cell == &null {
-            return false
-        }
-
-        for var i: usize = 0; i < cell->size(); ++i {
-            var unsafe *f = dyn_cast<FunctionDecl>(cell->get(i))
-            if f != &null && f->is_const() && OperatorFacts::is_iteration(f) {
-                return true
-            }
-        }
-
-        return false
+        return self.tu.iteration_form(n->iterable->type_, true) != &null
     }
 
     /// A named `*x` / `unsafe *x` binder with no type written.

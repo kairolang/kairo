@@ -80,7 +80,7 @@ pub class LangOptions {
     pub var infer_purity: i32 = -1
     /// -fstrict-cxx-moves: MoveCheck takes a C++ call it cannot inspect at
     /// its worst, as it takes a Kairo function with no body (Compiler/Spec/
-    /// Ownership.md, "C++ bodies"). Off unless 1.
+    /// Ownership.md, "C++ bodies"). On unless 0 (-fno-strict-cxx-moves).
     pub var strict_cxx_moves: i32 = -1
     /// -fduck-generics: `<T: type>` is accepted, its body typed as written
     /// and emitted as an unconstrained template that clang checks per

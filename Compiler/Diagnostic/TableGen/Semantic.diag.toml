@@ -6555,3 +6555,57 @@ group = "type-check"
     take a generic parameter bounded by the interface. runtime dispatch through a pointer to a
     `virtual interface` is not compiled yet.
     """
+
+[SC310]
+brief = "'&x' converted to a pointer to const"
+group = "lint"
+
+    [SC310.W]
+    explain = """
+    # '&x' converted to a pointer to const
+
+    `&x` is a `*T`: a pointer through which `x` can be written. Where a
+    `*const T` is expected (an argument, an initializer, an assignment, a
+    `return`, a `yield`, a tuple element), the pointer converts implicitly
+    and nothing writes through it. `const &x` says so at the site: it is
+    the address of `x` as a `*const T`.
+
+    ```kairo
+    fn total(p: *const [i32]) -> i32 { ... }
+
+    var v = [1, 2, 3]
+    total(&v)         // warning: write 'const &v'
+    total(const &v)   // ok
+    ```
+
+    Not reported for the `&x` that marks an argument to an `@inout`
+    parameter, for a pointer that is not written `&x` at that spot (a
+    variable of type `*T` passed where a `*const T` is expected), for
+    `unsafe &x`, or in library code.
+
+    ## how to fix
+
+    write `const` before the `&` (the fix-it does).
+    """
+
+[SC331]
+brief = "a primitive type's name cannot name a declaration"
+group = "type-check"
+
+    [SC331.E]
+    explain = """
+    # a primitive type's name is reserved
+
+    the names of the primitive types (`i32`, `u8`, `f64`, `bool`, `char`, `byte`, `void`, ...)
+    always denote those types. a variable, parameter, field, type or other declaration named
+    by one could never be referred to: every later use of the name is the type.
+
+    ```kairo
+    var u8 = 1        // error
+    ```
+
+    ## how to fix
+
+    choose another name. a name containing `#` is never a keyword, so `#u8` is a plain
+    identifier.
+    """

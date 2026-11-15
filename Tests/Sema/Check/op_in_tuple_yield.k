@@ -8,8 +8,8 @@
 //   *const T       a, const a, const *a           a, const a, const *a
 //   unsafe *T      unsafe *a                      unsafe *a, const unsafe *a
 //
-// A `const` binder takes `op in (const self)` when the type declares it
-// and no binder is a mutable `*a`. A lone binder over such a tuple is an
+// A loop with no mutable `*a` binder takes `op in (const self)` when the
+// type declares it. A lone binder over such a tuple is an
 // error, and the two forms of a pair agree element by element (SC299E).
 
 class Map {
@@ -92,11 +92,11 @@ fn map_mutable(m: Map) -> i32 {
         *v = 1
     }
 
-    // CHECK: op_in_tuple_yield.k:[[@LINE+1]]:9: error [SC298E]: 'for e' does not bind what 'op in (self)' yields: '(*const i32, *i32)' holds a pointer, so it binds one binder per element, as 'for (e0, e1)'
+    // CHECK: op_in_tuple_yield.k:[[@LINE+1]]:9: error [SC298E]: 'for e' does not bind what 'op in (const self)' yields: '(*const i32, *const i32)' holds a pointer, so it binds one binder per element, as 'for (e0, e1)'
     for e in m { }
     // CHECK: op_in_tuple_yield.k:[[@LINE+1]]:9: error [SC298E]: 'for *e' does not bind what 'op in (self)' yields
     for *e in m { }
-    // CHECK: op_in_tuple_yield.k:[[@LINE+1]]:22: error [SC042E]: 3 binding(s) but '(*const i32, *i32)' has 2 element(s)
+    // CHECK: op_in_tuple_yield.k:[[@LINE+1]]:22: error [SC042E]: 3 binding(s) but '(*const i32, *const i32)' has 2 element(s)
     for (a, b, c) in m { }
     return s
 }

@@ -69,13 +69,13 @@ priv fn write_line_(fd: i32, const s: string) {
         var buf: [u8; 4096]                       // never initialized; only the bytes written are read
         for var i: usize = 0; i < n; ++i { buf[i] = s.as_ptr()[i] }
         buf[n] = 10
-        write_all_(fd, &buf[0], n + 1)
+        write_all_(fd, const &buf[0], n + 1)
         return
     }
     write_all_(fd, s.as_ptr(), n)
     var nl: [u8; 1]
     nl[0] = 10
-    write_all_(fd, &nl[0], 1)
+    write_all_(fd, const &nl[0], 1)
 }
 
 /// write(2) is short on pipes and sockets; loop until every byte is out. Each

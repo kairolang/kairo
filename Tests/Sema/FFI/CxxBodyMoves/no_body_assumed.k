@@ -1,11 +1,11 @@
-// RUN: { %kairo %s --type-check-only --print-unchecked-assumptions 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo %s --type-check-only --print-unchecked-assumptions -fno-strict-cxx-moves 2>&1 || true; } | %FileCheck %s
 // RUN: { %kairo %s --type-check-only -fstrict-cxx-moves 2>&1 || true; } | %FileCheck %s --check-prefix=STRICT
 //
 // A C++ function whose body cannot be inspected -- declared only, or
 // defined in a header the Kairo file does not import by name -- borrows its
-// `T&` argument on an unchecked assumption, which the build lists.
-// -fstrict-cxx-moves takes such a call at its worst instead: the argument is
-// moved-from, and the read after it is an error.
+// `T&` argument under -fno-strict-cxx-moves, on an assumption the build
+// lists. -fstrict-cxx-moves (the default) takes such a call at its worst:
+// the argument is moved-from, and the read after it is an error.
 
 ffi "c++" import "Inputs/moves.h"
 

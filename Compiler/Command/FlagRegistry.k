@@ -1406,7 +1406,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
 
     cmd->define<FlagKind::Feature>(
         "strict-cxx-moves",
-        "a MOVE value passed by `T&` / `T*` to a C++ function whose body cannot be inspected is moved-from after the call, instead of borrowed on an unchecked assumption; a call into the toolchain's own standard library borrows either way, on a listed assumption (off)",
+        "a MOVE value passed by `T&` / `T*` to a C++ function whose body cannot be inspected is moved-from after the call, instead of borrowed on an unchecked assumption; a call into the toolchain's own standard library borrows either way, on a listed assumption (on; -fno-strict-cxx-moves borrows every such call)",
     )
 
     cmd->define<FlagKind::Feature>(

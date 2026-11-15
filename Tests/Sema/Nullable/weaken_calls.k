@@ -88,7 +88,7 @@ fn bad_write_through() -> i32 {
 
 fn ok_const_pointer() -> i32 {
     var x: i32? = 1
-    cptr(&x)
+    cptr(const &x)
     noop()
     return x + 0
 }

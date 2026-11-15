@@ -88,7 +88,7 @@ fn no_body_reassigned() -> i32 {
 
 fn no_body_const(q: *const Holder) -> i32 {
     var h = Holder()
-    var n = h.native_peek() + native_const_ptr(q) + native_const_ptr(&h)
+    var n = h.native_peek() + native_const_ptr(q) + native_const_ptr(const &h)
     return n + h.a.n + q->a.n
 }
 

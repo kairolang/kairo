@@ -97,7 +97,7 @@
 ///     there), but the warning is the user's: a library file is not one
 ///     the user can edit (SemaContext::in_library).
 ///
-///   SC001W is the placeholder until the monthly sweep gives the lint a code.
+///   The warning is SC224W, on by default.
 ///
 ///   \par -Wconst-self (opt-in; SC273W, SC274W)
 ///     The same "never mutated" walk, as a lint only (nothing is inferred,
@@ -211,7 +211,7 @@ pub struct PassCand {
 
 ///
 /// \class ParamPassInference
-/// \brief The pass. Writes ParamDecl::inferred_const; warns SC001W.
+/// \brief The pass. Writes ParamDecl::inferred_const; warns SC224W.
 ///
 pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     pub var  sc:  unsafe *SemaContext

@@ -15,8 +15,9 @@ kld.k, ParseOnceTest.k, GenClangDiagIdentity.k), under x86-64 debug (-D
 DEBUG), x86-64 release and aarch64 debug. The aarch64 form is the host
 argv template with the target flags swapped; the host form takes build.py's llvm_args +
 platform_args + profile_args + --native + shared_libcxx_args, then
-`--type-check-only -A R058W -fduck-generics -fdefault-visibility=spec -I Compiler -I Linker
---dump-import-uses=<out>.json` (-fduck-generics and -fdefault-visibility are internal; the first is off by default and the tree turns it on, and the tree builds under
+`--type-check-only -A R058W -fduck-generics -fno-strict-cxx-moves -fdefault-visibility=spec -I Compiler -I Linker
+--dump-import-uses=<out>.json` (-fduck-generics and -fdefault-visibility are internal; the first is off by default and the tree turns it on; -fno-strict-cxx-moves is
+the tree's opt-out, as in build.py, since it relies on clang and LLVM calls with no visible body borrowing; and the tree builds under
 the language's `spec` visibility with a module.k per top-level directory, as build.py passes
 them, build.tree_visibility_args).
 Warnings left on, those runs double as the before/after diagnostics gate.

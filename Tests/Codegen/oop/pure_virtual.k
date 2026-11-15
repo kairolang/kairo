@@ -29,7 +29,7 @@ fn total(a: *const Shape, b: *const Shape) -> i32 {
 fn main() -> i32 {
     var sq = Square(2)
     var tr = Tri()
-    return total(&sq, &tr)                      // 4 + 6 + 12
+    return total(const &sq, const &tr)                      // 4 + 6 + 12
 }
 
 // --- lit wiring -----------------------------------------------------------

@@ -64,7 +64,7 @@ fn spellings(a: i32?) -> i32 {
     var r = 0
     if a? { var u6 = a + 0 }
     if !a? { r += 1 } else { var u7 = a + 0 }
-    if a == null { r += 1 } else { var u8 = a + 0 }
+    if a == null { r += 1 } else { var #u8 = a + 0 }
     if null != a { var u9 = a + 0 }
     if !(a == null) { var u10 = a + 0 }
     return r
@@ -92,7 +92,7 @@ fn exits(b: i32?, c0: i32?, d: i32?) -> i32 {
 fn logic(a: i32?, b: i32?) -> i32 {
     var r = 0
     if a? && b? { var u15 = a + b }
-    if !a? || !b? { r += 1 } else { var u16 = a + b }
+    if !a? || !b? { r += 1 } else { var #u16 = a + b }
     if !(a? && b?) { return r }
     var u17 = a + b
     var t = a? && a > 4

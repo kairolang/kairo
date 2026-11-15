@@ -262,6 +262,48 @@ pub class TypeUtil {
         return out
     }
 
+    /// The iteration form (`op in (self)` with \p want_const false,
+    /// `op in (const self)` with it true) the record \p t declares, read
+    /// off its pattern; null when it declares none.
+    fn iteration_form(self,
+                      t:          unsafe *Type,
+                      want_const: bool) -> unsafe *Declarations::FunctionDecl {
+        var unsafe *rd = self.record_decl(self.strip_nullable(self.as_value(t)))
+        if rd == &null {
+            return &null
+        }
+
+        var unsafe *dc = NameLookup::context_of(
+            self.pattern_of(NameLookup::representative(rd)),
+        )
+
+        if dc == &null {
+            return &null
+        }
+
+        var unsafe *cell = dc->lookup_symbol(
+            DeclName::op_name(TokenKind::KwIn, TokenKind::TkUnknown),
+        )
+
+        if cell == &null {
+            return &null
+        }
+
+        for var i: usize = 0; i < cell->size(); ++i {
+            var unsafe *f = dyn_cast<Declarations::FunctionDecl>(cell->get(i))
+            if f != &null && f->is_const() == want_const && OperatorFacts::is_iteration(f) {
+                return f
+            }
+        }
+
+        return &null
+    }
+
+    /// The `T` of the `Yield<T>` \p f is written to return, or null.
+    fn fn_yielded(self, f: unsafe *Declarations::FunctionDecl) -> unsafe *Type {
+        return self._fn_yielded(f)
+    }
+
     /// The `T` of the `Yield<T>` \p f is written to return, or null.
     priv fn _fn_yielded(self, f: unsafe *Declarations::FunctionDecl) -> unsafe *Type {
         if f == &null || f->return_type == &null || f->return_type->canonical == &null {

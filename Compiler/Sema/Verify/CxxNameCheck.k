@@ -47,6 +47,10 @@ import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Registry::DiagID
 import Sema::SemaContext::SemaContext
 import Token::Token::Token
+import Token::TokenKind::{
+    TokenKind,
+    is_annotation,
+}
 
 pub class CxxNameCheck derives RecursiveASTVisitor<CxxNameCheck> {
     pub var sc: *SemaContext
@@ -86,6 +90,19 @@ pub class CxxNameCheck derives RecursiveASTVisitor<CxxNameCheck> {
 
     /// \p what is the noun used in the message ("function", "class", ...).
     priv fn _check(self, name: Token, const what: string) {
+        // A primitive type's name always denotes the type, so a declaration
+        // it names could never be used (S047E is the parser's half, for a
+        // function's name).
+        if is_annotation(name.kind) && name.kind != TokenKind::AtComment {
+            var nm = self.sc->ctx->get_spelling(name)
+            self.sc->diag->report(
+                DiagID::SC331E,
+                name.range.start,
+                f"{what} name '{nm}' is the name of a primitive type, which it always denotes; choose another name",
+            ).first(name.range)->emit()
+            return
+        }
+
         // get_ident_imm unwraps macro-expansion chains and yields u32(-1)
         // for anything that is not an identifier   an empty/absent name
         // token (anonymous module, unnamed param) lands there and is

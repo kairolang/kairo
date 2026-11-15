@@ -62,7 +62,7 @@ fn main() -> i32 {
     var *miss? = ft as (*Corgi)?                // a Tail that is not a Corgi
     if (miss ?? &fallback)->bones == 0 { r += 16 }
     if (checked(&dog) == 7) && (checked(&cat) == -1) { r += 32 }
-    if (read_only(&dog) == 7) && (read_only(&cat) == -1) { r += 64 }
+    if (read_only(const &dog) == 7) && (read_only(const &cat) == -1) { r += 64 }
     var ad: *Animal = &dog
     var ac: *Animal = &cat
     var *g1? = pick(ad, &none)

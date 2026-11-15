@@ -1,7 +1,7 @@
-// A type may declare both iteration forms. The loop picks one by the
-// iterable's own constness: a mutable object takes `op in (self)`, a
-// const one (a const binding, a const parameter, a field through
-// `const self`) takes `op in (const self)`. Containment `op in (self, x)`
+// A type may declare both iteration forms. A const iterable (a const
+// binding, a const parameter, a field through `const self`) takes
+// `op in (const self)`; so does a mutable one when the loop has no mutable
+// pointer binder. Containment `op in (self, x)`
 // is a separate operator beside them.
 
 class Bag {
@@ -50,7 +50,7 @@ fn main() -> i32 {
     var   m = Bag()
     const c = Bag()
     var   s = 0
-    for x in m { // 1
+    for x in m { // 10: no pointer binder, the const form
         s += x
     }
 
@@ -68,7 +68,7 @@ fn main() -> i32 {
         s += 100
     }
 
-    return s // 201
+    return s // 210
 }
 
 // --- lit wiring ---
@@ -76,4 +76,4 @@ fn main() -> i32 {
 // DIAG-NOT: error
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe; test $? -eq 201
+// RUN: %t.exe; test $? -eq 210

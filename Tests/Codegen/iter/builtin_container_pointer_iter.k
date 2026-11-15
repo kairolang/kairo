@@ -4,8 +4,8 @@
 //   {K: V}   op in (self) -> yield (*const K, *V),
 //            op in (const self) -> yield (*const K, *const V)
 // `for x in v` copies, `for *x in v` writes the element, `for (k, *v) in m`
-// writes the stored value, a const container iterates, and a `const`
-// binder reads a mutable vector through the const form.
+// writes the stored value, a const container iterates, and a loop with no
+// mutable pointer binder reads a mutable container through the const form.
 
 fn sum_const(const v: [i32]) -> i32 {
     var s = 0
@@ -21,7 +21,10 @@ fn sum_const(const v: [i32]) -> i32 {
 }
 
 // Parameters written without `const` that only read: the loops take
-// `op in (self)`, so the parameters must stay mutable in C++ too.
+// `op in (const self)`, which reads them, so they are passed as `const T&`
+// and SC224W says to write `const`.
+// DIAG: builtin_container_pointer_iter.k:[[@LINE+2]]:14: warning [SC224W]: parameter 'v' is never mutated; declare it 'const'
+// DIAG: builtin_container_pointer_iter.k:[[@LINE+1]]:24: warning [SC224W]: parameter 'm' is never mutated; declare it 'const'
 fn sum_plain(v: [i32], m: {i32: i32}) -> i32 {
     var s = 0
     for x in v {

@@ -1,6 +1,6 @@
-// A `const` binder takes `op in (const self)` on a mutable object, for a
-// value yield and a pointer yield alike; the other binders take
-// `op in (self)`. Each form yields a different value, so the exit code
+// A loop with no mutable pointer binder takes `op in (const self)` on a
+// mutable object, for a value yield and a pointer yield alike; a `*x`
+// binder takes `op in (self)`. Each form yields a different value, so the exit code
 // shows which one ran.
 
 class Bag {
@@ -31,7 +31,7 @@ class Cell {
 fn main() -> i32 {
     var b = Bag()
     var s = 0
-    for x in b { // 1
+    for x in b { // 10
         s += x
     }
 
@@ -48,7 +48,7 @@ fn main() -> i32 {
         s += *x
     }
 
-    for x in c { // 100
+    for x in c { // 1000
         s += x
     }
 
@@ -56,7 +56,7 @@ fn main() -> i32 {
         *x = 7
     }
 
-    return (s - 2100) + c.m // 11 + 7
+    return (s - 3009) + c.m // 11 + 7
 }
 
 // --- lit wiring ---

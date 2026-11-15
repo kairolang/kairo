@@ -75,7 +75,7 @@ fn main() -> i32 {
     var gb: *GB<i32> = &g
     if gb->g() != 6 { return 16 }
     if d.q() != 7 { return 17 }
-    var cd: *const D = &d
+    var cd: *const D = const &d
     if cd->q() != 8 { return 18 }               // a const object: only the derived one
     return 0
 }

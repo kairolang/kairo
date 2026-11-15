@@ -2264,11 +2264,14 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return elem
     }
 
-    /// A loop with a `const` binder reads through `op in (const self)` when
-    /// the type declares one, over a mutable object too: `for const x in s`,
-    /// `for const *x in s`, `for (const k, v) in m`. A mutable pointer
-    /// binder (`*x`, `unsafe *x`) in the list keeps `op in (self)`, the only
-    /// form that can bind it.
+    /// The form is picked by what the loop does, as a subscript's is: a
+    /// loop that only reads (`for x`, `for const x`, `for const *x`, value
+    /// tuple binders) goes through `op in (const self)` when the type
+    /// declares one, over a mutable object too. Only a mutable pointer
+    /// binder (`*x`, `unsafe *x`, alone or in a tuple binder) takes
+    /// `op in (self)`, the one form that can bind it. A loop that only reads
+    /// a by-value parameter is then a read of it for ParamPassInference,
+    /// which passes the parameter as `const T&`.
     priv fn _binders_take_const(self,
                                 rf:    unsafe *Statements::RangedForStmt,
                                 forms: *cxx::std::vector<unsafe *Decl>) -> bool {
@@ -2276,22 +2279,15 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return false
         }
 
-        var any = false
         for var i: usize = 0; i < rf->bindings.size(); ++i {
             var unsafe *b = rf->bindings.get(i)
             if b == &null || b->is_discard {
                 continue
             }
 
-            if b->is_const {
-                any = true
-            } else if b->shorthand.has(Statements::BindingShorthand::Pointer) {
+            if !b->is_const && b->shorthand.has(Statements::BindingShorthand::Pointer) {
                 return false
             }
-        }
-
-        if !any {
-            return false
         }
 
         for var i: usize = 0; i < forms->size(); ++i {
