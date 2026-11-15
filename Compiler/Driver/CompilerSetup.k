@@ -971,7 +971,10 @@ extend CompilerInstance {
     /// (_input_library_dir): a file inside a source copy of builtin or std
     /// (a checkout's Lib/std/io.k) is checked against THAT copy, not the
     /// toolchain's. Otherwise the toolchain's copy and the source copy would
-    /// both claim the one root name, which is R018E.
+    /// both claim the one root name, which is R018E. The directory beside
+    /// that copy pinning the OTHER library (Lib/builtin beside Lib/std) is
+    /// taken too (_sibling_library_dir), so a checkout is used as a whole.
+    /// A flag for either library still wins for that library.
     ///
     /// A root that is still missing is a P001W (queued; initialize()
     /// reports it): without the builtin tree every lang item is unbound and
@@ -1003,8 +1006,31 @@ extend CompilerInstance {
         // looked for either. A found one would also bring the hosted runtime
         // (lib/rt: stdlib.h) into a bare-metal build; --builtins-dir still
         // adds it on purpose.
+        // Each library an input lies in, found before either root is
+        // filled so the sibling rule below sees both.
+        var input_builtin = ""
+        var input_std     = ""
         if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
-            inv->pp.builtins_dir = self._input_library_dir(builtin_root_name())
+            input_builtin = self._input_library_dir(builtin_root_name())
+        }
+
+        if inv->pp.std_dir.empty() && !inv->pp.no_stdlib {
+            input_std = self._input_library_dir(std_root_name())
+        }
+
+        // A source copy of one library brings the directory beside it that
+        // pins the other, so a checkout's Lib/std is checked against that
+        // checkout's Lib/builtin and not against a toolchain copy.
+        if input_builtin.empty() && !input_std.empty() {
+            input_builtin = self._sibling_library_dir(input_std, builtin_root_name())
+        }
+
+        if input_std.empty() && !input_builtin.empty() {
+            input_std = self._sibling_library_dir(input_builtin, std_root_name())
+        }
+
+        if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
+            inv->pp.builtins_dir = input_builtin
         }
 
         if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
@@ -1030,7 +1056,7 @@ extend CompilerInstance {
         }
 
         if inv->pp.std_dir.empty() && !inv->pp.no_stdlib {
-            inv->pp.std_dir = self._input_library_dir(std_root_name())
+            inv->pp.std_dir = input_std
         }
 
         if inv->pp.std_dir.empty() && !inv->pp.no_stdlib {
@@ -1054,6 +1080,41 @@ extend CompilerInstance {
                 )
             }
         }
+    }
+
+    /// The directory beside \p lib_dir (same parent) whose module.k pins
+    /// library \p name, or "". Several qualify: the first by name. Directories
+    /// are compared by real path, so a copy that is \p lib_dir itself is not
+    /// a sibling.
+    priv fn _sibling_library_dir(self, const lib_dir: string, const name: string) -> string {
+        var want   = split_module_name(name)
+        var parent = Path::parent_of(lib_dir)
+        if parent.empty() || parent.size() >= lib_dir.size() {
+            return ""
+        }
+
+        var best = ""
+        for const entry in LinkFS::list_dir(parent) {
+            var dir = Path::join_str(parent, entry)
+            var mod_k = Path::join_str(dir, "module.k")
+            if !LinkFS::is_dir(dir) || !Path::exists_at(mod_k) {
+                continue
+            }
+
+            var real = LinkFS::real(dir)
+            if real == lib_dir || real == LinkFS::real(lib_dir) {
+                continue
+            }
+
+            var pin = read_module_pin(mod_k)
+            if pin.size() > 0 && root_names_equal(pin, want) {
+                if best.empty() || entry < LinkFS::filename(best) {
+                    best = real
+                }
+            }
+        }
+
+        return best
     }
 
     /// The directory of library \p name that a Kairo input lies in, or "".
