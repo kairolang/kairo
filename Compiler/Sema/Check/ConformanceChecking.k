@@ -193,6 +193,14 @@ pub struct PredFalse {
     pub var blocker: unsafe *Type = &null
 }
 
+/// ConformanceChecking::clause_false: the first conjunct of a `requires`
+/// clause known false under a deduction (`part`), and why, in words.
+pub struct ClauseFalse {
+    pub var known: bool         = false
+    pub var part:  unsafe *Expr = &null
+    pub var why:   string       = ""
+}
+
 /// ConformanceChecking::dropped_copy: the record's `@copy` constructor an
 /// instance loses to its `requires` (null when the instance keeps its
 /// copy), and the type argument that cannot be copied (null when no
@@ -605,8 +613,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// Predicate \p e under \p d: literals, `!` `&&` `||`, comparisons and
     /// integer arithmetic, `sizeof` / `alignof` of a builtin or a pointer,
-    /// and the trivially-copyable / -destructible facts (`is_..!(T)` and the
-    /// `__builtin_is_...<T>()` lang items), from ClassLifecycle. Anything
+    /// the trivially-copyable / -destructible facts (`is_..!(T)` and the
+    /// `__builtin_is_...<T>()` lang items), from ClassLifecycle, and a
+    /// conformance or `derives` test (_constraint_vp). Anything
     /// else is unknown (InstantiationRegistry::requires_holds is the same
     /// shape for a partial's clause).
     priv fn _vp(self, e: unsafe *Expr, d: unsafe *Deduction, depth: u32) -> PartialPredValue {
@@ -623,6 +632,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             out.known = true
             out.v     = if (cast<BooleanLiteralExpr>(e)->value) => (1) else => 0
             return out
+        }
+
+        // `T impl I` / `T derives B` as an operand of `!`, `||` or a nested
+        // `&&`: a truth value like any other.
+        if isa<ConstraintExpr>(e) {
+            return self._constraint_vp(cast<ConstraintExpr>(e), d)
         }
 
         if isa<IntegerLiteralExpr>(e) {
@@ -2083,9 +2098,367 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             if !self._kind_bounds_ok(e, prim, at, chain) {
                 ok = false
             }
+
+            if ok && !self._value_preds_ok(e, prim, at, chain) {
+                ok = false
+            }
         }
 
         return ok
+    }
+
+    /// The value predicates of \p prim's `requires` (every conjunct that is
+    /// not a top-level `T impl I` / `T derives B`, which the rows above
+    /// check) at instance \p e: one known false is SC300E at \p at, naming
+    /// the conjunct and why. A predicate the evaluator cannot decide (a
+    /// struct's `sizeof`, an `eval fn`) is left to the emitted C++.
+    priv fn _value_preds_ok(self,
+                            e:     unsafe *InstanceEntry,
+                            prim:  unsafe *Decl,
+                            at:    SourceRange,
+                            chain: unsafe *InstanceEntry) -> bool {
+        var unsafe *req = decl_requires_clause(prim)
+        if req == &null {
+            return true
+        }
+
+        var d = Deduction(self.sc, &null)
+        self._bind_instance(&d, e, prim)
+        var vps = cxx::std::vector<unsafe *Expr>()
+        self._value_preds(req, unsafe &vps)
+        for var i: usize = 0; i < vps.size(); ++i {
+            if !self._pred_false(vps[i], unsafe &d, 0).known {
+                continue
+            }
+
+            var b = self.sc->diag->report(
+                DiagID::SC300E,
+                at.start,
+                f"'{self._inst_name(e)}' cannot be used: its 'requires' clause does not hold",
+            )
+
+            b.first(at)
+            b.note(
+                DiagCode(DiagID::SC300N),
+                vps[i]->range.start,
+                self._why_false(
+                    vps[i],
+                    unsafe &d,
+                    0,
+                    self._bindings_text(prim, unsafe &d),
+                ),
+            )->child_first(vps[i]->range)
+
+            if chain != &null {
+                self.chain_notes(unsafe &b, chain)
+            }
+
+            b.emit()
+            return false
+        }
+
+        return true
+    }
+
+    /// # a whole `requires` clause under a deduction
+
+    /// The first conjunct of \p f's `requires` known false under \p d, top-
+    /// level conformances included, and why; `known` false when every
+    /// conjunct holds or cannot be decided. OverloadResolution asks it of
+    /// each viable generic candidate: a known-false clause makes the
+    /// candidate not viable.
+    pub fn clause_false(self,
+                        f: unsafe *Declarations::FunctionDecl,
+                        d: unsafe *Deduction) -> ClauseFalse {
+        var out = ClauseFalse{}
+        if f == &null {
+            return out
+        }
+
+        var unsafe *req = f->requires_clause
+        if req == &null {
+            req = decl_requires_clause(
+                NameLookup::representative(unsafe (f as unsafe *Decl)),
+            )
+        }
+
+        var cs = cxx::std::vector<unsafe *Expr>()
+        self._conjuncts(req, unsafe &cs)
+        for var i: usize = 0; i < cs.size(); ++i {
+            var unsafe *c = cs[i]
+            var        no = false
+            if isa<ConstraintExpr>(c) {
+                var v = self._constraint_vp(cast<ConstraintExpr>(c), d)
+                no = v.known && v.v == 0
+            } else {
+                no = self._pred_false(c, d, 0).known
+            }
+
+            if no {
+                out.known = true
+                out.part  = c
+                out.why = self._why_false(
+                    c,
+                    d,
+                    0,
+                    self._bindings_text(unsafe (f as unsafe *Decl), d),
+                )
+
+                return out
+            }
+        }
+
+        return out
+    }
+
+    /// Every `&&` conjunct of \p e, in clause order.
+    priv fn _conjuncts(self, e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
+        if e == &null {
+            return
+        }
+
+        var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
+        if b != &null
+            && (b->op_token.kind == TokenKind::OpAmpAmp || b->op_token.kind == TokenKind::KwAnd) {
+            self._conjuncts(b->lhs, out)
+            self._conjuncts(b->rhs, out)
+            return
+        }
+
+        out->push_back(e)
+    }
+
+    /// `P impl I` / `P derives B` under \p d: known when P's argument and the
+    /// bound are concrete. A conformance is decided by the same table the
+    /// bounds are (conforms), a `derives` by the argument's bases.
+    priv fn _constraint_vp(self,
+                           c: unsafe *ConstraintExpr,
+                           d: unsafe *Deduction) -> PartialPredValue {
+        var        out = PartialPredValue{}
+        var unsafe *x  = self._constraint_arg(c, d)
+        if x == &null || c->rhs == &null {
+            return out
+        }
+
+        var unsafe *rhs = self._subst(c->rhs, d)
+        if rhs == &null {
+            return out
+        }
+
+        rhs = canon_unqual(rhs)
+        if c->is_derives() {
+            if !isa<RecordType>(rhs) {
+                return out
+            }
+
+            out.known = true
+            out.v = if (Substitution(self.sc).derives_from(x, rhs)) => (1) else => 0
+            return out
+        }
+
+        if self._iface_decl(rhs) == &null {
+            return out
+        }
+
+        // A row that fails only because its witness is hidden from this file
+        // (a `priv` member, an extension not imported) is one the emitted
+        // C++ concept, which sees every member, calls met: undecided, so
+        // Kairo never selects an overload C++ would not.
+        var unsafe *row = self.conforms(x, rhs)
+        if row != &null && !row->ok && row->hidden != &null {
+            return out
+        }
+
+        out.known = true
+        out.v     = if (row != &null && row->ok) => (1) else => 0
+        return out
+    }
+
+    /// `T = i32, U = *A`: \p owner's parameters as \p d binds them, those
+    /// it binds.
+    priv fn _bindings_text(self, owner: unsafe *Decl, d: unsafe *Deduction) -> string {
+        var s   = ""
+        var gps = decl_generic_params(owner)
+        for var i: usize = 0; i < gps.size(); ++i {
+            var unsafe *gp = gps[i]
+            if gp == &null || gp->is_pack {
+                continue
+            }
+
+            var unsafe *x = d->lookup(owner, gp->index)
+            if x == &null {
+                x = d->lookup(NameLookup::representative(owner), gp->index)
+            }
+
+            if x == &null {
+                continue
+            }
+
+            if s.size() > 0 {
+                s += ", "
+            }
+
+            var pn = self.tu.decl_name(gp)
+            s += f"{pn} = {self.tu.str(x)}"
+        }
+
+        return s
+    }
+
+    /// The concrete argument \p d binds to the parameter conjunct \p c
+    /// constrains, or null (a pack, an unbound or dependent argument).
+    priv fn _constraint_arg(self, c: unsafe *ConstraintExpr, d: unsafe *Deduction) -> unsafe *Type {
+        var unsafe *id = dyn_cast<NamedIdentExpr>(self.tu.strip_parens(c->lhs))
+        if id == &null {
+            return &null
+        }
+
+        var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+            id->resolved_decl,
+        )
+
+        if gp == &null || gp->is_pack || gp->owner == &null {
+            return &null
+        }
+
+        var unsafe *x = d->lookup(gp->owner, gp->index)
+        if x == &null {
+            x = d->lookup(NameLookup::representative(gp->owner), gp->index)
+        }
+
+        if x == &null {
+            return &null
+        }
+
+        var unsafe *cx = self._canon(x)
+        if cx == &null || cx->is_dependent() || cx->is_instantiation_dependent() {
+            return &null
+        }
+
+        return canon_unqual(cx)
+    }
+
+    /// `: it has no 'copy'`, naming the first requirement of \p iface that
+    /// \p x does not meet (a transfer requirement by its category), or "".
+    priv fn _missing_text(self, x: unsafe *Type, iface: unsafe *Type) -> string {
+        var unsafe *row = self.conforms(x, iface)
+        if row == &null || row->ok {
+            return ""
+        }
+
+        for var i: usize = 0; i < row->witnesses.size() && i < row->reqs.size(); ++i {
+            if row->witnesses[i] != &null {
+                continue
+            }
+
+            var unsafe *m = dyn_cast<Declarations::FunctionDecl>(row->reqs[i])
+            if m == &null {
+                return ""
+            }
+
+            if m->transfer == Declarations::TransferKind::Copy {
+                return ": it cannot be copied by a copy constructor"
+            }
+
+            if m->transfer == Declarations::TransferKind::Move {
+                return ": it cannot be moved"
+            }
+
+            if decl_is_ctor_requirement(m) {
+                return ""
+            }
+
+            return f": it has no '{self._req_name(m)}'"
+        }
+
+        return ""
+    }
+
+    /// Why \p e holds under \p d, when it is a conformance or a conjunction
+    /// of them (the operand of a false `!`), or "".
+    priv fn _why_true(self, e0: unsafe *Expr, d: unsafe *Deduction, depth: u32) -> string {
+        var unsafe *e = self.tu.strip_parens(e0)
+        if e == &null || depth >= 16 {
+            return ""
+        }
+
+        var unsafe *ce = dyn_cast<ConstraintExpr>(e)
+        if ce != &null {
+            var unsafe *x = self._constraint_arg(ce, d)
+            var unsafe *r = self._subst(ce->rhs, d)
+            if x == &null || r == &null {
+                return ""
+            }
+
+            var how = if (ce->is_derives()) => ("derives") else => "implements"
+            return f"'{self.tu.str(x)}' {how} '{self.tu.str(canon_unqual(r))}'"
+        }
+
+        var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
+        if b != &null
+            && (b->op_token.kind == TokenKind::OpAmpAmp || b->op_token.kind == TokenKind::KwAnd) {
+            var l = self._why_true(b->lhs, d, depth + 1)
+            var r = self._why_true(b->rhs, d, depth + 1)
+            if l.size() > 0 && r.size() > 0 {
+                return l + " and " + r
+            }
+        }
+
+        return ""
+    }
+
+    /// Why predicate \p e, known false under \p d, is false: a conformance
+    /// names the argument and the bound, a negated one says it holds, a
+    /// disjunction gives both sides; anything else is false at the
+    /// arguments it names.
+    priv fn _why_false(self,
+                       e0:         unsafe *Expr,
+                       d:          unsafe *Deduction,
+                       depth:      u32,
+                       const args: string) -> string {
+        var unsafe *e = self.tu.strip_parens(e0)
+        if e != &null && depth < 16 && isa<ConstraintExpr>(e) {
+            var unsafe *c = cast<ConstraintExpr>(e)
+            var unsafe *x = self._constraint_arg(c, d)
+            var unsafe *r = self._subst(c->rhs, d)
+            if x != &null && r != &null {
+                var how = if (c->is_derives()) => ("derive") else => "implement"
+                var why = f"'{self.tu.str(x)}' does not {how} '{self.tu.str(canon_unqual(r))}'"
+                if !c->is_derives() {
+                    why += self._missing_text(x, canon_unqual(r))
+                }
+
+                return why
+            }
+        }
+
+        var unsafe *u = dyn_cast<UnaryOperatorExpr>(e)
+        if u != &null
+            && depth < 16
+            && (u->op_token.kind == TokenKind::OpExclaim || u->op_token.kind == TokenKind::KwNot) {
+            var t = self._why_true(u->operand, d, depth + 1)
+            if t.size() > 0 {
+                return t
+            }
+        }
+
+        var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
+        if b != &null
+            && depth < 16
+            && (b->op_token.kind == TokenKind::OpPipePipe || b->op_token.kind == TokenKind::KwOr) {
+            return self._why_false(b->lhs, d, depth + 1, args) + ", and " + self._why_false(
+                b->rhs,
+                d,
+                depth + 1,
+                args,
+            )
+        }
+
+        if args.size() > 0 {
+            return f"this is false for {args}"
+        }
+
+        return "this is false for these arguments"
     }
 
     /// The kind bounds `T: class` / `struct` / `enum` / `union`

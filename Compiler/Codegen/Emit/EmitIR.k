@@ -1827,7 +1827,7 @@ pub class EmitIR {
         // E10): asserted where C++ can evaluate them, per instance in a
         // template. EvalUsageChecking already refused a run-time one.
         var vps = cxx::std::vector<unsafe *Expr>()
-        if !self._req_in_head {
+        if !self._req_in_head && !self._spell.fn_preds_in_head(f) {
             CXXSpell::value_predicates(f->requires_clause, unsafe &vps)
         }
 

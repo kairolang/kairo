@@ -3737,6 +3737,33 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
+        // A const place cannot be left moved-from (and C++ binds no `T&&`
+        // to it), whatever its type.
+        var unsafe *x = self._tu.strip_parens(e)
+        if x != &null
+            && x->value_category == Expr::ValueCategory::LValue
+            && (self._const_place(x) || self._const_root(e) || place_has_const_root(x)) {
+            var mv = LangAttrs::quoted(LangAttrs::param_move())
+            var b = self.sc->diag->report(
+                DiagID::SC301E,
+                e->range.start,
+                f"'{self._spelled(x)}' is const, so it cannot be passed to a {mv} parameter, which leaves its argument moved-from",
+            )
+
+            b.first(e->range)
+            var pl = self._place(e)
+            if pl.d != &null {
+                b.note(pl.d->range.start, "declared const here")->child_first(
+                    pl.d->range,
+                )
+            }
+
+            b.emit()
+            e->poison()
+            self.n_errored += 1
+            return
+        }
+
         self._mark(
             e,
             "into a " + LangAttrs::quoted(LangAttrs::param_move()) + " parameter",

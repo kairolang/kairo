@@ -6241,6 +6241,70 @@ group = "operators"
     [SC299.N]
     explain = "Points at the other iteration form."
 
+[SC300]
+brief = "a declaration's 'requires' clause does not hold for its arguments"
+group = "interfaces"
+
+    [SC300.E]
+    explain = """
+    # a 'requires' clause does not hold
+
+    A `requires` clause is decided at compile time for the arguments a
+    generic function or type is used with. A clause that is false makes
+    the declaration unusable for those arguments. The clause may combine
+    conformance tests (`T impl I`, `T derives B`), `!`, `&&`, `||`,
+    parentheses, comparisons and arithmetic over literals, and `sizeof` /
+    `alignof`.
+
+    ```kairo
+    interface Named { fn name(const self) -> string }
+
+    fn <T> anon(x: T) -> i32 requires !(T impl Named) { return 0 }
+
+    class Dog { fn name(const self) -> string { return "rex" } }
+
+    anon(Dog())      // error: 'Dog' implements 'Named'
+    ```
+
+    Among overloads, one whose clause is false for the call's arguments is
+    not a candidate, so two overloads with complementary clauses never tie.
+
+    ## how to fix
+
+    call it with arguments that meet the clause, or add an overload whose
+    clause they do meet.
+    """
+
+    [SC300.N]
+    explain = "Points at the part of the clause that is false."
+
+[SC301]
+brief = "a const value is passed to a '@move' parameter"
+group = "lifecycle"
+
+    [SC301.E]
+    explain = """
+    # a const value cannot be moved
+
+    A `@move` parameter takes its argument's value and leaves the argument
+    moved-from. A `const` binding, or a part of one, cannot be left
+    moved-from, so it cannot be passed there.
+
+    ```kairo
+    fn eat(@move r: Res) { }
+
+    const a = Res()
+    eat(a)            // error: 'a' is const
+    ```
+
+    ## how to fix
+
+    declare the binding with `var`, or pass a copy or a new value.
+    """
+
+    [SC301.N]
+    explain = "Points at the const declaration."
+
 [SC302]
 brief = "a copy needs a non-const source its copy constructor cannot take"
 group = "lifecycle"

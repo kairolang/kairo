@@ -3759,6 +3759,16 @@ pub class CXXSpell {
             }
         }
 
+        var unsafe *fd = dyn_cast<Declarations::FunctionDecl>(d)
+        if fd != &null && self.fn_preds_in_head(fd) {
+            var vps = cxx::std::vector<unsafe *Expr>()
+            CXXSpell::value_predicates(fd->requires_clause, unsafe &vps)
+            for var i: usize = 0; i < vps.size(); ++i {
+                s += if (s.size() == 0) => (" requires (") else => " && "
+                s += "(" + self._pred_text(vps[i], true) + ")"
+            }
+        }
+
         // Parenthesized: what follows the head is often a return type that
         // starts with `::` (`::builtin::Tuple2<...> f(...)`), and C++ reads a
         // `::` after `I_c<T>` as continuing the concept's qualified name --
@@ -4101,7 +4111,7 @@ pub class CXXSpell {
         CXXSpell::value_predicates(m->requires_clause, unsafe &vps)
         var s = self._owner_impl_conjuncts(m, owner)
         for var i: usize = 0; i < vps.size(); ++i {
-            var t = self._pred_text(vps[i])
+            var t = self._pred_text(vps[i], true)
             if t.size() == 0 {
                 return ""
             }
@@ -4276,8 +4286,70 @@ pub class CXXSpell {
         return self.qual_name(target) + "<" + s + ">()"
     }
 
+    /// `P impl I<A...>` as `::ns::I_c<P, A...>`, for an interface bound on a
+    /// template parameter; "" for anything else (a `derives` test, a
+    /// pack).
+    priv fn _concept_text(self, c: unsafe *ConstraintExpr) -> string {
+        if c->is_derives() || c->rhs == &null || c->rhs->canonical == &null {
+            return ""
+        }
+
+        var unsafe *gp = CXXSpell::_bound_param(c)
+        if gp == &null || gp->is_pack || gp->owner == &null {
+            return ""
+        }
+
+        var unsafe *rhs = canon_unqual(c->rhs->canonical)
+        if !isa<RecordType>(rhs) {
+            return ""
+        }
+
+        var unsafe *idecl = CXXSpell::rep(
+            DeclFacts::decl_pattern(CXXSpell::rep(cast<RecordType>(rhs)->decl)),
+        )
+
+        if !isa<Declarations::InterfaceDecl>(idecl) {
+            return ""
+        }
+
+        return self.concept_name(idecl) + self.witness_args(
+            self.tparam_name(gp, CXXSpell::rep(gp->owner)),
+            rhs,
+        )
+    }
+
+    /// Generic function \p f's value predicates go in its template head
+    /// (requires_clause) rather than its body's static_asserts (EmitIR::
+    /// _body): when every one spells. C++ then selects among overloads by
+    /// the same clauses Kairo did (`requires T impl I` beside `requires
+    /// !(T impl I)`), and two overloads that differ only in a predicate are
+    /// two templates rather than one redefined. All or none, because the
+    /// declaration and the definition carry the same head.
+    fn fn_preds_in_head(self, f: unsafe *Declarations::FunctionDecl) -> bool {
+        if f == &null || f->requires_clause == &null || f->generic_params.size() == 0 {
+            return false
+        }
+
+        var vps = cxx::std::vector<unsafe *Expr>()
+        CXXSpell::value_predicates(f->requires_clause, unsafe &vps)
+        if vps.size() == 0 {
+            return false
+        }
+
+        for var i: usize = 0; i < vps.size(); ++i {
+            if self._pred_text(vps[i], true).size() == 0 {
+                return false
+            }
+        }
+
+        return true
+    }
+
     /// C++ text of a self-contained predicate (requires_clause), or "".
-    priv fn _pred_text(self, e0: unsafe *Expr) -> string {
+    /// \p concepts admits `P impl I` as `I_c<P>`: a function's head and a
+    /// member's trailing clause are checked where they are called, after
+    /// every class is complete; a record's head is not (defers_bounds).
+    priv fn _pred_text(self, e0: unsafe *Expr, concepts: bool = false) -> string {
         if e0 == &null {
             return ""
         }
@@ -4302,6 +4374,10 @@ pub class CXXSpell {
 
         if isa<BooleanLiteralExpr>(e) {
             return (if (cast<BooleanLiteralExpr>(e)->value) => ("true") else => "false")
+        }
+
+        if isa<ConstraintExpr>(e) {
+            return if (concepts) => (self._concept_text(cast<ConstraintExpr>(e))) else => ""
         }
 
         if isa<CallExpr>(e) {
@@ -4366,7 +4442,7 @@ pub class CXXSpell {
                 return ""
             }
 
-            var x = self._pred_text(u->operand)
+            var x = self._pred_text(u->operand, concepts)
             if x.size() == 0 {
                 return ""
             }
@@ -4385,8 +4461,8 @@ pub class CXXSpell {
                 return ""
             }
 
-            var l = self._pred_text(b->lhs)
-            var r = self._pred_text(b->rhs)
+            var l = self._pred_text(b->lhs, concepts)
+            var r = self._pred_text(b->rhs, concepts)
             if l.size() == 0 || r.size() == 0 {
                 return ""
             }

@@ -124,6 +124,7 @@ import Diagnostic::Registry::DiagID
 import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
+import Sema::Check::ConformanceChecking::ConformanceChecking
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
@@ -820,6 +821,8 @@ pub class OverloadResolution {
             return out
         }
 
+        self._requires_filter(unsafe &cs)
+
         // best rank among viable
         var best: u8 = CAND_NO_VIABLE
         for var i: usize = 0; i < cs.size(); ++i {
@@ -981,6 +984,63 @@ pub class OverloadResolution {
         out.cxx_spec_set   = w->cxx_spec_set
         out.deref_dep      = w->deref_dep
         return out
+    }
+
+    /// A generic candidate whose `requires` clause is known false for its
+    /// deduced arguments is not viable (requires.mdx: the clause is a
+    /// compile-time gate), so overloads with complementary clauses never
+    /// tie. Inline bounds are clause conjuncts (RequiresDesugar), so a
+    /// failed `<T impl I>` counts the same. A clause that cannot be decided
+    /// leaves the candidate viable. When the clause is the only thing
+    /// standing against the one viable candidate it stays selected, and
+    /// ConformanceChecking reports the clause at the instance; with
+    /// several, each rejection is a note of the no-viable error.
+    priv fn _requires_filter(self, cs: unsafe *cxx::std::vector<Candidate>) {
+        if cs->size() < 2 {
+            return
+        }
+
+        var fails = cxx::std::vector<usize>()
+        var whys  = cxx::std::vector<string>()
+        var held  = 0 as usize
+        for var i: usize = 0; i < cs->size(); ++i {
+            var *c = &(*cs)[i]
+            if !c->viable() {
+                continue
+            }
+
+            if !c->generic
+                || c->f == &null
+                || c->f->is_imported()
+                || c->verdict() != Verdict::Viable
+                || !c->ded.is_complete(c->f) {
+                held += 1
+                continue
+            }
+
+            var r = ConformanceChecking(self.sc).clause_false(
+                c->f,
+                unsafe &c->ded,
+            )
+
+            if !r.known {
+                held += 1
+                continue
+            }
+
+            fails.push_back(i)
+            whys.push_back(r.why)
+        }
+
+        if fails.size() == 0 || (held == 0 && fails.size() == 1) {
+            return
+        }
+
+        for var i: usize = 0; i < fails.size(); ++i {
+            var *c = &(*cs)[fails[i]]
+            c->reject()
+            c->reason = f"its 'requires' clause does not hold: {whys[i]}"
+        }
     }
 
     /// [temp.func.order]: of \p winners, all generic and tied, the one more
