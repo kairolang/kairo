@@ -1232,7 +1232,17 @@ pub class EmitWitness {
         return self._spell->return_spelling(m, subst)
     }
 
+    /// A requirement may leave a parameter unnamed; the member forwards
+    /// it, so it gets a name of its own.
     priv fn _pname(self, m: unsafe *FunctionDecl, p: unsafe *ParamDecl) -> string {
+        if p->name.imm == u32::MAX {
+            for var k: usize = 0; k < m->params.size(); ++k {
+                if m->params[k] == p {
+                    return LowerTargets::witness_unnamed_param(k)
+                }
+            }
+        }
+
         return self._spell->tok_name(
             p->name,
             CXXSpell::fid_of(unsafe (m as unsafe *Decl)),

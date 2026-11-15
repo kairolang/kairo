@@ -1961,6 +1961,12 @@ pub class LowerTargets {
 
     /// # Witnesses (writer: EmitWitness)
 
+    /// The \p k-th parameter of a witness member whose requirement leaves it
+    /// unnamed (`fn op + (self, Self) -> Self`): C++ needs a name to forward.
+    pub static fn witness_unnamed_param(k: usize) -> string {
+        return f"__kairo_u{k}"
+    }
+
     /// `<Interface>` + suffix: `Drawable_witness`, and the concept `Drawable_c`.
     pub static fn witness_suffix() -> string {
         return "_witness"
