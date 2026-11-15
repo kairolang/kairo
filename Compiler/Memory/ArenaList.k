@@ -11,9 +11,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/KPlacement.hh" // construct_at
+ffi "c++" import "Native/Placement.hh" // construct_at
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "cstddef"
 ffi "c++" import "utility"
 ffi "c++" import "cstring"

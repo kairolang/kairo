@@ -1,7 +1,7 @@
 #pragma once
 //===----------------------------------------------------------------------===//
 ///
-/// \file KCxxMoveWalk.hh
+/// \file ClangMoveWalk.hh
 /// \brief Whether a C++ function moves out of what one of its reference or
 ///        pointer parameters refers to, read off its body: MoveCheck asks
 ///        it of each C++ call that passes a MOVE value by `T&` / `T*`

@@ -12,7 +12,7 @@
 ///   every tree is still alive. The addresses never reach the output.
 ///
 ///   One log per TU, written only by the thread running that TU's Sema: the
-///   current log is per-thread (Native/KThread.hh sema_dep_log), set by
+///   current log is per-thread (Native/Thread.hh sema_dep_log), set by
 ///   DepLogScope at Sema's entry points. A TU's front runs on a worker and
 ///   its late part on the driver, never both at once, so no lock.
 ///
@@ -33,7 +33,7 @@
 
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
-ffi "c++" import "Native/KThread.hh" // sema_dep_log
+ffi "c++" import "Native/Thread.hh" // sema_dep_log
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 

@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------------------- Native/KObjCache.hh --- ///
+/// --- The Kairo Project -------------------------- Native/ObjCache.hh --- ///
 ///
 ///   The byte-level pieces of the incremental object cache
 ///   (Compiler/Spec/Incremental.md) that Kairo has no spelling for:

@@ -13,11 +13,11 @@
 
 ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "Native/CharTable.hh"
-ffi "c++" import "Native/KShims.hh" // volatile_i64
+ffi "c++" import "Native/Shims.hh" // volatile_i64
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KTimeReport.hh"
+ffi "c++" import "Native/TimeReport.hh"
 ffi "c++" import "Native/UTF8Decode.hh"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "stack"
 ffi "c++" import "array"
 ffi "c++" import "bit"

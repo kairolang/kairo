@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------------- Support/TimeReport.k --- ///
 ///
-///   Kairo surface over the pass-timing engine in Native/KTimeReport.hh.
+///   Kairo surface over the pass-timing engine in Native/TimeReport.hh.
 ///
 ///   WHY TWO FILES: the registry needs thread_local state, atomics and a
 ///   shared_mutex, and it has to be callable from C++ (the Native/ headers)
@@ -51,7 +51,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/KTimeReport.hh"
+ffi "c++" import "Native/TimeReport.hh"
 
 import std::c_char
 

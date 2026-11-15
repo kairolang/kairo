@@ -75,8 +75,8 @@ ffi "c++" import "llvm/Support/TargetSelect.h"
 ffi "c++" import "llvm/Support/VirtualFileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "llvm/TargetParser/Triple.h"
-ffi "c++" import "Native/KSharedVFS.hh"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/SharedVFS.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
 ffi "c++" import "memory"
 ffi "c++" import "string"
@@ -192,7 +192,7 @@ pub enum MountState derives u8 {
 ///          and hand out views of the buffers. Its one write a TU reaches is
 ///          setCurrentWorkingDirectory, which OverlayFileSystem::pushOverlay
 ///          makes on every layer pushed: a TU therefore pushes a proxy that
-///          drops it (Native/KSharedVFS.hh), and freeze() sets the layer's
+///          drops it (Native/SharedVFS.hh), and freeze() sets the layer's
 ///          working directory once, to what pushOverlay would have copied.
 pub class CodegenMounts {
     pub var pch_paths:  cxx::std::vector<string>
@@ -650,7 +650,7 @@ pub class ClangBackend {
     /// \details Any thread. The overlay is the TU's own; the layer is the one
     ///          \p m shares once frozen (CodegenMounts::freeze), pushed
     ///          through a proxy that keeps pushOverlay's working-directory
-    ///          write off it (Native/KSharedVFS.hh), else a fresh one for this
+    ///          write off it (Native/SharedVFS.hh), else a fresh one for this
     ///          call.
     pub fn codegen_vfs(self, m: *CodegenMounts) -> llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> {
         var overlay = llvm::makeIntrusiveRefCnt<llvm::vfs::OverlayFileSystem>(

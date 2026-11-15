@@ -27,7 +27,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/KShims.hh"
+ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "vector"
 
 import API::FS::LinkFS

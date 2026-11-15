@@ -27,7 +27,7 @@
 
 ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "llvm/ADT/StringSet.h"
-ffi "c++" import "Native/KShims.hh"
+ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 

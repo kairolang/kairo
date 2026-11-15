@@ -130,7 +130,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KThread.hh" // sema_mint_rank
+ffi "c++" import "Native/Thread.hh" // sema_mint_rank
 ffi "c++" import "vector"
 ffi "c++" import "clang/AST/DeclCXX.h" // the layout twins' QualType (foreign mode)
 ffi "c++" import "clang/AST/Type.h"

@@ -17,7 +17,7 @@
 #include <array>
 #include <cstdint>
 #include <cwctype>
-#include "KPrelude.hh"
+#include "Prelude.hh"
 
 namespace kairo {
 

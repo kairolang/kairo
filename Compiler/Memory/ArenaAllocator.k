@@ -13,7 +13,7 @@
 
 ffi "c++" import "Native/AddrRanges.hh"
 ffi "c++" import "Native/ArenaBlock.hh"
-ffi "c++" import "Native/KPlacement.hh" // construct_at
+ffi "c++" import "Native/Placement.hh" // construct_at
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "cstddef"
 ffi "c++" import "cstring"
@@ -192,7 +192,7 @@ pub class ArenaAllocator {
     // variadic, so there is one overload per arity a caller uses; add one
     // when a new arity is needed. Arguments are taken by value and moved
     // into T's constructor: one copy at the call, as forwarding an lvalue
-    // was. Placement itself is Native/KPlacement.hh.
+    // was. Placement itself is Native/Placement.hh.
     fn <T> create(self) -> unsafe *T {
         var mem: unsafe *void = self.alloc(sizeof(T), alignof(T))
         return kairo::construct_at<T>(mem)

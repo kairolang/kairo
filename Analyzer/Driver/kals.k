@@ -156,8 +156,8 @@
 ///     out: { type, message }
 
 ffi "c++" import "Native/GlobalRecycler.hh"
-ffi "c++" import "Native/KLocale.hh" // init_process_locale
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Locale.hh" // init_process_locale
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "cstring"
 ffi "c++" import "llvm/Support/InitLLVM.h"

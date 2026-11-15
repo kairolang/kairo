@@ -13,8 +13,8 @@
 
 ffi "c++" import "Native/SmallFunction.hh"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KThread.hh" // spawn_pool_workers, thread_pool_local_qid
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Thread.hh" // spawn_pool_workers, thread_pool_local_qid
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "thread"
 ffi "c++" import "vector"
 ffi "c++" import "array"
@@ -167,7 +167,7 @@ pub class ThreadPool {
 
         // Now spawn threads all queues are guaranteed present. Each runs
         // worker_loop(i) on a detached native thread with a 32 MiB stack;
-        // the pthread / CreateThread calls are in Native/KThread.hh.
+        // the pthread / CreateThread calls are in Native/Thread.hh.
         kairo::spawn_pool_workers(unsafe &self, self._count, WORKER_STACK_BYTES)
 
         kairo::Logger::info(
@@ -209,7 +209,7 @@ pub class ThreadPool {
 
         // Now spawn threads all queues are guaranteed present. Each runs
         // worker_loop(i) on a detached native thread with a 32 MiB stack;
-        // the pthread / CreateThread calls are in Native/KThread.hh.
+        // the pthread / CreateThread calls are in Native/Thread.hh.
         kairo::spawn_pool_workers(unsafe &self, self._count, WORKER_STACK_BYTES)
 
         kairo::Logger::info(
@@ -276,7 +276,7 @@ pub class ThreadPool {
         self._groups[group].fetch_add(1, kairo::std::MemoryOrder::relaxed)
 
         // This thread's queue, picked once from its id and cached in a
-        // thread_local (Native/KThread.hh) shared by every pool.
+        // thread_local (Native/Thread.hh) shared by every pool.
         var local_qid: unsafe *usize = kairo::thread_pool_local_qid()
         if *local_qid == usize::MAX {
             var tid = cxx::std::this_thread::get_id()

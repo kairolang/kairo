@@ -1,12 +1,11 @@
-/// --- The Kairo Project ---------------------------- Native/KThread.hh --- ///
+/// --- The Kairo Project ---------------------------- Native/Thread.hh --- ///
 ///
 ///   Thread-pool plumbing Kairo cannot spell: native thread creation with an
 ///   explicit stack size, a thread_local, and a cache-line-aligned queue cell.
 ///
 ///   WHY C++: pthread_create / CreateThread take a C callback, `thread_local`
 ///   and `alignas` have no Kairo spelling, and the cell needs a hand-written
-///   move that relaxes through an atomic. Stage 1 does not emit inline
-///   foreign blocks, so the C++ lives here and ThreadPool and PartitionQueue
+///   move that relaxes through an atomic. ThreadPool and PartitionQueue
 ///   call it.
 ///
 ///   ODR: everything is a template or an inline function, and the one piece
@@ -26,18 +25,32 @@
 #ifndef __KAIRO_NATIVE_KTHREAD_HH__
 #define __KAIRO_NATIVE_KTHREAD_HH__
 
-#include "KPrelude.hh"
+#include "Prelude.hh"
 #include <atomic>
 #include <exception>
 #include <utility>
 
 #if defined(_WIN32)
-#include "Win32.hh"   // spawn_thread; never <windows.h> here
+#include "Win32.hh"   // spawn_thread, run_on_thread; never <windows.h> here
 #else
 #include <pthread.h>
 #endif
 
 namespace kairo {
+
+namespace native {
+
+/// A pool worker cannot be started. The pool counts its workers before it
+/// starts them and waits for every one of them at shutdown, so a missing
+/// worker is a hang; the process ends here instead, saying why.
+[[noreturn]] inline void worker_start_failed(usize index, usize count, const char *why) noexcept {
+    ::std::fprintf(stderr, "error: cannot start worker thread %zu of %zu: %s\n",
+                   static_cast<size_t>(index + 1), static_cast<size_t>(count), why);
+    ::std::fflush(stderr);
+    ::std::_Exit(1);
+}
+
+}  // namespace native
 
 /// Starts \p count detached native threads, thread i running
 /// `pool->worker_loop(i)`, each with a stack of \p stack_bytes
@@ -45,36 +58,46 @@ namespace kairo {
 /// so this header needs no declaration of ThreadPool, which is a Kairo
 /// class; the pair handed to the thread is freed by the thread.
 ///
-/// Platforms other than POSIX (macOS/Linux) and Windows start no threads,
-/// exactly as the inline block this replaces did.
+/// Every thread is started or the process ends (native::worker_start_failed).
+/// A wasm host has no threads and starts none.
 template <typename Pool>
 inline void spawn_pool_workers(Pool *pool, usize count, usize stack_bytes) {
 #if !defined(_WIN32) && !defined(__wasm__)
-    // Every POSIX system, BSDs included: guarded by __APPLE__ || __linux__ before,
-    // a FreeBSD / NetBSD compiler started no pool workers at all.
     for (usize i = 0; i < count; ++i) {
         pthread_attr_t attr;
         pthread_attr_init(&attr);
-        pthread_attr_setstacksize(&attr, stack_bytes);
+        // A refused size would leave the platform default (512 KiB on macOS),
+        // which the compiler's recursion does not fit in.
+        int rc = pthread_attr_setstacksize(&attr, stack_bytes);
         pthread_t tid;
         auto *arg = new ::std::pair<Pool *, usize>(pool, i);
-        pthread_create(&tid, &attr, [](void *raw) -> void * {
-            auto *p = static_cast<::std::pair<Pool *, usize> *>(raw);
-            p->first->worker_loop(p->second);
-            delete p;
-            return nullptr;
-        }, arg);
+        if (rc == 0) {
+            rc = pthread_create(&tid, &attr, [](void *raw) -> void * {
+                auto *p = static_cast<::std::pair<Pool *, usize> *>(raw);
+                p->first->worker_loop(p->second);
+                delete p;
+                return nullptr;
+            }, arg);
+        }
         pthread_attr_destroy(&attr);
+        if (rc != 0) {
+            delete arg;
+            native::worker_start_failed(i, count, ::std::strerror(rc));
+        }
         pthread_detach(tid);
     }
 #elif defined(_WIN32)
     for (usize i = 0; i < count; ++i) {
         auto *arg = new ::std::pair<Pool *, usize>(pool, i);
-        kairo::win32::spawn_thread([](void *raw) {
+        bool started = kairo::win32::spawn_thread([](void *raw) {
             auto *p = static_cast<::std::pair<Pool *, usize> *>(raw);
             p->first->worker_loop(p->second);
             delete p;
         }, arg, stack_bytes);
+        if (!started) {
+            delete arg;
+            native::worker_start_failed(i, count, "CreateThread failed");
+        }
     }
 #else
     (void)pool;
@@ -83,42 +106,64 @@ inline void spawn_pool_workers(Pool *pool, usize count, usize stack_bytes) {
 #endif
 }
 
-/// Runs `*out = ci->execute()` on a new thread with a stack of \p stack_bytes and
-/// waits for it, so the driver's own work (the entry file's parse and Sema,
-/// codegen) has the pool workers' stack rather than the main thread's,
-/// which the OS sizes (8 MB on Linux, 512 KB to 8 MB elsewhere) and only
-/// setrlimit, which is Linux-only and takes effect for new threads, could
-/// raise. A left-deep 30000-term `1 + 1 + ...` chain recursed past 8 MB in
-/// the entry file's Sema. An exception thrown on that thread is
-/// rethrown here. Where no thread with a stack size can be made (Windows,
-/// wasm, or pthread_create failing) it runs on the calling thread, as
-/// before. Templated on the instance so this header needs no declaration
-/// of CompilerInstance, a Kairo class.
+namespace native {
+
+/// What execute_on_big_stack hands its thread: the call to make and where an
+/// exception thrown by it is kept for the caller.
 template <typename Ci, typename R>
-inline void execute_on_big_stack(Ci *ci, R *out, usize stack_bytes) {
-#if !defined(_WIN32) && !defined(__wasm__)
-    struct Job {
-        Ci *ci;
-        R *out;
-        ::std::exception_ptr err;
-    };
-    Job job{ci, out, nullptr};
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, stack_bytes);
-    pthread_t tid;
-    int rc = pthread_create(&tid, &attr, [](void *raw) -> void * {
-        auto *j = static_cast<Job *>(raw);
+struct BigStackJob {
+    Ci *ci;
+    R *out;
+    ::std::exception_ptr err;
+
+    static void run(void *raw) noexcept {
+        auto *j = static_cast<BigStackJob *>(raw);
         try {
             *j->out = j->ci->execute();
         } catch (...) {
             j->err = ::std::current_exception();
         }
-        return nullptr;
-    }, &job);
+    }
+};
+
+}  // namespace native
+
+/// Runs `*out = ci->execute()` on a new thread with a stack of \p stack_bytes and
+/// waits for it, so the driver's own work (the entry file's parse and Sema,
+/// codegen) has the pool workers' stack rather than the main thread's,
+/// which the OS or the linker sizes (8 MB on Linux, 1 MB on Windows, 512 KB
+/// to 8 MB elsewhere). A left-deep 30000-term `1 + 1 + ...` chain recurses
+/// past 8 MB in the entry file's Sema. An exception thrown on that thread is
+/// rethrown here. Where the thread cannot be made (a wasm host, or thread
+/// creation failing) the call runs on the calling thread. Templated on the
+/// instance so this header needs no declaration of CompilerInstance, a
+/// Kairo class.
+template <typename Ci, typename R>
+inline void execute_on_big_stack(Ci *ci, R *out, usize stack_bytes) {
+#if !defined(__wasm__)
+    using Job = native::BigStackJob<Ci, R>;
+    Job  job{ci, out, nullptr};
+    bool ran = false;
+#if defined(_WIN32)
+    ran = kairo::win32::run_on_thread(&Job::run, &job, stack_bytes);
+#else
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_t tid;
+    int rc = pthread_attr_setstacksize(&attr, stack_bytes);
+    if (rc == 0) {
+        rc = pthread_create(&tid, &attr, [](void *raw) -> void * {
+            Job::run(raw);
+            return nullptr;
+        }, &job);
+    }
     pthread_attr_destroy(&attr);
     if (rc == 0) {
         pthread_join(tid, nullptr);
+        ran = true;
+    }
+#endif
+    if (ran) {
         if (job.err) {
             ::std::rethrow_exception(job.err);
         }
@@ -131,8 +176,7 @@ inline void execute_on_big_stack(Ci *ci, R *out, usize stack_bytes) {
 }
 
 /// The calling thread's cached queue index for ThreadPool::enqueue, or
-/// usize(-1) before its first enqueue. Shared by every pool on the thread,
-/// as the function-local thread_local it replaces was.
+/// usize(-1) before its first enqueue. Shared by every pool on the thread.
 inline usize *thread_pool_local_qid() {
     thread_local usize local_qid = static_cast<usize>(-1);
     return &local_qid;

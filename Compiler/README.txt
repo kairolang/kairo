@@ -157,9 +157,9 @@ Compiler/
                     view of the fan-out's shared in-memory file layer), the
                     object cache's hashing (KObjCache), Win32 calls
                     (Win32.hh/.cpp), Cc1As.hh (clang's -cc1as entry point),
-                    KClangDiag.hh (questions about a clang::Diagnostic's
-                    arguments), KClangPurity.hh (clang's const / pure marks
-                    for FnPurityCheck), KCxxMoveWalk.hh (whether a C++
+                    ClangDiag.hh (questions about a clang::Diagnostic's
+                    arguments), ClangPurity.hh (clang's const / pure marks
+                    for FnPurityCheck), ClangMoveWalk.hh (whether a C++
                     function's body moves out of a reference parameter, for
                     MoveCheck)
 
@@ -252,7 +252,7 @@ Moves: MoveCheck records each transfer it counts (SemaContext::move_sites),
 and CopyMoveLowering casts exactly those to `T&&`, so what C++ moves is what
 the checker counted. A MOVE value passed to a C++ function by `T&` / `T*`
 is moved-from when the function's body moves out of it
-(Native/KCxxMoveWalk.hh, through Sema/Foreign/ForeignInstantiate.k) and,
+(Native/ClangMoveWalk.hh, through Sema/Foreign/ForeignInstantiate.k) and,
 when no body can be inspected, under -fstrict-cxx-moves (on by default;
 -fno-strict-cxx-moves borrows every such call).
 
@@ -672,7 +672,7 @@ Native/ headers are pooled rather than co-located because their #include
 paths are relative and mutually dependent; -I does not reach them.
 
 Native/ is plain C++ on the C++ standard library. Every header includes
-Native/KPrelude.hh, which defines KAIRO_NATIVE_STAGE0 from whether
+Native/Prelude.hh, which defines KAIRO_NATIVE_STAGE0 from whether
 lib-helix's <include/core.hh> is on the include path. No build of this tree
 puts it there, so the switch is 0 and the code behind `#if
 KAIRO_NATIVE_STAGE0` (lib-helix's string, null_t, std::Function, the print

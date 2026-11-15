@@ -38,7 +38,7 @@
 
 ffi "c++" import "llvm/Support/TargetSelect.h"
 ffi "c++" import "cstdlib"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "cstring"
 
 import AST::Printer::PrintCore::PrintOptions

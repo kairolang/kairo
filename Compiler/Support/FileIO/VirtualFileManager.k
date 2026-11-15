@@ -12,7 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
 ffi "c++" import "llvm/ADT/StringMap.h"
 

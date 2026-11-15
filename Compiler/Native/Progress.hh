@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------------------- Native/KProgress.hh --- ///
+/// --- The Kairo Project -------------------------- Native/Progress.hh --- ///
 ///
 ///   ninja-style build progress: per-phase atomic counters, and either one
 ///   pinned status line on a terminal or `@progress` event lines for a
@@ -8,7 +8,7 @@
 ///   WHY C++ AND NOT KAIRO: the Codegen worker loop and the Diagnostic
 ///   consumers both report here, and neither may import Driver/. A Native
 ///   header both can include keeps the layering; the thread, the atomics and
-///   the terminal ioctls are what Native/ is for (see KTimeReport.hh).
+///   the terminal ioctls are what Native/ is for (see TimeReport.hh).
 ///
 ///   OUTPUT RULE. The pinned line is only ever on screen between a redraw and
 ///   the next erase, and every byte the compiler prints to stderr while it may
@@ -28,7 +28,7 @@
 #ifndef __KAIRO_NATIVE_KPROGRESS_HH__
 #define __KAIRO_NATIVE_KPROGRESS_HH__
 
-#include "KPrelude.hh"
+#include "Prelude.hh"
 #include "Win32.hh"
 
 #include <atomic>
@@ -42,9 +42,7 @@
 #include <string>
 #include <thread>
 
-#if defined(_WIN32)
-#include <io.h>
-#else
+#if !defined(_WIN32)
 #include <sys/ioctl.h>
 #include <unistd.h>
 #endif
@@ -64,10 +62,15 @@ class ProgressMeter {
         State &s = st();
         s.start = ::std::chrono::steady_clock::now();
         s.mode  = Off;
+        // Writers that cannot include this header (the Logger's live echo)
+        // reach hold() / release() through the guard. Both are no-ops unless
+        // the line is pinned.
+        native::stderr_guard().hold.store(&ProgressMeter::hold, ::std::memory_order_release);
+        native::stderr_guard().release.store(&ProgressMeter::release, ::std::memory_order_release);
         ::std::string f = flag ? flag : "";
         if (f.empty() || f == "auto") {
             const char *term = ::std::getenv("TERM");
-            if (!tty_err() || (term && ::std::strcmp(term, "dumb") == 0)) { return true; }
+            if (!native::stderr_is_tty() || (term && ::std::strcmp(term, "dumb") == 0)) { return true; }
             if (vt_ok(&s.cols)) { s.mode = Pinned; }
             return true;
         }
@@ -174,9 +177,13 @@ class ProgressMeter {
   private:
     enum Mode : int { Off = 0, Pinned = 1, Lines = 2 };
 
+    static constexpr int    REDRAW_MS       = 100; ///< the pinned line's redraw period
+    static constexpr int    DEFAULT_COLS    = 80;  ///< when the terminal does not say
+    static constexpr size_t PATH_COMPONENTS = 3;   ///< of the current file, from its end
+
     struct State {
         Mode                                     mode = Off;
-        int                                      cols = 80;
+        int                                      cols = DEFAULT_COLS;
         ::std::chrono::steady_clock::time_point  start{};
         ::std::mutex                             mu;
         ::std::condition_variable                cv;
@@ -205,14 +212,6 @@ class ProgressMeter {
         case Sema: return "sema";
         default: return "codegen";
         }
-    }
-
-    static bool tty_err() {
-#if defined(_WIN32)
-        return _isatty(_fileno(stderr)) != 0;
-#else
-        return ::isatty(2) != 0;
-#endif
     }
 
     /// Whether stderr takes ANSI sequences, and how wide it is.
@@ -274,7 +273,7 @@ class ProgressMeter {
             size_t r = s.reused[p].load();
             if (r) { out += ", " + ::std::to_string(r) + " reused"; }
             out += "]";
-            if (first && !s.file.empty()) { out += " " + tail(s.file, 3); }
+            if (first && !s.file.empty()) { out += " " + tail(s.file, PATH_COMPONENTS); }
             first = false;
         }
         if (first) { return out; }
@@ -282,9 +281,14 @@ class ProgressMeter {
         char tm[32];
         ::std::snprintf(tm, sizeof tm, "  %lld:%02lld", static_cast<long long>(secs / 60), static_cast<long long>(secs % 60));
         out += tm;
-        // Never wrap: a wrapped row cannot be erased by \r\x1b[2K.
-        size_t w = s.cols > 1 ? static_cast<size_t>(s.cols - 1) : 79;
-        if (out.size() > w) { out.resize(w); }
+        // Never wrap: a wrapped row cannot be erased by \r\x1b[2K. The cut
+        // falls on a code point boundary, since half a UTF-8 sequence is not
+        // text a terminal can show.
+        size_t w = static_cast<size_t>((s.cols > 1 ? s.cols : DEFAULT_COLS) - 1);
+        if (out.size() > w) {
+            while (w > 0 && (static_cast<unsigned char>(out[w]) & 0xC0) == 0x80) { --w; }
+            out.resize(w);
+        }
         return out;
     }
 
@@ -295,12 +299,15 @@ class ProgressMeter {
         s.drawn = false;
     }
 
-    /// Redraws about every 100 ms and never faster than 50 ms: the only
-    /// thread that draws, so the line is written from one place.
+    /// Redraws every REDRAW_MS. The only thread that draws, so the line is
+    /// written from one place.
     static void render_loop(State &s) {
         ::std::unique_lock<::std::mutex> lk(s.mu);
         while (!s.stop) {
             if (s.held == 0) {
+                // The terminal can be resized while a phase runs.
+                int cols = s.cols;
+                if (vt_ok(&cols) && cols > 0) { s.cols = cols; }
                 ::std::string line = compose(s);
                 if (line.empty()) {
                     erase_locked(s);
@@ -311,7 +318,7 @@ class ProgressMeter {
                     s.drawn = true;
                 }
             }
-            s.cv.wait_for(lk, ::std::chrono::milliseconds(100));
+            s.cv.wait_for(lk, ::std::chrono::milliseconds(REDRAW_MS));
         }
     }
 };

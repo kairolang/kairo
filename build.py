@@ -173,7 +173,7 @@ def write_meta(gen_dir: Path, name: str, os_: str, epoch=None, ver: str = None) 
     tooling. Section syntax is per object format (ELF / Mach-O / COFF).
 
     With `ver` it also defines kairo_version_cstr(), the tool's version string, which
-    Native/KShims.hh's version_string() returns under -D KAIRO_VERSION_EXTERN. It is not a
+    Native/Shims.hh's version_string() returns under -D KAIRO_VERSION_EXTERN. It is not a
     `-D VERSION="kcc+dev.<date>"` on every TU: that is a cc1 word, so in every
     object key (Compiler/Spec/Incremental.md), and it differs per tool and per day, so
     no two tools (and no two days) could share a cached object. It lives in the one

@@ -29,7 +29,7 @@
 ///
 ///        APFloat carries the same semantics (semFloat8E4M3FN,
 ///        semFloat8E5M2), and the compiler uses it for literals
-///        (Native/KShims.hh, f8_literal_bits): the two implementations must
+///        (Native/Shims.hh, f8_literal_bits): the two implementations must
 ///        agree on all 256 encodings in both directions, which
 ///        F8E4M3::verify_ / F8E5M2::verify_ check (Tests/Codegen/types).
 ///
@@ -230,7 +230,7 @@ pub class F8E4M3 {
     }
 
     /// The value whose encoding is `b`: what a literal is emitted as (the
-    /// compiler rounds the digits once, Native/KShims.hh).
+    /// compiler rounds the digits once, Native/Shims.hh).
     pub inline static fn from_bits(b: u8) -> F8E4M3 {
         var r = F8E4M3()
         r.bits = b

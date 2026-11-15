@@ -35,29 +35,12 @@
 /// schedulers, and other concurrent execution frameworks where minimizing
 /// allocation latency and contention is critical.
 ///
-/// \note The file also defines `_thread_pause()` across architectures for
-/// low-latency busy-waiting.
-///
 /// \see kairo::ThreadPool, std::function
 ///
 
-#include "KPrelude.hh"
+#include "Prelude.hh"
 
 #include "Types.hh"
-
-#if defined(_WIN32)
-// (nothing: no Win32 call here, and <windows.h> must stay out of every header
-// a Kairo module imports; see Win32.hh)
-#elif defined(__linux__)
-#include <pthread.h>
-#include <sched.h>
-#elif defined(__APPLE__)
-#include <mach/mach_init.h>
-#include <mach/thread_act.h>
-#include <pthread.h>
-#else
-#include <thread>
-#endif
 
 namespace kairo {
 template <size_t InlineSize>
@@ -113,6 +96,8 @@ void SmallFunction<InlineSize>::emplace(F &&f) {
     using FnT = libcxx::decay_t<F>;
     static_assert(sizeof(FnT) <= InlineSize,
                   "Callable too large for SmallFunction inline storage");
+    static_assert(alignof(FnT) <= alignof(libcxx::max_align_t),
+                  "Callable over-aligned for SmallFunction inline storage");
 
     new (static_cast<void *>(_storage.data)) FnT(libcxx::forward<F>(f));
 
@@ -123,6 +108,10 @@ void SmallFunction<InlineSize>::emplace(F &&f) {
     _destroy = [](void *s) noexcept { reinterpret_cast<FnT *>(s)->~FnT(); };
 }
 
+/// The stored callable is relocated by copying its bytes; its move
+/// constructor does not run. Every callable stored here must therefore be
+/// trivially relocatable: no pointer into its own storage (a lambda that
+/// captures a libc++ std::function or an llvm::SmallVector by value is not).
 template <size_t InlineSize>
 void SmallFunction<InlineSize>::move_from(SmallFunction &&other) noexcept {
     libcxx::memcpy(&_storage, &other._storage, sizeof(Storage));

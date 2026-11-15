@@ -90,7 +90,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "vector"
-ffi "c++" import "Native/KClangPurity.hh"
+ffi "c++" import "Native/ClangPurity.hh"
 
 import AST::Context::DeclContext::DeclContextKind
 import AST::Context::SymbolTable::DeclName

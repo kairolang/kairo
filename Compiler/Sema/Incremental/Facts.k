@@ -33,7 +33,7 @@ ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "llvm/ADT/STLExtras.h"
-ffi "c++" import "Native/KObjCache.hh"
+ffi "c++" import "Native/ObjCache.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 

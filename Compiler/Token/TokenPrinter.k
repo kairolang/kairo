@@ -12,7 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/SmallVector.h"
-ffi "c++" import "Native/KShims.hh"
+ffi "c++" import "Native/Shims.hh"
 
 import Lexer::Immediate::{
     Immediate,

@@ -21,7 +21,7 @@ ffi "c++" import "llvm/Support/Path.h"
 ffi "c++" import "llvm/Support/Process.h"
 ffi "c++" import "llvm/Support/Program.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KShims.hh" // write_file_exact
+ffi "c++" import "Native/Shims.hh" // write_file_exact
 ffi "c++" import "Native/Win32.hh" // move_path (Windows directory renames)
 ffi "c++" import "cstdlib"
 ffi "c++" import "vector"
@@ -123,7 +123,7 @@ pub class LinkFS {
     }
 
     pub static fn write(const path: string, const text: string) -> bool {
-        // Exact bytes (KShims write_file_exact): writeFileWithEncoding's text
+        // Exact bytes (Shims.hh write_file_exact): writeFileWithEncoding's text
         // mode turned '\n' into "\r\n" on Windows, and read() returns bytes.
         return kairo::write_file_exact(kairo::sref(path), kairo::sref(text))
     }

@@ -398,11 +398,11 @@ line comes first, then one blank line, then the Kairo imports.
 ```rs
 // before
 import std::io
-ffi "c++" import "Native/KShims.hh"
+ffi "c++" import "Native/Shims.hh"
 import AST::Node::Base
 ffi "c++" import "cstdlib"
 // after
-ffi "c++" import "Native/KShims.hh"
+ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "cstdlib"
 
 import AST::Node::Base

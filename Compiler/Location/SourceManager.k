@@ -14,7 +14,7 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/UTF8Decode.hh"
 ffi "c++" import "llvm/Support/FormatVariadic.h"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
 ffi "c++" import "string"
 

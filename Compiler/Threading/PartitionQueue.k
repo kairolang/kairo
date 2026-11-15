@@ -13,7 +13,7 @@
 
 ffi "c++" import "Native/SmallFunction.hh"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KThread.hh" // SeqCell
+ffi "c++" import "Native/Thread.hh" // SeqCell
 ffi "c++" import "vector"
 ffi "c++" import "utility"
 
@@ -93,7 +93,7 @@ pub class PartitionQueue {
     ///
     /// \see PartitionQueue, Task, ThreadPool
     ///
-    /// The cell is Native/KThread.hh's SeqCell: Kairo has no `alignas`, and
+    /// The cell is Native/Thread.hh's SeqCell: Kairo has no `alignas`, and
     /// its move has to relax through the atomic counter.
     type Cell = kairo::SeqCell<Task, CACHE_LINE>
 

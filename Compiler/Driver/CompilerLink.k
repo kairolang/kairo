@@ -19,7 +19,7 @@ ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "llvm/TargetParser/Host.h"
 ffi "c++" import "llvm/TargetParser/Triple.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
 
 import API::FS::LinkFS

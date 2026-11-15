@@ -12,7 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 
 import Memory::MMapRegion::MMapRegion
 import Memory::MemoryBuffer::MemoryBuffer

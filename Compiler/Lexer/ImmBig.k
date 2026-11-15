@@ -12,7 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/SmallVector.h"
-ffi "c++" import "Native/KInt128.hh" // kairo::wide: 64x64 -> 128 multiply-add
+ffi "c++" import "Native/Int128.hh" // kairo::wide: 64x64 -> 128 multiply-add
 ffi "c++" import "bit"
 
 /// \brief portable 128-bit arithmetic operations
@@ -29,7 +29,7 @@ pub module Int128 {
                                     addend:     u64,
                                     @inout hi:  u64) -> bool {
         // The wide paths are intrinsics / unsigned __int128, which have no
-        // Kairo spelling: Native/KInt128.hh, defined under the same tests.
+        // Kairo spelling: Native/Int128.hh, defined under the same tests.
         eval if defined!(_MSC_VER) {
             return kairo::wide::mul_add_64(&val, factor, addend, &hi)
         } else if defined!(__SIZEOF_INT128__) {
@@ -91,7 +91,7 @@ pub module Int128 {
                                      factor:    u64,
                                      addend:    u64) -> bool {
         // The wide paths, and the overflow reasoning for each, are in
-        // Native/KInt128.hh (intrinsics / unsigned __int128).
+        // Native/Int128.hh (intrinsics / unsigned __int128).
         eval if defined!(_MSC_VER) {
             return kairo::wide::mul_add_128(&lo, &hi, factor, addend)
         } else if defined!(__SIZEOF_INT128__) {

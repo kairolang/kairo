@@ -18,7 +18,7 @@
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "clang/Frontend/FrontendActions.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
 
 import API::Text::LinkText

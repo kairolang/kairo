@@ -63,7 +63,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "atomic"
-ffi "c++" import "Native/KThread.hh" // sema_mint_rank
+ffi "c++" import "Native/Thread.hh" // sema_mint_rank
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "Native/AddrRanges.hh"

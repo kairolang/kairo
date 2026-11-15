@@ -12,9 +12,9 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/SmallVector.h"
-ffi "c++" import "Native/KInt128.hh" // kairo::wide: 64x64 -> 128 multiply-add
+ffi "c++" import "Native/Int128.hh" // kairo::wide: 64x64 -> 128 multiply-add
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "bit"
 ffi "c++" import "vector"
 

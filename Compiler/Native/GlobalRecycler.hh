@@ -1,12 +1,14 @@
 #pragma once
-#include "KPrelude.hh"
+#include "Prelude.hh"
 
 #include "Types.hh"
 
 namespace kairo {
 
 constexpr bool   PRE_TOUCH  = false;
-constexpr size_t SIMD_WIDTH = 64;
+/// Alignment of every arena block: a cache line, and what the AVX-512
+/// streaming reset stores to.
+constexpr size_t BLOCK_ALIGN = 64;
 
 inline size_t align_up(size_t v, size_t align) noexcept {
     return (v + align - 1) & ~(align - 1);
@@ -33,8 +35,8 @@ inline size_t align_up(size_t v, size_t align) noexcept {
 ///   - push()ing it back under the smaller requested size permanently
 ///     demotes the block into a lower bin. Repeated across passes that
 ///     drains the large bins and forces a fresh malloc for every large
-///     allocation, while the demoted blocks pile up unusable. This was a
-///     real unbounded leak, not a theoretical one.
+///     allocation, while the demoted blocks pile up unusable: an
+///     unbounded leak.
 ///   - the surplus bytes are usable. A 1MB block serving a 64KB request
 ///     is only wasteful if the arena is told it has 64KB.
 ///
@@ -119,10 +121,30 @@ class GlobalRecycler {
     GlobalRecycler &operator=(GlobalRecycler &&)      = delete;
 
     /// Zero every block on its way out of an arena. A live check's heap
-    /// scan (KAIRO_LIVE_POISON, Native/KShims.hh) takes any word for a
+    /// scan (KAIRO_LIVE_POISON, Native/Shims.hh) takes any word for a
     /// pointer; a block handed out again still holds what its last owner
     /// wrote, in whatever the new one has not written yet.
     static inline ::std::atomic<bool> scrub{false};
+
+    /// A fresh block of \p size bytes (a multiple of BLOCK_ALIGN), or null.
+    /// Windows' CRTs (MSVC's and MinGW's msvcrt / ucrt alike) have no C11
+    /// aligned_alloc, and _aligned_malloc's blocks go back only through
+    /// _aligned_free: every block is made here and released by free_raw.
+    static std::Byte *alloc_raw(size_t size) noexcept {
+#if defined(_WIN32)
+        return static_cast<std::Byte *>(_aligned_malloc(size, BLOCK_ALIGN));
+#else
+        return static_cast<std::Byte *>(libcxx::aligned_alloc(BLOCK_ALIGN, size));
+#endif
+    }
+
+    static void free_raw(void *block) noexcept {
+#if defined(_WIN32)
+        _aligned_free(block);
+#else
+        libcxx::free(block);
+#endif
+    }
 
     void stats(usize &out_blocks, usize &out_bytes) noexcept {
         std::LockGuard<std::Mutex> lock(_mu);
@@ -161,11 +183,7 @@ class GlobalRecycler {
             // bin is full   fall through and give the pages back to the OS.
         }
 
-#if defined(_WIN32)   // ArenaBlock::alloc_block's _aligned_malloc, MinGW too
-        _aligned_free(block);
-#else
-        libcxx::free(block);
-#endif
+        free_raw(block);
     }
 
     /// \param out_capacity receives the capacity of the returned block, which
@@ -213,11 +231,7 @@ class GlobalRecycler {
             bin        = nullptr;
             while (node != nullptr) {
                 Node *next = node->next;
-#if defined(_WIN32)
-                _aligned_free(reinterpret_cast<std::Byte *>(node));
-#else
-                libcxx::free(reinterpret_cast<std::Byte *>(node));
-#endif
+                free_raw(node);
                 node = next;
             }
         }

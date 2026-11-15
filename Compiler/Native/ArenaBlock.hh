@@ -1,5 +1,5 @@
 #pragma once
-#include "KPrelude.hh"
+#include "Prelude.hh"
 
 #include "Types.hh"
 #include "GlobalRecycler.hh"
@@ -109,11 +109,7 @@ struct alignas(64) ArenaBlock {
         Logger::debug(Logger::Stage::Driver,
                       libcxx::format("ArenaBlock::destroy: hard-free cap={}B",
                                      capacity));
-#if defined(_WIN32)
-        _aligned_free(ptr);   // alloc_block's _aligned_malloc
-#else
-        libcxx::free(ptr);
-#endif
+        GlobalRecycler::free_raw(ptr);
         ptr = nullptr;
     }
 
@@ -177,9 +173,9 @@ struct alignas(64) ArenaBlock {
         }
 #if defined(_x86_64_simd)
         // reset_avx512 is compiled for AVX-512 (gnu::target) whatever the build's
-        // floor, so it needs this CPU to have it: a shipped x86-64-v2 compiler on a
-        // CPU without AVX-512 (most Intel desktop parts) died here with SIGILL on
-        // the first large arena reset. Checked once.
+        // floor, so it needs this CPU to have it: on a CPU without AVX-512 (most
+        // Intel desktop parts) an x86-64-v2 build would raise SIGILL on the first
+        // large arena reset. Checked once.
 #if defined(__AVX512F__)
         reset_avx512(len);
 #else
@@ -225,7 +221,7 @@ struct alignas(64) ArenaBlock {
     /// demoting it   large blocks drain away one pass at a time and every large
     /// allocation mallocs fresh, which reads as an unbounded leak.
     static std::Byte *alloc_block(size_t &cap) noexcept {
-        cap = align_up(cap, 64);
+        cap = align_up(cap, BLOCK_ALIGN);
 
         size_t got = 0;
         if (auto *blk = GlobalRecycler::instance().pop(cap, got)) {
@@ -233,15 +229,13 @@ struct alignas(64) ArenaBlock {
             return blk;
         }
 
-        // Windows' CRTs (MSVC's and MinGW's msvcrt / ucrt alike) have no C11
-        // aligned_alloc; _aligned_malloc's blocks must go back via _aligned_free.
-        return static_cast<std::Byte *>(
-#if !defined(_WIN32)
-            libcxx::aligned_alloc(64, cap)
-#else
-            _aligned_malloc(cap, 64)
-#endif
-        );
+        auto *blk = GlobalRecycler::alloc_raw(cap);
+        // try_alloc does not test `ptr`: a null block with a capacity would
+        // hand out small integers as pointers.
+        if (blk == nullptr) [[unlikely]] {
+            std::out_of_memory(cap);
+        }
+        return blk;
     }
 
     void pre_touch() const noexcept {

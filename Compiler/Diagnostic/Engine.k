@@ -50,7 +50,7 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/StringSet.h"
-ffi "c++" import "Native/KThread.hh" // diag_capture
+ffi "c++" import "Native/Thread.hh" // diag_capture
 
 import Diagnostic::Category::DiagCategory
 import Diagnostic::Code::DiagCode

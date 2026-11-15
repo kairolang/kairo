@@ -70,11 +70,11 @@ ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "llvm/ADT/SmallString.h"
 ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
-ffi "c++" import "Native/KLog.hh"
-ffi "c++" import "Native/KClangPurity.hh" // decl_purity
-ffi "c++" import "Native/KCxxMoveWalk.hh" // cxx_moves_out
+ffi "c++" import "Native/Log.hh"
+ffi "c++" import "Native/ClangPurity.hh" // decl_purity
+ffi "c++" import "Native/ClangMoveWalk.hh" // cxx_moves_out
 ffi "c++" import "clang/Lex/Lexer.h"
-ffi "c++" import "Native/KThread.hh" // sema_mint_rank
+ffi "c++" import "Native/Thread.hh" // sema_mint_rank
 ffi "c++" import "atomic"
 ffi "c++" import "vector"
 ffi "c++" import "memory"
@@ -133,7 +133,7 @@ struct UnspelledRec {
 
 /// What a C++ function's body does to the object one of its `T&` / `T*`
 /// parameters (or its implicit object) refers to: cxx_moves_out's answer
-/// (Native/KCxxMoveWalk.hh).
+/// (Native/ClangMoveWalk.hh).
 pub enum CxxMoveKind derives u8 {
     None,    ///< the body reads or changes it, and moves nothing out of it.
     Moves,   ///< some path binds it to a `T&&`.
@@ -401,7 +401,7 @@ pub class ForeignInstantiate {
         // The primary's set could not spell an argument. The primary is the
         // FIRST set to import its header, not the one that named the
         // instance: with UTF8View.k ahead of PartitionQueue.k in one build,
-        // `vector` was UTF8View's set's, which never includes KThread.hh, so
+        // `vector` was UTF8View's set's, which never includes Thread.hh, so
         // `vector<SeqCell<Task, 64>>` had no spelling there and every
         // `size_type` member stayed opaque (`_buf[i]` was SC063E). The
         // demanding TU's own set names the instance in its source, so it
@@ -1187,7 +1187,7 @@ pub class ForeignInstantiate {
     }
 
     /// What clang says of the imported function \p f's side effects (see
-    /// Native/KClangPurity.hh): 0 none, 1 const, 2 pure.
+    /// Native/ClangPurity.hh): 0 none, 1 const, 2 pure.
     ///
     /// Invariant: Sema threads never read clang's AST outside the owning
     /// set's sema_lock(). The answer walks the redeclaration chain, and a
@@ -1219,7 +1219,7 @@ pub class ForeignInstantiate {
     /// clang index, -1 for the implicit object) refers to? \p spec, when not
     /// null, is the clang specialization the call selected (CallExpr::
     /// cxx_spec) and \p spec_set its HeaderSet; else \p f's own clang decl is
-    /// read. The walk is Native/KCxxMoveWalk.hh's; it instantiates bodies,
+    /// read. The walk is Native/ClangMoveWalk.hh's; it instantiates bodies,
     /// so it runs under `_mu` and then the set's sema_lock(), the fill order,
     /// with the set's diagnostics quiet.
     fn cxx_moves_out(self,

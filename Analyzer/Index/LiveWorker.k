@@ -75,7 +75,7 @@ ffi "c++" import "vector"
 ffi "c++" import "chrono"
 ffi "c++" import "cstdlib"
 ffi "c++" import "thread"
-ffi "c++" import "Native/KShims.hh"
+ffi "c++" import "Native/Shims.hh"
 
 import API::FS::LinkFS
 import Diagnostic::FileDiagnostics::FileDiagConsumer

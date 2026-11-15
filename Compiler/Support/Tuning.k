@@ -81,7 +81,7 @@ pub
 eval MTIME_SLACK_NS: u64 = 2 * NS_PER_SEC
 
 /// The stack each thread-pool worker starts with (Threading/ThreadPool.k,
-/// Native/KThread.hh). Sema and the printers recurse once per level of a
+/// Native/Thread.hh). Sema and the printers recurse once per level of a
 /// nested expression, so this bounds how deep a chain a worker can check.
 /// The main thread keeps the stack the OS gave it, which is
 /// usually smaller and also runs Sema. Higher: deeper input survives; lower:

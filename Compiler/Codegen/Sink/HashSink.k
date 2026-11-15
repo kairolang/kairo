@@ -39,7 +39,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "clang/Basic/TokenKinds.h"
-ffi "c++" import "Native/KObjCache.hh"
+ffi "c++" import "Native/ObjCache.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 

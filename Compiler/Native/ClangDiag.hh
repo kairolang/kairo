@@ -1,7 +1,7 @@
 #pragma once
 //===----------------------------------------------------------------------===//
 ///
-/// \file KClangDiag.hh
+/// \file ClangDiag.hh
 /// \brief Questions about a clang::Diagnostic's arguments that Kairo cannot
 ///        ask itself: an argument is a raw uint64_t whose meaning depends on
 ///        its kind (ak_nameddecl holds a NamedDecl*).
@@ -36,6 +36,12 @@ struct MutableCopyCause {
 
 namespace detail {
 
+/// How far the search follows bases and fields of a record, and how far it
+/// follows template arguments of a type. A record nested deeper than this is
+/// not explained; nothing else depends on the limits.
+constexpr unsigned kMutableCopyRecordDepth = 8;
+constexpr unsigned kMutableCopyTypeDepth   = 6;
+
 /// The copy constructor that makes \p rd copy only from a non-const lvalue:
 /// its own user-declared `X(X&)` when it declares no copy that takes a const
 /// source and no move, or, when it declares no copy or move at all, that of
@@ -44,7 +50,7 @@ namespace detail {
 /// rvalue has a constructor). \p via receives the first field on that path.
 inline const clang::CXXConstructorDecl *
 mutable_copy_ctor(const clang::CXXRecordDecl *rd, const clang::FieldDecl **via, unsigned depth) noexcept {
-    if (rd == nullptr || depth > 8) { return nullptr; }
+    if (rd == nullptr || depth > kMutableCopyRecordDepth) { return nullptr; }
     rd = rd->getDefinition();
     if (rd == nullptr || rd->isUnion() || rd->isLambda()) { return nullptr; }
     if (rd->hasUserDeclaredMoveConstructor()) { return nullptr; }
@@ -80,6 +86,17 @@ mutable_copy_ctor(const clang::CXXRecordDecl *rd, const clang::FieldDecl **via, 
     return nullptr;
 }
 
+/// Fills \p out when \p rd itself copies only from a non-const lvalue.
+inline bool mutable_copy_of_record(const clang::CXXRecordDecl *rd, MutableCopyCause &out) noexcept {
+    const clang::FieldDecl *via = nullptr;
+    const clang::CXXConstructorDecl *c = mutable_copy_ctor(rd, &via, 0);
+    if (c == nullptr) { return false; }
+    out.rec = rd;
+    out.ctor = c;
+    out.field = via;
+    return true;
+}
+
 inline void mutable_copy_in_type(clang::QualType t, MutableCopyCause &out, unsigned depth) noexcept;
 
 inline void mutable_copy_in_args(const clang::TemplateArgumentList *al, MutableCopyCause &out, unsigned depth) noexcept {
@@ -99,7 +116,7 @@ inline void mutable_copy_in_args(const clang::TemplateArgumentList *al, MutableC
 /// copies only from a non-const lvalue is the answer, a template
 /// specialization is searched through its type arguments (`allocator<X>`).
 inline void mutable_copy_in_type(clang::QualType t, MutableCopyCause &out, unsigned depth) noexcept {
-    if (t.isNull() || out.ctor != nullptr || depth > 6) { return; }
+    if (t.isNull() || out.ctor != nullptr || depth > kMutableCopyTypeDepth) { return; }
     t = t.getCanonicalType();
     for (;;) {
         if (const auto *r = llvm::dyn_cast<clang::ReferenceType>(t.getTypePtr())) { t = r->getPointeeType().getCanonicalType(); continue; }
@@ -109,13 +126,7 @@ inline void mutable_copy_in_type(clang::QualType t, MutableCopyCause &out, unsig
     }
     const auto *rd = t->getAsCXXRecordDecl();
     if (rd == nullptr) { return; }
-    const clang::FieldDecl *via = nullptr;
-    if (const auto *c = mutable_copy_ctor(rd, &via, 0)) {
-        out.rec = rd;
-        out.ctor = c;
-        out.field = via;
-        return;
-    }
+    if (mutable_copy_of_record(rd, out)) { return; }
     if (const auto *cs = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(rd)) {
         mutable_copy_in_args(&cs->getTemplateArgs(), out, depth);
     }
@@ -149,12 +160,7 @@ inline MutableCopyCause clang_diag_mutable_copy(const clang::Diagnostic &info) n
                     if (const auto *cs = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(p)) {
                         detail::mutable_copy_in_args(&cs->getTemplateArgs(), out, 0);
                     } else {
-                        const clang::FieldDecl *via = nullptr;
-                        if (const auto *c = detail::mutable_copy_ctor(p, &via, 0)) {
-                            out.rec = p;
-                            out.ctor = c;
-                            out.field = via;
-                        }
+                        detail::mutable_copy_of_record(p, out);
                     }
                 }
             }
@@ -165,14 +171,7 @@ inline MutableCopyCause clang_diag_mutable_copy(const clang::Diagnostic &info) n
                 if (const auto *cs = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(rd)) {
                     detail::mutable_copy_in_args(&cs->getTemplateArgs(), out, 0);
                 }
-                if (out.ctor == nullptr) {
-                    const clang::FieldDecl *via = nullptr;
-                    if (const auto *c = detail::mutable_copy_ctor(rd, &via, 0)) {
-                        out.rec = rd;
-                        out.ctor = c;
-                        out.field = via;
-                    }
-                }
+                if (out.ctor == nullptr) { detail::mutable_copy_of_record(rd, out); }
             }
         }
     }

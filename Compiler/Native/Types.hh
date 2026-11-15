@@ -43,23 +43,19 @@
 /// \see libcxx, kairo::std, kairo::ThreadPool
 ///
 
-#include "KPrelude.hh"
+#include "Prelude.hh"
 
 #include <atomic>
 #include <bit>
 #include <chrono>
 #include <condition_variable>
 #include <cwchar>
-#include <execution>
-#include <future>
 #include <memory>
-#include <memory_resource>
 #include <mutex>
 #include <new>
 #include <shared_mutex>
 #include <source_location>
 #include <thread>
-#include <tuple>
 
 #if defined(_WIN32)
 #include "Win32.hh"   // never <windows.h> here: see Win32.hh
@@ -106,15 +102,11 @@ inline void thread_pause() noexcept { _thread_pause(); }
 #include <llvm/ADT/StringRef.h>
 
 namespace kairo {
-/// A string's bytes as an llvm::StringRef. The size is passed explicitly: the
-/// old `.raw()` crossings relied on strlen, which stops at an embedded NUL.
-/// Templated on the string (native::bytes): Stage 0 passes lib-helix's
-/// string, Stage 1 the builtin one, and neither is nameable from the other
-/// world. The return type is concrete on purpose: Stage 1 cannot type a call
-/// whose return is a defaulted template parameter (`template <class R =
-/// llvm::StringRef>`); the call reaches codegen unbound.
-/// The forward-declaration trick that template served is moot: KLog.hh, below,
-/// includes LLVM anyway.
+/// A string's bytes as an llvm::StringRef. The size is passed explicitly: a
+/// strlen stops at an embedded NUL. Templated on the string (native::bytes),
+/// since no Native header can name the Kairo string. The return type is
+/// concrete on purpose: Kairo cannot type a call whose return is a defaulted
+/// template parameter (`template <class R = llvm::StringRef>`).
 template <class S>
 inline llvm::StringRef sref(const S &s) {
     auto v = native::bytes(s);
@@ -123,16 +115,12 @@ inline llvm::StringRef sref(const S &s) {
 
 }  // namespace kairo
 
-#include "KLog.hh"
-
-/// One byte of a byte string (kairo `char` is `unsigned char`). Replaces the
-/// old WIDE_STR, which is gone so any leftover use fails to compile.
-#define KBYTE(c) static_cast<unsigned char>(c)
+#include "Log.hh"
 
 namespace kairo {
 /// \brief Owning pointer. This object is responsible for the lifetime of the
 ///        pointee. Must be explicitly freed in the destructor or op delete.
-///        Non-null by convention if the pointee may be absent, use Oot<T>.
+///        Non-null by convention.
 ///
 /// \invariant Must appear in op delete / destructor cleanup.
 /// \invariant Must never be copied without transferring ownership.
@@ -141,16 +129,9 @@ namespace kairo {
 template <typename T>
 using own = T *;
 
-template <typename T>
-using const_own = const T *;
-
-template <typename T>
-using volatile_own = volatile T *;
-
 /// \brief Observing pointer. Non-owning reference to an object whose lifetime
 ///        is guaranteed by another owner. This pointer must not outlive the
-///        owning object. Non-null by convention if the pointee may be absent,
-///        use opt<T>.
+///        owning object. Non-null by convention.
 ///
 /// \invariant Must never be passed to std::destroy or freed.
 /// \invariant Should be accompanied by a comment stating who owns the pointee
@@ -159,47 +140,6 @@ using volatile_own = volatile T *;
 ///   obs<SourceManager> _sm; ///< owned by CompilerInstance, outlives this
 template <typename T>
 using obs = T *;
-
-template <typename T>
-using const_obs = const T *;
-
-template <typename T>
-using volatile_obs = volatile T *;
-
-/// \brief Optional observing pointer. Non-owning reference that may be null.
-///        Used when the pointee is either absent or conditionally available.
-///        Callers must null-check before dereferencing.
-///
-/// \invariant Must never be passed to std::destroy or freed.
-/// \invariant Must be null-checked at every dereference site.
-/// \example
-///   opt<DiagEngine> _diag; ///< null until initialize() is called
-template <typename T>
-using opt = T *;
-
-template <typename T>
-using const_opt = const T *;
-
-template <typename T>
-using volatile_opt = volatile T *;
-
-/// \brief Optional owning pointer. Owns the pointee if non-null. Responsible
-///        for freeing it in the destructor. Used when the owned object is
-///        lazily initialized or conditionally present.
-///
-/// \invariant Must be freed in op delete if non-null: if (_p) std::destroy(_p)
-/// \invariant Must be null-checked before dereferencing.
-/// \invariant Must never be copied without transferring ownership.
-/// \example
-///   oot<ImmediateTable> _imm; ///< null until initialize() called, owned
-template <typename T>
-using oot = T *;
-
-template <typename T>
-using const_oot = const T *;
-
-template <typename T>
-using volatile_oot = volatile T *;
 
 /// \brief View pointer. Non-owning pointer into the interior of a larger
 ///        allocation owned elsewhere. Distinct from obs<T> which points to
@@ -216,19 +156,6 @@ using volatile_oot = volatile T *;
 ///   view<Token> _body; ///< slice into TokenBuffer owned by TCM
 template <typename T>
 using view = T *;
-
-template <typename T>
-using const_view = const T *;
-
-template <typename T>
-using volatile_view = volatile T *;
-
-/// \brief Const lvalue reference alias (const T&) for FFI signatures.
-///        Required to exactly match C++ virtual method signatures.
-///
-/// \invariant Parameter-position only. Never store a cref member.
-template <typename T>
-using cref = const T &;
 
 ///
 /// \class SmallFunction
@@ -506,107 +433,12 @@ using SharedLock = libcxx::shared_lock<M>;
 template <typename M>
 using LockGuard = libcxx::lock_guard<M>;
 
+/// \brief `new T(args...)` / `delete p`, for the compiler's raw pointers.
 ///
-/// \brief Alias for condition variable used in thread synchronization.
-///
-/// \see libcxx::condition_variable
-///
-using ConditionVariable = libcxx::condition_variable;
-
-///
-/// \brief Alias for `std::once_flag`, used for one-time initialization.
-///
-/// \see libcxx::once_flag
-///
-using OnceFlag = libcxx::once_flag;
-
-///
-/// \brief Alias for future representing an asynchronous computation result.
-///
-/// \see libcxx::future
-///
-using Future = libcxx::future<void>;
-
-///
-/// \brief Alias for promise associated with an asynchronous operation.
-///
-/// \see libcxx::promise
-///
-using Promise = libcxx::promise<void>;
-
-///
-/// \brief Alias for unique ownership smart pointer.
-///
-/// \tparam T Managed object type.
-///
-/// \see libcxx::unique_ptr
-///
-template <typename T>
-using UniquePtr = libcxx::unique_ptr<T>;
-
-///
-/// \brief Alias for shared ownership smart pointer.
-///
-/// \tparam T Managed object type.
-///
-/// \see libcxx::shared_ptr
-///
-template <typename T>
-using SharedPtr = libcxx::shared_ptr<T>;
-
-///
-/// \brief Alias for weak reference to a shared object.
-///
-/// \tparam T Managed object type.
-///
-/// \see libcxx::weak_ptr
-///
-template <typename T>
-using WeakPtr = libcxx::weak_ptr<T>;
-
-///
-/// \brief Constructs a shared pointer using perfect forwarding.
-///
-/// \tparam T Object type to construct.
-/// \tparam Args Argument types for constructor.
-/// \param args Arguments forwarded to the constructor of `T`.
-/// \return A new `SharedPtr<T>` managing the allocated object.
-///
-/// \detail
-/// Wrapper around `libcxx::make_shared`, ensuring consistency within
-/// Kairo's type system and avoiding direct dependency on `std`.
-///
-template <typename T, typename... Args>
-constexpr SharedPtr<T> create_shared(Args &&...args) {
-    return libcxx::make_shared<T>(libcxx::forward<Args>(args)...);
-}
-
-///
-/// \brief Constructs a unique pointer using perfect forwarding.
-///
-/// \tparam T Object type to construct.
-/// \tparam Args Argument types for constructor.
-/// \param args Arguments forwarded to the constructor of `T`.
-/// \return A new `UniquePtr<T>` managing the allocated object.
-///
-/// \see make_shared
-///
-template <typename T, typename... Args>
-constexpr UniquePtr<T> create_unique(Args &&...args) {
-    return libcxx::make_unique<T>(libcxx::forward<Args>(args)...);
-}
-
-#if !KAIRO_NATIVE_STAGE0
-/// \brief `new T(args...)` / `delete p`: Stage 0's std::create / std::destroy.
-///
-/// \details lib-helix defines both in this namespace for Stage 0
-///          (runtime/__memory/allocation.hh), so they exist only for Stage 1
-///          here. The self-host migration maps std::create<T>(a) and
-///          std::destroy(p) to these (Scripts/Migration/stage0_alloc.py,
-///          TODO(RAW-ALLOC)) rather than to @create / @destroy, which go
-///          through Kairo's allocator and hand out safe pointers: the tree
-///          is raw-pointer based, and a pointer must be freed by the same
-///          allocator that made it, on whichever side of the boundary.
+/// \details Not @create / @destroy, which go through Kairo's allocator and
+///          hand out safe pointers: the tree is raw-pointer based, and a
+///          pointer must be freed by the same allocator that made it, on
+///          whichever side of the boundary.
 template <typename T, typename... Args>
 T *create(Args &&...args) {
     return new T(::std::forward<Args>(args)...);
@@ -617,13 +449,10 @@ void destroy(T *ptr) {
     delete ptr;
 }
 
-/// \brief A std::string copy of a Kairo string: Stage 0's `s.std_string()`.
+/// \brief A std::string copy of a Kairo string.
 ///
-/// \details lib-helix's string had a std_string() member; Stage 1's string
-///          does not. Built from the bytes and their count (native::bytes),
-///          never c_str(), so an embedded NUL survives. The self-host
-///          migration rewrites `x.std_string()` to this (TODO(STD-STRING):
-///          Stage 1.5 drops the std::string uses).
+/// \details Built from the bytes and their count (native::bytes), never
+///          c_str(), so an embedded NUL survives.
 template <class S>
 ::std::string to_std_string(const S &s) {
     auto v = native::bytes(s);
@@ -633,33 +462,14 @@ template <class S>
 /// \brief A Kairo string copied from a std::string (the reverse of to_std_string).
 ///
 /// \details S is the Kairo string type, passed by the caller as
-///          `from_std_string<string>(x)`: no Native header can name the Stage 1
+///          `from_std_string<string>(x)`: no Native header can name the Kairo
 ///          builtin string. Copies the bytes and their count, so an embedded NUL
-///          survives. No implicit C++ converting constructors,
-///          so `string(std_string)` is written through this (TODO(STD-STRING)).
+///          survives. The Kairo string has no implicit C++ converting
+///          constructor, so `string(std_string)` is written through this.
 template <class S>
 S from_std_string(const ::std::string &s) {
     return S(reinterpret_cast<const unsigned char *>(s.data()), static_cast<::std::size_t>(s.size()));
 }
-
-/// \brief A Kairo string copied from an llvm::StringRef (see from_std_string).
-template <class S>
-S from_sref(llvm::StringRef r) {
-    return S(reinterpret_cast<const unsigned char *>(r.data()), static_cast<::std::size_t>(r.size()));
-}
-
-/// \brief The offset of a stream position as i64: `fpos` converts to streamoff only implicitly.
-template <class P>
-long long fpos_off(const P &p) {
-    return static_cast<long long>(p);
-}
-
-#endif
-
-///
-/// \brief Null pointer type alias for uniformity.
-///
-using nullptr_t = decltype(nullptr);
 
 ///
 /// \brief Alias for const-qualified pointer type.
@@ -668,14 +478,6 @@ using nullptr_t = decltype(nullptr);
 ///
 template <typename T>
 using ConstPtr = const T *;
-
-///
-/// \brief Alias for volatile-qualified pointer type.
-///
-/// \tparam T Underlying pointer type.
-///
-template <typename T>
-using VolatilePtr = volatile T *;
 
 ///
 /// \brief Restrict qualifier macro for pointer optimization.
@@ -706,8 +508,11 @@ class Expected {
     bool has_value;
 
   public:
+    /// An error state holding a value-initialized E: the destructor destroys
+    /// whichever member `has_value` names, so one of them is always alive.
     constexpr Expected()
-        : has_value(false) {}
+        : error()
+        , has_value(false) {}
 
     constexpr Expected(const T &val)
         : value(val)
@@ -814,153 +619,6 @@ class Expected {
     }
 };
 
-#if KAIRO_NATIVE_STAGE0
-/// Stage 0 only: lib-helix's null_t is its tag, and Stage 1 code spells an
-/// absent value `T?` (the self-host migration rewrites the three Nullable
-/// fields to it), so there is no Stage 1 Nullable to keep in step.
-template <typename T>
-class Expected<T, std::null_t> {
-    union {
-        T    value;
-        char dummy;
-    };
-    bool has_value;
-
-  public:
-    constexpr Expected()
-        : dummy{}
-        , has_value(false) {}
-
-    constexpr Expected(std::null_t)
-        : dummy{}
-        , has_value(false) {}
-
-    constexpr Expected(const T &val)
-        : value(val)
-        , has_value(true) {}
-
-    constexpr Expected(T &&val)
-        : value(libcxx::move(val))
-        , has_value(true) {}
-
-    constexpr Expected(const Expected &other)
-        : dummy{}
-        , has_value(other.has_value) {
-        if (has_value) {
-            libcxx::construct_at(&value, other.value);
-        }
-    }
-
-    constexpr Expected(Expected &&other) noexcept
-        : dummy{}
-        , has_value(other.has_value) {
-        if (has_value) {
-            libcxx::construct_at(&value, libcxx::move(other.value));
-        }
-    }
-
-    constexpr ~Expected() {
-        if (has_value) {
-            libcxx::destroy_at(&value);
-        }
-    }
-
-    constexpr Expected &operator=(const Expected &other) {
-        if (this != &other) {
-            this->~Expected();
-            has_value = other.has_value;
-            if (has_value) {
-                libcxx::construct_at(&value, other.value);
-            }
-        }
-        return *this;
-    }
-
-    constexpr Expected &operator=(Expected &&other) noexcept {
-        if (this != &other) {
-            this->~Expected();
-            has_value = other.has_value;
-            if (has_value) {
-                libcxx::construct_at(&value, libcxx::move(other.value));
-            }
-        }
-        return *this;
-    }
-
-    constexpr Expected &operator=(std::null_t) {
-        this->~Expected();
-        has_value = false;
-        return *this;
-    }
-
-    constexpr explicit operator bool() const { return has_value; }
-    constexpr bool     check() const { return has_value; }
-
-    constexpr T       &operator*()       &{ return value; }
-    constexpr const T &operator*() const & { return value; }
-    constexpr T      &&operator*()      &&{ return libcxx::move(value); }
-
-    constexpr T       *operator->() { return &value; }
-    constexpr const T *operator->() const { return &value; }
-
-    // No err() methods - there's no error to return
-
-    constexpr T &value_or(T &default_value) & {
-        return has_value ? value : default_value;
-    }
-
-    constexpr T value_or(T &&default_value) && {
-        return has_value ? libcxx::move(value) : libcxx::move(default_value);
-    }
-
-    constexpr T value_or(const T &default_value) const & {
-        return has_value ? value : default_value;
-    }
-
-    constexpr T value_or(T &&default_value) const & {
-        return has_value ? value : libcxx::move(default_value);
-    }
-};
-
-template <typename T>
-using Nullable = Expected<T, std::null_t>;
-#endif  // KAIRO_NATIVE_STAGE0
-
-#if KAIRO_NATIVE_STAGE0
-/// Stage 0 only: std::Function is lib-helix's. The F&& overload below takes
-/// any callable, a Stage 1 closure included.
-template <typename Rt, typename... Tp>
-inline void sleep_while(std::Function<Rt, Tp...> condition) {
-    for (u16 i = 0; i < 1000 && condition(); ++i) {
-        _thread_pause();
-    }
-
-    if (!condition()) {
-        return;
-    }
-
-    for (u16 i = 0; i < 64 && condition(); ++i) {
-        libcxx::this_thread::yield();
-    }
-
-    if (!condition()) {
-        return;
-    }
-
-    for (u16 i = 0; i < 256 && condition(); ++i) {
-        libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(1));
-    }
-
-    if (!condition()) {
-        return;
-    }
-
-    while (condition()) {
-        libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(100));
-    }
-}
-#endif  // KAIRO_NATIVE_STAGE0
-
 template <typename F>
 inline void
 sleep_while(F &&condition)  // NOLINT(cppcoreguidelines-missing-std-forward)
@@ -991,104 +649,6 @@ sleep_while(F &&condition)  // NOLINT(cppcoreguidelines-missing-std-forward)
         libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(100));
     }
 }
-
-#if KAIRO_NATIVE_STAGE0
-// Stage 0 only, all three: they are written against lib-helix
-// (std::to_string, std::endl, kairo::string), and each has a Stage 1 home in
-// Kairo's std rather than here:
-//
-//   eprint / eprintln  std::io::eprint / std::io::eprintln (Lib/std/io.k),
-//                      one string each; a multi-argument call becomes one
-//                      f-string. eprintln(..., std::endl("")) is how Stage 0
-//                      spelled "no newline": that is std::io::eprint.
-//   get_exe_path       std::env::exe_path (Lib/std/env.k).
-//
-// The self-host migration rewrites the call sites; nothing here is kept in
-// step with them.
-template <typename... Args>
-void eprint(Args &&...t) {
-    if constexpr (sizeof...(t) == 0) {
-        return;
-    }
-    
-    ((([&]() {
-           auto str = std::to_string(t);
-           fwrite(str.raw(), 1, str.size(), stderr);
-       }())),
-     ...);
-
-     // no newlines
-}
-
-template <typename... Args>
-void eprintln(Args &&...t) {
-    if constexpr (sizeof...(t) == 0) {
-        fputc('\n', stderr);
-        return;
-    }
-    
-    ((([&]() {
-           auto str = std::to_string(t);
-           fwrite(str.raw(), 1, str.size(), stderr);
-       }())),
-     ...);
-    
-    if constexpr (sizeof...(t) > 0) {
-        using LastArg =
-            libcxx::tuple_element_t<sizeof...(t) - 1, tuple<Args...>>;
-        if constexpr (!std::Meta::same_as<
-                          std::Meta::const_volatile_removed<LastArg>,
-                          std::endl>) {
-            fputc('\n', stderr);
-        }
-    }
-}
-
-/// This binary's absolute path as UTF-8, '/'-separated on every host; ""
-/// when the OS will not say. A string, not a filesystem::path: every caller
-/// hands it to llvm::sys::path, which takes the bytes as they are.
-inline kairo::string get_exe_path() noexcept {
-#if defined(_WIN32)
-    // 32767 UTF-16 units, at most 3 UTF-8 bytes each.
-    libcxx::string buf(3 * 32768, '\0');
-    size_t n = kairo::win32::exe_path_utf8(buf.data(), buf.size());
-    return kairo::string(buf.data(), n);
-
-#elif defined(__APPLE__)
-    char     buf[4096];
-    uint32_t size = sizeof(buf);
-    if (_NSGetExecutablePath(buf, &size) != 0) {
-        return {};
-    }
-    char real[PATH_MAX];
-    if (::realpath(buf, real) == nullptr) {
-        return {};
-    }
-    return kairo::string(real, libcxx::strlen(real));
-
-#elif defined(__linux__)
-    char buf[4096];
-    auto len = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-    if (len == -1) {
-        return {};
-    }
-    return kairo::string(buf, static_cast<size_t>(len));
-
-#elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    char   buf[4096];
-    int    mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
-    size_t size   = sizeof(buf);
-    if (sysctl(mib, 4, buf, &size, nullptr, 0) == -1) {
-        return {};
-    }
-    return kairo::string(buf, libcxx::strlen(buf));
-
-#else
-    return {};
-#endif
-}
-
-#endif  // KAIRO_NATIVE_STAGE0
 
 /// The triple this compiler targets when none is given: the host's arch and
 /// OS, with the vendor and environment Kairo ships for it. Compiler policy,
@@ -1140,13 +700,14 @@ inline const char *thread_model_cstr() noexcept {
 #endif
 }
 
-#if KAIRO_NATIVE_STAGE0
-inline string get_default_target_triple() noexcept {
-    return default_target_triple_cstr();
+/// The allocator has no memory for \p bytes. There is no carrying on, and it
+/// is not a compiler bug to report: one line on stderr, then abort. For the
+/// allocations in this folder whose result is used unchecked on a hot path.
+[[noreturn]] inline void out_of_memory(size_t bytes) noexcept {
+    ::std::fprintf(stderr, "error: out of memory (allocating %zu bytes)\n", bytes);
+    ::std::fflush(stderr);
+    ::std::abort();
 }
-
-inline string get_thread_model() noexcept { return thread_model_cstr(); }
-#endif  // KAIRO_NATIVE_STAGE0
 
 /// StackBuf<T, N> inline scratch buffer for parser hot paths.
 /// Trivially destructible T only. No copy, no move. Stack-local only.
@@ -1167,6 +728,9 @@ class StackBuf {
     void _grow() {
         uint32_t new_cap = _cap * 2;
         T       *buf     = static_cast<T *>(malloc(sizeof(T) * new_cap));
+        if (buf == nullptr) [[unlikely]] {
+            out_of_memory(sizeof(T) * new_cap);
+        }
         libcxx::memcpy(buf, _data, sizeof(T) * _size);
         if (!_is_inline()) {
             libcxx::free(_data);
@@ -1206,15 +770,13 @@ class StackBuf {
 };
 
 /// \brief prints the ICE banner and aborts. shared by every entry point.
-/// \details not for direct use   go through ICE_IF / ICE_FAIL (Stage 0) or
-///          ice_if! / ice_fail! (Stage 1) so the message stays out of the hot
-///          path (see the macros below).
+/// \details not for direct use: go through ice_fail (the Kairo ice_if! /
+///          ice_fail! macros) so the message stays out of the hot path.
 ///
-///          stderr through C stdio, as lib-helix's eprintln did: stderr is
-///          unbuffered, so the banner is out before abort(). Buffered stdout
-///          is NOT flushed (abort drops it), exactly as before. Templated on
-///          the message (native::bytes) so one body takes either world's
-///          string, a literal or an llvm::StringRef.
+///          stderr through C stdio: stderr is unbuffered, so the banner is
+///          out before abort(). Buffered stdout is NOT flushed (abort drops
+///          it). Templated on the message (native::bytes) so one body takes
+///          a Kairo string, a literal or an llvm::StringRef.
 /// \brief what runs before an ICE aborts: the driver's flush of every
 ///        diagnostic still buffered (per-TU sinks and the engine's console
 ///        consumer), in the configured format.
@@ -1259,37 +821,10 @@ template <class S>
     ::std::abort();
 }
 
-/// \brief asserts a compiler invariant; aborts with \p msg if it does not hold.
-///
-/// \details NOT [[noreturn]]   this returns on the success path, which is the
-///          common one. Marking it noreturn would be a promise the function
-///          breaks on every passing call.
-///
-/// \warning prefer the ICE_IF macro. Calling this directly constructs \p msg
-///          before the predicate is tested, and Stage 0 lowers every "..." to
-///          string("..."), so a literal here costs a strlen + malloc + free on
-///          EVERY call including the ones that pass. That cost is invisible at
-///          one call per file and ruinous at one per token; it was ~115ns/token
-///          in the lexer before the macro landed.
-template <class S>
-inline void INTERNAL_ICE(bool condition, const S &msg, const ::std::source_location location = ::std::source_location::current()) {
-    if (condition) [[likely]] { return; }
-    ice_abort(msg, location);
-}
-
-/// \brief unconditional internal compiler error. never returns.
-/// \details for unreachable branches and invariants with no boolean form.
-///          Being [[noreturn]] lets callers omit a trailing return and silences
-///          "non-void function does not return a value" in switch defaults.
-template <class S>
-[[noreturn]] inline void INTERNAL_ICE(const S &msg, const ::std::source_location location = ::std::source_location::current()) {
-    ice_abort(msg, location);
-}
-
-/// \brief the Stage 1 entry point: unconditional ICE, never returns.
-/// \details a C++ macro does not cross an ffi import, so Stage 1 code cannot
-///          call ICE_IF / ICE_FAIL. Its spelling is a Kairo macro over this
-///          function, which keeps the message on the failing path:
+/// \brief unconditional internal compiler error, never returns.
+/// \details a C++ macro does not cross an ffi import, so the guard is a Kairo
+///          macro over this function, which keeps the message on the failing
+///          path:
 ///
 ///              macro ice_if!(cond, msg) { if cond { kairo::std::ice_fail(msg) } }
 ///              macro ice_fail!(msg)     { kairo::std::ice_fail(msg) }
@@ -1299,33 +834,6 @@ template <class S>
 [[noreturn]] inline void ice_fail(const S &msg, const ::std::source_location location = ::std::source_location::current()) {
     ice_abort(msg, location);
 }
-
-/// \brief guards a compiler invariant. aborts with \p msg if \p cond is true.
-///
-/// \details the message expression lives inside the branch body, so Stage 0's
-///          string("") lowering only materializes on the failing path. The
-///          success path is a compare and a predicted-not-taken branch, nothing
-///          more   no allocation, no strlen, no temporary.
-///
-///          Deliberately NOT compiled out under NDEBUG. An INTERNAL_ICE means a compiler
-///          invariant is already broken; running past it in a release build
-///          emits silently wrong object code. The macro is cheap enough that
-///          there is nothing to buy by removing it.
-///
-#define ICE_IF(cond, msg) \
-    do { if (cond) [[unlikely]] { ::kairo::std::INTERNAL_ICE(msg); } } while (0)
-
-/// \brief unconditional internal compiler error. never returns.
-/// \details for unreachable branches, unimplemented paths, and invariants that
-///          have no boolean form. Resolves to the [[noreturn]] overload, so it
-///          satisfies the compiler in a non-void function without a dummy return.
-#define ICE_FAIL(msg) \
-    do { ::kairo::std::INTERNAL_ICE(msg); } while (0)
-///
-/// \note
-/// This header may be expanded to include additional abstractions or
-/// cross-platform primitives.
-///
 
 }  // namespace kairo::std
 

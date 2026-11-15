@@ -104,7 +104,7 @@ ffi "c++" import "clang/Basic/SourceManager.h"
 ffi "c++" import "clang/Frontend/CompilerInstance.h"
 ffi "c++" import "llvm/ADT/StringRef.h"
 ffi "c++" import "llvm/Support/MemoryBufferRef.h"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
 
 import Location::SourceLocation::SourceLocation

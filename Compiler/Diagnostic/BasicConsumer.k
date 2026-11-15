@@ -25,8 +25,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/KShims.hh" // std_out / std_err
-ffi "c++" import "Native/KProgress.hh"
+ffi "c++" import "Native/Shims.hh" // std_out / std_err
+ffi "c++" import "Native/Progress.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "llvm/Support/FileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"

@@ -4,7 +4,7 @@
 ///   of these blocks, and whose". A live check builds one from the arena
 ///   blocks of the trees it replaced (Tooling/LiveCheck.k), to take what
 ///   points into them out of the build-wide stores before it frees them and
-///   to search the heap for what is left (Native/KShims.hh, heap_scan_report).
+///   to search the heap for what is left (Native/Shims.hh, heap_scan_report).
 ///
 ///   WHY C++: the search is a loop over raw words, and the table is read
 ///   from the allocator's block visitor, a C callback.

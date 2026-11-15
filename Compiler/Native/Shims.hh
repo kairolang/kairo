@@ -1,16 +1,14 @@
-/// --- The Kairo Project ----------------------------- Native/KShims.hh --- ///
+/// --- The Kairo Project ----------------------------- Native/Shims.hh --- ///
 ///
 ///   One-line C/C++ spellings that Kairo has no syntax for, given names so
 ///   Kairo code can use them.
 ///
-///   WHY C++: each of these is a C++ expression at its use site. Stage 1
-///   does not emit inline foreign code, and none of them is worth a language
-///   feature on its own:
+///   WHY C++: each of these is a C++ expression at its use site, and none of
+///   them is worth a language feature on its own:
 ///
 ///     volatile_i64    `volatile` is not a Kairo qualifier on a local.
 ///     posix_stat      `struct stat`: in C++ the function stat() hides the
 ///                     struct's name, so it needs the elaborated specifier.
-///     phys_footprint  the mach task_info call behind kwatch's RSS reading.
 ///
 ///   It also includes the platform headers behind the POSIX calls Kairo
 ///   code names (mmap, open, isatty, ...), under the same guards.
@@ -27,17 +25,16 @@
 #ifndef __KAIRO_NATIVE_KSHIMS_HH__
 #define __KAIRO_NATIVE_KSHIMS_HH__
 
-#include "KPrelude.hh"
+#include "Prelude.hh"
 #include "AddrRanges.hh"
 #include <llvm/ADT/APFloat.h>
 
 #if !defined(_WIN32)
 #include <sys/stat.h>
-// The POSIX calls Stage 0 reached through lib-helix's includes: mmap /
-// munmap / PROT_* / MAP_* (MMapRegion.k), open / O_RDONLY (MMapRegion.k),
-// close / isatty (MMapRegion.k, PrettyConsumer.k, Config/Diagnostic.k).
-// A .k file that names them imports this header (the self-host migration's
-// ffi_imports.py), so the platform choice stays in C++.
+// The POSIX calls Kairo code names: mmap / munmap / PROT_* / MAP_*
+// (MMapRegion.k), open / O_RDONLY (MMapRegion.k), close / isatty
+// (MMapRegion.k, PrettyConsumer.k, Config/Diagnostic.k). A .k file that
+// names them imports this header, so the platform choice stays in C++.
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -48,12 +45,12 @@
 // isatty / fileno (the console checks): <io.h> declares the POSIX names.
 #include <io.h>
 #endif
-// fileno
 #if defined(__ARM_NEON)
 #include <arm_neon.h>
 #endif
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -87,25 +84,6 @@ using volatile_i64 = volatile i64;
 /// The POSIX stat record, for fstat(). Value-initialize it: `posix_stat()`.
 using posix_stat = struct ::stat;
 #endif
-
-/// Current physical footprint of this process in KiB, the number Activity
-/// Monitor shows (resident + compressed + IOKit mappings), or 0 when the
-/// query fails. macOS only; 0 everywhere else.
-inline unsigned long long phys_footprint_kib() {
-#if defined(__APPLE__)
-    task_vm_info_data_t    info{};
-    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
-
-    if (task_info(mach_task_self(), TASK_VM_INFO,
-                  reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS) {
-        return 0ull;
-    }
-
-    return (unsigned long long)info.phys_footprint / 1024ull;
-#else
-    return 0ull;
-#endif
-}
 
 } // namespace kairo
 
@@ -318,6 +296,11 @@ inline bool heap_scan_visit(const struct mi_heap_s *,
 }
 #endif
 
+/// heap_scan_report prints who holds the holder for the first
+/// HEAP_SCAN_CHAINS hits, HEAP_SCAN_CHAIN_DEPTH blocks up.
+inline constexpr size_t HEAP_SCAN_CHAINS      = 6;
+inline constexpr int    HEAP_SCAN_CHAIN_DEPTH = 5;
+
 struct HeapHolder {
     uintptr_t lo;
     uintptr_t hi;
@@ -410,12 +393,12 @@ inline ::std::string heap_scan_report(const AddrRanges &dead, const AddrRanges &
         out += buf;
         // Who holds the holder, a few blocks up: the first block found
         // with a word into it, so one path of possibly several.
-        if (i >= 6) {
+        if (i >= HEAP_SCAN_CHAINS) {
             continue;
         }
 
         uintptr_t lo = h.block, hi = h.block + h.size;
-        for (int up = 0; up < 5; ++up) {
+        for (int up = 0; up < HEAP_SCAN_CHAIN_DEPTH; ++up) {
             HeapHolder hh{lo, hi, lo};
             mi_heap_visit_blocks(mi_heap_main(), true, &heap_holder_visit, &hh);
             if (hh.block == 0) {
@@ -594,7 +577,12 @@ inline bool write_file_exact(llvm::StringRef path, llvm::StringRef text) noexcep
     if (ec) { return false; }
     os << text;
     os.close();
-    return !os.has_error();
+    // The stream's destructor ends the process when the error flag is still
+    // set, so the flag is read and cleared here: a failed write is the
+    // caller's to report.
+    const bool failed = os.has_error();
+    os.clear_error();
+    return !failed;
 }
 
 /// The f8e4m3 (\p e5m2 false: OCP E4M3FN) or f8e5m2 encoding of a float
@@ -621,9 +609,6 @@ inline int f8_literal_bits(const unsigned char *s, size_t n, bool e5m2) noexcept
     return static_cast<int>(v.bitcastToAPInt().getZExtValue());
 }
 
-/// The C streams as functions. stdout / stderr are macros on Darwin (__stdoutp) and
-/// MinGW (__acrt_iob_func(1)), which ffi cannot name; a function returns what
-/// the macro expands to on every libc.
 /// --- a copy of the process, to try something in and throw away -------------
 ///
 /// A live check (Tooling/LiveCheck.k) keeps one checked graph. A text that
@@ -659,6 +644,10 @@ inline long long aside_fork() noexcept {
     ::_exit(code);
 }
 
+/// How often aside_wait looks at the copy: half a millisecond, where a
+/// re-check is tens of them.
+inline constexpr long ASIDE_POLL_NS = 500000;
+
 /// Waits for the copy \p pid, at most \p timeout_ms: its exit status (0 to
 /// 255), -1 when it ended any other way, -2 when it was still running and
 /// has been killed.
@@ -677,7 +666,8 @@ inline int aside_wait(long long pid, int timeout_ms) noexcept {
             return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
         }
 
-        if (r < 0) {
+        // A signal that interrupts the call says nothing about the copy.
+        if (r < 0 && errno != EINTR) {
             return -1;
         }
 
@@ -686,16 +676,21 @@ inline int aside_wait(long long pid, int timeout_ms) noexcept {
         long long ms = (long long)(now.tv_sec - t0.tv_sec) * 1000 + (now.tv_nsec - t0.tv_nsec) / 1000000;
         if (ms >= (long long)timeout_ms) {
             ::kill((pid_t)pid, SIGKILL);
-            ::waitpid((pid_t)pid, &st, 0);
+            // Reaped whatever interrupts the wait: an unreaped copy stays a
+            // zombie for the life of this process.
+            while (::waitpid((pid_t)pid, &st, 0) < 0 && errno == EINTR) {}
             return -2;
         }
 
-        struct timespec nap = {0, 500000}; // half a millisecond: a re-check is tens of them
+        struct timespec nap = {0, ASIDE_POLL_NS};
         ::nanosleep(&nap, nullptr);
     }
 #endif
 }
 
+/// The C streams as functions. stdout / stderr are macros on Darwin (__stdoutp) and
+/// MinGW (__acrt_iob_func(1)), which ffi cannot name; a function returns what
+/// the macro expands to on every libc.
 inline FILE *std_out() noexcept { return stdout; }
 inline FILE *std_err() noexcept { return stderr; }
 

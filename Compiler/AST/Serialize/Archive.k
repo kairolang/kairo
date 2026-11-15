@@ -37,8 +37,8 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "cstring"
-ffi "c++" import "Native/KObjCache.hh"
-ffi "c++" import "Native/KPlacement.hh"
+ffi "c++" import "Native/ObjCache.hh"
+ffi "c++" import "Native/Placement.hh"
 ffi "c++" import "Native/Types.hh"
 
 import AST::ASTSupport::FrozenList

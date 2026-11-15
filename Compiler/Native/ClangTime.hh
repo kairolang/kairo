@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------- Native/KTimeClang.hh --- ///
+/// --- The Kairo Project ------------------------- Native/ClangTime.hh --- ///
 ///
 ///   Folds clang's own phase timing into the --time-passes tree.
 ///
@@ -18,10 +18,10 @@
 ///       PCHLoad       from the end of the fill to ParseAST: AST context and
 ///                     consumer, the implicit PCH (clang's "ReadAST", a child
 ///                     row), Sema, and StartTranslationUnit's eager decls
-///                     (their "CodeGen Function" is a child IRGen row)
-///       Frontend      ParseAST's "Frontend": parse + sema of the C++
-///         IRGen       "CodeGen Function" emitted decl-at-a-time while parsing
-///       IRGen         BackendConsumer's "Frontend": deferred decls, finalize
+///                     (their "CodeGen Function" is a child SSALowering row)
+///       Emission      ParseAST's "Frontend": parse + sema of the C++
+///         SSALowering "CodeGen Function" emitted decl-at-a-time while parsing
+///       SSALowering   BackendConsumer's "Frontend": deferred decls, finalize
 ///       Optimize      "Optimizer" (the new-PM module pipeline)
 ///       MachineCode   "CodeGenPasses" (ISel through object emission)
 ///       TUTeardown    after the last span: EndSourceFile freeing the AST
@@ -39,12 +39,13 @@
 ///   every function; 27 M over the self-build), and a sampled --time-passes
 ///   build had 81% of its codegen workers waiting on that lock: the "idle"
 ///   gaps between TUs in the trace were this harvest. At 50 us the build
-///   writes 43x fewer events and the IRGen-inside-parse row keeps 99.5% of
+///   writes 43x fewer events and the SSALowering-inside-parse row keeps 99.5% of
 ///   its time (the dropped functions stay in the parse row's self time).
 ///   No "Frontend" scope of the self-build is under 500 us. A dropped
-///   "Optimizer" / "CodeGenPasses" / "ReadAST" is not lost: the profiler
-///   keeps an exact "Total <name>" for every name whatever the threshold,
-///   and the difference is billed as one span.
+///   "Optimizer" / "CodeGenPasses" is not lost: the profiler keeps an exact
+///   "Total <name>" for every name whatever the threshold, and the
+///   difference is billed as one span. A dropped "ReadAST" stays in the
+///   PCHLoad row's self time.
 ///
 ///   WHY THE JSON. TimeTraceProfiler keeps its entries private; the only
 ///   public way out is timeTraceProfilerWrite. It is read back by a scanner
@@ -69,7 +70,7 @@
 #ifndef __KAIRO_TOOLCHAIN_CORE_KTIMECLANG_HH__
 #define __KAIRO_TOOLCHAIN_CORE_KTIMECLANG_HH__
 
-#include "KTimeReport.hh"
+#include "TimeReport.hh"
 
 #include <algorithm>
 #include <cstdint>
@@ -286,7 +287,7 @@ inline void ktime_clang_end(const KClangTimeCapture &c) {
         }
         Span s{uint64_t(ts), uint64_t(dur)};
         if (s.ts + s.dur > last_end) { last_end = s.ts + s.dur; }
-        if      (name == "Frontend" || name == "Emission") { fe.push_back(s);  }
+        if      (name == "Frontend")                       { fe.push_back(s);  }
         else if (name == "CodeGen Function")               { fn.push_back(s);  }
         else if (name == "Optimizer")                      { opt.push_back(s); }
         else if (name == "CodeGenPasses")                  { mc.push_back(s);  }
@@ -339,7 +340,7 @@ inline void ktime_clang_end(const KClangTimeCapture &c) {
         bill_irgen(r_pch, r_eager, lo_us, hi_us);
     }
 
-    // Every "Emission" but the last is ParseAST's. IR generation that ran
+    // Every "Frontend" span but the last is ParseAST's. IR generation that ran
     // inside one of them is billed as its child, so the parse row's self time
     // is parse + sema alone.
     if (fe.size() > 1) {

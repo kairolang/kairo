@@ -67,19 +67,6 @@ void unmap(void *data) {
     if (data) { UnmapViewOfFile(data); }
 }
 
-size_t exe_path_utf8(char *buf, size_t cap) {
-    wchar_t w[32768];
-    DWORD len = GetModuleFileNameW(nullptr, w, 32768);
-    if (len == 0 || len == 32768) { return 0; }
-    int n = WideCharToMultiByte(CP_UTF8, 0, w, static_cast<int>(len), nullptr, 0, nullptr, nullptr);
-    if (n <= 0 || static_cast<size_t>(n) > cap) { return 0; }
-    WideCharToMultiByte(CP_UTF8, 0, w, static_cast<int>(len), buf, n, nullptr, nullptr);
-    for (int i = 0; i < n; ++i) {
-        if (buf[i] == '\\') { buf[i] = '/'; }
-    }
-    return static_cast<size_t>(n);
-}
-
 bool move_path(const char *from, size_t flen, const char *to, size_t tlen) {
     std::wstring f = widen(from, flen), t = widen(to, tlen);
     return MoveFileExW(f.c_str(), t.c_str(), MOVEFILE_WRITE_THROUGH) != 0;
@@ -120,11 +107,29 @@ DWORD WINAPI thread_start(LPVOID raw) {
 }
 }  // namespace
 
-void spawn_thread(void (*fn)(void *), void *arg, size_t stack_bytes) {
+bool spawn_thread(void (*fn)(void *), void *arg, size_t stack_bytes) {
     auto *s = new ThreadStart{fn, arg};
     HANDLE h = CreateThread(nullptr, stack_bytes, thread_start, s,
                             STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
-    if (h) { CloseHandle(h); } else { delete s; }
+    if (h == nullptr) {
+        delete s;
+        return false;
+    }
+    CloseHandle(h);
+    return true;
+}
+
+bool run_on_thread(void (*fn)(void *), void *arg, size_t stack_bytes) {
+    auto *s = new ThreadStart{fn, arg};
+    HANDLE h = CreateThread(nullptr, stack_bytes, thread_start, s,
+                            STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    if (h == nullptr) {
+        delete s;
+        return false;
+    }
+    WaitForSingleObject(h, INFINITE);
+    CloseHandle(h);
+    return true;
 }
 
 }  // namespace kairo::win32

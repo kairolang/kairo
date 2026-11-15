@@ -11,7 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/KShims.hh" // volatile_i64
+ffi "c++" import "Native/Shims.hh" // volatile_i64
 ffi "c++" import "chrono"
 
 import std::io

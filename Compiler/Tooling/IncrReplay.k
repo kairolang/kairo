@@ -59,7 +59,7 @@ ffi "c++" import "vector"
 ffi "c++" import "chrono"
 ffi "c++" import "cstdio"
 ffi "c++" import "cstring"
-ffi "c++" import "Native/KShims.hh"
+ffi "c++" import "Native/Shims.hh"
 
 import API::FS::*
 import Sema::SemaContext::SemaContext

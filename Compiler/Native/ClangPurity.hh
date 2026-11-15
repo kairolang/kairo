@@ -1,7 +1,7 @@
 #pragma once
 //===----------------------------------------------------------------------===//
 ///
-/// \file KClangPurity.hh
+/// \file ClangPurity.hh
 /// \brief What clang already knows about a C/C++ function's side effects:
 ///        FnPurityCheck lets a `const fn` / `@pure` call such a function when
 ///        clang itself marks it const / pure, instead of treating every call

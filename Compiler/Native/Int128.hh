@@ -1,18 +1,16 @@
-/// --- The Kairo Project ---------------------------- Native/KInt128.hh --- ///
+/// --- The Kairo Project ---------------------------- Native/Int128.hh --- ///
 ///
 ///   64x64 -> 128 multiply-add primitives for literal accumulation
 ///   (Lexer/Immediate.k, module Int128).
 ///
 ///   WHY C++: the fast paths are MSVC's _umul128 / _addcarry_u64 intrinsics
 ///   and the GCC/Clang `unsigned __int128` type, neither of which has a
-///   Kairo spelling. Stage 1 does not emit inline foreign code, so they live
-///   here and Immediate.k calls them. The portable
-///   32-bit-limb fallback has no such need and stays in Kairo.
+///   Kairo spelling, so they live here and Immediate.k calls them. The
+///   portable 32-bit-limb fallback has no such need and stays in Kairo.
 ///
 ///   Each function is defined only under the condition Immediate.k tests
 ///   before calling it (`defined(_MSC_VER)`, else
 ///   `defined(__SIZEOF_INT128__)`), with the in/out operands as pointers.
-///   The bodies are the former inline blocks unchanged.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -26,7 +24,7 @@
 #ifndef __KAIRO_NATIVE_KINT128_HH__
 #define __KAIRO_NATIVE_KINT128_HH__
 
-#include "KPrelude.hh"
+#include "Prelude.hh"
 
 #if defined(_MSC_VER)
 #include <intrin.h>
@@ -62,10 +60,10 @@ inline bool mul_add_128(u64 *lo, u64 *hi, u64 factor, u64 addend) {
     unsigned char carry = _addcarry_u64(0, mul_lo, addend, &mul_lo);
 
     // step 3: propagate carry to mul_hi. The carry OUT of this add is kept in
-    // its own variable: reusing `carry`, which step 5 overwrites, silently
-    // discarded a carry out of mul_hi. Unreachable for the only caller (digit
-    // accumulation passes factor <= 16, which bounds mul_hi at 15), but the
-    // signature accepts any u64 factor.
+    // its own variable: step 5 overwrites `carry`, and a carry out of mul_hi
+    // is an overflow. Unreachable for the only caller (digit accumulation
+    // passes factor <= 16, which bounds mul_hi at 15), but the signature
+    // accepts any u64 factor.
     unsigned char addend_carry = _addcarry_u64(carry, mul_hi, 0, &mul_hi);
 
     // step 4: multiply hi * factor
@@ -113,7 +111,7 @@ inline bool mul_add_128(u64 *lo, u64 *hi, u64 factor, u64 addend) {
     // `val == max_safe` the product is the largest representable multiple of
     // factor, so any non-zero addend wraps. That is the 2^128 boundary: the
     // final digit of 2^128 in base 10 arrives with val == max_safe and
-    // addend == 6, and the literal became 0.
+    // addend == 6.
     unsigned __int128 val        = ((unsigned __int128)*hi << 64) | *lo;
     unsigned __int128 factor_128 = (unsigned __int128)factor;
     unsigned __int128 all_ones   = ~(unsigned __int128)0;

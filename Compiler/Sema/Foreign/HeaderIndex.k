@@ -36,7 +36,7 @@ ffi "c++" import "clang/AST/DeclCXX.h"
 ffi "c++" import "clang/AST/DeclTemplate.h"
 ffi "c++" import "clang/AST/DeclFriend.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext

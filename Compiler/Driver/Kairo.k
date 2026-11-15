@@ -28,8 +28,8 @@
 ///   sub-option structs, not here.
 ///
 
-ffi "c++" import "Native/KLocale.hh" // init_process_locale
-ffi "c++" import "Native/KTimeReport.hh" // strcmp/strncmp for _scan_timing_flags
+ffi "c++" import "Native/Locale.hh" // init_process_locale
+ffi "c++" import "Native/TimeReport.hh" // strcmp/strncmp for _scan_timing_flags
 ffi "c++" import "llvm/Support/InitLLVM.h"
 ffi "c++" import "llvm/Support/Locale.h"
 ffi "c++" import "llvm/MC/TargetRegistry.h"
@@ -42,9 +42,9 @@ ffi "c++" import "llvm/Target/TargetMachine.h"
 ffi "c++" import "llvm/Target/TargetOptions.h"
 ffi "c++" import "llvm/Support/CodeGen.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "Native/GlobalRecycler.hh"
-ffi "c++" import "Native/KThread.hh" // execute_on_big_stack
+ffi "c++" import "Native/Thread.hh" // execute_on_big_stack
 ffi "c++" import "locale"
 ffi "c++" import "sstream"
 ffi "c++" import "cstring"

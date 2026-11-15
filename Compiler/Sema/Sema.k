@@ -31,7 +31,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "cstdlib"
-ffi "c++" import "Native/KShims.hh" // purity_inferred_*
+ffi "c++" import "Native/Shims.hh" // purity_inferred_*
 
 import AST::Context::ASTContext::ASTContext
 import AST::Context::DepLog::DepLogScope

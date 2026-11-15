@@ -44,9 +44,9 @@ ffi "c++" import "clang/CodeGen/CodeGenAction.h"
 ffi "c++" import "clang/Lex/Preprocessor.h"
 ffi "c++" import "clang/Lex/PreprocessorOptions.h"
 ffi "c++" import "llvm/Support/MemoryBuffer.h"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "Native/ClangSemaAgree.hh"
-ffi "c++" import "Native/KTimeClang.hh"
+ffi "c++" import "Native/ClangTime.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "utility"
 
@@ -119,7 +119,7 @@ pub class KairoInject {
     fn begin(self, @inout ci: clang::CompilerInstance) -> bool {
         // The fill's bounds, for --time-passes: what clang spends before it
         // is the TU's setup, what it spends after it up to ParseAST is the
-        // PCH load (Native/KTimeClang.hh). No-ops with timing off.
+        // PCH load (Native/ClangTime.hh). No-ops with timing off.
         kairo::ktime_clang_mark_fill_begin()
         var *pp  = &ci.getPreprocessor()
         var *csm = &ci.getSourceManager()

@@ -60,7 +60,7 @@ ffi "c++" import "llvm/ADT/STLExtras.h"
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KShims.hh" // header_set_late_uses
+ffi "c++" import "Native/Shims.hh" // header_set_late_uses
 ffi "c++" import "clang/AST/ASTContext.h"
 ffi "c++" import "clang/AST/ASTConsumer.h"
 ffi "c++" import "clang/Basic/Diagnostic.h"
@@ -84,8 +84,8 @@ ffi "c++" import "llvm/Support/Error.h"
 ffi "c++" import "llvm/Support/MemoryBuffer.h"
 ffi "c++" import "llvm/Support/VirtualFileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
-ffi "c++" import "Native/KLog.hh"
-ffi "c++" import "Native/KTimeReport.hh"
+ffi "c++" import "Native/Log.hh"
+ffi "c++" import "Native/TimeReport.hh"
 ffi "c++" import "memory"
 ffi "c++" import "vector"
 ffi "c++" import "string"
@@ -212,7 +212,7 @@ pub class HeaderSetPPCallbacks derives clang::PPCallbacks {
 /// (FrontendOptions::SkipFunctionBodies is on). A body is kept when its
 /// function is declared in a header a Kairo file imports by name
 /// (HeaderSet::body_files): MoveCheck reads such bodies to learn whether a
-/// call moves out of a `T&` / `T*` argument (Native/KCxxMoveWalk.hh). The
+/// call moves out of a `T&` / `T*` argument (Native/ClangMoveWalk.hh). The
 /// headers those include keep none, so a call into them is an unchecked
 /// assumption. Whether clang counts the header a system one does not
 /// matter: the driver passes every include directory as `-isystem`.

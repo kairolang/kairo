@@ -13,7 +13,7 @@
 
 ffi "c++" import "Native/Win32.hh" // map_readonly / unmap
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KShims.hh" // posix_stat
+ffi "c++" import "Native/Shims.hh" // posix_stat
 ffi "c++" import "llvm/Support/ConvertUTF.h"
 ffi "c++" import "string"
 

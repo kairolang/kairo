@@ -83,7 +83,7 @@ ffi "c++" import "llvm/Config/llvm-config.h"
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KShims.hh"
+ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "vector"
 

@@ -13,8 +13,8 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KLog.hh"
-ffi "c++" import "Native/KLocale.hh" // init_process_locale
+ffi "c++" import "Native/Log.hh"
+ffi "c++" import "Native/Locale.hh" // init_process_locale
 ffi "c++" import "llvm/Support/InitLLVM.h"
 ffi "c++" import "llvm/Support/TargetSelect.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
@@ -46,7 +46,7 @@ pub fn init_runtime(argc: i32, argv: unsafe *(unsafe *c_char)) -> unsafe *llvm::
     )
 
     // Locale from the environment, LC_CTYPE forced to UTF-8 if that did not
-    // give one (Native/KLocale.hh says why), eagerly on the main thread
+    // give one (Native/Locale.hh says why), eagerly on the main thread
     // before any worker starts.
     kairo::init_process_locale()
 

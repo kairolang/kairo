@@ -71,9 +71,9 @@ ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "Native/AddrRanges.hh"
 ffi "c++" import "llvm/Support/Allocator.h"
-ffi "c++" import "Native/KPlacement.hh" // construct_at
+ffi "c++" import "Native/Placement.hh" // construct_at
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KThread.hh" // sema_mint_rank / sema_mint_counter / sema_fill_record
+ffi "c++" import "Native/Thread.hh" // sema_mint_rank / sema_mint_counter / sema_fill_record
 ffi "c++" import "vector"
 ffi "c++" import "memory"
 ffi "c++" import "cstring"

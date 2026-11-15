@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------------- Native/KLog.hh --- ///
+/// --- The Kairo Project ------------------------------- Native/Log.hh --- ///
 ///
 ///   Logger, the leveled, per-stage diagnostic log of the compiler itself.
 ///
@@ -14,12 +14,13 @@
 #ifndef __KAIRO_TOOLCHAIN_CORE_KLOG_HH__
 #define __KAIRO_TOOLCHAIN_CORE_KLOG_HH__
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <format>
 #include <functional>
-#include "KPrelude.hh"
+#include "Prelude.hh"
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Path.h>
 #include <llvm/Support/raw_ostream.h>
@@ -28,17 +29,8 @@
 #include <thread>
 #include <vector>
 
-// Unconditional: the feature macro a guard would test is only defined once
-// a standard header has been seen, which lib-helix's prelude happens to do.
 #include <source_location>
 
-#if defined(_WIN32)
-#include <io.h>
-#define KLOG_ISATTY(fd) (_isatty(fd) != 0)
-#else
-#include <unistd.h>
-#define KLOG_ISATTY(fd) (::isatty(fd) != 0)
-#endif
 
 namespace kairo {
 class Logger {
@@ -64,8 +56,8 @@ class Logger {
     struct Entry {
         Level    level;
         Stage    stage;
-        // ::std::string, not either world's Kairo string: Native cannot name
-        // Stage 1's, and the entry never leaves this class as a string.
+        // ::std::string, not the Kairo string: Native cannot name it, and
+        // the entry never leaves this class as a string.
         ::std::string message;
         uint64_t      thread_id{};
         uint64_t      timestamp_ns{};
@@ -76,24 +68,30 @@ class Logger {
 
     static void init(Level min_level = Level::Info) {
         libcxx::lock_guard<libcxx::mutex> lock(init_mutex_());
-        if (instance_() == nullptr) {
-            instance_() = new Logger(min_level);
+        if (instance_().load(libcxx::memory_order_acquire) == nullptr) {
+            instance_().store(new Logger(min_level), libcxx::memory_order_release);
         }
     }
 
-    static void set_level(Level level) { get()->min_level_ = level; }
+    /// The configuration calls below do nothing before init() or after
+    /// shutdown(), like the log calls.
+    static void set_level(Level level) {
+        if (Logger *l = get()) { l->min_level_.store(level, libcxx::memory_order_relaxed); }
+    }
 
-    static Logger *get() { return instance_(); }
+    static Logger *get() { return instance_().load(libcxx::memory_order_acquire); }
 
+    /// Log calls after this are dropped and the buffered entries are freed.
+    /// The Logger object itself is not: a pool worker may be inside log()
+    /// when the driver shuts the log down, and it finishes on a live object.
     static void shutdown() {
         libcxx::lock_guard<libcxx::mutex> lock(init_mutex_());
-        if (instance_() != nullptr) {
-            delete instance_();
-            instance_() = nullptr;
+        Logger *l = instance_().exchange(nullptr, libcxx::memory_order_acq_rel);
+        if (l != nullptr) {
+            libcxx::lock_guard<libcxx::mutex> entries(l->mutex_);
+            libcxx::vector<Entry>().swap(l->entries_);
         }
     }
-
-    static void set_min_level(Level level) { get()->min_level_ = level; }
 
     /// Entries at or above this level are written to stderr AS THEY HAPPEN, in
     /// addition to being buffered for dump_to_file().
@@ -109,30 +107,28 @@ class Logger {
     /// about. A release build streams only Fatal: an Error entry there is a
     /// developer breadcrumb (the user-facing failure is a diagnostic), and
     /// -v (set_stream_level(Info)) still shows it.
-    static void set_stream_level(Level level) { get()->stream_level_ = level; }
+    static void set_stream_level(Level level) {
+        if (Logger *l = get()) { l->stream_level_.store(level, libcxx::memory_order_relaxed); }
+    }
 
     template <class S>
     static void set_dump_path(const S &path) {
-        get()->dump_path_ = ::std::string(native::bytes(path));
+        if (Logger *l = get()) {
+            libcxx::lock_guard<libcxx::mutex> lock(l->mutex_);
+            l->dump_path_ = ::std::string(native::bytes(path));
+        }
     }
 
-    static void enable_stage(Stage stage, bool enabled) {
-        get()->stage_enabled_[static_cast<size_t>(stage)] = enabled;
-    }
-
-    /// Every text entry point is a template on the message (native::bytes):
-    /// Stage 0 passes lib-helix's string, Stage 1 the builtin one.
+    /// Every text entry point is a template on the message (native::bytes),
+    /// so a Kairo string, an f-string and a literal all pass.
     template <class S>
     void log(Level                         level,
              Stage                         stage,
              const S                      &message,
              const libcxx::source_location loc =
                  libcxx::source_location::current()) {
-        if (static_cast<uint8_t>(level) < static_cast<uint8_t>(min_level_)) {
-            return;
-        }
-
-        if (!stage_enabled_[static_cast<size_t>(stage)]) {
+        if (static_cast<uint8_t>(level) <
+            static_cast<uint8_t>(min_level_.load(libcxx::memory_order_relaxed))) {
             return;
         }
 
@@ -153,160 +149,93 @@ class Logger {
         entries_.push_back(libcxx::move(e));
 
         // Live echo, under the same lock so concurrent stages cannot interleave
-        // half-lines. Flushed immediately: the whole point is to survive a
-        // crash that never reaches the teardown dump.
+        // half-lines, and with any status line on stderr held off its row
+        // (native::stderr_hold). Flushed immediately: the whole point is to
+        // survive a crash that never reaches the teardown dump.
         if (static_cast<uint8_t>(level) >=
-            static_cast<uint8_t>(stream_level_)) {
+            static_cast<uint8_t>(stream_level_.load(libcxx::memory_order_relaxed))) {
+            native::stderr_hold();
             write_err(format_entry(entries_.back(), stream_color()));
             libcxx::fflush(stderr);
+            native::stderr_release();
         }
     }
 
+    /// The six level entry points. Each drops the message when no Logger is
+    /// published (before init(), after shutdown()).
     template <class S>
-    static void trace(Stage                         s,
-                      const S                      &msg,
-                      const libcxx::source_location loc =
-                          libcxx::source_location::current()) {
-        auto *inst = get();
-        if (inst == nullptr) {
-            return;
-        }
-
-        inst->log(Level::Trace, s, msg, loc);
+    static void trace(Stage s, const S &msg,
+                    const libcxx::source_location loc = libcxx::source_location::current()) {
+        log_at(Level::Trace, s, msg, loc);
     }
-    template <class S>
-    static void debug(Stage                         s,
-                      const S                      &msg,
-                      const libcxx::source_location loc =
-                          libcxx::source_location::current()) {
-        auto *inst = get();
-        if (inst == nullptr) {
-            return;
-        }
 
-        inst->log(Level::Debug, s, msg, loc);
+    template <class S>
+    static void debug(Stage s, const S &msg,
+                    const libcxx::source_location loc = libcxx::source_location::current()) {
+        log_at(Level::Debug, s, msg, loc);
     }
-    template <class S>
-    static void info(Stage                         s,
-                     const S                      &msg,
-                     const libcxx::source_location loc =
-                         libcxx::source_location::current()) {
-        auto *inst = get();
-        if (inst == nullptr) {
-            return;
-        }
 
-        inst->log(Level::Info, s, msg, loc);
+    template <class S>
+    static void info(Stage s, const S &msg,
+                   const libcxx::source_location loc = libcxx::source_location::current()) {
+        log_at(Level::Info, s, msg, loc);
     }
-    template <class S>
-    static void warn(Stage                         s,
-                     const S                      &msg,
-                     const libcxx::source_location loc =
-                         libcxx::source_location::current()) {
-        auto *inst = get();
-        if (inst == nullptr) {
-            return;
-        }
 
-        inst->log(Level::Warn, s, msg, loc);
+    template <class S>
+    static void warn(Stage s, const S &msg,
+                   const libcxx::source_location loc = libcxx::source_location::current()) {
+        log_at(Level::Warn, s, msg, loc);
     }
-    template <class S>
-    static void error(Stage                         s,
-                      const S                      &msg,
-                      const libcxx::source_location loc =
-                          libcxx::source_location::current()) {
-        auto *inst = get();
-        if (inst == nullptr) {
-            return;
-        }
 
-        inst->log(Level::Error, s, msg, loc);
+    template <class S>
+    static void error(Stage s, const S &msg,
+                    const libcxx::source_location loc = libcxx::source_location::current()) {
+        log_at(Level::Error, s, msg, loc);
     }
-    template <class S>
-    static void fatal(Stage                         s,
-                      const S                      &msg,
-                      const libcxx::source_location loc =
-                          libcxx::source_location::current()) {
-        auto *inst = get();
-        if (inst == nullptr) {
-            return;
-        }
 
-        inst->log(Level::Fatal, s, msg, loc);
+    template <class S>
+    static void fatal(Stage s, const S &msg,
+                    const libcxx::source_location loc = libcxx::source_location::current()) {
+        log_at(Level::Fatal, s, msg, loc);
     }
 
     // UTF-8 bytes, written verbatim through C stdio (stderr, unbuffered): no
     // locale involved, and it orders with every other stdio writer.
     static void write_err(::std::string_view s) { native::write_bytes(stderr, s); }
 
-    static void dump_to_stderr() {
-        libcxx::lock_guard<libcxx::mutex> lock(get()->mutex_);
-        for (const auto &e : get()->entries_) {
-            write_err(format_entry(e, stream_color()));
-        }
-    }
-
     static void dump_to_file() {
-        if (get()->dump_path_.empty()) {
+        Logger *l = get();
+        if (l == nullptr) { return; }
+        libcxx::lock_guard<libcxx::mutex> lock(l->mutex_);
+        if (l->dump_path_.empty()) {
             return;
         }
-        libcxx::lock_guard<libcxx::mutex> lock(get()->mutex_);
         // Nothing logged: create no file. The dump path sits beside the
         // installed binary, so an unconditional open litters bin/ with an
         // empty <exe>.log on every run (or fails in a read-only install). A
         // log left by an earlier run is removed, so the file on disk always
         // belongs to the last run.
-        if (get()->entries_.empty()) {
-            llvm::sys::fs::remove(get()->dump_path_);
+        if (l->entries_.empty()) {
+            llvm::sys::fs::remove(l->dump_path_);
             return;
         }
         // OF_None: binary, truncating. Streams entry by entry, so the dump
         // never holds the whole log as one string.
         libcxx::error_code   ec;
-        llvm::raw_fd_ostream out(llvm::StringRef(get()->dump_path_), ec, llvm::sys::fs::OF_None);
+        llvm::raw_fd_ostream out(llvm::StringRef(l->dump_path_), ec, llvm::sys::fs::OF_None);
         if (ec) {
             return;
         }
-        for (const auto &e : get()->entries_) {
+        for (const auto &e : l->entries_) {
             auto line = format_entry(e, false);
             out.write(line.data(), line.size());
         }
+        // A log that cannot be written is not an error of the run. The
+        // stream's destructor ends the process when its error flag is still
+        // set, so the file is closed and the flag cleared here.
+        out.close();
+        out.clear_error();
     }
-
-    static void dump() {
-        dump_to_stderr();
-        dump_to_file();
-    }
-
-    static void dump_stage(Stage stage) {
-        libcxx::lock_guard<libcxx::mutex> lock(get()->mutex_);
-        for (const auto &e : get()->entries_) {
-            if (e.stage == stage) {
-                write_err(format_entry(e, stream_color()));
-            }
-        }
-    }
-
-    static void dump_level(Level min) {
-        libcxx::lock_guard<libcxx::mutex> lock(get()->mutex_);
-        for (const auto &e : get()->entries_) {
-            if (static_cast<uint8_t>(e.level) >= static_cast<uint8_t>(min)) {
-                write_err(format_entry(e, stream_color()));
-            }
-        }
-    }
-
-    static void clear() {
-        libcxx::lock_guard<libcxx::mutex> lock(get()->mutex_);
-        get()->entries_.clear();
-    }
-
-    static size_t entry_count() {
-        libcxx::lock_guard<libcxx::mutex> lock(get()->mutex_);
-        return get()->entries_.size();
-    }
-
-    ~Logger() = default;
 
     Logger(const Logger &)            = delete;
     Logger &operator=(const Logger &) = delete;
@@ -314,14 +243,18 @@ class Logger {
     Logger &operator=(Logger &&)      = delete;
 
   private:
+    template <class S>
+    static void log_at(Level level, Stage s, const S &msg, const libcxx::source_location &loc) {
+        if (Logger *inst = get()) { inst->log(level, s, msg, loc); }
+    }
+
     explicit Logger(Level min_level)
         : min_level_(min_level)
         , start_(libcxx::chrono::steady_clock::now()) {
-        stage_enabled_.fill(true);
     }
 
-    static Logger *&instance_() {
-        static Logger *inst = nullptr;
+    static libcxx::atomic<Logger *> &instance_() {
+        static libcxx::atomic<Logger *> inst{nullptr};
         return inst;
     }
 
@@ -337,7 +270,7 @@ class Logger {
             if (libcxx::getenv("NO_COLOR") != nullptr) {
                 return false;
             }
-            return KLOG_ISATTY(fileno(stderr));
+            return native::stderr_is_tty();
         }();
         return enabled;
     }
@@ -435,14 +368,14 @@ class Logger {
 
     libcxx::vector<Entry>                          entries_;
     libcxx::mutex                                  mutex_;
-    Level                                          min_level_;
+    // Set by the driver while pool workers log: read without the mutex.
+    libcxx::atomic<Level>                          min_level_;
 #ifndef NDEBUG
-    Level                                          stream_level_{Level::Error};
+    libcxx::atomic<Level>                          stream_level_{Level::Error};
 #else
-    Level                                          stream_level_{Level::Fatal};
+    libcxx::atomic<Level>                          stream_level_{Level::Fatal};
 #endif
     libcxx::chrono::steady_clock::time_point       start_;
-    libcxx::array<bool, static_cast<size_t>(Stage::Count)> stage_enabled_{};
     ::std::string                                  dump_path_;
 };
 }  // namespace kairo

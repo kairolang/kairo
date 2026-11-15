@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------ Native/KTimeReport.hh --- ///
+/// --- The Kairo Project ------------------------ Native/TimeReport.hh --- ///
 ///
 ///   Hierarchical, thread-aware pass timing.  The engine behind --time-passes
 ///   and --time-trace.
@@ -29,10 +29,8 @@
 ///     work_ns   time summed over workers         WORK
 ///     par       work / wall                      the speedup the fan-out got
 ///
-///   That is why there is no `Parse` / `parse-task` pair of rows.  There was,
-///   and it read like a toy: two lines, near-identical names, one number each,
-///   and the reader left to divide them.  One row, two columns, the ratio
-///   computed for you.
+///   That is why there is no `Parse` / `parse-task` pair of rows: one row,
+///   two columns, and the ratio computed.
 ///
 ///   Other per-record fields:
 ///     child_ns  inclusive time of children entered on the same thread
@@ -42,7 +40,7 @@
 ///
 ///   SAMPLING.  A region on a per-token path cannot afford two clock reads per
 ///   entry: clock_gettime through the vDSO is ~25ns on aarch64, which against
-///   a ~20ns tokenizer step measures the measurement.  SampledScope times one
+///   a ~20ns tokenizer step measures the measurement.  A sampled entry times one
 ///   entry in `stride` and scales, for ~1ns amortized.  Sampled rows are
 ///   marked `~` and their numbers are estimates.
 ///
@@ -65,7 +63,7 @@
 #ifndef __KAIRO_TOOLCHAIN_CORE_KTIMEREPORT_HH__
 #define __KAIRO_TOOLCHAIN_CORE_KTIMEREPORT_HH__
 
-#include "KPrelude.hh"
+#include "Prelude.hh"
 
 #include <algorithm>
 #include <atomic>
@@ -124,7 +122,7 @@ class TimeReport {
         /// slots >= 63 fold into bit 63. Report-only, so the fold is harmless.
         libcxx::atomic<uint64_t> slot_mask{0};
 
-        /// Numbers came from SampledScope and are extrapolated, not measured.
+        /// Numbers came from sampled entries and are extrapolated, not measured.
         libcxx::atomic<bool> sampled{false};
 
         /// A busy-wait. Real elapsed time, but not work anybody can optimize
@@ -132,7 +130,9 @@ class TimeReport {
         /// list so it does not crowd out actual bottlenecks.
         libcxx::atomic<bool> idle{false};
 
-        const char *unit_label = nullptr;
+        /// Set once by the first add_units call, from any worker; the
+        /// string has static storage (see add_units).
+        libcxx::atomic<const char *> unit_label{nullptr};
 
         libcxx::unordered_map<libcxx::string, Record *> kids;
         libcxx::vector<Record *>                        kid_order;
@@ -426,10 +426,13 @@ class TimeReport {
     }
 
     /// Optional throughput counter. \p label is remembered from the first
-    /// call and shown in the report as label/s.
+    /// call and shown in the report as label/s. The POINTER is kept until the
+    /// report is printed, so \p label must have static storage (a string
+    /// literal, in C++ or in Kairo).
     static void add_units(Record *rec, uint64_t n, const char *label) {
         if (rec == nullptr) { return; }
-        if (rec->unit_label == nullptr) { rec->unit_label = label; }
+        const char *none = nullptr;
+        rec->unit_label.compare_exchange_strong(none, label, libcxx::memory_order_relaxed);
         rec->units.fetch_add(n, libcxx::memory_order_relaxed);
     }
 
@@ -441,7 +444,7 @@ class TimeReport {
     /// at \p t0_ns on clock_ns()'s clock.
     ///
     /// For time another profiler measured   clang's own TimeTraceScopes,
-    /// harvested after ExecuteAction returns (KTimeClang.hh). Those spans ran
+    /// harvested after ExecuteAction returns (ClangTime.hh). Those spans ran
     /// inside a region that is still open, so the parent's child time has to
     /// be credited the same way leave() would have: through the thread's
     /// accumulator when the parent is that open region (its leave() folds it
@@ -558,34 +561,6 @@ class TimeReport {
 
         Record *record() const { return _f.rec; }
         void    units(uint64_t n, const char *label) { TimeReport::add_units(_f.rec, n, label); }
-
-      private:
-        Frame _f;
-    };
-
-    /// Times one entry in \p stride and multiplies by \p stride.
-    ///
-    /// For a region on a per-token path, where two clock reads per entry would
-    /// cost more than the work being measured. \p counter must be a
-    /// thread-local or per-object counter the caller owns; sharing one across
-    /// threads costs a cache line per token and defeats the purpose.
-    ///
-    /// The result is an ESTIMATE. Over millions of entries the sampling error
-    /// is far below the resolution anyone acts on, but the row is marked `~`
-    /// so nobody quotes it as measured.
-    class SampledScope {
-      public:
-        SampledScope(Record *rec, uint32_t stride, uint32_t &counter) {
-            if (rec == nullptr || !TimeReport::enabled()) { return; }
-            if (stride < 1) { stride = 1; }
-            if (++counter < stride) { return; }
-            counter = 0;
-            _f      = TimeReport::enter(rec, stride);
-        }
-        ~SampledScope() { TimeReport::leave(_f); }
-
-        SampledScope(const SampledScope &)            = delete;
-        SampledScope &operator=(const SampledScope &) = delete;
 
       private:
         Frame _f;
@@ -729,22 +704,9 @@ class TimeReport {
         }
 
         fprintf(f, "\n]}\n");
-        fclose(f);
-        return true;
-    }
-
-    /// Drops every record and event. For a long-lived tool (LSP) that reports
-    /// per request rather than per process.
-    static void reset() {
-        Registry                                 &r = reg();
-        libcxx::unique_lock<libcxx::shared_mutex> lk(r.mu);
-        for (Record *rec : r.all) { delete rec; }
-        r.all.clear();
-        root_order_unlocked().clear();
-        roots_unlocked().clear();
-        for (ThreadBuf *b : r.bufs) { b->events.clear(); }
-        r.wall_ns.store(0, libcxx::memory_order_relaxed);
-        r.epoch = Clock::now();
+        // A trace cut short by a write error is not a trace: say so.
+        const bool failed = ferror(f) != 0;
+        return fclose(f) == 0 && !failed;
     }
 
   private:
@@ -781,6 +743,12 @@ class TimeReport {
             if (c == '"' || c == '\\') { o.push_back('\\'); o.push_back(c); }
             else if (c == '\n')        { o += "\\n"; }
             else if (c == '\t')        { o += "\\t"; }
+            else if (static_cast<unsigned char>(c) < 0x20) {
+                // JSON has no raw control characters in a string.
+                char u[8];
+                snprintf(u, sizeof(u), "\\u%04x", static_cast<unsigned>(static_cast<unsigned char>(c)));
+                o += u;
+            }
             else                       { o.push_back(c); }
         }
         return o;
@@ -826,12 +794,13 @@ class TimeReport {
 
         char rate[32];
         rate[0] = '\0';
-        if (units && rec->unit_label && base) {
+        const char *label = rec->unit_label.load(libcxx::memory_order_relaxed);
+        if (units && label && base) {
             const double per_s = double(units) / (double(base) / 1e9);
-            if (per_s >= 1e9)      { snprintf(rate, sizeof(rate), "%7.2f G%s/s", per_s / 1e9, rec->unit_label); }
-            else if (per_s >= 1e6) { snprintf(rate, sizeof(rate), "%7.2f M%s/s", per_s / 1e6, rec->unit_label); }
-            else if (per_s >= 1e3) { snprintf(rate, sizeof(rate), "%7.2f K%s/s", per_s / 1e3, rec->unit_label); }
-            else                   { snprintf(rate, sizeof(rate), "%7.2f  %s/s", per_s,       rec->unit_label); }
+            if (per_s >= 1e9)      { snprintf(rate, sizeof(rate), "%7.2f G%s/s", per_s / 1e9, label); }
+            else if (per_s >= 1e6) { snprintf(rate, sizeof(rate), "%7.2f M%s/s", per_s / 1e6, label); }
+            else if (per_s >= 1e3) { snprintf(rate, sizeof(rate), "%7.2f K%s/s", per_s / 1e3, label); }
+            else                   { snprintf(rate, sizeof(rate), "%7.2f  %s/s", per_s,       label); }
         }
 
         char indent[128];
@@ -867,6 +836,9 @@ class TimeReport {
     /// pipeline; this tells you what to go fix. Busy-waits are excluded   a
     /// spinning flusher is a design bug, not a slow function, and it would
     /// otherwise sit at the top of the list forever.
+    static constexpr size_t   HOT_ROWS     = 15;
+    static constexpr uint64_t HOT_FLOOR_NS = 50000;
+
     static void print_hot(FILE *out, uint64_t wall) {
         Registry                &r = reg();
         libcxx::vector<Record *> v;
@@ -875,14 +847,14 @@ class TimeReport {
             // 50us floor. A pure dispatcher's self time is its own bookkeeping
             // and rounds to 0.00 ms; listing those pads the list with rows
             // nobody can act on and pushes real entries off the bottom.
-            if (rec->self_ns() < 50000ull) { continue; }
+            if (rec->self_ns() < HOT_FLOOR_NS) { continue; }
             v.push_back(rec);
         }
         libcxx::sort(v.begin(), v.end(), [](const Record *a, const Record *b) {
             return a->self_ns() > b->self_ns();
         });
 
-        const size_t n = v.size() < 15 ? v.size() : 15;
+        const size_t n = v.size() < HOT_ROWS ? v.size() : HOT_ROWS;
         if (n == 0) { return; }
 
         fprintf(out, "\n  hottest regions by self time\n");
@@ -901,10 +873,8 @@ class TimeReport {
 
 /// # Flat facade
 ///
-///   Support/TimeReport.k binds to THESE, not to TimeReport's nested types.
-///   Stage0 has to be able to spell every type it touches, and
-///   `kairo::TimeReport::Frame` is three levels of qualification into a class
-///   body. Aliases and free functions keep the Kairo side to one namespace hop.
+///   Support/TimeReport.k binds to THESE, not to TimeReport's nested types:
+///   aliases and free functions keep the Kairo side to one namespace hop.
 ///
 ///   No logic lives here. Anything that is not a one-line forward belongs on
 ///   TimeReport, where the C++ call sites can reach it too.
@@ -968,22 +938,5 @@ inline void        ktime_worker_leave(const KTimeWorker &w) { TimeReport::worker
 inline KTimeRecord *ktime_worker_record(const KTimeWorker &w) { return w.frame.rec; }
 
 }  // namespace kairo
-
-/// Scoped region inside C++ code (a Native/ header).
-///
-///     KTIME("Parse.lower");
-#define KTIME_CAT2(a, b) a##b
-#define KTIME_CAT(a, b)  KTIME_CAT2(a, b)
-#define KTIME(name)      ::kairo::TimeReport::Scope KTIME_CAT(_ktime_, __LINE__)(name)
-
-/// Same, against a hoisted Record* so the hot path does no map lookup.
-#define KTIME_REC(rec) ::kairo::TimeReport::Scope KTIME_CAT(_ktime_, __LINE__)(rec)
-
-/// A pool task doing a slice of \p rec. Put this first in the task body.
-#define KTIME_WORKER(rec) ::kairo::TimeReport::Worker KTIME_CAT(_ktwork_, __LINE__)(rec)
-
-/// Roots the thread under \p parent without billing the task itself.
-#define KTIME_ROOT(parent) \
-    ::kairo::TimeReport::ThreadRoot KTIME_CAT(_ktroot_, __LINE__)(parent)
 
 #endif  // __KAIRO_TOOLCHAIN_CORE_KTIMEREPORT_HH__

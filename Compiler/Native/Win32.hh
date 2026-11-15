@@ -28,21 +28,23 @@ bool map_readonly(const char *path, size_t len, unsigned char **data, size_t *si
 /// Unmaps a view map_readonly returned.
 void unmap(void *data);
 
-/// This executable's path as UTF-8, '/'-separated, into \p buf (\p cap bytes).
-/// Returns its length, or 0 when the OS will not say or it does not fit.
-size_t exe_path_utf8(char *buf, size_t cap);
-
 /// Moves \p from to \p to (UTF-8, \p flen / \p tlen bytes each), directories
 /// included, which llvm::sys::fs::rename does not do on Windows. Fails if \p to
 /// exists. MoveFileExW, write-through.
 bool move_path(const char *from, size_t flen, const char *to, size_t tlen);
 
-/// Console input and output code pages to UTF-8 (KLocale's init).
+/// Console input and output code pages to UTF-8 (Locale.hh's init).
 void console_utf8();
 
 /// Starts a detached thread running fn(arg) with a \p stack_bytes stack
-/// reservation (KThread's pool workers).
-void spawn_thread(void (*fn)(void *), void *arg, size_t stack_bytes);
+/// reservation (Thread.hh's pool workers). false when the thread cannot be
+/// created; \p fn is then never called.
+bool spawn_thread(void (*fn)(void *), void *arg, size_t stack_bytes);
+
+/// Runs fn(arg) on a new thread with a \p stack_bytes stack reservation and
+/// returns when it has finished (Thread.hh's execute_on_big_stack). false when
+/// the thread cannot be created; \p fn is then never called.
+bool run_on_thread(void (*fn)(void *), void *arg, size_t stack_bytes);
 
 /// Turns on ANSI escape processing for stderr's console and reports its width
 /// in *cols. false when stderr is not a console that takes it (the progress

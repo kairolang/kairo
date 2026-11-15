@@ -14,7 +14,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/KShims.hh" // std_out
+ffi "c++" import "Native/Shims.hh" // std_out
 ffi "c++" import "cstdio"
 
 import AST::Context::ASTContext::ASTContext

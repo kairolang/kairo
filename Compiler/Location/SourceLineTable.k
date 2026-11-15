@@ -12,8 +12,8 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KLog.hh"
-ffi "c++" import "Native/KShims.hh"
+ffi "c++" import "Native/Log.hh"
+ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "vector"
 ffi "c++" import "thread"
 ffi "c++" import "chrono"

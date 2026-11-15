@@ -9,7 +9,7 @@
 
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KClangDiag.hh"
+ffi "c++" import "Native/ClangDiag.hh"
 ffi "c++" import "clang/Basic/Diagnostic.h"
 ffi "c++" import "clang/Basic/DiagnosticIDs.h"
 ffi "c++" import "clang/Basic/SourceManager.h"

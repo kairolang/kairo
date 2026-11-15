@@ -40,12 +40,12 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/KLocale.hh" // init_process_locale
+ffi "c++" import "Native/Locale.hh" // init_process_locale
 ffi "c++" import "llvm/Support/InitLLVM.h"
 ffi "c++" import "llvm/Support/TargetSelect.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/KLog.hh"
+ffi "c++" import "Native/Log.hh"
 ffi "c++" import "Native/GlobalRecycler.hh"
 ffi "c++" import "locale"
 ffi "c++" import "sstream"

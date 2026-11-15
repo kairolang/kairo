@@ -1,13 +1,13 @@
-/// --- The Kairo Project ------------------------- Native/KPlacement.hh --- ///
+/// --- The Kairo Project ------------------------- Native/Placement.hh --- ///
 ///
 ///   Construct-in-place and destroy-in-place for arena allocations.
 ///
 ///   WHY C++: the arenas hand out raw storage and the object has to be
 ///   constructed into it (placement new) and, for the cleanup lists, later
 ///   destroyed without freeing (an explicit destructor call). Kairo has no
-///   spelling for either. Stage 1 does not emit inline foreign blocks, so
-///   the C++ lives here and ASTContext, ArenaAllocator, ArenaList,
-///   TupleRecords and InstantiationRegistry call it.
+///   spelling for either, so the C++ lives here and ASTContext,
+///   ArenaAllocator, ArenaList, TupleRecords and InstantiationRegistry call
+///   it.
 ///
 ///   Both are templates, so every TU that includes this sees the same
 ///   definition and there is nothing to collide at link time.

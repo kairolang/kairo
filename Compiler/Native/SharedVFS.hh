@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------- Native/KSharedVFS.hh --- ///
+/// --- The Kairo Project ------------------------- Native/SharedVFS.hh --- ///
 ///
 ///   A codegen TU's view of the fan-out's one shared in-memory file layer.
 ///

@@ -2,7 +2,7 @@
 ///
 ///   Build progress: a pinned status line on a terminal, `@progress` event
 ///   lines for a program reading stderr. Kairo surface over the engine in
-///   Native/KProgress.hh (see there for why it is native); the flag and the
+///   Native/Progress.hh (see there for why it is native); the flag and the
 ///   line format are documented in Spec/Driver.md#progress.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
@@ -14,10 +14,10 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/KProgress.hh"
+ffi "c++" import "Native/Progress.hh"
 
 /// The phases, in the order a run reaches them. The numbers are the native
-/// enum's (KProgress.hh, ProgressMeter::Phase).
+/// enum's (Progress.hh, ProgressMeter::Phase).
 pub
 const PROGRESS_PARSE: i32 = 0
 pub

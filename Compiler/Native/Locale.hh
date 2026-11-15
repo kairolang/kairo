@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------------------- Native/KLocale.hh --- ///
+/// --- The Kairo Project ---------------------------- Native/Locale.hh --- ///
 ///
 ///   Process locale setup for the driver: the environment picks the
 ///   language, the compiler picks the encoding.
@@ -11,9 +11,9 @@
 ///   PRINT CALL is dropped, so a --print-ast dump lost a whole translation
 ///   unit at its first U+FFFD and the next unit's lines took its place.
 ///
-///   WHY C++: setlocale/nl_langinfo are platform headers stage0 cannot
-///   `::`-qualify, and langinfo.h does not exist on Windows (which gets the
-///   same treatment through UCRT's ".UTF-8" codepage suffix).
+///   WHY C++: the codeset query is nl_langinfo(CODESET), a macro argument
+///   Kairo cannot name, and langinfo.h does not exist on Windows (which gets
+///   the same treatment through UCRT's ".UTF-8" codepage suffix).
 ///
 ///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
 ///   Copyright (c) 2026 Dhruvan Kartik
@@ -42,11 +42,9 @@ namespace kairo {
 /// segfaults if first called from a worker with a shallow stack.
 ///
 /// On Windows also sets the console's input and output code pages to UTF-8,
-/// so the UTF-8 bytes the print family writes verbatim render as text. That
-/// was lib-helix's enable_utf8_output, run by its runtime init before main;
-/// a Stage 1 main has no such hook, so the driver's init (which calls this
-/// before anything is printed) is its home. Under Stage 0 it runs twice,
-/// which is harmless: both calls set the same code page.
+/// so the UTF-8 bytes the print family writes verbatim render as text. A
+/// Kairo main has no hook that runs before it, so each driver's init calls
+/// this before anything is printed.
 inline void init_process_locale() {
 #if defined(_WIN32)
     kairo::win32::console_utf8();

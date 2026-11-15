@@ -1,11 +1,10 @@
-/// --- The Kairo Project ------------------------ Native/KFileSystem.hh --- ///
+/// --- The Kairo Project ------------------------ Native/FileSystem.hh --- ///
 ///
 ///   Accessors on LLVM filesystem types whose member names are Kairo
 ///   keywords.
 ///
 ///   WHY C++: llvm::sys::fs::directory_entry::type() cannot be called from
-///   Kairo, `type` is a keyword. Stage 1 does not emit inline foreign code,
-///   so the call lives here.
+///   Kairo, `type` is a keyword, so the call lives here.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.

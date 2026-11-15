@@ -41,7 +41,7 @@
 /// \see SourceManager, Lexer
 ///
 
-#include "KPrelude.hh"
+#include "Prelude.hh"
 #include "Types.hh"
 
 namespace kairo {

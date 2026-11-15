@@ -20,7 +20,7 @@ ffi "c++" import "llvm/ADT/iterator_range.h"
 ffi "c++" import "llvm/Support/FileSystem.h"
 ffi "c++" import "llvm/Support/Path.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
-ffi "c++" import "Native/KFileSystem.hh" // dir_entry_type: `type` is a keyword
+ffi "c++" import "Native/FileSystem.hh" // dir_entry_type: `type` is a keyword
 ffi "c++" import "system_error"
 ffi "c++" import "vector"
 
