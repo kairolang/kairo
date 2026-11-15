@@ -178,6 +178,7 @@ import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
     FunctionPointerType,
+    PointerType,
 }
 import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
@@ -1102,7 +1103,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
                     r = self._root_chain(ce, ce->steps.size() - 1, unsafe &thru)
                 }
 
-                if r != &null && (thru || f->is_const()) {
+                if r != &null && (thru || f->is_const() || n->recv_reads) {
                     self._claim(r)
                 } else if r != &null && self._lint {
                     self._defer(r, f)
@@ -1232,8 +1233,32 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             return true
         }
 
+        // `&x as *const T` (IterLowering's call of `op in (const self)` on
+        // a mutable object): the address is taken only to read through it.
+        var unsafe *amp = self._tu.strip_parens(n->operand)
+        if amp != &null
+            && isa<Expressions::UnaryOperatorExpr>(amp)
+            && cast<Expressions::UnaryOperatorExpr>(amp)->resolved_op == &null
+            && cast<Expressions::UnaryOperatorExpr>(amp)->op_token.kind == TokenKind::OpAmp
+            && self._ptr_to_const(n->target) {
+            self._approve(cast<Expressions::UnaryOperatorExpr>(amp)->operand)
+            return true
+        }
+
         self._approve(n->operand)
         return true
+    }
+
+    /// \p t is a pointer to const (`*const T`).
+    priv fn _ptr_to_const(self, t: unsafe *Type) -> bool {
+        if t == &null {
+            return false
+        }
+
+        var unsafe *c = canon_unqual(if (t->canonical != &null) => (t->canonical) else => t)
+        return c != &null
+            && c->kind == TypeKind::PointerType
+            && canon_has_const(cast<PointerType>(c)->pointee)
     }
 
     fn visit_init_list_expr(self, n: *Expressions::InitListExpr) -> bool {

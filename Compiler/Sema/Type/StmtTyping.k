@@ -102,6 +102,7 @@ import AST::Node::Types::{
     NullableType,     PointerType,      SetType,        TupleType,           TypeOfType,
     VectorType,
 }
+import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
@@ -2134,13 +2135,15 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     /// `fn op in (self) -> yield T` on \p t: the element type it yields, with
     /// \p kind / \p _op / \p inst set to the call, or null when \p t
     /// declares none. The iteration form takes `self` only; `op in (self, x)`
-    /// is containment and is never picked here.
+    /// is containment and is never picked here. \p rf, when given, is the
+    /// loop whose binders may ask for the const form (_binders_take_const).
     priv fn _iter_own_op(self,
                          at:   unsafe *Expr,
                          t:    unsafe *Type,
                          kind: unsafe *Statements::IterKind,
                          _op:  unsafe *(unsafe *Decl),
-                         inst: unsafe *(unsafe *InstanceEntry)) -> unsafe *Type {
+                         inst: unsafe *(unsafe *InstanceEntry),
+                         rf:   unsafe *Statements::RangedForStmt = &null) -> unsafe *Type {
         var cands = cxx::std::vector<unsafe *Decl>()
         self.dyn()->ml.lookup(
             self.dyn()->tu.strip_nullable(t),
@@ -2204,7 +2207,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var none  = cxx::std::vector<ArgInfo>()
         var recv  = canon_unqual(self.dyn()->tu.strip_nullable(t))
         var qrecv = recv
-        if self._const_iterable(t) {
+        if self._const_iterable(t) || self._binders_take_const(rf, &forms) {
             qrecv = self.dyn()->sc->types->qualified(recv, QUAL_CONST)
         }
 
@@ -2249,6 +2252,46 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return elem
     }
 
+    /// A loop with a `const` binder reads through `op in (const self)` when
+    /// the type declares one, over a mutable object too: `for const x in s`,
+    /// `for const *x in s`, `for (const k, v) in m`. A mutable pointer
+    /// binder (`*x`, `unsafe *x`) in the list keeps `op in (self)`, the only
+    /// form that can bind it.
+    priv fn _binders_take_const(self,
+                                rf:    unsafe *Statements::RangedForStmt,
+                                forms: *cxx::std::vector<unsafe *Decl>) -> bool {
+        if rf == &null {
+            return false
+        }
+
+        var any = false
+        for var i: usize = 0; i < rf->bindings.size(); ++i {
+            var unsafe *b = rf->bindings.get(i)
+            if b == &null || b->is_discard {
+                continue
+            }
+
+            if b->is_const {
+                any = true
+            } else if b->shorthand.has(Statements::BindingShorthand::Pointer) {
+                return false
+            }
+        }
+
+        if !any {
+            return false
+        }
+
+        for var i: usize = 0; i < forms->size(); ++i {
+            var unsafe *f = dyn_cast<FunctionDecl>((*forms)[i])
+            if f != &null && f->is_const() {
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// The iterable is const to its `op in`: a const binding, a `const`
     /// parameter, a field reached through `const self`, a `const T&`.
     priv fn _const_iterable(self, t: unsafe *Type) -> bool {
@@ -2283,7 +2326,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         // record: an array (above), a pointer or a builtin has no members.
         if self.dyn()->tu.record_decl(self.dyn()->tu.strip_nullable(t)) != &null {
             var        was  = at->is_poisoned()
-            var unsafe *own = self._iter_own_op(at, t, kind, _op, inst)
+            var unsafe *own = self._iter_own_op(at, t, kind, _op, inst, rf)
             if own != &null {
                 return own
             }
@@ -2885,6 +2928,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 n->iterable,
                 (of != &null && of->is_const()) || self.dyn()->tu.has_const(pe),
             )
+        } else if n->iter_yield == Statements::IterYield::Tuple {
+            var unsafe *of = dyn_cast<FunctionDecl>(n->iter_op)
+            self._bind_tuple_yield(n, elem, of != &null && of->is_const())
         } else {
             self._bind_list(
                 &n->bindings,
@@ -2920,13 +2966,17 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     ///                       `for x`, `for const x`, `for const *x`
     ///   yield unsafe *T     `for unsafe *x`; through `const self` also
     ///                       `for const unsafe *x`
+    ///   yield (A, B, ...)   with a pointer element: a binder list, one
+    ///                       binder per element, each held to the row of its
+    ///                       own element
     ///
-    /// Every other binder is SC298E, with the spelling the form takes. Free
-    /// (no rule) for a loop that is not over a record's `op in`, and for a
-    /// value-yielding `op in` declared in Lib/builtin: its containers yield
-    /// `T` and their `for *x` points at the element
-    /// (Compiler/Spec/ExprTyping.md). A pointer-yielding one there is held
-    /// to the rule like any other.
+    /// A pointer to const (`*const T`, `unsafe *const T`) is read-only
+    /// through either form, so it takes the `const self` row. Every other binder is SC298E, with the
+    /// spelling the form takes. Free (no rule) for a loop that is not over a
+    /// record's `op in`, and for a value-yielding `op in` declared in
+    /// Lib/builtin: its containers yield `T` and their `for *x` points at
+    /// the element (Compiler/Spec/ExprTyping.md). A pointer-yielding one
+    /// there is held to the rule like any other.
     priv fn _iter_yield_rule(self,
                              n:    unsafe *Statements::RangedForStmt,
                              elem: unsafe *Type) -> Statements::IterYield {
@@ -2941,7 +2991,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         var unsafe *home = self.dyn()->tu.pattern_of(n->iter_op)
-        var form = self.dyn()->tu.fn_iter_yield(dyn_cast<FunctionDecl>(home))
+        var unsafe *hf   = dyn_cast<FunctionDecl>(home)
+        var        form  = self.dyn()->tu.fn_iter_yield(hf)
         if form == Statements::IterYield::Free {
             return free
         }
@@ -2954,25 +3005,141 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         var by_const = f->is_const()
+        if form == Statements::IterYield::Tuple {
+            self._check_tuple_binders(n, f, hf, elem, by_const)
+            return form
+        }
+
+        var ro = by_const
+        if form != Statements::IterYield::Value {
+            ro = ro || self.dyn()->tu.has_const(self.dyn()->tu.pointee(elem))
+        }
+
         for var i: usize = 0; i < n->bindings.size(); ++i {
             var unsafe *b = n->bindings.get(i)
             if b != &null && !b->is_discard {
-                self._check_iter_binder(n, f, b, elem, form, by_const)
+                self._check_iter_binder(n, f, b, elem, form, by_const, ro)
             }
         }
 
         return form
     }
 
+    /// The binders of a loop over a tuple yield with a pointer element (see
+    /// _iter_yield_rule): a lone binder is SC298E, since nothing would say
+    /// whether it is the tuple of pointers or a copy of what they point at;
+    /// a list of the tuple's arity holds each binder to its element's row.
+    /// Another arity is _bind_tuple_yield's SC042E.
+    priv fn _check_tuple_binders(self,
+                                 n:        unsafe *Statements::RangedForStmt,
+                                 f:        unsafe *FunctionDecl,
+                                 hf:       unsafe *FunctionDecl,
+                                 elem:     unsafe *Type,
+                                 by_const: bool) {
+        var elems = self.dyn()->tu.tuple_elems(canon_unqual(elem))
+        var forms = self.dyn()->tu.fn_iter_yield_elems(hf)
+        if n->bindings.size() == 1 {
+            var unsafe *b = n->bindings.get(0)
+            if b == &null || b->is_discard {
+                return
+            }
+
+            self._whole_tuple_binder(n, f, b, elem, elems.size(), by_const)
+            return
+        }
+
+        if elems.size() != n->bindings.size() || forms.size() != elems.size() {
+            return
+        }
+
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var unsafe *b = n->bindings.get(i)
+            if b == &null || b->is_discard {
+                continue
+            }
+
+            var ro = by_const
+            if forms[i] != Statements::IterYield::Value {
+                ro = ro || self.dyn()->tu.has_const(self.dyn()->tu.pointee(elems[i]))
+            }
+
+            self._check_iter_binder(
+                n,
+                f,
+                b,
+                elems[i],
+                forms[i],
+                by_const,
+                ro,
+                true,
+            )
+        }
+    }
+
+    /// `for e in m` over a tuple yield with a pointer element: SC298E, with
+    /// the binder list of the tuple's arity it takes instead.
+    priv fn _whole_tuple_binder(self,
+                                n:        unsafe *Statements::RangedForStmt,
+                                f:        unsafe *FunctionDecl,
+                                b:        unsafe *Statements::Binding,
+                                elem:     unsafe *Type,
+                                arity:    usize,
+                                by_const: bool) {
+        var nm = if (b->name != &null) => (self.dyn()->sc->ctx->get_spelling(
+                     b->name->name,
+                 ))
+                 else => "_"
+        var names = ""
+        for var i: usize = 0; i < arity; ++i {
+            if i > 0 {
+                names = names + ", "
+            }
+
+            names = names + f"{nm}{i}"
+        }
+
+        var have = self._binder_spelling(
+            b->is_const,
+            b->shorthand.has(Statements::BindingShorthand::Pointer),
+            b->shorthand.has(Statements::BindingShorthand::Unsafe),
+            nm,
+        )
+
+        var recv = if (by_const) => ("const self") else => "self"
+        var ys   = self.dyn()->tu.str(elem)
+        var d = self.dyn()->sc->diag->report(
+            DiagID::SC298E,
+            b->range.start,
+            f"'for {have}' does not bind what 'op in ({recv})' yields: '{ys}' holds a pointer, so it binds one binder per element, as 'for ({names})'",
+        )
+
+        d.first(b->range)
+        d.note(
+            DiagCode(DiagID::SC298N),
+            f->range.start,
+            f"'op in ({recv})' is declared here",
+        )->child_first(f->range)
+        d.emit()
+        if b->decl != &null {
+            b->decl->poison()
+        }
+    }
+
     /// One binder against the rule (see _iter_yield_rule): SC298E with the
     /// nearest spelling the form takes, a note at the `op in`, and the edit.
+    /// \p elem and \p form are the binder's own: the whole yield, or its
+    /// element of a tuple yield. \p ro: what a pointer binder reaches is
+    /// read-only (the const form, or a `*const T`). \p in_tuple: \p elem is
+    /// an element of a tuple yield.
     priv fn _check_iter_binder(self,
                                n:        unsafe *Statements::RangedForStmt,
                                f:        unsafe *FunctionDecl,
                                b:        unsafe *Statements::Binding,
                                elem:     unsafe *Type,
                                form:     Statements::IterYield,
-                               by_const: bool) {
+                               by_const: bool,
+                               ro:       bool,
+                               in_tuple: bool = false) {
         var cst = b->is_const
         var ptr = b->shorthand.has(Statements::BindingShorthand::Pointer)
         var uns = b->shorthand.has(Statements::BindingShorthand::Unsafe)
@@ -2990,7 +3157,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             want_cst = cst && by_const
             takes = if (by_const) => (f"'for {nm}' or 'for const {nm}'") else => f"only 'for {nm}'"
         } else if form == Statements::IterYield::Pointer {
-            if by_const {
+            if ro {
                 want_cst = cst || ptr
                 takes    = f"'for {nm}', 'for const {nm}' or 'for const *{nm}'"
             } else {
@@ -3000,8 +3167,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         } else {
             want_ptr = true
             want_uns = true
-            want_cst = cst && by_const
-            takes = if (by_const) => (f"'for unsafe *{nm}' or 'for const unsafe *{nm}'")
+            want_cst = cst && ro
+            takes = if (ro) => (f"'for unsafe *{nm}' or 'for const unsafe *{nm}'")
                     else => f"only 'for unsafe *{nm}'"
         }
 
@@ -3018,9 +3185,20 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var msg = f"{who} does not bind what 'op in ({recv})' yields: '{ys}' binds {takes}"
         if form == Statements::IterYield::Value && ptr {
             var pt = if (by_const) => ("*const ") else => "*"
-            msg = msg + f"; to bind a pointer to the element, declare 'op in ({recv}) -> yield {pt}{ys}'"
-        } else if by_const && form != Statements::IterYield::UnsafePointer && ptr && !cst {
-            msg = msg + "; through 'const self' the element is read-only"
+            msg = if (in_tuple) => (msg + f"; to bind a pointer to it, declare that element '{pt}{ys}'")
+                  else => msg + f"; to bind a pointer to the element, declare 'op in ({recv}) -> yield {pt}{ys}'"
+        } else if ro && form == Statements::IterYield::Pointer && ptr && !cst {
+            msg = if (by_const) => (msg + "; through 'const self' the element is read-only")
+                  else => msg + "; it points at a read-only element"
+        } else if cst && !want_cst && !by_const {
+            var ts = self.dyn()->tu.str(
+                canon_unqual(self.dyn()->tu.as_value(n->iterable->type_)),
+            )
+
+            msg = if (self._has_const_iter_form(
+                      n->iterable->type_,
+                  )) => (msg + "; a '*' binder beside it keeps the loop on 'op in (self)'")
+                  else => msg + f"; '{ts}' declares no 'op in (const self)'"
         }
 
         var d = self.dyn()->sc->diag->report(
@@ -3058,6 +3236,73 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         d.emit()
         if b->decl != &null {
             b->decl->poison()
+        }
+    }
+
+    /// \p t (the iterable's type) declares `op in (const self)`.
+    priv fn _has_const_iter_form(self, t: unsafe *Type) -> bool {
+        var cands = cxx::std::vector<unsafe *Decl>()
+        self.dyn()->ml.lookup(
+            self.dyn()->tu.strip_nullable(self.dyn()->tu.as_value(t)),
+            DeclName::op_name(TokenKind::KwIn, TokenKind::TkUnknown),
+            &cands,
+        )
+
+        for var i: usize = 0; i < cands.size(); ++i {
+            var unsafe *f = dyn_cast<FunctionDecl>(cands[i])
+            if f != &null && f->is_const() && OperatorFacts::is_iteration(f) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// The binders of a loop over a tuple yield with a pointer element, one
+    /// per element: over a pointer element the binder takes its pointee
+    /// (`v` a copy, `*v` the yielded pointer), read-only through \p by_const
+    /// or a `*const T`; over a value element, the element. Which elements
+    /// are pointers is read off the declaration (fn_iter_yield_elems).
+    priv fn _bind_tuple_yield(self,
+                              n:        unsafe *Statements::RangedForStmt,
+                              elem:     unsafe *Type,
+                              by_const: bool) {
+        var unsafe *tt   = canon_unqual(elem)
+        var        elems = self.dyn()->tu.tuple_elems(tt)
+        var forms = self.dyn()->tu.fn_iter_yield_elems(
+            dyn_cast<FunctionDecl>(self.dyn()->tu.pattern_of(n->iter_op)),
+        )
+
+        if n->bindings.size() == 1 {
+            self._bind_one(n->bindings.get(0), tt, by_const)
+            return
+        }
+
+        if elems.size() != n->bindings.size() || forms.size() != elems.size() {
+            self.dyn()->fail(
+                n->iterable,
+                DiagID::SC042E,
+                f"{n->bindings.size()} binding(s) but '{self.dyn()->tu.str(tt)}' has {elems.size()} element(s)",
+            )
+
+            return
+        }
+
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var pe: unsafe *Type = &null
+            if forms[i] != Statements::IterYield::Value {
+                pe = self.dyn()->tu.pointee(elems[i])
+            }
+
+            if pe == &null {
+                self._bind_one(n->bindings.get(i), elems[i], by_const)
+            } else {
+                self._bind_one(
+                    n->bindings.get(i),
+                    pe,
+                    by_const || self.dyn()->tu.has_const(pe),
+                )
+            }
         }
     }
 

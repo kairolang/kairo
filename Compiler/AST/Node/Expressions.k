@@ -185,6 +185,12 @@ pub class CallExpr derives Expr {
     /// SequenceLowering binds `x` first when the order is observable.
     pub var recv_last: bool = false
 
+    /// The receiver is only read, though the method takes `self`: the
+    /// `op in (self)` of a loop whose binders bind through the type's
+    /// `op in (const self)` as well (no mutable `*x`). Written by
+    /// IterLowering; ParamPassInference counts the receiver a read.
+    pub var recv_reads: bool = false
+
     pub static fn create(ctx:    unsafe *ASTContext,
                          range:  SourceRange,
                          callee: unsafe *Expr) -> unsafe *CallExpr {
@@ -204,6 +210,7 @@ pub class CallExpr derives Expr {
         node->dep_args      = create_empty_frozen_list<unsafe *Type>()
         node->safe_result   = &null
         node->recv_last     = false
+        node->recv_reads    = false
         node->init_annotations(unsafe &ctx->ast_alloc)
         return node
     }
@@ -225,6 +232,7 @@ pub class CallExpr derives Expr {
         node->witness_row   = &null
         node->dep_args      = create_empty_frozen_list<unsafe *Type>()
         node->recv_last     = false
+        node->recv_reads    = false
         node->init_annotations(unsafe &ctx->ast_alloc)
         return node
     }

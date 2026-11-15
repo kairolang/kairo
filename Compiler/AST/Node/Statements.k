@@ -978,6 +978,11 @@ pub enum IterKind derives u8 {
 ///                   pointer binder is `for const *x`, a `*const T`.
 ///    UnsafePointer  `-> yield unsafe *T`: `for unsafe *x` (and
 ///                   `for const unsafe *x` through the const form) only.
+///    Tuple          `-> yield (A, B, ...)` with a pointer element: only a
+///                   binder list destructures it, one binder per element,
+///                   each held to the rule of its own element. A pointer
+///                   to const (`*const K`) is read-only through either
+///                   form. A tuple of values only is Value.
 ///  Free means no rule applies: not a record's `op in` (a container
 ///  shape, an array, a C++ range, a generator value), or a value-yielding
 ///  `op in` declared in Lib/builtin, which keeps pointer binders.
@@ -987,6 +992,7 @@ pub enum IterYield derives u8 {
     Value,
     Pointer,
     UnsafePointer,
+    Tuple,
 }
 
 ///

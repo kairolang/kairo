@@ -114,8 +114,9 @@ import AST::Node::Declarations::{
     VariableDecl,
 }
 import AST::Node::Expressions::{
-    AssignOperatorExpr, BinaryOperatorExpr, CallExpr,  ClosureExpr,   ListLiteralExpr,
-    ListStorage,        ParenExpr,          RangeExpr, SubscriptExpr, UnaryOperatorExpr,
+    AssignOperatorExpr, BinaryOperatorExpr, CallExpr,  CastMode,  ClosureExpr,
+    ListLiteralExpr,    ListStorage,        ParenExpr, RangeExpr, SubscriptExpr,
+    UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -131,6 +132,7 @@ import AST::Node::Types::{
     FixedArrayType,
     PointerType,
 }
+import AST::OperatorFacts::OperatorFacts
 import AST::Visitor::ASTWriter::{
     ASTWriter,
     ListBuilder,
@@ -929,6 +931,28 @@ pub class IterLowering derives ASTWriter<IterLowering> {
                 recv = self._use(tmp, at)
             }
 
+            // `op in (const self)` chosen for a mutable object (a `const`
+            // binder, StmtTyping::_binders_take_const): C++ picks a member
+            // overload by the object's own cv, so the call goes through a
+            // pointer to const.
+            var unsafe *opf = dyn_cast<FunctionDecl>(n->iter_op)
+            if opf != &null && opf->is_const() && !canon_has_const(self._referee(recv->type_)) {
+                var unsafe *ct = self.sc->types->qualified(
+                    canon_unqual(self.tu.as_value(recv->type_)),
+                    QUAL_CONST,
+                )
+
+                recv = self._deref(
+                    self.synth.cast_to(
+                        at,
+                        self.synth.addr_of(recv),
+                        self.sc->types->pointer(ct),
+                        CastMode::Default,
+                    ),
+                    ct,
+                )
+            }
+
             var none = self.list_builder<unsafe *Expr>()
             var unsafe *call = self.synth.member_call(
                 at,
@@ -939,6 +963,9 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             )
 
             cast<CallExpr>(call)->instance = n->iter_inst
+            cast<CallExpr>(call)->recv_reads = opf != &null
+                && !opf->is_const()
+                && self._reads_through_const(n)
             it = self._local(pre, at, "it", gen_ty, call)
         }
 
@@ -989,6 +1016,8 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             } else {
                 self._bind(n, unsafe &body, at, self._deref(got, pe), true)
             }
+        } else if n->iter_yield == IterYield::Tuple {
+            self._bind_tuple_yield(n, unsafe &body, at, got)
         } else {
             self._bind(n, unsafe &body, at, got, true)
         }
@@ -1218,6 +1247,85 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         }
     }
 
+    /// `for (k, *v) in m` over `-> yield (*const K, *V)`: the yielded tuple
+    /// is named once by reference, and each binder takes its element: over
+    /// a pointer element `*v` is the pointer itself and `v` a copy of what
+    /// it points at; over a value element (as declared: a `T` that is a
+    /// pointer in this instance included), the element as _bind does.
+    priv fn _bind_tuple_yield(self,
+                              n:    unsafe *RangedForStmt,
+                              body: unsafe *ListBuilder<unsafe *Stmt>,
+                              at:   SourceRange,
+                              got:  unsafe *Expr) {
+        if n->bindings.size() == 1 { // `for _ in m`: StmtTyping refused any other lone binder.
+            return
+        }
+
+        var unsafe *t    = canon_unqual(self.tu.as_value(got->type_))
+        var        elems = self.tu.tuple_elems(t)
+        if !self.tu.is_tuple(t) || elems.size() != n->bindings.size() {
+            kairo::std::ice_fail(
+                "IterLowering: a tuple yield's binders do not match its elements; StmtTyping::_bind_tuple_yield gate failure",
+            )
+        }
+
+        var forms = self.tu.fn_iter_yield_elems(
+            dyn_cast<FunctionDecl>(self.tu.pattern_of(n->iter_op)),
+        )
+
+        if forms.size() != elems.size() {
+            kairo::std::ice_fail(
+                "IterLowering: a tuple yield whose declaration is not a tuple; StmtTyping::_iter_yield_rule gate failure",
+            )
+        }
+
+        var unsafe *el = self._local(
+            body,
+            at,
+            "e",
+            self.sc->types->cxx_lref(t),
+            got,
+        )
+
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var unsafe *b = n->bindings.get(i)
+            if b == &null || b->is_discard {
+                continue
+            }
+
+            var unsafe *fd = self.tu.tuple_field(t, i)
+            if fd == &null {
+                kairo::std::ice_fail(
+                    "IterLowering: tuple record with fewer fields than its arity",
+                )
+            }
+
+            var unsafe *pi = self.synth.field_of(
+                b->range,
+                self._use(el, at),
+                fd,
+                elems[i],
+            )
+
+            var pe: unsafe *Type = &null
+            if forms[i] != IterYield::Value {
+                pe = self.tu.pointee(elems[i])
+            }
+
+            if pe == &null {
+                self._bind_one(b, body, at, pi, true)
+            } else if self._binds_pointer(b) {
+                var unsafe *vd = cast<VariableDecl>(b->decl)
+                vd->init = pi
+                body->push(
+                    unsafe (DeclStmt::create(self.ctx, b->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
+                )
+            } else {
+                self._bind_one(b, body, at, self._deref(pi, pe), true)
+            }
+        }
+    }
+
     priv fn _bind_one(self,
                       b:      unsafe *Binding,
                       body:   unsafe *ListBuilder<unsafe *Stmt>,
@@ -1265,6 +1373,55 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         body->push(
             unsafe (DeclStmt::create(self.ctx, b->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
         )
+    }
+
+    /// The loop over \p n's `op in (self)` would bind the same binders
+    /// through the type's `op in (const self)`: there is one, and no binder
+    /// is a mutable safe pointer (`*x`), the one binder only `self` gives.
+    priv fn _reads_through_const(self, n: unsafe *RangedForStmt) -> bool {
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var unsafe *b = n->bindings.get(i)
+            if b != &null
+                && !b->is_discard
+                && !b->is_const
+                && b->shorthand.has(BindingShorthand::Pointer)
+                && !b->shorthand.has(BindingShorthand::Unsafe) {
+                return false
+            }
+        }
+
+        var unsafe *rd = self.tu.record_decl(
+            self.tu.strip_nullable(self.tu.as_value(n->iterable->type_)),
+        )
+
+        if rd == &null {
+            return false
+        }
+
+        var unsafe *dc = NameLookup::context_of(
+            self.tu.pattern_of(NameLookup::representative(rd)),
+        )
+
+        if dc == &null {
+            return false
+        }
+
+        var unsafe *cell = dc->lookup_symbol(
+            DeclName::op_name(TokenKind::KwIn, TokenKind::TkUnknown),
+        )
+
+        if cell == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < cell->size(); ++i {
+            var unsafe *f = dyn_cast<FunctionDecl>(cell->get(i))
+            if f != &null && f->is_const() && OperatorFacts::is_iteration(f) {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// A named `*x` / `unsafe *x` binder with no type written.

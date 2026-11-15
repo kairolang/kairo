@@ -451,6 +451,7 @@ fn io_call_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::CallExpr) {
         ar->sema_zero(n->dep_args.size() as u64, "CallExpr::dep_args")
         ar->sema_null<Type>(n->safe_result, "CallExpr::safe_result")
         ar->sema_false(n->recv_last, "CallExpr::recv_last")
+        ar->sema_false(n->recv_reads, "CallExpr::recv_reads")
     }
 }
 

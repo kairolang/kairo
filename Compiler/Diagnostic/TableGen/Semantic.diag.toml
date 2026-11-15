@@ -6174,8 +6174,11 @@ group = "control-flow"
     # the loop binder does not fit what `op in` yields
 
     What a type's `op in` yields decides the binders a `for` over it may
-    write. The loop calls `op in (const self)` over a const object and
-    `op in (self)` over a mutable one.
+    write. The loop calls `op in (const self)` over a const object, and
+    over a mutable one when a binder is `const` and none is a mutable
+    `*x`; otherwise `op in (self)`. A `const` binder through
+    `op in (self)` is an error: the type declares no const form, or a
+    `*x` beside it keeps the loop on `op in (self)`.
 
     | `op in` | binders |
     |---|---|
@@ -6185,6 +6188,12 @@ group = "control-flow"
     | `(const self) -> yield *T` | `for x`, `for const x`, `for const *x` |
     | `(self) -> yield unsafe *T` | `for unsafe *x` |
     | `(const self) -> yield unsafe *T` | `for unsafe *x`, `for const unsafe *x` |
+
+    A `*const T` reads as the `const self` row through either form. A
+    tuple with a pointer element, such as `-> yield (*const K, *V)`, takes
+    a binder list, one binder per element, each by the row of its own
+    element: `for (k, *v) in m` copies the key and points at the value.
+    A lone `for e in m` over it is an error.
 
     ```kairo
     class Bag {
@@ -6222,8 +6231,10 @@ group = "operators"
 
     A type may declare both iteration forms; a loop picks one by the
     constness of what it iterates. Both yield the same form: a value
-    (`T`), a pointer (`*T`) or an unsafe pointer (`unsafe *T`), because
-    the form decides which binders the loop may write.
+    (`T`), a pointer (`*T`), an unsafe pointer (`unsafe *T`), or a tuple
+    whose elements agree in those forms one by one (`(*const K, *V)` and
+    `(*const K, *const V)`), because the form decides which binders the
+    loop may write.
 
     ```kairo
     class Bag {

@@ -219,23 +219,65 @@ pub class TypeUtil {
     /// The binder rule \p f declares: iter_yield_of its written `Yield<T>`'s
     /// `T`, read off the declaration, never an instance's substitution (a
     /// `-> yield T` over `T = *P` yields values), or Free when \p f does
-    /// not return a `Yield<T>`.
+    /// not return a `Yield<T>`. A tuple with a pointer element is Tuple
+    /// (fn_iter_yield_elems has each element's rule); a tuple of values
+    /// is Value.
     fn fn_iter_yield(self, f: unsafe *Declarations::FunctionDecl) -> IterYield {
-        if f == &null || f->return_type == &null || f->return_type->canonical == &null {
+        var unsafe *y = self._fn_yielded(f)
+        if y == &null {
             return IterYield::Free
+        }
+
+        if self.is_tuple(y) {
+            var elems = self.tuple_elems(y)
+            for var i: usize = 0; i < elems.size(); ++i {
+                if self.iter_yield_of(elems[i]) != IterYield::Value {
+                    return IterYield::Tuple
+                }
+            }
+
+            return IterYield::Value
+        }
+
+        return self.iter_yield_of(y)
+    }
+
+    /// The rule of each element of the tuple \p f declares it yields, in
+    /// element order, read off the declaration as fn_iter_yield; empty
+    /// when \p f does not yield a tuple.
+    fn fn_iter_yield_elems(self,
+                           f: unsafe *Declarations::FunctionDecl) -> cxx::std::vector<IterYield> {
+        var        out = cxx::std::vector<IterYield>()
+        var unsafe *y  = self._fn_yielded(f)
+        if y == &null || !self.is_tuple(y) {
+            return out
+        }
+
+        var elems = self.tuple_elems(y)
+        for var i: usize = 0; i < elems.size(); ++i {
+            out.push_back(self.iter_yield_of(elems[i]))
+        }
+
+        return out
+    }
+
+    /// The `T` of the `Yield<T>` \p f is written to return, or null.
+    priv fn _fn_yielded(self, f: unsafe *Declarations::FunctionDecl) -> unsafe *Type {
+        if f == &null || f->return_type == &null || f->return_type->canonical == &null {
+            return &null
         }
 
         var unsafe *rt = f->return_type->canonical
         if !self.is_lang(rt, WellKnownType::Yield) {
-            return IterYield::Free
+            return &null
         }
 
         var args = self.record_args(rt)
-        if args.size() == 0 || args[0] == &null {
-            return IterYield::Free
+        if args.size() == 0 {
+            return &null
         }
 
-        return self.iter_yield_of(args[0])
+        return args[0]
     }
 
     fn nullable_inner(self, t: unsafe *Type) -> unsafe *Type {

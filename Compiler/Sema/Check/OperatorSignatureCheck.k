@@ -595,7 +595,8 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
     }
 
     /// A type's `op in (self)` and `op in (const self)` yield one form: a
-    /// value (`T`), a pointer (`*T`) or an unsafe pointer (`unsafe *T`).
+    /// value (`T`), a pointer (`*T`), an unsafe pointer (`unsafe *T`), or a
+    /// tuple whose elements agree in those forms one by one.
     /// The form decides which binders a loop may write (StmtTyping::
     /// _iter_yield_rule), so a pair that differed would change what
     /// `for *x in s` means with the constness of `s`.
@@ -630,14 +631,14 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
                 continue
             }
 
-            if form == form0 {
+            if form == form0 && (form != IterYield::Tuple || self._same_tuple_forms(f, first)) {
                 continue
             }
 
             var b = self.sc->diag->report(
                 DiagID::SC299E,
                 f->range.start,
-                f"'op in' yields {self._yield_form_text(form)} here and {self._yield_form_text(form0)} in its other form; 'op in (self)' and 'op in (const self)' yield one form",
+                f"'op in' yields {self._yield_form_text(f, form)} here and {self._yield_form_text(first, form0)} in its other form; 'op in (self)' and 'op in (const self)' yield one form",
             )
 
             b.first(f->range)
@@ -650,7 +651,45 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         }
     }
 
-    priv fn _yield_form_text(self, form: IterYield) -> string {
+    /// Two tuple yields of one form: the same arity, and each element a
+    /// value, a pointer or an unsafe pointer in both.
+    priv fn _same_tuple_forms(self, a: unsafe *FunctionDecl, b: unsafe *FunctionDecl) -> bool {
+        var fa = self._tu.fn_iter_yield_elems(a)
+        var fb = self._tu.fn_iter_yield_elems(b)
+        if fa.size() != fb.size() {
+            return false
+        }
+
+        for var i: usize = 0; i < fa.size(); ++i {
+            if fa[i] != fb[i] {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    priv fn _yield_form_text(self, f: unsafe *FunctionDecl, form: IterYield) -> string {
+        if form == IterYield::Tuple {
+            var forms = self._tu.fn_iter_yield_elems(f)
+            var out   = "a tuple ('("
+            for var i: usize = 0; i < forms.size(); ++i {
+                if i > 0 {
+                    out = out + ", "
+                }
+
+                if forms[i] == IterYield::Pointer {
+                    out = out + "*T"
+                } else if forms[i] == IterYield::UnsafePointer {
+                    out = out + "unsafe *T"
+                } else {
+                    out = out + "T"
+                }
+            }
+
+            return out + ")')"
+        }
+
         if form == IterYield::Pointer {
             return "a pointer ('*T')"
         }

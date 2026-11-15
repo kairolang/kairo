@@ -2307,7 +2307,12 @@ pub class EmitIR {
 
         match n->storage {
             case StorageClass::Const {
-                self._cg->sink->kw_const(n->name)
+                // A leading `const` before a pointer type is its pointee's;
+                // on a `*const T` (a `for const *x` binder) it would be a
+                // second one, which clang warns about.
+                if !self._ptr_to_const(n) {
+                    self._cg->sink->kw_const(n->name)
+                }
             } case StorageClass::Static {
                 self._cg->sink->kw_static(n->name)
             } case StorageClass::Eval {
@@ -2370,6 +2375,18 @@ pub class EmitIR {
         }
 
         self._var_init(n, c)
+    }
+
+    /// \p n is typed a pointer to const (`*const T`).
+    priv fn _ptr_to_const(self, n: unsafe *VariableDecl) -> bool {
+        if n->type_ == &null || n->type_->canonical == &null {
+            return false
+        }
+
+        var unsafe *c = canon_unqual(n->type_->canonical)
+        return c != &null
+            && c->kind == TypeKind::PointerType
+            && canon_has_const(cast<PointerType>(c)->pointee)
     }
 
     /// A record declared in a function body: FinallyLowering's scope guard.

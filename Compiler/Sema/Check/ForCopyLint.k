@@ -48,13 +48,17 @@ import AST::Node::Base::{
     Decl,
     Expr,
 }
-import AST::Node::CanonicalNodes::canon_unqual
+import AST::Node::CanonicalNodes::{
+    canon_has_const,
+    canon_unqual,
+}
 import AST::Node::Casting::{
     dyn_cast,
     isa,
 }
 import AST::Node::Declarations::{
     FieldDecl,
+    FunctionDecl,
     VariableDecl,
 }
 import AST::Node::Expressions::{
@@ -390,14 +394,47 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
                 continue
             }
 
-            self._check_binder(n, b->decl, b->name->range)
+            self._check_binder(n, b->decl, b->name->range, i)
         }
+    }
+
+    /// Binder \p i of \p n could not be a `*x` over a record's `op in`
+    /// (StmtTyping::_iter_yield_rule): what it binds is read-only (the const
+    /// form, a `*const T`) or, in a tuple yield, a value element.
+    priv fn _ptr_refused(self, n: unsafe *RangedForStmt, i: usize) -> bool {
+        var unsafe *f = dyn_cast<FunctionDecl>(n->iter_op)
+        if f == &null || n->iter_elem == &null {
+            return false
+        }
+
+        var unsafe *pt = n->iter_elem
+        if n->iter_yield == IterYield::Tuple {
+            var forms = self._tu.fn_iter_yield_elems(
+                dyn_cast<FunctionDecl>(self._tu.pattern_of(n->iter_op)),
+            )
+
+            var elems = self._tu.tuple_elems(n->iter_elem)
+            if i >= forms.size() || i >= elems.size() {
+                return false
+            }
+
+            if forms[i] == IterYield::Value {
+                return true
+            }
+
+            pt = elems[i]
+        } else if n->iter_yield != IterYield::Pointer {
+            return false
+        }
+
+        return f->is_const() || canon_has_const(self._tu.pointee(pt))
     }
 
     priv fn _check_binder(self,
                           n:    unsafe *RangedForStmt,
                           v:    unsafe *VariableDecl,
-                          name: SourceRange) {
+                          name: SourceRange,
+                          i:    usize) {
         if v->is_poisoned() || v->type_ == &null || !name.is_valid() {
             return
         }
@@ -449,6 +486,19 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
                 DiagCode(DiagID::SC275N),
                 name.start,
                 f"'{nm}' is bound by value here, and this 'op in' yields values; with '-> yield *T' a 'for *{nm}' would point at the element",
+            )
+
+            b.emit()
+            return
+        }
+
+        // A `*x` the rule refuses is no fix: the element is not writable
+        // through this loop.
+        if self._ptr_refused(n, i) {
+            b.note(
+                DiagCode(DiagID::SC275N),
+                name.start,
+                f"'{nm}' is bound by value here, and this loop cannot write the element: 'op in' yields it read-only or by value",
             )
 
             b.emit()
