@@ -20,6 +20,21 @@ fn sum_const(const v: [i32]) -> i32 {
     return s
 }
 
+// Parameters written without `const` that only read: the loops take
+// `op in (self)`, so the parameters must stay mutable in C++ too.
+fn sum_plain(v: [i32], m: {i32: i32}) -> i32 {
+    var s = 0
+    for x in v {
+        s += x
+    }
+
+    for (k, w) in m {
+        s += k + w
+    }
+
+    return s
+}
+
 fn sum_map(const m: {i32: i32}) -> i32 {
     var s = 0
     for (k, v) in m {
@@ -97,6 +112,10 @@ fn main() -> i32 {
 
     if sum_map(m) != 2 * (21 + 129) {
         return 6
+    }
+
+    if sum_plain(v, m) != 36 + 68 {
+        return 8
     }
 
     var st: {i32} = {5, 6}

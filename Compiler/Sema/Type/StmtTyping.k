@@ -2971,12 +2971,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     ///                       own element
     ///
     /// A pointer to const (`*const T`, `unsafe *const T`) is read-only
-    /// through either form, so it takes the `const self` row. Every other binder is SC298E, with the
-    /// spelling the form takes. Free (no rule) for a loop that is not over a
-    /// record's `op in`, and for a value-yielding `op in` declared in
-    /// Lib/builtin: its containers yield `T` and their `for *x` points at
-    /// the element (Compiler/Spec/ExprTyping.md). A pointer-yielding one
-    /// there is held to the rule like any other.
+    /// through either form, so it takes the `const self` row. Every other
+    /// binder is SC298E, with the spelling the form takes. Free (no rule)
+    /// for a loop that is not over a record's `op in`. The builtin
+    /// containers are held to the rule like any other type.
     priv fn _iter_yield_rule(self,
                              n:    unsafe *Statements::RangedForStmt,
                              elem: unsafe *Type) -> Statements::IterYield {
@@ -2994,13 +2992,6 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var unsafe *hf   = dyn_cast<FunctionDecl>(home)
         var        form  = self.dyn()->tu.fn_iter_yield(hf)
         if form == Statements::IterYield::Free {
-            return free
-        }
-
-        var unsafe *g = self.dyn()->sc->g
-        if form == Statements::IterYield::Value
-            && g != &null
-            && g->is_builtin_fid(self.dyn()->tu.fid_of(home)) {
             return free
         }
 

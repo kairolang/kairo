@@ -1103,7 +1103,12 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
                     r = self._root_chain(ce, ce->steps.size() - 1, unsafe &thru)
                 }
 
-                if r != &null && (thru || f->is_const() || n->recv_reads) {
+                // A loop's `op in (self)` with `recv_reads` reads `self` for
+                // -Wconst-self only: for any other parameter a read here
+                // would make it a `const T&` in C++, whose call then picks
+                // `op in (const self)` with another yield type.
+                var loop_read = n->recv_reads && self._is_self_ref(r)
+                if r != &null && (thru || f->is_const() || loop_read) {
                     self._claim(r)
                 } else if r != &null && self._lint {
                     self._defer(r, f)
@@ -1247,6 +1252,16 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
 
         self._approve(n->operand)
         return true
+    }
+
+    /// \p r names a method's `self`.
+    priv fn _is_self_ref(self, r: unsafe *NamedIdentExpr) -> bool {
+        if r == &null {
+            return false
+        }
+
+        var unsafe *p = dyn_cast<ParamDecl>(r->resolved_decl)
+        return p != &null && p->is_self
     }
 
     /// \p t is a pointer to const (`*const T`).

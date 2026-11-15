@@ -984,8 +984,7 @@ pub enum IterKind derives u8 {
 ///                   to const (`*const K`) is read-only through either
 ///                   form. A tuple of values only is Value.
 ///  Free means no rule applies: not a record's `op in` (a container
-///  shape, an array, a C++ range, a generator value), or a value-yielding
-///  `op in` declared in Lib/builtin, which keeps pointer binders.
+///  shape, an array, a C++ range, a generator value).
 ///
 pub enum IterYield derives u8 {
     Free = 0,
