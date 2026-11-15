@@ -1235,10 +1235,23 @@ def _update_path(rel: Path, targets: list) -> None:
         say(f"pipeline: could not link; run: {c}")
 
 
+def _cross_llvm_prebuilt(target: str) -> bool:
+    """An unpacked CI archive (Scripts/ci_deps.py): the artifacts with no ninja files,
+    and a PREBUILT file naming the fork commit they were built from. Good while the
+    checked-out fork is that commit."""
+    stamp = cross_dir(target) / "PREBUILT"
+    if not stamp.exists() or not (cross_dir(target) / "llvm" / "lib" / "libLLVMCore.a").exists():
+        return False
+    built = next((l.split()[1] for l in stamp.read_text().splitlines() if l.startswith("llvm ")), "")
+    r = subprocess.run(["git", "-C", str(ROOT / "Lib" / "llvm-runtimes"), "rev-parse", "HEAD"],
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    return r.returncode == 0 and built == r.stdout.strip()
+
+
 def _cross_llvm_stale(target: str) -> bool:
     bld = cross_dir(target) / "llvm"
     if not (bld / "build.ninja").exists():
-        return True
+        return not _cross_llvm_prebuilt(target)
     r = subprocess.run(["ninja", "-C", str(bld), "-n", "all", "clang", "llvm-nm", "llvm-objdump", "llvm-ar"],
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     return r.returncode != 0 or "no work to do" not in r.stdout
