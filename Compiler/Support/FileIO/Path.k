@@ -24,6 +24,7 @@ ffi "c++" import "Native/KFileSystem.hh" // dir_entry_type: `type` is a keyword
 ffi "c++" import "system_error"
 ffi "c++" import "vector"
 
+import Support::Ascii::string_from_ref
 import Support::FileIO::FileSystem::FileType
 
 ///
@@ -109,12 +110,7 @@ pub class Path {
     pub static fn cwd() -> Path {
         var buf: llvm::SmallString<256>
         llvm::sys::fs::current_path(&buf)
-        return Path(
-            string(
-                unsafe ((buf.data() as unsafe *const u8) as *const u8),
-                buf.size(),
-            ),
-        )
+        return Path(string_from_ref(buf.str()))
     }
 
     static fn home() -> Path {
@@ -123,23 +119,13 @@ pub class Path {
             kairo::std::ice_fail("Path::home: no home directory (HOME not set)")
         }
 
-        return Path(
-            string(
-                unsafe ((buf.data() as unsafe *const u8) as *const u8),
-                buf.size(),
-            ),
-        )
+        return Path(string_from_ref(buf.str()))
     }
 
     pub static fn temp_dir() -> Path {
         var buf: llvm::SmallString<256>
         llvm::sys::path::system_temp_directory(true, &buf)
-        return Path(
-            string(
-                unsafe ((buf.data() as unsafe *const u8) as *const u8),
-                buf.size(),
-            ),
-        )
+        return Path(string_from_ref(buf.str()))
     }
 
     static fn root() -> Path {
@@ -199,10 +185,7 @@ pub class Path {
             llvm::Twine(kairo::sref(rel)),
         )
 
-        return string(
-            unsafe ((buf.data() as unsafe *const u8) as *const u8),
-            buf.size(),
-        )
+        return string_from_ref(buf.str())
     }
 
     /// # string-level queries (no Path built, no stat)
@@ -212,34 +195,22 @@ pub class Path {
 
     pub static fn parent_of(const p: string) -> string {
         var sr = llvm::sys::path::parent_path(kairo::sref(p))
-        return string(
-            unsafe ((sr.data() as unsafe *const u8) as *const u8),
-            sr.size(),
-        )
+        return string_from_ref(sr)
     }
 
     pub static fn filename_of(const p: string) -> string {
         var sr = llvm::sys::path::filename(kairo::sref(p))
-        return string(
-            unsafe ((sr.data() as unsafe *const u8) as *const u8),
-            sr.size(),
-        )
+        return string_from_ref(sr)
     }
 
     pub static fn stem_of(const p: string) -> string {
         var sr = llvm::sys::path::stem(kairo::sref(p))
-        return string(
-            unsafe ((sr.data() as unsafe *const u8) as *const u8),
-            sr.size(),
-        )
+        return string_from_ref(sr)
     }
 
     pub static fn extension_of(const p: string) -> string {
         var sr = llvm::sys::path::extension(kairo::sref(p))
-        return string(
-            unsafe ((sr.data() as unsafe *const u8) as *const u8),
-            sr.size(),
-        )
+        return string_from_ref(sr)
     }
 
     /// \p p with every symlink resolved, or \p p unchanged when it cannot
@@ -319,10 +290,7 @@ pub class Path {
             return ""
         }
 
-        return string(
-            unsafe ((out.data() as unsafe *const u8) as *const u8),
-            out.size(),
-        )
+        return string_from_ref(out.str())
     }
 
     /// Writes \p text to \p p in one go, truncating. False on failure.
@@ -381,10 +349,7 @@ pub class Path {
     ///
     pub fn extension(const self) -> string {
         var sr = llvm::sys::path::extension(kairo::sref(self.path_data))
-        return string(
-            unsafe ((sr.data() as unsafe *const u8) as *const u8),
-            sr.size(),
-        )
+        return string_from_ref(sr)
     }
 
     ///
@@ -392,10 +357,7 @@ pub class Path {
     ///
     pub fn filename(const self) -> string {
         var sr = llvm::sys::path::filename(kairo::sref(self.path_data))
-        return string(
-            unsafe ((sr.data() as unsafe *const u8) as *const u8),
-            sr.size(),
-        )
+        return string_from_ref(sr)
     }
 
     ///
@@ -403,10 +365,7 @@ pub class Path {
     ///
     pub fn stem(const self) -> string {
         var sr = llvm::sys::path::stem(kairo::sref(self.path_data))
-        return string(
-            unsafe ((sr.data() as unsafe *const u8) as *const u8),
-            sr.size(),
-        )
+        return string_from_ref(sr)
     }
 
     ///
@@ -415,10 +374,7 @@ pub class Path {
     ///
     pub fn parent_path(const self) -> string {
         var sr = llvm::sys::path::parent_path(kairo::sref(self.path_data))
-        return string(
-            unsafe ((sr.data() as unsafe *const u8) as *const u8),
-            sr.size(),
-        )
+        return string_from_ref(sr)
     }
 
     ///
@@ -467,10 +423,7 @@ pub class Path {
             ++it
         }
 
-        return string(
-            unsafe ((buf.data() as unsafe *const u8) as *const u8),
-            buf.size(),
-        )
+        return string_from_ref(buf.str())
     }
 
     ///
@@ -546,12 +499,7 @@ pub class Path {
         )
 
         for component in range {
-            components.emplace_back(
-                string(
-                    unsafe ((component.data() as unsafe *const u8) as *const u8),
-                    component.size(),
-                ),
-            )
+            components.emplace_back(string_from_ref(component))
         }
 
         return components

@@ -23,6 +23,13 @@ ffi "c++" import "llvm/TargetParser/Triple.h"
 ffi "c++" import "vector"
 ffi "c++" import "string"
 
+import Support::Ascii::{
+    find,
+    is_digit,
+    is_ident_char,
+    is_ident_start,
+    trim,
+}
 import Support::EvalHash::compute_hash
 import Token::TokenKind::{
     TokenKind,
@@ -76,62 +83,24 @@ pub class TermRenderer {
         return if self._color => (code) else => ""
     }
 
+    /// The longest prefix of \p s that fits in \p max_cols terminal columns,
+    /// measured as display_width measures; a zero-width character after the
+    /// last one that fits stays with it.
     priv fn clip_to_width(self, const s: string, max_cols: u32) -> string {
         var w: u32   = 0
         var i: usize = 0
         while i < s.length() {
-            var b           = (s[i])
-            var step: usize = 1
-            var cols: u32   = 1
-            if (b & 0x80) == 0x00 {
-                step = 1
-                cols = 1
-            } else if (b & 0xE0) == 0xC0 {
-                step = 2
-                cols = 1
-            } else if (b & 0xF0) == 0xE0 {
-                step = 3
-                cols = 1
-            } else if (b & 0xF8) == 0xF0 {
-                step = 4
-                cols = 2
-            }
-
+            var len: usize = 0
+            var cols       = self.char_width(s, i, &len)
             if w + cols > max_cols {
                 break
             }
 
             w += cols
-            i += step
+            i += len
         }
 
         return s.subslice(0, i)
-    }
-
-    priv fn visible_width(self, const s: string) -> u32 {
-        var w: u32   = 0
-        var i: usize = 0
-        while i < s.length() {
-            var b = (s[i])
-            if b < 0x80 {
-                w += 1
-                i += 1
-            } else if (b & 0xE0) == 0xC0 {
-                w += 1
-                i += 2
-            } else if (b & 0xF0) == 0xE0 {
-                w += 1
-                i += 3 // most BMP glyphs are 1 column (->, │, ┌ etc.)
-            } else if (b & 0xF8) == 0xF0 {
-                w += 2
-                i += 4 // assume emoji/CJK supplementary are 2 columns
-            } else {
-                w += 1
-                i += 1 // garbage byte, don't loop forever
-            }
-        }
-
-        return w
     }
 
     pub fn render(self, const text: string) -> string {
@@ -143,10 +112,10 @@ pub class TermRenderer {
         var i: usize = 0
         while i < lines.size() {
             var line    = lines[i]
-            var trimmed = self.trim(line)
+            var trimmed = trim(line)
 
             /// ## fenced code block
-            if self.starts_with(trimmed, "```") {
+            if trimmed.starts_with("```") {
                 if in_code_block {
                     // closing fence - draw bottom border
                     out += self.style(self.DIM)
@@ -210,15 +179,17 @@ pub class TermRenderer {
             }
 
             if in_code_block {
-                var inner   = self._width - 5                     // was: width - 4
-                var clipped = self.clip_to_width(line, inner - 1) // was: clip to inner
+                // The text's columns between `│ ` and `│`, one kept free so a
+                // line that fills them still has a space before the border.
+                var inner   = self._width - 5
+                var clipped = self.clip_to_width(line, inner - 1)
 
                 out += self.style(self.DIM)
                 out += "  │ "
                 out += self.style(self.RESET)
                 out += self.highlight(clipped, code_block_info.lang)
 
-                var used = self.visible_width(clipped)
+                var used = self.display_width(clipped)
                 for _ in (0 as u32) .. inner - used {
                     out += " "
                 }
@@ -239,7 +210,7 @@ pub class TermRenderer {
 
             var heading_level = self.heading_level(trimmed)
             if heading_level > 0 {
-                var heading_text = self.trim(
+                var heading_text = trim(
                     self.after_prefix(trimmed, heading_level),
                 )
 
@@ -268,7 +239,7 @@ pub class TermRenderer {
                 continue
             }
 
-            if self.starts_with(trimmed, "- ") {
+            if trimmed.starts_with("- ") {
                 var content = trimmed.subslice(2, trimmed.length() - 2)
                 out += self.wrap_inline(content, 4, "  • ")
                 i += 1
@@ -394,63 +365,69 @@ pub class TermRenderer {
     /// Wide / Fullwidth codepoint is 2 columns, a combining mark, zero-width
     /// format character (ZWJ, ZWSP, BOM) or variation selector is 0, anything
     /// else 1. Each byte of invalid UTF-8 counts as 1, so a malformed line
-    /// still advances. `length()` counted bytes, which put the caret and the
-    /// wrap point past any non-ASCII text.
+    /// still advances.
     priv fn display_width(self, const s: string) -> u32 {
         var w: u32   = 0
         var i: usize = 0
-        var n        = s.length()
-        while i < n {
-            var b0         = ((s[i]) as u32)
+        while i < s.length() {
             var len: usize = 0
-            var cp:  u32   = 0
-            if b0 < 0x80 {
-                len = 1
-                cp  = b0
-            } else if (b0 & 0xE0) == 0xC0 && b0 >= 0xC2 {
-                len = 2
-                cp  = b0 & 0x1F
-            } else if (b0 & 0xF0) == 0xE0 {
-                len = 3
-                cp  = b0 & 0x0F
-            } else if (b0 & 0xF8) == 0xF0 && b0 <= 0xF4 {
-                len = 4
-                cp  = b0 & 0x07
-            }
-
-            var ok = len > 0 && i + len <= n
-            for var k: usize = 1; ok && k < len; ++k {
-                var bk = ((s[i + k]) as u32)
-                if (bk & 0xC0) != 0x80 {
-                    ok = false
-                } else {
-                    cp = cp << 6 | bk & 0x3F
-                }
-            }
-
-            // overlong encodings and surrogates are invalid too
-            if ok && len == 3 && (cp < 0x800 || cp >= 0xD800 && cp <= 0xDFFF) {
-                ok = false
-            }
-
-            if ok && len == 4 && (cp < 0x10000 || cp > 0x10FFFF) {
-                ok = false
-            }
-
-            if !ok {
-                w += 1
-                i += 1
-                continue
-            }
-
-            if !self.is_zero_width(cp) {
-                w += if self.is_wide(cp) => (2) else => 1
-            }
-
+            w += self.char_width(s, i, &len)
             i += len
         }
 
         return w
+    }
+
+    /// The columns of the character at byte \p i of \p s (see
+    /// display_width), and in \p len its length in bytes, at least 1.
+    priv fn char_width(self, const s: string, i: usize, @inout len: usize) -> u32 {
+        var n       = s.length()
+        var b0      = ((s[i]) as u32)
+        var cp: u32 = 0
+        len = 0
+        if b0 < 0x80 {
+            len = 1
+            cp  = b0
+        } else if (b0 & 0xE0) == 0xC0 && b0 >= 0xC2 {
+            len = 2
+            cp  = b0 & 0x1F
+        } else if (b0 & 0xF0) == 0xE0 {
+            len = 3
+            cp  = b0 & 0x0F
+        } else if (b0 & 0xF8) == 0xF0 && b0 <= 0xF4 {
+            len = 4
+            cp  = b0 & 0x07
+        }
+
+        var ok = len > 0 && i + len <= n
+        for var k: usize = 1; ok && k < len; ++k {
+            var bk = ((s[i + k]) as u32)
+            if (bk & 0xC0) != 0x80 {
+                ok = false
+            } else {
+                cp = cp << 6 | bk & 0x3F
+            }
+        }
+
+        // overlong encodings and surrogates are invalid too
+        if ok && len == 3 && (cp < 0x800 || cp >= 0xD800 && cp <= 0xDFFF) {
+            ok = false
+        }
+
+        if ok && len == 4 && (cp < 0x10000 || cp > 0x10FFFF) {
+            ok = false
+        }
+
+        if !ok {
+            len = 1
+            return 1
+        }
+
+        if self.is_zero_width(cp) {
+            return 0
+        }
+
+        return if self.is_wide(cp) => (2) else => 1
     }
 
     fn wrap_inline(self, const text: string, indent: u32, const first_prefix: string) -> string {
@@ -467,8 +444,9 @@ pub class TermRenderer {
         var i: usize = 0
         while i < text.length() {
             if text[i] == ('`' as u8) {
-                var close = self.find_char(text, '`' as u8, i + 1)
-                if close > i {
+                // No closing backtick on this line: the backtick is text.
+                var close = find(text, "`", i + 1)
+                if close != usize::MAX {
                     var code_text = text.subslice(i + 1, close - i - 1)
                     var styled = self.style(self.CYAN) + code_text + self.style(
                         self.RESET,
@@ -514,24 +492,17 @@ pub class TermRenderer {
 
     /// # Syntax highlighting
 
-    priv fn is_digit(self, c: u8) -> bool {
-        return c >= ('0' as u8) && c <= ('9' as u8)
-    }
-
-    priv fn is_alpha(self, c: u8) -> bool {
-        return c >= ('a' as u8) && c <= ('z' as u8) || c >= ('A' as u8) && c <= ('Z' as u8)
-    }
-
     priv fn is_upper(self, c: u8) -> bool {
         return c >= ('A' as u8) && c <= ('Z' as u8)
     }
 
-    priv fn is_ident_start(self, c: u8) -> bool {
-        return self.is_alpha(c) || c == ('_' as u8) || c == ('#' as u8)
+    /// A Kairo word, which may also carry `#` (`#type`).
+    priv fn is_word_start(self, c: u8) -> bool {
+        return is_ident_start(c) || c == ('#' as u8)
     }
 
-    priv fn is_ident_char(self, c: u8) -> bool {
-        return self.is_alpha(c) || self.is_digit(c) || c == ('_' as u8) || c == ('#' as u8)
+    priv fn is_word_char(self, c: u8) -> bool {
+        return is_ident_char(c) || c == ('#' as u8)
     }
 
     /// The kind `word` lexes as, or TkUnknown for a plain identifier. The
@@ -699,9 +670,9 @@ pub class TermRenderer {
             }
 
             // number  (handles 0xFF, 0b1010, 1.5, 1e3 prefix)
-            if self.is_digit(c) {
+            if is_digit(c) {
                 var j = i
-                while j < n && (self.is_ident_char(line[j]) || line[j] == ('.' as u8)) {
+                while j < n && (self.is_word_char(line[j]) || line[j] == ('.' as u8)) {
                     j += 1
                 }
 
@@ -714,7 +685,7 @@ pub class TermRenderer {
             // attributes (e.g., @property)
             if c == ('@' as u8) {
                 var j = i + 1
-                while j < n && self.is_ident_char(line[j]) {
+                while j < n && self.is_word_char(line[j]) {
                     j += 1
                 }
 
@@ -728,9 +699,9 @@ pub class TermRenderer {
             }
 
             // identifier / keyword / type / call
-            if self.is_ident_start(c) {
+            if self.is_word_start(c) {
                 var j = i
-                while j < n && self.is_ident_char(line[j]) {
+                while j < n && self.is_word_char(line[j]) {
                     j += 1
                 }
 
@@ -1073,34 +1044,6 @@ pub class TermRenderer {
         return self.highlight(code, lang)
     }
 
-    fn trim(self, const s: string) -> string {
-        var start: usize = 0
-        var end:   usize = s.length()
-        while start < end && (s[start] == (' ' as u8) || s[start] == ('\t' as u8)) {
-            start += 1
-        }
-
-        while end > start && (s[end - 1] == (' ' as u8) || s[end - 1] == ('\t' as u8)) {
-            end -= 1
-        }
-
-        return s.subslice(start, end - start)
-    }
-
-    fn starts_with(self, const s: string, const prefix: string) -> bool {
-        if s.length() < prefix.length() {
-            return false
-        }
-
-        for i in (0 as usize) .. (prefix.length()) {
-            if s[i] != prefix[i] {
-                return false
-            }
-        }
-
-        return true
-    }
-
     fn heading_level(self, const line: string) -> u32 {
         var level: u32 = 0
         while level < 4 && (level as usize) < line.length() && line[level as usize] == ('#' as u8) {
@@ -1137,16 +1080,6 @@ pub class TermRenderer {
         return ""
     }
 
-    fn find_char(self, const s: string, ch: u8, from: usize) -> usize {
-        for i in (from) .. (s.length()) {
-            if s[i] == ch {
-                return i
-            }
-        }
-
-        return from // not found, return start so caller knows
-    }
-
     fn find_word_end(self, const s: string, from: usize) -> usize {
         var i = from
         while i < s.length() && s[i] != (' ' as u8) && s[i] != ('`' as u8) && s[i] != ('\n' as u8) {
@@ -1158,7 +1091,7 @@ pub class TermRenderer {
 
     priv fn parse_fence(self, const line: string) -> Self::CodeBlockInfo {
         var info = Self::CodeBlockInfo()
-        var rest = self.trim(line.subslice(3, line.length() - 3))
+        var rest = trim(line.subslice(3, line.length() - 3))
 
         // split on spaces: ```kairo file=a.k
         var i: usize = 0
@@ -1183,8 +1116,8 @@ pub class TermRenderer {
 
             var kv = rest.subslice(kv_start, i - kv_start)
 
-            var eq = self.find_char(kv, '=' as u8, 0)
-            if eq > 0 && eq < kv.length() - 1 {
+            var eq = find(kv, "=", 0)
+            if eq != usize::MAX && eq > 0 && eq + 1 < kv.length() {
                 var key = kv.subslice(0, eq)
                 var val = kv.subslice(eq + 1, kv.length() - eq - 1)
                 if key == "file" {

@@ -90,22 +90,19 @@ pub fn mix_char(chr: u8, hash: u64, pos: usize) -> u64 {
 
 
 ///
-/// \brief Computes a hash from a string literal at compile time.
-///        This function is the main entry point for eval-time string hashing.
+/// \brief The spelling hash of the bytes [\p str, \p str + \p len): FNV-1a
+///        with position mixing, folded to 32 bits (fold_hash). A word
+///        token's kind is this value of its spelling.
 ///
-/// \param str A pointer to the string literal (null-terminated).
-/// \param len The length of the string literal (excluding null terminator).
-/// \return A 64-bit hash value, or HASH_MAX if the string is empty.
-/// \ref Uses FNV-1a with position mixing.
+/// \return The folded hash, or u32::MAX for an empty spelling.
 ///
-/// \note No length cap at runtime: the lexer's HashState hashes identifiers of
-///       any length, and these overloads must agree with it for the same
-///       spelling (C++ headers carry identifiers well past 255 chars). Only
-///       the literal templates bound N, for their eval-time buffers.
+/// \note No length cap: the lexer's HashState hashes identifiers of any
+///       length, and this must agree with it for the same spelling (C++
+///       headers carry identifiers well past 255 chars).
 ///
-pub fn compute_hash(str: unsafe *const u8, const len: usize) -> u64 {
+pub fn compute_hash(str: unsafe *const u8, const len: usize) -> u32 {
     if len == 0 {
-        return HASH_MAX
+        return u32::MAX
     }
 
     var hash: u64 = FNV_OFFSET_BASIS
@@ -120,54 +117,15 @@ pub fn compute_hash(str: unsafe *const u8, const len: usize) -> u64 {
 }
 
 ///
-/// \brief Computes a hash from a wide string literal at compile time.
-///        This function is the main entry point for eval-time string hashing.
+/// \brief compute_hash of the bytes of \p str; u32::MAX for a null or empty
+///        string.
 ///
-/// \param str A pointer to the wide string literal (null-terminated).
-/// \param len The length of the wide string literal (excluding null terminator).
-/// \return A 64-bit hash value, or HASH_MAX if the string is empty.
-/// \ref Uses FNV-1a with position mixing.
-///
-pub fn compute_hash(str: unsafe *const char, const len: usize) -> u64 {
-    if len == 0 {
-        return HASH_MAX
+pub fn compute_hash(str: unsafe *const string) -> u32 {
+    if str == &null {
+        return u32::MAX
     }
 
-    var hash: u64 = FNV_OFFSET_BASIS
-
-    for var i: usize = 0; i < len; ++i {
-        hash = mix_char(str[i] as u8, hash, i)
-    }
-
-    return fold_hash(
-        (hash ^ (len as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX,
-    )
-}
-
-///
-/// \brief Computes a runtime hash from a string reference.
-///        This function is to test the eval-time hash function with runtime strings.
-///
-/// \param  str A reference to the string to hash.
-/// \return A 64-bit hash value, or HASH_MAX if the string is empty.
-///
-/// \ref Uses FNV-1a with position mixing.
-///
-pub fn compute_hash(str: unsafe *const string) -> u64 {
-    if str == &null || str->length() == 0 {
-        return HASH_MAX
-    }
-
-    var   hash: u64   = FNV_OFFSET_BASIS
-    const len:  usize = str->length()
-
-    for var i: usize = 0; i < len; ++i {
-        hash = mix_char((*str)[i], hash, i)
-    }
-
-    return fold_hash(
-        (hash ^ (len as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX,
-    )
+    return compute_hash(unsafe (str->raw() as unsafe *const u8), str->length())
 }
 
 
@@ -214,7 +172,7 @@ pub class HashState {
     ///
     inline fn reset(self) {
         self.value = FNV_OFFSET_BASIS
-        self.index = 0
+        self.index = 1
     }
 
     pub inline fn copy(self) -> HashState {

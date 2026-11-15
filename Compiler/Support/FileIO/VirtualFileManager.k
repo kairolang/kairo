@@ -428,15 +428,6 @@ pub class VirtualFileManager {
             return u32::MAX
         }
 
-        if total > (U32_MAX as usize) {
-            kairo::std::destroy(parent)
-            self._diag->report(
-                DiagID::I102F,
-                f"'{abs_full}' is {total}B; source files are limited to 4GB",
-            ).emit()
-            return u32::MAX
-        }
-
         var seg_fid = self._next_fid
         self._next_fid += 1
 
@@ -598,8 +589,10 @@ pub class VirtualFileManager {
     /// \brief returns a view of the entire file for a given base id.
     ///
     /// \details
-    /// reconstructs the total byte span by summing all segments belonging to
-    /// the same physical file.
+    /// A segment holds its whole file (every segment starts at offset 0), so
+    /// the view is the segment's own bytes. Other segments may carry the same
+    /// path (two virtual buffers of one name, an overlay over a mapped file);
+    /// their bytes are not this one's.
     ///
     pub fn get_file_view(self, base_fid: u32) -> Self::FileHandle {
         if (base_fid as usize) >= self._segments.size() {
@@ -611,22 +604,9 @@ pub class VirtualFileManager {
             return Self::FileHandle { data: &null, size: 0 }
         }
 
-        var total: usize = 0
-        var path         = seg0->path.full_path()
-
-        for var seg: *Segment? in self._segments {
-            if seg == &null {
-                continue
-            }
-
-            if seg->path.full_path() == path {
-                total += seg->size
-            }
-        }
-
         return Self::FileHandle {
             data: unsafe (seg0->buffer.bytes().data() as unsafe *u8),
-            size: total,
+            size: seg0->size,
         }
     }
 

@@ -45,7 +45,7 @@ pub class Assert {
         )
     }
 
-    priv fn <T> test_failure(self, m: string, e: T, v: T, time: string) {
+    priv fn <T> test_failure(self, const m: string, e: T, v: T, const time: string) {
         ++self.fails
         io::println(
             f"\x1b[31m({(self.passes) + (self.fails)}) \t[FAIL]\x1b[0m \t\x1b[90m({time})\x1b[0m \t{m}",
@@ -85,10 +85,14 @@ pub class Assert {
             end - start,
         )
 
-        const ns = (dur.count() as u64) / (iters as u64) - (self.overhead_ns as u64)
-        const us = (ns as f64) / 1000.0
-        const ms = (ns as f64) / 1000000.0
-        const s  = (ns as f64) / 1000000000.0
+        // The timer's own cost comes off the mean; a call faster than that
+        // cost measures 0, not a wrapped-around u64.
+        const mean     = (dur.count() as u64) / (iters as u64)
+        const overhead = (self.overhead_ns as u64)
+        const ns       = if mean > overhead => (mean - overhead) else => 0 as u64
+        const us       = (ns as f64) / 1000.0
+        const ms       = (ns as f64) / 1000000.0
+        const s        = (ns as f64) / 1000000000.0
 
         if us < 10.0 {
             if iters > 1 {
@@ -122,7 +126,7 @@ pub class Assert {
     }
 
     // TODO(DUCK-GENERIC): T uses op ==. Stage 0 was duck-typed; bound it or keep `: type`.
-    pub fn <T: type> equal(self, m: string, e: T, c: fn () -> T, iters: usize = 1) {
+    pub fn <T: type> equal(self, const m: string, e: T, c: fn () -> T, iters: usize = 1) {
         var res      = self.time_and_run<T>(c, iters)
         var v        = res.0
         var time_str = res.1
@@ -135,7 +139,7 @@ pub class Assert {
     }
 
     // TODO(DUCK-GENERIC): T uses op !=. Stage 0 was duck-typed; bound it or keep `: type`.
-    fn <T: type> not_equal(self, m: string, e: T, c: fn () -> T, iters: usize = 1) {
+    fn <T: type> not_equal(self, const m: string, e: T, c: fn () -> T, iters: usize = 1) {
         var res      = self.time_and_run<T>(c, iters)
         var v        = res.0
         var time_str = res.1

@@ -43,8 +43,9 @@ ffi "c++" import "chrono"
 import std::io
 
 pub class Timer {
-    priv var _start: cxx::std::chrono::steady_clock::time_point ///< start timestamp.
-    priv var _label: string                                     ///< label printed on stop.
+    priv var _start:   cxx::std::chrono::steady_clock::time_point ///< start timestamp.
+    priv var _label:   string ///< label printed on stop.
+    priv var _stopped: bool                                       = false ///< stop() has printed; the destructor must not print again.
 
     ///
     /// \brief constructs and starts a new timer.
@@ -94,9 +95,16 @@ pub class Timer {
     /// \brief prints elapsed time since start.
     ///
     /// \details
-    /// stops the timer and prints a formatted line with both µs and ms precision.
+    /// stops the timer and prints a formatted line with both µs and ms
+    /// precision. Prints once: a later stop(), or the destructor's, does
+    /// nothing until reset().
     ///
     pub inline fn stop(self) {
+        if self._stopped {
+            return
+        }
+
+        self._stopped = true
         var ns = self.elapsed_ns()
         var us = (ns as f64) / 1000.0
         var ms = (ns as f64) / 1000000.0
@@ -108,6 +116,7 @@ pub class Timer {
     /// \brief resets the timer's start point to the current time.
     ///
     inline fn reset(self) {
-        self._start = cxx::std::chrono::steady_clock::now()
+        self._start   = cxx::std::chrono::steady_clock::now()
+        self._stopped = false
     }
 }
