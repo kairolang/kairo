@@ -470,6 +470,9 @@ pub class ExprTyper
                 break
             }
 
+            // Every ArgInfo naming a range of list_shapes is a local of the
+            // call being typed, and none is live between two items.
+            self.ovl.list_shapes.clear()
             var item = *items->get(i)
             match item.get_kind() {
                 case TopLevelKind::Decl {
@@ -772,7 +775,12 @@ pub class ExprTyper
                 return ut
             } case ExprKind::BinaryOperatorExpr {
                 var unsafe *bn = cast<Expressions::BinaryOperatorExpr>(e)
-                var unsafe *bt = self.type_binary(bn, expected)
+                // null_compared names THIS comparison's literal while its
+                // operands are typed; an operand that is a comparison sets
+                // its own, and the enclosing one's comes back after it.
+                var        outer_null = self.null_compared
+                var unsafe *bt        = self.type_binary(bn, expected)
+                self.null_compared = outer_null
                 if bn->resolved_op != &null {
                     self.flow.operator_call(bn->resolved_op, bn->lhs, e->range)
                     self.flow.after_call(e->range)
@@ -1423,29 +1431,8 @@ pub class ExprTyper
             }
 
             for var o: usize = 0; o < owners.size(); ++o {
-                var k: usize = 0
-                for var i: usize = 0; i < gps.size(); ++i {
-                    var unsafe *gp = gps[i]
-                    if gp == &null {
-                        continue
-                    }
-
-                    if gp->is_pack {
-                        ded.open_pack(owners[o], gp->index)
-                        for var j: usize = k; j < args.size(); ++j {
-                            ded.push_pack(owners[o], gp->index, args[j])
-                        }
-
-                        k = args.size()
-                        continue
-                    }
-
-                    if k >= args.size() {
-                        return body
-                    }
-
-                    ded.bind(owners[o], gp->index, args[k])
-                    k += 1
+                if !ded.bind_params(owners[o], gps, args) {
+                    return body
                 }
             }
 
@@ -2272,12 +2259,7 @@ pub class ExprTyper
                 // C++ constructor takes.
                 var sl = self.tu.c_string_literal(e)
                 if sl != &null {
-                    var unsafe *cc = self.sc->types->qualified(
-                        self.tu.builtin(BuiltinKind::CChar),
-                        QUAL_CONST,
-                    )
-
-                    sl->c_string = self.sc->types->pointer(cc, true)
+                    self.tu.mark_c_string(sl)
                 }
 
                 return true
@@ -2406,12 +2388,7 @@ pub class ExprTyper
         var cat                 = e->value_category
         var lit_n: u64          = 0
         if lit {
-            var unsafe *cc = self.sc->types->qualified(
-                self.tu.builtin(BuiltinKind::CChar),
-                QUAL_CONST,
-            )
-
-            src = self.sc->types->pointer(cc, true)
+            src = self.tu.c_string_ptr_type()
             cat = Expr::ValueCategory::RValue
             lit_n = LowerSynth(self.sc).c_literal_extent(
                 self.tu.c_string_literal(e),

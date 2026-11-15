@@ -2006,7 +2006,7 @@ pub class <T: type> LiteralTyping {
                         at,
                         spelled,
                         t,
-                        f"'{spelled.subslice(i, spelled.size())}' is not a format type",
+                        f"'{spelled.subslice(i, spelled.size() - i)}' is not a format type",
                     )
                 }
             }

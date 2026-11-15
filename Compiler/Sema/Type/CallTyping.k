@@ -539,12 +539,7 @@ pub class <T: type> CallTyping {
             if pi == ARG_C_VARARG && f->ffi_c_variadic {
                 var sl = self.dyn()->tu.c_string_literal(a->expr)
                 if sl != &null {
-                    var cc = self.dyn()->sc->types->qualified(
-                        self.dyn()->sc->builtin(BuiltinKind::CChar),
-                        QUAL_CONST,
-                    )
-
-                    sl->c_string = self.dyn()->sc->types->pointer(cc, true)
+                    self.dyn()->tu.mark_c_string(sl)
                     continue
                 }
 
@@ -618,12 +613,7 @@ pub class <T: type> CallTyping {
             if self._listed(&r->user_convs, i) {
                 var sl = self.dyn()->tu.c_string_literal(a->expr)
                 if sl != &null {
-                    var cc = self.dyn()->sc->types->qualified(
-                        self.dyn()->sc->builtin(BuiltinKind::CChar),
-                        QUAL_CONST,
-                    )
-
-                    sl->c_string = self.dyn()->sc->types->pointer(cc, true)
+                    self.dyn()->tu.mark_c_string(sl)
                 }
 
                 continue
@@ -670,12 +660,7 @@ pub class <T: type> CallTyping {
             if f->is_imported() && (!a->marked) && self._forwards_cstr_slot(p, pt) {
                 var sl = self.dyn()->tu.c_string_literal(a->expr)
                 if sl != &null {
-                    var cc = self.dyn()->sc->types->qualified(
-                        self.dyn()->sc->builtin(BuiltinKind::CChar),
-                        QUAL_CONST,
-                    )
-
-                    sl->c_string = self.dyn()->sc->types->pointer(cc, true)
+                    self.dyn()->tu.mark_c_string(sl)
                     continue
                 }
             }
@@ -815,11 +800,13 @@ pub class <T: type> CallTyping {
             return
         }
 
-        var scan                = GenericArrayCopyScan(r->ded.bindings)
-        var site:  unsafe *Expr = &null
-        var copied              = ""
+        var scan                   = GenericArrayCopyScan(r->ded.bindings)
+        var site:     unsafe *Expr = &null
+        var copied                 = ""
+        var by_return              = false
         if f->return_type != &null && scan.array_param(f->return_type) {
-            copied = "it returns"
+            copied    = "it returns"
+            by_return = true
         } else if f->body_kind == FnBodyKind::Block && f->body_block != &null {
             scan.dispatch_stmt(f->body_block)
             site   = scan.site
@@ -830,7 +817,7 @@ pub class <T: type> CallTyping {
             return
         }
 
-        if site == &null && copied != "it returns" {
+        if site == &null && !by_return {
             return
         }
 

@@ -3417,23 +3417,7 @@ pub class NullnessFlow {
             return &null
         }
 
-        var unsafe *d = (place)[place.size() - 1]
-        if isa<VariableDecl>(d) {
-            var unsafe *v = cast<VariableDecl>(d)
-            return if (v->type_ != &null) => (v->type_->canonical) else => &null
-        }
-
-        if isa<ParamDecl>(d) {
-            var unsafe *p = cast<ParamDecl>(d)
-            return if (p->type_ != &null) => (p->type_->canonical) else => &null
-        }
-
-        if isa<FieldDecl>(d) {
-            var unsafe *f = cast<FieldDecl>(d)
-            return if (f->type_ != &null) => (f->type_->canonical) else => &null
-        }
-
-        return &null
+        return null_scan_decl_type((place)[place.size() - 1])
     }
 
     /// ## uses (§4)

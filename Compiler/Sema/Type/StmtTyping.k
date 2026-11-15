@@ -3218,7 +3218,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         // own keyword rewritten, or `const ` added to an element of a list
         // (valid under any header keyword) or to a lone binder written
         // right after `for ` (no header keyword to clash with).
-        var bare = n->bindings.size() > 1 || n->range.start.advance(4) == b->range.start
+        var bare = n->bindings.size() > 1 || self._bare_for_header(n, b)
         if want_cst == cst || b->is_explicit || (want_cst && !cst && bare) {
             var kw = ""
             if b->is_explicit || want_cst != cst {
@@ -3236,6 +3236,45 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         if b->decl != &null {
             b->decl->poison()
         }
+    }
+
+    /// The header of loop \p n writes no `var` / `const` of its own before
+    /// its lone binder \p b: from the loop's start to the binder the source
+    /// is the `for` keyword (after `eval`, on an eval loop) and blanks,
+    /// however many. False when that text is not the file's own, which only
+    /// withholds a fix-it.
+    priv fn _bare_for_header(self,
+                             n: unsafe *Statements::RangedForStmt,
+                             b: unsafe *Statements::Binding) -> bool {
+        var text = self.dyn()->sc->ctx->get_spelling(
+            SourceRange(n->range.start, b->range.start),
+        )
+
+        var seen_for       = false
+        var i:       usize = 0
+        while i < text.size() {
+            var c = text[i]
+            if c == (' ' as u8) || c == ('\t' as u8) || c == ('\n' as u8) || c == ('\r' as u8) {
+                i += 1
+                continue
+            }
+
+            var rest = text.subslice(i, text.size() - i)
+            if (!seen_for) && rest.starts_with("for") {
+                seen_for = true
+                i += 3
+                continue
+            }
+
+            if (!seen_for) && n->is_eval && rest.starts_with("eval") {
+                i += 4
+                continue
+            }
+
+            return false
+        }
+
+        return seen_for
     }
 
     /// \p t (the iterable's type) declares `op in (const self)`.

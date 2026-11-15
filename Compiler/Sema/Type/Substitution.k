@@ -48,12 +48,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,
-    QUAL_CONST,
-    QualifiedType,
-    RecordType,
-    canon_quals,
-    canon_unqual,
+    AssocType, BoundsState, QUAL_CONST, QualifiedType, RecordType, canon_quals, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -61,7 +56,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, FunctionDecl, InheritEdge, InterfaceDecl, Requirement, StructDecl, TypeAliasDecl,
+    ClassDecl,   ComposeState, FunctionDecl,  GenericParamDecl, InheritEdge, InterfaceDecl,
+    Requirement, StructDecl,   TypeAliasDecl,
 }
 import AST::Node::Expressions::ConstraintExpr
 import AST::Node::Types::{
@@ -379,6 +375,45 @@ pub class Substitution {
         }
     }
 
+    /// \p owner's generic parameters \p gps bound to the positional
+    /// arguments \p args (defaults already filled in, GenericArgs::collect):
+    /// each parameter takes the next argument and a pack takes every one
+    /// left, none being an empty pack. False when a parameter that is not a
+    /// pack has no argument; the parameters before it stay bound. Keyed by
+    /// \p owner as given: a caller whose body may name a redeclaration's
+    /// parameters binds the representative as well.
+    pub fn bind_params(self,
+                       owner:      unsafe *Decl,
+                       gps:        FrozenList<unsafe *GenericParamDecl>,
+                       const args: cxx::std::vector<unsafe *Type>) -> bool {
+        var at: usize = 0
+        for var i: usize = 0; i < gps.size(); ++i {
+            var unsafe *gp = gps[i]
+            if gp == &null {
+                continue
+            }
+
+            if gp->is_pack {
+                self.open_pack(owner, gp->index)
+                for var k: usize = at; k < args.size(); ++k {
+                    self.push_pack(owner, gp->index, args[k])
+                }
+
+                at = args.size()
+                continue
+            }
+
+            if at >= args.size() {
+                return false
+            }
+
+            self.bind(owner, gp->index, args[at])
+            at += 1
+        }
+
+        return true
+    }
+
     /// Every generic base of record \p rec, read through \p rec's arguments
     /// hop by hop (derives_from's walk), binds its pattern's parameters.
     priv fn _bind_bases(self, rec: unsafe *Type, depth: u32) {
@@ -398,23 +433,9 @@ pub class Substitution {
 
         var bases = self._bases_of(NameLookup::representative(body))
         for var i: usize = 0; i < bases.size(); ++i {
-            var unsafe *e = bases.get(i)
-            if e == &null || e->base == &null {
+            var unsafe *c = self.base_through(r, bases.get(i))
+            if c == &null {
                 continue
-            }
-
-            var unsafe *c = canon_unqual(e->base->canonical)
-            if c == &null || !isa<RecordType>(c) {
-                continue
-            }
-
-            if c->is_dependent() {
-                var s = Substitution(self.sc)
-                s.bind_own(r)
-                var unsafe *sub = s.substitute(c)
-                if sub != &null && isa<RecordType>(canon_unqual(sub)) {
-                    c = canon_unqual(sub)
-                }
             }
 
             if self.tu.record_args(c).size() > 0 {
@@ -1236,7 +1257,7 @@ pub class Substitution {
 
         var unsafe *a  = cast<AssocType>(c)
         var        out = cxx::std::vector<unsafe *Type>()
-        if a->bounds_state == 2 {
+        if a->bounds_state == (BoundsState::Done as u8) {
             // Published by set_assoc_bounds after a release fence; the
             // canonical node is build-wide and other TUs' Semas fill it
             // from pool workers.
@@ -1444,7 +1465,7 @@ pub class Substitution {
                 NameLookup::representative(self.tu.pattern_of(d)),
             )
 
-            if idecl == &null || idecl->compose_state != 2 {
+            if idecl == &null || idecl->compose_state != (ComposeState::Done as u8) {
                 continue
             }
 
@@ -1521,7 +1542,7 @@ pub class Substitution {
             }
 
             var ms = cxx::std::vector<unsafe *FunctionDecl>()
-            if idecl->compose_state == 2 {
+            if idecl->compose_state == (ComposeState::Done as u8) {
                 for var j: usize = 0; j < idecl->requirements.size(); ++j {
                     var unsafe *m = dyn_cast<FunctionDecl>(
                         idecl->requirements.get(j)->decl,
@@ -1627,7 +1648,7 @@ pub class Substitution {
                                  ),
                              ))
                              else => &null
-            if id == &null || id->compose_state != 2 {
+            if id == &null || id->compose_state != (ComposeState::Done as u8) {
                 continue
             }
 
@@ -2055,27 +2076,9 @@ pub class Substitution {
 
         var bases = self._bases_of(NameLookup::representative(body))
         for var i: usize = 0; i < bases.size(); ++i {
-            var unsafe *e = bases.get(i)
-            if e == &null || e->base == &null {
+            var unsafe *c = self.base_through(d, bases.get(i))
+            if c == &null {
                 continue
-            }
-
-            var unsafe *c = canon_unqual(e->base->canonical)
-            if c == &null || !isa<RecordType>(c) {
-                continue
-            }
-
-            if c->is_dependent() {
-                // Fresh bindings per hop: each base is read through the
-                // record it is a base OF. A parameter nothing binds (a nested
-                // record's enclosing one) leaves the base as written, which
-                // still names the right entity.
-                var s = Substitution(self.sc)
-                s.bind_own(d)
-                var unsafe *sub = s.substitute(c)
-                if sub != &null && isa<RecordType>(canon_unqual(sub)) {
-                    c = canon_unqual(sub)
-                }
             }
 
             if self._derives_walk(c, b, seen, depth + 1) {
@@ -2110,23 +2113,9 @@ pub class Substitution {
 
             var bases = self._bases_of(NameLookup::representative(body))
             for var i: usize = 0; i < bases.size(); ++i {
-                var unsafe *e = bases.get(i)
-                if e == &null || e->base == &null || e->base->canonical == &null {
+                var unsafe *c = self.base_through(cur, bases.get(i))
+                if c == &null {
                     continue
-                }
-
-                var unsafe *c = canon_unqual(e->base->canonical)
-                if c == &null || !isa<RecordType>(c) {
-                    continue
-                }
-
-                if c->is_dependent() {
-                    var s = Substitution(self.sc)
-                    s.bind_own(cur)
-                    var unsafe *sub = s.substitute(c)
-                    if sub != &null && isa<RecordType>(canon_unqual(sub)) {
-                        c = canon_unqual(sub)
-                    }
                 }
 
                 var dup = false
@@ -2145,6 +2134,36 @@ pub class Substitution {
                 out.push_back(c)
             }
         }
+    }
+
+    /// The record edge \p e of record type \p of names, read through \p of's
+    /// own arguments: `Mixin<T>` on `class Seven<T>` is `Mixin<i32>` for
+    /// `Seven<i32>`. The one hop of every walk over a record's bases
+    /// (derives_from, base_records, bind_from_record); each hop takes fresh
+    /// bindings, since a base is read through the record it is a base OF.
+    /// A parameter nothing binds (a nested record's enclosing one) leaves
+    /// the base as written, which still names the right entity. Null when
+    /// the edge is unresolved or names no record.
+    pub fn base_through(self, of: unsafe *Type, e: unsafe *InheritEdge) -> unsafe *Type {
+        if e == &null || e->base == &null {
+            return &null
+        }
+
+        var unsafe *c = canon_unqual(e->base->canonical)
+        if c == &null || !isa<RecordType>(c) {
+            return &null
+        }
+
+        if c->is_dependent() {
+            var s = Substitution(self.sc)
+            s.bind_own(of)
+            var unsafe *sub = s.substitute(c)
+            if sub != &null && isa<RecordType>(canon_unqual(sub)) {
+                c = canon_unqual(sub)
+            }
+        }
+
+        return c
     }
 
     priv fn _bases_of(self, d: unsafe *Decl) -> FrozenList<InheritEdge> {

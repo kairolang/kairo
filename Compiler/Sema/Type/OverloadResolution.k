@@ -122,7 +122,6 @@ import AST::ParamMode::ParamMode
 import Diagnostic::Code::DiagCode
 import Diagnostic::NoteText::declared_here
 import Diagnostic::Registry::DiagID
-import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Sema::Check::ConformanceChecking::ConformanceChecking
@@ -328,6 +327,15 @@ pub enum RefBind derives u8 {
     TempLRef,      ///< `T&`, to a converted temporary.
 }
 
+/// How an argument ranked Exact looks to C++, where Kairo's rank does not
+/// tell two parameters apart (ArgJudgment::int_kind, flit_kind). Natural
+/// beats Alias in the tiebreak that reads it; Unjudged takes no part.
+pub enum ExactFit derives u8 {
+    Unjudged = 0,
+    Natural, ///< the identity to C++: the natural C type, the literal's own type.
+    Alias,   ///< a same-width alias of it, or a conversion to C++.
+}
+
 /// \p k bound to a converted temporary instead (None stays None).
 fn ref_bind_on_temp(k: RefBind) -> RefBind {
     if k == RefBind::ConstLRef {
@@ -352,17 +360,18 @@ pub struct ArgJudgment {
     /// The reference kind it bound AT EXACT, or (a Temp kind) to a
     /// converted temporary. Read only by the reference tiebreak.
     pub var bind: RefBind = RefBind::None
-    /// How a TYPED integer argument bound AT EXACT -- 0 not judged (not an
-    /// integer, not Exact, an untyped literal), 1 its natural C type, 2 a
-    /// same-width C alias (ParamDecl::cxx_int_alias) -- and how a string
-    /// literal bound a C string parameter: 1 `const char *`, 2 a byte
-    /// pointer. Read only by the integer tiebreak.
-    pub var int_kind: u8 = 0
+    /// How a TYPED integer argument bound AT EXACT -- Unjudged (not an
+    /// integer, not Exact, an untyped literal), Natural its natural C type,
+    /// Alias a same-width C alias (ParamDecl::cxx_int_alias) -- and how a
+    /// string literal bound a C string parameter: Natural `const char *`,
+    /// Alias a byte pointer. Read only by the integer tiebreak.
+    pub var int_kind: ExactFit = ExactFit::Unjudged
     /// How an untyped FLOAT LITERAL bound at Exact to a non-dependent float
-    /// parameter -- 0 not judged, 1 f64 (C++'s double, the literal's own
-    /// type), 2 any other float (a floating conversion to C++). Read only
+    /// parameter -- Natural f64 (C++'s double, the literal's own type),
+    /// Alias any other float (a floating conversion to C++) -- and an
+    /// untyped int literal to an imported parameter (_ilit_code). Read only
     /// by the float-literal tiebreak.
-    pub var flit_kind: u8 = 0
+    pub var flit_kind: ExactFit = ExactFit::Unjudged
     /// The parameter type it was ranked against, null where nothing was
     /// ranked (a C `...` tail, an assumed argument). Read only by the
     /// ambiguity diagnostic: which enum a `.V` argument took is known only
@@ -1524,12 +1533,14 @@ pub class OverloadResolution {
 
         var better = false
         for var k: usize = 0; k < x->judged.size(); ++k {
-            if x->judged[k].int_kind == 1 && y->judged[k].int_kind == 2 {
+            if x->judged[k].int_kind == ExactFit::Natural
+                && y->judged[k].int_kind == ExactFit::Alias {
                 better = true
                 continue
             }
 
-            if x->judged[k].int_kind == 2 && y->judged[k].int_kind == 1 {
+            if x->judged[k].int_kind == ExactFit::Alias
+                && y->judged[k].int_kind == ExactFit::Natural {
                 return false
             }
         }
@@ -1690,12 +1701,14 @@ pub class OverloadResolution {
 
         var better = false
         for var k: usize = 0; k < x->judged.size(); ++k {
-            if x->judged[k].flit_kind == 1 && y->judged[k].flit_kind == 2 {
+            if x->judged[k].flit_kind == ExactFit::Natural
+                && y->judged[k].flit_kind == ExactFit::Alias {
                 better = true
                 continue
             }
 
-            if x->judged[k].flit_kind == 2 && y->judged[k].flit_kind == 1 {
+            if x->judged[k].flit_kind == ExactFit::Alias
+                && y->judged[k].flit_kind == ExactFit::Natural {
                 return false
             }
         }
@@ -1707,9 +1720,9 @@ pub class OverloadResolution {
     /// \p pt, read through a reference and a nullable as _rank_literal_arg
     /// reads it. A dependent parameter is not judged: what the literal
     /// deduces there is the generic tiebreak's business, not this one's.
-    priv fn _flit_code(self, pt: unsafe *Type) -> u8 {
+    priv fn _flit_code(self, pt: unsafe *Type) -> ExactFit {
         if pt == &null || pt->is_dependent() {
-            return 0
+            return ExactFit::Unjudged
         }
 
         var unsafe *t = pt
@@ -1721,18 +1734,20 @@ pub class OverloadResolution {
 
         t = canon_unqual(self.tu.strip_nullable(canon_unqual(t)))
         if t == &null || !self.tu.is_float(t) {
-            return 0
+            return ExactFit::Unjudged
         }
 
-        return if (self.tu.kind_of(t) == BuiltinKind::F64) => (1) else => 2
+        return if (self.tu.kind_of(t) == BuiltinKind::F64) => (ExactFit::Natural)
+               else => ExactFit::Alias
     }
 
     /// ArgJudgment::flit_kind code for an int literal ranked Exact against an
-    /// imported \p pt: 1 C's `int` (i32 spelled `int`, not LLP64's `long`
-    /// alias), 2 any other type (a conversion to C++). Dependent: not judged.
-    priv fn _ilit_code(self, pt: unsafe *Type, alias: bool) -> u8 {
+    /// imported \p pt: Natural C's `int` (i32 spelled `int`, not LLP64's
+    /// `long` alias), Alias any other type (a conversion to C++). Dependent:
+    /// not judged.
+    priv fn _ilit_code(self, pt: unsafe *Type, alias: bool) -> ExactFit {
         if pt == &null || pt->is_dependent() {
-            return 0
+            return ExactFit::Unjudged
         }
 
         var unsafe *t = pt
@@ -1744,14 +1759,14 @@ pub class OverloadResolution {
 
         t = canon_unqual(self.tu.strip_nullable(canon_unqual(t)))
         if t == &null || t->is_dependent() {
-            return 0
+            return ExactFit::Unjudged
         }
 
         if (!alias) && self.tu.kind_of(t) == BuiltinKind::I32 {
-            return 1
+            return ExactFit::Natural
         }
 
-        return 2
+        return ExactFit::Alias
     }
 
     /// `Base::Base(self, other)` in a derived `@copy`/`@move` constructor:
@@ -2357,12 +2372,7 @@ pub class OverloadResolution {
                 && (to_clang || self._forwards_cstr(c->f, a, c->judged[order[j]].target)) {
                 // What EmitIR writes: the literal's bytes, which C++ reads
                 // as `const char[N]` decayed (CallTyping, user_convs).
-                var unsafe *cc = self.sc->types->qualified(
-                    self.tu.builtin(BuiltinKind::CChar),
-                    QUAL_CONST,
-                )
-
-                t = self.sc->types->pointer(cc, true)
+                t = self.tu.c_string_ptr_type()
             } else if a->lit != LitKind::None {
                 // A literal takes the type it was ranked at: its default
                 // where a deduced parameter reads it, which is what C++
@@ -3169,8 +3179,8 @@ pub class OverloadResolution {
                                             && self.tu.is_builtin(
                                                 canon_unqual(lp),
                                                 BuiltinKind::CChar,
-                                            )) => (1)
-                                        else => 2
+                                            )) => (ExactFit::Natural)
+                                        else => ExactFit::Alias
             } else {
                 r = self._rank_arg(c, ra, rt, pi == ARG_PACK_TAIL, mode)
             }
@@ -3365,7 +3375,8 @@ pub class OverloadResolution {
                 && a->lit == LitKind::None
                 && a->ty != &null
                 && self.tu.is_integer(a->ty) {
-                c->judged[i].int_kind = if (p->cxx_int_alias) => (2) else => 1
+                c->judged[i].int_kind = if (p->cxx_int_alias) => (ExactFit::Alias)
+                                        else => ExactFit::Natural
             }
 
             // usize / isize is C++'s size_t / ptrdiff_t, which every target
@@ -3388,7 +3399,8 @@ pub class OverloadResolution {
                         canon_unqual(self.tu.as_value(a->ty)),
                     )
                     && self.tu.is_signed_int(pt) == (ak == BuiltinKind::ISize) {
-                    c->judged[i].int_kind = if (p->cxx_int_alias) => (2) else => 1
+                    c->judged[i].int_kind = if (p->cxx_int_alias) => (ExactFit::Alias)
+                                            else => ExactFit::Natural
                 }
             }
 
@@ -3615,12 +3627,7 @@ pub class OverloadResolution {
                 if self._forwards_cstr(c->f, a, pt) {
                     // `args: T&&...` of a C++ template: a literal element is
                     // a C string, as for a single forwarding reference.
-                    var unsafe *pc = self.sc->types->qualified(
-                        self.tu.builtin(BuiltinKind::CChar),
-                        QUAL_CONST,
-                    )
-
-                    et = self.sc->types->pointer(pc, true)
+                    et = self.tu.c_string_ptr_type()
                 } else if a->lit != LitKind::None {
                     et = self._literal_default(a, pg)
                 } else if a->ty != &null {
@@ -3651,12 +3658,7 @@ pub class OverloadResolution {
                 // `fn <T> f(x: T)` with `f(10)`: T := the literal's default.
                 var unsafe *def = self._literal_default(a, pt)
                 if self._forwards_cstr(c->f, a, pt) {
-                    var unsafe *cc = self.sc->types->qualified(
-                        self.tu.builtin(BuiltinKind::CChar),
-                        QUAL_CONST,
-                    )
-
-                    def = self.sc->types->pointer(cc, true)
+                    def = self.tu.c_string_ptr_type()
                 }
 
                 if def == &null {
@@ -4064,7 +4066,6 @@ pub class OverloadResolution {
                 sub.lit_hi   = el->lit_hi
                 sub.lit_big  = el->lit_big
                 sub.lit_bits = el->lit_bits
-                sub.lit_bits = el->lit_bits
                 sub.lit_neg  = el->lit_neg
                 sub.lit_name = el->lit_name
                 t            = self._literal_default(&sub, ept)
@@ -4181,12 +4182,7 @@ pub class OverloadResolution {
         }
 
         if self._forwards_cstr(c->f, a, pt) {
-            var unsafe *fc = self.sc->types->qualified(
-                self.tu.builtin(BuiltinKind::CChar),
-                QUAL_CONST,
-            )
-
-            return self.sc->types->pointer(fc, true)
+            return self.tu.c_string_ptr_type()
         }
 
         var unsafe *u = canon_unqual(pt)
@@ -4198,12 +4194,7 @@ pub class OverloadResolution {
             return a->ty
         }
 
-        var unsafe *cc = self.sc->types->qualified(
-            self.tu.builtin(BuiltinKind::CChar),
-            QUAL_CONST,
-        )
-
-        return self.sc->types->pointer(cc, true)
+        return self.tu.c_string_ptr_type()
     }
 
     /// The imported record a C++ user-defined conversion would build for
@@ -4292,12 +4283,7 @@ pub class OverloadResolution {
         var cat                 = a->cat
         var lit_n: u64          = 0
         if lit {
-            var unsafe *cc = self.sc->types->qualified(
-                self.tu.builtin(BuiltinKind::CChar),
-                QUAL_CONST,
-            )
-
-            src = self.sc->types->pointer(cc, true)
+            src = self.tu.c_string_ptr_type()
             cat = Expr::ValueCategory::RValue
             lit_n = LowerSynth(self.sc).c_literal_extent(
                 self.tu.c_string_literal(a->expr),

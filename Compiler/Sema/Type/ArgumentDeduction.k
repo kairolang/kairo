@@ -613,10 +613,6 @@ pub class Deduction derives Substitution {
                 self.bindings.pop_back()
             }
 
-            while self.bindings.size() > mark {
-                self.bindings.pop_back()
-            }
-
             if self.unify(pc, bases[i], false) != ImplicitRank::None {
                 return ImplicitRank::Converted
             }

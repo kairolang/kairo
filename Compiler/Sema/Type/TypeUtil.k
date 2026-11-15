@@ -88,6 +88,46 @@ pub struct PointerShape {
     var leaf:         unsafe *Type = &null
 }
 
+/// Every leaf of requires clause \p e, in clause order: the operands of
+/// its `&&` / `and` tree, to any depth. A leaf is a `T impl I` / `T derives
+/// B` ConstraintExpr or a value predicate; a null clause has none.
+pub fn conjuncts(e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
+    if e == &null {
+        return
+    }
+
+    var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
+    if b != &null
+        && (b->op_token.kind == TokenKind::OpAmpAmp || b->op_token.kind == TokenKind::KwAnd) {
+        conjuncts(b->lhs, out)
+        conjuncts(b->rhs, out)
+        return
+    }
+
+    out->push_back(e)
+}
+
+/// The `impl` / `derives` leaves of requires clause \p e (conjuncts), in
+/// clause order. False when \p e also has a value predicate; those are
+/// left out of \p out.
+pub fn constraint_conjuncts(e:   unsafe *Expr,
+                            out: unsafe *cxx::std::vector<unsafe *ConstraintExpr>) -> bool {
+    var leaves = cxx::std::vector<unsafe *Expr>()
+    conjuncts(e, unsafe &leaves)
+    var only = true
+    for var i: usize = 0; i < leaves.size(); ++i {
+        var unsafe *c = dyn_cast<ConstraintExpr>(leaves[i])
+        if c == &null {
+            only = false
+            continue
+        }
+
+        out->push_back(c)
+    }
+
+    return only
+}
+
 pub class TypeUtil {
     pub var sc: unsafe *SemaContext
 
@@ -654,7 +694,7 @@ pub class TypeUtil {
     /// The `impl` conjuncts of clause \p e, in clause order.
     fn impl_conjuncts(self, e: unsafe *Expr, @inout out: cxx::std::vector<unsafe *ConstraintExpr>) {
         var cs = cxx::std::vector<unsafe *ConstraintExpr>()
-        self._conjuncts(e, unsafe &cs)
+        constraint_conjuncts(e, unsafe &cs)
         for var i: usize = 0; i < cs.size(); ++i {
             if !cs[i]->is_derives() {
                 out.push_back(cs[i])
@@ -709,28 +749,6 @@ pub class TypeUtil {
         }
 
         return usize::MAX
-    }
-
-    priv fn _conjuncts(self,
-                       e:   unsafe *Expr,
-                       out: unsafe *cxx::std::vector<unsafe *ConstraintExpr>) {
-        if e == &null {
-            return
-        }
-
-        if e->kind == ExprKind::BinaryOperatorExpr {
-            var unsafe *b = cast<BinaryOperatorExpr>(e)
-            if b->op_token.kind == TokenKind::OpAmpAmp || b->op_token.kind == TokenKind::KwAnd {
-                self._conjuncts(b->lhs, out)
-                self._conjuncts(b->rhs, out)
-            }
-
-            return
-        }
-
-        if e->kind == ExprKind::ConstraintExpr {
-            out->push_back(cast<ConstraintExpr>(e))
-        }
     }
 
     fn record_args(self, t: unsafe *Type) -> FrozenList<unsafe *Type> {
@@ -1290,6 +1308,23 @@ pub class TypeUtil {
         }
 
         return s
+    }
+
+    /// `unsafe *const c_char`: what a string literal's bytes are at the C++
+    /// boundary (`const char[N]`, decayed).
+    pub fn c_string_ptr_type(self) -> unsafe *Type {
+        var unsafe *cc = self.sc->types->qualified(
+            self.builtin(BuiltinKind::CChar),
+            QUAL_CONST,
+        )
+
+        return self.sc->types->pointer(cc, true)
+    }
+
+    /// \p lit (c_string_literal said yes) goes out as its bytes, typed
+    /// c_string_ptr_type, and no `string` is built from it.
+    pub fn mark_c_string(self, lit: unsafe *StringLiteralExpr) {
+        lit->c_string = self.c_string_ptr_type()
     }
 
     /// # tuples
@@ -2054,7 +2089,7 @@ pub class TypeUtil {
 
         var text = self.sc->ctx->get_spelling(core->range)
         if text.starts_with("const ") {
-            text = text.subslice(6, text.size())
+            text = text.subslice(6, text.size() - 6)
         }
 
         var cv = if (wconst) => ("const ") else => ""
