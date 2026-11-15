@@ -31,6 +31,6 @@ pub import io
 /// The allocation API from `std::mem` (`create`, `destroy`, `AllocatorScope`, ...),
 /// re-exported at the std root.
 pub import mem::*
-/// Explicit value transfer from `std::utility` (`move`), re-exported at the std root, so it
-/// is spelled `std::move`.
+/// Explicit value transfer from `std::utility` (`move`, `copy`), re-exported at the std root,
+/// so they are spelled `std::move` and `std::copy`.
 pub import utility::*

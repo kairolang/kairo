@@ -1,7 +1,7 @@
 /// --- The Kairo Project ---------------------------- Lib/std/utility.k --- ///
 ///
-///   Explicit value transfer: `move`, re-exported at the std root as
-///   `std::move`.
+///   Explicit value transfer: `move` and `copy`, re-exported at the std
+///   root as `std::move` and `std::copy`.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -35,5 +35,42 @@
 /// a = UniqueFile()       // a is usable again
 /// ```
 pub fn <T> move(@move x: T) -> T {
+    return x
+}
+
+/// A type that makes its copies itself: what `copy` calls when it is declared.
+priv interface CopiesItself {
+    fn copy(const self) -> Self
+}
+
+/// A type with a copy constructor (every COPY class, every primitive and pointer).
+priv interface CopyConstructible {
+    @copy
+    fn CopyConstructible(self, const other: Self)
+}
+
+/// Returns a copy of `x`, leaving `x` untouched.
+///
+/// A type that declares `fn copy(const self) -> Self` is copied by that method, written
+/// for the purpose, even when it also has a copy constructor. Any other type is copied by
+/// its copy constructor: every COPY class, every primitive and every pointer. A type with
+/// neither, such as a move-only class with no `copy()`, is a compile error naming both
+/// ways to make it copyable.
+///
+/// \param x  the value to copy; it is borrowed, so it stays usable after the call
+/// \returns a new value equal to `x`
+/// \example
+/// ```kairo
+/// import std
+///
+/// var a = Config(4)
+/// var b = std::copy(a)   // a is still usable
+/// ```
+pub fn <T> copy(const x: T) -> T requires T impl CopiesItself {
+    return x.copy()
+}
+
+/// The copy-constructor case of `copy`; see above.
+pub fn <T> copy(const x: T) -> T requires T impl CopyConstructible && !(T impl CopiesItself) {
     return x
 }
