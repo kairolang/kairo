@@ -82,6 +82,24 @@ pub class ScriptJumpScan derives RecursiveASTVisitor<ScriptJumpScan> {
     }
 }
 
+/// A deferred script binding and the top-level line that gives it its value.
+struct ScriptDeferredLine {
+    var at: usize
+    var v:  unsafe *VariableDecl
+}
+
+/// A top-level `label!` and the top-level line it sits in.
+struct ScriptLabelAt {
+    var at: usize
+    var n:  *LabelIntrinsicStmt
+}
+
+/// A top-level `jump!` and the top-level line it sits in.
+struct ScriptJumpAt {
+    var at: usize
+    var n:  *JumpIntrinsicStmt
+}
+
 pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
     pub var sc: unsafe *SemaContext
 
@@ -95,28 +113,7 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
     }
 
     fn run(self) {
-        var unsafe *tu = self.sc->tu
-        if tu == &null {
-            return
-        }
-
-        if tu->program == &null {
-            return
-        }
-
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); i++ {
-            var item = *items->get(i)
-            match item.kind {
-                case TopLevelKind::Decl {
-                    self.dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(self.sc->tu)
 
         // top-level code is its own frame.
         self._validate_and_pop_frame(0, 0)
@@ -135,19 +132,15 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
 
         var *items = &self.sc->tu->program->items
 
-        var deferred = cxx::std::vector<usize>()
-        var dvars    = cxx::std::vector<unsafe *VariableDecl>()
-        var labels   = cxx::std::vector<*LabelIntrinsicStmt>()
-        var lpos     = cxx::std::vector<usize>()
-        var jumps    = cxx::std::vector<*JumpIntrinsicStmt>()
-        var jpos     = cxx::std::vector<usize>()
+        var deferred = cxx::std::vector<ScriptDeferredLine>()
+        var labels   = cxx::std::vector<ScriptLabelAt>()
+        var jumps    = cxx::std::vector<ScriptJumpAt>()
         for var i: usize = 0; i < items->size(); i++ {
             var item = *items->get(i)
             if item.kind == TopLevelKind::Decl {
                 var unsafe *dv = rules.binding_of(item)
                 if dv != &null && rules.defers(dv) {
-                    deferred.push_back(i)
-                    dvars.push_back(dv)
+                    deferred.push_back(ScriptDeferredLine { at: i, v: dv })
                 }
 
                 continue
@@ -156,8 +149,7 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
             var unsafe *v = rules.binding_of(item)
             if v != &null {
                 if rules.defers(v) {
-                    deferred.push_back(i)
-                    dvars.push_back(v)
+                    deferred.push_back(ScriptDeferredLine { at: i, v: v })
                 }
 
                 continue
@@ -171,13 +163,11 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
             }
 
             for var k: usize = 0; k < scan.labels.size(); k++ {
-                labels.push_back(scan.labels[k])
-                lpos.push_back(i)
+                labels.push_back(ScriptLabelAt { at: i, n: scan.labels[k] })
             }
 
             for var k: usize = 0; k < scan.jumps.size(); k++ {
-                jumps.push_back(scan.jumps[k])
-                jpos.push_back(i)
+                jumps.push_back(ScriptJumpAt { at: i, n: scan.jumps[k] })
             }
         }
 
@@ -186,10 +176,10 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
         }
 
         for var j: usize = 0; j < jumps.size(); j++ {
-            var *jn       = jumps[j]
+            var *jn       = jumps[j].n
             var li: isize = -1
             for var l: usize = 0; l < labels.size(); l++ {
-                if self._same_name(labels[l]->name, jn->target) {
+                if self._same_name(labels[l].n->name, jn->target) {
                     li = (l as isize)
                     break
                 }
@@ -199,13 +189,13 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
                 continue
             }
 
-            var *lab = labels[li as usize]
-            var from = jpos[j]
-            var to   = lpos[li as usize]
+            var *lab = labels[li as usize].n
+            var from = jumps[j].at
+            var to   = labels[li as usize].at
             // The crossed line nearest the jump: the one its path meets first.
             var hit: isize = -1
             for var d: usize = 0; d < deferred.size(); d++ {
-                var at = deferred[d]
+                var at = deferred[d].at
                 if from < at && at < to {
                     if hit < 0 {
                         hit = (d as isize)
@@ -219,7 +209,7 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
                 continue
             }
 
-            self._crossing(jn, lab, dvars[hit as usize], to < from)
+            self._crossing(jn, lab, deferred[hit as usize].v, to < from)
         }
     }
 
@@ -343,71 +333,15 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
         var saved_jf = self.jump_floor
         self.label_floor = self.labels.size()
         self.jump_floor  = self.jumps.size()
-
-        if self.dyn()->walkup_function_decl(n) {
-            for var i: usize = 0; i < n->generic_params.size(); i++ {
-                if self.stop {
-                    break
-                }
-
-                self.dyn()->dispatch_decl(*n->generic_params.get(i)) // discard
-            }
-
-            if !self.stop {
-                for var i: usize = 0; i < n->spec_args.size(); i++ {
-                    if self.stop {
-                        break
-                    }
-
-                    self.dyn()->dispatch_type(*n->spec_args.get(i)) // discard
-                }
-            }
-
-            if !self.stop {
-                if n->requires_clause != &null {
-                    n->requires_clause = self.dyn()->dispatch_expr(
-                        n->requires_clause,
-                    )
-                }
-            }
-
-            if !self.stop {
-                if n->where_clause != &null {
-                    n->where_clause = self.dyn()->dispatch_expr(n->where_clause)
-                }
-
-                for var i: usize = 0; i < n->params.size(); i++ {
-                    if self.stop {
-                        break
-                    }
-
-                    self.dyn()->dispatch_decl(*n->params.get(i)) // discard
-                }
-            }
-
-            if !self.stop {
-                if n->return_type != &null {
-                    n->return_type = self.dyn()->dispatch_type(n->return_type)
-                }
-
-                if n->qualifier != &null {
-                    n->qualifier = self.dyn()->dispatch_expr(n->qualifier)
-                }
-
-                if n->body_block != &null {
-                    n->body_block = self.dyn()->traverse_block(n->body_block)
-                }
-
-                if n->body_expr != &null {
-                    n->body_expr = self.dyn()->dispatch_expr(n->body_expr)
-                }
-            }
-        }
+        var unsafe *out = RecursiveASTVisitor<JumpLabelCheck>::traverse_function_decl(
+            self,
+            n,
+        )
 
         self._validate_and_pop_frame(self.label_floor, self.jump_floor)
         self.label_floor = saved_lf
         self.jump_floor  = saved_jf
-        return n
+        return out
     }
 
     fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {
@@ -415,57 +349,14 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
         var saved_jf = self.jump_floor
         self.label_floor = self.labels.size()
         self.jump_floor  = self.jumps.size()
-
-        if self.dyn()->walkup_closure_expr(n) {
-            for var i: usize = 0; i < n->generic_params.size(); i++ {
-                if self.stop {
-                    break
-                }
-
-                self.dyn()->dispatch_decl(*n->generic_params.get(i)) // discard
-            }
-
-            if !self.stop {
-                for var i: usize = 0; i < n->params.size(); i++ {
-                    if self.stop {
-                        break
-                    }
-
-                    self.dyn()->dispatch_decl(*n->params.get(i)) // discard
-                }
-            }
-
-            if !self.stop {
-                for var i: usize = 0; i < n->captures.size(); i++ {
-                    if self.stop {
-                        break
-                    }
-
-                    var unsafe *cap = n->captures.get(i)
-                    if cap->name != &null { // discard
-                        self.dyn()->dispatch_expr(cap->name)
-                    }
-                }
-            }
-
-            if !self.stop {
-                if n->return_type != &null {
-                    n->return_type = self.dyn()->dispatch_type(n->return_type)
-                }
-
-                if n->body_block != &null {
-                    n->body_block = self.dyn()->traverse_block(n->body_block)
-                }
-
-                if n->body_expr != &null {
-                    n->body_expr = self.dyn()->dispatch_expr(n->body_expr)
-                }
-            }
-        }
+        var unsafe *out = RecursiveASTVisitor<JumpLabelCheck>::traverse_closure_expr(
+            self,
+            n,
+        )
 
         self._validate_and_pop_frame(self.label_floor, self.jump_floor)
         self.label_floor = saved_lf
         self.jump_floor  = saved_jf
-        return n
+        return out
     }
 }

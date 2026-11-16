@@ -42,7 +42,6 @@ import AST::ForeignReservedWords::{
 import AST::LangItems::LowerTargets
 import AST::Node::Declarations
 import AST::Node::Patterns::BindingPattern
-import AST::Node::Program::TopLevelKind
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Registry::DiagID
 import Sema::SemaContext::SemaContext
@@ -62,30 +61,14 @@ pub class CxxNameCheck derives RecursiveASTVisitor<CxxNameCheck> {
 
     fn run(self) {
         var unsafe *tu = self.sc->tu
-        if tu == &null {
-            return
-        }
-
-        if tu->program == &null {
+        if tu == &null || tu->program == &null {
             return
         }
 
         // Requires a fully-populated imm table   see ForeignReservedWords.k.
         self.kw.build(self.sc->imm_table())
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); i++ {
-            var item = *items->get(i)
-            match item.kind {
-                case TopLevelKind::Decl {
-                    self.dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     /// \p what is the noun used in the message ("function", "class", ...).
@@ -131,23 +114,13 @@ pub class CxxNameCheck derives RecursiveASTVisitor<CxxNameCheck> {
         // __kairo_contains, and so on), so a user declaring one does not merely
         // risk UB -- it collides with an invented name in the emitted C++.
         var rp = LowerTargets::reserved_prefix()
-        if s.length() >= rp.length() {
-            var hit = true
-            for var i: usize = 0; i < rp.length(); ++i {
-                if s[i] != rp[i] {
-                    hit = false
-                    break
-                }
-            }
-
-            if hit {
-                self.sc->diag->report(
-                    DiagID::SC017E,
-                    name.range.start,
-                    f"identifier '{s}' uses the reserved prefix '{rp}'",
-                ).first(name.range)->emit()
-                return
-            }
+        if s.starts_with(rp) {
+            self.sc->diag->report(
+                DiagID::SC017E,
+                name.range.start,
+                f"identifier '{s}' uses the reserved prefix '{rp}'",
+            ).first(name.range)->emit()
+            return
         }
 
         // The builtin root IS the implementation the C++ rule reserves these

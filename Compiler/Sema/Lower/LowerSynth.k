@@ -30,6 +30,7 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::SymbolTable::DeclName
+import AST::DeclFacts::decl_pattern
 import AST::Kind::ExprKind::{
     ExprKind,
     to_string,
@@ -49,6 +50,7 @@ import AST::Node::Base::{
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
     QUAL_CONST,
+    RecordType,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -58,6 +60,7 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations::{
     AdtRole,
+    EnumDecl,
     FunctionDecl,
     StorageClass,
     VariableDecl,
@@ -264,6 +267,21 @@ pub class LowerSynth {
         c->type_          = to
         c->value_category = Expr::ValueCategory::RValue
         return c
+    }
+
+    /// A value of canonical type \p c is a C++ class object: a class, struct,
+    /// union or ADT enum. An enum with no payload is a C++ `enum class`, an
+    /// integer that copies as cheaply as it moves.
+    fn is_class_value(self, c: unsafe *Type) -> bool {
+        if c == &null || !isa<RecordType>(c) {
+            return false
+        }
+
+        var unsafe *en = dyn_cast<EnumDecl>(
+            decl_pattern(cast<RecordType>(c)->decl),
+        )
+
+        return en == &null || en->is_adt
     }
 
     /// `&e`, typed `*T` for an \p e of T. A C++ `T&` (an `operator*` result)

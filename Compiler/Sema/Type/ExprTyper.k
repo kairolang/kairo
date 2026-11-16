@@ -1494,12 +1494,7 @@ pub class ExprTyper
             return self.sc->types->record(rep, unsafe &args)
         }
 
-        var unsafe *e = self.sc->instances->instance_for(
-            rep,
-            unsafe &args,
-            self.sc->ctx->fid,
-            NameLookup::ctx_of(rep),
-        )
+        var unsafe *e = GenericArgs::instance(self.sc, rep, unsafe &args)
 
         var unsafe *inst = if (e != &null) => (e->decl) else => rep
         return self.sc->types->record(inst, unsafe &args)

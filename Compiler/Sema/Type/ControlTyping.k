@@ -758,28 +758,7 @@ pub class <T: type> ControlTyping {
         ok = self._join_into(&acc, t, n->try_expr, "the 'try' value") && ok
         for var i: usize = 0; i < n->catch_arms.size(); ++i {
             var unsafe *arm = n->catch_arms.get(i)
-            if arm->decl != &null {
-                var unsafe *vd = dyn_cast<VariableDecl>(arm->decl)
-                if vd != &null && vd->type_ == &null {
-                    var ft: unsafe *Type = &null
-                    if arm->filter != &null && arm->filter->canonical != &null {
-                        ft = arm->filter->canonical
-                    }
-
-                    if ft == &null {
-                        var a = cxx::std::vector<*Type>()
-                        ft = self.dyn()->tu.lang_record(
-                            WellKnownType::Panic,
-                            &a,
-                        )
-                    }
-
-                    if ft != &null {
-                        vd->type_ = canon_unqual(ft)
-                    }
-                }
-            }
-
+            self.dyn()->type_catch_binder(arm->decl, arm->filter)
             self.dyn()->flow.env = arm_entry
             var at = self.dyn()->type_of(
                 arm->body,

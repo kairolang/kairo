@@ -48,42 +48,53 @@ import AST::Node::Base::{
     Stmt,
 }
 
+/// A deferred `eval if`: its head statement, the scope its branches
+/// declare into, and whether it is decided (or discarded with a branch of
+/// another one).
+struct EvalIfRow {
+    var head:  unsafe *Stmt        = &null
+    var owner: unsafe *DeclContext = &null
+    var done:  bool                = false
+}
+
+/// A declaration, the index of its `eval if` in EvalBranchTable's `_ifs`,
+/// and the branch of that `eval if` it sits in.
+struct EvalDeclRow {
+    var decl: unsafe *Decl = &null
+    var at:   usize        = 0
+    var arm:  unsafe *Stmt = &null
+}
+
 pub class EvalBranchTable {
-    /// Per deferred `eval if`: its head statement, the scope its branches
-    /// declare into, and whether it is decided (or discarded with a branch
-    /// of another one).
-    priv var _heads:  cxx::std::vector<unsafe *Stmt>
-    priv var _owners: cxx::std::vector<unsafe *DeclContext>
-    priv var _done:   cxx::std::vector<u8>
-    /// Per row: a declaration, the index of its `eval if` in _heads, and the
-    /// branch of that `eval if` it sits in.
-    priv var _decls: cxx::std::vector<unsafe *Decl>
-    priv var _ifs:   cxx::std::vector<usize>
-    priv var _arms:  cxx::std::vector<unsafe *Stmt>
+    priv var _ifs:   cxx::std::vector<EvalIfRow>
+    priv var _decls: cxx::std::vector<EvalDeclRow>
 
     fn EvalBranchTable(self) { }
 
     /// File \p head, whose branches declare into \p owner; its index.
     fn add_if(self, head: unsafe *Stmt, owner: unsafe *DeclContext) -> usize {
-        self._heads.push_back(head)
-        self._owners.push_back(owner)
-        self._done.push_back(0)
-        return self._heads.size() - 1
+        var r = EvalIfRow{}
+        r.head  = head
+        r.owner = owner
+        self._ifs.push_back(r)
+        return self._ifs.size() - 1
     }
 
     /// \p d sits in branch \p arm of the `eval if` filed at \p at.
     fn add_decl(self, at: usize, arm: unsafe *Stmt, d: unsafe *Decl) {
-        self._decls.push_back(d)
-        self._ifs.push_back(at)
-        self._arms.push_back(arm)
+        var r = EvalDeclRow{}
+        r.decl = d
+        r.at   = at
+        r.arm  = arm
+        self._decls.push_back(r)
     }
 
     /// \p head is decided, or gone with a discarded branch: it holds nothing
     /// back any more. A head never filed is ignored.
     fn retire(self, head: unsafe *Stmt) {
-        for var i: usize = 0; i < self._heads.size(); ++i {
-            if self._heads[i] == head {
-                self._done[i] = 1
+        for var i: usize = 0; i < self._ifs.size(); ++i {
+            if self._ifs[i].head == head {
+                self._ifs[i].done = true
             }
         }
     }
@@ -96,8 +107,8 @@ pub class EvalBranchTable {
     /// How many filed `eval if`s are still undecided.
     pub fn pending(self) -> usize {
         var n: usize = 0
-        for var i: usize = 0; i < self._done.size(); ++i {
-            if self._done[i] == 0 {
+        for var i: usize = 0; i < self._ifs.size(); ++i {
+            if !self._ifs[i].done {
                 n += 1
             }
         }
@@ -111,8 +122,8 @@ pub class EvalBranchTable {
             return false
         }
 
-        for var i: usize = 0; i < self._heads.size(); ++i {
-            if self._done[i] == 0 && self._owners[i] == dc {
+        for var i: usize = 0; i < self._ifs.size(); ++i {
+            if !self._ifs[i].done && self._ifs[i].owner == dc {
                 return true
             }
         }
@@ -124,7 +135,7 @@ pub class EvalBranchTable {
     /// discarded.
     fn in_pending(self, d: unsafe *Decl) -> bool {
         for var i: usize = 0; i < self._decls.size(); ++i {
-            if self._decls[i] == d && !(self._done[self._ifs[i]] != 0) {
+            if self._decls[i].decl == d && !self._ifs[self._decls[i].at].done {
                 return true
             }
         }
@@ -140,38 +151,22 @@ pub class EvalBranchTable {
         }
 
         for var i: usize = 0; i < self._decls.size(); ++i {
-            if self._decls[i] != a {
+            if self._decls[i].decl != a {
                 continue
             }
 
             for var j: usize = 0; j < self._decls.size(); ++j {
-                if self._decls[j] != b {
+                if self._decls[j].decl != b {
                     continue
                 }
 
-                if self._ifs[i] == self._ifs[j] && self._arms[i] != self._arms[j] {
+                if self._decls[i].at == self._decls[j].at
+                    && self._decls[i].arm != self._decls[j].arm {
                     return true
                 }
             }
         }
 
         return false
-    }
-
-    /// Every pair in \p ds is exclusive: a cell whose entries never coexist.
-    fn all_exclusive(self, ds: unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
-        if ds == &null || ds->size() < 2 || self._decls.size() == 0 {
-            return false
-        }
-
-        for var i: usize = 0; i < ds->size(); ++i {
-            for var j: usize = i + 1; j < ds->size(); ++j {
-                if !self.exclusive((*ds)[i], (*ds)[j]) {
-                    return false
-                }
-            }
-        }
-
-        return true
     }
 }

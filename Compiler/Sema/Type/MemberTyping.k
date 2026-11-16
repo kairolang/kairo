@@ -66,6 +66,7 @@ import AST::Node::Declarations::{
     VariableDecl,
 }
 import AST::Node::Expressions::{
+    PlaceCtx,
     RangeExpr,
     SubscriptExpr,
 }
@@ -113,15 +114,15 @@ import Token::TokenKind::TokenKind
 ///   RECV   a method receiver: as SOFT, then settle_receiver_subscript moves
 ///          it to the read form unless the chosen method takes `self`.
 pub
-const SUB_READ: u8 = 0
+const SUB_READ: u8 = PlaceCtx::Read as u8
 pub
-const SUB_WRITE: u8 = 1
+const SUB_WRITE: u8 = PlaceCtx::Write as u8
 pub
-const SUB_SOFT: u8 = 2
+const SUB_SOFT: u8 = PlaceCtx::Soft as u8
 pub
-const SUB_BIND: u8 = 3
+const SUB_BIND: u8 = PlaceCtx::Bind as u8
 pub
-const SUB_RECV: u8 = 4
+const SUB_RECV: u8 = PlaceCtx::Recv as u8
 
 /// \enum ChainKind
 /// \brief What the position a chain walk has reached denotes: the walk's

@@ -47,7 +47,6 @@ import AST::Node::Patterns::{
     TupleDestructurePattern,
     UnresolvedConstructorPattern,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     DestructuringDeclStmt,
     MatchCase,
@@ -65,28 +64,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
     }
 
     fn run(self) {
-        var unsafe *tu = self.sc->tu
-        if tu == &null {
-            return
-        }
-
-        if tu->program == &null {
-            return
-        }
-
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); i++ {
-            var item = *items->get(i)
-            match item.kind {
-                case TopLevelKind::Decl {
-                    self.dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(self.sc->tu)
     }
 
     /// Collect every binding name token in \p p. For a nested alternation,
@@ -100,29 +78,24 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
             case PatternKind::BindingPattern {
                 out->push_back(cast<BindingPattern>(p)->name)
             } case PatternKind::TupleDestructurePattern {
-                var unsafe *n = cast<TupleDestructurePattern>(p)
-                for var i: usize = 0; i < n->elements.size(); i++ {
-                    self._collect(*n->elements.get(i), out)
-                }
+                self._collect_each(
+                    cast<TupleDestructurePattern>(p)->elements,
+                    out,
+                )
             } case PatternKind::ConstructorPattern {
-                var unsafe *n = cast<ConstructorPattern>(p)
-                for var i: usize = 0; i < n->subpatterns.size(); i++ {
-                    self._collect(*n->subpatterns.get(i), out)
-                }
+                self._collect_each(
+                    cast<ConstructorPattern>(p)->subpatterns,
+                    out,
+                )
             } case PatternKind::UnresolvedConstructorPattern {
-                var unsafe *n = cast<UnresolvedConstructorPattern>(p)
-                for var i: usize = 0; i < n->subpatterns.size(); i++ {
-                    self._collect(*n->subpatterns.get(i), out)
-                }
+                self._collect_each(
+                    cast<UnresolvedConstructorPattern>(p)->subpatterns,
+                    out,
+                )
             } case PatternKind::SlicePattern {
                 var unsafe *n = cast<SlicePattern>(p)
-                for var i: usize = 0; i < n->prefix.size(); i++ {
-                    self._collect(*n->prefix.get(i), out)
-                }
-
-                for var i: usize = 0; i < n->suffix.size(); i++ {
-                    self._collect(*n->suffix.get(i), out)
-                }
+                self._collect_each(n->prefix, out)
+                self._collect_each(n->suffix, out)
 
                 if n->rest_binding != &null {
                     self._collect(n->rest_binding, out)
@@ -132,9 +105,16 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
                 if n->alternatives.size() > 0 {
                     self._collect(*n->alternatives.get(0), out)
                 }
-            } default {
-                0
-            }
+            } default { }
+        }
+    }
+
+    /// _collect over each pattern of \p ps, in order.
+    priv fn _collect_each(self,
+                          const ps: FrozenList<unsafe *Pattern>,
+                          out:      unsafe *cxx::std::vector<Token>) {
+        for var i: usize = 0; i < ps.size(); i++ {
+            self._collect(*ps.get(i), out)
         }
     }
 

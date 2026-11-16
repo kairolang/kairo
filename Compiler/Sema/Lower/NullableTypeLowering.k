@@ -57,7 +57,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Thread.hh" // sema_mint_rank
-ffi "c++" import "Native/Thread.hh" // sema_mint_rank
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 

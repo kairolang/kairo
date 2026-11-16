@@ -5,6 +5,10 @@
 ///          bare `catch` arms can never both be meaningful.
 ///
 ///   \detail
+///     The statement form only. In a try EXPRESSION a default arm is
+///     terminal in the grammar: the parser rejects any arm after it
+///     (S054E), and Sema never runs on a file with a syntax error.
+///
 ///     `match` arms are not checked here: an arm that can never match is
 ///     PatternChecking's SC121E, which sees what every arm covers, not just
 ///     whether an earlier one is a catch-all.
@@ -20,8 +24,6 @@
 ///
 /// ----------------------------------------------------------------- ///
 
-import AST::Node::Expressions::TryCatchExpr
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::TryCatchStmt
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
@@ -37,29 +39,7 @@ pub class ArmOrderCheck derives RecursiveASTVisitor<ArmOrderCheck> {
     }
 
     fn run(self) {
-        var unsafe *tu = self.sc->tu
-
-        if tu == &null {
-            return
-        }
-
-        if tu->program == &null {
-            return
-        }
-
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); i++ {
-            var item = *items->get(i)
-            match item.kind {
-                case TopLevelKind::Decl {
-                    self.dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(self.sc->tu)
     }
 
     fn visit_try_catch_stmt(self, n: *TryCatchStmt) -> bool {
@@ -76,10 +56,9 @@ pub class ArmOrderCheck derives RecursiveASTVisitor<ArmOrderCheck> {
                         "already handles everything",
                     ).first(arm->range)->emit()
                 } else {
-                    // An error, not SC009W's warning (Compiler/Spec/Panic.md#try-and-arms): the
-                    // bare `catch` already handled everything, so the typed
-                    // arm can only be a mistake. Placeholder code until the
-                    // sweep (SC009 has only a warning).
+                    // An error, not a dead-arm warning (Compiler/Spec/Panic.md#try-and-arms):
+                    // the bare `catch` already handled everything, so the
+                    // typed arm can only be a mistake.
                     var b = self.sc->diag->report(
                         DiagID::SC240E,
                         arm->range.start,
@@ -102,38 +81,6 @@ pub class ArmOrderCheck derives RecursiveASTVisitor<ArmOrderCheck> {
             if arm->filter == &null {
                 catch_all_seen = true
                 bare_at        = arm->range
-            }
-        }
-
-        return true
-    }
-
-    fn visit_try_catch_expr(self, n: *TryCatchExpr) -> bool {
-        var catch_all_seen: bool = false
-        for var i: usize = 0; i < n->catch_arms.size(); i++ {
-            var unsafe *arm = n->catch_arms.get(i)
-            if catch_all_seen {
-                if arm->filter == &null {
-                    self.sc->diag->report(
-                        DiagID::SC008E,
-                        arm->range.start,
-                        "duplicate bare `catch`; a previous bare `catch` "
-                        "already handles everything",
-                    ).first(arm->range)->emit()
-                } else {
-                    self.sc->diag->report(
-                        DiagID::SC009W,
-                        arm->range.start,
-                        "unreachable catch arm; a previous bare `catch` "
-                        "handles everything first",
-                    ).first(arm->range)->emit()
-                }
-
-                continue
-            }
-
-            if arm->filter == &null {
-                catch_all_seen = true
             }
         }
 

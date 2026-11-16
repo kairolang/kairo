@@ -144,13 +144,29 @@ pub enum CxxMoveKind derives u8 {
     Assumed,
 }
 
+/// Why a CxxMoveVerdict is Unknown, as its `why` byte. NoBody to
+/// NoInstantiation are Native/ClangMoveWalk.hh's CxxMoveAnswer::why values;
+/// NoInstance is cxx_moves_out's own.
+pub enum CxxMoveUnknownWhy derives u8 {
+    NoBody          = 1, ///< no visible body.
+    Virtual         = 2, ///< a virtual call.
+    Pointer         = 3, ///< a call through a pointer.
+    Depth           = 4, ///< the walk reached CXX_MOVE_DEPTH.
+    NoInstantiation = 5, ///< the body does not instantiate for these arguments.
+    NoInstance      = 6, ///< the template instance the call selects is not known.
+}
+
+/// Why a CxxMoveVerdict is Assumed, as its `why` byte (CxxMoveAnswer::why).
+pub enum CxxMoveAssumedWhy derives u8 {
+    CxxLibrary = 1, ///< a C++ standard library function.
+    CLibrary   = 2, ///< a C library function.
+}
+
 pub class CxxMoveVerdict {
     pub var kind: CxxMoveKind = CxxMoveKind::Unknown
-    /// Unknown: 1 no visible body, 2 a virtual call, 3 a call through a
-    /// pointer, 4 the depth limit, 5 a body that does not instantiate for
-    /// these arguments, 6 the template instance is not known. Assumed: 1 a
-    /// C++ standard library function, 2 a C library one.
-    pub var why: u8 = 1
+    /// A CxxMoveUnknownWhy when `kind` is Unknown, a CxxMoveAssumedWhy when
+    /// it is Assumed.
+    pub var why: u8 = CxxMoveUnknownWhy::NoBody as u8
     /// Moves: the expression that moves it. Unknown: the call that could not
     /// be read, invalid when it is the function asked about or the header
     /// has no Kairo file.
@@ -160,6 +176,19 @@ pub class CxxMoveVerdict {
     pub var in_top:      bool        = true ///< `in_name` is the function asked about.
     pub var blocker_top: bool        = true ///< `blocker` is the function asked about.
     fn CxxMoveVerdict(self) { }
+}
+
+/// deduce_call's verdict on a C++ template candidate. deduce_call returns
+/// it as its i8 value, which its caller compares.
+pub enum CxxDeduce derives i8 {
+    /// Nothing to deduce, or the set could not spell the call: Kairo's own
+    /// deduction stands.
+    NoAnswer = -1,
+    Rejected = 0,  ///< a substitution-class failure: the candidate goes, `why` says why.
+    Kept     = 1,  ///< clang deduced it: `ret` and `spec` are filled.
+    /// Removed over a Kairo record's stand-in, which may be the stand-in's
+    /// fault: the candidate only loses a tie.
+    SoftRejected = 2,
 }
 
 /// How many calls deep cxx_moves_out follows the object.
@@ -747,6 +776,7 @@ pub class ForeignInstantiate {
     /// HeaderSet (null for none), the retry when \p f's set cannot spell the
     /// arguments. \p spec / \p spec_set receive the clang specialization a
     /// success deduced and the set it lives in (cxx_moves_out reads its body).
+    /// The answer is a CxxDeduce.
     fn deduce_call(self,
                    f:               unsafe *Decl,
                    explicit_args:   unsafe *cxx::std::vector<unsafe *Type>,
@@ -763,7 +793,7 @@ pub class ForeignInstantiate {
                    conv_at:         unsafe *cxx::std::vector<usize> = &null) -> i8 {
         var unsafe *cd = unsafe (decl_clang(f) as unsafe *clang::Decl)
         if cd == &null {
-            return -1
+            return CxxDeduce::NoAnswer as i8
         }
 
         var unsafe *ftd = llvm::dyn_cast<clang::FunctionTemplateDecl>(cd)
@@ -775,23 +805,23 @@ pub class ForeignInstantiate {
         }
 
         if ftd == &null {
-            return -1
+            return CxxDeduce::NoAnswer as i8
         }
 
         // A member template of a class template's PATTERN: its enclosing
         // arguments are not known, so there is nothing concrete to deduce.
         // A filled instance's members are concrete and take the path below.
         if ftd->getDeclContext()->isDependentContext() {
-            return -1
+            return CxxDeduce::NoAnswer as i8
         }
 
         var unsafe *hs = unsafe (decl_origin_set(f) as unsafe *HeaderSet)
         if hs == &null || !hs->alive() {
-            return -1
+            return CxxDeduce::NoAnswer as i8
         }
 
         if hs->ast() == &null || hs->sema() == &null {
-            return -1
+            return CxxDeduce::NoAnswer as i8
         }
 
         var unsafe *alt                = unsafe (alt_set as unsafe *HeaderSet)
@@ -815,7 +845,7 @@ pub class ForeignInstantiate {
             &found,
         )
 
-        if r == 1 && found != &null {
+        if r == CxxDeduce::Kept && found != &null {
             spec     = found
             spec_set = unsafe (hs as unsafe *void)
         }
@@ -831,13 +861,13 @@ pub class ForeignInstantiate {
         // header: re-find the template there and deduce again, as a fill
         // retries an instance. Only an answer the first set could not
         // give is taken from the retry; a firm verdict there stands.
-        var unspelled = r == -1 || r == 1 && want_ret && opaque
+        var unspelled = r == CxxDeduce::NoAnswer || r == CxxDeduce::Kept && want_ret && opaque
         if !unspelled || alt == &null || alt == hs || !alt->alive() {
-            return r
+            return r as i8
         }
 
         if alt->ast() == &null || alt->sema() == &null {
-            return r
+            return r as i8
         }
 
         var ax = TypeExport(
@@ -848,7 +878,7 @@ pub class ForeignInstantiate {
 
         var unsafe *aftd = ax.refind_function_template(ftd)
         if aftd == &null {
-            return r
+            return r as i8
         }
 
         var aret:   unsafe *Type = &null
@@ -872,22 +902,22 @@ pub class ForeignInstantiate {
             &afound,
         )
 
-        if r2 == 1 && afound != &null && (r == -1 || spec == &null) {
+        if r2 == CxxDeduce::Kept && afound != &null && (r == CxxDeduce::NoAnswer || spec == &null) {
             spec     = afound
             spec_set = unsafe (alt as unsafe *void)
         }
 
-        if r == -1 {
+        if r == CxxDeduce::NoAnswer {
             *why = awhy
             ret  = aret
-            return r2
+            return r2 as i8
         }
 
-        if r2 == 1 && aret != &null {
+        if r2 == CxxDeduce::Kept && aret != &null {
             ret = aret
         }
 
-        return r
+        return r as i8
     }
 
     /// deduce_call's work in one set: \p ftd is the template as \p hs's AST
@@ -907,7 +937,7 @@ pub class ForeignInstantiate {
                        fid:                  i64,
                        @inout opaque:        bool,
                        conv_at:              unsafe *cxx::std::vector<usize>,
-                       @inout found:         unsafe *void) -> i8 {
+                       @inout found:         unsafe *void) -> CxxDeduce {
         var unsafe *cctx  = hs->ast()
         var unsafe *csema = hs->sema()
         var        slock  = kairo::std::LockGuard(*hs->sema_lock())
@@ -937,11 +967,11 @@ pub class ForeignInstantiate {
         for var i: usize = 0; i < explicit_args.size(); ++i {
             var a = tx.to_clang_arg_of(tpl, i, (explicit_args)[i], &prior)
             if a.isNull() {
-                return -1
+                return CxxDeduce::NoAnswer
             }
 
             if !tx.add_arg_loc(&ali, a, loc) {
-                return -1
+                return CxxDeduce::NoAnswer
             }
 
             prior.push_back(a)
@@ -954,7 +984,7 @@ pub class ForeignInstantiate {
         for var i: usize = 0; i < arg_tys.size(); ++i {
             var q = tx.to_clang((arg_tys)[i])
             if q.isNull() {
-                return -1
+                return CxxDeduce::NoAnswer
             }
 
             var vk = clang::VK_PRValue
@@ -1069,7 +1099,7 @@ pub class ForeignInstantiate {
             // `enable_if` whatever ModuleCache's completeness. Other
             // failure classes fall to the checks below.
             if r != clang::TemplateDeductionResult::Success && trap.hasErrorOccurred() {
-                return -1
+                return CxxDeduce::NoAnswer
             }
         }
 
@@ -1103,7 +1133,7 @@ pub class ForeignInstantiate {
                 qdiags->setSuppressAllDiagnostics(cw)
                 if ics.isBad() || ctrap.hasErrorOccurred() {
                     (why) = f"argument {k + 1} does not convert to the parameter C++ substituted"
-                    return 0
+                    return CxxDeduce::Rejected
                 }
             }
         }
@@ -1129,7 +1159,7 @@ pub class ForeignInstantiate {
                 }
             }
 
-            return 1
+            return CxxDeduce::Kept
         }
 
         if r != clang::TemplateDeductionResult::ConstraintsNotSatisfied
@@ -1140,7 +1170,7 @@ pub class ForeignInstantiate {
                 f"ForeignInstantiate: clang's deduction of {kairo::std::from_std_string<string>(ftd->getQualifiedNameAsString())} disagreed with Kairo's (result {(r as i32)}); Kairo's verdict kept",
             )
 
-            return -1
+            return CxxDeduce::NoAnswer
         }
 
         // A removal that read a Kairo record through its stand-in (fields,
@@ -1148,9 +1178,9 @@ pub class ForeignInstantiate {
         // -- `IndexableBuffer<RingBuf<i32>>` probes `len()`, which only the
         // real record has -- or may not be (`make_unique<Cp>`'s array
         // overloads fail on `Cp` being no array, which the stand-in shows
-        // truly). So it is a SOFT removal (2): the candidate loses to any
-        // firm one it ties, and stands when nothing else does.
-        var verdict: i8 = if (tx.used_standin) => (2) else => 0
+        // truly). So it is a SOFT removal: the candidate loses to any firm
+        // one it ties, and stands when nothing else does.
+        var verdict = if (tx.used_standin) => (CxxDeduce::SoftRejected) else => CxxDeduce::Rejected
         if r == clang::TemplateDeductionResult::ConstraintsNotSatisfied {
             (why) = "its constraints are not satisfied"
             return verdict
@@ -1250,7 +1280,7 @@ pub class ForeignInstantiate {
         // A template the call's deduction never reached (a dependent
         // argument, a list literal): no instance to read.
         if fd == &null || fd->isDependentContext() || fd->getDescribedFunctionTemplate() != &null {
-            v.why = 6
+            v.why = CxxMoveUnknownWhy::NoInstance as u8
             return v
         }
 

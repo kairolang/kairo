@@ -47,17 +47,11 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "vector"
-
-import AST::ASTSupport::FrozenList
 import AST::LangItems::{
     LangAttrs,
     WellKnownType,
 }
-import AST::Node::Base::{
-    Expr,
-    Type,
-}
+import AST::Node::Base::Expr
 import AST::Node::Casting::{
     cast,
     dyn_cast,
@@ -67,15 +61,12 @@ import AST::Node::Expressions::{
     AttributedExpr,
     CallExpr,
 }
-import AST::Node::PrimaryExpressions::{
-    ChainExpr,
-    NamedIdentExpr,
-}
+import AST::Node::PrimaryExpressions::NamedIdentExpr
 import AST::Node::Types::ChainType
 import AST::Visitor::ASTWriter::ASTWriter
 import Location::SourceRange::SourceRange
+import Parser::DeclParse::expr_as_type
 import Sema::SemaContext::SemaContext
-import Token::Token::Token
 
 pub class AllocSugarDesugar derives ASTWriter<AllocSugarDesugar> {
     pub var sc: *SemaContext
@@ -147,7 +138,7 @@ pub class AllocSugarDesugar derives ASTWriter<AllocSugarDesugar> {
         }
 
         var unsafe *call = cast<CallExpr>(opd)
-        var unsafe *ty   = self._expr_as_type(call->callee)
+        var unsafe *ty   = expr_as_type(self.sc->ctx, call->callee)
         if ty == &null {
             return out
         }
@@ -187,86 +178,5 @@ pub class AllocSugarDesugar derives ASTWriter<AllocSugarDesugar> {
         }
 
         id->resolved_decl = d
-    }
-
-    /// The type a name, a `::` path or a generic application denotes, as
-    /// the type parser builds it (DeclParse::_expr_as_type, restated: that
-    /// one is the parser's). A primitive (`i32`) is a one-segment chain that
-    /// TypeResolve binds by token kind. Null for any other expression.
-    priv fn _expr_as_type(self, e: unsafe *Expr) -> unsafe *Type {
-        var segs = cxx::std::vector<ChainType::ChainSegment>()
-        if isa<NamedIdentExpr>(e) {
-            var unsafe *id = cast<NamedIdentExpr>(e)
-            self._push(
-                &segs,
-                id->name,
-                id->generic_args,
-                e->range,
-                ChainType::SegmentSeparator::None,
-            )
-        } else if isa<ChainExpr>(e) {
-            var unsafe *ch   = cast<ChainExpr>(e)
-            var unsafe *base = dyn_cast<NamedIdentExpr>(ch->base)
-            if base == &null {
-                return &null
-            }
-
-            self._push(
-                &segs,
-                base->name,
-                base->generic_args,
-                base->range,
-                ChainType::SegmentSeparator::None,
-            )
-
-            for var i: usize = 0; i < ch->steps.size(); ++i {
-                var unsafe *st = ch->steps.get(i)
-                if st->access_kind != ChainExpr::AccessKind::ColonColon
-                    || st->is_operator()
-                    || st->name == &null {
-                    return &null
-                }
-
-                self._push(
-                    &segs,
-                    st->name->name,
-                    st->generic_args,
-                    st->range,
-                    ChainType::SegmentSeparator::ColonColon,
-                )
-            }
-        } else {
-            return &null
-        }
-
-        var unsafe *buf = self.sc->ctx->alloc_array<ChainType::ChainSegment>(
-            segs.size(),
-        )
-
-        for var i: usize = 0; i < segs.size(); ++i {
-            buf[i] = segs[i]
-        }
-
-        var unsafe *ct = ChainType::create(self.sc->ctx, e->range)
-        ct->segments.from_raw(buf, segs.size())
-        return ct
-    }
-
-    priv fn _push(self,
-                  @inout out: cxx::std::vector<ChainType::ChainSegment>,
-                  name:       Token,
-                  args:       FrozenList<ChainType::GenericArg>,
-                  range:      SourceRange,
-                  sep:        ChainType::SegmentSeparator) {
-        var seg = ChainType::ChainSegment{}
-        seg.name = NamedIdentExpr::create(self.sc->ctx, name.range, name)
-        seg.generic_args  = args
-        seg.resolved_type = &null
-        seg.resolved_decl = &null
-        seg.range         = range
-        seg.sep           = sep
-        seg.seg_kind = if (args.size() > 0) => (ChainType::SegmentKind::GenericApp)
-                       else => ChainType::SegmentKind::Named
-        out.push_back(seg)
     }
 }

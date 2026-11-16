@@ -86,6 +86,7 @@ import Diagnostic::Registry::DiagID
 import Lexer::Immediate::Immediate
 import Location::SourceRange::SourceRange
 import Sema::SemaContext::SemaContext
+import Support::FlagSet::FlagSet
 import Token::Token::Token
 import Token::TokenKind::{
     TokenKind,
@@ -347,13 +348,17 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
         d->value_hi = v.hi
         d->bits     = (builtin_info(rk)->bits as u16)
         d->base     = 10
-        // bit 3: suffixed -- a typed literal to every reader (overload
-        // ranking does not defer it, EmitIR casts it to its type); bit 0
-        // unsigned.
-        d->flags = 8
+        // Suffixed: a typed literal to every reader (overload ranking does
+        // not defer it, EmitIR casts it to its type).
+        var fl = FlagSet<Immediate::IntFlags, u8>(
+            Immediate::IntFlags::HasSuffix,
+        )
+
         if !builtin_info(rk)->is_signed() {
-            d->flags = 9
+            fl.set(Immediate::IntFlags::Unsigned)
         }
+
+        d->assign_flags(fl)
 
         var t = Token()
         t.kind  = TokenKind::LitInt
@@ -386,9 +391,14 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
         var unsafe *tbl = self.sc->imm_table()
         var        idx  = tbl->create<Immediate::FloatData>()
         var unsafe *d   = tbl->get<Immediate::FloatData>(idx)
-        d->bits  = (builtin_info(b)->bits as u32)
-        d->base  = 16
-        d->flags = 16 | 4 // suffixed, hex: typed, and no decimal digits to re-read.
+        d->bits = (builtin_info(b)->bits as u32)
+        d->base = 16
+        // Suffixed and hex: typed, and no decimal digits to re-read.
+        d->assign_flags(
+            FlagSet<Immediate::FloatFlags, u8>(Immediate::FloatFlags::HasSuffix).plus(
+                Immediate::FloatFlags::IsHex,
+            ),
+        )
 
         var t = Token()
         t.kind  = TokenKind::LitFloat

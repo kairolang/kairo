@@ -25,10 +25,11 @@
 ///     Labels compare by Token.imm (per-TU interned immediates): same
 ///     spelling <=> same imm. No string trips.
 ///
-///     Read-only walk. The traverse_* overrides below MIRROR the base
-///     RAV bodies verbatim (there is no proven base-call idiom in the
-///     tree yet) wrapped with depth/floor bookkeeping; if the RAV's
-///     traverse for these nodes changes shape, update the mirrors.
+///     Read-only walk. The function and closure overrides wrap the base
+///     RAV traversal in the barrier bookkeeping. The loop, label and
+///     finally overrides MIRROR the base bodies, because the depth changes
+///     between the header and the body; if the RAV's traverse for those
+///     nodes changes shape, update the mirrors.
 ///
 ///   Phase: VERIFY (pre-N; needs only a parsed + expanded tree)
 ///
@@ -45,7 +46,6 @@ ffi "c++" import "vector"
 
 import AST::Node::Declarations::FunctionDecl
 import AST::Node::Expressions::ClosureExpr
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     BreakStmt,     ContinueStmt, FinallyStmt,   IndexedForStmt, LabeledStmt, LoopStmt, PanicStmt,
     RangedForStmt, ReturnStmt,   WhileLoopStmt, YieldStmt,
@@ -69,28 +69,7 @@ pub class LoopContextCheck derives RecursiveASTVisitor<LoopContextCheck> {
     }
 
     fn run(self) {
-        var unsafe *tu = self.sc->tu
-        if tu == &null {
-            return
-        }
-
-        if tu->program == &null {
-            return
-        }
-
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); i++ {
-            var item = *items->get(i)
-            match item.kind {
-                case TopLevelKind::Decl {
-                    self.dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(self.sc->tu)
     }
 
     /// Is \p label the name of any enclosing loop label above the barrier?
@@ -353,72 +332,16 @@ pub class LoopContextCheck derives RecursiveASTVisitor<LoopContextCheck> {
         self.label_floor   = self.labels.size()
         self.finally_depth = 0
         self.body_depth    = self.body_depth + 1
-
-        if self.dyn()->walkup_function_decl(n) {
-            for var i: usize = 0; i < n->generic_params.size(); i++ {
-                if self.stop {
-                    break
-                }
-
-                self.dyn()->dispatch_decl(*n->generic_params.get(i)) // discard
-            }
-
-            if !self.stop {
-                for var i: usize = 0; i < n->spec_args.size(); i++ {
-                    if self.stop {
-                        break
-                    }
-
-                    self.dyn()->dispatch_type(*n->spec_args.get(i)) // discard
-                }
-            }
-
-            if !self.stop {
-                if n->requires_clause != &null {
-                    n->requires_clause = self.dyn()->dispatch_expr(
-                        n->requires_clause,
-                    )
-                }
-            }
-
-            if !self.stop {
-                if n->where_clause != &null {
-                    n->where_clause = self.dyn()->dispatch_expr(n->where_clause)
-                }
-
-                for var i: usize = 0; i < n->params.size(); i++ {
-                    if self.stop {
-                        break
-                    }
-
-                    self.dyn()->dispatch_decl(*n->params.get(i)) // discard
-                }
-            }
-
-            if !self.stop {
-                if n->return_type != &null {
-                    n->return_type = self.dyn()->dispatch_type(n->return_type)
-                }
-
-                if n->qualifier != &null {
-                    n->qualifier = self.dyn()->dispatch_expr(n->qualifier)
-                }
-
-                if n->body_block != &null {
-                    n->body_block = self.dyn()->traverse_block(n->body_block)
-                }
-
-                if n->body_expr != &null {
-                    n->body_expr = self.dyn()->dispatch_expr(n->body_expr)
-                }
-            }
-        }
+        var unsafe *out = RecursiveASTVisitor<LoopContextCheck>::traverse_function_decl(
+            self,
+            n,
+        )
 
         self.loop_depth    = saved_depth
         self.label_floor   = saved_floor
         self.body_depth    = self.body_depth - 1
         self.finally_depth = saved_fin
-        return n
+        return out
     }
 
     fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {
@@ -429,58 +352,15 @@ pub class LoopContextCheck derives RecursiveASTVisitor<LoopContextCheck> {
         self.label_floor   = self.labels.size()
         self.finally_depth = 0
         self.body_depth    = self.body_depth + 1
-
-        if self.dyn()->walkup_closure_expr(n) {
-            for var i: usize = 0; i < n->generic_params.size(); i++ {
-                if self.stop {
-                    break
-                }
-
-                self.dyn()->dispatch_decl(*n->generic_params.get(i)) // discard
-            }
-
-            if !self.stop {
-                for var i: usize = 0; i < n->params.size(); i++ {
-                    if self.stop {
-                        break
-                    }
-
-                    self.dyn()->dispatch_decl(*n->params.get(i)) // discard
-                }
-            }
-
-            if !self.stop {
-                for var i: usize = 0; i < n->captures.size(); i++ {
-                    if self.stop {
-                        break
-                    }
-
-                    var unsafe *cap = n->captures.get(i)
-                    if cap->name != &null { // discard
-                        self.dyn()->dispatch_expr(cap->name)
-                    }
-                }
-            }
-
-            if !self.stop {
-                if n->return_type != &null {
-                    n->return_type = self.dyn()->dispatch_type(n->return_type)
-                }
-
-                if n->body_block != &null {
-                    n->body_block = self.dyn()->traverse_block(n->body_block)
-                }
-
-                if n->body_expr != &null {
-                    n->body_expr = self.dyn()->dispatch_expr(n->body_expr)
-                }
-            }
-        }
+        var unsafe *out = RecursiveASTVisitor<LoopContextCheck>::traverse_closure_expr(
+            self,
+            n,
+        )
 
         self.loop_depth    = saved_depth
         self.label_floor   = saved_floor
         self.body_depth    = self.body_depth - 1
         self.finally_depth = saved_fin
-        return n
+        return out
     }
 }

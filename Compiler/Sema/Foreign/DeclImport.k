@@ -946,7 +946,7 @@ pub class DeclImport {
                     t,
                     llvm::cast<clang::NamespaceDecl>(nd),
                 ))
-            } case clang::Decl::CXXRecord {
+            } case clang::Decl::CXXRecord, clang::Decl::ClassTemplatePartialSpecialization {
                 out = self._mint_record(
                     t,
                     llvm::cast<clang::CXXRecordDecl>(nd),
@@ -993,14 +993,6 @@ pub class DeclImport {
                 }
 
                 out = self._mint_record(t, sp, at, name, parent)
-            } case clang::Decl::ClassTemplatePartialSpecialization {
-                out = self._mint_record(
-                    t,
-                    llvm::cast<clang::CXXRecordDecl>(nd),
-                    at,
-                    name,
-                    parent,
-                )
             } case clang::Decl::Enum {
                 var unsafe *e = Declarations::EnumDecl::create(
                     t->ctx,
@@ -1012,35 +1004,11 @@ pub class DeclImport {
                 // clang owns its values: open, so no niche and no checked `as`.
                 e->is_open = true
                 out        = e
-            } case clang::Decl::Function {
-                out = Declarations::FunctionDecl::create(
-                    t->ctx,
-                    at,
-                    name,
-                    parent,
-                )
-            } case clang::Decl::CXXMethod {
-                out = Declarations::FunctionDecl::create(
-                    t->ctx,
-                    at,
-                    name,
-                    parent,
-                )
-            } case clang::Decl::CXXConstructor {
-                out = Declarations::FunctionDecl::create(
-                    t->ctx,
-                    at,
-                    name,
-                    parent,
-                )
-            } case clang::Decl::CXXDestructor {
-                out = Declarations::FunctionDecl::create(
-                    t->ctx,
-                    at,
-                    name,
-                    parent,
-                )
-            } case clang::Decl::CXXConversion {
+            } case clang::Decl::Function,
+                   clang::Decl::CXXMethod,
+                   clang::Decl::CXXConstructor,
+                   clang::Decl::CXXDestructor,
+                   clang::Decl::CXXConversion {
                 out = Declarations::FunctionDecl::create(
                     t->ctx,
                     at,
@@ -1062,14 +1030,7 @@ pub class DeclImport {
                     )).str(),
                     out,
                 )
-            } case clang::Decl::Typedef {
-                out = Declarations::TypeAliasDecl::create(
-                    t->ctx,
-                    at,
-                    name,
-                    &null,
-                )
-            } case clang::Decl::TypeAlias {
+            } case clang::Decl::Typedef, clang::Decl::TypeAlias {
                 out = Declarations::TypeAliasDecl::create(
                     t->ctx,
                     at,
@@ -1728,39 +1689,11 @@ pub class DeclImport {
                 )
             } case clang::Decl::Enum {
                 self._define_enum(t, llvm::cast<clang::EnumDecl>(d), kd, ti)
-            } case clang::Decl::Function {
-                self._define_function(
-                    t,
-                    llvm::cast<clang::FunctionDecl>(d),
-                    kd,
-                    ti,
-                    &null,
-                )
-            } case clang::Decl::CXXMethod {
-                self._define_function(
-                    t,
-                    llvm::cast<clang::FunctionDecl>(d),
-                    kd,
-                    ti,
-                    &null,
-                )
-            } case clang::Decl::CXXConstructor {
-                self._define_function(
-                    t,
-                    llvm::cast<clang::FunctionDecl>(d),
-                    kd,
-                    ti,
-                    &null,
-                )
-            } case clang::Decl::CXXDestructor {
-                self._define_function(
-                    t,
-                    llvm::cast<clang::FunctionDecl>(d),
-                    kd,
-                    ti,
-                    &null,
-                )
-            } case clang::Decl::CXXConversion {
+            } case clang::Decl::Function,
+                   clang::Decl::CXXMethod,
+                   clang::Decl::CXXConstructor,
+                   clang::Decl::CXXDestructor,
+                   clang::Decl::CXXConversion {
                 self._define_function(
                     t,
                     llvm::cast<clang::FunctionDecl>(d),
@@ -1777,11 +1710,7 @@ pub class DeclImport {
                     ti,
                     ft->getTemplateParameters(),
                 )
-            } case clang::Decl::Typedef {
-                cast<Declarations::TypeAliasDecl>(kd)->aliased = ti->_import(
-                    llvm::cast<clang::TypedefNameDecl>(d)->getUnderlyingType(),
-                )
-            } case clang::Decl::TypeAlias {
+            } case clang::Decl::Typedef, clang::Decl::TypeAlias {
                 cast<Declarations::TypeAliasDecl>(kd)->aliased = ti->_import(
                     llvm::cast<clang::TypedefNameDecl>(d)->getUnderlyingType(),
                 )
@@ -1812,12 +1741,10 @@ pub class DeclImport {
 
                 cast<Declarations::FieldDecl>(kd)->is_mutable = f->isMutable()
             } case clang::Decl::EnumConstant { // value: EmitIR spells the enumerator by name.
-                0
+
             } case clang::Decl::Concept { // constraint-only bound; no surface to import.
-                0
-            } default {
-                0
-            }
+
+            } default { }
         }
     }
 

@@ -62,6 +62,7 @@
 /// ----------------------------------------------------------------- ///
 
 ffi "c++" import "llvm/ADT/DenseMap.h"
+ffi "c++" import "llvm/ADT/STLExtras.h"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
@@ -107,7 +108,6 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::MatchStmt
 import AST::Printer::ASTPrinter::expr_kind_name
 import AST::Printer::PrintCore::{
@@ -138,6 +138,7 @@ import Sema::SemaContext::{
     SemaPhase,
 }
 import Sema::Type::TypeUtil::TypeUtil
+import Token::Token::Token
 import std::io
 
 /// \brief `line:col` for a location, or `?:?` when unmapped. Every row in the
@@ -780,23 +781,21 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     /// \p rows ordered by where the decl was WRITTEN, so the section reads
     /// down the source file. Permuting INDICES rather than entries keeps the
     /// sort off the entries themselves, which hold an observer into the
-    /// frozen table. Insertion sort: this is one scope's table, not the TU.
+    /// frozen table. Rows at one position keep their table order: each key
+    /// is the position above the row's index, so the sort is total.
     priv fn _source_order(self,
                           @inout rows: cxx::std::vector<SymbolTable::Entry>,
                           @inout out:  cxx::std::vector<usize>) {
+        var keys = cxx::std::vector<u64>()
         for var i: usize = 0; i < rows.size(); ++i {
-            out.push_back(i)
+            keys.push_back(
+                ((self._entry_pos(&rows, i) as u64) << 32) | (i as u64),
+            )
         }
 
-        for var i: usize = 1; i < out.size(); ++i {
-            var j = i
-            while j > 0
-                && self._entry_pos(&rows, ((out[j - 1]))) > self._entry_pos(&rows, ((out[j]))) {
-                var tmp = out[j - 1]
-                out[j - 1] = out[j]
-                out[j]     = tmp
-                j -= 1
-            }
+        llvm::sort(keys.begin(), keys.end())
+        for var k: usize = 0; k < keys.size(); ++k {
+            out.push_back((keys[k] & 0xFFFFFFFF) as usize)
         }
     }
 
@@ -1478,19 +1477,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
 
         if self._n_bound + self._n_deferred + self._n_unresolved == 0 {
             self._p.paint(Color::Dim, "  (no identifier uses)")
@@ -1621,6 +1608,13 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
     /// # scope-path tracking
 
+    /// Appends \p name to the scope path; returns the path to restore.
+    priv fn _enter_scope(self, name: Token) -> string {
+        var saved = self._scope
+        self._scope = f"{self._scope}::{self.ctx->get_spelling(name)}"
+        return saved
+    }
+
     fn traverse_function_decl(self,
                               n: unsafe *Declarations::FunctionDecl) -> unsafe *Declarations::FunctionDecl {
         if n == &null {
@@ -1646,8 +1640,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return n
         }
 
-        var saved = self._scope
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
+        var saved = self._enter_scope(n->name)
         var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_class_decl(
             self,
             n,
@@ -1663,8 +1656,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return n
         }
 
-        var saved = self._scope
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
+        var saved = self._enter_scope(n->name)
         var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_struct_decl(
             self,
             n,
@@ -1680,8 +1672,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return n
         }
 
-        var saved = self._scope
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
+        var saved = self._enter_scope(n->name)
         var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_enum_decl(
             self,
             n,
@@ -1697,8 +1688,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return n
         }
 
-        var saved = self._scope
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
+        var saved = self._enter_scope(n->name)
         var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_union_decl(
             self,
             n,
@@ -1714,8 +1704,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return n
         }
 
-        var saved = self._scope
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
+        var saved = self._enter_scope(n->name)
         var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_interface_decl(
             self,
             n,
@@ -1751,8 +1740,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return n
         }
 
-        var saved = self._scope
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}"
+        var saved = self._enter_scope(n->name)
         var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_module_decl(
             self,
             n,
@@ -1861,19 +1849,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         self._emitted_scope = ""
         self._scope         = "<tu>"
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
 
         self._expr_mode = false
 

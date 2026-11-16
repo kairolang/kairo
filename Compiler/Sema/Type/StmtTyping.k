@@ -38,13 +38,10 @@ import AST::Context::DeclContext::DeclContext
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
-    decl_instantiated_from,
-    decl_is_imported,
-    decl_is_instance,
-    decl_only_forward,
-    param_is_type_pack,
-    place_has_const_root,
+    decl_instantiated_from, decl_is_ctor,       decl_is_imported,     decl_is_instance,
+    decl_only_forward,      param_is_type_pack, place_has_const_root,
 }
+import AST::ExprFacts::callee_decl
 import AST::Kind::ExprKind::ExprKind
 import AST::LangItems::{
     LangAttrs,
@@ -1143,7 +1140,6 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     /// Names probed, never interned: a name this file never spelled is on
     /// no decl.
     priv fn _stamp_no_unwind(self, n: unsafe *FunctionDecl) {
-        var unsafe *head = n->first_decl()
         if n->has_ffi_linkage() || n->clang_decl != &null {
             return
         }
@@ -1153,21 +1149,18 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         )
 
         var k_un = self.dyn()->sc->imm_table()->find_ident(LangAttrs::unwind())
-        var        no_at: unsafe *FunctionDecl = &null
-        var        un_at: unsafe *FunctionDecl = &null
-        var unsafe *cur                        = head
-        while true {
+        var no_at: unsafe *FunctionDecl = &null
+        var un_at: unsafe *FunctionDecl = &null
+        var ring                        = cxx::std::vector<unsafe *Decl>()
+        NameLookup::collect_chain(unsafe (n as unsafe *Decl), &ring)
+        for var i: usize = 0; i < ring.size(); ++i {
+            var unsafe *cur = cast<FunctionDecl>(ring[i])
             if k_no != u32::MAX && cur->has_attribute_named(k_no) && no_at == &null {
                 no_at = cur
             }
 
             if k_un != u32::MAX && cur->has_attribute_named(k_un) && un_at == &null {
                 un_at = cur
-            }
-
-            cur = cur->next_in_chain()
-            if cur == head {
-                break
             }
         }
 
@@ -1192,13 +1185,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         var spell = no_at != &null || un_at == &null && !self.dyn()->sc->unwind_all_on()
-        cur = head
-        while true {
-            cur->no_unwind = spell
-            cur            = cur->next_in_chain()
-            if cur == head {
-                break
-            }
+        for var i: usize = 0; i < ring.size(); ++i {
+            cast<FunctionDecl>(ring[i])->no_unwind = spell
         }
     }
 
@@ -1208,7 +1196,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var why = ""
         if n->is_operator && n->op_token.size() > 0 && n->op_token[0].kind == TokenKind::KwFinally {
             why = "a destructor cannot be a generator; it runs to completion when the object dies"
-        } else if self._is_ctor(n) {
+        } else if decl_is_ctor(n, self.dyn()->sc->ctx) {
             why = "a constructor cannot be a generator; it returns the object it builds, not a sequence"
         } else if self._is_main(n) {
             why = "'main' cannot be a generator; it returns the process's exit status"
@@ -1224,23 +1212,6 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         var at = if (n->is_operator) => (n->range) else => n->name.range
         self.dyn()->sc->diag->report(DiagID::SC112E, at.start, why).first(at)->emit()
-    }
-
-    /// A method named after the type it is declared in. Operators have no
-    /// name token to compare.
-    priv fn _is_ctor(self, f: unsafe *FunctionDecl) -> bool {
-        if f->is_operator || !f->is_method() {
-            return false
-        }
-
-        var unsafe *dc = f->semantic_dc
-        if dc == &null || !dc->is_type_scope() || dc->dc_owner == &null {
-            return false
-        }
-
-        return self.dyn()->tu.decl_name(f) == self.dyn()->tu.decl_name(
-            dc->dc_owner,
-        )
     }
 
     /// A free function named `main` outside any type. Whether this TU is the
@@ -3428,19 +3399,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     /// The generator a `Yield<T>` iterable is a direct call of
     /// (`for *x in b.squares()`), or null.
     priv fn _generator_called(self, e: unsafe *Expr) -> unsafe *FunctionDecl {
-        var unsafe *c = dyn_cast<CallExpr>(self.dyn()->tu.strip_parens(e))
-        if c == &null || c->callee == &null {
-            return &null
-        }
-
-        var unsafe *h              = self.dyn()->tu.strip_parens(c->callee)
-        var        d: unsafe *Decl = &null
-        if isa<NamedIdentExpr>(h) {
-            d = cast<NamedIdentExpr>(h)->resolved_decl
-        } else if isa<ChainExpr>(h) && cast<ChainExpr>(h)->steps.size() > 0 {
-            var unsafe *ch = cast<ChainExpr>(h)
-            d = ch->steps.get(ch->steps.size() - 1)->resolved_decl
-        }
+        var unsafe *d = callee_decl(
+            dyn_cast<CallExpr>(self.dyn()->tu.strip_parens(e)),
+        )
 
         var unsafe *f = dyn_cast<FunctionDecl>(d)
         return if (f != &null && f->is_generator) => (f) else => &null
@@ -3680,6 +3641,31 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return n
     }
 
+    /// The binder \p decl of a `catch` arm (a statement's or an
+    /// expression's) takes its type: the arm's filter \p filter, or the bare
+    /// Panic record for an arm with none. A binder already typed, or no
+    /// binder, is left alone.
+    fn type_catch_binder(self, decl: unsafe *Decl, filter: unsafe *Type) {
+        var unsafe *vd = dyn_cast<VariableDecl>(decl)
+        if vd == &null || vd->type_ != &null {
+            return
+        }
+
+        var ft: unsafe *Type = &null
+        if filter != &null && filter->canonical != &null {
+            ft = filter->canonical
+        }
+
+        if ft == &null {
+            var a = cxx::std::vector<*Type>()
+            ft = self.dyn()->tu.lang_record(WellKnownType::Panic, &a)
+        }
+
+        if ft != &null {
+            vd->type_ = canon_unqual(ft)
+        }
+    }
+
     /// A `catch` arm starts from the state before the `try` with whatever
     /// the body assigns assumed (it may throw anywhere); after the
     /// statement, the body's end joined with every arm's.
@@ -3698,23 +3684,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var arm_entry = self.dyn()->flow.try_entry(&entry, n->try_body, &null)
         for var i: usize = 0; i < n->arms.size(); ++i {
             var unsafe *arm = n->arms.get(i)
-            var unsafe *vd  = dyn_cast<VariableDecl>(arm->decl)
-            if vd != &null && vd->type_ == &null {
-                var ft: unsafe *Type = &null
-                if arm->filter != &null && arm->filter->canonical != &null {
-                    ft = arm->filter->canonical
-                }
-
-                if ft == &null {
-                    var a = cxx::std::vector<*Type>()
-                    ft = self.dyn()->tu.lang_record(WellKnownType::Panic, &a)
-                }
-
-                if ft != &null {
-                    vd->type_ = canon_unqual(ft)
-                }
-            }
-
+            self.type_catch_binder(arm->decl, arm->filter)
             self.dyn()->flow.env = arm_entry
             if arm->body != &null {
                 self.dyn()->dispatch_stmt(arm->body)

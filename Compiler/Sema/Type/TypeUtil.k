@@ -23,13 +23,10 @@ import AST::ASTSupport::{
 }
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
-    decl_generic_params,
-    decl_is_imported,
-    decl_is_instance,
-    decl_only_forward,
-    decl_pattern,
-    param_is_type_pack,
+    decl_fields,       decl_generic_params, decl_is_imported,   decl_is_instance, decl_methods,
+    decl_only_forward, decl_pattern,        param_is_type_pack, peel_ref,
 }
+import AST::ExprFacts
 import AST::Kind::DeclKind::{
     DeclKind,
     to_string,
@@ -66,7 +63,6 @@ import AST::Node::Expressions::{
     BinaryOperatorExpr,
     ConstraintExpr,
     ListLiteralExpr,
-    ParenExpr,
 }
 import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
@@ -417,18 +413,7 @@ pub class TypeUtil {
     /// operator classification wants; Conversion::implicit already does the
     /// same on its own path.
     fn as_value(self, t: unsafe *Type) -> unsafe *Type {
-        var unsafe *u = t
-        if u == &null {
-            return &null
-        }
-
-        if isa<Types::CXXLValueRefType>(u) {
-            u = cast<Types::CXXLValueRefType>(u)->referee
-        } else if isa<Types::CXXRValueRefType>(u) {
-            u = cast<Types::CXXRValueRefType>(u)->referee
-        }
-
-        return canon_unqual(u)
+        return canon_unqual(peel_ref(t))
     }
 
     fn record_decl(self, t: unsafe *Type) -> unsafe *Decl {
@@ -1717,12 +1702,9 @@ pub class TypeUtil {
             }
         }
 
-        var *fs = if (isa<Declarations::ClassDecl>(rd)) => (&cast<Declarations::ClassDecl>(
-                      rd,
-                  )->fields)
-                  else => &cast<Declarations::StructDecl>(rd)->fields
-        for var i: usize = 0; i < fs->size(); ++i {
-            var unsafe *f = (*fs)[i]
+        var fs = decl_fields(rd)
+        for var i: usize = 0; i < fs.size(); ++i {
+            var unsafe *f = fs[i]
             if f == &null || f->is_anonymous_union {
                 continue
             }
@@ -1767,10 +1749,7 @@ pub class TypeUtil {
     /// the emitted class has to agree with.
     fn declares_ctor(self, d: unsafe *Decl) -> bool {
         var nm = self.decl_name(d)
-        var ms = if (isa<Declarations::ClassDecl>(d)) => (cast<Declarations::ClassDecl>(
-                     d,
-                 )->methods)
-                 else => cast<Declarations::StructDecl>(d)->methods
+        var ms = decl_methods(d)
         for var i: usize = 0; i < ms.size(); ++i {
             var unsafe *m = ms[i]
             if m == &null || m->is_operator || m->adt_role != Declarations::AdtRole::None {
@@ -1833,10 +1812,7 @@ pub class TypeUtil {
     /// value, not from none), every parameter but `self` defaulted.
     fn default_ctor_of(self, d: unsafe *Decl) -> unsafe *Declarations::FunctionDecl {
         var nm = self.decl_name(d)
-        var ms = if (isa<Declarations::ClassDecl>(d)) => (cast<Declarations::ClassDecl>(
-                     d,
-                 )->methods)
-                 else => cast<Declarations::StructDecl>(d)->methods
+        var ms = decl_methods(d)
         for var i: usize = 0; i < ms.size(); ++i {
             var unsafe *m = ms[i]
             if m == &null || m->is_operator || m->adt_role != Declarations::AdtRole::None {
@@ -1978,12 +1954,7 @@ pub class TypeUtil {
     /// # expr helpers
 
     fn strip_parens(self, e: unsafe *Expr) -> unsafe *Expr {
-        var unsafe *x = e
-        while x != &null && isa<ParenExpr>(x) {
-            x = cast<ParenExpr>(x)->inner
-        }
-
-        return x
+        return ExprFacts::strip_parens(e)
     }
 
     /// # rendering

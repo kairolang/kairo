@@ -978,8 +978,8 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         return w.sites.size() > 0 || w.tries.size() > 0
     }
 
-    /// `var __kairo_vK = e;` onto \p out, and its value moved out (a record)
-    /// or read (anything else).
+    /// `var __kairo_vK = e;` onto \p out, and its value moved out (a class
+    /// object) or read (anything else).
     priv fn _bound(self,
                    at:  SourceRange,
                    e:   unsafe *Expr,
@@ -991,7 +991,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
         var unsafe *use = self.synth.use_of(vd, at, Expr::ValueCategory::LValue)
         var unsafe *c   = canon_unqual(e->type_)
-        if c != &null && c->kind == TypeKind::RecordType {
+        if self.synth.is_class_value(c) {
             return self._rref(at, use, c)
         }
 
@@ -2487,7 +2487,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         }
 
         var unsafe *c = canon_unqual(e->type_)
-        if c == &null || c->kind != TypeKind::RecordType {
+        if !self.synth.is_class_value(c) {
             return v
         }
 

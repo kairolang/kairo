@@ -1593,8 +1593,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             return use
         }
 
-        var unsafe *c = canon_unqual(t)
-        if c == &null || c->kind != TypeKind::RecordType {
+        if !self.synth.is_class_value(canon_unqual(t)) {
             return use
         }
 
