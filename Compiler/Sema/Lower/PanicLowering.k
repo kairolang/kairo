@@ -110,6 +110,7 @@ import AST::Context::InstantiationRegistry::{
 import AST::DeclFacts::{
     decl_extension_of,
     decl_generic_params,
+    is_global_storage,
 }
 import AST::Kind::TypeKind::TypeKind
 import AST::Node::Base::{
@@ -246,6 +247,9 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     priv var _cxx_depth: i32          = 0
     priv var _fn_r:      unsafe *Type = &null ///< the current body's result, or null when it does not panic.
     priv var _fn_t:      unsafe *Type = &null ///< its value type T.
+    /// The variables declared so far in the current body, when it panics:
+    /// the ones a `return` or `panic` of the bare name moves (_moved_local).
+    priv var _locals: cxx::std::vector<unsafe *VariableDecl>
     /// The extension index, built on the first conforming-method question
     /// (_requirement_of): most TUs never ask it.
     priv var _ml:       MemberLookup
@@ -690,6 +694,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         var        sd  = self._deps
         var        sb  = self._copy_bars
         var        se  = self._copy_exits
+        var        sl  = self._locals
         self._cur = n
         self._deps.clear()
         self._dep(r)
@@ -711,6 +716,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         self._deps       = sd
         self._copy_bars  = sb
         self._copy_exits = se
+        self._locals     = sl
         return out
     }
 
@@ -722,6 +728,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         var unsafe *sv = self._fn_t
         var        sb  = self._copy_bars
         var        se  = self._copy_exits
+        var        sl  = self._locals
         self._enter(r, self._value_type(n->return_type))
         var unsafe *out = ASTWriter<PanicLowering>::transform_closure_expr(
             self,
@@ -738,6 +745,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         self._fn_t       = sv
         self._copy_bars  = sb
         self._copy_exits = se
+        self._locals     = sl
         return out
     }
 
@@ -746,6 +754,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         self._holders.clear()
         self._copy_bars.clear() // a body's own copies: a closure's lambda is no copy of the loop around it.
         self._copy_exits.clear()
+        self._locals.clear()
         self._fn_r = r
         self._fn_t = t
         if r != &null {
@@ -781,6 +790,14 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         )
 
         lb.freeze_into(&body->body)
+    }
+
+    fn transform_variable_decl(self, n: unsafe *VariableDecl) -> cxx::std::vector<unsafe *Decl> {
+        if self._fn_r != &null {
+            self._locals.push_back(n)
+        }
+
+        return ASTWriter<PanicLowering>::transform_variable_decl(self, n)
     }
 
     /// # return and panic (§4.2)
@@ -2477,6 +2494,19 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         )
     }
 
+    /// \p v is declared in the body being lowered. A local has no
+    /// semantic_dc, so the body records its own; a closure's body does not
+    /// hold the locals of the function around it, which it only captures.
+    priv fn _is_own_local(self, v: unsafe *VariableDecl) -> bool {
+        for var i: usize = 0; i < self._locals.size(); ++i {
+            if self._locals[i] == v {
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// A local or by-value parameter named whole, moved: it is the value's
     /// last use (a `return` or a `panic` leaves), which C++ would move from
     /// on its own in a plain `return x`. Anything else as it is.
@@ -2499,21 +2529,16 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         var t: unsafe *Type = &null
         if isa<VariableDecl>(d) {
             var unsafe *vd = cast<VariableDecl>(d)
-            if vd->storage == StorageClass::Static || vd->raw_slot {
+            if !self._is_own_local(vd)
+                || is_global_storage(vd)
+                || vd->raw_slot
+                || vd->is_const()
+                || vd->is_eval() {
                 return v
             }
 
-            var unsafe *dc = vd->semantic_dc
-            if dc == &null || dc->is_translation_unit() || dc->is_type_scope() {
-                return v
-            }
-
-            var unsafe *o = dc->owner_decl()
-            if o != &null && isa<ModuleDecl>(o) {
-                return v
-            }
-
-            t = vd->type_
+            // An inferred `var b = e` writes no type: the use carries it.
+            t = if (vd->type_ != &null) => (vd->type_) else => e->type_
         } else if isa<ParamDecl>(d) {
             var unsafe *p = cast<ParamDecl>(d)
             if p->is_self || p->mode != ParamMode::Value {

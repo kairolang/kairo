@@ -172,6 +172,10 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
     priv var _cond:    u32                         = 0 ///< branches, loops and short-circuits above the cursor.
     priv var _closure: u32                         = 0 ///< closure bodies above the cursor: they run later, if at all.
     priv var _exited:  bool                        = false ///< a return / panic / jump came before the cursor.
+    /// The child of the construct just entered that runs whenever the
+    /// construct does; null once it has been visited.
+    priv var _lead:      unsafe *Expr = &null
+    priv var _lead_stmt: unsafe *Stmt = &null
 
     fn ScriptUseScan(self, sc: unsafe *SemaContext) {
         self._tu = TypeUtil(sc)
@@ -225,115 +229,169 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
         return out
     }
 
-    // Every construct that runs part of itself only on some paths. Its
-    // condition is counted with it: that loses an error, never adds one.
+    // Every construct that runs part of itself only on some paths. The part
+    // that runs whenever the construct does (its lead: a condition, a
+    // scrutinee, an iterable, a left operand) is as definite as the
+    // construct itself; the rest is one level deeper.
+
+    /// Enters a construct whose \p lead always runs and whose other
+    /// children may not. A null \p lead: every child may not run.
+    priv fn _enter(self, lead: unsafe *Expr) {
+        self._cond += 1
+        self._lead = lead
+    }
+
+    priv fn _leave(self) {
+        self._cond -= 1
+        self._lead      = &null
+        self._lead_stmt = &null
+    }
+
+    /// The lead is the first child its construct visits, so it is consumed
+    /// before any other node can be compared with it.
+    fn dispatch_expr(self, e: unsafe *Expr) -> unsafe *Expr {
+        if e == &null || e != self._lead {
+            return RecursiveASTVisitor<ScriptUseScan>::dispatch_expr(self, e)
+        }
+
+        self._lead = &null
+        self._cond -= 1
+        var unsafe *out = RecursiveASTVisitor<ScriptUseScan>::dispatch_expr(
+            self,
+            e,
+        )
+
+        self._cond += 1
+        return out
+    }
+
+    fn dispatch_stmt(self, s: unsafe *Stmt) -> unsafe *Stmt {
+        if s == &null || s != self._lead_stmt {
+            return RecursiveASTVisitor<ScriptUseScan>::dispatch_stmt(self, s)
+        }
+
+        self._lead_stmt = &null
+        self._cond -= 1
+        var unsafe *out = RecursiveASTVisitor<ScriptUseScan>::dispatch_stmt(
+            self,
+            s,
+        )
+
+        self._cond += 1
+        return out
+    }
 
     fn traverse_conditional_stmt(self,
                                  n: unsafe *Statements::ConditionalStmt) -> unsafe *Statements::ConditionalStmt {
-        self._cond += 1
+        self._enter(n->cond)
         var unsafe *out = RecursiveASTVisitor<ScriptUseScan>::traverse_conditional_stmt(
             self,
             n,
         )
 
-        self._cond -= 1
+        self._leave()
         return out
     }
 
     fn traverse_while_loop_stmt(self, n: *Statements::WhileLoopStmt) -> *Statements::WhileLoopStmt {
-        self._cond += 1
+        self._enter(n->cond)
         var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_while_loop_stmt(
             self,
             n,
         )
 
-        self._cond -= 1
+        self._leave()
         return out
     }
 
     fn traverse_loop_stmt(self, n: *Statements::LoopStmt) -> *Statements::LoopStmt {
-        self._cond += 1
+        self._enter(&null)
         var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_loop_stmt(
             self,
             n,
         )
 
-        self._cond -= 1
+        self._leave()
         return out
     }
 
     fn traverse_ranged_for_stmt(self,
                                 n: unsafe *Statements::RangedForStmt) -> unsafe *Statements::RangedForStmt {
-        self._cond += 1
+        self._enter(n->iterable)
         var unsafe *out = RecursiveASTVisitor<ScriptUseScan>::traverse_ranged_for_stmt(
             self,
             n,
         )
 
-        self._cond -= 1
+        self._leave()
         return out
     }
 
+    /// The init runs once; the condition, the update and the body are the
+    /// loop's.
     fn traverse_indexed_for_stmt(self,
                                  n: *Statements::IndexedForStmt) -> *Statements::IndexedForStmt {
-        self._cond += 1
+        self._enter(&null)
+        self._lead_stmt = n->init
         var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_indexed_for_stmt(
             self,
             n,
         )
 
-        self._cond -= 1
+        self._leave()
         return out
     }
 
     fn traverse_match_stmt(self, n: *Statements::MatchStmt) -> *Statements::MatchStmt {
-        self._cond += 1
+        self._enter(n->scrutinee)
         var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_match_stmt(
             self,
             n,
         )
 
-        self._cond -= 1
+        self._leave()
         return out
     }
 
+    /// A `try` has no lead: a panic it catches skips the rest of its body,
+    /// and the program goes on.
     fn traverse_try_catch_stmt(self, n: *Statements::TryCatchStmt) -> *Statements::TryCatchStmt {
-        self._cond += 1
+        self._enter(&null)
         var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_try_catch_stmt(
             self,
             n,
         )
 
-        self._cond -= 1
+        self._leave()
         return out
     }
 
     fn traverse_if_expr(self, n: *IfExpr) -> *IfExpr {
-        self._cond += 1
+        self._enter(n->condition)
         var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_if_expr(self, n)
-        self._cond -= 1
+        self._leave()
         return out
     }
 
     fn traverse_match_expr(self, n: *MatchExpr) -> *MatchExpr {
-        self._cond += 1
+        self._enter(n->scrutinee)
         var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_match_expr(
             self,
             n,
         )
 
-        self._cond -= 1
+        self._leave()
         return out
     }
 
     fn traverse_try_catch_expr(self, n: *TryCatchExpr) -> *TryCatchExpr {
-        self._cond += 1
+        self._enter(&null)
         var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_try_catch_expr(
             self,
             n,
         )
 
-        self._cond -= 1
+        self._leave()
         return out
     }
 
@@ -344,7 +402,7 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
             || k == TokenKind::OpPipePipe
             || k == TokenKind::OpQuestionQuestion
         if is_short {
-            self._cond += 1
+            self._enter(n->lhs)
         }
 
         var *out = RecursiveASTVisitor<ScriptUseScan>::traverse_binary_operator_expr(
@@ -353,7 +411,7 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
         )
 
         if is_short {
-            self._cond -= 1
+            self._leave()
         }
 
         return out

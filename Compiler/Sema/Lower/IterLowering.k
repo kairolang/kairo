@@ -312,8 +312,8 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             )
 
             if n->iter_kind == IterKind::RangeLit && r != &null {
-                n->ev_lo    = r->begin
-                n->ev_hi    = r->end
+                n->ev_lo    = self.transform_expr(r->begin)
+                n->ev_hi    = self.transform_expr(r->end)
                 n->ev_incl  = r->is_inclusive
                 n->iterable = &null
             }
