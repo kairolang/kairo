@@ -2902,6 +2902,17 @@ pub class <D: type> RecursiveASTVisitor {
             self.dyn()->dispatch_expr(n->iterable)
         }
 
+        // An `eval for` over a range holds its bounds here once IterLowering
+        // has run (`iterable` is null then): what the bounds use is planned
+        // and checked as any other child's uses are.
+        if n->ev_lo != &null {
+            self.dyn()->dispatch_expr(n->ev_lo)
+        }
+
+        if n->ev_hi != &null {
+            self.dyn()->dispatch_expr(n->ev_hi)
+        }
+
         self.dyn()->traverse_block(n->body)
         return n
     }
