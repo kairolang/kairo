@@ -57,6 +57,13 @@ import Diagnostic::Registry::DiagID
 import Lexer::Immediate::Immediate
 import Location::SourceRange::SourceRange
 import Parser::LexicalScope::ScopeKind
+import Parser::Shared::StringOperand::{
+    StringOperand,
+    prefixed_range,
+    refused_prefix,
+    refused_prefix_fixable,
+    refused_prefix_message,
+}
 import Support::FlagSet::FlagSet
 import Token::Token::Token
 import Token::TokenKind::TokenKind
@@ -2589,10 +2596,15 @@ pub class <T: type> StmtParse {
         return node
     }
 
-    /// \brief maps an inline-block language string token to FFILang.
+    /// \brief maps an inline-block or ffi language string token to FFILang.
     /// \details recognizes "asm", "c", "c++". Unrecognized strings are reported
-    ///          with a diagnostic; sema makes the final call.
-    pub fn parse_ffi_lang(self, raw: Token, rng: SourceRange) -> Statements::FFILang {
+    ///          with a diagnostic; sema makes the final call. A prefixed
+    ///          string is reported (S064E after `ffi`, S060E after `inline`)
+    ///          and classified by its text, so nothing cascades.
+    pub fn parse_ffi_lang(self,
+                          raw:       Token,
+                          rng:       SourceRange,
+                          after_ffi: bool = false) -> Statements::FFILang {
         // Through the wrapper: from a macro body the string is TkMacroExpand
         // (check(LitString) looks through it, so the callers pass it), its
         // imm the expansion record, and its payload in the table of the file
@@ -2609,6 +2621,26 @@ pub class <T: type> StmtParse {
 
         var tbl = self.dyn()->ctx->get_payload_table(raw)
         var imm = tbl->get<Immediate::StringData>(tok.imm)
+
+        var refused = refused_prefix(imm, StringOperand::Tag)
+        if !refused.empty() {
+            var b = self.dyn()->diag->report(
+                if (after_ffi) => (DiagID::S064E) else => DiagID::S060E,
+                prefixed_range(imm->prefix.range, tok.range).start,
+                refused_prefix_message(
+                    StringOperand::Tag,
+                    if (after_ffi) => ("ffi") else => "inline",
+                    refused,
+                ),
+            )
+
+            b.first(prefixed_range(imm->prefix.range, tok.range))
+            if refused_prefix_fixable(imm->prefix.range, refused) {
+                b.remove(imm->prefix.range, "remove the prefix")
+            }
+
+            b.emit()
+        }
 
         // owned-text strings (synthesized by the PP) have no source range
         var spelling = string()

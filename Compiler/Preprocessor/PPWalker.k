@@ -62,6 +62,13 @@ import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Macro::Sentinel::MacroSentinel
 import Parser::Shared::ImportGrammar::ImportSpec
+import Parser::Shared::StringOperand::{
+    StringOperand,
+    prefixed_range,
+    refused_prefix,
+    refused_prefix_fixable,
+    refused_prefix_message,
+}
 import Preprocessor::FileImportIndex::FileImportIndex
 import Preprocessor::MacroTable::{
     MacroEntry,
@@ -712,6 +719,10 @@ pub class PPWalker {
             }
         }
 
+        if t.kind == TokenKind::TkUnknown && t.imm != u32::MAX {
+            t = self._illegal_chars(t)
+        }
+
         t = self._expand_fstring(t, chain)
 
         if chain != &null && chain->size() > 0 {
@@ -790,6 +801,34 @@ pub class PPWalker {
     ///          imported macro then spans from the invoking file into the
     ///          defining one, which the codegen token sink reads past the end
     ///          of the invoking file's buffer (I003E).
+    /// \p t, a run of characters no token holds (Lexer::lex_illegal_ascii)
+    /// on its way to the parser: reported once, as S011E, and handed on as
+    /// the name its imm spells, so the parser goes on as after a non-ASCII
+    /// run and reports nothing more. Reported here and not by the lexer: a
+    /// macro body or argument may hold the run, and only a token that
+    /// reaches the parser is code.
+    priv fn _illegal_chars(self, t: Token) -> Token {
+        if !self._quiet {
+            var text = self._ctx->get_spelling(t.range)
+            var what = if (text.size() > 0
+                           && text[0] >= 0x20
+                           && text[0] < 0x7f) => (f"character '{text.subslice(0, 1)}'")
+                       else => "character U+007F"
+            var b = self._diag->report(
+                DiagCode(DiagID::S011E),
+                t.range.start,
+                f"{what} cannot appear outside a string, a character literal or a comment",
+            )
+
+            b.first(t.range)
+            b.emit()
+        }
+
+        var out = t
+        out.kind = TokenKind::LitIdentifier
+        return out
+    }
+
     priv fn _emit_next(self) {
         var chain = cxx::std::vector<InvokeHop>()
         var t     = self._src->next_with_origin(&chain)
@@ -991,6 +1030,11 @@ pub class PPWalker {
                 return
             }
 
+            // Reported, then imported as written: the header still resolves,
+            // so the names it declares do not cascade.
+            self._check_ffi_prefix(lang_tok, StringOperand::Tag)
+            self._check_ffi_prefix(header_tok, StringOperand::Path)
+
             var fr = ffi_kw.range | last.range
             var unsafe *fid_node = ImportDecl::create(
                 self._ctx,
@@ -1046,6 +1090,38 @@ pub class PPWalker {
         // walk resumes; `{`/decl tokens copy normally. Macro invocations INSIDE
         // an ffi block still expand (they did before) the walk doesn't treat
         // ffi-block interior as special, matching current behavior.
+    }
+
+    /// Reports \p tok, the language or the header of an `ffi ... import`
+    /// line, when it carries a prefix a \p what operand does not take.
+    priv fn _check_ffi_prefix(self, tok: Token, what: StringOperand) {
+        if self._quiet || tok.kind != TokenKind::LitString {
+            return
+        }
+
+        var unsafe *tbl = self._tcm->get_imm_table_for_token(tok)
+        if tbl == &null {
+            return
+        }
+
+        var unsafe *d      = tbl->get<Immediate::StringData>(tok.imm)
+        var        refused = refused_prefix(d, what)
+        if refused.empty() {
+            return
+        }
+
+        var b = self._diag->report(
+            DiagCode(DiagID::S064E),
+            prefixed_range(d->prefix.range, tok.range).start,
+            refused_prefix_message(what, "ffi", refused),
+        )
+
+        b.first(prefixed_range(d->prefix.range, tok.range))
+        if refused_prefix_fixable(d->prefix.range, refused) {
+            b.remove(d->prefix.range, "remove the prefix")
+        }
+
+        b.emit()
     }
 
     //  Imports
@@ -2356,6 +2432,24 @@ pub class PPWalker {
 
         if tbl != self._imm {
             return t
+        }
+
+        // A hole's tokens reach the parser without passing _emit: an illegal
+        // run in one is reported and handed on as a name here, once (the
+        // token is a name after the first time).
+        var unsafe *seg = d
+        while seg != &null {
+            for var h: usize = 0; h < seg->exprs.size(); ++h {
+                var unsafe *src = seg->exprs[h].0
+                for var k: usize = 0; src != &null && k < src->size(); ++k {
+                    var unsafe *tk = src->get(k)
+                    if tk->kind == TokenKind::TkUnknown && tk->imm != u32::MAX {
+                        *tk = self._illegal_chars(*tk)
+                    }
+                }
+            }
+
+            seg = next_string_segment(tbl, seg)
         }
 
         var        from_body = chain != &null && chain->size() > 0

@@ -13,6 +13,11 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import Support::Ascii::{
+    hex_value,
+    is_hex_digit,
+}
+
 /// How c_escape spells a byte that cannot stand for itself.
 pub enum CEscapeStyle {
     /// Every byte outside printable ASCII (0x20..0x7e) as a three-digit octal
@@ -129,4 +134,83 @@ pub fn json_string(const s: string) -> string {
 
     out += "\""
     return out
+}
+
+/// Reads the JSON string that starts at the `"` at \p at in \p s, as
+/// json_string writes one, into \p out (decoded). Returns the index just
+/// past its closing quote, or usize::MAX when there is no well-formed
+/// string there (\p out is then unspecified). A `\uXXXX` escape is written
+/// as UTF-8; a surrogate is refused, since json_string never writes one.
+pub fn json_string_read(const s: string, at: usize, @inout out: string) -> usize {
+    out = ""
+    if at >= s.size() || s[at] != ('"' as u8) {
+        return usize::MAX
+    }
+
+    var i = at + 1
+    while i < s.size() {
+        var c = s[i]
+        if c == ('"' as u8) {
+            return i + 1
+        }
+
+        if c != ('\\' as u8) {
+            out.push_back(c)
+            i += 1
+            continue
+        }
+
+        if i + 1 >= s.size() {
+            return usize::MAX
+        }
+
+        var e = s[i + 1]
+        i += 2
+        if e == ('"' as u8) || e == ('\\' as u8) || e == ('/' as u8) {
+            out.push_back(e)
+        } else if e == ('n' as u8) {
+            out.push_back('\n' as u8)
+        } else if e == ('t' as u8) {
+            out.push_back('\t' as u8)
+        } else if e == ('r' as u8) {
+            out.push_back('\r' as u8)
+        } else if e == ('b' as u8) {
+            out.push_back(0x08 as u8)
+        } else if e == ('f' as u8) {
+            out.push_back(0x0c as u8)
+        } else if e == ('u' as u8) {
+            if i + 4 > s.size() {
+                return usize::MAX
+            }
+
+            var cp: u32 = 0
+            for var k: usize = 0; k < 4; ++k {
+                if !is_hex_digit(s[i + k]) {
+                    return usize::MAX
+                }
+
+                cp = (cp << 4) | (hex_value(s[i + k]) as u32)
+            }
+
+            i += 4
+            if cp >= 0xd800 && cp < 0xe000 {
+                return usize::MAX
+            }
+
+            if cp < 0x80 {
+                out.push_back(cp as u8)
+            } else if cp < 0x800 {
+                out.push_back((0xc0 | (cp >> 6)) as u8)
+                out.push_back((0x80 | (cp & 0x3f)) as u8)
+            } else {
+                out.push_back((0xe0 | (cp >> 12)) as u8)
+                out.push_back((0x80 | ((cp >> 6) & 0x3f)) as u8)
+                out.push_back((0x80 | (cp & 0x3f)) as u8)
+            }
+        } else {
+            return usize::MAX
+        }
+    }
+
+    return usize::MAX
 }

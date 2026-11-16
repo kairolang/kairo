@@ -71,9 +71,17 @@ import AST::Node::Types::{
 import AST::ParamMode::ParamMode
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Lexer::Immediate::Immediate
 import Location::SourceRange::SourceRange
 import Parser::LexicalScope::ScopeKind
 import Parser::Shared::ImportGrammar::is_primitive_type_word
+import Parser::Shared::StringOperand::{
+    StringOperand,
+    prefixed_range,
+    refused_prefix,
+    refused_prefix_fixable,
+    refused_prefix_message,
+}
 import Support::FlagSet::FlagSet
 import Token::Token::Token
 import Token::TokenKind::{
@@ -5862,6 +5870,37 @@ pub class <T: type> DeclParse {
     ///   The parser rejects decl kinds that don't carry the FFILinkage mixin
     ///   (test, macro, enum, etc.). Sema validates deeper constraints (e.g.
     ///   ffi "c" on a ClassDecl).
+    /// Reports an ffi header path written as a format or byte string
+    /// (StringOperand::Path); the import goes on with its text.
+    priv fn _check_header_prefix(self, raw: Token) {
+        var tok = self.dyn()->ctx->unwrap_token(raw)
+        if tok.kind != TokenKind::LitString {
+            return
+        }
+
+        var unsafe *d = self.dyn()->ctx->get_payload_table(raw)->get<Immediate::StringData>(
+            tok.imm,
+        )
+
+        var refused = refused_prefix(d, StringOperand::Path)
+        if refused.empty() {
+            return
+        }
+
+        var b = self.dyn()->diag->report(
+            DiagID::S064E,
+            prefixed_range(d->prefix.range, tok.range).start,
+            refused_prefix_message(StringOperand::Path, "ffi", refused),
+        )
+
+        b.first(prefixed_range(d->prefix.range, tok.range))
+        if refused_prefix_fixable(d->prefix.range, refused) {
+            b.remove(d->prefix.range, "remove the prefix")
+        }
+
+        b.emit()
+    }
+
     fn _parse_ffi(self) -> unsafe *Decl {
         var start = self._cur_range()
         self.dyn()->advance(T::SkipNL::After) // consume `ffi`
@@ -5881,7 +5920,7 @@ pub class <T: type> DeclParse {
         }
 
         var lang_tok = self.dyn()->current()
-        var lang     = self.dyn()->parse_ffi_lang(lang_tok, start)
+        var lang     = self.dyn()->parse_ffi_lang(lang_tok, start, true)
         self.dyn()->advance(T::SkipNL::After) // consume the language string; parse_ffi_lang only classifies, it does not advance
         var linkage_kind: LinkageKind
         match lang {
@@ -5924,6 +5963,7 @@ pub class <T: type> DeclParse {
 
             var header_tok = self.dyn()->current()
             self.dyn()->advance()
+            self._check_header_prefix(header_tok)
 
             var id = Declarations::ImportDecl::create(
                 self.dyn()->ctx,

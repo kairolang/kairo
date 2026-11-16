@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A scripted LSP client for kals: enough of the protocol to drive the server
-from a test or by hand. Not part of the lit suite (Tests/ is frozen); run it
-directly, see Analyzer/Dev/smoke.py."""
+from a test or by hand. Analyzer/Dev/smoke.py runs on it, and so do the lit
+tests under Tests/CLI/Kals."""
 import json, os, queue, subprocess, threading, time
 
 

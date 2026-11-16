@@ -47,7 +47,10 @@ import Support::Ascii::{
     parse_decimal,
     split,
 }
-import Support::Escape::json_string
+import Support::Escape::{
+    json_string,
+    json_string_read,
+}
 import Support::FileIO::AtomicFile::{
     file_stat,
     now_ns,
@@ -368,7 +371,7 @@ pub class ModuleRecords {
                 }
             } else if l.starts_with("mod ") {
                 nmods += 1
-                self.old_mods.push_back(l.subslice(4, l.size() - 4))
+                self.old_mods.push_back(ModuleRecords::_read_mod_line(l))
             } else if l.starts_with("warns ") {
                 self.old_warns = (parse_decimal(l.subslice(6, l.size() - 6)) as u32)
             } else if l.starts_with("pthread ") {
@@ -401,8 +404,7 @@ pub class ModuleRecords {
     pub fn load_plan(self, out: *cxx::std::vector<PlanModule>) -> bool {
         out->clear()
         for var l: string in self.old_mods {
-            var tab  = find(l, "\t", 0)
-            var name = if (tab == usize::MAX) => (l) else => l.subslice(0, tab)
+            var name = ModuleRecords::_row_name(l)
             var text = ""
             if !LinkFS::read(self._plan_path(name), &text) {
                 return false
@@ -501,7 +503,6 @@ pub class ModuleRecords {
         // Per-module records: what phase 3 needs (interface, rows, header
         // and object keys). The manifest names each with I(m) and its O
         // keys, which --incr-verify compares.
-        var mods = cxx::std::vector<string>()
         for var i: usize = 0; i < self.mod_names.size(); ++i {
             var name = self.mod_names[i]
             var ks   = self._object_keys(name)
@@ -523,13 +524,10 @@ pub class ModuleRecords {
                 ) {
                 return false
             }
-
-            mods.push_back("mod " + name + "\t" + ks + "\t" + self.mod_hash[i])
         }
 
-        llvm::sort(mods.begin(), mods.end())
-        for var l: string in mods {
-            m += l + "\n"
+        for var l: string in self.new_mods() {
+            m += "mod " + ModuleRecords::_mod_field(l) + "\n"
         }
 
         if self.errors {
@@ -550,6 +548,59 @@ pub class ModuleRecords {
         return self.dir + "/" + ObjectCache::hash(name + "\n" + self._manifest) + ".plan"
     }
 
+    /// The manifest's `mod` field for \p row, one of new_mods: the module
+    /// name, then the tab-separated rest as it is. A name that would break
+    /// the line or be read as an escaped one (a byte below 0x20, or a
+    /// leading `"`) is written as a JSON string (json_string); every other
+    /// name is written as it is, so a manifest of ordinary names reads the
+    /// same to every reader of this format.
+    priv static fn _mod_field(const row: string) -> string {
+        var name  = ModuleRecords::_row_name(row)
+        var rest  = row.subslice(name.size(), row.size() - name.size())
+        var plain = name.empty() || name[0] != ('"' as u8)
+        for var i: usize = 0; plain && i < name.size(); ++i {
+            plain = name[i] >= 0x20
+        }
+
+        if plain {
+            return row
+        }
+
+        return json_string(name) + rest
+    }
+
+    /// The module name of a new_mods row: what comes before its last two
+    /// tab-separated fields (O keys, I(m)), neither of which holds a tab, so
+    /// a name with a tab in it comes back whole.
+    priv static fn _row_name(const row: string) -> string {
+        var last = row.rfind("\t")
+        if last == usize::MAX || last == 0 {
+            return row
+        }
+
+        var keys = row.subslice(0, last).rfind("\t")
+        return if (keys == usize::MAX) => (row.subslice(0, last)) else => row.subslice(0, keys)
+    }
+
+    /// The new_mods row a manifest `mod` line \p l records (_mod_field
+    /// read back). A name field that is not a well-formed JSON string is
+    /// kept as written: the row then names no module this run has, and the
+    /// plan for it is a miss, not a wrong hit.
+    priv static fn _read_mod_line(const l: string) -> string {
+        var field = l.subslice(4, l.size() - 4)
+        if field.empty() || field[0] != ('"' as u8) {
+            return field
+        }
+
+        var name = ""
+        var end  = json_string_read(field, 0, &name)
+        if end == usize::MAX {
+            return field
+        }
+
+        return name + field.subslice(end, field.size() - end)
+    }
+
     /// \brief the modules this run recorded, sorted: what verify compares
     ///        with old_mods.
     pub fn new_mods(self) -> cxx::std::vector<string> {
@@ -568,8 +619,11 @@ pub class ModuleRecords {
     /// \p name's O keys, comma-joined in codegen job order; "-" for none.
     priv fn _object_keys(self, const name: string) -> string {
         var ks = ""
+        // A key row is `<module>\t<key>` and a key holds no tab: the name is
+        // everything before the last one, so `a` never takes `a\tb`'s keys.
         for var k: string in self.keys {
-            if k.starts_with(name + "\t") {
+            var tab = k.rfind("\t")
+            if tab == name.size() && k.starts_with(name) {
                 ks += (if (ks.empty()) => ("") else => ",") + k.subslice(
                     name.size() + 1,
                     k.size() - name.size() - 1,

@@ -79,6 +79,13 @@ pub inline fn hex_value(c: u8) -> u8 {
     return 0
 }
 
+/// `$`, a backtick, `\` or DEL: an ASCII byte no Kairo token holds outside
+/// a literal or a comment (Lexer::lex_illegal_ascii lexes a run of them as
+/// one unknown token).
+pub inline fn is_illegal_ascii(c: u8) -> bool {
+    return c == ('$' as u8) || c == ('`' as u8) || c == ('\\' as u8) || c == 0x7f
+}
+
 /// # Text
 
 /// Byte offset of the first \p needle in \p hay at or after \p from;

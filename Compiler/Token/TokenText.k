@@ -41,6 +41,7 @@ import Lexer::Immediate::{
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Macro::Sentinel::MacroSentinel
+import Support::Ascii::is_illegal_ascii
 import Token::Token::Token
 import Token::TokenCacheManager::TokenCacheManager
 import Token::TokenKind::{
@@ -222,6 +223,16 @@ pub class TokenText {
         // these have no meaningful text return canonical representation
         match kind {
             case TokenKind::TkUnknown {
+                // A run of characters no token holds (Lexer::lex_illegal_ascii)
+                // is spelled as written, so stringify! makes text of what
+                // the source says.
+                if imm != u32::MAX && tok_range.is_valid() {
+                    var text = sm->get_text(tok_range)
+                    if !text.empty() && is_illegal_ascii(text[0]) {
+                        return create(text)
+                    }
+                }
+
                 return create("$unknown$")
             } case TokenKind::TkEof {
                 return create("$eof$")

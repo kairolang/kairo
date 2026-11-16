@@ -39,6 +39,7 @@ import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Memory::MemoryBuffer::MemoryBuffer
+import Support::Ascii::is_illegal_ascii
 import Support::Assert::Assert
 import Support::EvalHash::{
     HashState,
@@ -337,7 +338,12 @@ pub class Lexer {
                 // integer or float literal
                 return self.lex_number(start)
             } case kairo::CharClass::Operator {
-                // this is either an operator or punctuation
+                // this is either an operator or punctuation; `\` outside a
+                // literal is neither
+                if decode.chr == '\\' {
+                    return self.lex_illegal_ascii(start)
+                }
+
                 return self.lex_symbol(start)
             } case kairo::CharClass::String {
                 // string or char literal
@@ -1101,6 +1107,10 @@ pub class Lexer {
             }
 
             if first_len == 0 {
+                if first.len == 1 && is_illegal_ascii(p[0]) {
+                    return self.lex_illegal_ascii(start)
+                }
+
                 self.advance_cursor((first.len as usize))
                 return self.create_unrecognized_token(start)
             }
@@ -2516,7 +2526,7 @@ pub class Lexer {
     ///          An ASCII character (`$`, a backtick) and a byte that is not
     ///          UTF-8 (reported as S072E, decoded as one byte) take the name
     ///          path unreported: lex_name makes the first an unknown token
-    ///          and the second part of a name.
+    ///          (lex_illegal_ascii) and the second part of a name.
     priv fn lex_illegal(self, start: SourceLocation, decode: kairo::DecodeResult) -> Token {
         if decode.len > 1 && Lexer::in_ranges(UnicodeTables::XID_CONTINUE, decode.chr as u32) {
             var range = SourceRange::from_bounds(start, decode.len as u32)
@@ -2528,6 +2538,33 @@ pub class Lexer {
         }
 
         return self.lex_name(start)
+    }
+
+    /// \brief the run of ASCII characters at the cursor that no token holds
+    ///        (Ascii::is_illegal_ascii), as one TkUnknown token whose imm is the run
+    ///        interned as a name.
+    ///
+    /// \details Not reported here: a macro body or argument may hold any
+    ///          token, and stringify! makes text of it, so only a run that
+    ///          reaches the parser is an error. PPWalker::_emit reports it
+    ///          there, once, as S011E, and hands the parser a name (the imm
+    ///          is its spelling), as a non-ASCII run is one (illegal_run).
+    priv fn lex_illegal_ascii(self, start: SourceLocation) -> Token {
+        const      base: kairo::std::ConstPtr<u8> = self.file_data()
+        const      end:  kairo::std::ConstPtr<u8> = base + self.file_size()
+        var        p:    kairo::std::ConstPtr<u8> = base + self._cursor
+        var unsafe *s_p                           = p
+        var        hash: HashState                = HashState()
+        while p < end && is_illegal_ascii(p[0]) {
+            hash.mix(p[0])
+            p += 1
+        }
+
+        var length = ((p - s_p) as usize)
+        self.commit_cursor(base, p)
+        var token = self.create_unrecognized_token(start)
+        token.set_imm(self.intern_ident(s_p, length, (hash.finalize() as u32)))
+        return token
     }
 
     /// \brief the length in bytes of the run of characters at \p p that no

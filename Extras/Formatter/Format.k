@@ -3522,7 +3522,13 @@ pub class Formatter {
             var key = Doc::nothing()
             var val = Doc::nothing()
             if col < self.toks.size() {
-                key = self._span(a, self.toks[col].end)
+                // `name: Type` (6.1): the `:` glued to the name, whatever
+                // space was written before it
+                key = self._span(a, self.toks[col].start)
+                if !key.is_empty() {
+                    key = Doc::concat2(key, Doc::text(":"))
+                }
+
                 val = self._span(self.toks[col].end, b)
             }
 
