@@ -321,16 +321,6 @@ extend EmitIR {
                 )
             } case ExprKind::TypeOfExpr {
                 self._ice(e->range, "EmitIR: typeof; TypeQueryLowering owns it")
-            } case ExprKind::ImplConformanceExpr {
-                self._ice(
-                    e->range,
-                    "EmitIR: impl test; TypeQueryLowering owns it",
-                )
-            } case ExprKind::DerivesRelationExpr {
-                self._ice(
-                    e->range,
-                    "EmitIR: derives test; TypeQueryLowering owns it",
-                )
             } case ExprKind::ConstraintExpr {
                 self._constraint(cast<ConstraintExpr>(e))
             } case ExprKind::VerbatimExpr {
@@ -582,10 +572,10 @@ extend EmitIR {
     /// a `|*x|` closure's `*x = 1` is C++'s `*x = 1` on the captured pointer.
     priv fn _capture_list(self, n: unsafe *ClosureExpr) -> string {
         var s = ""
-        for var i: usize = 0; i < n->cap_decls.size(); ++i {
-            var unsafe *d  = n->cap_decls[i]
-            var        m   = n->cap_modes[i]
-            var        via = n->cap_via_ptr[i]
+        for var i: usize = 0; i < n->held.size(); ++i {
+            var unsafe *d  = n->held[i].decl
+            var        m   = n->held[i].mode
+            var        via = n->held[i].via_ptr
             if s.size() > 0 {
                 s += ", "
             }
@@ -646,8 +636,8 @@ extend EmitIR {
             return false
         }
 
-        for var i: usize = 0; i < c->cap_decls.size(); ++i {
-            if c->cap_decls[i] == d {
+        for var i: usize = 0; i < c->held.size(); ++i {
+            if c->held[i].decl == d {
                 return true
             }
         }

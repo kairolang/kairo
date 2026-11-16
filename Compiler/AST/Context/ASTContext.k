@@ -219,16 +219,6 @@ pub class ASTContext {
         return unsafe (mem as unsafe *T)
     }
 
-    fn <T> alloc_array_zeroed(self, n: usize) -> unsafe *T {
-        if n == 0 {
-            return &null
-        }
-
-        var mem: unsafe *void = self.ast_alloc.alloc(sizeof(T) * n, alignof(T))
-        cxx::std::memset(mem, 0, sizeof(T) * n)
-        return unsafe (mem as unsafe *T)
-    }
-
     priv fn _run_cleanups(self, @inout list: cxx::std::vector<Self::ArenaCleanup>) {
         // reverse order: later allocations may reference earlier ones.
         var n = list.size()
@@ -341,18 +331,6 @@ pub class ASTContext {
             cxx::std::move(a2),
             cxx::std::move(a3),
         )
-    }
-
-    // No caller yet; kept at the zero-argument arity so the per-stage set
-    // stays complete.
-    fn <T> alloc_init_index(self) -> unsafe *T {
-        var mem: unsafe *void = self.index_alloc.alloc(sizeof(T), alignof(T))
-        return kairo::construct_at<T>(mem)
-    }
-
-    fn <T> alloc_init_scratch(self) -> unsafe *T {
-        var mem: unsafe *void = self.scratch_alloc.alloc(sizeof(T), alignof(T))
-        return kairo::construct_at<T>(mem)
     }
 
     pub fn mem_profile(self) -> (usize, usize, usize) {

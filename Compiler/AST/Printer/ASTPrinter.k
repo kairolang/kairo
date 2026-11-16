@@ -967,16 +967,6 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
             return
         }
 
-        if isa<Expressions::ImplConformanceExpr>(e) {
-            self._e_impl(cast<Expressions::ImplConformanceExpr>(e))
-            return
-        }
-
-        if isa<Expressions::DerivesRelationExpr>(e) {
-            self._e_derives(cast<Expressions::DerivesRelationExpr>(e))
-            return
-        }
-
         if isa<Expressions::ImplicitBoundaryCastExpr>(e) {
             self.src_expr(
                 cast<Expressions::ImplicitBoundaryCastExpr>(e)->original,
@@ -1393,18 +1383,6 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
 
         self.src_type(e->target)
-    }
-
-    fn _e_impl(self, e: unsafe *Expressions::ImplConformanceExpr) {
-        self.src_type(e->subject)
-        self.p.paint(Color::Keyword, " impl ")
-        self.src_type(e->inter)
-    }
-
-    fn _e_derives(self, e: unsafe *Expressions::DerivesRelationExpr) {
-        self.src_type(e->subject)
-        self.p.paint(Color::Keyword, " derives ")
-        self.src_type(e->base)
     }
 
     //  PATTERNS  source-faithful  (UNCHANGED)
@@ -4046,28 +4024,6 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
             return
         }
 
-        if isa<Expressions::ImplConformanceExpr>(e) {
-            self._dx_two_types(
-                "ImplConformanceExpr",
-                cast<Expressions::ImplConformanceExpr>(e)->subject,
-                cast<Expressions::ImplConformanceExpr>(e)->inter,
-                is_last,
-            )
-
-            return
-        }
-
-        if isa<Expressions::DerivesRelationExpr>(e) {
-            self._dx_two_types(
-                "DerivesRelationExpr",
-                cast<Expressions::DerivesRelationExpr>(e)->subject,
-                cast<Expressions::DerivesRelationExpr>(e)->base,
-                is_last,
-            )
-
-            return
-        }
-
         if isa<Expressions::ImplicitBoundaryCastExpr>(e) {
             self._dx_boundary(
                 cast<Expressions::ImplicitBoundaryCastExpr>(e),
@@ -4713,15 +4669,6 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self.p.enter(is_last)
         self._child_stmt(n->body, true)
         self.p.leave()
-    }
-
-    fn _dx_two_types(self, const kind: string, a: unsafe *Type, b: unsafe *Type, is_last: bool) {
-        self._head(kind, is_last)
-        self.p.put(" ")
-        self.src_type(a)
-        self.p.put(" / ")
-        self.src_type(b)
-        self.p.newline()
     }
 
     //  PATTERN dump row

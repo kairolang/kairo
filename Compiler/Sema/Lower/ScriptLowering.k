@@ -833,7 +833,8 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         var unsafe *m = self._main(at, &body)
         kept.push(TopLevelItem::from_decl(m))
         (items) = kept
-        self._resync(self.sc->tu)
+        // dc_decls follows the new item list, so EmitPlan sees `main`.
+        self._resync_tu_decls(self.sc->tu)
     }
 
     /// `g = <init>`, the deferred initializer at its line: walked as main's
@@ -933,28 +934,6 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
 
     priv fn _tu_dc(self, t: unsafe *TranslationUnit) -> unsafe *DeclContext {
         return t
-    }
-
-    /// tu->dc_decls from the new item list: its Decl entries in order
-    /// (ASTWriter::_resync_tu_decls' rule), so EmitPlan sees `main`.
-    priv fn _resync(self, t: unsafe *TranslationUnit) {
-        var unsafe *dc = self._tu_dc(t)
-        var        buf = ArenaList<unsafe *Decl>()
-        buf.set_allocator(unsafe &self.ctx->ast_alloc)
-        var *items = &t->program->items
-        for var i: usize = 0; i < items->size(); i++ {
-            var item = *items->get(i)
-            if item.kind != TopLevelKind::Decl {
-                continue
-            }
-
-            var unsafe *d = item.as_decl()
-            if d != &null {
-                buf.push(d)
-            }
-        }
-
-        dc->dc_decls = buf
     }
 
     /// # reads

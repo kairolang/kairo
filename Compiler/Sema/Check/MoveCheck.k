@@ -1093,9 +1093,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         if n->caps_resolved {
-            for var i: usize = 0; i < n->cap_decls.size(); ++i {
-                var        m   = n->cap_modes[i]
-                var unsafe *at = n->cap_uses[i]
+            for var i: usize = 0; i < n->held.size(); ++i {
+                var        m   = n->held[i].mode
+                var unsafe *at = n->held[i].first_use
                 if m == Expressions::CaptureMode::Receiver || at == &null {
                     continue
                 }
@@ -1103,31 +1103,34 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 self._read(at)
             }
 
-            for var i: usize = 0; i < n->cap_decls.size(); ++i {
-                var cm = n->cap_modes[i]
+            for var i: usize = 0; i < n->held.size(); ++i {
+                var cm = n->held[i].mode
                 if (cm == Expressions::CaptureMode::Ptr || cm == Expressions::CaptureMode::ConstPtr)
-                    && n->cap_decls[i] != &null {
-                    self._addr.insert(n->cap_decls[i] as usize as u64)
+                    && n->held[i].decl != &null {
+                    self._addr.insert(n->held[i].decl as usize as u64)
                 }
             }
 
-            for var i: usize = 0; i < n->cap_decls.size(); ++i {
-                if n->cap_modes[i] != Expressions::CaptureMode::Move {
+            for var i: usize = 0; i < n->held.size(); ++i {
+                if n->held[i].mode != Expressions::CaptureMode::Move {
                     continue
                 }
 
-                var unsafe *d = n->cap_decls[i]
+                var unsafe *d = n->held[i].decl
                 if !self._tracked(d) {
                     continue
                 }
 
                 var mp = MovedPart()
-                mp.d     = d
-                mp.path  = ""
-                mp.shown = self.sc->ctx->get_spelling(n->cap_uses[i]->name)
-                mp.at    = n->cap_uses[i]->range
-                mp.how   = "into the closure that captures it"
-                mp.kind  = MoveKind::Capture
+                mp.d    = d
+                mp.path = ""
+                mp.shown = self.sc->ctx->get_spelling(
+                    n->held[i].first_use->name,
+                )
+
+                mp.at   = n->held[i].first_use->range
+                mp.how  = "into the closure that captures it"
+                mp.kind = MoveKind::Capture
                 self._st.mark(mp)
             }
         } else {
@@ -1161,11 +1164,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._out_pany.clear()
         self._exits = 0
         if n->caps_resolved {
-            for var i: usize = 0; i < n->cap_decls.size(); ++i {
-                var cm = n->cap_modes[i]
+            for var i: usize = 0; i < n->held.size(); ++i {
+                var cm = n->held[i].mode
                 if (cm == Expressions::CaptureMode::Ptr || cm == Expressions::CaptureMode::Receiver)
-                    && n->cap_decls[i] != &null {
-                    self._caps.push_back(n->cap_decls[i])
+                    && n->held[i].decl != &null {
+                    self._caps.push_back(n->held[i].decl)
                 }
             }
         }

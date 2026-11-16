@@ -1142,84 +1142,6 @@ pub class AssignOperatorExpr derives Expr {
 }
 
 ///
-///  ImplConformanceExpr
-///  T impl Interface produces bool.
-///
-pub class ImplConformanceExpr derives Expr {
-    pub var subject: unsafe *Type ///< the type being tested.
-    pub var inter:   unsafe *Type ///< the inter being checked.
-
-    static fn create(ctx:     *ASTContext,
-                     range:   SourceRange,
-                     subject: unsafe *Type,
-                     inter:   unsafe *Type) -> unsafe *ImplConformanceExpr {
-        var unsafe *node = ctx->alloc<ImplConformanceExpr>()
-        node->kind    = ExprKind::ImplConformanceExpr
-        node->range   = range
-        node->subject = subject
-        node->inter   = inter
-        node->init_annotations(unsafe &ctx->ast_alloc)
-        return node
-    }
-
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *ImplConformanceExpr {
-        var unsafe *node = ctx->alloc<ImplConformanceExpr>()
-        node->kind          = ExprKind::RecoveryExpr
-        node->recovery_kind = ExprKind::ImplConformanceExpr
-        node->range         = range
-        node->init_annotations(unsafe &ctx->ast_alloc)
-        return node
-    }
-
-    static fn classof(ptr: *const Expr) -> bool {
-        return ptr->kind == ExprKind::ImplConformanceExpr
-    }
-
-    static fn expr_kind() -> ExprKind {
-        return ExprKind::ImplConformanceExpr
-    }
-}
-
-///
-///  DerivesRelationExpr
-///  T derives Base produces bool.
-///
-pub class DerivesRelationExpr derives Expr {
-    pub var subject: unsafe *Type
-    pub var base:    unsafe *Type
-
-    static fn create(ctx:     *ASTContext,
-                     range:   SourceRange,
-                     subject: unsafe *Type,
-                     base:    unsafe *Type) -> unsafe *DerivesRelationExpr {
-        var unsafe *node = ctx->alloc<DerivesRelationExpr>()
-        node->kind    = ExprKind::DerivesRelationExpr
-        node->range   = range
-        node->subject = subject
-        node->base    = base
-        node->init_annotations(unsafe &ctx->ast_alloc)
-        return node
-    }
-
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *DerivesRelationExpr {
-        var unsafe *node = ctx->alloc<DerivesRelationExpr>()
-        node->kind          = ExprKind::RecoveryExpr
-        node->recovery_kind = ExprKind::DerivesRelationExpr
-        node->range         = range
-        node->init_annotations(unsafe &ctx->ast_alloc)
-        return node
-    }
-
-    static fn classof(ptr: *const Expr) -> bool {
-        return ptr->kind == ExprKind::DerivesRelationExpr
-    }
-
-    static fn expr_kind() -> ExprKind {
-        return ExprKind::DerivesRelationExpr
-    }
-}
-
-///
 ///  IfExpr
 ///  Grammar:  'if' expr '{' expr '}'
 ///            ('else' 'if' expr '{' expr '}')*
@@ -2619,20 +2541,25 @@ pub class ClosureExpr derives Expr {
     /// `|...|` / `||` as written, for a fix-it; invalid when there is none.
     pub var capture_range: SourceRange
 
+    /// One binding the closure holds.
+    pub struct Held {
+        pub var decl: unsafe *Decl = &null
+        pub var mode: CaptureMode  = CaptureMode::Copy
+        /// An enclosing closure holds `decl` by pointer, so the name is that
+        /// pointer here.
+        pub var via_ptr: bool = false
+        /// The first use of the capture in the closure (a named capture's
+        /// own name in the list): what MoveCheck reads as the capture's
+        /// read. The tree's, before any lowering rebuilds it.
+        pub var first_use: unsafe *NamedIdentExpr = &null
+    }
+
     /// What the closure holds, decided once by ClosureCaptures (CHECK) and
     /// read by MoveCheck, FinallyLowering and EmitIR: the captured bindings
-    /// in first-use order (a named list's order for a named list), each
-    /// with its mode, parallel. `cap_via_ptr[i]`: an enclosing closure holds
-    /// `cap_decls[i]` by pointer, so the name is that pointer here.
+    /// in first-use order (a named list's order for a named list).
     /// `caps_resolved` is false until the check has run; EmitIR ICEs on it.
-    pub var cap_decls:   FrozenList<unsafe *Decl>
-    pub var cap_modes:   FrozenList<CaptureMode>
-    pub var cap_via_ptr: FrozenList<bool>
-    /// The first use of each capture in the closure (a named capture's own
-    /// name in the list), parallel: what MoveCheck reads as the capture's
-    /// read. The tree's, before any lowering rebuilds it.
-    pub var cap_uses:      FrozenList<unsafe *NamedIdentExpr>
-    pub var caps_resolved: bool                               = false
+    pub var held:          FrozenList<Self::Held>
+    pub var caps_resolved: bool                   = false
 
     pub static fn create(ctx: *ASTContext, range: SourceRange) -> unsafe *ClosureExpr {
         var unsafe *node = ctx->alloc<ClosureExpr>()

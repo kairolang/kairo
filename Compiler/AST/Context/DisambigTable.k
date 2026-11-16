@@ -36,7 +36,6 @@ pub enum DisambigKind derives u8 {
     InterfaceType, ///< interface Foo
     TypeAlias,     ///< type Foo = ...
     Function,      ///< fn foo
-    Operator,      ///< fn op +
     Variable,      ///< var foo / const foo
     ProcMacro,     ///< @foo
     BasicMacro,    ///< foo!
@@ -91,9 +90,7 @@ pub class DisambigEntry {
     }
 
     fn is_value(self) -> bool {
-        return self.kind == DisambigKind::Function
-            || self.kind == DisambigKind::Operator
-            || self.kind == DisambigKind::Variable
+        return self.kind == DisambigKind::Function || self.kind == DisambigKind::Variable
     }
 
     fn is_macro(self) -> bool {
@@ -626,8 +623,6 @@ pub class DisambigTable {
                 return "type"
             } case DisambigKind::Function {
                 return "fn"
-            } case DisambigKind::Operator {
-                return "fn op"
             } case DisambigKind::Variable {
                 return "var"
             } case DisambigKind::ProcMacro {

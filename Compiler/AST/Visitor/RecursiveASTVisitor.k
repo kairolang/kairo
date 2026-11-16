@@ -930,14 +930,6 @@ pub class <D: type> RecursiveASTVisitor {
                 return self.dyn()->traverse_assign_operator_expr(
                     cast<Expressions::AssignOperatorExpr>(e),
                 )
-            } case ExprKind::ImplConformanceExpr {
-                return self.dyn()->traverse_impl_conformance_expr(
-                    cast<Expressions::ImplConformanceExpr>(e),
-                )
-            } case ExprKind::DerivesRelationExpr {
-                return self.dyn()->traverse_derives_relation_expr(
-                    cast<Expressions::DerivesRelationExpr>(e),
-                )
             } case ExprKind::IfExpr {
                 return self.dyn()->traverse_if_expr(
                     cast<Expressions::IfExpr>(e),
@@ -1410,40 +1402,6 @@ pub class <D: type> RecursiveASTVisitor {
 
         if n->rhs != &null {
             self.dyn()->dispatch_expr(n->rhs)
-        }
-
-        return n
-    }
-
-    fn traverse_impl_conformance_expr(self,
-                                      n: *Expressions::ImplConformanceExpr) -> *Expressions::ImplConformanceExpr {
-        if self.dyn()->walkup_impl_conformance_expr(n) == false {
-            return n
-        }
-
-        if n->subject != &null {
-            self.dyn()->dispatch_type(n->subject)
-        }
-
-        if n->inter != &null {
-            self.dyn()->dispatch_type(n->inter)
-        }
-
-        return n
-    }
-
-    fn traverse_derives_relation_expr(self,
-                                      n: *Expressions::DerivesRelationExpr) -> *Expressions::DerivesRelationExpr {
-        if self.dyn()->walkup_derives_relation_expr(n) == false {
-            return n
-        }
-
-        if n->subject != &null {
-            self.dyn()->dispatch_type(n->subject)
-        }
-
-        if n->base != &null {
-            self.dyn()->dispatch_type(n->base)
         }
 
         return n
@@ -2142,22 +2100,6 @@ pub class <D: type> RecursiveASTVisitor {
         return self.dyn()->visit_assign_operator_expr(n)
     }
 
-    fn walkup_impl_conformance_expr(self, n: *Expressions::ImplConformanceExpr) -> bool {
-        if self.dyn()->visit_expr(n) == false {
-            return false
-        }
-
-        return self.dyn()->visit_impl_conformance_expr(n)
-    }
-
-    fn walkup_derives_relation_expr(self, n: *Expressions::DerivesRelationExpr) -> bool {
-        if self.dyn()->visit_expr(n) == false {
-            return false
-        }
-
-        return self.dyn()->visit_derives_relation_expr(n)
-    }
-
     fn walkup_if_expr(self, n: *Expressions::IfExpr) -> bool {
         if self.dyn()->visit_expr(n) == false {
             return false
@@ -2473,14 +2415,6 @@ pub class <D: type> RecursiveASTVisitor {
     }
 
     fn visit_assign_operator_expr(self, n: *Expressions::AssignOperatorExpr) -> bool {
-        return true
-    }
-
-    fn visit_impl_conformance_expr(self, n: *Expressions::ImplConformanceExpr) -> bool {
-        return true
-    }
-
-    fn visit_derives_relation_expr(self, n: *Expressions::DerivesRelationExpr) -> bool {
         return true
     }
 

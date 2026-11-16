@@ -10,9 +10,10 @@
 ///
 ///   Nothing here is read by name resolution or the typer through a special
 ///   path: an imported decl is an ordinary Decl with its slots pre-filled.
-///   These fields serve EmitIR (spellings), LayoutPass (layout parity),
-///   CopyMoveLowering (triviality), ConformanceChecking (concept bounds),
-///   OverloadResolution (C varargs, `explicit`) and M2 (the live clang decl).
+///   These fields serve EmitIR (spellings), ClassLifecycle and
+///   EnumLayoutLowering (an imported record's layout and triviality),
+///   ConformanceChecking (concept bounds), OverloadResolution (C varargs,
+///   `explicit`) and M2 (the live clang decl).
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -35,9 +36,9 @@ pub enum LinkageKind derives u8 {
 }
 
 /// Layout facts clang computed for a complete, non-dependent record. Filled
-/// by DeclImport from ASTContext::getASTRecordLayout; read by LayoutPass to
-/// assert parity against a Kairo record declared as a mirror, and by
-/// CopyMoveLowering for the triviality bits.
+/// by DeclImport from ASTContext::getASTRecordLayout; read by
+/// ClassLifecycle (polymorphism and triviality of an imported record) and
+/// EnumLayoutLowering (its size and alignment).
 pub class ForeignLayout {
     pub var known:                bool                  = false ///< false: dependent or incomplete; nothing below is valid.
     pub var size_bytes:           u64                   = 0

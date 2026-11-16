@@ -996,14 +996,6 @@ pub class <D: type> ASTWriter {
                 return self.dyn()->transform_assign_operator_expr(
                     cast<Expressions::AssignOperatorExpr>(e),
                 )
-            } case ExprKind::ImplConformanceExpr {
-                return self.dyn()->transform_impl_conformance_expr(
-                    cast<Expressions::ImplConformanceExpr>(e),
-                )
-            } case ExprKind::DerivesRelationExpr {
-                return self.dyn()->transform_derives_relation_expr(
-                    cast<Expressions::DerivesRelationExpr>(e),
-                )
             } case ExprKind::IfExpr {
                 return self.dyn()->transform_if_expr(
                     cast<Expressions::IfExpr>(e),
@@ -1338,30 +1330,6 @@ pub class <D: type> ASTWriter {
 
         if n->rhs != &null {
             n->rhs = self.dyn()->transform_expr(n->rhs)
-        }
-
-        return n
-    }
-
-    fn transform_impl_conformance_expr(self, n: *Expressions::ImplConformanceExpr) -> *Expr {
-        if n->subject != &null {
-            n->subject = self.dyn()->transform_type(n->subject)
-        }
-
-        if n->inter != &null {
-            n->inter = self.dyn()->transform_type(n->inter)
-        }
-
-        return n
-    }
-
-    fn transform_derives_relation_expr(self, n: *Expressions::DerivesRelationExpr) -> *Expr {
-        if n->subject != &null {
-            n->subject = self.dyn()->transform_type(n->subject)
-        }
-
-        if n->base != &null {
-            n->base = self.dyn()->transform_type(n->base)
         }
 
         return n
@@ -2785,8 +2753,9 @@ pub class <D: type> ASTWriter {
     /// would have built for the rewritten tree. EmitPlan::_collect_own reads
     /// dc_decls, and a TU-scope splice is invisible to it otherwise.
     /// Rebuilt from the items, NOT by running transform_decl over dc_decls:
-    /// that would rewrite every top-level decl a second time.
-    priv fn _resync_tu_decls(self, tu: unsafe *TranslationUnit) {
+    /// that would rewrite every top-level decl a second time. A derived
+    /// writer that replaces the item list itself calls it afterwards.
+    prot fn _resync_tu_decls(self, tu: unsafe *TranslationUnit) {
         var unsafe *dc = unsafe (tu as unsafe *DeclContext)
         var        buf = ArenaList<unsafe *Decl>()
         buf.set_allocator(unsafe &self.ctx->ast_alloc)

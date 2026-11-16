@@ -316,13 +316,13 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
                 continue
             }
 
-            for var k: usize = 0; k < c->cap_decls.size(); ++k {
-                if c->cap_decls[k] != d {
+            for var k: usize = 0; k < c->held.size(); ++k {
+                if c->held[k].decl != d {
                     continue
                 }
 
-                var m   = c->cap_modes[k]
-                var ptr = m == CaptureMode::Ptr || m == CaptureMode::ConstPtr || c->cap_via_ptr[k]
+                var m   = c->held[k].mode
+                var ptr = m == CaptureMode::Ptr || m == CaptureMode::ConstPtr || c->held[k].via_ptr
                 if !ptr {
                     return &null
                 }

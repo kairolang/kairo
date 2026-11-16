@@ -40,7 +40,7 @@ pub enum ExprKind derives u8 {
     /// `recovery_kind` on the Expr base stores what we were trying to parse.
     RecoveryExpr = 0,
 
-    /// # Scalar literals  [1 .. 6]
+    /// # Scalar literals
 
     /// Integer literal: 42 | 0xFF | 0b1010 | 0o77 | 1_000_000
     /// Node: IntegerLiteralExpr: token + numeric suffix type.
@@ -69,7 +69,7 @@ pub enum ExprKind derives u8 {
     /// Node: NullLiteralExpr: is_ref flag distinguishes &null.
     NullLiteralExpr,
 
-    /// # Collection literals  [7 .. 10]
+    /// # Collection literals
 
     /// Array literal: [1, 2, 3]
     /// Node: ListLiteralExpr
@@ -87,7 +87,7 @@ pub enum ExprKind derives u8 {
     /// Node: MapLiteralExpr: stores key-value pairs.
     MapLiteralExpr,
 
-    /// # Initializer expressions  [11 .. 12]
+    /// # Initializer expressions
     ///
     /// Distinguished from literals: initializers describe a type's storage
     /// layout rather than a value sequence.
@@ -100,7 +100,7 @@ pub enum ExprKind derives u8 {
     /// Node: AnonInitializerExpr: no type path, sema infers from context.
     AnonInitializerExpr,
 
-    /// # Name / path / postfix expressions  [13 .. 17]
+    /// # Name / path / postfix expressions
 
     /// Pure access chain. Covers:
     ///   - field access:           foo.bar.baz
@@ -142,7 +142,7 @@ pub enum ExprKind derives u8 {
     /// Node: NamedIdentExpr: name: Token + generic_args: FrozenList<GenericArg>
     NamedIdentExpr,
 
-    /// # Operator expressions  [18 .. 20]
+    /// # Operator expressions
 
     /// Unary prefix or postfix operator:
     ///   prefix:   ++x | --x | !x | -x | ~x | &x | *x | delete x
@@ -166,19 +166,7 @@ pub enum ExprKind derives u8 {
     /// Node: AssignOperatorExpr: operator token + lhs + rhs.
     AssignOperatorExpr,
 
-    /// # Type-relation expressions  [21 .. 22]
-    ///
-    /// Produce bool. Appear in requires clauses and conditions.
-
-    /// Interface conformance test: T impl Interface
-    /// Node: ImplConformanceExpr: lhs type + interface type.
-    ImplConformanceExpr,
-
-    /// Inheritance / derivation test: T derives Base
-    /// Node: DerivesRelationExpr: lhs type + base type.
-    DerivesRelationExpr,
-
-    /// # Control-flow expressions  [23 .. 26]
+    /// # Control-flow expressions
     ///
     /// All produce values. Sema enforces branch type compatibility.
 
@@ -199,7 +187,7 @@ pub enum ExprKind derives u8 {
     /// Node: RangeExpr: begin (nullable) + end (nullable) + is_inclusive.
     RangeExpr,
 
-    /// # Lambda / closure  [27]
+    /// # Lambda / closure
 
     /// Anonymous function expression:
     ///   fn <T> (x: T, y: i32)|foo| -> i32 { x + y + foo }
@@ -207,7 +195,7 @@ pub enum ExprKind derives u8 {
     /// Node: ClosureExpr: params + optional generics + captures + return type + body.
     ClosureExpr,
 
-    /// # Async / concurrency expressions  [28 .. 30]
+    /// # Async / concurrency expressions
 
     /// Suspend current async task and await a future: await expr
     /// Node: AwaitExpr: operand: *Expr
@@ -221,7 +209,7 @@ pub enum ExprKind derives u8 {
     /// Node: ThreadExpr: operand: *Expr
     ThreadExpr,
 
-    /// # Intrinsic / builtin expressions  [31 .. 35]
+    /// # Intrinsic / builtin expressions
 
     /// Type conformance constraint: T impl Foo | T derives Base.
     /// Node: ConstraintExpr: lhs type, op (impl/derives), rhs type. A bool-
@@ -252,33 +240,33 @@ pub enum ExprKind derives u8 {
     /// Node: UnsafeExpr: operand: *Expr
     UnsafeExpr,
 
-    /// # Memory / lifetime expressions  [36]
+    /// # Memory / lifetime expressions
 
     /// C++ deallocation: @cxx::delete p | @cxx::delete [] p (a bare
     /// `delete p` is S091E, kept as this node for recovery only)
     /// Node: DeleteExpr: operand: *Expr + is_array: bool + is_cxx: bool
     DeleteExpr,
 
-    /// # Variadic pack expressions  [37]
+    /// # Variadic pack expressions
 
     /// Variadic unpack expansion: foo...
     /// Node: PackExpansionExpr: operand: *Expr
     PackExpansionExpr,
 
-    /// # Type cast  [38]
+    /// # Type cast
 
     /// Explicit type cast: expr as Type
     /// Node: TypeCastExpr: value: *Expr + target: *Type, is_unsafe: bool
     TypeCastExpr,
 
-    /// # Sema-inserted  [39]
+    /// # Sema-inserted
 
     /// Inserted by sema at FFI call boundaries. Carries:
     ///   original expr + source type + target ABI type
     /// Invisible to the programmer, visible in AST dumps for debugging.
     ImplicitBoundaryCastExpr,
 
-    /// # Source-fidelity  [40]
+    /// # Source-fidelity
 
     /// Explicit parentheses: ( expr )
     /// Node: ParenExpr: inner: *Expr
@@ -419,10 +407,6 @@ pub fn to_string(ek: ExprKind) -> string {
             return "BinaryOperatorExpr"
         } case ExprKind::AssignOperatorExpr {
             return "AssignOperatorExpr"
-        } case ExprKind::ImplConformanceExpr {
-            return "ImplConformanceExpr"
-        } case ExprKind::DerivesRelationExpr {
-            return "DerivesRelationExpr"
         } case ExprKind::IfExpr {
             return "IfExpr"
         } case ExprKind::TryCatchExpr {

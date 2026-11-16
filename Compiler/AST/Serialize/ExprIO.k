@@ -110,10 +110,6 @@ pub fn expr_alloc(ar: unsafe *ASTArchive) -> unsafe *Expr {
             e = new_expr<Expressions::BinaryOperatorExpr>(ar)
         } case ExprKind::AssignOperatorExpr {
             e = new_expr<Expressions::AssignOperatorExpr>(ar)
-        } case ExprKind::ImplConformanceExpr {
-            e = new_expr<Expressions::ImplConformanceExpr>(ar)
-        } case ExprKind::DerivesRelationExpr {
-            e = new_expr<Expressions::DerivesRelationExpr>(ar)
         } case ExprKind::IfExpr {
             e = new_expr<Expressions::IfExpr>(ar)
         } case ExprKind::TryCatchExpr {
@@ -635,16 +631,6 @@ fn io_assign_operator_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::Assig
     }
 }
 
-fn io_impl_conformance_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::ImplConformanceExpr) {
-    ar->type_<Type>(&n->subject)
-    ar->type_<Type>(&n->inter)
-}
-
-fn io_derives_relation_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::DerivesRelationExpr) {
-    ar->type_<Type>(&n->subject)
-    ar->type_<Type>(&n->base)
-}
-
 fn io_if_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::IfExpr) {
     ar->expr<Expr>(&n->condition)
     ar->expr<Expr>(&n->then_expr)
@@ -868,10 +854,7 @@ fn io_closure_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::ClosureExpr) 
 
         ar->sema_null<Type>(n->panic_result, "ClosureExpr::panic_result")
         // ClosureCaptures' resolution of the capture list.
-        ar->sema_zero(n->cap_decls.size() as u64, "ClosureExpr::cap_decls")
-        ar->sema_zero(n->cap_modes.size() as u64, "ClosureExpr::cap_modes")
-        ar->sema_zero(n->cap_via_ptr.size() as u64, "ClosureExpr::cap_via_ptr")
-        ar->sema_zero(n->cap_uses.size() as u64, "ClosureExpr::cap_uses")
+        ar->sema_zero(n->held.size() as u64, "ClosureExpr::held")
         ar->sema_false(n->caps_resolved, "ClosureExpr::caps_resolved")
     }
 }
@@ -976,16 +959,6 @@ fn io_expr_fields(ar: unsafe *ASTArchive, e: unsafe *Expr) {
             io_assign_operator_expr(
                 ar,
                 unsafe (e as unsafe *Expressions::AssignOperatorExpr),
-            )
-        } case ExprKind::ImplConformanceExpr {
-            io_impl_conformance_expr(
-                ar,
-                unsafe (e as unsafe *Expressions::ImplConformanceExpr),
-            )
-        } case ExprKind::DerivesRelationExpr {
-            io_derives_relation_expr(
-                ar,
-                unsafe (e as unsafe *Expressions::DerivesRelationExpr),
             )
         } case ExprKind::IfExpr {
             io_if_expr(ar, unsafe (e as unsafe *Expressions::IfExpr))

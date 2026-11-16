@@ -38,7 +38,6 @@ Compiler/
 │   ├── Check/      conformance, lifecycle, init/move, purity, control flow,
 │   │               patterns, effects, local disposition (union storage for
 │   │               locals a finally() ends early), feature gates
-│   │               (ConstChecking.k and LayoutPass.k are stubs)
 │   ├── Verify/     structural checks between expansion and name resolution
 │   │               (arm order, labels, loop context, pattern bindings, C++
 │   │               names, module pins)

@@ -119,6 +119,79 @@ pub fn scope_decls(d: unsafe *Decl, @inout out: cxx::std::vector<unsafe *Decl>) 
     out.push_back(d)
 }
 
+/// Reaching a mixin of a Decl whose class is not known: Kairo's mixins are
+/// generic over the deriving class and have no common base, so each
+/// accessor asks every class that derives one. The two macros write that
+/// question once: under `if isa<K>(d)`, the statement `pre cast<K>(d) post`,
+/// for each class K that derives the mixin.
+priv macro template_params_of!(d, pre, post) {
+    if isa<Declarations::ClassDecl>(d) {
+        pre cast<Declarations::ClassDecl>(d) post
+    }
+
+    if isa<Declarations::StructDecl>(d) {
+        pre cast<Declarations::StructDecl>(d) post
+    }
+
+    if isa<Declarations::UnionDecl>(d) {
+        pre cast<Declarations::UnionDecl>(d) post
+    }
+
+    if isa<Declarations::InterfaceDecl>(d) {
+        pre cast<Declarations::InterfaceDecl>(d) post
+    }
+
+    if isa<Declarations::EnumDecl>(d) {
+        pre cast<Declarations::EnumDecl>(d) post
+    }
+
+    if isa<Declarations::TypeAliasDecl>(d) {
+        pre cast<Declarations::TypeAliasDecl>(d) post
+    }
+
+    if isa<Declarations::FunctionDecl>(d) {
+        pre cast<Declarations::FunctionDecl>(d) post
+    }
+
+    if isa<Declarations::ExtensionDecl>(d) {
+        pre cast<Declarations::ExtensionDecl>(d) post
+    }
+}
+
+priv macro ffi_linkage_of!(d, pre, post) {
+    if isa<Declarations::ClassDecl>(d) {
+        pre cast<Declarations::ClassDecl>(d) post
+    }
+
+    if isa<Declarations::StructDecl>(d) {
+        pre cast<Declarations::StructDecl>(d) post
+    }
+
+    if isa<Declarations::UnionDecl>(d) {
+        pre cast<Declarations::UnionDecl>(d) post
+    }
+
+    if isa<Declarations::InterfaceDecl>(d) {
+        pre cast<Declarations::InterfaceDecl>(d) post
+    }
+
+    if isa<Declarations::EnumDecl>(d) {
+        pre cast<Declarations::EnumDecl>(d) post
+    }
+
+    if isa<Declarations::TypeAliasDecl>(d) {
+        pre cast<Declarations::TypeAliasDecl>(d) post
+    }
+
+    if isa<Declarations::FunctionDecl>(d) {
+        pre cast<Declarations::FunctionDecl>(d) post
+    }
+
+    if isa<Declarations::VariableDecl>(d) {
+        pre cast<Declarations::VariableDecl>(d) post
+    }
+}
+
 /// # TemplateParams
 ///
 /// Function, Struct, Class, Interface, Extension, Enum, Union, TypeAlias.
@@ -128,38 +201,7 @@ pub fn decl_generic_params(d: unsafe *Decl) -> FrozenList<unsafe *Declarations::
         return create_empty_frozen_list<unsafe *Declarations::GenericParamDecl>()
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        return cast<Declarations::InterfaceDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        return cast<Declarations::EnumDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        return cast<Declarations::TypeAliasDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        return cast<Declarations::FunctionDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::ExtensionDecl>(d) {
-        return cast<Declarations::ExtensionDecl>(d)->generic_params
-    }
-
+    template_params_of!(d, return, ->generic_params)
     return create_empty_frozen_list<unsafe *Declarations::GenericParamDecl>()
 }
 
@@ -170,38 +212,7 @@ pub fn decl_requires_clause(d: unsafe *Decl) -> unsafe *Expr {
         return &null
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->requires_clause
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->requires_clause
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->requires_clause
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        return cast<Declarations::InterfaceDecl>(d)->requires_clause
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        return cast<Declarations::EnumDecl>(d)->requires_clause
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        return cast<Declarations::TypeAliasDecl>(d)->requires_clause
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        return cast<Declarations::FunctionDecl>(d)->requires_clause
-    }
-
-    if isa<Declarations::ExtensionDecl>(d) {
-        return cast<Declarations::ExtensionDecl>(d)->requires_clause
-    }
-
+    template_params_of!(d, return, ->requires_clause)
     return &null
 }
 
@@ -212,38 +223,7 @@ pub fn decl_generic_params_slot(d: unsafe *Decl) -> unsafe *FrozenList<unsafe *D
         return &null
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        return unsafe &cast<Declarations::ClassDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        return unsafe &cast<Declarations::StructDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        return unsafe &cast<Declarations::UnionDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        return unsafe &cast<Declarations::InterfaceDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        return unsafe &cast<Declarations::EnumDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        return unsafe &cast<Declarations::TypeAliasDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        return unsafe &cast<Declarations::FunctionDecl>(d)->generic_params
-    }
-
-    if isa<Declarations::ExtensionDecl>(d) {
-        return unsafe &cast<Declarations::ExtensionDecl>(d)->generic_params
-    }
-
+    template_params_of!(d, return unsafe &, ->generic_params)
     return &null
 }
 
@@ -252,38 +232,7 @@ pub fn decl_spec_kind(d: unsafe *Decl) -> Declarations::SpecKind {
         return Declarations::SpecKind::None
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->spec_kind
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->spec_kind
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->spec_kind
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        return cast<Declarations::InterfaceDecl>(d)->spec_kind
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        return cast<Declarations::EnumDecl>(d)->spec_kind
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        return cast<Declarations::TypeAliasDecl>(d)->spec_kind
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        return cast<Declarations::FunctionDecl>(d)->spec_kind
-    }
-
-    if isa<Declarations::ExtensionDecl>(d) {
-        return cast<Declarations::ExtensionDecl>(d)->spec_kind
-    }
-
+    template_params_of!(d, return, ->spec_kind)
     return Declarations::SpecKind::None
 }
 
@@ -292,45 +241,7 @@ pub fn decl_set_spec_kind(d: unsafe *Decl, k: Declarations::SpecKind) {
         return
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        cast<Declarations::ClassDecl>(d)->spec_kind = k
-        return
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        cast<Declarations::StructDecl>(d)->spec_kind = k
-        return
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        cast<Declarations::UnionDecl>(d)->spec_kind = k
-        return
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        cast<Declarations::InterfaceDecl>(d)->spec_kind = k
-        return
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        cast<Declarations::EnumDecl>(d)->spec_kind = k
-        return
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        cast<Declarations::TypeAliasDecl>(d)->spec_kind = k
-        return
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        cast<Declarations::FunctionDecl>(d)->spec_kind = k
-        return
-    }
-
-    if isa<Declarations::ExtensionDecl>(d) {
-        cast<Declarations::ExtensionDecl>(d)->spec_kind = k
-        return
-    }
+    template_params_of!(d, , ->spec_kind = k; return)
 }
 
 pub fn decl_spec_args(d: unsafe *Decl) -> FrozenList<unsafe *Type> {
@@ -338,38 +249,7 @@ pub fn decl_spec_args(d: unsafe *Decl) -> FrozenList<unsafe *Type> {
         return create_empty_frozen_list<unsafe *Type>()
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->spec_args
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->spec_args
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->spec_args
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        return cast<Declarations::InterfaceDecl>(d)->spec_args
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        return cast<Declarations::EnumDecl>(d)->spec_args
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        return cast<Declarations::TypeAliasDecl>(d)->spec_args
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        return cast<Declarations::FunctionDecl>(d)->spec_args
-    }
-
-    if isa<Declarations::ExtensionDecl>(d) {
-        return cast<Declarations::ExtensionDecl>(d)->spec_args
-    }
-
+    template_params_of!(d, return, ->spec_args)
     return create_empty_frozen_list<unsafe *Type>()
 }
 
@@ -380,38 +260,7 @@ pub fn decl_instantiated_from(d: unsafe *Decl) -> unsafe *Decl {
         return &null
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->instantiated_from
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->instantiated_from
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->instantiated_from
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        return cast<Declarations::InterfaceDecl>(d)->instantiated_from
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        return cast<Declarations::EnumDecl>(d)->instantiated_from
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        return cast<Declarations::TypeAliasDecl>(d)->instantiated_from
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        return cast<Declarations::FunctionDecl>(d)->instantiated_from
-    }
-
-    if isa<Declarations::ExtensionDecl>(d) {
-        return cast<Declarations::ExtensionDecl>(d)->instantiated_from
-    }
-
+    template_params_of!(d, return, ->instantiated_from)
     return &null
 }
 
@@ -420,45 +269,7 @@ pub fn decl_set_instantiated_from(d: unsafe *Decl, p: unsafe *Decl) {
         return
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        cast<Declarations::ClassDecl>(d)->instantiated_from = p
-        return
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        cast<Declarations::StructDecl>(d)->instantiated_from = p
-        return
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        cast<Declarations::UnionDecl>(d)->instantiated_from = p
-        return
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        cast<Declarations::InterfaceDecl>(d)->instantiated_from = p
-        return
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        cast<Declarations::EnumDecl>(d)->instantiated_from = p
-        return
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        cast<Declarations::TypeAliasDecl>(d)->instantiated_from = p
-        return
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        cast<Declarations::FunctionDecl>(d)->instantiated_from = p
-        return
-    }
-
-    if isa<Declarations::ExtensionDecl>(d) {
-        cast<Declarations::ExtensionDecl>(d)->instantiated_from = p
-        return
-    }
+    template_params_of!(d, , ->instantiated_from = p; return)
 }
 
 /// The pattern a decl is an instance of, or the decl itself.
@@ -573,38 +384,7 @@ pub fn decl_is_imported(d: unsafe *Decl) -> bool {
         return false
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->is_imported()
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->is_imported()
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->is_imported()
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        return cast<Declarations::InterfaceDecl>(d)->is_imported()
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        return cast<Declarations::EnumDecl>(d)->is_imported()
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        return cast<Declarations::TypeAliasDecl>(d)->is_imported()
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        return cast<Declarations::FunctionDecl>(d)->is_imported()
-    }
-
-    if isa<Declarations::VariableDecl>(d) {
-        return cast<Declarations::VariableDecl>(d)->is_imported()
-    }
-
+    ffi_linkage_of!(d, return, ->is_imported())
     return false
 }
 
@@ -674,38 +454,7 @@ pub fn decl_clang(d: unsafe *Decl) -> unsafe *void {
         return &null
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->clang_decl
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->clang_decl
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->clang_decl
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        return cast<Declarations::InterfaceDecl>(d)->clang_decl
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        return cast<Declarations::EnumDecl>(d)->clang_decl
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        return cast<Declarations::TypeAliasDecl>(d)->clang_decl
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        return cast<Declarations::FunctionDecl>(d)->clang_decl
-    }
-
-    if isa<Declarations::VariableDecl>(d) {
-        return cast<Declarations::VariableDecl>(d)->clang_decl
-    }
-
+    ffi_linkage_of!(d, return, ->clang_decl)
     return &null
 }
 
@@ -714,38 +463,7 @@ pub fn decl_origin_set(d: unsafe *Decl) -> unsafe *void {
         return &null
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->origin_set
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->origin_set
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->origin_set
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        return cast<Declarations::InterfaceDecl>(d)->origin_set
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        return cast<Declarations::EnumDecl>(d)->origin_set
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        return cast<Declarations::TypeAliasDecl>(d)->origin_set
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        return cast<Declarations::FunctionDecl>(d)->origin_set
-    }
-
-    if isa<Declarations::VariableDecl>(d) {
-        return cast<Declarations::VariableDecl>(d)->origin_set
-    }
-
+    ffi_linkage_of!(d, return, ->origin_set)
     return &null
 }
 
@@ -754,38 +472,7 @@ pub fn decl_origin_fid(d: unsafe *Decl) -> u32 {
         return 0
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->origin_fid
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->origin_fid
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->origin_fid
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        return cast<Declarations::InterfaceDecl>(d)->origin_fid
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        return cast<Declarations::EnumDecl>(d)->origin_fid
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        return cast<Declarations::TypeAliasDecl>(d)->origin_fid
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        return cast<Declarations::FunctionDecl>(d)->origin_fid
-    }
-
-    if isa<Declarations::VariableDecl>(d) {
-        return cast<Declarations::VariableDecl>(d)->origin_fid
-    }
-
+    ffi_linkage_of!(d, return, ->origin_fid)
     return 0
 }
 
@@ -794,38 +481,7 @@ pub fn decl_cxx_spelling(d: unsafe *Decl) -> string {
         return ""
     }
 
-    if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->cxx_spelling
-    }
-
-    if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->cxx_spelling
-    }
-
-    if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->cxx_spelling
-    }
-
-    if isa<Declarations::InterfaceDecl>(d) {
-        return cast<Declarations::InterfaceDecl>(d)->cxx_spelling
-    }
-
-    if isa<Declarations::EnumDecl>(d) {
-        return cast<Declarations::EnumDecl>(d)->cxx_spelling
-    }
-
-    if isa<Declarations::TypeAliasDecl>(d) {
-        return cast<Declarations::TypeAliasDecl>(d)->cxx_spelling
-    }
-
-    if isa<Declarations::FunctionDecl>(d) {
-        return cast<Declarations::FunctionDecl>(d)->cxx_spelling
-    }
-
-    if isa<Declarations::VariableDecl>(d) {
-        return cast<Declarations::VariableDecl>(d)->cxx_spelling
-    }
-
+    ffi_linkage_of!(d, return, ->cxx_spelling)
     return ""
 }
 

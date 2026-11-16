@@ -131,8 +131,8 @@ extend EmitIR {
         }
 
         if self._closure != &null {
-            for var i: usize = 0; i < self._closure->cap_decls.size(); ++i {
-                if self._closure->cap_decls[i] == d {
+            for var i: usize = 0; i < self._closure->held.size(); ++i {
+                if self._closure->held[i].decl == d {
                     return usize::MAX
                 }
             }

@@ -26,11 +26,11 @@
 ///     written in a list (it is a keyword there); it is captured implicitly
 ///     by every form but `||`, as the pointer it already is (Self).
 ///
-///     Each closure records the result on itself (ClosureExpr::cap_decls /
-///     cap_modes / cap_via_ptr / cap_uses, caps_resolved). An inner closure
-///     sees a binding an enclosing closure holds by pointer AS that pointer
-///     (ExprTyper::_capture_view), so its capture copies or converts the
-///     pointer (`cap_via_ptr`) instead of taking an address again.
+///     Each closure records the result on itself (ClosureExpr::held,
+///     caps_resolved). An inner closure sees a binding an enclosing closure
+///     holds by pointer AS that pointer (ExprTyper::_capture_view), so its
+///     capture copies or converts the pointer (`Held::via_ptr`) instead of
+///     taking an address again.
 ///
 ///     The free walk of a closure includes the closures nested in it: a
 ///     binding an inner closure uses is captured by every closure between
@@ -308,10 +308,7 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
             }
         }
 
-        var decls = cxx::std::vector<unsafe *Decl>()
-        var modes = cxx::std::vector<CaptureMode>()
-        var via   = cxx::std::vector<u8>()
-        var uses  = cxx::std::vector<unsafe *NamedIdentExpr>()
+        var held = cxx::std::vector<ClosureExpr::Held>()
         for var i: usize = 0; i < scan.free.size(); ++i {
             var unsafe *d      = scan.free[i]
             var unsafe *at_use = scan.free_at[i]
@@ -369,21 +366,15 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
                 mode = CaptureMode::Copy
             }
 
-            decls.push_back(d)
-            modes.push_back(mode)
-            via.push_back(vp as u8)
-            uses.push_back(at_use)
+            var h = ClosureExpr::Held()
+            h.decl      = d
+            h.mode      = mode
+            h.via_ptr   = vp
+            h.first_use = at_use
+            held.push_back(h)
         }
 
-        n->cap_decls.from_vec(unsafe &decls, self.sc->ctx)
-        n->cap_modes.from_vec(unsafe &modes, self.sc->ctx)
-        n->cap_via_ptr.from_buf(
-            unsafe (via.data() as unsafe *bool),
-            via.size(),
-            self.sc->ctx,
-        )
-
-        n->cap_uses.from_vec(unsafe &uses, self.sc->ctx)
+        n->held.from_vec(unsafe &held, self.sc->ctx)
         n->caps_resolved = true
     }
 
@@ -475,13 +466,13 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
         while i > 0 {
             i = i - 1
             var unsafe *c = self._open[i]
-            for var k: usize = 0; k < c->cap_decls.size(); ++k {
-                if c->cap_decls[k] != d {
+            for var k: usize = 0; k < c->held.size(); ++k {
+                if c->held[k].decl != d {
                     continue
                 }
 
-                var m = c->cap_modes[k]
-                return m == CaptureMode::Ptr || m == CaptureMode::ConstPtr || c->cap_via_ptr[k]
+                var m = c->held[k].mode
+                return m == CaptureMode::Ptr || m == CaptureMode::ConstPtr || c->held[k].via_ptr
             }
         }
 

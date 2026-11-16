@@ -802,10 +802,6 @@ pub class ExprTyper
                 }
 
                 return at
-            } case ExprKind::ImplConformanceExpr {
-                return self.type_constraint(e, expected)
-            } case ExprKind::DerivesRelationExpr {
-                return self.type_constraint(e, expected)
             } case ExprKind::ConstraintExpr {
                 return self.type_constraint(e, expected)
             } case ExprKind::IfExpr {

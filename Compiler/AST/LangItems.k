@@ -477,6 +477,131 @@ pub class PureAccessors {
     }
 }
 
+/// \class LangModules
+/// \brief Library modules the compiler imports on a program's behalf, by
+///        path under a root (builtin_root_name() / std_root_spelling()):
+///        the preprocessor adds the import edge for a file whose tokens use
+///        what the module declares, and no source file writes the import.
+pub class LangModules {
+    /// `builtin::base::alloc`: `create` / `destroy`, behind the `@create` /
+    /// `@destroy` sugar.
+    pub static fn base_dir() -> string {
+        return "base"
+    }
+
+    pub static fn alloc_file() -> string {
+        return "alloc"
+    }
+
+    /// `builtin::num::f256_t` / `f512_t`: the `f256` / `f512` classes;
+    /// `builtin::num::f128_ext`: the methods of `f128`.
+    pub static fn num_dir() -> string {
+        return "num"
+    }
+
+    pub static fn f256_file() -> string {
+        return "f256_t"
+    }
+
+    pub static fn f512_file() -> string {
+        return "f512_t"
+    }
+
+    pub static fn f128_ext_file() -> string {
+        return "f128_ext"
+    }
+
+    /// `std::rt::Float8`: the `f8e4m3` / `f8e5m2` classes.
+    pub static fn rt_dir() -> string {
+        return "rt"
+    }
+
+    pub static fn float8_file() -> string {
+        return "Float8"
+    }
+}
+
+/// \class LangTypes
+/// \brief Type forms the PARSER owns by name. `ffi::ref<T>` /
+///        `ffi::mref<T>`: an imported C++ function's reference return
+///        (TypeParse::_parse_ffi_ref_type).
+pub class LangTypes {
+    pub static fn ffi_ref() -> string {
+        return "ref"
+    }
+
+    pub static fn ffi_mref() -> string {
+        return "mref"
+    }
+
+    /// The enclosing type inside its own body, where it is read as a
+    /// spelling (the first segment of `Self::N`).
+    pub static fn self_type() -> string {
+        return "Self"
+    }
+
+    /// The element alias a C++ container declares; an imported instance
+    /// holds values of that type.
+    pub static fn value_type() -> string {
+        return "value_type"
+    }
+}
+
+/// \class LangBuiltins
+/// \brief Functions Lib/builtin/base/intrinsics.k declares that a check
+///        recognizes BY NAME, in the builtin files only: they have no lang
+///        item row because nothing lowers them, a pass only needs to know
+///        what a call of one promises.
+pub class LangBuiltins {
+    /// Hints and queries with no effect at run time.
+    pub static fn expect() -> string {
+        return "__builtin_expect"
+    }
+
+    pub static fn expect_prob() -> string {
+        return "__builtin_expect_prob"
+    }
+
+    pub static fn assume() -> string {
+        return "__builtin_assume"
+    }
+
+    pub static fn assume_aligned() -> string {
+        return "__builtin_assume_aligned"
+    }
+
+    pub static fn unreachable() -> string {
+        return "__builtin_unreachable"
+    }
+
+    pub static fn is_constant_evaluated() -> string {
+        return "__builtin_is_constant_evaluated"
+    }
+
+    pub static fn target_info() -> string {
+        return "__builtin_target_info"
+    }
+
+    /// Readers of memory: no write, no synchronization.
+    pub static fn compare_mem() -> string {
+        return "__builtin_compare_mem"
+    }
+
+    pub static fn prefetch() -> string {
+        return "__builtin_prefetch"
+    }
+
+    /// Type predicates a `requires` clause calls, which conformance folds
+    /// for a concrete argument.
+    pub static fn is_complete() -> string {
+        return "__builtin_is_complete"
+    }
+
+    pub static fn is_constructible() -> string {
+        return "__builtin_is_constructible"
+    }
+}
+
 /// \class WellKnownDecls
 /// \brief WellKnownType -> canonical *Decl. ONE per build, owned by
 ///        GlobalDisambigTable and filled once from the builtins fid (lang
