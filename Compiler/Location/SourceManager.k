@@ -1143,6 +1143,7 @@ pub class SourceManager {
     }
 }
 
+// TODO(replace with kairo test blocks)
 pub fn Test() -> i32 {
     var unsafe *pool = kairo::std::create<ThreadPool>(4)
     var        diag  = DiagEngine()
@@ -1535,5 +1536,9 @@ pub fn Test() -> i32 {
     )
 
     pool->wait_all()
+    if suite.failures() != 0 {
+        return 1
+    }
+
     return 0
 }

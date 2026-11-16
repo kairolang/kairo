@@ -162,4 +162,10 @@ pub class Assert {
         self.passes = 0
         self.fails  = 0
     }
+
+    /// The failed checks so far; a suite's `Test()` returns nonzero when
+    /// this is.
+    pub fn failures(self) -> usize {
+        return self.fails
+    }
 }

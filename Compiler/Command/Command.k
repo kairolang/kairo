@@ -19,7 +19,7 @@
 /// ---------------------------------
 ///   var diag    = DiagEngine();
 ///   var cmd     = Command(&diag);        // stack-allocated, like SourceManager
-///   register_test_flags(&cmd);          // the ONE place to add/remove flags
+///   register_kairo_flags(&cmd);          // the ONE place to add/remove flags
 ///   var args    = cmd.parse(argv_vec);   // argv_vec: vec::<string> from main
 ///   var &args   = args;                  // pass &args to any subsystem
 ///

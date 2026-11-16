@@ -3459,11 +3459,11 @@ group = "memory"
     explain = """
     # a class cannot declare its own allocator
 
-    `static fn op new` / `static fn op delete` (any `op new`, and a static `op
-    delete`) would give a class its own allocator. Kairo does not allow it: every
-    block `@create` hands out goes back to the allocator in effect at `@destroy`, and
-    every Kairo object a C++ `delete` frees goes back to the program's global
-    allocator. A per-class allocator breaks both pairings.
+    `static fn op new` / `static fn op delete` (any `op new`, and a static
+    `op delete`) would give a class its own allocator. Kairo does not allow it:
+    every block `@create` hands out goes back to the allocator in effect at
+    `@destroy`, and every Kairo object a C++ `delete` frees goes back to the
+    program's global allocator. A per-class allocator breaks both pairings.
 
     ```kairo
     class Node {

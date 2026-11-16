@@ -660,6 +660,7 @@ pub class ThreadPool {
 ///
 /// \see ThreadPool, Timer, wait_group, warmup
 ///
+// TODO(replace with kairo test blocks)
 pub fn Test() -> i32 {
     io::println("=== Kairo ThreadPool Benchmark ===")
     var total_timer = Timer("Total test duration")

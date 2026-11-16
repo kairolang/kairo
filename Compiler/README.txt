@@ -144,7 +144,8 @@ Compiler/
 │                   ToolDiagnostics), Sema's checked tree for a tool
 │                   (SemaObserver), the live check a long-running process
 │                   drives (LiveCheck) and its test mode --incr-replay
-│                   (IncrReplay), kparse (ParseOnceTest.k),
+│                   (IncrReplay), kparse (ParseOnceTest.k), kunit
+│                   (UnitTests.k: runs the modules' own Test() functions),
 │                   GenClangDiagIdentity.k (clang-diag-identity: lists
 │                   clang's diagnostic flags for Scripts/gen_clang_diag_table.py)
 ├── Spec/           the compiler specification: pipeline, per-pass contracts,
@@ -692,12 +693,21 @@ templates over native::bytes.
 
 build.py is the build of record (its module docstring and `--help` are
 authoritative; Compiler/Spec/BuildSystem.md is the spec). kbld does not
-build this tree. Targets: kairo, kcc, kld, kparse, katar, kfmt, ksys,
-clang-diag-identity, kals. Outside --single, the default target list
+build this tree. Targets: kairo, kcc, kld, kparse, kunit, katar, kfmt,
+ksys, clang-diag-identity, kals. Outside --single, the default target list
 (`kairo` alone) builds the whole toolchain: kairo, kcc, kld, kfmt, ksys,
 kals. `--print-jobs` shows
 the clang jobs and the link without building; `--no-prebuild` skips
 Scripts/build_llvm.py (gen_diag.py always runs).
+
+  python3 build.py --debug kunit --no-prebuild   (the unit-test runner)
+
+kunit (Tooling/UnitTests.k) calls each module's Test() function in a fixed
+order (ThreadPool, MappedFileBuffer, SourceManager, Lexer, FlagRegistry,
+TermRenderer), prints `ok <name>` or `FAIL <name>` after each, and exits 1
+when any failed. `kunit <name> ...` runs those alone, `--list` names them,
+`--bench` adds the lexer's 1 GiB throughput benchmark. It is not staged or
+installed; Tests/Unit runs it when it sits beside the kairo under test.
 
   --debug    build/<triple>/debug (<triple> the host's, e.g.
              x86_64-linux-gnu), built by --kairo, else $KAIRO_SEED, else

@@ -2942,7 +2942,9 @@ pub class Lexer {
     }
 }
 
-pub fn Test() -> i32 {
+// TODO(replace with kairo test blocks)
+/// \p bench also runs the hot-loop benchmark, which lexes two 1 GiB buffers.
+pub fn Test(bench: bool = false) -> i32 {
     io::println("=== Lexer Test Suite ===\n ")
 
     var test_diag = DiagEngine()
@@ -4474,7 +4476,7 @@ pub fn Test() -> i32 {
         "pass",
         fn () -> string {
             var res = create_lexer_from_string_with_diag(
-                ".5 .123 .0",
+                ".5, .123, .0",
                 sm,
                 pool,
                 test_diag_p,
@@ -4491,10 +4493,12 @@ pub fn Test() -> i32 {
                 return "lexer failed to lex"
             }
 
-            var unsafe *tokens               = lexer->tokens()
-            const      expected_count: usize = (3)
-            if content_count(tokens) != expected_count {
-                return dump_tokens(tokens, expected_count)
+            var unsafe *tokens = lexer->tokens()
+            // A `.` + digit is a leading-dot float only where a value starts
+            // (after a value it is member access, `t.0`), so commas separate them.
+            const expected_count: usize = (3)
+            if content_count(tokens) != expected_count * 2 - 1 {
+                return dump_tokens(tokens, expected_count * 2 - 1)
             }
 
             var expected_values = cxx::std::vector<f64>()
@@ -4503,12 +4507,12 @@ pub fn Test() -> i32 {
             expected_values.push_back(0.0 as f64)
 
             for var i: usize = 0; i < expected_count; ++i {
-                if tokens->get(i)->kind != TokenKind::LitFloat {
-                    return f"token {i}: expected LitFloat, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
+                if tokens->get(i * 2)->kind != TokenKind::LitFloat {
+                    return f"token {i * 2}: expected LitFloat, got {token_kind_to_readable_string(tokens->get(i * 2)->kind)}"
                 }
 
                 var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
-                    tokens->get(i)->imm,
+                    tokens->get(i * 2)->imm,
                 )
 
                 imm->evaluate(sm, lexer->get_imm_tbl())
@@ -4881,7 +4885,7 @@ pub fn Test() -> i32 {
         "pass",
         fn () -> string {
             var res = create_lexer_from_string_with_diag(
-                "foo.bar .5",
+                "foo.bar, .5",
                 sm,
                 pool,
                 test_diag_p,
@@ -4898,8 +4902,9 @@ pub fn Test() -> i32 {
                 return "lexer failed to lex"
             }
 
-            var unsafe *tokens               = lexer->tokens()
-            const      expected_count: usize = (4)
+            var unsafe *tokens = lexer->tokens()
+            // `bar .5` would be member access (`t .0`): the float follows a comma.
+            const expected_count: usize = (5)
             if content_count(tokens) != expected_count {
                 return dump_tokens(tokens, expected_count)
             }
@@ -4916,13 +4921,13 @@ pub fn Test() -> i32 {
                 return f"token 2: expected LitIdentifier (bar), got {token_kind_to_readable_string(tokens->get(2)->kind)}"
             }
 
-            if tokens->get(3)->kind != TokenKind::LitFloat {
-                return f"token 3: expected LitFloat (.5), got {token_kind_to_readable_string(tokens->get(3)->kind)}"
+            if tokens->get(4)->kind != TokenKind::LitFloat {
+                return f"token 4: expected LitFloat (.5), got {token_kind_to_readable_string(tokens->get(4)->kind)}"
             }
 
             // verify the float value
             var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
-                tokens->get(3)->imm,
+                tokens->get(4)->imm,
             )
 
             imm->evaluate(sm, lexer->get_imm_tbl()) // removing evaluation step only adds 1MB/s to perf
@@ -6846,11 +6851,15 @@ pub fn Test() -> i32 {
         "error on invalid escape in string",
         "pass",
         fn () -> string {
+            // An engine of its own each run: the shared one drops a report
+            // it already delivered at that location, so every run after
+            // the first would see no error.
+            var diag = DiagEngine()
             var res = create_lexer_from_string_with_diag(
                 "\"hello\\qworld\"",
                 sm,
                 pool,
-                test_diag_p,
+                unsafe &diag,
             )
 
             var unsafe *lexer = res.0
@@ -6930,11 +6939,15 @@ pub fn Test() -> i32 {
         "unicode escape in a byte string is an error",
         "pass",
         fn () -> string {
+            // An engine of its own each run: the shared one drops a report
+            // it already delivered at that location, so every run after
+            // the first would see no error.
+            var diag = DiagEngine()
             var res = create_lexer_from_string_with_diag(
                 "b\"\\u0041\"",
                 sm,
                 pool,
-                test_diag_p,
+                unsafe &diag,
             )
 
             var unsafe *lexer = res.0
@@ -6958,11 +6971,15 @@ pub fn Test() -> i32 {
         "error on surrogate in unicode escape",
         "pass",
         fn () -> string {
+            // An engine of its own each run: the shared one drops a report
+            // it already delivered at that location, so every run after
+            // the first would see no error.
+            var diag = DiagEngine()
             var res = create_lexer_from_string_with_diag(
                 "\"\\uD800\"",
                 sm,
                 pool,
-                test_diag_p,
+                unsafe &diag,
             )
 
             var unsafe *lexer = res.0
@@ -7023,6 +7040,14 @@ pub fn Test() -> i32 {
         100,
     )
 
+    if suite.failures() != 0 {
+        return 1
+    }
+
+    if !bench {
+        return 0
+    }
+
     // THROUGHPUT MEASUREMENT
 
     io::println("\n=== Performance Benchmark ===\n")
@@ -7078,6 +7103,7 @@ pub fn Test() -> i32 {
         return kairo::std::to_std_string(wide)
     }
 
+    var mismatch = false
     for var corpus: i32 = 0; corpus < 2; ++corpus {
         var label = if (corpus == 0) => ("A/dense") else => "B/real "
         var seed  = build_seed(corpus != 0)
@@ -7149,6 +7175,7 @@ pub fn Test() -> i32 {
                 io::println(f"[{label}] hot/cold speedup: {speedup:.2}x\n")
 
                 if count != run1_count {
+                    mismatch = true
                     io::println(
                         f"[{label}] MISMATCH: run1 {run1_count} tokens, run2 {count} tokens -- open() is not restoring state from close()\n",
                     )
@@ -7159,5 +7186,5 @@ pub fn Test() -> i32 {
         kairo::std::destroy(hot_lexer)
     }
 
-    return 0
+    return if mismatch => (1) else => 0
 }

@@ -131,8 +131,8 @@ group = "target"
 
     ## how to fix
 
-    pick a target the build supports, or drop the `--mcpu`/feature flags that narrowed it. `kairo
-    --print-targets` lists what this build can emit.
+    pick a target the build supports, or drop the `--mcpu`/feature flags that
+    narrowed it. `kairo --print-targets` lists what this build can emit.
     """
 
 [P006]

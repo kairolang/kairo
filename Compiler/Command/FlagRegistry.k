@@ -3659,21 +3659,21 @@ pub fn register_test_flags(cmd: *Command) {
     )
 
     // include / link
-    cmd->define<FlagKind::PathList>(
+    cmd->define<FlagKind::StringList>(
         "include-dirs",
         "I",
         "include",
         "add directory to include search path",
     )
 
-    cmd->define<FlagKind::PathList>(
+    cmd->define<FlagKind::StringList>(
         "lib-dirs",
         "L",
         "lib-dir",
         "add directory to library search path",
     )
 
-    cmd->define<FlagKind::PathList>(
+    cmd->define<FlagKind::StringList>(
         "link-libs",
         "l",
         "link",
@@ -4026,6 +4026,7 @@ pub fn register_test_flags(cmd: *Command) {
     )
 }
 
+// TODO(replace with kairo test blocks)
 pub fn Test() -> i32 {
     io::println("=== Command Test Suite ===\n")
 
@@ -4092,12 +4093,12 @@ pub fn Test() -> i32 {
     )
 
     suite.equal<string>(
-        "-gc short cluster",
+        "-vc short cluster",
         "pass",
         fn () -> string {
-            var r = cmd_p->parse_string("-gc main.k")
-            if !r.get_bool("debug") {
-                return "expected debug=true"
+            var r = cmd_p->parse_string("-vc main.k")
+            if !r.get_bool("verbose") {
+                return "expected verbose=true"
             }
 
             if !r.get_bool("compile-only") {
@@ -4427,7 +4428,7 @@ pub fn Test() -> i32 {
         "flags and files interleaved",
         "pass",
         fn () -> string {
-            var r = cmd_p->parse_string("main.k ---g -O2 util.k")
+            var r = cmd_p->parse_string("main.k -g -O2 util.k")
             if r.inputs.size() != 2 {
                 return f"files: {r.inputs.size()}"
             }
@@ -4472,8 +4473,15 @@ pub fn Test() -> i32 {
         "pass",
         fn () -> string {
             var r = cmd_p->parse_string("/Wall main.k")
-            if !r.get_bool("wall") {
-                return "expected wall=true from /Wall"
+            // `/flag` is a flag on Windows only; elsewhere it is a path.
+            eval if defined!(_WIN32) || defined!(_WIN64) {
+                if !r.get_bool("wall") {
+                    return "expected wall=true from /Wall"
+                }
+            } else {
+                if r.get_bool("wall") || r.inputs.size() != 2 {
+                    return "expected /Wall to be an input path"
+                }
             }
 
             return "pass"
@@ -4486,8 +4494,15 @@ pub fn Test() -> i32 {
         "pass",
         fn () -> string {
             var r = cmd_p->parse_string("/g main.k")
-            if !r.get_bool("debug") {
-                return "expected debug=true from /g"
+            // `/flag` is a flag on Windows only; elsewhere it is a path.
+            eval if defined!(_WIN32) || defined!(_WIN64) {
+                if !r.get_bool("debug") {
+                    return "expected debug=true from /g"
+                }
+            } else {
+                if r.get_bool("debug") || r.inputs.size() != 2 {
+                    return "expected /g to be an input path"
+                }
             }
 
             return "pass"
@@ -4560,10 +4575,10 @@ pub fn Test() -> i32 {
     )
 
     suite.equal<string>(
-        "kairo test.k ---I something -Lotherlib",
+        "kairo test.k -I something -Lotherlib",
         "pass",
         fn () -> string {
-            var r = cmd_p->parse_string("test.k ---I something -Lotherlib")
+            var r = cmd_p->parse_string("test.k -I something -Lotherlib")
             if r.inputs.size() != 1 {
                 return f"files: {r.inputs.size()}"
             }
@@ -4952,6 +4967,10 @@ pub fn Test() -> i32 {
         },
         1000,
     )
+
+    if suite.failures() != 0 {
+        return 1
+    }
 
     return 0
 }

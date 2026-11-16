@@ -36,6 +36,7 @@ import Token::TokenKind::{
     is_valid_token_kind,
     token_kind_to_readable_string,
 }
+import std::io
 
 pub class TermRenderer {
     priv var _color: bool
@@ -1130,92 +1131,72 @@ pub class TermRenderer {
     }
 }
 
-// fn Test() -> i32 {
-//     var r = TermRenderer(true, 60);
+// TODO(replace with kairo test blocks)
+pub fn Test() -> i32 {
+    var r      = TermRenderer(false, 60)
+    var errors = 0
 
-//     var input = string(
-//         "# Return Type Mismatch\n"
-//         "\n"
-//         "The function's declared return type does not match\n"
-//         "the expression in the `return` statement.\n"
-//         "\n"
-//         "## Common causes\n"
-//         "\n"
-//         "1. The function signature says `void` but the body returns a value\n"
-//         "2. The return expression type doesn't match\n"
-//         "3. An implicit conversion is not available\n"
-//         "\n"
-//         "## Example\n"
-//         "\n"
-//         "```kairo\n"
-//         "fn foo() -> void {\n"
-//         "    return 42;  // error\n"
-//         "}\n"
-//         "```\n"
-//         "\n"
-//         "## Fixes\n"
-//         "\n"
-//         "- Change the return type to match the expression\n"
-//         "- Remove the expression from the `return` statement\n"
-//         "- Add an explicit cast\n"
-//     );
+    var check = fn (what: string, ok: bool) -> i32 {
+        if ok {
+            return 0
+        }
 
-//     var output = r.render(input);
-//     std::print(output);
+        io::println(f"FAIL: {what}")
+        return 1
+    }
 
-//     // --- individual checks ---
-//     var errors: i32 = 0;
+    errors += check("h1", r.heading_level("# Foo") == 1)
+    errors += check("h2", r.heading_level("## Foo") == 2)
+    errors += check("no heading", r.heading_level("no heading") == 0)
+    errors += check("no space after #", r.heading_level("#nospace") == 0)
+    errors += check("numbered prefix 1", r.numbered_prefix("1. foo") == "1. ")
+    errors += check(
+        "numbered prefix 12",
+        r.numbered_prefix("12. foo") == "12. ",
+    )
 
-//     // heading detection
-//     if r.heading_level("# Foo") != 1   { std::print("FAIL: h1\n"); errors += 1; }
-//     if r.heading_level("## Foo") != 2  { std::print("FAIL: h2\n"); errors += 1; }
-//     if r.heading_level("### Foo") != 3 { std::print("FAIL: h3\n"); errors += 1; }
-//     if r.heading_level("no heading") != 0 { std::print("FAIL: no heading\n"); errors += 1; }
-//     if r.heading_level("#nospace") != 0   { std::print("FAIL: no space after #\n"); errors += 1; }
+    errors += check("no numbered prefix", r.numbered_prefix("no number") == "")
 
-//     // trim
-//     if r.trim("  hello  ") != "hello"  { std::print("FAIL: trim\n"); errors += 1; }
-//     if r.trim("") != ""               { std::print("FAIL: trim empty\n"); errors += 1; }
+    var closed = r.render("use `foo` here\n")
+    errors += check(
+        "a closed span prints its content",
+        find(closed, "use foo here", 0) != usize::MAX,
+    )
 
-//     // starts_with
-//     if !r.starts_with("- foo", "- ")   { std::print("FAIL: starts_with bullet\n"); errors += 1; }
-//     if r.starts_with("foo", "- ")      { std::print("FAIL: starts_with negative\n"); errors += 1; }
+    // A span the text wraps across two lines leaves one backtick on each
+    // line; it prints as itself, with every character after it.
+    var split = r.render(
+        "and a static `op\ndelete` gives a class an allocator\n",
+    )
 
-//     // numbered prefix
-//     if r.numbered_prefix("1. foo") != "1. "    { std::print("FAIL: num prefix 1\n"); errors += 1; }
-//     if r.numbered_prefix("12. foo") != "12. "  { std::print("FAIL: num prefix 12\n"); errors += 1; }
-//     if r.numbered_prefix("no number") != ""    { std::print("FAIL: num prefix none\n"); errors += 1; }
+    io::println(split)
+    errors += check(
+        "an unclosed backtick prints with the text after it",
+        find(split, "and a static `op", 0) != usize::MAX,
+    )
 
-//     // code block toggle
-//     var code_output = r.render(code_input);
-//         std::print("FAIL: code block content missing\n");
-//         errors += 1;
-//     }
+    errors += check(
+        "a backtick that closes nothing on its line prints",
+        find(split, "delete` gives", 0) != usize::MAX,
+    )
 
-//     // inline code
-//     var inline_input = string("use `foo` here\n");
-//     var inline_output = r.render(inline_input);
-//     if inline_output.raw_string().find("foo") == string::npos {
-//         std::print("FAIL: inline code content missing\n");
-//         errors += 1;
-//     }
+    var last = r.render("a backtick ends this line `\n")
+    errors += check(
+        "a backtick at the end of a line prints",
+        find(last, "line `", 0) != usize::MAX,
+    )
 
-//     // word wrap -- check visible width, stripping ANSI
-//     var long_line = string("this is a very long line that should definitely wrap when rendered at sixty columns wide\n");
-//     var wrapped = r.render(long_line);
-//     var wrap_lines = r.split_lines(wrapped);
-//     for line in wrap_lines {
-//         if line.length() > 62 {  // small margin for ansi codes
-//             std::print(f"FAIL: line too long: {line.length()} chars\n");
-//             errors += 1;
-//         }
-//     }
+    var wrapped = r.render(
+        "this is a very long line that should definitely wrap when rendered at sixty columns wide\n",
+    )
 
-//     if errors == 0 {
-//         std::print("\nAll tests passed.\n");
-//     } else {
-//         std::print(f"\n{errors} test(s) failed.\n");
-//     }
+    var lines = r.split_lines(wrapped)
+    for var i: usize = 0; i < lines.size(); ++i {
+        errors += check(
+            f"wrapped line {i} fits in 60 columns",
+            r.display_width(lines[i]) <= 60,
+        )
+    }
 
-//     return errors;
-// }
+    return errors
+}

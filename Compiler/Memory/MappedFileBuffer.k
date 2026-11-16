@@ -16,8 +16,9 @@ ffi "c++" import "Native/Log.hh"
 
 import Memory::MMapRegion::MMapRegion
 import Memory::MemoryBuffer::MemoryBuffer
+import Support::FileIO::AtomicFile::now_ns
+import Support::FileIO::Path::Path
 import Support::Timer::Timer
-import Support::UTF8View::UTF8View
 import std::io
 
 ///
@@ -177,30 +178,46 @@ pub class MappedFileBuffer {
     }
 }
 
+// TODO(replace with kairo test blocks)
 pub fn Test() -> i32 {
     var timer: Timer = Timer("MMap Test")
 
-    var path: string           = "run.ps1"
-    var buf:  MappedFileBuffer = MappedFileBuffer()
-
-    buf.load(unsafe &path)
-
-    if !buf.is_valid() {
-        io::println("Failed to open file\n")
+    // The file is the test's own, under a name no other run uses at once.
+    var expected = "first line\nsecond line, with UTF-8: λ\n"
+    var path     = Path::temp_dir().join(f"kunit_mmap_{now_ns()}.txt")
+    if !Path::write_file(path, expected) {
+        io::println(f"cannot write {path}")
         return 1
     }
 
-    var mem:   MemoryBuffer     = buf.bytes()
-    var ptr:   unsafe *const u8 = mem.data()
-    var size:  usize            = mem.size()
-    var chars: UTF8View         = mem.chars()
+    finally {
+        Path::remove_file(path)
+    }
+
+    var buf: MappedFileBuffer = MappedFileBuffer()
+    buf.load(unsafe &path)
+
+    if !buf.is_valid() {
+        io::println(f"cannot map {path}")
+        return 1
+    }
+
+    var mem:  MemoryBuffer     = buf.bytes()
+    var ptr:  unsafe *const u8 = mem.data()
+    var size: usize            = mem.size()
 
     timer.stop()
 
     var content = string(unsafe (ptr as *const u8), size)
+    io::println(f"file: {path}\ncontent size: {size} bytes")
 
-    io::println(f"file: {path}\ncontent size: {size} bytes\n")
-    io::println(f"content:\n{content}\n")
+    if content != expected {
+        io::println(
+            f"expected {expected.size()} bytes:\n{expected}\nmapped:\n{content}",
+        )
+
+        return 1
+    }
 
     return 0
 }
