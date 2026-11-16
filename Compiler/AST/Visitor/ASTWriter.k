@@ -2012,6 +2012,16 @@ pub class <D: type> ASTWriter {
             n->iterable = self.dyn()->transform_expr(n->iterable)
         }
 
+        // An `eval for` over a range holds its bounds here once IterLowering
+        // has run; each later pass lowers them as it does any other child.
+        if n->ev_lo != &null {
+            n->ev_lo = self.dyn()->transform_expr(n->ev_lo)
+        }
+
+        if n->ev_hi != &null {
+            n->ev_hi = self.dyn()->transform_expr(n->ev_hi)
+        }
+
         n->body = cast<Statements::CompoundStmt>(
             self.dyn()->transform_stmt_scalar(n->body),
         )
