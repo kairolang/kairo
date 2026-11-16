@@ -16,10 +16,12 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
-import AST::ASTSupport::FrozenList
 import AST::Context::DeclContext::DeclContextKind
 import AST::Context::TranslationUnit::TranslationUnit
-import AST::DeclFacts::decl_is_imported
+import AST::DeclFacts::{
+    decl_is_imported,
+    decl_methods,
+}
 import AST::Kind::DeclKind::DeclKind
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::TypeKind::TypeKind
@@ -270,19 +272,9 @@ pub class EarlyNeeds derives RecursiveASTVisitor<EarlyNeeds> {
 
     /// Every compile-time member of record \p d with a body, as items.
     priv fn _members(self, d: unsafe *Decl) {
-        var ms: unsafe *FrozenList<unsafe *FunctionDecl> = &null
-        if isa<ClassDecl>(d) {
-            ms = unsafe &cast<ClassDecl>(d)->methods
-        } else if isa<StructDecl>(d) {
-            ms = unsafe &cast<StructDecl>(d)->methods
-        }
-
-        if ms == &null {
-            return
-        }
-
-        for var i: usize = 0; i < ms->size(); ++i {
-            var unsafe *m = (*ms)[i]
+        var ms = decl_methods(d)
+        for var i: usize = 0; i < ms.size(); ++i {
+            var unsafe *m = ms[i]
             if m == &null {
                 continue
             }

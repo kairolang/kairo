@@ -603,7 +603,7 @@ extend InterfaceEmitter {
     /// after \p d's closing brace (file header, Static fields). \p d is the
     /// outermost record of a tier-1 entry; anything else has no statics.
     prot fn _static_defs(self, d: unsafe *Decl) {
-        if (!isa<Declarations::ClassDecl>(d)) && !isa<Declarations::StructDecl>(d) {
+        if !self._has_statics(d) {
             return
         }
 
@@ -628,10 +628,17 @@ extend InterfaceEmitter {
                 continue
             }
 
-            if isa<Declarations::ClassDecl>(nd) || isa<Declarations::StructDecl>(nd) {
+            if self._has_statics(nd) {
                 self._static_defs(Speller::rep(nd))
             }
         }
+    }
+
+    /// The kinds that declare static fields: a class, a struct or a union.
+    priv fn _has_statics(self, d: unsafe *Decl) -> bool {
+        return isa<Declarations::ClassDecl>(d)
+            || isa<Declarations::StructDecl>(d)
+            || isa<Declarations::UnionDecl>(d)
     }
 
     /// `[template <...>] inline [constinit] [thread_local] T R::s = init;`.

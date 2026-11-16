@@ -221,10 +221,12 @@ pub class EmitIR {
     /// The method _body writes went out with its `requires` as a trailing
     /// clause (Speller::member_requires): no static_asserts for it.
     prot var _req_in_head: bool = false
-    /// A split constructor whose slots are live (file header), and whether
-    /// this is its S_pre, where there is no object and `self.x` is a slot.
-    prot var _ci_fn:  unsafe *FunctionDecl = &null
-    prot var _ci_pre: bool                 = false
+    /// A split constructor whose slots are live (file header), its record,
+    /// and whether this is its S_pre, where there is no object and `self.x`
+    /// is a slot.
+    prot var _ci_fn:    unsafe *FunctionDecl = &null
+    prot var _ci_owner: unsafe *Decl         = &null
+    prot var _ci_pre:   bool                 = false
     /// The closure whose body is being emitted, innermost: a `return` in it
     /// returns from the lambda, with the closure's type. `_cur_fn` stays
     /// the enclosing function, which still decides what `self` is.

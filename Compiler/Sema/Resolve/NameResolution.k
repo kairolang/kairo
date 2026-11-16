@@ -2437,19 +2437,31 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             n,
         )
 
-        if unsafe (n as unsafe *Decl) == self._stmt_var {
-            n->rebind = self._rebind_of(self._name_imm(n->name))
-        }
-
         // Only body locals go on the stack. A file/type-scope `var` was
         // keyed into a real SymbolTable at parse time and is found by the
         // unqualified walk instead; declaring it here too would make it
         // visible before its own line.
-        if !self.locals.empty() {
+        if unsafe (n as unsafe *Decl) == self._stmt_var {
+            self._declare_local_var(n)
+        } else if !self.locals.empty() {
             self._declare_local(self._name_imm(n->name), n, n->range)
         }
 
         return out
+    }
+
+    /// Declare \p v, a name a body statement introduces: a statement's
+    /// `var` / `const`, or a binder (a destructuring declaration's, a
+    /// `for`'s, a `catch`'s, a pattern's). Its rebinding number is read
+    /// first, before the name enters its frame, so every such name that
+    /// hides a visible local is spelled apart in C++ (VariableDecl::rebind)
+    /// whichever statement binds it.
+    priv fn _declare_local_var(self, v: unsafe *Declarations::VariableDecl) {
+        var imm = self._name_imm(v->name)
+        v->rebind = self._rebind_of(imm)
+        if !self.locals.empty() {
+            self._declare_local(imm, v, v->range)
+        }
     }
 
     /// Push \p d into the innermost frame under \p imm. A same-frame
@@ -2927,7 +2939,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return
         }
 
-        self._declare_local(self._name_imm(vd->name), d, d->range)
+        self._declare_local_var(vd)
     }
 
     /// Walk a pattern tree declaring every explicit `var`/`const` binder.

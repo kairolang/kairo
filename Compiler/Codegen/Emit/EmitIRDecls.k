@@ -21,11 +21,11 @@ ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "vector"
 
-import AST::ASTSupport::FrozenList
 import AST::Context::DeclContext::DeclContext
 import AST::DeclFacts::{
     decl_cxx_spelling,
     decl_extension_of,
+    decl_fields,
     decl_fold_pin,
     decl_generic_params,
     decl_methods,
@@ -854,19 +854,9 @@ extend EmitIR {
             return
         }
 
-        var fields: unsafe *FrozenList<unsafe *FieldDecl> = &null
-        if isa<ClassDecl>(owner) {
-            fields = unsafe &cast<ClassDecl>(owner)->fields
-        } else if isa<StructDecl>(owner) {
-            fields = unsafe &cast<StructDecl>(owner)->fields
-        }
-
-        if fields == &null {
-            return
-        }
-
-        for var i: usize = 0; i < fields->size(); ++i {
-            var unsafe *f = (*fields)[i]
+        var fields = decl_fields(owner)
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *f = fields[i]
             if f == &null || !f->is_eval() || f->init_fold != FieldFold::Thunk {
                 continue
             }

@@ -778,7 +778,14 @@ extend EmitIR {
                     LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + put_fn,
                 )
 
-                self._value(n->rhs, f->type_)
+                // A base's field is declared in the base's terms (a generic
+                // base's `T`); the target's own type is the one to convert to.
+                var unsafe *vt = f->type_
+                if n->lhs->type_ != &null && self._inherited_field(f) {
+                    vt = n->lhs->type_
+                }
+
+                self._value(n->rhs, vt)
                 self._cg->sink->spell(n->range, ")")
                 return
             }

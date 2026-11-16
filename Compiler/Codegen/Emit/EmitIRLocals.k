@@ -407,7 +407,7 @@ extend EmitIR {
                 ) + ">",
             )
 
-            self._name(n->name)
+            self._local_ref(unsafe (n as unsafe *Decl), n->name)
             return
         }
 
@@ -426,7 +426,7 @@ extend EmitIR {
                 if (n->place_ref) => ("auto&&") else => "auto",
             )
 
-            self._name(n->name)
+            self._local_ref(unsafe (n as unsafe *Decl), n->name)
             self._cg->sink->spell(n->name.range, " = (")
             self.emit(n->init)
             self._cg->sink->spell(n->name.range, ")")

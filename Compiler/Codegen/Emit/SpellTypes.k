@@ -725,13 +725,50 @@ extend Speller {
         return self._param_type(t, mode, false, name, &null, &null)
     }
 
+    /// A closure's parameter \p p, declared as \p name. The `fn` value is
+    /// built from the lambda's own function pointer, so the lambda's C++
+    /// function type is the one its `fn` type spells (fn_signature): each
+    /// parameter is that type's parameter for its mode, and a written
+    /// `const` qualifies the parameter itself, which C++ leaves out of the
+    /// function type.
+    fn closure_param(self, p: unsafe *Declarations::ParamDecl, const name: string) -> string {
+        if p->is_pack || DeclFacts::param_is_type_pack(p) {
+            return self.param_decl(p, name)
+        }
+
+        return self._param_type(
+            p->type_,
+            p->mode,
+            p->is_const,
+            name,
+            &null,
+            &null,
+            true,
+        )
+    }
+
+    /// \p t in mode \p mode, declared as \p name: the one spelling of a
+    /// parameter, for a declaration, a `fn` type and a closure alike.
+    /// \p is_const is the `const x: T` marker; with \p fn_param it stays
+    /// on the parameter (a closure's, whose type is its `fn` type's), and
+    /// without it a record or a type parameter is passed as `const T&`.
     priv fn _param_type(self,
                         t:          unsafe *Type,
                         mode:       ParamMode,
                         is_const:   bool,
                         const name: string,
                         subst:      unsafe *InstanceEntry,
-                        scope:      unsafe *Decl) -> string {
+                        scope:      unsafe *Decl,
+                        fn_param:   bool = false) -> string {
+        // `[T; N]` is never passed by value: a Value-mode array is a
+        // `const` parameter's reference, in a `fn` type as in param_decl.
+        if mode == ParamMode::Value && t != &null && t->canonical != &null {
+            var unsafe *ac = canon_unqual(t->canonical)
+            if ac != &null && ac->kind == TypeKind::FixedArrayType {
+                return "const " + self.decl(ac, "&" + name, subst, scope)
+            }
+        }
+
         // `const T&` only from a stamped `@copy fn X(self, const other: Self)`
         // (ClassLifecycle); nothing else sets Inout together with `const`.
         if mode == ParamMode::Inout {
@@ -741,6 +778,22 @@ extend Speller {
 
         if mode == ParamMode::Move {
             return self.decl(t, self._ref_declarator("&&", name), subst, scope)
+        }
+
+        if is_const && fn_param {
+            // After the `*` for a pointer (`T *const p`): a prefix would
+            // make the pointee const and change the function type.
+            var unsafe *pc = t->canonical
+            if pc != &null && pc->kind == TypeKind::PointerType {
+                return self.decl(
+                    t,
+                    if (name.size() > 0) => ("const " + name) else => "const",
+                    subst,
+                    scope,
+                )
+            }
+
+            return "const " + self.decl(t, name, subst, scope)
         }
 
         if is_const {

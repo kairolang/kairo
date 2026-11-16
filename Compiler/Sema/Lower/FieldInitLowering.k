@@ -133,7 +133,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, FieldDecl, FieldFold, FnModifier, FunctionDecl, ParamDecl, StructDecl,
+    ClassDecl, FieldDecl, FieldFold, FnModifier, FunctionDecl, ParamDecl, StructDecl, UnionDecl,
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr,
@@ -189,6 +189,12 @@ pub class FieldInitLowering derives ASTWriter<FieldInitLowering> {
 
     fn transform_struct_decl(self, n: unsafe *StructDecl) -> cxx::std::vector<unsafe *Decl> {
         var out = ASTWriter<FieldInitLowering>::transform_struct_decl(self, n)
+        self._lower_fields(n, n->fields, unsafe &n->methods)
+        return out
+    }
+
+    fn transform_union_decl(self, n: unsafe *UnionDecl) -> cxx::std::vector<unsafe *Decl> {
+        var out = ASTWriter<FieldInitLowering>::transform_union_decl(self, n)
         self._lower_fields(n, n->fields, unsafe &n->methods)
         return out
     }

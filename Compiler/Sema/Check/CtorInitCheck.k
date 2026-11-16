@@ -54,6 +54,12 @@
 ///         passed or returned, no `&self.f`, no field S_pre never writes;
 ///       - no `return` in S_pre (it would leave a half-built object).
 ///
+///     A base is built from the slots too, after S_pre, so in S_pre a field
+///     of a base is what an own `var` field with a default is: `self.f = e`
+///     rides in a slot and is assigned once the base exists, and a read is
+///     of what S_pre assigned on every path or an error (SC175E). Such
+///     fields are tracked after the record's own (_with_inherited).
+///
 ///     Any non-const field S_pre assigns, and any top-level local of S_pre
 ///     that S_post reads, rides across in a slot too. Those are the facts
 ///     written on the constructor for CtorInitLowering and the emitters:
@@ -315,6 +321,43 @@ pub class CtorFieldWriteFind derives RecursiveASTVisitor<CtorFieldWriteFind> {
     }
 }
 
+/// Every field of a base named `self.f...` under a statement, through the
+/// constructor's own `self` (\p self_decl): a local class's methods have
+/// another one. \p own is the record's own fields.
+pub class CtorInheritedFind derives RecursiveASTVisitor<CtorInheritedFind> {
+    pub var self_decl: unsafe *Decl                        = &null
+    pub var own:       FrozenList<unsafe *FieldDecl>
+    pub var fields:    cxx::std::vector<unsafe *FieldDecl>
+
+    fn visit_chain_expr(self, n: *ChainExpr) -> bool {
+        var unsafe *b = dyn_cast<NamedIdentExpr>(n->base)
+        if b == &null || b->resolved_decl != self.self_decl || n->steps.size() == 0 {
+            return true
+        }
+
+        var unsafe *d = n->steps.get(0)->resolved_decl
+        if d == &null || !isa<FieldDecl>(d) || cast<FieldDecl>(d)->is_static() {
+            return true
+        }
+
+        var unsafe *f = cast<FieldDecl>(d)
+        for var i: usize = 0; i < self.own.size(); ++i {
+            if self.own[i] == f {
+                return true
+            }
+        }
+
+        for var i: usize = 0; i < self.fields.size(); ++i {
+            if self.fields[i] == f {
+                return true
+            }
+        }
+
+        self.fields.push_back(f)
+        return true
+    }
+}
+
 /// Every decl a name under a statement resolves to: what S_post reads.
 pub class CtorNameFind derives RecursiveASTVisitor<CtorNameFind> {
     pub var decls: cxx::std::vector<unsafe *Decl>
@@ -548,9 +591,12 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     priv var _tu: TypeUtil
 
     // The constructor under analysis (one at a time).
-    priv var _owner:    unsafe *Decl                        = &null
-    priv var _ctor:     unsafe *FunctionDecl                = &null
+    priv var _owner: unsafe *Decl         = &null
+    priv var _ctor:  unsafe *FunctionDecl = &null
+    /// The record's own fields, then the fields of its bases the body
+    /// names through `self` (_with_inherited); _own counts the first part.
     priv var _fields:   FrozenList<unsafe *FieldDecl>
+    priv var _own:      usize                               = 0
     priv var _st:       CtorFlow
     priv var _loops:    u32                                 = 0
     priv var _failed:   bool                                = false
@@ -758,13 +804,18 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
 
     /// Analyze one constructor body; true when it was split (facts written).
     priv fn _split_ctor(self,
-                        owner:  unsafe *Decl,
-                        fields: FrozenList<unsafe *FieldDecl>,
-                        f:      unsafe *FunctionDecl,
-                        index:  u32) -> bool {
+                        owner: unsafe *Decl,
+                        own:   FrozenList<unsafe *FieldDecl>,
+                        f:     unsafe *FunctionDecl,
+                        index: u32) -> bool {
+        // A base is built after S_pre ran (EmitIR::_split_ctor), so a base's
+        // field is to S_pre what an own field with a default is: a whole
+        // write rides in a slot, and a read sees only what S_pre wrote.
+        var fields = self._with_inherited(own, f)
         self._owner  = owner
         self._ctor   = f
         self._fields = fields
+        self._own    = own.size()
         self._failed = false
         self._loops  = 0
         self._erred.clear()
@@ -1071,9 +1122,11 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 continue
             }
 
+            // A base's field is assigned once the base exists, never built
+            // by this constructor's mem-initializers.
             slots.push_back(fd)
             dense.push_back(
-                (self._st.dead || self._st.fields[i] == FieldInit::Yes) as u8,
+                (i < self._own && (self._st.dead || self._st.fields[i] == FieldInit::Yes)) as u8,
             )
         }
 
@@ -1381,8 +1434,10 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             self._on_read(f, at)
         }
 
-        if self._quiet {
-            // nothing is reported while quiet
+        if self._quiet || i >= self._own {
+            // Nothing is reported while quiet. A base's field is not this
+            // constructor's to initialize: its write is an assignment, and
+            // one to a const or an array is refused as anywhere else.
         } else if !f->is_const() && ctor_init_is_array(f) && !compound {
             var nm = self.sc->ctx->get_spelling(f->name)
             self._approved.push_back(at)
@@ -1751,6 +1806,45 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
 
     /// # helpers
 
+    /// \p own, then every field of a base \p f's body names as `self.x`.
+    priv fn _with_inherited(self,
+                            own: FrozenList<unsafe *FieldDecl>,
+                            f:   unsafe *FunctionDecl) -> FrozenList<unsafe *FieldDecl> {
+        if f->body_block == &null {
+            return own
+        }
+
+        var find = CtorInheritedFind()
+        find.own = own
+        for var i: usize = 0; i < f->params.size(); ++i {
+            if f->params[i] != &null && f->params[i]->is_self {
+                find.self_decl = unsafe (f->params[i] as unsafe *Decl)
+            }
+        }
+
+        if find.self_decl == &null {
+            return own
+        }
+
+        find.dispatch_stmt(f->body_block)
+        if find.fields.size() == 0 {
+            return own
+        }
+
+        var all = cxx::std::vector<unsafe *FieldDecl>()
+        for var i: usize = 0; i < own.size(); ++i {
+            all.push_back(own[i])
+        }
+
+        for var i: usize = 0; i < find.fields.size(); ++i {
+            all.push_back(find.fields[i])
+        }
+
+        var out = own
+        out.from_vec(unsafe &all, self.sc->ctx)
+        return out
+    }
+
     priv fn _index(self, f: unsafe *FieldDecl) -> usize {
         for var i: usize = 0; i < self._fields.size(); ++i {
             if self._fields[i] == f {
@@ -1785,6 +1879,12 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     /// const or of a type with no default.
     priv fn _required(self, f: unsafe *FieldDecl) -> bool {
         if f == &null || f->is_static() || f->is_anonymous_union || f->init != &null {
+            return false
+        }
+
+        // A base's field is its own constructor's to initialize.
+        var i = self._index(f)
+        if i != usize::MAX && i >= self._own {
             return false
         }
 

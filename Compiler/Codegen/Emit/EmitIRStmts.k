@@ -274,7 +274,7 @@ extend EmitIR {
                     self._spell._type(vd->type_),
                 )
 
-                self._name(vd->name)
+                self._local_ref(unsafe (vd as unsafe *Decl), vd->name)
             } else {
                 self._cg->sink->spell(
                     a->range,

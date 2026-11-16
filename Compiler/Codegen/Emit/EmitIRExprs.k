@@ -487,7 +487,7 @@ extend EmitIR {
                 head += ", "
             }
 
-            head += self._spell.param_decl(
+            head += self._spell.closure_param(
                 p,
                 self._spell.tok_name(p->name, self._owning_fid()),
             )

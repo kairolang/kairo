@@ -23,7 +23,10 @@ ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
-import AST::DeclFacts::decl_pattern
+import AST::DeclFacts::{
+    decl_fields,
+    decl_pattern,
+}
 import AST::LangItems::LowerTargets
 import AST::Node::Base::{
     Decl,
@@ -110,10 +113,12 @@ extend EmitIR {
         var unsafe *saved_fn  = self._cur_fn
         var unsafe *saved_ext = self._cur_ext
         var unsafe *saved_ci  = self._ci_fn
+        var unsafe *saved_own = self._ci_owner
         var        saved_pre  = self._ci_pre
-        self._cur_fn  = m
-        self._cur_ext = &null
-        self._ci_fn   = m
+        self._cur_fn   = m
+        self._cur_ext  = &null
+        self._ci_fn    = m
+        self._ci_owner = owner
 
         // The slot record. Its members' types are complete here, which they
         // need not be where only the class is (InterfaceEmitter declares it).
@@ -121,6 +126,7 @@ extend EmitIR {
         for var i: usize = 0; i < m->ci_slots.size(); ++i {
             r += " ::" + LowerTargets::ctor_slot() + "<" + self._slot_type(
                 i,
+                q,
             ) + "> " + self._slot_name(i) + ";"
         }
 
@@ -223,10 +229,11 @@ extend EmitIR {
         self._cg->sink->synth_at_end(post->range, clang::tok::r_brace)
         self._cg->sink->brk()
 
-        self._cur_fn  = saved_fn
-        self._cur_ext = saved_ext
-        self._ci_fn   = saved_ci
-        self._ci_pre  = saved_pre
+        self._cur_fn   = saved_fn
+        self._cur_ext  = saved_ext
+        self._ci_fn    = saved_ci
+        self._ci_owner = saved_own
+        self._ci_pre   = saved_pre
 
         // The constructor Kairo declared: fill a fresh slot record, then
         // delegate. The temporary lives to the end of this mem-initializer.
@@ -281,13 +288,33 @@ extend EmitIR {
         )
     }
 
-    priv fn _slot_type(self, i: usize) -> string {
+    /// Slot \p i's type. A field of a base of the owner (spelled \p q) is
+    /// `decltype(Q::f)`: its declared type is written in the base's terms
+    /// (a generic base's `T`), and C++ reads it through the derived class.
+    priv fn _slot_type(self, i: usize, const q: string) -> string {
         var unsafe *d = self._ci_fn->ci_slots[i]
         if isa<FieldDecl>(d) {
+            if self._inherited_field(cast<FieldDecl>(d)) {
+                return "decltype(" + q + "::" + self._spell.leaf(d) + ")"
+            }
+
             return self._spell._type(cast<FieldDecl>(d)->type_)
         }
 
         return self._spell._type(cast<VariableDecl>(d)->type_)
+    }
+
+    /// \p f, a field in a slot of the live split constructor, is not one of
+    /// its record's own: it is a base's.
+    prot fn _inherited_field(self, f: unsafe *FieldDecl) -> bool {
+        var own = decl_fields(self._ci_owner)
+        for var i: usize = 0; i < own.size(); ++i {
+            if own[i] == f {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// `var n = e` in S_pre, for a local S_post reads: its slot, built.

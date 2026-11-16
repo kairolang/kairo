@@ -22,7 +22,10 @@ ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "vector"
 
 import AST::LangItems::LowerTargets
-import AST::Node::Base::Type
+import AST::Node::Base::{
+    Decl,
+    Type,
+}
 import AST::Node::CanonicalNodes::canon_unqual
 import AST::Node::Casting::{
     cast,
@@ -150,9 +153,8 @@ extend EmitIR {
         )
 
         // The binding: a constant in each copy.
-        var nm = if (vd != &null) => (self._spell.tok_name(
-                     vd->name,
-                     self._owning_fid(),
+        var nm = if (vd != &null) => (self._local_name(
+                     unsafe (vd as unsafe *Decl),
                  ))
                  else => LowerTargets::eval_for_unused()
         self._cg->sink->spell(
@@ -275,7 +277,7 @@ extend EmitIR {
         if nb == 1 {
             var unsafe *b = n->bindings.get(0)
             if (!b->is_discard) && b->decl != &null {
-                var nm = self._spell.tok_name(b->decl->name, self._owning_fid())
+                var nm = self._local_name(unsafe (b->decl as unsafe *Decl))
                 if b->shorthand.has(BindingShorthand::Pointer) {
                     ptr = "auto* " + nm + " = " + LowerTargets::clang_addressof() + "(" + el + ");"
                 } else {
@@ -295,9 +297,8 @@ extend EmitIR {
                 if b->is_discard || b->decl == &null {
                     head = head + LowerTargets::unused_binding(i)
                 } else {
-                    head = head + self._spell.tok_name(
-                        b->decl->name,
-                        self._owning_fid(),
+                    head = head + self._local_name(
+                        unsafe (b->decl as unsafe *Decl),
                     )
                 }
             }
@@ -360,9 +361,8 @@ extend EmitIR {
             }
         }
 
-        var nm = if (vd != &null) => (self._spell.tok_name(
-                     vd->name,
-                     self._owning_fid(),
+        var nm = if (vd != &null) => (self._local_name(
+                     unsafe (vd as unsafe *Decl),
                  ))
                  else => LowerTargets::eval_for_unused()
         self._cg->sink->spell(
