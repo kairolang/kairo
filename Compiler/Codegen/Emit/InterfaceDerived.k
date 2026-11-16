@@ -445,36 +445,23 @@ extend InterfaceEmitter {
     /// record: inside its own body the record is incomplete, and clang
     /// rejects a trait on it there.
     priv fn _rebuild_constraint(self, d: unsafe *Decl) -> string {
-        var s = ""
-        if isa<Declarations::ClassDecl>(d) {
-            var unsafe *c = cast<Declarations::ClassDecl>(d)
-            for var i: usize = 0; i < c->derives_list.size(); ++i {
-                var unsafe *e = c->derives_list.get(i)
-                if e == &null || !self._dependent(e->base) {
-                    continue
-                }
-
-                var b = self._spell->_type(e->base)
-                if s.size() > 0 {
-                    s += " && "
-                }
-
-                s += "__is_destructible(" + b + ") && !__is_polymorphic(" + b + ")"
-            }
-        }
-
-        var fields = DeclFacts::decl_fields(d)
-        for var i: usize = 0; i < fields.size(); ++i {
-            var unsafe *f = fields[i]
-            if f == &null || f->is_static() || !self._dependent(f->type_) {
-                continue
-            }
-
+        var s     = ""
+        var bases = self._dependent_parts(d, true)
+        for var i: usize = 0; i < bases.size(); ++i {
             if s.size() > 0 {
                 s += " && "
             }
 
-            s += "__is_destructible(" + self._spell->_type(f->type_, &null, d) + ")"
+            s += "__is_destructible(" + bases[i] + ") && !__is_polymorphic(" + bases[i] + ")"
+        }
+
+        var fields = self._dependent_parts(d, false)
+        for var i: usize = 0; i < fields.size(); ++i {
+            if s.size() > 0 {
+                s += " && "
+            }
+
+            s += "__is_destructible(" + fields[i] + ")"
         }
 
         if s.size() == 0 {
@@ -482,6 +469,95 @@ extend InterfaceEmitter {
                 self._at(d),
                 "InterfaceEmitter: a constrained `op =` with no dependent part; ClassLifecycle gate failure",
             )
+        }
+
+        return s
+    }
+
+    /// The C++ spelling of each part of \p d whose type depends on a
+    /// generic parameter: its bases (\p bases), or its by-value fields.
+    priv fn _dependent_parts(self, d: unsafe *Decl, bases: bool) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        if bases {
+            if isa<Declarations::ClassDecl>(d) {
+                var unsafe *c = cast<Declarations::ClassDecl>(d)
+                for var i: usize = 0; i < c->derives_list.size(); ++i {
+                    var unsafe *e = c->derives_list.get(i)
+                    if e != &null && self._dependent(e->base) {
+                        out.push_back(self._spell->_type(e->base))
+                    }
+                }
+            }
+
+            return out
+        }
+
+        var fields = DeclFacts::decl_fields(d)
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *f = fields[i]
+            if f != &null && !f->is_static() && self._dependent(f->type_) {
+                out.push_back(self._spell->_type(f->type_, &null, d))
+            }
+        }
+
+        return out
+    }
+
+    /// The transfers ClassLifecycle chose for a record that writes a
+    /// destructor and no transfer constructor (ImplicitTransfer), each
+    /// `= default`: memberwise, and defined as deleted where a part cannot
+    /// take it. Declaring the move pair alone leaves the implicit copy
+    /// deleted, so a MOVE record gets exactly its move.
+    prot fn _implicit_transfers(self, d: unsafe *Decl) {
+        var nm   = self._spell->leaf(d)
+        var dat  = self._at(d)
+        var move = ""
+        if self._implicit_transfer_of(d) == Declarations::ImplicitTransfer::Open {
+            // Both pairs are declared: a declared move, viable or not,
+            // deletes the implicit copy. Under the constraint exactly one
+            // pair is viable in an instance; with no part to ask, C++
+            // defines as deleted whatever the instance's parts cannot do.
+            var copy = ""
+            var ok   = self._copy_constraint(d)
+            if ok.size() > 0 {
+                copy = " requires (" + ok + ")"
+                move = " requires (!(" + ok + "))"
+            }
+
+            self._cg->sink->spell(
+                dat,
+                nm + "(const " + nm + "&)" + copy + " = default;",
+            )
+
+            self._cg->sink->spell(
+                dat,
+                nm + "& operator=(const " + nm + "&)" + copy + " = default;",
+            )
+        }
+
+        self._cg->sink->spell(dat, nm + "(" + nm + "&&)" + move + " = default;")
+        self._cg->sink->spell(
+            dat,
+            nm + "& operator=(" + nm + "&&)" + move + " = default;",
+        )
+    }
+
+    /// What the copy pair of an Open record asks of an instance: every base
+    /// and by-value field whose type depends on a generic parameter copies,
+    /// an array by its element. "" when no part depends on one. Traits over
+    /// the parts, as in _rebuild_constraint.
+    priv fn _copy_constraint(self, d: unsafe *Decl) -> string {
+        var s = ""
+        for var pass: i32 = 0; pass < 2; ++pass {
+            var parts = self._dependent_parts(d, pass == 0)
+            for var i: usize = 0; i < parts.size(); ++i {
+                if s.size() > 0 {
+                    s += " && "
+                }
+
+                var e = "__remove_all_extents(" + parts[i] + ")"
+                s += "__is_constructible(" + e + ", const " + e + "&)"
+            }
         }
 
         return s

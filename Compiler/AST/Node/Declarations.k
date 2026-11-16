@@ -318,6 +318,18 @@ pub enum AssignForm derives u8 {
     Constrained, ///< a Body that an instance of a generic record may not allow: Body and Deleted, each under a C++ constraint.
 }
 
+/// The transfers InterfaceEmitter declares for a record that writes a
+/// destructor and a constructor but no transfer constructor (ClassDecl /
+/// StructDecl::implicit_transfer). C++ declares no implicit move beside a
+/// user-declared destructor, so a record whose category is MOVE would fall
+/// back to its implicitly deleted copy. A record is COPY or MOVE, never
+/// both: only its category's pair is declared.
+pub enum ImplicitTransfer derives u8 {
+    None = 0, ///< C++'s implicit members are the category's: the implicit copy of a COPY record, none for a NON_TRANSFER one.
+    Move, ///< MOVE: the move constructor and move assignment, each `= default`.
+    Open, ///< the category is the instance's: the copy pair for an instance whose dependent parts all copy, the move pair for any other, each `= default` under a C++ constraint.
+}
+
 /// -finfer-purity's verdict and the promise a body is held to. The values
 /// are the encoding of FunctionDecl::inferred_purity.
 pub enum PurityLevel derives u8 {
@@ -1305,6 +1317,9 @@ pub class StructDecl
     pub var assign_from: unsafe *FunctionDecl = &null
     /// How that `op =` is given to C++. One writer: ClassLifecycle.
     pub var assign_form: AssignForm = AssignForm::Implicit
+    /// The transfers declared beside a destructor when no transfer
+    /// constructor is written. One writer: ClassLifecycle.
+    pub var implicit_transfer: ImplicitTransfer = ImplicitTransfer::None
     /// N > 0: this record IS the tuple of arity N -- `(A, B)` is
     /// `Tuple2<A, B>` -- minted by TupleRecords, never parsed from source
     /// and in no symbol table. Tuple-ness is this flag on the PATTERN, by
@@ -1329,12 +1344,13 @@ pub class StructDecl
         node->init_annotations(unsafe &ctx->ast_alloc)
         node->init_dc(DeclContextKind::Struct, ctx, parent, node)
         node->init_redecl()
-        node->is_adt_payload = false
-        node->adt_pack_param = &null
-        node->adt_of         = &null
-        node->assign_from    = &null
-        node->assign_form    = AssignForm::Implicit
-        node->is_null_type   = false
+        node->is_adt_payload    = false
+        node->adt_pack_param    = &null
+        node->adt_of            = &null
+        node->assign_from       = &null
+        node->assign_form       = AssignForm::Implicit
+        node->implicit_transfer = ImplicitTransfer::None
+        node->is_null_type      = false
         return node
     }
 
@@ -1346,11 +1362,12 @@ pub class StructDecl
         node->init_annotations(unsafe &ctx->ast_alloc)
         node->init_dc(DeclContextKind::Struct, ctx, &null, node)
         node->init_redecl()
-        node->is_adt_payload = false
-        node->adt_pack_param = &null
-        node->adt_of         = &null
-        node->assign_from    = &null
-        node->assign_form    = AssignForm::Implicit
+        node->is_adt_payload    = false
+        node->adt_pack_param    = &null
+        node->adt_of            = &null
+        node->assign_from       = &null
+        node->assign_form       = AssignForm::Implicit
+        node->implicit_transfer = ImplicitTransfer::None
         return node
     }
 
@@ -1395,6 +1412,9 @@ pub class ClassDecl
     pub var assign_from: unsafe *FunctionDecl = &null
     /// How that `op =` is given to C++. One writer: ClassLifecycle.
     pub var assign_form: AssignForm = AssignForm::Implicit
+    /// The transfers declared beside a destructor when no transfer
+    /// constructor is written. One writer: ClassLifecycle.
+    pub var implicit_transfer: ImplicitTransfer = ImplicitTransfer::None
     /// An imported C++ class: every name a `using Base::name;` in its
     /// definition brings in. C++ lookup stops at a class that declares a
     /// name unless such a declaration merges the base's in; MemberLookup
@@ -1412,8 +1432,9 @@ pub class ClassDecl
         node->init_annotations(unsafe &ctx->ast_alloc)
         node->init_dc(DeclContextKind::Class, ctx, parent, node)
         node->init_redecl()
-        node->assign_from = &null
-        node->assign_form = AssignForm::Implicit
+        node->assign_from       = &null
+        node->assign_form       = AssignForm::Implicit
+        node->implicit_transfer = ImplicitTransfer::None
         return node
     }
 
@@ -1425,8 +1446,9 @@ pub class ClassDecl
         node->init_annotations(unsafe &ctx->ast_alloc)
         node->init_dc(DeclContextKind::Class, ctx, &null, node)
         node->init_redecl()
-        node->assign_from = &null
-        node->assign_form = AssignForm::Implicit
+        node->assign_from       = &null
+        node->assign_form       = AssignForm::Implicit
+        node->implicit_transfer = ImplicitTransfer::None
         return node
     }
 

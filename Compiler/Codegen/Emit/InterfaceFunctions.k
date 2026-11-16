@@ -695,17 +695,24 @@ extend InterfaceEmitter {
                     continue
                 }
 
+                // A pack this instance binds to no element spells no
+                // parameter, and takes no separator.
+                var one = if (p->is_self) => (self._spell->ext_receiver(
+                              f,
+                              ext,
+                              ie,
+                          ))
+                          else => self._spell->param_decl(p, "", ie)
+                if one.size() == 0 {
+                    continue
+                }
+
                 if !first {
                     s += ", "
                 }
 
                 first = false
-                if p->is_self {
-                    s += self._spell->ext_receiver(f, ext, ie)
-                    continue
-                }
-
-                s += self._spell->param_decl(p, "", ie)
+                s += one
             }
 
             s += ")"

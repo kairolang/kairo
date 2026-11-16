@@ -627,6 +627,11 @@ fn io_struct_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::StructDecl) {
             "StructDecl::assign_form",
         )
 
+        ar->sema_is(
+            n->implicit_transfer == Declarations::ImplicitTransfer::None,
+            "StructDecl::implicit_transfer",
+        )
+
         ar->sema_zero(n->tuple_arity as u64, "StructDecl::tuple_arity")
         ar->sema_false(n->is_null_type, "StructDecl::is_null_type")
     }
@@ -653,6 +658,11 @@ fn io_class_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::ClassDecl) {
         ar->sema_is(
             n->assign_form == Declarations::AssignForm::Implicit,
             "ClassDecl::assign_form",
+        )
+
+        ar->sema_is(
+            n->implicit_transfer == Declarations::ImplicitTransfer::None,
+            "ClassDecl::implicit_transfer",
         )
 
         ar->sema_zero(n->ffi_usings.size() as u64, "ClassDecl::ffi_usings")

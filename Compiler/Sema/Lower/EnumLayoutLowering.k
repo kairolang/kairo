@@ -1965,7 +1965,7 @@ pub class EnumLayoutQuery {
     /// constructor or `op finally` is user-provided unless `= default` or
     /// `= delete` (clang keeps a defaulted one POD, areDefaultedSMFStillPOD);
     /// the derived `op =` is when it has a body (AssignForm::Body). The
-    /// defaulted transfers _defaulted_transfers writes are not.
+    /// defaulted transfers _implicit_transfers writes are not.
     priv fn _twin_user_special(self, pat: unsafe *Decl) -> i8 {
         var methods = create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
         var        form = Declarations::AssignForm::Implicit

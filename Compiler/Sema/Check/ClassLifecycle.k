@@ -187,6 +187,7 @@ import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_in_generic_owner,
+    decl_is_ctor,
     decl_is_imported,
     decl_is_instance,
 }
@@ -208,8 +209,9 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,      AdtRole,       AssignForm, ClassDecl,  EnumDecl,     FieldDecl,     FnBodyKind,
-    FunctionDecl, InterfaceDecl, ParamDecl,  StructDecl, TransferKind, TypeAliasDecl, UnionDecl,
+    AbiKind,      AdtRole,       AssignForm,       ClassDecl,     EnumDecl,  FieldDecl,
+    FnBodyKind,   FunctionDecl,  ImplicitTransfer, InterfaceDecl, ParamDecl, StructDecl,
+    TransferKind, TypeAliasDecl, UnionDecl,
 }
 import AST::Node::Expressions::AssignOperatorExpr
 import AST::Node::PrimaryExpressions::{
@@ -2369,19 +2371,78 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         return AssignForm::Body
     }
 
-    /// The one writer of ClassDecl / StructDecl::assign_from and
-    /// assign_form (file header, Assignment).
+    /// The transfers \p d declares beside its destructor when it writes no
+    /// transfer constructor (Declarations.k ImplicitTransfer). C++ declares
+    /// no implicit move beside a user-declared destructor, so a MOVE record
+    /// left to C++ falls back to its copy, which a move-only part deletes.
+    /// A COPY record keeps C++'s implicit copy and gets no move: a record
+    /// has one transfer, its category's. A record with no constructor is an
+    /// aggregate to C++ and is built as one; declaring a constructor of any
+    /// kind would end that, so it declares nothing.
+    priv fn _implicit_transfer(self, d: unsafe *Decl) -> ImplicitTransfer {
+        if decl_is_imported(d) {
+            return ImplicitTransfer::None
+        }
+
+        var dtor    = false
+        var ctor    = false
+        var methods = self._methods(d)
+        for var i: usize = 0; i < methods.size(); ++i {
+            var unsafe *m = methods[i]
+            if m == &null {
+                continue
+            }
+
+            if m->transfer != TransferKind::NotTransfer {
+                return ImplicitTransfer::None
+            }
+
+            if self._is_dtor(m) {
+                dtor = true
+            } else if decl_is_ctor(m, self.sc->ctx) {
+                ctor = true
+            }
+        }
+
+        if !dtor || !ctor {
+            return ImplicitTransfer::None
+        }
+
+        var unsafe *f = self.facts_of(d)
+        if f->category == LifecycleCategory::Move {
+            return ImplicitTransfer::Move
+        }
+
+        if f->category != LifecycleCategory::Unknown {
+            return ImplicitTransfer::None
+        }
+
+        // A part that is known not to copy decides against the copy for
+        // every instance; C++ defines the defaulted move as deleted for an
+        // instance whose parts cannot move either.
+        if f->copyable == LifecycleTri::No {
+            return ImplicitTransfer::Move
+        }
+
+        return ImplicitTransfer::Open
+    }
+
+    /// The one writer of ClassDecl / StructDecl::assign_from, assign_form
+    /// (file header, Assignment) and implicit_transfer.
     priv fn _derive_assign(self, d: unsafe *Decl) {
         var unsafe *x   = self._assign_source(d)
         var        form = self._assign_form(d, x)
+        var        it   = self._implicit_transfer(d)
         if isa<ClassDecl>(d) {
             var unsafe *c = cast<ClassDecl>(d)
-            c->assign_from = x
-            c->assign_form = form
+            c->assign_from       = x
+            c->assign_form       = form
+            c->implicit_transfer = it
         } else if isa<StructDecl>(d) {
             var unsafe *s = cast<StructDecl>(d)
-            s->assign_from = x
-            s->assign_form = form
+            s->assign_from       = x
+            s->assign_form       = form
+            s->implicit_transfer = it
         }
     }
 
