@@ -318,34 +318,11 @@ extend Speller {
         return s.size() > 0 && s[0] == ('r' as u8)
     }
 
-    /// `[]` or `[]=` returning a safe `*T` / `*const T`: a place.
-    /// Codegen's copy of OperatorFacts::is_place, return-type test included,
-    /// on this side of the import boundary. Any other return is a value
-    /// operator and is spelled as declared. `[]` is two tokens, `[]=` three.
+    /// `[]` or `[]=` returning a safe `*T` / `*const T`: a place
+    /// (OperatorFacts::is_place). Any other return is a value operator and
+    /// is spelled as declared.
     static fn is_place_operator(f: unsafe *Declarations::FunctionDecl) -> bool {
-        if f == &null || !f->is_operator || !f->is_method() {
-            return false
-        }
-
-        if f->op_token.size() != 2 && f->op_token.size() != 3 {
-            return false
-        }
-
-        if f->op_token[0].kind != TokenKind::OpLSquare
-            || f->op_token[1].kind != TokenKind::OpRSquare {
-            return false
-        }
-
-        if f->op_token.size() == 3 && f->op_token[2].kind != TokenKind::OpEqual {
-            return false
-        }
-
-        if f->return_type == &null || f->return_type->canonical == &null {
-            return false
-        }
-
-        var unsafe *c = canon_unqual(f->return_type->canonical)
-        return c != &null && isa<PointerType>(c) && !cast<PointerType>(c)->is_unsafe
+        return OperatorFacts::is_place(f)
     }
 
     /// The C++ return type of \p f: a place operator's `*T` / `*const T`
@@ -440,33 +417,13 @@ extend Speller {
         return Speller::rep(dc->dc_owner)
     }
 
+    /// \p t as C++ spells it: a keyword form's symbol, any other token's own text.
     priv fn _op_sym(self, t: Token, ctx: unsafe *ASTContext) -> string {
-        match t.kind {
-            case TokenKind::KwAnd {
-                return "&&"
-            } case TokenKind::KwOr {
-                return "||"
-            } case TokenKind::KwNot {
-                return "!"
-            } case TokenKind::KwXor {
-                return "^"
-            } case TokenKind::KwBitand {
-                return "&"
-            } case TokenKind::KwBitor {
-                return "|"
-            } case TokenKind::KwCompl {
-                return "~"
-            } case TokenKind::KwNotEq {
-                return "!="
-            } case TokenKind::KwAndEq {
-                return "&="
-            } case TokenKind::KwOrEq {
-                return "|="
-            } case TokenKind::KwXorEq {
-                return "^="
-            } default {
-                return ctx->get_spelling(t)
-            }
+        var s = OperatorFacts::cxx_symbol(t.kind)
+        if s.size() > 0 {
+            return s
         }
+
+        return ctx->get_spelling(t)
     }
 }

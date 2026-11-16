@@ -54,6 +54,7 @@ import AST::Node::Types::{
     GenericParamType,
     PointerType,
 }
+import AST::OperatorFacts::OperatorFacts
 import Codegen::Emit::EmitIR::EmitIR
 import Codegen::Emit::EmitIRConvert
 import Codegen::Emit::EmitIRCtors
@@ -293,7 +294,9 @@ extend EmitIR {
             s->spell(at, p + " = [&]() { ")
             WrapForms::int_arm(self._cg->sink, at, k, p, tb, d)
             s->spell(at, "}(); } else { ")
-            var cop = p + " " + self._compound_text(k) + " " + tb
+            var cop = p + " " + OperatorFacts::cxx_symbol(
+                OperatorFacts::compound_of(k),
+            ) + " " + tb
             if duck {
                 cop = "(::" + LowerTargets::nopanic_call() + "(), " + cop + ")"
             }
@@ -317,35 +320,6 @@ extend EmitIR {
         }
 
         self._bind_depth = d
-    }
-
-    /// `+=` for op `+`, and so on: the spelling T's own compound operator has.
-    priv fn _compound_text(self, k: TokenKind) -> string {
-        if k == TokenKind::OpMinus {
-            return "-="
-        }
-
-        if k == TokenKind::OpStar {
-            return "*="
-        }
-
-        if k == TokenKind::OpSlash {
-            return "/="
-        }
-
-        if k == TokenKind::OpPercent {
-            return "%="
-        }
-
-        if k == TokenKind::OpLessLess {
-            return "<<="
-        }
-
-        if k == TokenKind::OpGreaterGreater {
-            return ">>="
-        }
-
-        return "+="
     }
 
     prot fn _unary(self, n: unsafe *UnaryOperatorExpr) {
@@ -623,8 +597,8 @@ extend EmitIR {
             s->create(n->op_token)
             s->spell(
                 n->range,
-                " __kb); } else { auto __kt = __ka; __kt " + self._compound_spell(
-                    k,
+                " __kb); } else { auto __kt = __ka; __kt " + OperatorFacts::cxx_symbol(
+                    self._compound_op_of_binary(k),
                 ) + " __kb; return __kt; } }(",
             )
 
@@ -669,73 +643,14 @@ extend EmitIR {
     /// An arithmetic or bitwise binary operator \p k as its compound form's
     /// kind, or TkUnknown for any other (a comparison, a logical operator).
     priv fn _compound_op_of_binary(self, k: TokenKind) -> TokenKind {
-        if k == TokenKind::OpPlus {
-            return TokenKind::OpPlusEqual
+        match k {
+            case TokenKind::OpLessLess, TokenKind::OpGreaterGreater, TokenKind::KwXor,
+                 TokenKind::KwBitand,   TokenKind::KwBitor {
+                return TokenKind::TkUnknown
+            } default {
+                return OperatorFacts::compound_of(k)
+            }
         }
-
-        if k == TokenKind::OpMinus {
-            return TokenKind::OpMinusEqual
-        }
-
-        if k == TokenKind::OpStar {
-            return TokenKind::OpStarEqual
-        }
-
-        if k == TokenKind::OpSlash {
-            return TokenKind::OpSlashEqual
-        }
-
-        if k == TokenKind::OpPercent {
-            return TokenKind::OpPercentEqual
-        }
-
-        if k == TokenKind::OpAmp {
-            return TokenKind::OpAmpEqual
-        }
-
-        if k == TokenKind::OpPipe {
-            return TokenKind::OpPipeEqual
-        }
-
-        if k == TokenKind::OpCaret {
-            return TokenKind::OpCaretEqual
-        }
-
-        return TokenKind::TkUnknown
-    }
-
-    /// The C++ spelling of compound kind \p k's operator, or of binary kind
-    /// \p k's compound twin.
-    priv fn _compound_spell(self, k: TokenKind) -> string {
-        if k == TokenKind::OpMinus {
-            return "-="
-        }
-
-        if k == TokenKind::OpStar {
-            return "*="
-        }
-
-        if k == TokenKind::OpSlash {
-            return "/="
-        }
-
-        if k == TokenKind::OpPercent {
-            return "%="
-        }
-
-        if k == TokenKind::OpAmp {
-            return "&="
-        }
-
-        if k == TokenKind::OpPipe {
-            return "|="
-        }
-
-        if k == TokenKind::OpCaret {
-            return "^="
-        }
-
-        return "+="
     }
 
     /// An operator no Sema rule bound (\p ro null) whose operand the instance
@@ -925,8 +840,8 @@ extend EmitIR {
             s->create(n->op_token)
             s->spell(
                 n->range,
-                " __kb); } else { __ka = __ka " + self._compound_binary_spell(
-                    ck2,
+                " __kb); } else { __ka = __ka " + OperatorFacts::cxx_symbol(
+                    OperatorFacts::compound_base(ck2),
                 ) + " __kb; return (__ka); } }(",
             )
 
@@ -942,37 +857,5 @@ extend EmitIR {
         self._cg->sink->create(n->op_token)
         self._value(n->rhs, want)
         self._cg->sink->spell(n->range, ")")
-    }
-
-    priv fn _compound_binary_spell(self, ck: TokenKind) -> string {
-        if ck == TokenKind::OpMinusEqual {
-            return "-"
-        }
-
-        if ck == TokenKind::OpStarEqual {
-            return "*"
-        }
-
-        if ck == TokenKind::OpSlashEqual {
-            return "/"
-        }
-
-        if ck == TokenKind::OpPercentEqual {
-            return "%"
-        }
-
-        if ck == TokenKind::OpAmpEqual {
-            return "&"
-        }
-
-        if ck == TokenKind::OpPipeEqual {
-            return "|"
-        }
-
-        if ck == TokenKind::OpCaretEqual {
-            return "^"
-        }
-
-        return "+"
     }
 }

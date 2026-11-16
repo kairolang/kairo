@@ -84,6 +84,7 @@ import Codegen::Emit::EmitIRDecls
 import Codegen::Emit::Spell::Speller
 import Lexer::Immediate::Immediate
 import Location::SourceRange::SourceRange
+import Support::Escape::c_string_literal
 import Token::TokenKind::TokenKind
 
 extend EmitIR {
@@ -152,31 +153,7 @@ extend EmitIR {
             return
         }
 
-        var s = "\""
-        for var i: usize = 0; i < len; ++i {
-            var b = p[i]
-            if b == 0x22 {
-                s += "\\\""
-                continue
-            }
-
-            if b == 0x5c {
-                s += "\\\\"
-                continue
-            }
-
-            if b >= 0x20 && b < 0x7f {
-                s.push_back(b)
-                continue
-            }
-
-            s += "\\"
-            s.push_back(('0' as u8) + (b >> 6 & 7))
-            s.push_back(('0' as u8) + (b >> 3 & 7))
-            s.push_back(('0' as u8) + (b & 7))
-        }
-
-        s += "\""
+        var s     = c_string_literal(p, len)
         var cxx_v = s
         self._cg->sink->create_str(n->token, &cxx_v)
     }
@@ -277,8 +254,8 @@ extend EmitIR {
             }
         }
 
-        // IntData flag bit 3: a Kairo suffix (`0xFFu8`).
-        var suffixed = (d->flags & 8) != 0 || is_byte
+        // A Kairo suffix (`0xFFu8`).
+        var suffixed = d->has_flag(Immediate::IntFlags::HasSuffix) || is_byte
         if suffixed && n->type_ != &null {
             self._cg->sink->spell(
                 t.range,
@@ -312,7 +289,7 @@ extend EmitIR {
             }
         }
 
-        if (d->flags & 16) != 0 && d->prefix.is_valid() {
+        if d->has_flag(Immediate::IntFlags::HasPrefix) && d->prefix.is_valid() {
             var pre = sm->get_text(d->prefix)
             if pre.size() == 2 && (pre[1] == ('o' as u8) || pre[1] == ('O' as u8)) {
                 return false
@@ -481,7 +458,7 @@ extend EmitIR {
 
         var unsafe *sm    = self._cg->ctx->sm
         var        body   = sm->get_text(d->body)
-        var        hex    = (d->flags & 4) != 0
+        var        hex    = d->has_flag(Immediate::FloatFlags::IsHex)
         var        digits = ""
         var        sep    = false
         var        point  = false
@@ -507,7 +484,7 @@ extend EmitIR {
             digits.push_back(ch)
         }
 
-        var suffixed = (d->flags & 16) != 0
+        var suffixed = d->has_flag(Immediate::FloatFlags::HasSuffix)
         if !wrapped && !suffixed && !sep && (k == BuiltinKind::F64 || k == BuiltinKind::COUNT) {
             self._cg->sink->synth(t, clang::tok::numeric_constant)
             return

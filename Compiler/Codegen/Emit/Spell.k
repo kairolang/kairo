@@ -44,6 +44,7 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::LangItems::entry_point_name
+import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::Decl
 import AST::Node::Declarations
 import Codegen::CodegenContext::CodegenContext
@@ -61,23 +62,23 @@ import Location::SourceRange::SourceRange
 /// else. InheritEdge's comment claims 0 none / pub / prot / priv; that
 /// order is wrong, and trusting it inverted the header's pub filter.
 pub eval fn VIS_NONE() -> u8 {
-    return 0
+    return VisibilityKind::None as u8
 }
 
 pub eval fn VIS_PRIV() -> u8 {
-    return 1
+    return VisibilityKind::Private as u8
 }
 
 pub eval fn VIS_PROT() -> u8 {
-    return 2
+    return VisibilityKind::Protected as u8
 }
 
 pub eval fn VIS_PUB()  -> u8 {
-    return 3
+    return VisibilityKind::Public as u8
 }
 
 pub eval fn VIS_INTERNAL() -> u8 {
-    return 4
+    return VisibilityKind::Internal as u8
 }
 
 /// # Top-level namespace spellings

@@ -18,7 +18,10 @@
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
-import AST::Context::InstantiationRegistry::InstanceEntry
+import AST::Context::InstantiationRegistry::{
+    AdtShape,
+    InstanceEntry,
+}
 import AST::DeclFacts
 import AST::EnumNiche::adt_niche_payload_variant
 import AST::Kind::DeclKind::DeclKind
@@ -903,7 +906,7 @@ extend InterfaceEmitter {
     /// standard-layout, so it is passed and returned as its one field is.
     priv fn _instance_layout_asserts(self, d: unsafe *Decl, ie: unsafe *InstanceEntry) {
         var unsafe *en = dyn_cast<Declarations::EnumDecl>(d)
-        if en == &null || !en->is_adt || ie->adt_shape == 0 {
+        if en == &null || !en->is_adt || ie->adt_shape == (AdtShape::Unknown as u8) {
             return
         }
 
@@ -917,7 +920,7 @@ extend InterfaceEmitter {
             self._cg->sink->brk()
         }
 
-        if ie->adt_shape != 2 {
+        if ie->adt_shape != (AdtShape::NicheFilled as u8) {
             return
         }
 

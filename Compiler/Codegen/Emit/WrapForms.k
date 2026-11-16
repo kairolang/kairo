@@ -130,7 +130,7 @@ pub class WrapForms {
                     "return static_cast<" + tt + ">(" + WrapForms::_scs(uu, a),
                 )
 
-                s->punct(at, clang::tok::lessless)
+                s->shift(at, true)
                 s->spell(at, mask + "); ")
                 return
             }
@@ -142,14 +142,14 @@ pub class WrapForms {
                 "return static_cast<" + tt + ">(" + WrapForms::_scs(ss, a),
             )
 
-            s->punct(at, clang::tok::greatergreater)
+            s->shift(at, false)
             s->spell(at, mask + "); } ")
             s->spell(
                 at,
                 "return static_cast<" + tt + ">(" + WrapForms::_scs(uu, a),
             )
 
-            s->punct(at, clang::tok::greatergreater)
+            s->shift(at, false)
             s->spell(at, mask + "); ")
             return
         }
@@ -174,75 +174,26 @@ pub class WrapForms {
                          k:       TokenKind,
                          const a: string,
                          const b: string) {
-        if k == TokenKind::OpLessLess {
+        if k == TokenKind::OpLessLess || k == TokenKind::OpGreaterGreater {
             s->spell(at, a)
-            s->punct(at, clang::tok::lessless)
+            s->shift(at, k == TokenKind::OpLessLess)
             s->spell(at, b)
             return
         }
 
-        if k == TokenKind::OpGreaterGreater {
-            s->spell(at, a)
-            s->punct(at, clang::tok::greatergreater)
-            s->spell(at, b)
-            return
-        }
-
-        var sym = "+"
-        if k == TokenKind::OpMinus {
-            sym = "-"
-        }
-
-        if k == TokenKind::OpStar {
-            sym = "*"
-        }
-
-        if k == TokenKind::OpSlash {
-            sym = "/"
-        }
-
-        if k == TokenKind::OpPercent {
-            sym = "%"
-        }
-
-        s->spell(at, a + " " + sym + " " + b)
+        s->spell(at, a + " " + OperatorFacts::cxx_symbol(k) + " " + b)
     }
 
     /// # a builtin's operator as a witness member
 
-    /// \p k's C++ spelling, for the operators C++ spells as Kairo does.
-    priv static fn _sym(k: TokenKind) -> string {
-        match k {
-            case TokenKind::OpEqualEqual {
-                return "=="
-            } case TokenKind::OpExclaimEqual {
-                return "!="
-            } case TokenKind::KwNotEq {
-                return "!="
-            } case TokenKind::OpLess {
-                return "<"
-            } case TokenKind::OpGreater {
-                return ">"
-            } case TokenKind::OpLessEqual {
-                return "<="
-            } case TokenKind::OpGreaterEqual {
-                return ">="
-            } case TokenKind::OpAmp {
-                return "&"
-            } case TokenKind::KwBitand {
-                return "&"
-            } case TokenKind::OpPipe {
-                return "|"
-            } case TokenKind::KwBitor {
-                return "|"
-            } case TokenKind::OpCaret {
-                return "^"
-            } case TokenKind::KwXor {
-                return "^"
-            } default {
-                return ""
-            }
-        }
+    /// `&`, `|`, `^`, in either spelling.
+    priv static fn _is_bitwise(k: TokenKind) -> bool {
+        return k == TokenKind::OpAmp
+            || k == TokenKind::KwBitand
+            || k == TokenKind::OpPipe
+            || k == TokenKind::KwBitor
+            || k == TokenKind::OpCaret
+            || k == TokenKind::KwXor
     }
 
     priv static fn _is_cmp(k: TokenKind) -> bool {
@@ -320,7 +271,7 @@ pub class WrapForms {
             return ints
         }
 
-        if WrapForms::_sym(k).size() > 0 { // `&`, `|`, `^`
+        if WrapForms::_is_bitwise(k) { // `&`, `|`, `^`
             return "(" + ints + " || __is_same(" + S + ", bool))"
         }
 
@@ -378,7 +329,11 @@ pub class WrapForms {
         }
 
         if WrapForms::_is_cmp(k) {
-            s->spell(at, "(" + r + " " + WrapForms::_sym(k) + " " + o + ")")
+            s->spell(
+                at,
+                "(" + r + " " + OperatorFacts::cxx_symbol(k) + " " + o + ")",
+            )
+
             return
         }
 
@@ -392,10 +347,13 @@ pub class WrapForms {
             return
         }
 
-        if WrapForms::_sym(k).size() > 0 { // `&`, `|`, `^`: no wrap to do
+        if WrapForms::_is_bitwise(k) { // `&`, `|`, `^`: no wrap to do
             s->spell(
                 at,
-                WrapForms::_scs(self_t, r + " " + WrapForms::_sym(k) + " " + o),
+                WrapForms::_scs(
+                    self_t,
+                    r + " " + OperatorFacts::cxx_symbol(k) + " " + o,
+                ),
             )
 
             return

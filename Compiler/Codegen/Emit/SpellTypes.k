@@ -46,6 +46,7 @@ import AST::Node::Types::{
     GenericParamType, NullableType,     OpaqueFFIType, PointerType,    TypeExpr,
     ValueOp,
 }
+import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
 import Codegen::Emit::Spell::Speller
 import Codegen::Emit::SpellConstraints
@@ -527,26 +528,11 @@ extend Speller {
     /// keyword forms were normalized to these by TypeResolve.
     static fn value_op(k: TokenKind) -> string {
         match k {
-            case TokenKind::OpPlus {
-                return "+"
-            } case TokenKind::OpMinus {
-                return "-"
-            } case TokenKind::OpStar {
-                return "*"
-            } case TokenKind::OpSlash {
-                return "/"
-            } case TokenKind::OpPercent {
-                return "%"
-            } case TokenKind::OpPipe {
-                return "|"
-            } case TokenKind::OpAmp {
-                return "&"
-            } case TokenKind::OpCaret {
-                return "^"
-            } case TokenKind::OpLessLess {
-                return "<<"
-            } case TokenKind::OpGreaterGreater {
-                return ">>"
+            case TokenKind::OpPlus,           TokenKind::OpMinus,   TokenKind::OpStar,
+                 TokenKind::OpSlash,          TokenKind::OpPercent, TokenKind::OpPipe,
+                 TokenKind::OpAmp,            TokenKind::OpCaret,   TokenKind::OpLessLess,
+                 TokenKind::OpGreaterGreater {
+                return OperatorFacts::cxx_symbol(k)
             } default {
                 return "?"
             }

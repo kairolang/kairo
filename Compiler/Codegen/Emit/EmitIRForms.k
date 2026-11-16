@@ -51,6 +51,7 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Statements::ExpressionStmt
 import AST::Node::Types::PointerType
+import AST::OperatorFacts::OperatorFacts
 import Codegen::Emit::EmitIR::EmitIR
 import Codegen::Emit::EmitIRConvert
 import Codegen::Emit::EmitIRDecls
@@ -233,35 +234,12 @@ extend EmitIR {
     /// The op a compound assignment applies, TkUnknown when it has no wrap form
     /// (`&= |= ^=` are native: defined, a truncating store).
     prot fn _compound_op(self, k: TokenKind) -> TokenKind {
-        if k == TokenKind::OpPlusEqual {
-            return TokenKind::OpPlus
+        var b = OperatorFacts::compound_base(k)
+        if b == TokenKind::OpAmp || b == TokenKind::OpPipe || b == TokenKind::OpCaret {
+            return TokenKind::TkUnknown
         }
 
-        if k == TokenKind::OpMinusEqual {
-            return TokenKind::OpMinus
-        }
-
-        if k == TokenKind::OpStarEqual {
-            return TokenKind::OpStar
-        }
-
-        if k == TokenKind::OpSlashEqual {
-            return TokenKind::OpSlash
-        }
-
-        if k == TokenKind::OpPercentEqual {
-            return TokenKind::OpPercent
-        }
-
-        if k == TokenKind::OpLessLessEqual {
-            return TokenKind::OpLessLess
-        }
-
-        if k == TokenKind::OpGreaterGreaterEqual {
-            return TokenKind::OpGreaterGreater
-        }
-
-        return TokenKind::TkUnknown
+        return b
     }
 
     /// Binary op \p k on integer type \p t has a wrap form (\p t is the
@@ -427,11 +405,7 @@ extend EmitIR {
         self._sc(at, if (arith) => (self._spell.reg_signed(t)) else => u)
         a()
         s->spell(at, ")")
-        if k == TokenKind::OpLessLess {
-            s->punct(at, clang::tok::lessless)
-        } else {
-            s->punct(at, clang::tok::greatergreater)
-        }
+        s->shift(at, k == TokenKind::OpLessLess)
 
         if proven {
             self._sc(at, u)

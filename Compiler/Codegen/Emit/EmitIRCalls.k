@@ -23,6 +23,7 @@ ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "vector"
 
+import API::LinkABI::call_conv_note_bit
 import AST::ASTSupport::FrozenList
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::OverloadCell
@@ -213,7 +214,7 @@ extend EmitIR {
             // A call through a convention's pointer is a call with it: the
             // type spells the attribute, and the object's ABI note records it.
             if fv->call_conv != 0 {
-                self._cc_bits |= (1 as u32) << (fv->call_conv as u32) - (1 as u32)
+                self._cc_bits |= call_conv_note_bit(fv->call_conv)
             }
 
             // `fn(...) -> !` lowers to `__kairo_fn<void(...)>`: C++ cannot

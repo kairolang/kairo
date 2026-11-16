@@ -27,6 +27,7 @@ import AST::Node::Base::{
 }
 import AST::Node::CanonicalNodes::{
     AssocType,
+    BoundsState,
     QualifiedType,
     RecordType,
     canon_unqual,
@@ -48,6 +49,7 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Statements::ReturnStmt
 import AST::Node::Types::GenericParamType
+import AST::OperatorFacts::OperatorFacts
 import Codegen::Emit::Spell::Speller
 import Codegen::Emit::SpellFacts
 import Codegen::Emit::SpellRecords
@@ -204,7 +206,7 @@ extend Speller {
     /// The bound of associated type \p base (its cached, substituted
     /// bounds) whose interface requires \p a's associated type, or null.
     priv fn _assoc_bound_of(self, base: unsafe *AssocType, a: unsafe *AssocType) -> unsafe *Type {
-        if base->bounds_state != 2 {
+        if base->bounds_state != (BoundsState::Done as u8) {
             return &null
         }
 
@@ -223,7 +225,7 @@ extend Speller {
                 ),
             )
 
-            if idecl == &null || idecl->compose_state != 2 {
+            if idecl == &null || idecl->compose_state != (Declarations::ComposeState::Done as u8) {
                 continue
             }
 
@@ -283,7 +285,7 @@ extend Speller {
                 ),
             )
 
-            if idecl == &null || idecl->compose_state != 2 {
+            if idecl == &null || idecl->compose_state != (Declarations::ComposeState::Done as u8) {
                 continue
             }
 
@@ -1185,79 +1187,20 @@ extend Speller {
     }
 
     static fn _pred_op(k: TokenKind) -> string {
-        if k == TokenKind::OpPlus {
-            return "+"
+        match k {
+            case TokenKind::OpPlus,       TokenKind::OpMinus,          TokenKind::OpStar,
+                 TokenKind::OpSlash,      TokenKind::OpPercent,        TokenKind::OpLess,
+                 TokenKind::OpLessEqual,  TokenKind::OpGreater,        TokenKind::OpGreaterEqual,
+                 TokenKind::OpEqualEqual, TokenKind::OpExclaimEqual,   TokenKind::OpAmpAmp,
+                 TokenKind::KwAnd,        TokenKind::OpPipePipe,       TokenKind::KwOr,
+                 TokenKind::OpAmp,        TokenKind::KwBitand,         TokenKind::OpPipe,
+                 TokenKind::KwBitor,      TokenKind::OpCaret,          TokenKind::KwXor,
+                 TokenKind::OpLessLess,   TokenKind::OpGreaterGreater {
+                return OperatorFacts::cxx_symbol(k)
+            } default {
+                return ""
+            }
         }
-
-        if k == TokenKind::OpMinus {
-            return "-"
-        }
-
-        if k == TokenKind::OpStar {
-            return "*"
-        }
-
-        if k == TokenKind::OpSlash {
-            return "/"
-        }
-
-        if k == TokenKind::OpPercent {
-            return "%"
-        }
-
-        if k == TokenKind::OpLess {
-            return "<"
-        }
-
-        if k == TokenKind::OpLessEqual {
-            return "<="
-        }
-
-        if k == TokenKind::OpGreater {
-            return ">"
-        }
-
-        if k == TokenKind::OpGreaterEqual {
-            return ">="
-        }
-
-        if k == TokenKind::OpEqualEqual {
-            return "=="
-        }
-
-        if k == TokenKind::OpExclaimEqual {
-            return "!="
-        }
-
-        if k == TokenKind::OpAmpAmp || k == TokenKind::KwAnd {
-            return "&&"
-        }
-
-        if k == TokenKind::OpPipePipe || k == TokenKind::KwOr {
-            return "||"
-        }
-
-        if k == TokenKind::OpAmp || k == TokenKind::KwBitand {
-            return "&"
-        }
-
-        if k == TokenKind::OpPipe || k == TokenKind::KwBitor {
-            return "|"
-        }
-
-        if k == TokenKind::OpCaret || k == TokenKind::KwXor {
-            return "^"
-        }
-
-        if k == TokenKind::OpLessLess {
-            return "<<"
-        }
-
-        if k == TokenKind::OpGreaterGreater {
-            return ">>"
-        }
-
-        return ""
     }
 
     /// The generic parameter a conjunct constrains, or null.

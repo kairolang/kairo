@@ -18,6 +18,11 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import API::LinkABI::{
+    CALL_CONV_PRESERVE_ALL,
+    CALL_CONV_PRESERVE_MOST,
+    CALL_CONV_PRESERVE_NONE,
+}
 import AST::AttrFacts::AttrFacts
 import AST::Context::DeclContext::{
     DeclContext,
@@ -75,6 +80,8 @@ import Codegen::Emit::SpellScopes
 import Codegen::Emit::SpellTypes
 import Location::SourceRange::SourceRange
 import Resolution::ModulePath::header_path_of
+import Support::Ascii::is_ident_char
+import Support::Escape::c_string_literal
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 import Token::TokenText::TokenText
@@ -558,32 +565,7 @@ extend Speller {
     /// as it is, a quote and a backslash escaped, every other byte octal (three digits,
     /// so a following digit is never read into it).
     static fn c_string(const s: string) -> string {
-        var lit = "\""
-        for var j: usize = 0; j < s.size(); ++j {
-            var b = (s[j])
-            if b == 0x22 {
-                lit += "\\\""
-                continue
-            }
-
-            if b == 0x5c {
-                lit += "\\\\"
-                continue
-            }
-
-            if b >= 0x20 && b < 0x7f {
-                lit.push_back(b)
-                continue
-            }
-
-            lit += "\\"
-            lit.push_back(('0' as u8) + (b >> 6 & 7))
-            lit.push_back(('0' as u8) + (b >> 3 & 7))
-            lit.push_back(('0' as u8) + (b & 7))
-        }
-
-        lit += "\""
-        return lit
+        return c_string_literal(s)
     }
 
     /// Where a declaration's C++ tokens are anchored: its name token, or for
@@ -653,11 +635,8 @@ extend Speller {
     static fn ident_safe(s: string) -> string {
         var clean = true
         for var i: usize = 0; i < s.size(); ++i {
-            var c = s[i]
-            var ok = c >= ('a' as u8) && c <= ('z' as u8)
-                || c >= ('A' as u8) && c <= ('Z' as u8)
-                || c >= ('0' as u8) && c <= ('9' as u8)
-                || c == ('_' as u8)
+            var c  = s[i]
+            var ok = is_ident_char(c)
             if !ok {
                 clean = false
                 break
@@ -671,11 +650,8 @@ extend Speller {
         var hex = "0123456789ABCDEF"
         var out = ""
         for var i: usize = 0; i < s.size(); ++i {
-            var c = s[i]
-            var ok = c >= ('a' as u8) && c <= ('z' as u8)
-                || c >= ('A' as u8) && c <= ('Z' as u8)
-                || c >= ('0' as u8) && c <= ('9' as u8)
-                || c == ('_' as u8)
+            var c  = s[i]
+            var ok = is_ident_char(c)
             if ok {
                 out.push_back(c)
                 continue
@@ -740,13 +716,17 @@ extend Speller {
         // -finfer-purity's verdict (FnPurityCheck::infer) is spelled like a
         // written promise; it is stamped on every link, so each head agrees.
         var inferred = f->inferred_purity
-        if inferred == 0 && c != &null {
+        if inferred == (Declarations::PurityLevel::None as u8) && c != &null {
             inferred = c->inferred_purity
         }
 
-        if f->is_const_fn || c != &null && c->is_const_fn || inferred == 1 {
+        if f->is_const_fn
+            || c != &null && c->is_const_fn
+            || inferred == (Declarations::PurityLevel::Const as u8) {
             s += LowerTargets::attr_const()
-        } else if f->is_pure || c != &null && c->is_pure || inferred == 2 {
+        } else if f->is_pure
+            || c != &null && c->is_pure
+            || inferred == (Declarations::PurityLevel::Pure as u8) {
             s += LowerTargets::attr_pure()
         }
 
@@ -764,15 +744,15 @@ extend Speller {
     /// The C++ attribute of a FunctionDecl::call_conv / FunctionPointerType::
     /// call_conv value, with its trailing space, or "" for the default.
     pub static fn call_conv_attr(cc: u8) -> string {
-        if cc == 1 {
+        if cc == CALL_CONV_PRESERVE_MOST {
             return LowerTargets::attr_preserve_most()
         }
 
-        if cc == 2 {
+        if cc == CALL_CONV_PRESERVE_ALL {
             return LowerTargets::attr_preserve_all()
         }
 
-        if cc == 3 {
+        if cc == CALL_CONV_PRESERVE_NONE {
             return LowerTargets::attr_preserve_none()
         }
 

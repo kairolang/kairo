@@ -23,6 +23,11 @@ import AST::LangItems::LowerTargets
 import Codegen::Sink::EmitSink::EmitSink
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Support::Ascii::{
+    find,
+    is_ident_char,
+    trim_start,
+}
 import Token::Token::Token
 import Token::TokenCacheManager::TokenCacheManager
 import Token::TokenText::TokenText
@@ -579,7 +584,7 @@ pub class TextSink derives EmitSink {
                         )
 
                         for var d: usize = 0; d < doc.size(); ++d {
-                            prelude += pad + TextSink::_trim_ws_(doc[d])
+                            prelude += pad + trim_start(doc[d])
                             prelude += "\n"
                         }
 
@@ -978,7 +983,7 @@ pub class TextSink derives EmitSink {
             return d
         }
 
-        var s = TextSink::_trim_ws_(t)
+        var s = trim_start(t)
         if s.starts_with("#if") {
             return d + 1
         }
@@ -1028,7 +1033,7 @@ pub class TextSink derives EmitSink {
             }
 
             var b = e
-            while (b > 0) && TextSink::_ident_char_(u[b - 1]) {
+            while (b > 0) && is_ident_char(u[b - 1]) {
                 b -= 1
             }
 
@@ -1075,10 +1080,10 @@ pub class TextSink derives EmitSink {
         var i:    usize  = 0
         while i < s.size() {
             var rest   = s.subslice(i, s.size() - i)
-            var before = (i > 0) && TextSink::_ident_char_(s[i - 1])
+            var before = (i > 0) && is_ident_char(s[i - 1])
             if (!before)
                 && rest.starts_with("inline")
-                && ((rest.size() == 6) || (!TextSink::_ident_char_(rest[6]))) {
+                && ((rest.size() == 6) || (!is_ident_char(rest[6]))) {
                 bare += " "
                 i += 6
                 continue
@@ -1142,8 +1147,8 @@ pub class TextSink derives EmitSink {
 
             if (out.size() > 0)
                 && (q < bare.size())
-                && TextSink::_ident_char_(out[out.size() - 1])
-                && TextSink::_ident_char_(bare[q]) {
+                && is_ident_char(out[out.size() - 1])
+                && is_ident_char(bare[q]) {
                 out += " "
             }
 
@@ -1316,7 +1321,7 @@ pub class TextSink derives EmitSink {
 
         var j = k
         while j > 1 {
-            var s = TextSink::_trim_ws_(
+            var s = trim_start(
                 self._sm->get_line_text(self._home_fid, (j - 1) as u32),
             )
 
@@ -1337,7 +1342,7 @@ pub class TextSink derives EmitSink {
             break
         }
 
-        if rev.empty() || TextSink::_trim_ws_(rev[rev.size() - 1]).starts_with("/// ---") {
+        if rev.empty() || trim_start(rev[rev.size() - 1]).starts_with("/// ---") {
             return none
         }
 
@@ -1574,7 +1579,7 @@ pub class TextSink derives EmitSink {
             }
 
             var b = e
-            while (b > 0) && TextSink::_ident_char_(u[b - 1]) {
+            while (b > 0) && is_ident_char(u[b - 1]) {
                 b -= 1
             }
 
@@ -1647,7 +1652,7 @@ pub class TextSink derives EmitSink {
         }
 
         var e = at
-        while (e < u.size()) && TextSink::_ident_char_(u[e]) {
+        while (e < u.size()) && is_ident_char(u[e]) {
             e += 1
         }
 
@@ -1664,7 +1669,7 @@ pub class TextSink derives EmitSink {
     priv static fn _var_name_(const t: string) -> string {
         if t.starts_with("using ") {
             var e: usize = 6
-            while (e < t.size()) && TextSink::_ident_char_(t[e]) {
+            while (e < t.size()) && is_ident_char(t[e]) {
                 e += 1
             }
 
@@ -1686,7 +1691,7 @@ pub class TextSink derives EmitSink {
         }
 
         var b = e
-        while (b > 0) && TextSink::_ident_char_(t[b - 1]) {
+        while (b > 0) && is_ident_char(t[b - 1]) {
             b -= 1
         }
 
@@ -1732,21 +1737,14 @@ pub class TextSink derives EmitSink {
                 continue
             }
 
-            var before = (i > 0) && TextSink::_ident_char_(s[i - 1])
-            var after = ((i + name.size()) < s.size()) && TextSink::_ident_char_(s[i + name.size()])
+            var before = (i > 0) && is_ident_char(s[i - 1])
+            var after = ((i + name.size()) < s.size()) && is_ident_char(s[i + name.size()])
             if (!before) && (!after) {
                 return true
             }
         }
 
         return false
-    }
-
-    priv static fn _ident_char_(c: u8) -> bool {
-        return ((c >= ('a' as u8)) && (c <= ('z' as u8)))
-            || ((c >= ('A' as u8)) && (c <= ('Z' as u8)))
-            || ((c >= ('0' as u8)) && (c <= ('9' as u8)))
-            || (c == ('_' as u8))
     }
 
     priv static fn _trim_(const s: string) -> string {
@@ -1758,35 +1756,8 @@ pub class TextSink derives EmitSink {
         return s.subslice(a, s.size() - a)
     }
 
-    /// \p s without its leading spaces and tabs.
-    priv static fn _trim_ws_(const s: string) -> string {
-        var a: usize = 0
-        while (a < s.size()) && ((s[a] == (' ' as u8)) || (s[a] == ('\t' as u8))) {
-            a += 1
-        }
-
-        return s.subslice(a, s.size() - a)
-    }
-
     priv static fn _has_(const s: string, const needle: string) -> bool {
-        if needle.size() > s.size() {
-            return false
-        }
-
-        for var i: usize = 0; (i + needle.size()) <= s.size(); ++i {
-            var same = true
-            for var k: usize = 0; same && (k < needle.size()); ++k {
-                if s[i + k] != needle[k] {
-                    same = false
-                }
-            }
-
-            if same {
-                return true
-            }
-        }
-
-        return false
+        return find(s, needle, 0) != usize::MAX
     }
 
     priv fn _flush_pending(self) {

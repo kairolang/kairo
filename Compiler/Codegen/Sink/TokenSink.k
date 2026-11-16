@@ -56,6 +56,10 @@ import Location::SourceManager::FileID
 import Location::SourceRange::SourceRange
 import Memory::ArenaAllocator::ArenaAllocator
 import Memory::ArenaList::ArenaList
+import Support::Ascii::{
+    is_digit,
+    is_ident_start,
+}
 import Token::Token::Token
 import Token::TokenKind::{
     TokenKind,
@@ -957,11 +961,7 @@ pub class TokenSink derives EmitSink {
         var b = self._bytes(loc, len)
         for var i: usize = 0; i < b.size(); ++i {
             var c = b[i] as u8
-            var alpha = c >= ('a' as u8) && c <= ('z' as u8)
-                || c >= ('A' as u8) && c <= ('Z' as u8)
-                || c == ('_' as u8)
-            var digit = c >= ('0' as u8) && c <= ('9' as u8)
-            if !alpha && (i == 0 || !digit) {
+            if !is_ident_start(c) && (i == 0 || !is_digit(c)) {
                 return false
             }
         }

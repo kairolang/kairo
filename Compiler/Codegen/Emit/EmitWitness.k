@@ -78,9 +78,12 @@ import AST::Context::InstantiationRegistry::{
 }
 import AST::DeclFacts::{
     decl_extension_of, decl_generic_params, decl_is_ctor_requirement, decl_is_imported,
-    decl_is_instance,  decl_is_requirement, decl_pattern,
+    decl_is_instance,  decl_is_requirement, decl_name,                decl_pattern,
 }
-import AST::LangItems::LowerTargets
+import AST::LangItems::{
+    LowerTargets,
+    WellKnownType,
+}
 import AST::Node::Base::{
     Decl,
     Type,
@@ -95,6 +98,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
+    ComposeState,
     FunctionDecl,
     InterfaceDecl,
     ParamDecl,
@@ -196,7 +200,7 @@ pub class EmitWitness {
                     @inout substs: cxx::std::vector<unsafe *InstanceEntry>,
                     row:           unsafe *ConformanceRow = &null) -> cxx::std::vector<unsafe *FunctionDecl> {
         var out = cxx::std::vector<unsafe *FunctionDecl>()
-        if idecl->compose_state != 2 {
+        if idecl->compose_state != (ComposeState::Done as u8) {
             for var i: usize = 0; i < idecl->methods.size(); ++i {
                 out.push_back(idecl->methods[i])
                 substs.push_back(&null)
@@ -331,7 +335,7 @@ pub class EmitWitness {
 
     /// \p idecl (composed) requires an associated type, generic or not.
     fn has_assoc(self, idecl: unsafe *InterfaceDecl) -> bool {
-        if idecl == &null || idecl->compose_state != 2 {
+        if idecl == &null || idecl->compose_state != (ComposeState::Done as u8) {
             return false
         }
 
@@ -534,7 +538,8 @@ pub class EmitWitness {
 
             var decl  = self._member_decl(m, subs[i], me)
             var leaf  = self._spell->leaf(unsafe (m as unsafe *Decl))
-            var targs = self._own_args(m)
+            var own   = self._own_args(m)
+            var targs = if (own.size() > 0) => ("<" + own + ">") else => ""
             var gate  = ""
             if targs.size() > 0 {
                 // A GENERIC requirement has no member pointer to cast without
@@ -682,7 +687,7 @@ pub class EmitWitness {
         // Each associated type first: a type with no specialization has none,
         // and fails here rather than at a member that names it.
         var tn = ""
-        if idecl->compose_state == 2 {
+        if idecl->compose_state == (ComposeState::Done as u8) {
             for var i: usize = 0; i < idecl->requirements.size(); ++i {
                 var unsafe *ta = dyn_cast<TypeAliasDecl>(
                     idecl->requirements.get(i)->decl,
@@ -755,7 +760,7 @@ pub class EmitWitness {
 
         // The associated types, ahead of the members whose signatures name
         // them: the conformer's alias, or the default it took.
-        if idecl->compose_state == 2 {
+        if idecl->compose_state == (ComposeState::Done as u8) {
             for var i: usize = 0; i < idecl->requirements.size(); ++i {
                 var unsafe *ta = dyn_cast<TypeAliasDecl>(
                     idecl->requirements.get(i)->decl,
@@ -926,6 +931,17 @@ pub class EmitWitness {
             // witness): a pointer's is its address -- HashMap mixes every
             // hash before it indexes, so an identity hash is enough -- and an
             // imported C++ type's is `std::hash<X>`.
+            if !self._is_hash_slot(m) {
+                self._ice(
+                    Speller::at(unsafe (m as unsafe *Decl)),
+                    "EmitWitness: requirement `" + decl_name(
+                        (m->semantic_dc)->owner_decl(),
+                    ) + "::" + decl_name(
+                        unsafe (m as unsafe *Decl),
+                    ) + "` stands as its own witness and is not the Hash lang item's `hash`; ConformanceChecking::_native_implementation admits no other named requirement",
+                )
+            }
+
             if ptr {
                 return "reinterpret_cast<" + LowerTargets::cxx_size_t() + ">(*" + LowerTargets::witness_receiver_name() + ")"
             }
@@ -935,7 +951,8 @@ pub class EmitWitness {
 
         // A generic requirement's arguments are the witness member's own
         // parameters, spelled: nothing is left for deduction to choose.
-        var        targs  = self._own_args(m)
+        var        own    = self._own_args(m)
+        var        targs  = if (own.size() > 0) => ("<" + own + ">") else => ""
         var unsafe *x_ext = decl_extension_of(w)
         if x_ext != &null {
             // A generic extension's member takes the extension's arguments
@@ -958,14 +975,8 @@ pub class EmitWitness {
                     t += self._spell->_type((*ext_args)[k])
                 }
 
-                if targs.size() > 0 {
-                    // `<U, V>` without its brackets, after the extension's.
-                    var inner = ""
-                    for var k: usize = 1; k + 1 < targs.size(); ++k {
-                        inner.push_back(targs[k])
-                    }
-
-                    t += ", " + inner
+                if own.size() > 0 {
+                    t += ", " + own // after the extension's.
                 }
 
                 targs = t + ">"
@@ -990,6 +1001,23 @@ pub class EmitWitness {
             LowerTargets::witness_receiver_name(),
             tkw + self._spell->leaf(w) + targs,
         )
+    }
+
+    /// Requirement \p m is the Hash lang item's `hash`: the one named
+    /// requirement whose native form _target spells.
+    priv fn _is_hash_slot(self, m: unsafe *FunctionDecl) -> bool {
+        if m->is_operator || m->semantic_dc == &null {
+            return false
+        }
+
+        var *gs = self._cg->tu->global_scope
+        if gs == &null {
+            return false
+        }
+
+        var unsafe *hd    = gs->well_known()->get(WellKnownType::Hash)
+        var unsafe *owner = (m->semantic_dc)->owner_decl()
+        return hd != &null && owner != &null && Speller::rep(owner) == Speller::rep(hd)
     }
 
     /// The constraint under which builtin operator requirement \p m is
@@ -1089,14 +1117,11 @@ pub class EmitWitness {
         return recv + "->" + name + "(" + args + ")"
     }
 
-    /// `<U, V>`: a generic requirement's own parameters as arguments, or "".
+    /// `U, V`: a generic requirement's own parameters as arguments, without
+    /// the angle brackets, or "".
     priv fn _own_args(self, m: unsafe *FunctionDecl) -> string {
-        if m->generic_params.size() == 0 {
-            return ""
-        }
-
         var fid = Speller::fid_of(unsafe (m as unsafe *Decl))
-        var s   = "<"
+        var s   = ""
         for var i: usize = 0; i < m->generic_params.size(); ++i {
             if i > 0 {
                 s += ", "
@@ -1108,7 +1133,7 @@ pub class EmitWitness {
             }
         }
 
-        return s + ">"
+        return s
     }
 
     /// # pieces

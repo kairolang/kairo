@@ -36,6 +36,11 @@ ffi "c++" import "clang/Basic/TokenKinds.h"
 import AST::Context::ASTContext::ASTContext
 import Codegen::CodegenICE::codegen_ice
 import Location::SourceRange::SourceRange
+import Support::Ascii::{
+    is_digit,
+    is_ident_char,
+    is_ident_start,
+}
 import Token::Token::Token
 
 pub class EmitSink {
@@ -167,6 +172,16 @@ pub class EmitSink {
         return self.synth(t.range, k)
     }
 
+    /// `<<` (\p left) or `>>` as one shift token. A shift is never passed
+    /// to spell(), which reads the two characters as two angle brackets
+    /// anywhere but directly after the word `operator`.
+    fn shift(self, at: SourceRange, left: bool) -> bool {
+        return self.punct(
+            at,
+            if (left) => (clang::tok::lessless) else => clang::tok::greatergreater,
+        )
+    }
+
     fn synth_at_start(self, r: SourceRange, k: clang::tok::TokenKind) -> bool {
         return self.synth(SourceRange::from_bounds(r.start, 1 as u32), k)
     }
@@ -257,7 +272,9 @@ pub class EmitSink {
     ///
     /// Punctuators are matched longest-first. `<<`, `>>`, `<<=` and `>>=`
     /// are one token only directly after the word `operator`, so
-    /// `Box<Box<int>>` and `operator<<` both come out right.
+    /// `Box<Box<int>>` and `operator<<` both come out right. A shift
+    /// EXPRESSION therefore never goes through here: its operator is
+    /// shift()'s one token, between two spell() calls for the operands.
     ///
     /// An attribute (`__attribute__((...))`, `[[...]]`) is spelled
     /// unanchored: it has no Kairo bytes of its own, and on the declaration's
@@ -291,7 +308,7 @@ pub class EmitSink {
             // An emitter's own unanchored span is left alone: ending it here
             // would anchor the rest of it.
             if !attr_open && !self.is_unanchored() {
-                var gnu = self._is_ident_start(c) && self._attr_word_at(text, i)
+                var gnu    = is_ident_start(c) && self._attr_word_at(text, i)
                 var square = c == ('[' as u8) && i + 1 < n && text[i + 1] == ('[' as u8)
                 if gnu || square {
                     self.unanchored(true)
@@ -302,9 +319,9 @@ pub class EmitSink {
                 }
             }
 
-            if self._is_ident_start(c) {
+            if is_ident_start(c) {
                 var j = i + 1
-                while j < n && self._is_ident_char(text[j]) {
+                while j < n && is_ident_char(text[j]) {
                     j += 1
                 }
 
@@ -316,7 +333,7 @@ pub class EmitSink {
                 continue
             }
 
-            if self._is_digit(c) {
+            if is_digit(c) {
                 var j = i + 1
                 // A float's exponent sign is the literal's own: `0x1p-126f`,
                 // `1e+5`. Hex reads only `p`, since its `e` is a digit.
@@ -325,14 +342,14 @@ pub class EmitSink {
                     && c == ('0' as u8)
                 while j < n {
                     var cj = text[j]
-                    if self._is_ident_char(cj) || cj == ('.' as u8) {
+                    if is_ident_char(cj) || cj == ('.' as u8) {
                         j += 1
                         continue
                     }
 
                     if (cj == ('+' as u8) || cj == ('-' as u8))
                         && j + 1 < n
-                        && self._is_digit(text[j + 1]) {
+                        && is_digit(text[j + 1]) {
                         var pc = text[j - 1]
                         var expo = pc == ('p' as u8)
                             || pc == ('P' as u8)
@@ -378,8 +395,8 @@ pub class EmitSink {
                 // tokens were C++23's deprecated `operator "" _len`, and
                 // clang warned C271W at every literal-operator call.
                 var end = j + 1
-                if after_operator && end < n && self._is_ident_start(text[end]) {
-                    while end < n && self._is_ident_char(text[end]) {
+                if after_operator && end < n && is_ident_start(text[end]) {
+                    while end < n && is_ident_char(text[end]) {
                         end += 1
                     }
                 }
@@ -562,7 +579,7 @@ pub class EmitSink {
     /// whole word.
     priv fn _attr_word_at(self, text: string, i: usize) -> bool {
         var j = i
-        while j < text.size() && self._is_ident_char(text[j]) {
+        while j < text.size() && is_ident_char(text[j]) {
             j += 1
         }
 
@@ -685,19 +702,5 @@ pub class EmitSink {
         }
 
         return clang::tok::unknown
-    }
-
-    priv fn _is_ident_start(self, c: u8) -> bool {
-        return c >= ('a' as u8) && c <= ('z' as u8)
-            || c >= ('A' as u8) && c <= ('Z' as u8)
-            || c == ('_' as u8)
-    }
-
-    priv fn _is_digit(self, c: u8) -> bool {
-        return c >= ('0' as u8) && c <= ('9' as u8)
-    }
-
-    priv fn _is_ident_char(self, c: u8) -> bool {
-        return self._is_ident_start(c) || self._is_digit(c)
     }
 }

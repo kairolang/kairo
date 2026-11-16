@@ -60,6 +60,7 @@ import Codegen::Emit::SpellFacts
 import Codegen::Emit::SpellOperators
 import Codegen::Emit::SpellRecords
 import Codegen::Emit::SpellTypes
+import Support::Ascii::is_ident_char
 
 extend Speller {
     pub fn leaf(self, d: unsafe *Decl) -> string {
@@ -228,11 +229,8 @@ extend Speller {
     static fn cxx_segment(const s: string) -> string {
         var out = ""
         for var i: usize = 0; i < s.size(); ++i {
-            var c = s[i]
-            var ok = c >= ('a' as u8) && c <= ('z' as u8)
-                || c >= ('A' as u8) && c <= ('Z' as u8)
-                || c >= ('0' as u8) && c <= ('9' as u8)
-                || c == ('_' as u8)
+            var c  = s[i]
+            var ok = is_ident_char(c)
             if ok {
                 out.push_back(c)
             } else {
@@ -672,10 +670,7 @@ extend Speller {
                 continue
             }
 
-            var ok = ch >= ('a' as u8) && ch <= ('z' as u8)
-                || ch >= ('A' as u8) && ch <= ('Z' as u8)
-                || ch >= ('0' as u8) && ch <= ('9' as u8)
-                || ch == ('_' as u8)
+            var ok = is_ident_char(ch)
             if ok {
                 out.push_back(ch)
             } else {
