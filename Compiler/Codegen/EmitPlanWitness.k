@@ -58,7 +58,6 @@ import Codegen::EmitPlanAdmit
 import Codegen::EmitPlanEarly
 import Codegen::EmitPlanLayout
 import Codegen::EmitPlanRoots
-import std::io
 
 extend EmitPlan {
     /// # Witnesses (Compiler/Spec/Witnesses.md#emission)

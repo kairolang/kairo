@@ -238,12 +238,9 @@ extend Speller {
         }
 
         var unsafe *c = canon_unqual(t->canonical)
-        if c != &null && isa<CXXLValueRefType>(c) {
-            c = canon_unqual(cast<CXXLValueRefType>(c)->referee->canonical)
-        }
-
-        if c != &null && isa<CXXRValueRefType>(c) {
-            c = canon_unqual(cast<CXXRValueRefType>(c)->referee->canonical)
+        var unsafe *r = DeclFacts::peel_ref(c)
+        if r != c {
+            c = canon_unqual(r->canonical)
         }
 
         return c

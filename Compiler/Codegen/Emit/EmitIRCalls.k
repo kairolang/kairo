@@ -28,6 +28,7 @@ import AST::ASTSupport::FrozenList
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::OverloadCell
 import AST::DeclFacts::{
+    decl_ffi_tag_keyword,
     decl_is_imported,
     decl_pattern,
     param_is_type_pack,
@@ -467,10 +468,7 @@ extend EmitIR {
             // same name) is no simple-type-specifier, so `struct ::stat()` is
             // not an expression; `__typeof__(...)` is one and names the same type.
             var ctor_head = self._spell._type(n->type_)
-            if ctor_head.starts_with("struct ")
-                || ctor_head.starts_with("class ")
-                || ctor_head.starts_with("union ")
-                || ctor_head.starts_with("enum ") {
+            if self._elaborated_tag(n->type_) {
                 ctor_head = "__typeof__(" + ctor_head + ")"
             }
 
@@ -1063,6 +1061,19 @@ extend EmitIR {
         }
 
         return out
+    }
+
+    /// \p t is an imported tag C++ can only name elaborated (`struct ::stat`,
+    /// its name hidden by an ordinary one): Speller::_type spells the keyword
+    /// in front of it.
+    priv fn _elaborated_tag(self, t: unsafe *Type) -> bool {
+        var unsafe *c = canon_unqual(t)
+        if c == &null || !isa<RecordType>(c) {
+            return false
+        }
+
+        var unsafe *d = cast<RecordType>(c)->decl
+        return d != &null && decl_is_imported(d) && decl_ffi_tag_keyword(d).size() > 0
     }
 
     /// The binary operators C++ spells infix and a free function can overload

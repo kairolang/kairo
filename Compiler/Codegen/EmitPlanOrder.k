@@ -39,7 +39,6 @@ import Codegen::EmitPlan::{
 import Codegen::EmitPlanEarly
 import Codegen::EmitPlanHomes
 import Codegen::EmitPlanLayout
-import std::io
 
 extend EmitPlan {
     /// # Ordering

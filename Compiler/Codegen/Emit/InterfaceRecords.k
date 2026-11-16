@@ -17,7 +17,6 @@
 
 ffi "c++" import "vector"
 
-import AST::ASTSupport::FrozenList
 import AST::AttrFacts::AttrFacts
 import AST::DeclFacts
 import AST::Kind::DeclKind::DeclKind
@@ -397,19 +396,8 @@ extend InterfaceEmitter {
             }
         }
 
-        var fields:  FrozenList<unsafe *Declarations::FieldDecl>
-        var methods: FrozenList<unsafe *Declarations::FunctionDecl>
-
-        if is_class {
-            fields  = cast<Declarations::ClassDecl>(d)->fields
-            methods = cast<Declarations::ClassDecl>(d)->methods
-        } else if is_union {
-            fields  = cast<Declarations::UnionDecl>(d)->fields
-            methods = cast<Declarations::UnionDecl>(d)->methods
-        } else {
-            fields  = cast<Declarations::StructDecl>(d)->fields
-            methods = cast<Declarations::StructDecl>(d)->methods
-        }
+        var fields  = DeclFacts::decl_fields(d)
+        var methods = DeclFacts::decl_methods(d)
 
 
 

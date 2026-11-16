@@ -49,7 +49,6 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::DeclStmt
 import AST::Node::Types::{
     FixedArrayType,
@@ -71,26 +70,6 @@ pub class HoistedLocals derives RecursiveASTVisitor<HoistedLocals> {
     pub var found: cxx::std::vector<unsafe *Decl>
 
     fn HoistedLocals(self) { }
-
-    fn run(self, tu: unsafe *TranslationUnit) {
-        if tu == &null || tu->program == &null {
-            return
-        }
-
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
-    }
 
     fn visit_decl_stmt(self, n: unsafe *DeclStmt) -> bool {
         if n == &null || n->decl == &null || n->decl->is_poisoned() {

@@ -23,7 +23,6 @@ import Codegen::Emit::Spell::Speller
 import Codegen::EmitPlan::{
     EmitPlan, GraphPhase, _FILE_RANK, _G_EDGES, _G_IS_MOD, _G_PHASE, _G_PRELUDE, _HOMES,
 }
-import std::io
 
 extend EmitPlan {
     /// \brief the build's file order: \p keys[i] names \p fids[i] (a module

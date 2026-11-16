@@ -50,7 +50,6 @@ import Codegen::EmitPlan::{
     ExtScope,
     PlanMode,
     PlanNeed,
-    _BORROWED,
 }
 import Codegen::EmitPlanAdmit
 import Codegen::EmitPlanEarly
@@ -59,7 +58,6 @@ import Codegen::EmitPlanLayout
 import Codegen::EmitPlanOrder
 import Codegen::EmitPlanWitness
 import Codegen::PlanVisitors::HoistedLocals
-import std::io
 
 extend EmitPlan {
     /// # Roots: own decls
@@ -564,20 +562,7 @@ extend EmitPlan {
     /// # Roots: uses (preamble only)
 
     fn _collect_uses(self) {
-        var unsafe *tu    = self._cg->tu
-        var        *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *items->get(i)
-            match item.kind {
-                case TopLevelKind::Decl {
-                    self.dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(self._cg->tu)
     }
 
     /// Walk visible_bodies() at body strengths, both modes: a preamble's foreign
@@ -710,9 +695,9 @@ extend EmitPlan {
         var unsafe *me = unsafe ((*pick)[i] as unsafe *Decl)
         self._early_needs(me)
         var seeds = cxx::std::vector<unsafe *Decl>()
-        for var r: usize = 0; r < self._en_key.size(); ++r {
-            if self._en_key[r] == me && self._en_kind[r] == (0 as u8) {
-                seeds.push_back(self._en_val[r])
+        for var r: usize = 0; r < self._en.size(); ++r {
+            if self._en[r].item == me && self._en[r].kind == (0 as u8) {
+                seeds.push_back(self._en[r].val)
             }
         }
 

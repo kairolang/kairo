@@ -46,10 +46,8 @@ import AST::Node::Types::{
 import Codegen::Emit::Spell::Speller
 import Codegen::EmitPlan::{
     EmitPlan,
-    LayoutSpine,
     VpNames,
 }
-import std::io
 
 extend EmitPlan {
     /// # Layout queries (LayoutSpine + _admit_instance)

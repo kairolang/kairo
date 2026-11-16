@@ -96,7 +96,6 @@
 
 ffi "c++" import "vector"
 
-import AST::ASTSupport::FrozenList
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::DeclFacts
 import AST::EnumNiche::enum_has_niche_trait
@@ -115,7 +114,6 @@ import AST::Node::CanonicalNodes::{
 import AST::Node::Casting::{
     cast,
     dyn_cast,
-    isa,
 }
 import AST::Node::Declarations
 import AST::VisibilityFacts::{
@@ -212,7 +210,7 @@ pub class InterfaceEmitter {
     /// (their keys): a token stream carries no guard, so a kcc include
     /// chain carries this from one include to the next (IncludedDecls).
     pub var tid_seen: cxx::std::vector<u64>
-    /// The long compile-time strings (EmitPlan::big_str_hashes, Compiler/Spec/Eval.md
+    /// The long compile-time strings (EmitPlan::big_strs, Compiler/Spec/Eval.md
     /// §11) already defined in this C++ TU, for the same reason.
     pub var estr_seen: cxx::std::vector<u64>
     /// The body emitter the caller runs after this one (EmitPlan::early,
@@ -1222,33 +1220,6 @@ pub class InterfaceEmitter {
         }
 
         return self._cg->ctx->sm->get_range(fid, 0, 1)
-    }
-
-    /// A class's, struct's or union's members. Every record walk goes through
-    /// these: a union reaches the same emitter as a class (_record_def), and a
-    /// two-way class-or-struct cast fails its assert on one.
-    prot fn _methods_of(self, d: unsafe *Decl) -> FrozenList<unsafe *Declarations::FunctionDecl> {
-        if isa<Declarations::ClassDecl>(d) {
-            return cast<Declarations::ClassDecl>(d)->methods
-        }
-
-        if isa<Declarations::UnionDecl>(d) {
-            return cast<Declarations::UnionDecl>(d)->methods
-        }
-
-        return cast<Declarations::StructDecl>(d)->methods
-    }
-
-    prot fn _fields_of(self, d: unsafe *Decl) -> FrozenList<unsafe *Declarations::FieldDecl> {
-        if isa<Declarations::ClassDecl>(d) {
-            return cast<Declarations::ClassDecl>(d)->fields
-        }
-
-        if isa<Declarations::UnionDecl>(d) {
-            return cast<Declarations::UnionDecl>(d)->fields
-        }
-
-        return cast<Declarations::StructDecl>(d)->fields
     }
 
     prot fn _is_type(self, d: unsafe *Decl) -> bool {

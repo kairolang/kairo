@@ -5,7 +5,7 @@
 ///   (destroy, then rebuild through placement `::new`), anonymous union fields
 ///   and pack unions, the eval helpers a record's members need, and the
 ///   large string constants eval values are spelled with
-///   (EmitPlan::big_str_bytes).
+///   (EmitPlan::big_strs).
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -18,7 +18,7 @@
 
 ffi "c++" import "vector"
 
-import AST::ASTSupport::FrozenList
+import AST::DeclFacts
 import AST::LangItems::LowerTargets
 import AST::Node::Base::{
     Decl,
@@ -59,22 +59,22 @@ extend InterfaceEmitter {
     /// body holds a literal is not known here, so any eval entry counts.
     /// `inline constexpr unsigned char __kairo_estrh_<len>_<hash>[len + 1] =
     /// {b..., 0};` for each long compile-time string the plan holds
-    /// (EmitPlan::big_str_bytes, Compiler/Spec/Eval.md#value-nodes), at global scope. `inline` and
+    /// (EmitPlan::big_strs, Compiler/Spec/Eval.md#value-nodes), at global scope. `inline` and
     /// named for its content, so every TU and header that writes one writes
     /// the same entity, which the linker keeps once; a header guards each
     /// (two Kairo headers in one C++ TU), an include stream skips what an
     /// earlier include wrote (estr_seen).
     prot fn _big_strs(self, header: bool) {
-        var n = self._plan->big_str_hashes.size()
+        var n = self._plan->big_strs.size()
         if n == 0 {
             return
         }
 
         self._cg->sink->unanchored(true)
         for var i: usize = 0; i < n; ++i {
-            var        h    = self._plan->big_str_hashes[i]
-            var        len  = self._plan->big_str_lens[i]
-            var unsafe *p   = self._plan->big_str_bytes[i]
+            var        h    = self._plan->big_strs[i].hash
+            var        len  = self._plan->big_strs[i].len
+            var unsafe *p   = self._plan->big_strs[i].bytes
             var        seen = false
             for var k: usize = 0; k < self.estr_seen.size(); ++k {
                 if self.estr_seen[k] == h {
@@ -146,21 +146,9 @@ extend InterfaceEmitter {
     }
 
     priv fn _has_eval_member(self, d: unsafe *Decl) -> bool {
-        var ms: unsafe *FrozenList<unsafe *Declarations::FunctionDecl> = &null
-        if isa<Declarations::ClassDecl>(d) {
-            ms = unsafe &cast<Declarations::ClassDecl>(d)->methods
-        } else if isa<Declarations::StructDecl>(d) {
-            ms = unsafe &cast<Declarations::StructDecl>(d)->methods
-        } else if isa<Declarations::UnionDecl>(d) {
-            ms = unsafe &cast<Declarations::UnionDecl>(d)->methods
-        }
-
-        if ms == &null {
-            return false
-        }
-
-        for var i: usize = 0; i < ms->size(); ++i {
-            var unsafe *m = (*ms)[i]
+        var ms = DeclFacts::decl_methods(d)
+        for var i: usize = 0; i < ms.size(); ++i {
+            var unsafe *m = ms[i]
             if m != &null && m->is_eval() {
                 return true
             }
@@ -235,7 +223,7 @@ extend InterfaceEmitter {
     /// exactly as Kairo derives it. A generic `<=>` has no one operand to
     /// spell and derives nothing here. Returns the access in force.
     prot fn _derived_cmps(self, d: unsafe *Decl, cur: u8, at: SourceRange) -> u8 {
-        var methods  = self._methods_of(d)
+        var methods  = DeclFacts::decl_methods(d)
         var has_eq   = false
         var declared = cxx::std::vector<TokenKind>()
         for var i: usize = 0; i < methods.size(); ++i {
@@ -475,7 +463,7 @@ extend InterfaceEmitter {
             }
         }
 
-        var fields = self._fields_of(d)
+        var fields = DeclFacts::decl_fields(d)
         for var i: usize = 0; i < fields.size(); ++i {
             var unsafe *f = fields[i]
             if f == &null || f->is_static() || !self._dependent(f->type_) {

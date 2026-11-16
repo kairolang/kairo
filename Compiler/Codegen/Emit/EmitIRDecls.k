@@ -21,16 +21,14 @@ ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "vector"
 
-import AST::ASTSupport::{
-    FrozenList,
-    create_empty_frozen_list,
-}
+import AST::ASTSupport::FrozenList
 import AST::Context::DeclContext::DeclContext
 import AST::DeclFacts::{
     decl_cxx_spelling,
     decl_extension_of,
     decl_fold_pin,
     decl_generic_params,
+    decl_methods,
 }
 import AST::Kind::DeclKind::{
     DeclKind,
@@ -195,7 +193,7 @@ extend EmitIR {
 
     /// The methods of a record, out of line, then its nested records'.
     priv fn _record_bodies(self, d: unsafe *Decl) {
-        var methods = self._methods_of(d)
+        var methods = decl_methods(d)
         for var i: usize = 0; i < methods.size(); ++i {
             var unsafe *m = methods[i]
             if m == &null {
@@ -243,22 +241,6 @@ extend EmitIR {
                 self._record_bodies(nd)
             }
         }
-    }
-
-    prot fn _methods_of(self, d: unsafe *Decl) -> FrozenList<unsafe *FunctionDecl> {
-        if isa<ClassDecl>(d) {
-            return cast<ClassDecl>(d)->methods
-        }
-
-        if isa<StructDecl>(d) {
-            return cast<StructDecl>(d)->methods
-        }
-
-        if isa<UnionDecl>(d) {
-            return cast<UnionDecl>(d)->methods
-        }
-
-        return create_empty_frozen_list<unsafe *FunctionDecl>()
     }
 
     /// One foreign template or inline body, in its owner's wrapper. The tokens live in

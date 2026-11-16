@@ -49,7 +49,6 @@ import AST::Node::Types::{
 }
 import Codegen::CodegenContext::CodegenContext
 import Codegen::Emit::Spell::{
-    NsTops,
     Speller,
     VIS_INTERNAL,
     VIS_PRIV,

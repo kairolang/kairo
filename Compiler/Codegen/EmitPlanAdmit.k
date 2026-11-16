@@ -59,7 +59,6 @@ import Codegen::EmitPlanFriends
 import Codegen::EmitPlanLayout
 import Codegen::EmitPlanRoots
 import Codegen::EmitPlanWitness
-import std::io
 
 extend EmitPlan {
     /// # The working set
@@ -339,15 +338,7 @@ extend EmitPlan {
             return
         }
 
-        var seen = false
-        for var i: usize = 0; i < self._insts.size(); ++i {
-            if self._insts[i] == e {
-                seen = true
-                break
-            }
-        }
-
-        if !seen {
+        if self._inst_seen.insert(e as usize as u64).second {
             self._insts.push_back(e)
             self._admit_reached(e)
             // The panic results its body names at these arguments (Compiler/Spec/Panic.md,

@@ -280,6 +280,23 @@ pub class PlanEntry {
     fn PlanEntry(self) { }
 }
 
+/// One thing an early item needs (EmitPlan::_early_needs): `val` is an item
+/// `item` reads (kind 0), one it evaluates at its definition (1), or a record
+/// it needs complete (2).
+pub struct EarlyNeed {
+    var item: unsafe *Decl
+    var kind: u8
+    var val:  unsafe *Decl
+}
+
+/// A compile-time string literal held by name: its bytes, their count and
+/// their LowerTargets::eval_str_hash.
+pub struct BigStr {
+    var bytes: kairo::std::ConstPtr<u8>
+    var len:   usize
+    var hash:  u64
+}
+
 /// _needs_complete(who, *) for one who (EmitPlan::_need_row): true for dep
 /// exactly when dep is in `direct` or layout_decl(dep) is in `layout`.
 pub struct NeedRow {
@@ -356,6 +373,8 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     prot var _need:  cxx::std::vector<PlanNeed>
     prot var _queue: cxx::std::vector<usize>
     prot var _insts: cxx::std::vector<unsafe *InstanceEntry>
+    /// _insts' members by address: what _insts already holds.
+    prot var _inst_seen: llvm::DenseSet<u64>
     /// _rank_of's walk: fid -> this TU's order (u32::MAX: not met).
     prot var _rank:   cxx::std::vector<u32>
     prot var _ranked: bool                  = false
@@ -414,10 +433,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// (LowerTargets::eval_str_inline_max, Compiler/Spec/Eval.md#value-nodes), once each by
     /// content: InterfaceEmitter defines each as a named `inline constexpr`
     /// array at global scope, ahead of every body and type that spells it.
-    /// Parallel: the bytes, their count, their eval_str_hash.
-    pub var big_str_bytes:  cxx::std::vector<kairo::std::ConstPtr<u8>>
-    pub var big_str_lens:   cxx::std::vector<usize>
-    pub var big_str_hashes: cxx::std::vector<u64>
+    pub var big_strs: cxx::std::vector<BigStr>
     /// A type the plan admits holds a string value node (a string literal
     /// in an eval class's value argument, Compiler/Spec/Eval.md#eval-classes): its bytes are
     /// `__kairo_estr<...>`, so the eval helpers are written.
@@ -453,12 +469,9 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// _eo_who[i] is written after _eo_dep[i].
     prot var _eo_who: cxx::std::vector<unsafe *Decl>
     prot var _eo_dep: cxx::std::vector<unsafe *Decl>
-    /// EarlyNeeds per item, flattened: for item _en_key[i], _en_val[i] is an
-    /// item it reads (kind 0), one it evaluates at its definition (1), or a
-    /// record it needs complete (2).
+    /// EarlyNeeds per item, flattened: one row per thing an item needs.
     prot var _en_done: cxx::std::vector<unsafe *Decl>
-    prot var _en_key:  cxx::std::vector<unsafe *Decl>
-    prot var _en_kind: cxx::std::vector<u8>
+    prot var _en:      cxx::std::vector<EarlyNeed>
     /// _set's index by decl address: _admit asked _index_of for every
     /// use, a linear scan of the set. _set only grows, at one push site.
     prot var _set_at: llvm::DenseMap<u64, u64>
@@ -469,7 +482,6 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     prot var _vp_rows:   cxx::std::vector<VpNames>
     prot var _need_memo: llvm::DenseMap<u64, u64>
     prot var _need_rows: cxx::std::vector<NeedRow>
-    prot var _en_val:    cxx::std::vector<unsafe *Decl>
 
     /// An Include plan for a C++ TU inside this TU's module (IncludeEmitter):
     /// `prot` declarations are its to see (AST/VisibilityFacts.k). A Header

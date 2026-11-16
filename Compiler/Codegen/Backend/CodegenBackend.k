@@ -91,6 +91,7 @@ import Interop::Clang::ClangBackend::{
     ClangBackend,
     CodegenMounts,
 }
+import Interop::Clang::ClangInstance::setup_diagnostics
 import Interop::Clang::ClangLocMap::ClangLocMap
 import Interop::Clang::CodegenPCH::CodegenPCH
 import Interop::Clang::HeaderSet::HeaderSet
@@ -493,11 +494,10 @@ pub class CodegenBackend derives TokenFiller {
         // Destroyed explicitly below, not in a `finally`, so its teardown is
         // timed; always before the adapter: the engine borrows it.
         var unsafe *ci = kairo::std::create<clang::CompilerInstance>(inv)
-        ci->setVirtualFileSystem(self._vfs)
-        // The member form applies the invocation's -W policy itself
-        // (ProcessWarningOptions), with fresh counters: pass/fail is per run.
-        ci->createDiagnostics(self._adapter, false)
-        if !ci->hasDiagnostics() {
+        // createDiagnostics' member form applies the invocation's -W policy
+        // itself (ProcessWarningOptions), with fresh counters: pass/fail is
+        // per run.
+        if !setup_diagnostics(ci, self._vfs, self._adapter, false) {
             kairo::std::destroy(ci)
             return false
         }
@@ -526,31 +526,19 @@ pub class CodegenBackend derives TokenFiller {
         match kind {
             case EmitKind::Asm {
                 var act = KairoEmitAsm()
-                self._wire(&act.inj)
-                ok = ci->ExecuteAction(&act)
-                kairo::ktime_clang_end(clang_time)
-                self._agree_report(&act.inj)
+                ok         = self._execute(ci, &act, &act.inj, &clang_time)
                 t_teardown = time_clock()
             } case EmitKind::LLVMIR {
                 var act = KairoEmitLLVMIR()
-                self._wire(&act.inj)
-                ok = ci->ExecuteAction(&act)
-                kairo::ktime_clang_end(clang_time)
-                self._agree_report(&act.inj)
+                ok         = self._execute(ci, &act, &act.inj, &clang_time)
                 t_teardown = time_clock()
             } case EmitKind::LLVMBC {
                 var act = KairoEmitLLVMBC()
-                self._wire(&act.inj)
-                ok = ci->ExecuteAction(&act)
-                kairo::ktime_clang_end(clang_time)
-                self._agree_report(&act.inj)
+                ok         = self._execute(ci, &act, &act.inj, &clang_time)
                 t_teardown = time_clock()
             } default {
                 var act = KairoEmitObj()
-                self._wire(&act.inj)
-                ok = ci->ExecuteAction(&act)
-                kairo::ktime_clang_end(clang_time)
-                self._agree_report(&act.inj)
+                ok         = self._execute(ci, &act, &act.inj, &clang_time)
                 t_teardown = time_clock()
             }
         }
@@ -558,6 +546,21 @@ pub class CodegenBackend derives TokenFiller {
         ok = ok && ci->getDiagnostics().getNumErrors() == 0
         kairo::std::destroy(ci)
         time_bill_since("TUTeardown", t_teardown)
+        return ok
+    }
+
+    /// Runs \p act in \p ci over this TU's stream (\p inj is the action's
+    /// own injector) and closes clang's timing capture \p clang_time. The
+    /// agreement record is read here, while the action that owns it lives.
+    priv fn _execute(self,
+                     ci:         unsafe *clang::CompilerInstance,
+                     @inout act: clang::FrontendAction,
+                     inj:        *KairoInject,
+                     clang_time: *kairo::KClangTimeCapture) -> bool {
+        self._wire(inj)
+        var ok = ci->ExecuteAction(&act)
+        kairo::ktime_clang_end(*clang_time)
+        self._agree_report(inj)
         return ok
     }
 

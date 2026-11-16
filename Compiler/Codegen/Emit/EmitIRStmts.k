@@ -65,10 +65,11 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import AST::Node::Statements::{
-    BreakStmt,          CompoundStmt,   ConditionalStmt, ContinueStmt,      DeclStmt,
-    ExpressionStmt,     IndexedForStmt, IterKind,        JumpIntrinsicStmt, LabelIntrinsicStmt,
-    LoopStmt,           RangedForStmt,  ReturnStmt,      RuntimeAssertStmt, StaticAssertStmt,
-    SwitchDispatchStmt, TryCatchStmt,   UnsafeBlockStmt, WhileLoopStmt,     YieldStmt,
+    BranchHint,         BreakStmt,          CompoundStmt,   ConditionalStmt, ContinueStmt,
+    DeclStmt,           ExpressionStmt,     IndexedForStmt, IterKind,        JumpIntrinsicStmt,
+    LabelIntrinsicStmt, LoopStmt,           RangedForStmt,  ReturnStmt,      RuntimeAssertStmt,
+    StaticAssertStmt,   SwitchDispatchStmt, TryCatchStmt,   UnsafeBlockStmt, WhileLoopStmt,
+    YieldStmt,
 }
 import AST::Node::Types::PointerType
 import Codegen::Emit::EmitIR::EmitIR
@@ -639,12 +640,16 @@ extend EmitIR {
         )
     }
 
-    /// `[[likely]]` / `[[unlikely]]` for an `if` written `@likely` /
-    /// `@unlikely` (LangAttrs), else "". An `eval if` has no branch to
-    /// weigh.
-    priv fn _branch_hint(self, n: unsafe *ConditionalStmt) -> string {
+    /// The weight written on one branch of \p n, as a BranchHint: the `if`'s
+    /// own `@likely` / `@unlikely` (LangAttrs) for the then-branch, the
+    /// `else`'s for \p of_else. An `eval if` has no branch to weigh.
+    priv fn _branch_hint(self, n: unsafe *ConditionalStmt, of_else: bool) -> u8 {
+        if of_else {
+            return n->else_hint
+        }
+
         if n->is_eval || !n->has_attribute() {
-            return ""
+            return BranchHint::None as u8
         }
 
         var unsafe *tbl = self._cg->ctx->tcm->get_imm_table_for_fid(
@@ -652,16 +657,29 @@ extend EmitIR {
         )
 
         if tbl == &null {
-            return ""
+            return BranchHint::None as u8
         }
 
         var kl = tbl->find_ident(LangAttrs::likely())
         var ku = tbl->find_ident(LangAttrs::unlikely())
         if kl != u32::MAX && n->has_attribute_named(kl) {
-            return "[[likely]]"
+            return BranchHint::Likely as u8
         }
 
         if ku != u32::MAX && n->has_attribute_named(ku) {
+            return BranchHint::Unlikely as u8
+        }
+
+        return BranchHint::None as u8
+    }
+
+    /// C++'s attribute for BranchHint \p h, or "".
+    priv fn _hint_attr(self, h: u8) -> string {
+        if h == (BranchHint::Likely as u8) {
+            return "[[likely]]"
+        }
+
+        if h == (BranchHint::Unlikely as u8) {
             return "[[unlikely]]"
         }
 
@@ -685,7 +703,7 @@ extend EmitIR {
 
         // `@likely if` / `@unlikely if`: C++'s attribute on the then-branch,
         // which clang turns into the branch's weights.
-        var hint = self._branch_hint(n)
+        var hint = self._hint_attr(self._branch_hint(n, false))
         if hint.size() > 0 {
             self._cg->sink->spell(n->cond->range, hint)
         }
@@ -695,10 +713,9 @@ extend EmitIR {
             // `} @unlikely else`: C++20 puts the attribute on the else
             // substatement, so it weighs the else branch itself.
             var eh = "else"
-            if n->else_hint == 1 {
-                eh = "else [[likely]]"
-            } else if n->else_hint == 2 {
-                eh = "else [[unlikely]]"
+            var ea = self._hint_attr(self._branch_hint(n, true))
+            if ea.size() > 0 {
+                eh += " " + ea
             }
 
             self._cg->sink->spell(n->else_->range, eh)

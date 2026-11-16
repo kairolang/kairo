@@ -65,6 +65,11 @@ import Interop::Clang::ClangBackend::{
     ClangBackend,
     CodegenMounts,
 }
+import Interop::Clang::ClangInstance::{
+    begin_and_execute,
+    setup_diagnostics,
+    setup_target,
+}
 import Interop::Clang::ClangLocMap::ClangLocMap
 import Interop::Clang::CodegenPCH::CodegenPCH
 import Location::SourceManager::FileID
@@ -229,44 +234,27 @@ pub class InterfacePCH {
                    mounts: *CodegenMounts,
                    a:      unsafe *ClangDiagAdapter,
                    input:  clang::FrontendInputFile) -> bool {
-        ci->setVirtualFileSystem(be->codegen_vfs(mounts))
-        ci->createDiagnostics(a, false)
-        if !ci->hasDiagnostics() {
+        if !setup_diagnostics(ci, be->codegen_vfs(mounts), a, false) {
             return false
         }
 
         ci->setVerboseOutputStream(&llvm::nulls())
-        ci->setTarget(
-            clang::TargetInfo::CreateTargetInfo(
-                &ci->getDiagnostics(),
-                &ci->getInvocation().getTargetOpts(),
-            ),
-        )
-
-        if !ci->hasTarget() {
+        if !setup_target(ci) {
             return false
         }
-
-        ci->getTarget().adjust(&ci->getDiagnostics(), &ci->getLangOpts(), &null)
 
         var act = InterfacePCHAction()
         act._buf  = self.pch
         act.owner = unsafe &self
-        if !act.BeginSourceFile(&*ci, input) {
+        var began = false
+        var ran   = begin_and_execute(&act, ci, input, &began)
+        if !began {
             return false
-        }
-
-        // llvm::Error: bool(err) is TRUE ON FAILURE, and an unconsumed Error
-        // asserts on destruction.
-        var err    = act.Execute()
-        var failed = err as bool
-        if failed {
-            llvm::consumeError(cxx::std::move(err))
         }
 
         var errors = ci->getDiagnostics().getNumErrors()
         act.EndSourceFile()
-        return !failed && errors == 0 && self.pch->IsComplete
+        return ran && errors == 0 && self.pch->IsComplete
     }
 
     /// The stream, entered from the action's BeginSourceFileAction: every

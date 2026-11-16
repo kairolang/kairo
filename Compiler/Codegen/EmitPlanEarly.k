@@ -48,6 +48,8 @@ import AST::Node::Types::{
 }
 import Codegen::Emit::Spell::Speller
 import Codegen::EmitPlan::{
+    BigStr,
+    EarlyNeed,
     EmitPlan,
     PlanMode,
     PlanNeed,
@@ -56,7 +58,6 @@ import Codegen::EmitPlanAdmit
 import Codegen::EmitPlanLayout
 import Codegen::EmitPlanRoots
 import Codegen::PlanVisitors::EarlyNeeds
-import std::io
 
 extend EmitPlan {
     /// # Early items (Compiler/Spec/Eval.md#value-nodes)
@@ -118,21 +119,21 @@ extend EmitPlan {
             self._early_needs(x)
             var defs = cxx::std::vector<unsafe *Decl>()
             var want = if (isa<Declarations::VariableDecl>(x)) => (0 as u8) else => (1)
-            for var i: usize = 0; i < self._en_key.size(); ++i {
-                if self._en_key[i] != x {
+            for var i: usize = 0; i < self._en.size(); ++i {
+                if self._en[i].item != x {
                     continue
                 }
 
-                if self._en_kind[i] == (2 as u8) {
-                    var unsafe *r = self._layout_key(self._en_val[i])
+                if self._en[i].kind == (2 as u8) {
+                    var unsafe *r = self._layout_key(self._en[i].val)
                     if r != &null && r != x {
                         var at = self._index_of(r)
                         if at != usize::MAX && self._need[at] == PlanNeed::Complete {
                             self._eo_add(x, r)
                         }
                     }
-                } else if self._en_kind[i] == want {
-                    defs.push_back(self._en_val[i])
+                } else if self._en[i].kind == want {
+                    defs.push_back(self._en[i].val)
                 }
             }
 
@@ -147,13 +148,13 @@ extend EmitPlan {
             // An early fn x names whose signature computes from other items is
             // declared only once those are defined (InterfaceEmitter): x's
             // definition follows them, so that declaration precedes it.
-            for var i: usize = 0; i < self._en_key.size(); ++i {
-                if self._en_key[i] != x || self._en_kind[i] != (0 as u8) {
+            for var i: usize = 0; i < self._en.size(); ++i {
+                if self._en[i].item != x || self._en[i].kind != (0 as u8) {
                     continue
                 }
 
                 var unsafe *y = dyn_cast<Declarations::FunctionDecl>(
-                    self._en_val[i],
+                    self._en[i].val,
                 )
 
                 if y == &null || (unsafe (y as unsafe *Decl)) == x {
@@ -227,9 +228,7 @@ extend EmitPlan {
                 continue
             }
 
-            self._en_key.push_back(x)
-            self._en_kind.push_back(0 as u8)
-            self._en_val.push_back(n.items[i])
+            self._en_add(x, 0 as u8, n.items[i])
         }
 
         for var i: usize = 0; i < n.const_items.size(); ++i {
@@ -237,16 +236,20 @@ extend EmitPlan {
                 continue
             }
 
-            self._en_key.push_back(x)
-            self._en_kind.push_back(1 as u8)
-            self._en_val.push_back(n.const_items[i])
+            self._en_add(x, 1 as u8, n.const_items[i])
         }
 
         for var i: usize = 0; i < n.recs.size(); ++i {
-            self._en_key.push_back(x)
-            self._en_kind.push_back(2 as u8)
-            self._en_val.push_back(n.recs[i])
+            self._en_add(x, 2 as u8, n.recs[i])
         }
+    }
+
+    fn _en_add(self, item: unsafe *Decl, kind: u8, val: unsafe *Decl) {
+        var r = EarlyNeed{}
+        r.item = item
+        r.kind = kind
+        r.val  = val
+        self._en.push_back(r)
     }
 
     /// \p seeds and every item they read (kind 0), transitively, into \p out.
@@ -261,9 +264,9 @@ extend EmitPlan {
         for var k: usize = 0; k < out->size(); ++k {
             var unsafe *it = (*out)[k]
             self._early_needs(it)
-            for var i: usize = 0; i < self._en_key.size(); ++i {
-                if self._en_key[i] == it && self._en_kind[i] == kind {
-                    EarlyNeeds::_once(&*out, self._en_val[i])
+            for var i: usize = 0; i < self._en.size(); ++i {
+                if self._en[i].item == it && self._en[i].kind == kind {
+                    EarlyNeeds::_once(&*out, self._en[i].val)
                 }
             }
         }
@@ -617,29 +620,19 @@ extend EmitPlan {
         out:         unsafe *cxx::std::vector<unsafe *Declarations::FunctionDecl>,
     ) {
         var templ = in_template || DeclFacts::decl_generic_params(d).size() > 0
-        var methods: unsafe *FrozenList<unsafe *Declarations::FunctionDecl> = &null
-        if isa<Declarations::ClassDecl>(d) {
-            methods = unsafe &cast<Declarations::ClassDecl>(d)->methods
-        } else if isa<Declarations::StructDecl>(d) {
-            methods = unsafe &cast<Declarations::StructDecl>(d)->methods
-        } else if isa<Declarations::UnionDecl>(d) {
-            methods = unsafe &cast<Declarations::UnionDecl>(d)->methods
-        }
-
-        if methods != &null {
-            for var i: usize = 0; i < methods->size(); ++i {
-                var unsafe *m = (*methods)[i]
-                if m == &null {
-                    continue
-                }
-
-                // Neither template nor inline: linked from its own TU.
-                if !templ && m->generic_params.size() == 0 && !m->is_inline() && !m->is_eval() {
-                    continue
-                }
-
-                self._push_body(m, &*out)
+        var methods = DeclFacts::decl_methods(d)
+        for var i: usize = 0; i < methods.size(); ++i {
+            var unsafe *m = methods[i]
+            if m == &null {
+                continue
             }
+
+            // Neither template nor inline: linked from its own TU.
+            if !templ && m->generic_params.size() == 0 && !m->is_inline() && !m->is_eval() {
+                continue
+            }
+
+            self._push_body(m, &*out)
         }
 
         var unsafe *dc = Speller::dc_of(d)
@@ -711,15 +704,17 @@ extend EmitPlan {
         }
 
         var h = LowerTargets::eval_str_hash(p, n)
-        for var i: usize = 0; i < self.big_str_hashes.size(); ++i {
-            if self.big_str_hashes[i] == h && self.big_str_lens[i] == n {
+        for var i: usize = 0; i < self.big_strs.size(); ++i {
+            if self.big_strs[i].hash == h && self.big_strs[i].len == n {
                 return
             }
         }
 
-        self.big_str_bytes.push_back(p)
-        self.big_str_lens.push_back(n)
-        self.big_str_hashes.push_back(h)
+        var b = BigStr{}
+        b.bytes = p
+        b.len   = n
+        b.hash  = h
+        self.big_strs.push_back(b)
     }
 
     /// A use site. A member of a type (method, field, static, nested type)
@@ -899,32 +894,17 @@ extend EmitPlan {
             return
         }
 
-        var fields:  unsafe *FrozenList<unsafe *Declarations::FieldDecl>    = &null
-        var methods: unsafe *FrozenList<unsafe *Declarations::FunctionDecl> = &null
-        match rec->kind {
-            case DeclKind::ClassDecl {
-                fields  = unsafe &cast<Declarations::ClassDecl>(rec)->fields
-                methods = unsafe &cast<Declarations::ClassDecl>(rec)->methods
-            } case DeclKind::StructDecl {
-                fields  = unsafe &cast<Declarations::StructDecl>(rec)->fields
-                methods = unsafe &cast<Declarations::StructDecl>(rec)->methods
-            } case DeclKind::UnionDecl {
-                fields  = unsafe &cast<Declarations::UnionDecl>(rec)->fields
-                methods = unsafe &cast<Declarations::UnionDecl>(rec)->methods
-            } default {
-                return
-            }
-        }
-
-        for var i: usize = 0; i < fields->size(); ++i {
-            var unsafe *f = *fields->get(i)
+        var fields  = DeclFacts::decl_fields(rec)
+        var methods = DeclFacts::decl_methods(rec)
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *f = fields[i]
             if f != &null {
                 self._duck_reach(f->type_, depth + 1)
             }
         }
 
-        for var i: usize = 0; i < methods->size(); ++i {
-            var unsafe *m = *methods->get(i)
+        for var i: usize = 0; i < methods.size(); ++i {
+            var unsafe *m = methods[i]
             if m != &null {
                 self._duck_reach(m->return_type, depth + 1)
             }

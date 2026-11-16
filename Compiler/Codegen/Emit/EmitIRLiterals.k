@@ -21,12 +21,11 @@ ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "vector"
 
-import AST::ASTSupport::{
-    FrozenList,
-    create_empty_frozen_list,
-}
+import AST::ASTSupport::FrozenList
 import AST::DeclFacts::{
+    decl_fields,
     decl_is_instance,
+    decl_methods,
     decl_pattern,
 }
 import AST::Kind::TypeKind::TypeKind
@@ -51,11 +50,7 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations::{
     AdtCtorForm,
-    ClassDecl,
     EnumDecl,
-    FieldDecl,
-    StructDecl,
-    UnionDecl,
 }
 import AST::Node::Expressions::{
     InitField,
@@ -678,10 +673,10 @@ extend EmitIR {
 
         self._cg->sink->spell(e->range, self._spell._type(e->type_) + "{")
         // Declaration order: C++ designated initializers may not reorder.
-        var decl_fields = self._fields_of(layout)
-        var first       = true
-        for var fi: usize = 0; fi < decl_fields.size(); ++fi {
-            var unsafe *fd = decl_fields[fi]
+        var lfields = decl_fields(layout)
+        var first   = true
+        for var fi: usize = 0; fi < lfields.size(); ++fi {
+            var unsafe *fd = lfields[fi]
             if fd == &null {
                 continue
             }
@@ -863,24 +858,8 @@ extend EmitIR {
         return d
     }
 
-    priv fn _fields_of(self, d: unsafe *Decl) -> FrozenList<unsafe *FieldDecl> {
-        if isa<ClassDecl>(d) {
-            return cast<ClassDecl>(d)->fields
-        }
-
-        if isa<StructDecl>(d) {
-            return cast<StructDecl>(d)->fields
-        }
-
-        if isa<UnionDecl>(d) {
-            return cast<UnionDecl>(d)->fields
-        }
-
-        return create_empty_frozen_list<unsafe *FieldDecl>()
-    }
-
     priv fn _has_user_ctor(self, d: unsafe *Decl) -> bool {
-        var ms = self._methods_of(d)
+        var ms = decl_methods(d)
         var nm = self._spell.leaf(d)
         for var i: usize = 0; i < ms.size(); ++i {
             var unsafe *m = ms[i]

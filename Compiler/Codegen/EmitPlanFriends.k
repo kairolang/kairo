@@ -75,7 +75,6 @@ import Codegen::PlanVisitors::{
     GlobalInitReach,
     HoistedLocals,
 }
-import std::io
 
 extend EmitPlan {
     /// # Hidden decls another header names (_BORROWED)
@@ -218,16 +217,8 @@ extend EmitPlan {
             }
         }
 
-        if isa<Declarations::ClassDecl>(d) {
-            fields  = cast<Declarations::ClassDecl>(d)->fields
-            methods = cast<Declarations::ClassDecl>(d)->methods
-        } else if isa<Declarations::UnionDecl>(d) {
-            fields  = cast<Declarations::UnionDecl>(d)->fields
-            methods = cast<Declarations::UnionDecl>(d)->methods
-        } else {
-            fields  = cast<Declarations::StructDecl>(d)->fields
-            methods = cast<Declarations::StructDecl>(d)->methods
-        }
+        fields  = DeclFacts::decl_fields(d)
+        methods = DeclFacts::decl_methods(d)
 
         for var i: usize = 0; i < fields.size(); ++i {
             var unsafe *f = fields[i]

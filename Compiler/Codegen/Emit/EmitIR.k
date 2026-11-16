@@ -99,8 +99,6 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-// LLVM_VERSION_MAJOR, for the ABI note (EmitIR::_abi_note).
-ffi "c++" import "llvm/Config/llvm-config.h"
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "Native/Types.hh"

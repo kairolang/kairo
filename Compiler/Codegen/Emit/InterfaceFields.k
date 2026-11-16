@@ -286,7 +286,7 @@ extend InterfaceEmitter {
             return false
         }
 
-        var methods = self._methods_of(d)
+        var methods = DeclFacts::decl_methods(d)
         for var i: usize = 0; i < methods.size(); ++i {
             if methods[i] != &null && methods[i]->ci_split > 0 {
                 return true
@@ -607,7 +607,7 @@ extend InterfaceEmitter {
             return
         }
 
-        var fields = self._fields_of(d)
+        var fields = DeclFacts::decl_fields(d)
         for var i: usize = 0; i < fields.size(); ++i {
             var unsafe *f = fields[i]
             if f == &null || !f->is_static() || f->is_anonymous_union {
