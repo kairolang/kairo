@@ -20,14 +20,10 @@
 // AST-NEXT: |   `-IntegerLiteralExpr 3
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var c2
-// AST-NEXT: |   `-IntegerLiteralExpr 1
+// AST-NEXT: |   `-IntegerLiteralExpr 2
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var f1
 // AST-NEXT: |   `-IntegerLiteralExpr 2
-// AST-NEXT: |-ExpressionStmt
-// AST-NEXT: | `-RecoveryExpr trying: ChainExpr
-// AST-NEXT: |-ExpressionStmt
-// AST-NEXT: | `-IntegerLiteralExpr 3
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var i1
 // AST-NEXT: |   `-IntegerLiteralExpr 1
@@ -82,10 +78,9 @@
 // AST-NEXT: `-DeclStmt
 // AST-NEXT:   `-VariableDecl var s3
 // AST-NEXT:     `-StringLiteralExpr "foo + 1"
-// AST: -- 2 error(s), 0 warning(s) --
+// AST: -- 1 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S052E]: expected expression, found ','
 // AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S052E]: expected expression, found ','
 // END-GENERATED-CHECKS(AST)
 

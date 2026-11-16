@@ -113,6 +113,9 @@ pub enum WalkPhase derives u8 {
 /// `[]` and `{}`. It is fed one token at a time, so a user macro's raw
 /// arguments (split before expansion) and a value-position builtin's
 /// expanded ones (split after it) share one rule without a copy of the run.
+/// An expanded token arrives wrapped (TkMacroExpand, its origin chain in
+/// `imm`); feed_as classifies it by the kind it was before the wrap, while
+/// the buffers keep the wrapped token so diagnostics still read its origin.
 class ArgSplitter {
     var args:    cxx::std::vector<unsafe *TokenBuffer<512>>
     var current: unsafe *TokenBuffer<512>                   = &null
@@ -125,19 +128,24 @@ class ArgSplitter {
     }
 
     fn feed(self, tok: Token) {
-        if tok.kind == TokenKind::OpLParen {
+        self.feed_as(tok, tok.kind)
+    }
+
+    /// Feeds \p tok, splitting and nesting as if it were of \p kind.
+    fn feed_as(self, tok: Token, kind: TokenKind) {
+        if kind == TokenKind::OpLParen {
             self.paren += 1
-        } else if tok.kind == TokenKind::OpRParen {
+        } else if kind == TokenKind::OpRParen {
             self.paren -= 1
-        } else if tok.kind == TokenKind::OpLSquare {
+        } else if kind == TokenKind::OpLSquare {
             self.square += 1
-        } else if tok.kind == TokenKind::OpRSquare {
+        } else if kind == TokenKind::OpRSquare {
             self.square -= 1
-        } else if tok.kind == TokenKind::OpLBrace {
+        } else if kind == TokenKind::OpLBrace {
             self.brace += 1
-        } else if tok.kind == TokenKind::OpRBrace {
+        } else if kind == TokenKind::OpRBrace {
             self.brace -= 1
-        } else if tok.kind == TokenKind::OpComma
+        } else if kind == TokenKind::OpComma
             && self.paren == 0
             && self.square == 0
             && self.brace == 0 {
@@ -2719,14 +2727,44 @@ pub class PPWalker {
             return args
         }
 
-        // 3. split the EXPANDED stream on top-level commas
+        // 3. split the EXPANDED stream on top-level commas. Every token a
+        //    nested invocation produced is origin-wrapped by now, its comma
+        //    and brackets included: split by the kind under the wrap, or a
+        //    nested rest!'s result stays one argument.
         var split = ArgSplitter()
         for var i: usize = 0; i < run->size(); ++i {
-            split.feed(*run->get(i))
+            var t = *run->get(i)
+            split.feed_as(t, self._unwrapped_kind(t))
         }
 
         kairo::std::destroy(run)
         return split.finish()
+    }
+
+    /// The kind \p t had before _wrap_origin wrapped it: its own kind for an
+    /// unwrapped token, TkMacroExpand for a sentinel (poison, deferred
+    /// builtins), whose imm is no chain.
+    priv fn _unwrapped_kind(self, t: Token) -> TokenKind {
+        var kind  = t.kind
+        var imm   = t.imm
+        var depth = 0
+        while kind == TokenKind::TkMacroExpand
+            && imm < (MacroSentinel::Threshold as u32)
+            && depth < 64 {
+            var unsafe *info = self._imm->get<Immediate::MacroExpansionInfo>(
+                imm,
+            )
+
+            if info == &null {
+                return TokenKind::TkMacroExpand
+            }
+
+            kind = info->original_kind
+            imm  = info->original_imm
+            depth += 1
+        }
+
+        return kind
     }
 
     priv fn _append_builtin_argument(self,
