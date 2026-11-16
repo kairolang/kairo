@@ -46,6 +46,7 @@ ffi "c++" import "vector"
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 
+import AST::ExprFacts::strip_parens
 import AST::Node::Base::Expr
 import AST::Node::Casting::{
     dyn_cast,
@@ -58,7 +59,6 @@ import AST::Node::Declarations::{
 }
 import AST::Node::Expressions::{
     CallExpr,
-    ParenExpr,
     RangeExpr,
     SubscriptExpr,
 }
@@ -66,7 +66,6 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::OperatorFacts::OperatorFacts
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Registry::DiagID
@@ -113,23 +112,7 @@ pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
 
         for var i: usize = 0; i < self._cand.size(); ++i {
             if self._cand[i].refs == self._cand[i].oks {
@@ -138,18 +121,9 @@ pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
         }
     }
 
-    priv fn _strip(self, e: unsafe *Expr) -> unsafe *Expr {
-        var unsafe *x = e
-        while x != &null && isa<ParenExpr>(x) {
-            x = dyn_cast<ParenExpr>(x)->inner
-        }
-
-        return x
-    }
-
     /// \p e names a candidate: its slot, plus one, or 0.
     priv fn _cand_of(self, e: unsafe *Expr) -> u64 {
-        var unsafe *ni = dyn_cast<NamedIdentExpr>(self._strip(e))
+        var unsafe *ni = dyn_cast<NamedIdentExpr>(strip_parens(e))
         if ni == &null || ni->resolved_decl == &null {
             return 0
         }
@@ -169,7 +143,7 @@ pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
             return
         }
 
-        var unsafe *ni = self._strip(e)
+        var unsafe *ni = strip_parens(e)
         var        key = ni as usize as u64
         if self._approved.count(key) != 0 {
             return
@@ -189,12 +163,12 @@ pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
             return true
         }
 
-        var unsafe *s = dyn_cast<SubscriptExpr>(self._strip(v->init))
+        var unsafe *s = dyn_cast<SubscriptExpr>(strip_parens(v->init))
         if s == &null || s->place_ctx != SUB_BIND || s->resolved_op == &null {
             return true
         }
 
-        if s->index == &null || !isa<RangeExpr>(self._strip(s->index)) {
+        if s->index == &null || !isa<RangeExpr>(strip_parens(s->index)) {
             return true
         }
 
@@ -234,7 +208,7 @@ pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
 
     /// `t.m()` with `m` taking `const self`, or a static.
     fn visit_call_expr(self, n: *CallExpr) -> bool {
-        var unsafe *ce = dyn_cast<ChainExpr>(self._strip(n->callee))
+        var unsafe *ce = dyn_cast<ChainExpr>(strip_parens(n->callee))
         if ce == &null || ce->base == &null || ce->steps.size() != 1 {
             return true
         }

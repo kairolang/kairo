@@ -49,6 +49,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import AST::ExprFacts::callee_decl
 import AST::Kind::StmtKind::StmtKind
 import AST::Node::Base::{
     Decl,
@@ -58,7 +59,6 @@ import AST::Node::Base::{
 import AST::Node::Casting::{
     cast,
     dyn_cast,
-    isa,
 }
 import AST::Node::Declarations::{
     FnBodyKind,
@@ -68,11 +68,6 @@ import AST::Node::Expressions::{
     CallExpr,
     ClosureExpr,
 }
-import AST::Node::PrimaryExpressions::{
-    ChainExpr,
-    NamedIdentExpr,
-}
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     CompoundStmt,
     ExpressionStmt,
@@ -110,23 +105,7 @@ pub class ReturnPathCheck derives RecursiveASTVisitor<ReturnPathCheck> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     /// # entry points
@@ -271,38 +250,6 @@ pub class ReturnPathCheck derives RecursiveASTVisitor<ReturnPathCheck> {
         return &null
     }
 
-    /// The function a call names directly (`f(x)`, `a::f(x)`, `o.f(x)`);
-    /// null for a call through a value.
-    priv fn _callee_decl(self, call: unsafe *CallExpr) -> unsafe *FunctionDecl {
-        if call == &null {
-            return &null
-        }
-
-        var unsafe *c = self._tu.strip_parens(call->callee)
-        if c == &null {
-            return &null
-        }
-
-        if isa<NamedIdentExpr>(c) {
-            return dyn_cast<FunctionDecl>(
-                cast<NamedIdentExpr>(c)->resolved_decl,
-            )
-        }
-
-        if isa<ChainExpr>(c) {
-            var unsafe *ce = cast<ChainExpr>(c)
-            if ce->steps.size() == 0 {
-                return &null
-            }
-
-            return dyn_cast<FunctionDecl>(
-                ce->steps.get(ce->steps.size() - 1)->resolved_decl,
-            )
-        }
-
-        return &null
-    }
-
     /// \p f is the function, or null for a closure; it names the subject.
     priv fn _check(self,
                    body:     unsafe *CompoundStmt,
@@ -361,7 +308,7 @@ pub class ReturnPathCheck derives RecursiveASTVisitor<ReturnPathCheck> {
             // Kairo's terms, rather than leave the user to wonder why the
             // call is not '!', or reach for the C++ to find out.
             var unsafe *call = self._tail_call(body)
-            var unsafe *ff   = self._callee_decl(call)
+            var unsafe *ff   = dyn_cast<FunctionDecl>(callee_decl(call))
             if ff != &null && ff->is_imported() && !ff->is_noreturn {
                 var nm = self._tu.decl_name(ff)
                 b.note(

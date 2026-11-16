@@ -44,7 +44,8 @@
 
 ffi "c++" import "vector"
 
-import AST::Context::DeclContext::DeclContextKind
+import AST::DeclFacts::is_global_storage
+import AST::ExprFacts::callee_decl
 import AST::LangItems::AllocNames
 import AST::Node::Base::{
     Decl,
@@ -78,7 +79,6 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     CompoundStmt,
     ReturnStmt,
@@ -92,6 +92,22 @@ import Sema::SemaContext::{
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
+/// An open allocator scope: its guard, and the depth of the block that
+/// declares the guard and closes the scope when it ends.
+struct OpenScope {
+    pub var guard: unsafe *VariableDecl = &null
+    pub var depth: u32                  = 0
+}
+
+/// A local of the function being walked. `depth` is the block that
+/// declares it. `origin` is the depth of the scope whose pointer it holds,
+/// 0 when it holds none.
+struct ScopeLocal {
+    pub var decl:   unsafe *Decl = &null
+    pub var depth:  u32          = 0
+    pub var origin: u32          = 0
+}
+
 pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
     pub var  sc:  unsafe *SemaContext
     priv var _tu: TypeUtil
@@ -99,16 +115,14 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
     /// Block nesting inside the current function body (the body is 1; 0
     /// outside any function).
     priv var _depth: u32 = 0
-    /// The innermost block that owns a live scope guard, and the guard; 0 /
-    /// null when no scope is open. Restored when a block closes, which is
-    /// when its guard closes the scope.
-    priv var _scope_depth: u32                  = 0
-    priv var _scope_var:   unsafe *VariableDecl = &null
-    /// The current function's locals, each with the depth of the block that
-    /// declares it, and the ones holding a pointer from the open scope.
-    priv var _locals:      cxx::std::vector<unsafe *Decl>
-    priv var _local_depth: cxx::std::vector<u32>
-    priv var _tainted:     cxx::std::vector<unsafe *Decl>
+    /// The open scopes, outermost first. A scope closes with the block
+    /// that declares its guard. A pointer belongs to the scope that was
+    /// innermost when it was allocated, and an inner scope opening or
+    /// closing changes nothing for a pointer of an outer one.
+    priv var _scopes: cxx::std::vector<OpenScope>
+    /// The current function's locals, in declaration order. A block's
+    /// locals die with it, so the taint a local carries dies there too.
+    priv var _locals: cxx::std::vector<ScopeLocal>
 
     fn ScopeEscapeCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -131,23 +145,7 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     /// # structure
@@ -159,29 +157,20 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
             return false
         }
 
-        var        s_depth  = self._depth
-        var        s_sdepth = self._scope_depth
-        var unsafe *s_svar  = self._scope_var
-        var        s_locals = self._locals
-        var        s_ldepth = self._local_depth
-        var        s_taint  = self._tainted
-        self._depth       = 0
-        self._scope_depth = 0
-        self._scope_var   = &null
+        var s_depth  = self._depth
+        var s_scopes = self._scopes
+        var s_locals = self._locals
+        self._depth = 0
+        self._scopes.clear()
         self._locals.clear()
-        self._local_depth.clear()
-        self._tainted.clear()
 
         if n->body_block != &null {
             self.dyn()->traverse_block(n->body_block)
         }
 
-        self._depth       = s_depth
-        self._scope_depth = s_sdepth
-        self._scope_var   = s_svar
-        self._locals      = s_locals
-        self._local_depth = s_ldepth
-        self._tainted     = s_taint
+        self._depth  = s_depth
+        self._scopes = s_scopes
+        self._locals = s_locals
         return false
     }
 
@@ -196,24 +185,25 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
             return n
         }
 
-        var        s_sdepth = self._scope_depth
-        var unsafe *s_svar  = self._scope_var
         self._depth += 1
         var unsafe *out = RecursiveASTVisitor<ScopeEscapeCheck>::traverse_compound_stmt(
             self,
             n,
         )
 
-        // The block's locals die with it; so does a scope it opened.
-        while self._local_depth.size() > 0
-            && self._local_depth[self._local_depth.size() - 1] >= self._depth {
+        // The block's locals die with it; so does a scope it opened. A
+        // local of an outer block keeps the pointer it was given in here.
+        while self._locals.size() > 0
+            && self._locals[self._locals.size() - 1].depth >= self._depth {
             self._locals.pop_back()
-            self._local_depth.pop_back()
+        }
+
+        while self._scopes.size() > 0
+            && self._scopes[self._scopes.size() - 1].depth >= self._depth {
+            self._scopes.pop_back()
         }
 
         self._depth -= 1
-        self._scope_depth = s_sdepth
-        self._scope_var   = s_svar
         return out
     }
 
@@ -235,28 +225,31 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
 
         var unsafe *d = unsafe (n as unsafe *Decl)
 
+        var origin = self._escapes(n->init)
         if n->storage == StorageClass::Static || n->is_thread {
-            if self._scope_depth > 0 && self._escapes(n->init) {
+            if origin > 0 {
                 self._warn(
                     n->init,
                     "initializes the static variable '" + self._tu.decl_name(d) + "'",
+                    origin,
                 )
             }
 
             return out
         }
 
-        self._locals.push_back(d)
-        self._local_depth.push_back(self._depth)
         if self._is_scope_guard(n) {
-            self._scope_depth = self._depth
-            self._scope_var   = n
+            self._locals.push_back(
+                ScopeLocal { decl: d, depth: self._depth, origin: 0 },
+            )
+
+            self._scopes.push_back(OpenScope { guard: n, depth: self._depth })
             return out
         }
 
-        if self._scope_depth > 0 && self._escapes(n->init) {
-            self._tainted.push_back(d)
-        }
+        self._locals.push_back(
+            ScopeLocal { decl: d, depth: self._depth, origin: origin },
+        )
 
         return out
     }
@@ -264,19 +257,20 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
     /// # the rules
 
     fn visit_return_stmt(self, n: unsafe *ReturnStmt) -> bool {
-        if n == &null || self._scope_depth == 0 {
+        if n == &null {
             return true
         }
 
-        if self._escapes(n->value) {
-            self._warn(n->value, "is returned from the function")
+        var origin = self._escapes(n->value)
+        if origin > 0 {
+            self._warn(n->value, "is returned from the function", origin)
         }
 
         return true
     }
 
     fn visit_assign_operator_expr(self, n: unsafe *AssignOperatorExpr) -> bool {
-        if n == &null || self._scope_depth == 0 {
+        if n == &null || self._scopes.size() == 0 {
             return true
         }
 
@@ -284,23 +278,27 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
             return true
         }
 
-        if !self._escapes(n->rhs) {
+        var origin = self._escapes(n->rhs)
+        if origin == 0 {
             return true
         }
 
-        var why = self._outlives(n->lhs)
+        var why = self._outlives(n->lhs, origin)
         if why != "" {
-            self._warn(n->rhs, why)
+            self._warn(n->rhs, why, origin)
             return true
         }
 
         // `q = p` into a local of the scope's own block (or deeper): q
-        // holds a scoped pointer from here on.
+        // holds a scoped pointer from here on. Of two scopes it has held a
+        // pointer of, the inner one closes first.
         var unsafe *lhs = self._tu.strip_parens(n->lhs)
         if lhs != &null && isa<NamedIdentExpr>(lhs) {
             var unsafe *v = cast<NamedIdentExpr>(lhs)->resolved_decl
-            if v != &null && isa<VariableDecl>(v) && !self._is_tainted(v) {
-                self._tainted.push_back(v)
+            for var i: usize = 0; i < self._locals.size(); ++i {
+                if self._locals[i].decl == v && self._locals[i].origin < origin {
+                    self._locals[i].origin = origin
+                }
             }
         }
 
@@ -309,16 +307,17 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
 
     /// # queries
 
-    /// \p e is a pointer from the open scope: a producer call itself, or a
-    /// local holding one.
-    priv fn _escapes(self, e_in: unsafe *Expr) -> bool {
-        if e_in == &null {
-            return false
+    /// The depth of the open scope \p e is a pointer from, or 0 when it is
+    /// not one: a producer call takes the innermost scope, a local holding
+    /// a scoped pointer answers the scope that pointer came from.
+    priv fn _escapes(self, e_in: unsafe *Expr) -> u32 {
+        if e_in == &null || self._scopes.size() == 0 {
+            return 0
         }
 
         var unsafe *e = self._tu.strip_parens(e_in)
         if e == &null {
-            return false
+            return 0
         }
 
         if isa<TypeCastExpr>(e) {
@@ -326,21 +325,29 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
         }
 
         if isa<CallExpr>(e) {
-            return self._is_producer(cast<CallExpr>(e))
+            if !self._is_producer(cast<CallExpr>(e)) {
+                return 0
+            }
+
+            return self._scopes[self._scopes.size() - 1].depth
         }
 
         if isa<NamedIdentExpr>(e) {
             var unsafe *d = cast<NamedIdentExpr>(e)->resolved_decl
-            return d != &null && self._is_tainted(d)
+            for var i: usize = 0; i < self._locals.size(); ++i {
+                if self._locals[i].decl == d {
+                    return self._locals[i].origin
+                }
+            }
         }
 
-        return false
+        return 0
     }
 
-    /// Where a store to \p target lands, if that outlives the scope: the
-    /// phrase for the warning, or "" when the target dies with the scope
-    /// (or cannot be told).
-    priv fn _outlives(self, target: unsafe *Expr) -> string {
+    /// Where a store to \p target lands, if that outlives the scope at
+    /// depth \p origin: the phrase for the warning, or "" when the target
+    /// dies with the scope (or cannot be told).
+    priv fn _outlives(self, target: unsafe *Expr, origin: u32) -> string {
         if target == &null {
             return ""
         }
@@ -358,11 +365,11 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
 
             var unsafe *v = cast<VariableDecl>(d)
             var        nm = "'" + self._tu.decl_name(d) + "'"
-            if self._is_global(v) {
+            if is_global_storage(v) {
                 return "is stored to the static variable " + nm
             }
 
-            if self._outer_local(d) {
+            if self._outer_local(d, origin) {
                 return "is stored to " + nm + ", which is declared outside the scope's block"
             }
 
@@ -372,14 +379,14 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
         if isa<UnaryOperatorExpr>(e) {
             var unsafe *u = cast<UnaryOperatorExpr>(e)
             if u->op_token.kind == TokenKind::OpStar && u->fix == UnaryOperatorExpr::Fix::Prefix {
-                return self._base_outlives(u->operand)
+                return self._base_outlives(u->operand, origin)
             }
 
             return ""
         }
 
         if isa<SubscriptExpr>(e) {
-            return self._base_outlives(cast<SubscriptExpr>(e)->base)
+            return self._base_outlives(cast<SubscriptExpr>(e)->base, origin)
         }
 
         if isa<ChainExpr>(e) {
@@ -390,23 +397,23 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
                     ch->steps.get(ch->steps.size() - 1)->resolved_decl,
                 )
 
-                if last != &null && self._is_global(last) {
+                if last != &null && is_global_storage(last) {
                     return "is stored to the static variable '" + self._tu.decl_name(
                         last,
                     ) + "'"
                 }
             }
 
-            return self._base_outlives(ch->base)
+            return self._base_outlives(ch->base, origin)
         }
 
         return ""
     }
 
     /// A store through \p base (`*b = p`, `b->f = p`, `b.f = p`, `b[i] =
-    /// p`) outlives the scope when b does: a global, a parameter, or a
-    /// local of an outer block.
-    priv fn _base_outlives(self, base_in: unsafe *Expr) -> string {
+    /// p`) outlives the scope at depth \p origin when b does: a global, a
+    /// parameter, or a local of an outer block.
+    priv fn _base_outlives(self, base_in: unsafe *Expr, origin: u32) -> string {
         if base_in == &null {
             return ""
         }
@@ -417,7 +424,7 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
         }
 
         if isa<ChainExpr>(b) {
-            return self._outlives(b)
+            return self._outlives(b, origin)
         }
 
         if !isa<NamedIdentExpr>(b) {
@@ -438,64 +445,33 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
             return ""
         }
 
-        if self._is_global(cast<VariableDecl>(d)) {
+        if is_global_storage(cast<VariableDecl>(d)) {
             return "is stored through the static variable " + nm
         }
 
-        if self._outer_local(d) {
+        if self._outer_local(d, origin) {
             return "is stored through " + nm + ", which is declared outside the scope's block"
         }
 
         return ""
     }
 
-    /// A local of this function declared in a block outside the open
-    /// scope's (the scope's own block, and deeper, die with it).
-    priv fn _outer_local(self, d: unsafe *Decl) -> bool {
+    /// A local of this function declared in a block outside the one of the
+    /// scope at depth \p origin (that scope's own block, and deeper, die with
+    /// it).
+    priv fn _outer_local(self, d: unsafe *Decl, origin: u32) -> bool {
         for var i: usize = 0; i < self._locals.size(); ++i {
-            if self._locals[i] == d {
-                return self._local_depth[i] < self._scope_depth
+            if self._locals[i].decl == d {
+                return self._locals[i].depth < origin
             }
         }
 
         return false
-    }
-
-    priv fn _is_tainted(self, d: unsafe *Decl) -> bool {
-        for var i: usize = 0; i < self._tainted.size(); ++i {
-            if self._tainted[i] == d {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    /// Static storage: a file or module variable, a static member, a
-    /// `static` / `thread` local. A local was never indexed into a scope
-    /// table, so it has no semantic_dc.
-    priv fn _is_global(self, v: unsafe *VariableDecl) -> bool {
-        if v->storage == StorageClass::Eval {
-            return false
-        }
-
-        if v->storage == StorageClass::Static || v->is_thread {
-            return true
-        }
-
-        var unsafe *dc = v->semantic_dc
-        if dc == &null {
-            return false
-        }
-
-        return dc->dc_kind == DeclContextKind::TranslationUnit
-            || dc->dc_kind == DeclContextKind::Module
-            || dc->is_type_scope()
     }
 
     /// A call whose result comes from the allocator in effect.
     priv fn _is_producer(self, c: unsafe *CallExpr) -> bool {
-        var unsafe *d = self._callee_decl(c)
+        var unsafe *d = callee_decl(c)
         if d == &null || !isa<FunctionDecl>(d) || !self._from_builtin(d) {
             return false
         }
@@ -534,33 +510,11 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
         return self.sc->g->is_builtin_fid(self._tu.fid_of(d))
     }
 
-    /// What \p n calls, or null (a function value, an unresolved name).
-    priv fn _callee_decl(self, n: unsafe *CallExpr) -> unsafe *Decl {
-        var unsafe *c = self._tu.strip_parens(n->callee)
-        if c == &null {
-            return &null
-        }
-
-        if isa<NamedIdentExpr>(c) {
-            return cast<NamedIdentExpr>(c)->resolved_decl
-        }
-
-        if isa<ChainExpr>(c) {
-            var unsafe *ch = cast<ChainExpr>(c)
-            if ch->steps.size() == 0 {
-                return &null
-            }
-
-            return ch->steps.get(ch->steps.size() - 1)->resolved_decl
-        }
-
-        return &null
-    }
-
     /// # reporting
 
     /// \p what: the rest of "a pointer from the allocator scope <what>".
-    priv fn _warn(self, at_e: unsafe *Expr, const what: string) {
+    /// \p origin: the depth of the scope the pointer is from.
+    priv fn _warn(self, at_e: unsafe *Expr, const what: string, origin: u32) {
         if at_e == &null {
             return
         }
@@ -573,11 +527,20 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
         )
 
         b.first(at)
-        if self._scope_var != &null {
+        // The last guard of that block: a second guard in one block is the
+        // scope in force from its declaration on.
+        var guard: unsafe *VariableDecl = &null
+        for var i: usize = 0; i < self._scopes.size(); ++i {
+            if self._scopes[i].depth == origin {
+                guard = self._scopes[i].guard
+            }
+        }
+
+        if guard != &null {
             b.note(
-                self._scope_var->range.start,
+                guard->range.start,
                 "the scope is opened here, and closing it at the end of this block frees everything allocated in it",
-            )->child_first(self._scope_var->range)
+            )->child_first(guard->range)
         }
 
         b.emit()

@@ -46,101 +46,13 @@ import AST::Context::InstantiationRegistry::{
     InstantiationRegistry,
 }
 import AST::DeclFacts::decl_is_imported
-import AST::Kind::TypeKind::TypeKind
-import AST::Node::Base::{
-    Decl,
-    Type,
-}
-import AST::Node::CanonicalNodes::{
-    AssocType,
-    QualifiedType,
-    RecordType,
-}
-import AST::Node::Casting::cast
-import AST::Node::Types
+import AST::Node::Base::Decl
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Sema::Foreign::ForeignRegistry::ForeignRegistry
+import Sema::Incremental::Facts::incr_type_records
 import Sema::Resolve::NameLookup::NameLookup
 import std::io
-
-/// Every record declaration the canonical type \p c_in mentions.
-fn retract_records(c_in: unsafe *Type, depth: u32, out: unsafe *cxx::std::vector<unsafe *Decl>) {
-    if c_in == &null || depth > 24 {
-        return
-    }
-
-    var unsafe *c = c_in
-    if c->canonical != &null {
-        c = c->canonical
-    }
-
-    match c->kind {
-        case TypeKind::RecordType {
-            var unsafe *r = cast<RecordType>(c)
-            if r->decl != &null {
-                out->push_back(r->decl)
-            }
-
-            for var i: usize = 0; i < r->args.size(); ++i {
-                retract_records(r->args[i], depth + 1, out)
-            }
-
-            retract_records(r->outer, depth + 1, out)
-        } case TypeKind::QualifiedType {
-            retract_records(cast<QualifiedType>(c)->inner, depth + 1, out)
-        } case TypeKind::PointerType {
-            retract_records(
-                cast<Types::PointerType>(c)->pointee,
-                depth + 1,
-                out,
-            )
-        } case TypeKind::NullableType {
-            retract_records(cast<Types::NullableType>(c)->inner, depth + 1, out)
-        } case TypeKind::FixedArrayType {
-            retract_records(
-                cast<Types::FixedArrayType>(c)->element,
-                depth + 1,
-                out,
-            )
-        } case TypeKind::VectorType {
-            retract_records(cast<Types::VectorType>(c)->element, depth + 1, out)
-        } case TypeKind::SetType {
-            retract_records(cast<Types::SetType>(c)->element, depth + 1, out)
-        } case TypeKind::MapType {
-            var unsafe *m = cast<Types::MapType>(c)
-            retract_records(m->key, depth + 1, out)
-            retract_records(m->value, depth + 1, out)
-        } case TypeKind::CXXLValueRefType {
-            retract_records(
-                cast<Types::CXXLValueRefType>(c)->referee,
-                depth + 1,
-                out,
-            )
-        } case TypeKind::CXXRValueRefType {
-            retract_records(
-                cast<Types::CXXRValueRefType>(c)->referee,
-                depth + 1,
-                out,
-            )
-        } case TypeKind::FunctionPointerType {
-            var unsafe *f = cast<Types::FunctionPointerType>(c)
-            for var i: usize = 0; i < f->params.size(); ++i {
-                retract_records(f->params[i], depth + 1, out)
-            }
-
-            retract_records(f->return_type, depth + 1, out)
-        } case TypeKind::AssocType {
-            var unsafe *a = cast<AssocType>(c)
-            retract_records(a->base, depth + 1, out)
-            for var i: usize = 0; i < a->args.size(); ++i {
-                retract_records(a->args[i], depth + 1, out)
-            }
-        } default {
-            return
-        }
-    }
-}
 
 /// \class RetractStats
 pub class RetractStats {
@@ -198,11 +110,11 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
     for var i: usize = 0; i < all.size(); ++i {
         var ds = cxx::std::vector<unsafe *Decl>()
         for var k: usize = 0; k < all[i]->args.size(); ++k {
-            retract_records(all[i]->args[k], 0, unsafe &ds)
+            incr_type_records(all[i]->args[k], 0, unsafe &ds)
         }
 
         for var k: usize = 0; k < all[i]->pattern_args.size(); ++k {
-            retract_records(all[i]->pattern_args[k], 0, unsafe &ds)
+            incr_type_records(all[i]->pattern_args[k], 0, unsafe &ds)
         }
 
         arg_decls.push_back(ds)
@@ -527,11 +439,11 @@ pub fn verify_retired(gs:            unsafe *GlobalDisambigTable,
         }
 
         for var k: usize = 0; k < e->args.size(); ++k {
-            retract_records(e->args[k], 0, unsafe &own)
+            incr_type_records(e->args[k], 0, unsafe &own)
         }
 
         for var k: usize = 0; k < e->pattern_args.size(); ++k {
-            retract_records(e->pattern_args[k], 0, unsafe &own)
+            incr_type_records(e->pattern_args[k], 0, unsafe &own)
         }
 
         for var k: usize = 0; k < own.size(); ++k {

@@ -64,7 +64,6 @@ import AST::Node::Declarations::{
     VariableDecl,
     pointer_shorthand_spelling,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
@@ -101,23 +100,7 @@ pub class ShorthandLint derives RecursiveASTVisitor<ShorthandLint> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     /// The initializer first: a closure in it holds decls of its own.

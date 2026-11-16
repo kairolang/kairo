@@ -142,8 +142,12 @@ import AST::DeclFacts::{
     decl_is_requirement,
     param_is_type_pack,
 }
+import AST::ExprFacts::callee_expr_decl
 import AST::Kind::TypeKind::TypeKind
-import AST::LangItems::LangAttrs
+import AST::LangItems::{
+    LangAttrs,
+    entry_point_name,
+}
 import AST::Mixin::FFILinkage::LinkageKind
 import AST::Node::Base::{
     Decl,
@@ -160,15 +164,14 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,       AdtRole,    ClassDecl, ExtensionDecl, FieldDecl,    FnBodyKind,   FunctionDecl,
-    InterfaceDecl, ModuleDecl, ParamDecl, StructDecl,    TransferKind, VariableDecl,
+    AbiKind,       AdtRole,    ClassDecl, ExtensionDecl, FieldDecl,  FnBodyKind,   FunctionDecl,
+    InterfaceDecl, ModuleDecl, ParamDecl, PurityLevel,   StructDecl, TransferKind, VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     ConditionalStmt,
     ReturnStmt,
@@ -264,23 +267,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         var unsafe *ci = self.sc->ctx->ci
         self._lint = ci != &null && ci->diag.Wconst_self && !self._library
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
 
         if self._lint {
             self._decide_lint()
@@ -452,11 +439,12 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         // move across a store to it. By value, C++ passes the record
         // as a fresh caller copy, which clang lets the callee read.
         var unsafe *canon = f->canonical_decl()
-        if f->is_const_fn || f->inferred_purity == 1 {
+        if f->is_const_fn || f->inferred_purity == (PurityLevel::Const as u8) {
             return false
         }
 
-        if canon != &null && (canon->is_const_fn || canon->inferred_purity == 1) {
+        if canon != &null
+            && (canon->is_const_fn || canon->inferred_purity == (PurityLevel::Const as u8)) {
             return false
         }
 
@@ -723,7 +711,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             return false
         }
 
-        return self.sc->ctx->get_spelling(f->name) == "main"
+        return self.sc->ctx->get_spelling(f->name) == entry_point_name()
     }
 
     /// A method of a class with a polymorphic base: C++ may take it as an
@@ -1047,36 +1035,10 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         return true
     }
 
-    priv fn _callee_decl(self, c: unsafe *Expr) -> unsafe *FunctionDecl {
-        var unsafe *x = self._tu.strip_parens(c)
-        if x == &null {
-            return &null
-        }
-
-        if isa<NamedIdentExpr>(x) {
-            return dyn_cast<FunctionDecl>(
-                cast<NamedIdentExpr>(x)->resolved_decl,
-            )
-        }
-
-        if isa<ChainExpr>(x) {
-            var unsafe *ce = cast<ChainExpr>(x)
-            if ce->steps.size() == 0 {
-                return &null
-            }
-
-            return dyn_cast<FunctionDecl>(
-                ce->steps.get(ce->steps.size() - 1)->resolved_decl,
-            )
-        }
-
-        return &null
-    }
-
     /// # approving nodes
 
     fn visit_call_expr(self, n: *Expressions::CallExpr) -> bool {
-        var unsafe *f = self._callee_decl(n->callee)
+        var unsafe *f = dyn_cast<FunctionDecl>(callee_expr_decl(n->callee))
         var is_ctor = n->ctor_decl != &null && isa<FunctionDecl>(n->ctor_decl)
         if is_ctor {
             f = cast<FunctionDecl>(n->ctor_decl)

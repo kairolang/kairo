@@ -466,8 +466,8 @@ pub class MemberLookup {
     /// Appends to \p out in walk order: own first, extensions, then bases
     /// breadth-first -- the order overload resolution and diagnostics want.
     /// \return true if anything was found. A const vector has vector's
-    /// members; which of them may be called on a const object is
-    /// ConstChecking's.
+    /// members; which of them may be called on a const object is decided
+    /// where the call is typed, by the receiver's conversion.
     fn lookup(self,
               c_in: unsafe *Type,
               name: DeclName,

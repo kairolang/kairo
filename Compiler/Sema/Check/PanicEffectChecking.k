@@ -93,6 +93,7 @@ import AST::Context::InstantiationRegistry::{
 import AST::DeclFacts::{
     decl_extension_of,
     decl_generic_params,
+    decl_is_ctor,
     decl_is_imported,
 }
 import AST::Kind::TypeKind::TypeKind
@@ -239,19 +240,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         }
 
         self._script = self._sr.is_script()
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
 
         self._check_instances()
 
@@ -259,6 +248,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         // bindings' initializers (each deferred one runs at its line in main;
         // a constant one cannot panic).
         if self._script {
+            var *items = &tu->program->items
             for var i: usize = 0; i < items->size(); ++i {
                 var item = *items->get(i)
                 var w    = PanicWalk(self.sc)
@@ -722,7 +712,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             return true
         }
 
-        if !self._is_global(v) {
+        if !self._at_file_scope(v) {
             return true
         }
 
@@ -1069,7 +1059,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                 named_declared_here(nm),
             )->child_first(self._name_range(f))
 
-            if self._is_ctor(f) {
+            if decl_is_ctor(f, self.sc->ctx) {
                 b.note(
                     DiagCode(DiagID::SC215N),
                     f->range.start,
@@ -1866,7 +1856,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             return "a destructor"
         }
 
-        if self._is_ctor(f) {
+        if decl_is_ctor(f, self.sc->ctx) {
             return "a constructor"
         }
 
@@ -1890,21 +1880,6 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         }
 
         return ""
-    }
-
-    priv fn _is_ctor(self, f: unsafe *Declarations::FunctionDecl) -> bool {
-        if f->is_operator || !f->is_method() {
-            return false
-        }
-
-        var unsafe *dc = f->semantic_dc
-        if dc == &null || !dc->is_type_scope() || dc->dc_owner == &null {
-            return false
-        }
-
-        return self._tu.decl_name(unsafe (f as unsafe *Decl)) == self._tu.decl_name(
-            dc->dc_owner,
-        )
     }
 
     priv fn _gate(self, at: SourceRange, const what: string) {
@@ -2589,7 +2564,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
 
     /// At file or module scope. A local `static` is not one: C++ runs its
     /// initializer inside the function, which handles or propagates it.
-    priv fn _is_global(self, vd: unsafe *Declarations::VariableDecl) -> bool {
+    priv fn _at_file_scope(self, vd: unsafe *Declarations::VariableDecl) -> bool {
         var unsafe *dc = vd->semantic_dc
         if dc == &null {
             return false

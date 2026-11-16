@@ -92,6 +92,7 @@ ffi "c++" import "vector"
 import AST::ASTSupport::FrozenList
 import AST::DeclFacts::{
     decl_generic_params,
+    decl_is_ctor,
     decl_is_instance,
 }
 import AST::Kind::StmtKind::StmtKind
@@ -121,7 +122,6 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements
 import AST::Node::Types::FixedArrayType
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
@@ -599,23 +599,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     /// # traversal: records, and the function each assignment sits in
@@ -769,18 +753,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
 
     /// A method named after the type it is declared in (StmtTyping's rule).
     priv fn _is_ctor(self, f: unsafe *FunctionDecl) -> bool {
-        if f->is_operator || !f->is_method() || f->adt_role != AdtRole::None {
-            return false
-        }
-
-        var unsafe *dc = f->semantic_dc
-        if dc == &null || !dc->is_type_scope() || dc->dc_owner == &null {
-            return false
-        }
-
-        return self._tu.decl_name(unsafe (f as unsafe *Decl)) == self._tu.decl_name(
-            dc->dc_owner,
-        )
+        return f->adt_role == AdtRole::None && decl_is_ctor(f, self.sc->ctx)
     }
 
     /// Analyze one constructor body; true when it was split (facts written).

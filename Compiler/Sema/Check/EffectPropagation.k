@@ -68,6 +68,10 @@ import AST::DeclFacts::{
     decl_extension_of,
     decl_generic_params,
 }
+import AST::ExprFacts::{
+    CalleeOpt,
+    callee_decl,
+}
 import AST::Kind::TypeKind::TypeKind
 import AST::Node::Base::{
     Decl,
@@ -94,7 +98,6 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     PanicStmt,
     RangedForStmt,
@@ -117,6 +120,7 @@ import Sema::Type::ArgumentDeduction::Deduction
 import Sema::Type::PanicSets::PanicSets
 import Sema::Type::Substitution::Substitution
 import Sema::Type::TypeUtil::TypeUtil
+import Support::FlagSet::FlagSet
 import Token::TokenKind::TokenKind
 
 /// # sets
@@ -1537,30 +1541,14 @@ pub class PanicWalk derives RecursiveASTVisitor<PanicWalk> {
 
     /// The function a call selected, or null (CallLowering's rule).
     priv fn _callee_fn(self, c: unsafe *CallExpr) -> unsafe *Declarations::FunctionDecl {
-        if c->ctor_decl != &null && isa<Declarations::FunctionDecl>(c->ctor_decl) {
-            return cast<Declarations::FunctionDecl>(c->ctor_decl)
-        }
-
-        var unsafe *e = self.tu.strip_parens(c->callee)
-        if e == &null {
-            return &null
-        }
-
-        var d: unsafe *Decl = &null
-        if isa<NamedIdentExpr>(e) {
-            d = cast<NamedIdentExpr>(e)->resolved_decl
-        } else if isa<ChainExpr>(e) {
-            var unsafe *ch = cast<ChainExpr>(e)
-            if ch->steps.size() > 0 {
-                var unsafe *st = ch->steps.get(ch->steps.size() - 1)
-                d = st->resolved_decl
-                if d == &null && st->name != &null {
-                    d = st->name->resolved_decl
-                }
-            }
-        }
-
-        return dyn_cast<Declarations::FunctionDecl>(d)
+        return dyn_cast<Declarations::FunctionDecl>(
+            callee_decl(
+                c,
+                FlagSet<CalleeOpt, u8>(CalleeOpt::CtorDecl).plus(
+                    CalleeOpt::StepName,
+                ),
+            ),
+        )
     }
 
     /// Route one site's set through the open `try`s, innermost first: each
@@ -1824,19 +1812,7 @@ pub class EffectCollect derives RecursiveASTVisitor<EffectCollect> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     fn visit_function_decl(self, n: unsafe *Declarations::FunctionDecl) -> bool {

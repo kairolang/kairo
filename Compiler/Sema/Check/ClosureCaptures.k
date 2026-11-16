@@ -93,7 +93,6 @@ import AST::Node::Expressions::{
     ClosureExpr,
 }
 import AST::Node::PrimaryExpressions::NamedIdentExpr
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::DeclStmt
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Registry::DiagID
@@ -140,23 +139,7 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {

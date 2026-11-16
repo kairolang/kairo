@@ -38,8 +38,7 @@
 ///                      UnmatchedPolicy to it.
 ///
 ///   \par Both forms must be exhaustive
-///     The statement form too (control-flow.md, Exhaustiveness). One switch,
-///     `_requires_exhaustive`, if that ever changes.
+///     The statement form too (control-flow.md, Exhaustiveness).
 ///
 ///   \par Skipped matches
 ///     A scrutinee whose type is unknown or dependent, and any match holding
@@ -83,7 +82,6 @@ import AST::Node::Patterns::{
     TupleDestructurePattern,
     UnresolvedConstructorPattern,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     MatchCase,
     MatchStmt,
@@ -146,23 +144,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     /// # entry points
@@ -172,13 +154,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             return true
         }
 
-        var v = self._check(
-            n->scrutinee,
-            &n->cases,
-            n->range,
-            true,
-            n->null_arm,
-        )
+        var v = self._check(n->scrutinee, &n->cases, n->range, n->null_arm)
 
         n->is_exhaustive = v.is_exhaustive
         n->covering_arm  = v.covering_arm
@@ -191,22 +167,11 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             return true
         }
 
-        var v = self._check(
-            n->scrutinee,
-            &n->cases,
-            n->range,
-            false,
-            n->null_arm,
-        )
+        var v = self._check(n->scrutinee, &n->cases, n->range, n->null_arm)
 
         n->is_exhaustive = v.is_exhaustive
         n->covering_arm  = v.covering_arm
         n->open_tail     = v.open_tail
-        return true
-    }
-
-    /// Statement and expression form alike; see the file header.
-    priv fn _requires_exhaustive(self, stmt_form: bool) -> bool {
         return true
     }
 
@@ -220,7 +185,6 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
                    scrutinee: unsafe *Expr,
                    cases:     *FrozenList<MatchCase>,
                    at:        SourceRange,
-                   stmt_form: bool,
                    null_arm:  bool) -> MatchVerdict {
         var v = MatchVerdict{}
         if scrutinee == &null || scrutinee->type_ == &null || scrutinee->is_poisoned() {
@@ -297,9 +261,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             if fv.missing.useful {
                 v.is_exhaustive = false
                 v.covering_arm  = -1
-                if self._requires_exhaustive(stmt_form) {
-                    self._report_missing(scrutinee, at, &fv.missing)
-                }
+                self._report_missing(scrutinee, at, &fv.missing)
 
                 return v
             }
@@ -332,9 +294,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
         if closed.useful {
             v.is_exhaustive = false
             v.covering_arm  = -1
-            if self._requires_exhaustive(stmt_form) {
-                self._report_missing(scrutinee, at, &closed)
-            }
+            self._report_missing(scrutinee, at, &closed)
 
             return v
         }

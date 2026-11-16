@@ -54,8 +54,8 @@ import AST::Context::SymbolTable::{
 }
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
-    decl_bases,   decl_generic_params,  decl_in_generic_owner, decl_is_instance,
-    decl_pattern, decl_requires_clause, decl_spec_args,
+    decl_bases,   decl_fields,  decl_generic_params,  decl_in_generic_owner, decl_is_instance,
+    decl_methods, decl_pattern, decl_requires_clause, decl_spec_args,
 }
 import AST::Kind::TypeKind::TypeKind
 import AST::Mixin::Annotation::VisibilityKind
@@ -79,8 +79,8 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Types
+import AST::OperatorFacts::op_decl_name
 import AST::VisibilityFacts::default_visibility_of
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Location::SourceLocation::SourceLocation
@@ -97,28 +97,14 @@ import Sema::SemaDump::{
     sema_dump_phase_str,
 }
 import Sema::Type::TypeUtil::TypeUtil
-import Token::TokenKind::TokenKind
+import Support::Escape::json_string
 
 /// # Strings
 
-/// A JSON string literal. Control bytes become a space: nothing here spells
-/// one on purpose, and a raw one would make the dump unparseable.
+/// A JSON string literal: Support::Escape::json_string, the escaper every
+/// dump and module record spells its strings with.
 pub fn incr_json(const s: string) -> string {
-    var o: string = "\""
-    for var i: usize = 0; i < s.size(); ++i {
-        var c = s[i]
-        if c == ('"' as u8) || c == ('\\' as u8) {
-            o += "\\"
-            o.push_back(c)
-        } else if (c as u32) < 32 {
-            o += " "
-        } else {
-            o.push_back(c)
-        }
-    }
-
-    o += "\""
-    return o
+    return json_string(s)
 }
 
 /// Source text with every run of whitespace as one space and none at the
@@ -255,27 +241,13 @@ pub fn incr_key_name(ctx: unsafe *ASTContext, name: DeclName) -> string {
 
 /// The key name a declaration is found under, from the declaration: for the
 /// ones no table holds (an out-of-line definition) and for an overlay hit,
-/// whose key may be an import alias and not the declared name.
+/// whose key may be an import alias and not the declared name. An operator's
+/// is its table key (op_decl_name), without the `l` / `r` fixity marker:
+/// `op l++` and `op r++` are found under the name `op ++` is.
 pub fn incr_decl_key_name(ctx: unsafe *ASTContext, d: unsafe *Decl) -> string {
     var unsafe *f = dyn_cast<Declarations::FunctionDecl>(d)
     if f != &null && f->is_operator {
-        var k0 = TokenKind::TkUnknown
-        var k1 = TokenKind::TkUnknown
-        var k2 = TokenKind::TkUnknown
-        if f->op_token.size() > 0 {
-            k0 = f->op_token[0].kind
-        }
-
-        if f->op_token.size() > 1 {
-            k1 = f->op_token[1].kind
-        }
-
-        // `op []=` is three tokens (DeclName::op_name_of).
-        if f->op_token.size() > 2 {
-            k2 = f->op_token[2].kind
-        }
-
-        return incr_key_name(ctx, DeclName::op_name_of(k0, k1, k2))
+        return incr_key_name(ctx, op_decl_name(f))
     }
 
     return sema_dump_decl_name(ctx, d)
@@ -436,6 +408,97 @@ pub fn incr_scope_id(dc: unsafe *DeclContext, psym: unsafe *PreprocessorSymbolTa
     return incr_decl_id(o, psym)
 }
 
+/// Every record declaration the canonical type \p c_in mentions, depth
+/// first, in the order they appear: a record, then its arguments, then the
+/// type it is nested in. A type's structural string, a layout row and a
+/// retraction all read records in this order.
+pub fn incr_type_records(c_in:  unsafe *Type,
+                         depth: u32,
+                         out:   unsafe *cxx::std::vector<unsafe *Decl>) {
+    if c_in == &null || depth > 24 {
+        return
+    }
+
+    var unsafe *c = c_in
+    if c->canonical != &null {
+        c = c->canonical
+    }
+
+    match c->kind {
+        case TypeKind::RecordType {
+            var unsafe *r = cast<RecordType>(c)
+            if r->decl != &null {
+                out->push_back(r->decl)
+            }
+
+            for var i: usize = 0; i < r->args.size(); ++i {
+                incr_type_records(r->args[i], depth + 1, out)
+            }
+
+            incr_type_records(r->outer, depth + 1, out)
+        } case TypeKind::QualifiedType {
+            incr_type_records(cast<QualifiedType>(c)->inner, depth + 1, out)
+        } case TypeKind::PointerType {
+            incr_type_records(
+                cast<Types::PointerType>(c)->pointee,
+                depth + 1,
+                out,
+            )
+        } case TypeKind::NullableType {
+            incr_type_records(
+                cast<Types::NullableType>(c)->inner,
+                depth + 1,
+                out,
+            )
+        } case TypeKind::FixedArrayType {
+            incr_type_records(
+                cast<Types::FixedArrayType>(c)->element,
+                depth + 1,
+                out,
+            )
+        } case TypeKind::VectorType {
+            incr_type_records(
+                cast<Types::VectorType>(c)->element,
+                depth + 1,
+                out,
+            )
+        } case TypeKind::SetType {
+            incr_type_records(cast<Types::SetType>(c)->element, depth + 1, out)
+        } case TypeKind::MapType {
+            var unsafe *m = cast<Types::MapType>(c)
+            incr_type_records(m->key, depth + 1, out)
+            incr_type_records(m->value, depth + 1, out)
+        } case TypeKind::CXXLValueRefType {
+            incr_type_records(
+                cast<Types::CXXLValueRefType>(c)->referee,
+                depth + 1,
+                out,
+            )
+        } case TypeKind::CXXRValueRefType {
+            incr_type_records(
+                cast<Types::CXXRValueRefType>(c)->referee,
+                depth + 1,
+                out,
+            )
+        } case TypeKind::FunctionPointerType {
+            var unsafe *f = cast<Types::FunctionPointerType>(c)
+            for var i: usize = 0; i < f->params.size(); ++i {
+                incr_type_records(f->params[i], depth + 1, out)
+            }
+
+            incr_type_records(f->return_type, depth + 1, out)
+        } case TypeKind::AssocType {
+            var unsafe *a = cast<AssocType>(c)
+            incr_type_records(a->base, depth + 1, out)
+            for var i: usize = 0; i < a->args.size(); ++i {
+                incr_type_records(a->args[i], depth + 1, out)
+            }
+        } default {
+            return
+        }
+    }
+}
+
 /// # A file's facts
 
 /// \class FileFacts
@@ -570,20 +633,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
         // The declaration rows: only when this TU is being logged, and only
         // over a tree whose types exist.
         if tu->dep_log != &null && tu->program != &null {
-            var *items = &tu->program->items
-            for var i: usize = 0; i < items->size(); ++i {
-                var item = *items->get(i)
-                match item.get_kind() {
-                    case TopLevelKind::Decl {
-                        self.dyn()->dispatch_decl(item.as_decl())
-                    } case TopLevelKind::Stmt {
-                        self.dyn()->dispatch_stmt(item.as_stmt())
-                    } case TopLevelKind::Expr {
-                        self.dyn()->dispatch_expr(item.as_expr())
-                    }
-                }
-            }
-
+            RecursiveASTVisitor<IncrFacts>::run(self, tu)
             llvm::sort(out->rows.begin(), out->rows.end())
         }
     }
@@ -620,16 +670,17 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             c = t
         }
 
-        var ids = cxx::std::vector<string>()
-        self._records(c, unsafe &ids, 0)
+        var decls = cxx::std::vector<unsafe *Decl>()
+        incr_type_records(c, 0, unsafe &decls)
         var s = self._tu.str(c) + "@"
-        for var i: usize = 0; i < ids.size(); ++i {
+        for var i: usize = 0; i < decls.size(); ++i {
             if i > 0 {
                 s += ","
             }
 
-            s += ids[i]
-            self._refs.push_back(ids[i])
+            var id = self._id(decls[i])
+            s += id
+            self._refs.push_back(id)
         }
 
         return s
@@ -645,115 +696,6 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
         }
 
         return t
-    }
-
-    /// Every record declaration \p c_in mentions, depth first, as DeclIds
-    /// into \p ids (and, when \p decls is given, as declarations).
-    priv fn _records(self,
-                     c_in:  unsafe *Type,
-                     ids:   unsafe *cxx::std::vector<string>,
-                     depth: u32,
-                     decls: unsafe *cxx::std::vector<unsafe *Decl> = &null) {
-        var unsafe *c = self._canon(c_in)
-        if c == &null || depth > 24 {
-            return
-        }
-
-        match c->kind {
-            case TypeKind::RecordType {
-                var unsafe *r = cast<RecordType>(c)
-                if r->decl != &null {
-                    if ids != &null {
-                        ids->push_back(self._id(r->decl))
-                    }
-
-                    if decls != &null {
-                        decls->push_back(r->decl)
-                    }
-                }
-
-                for var i: usize = 0; i < r->args.size(); ++i {
-                    self._records(r->args[i], ids, depth + 1, decls)
-                }
-
-                self._records(r->outer, ids, depth + 1, decls)
-            } case TypeKind::QualifiedType {
-                self._records(
-                    cast<QualifiedType>(c)->inner,
-                    ids,
-                    depth + 1,
-                    decls,
-                )
-            } case TypeKind::PointerType {
-                self._records(
-                    cast<Types::PointerType>(c)->pointee,
-                    ids,
-                    depth + 1,
-                    decls,
-                )
-            } case TypeKind::NullableType {
-                self._records(
-                    cast<Types::NullableType>(c)->inner,
-                    ids,
-                    depth + 1,
-                    decls,
-                )
-            } case TypeKind::FixedArrayType {
-                self._records(
-                    cast<Types::FixedArrayType>(c)->element,
-                    ids,
-                    depth + 1,
-                    decls,
-                )
-            } case TypeKind::VectorType {
-                self._records(
-                    cast<Types::VectorType>(c)->element,
-                    ids,
-                    depth + 1,
-                    decls,
-                )
-            } case TypeKind::SetType {
-                self._records(
-                    cast<Types::SetType>(c)->element,
-                    ids,
-                    depth + 1,
-                    decls,
-                )
-            } case TypeKind::MapType {
-                var unsafe *m = cast<Types::MapType>(c)
-                self._records(m->key, ids, depth + 1, decls)
-                self._records(m->value, ids, depth + 1, decls)
-            } case TypeKind::CXXLValueRefType {
-                self._records(
-                    cast<Types::CXXLValueRefType>(c)->referee,
-                    ids,
-                    depth + 1,
-                    decls,
-                )
-            } case TypeKind::CXXRValueRefType {
-                self._records(
-                    cast<Types::CXXRValueRefType>(c)->referee,
-                    ids,
-                    depth + 1,
-                    decls,
-                )
-            } case TypeKind::FunctionPointerType {
-                var unsafe *f = cast<Types::FunctionPointerType>(c)
-                for var i: usize = 0; i < f->params.size(); ++i {
-                    self._records(f->params[i], ids, depth + 1, decls)
-                }
-
-                self._records(f->return_type, ids, depth + 1, decls)
-            } case TypeKind::AssocType {
-                var unsafe *a = cast<AssocType>(c)
-                self._records(a->base, ids, depth + 1, decls)
-                for var i: usize = 0; i < a->args.size(); ++i {
-                    self._records(a->args[i], ids, depth + 1, decls)
-                }
-            } default {
-                return
-            }
-        }
     }
 
     /// # The interface
@@ -1002,23 +944,15 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
 
         var bases = decl_bases(d)
         s += self._edges("b", &bases)
-        var fields  = FrozenList<unsafe *Declarations::FieldDecl>()
-        var methods = FrozenList<unsafe *Declarations::FunctionDecl>()
+        var fields  = decl_fields(d)
+        var methods = decl_methods(d)
         if isa<Declarations::ClassDecl>(d) {
             var unsafe *c = cast<Declarations::ClassDecl>(d)
-            fields  = c->fields
-            methods = c->methods
             s += self._edges("i", &c->implements)
             s += f"|cf{c->is_final as u8}{c->is_abstract as u8}"
         } else if isa<Declarations::StructDecl>(d) {
             var unsafe *c = cast<Declarations::StructDecl>(d)
-            fields  = c->fields
-            methods = c->methods
             s += self._edges("i", &c->implements)
-        } else if isa<Declarations::UnionDecl>(d) {
-            var unsafe *c = cast<Declarations::UnionDecl>(d)
-            fields  = c->fields
-            methods = c->methods
         } else if isa<Declarations::InterfaceDecl>(d) {
             // A requirement is read by every conformer, whether or not it
             // names it: all of them are layout.
@@ -1193,7 +1127,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
         }
 
         var decls = cxx::std::vector<unsafe *Decl>()
-        self._records(t, &null, 0, unsafe &decls)
+        incr_type_records(t, 0, unsafe &decls)
         for var i: usize = 0; i < decls.size(); ++i {
             self._row("layout", decls[i])
         }

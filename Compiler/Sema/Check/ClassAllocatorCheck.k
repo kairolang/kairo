@@ -41,7 +41,6 @@
 
 import AST::LangItems::LangAttrs
 import AST::Node::Declarations::FunctionDecl
-import AST::Node::Program::TopLevelKind
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Registry::DiagID
 import Sema::SemaContext::{
@@ -65,23 +64,7 @@ pub class ClassAllocatorCheck derives RecursiveASTVisitor<ClassAllocatorCheck> {
         }
 
         self._lib = self.sc->in_library()
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     fn visit_function_decl(self, n: unsafe *FunctionDecl) -> bool {

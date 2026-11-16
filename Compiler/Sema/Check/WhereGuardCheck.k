@@ -116,7 +116,6 @@ import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
@@ -129,6 +128,19 @@ import Sema::SemaContext::{
 import Sema::Type::Substitution::Substitution
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
+
+/// How many parameters a guard's box constrains.
+enum BoxParamCount derives u8 {
+    None,
+    One,
+    Many,
+}
+
+/// _only_param's answer. `index` is the parameter when `count` is One.
+struct BoxParam {
+    pub var count: BoxParamCount = BoxParamCount::None
+    pub var index: usize         = 0
+}
 
 pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
     pub var  sc:  unsafe *SemaContext
@@ -165,23 +177,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
 
         // Groups in the order their first member was met, which is source
         // order within a scope.
@@ -993,21 +989,23 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
         return true
     }
 
-    /// The one parameter box \p m constrains: usize(-2) for none (the
-    /// whole space), usize(-1) for more than one.
-    priv fn _only_param(self, m: usize) -> usize {
-        var found = usize::MAX - 1
+    /// The parameters box \p m constrains: none (the whole space), one
+    /// (`index` says which), or more than one.
+    priv fn _only_param(self, m: usize) -> BoxParam {
+        var found = BoxParam{}
         for var p: usize = 0; p < self._np; ++p {
             var i = m * self._np + p
             if self._lo[i] == self._dlo[p] && self._hi[i] == self._dhi[p] {
                 continue
             }
 
-            if found != usize::MAX - 1 {
-                return usize::MAX
+            if found.count != BoxParamCount::None {
+                found.count = BoxParamCount::Many
+                return found
             }
 
-            found = p
+            found.count = BoxParamCount::One
+            found.index = p
         }
 
         return found
@@ -1026,11 +1024,11 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
                 }
 
                 var only = self._only_param(j)
-                if only == usize::MAX - 1 { // a `true` guard covers everything.
+                if only.count == BoxParamCount::None { // a `true` guard covers everything.
                     return true
                 }
 
-                if only != p {
+                if only.count != BoxParamCount::One || only.index != p {
                     continue
                 }
 
@@ -1061,7 +1059,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
         for var m: usize = 0; m < n; ++m {
             if self._simple[m] != 0
                 && self._empty[m] == 0
-                && self._only_param(m) == usize::MAX - 1 {
+                && self._only_param(m).count == BoxParamCount::None {
                 return true
             }
         }
@@ -1071,11 +1069,12 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
                 continue
             }
 
-            var p = self._only_param(m)
-            if p >= self._np {
+            var only = self._only_param(m)
+            if only.count != BoxParamCount::One {
                 continue
             }
 
+            var p = only.index
             return self._union_covers(n, p, self._dlo[p], self._dhi[p])
         }
 
@@ -1115,8 +1114,9 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
             }
 
             if hit == usize::MAX {
-                var p = self._only_param(k)
-                if p < self._np
+                var only = self._only_param(k)
+                var p    = only.index
+                if only.count == BoxParamCount::One
                     && self._union_covers(
                         k,
                         p,

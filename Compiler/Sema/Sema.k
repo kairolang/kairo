@@ -743,7 +743,6 @@ pub class Sema {
             ConformanceChecking(unsafe &self.sc).run()
         }
 
-        // TODO(sema): ConstChecking(&self.sc).run();
         self.sc.advance_phase(SemaPhase::Typed)
         return true
     }

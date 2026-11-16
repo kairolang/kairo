@@ -37,7 +37,6 @@
 ffi "c++" import "Native/Types.hh"
 
 import AST::Node::Base::Expr
-import AST::Node::Program::TopLevelKind
 import AST::Printer::ASTPrinter::expr_kind_name
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Sema::SemaContext::{
@@ -66,23 +65,7 @@ pub class ValueCategoryPass derives RecursiveASTVisitor<ValueCategoryPass> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     fn visit_expr(self, n: unsafe *Expr) -> bool {

@@ -72,6 +72,7 @@ import AST::DeclFacts::{
     decl_extension_of, decl_generic_params, decl_is_ctor_requirement, decl_is_imported,
     decl_is_instance,  decl_name_tok,       decl_pattern,             decl_requires_clause,
 }
+import AST::ExprFacts::callee_decl
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::{
@@ -114,7 +115,10 @@ import AST::Node::Types::{
     CXXLValueRefType, CXXRValueRefType, ChainType, FixedArrayType, GenericParamType, NullableType,
     PointerType,
 }
-import AST::OperatorFacts::OperatorFacts
+import AST::OperatorFacts::{
+    OperatorFacts,
+    op_decl_name,
+}
 import AST::VisibilityFacts::default_visibility_of
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
@@ -127,6 +131,7 @@ import Sema::Check::ClassLifecycle::{
     LifecycleTri,
     lifecycle_of,
 }
+import Sema::Resolve::GenericArgs::GenericArgs
 import Sema::Resolve::MemberLookup::{
     MemberLookup,
     extension_visible,
@@ -139,7 +144,11 @@ import Sema::SemaContext::{
 import Sema::Type::ArgumentDeduction::Deduction
 import Sema::Type::Conversion::ImplicitRank
 import Sema::Type::Substitution::Substitution
-import Sema::Type::TypeUtil::TypeUtil
+import Sema::Type::TypeUtil::{
+    TypeUtil,
+    conjuncts,
+    constraint_conjuncts,
+}
 import Support::Tuning::CLAUSE_NORMAL_MAX
 import Token::TokenKind::TokenKind
 
@@ -255,19 +264,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         self.ml.index_extensions()
         self._indexed = true
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
 
         for var i: usize = 0; i < self._rangeless.size(); ++i {
             self._check_instance(self._rangeless[i], self._rangeless_at[i])
@@ -418,7 +415,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// (Speller::member_requires), which is what refuses a call this
     /// cannot decide -- a record's layout, a trait only C++ answers.
     priv fn _check_member_requires(self, c: unsafe *CallExpr) {
-        var unsafe *f = dyn_cast<Declarations::FunctionDecl>(self._callee_of(c))
+        var unsafe *f = dyn_cast<Declarations::FunctionDecl>(callee_decl(c))
         if f == &null {
             return
         }
@@ -609,23 +606,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// The value conjuncts of clause \p e (not `impl` / `derives`).
     priv fn _value_preds(self, e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
-        if e == &null {
-            return
+        var leaves = cxx::std::vector<unsafe *Expr>()
+        conjuncts(e, unsafe &leaves)
+        for var i: usize = 0; i < leaves.size(); ++i {
+            if !isa<ConstraintExpr>(leaves[i]) {
+                out->push_back(leaves[i])
+            }
         }
-
-        var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
-        if b != &null
-            && (b->op_token.kind == TokenKind::OpAmpAmp || b->op_token.kind == TokenKind::KwAnd) {
-            self._value_preds(b->lhs, out)
-            self._value_preds(b->rhs, out)
-            return
-        }
-
-        if isa<ConstraintExpr>(e) {
-            return
-        }
-
-        out->push_back(e)
     }
 
     /// Predicate \p e under \p d: literals, `!` `&&` `||`, comparisons and
@@ -700,7 +687,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         if isa<CallExpr>(e) {
             var unsafe *c      = cast<CallExpr>(e)
-            var unsafe *callee = self._callee_of(c)
+            var unsafe *callee = callee_decl(c)
             if callee == &null || c->args.size() != 0 {
                 return out
             }
@@ -1508,12 +1495,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         var unsafe *rep = NameLookup::representative(unsafe (f as unsafe *Decl))
-        var unsafe *ie = self.sc->instances->instance_for(
-            rep,
-            unsafe &args,
-            self.sc->ctx->fid,
-            NameLookup::ctx_of(rep),
-        )
+        var unsafe *ie  = GenericArgs::instance(self.sc, rep, unsafe &args)
 
         self._check_instance(ie, e->range)
     }
@@ -1737,7 +1719,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return false
         }
 
-        var unsafe *callee = self._callee_of(c)
+        var unsafe *callee = callee_decl(c)
         if callee == &null || self.tu.decl_name(callee) != "__builtin_is_complete" {
             return false
         }
@@ -1824,7 +1806,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return &null
         }
 
-        var unsafe *callee = self._callee_of(c)
+        var unsafe *callee = callee_decl(c)
         if callee == &null || self.tu.decl_name(callee) != "__builtin_is_constructible" {
             return &null
         }
@@ -2200,7 +2182,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         var cs = cxx::std::vector<unsafe *Expr>()
-        self._conjuncts(req, unsafe &cs)
+        conjuncts(req, unsafe &cs)
         for var i: usize = 0; i < cs.size(); ++i {
             var unsafe *c = cs[i]
             var        no = false
@@ -2550,23 +2532,6 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return (atoms->size() - 1) as u32
     }
 
-    /// Every `&&` conjunct of \p e, in clause order.
-    priv fn _conjuncts(self, e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
-        if e == &null {
-            return
-        }
-
-        var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
-        if b != &null
-            && (b->op_token.kind == TokenKind::OpAmpAmp || b->op_token.kind == TokenKind::KwAnd) {
-            self._conjuncts(b->lhs, out)
-            self._conjuncts(b->rhs, out)
-            return
-        }
-
-        out->push_back(e)
-    }
-
     /// `P impl I` / `P derives B` under \p d: known when P's argument and the
     /// bound are concrete. A conformance is decided by the same table the
     /// bounds are (conforms), a `derives` by the argument's bases.
@@ -2847,7 +2812,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                           d:   unsafe *Deduction,
                           out: unsafe *cxx::std::vector<unsafe *Expr>) {
         var cs = cxx::std::vector<unsafe *Expr>()
-        self._conjuncts(self._clause_of(f), unsafe &cs)
+        conjuncts(self._clause_of(f), unsafe &cs)
         for var i: usize = 0; i < cs.size(); ++i {
             var v = self._conjunct_vp(cs[i], d)
             if !v.known && self._tests_open(f, cs[i], d, 0) {
@@ -2865,7 +2830,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                                f: unsafe *Declarations::FunctionDecl,
                                d: unsafe *Deduction) -> bool {
         var cs = cxx::std::vector<unsafe *Expr>()
-        self._conjuncts(self._clause_of(f), unsafe &cs)
+        conjuncts(self._clause_of(f), unsafe &cs)
         for var i: usize = 0; i < cs.size(); ++i {
             var v = self._conjunct_vp(cs[i], d)
             if !v.known || v.v == 0 {
@@ -3308,26 +3273,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     priv fn _derives_bounds(self,
                             e:   unsafe *Expr,
                             out: unsafe *cxx::std::vector<unsafe *ConstraintExpr>) {
-        if e == &null {
-            return
-        }
-
-        if e->kind == ExprKind::BinaryOperatorExpr {
-            var unsafe *b = cast<BinaryOperatorExpr>(e)
-            if b->op_token.kind == TokenKind::OpAmpAmp || b->op_token.kind == TokenKind::KwAnd {
-                self._derives_bounds(b->lhs, out)
-                self._derives_bounds(b->rhs, out)
-                return
+        var cs = cxx::std::vector<unsafe *ConstraintExpr>()
+        constraint_conjuncts(e, unsafe &cs)
+        for var i: usize = 0; i < cs.size(); ++i {
+            if cs[i]->is_derives() {
+                out->push_back(cs[i])
             }
-        }
-
-        if e->kind != ExprKind::ConstraintExpr {
-            return
-        }
-
-        var unsafe *c = cast<ConstraintExpr>(e)
-        if c->is_derives() {
-            out->push_back(c)
         }
     }
 
@@ -3586,7 +3537,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         self._bind_instance(&d, e, prim)
         for var i: usize = 0; i < uses.calls.size(); ++i {
             var unsafe *c      = uses.calls[i]
-            var unsafe *callee = self._callee_of(c)
+            var unsafe *callee = callee_decl(c)
             if callee == &null || self._owned_by_interface(callee) {
                 continue
             }
@@ -3621,12 +3572,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 }
             }
 
-            var unsafe *ne = self.sc->instances->instance_for(
-                rep,
-                unsafe &args,
-                self.sc->ctx->fid,
-                NameLookup::ctx_of(rep),
-            )
+            var unsafe *ne = GenericArgs::instance(self.sc, rep, unsafe &args)
 
             if ne == &null {
                 continue
@@ -3943,21 +3889,6 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
             k += 1
         }
-    }
-
-    priv fn _callee_of(self, c: unsafe *CallExpr) -> unsafe *Decl {
-        var unsafe *callee = self.tu.strip_parens(c->callee)
-        var unsafe *ni     = dyn_cast<NamedIdentExpr>(callee)
-        if ni != &null {
-            return ni->resolved_decl
-        }
-
-        var unsafe *ch = dyn_cast<ChainExpr>(callee)
-        if ch != &null && ch->steps.size() > 0 {
-            return ch->steps.get(ch->steps.size() - 1)->resolved_decl
-        }
-
-        return &null
     }
 
     priv fn _fields_of(self, d: unsafe *Decl) -> FrozenList<unsafe *Declarations::FieldDecl> {
@@ -5213,6 +5144,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return false
         }
 
+        // `op l++` and `op r++` share a name and a parameter list; the
+        // fixity is what makes them two members.
+        if OperatorFacts::is_postfix(f) != OperatorFacts::is_postfix(m) {
+            return false
+        }
+
         // The convention is part of the signature: the witness is called as
         // the requirement says.
         if f->call_conv != m->call_conv {
@@ -5394,25 +5331,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// The requirement's name in THIS TU's imm space: the interface may be
     /// another file's, and MemberLookup keys identifiers by the asking TU.
+    /// An operator's name is its table key, which carries no fixity marker:
+    /// `op l++` and `op r++` are one name, told apart by _signature_matches.
     priv fn _name_of(self, m: unsafe *Declarations::FunctionDecl) -> DeclName {
         if m->is_operator {
-            var k0 = TokenKind::TkUnknown
-            var k1 = TokenKind::TkUnknown
-            var k2 = TokenKind::TkUnknown
-            if m->op_token.size() > 0 {
-                k0 = m->op_token[0].kind
-            }
-
-            if m->op_token.size() > 1 {
-                k1 = m->op_token[1].kind
-            }
-
-            // `op []=` is three tokens (DeclName::op_name_of).
-            if m->op_token.size() > 2 {
-                k2 = m->op_token[2].kind
-            }
-
-            return DeclName::op_name_of(k0, k1, k2)
+            return op_decl_name(m)
         }
 
         var unsafe *imms = self.sc->ctx->get_imm_table()
@@ -5430,26 +5353,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     priv fn _impl_bounds(self,
                          e:   unsafe *Expr,
                          out: unsafe *cxx::std::vector<unsafe *ConstraintExpr>) {
-        if e == &null {
-            return
-        }
-
-        if e->kind == ExprKind::BinaryOperatorExpr {
-            var unsafe *b = cast<BinaryOperatorExpr>(e)
-            if b->op_token.kind == TokenKind::OpAmpAmp || b->op_token.kind == TokenKind::KwAnd {
-                self._impl_bounds(b->lhs, out)
-                self._impl_bounds(b->rhs, out)
-                return
+        var cs = cxx::std::vector<unsafe *ConstraintExpr>()
+        constraint_conjuncts(e, unsafe &cs)
+        for var i: usize = 0; i < cs.size(); ++i {
+            if !cs[i]->is_derives() {
+                out->push_back(cs[i])
             }
-        }
-
-        if e->kind != ExprKind::ConstraintExpr {
-            return
-        }
-
-        var unsafe *c = cast<ConstraintExpr>(e)
-        if !c->is_derives() {
-            out->push_back(c)
         }
     }
 

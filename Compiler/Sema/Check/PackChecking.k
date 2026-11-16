@@ -77,7 +77,6 @@ import AST::Node::Expressions::{
     PackExpansionExpr,
 }
 import AST::Node::PrimaryExpressions::NamedIdentExpr
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::RangedForStmt
 import AST::Node::Types::{
     GenericParamType,
@@ -145,19 +144,7 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     /// # types in declarations

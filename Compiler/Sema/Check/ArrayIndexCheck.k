@@ -36,7 +36,6 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Expressions::SubscriptExpr
-import AST::Node::Program::TopLevelKind
 import AST::Node::Types::FixedArrayType
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Registry::DiagID
@@ -61,19 +60,7 @@ pub class ArrayIndexCheck derives RecursiveASTVisitor<ArrayIndexCheck> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); i++ {
-            var item = *items->get(i)
-            match item.kind {
-                case TopLevelKind::Decl {
-                    self.dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     fn visit_subscript_expr(self, n: *SubscriptExpr) -> bool {

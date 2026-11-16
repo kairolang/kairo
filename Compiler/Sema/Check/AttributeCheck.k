@@ -115,6 +115,12 @@ import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
 
+/// A `@deprecated` annotation and the declaration that carries it.
+struct Deprecation {
+    pub var entry:   unsafe *AnnotationEntry = &null
+    pub var carrier: unsafe *Decl            = &null
+}
+
 pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     pub var  sc:  unsafe *SemaContext
     priv var _tu: TypeUtil
@@ -123,8 +129,6 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     /// The uses already reported (a type segment's name may be reached
     /// twice): one warning per location.
     priv var _seen: cxx::std::vector<SourceLocation>
-    /// The decl _deprecation found the attribute on.
-    priv var _carrier: unsafe *Decl = &null
 
     fn AttributeCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -152,23 +156,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); i++ {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.kind {
-                case TopLevelKind::Decl {
-                    self.dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     /// # names
@@ -854,25 +842,23 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
 
     /// \p d's `@deprecated`, read from whichever link carries it: the decl,
     /// its representative, its pattern (an instance), a function's
-    /// canonical declaration. _carrier gets the decl that has it.
-    priv fn _deprecation(self, d: unsafe *Decl) -> unsafe *AnnotationEntry {
+    /// canonical declaration. `entry` is null when none does.
+    priv fn _deprecation(self, d: unsafe *Decl) -> Deprecation {
         if d == &null {
-            return &null
+            return Deprecation{}
         }
 
         var        nm = LangAttrs::deprecated()
         var unsafe *e = AttrFacts::find(d, nm, self._local_table(d))
         if e != &null {
-            self._carrier = d
-            return e
+            return Deprecation { entry: e, carrier: d }
         }
 
         var unsafe *r = NameLookup::representative(d)
         if r != &null && r != d {
             e = AttrFacts::find(r, nm)
             if e != &null {
-                self._carrier = r
-                return e
+                return Deprecation { entry: e, carrier: r }
             }
         }
 
@@ -880,8 +866,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         if p != &null && p != d {
             e = AttrFacts::find(p, nm)
             if e != &null {
-                self._carrier = p
-                return e
+                return Deprecation { entry: e, carrier: p }
             }
         }
 
@@ -891,13 +876,12 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             if c != &null && c != f {
                 e = AttrFacts::find(c, nm)
                 if e != &null {
-                    self._carrier = c
-                    return e
+                    return Deprecation { entry: e, carrier: unsafe (c as unsafe *Decl) }
                 }
             }
         }
 
-        return &null
+        return Deprecation{}
     }
 
     priv fn _use(self, d: unsafe *Decl, at: SourceRange) {
@@ -905,12 +889,13 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             return
         }
 
-        var unsafe *e = self._deprecation(d)
+        var        dep = self._deprecation(d)
+        var unsafe *e  = dep.entry
         if e == &null {
             return
         }
 
-        var unsafe *carrier = self._carrier
+        var unsafe *carrier = dep.carrier
         // Inside the deprecated declaration itself (recursion, its own
         // members): not a use by anyone the warning is for.
         if carrier->range.contains(at.start) {

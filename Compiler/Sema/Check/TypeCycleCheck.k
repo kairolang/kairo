@@ -7,8 +7,9 @@
 ///     members, bases, fixed-array elements, and template arguments that
 ///     land by value. Pointer and reference edges are excluded, they are
 ///     satisfied by a forward declaration. Grey-on-grey is the cycle; the
-///     DFS stack is the diagnostic path. MUST run before LayoutPass,
-///     which assumes acyclicity and will not terminate without it.
+///     DFS stack is the diagnostic path. MUST run before anything that
+///     asks for a layout or a size: those walks assume acyclicity and do
+///     not terminate without it.
 ///
 ///     The colour map is two vectors rather than a hash: grey IS the DFS
 ///     stack (it has to be, the stack is the diagnostic), and black is a
@@ -39,8 +40,8 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
-import AST::Context::DeclContext::DeclContext
 import AST::DeclFacts::{
+    dc_of,
     decl_name_tok,
     decl_only_forward,
     decl_pattern,
@@ -61,8 +62,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,    EnumDecl,   ExtensionDecl, FieldDecl, InheritEdge, InterfaceDecl, ModuleDecl,
-    StorageClass, StructDecl, UnionDecl,
+    ClassDecl, EnumDecl, FieldDecl, InheritEdge, StorageClass, StructDecl, UnionDecl,
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Types::{
@@ -71,7 +71,6 @@ import AST::Node::Types::{
     NullableType,
 }
 import Diagnostic::Code::DiagCode
-import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
@@ -95,11 +94,6 @@ pub class TypeCycleCheck {
 
     /// Decls already named on a reported cycle.
     priv var _reported: cxx::std::vector<unsafe *Decl>
-
-    /// Where `unsafe *` goes to hold the record being walked through a
-    /// pointer instead: the start of a field's type when that type is the
-    /// record itself, else invalid (no fix-it).
-    priv var _fix_at: SourceLocation = SourceLocation::invalid()
 
     fn TypeCycleCheck(self, sc: *SemaContext) {
         self.sc = sc
@@ -136,37 +130,13 @@ pub class TypeCycleCheck {
             self._visit(d, d->range)
         }
 
-        var unsafe *dc = self._context_of(d)
+        var unsafe *dc = dc_of(d)
         if dc == &null {
             return
         }
 
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
             self._walk_decl(*dc->dc_decls.get(i))
-        }
-    }
-
-    /// The DeclContext a decl owns, or null if it owns none. Only the
-    /// kinds that can nest another record need an answer here.
-    priv fn _context_of(self, d: unsafe *Decl) -> unsafe *DeclContext {
-        match d->kind {
-            case DeclKind::ModuleDecl {
-                return unsafe (cast<ModuleDecl>(d) as unsafe *DeclContext)
-            } case DeclKind::ClassDecl {
-                return unsafe (cast<ClassDecl>(d) as unsafe *DeclContext)
-            } case DeclKind::StructDecl {
-                return unsafe (cast<StructDecl>(d) as unsafe *DeclContext)
-            } case DeclKind::UnionDecl {
-                return unsafe (cast<UnionDecl>(d) as unsafe *DeclContext)
-            } case DeclKind::EnumDecl {
-                return unsafe (cast<EnumDecl>(d) as unsafe *DeclContext)
-            } case DeclKind::InterfaceDecl {
-                return unsafe (cast<InterfaceDecl>(d) as unsafe *DeclContext)
-            } case DeclKind::ExtensionDecl {
-                return unsafe (cast<ExtensionDecl>(d) as unsafe *DeclContext)
-            } default {
-                return &null
-            }
         }
     }
 
@@ -252,7 +222,7 @@ pub class TypeCycleCheck {
                 continue
             }
 
-            self._type_edges(e->base, e->range)
+            self._type_edges(e->base, e->range, SourceLocation::invalid())
         }
     }
 
@@ -274,22 +244,25 @@ pub class TypeCycleCheck {
 
             // A field typed exactly the record gets the pointer fix-it; a
             // record buried in an array or a generic argument does not.
-            self._fix_at = SourceLocation::invalid()
+            var fix_at = SourceLocation::invalid()
             if f->type_ != &null {
                 var unsafe *fc = canon_unqual(f->type_->canonical)
                 if fc != &null && isa<RecordType>(fc) {
-                    self._fix_at = f->type_->range.start
+                    fix_at = f->type_->range.start
                 }
             }
 
-            self._type_edges(f->type_, f->range)
-            self._fix_at = SourceLocation::invalid()
+            self._type_edges(f->type_, f->range, fix_at)
         }
     }
 
     /// Follow \p t down its by-value spine, visiting every record it puts
-    /// inside the object being laid out.
-    priv fn _type_edges(self, t: unsafe *Type, site: SourceRange) {
+    /// inside the object being laid out. \p fix_at is where `unsafe *` goes
+    /// to hold \p t through a pointer instead: the start of a field's type
+    /// when that type is the record itself, else invalid (no fix-it). It
+    /// belongs to this edge only: the edges of a record reached through it
+    /// carry their own.
+    priv fn _type_edges(self, t: unsafe *Type, site: SourceRange, fix_at: SourceLocation) {
         if t == &null {
             return
         }
@@ -306,7 +279,7 @@ pub class TypeCycleCheck {
                 // held record's layout: a forward declaration never defined
                 // has none to give (C++ "field has incomplete type").
                 if decl_only_forward(r->decl) {
-                    self._report_incomplete(r->decl, site)
+                    self._report_incomplete(r->decl, site, fix_at)
                     return
                 }
 
@@ -317,19 +290,31 @@ pub class TypeCycleCheck {
                 var unsafe *pat = decl_pattern(r->decl)
                 for var i: usize = 0; i < r->args.size(); ++i {
                     if self._param_by_value(pat, i, 0) {
-                        self._type_edges(*r->args.get(i), site)
+                        self._type_edges(
+                            *r->args.get(i),
+                            site,
+                            SourceLocation::invalid(),
+                        )
                     }
                 }
             } case TypeKind::FixedArrayType {
-                self._type_edges(cast<FixedArrayType>(c)->element, site)
+                self._type_edges(
+                    cast<FixedArrayType>(c)->element,
+                    site,
+                    SourceLocation::invalid(),
+                )
             } case TypeKind::NullableType {
                 // `T?` holds its T in place (Compiler/Spec/Nullables.md#the-library-type: tagged, and a
                 // niche is the T itself), so `class Node { var next: Node? }`
                 // is a by-value loop like `var next: Node`.
-                self._type_edges(cast<NullableType>(c)->inner, site)
+                self._type_edges(
+                    cast<NullableType>(c)->inner,
+                    site,
+                    SourceLocation::invalid(),
+                )
             } case TypeKind::QualifiedType {
                 // A const field is still by value.
-                self._type_edges(cast<QualifiedType>(c)->inner, site)
+                self._type_edges(cast<QualifiedType>(c)->inner, site, fix_at)
             } case TypeKind::SelfType {
                 // `var x: Self` inside a record is that record by value.
                 if self._stack.size() > 0 {
@@ -527,31 +512,21 @@ pub class TypeCycleCheck {
         var        hn    = self._decl_name(head)
         var msg = f"'{hn}' contains itself by value; its layout would have to include its own size"
 
-        // Built through std::create rather than the report()/chain idiom: the
-        // note count is the cycle length, so the chain cannot be written as
-        // one expression, and DiagBuilder is move-only.
-        var unsafe *b = kairo::std::create<DiagBuilder>(
-            self.sc->diag,
-            DiagCode(DiagID::SC002E),
-            head->range.start,
-            msg,
-        )
-
-        b->first(head->range)
+        var b = self.sc->diag->report(DiagID::SC002E, head->range.start, msg)
+        b.first(head->range)
 
         // One note per by-value step, in path order. The edge INTO stack[i+1]
         // is the site recorded when stack[i+1] was pushed; the closing edge
         // back to `head` is the caller's site.
         for var i: usize = grey; i + 1 < self._stack.size(); ++i {
             var step = self._holds(self._stack[i], self._stack[i + 1])
-            b->note(self._site[i + 1].start, step)
+            b.note(self._site[i + 1].start, step)
         }
 
         var unsafe *tail = self._stack[self._stack.size() - 1]
         var        last  = self._holds(tail, head) + ", closing the cycle"
-        b->note(site.start, last)
-        b->emit()
-        kairo::std::destroy(b)
+        b.note(site.start, last)
+        b.emit()
 
         for var i: usize = grey; i < self._stack.size(); ++i {
             var unsafe *d = self._stack[i]
@@ -563,7 +538,10 @@ pub class TypeCycleCheck {
     /// \p held, only ever forward-declared, reached by value at \p site from
     /// the record on top of the stack. Reported once per edge: each record's
     /// edges are walked once (black), so no dedup set is needed.
-    priv fn _report_incomplete(self, held: unsafe *Decl, site: SourceRange) {
+    priv fn _report_incomplete(self,
+                               held:   unsafe *Decl,
+                               site:   SourceRange,
+                               fix_at: SourceLocation) {
         if self._stack.size() == 0 {
             return
         }
@@ -583,12 +561,8 @@ pub class TypeCycleCheck {
             held->range.start,
             f"'{hn}' is forward-declared here and never defined",
         )->child_first(held->range)
-        if self._fix_at.is_valid() {
-            b.insert(
-                self._fix_at,
-                "unsafe *",
-                f"hold a pointer to '{hn}' instead",
-            )
+        if fix_at.is_valid() {
+            b.insert(fix_at, "unsafe *", f"hold a pointer to '{hn}' instead")
         }
 
         b.emit()

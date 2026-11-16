@@ -87,15 +87,23 @@ import Location::SourceRange::SourceRange
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Sema::Type::ArgumentDeduction::Deduction
-import Sema::Type::TypeUtil::TypeUtil
+import Sema::Type::TypeUtil::{
+    TypeUtil,
+    constraint_conjuncts,
+}
 import Token::TokenKind::TokenKind
 
-/// Every `Self::N` a declaration's written types name: N's spelling and
+/// One `Self::N` a declaration's written types name: N's spelling and
 /// where it was written.
+struct SelfAssocUse {
+    pub var name: string
+    pub var at:   SourceRange = SourceRange::invalid()
+}
+
+/// Every `Self::N` a declaration's written types name, in source order.
 pub class _SelfAssocUses derives RecursiveASTVisitor<_SelfAssocUses> {
-    pub var ctx:    unsafe *ASTContext            = &null
-    pub var names:  cxx::std::vector<string>
-    pub var ranges: cxx::std::vector<SourceRange>
+    pub var ctx:  unsafe *ASTContext             = &null
+    pub var uses: cxx::std::vector<SelfAssocUse>
     fn _SelfAssocUses(self) { }
 
     fn visit_type(self, t: *Type) -> bool {
@@ -114,8 +122,10 @@ pub class _SelfAssocUses derives RecursiveASTVisitor<_SelfAssocUses> {
             return true
         }
 
-        self.names.push_back(self.ctx->get_spelling(s1->name->name))
-        self.ranges.push_back(s1->range)
+        self.uses.push_back(
+            SelfAssocUse { name: self.ctx->get_spelling(s1->name->name), at: s1->range },
+        )
+
         return true
     }
 }
@@ -430,9 +440,9 @@ pub class InterfaceComposition {
         // The bounds of both, as one requires-style conjunction: no list, no
         // new predicate form (D9). A bound both already state is not repeated.
         var add = cxx::std::vector<unsafe *ConstraintExpr>()
-        self._conjuncts(b->bounds, unsafe &add)
+        constraint_conjuncts(b->bounds, unsafe &add)
         var have = cxx::std::vector<unsafe *ConstraintExpr>()
-        self._conjuncts(a->bounds, unsafe &have)
+        constraint_conjuncts(a->bounds, unsafe &have)
         for var i: usize = 0; i < add.size(); ++i {
             if self._has_bound(have, add[i]) {
                 continue
@@ -463,9 +473,9 @@ pub class InterfaceComposition {
         }
 
         var mine = cxx::std::vector<unsafe *ConstraintExpr>()
-        self._conjuncts(a->bounds, unsafe &mine)
+        constraint_conjuncts(a->bounds, unsafe &mine)
         var theirs = cxx::std::vector<unsafe *ConstraintExpr>()
-        self._conjuncts(b->bounds, unsafe &theirs)
+        constraint_conjuncts(b->bounds, unsafe &theirs)
         var kept: unsafe *Expr = &null
         for var i: usize = 0; i < mine.size(); ++i {
             if !self._has_bound(theirs, mine[i]) {
@@ -648,11 +658,11 @@ pub class InterfaceComposition {
 
         var ca = cxx::std::vector<unsafe *ConstraintExpr>()
         var cb = cxx::std::vector<unsafe *ConstraintExpr>()
-        if !self._conjuncts(fa->requires_clause, unsafe &ca) { // a value predicate: identical only to itself.
+        if !constraint_conjuncts(fa->requires_clause, unsafe &ca) { // a value predicate: identical only to itself.
             return false
         }
 
-        if !self._conjuncts(fb->requires_clause, unsafe &cb) {
+        if !constraint_conjuncts(fb->requires_clause, unsafe &cb) {
             return false
         }
 
@@ -711,32 +721,6 @@ pub class InterfaceComposition {
         }
 
         return -1
-    }
-
-    /// The `impl` / `derives` conjuncts of requires clause \p e. False when it
-    /// also has a value predicate.
-    priv fn _conjuncts(self,
-                       e:   unsafe *Expr,
-                       out: unsafe *cxx::std::vector<unsafe *ConstraintExpr>) -> bool {
-        if e == &null {
-            return true
-        }
-
-        var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
-        if b != &null
-            && (b->op_token.kind == TokenKind::OpAmpAmp || b->op_token.kind == TokenKind::KwAnd) {
-            var l = self._conjuncts(b->lhs, out)
-            var r = self._conjuncts(b->rhs, out)
-            return l && r
-        }
-
-        var unsafe *c = dyn_cast<ConstraintExpr>(e)
-        if c == &null {
-            return false
-        }
-
-        out->push_back(c)
-        return true
     }
 
     priv fn _has_bound(self,
@@ -837,10 +821,11 @@ pub class InterfaceComposition {
             var uses = _SelfAssocUses()
             uses.ctx = NameLookup::ctx_of(unsafe (m as unsafe *Decl))
             uses.dispatch_decl(unsafe (m as unsafe *Decl))
-            for var k: usize = 0; k < uses.names.size(); ++k {
+            for var k: usize = 0; k < uses.uses.size(); ++k {
+                var *su     = &uses.uses[k]
                 var present = false
                 for var j: usize = 0; j < have.size(); ++j {
-                    if have[j] == uses.names[k] {
+                    if have[j] == su->name {
                         present = true
                         break
                     }
@@ -856,12 +841,12 @@ pub class InterfaceComposition {
                 var d = self.sc->diag->report(
                     DiagID::SC169E,
                     at.start,
-                    f"this composition removes associated type '{uses.names[k]}' but keeps '{nm}', which names 'Self::{uses.names[k]}'; nothing would supply the type",
+                    f"this composition removes associated type '{su->name}' but keeps '{nm}', which names 'Self::{su->name}'; nothing would supply the type",
                 )
 
                 d.first(at)
-                d.note(uses.ranges[k].start, f"'{nm}' names it here")->child_first(
-                    uses.ranges[k],
+                d.note(su->at.start, f"'{nm}' names it here")->child_first(
+                    su->at,
                 )
 
                 d.emit()
@@ -898,7 +883,7 @@ pub class InterfaceComposition {
         if isa<TypeAliasDecl>(r->decl) {
             var s  = "type " + self._name(r->decl)
             var cs = cxx::std::vector<unsafe *ConstraintExpr>()
-            self._conjuncts(r->bounds, unsafe &cs)
+            constraint_conjuncts(r->bounds, unsafe &cs)
             for var i: usize = 0; i < cs.size(); ++i {
                 s += if (i == 0) => (" impl ") else => ", "
                 s += self._type_text(id, r, cs[i]->rhs)

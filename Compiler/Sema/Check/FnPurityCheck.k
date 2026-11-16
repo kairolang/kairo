@@ -92,17 +92,21 @@
 ffi "c++" import "vector"
 ffi "c++" import "Native/ClangPurity.hh"
 
-import AST::Context::DeclContext::DeclContextKind
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_extension_of,
     decl_generic_params,
     decl_is_requirement,
+    is_global_storage,
 }
+import AST::ExprFacts::callee_decl
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::StmtKind::StmtKind
 import AST::Kind::TypeKind::TypeKind
-import AST::LangItems::LangAttrs
+import AST::LangItems::{
+    LangAttrs,
+    entry_point_name,
+}
 import AST::Mixin::FFILinkage::LinkageKind
 import AST::Node::Base::{
     Decl,
@@ -121,8 +125,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,   AdtRole,      ClassDecl,    ExtensionDecl, FieldDecl, FnBodyKind, FunctionDecl,
-    ParamDecl, StorageClass, TransferKind, VariableDecl,
+    AbiKind,   AdtRole,     ClassDecl,    ExtensionDecl, FieldDecl, FnBodyKind, FunctionDecl,
+    ParamDecl, PurityLevel, TransferKind, VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::Patterns::{
@@ -135,7 +139,6 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
     StringLiteralExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     IterKind,
     RangedForStmt,
@@ -157,15 +160,6 @@ import Sema::SemaContext::{
 }
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
-
-/// \enum PurityLevel
-/// \brief The promise a body is held to. The values are the encoding of
-///        FunctionDecl::inferred_purity, which codegen reads as a u8.
-pub enum PurityLevel derives u8 {
-    None = 0, ///< no promise: the rules are off.
-    Const,    ///< `const fn`.
-    Pure,     ///< `@pure`.
-}
 
 /// \enum PurityWalk
 /// \brief What one walk over the items does. run() is one Check. infer()
@@ -215,23 +209,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     /// # entry points
@@ -467,7 +445,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         // `main`'s signature is the C runtime's, and nothing calls it twice.
-        if !f->is_method() && self._tu.decl_name(unsafe (f as unsafe *Decl)) == "main" {
+        if !f->is_method() && self._tu.decl_name(unsafe (f as unsafe *Decl)) == entry_point_name() {
             return false
         }
 
@@ -637,59 +615,20 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         match n->kind {
-            case ExprKind::IntegerLiteralExpr {
-                return true
-            } case ExprKind::FloatingLiteralExpr {
-                return true
-            } case ExprKind::CharacterLiteralExpr {
-                return true
-            } case ExprKind::BooleanLiteralExpr {
-                return true
-            } case ExprKind::NullLiteralExpr {
-                return true
-            } case ExprKind::StringLiteralExpr {
-                return true
-            } case ExprKind::TupleLiteralExpr {
-                return true
-            } case ExprKind::NamedInitializerExpr {
-                return true
-            } case ExprKind::AnonInitializerExpr {
-                return true
-            } case ExprKind::InitListExpr {
-                return true
-            } case ExprKind::ChainExpr {
-                return true
-            } case ExprKind::CallExpr {
-                return true
-            } case ExprKind::SubscriptExpr {
-                return true
-            } case ExprKind::NamedIdentExpr {
-                return true
-            } case ExprKind::UnaryOperatorExpr {
-                return true
-            } case ExprKind::BinaryOperatorExpr {
-                return true
-            } case ExprKind::AssignOperatorExpr {
-                return true
-            } case ExprKind::IfExpr {
-                return true
-            } case ExprKind::SizeOfExpr {
-                return true
-            } case ExprKind::AlignOfExpr {
-                return true
-            } case ExprKind::TypeTraitExpr {
-                return true
-            } case ExprKind::UnsafeExpr {
-                return true
-            } case ExprKind::TypeCastExpr {
-                return true
-            } case ExprKind::ImplicitBoundaryCastExpr {
-                return true
-            } case ExprKind::ParenExpr {
-                return true
-            } case ExprKind::NamedArgExpr {
-                return true
-            } case ExprKind::StmtExpr {
+            case ExprKind::IntegerLiteralExpr,   ExprKind::FloatingLiteralExpr,
+                 ExprKind::CharacterLiteralExpr, ExprKind::BooleanLiteralExpr,
+                 ExprKind::NullLiteralExpr,      ExprKind::StringLiteralExpr,
+                 ExprKind::TupleLiteralExpr,     ExprKind::NamedInitializerExpr,
+                 ExprKind::AnonInitializerExpr,  ExprKind::InitListExpr,
+                 ExprKind::ChainExpr,            ExprKind::CallExpr,
+                 ExprKind::SubscriptExpr,        ExprKind::NamedIdentExpr,
+                 ExprKind::UnaryOperatorExpr,    ExprKind::BinaryOperatorExpr,
+                 ExprKind::AssignOperatorExpr,   ExprKind::IfExpr,
+                 ExprKind::SizeOfExpr,           ExprKind::AlignOfExpr,
+                 ExprKind::TypeTraitExpr,        ExprKind::UnsafeExpr,
+                 ExprKind::TypeCastExpr,         ExprKind::ImplicitBoundaryCastExpr,
+                 ExprKind::ParenExpr,            ExprKind::NamedArgExpr,
+                 ExprKind::StmtExpr {
                 return true
             } default {
                 self._fail = true
@@ -706,39 +645,15 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         match n->kind {
-            case StmtKind::CompoundStmt {
-                return true
-            } case StmtKind::ExpressionStmt {
-                return true
-            } case StmtKind::DeclStmt {
-                return true
-            } case StmtKind::ReturnStmt {
-                return true
-            } case StmtKind::BreakStmt {
-                return true
-            } case StmtKind::ContinueStmt {
-                return true
-            } case StmtKind::StaticAssertStmt {
-                return true
-            } case StmtKind::ConditionalStmt {
-                return true
-            } case StmtKind::WhileLoopStmt {
-                return true
-            } case StmtKind::LoopStmt {
-                return true
-            } case StmtKind::IndexedForStmt {
-                return true
-            } case StmtKind::LabeledStmt {
-                return true
-            } case StmtKind::UnsafeBlockStmt {
-                return true
-            } case StmtKind::InlineBlockStmt {
-                return true
-            } case StmtKind::EvalBlockStmt {
-                return true
-            } case StmtKind::LabelIntrinsicStmt {
-                return true
-            } case StmtKind::JumpIntrinsicStmt {
+            case StmtKind::CompoundStmt,      StmtKind::ExpressionStmt,
+                 StmtKind::DeclStmt,          StmtKind::ReturnStmt,
+                 StmtKind::BreakStmt,         StmtKind::ContinueStmt,
+                 StmtKind::StaticAssertStmt,  StmtKind::ConditionalStmt,
+                 StmtKind::WhileLoopStmt,     StmtKind::LoopStmt,
+                 StmtKind::IndexedForStmt,    StmtKind::LabeledStmt,
+                 StmtKind::UnsafeBlockStmt,   StmtKind::InlineBlockStmt,
+                 StmtKind::EvalBlockStmt,     StmtKind::LabelIntrinsicStmt,
+                 StmtKind::JumpIntrinsicStmt {
                 return true
             } default {
                 self._fail = true
@@ -756,7 +671,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         var unsafe *v = dyn_cast<VariableDecl>(n->resolved_decl)
         if v != &null {
-            if self._level == PurityLevel::Const && self._is_global(v) {
+            if self._level == PurityLevel::Const && is_global_storage(v) {
                 self._global(n->range, v, "read")
             }
 
@@ -809,7 +724,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
             if self._level == PurityLevel::Const {
                 var unsafe *v = dyn_cast<VariableDecl>(st->resolved_decl)
-                if v != &null && self._is_global(v) {
+                if v != &null && is_global_storage(v) {
                     self._global(st->range, v, "read")
                 }
             }
@@ -932,7 +847,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return true
         }
 
-        var unsafe *d = self._callee_decl(n)
+        var unsafe *d = callee_decl(n)
         if n->ctor_decl != &null {
             d = n->ctor_decl
         }
@@ -1265,29 +1180,6 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         return x->type_
     }
 
-    /// A variable with static storage: a file or module variable, a static
-    /// member, a `static` local. An `eval` constant is a compile-time value
-    /// and is not memory. A local was never indexed into a scope table, so
-    /// it has no semantic_dc.
-    priv fn _is_global(self, v: unsafe *VariableDecl) -> bool {
-        if v->storage == StorageClass::Eval {
-            return false
-        }
-
-        if v->storage == StorageClass::Static {
-            return true
-        }
-
-        var unsafe *dc = v->semantic_dc
-        if dc == &null {
-            return false
-        }
-
-        return dc->dc_kind == DeclContextKind::TranslationUnit
-            || dc->dc_kind == DeclContextKind::Module
-            || dc->is_type_scope()
-    }
-
     /// \p p reaches the callee as a pointer in C++ (Speller::_param_type):
     /// `@inout`, `@move`, `self`, a `const` record or type parameter, and a
     /// parameter ParamPassInference turned into `const T&`. A by-value
@@ -1432,29 +1324,6 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
     }
 
-    /// What `n` calls, or null (a function value, an unresolved name).
-    priv fn _callee_decl(self, n: unsafe *Expressions::CallExpr) -> unsafe *Decl {
-        var unsafe *c = self._tu.strip_parens(n->callee)
-        if c == &null {
-            return &null
-        }
-
-        if isa<NamedIdentExpr>(c) {
-            return cast<NamedIdentExpr>(c)->resolved_decl
-        }
-
-        if isa<ChainExpr>(c) {
-            var unsafe *ch = cast<ChainExpr>(c)
-            if ch->steps.size() == 0 {
-                return &null
-            }
-
-            return ch->steps.get(ch->steps.size() - 1)->resolved_decl
-        }
-
-        return &null
-    }
-
     /// A call of \p d (a function, an operator, a constructor) at \p at:
     /// true when it may be made. A non-function callee (a record's implicit
     /// construction) is not a call.
@@ -1498,20 +1367,23 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         var unsafe *c = f->canonical_decl()
-        if f->is_eval() || f->is_const_fn || f->inferred_purity == 1 {
+        if f->is_eval() || f->is_const_fn || f->inferred_purity == (PurityLevel::Const as u8) {
             return true
         }
 
-        if c != &null && (c->is_eval() || c->is_const_fn || c->inferred_purity == 1) {
+        if c != &null
+            && (c->is_eval()
+                || c->is_const_fn
+                || c->inferred_purity == (PurityLevel::Const as u8)) {
             return true
         }
 
         if self._level == PurityLevel::Pure {
-            if f->is_pure || f->inferred_purity == 2 {
+            if f->is_pure || f->inferred_purity == (PurityLevel::Pure as u8) {
                 return true
             }
 
-            if c != &null && (c->is_pure || c->inferred_purity == 2) {
+            if c != &null && (c->is_pure || c->inferred_purity == (PurityLevel::Pure as u8)) {
                 return true
             }
         }
@@ -1625,7 +1497,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         if isa<NamedIdentExpr>(e) {
             var unsafe *rd = cast<NamedIdentExpr>(e)->resolved_decl
             var unsafe *v  = dyn_cast<VariableDecl>(rd)
-            if v != &null && self._is_global(v) {
+            if v != &null && is_global_storage(v) {
                 self._global(at, v, "write")
             }
 
@@ -1649,7 +1521,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 }
 
                 var unsafe *v = dyn_cast<VariableDecl>(st->resolved_decl)
-                if v != &null && self._is_global(v) {
+                if v != &null && is_global_storage(v) {
                     self._global(at, v, "write")
                     return
                 }

@@ -44,6 +44,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import AST::ExprFacts::strip_parens
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -65,14 +66,12 @@ import AST::Node::Declarations::{
 import AST::Node::Expressions::{
     AssignOperatorExpr,
     ClosureExpr,
-    ParenExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     BindingShorthand, CompoundStmt, IndexedForStmt, IterKind, IterYield, LoopStmt, RangedForStmt,
     WhileLoopStmt,
@@ -96,10 +95,7 @@ import Token::TokenKind::TokenKind
 /// (`d`, `d.a`, `d.a.b`, parentheses allowed). A `->`, a call, a subscript
 /// or a static field leaves the copy: the write lands somewhere shared.
 fn for_copy_place(e: unsafe *Expr, d: unsafe *Decl) -> bool {
-    var unsafe *x = e
-    while x != &null && isa<ParenExpr>(x) {
-        x = dyn_cast<ParenExpr>(x)->inner
-    }
+    var unsafe *x = strip_parens(e)
 
     if x == &null {
         return false
@@ -140,10 +136,7 @@ fn for_copy_place(e: unsafe *Expr, d: unsafe *Decl) -> bool {
 
 /// \p e mentions \p d at its root (`&x.a` takes the copy's address too).
 fn for_copy_rooted(e: unsafe *Expr, d: unsafe *Decl) -> bool {
-    var unsafe *x = e
-    while x != &null && isa<ParenExpr>(x) {
-        x = dyn_cast<ParenExpr>(x)->inner
-    }
+    var unsafe *x = strip_parens(e)
 
     var unsafe *ni = dyn_cast<NamedIdentExpr>(x)
     if ni != &null {
@@ -330,23 +323,7 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     fn traverse_ranged_for_stmt(self, n: unsafe *RangedForStmt) -> unsafe *RangedForStmt {

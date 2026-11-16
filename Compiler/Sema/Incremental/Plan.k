@@ -31,6 +31,8 @@ ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import Support::Ascii::parse_decimal
+
 /// Bumped by any change to a plan record's lines.
 pub
 const INCR_PLAN_SCHEMA: u32 = 1
@@ -75,19 +77,6 @@ pub fn plan_join(v: *cxx::std::vector<string>, const sep: string) -> string {
     }
 
     return out
-}
-
-fn plan_num(const s: string) -> usize {
-    var n: usize = 0
-    for var i: usize = 0; i < s.size(); ++i {
-        if s[i] < ('0' as u8) || s[i] > ('9' as u8) {
-            break
-        }
-
-        n = n * 10 + ((s[i] - ('0' as u8)) as usize)
-    }
-
-    return n
 }
 
 /// \class PlanModule
@@ -179,12 +168,14 @@ pub class PlanModule {
             var l = text.subslice(at, e - at)
             at = e + 1
             if l.starts_with("diag ") {
-                var len = plan_num(l.subslice(5, l.size() - 5))
-                if at + len + 5 != n {
+                // A length past the text (parse_decimal saturates) is a
+                // damaged record, and must not wrap the sum below.
+                var len = parse_decimal(l.subslice(5, l.size() - 5))
+                if len > (n as u64) || at + (len as usize) + 5 != n {
                     return false
                 }
 
-                self.diag = text.subslice(at, len)
+                self.diag = text.subslice(at, len as usize)
                 return true
             }
 

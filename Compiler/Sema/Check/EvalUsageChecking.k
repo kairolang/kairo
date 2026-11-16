@@ -71,6 +71,11 @@ import AST::DeclFacts::{
     decl_is_imported,
     decl_is_instance,
     decl_requires_clause,
+    is_global_storage,
+}
+import AST::ExprFacts::{
+    CalleeOpt,
+    callee_decl,
 }
 import AST::Kind::TypeKind::TypeKind
 import AST::Mixin::Annotation::VisibilityKind
@@ -98,7 +103,6 @@ import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
     IntegerLiteralExpr, NamedIdentExpr, NullLiteralExpr,      StringLiteralExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     ConditionalStmt,
     IndexedForStmt,
@@ -125,6 +129,7 @@ import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
+import Support::FlagSet::FlagSet
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 
@@ -421,6 +426,43 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
     }
 }
 
+/// \p f's record has an eval constructor (an eval class, Compiler/Spec/Eval.md#eval-classes).
+/// The check below holds such a field's default to the eval rules, and
+/// FieldInitLowering makes the default's thunk `constexpr` by the same
+/// answer.
+pub fn field_in_eval_class(sc: unsafe *SemaContext, f: unsafe *Declarations::FieldDecl) -> bool {
+    var        tu     = TypeUtil(sc)
+    var unsafe *dc    = f->semantic_dc
+    var unsafe *owner = if (dc != &null) => (dc->owner_decl()) else => &null
+    if owner == &null {
+        return false
+    }
+
+    var ms: unsafe *FrozenList<unsafe *Declarations::FunctionDecl> = &null
+    if isa<Declarations::ClassDecl>(owner) {
+        ms = unsafe &cast<Declarations::ClassDecl>(owner)->methods
+    } else if isa<Declarations::StructDecl>(owner) {
+        ms = unsafe &cast<Declarations::StructDecl>(owner)->methods
+    }
+
+    if ms == &null {
+        return false
+    }
+
+    var on = tu.decl_name(owner)
+    for var i: usize = 0; i < ms->size(); ++i {
+        var unsafe *m = (*ms)[i]
+        if m != &null
+            && m->is_eval()
+            && !m->is_operator
+            && tu.decl_name(unsafe (m as unsafe *Decl)) == on {
+            return true
+        }
+    }
+
+    return false
+}
+
 /// What a needs row names: an item the key reads (an eval fn or binding),
 /// or a record whose layout it needs complete.
 pub enum EvalNeedKind derives u8 {
@@ -467,19 +509,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             return
         }
 
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); i++ {
-            var item = *items->get(i)
-            match item.kind {
-                case TopLevelKind::Decl {
-                    self.dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
 
         self._check_order()
     }
@@ -775,7 +805,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         // An eval class's field default runs inside its eval constructor
         // too, at compile time (Compiler/Spec/Eval.md#eval-classes): its strings are compile-time
         // strings, and the run-time constructors share the same thunk.
-        if !n->is_eval() && !n->is_static() && n->init != &null && self._in_eval_class(n) {
+        if !n->is_eval() && !n->is_static() && n->init != &null && field_in_eval_class(self.sc, n) {
             var m = ConstEvalStrings()
             m.dispatch_expr(n->init)
         }
@@ -807,41 +837,6 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
         self._ctx -= 1
         return r
-    }
-
-    /// \p f's record has an eval constructor (an eval class, Compiler/Spec/Eval.md#eval-classes);
-    /// the rule FieldInitLowering::_eval_class makes its defaults' thunks
-    /// `constexpr` by.
-    priv fn _in_eval_class(self, f: unsafe *Declarations::FieldDecl) -> bool {
-        var unsafe *dc    = f->semantic_dc
-        var unsafe *owner = if (dc != &null) => (dc->owner_decl()) else => &null
-        if owner == &null {
-            return false
-        }
-
-        var ms: unsafe *FrozenList<unsafe *Declarations::FunctionDecl> = &null
-        if isa<Declarations::ClassDecl>(owner) {
-            ms = unsafe &cast<Declarations::ClassDecl>(owner)->methods
-        } else if isa<Declarations::StructDecl>(owner) {
-            ms = unsafe &cast<Declarations::StructDecl>(owner)->methods
-        }
-
-        if ms == &null {
-            return false
-        }
-
-        var on = self.tu.decl_name(owner)
-        for var i: usize = 0; i < ms->size(); ++i {
-            var unsafe *m = (*ms)[i]
-            if m != &null
-                && m->is_eval()
-                && !m->is_operator
-                && self.tu.decl_name(unsafe (m as unsafe *Decl)) == on {
-                return true
-            }
-        }
-
-        return false
     }
 
     /// An `eval` constant is its value: one with none (`eval K: i32`) would
@@ -1221,7 +1216,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
         var global = fd != &null && fd->is_static()
         if vd != &null {
-            global = self._is_global(vd)
+            global = is_global_storage(vd)
         }
 
         if !global && self._ctx_fn > 0 { // the eval fn's own local.
@@ -1257,24 +1252,6 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         }
 
         b.emit()
-    }
-
-    priv fn _is_global(self, vd: unsafe *Declarations::VariableDecl) -> bool {
-        if vd->is_static() || vd->is_thread {
-            return true
-        }
-
-        var unsafe *dc = vd->semantic_dc
-        if dc == &null {
-            return false
-        }
-
-        if dc->is_translation_unit() {
-            return true
-        }
-
-        var unsafe *o = dc->owner_decl()
-        return o != &null && isa<Declarations::ModuleDecl>(o)
     }
 
     fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
@@ -2051,30 +2028,14 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     /// The function a call selected, or null.
     priv fn _callee_fn(self,
                        c: unsafe *Expressions::CallExpr) -> unsafe *Declarations::FunctionDecl {
-        if c->ctor_decl != &null && isa<Declarations::FunctionDecl>(c->ctor_decl) {
-            return cast<Declarations::FunctionDecl>(c->ctor_decl)
-        }
-
-        var unsafe *e = self.tu.strip_parens(c->callee)
-        if e == &null {
-            return &null
-        }
-
-        var d: unsafe *Decl = &null
-        if isa<NamedIdentExpr>(e) {
-            d = cast<NamedIdentExpr>(e)->resolved_decl
-        } else if isa<ChainExpr>(e) {
-            var unsafe *ch = cast<ChainExpr>(e)
-            if ch->steps.size() > 0 {
-                var unsafe *st = ch->steps.get(ch->steps.size() - 1)
-                d = st->resolved_decl
-                if d == &null && st->name != &null {
-                    d = st->name->resolved_decl
-                }
-            }
-        }
-
-        return dyn_cast<Declarations::FunctionDecl>(d)
+        return dyn_cast<Declarations::FunctionDecl>(
+            callee_decl(
+                c,
+                FlagSet<CalleeOpt, u8>(CalleeOpt::CtorDecl).plus(
+                    CalleeOpt::StepName,
+                ),
+            ),
+        )
     }
 
     priv fn _foreign(self, d: unsafe *Decl) -> bool {

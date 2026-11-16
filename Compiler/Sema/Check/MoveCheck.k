@@ -146,6 +146,7 @@ import AST::DeclFacts::{
     decl_is_imported,
     place_has_const_root,
 }
+import AST::ExprFacts::callee_expr_decl
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::StmtKind::StmtKind
 import AST::LangItems::LangAttrs
@@ -3446,7 +3447,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             self.dispatch_expr(n->callee)
         }
 
-        var unsafe *f = self._callee_decl(n->callee)
+        var unsafe *f = dyn_cast<FunctionDecl>(callee_expr_decl(n->callee))
         // A constructor call's callee names the TYPE; the constructor X
         // selected is on the call. Its parameters are what `@move` (stamped
         // onto a transfer constructor's `other` by ClassLifecycle) is read
@@ -3999,32 +4000,6 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         var unsafe *t = if (p->type_->canonical != &null) => (p->type_->canonical) else => p->type_
         return isa<CXXRValueRefType>(canon_unqual(t))
-    }
-
-    /// The FunctionDecl a callee denotes after CallTyping's promotion, or null.
-    priv fn _callee_decl(self, callee: unsafe *Expr) -> unsafe *FunctionDecl {
-        var unsafe *c = self._tu.strip_parens(callee)
-        if c == &null {
-            return &null
-        }
-
-        if isa<NamedIdentExpr>(c) {
-            return dyn_cast<FunctionDecl>(
-                cast<NamedIdentExpr>(c)->resolved_decl,
-            )
-        }
-
-        if isa<ChainExpr>(c) {
-            var unsafe *ce = cast<ChainExpr>(c)
-            if ce->steps.size() == 0 {
-                return &null
-            }
-
-            var unsafe *last = ce->steps.get(ce->steps.size() - 1)
-            return dyn_cast<FunctionDecl>(last->resolved_decl)
-        }
-
-        return &null
     }
 
     /// `obj.m(...)` / `p->m(...)` bind the receiver; `Type::m(obj, ...)` does not.
