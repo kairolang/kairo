@@ -13,14 +13,14 @@ fn through_const(const o: Opt) -> i32 {
 
 fn main() -> i32 {
     var t: Tab
-    var ci = t.cbegin()
-    var mi = t.begin()
+    var ci     = t.cbegin()
+    var mi     = t.begin()
     var o: Opt
-    var r = ci->which()                             // 1: the pointee is const
-    r = r * 10 + mi->which()                        // 2
-    r = r * 10 + o->which()                         // 2
-    r = r * 10 + through_const(o)                   // 1
-    r = r * 10 + (*ci).which()                      // 1
+    var r      = ci->which() // 1: the pointee is const
+    r = r * 10 + mi->which()      // 2
+    r = r * 10 + o->which()       // 2
+    r = r * 10 + through_const(o) // 1
+    r = r * 10 + (*ci).which()    // 1
     return r - 12211
 }
 

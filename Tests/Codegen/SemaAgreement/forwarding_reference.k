@@ -10,14 +10,14 @@ ffi "c++" import "forwarding_reference.h"
 ffi "c++" import "utility"
 
 fn main() -> i32 {
-    var a: i32 = 1
-    var b: i32 = 2
+    var   a: i32 = 1
+    var   b: i32 = 2
     const k: i32 = 3
-    var r = fwd(a)                                  // 2: int&
-    r = r * 10 + fwd(a + 1)                         // 2: int&&
-    r = r * 10 + fwd(k)                             // 1: a const lvalue ties
-    r = r * 10 + fwd(7)                             // 2: a literal is an rvalue
-    r = r * 10 + ref(a + 1)                         // 2: no rvalue binds int&
+    var   r      = fwd(a) // 2: int&
+    r = r * 10 + fwd(a + 1) // 2: int&&
+    r = r * 10 + fwd(k)     // 1: a const lvalue ties
+    r = r * 10 + fwd(7)     // 2: a literal is an rvalue
+    r = r * 10 + ref(a + 1) // 2: no rvalue binds int&
     if r != 22122 {
         return 1
     }
@@ -31,9 +31,9 @@ fn main() -> i32 {
     }
 
     // The forwarding constructor copies an lvalue and moves an rvalue.
-    var x = Cp(5)
+    var x       = Cp(5)
     var id: u32 = 3
-    var p = Two<u32, Cp>(id, x)
+    var p       = Two<u32, Cp>(id, x)
     if p.which != 2 || cp_copies() != 1 || cp_moves() != 0 {
         return 3
     }
