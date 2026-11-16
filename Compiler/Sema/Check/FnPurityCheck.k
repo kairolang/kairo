@@ -66,7 +66,7 @@
 ///     graph: every candidate starts at const, and each round lowers one
 ///     that breaks the rules to pure, then to none, until nothing changes.
 ///     The result is FunctionDecl::inferred_purity on every link of the
-///     chain, which CXXSpell::fn_attrs spells on declarations and
+///     chain, which Speller::fn_attrs spells on declarations and
 ///     definitions alike. It runs on the LOWERED tree, right before
 ///     ParamPassInference (which then leaves an inferred-const function's
 ///     parameters by value, as for a written one), so it sees every call a
@@ -1288,7 +1288,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             || dc->is_type_scope()
     }
 
-    /// \p p reaches the callee as a pointer in C++ (CXXSpell::_param_type):
+    /// \p p reaches the callee as a pointer in C++ (Speller::_param_type):
     /// `@inout`, `@move`, `self`, a `const` record or type parameter, and a
     /// parameter ParamPassInference turned into `const T&`. A by-value
     /// record is a fresh caller copy (clang weakens the promise to "reads

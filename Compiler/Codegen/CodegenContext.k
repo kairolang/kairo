@@ -56,16 +56,16 @@ pub class EmitOptions {
     pub var target_triple: string = ""
     /// The objects are linked into an executable here (no --shared, no -c):
     /// every Kairo TU lands in it, so a user `thread` global's offset from
-    /// the thread pointer is a link-time constant (CXXSpell::tls_model).
+    /// the thread pointer is a link-time constant (Speller::tls_model).
     pub var exe_link: bool = false
     /// The target's objects are ELF, the one format whose TLS models the
     /// tls_model attribute picks between.
     pub var elf: bool = false
-    /// --tls-model, "" when not given (CXXSpell::tls_model picks per global).
+    /// --tls-model, "" when not given (Speller::tls_model picks per global).
     pub var tls_model: string = ""
     /// The target is x32 (x86_64 gnux32 / muslx32). lld relaxes an
     /// initial-exec access only in its REX.W movq / addq form, and x32's is a
-    /// REX-less movl, so CXXSpell::tls_model never picks initial-exec there.
+    /// REX-less movl, so Speller::tls_model never picks initial-exec there.
     pub var x32: bool = false
     /// --test-sema-agreement-swap, split at its colon; both "" when not
     /// given (EmitIR::_agree).

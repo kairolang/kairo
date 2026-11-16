@@ -491,7 +491,7 @@ pub class ParamDecl derives Decl {
 
     /// is_pack only: the parameter's C++ type, `Slice<E>` by value, E being
     /// the canonical `type_` names. Stamped by CallLowering when it visits
-    /// the function (or first lowers a call to it); read by CXXSpell and
+    /// the function (or first lowers a call to it); read by Speller and
     /// EmitIR. Null for a pack over a dependent element (not lowered yet).
     pub var pack_type: unsafe *Type = &null
 
@@ -504,7 +504,7 @@ pub class ParamDecl derives Decl {
     /// passed as `const T&`, as a written `const` is. One writer,
     /// ParamPassInference, after the last lowering, on every link of the
     /// function's redeclaration chain; read only by codegen
-    /// (CXXSpell::_param_type, EmitIR's fn-value adapter). The Kairo type
+    /// (Speller::_param_type, EmitIR's fn-value adapter). The Kairo type
     /// and every Sema fact stay the by-value parameter's.
     pub var inferred_const: bool = false
 
@@ -650,7 +650,7 @@ pub class FunctionDecl
     /// function's own TU, on every link of the chain. `return_type` stays T:
     /// an importer's typing reads it after this TU lowered, and a call's
     /// value is T. Null for a function that does not panic. Codegen spells
-    /// the signature from this when it is set (CXXSpell::return_spelling).
+    /// the signature from this when it is set (Speller::return_spelling).
     pub var panic_result: unsafe *Type = &null
     /// The panic result types PanicLowering formed for this function's body
     /// that are still DEPENDENT (a generic body, Compiler/Spec/Panic.md#generic-bodies): its result,
@@ -797,7 +797,7 @@ pub class FunctionDecl
     /// conventions"): 0 the default (C), 1 `@preserve_most`, 2
     /// `@preserve_all`, 3 `@preserve_none` (LangAttrs::call_conv_name).
     /// Writer: the parser, as for hot_path. Every C++ declaration spells it
-    /// (CXXSpell::fn_attrs); CallConvCheck says where it may stand, and
+    /// (Speller::fn_attrs); CallConvCheck says where it may stand, and
     /// RedeclMerge holds a chain to one value.
     pub var call_conv: u8 = 0
     /// Written `const fn f()` at file or module scope: reads only its own
@@ -812,7 +812,7 @@ pub class FunctionDecl
     /// PurityLevel as u8: 0
     /// none, 1 const (`[[gnu::const]]`), 2 pure (`[[gnu::pure]]`). Writer:
     /// FnPurityCheck::infer, on every link of the chain, in the defining
-    /// TU's Sema; readers: CXXSpell::fn_attrs, ParamPassInference (an
+    /// TU's Sema; readers: Speller::fn_attrs, ParamPassInference (an
     /// inferred-const function keeps its by-value parameters), and the
     /// callers' own inference (a callee counts as a promise once decided).
     pub var inferred_purity: u8 = 0

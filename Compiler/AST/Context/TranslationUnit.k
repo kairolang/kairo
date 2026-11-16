@@ -325,11 +325,11 @@ pub class TranslationUnit derives DeclContext {
     /// CompilerInstance's HeaderSetCache, never by the TU.
     pub var header_set: unsafe *void = &null
 
-    /// Codegen, pathless (entry) TU only (CXXSpell::is_entry_tu): the
+    /// Codegen, pathless (entry) TU only (Speller::is_entry_tu): the
     /// priv/internal decls an inline or template body of this file names.
     /// Such a body is compiled wherever this file is included, so what it
     /// names keeps external linkage rather than go in the unnamed namespace
-    /// (CXXSpell::is_anon). Filled once, by this
+    /// (Speller::is_anon). Filled once, by this
     /// TU's first EmitPlan (EmitPlan::_find_escaping), from the file alone,
     /// so every run spells them the same.
     pub var cxx_escaping:      cxx::std::vector<unsafe *Decl>

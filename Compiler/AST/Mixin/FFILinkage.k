@@ -101,7 +101,7 @@ pub class <T> FFILinkage {
     /// `struct` / `class` / `union` / `enum` when this tag's name is HIDDEN
     /// by an ordinary name in its scope (`struct timezone` beside `extern
     /// long timezone`, C++ [basic.scope.hiding]); "" otherwise. C++ then
-    /// reaches the type only through an elaborated specifier, so CXXSpell
+    /// reaches the type only through an elaborated specifier, so Speller
     /// writes `struct ::timezone` wherever it spells the type. Set by
     /// DeclImport, monotonic across header sets: once any set saw the name
     /// hidden, the elaborated spelling is the only one valid in every TU.

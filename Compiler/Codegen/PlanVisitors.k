@@ -58,12 +58,12 @@ import AST::Node::Types::{
     ValueOp,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
-import Codegen::Emit::CXXSpell::{
-    CXXSpell,
+import Codegen::Emit::Spell::{
+    Speller,
     VIS_PUB,
 }
 
-/// Every hoisted local declaration (CXXSpell::is_hoisted_local) a TU's
+/// Every hoisted local declaration (Speller::is_hoisted_local) a TU's
 /// program holds, in source order, an enclosing one before those nested in
 /// it. The plan roots each one as an own declaration and EmitIR emits each
 /// one's bodies at namespace scope, so both walk the same list.
@@ -97,7 +97,7 @@ pub class HoistedLocals derives RecursiveASTVisitor<HoistedLocals> {
             return true
         }
 
-        if CXXSpell::is_hoisted_local(n->decl) {
+        if Speller::is_hoisted_local(n->decl) {
             self.found.push_back(n->decl)
         }
 
@@ -275,7 +275,7 @@ pub class EarlyNeeds derives RecursiveASTVisitor<EarlyNeeds> {
                 self._rec(v->vdecl)
                 self._members(v->vdecl)
             } else {
-                var local = v->vdecl->semantic_dc == &null || CXXSpell::in_function_scope(v->vdecl)
+                var local = v->vdecl->semantic_dc == &null || Speller::in_function_scope(v->vdecl)
                 if !local {
                     self.named(v->vdecl)
                 }
@@ -390,7 +390,7 @@ pub class EarlyNeeds derives RecursiveASTVisitor<EarlyNeeds> {
     fn traverse_variable_decl(self, n: unsafe *VariableDecl) -> unsafe *VariableDecl {
         var ev = n->is_eval()
             && n->semantic_dc != &null
-            && CXXSpell::in_function_scope(unsafe (n as unsafe *Decl))
+            && Speller::in_function_scope(unsafe (n as unsafe *Decl))
         if ev {
             self._const += 1
         }
@@ -417,18 +417,18 @@ pub class EarlyNeeds derives RecursiveASTVisitor<EarlyNeeds> {
 }
 
 /// Whether a namespace-scope variable's initializer names a member C++
-/// will see non-public (CXXSpell::cxx_access): a field, method, static,
+/// will see non-public (Speller::cxx_access): a field, method, static,
 /// constructor or operator of a record. Such a variable is initialized
 /// through a befriended thunk (EmitIR::_global_var), since a C++ variable
 /// initializer is checked in the variable's own context, which nothing can
 /// befriend. Read off the typed tree, which every TU holding the file has.
 pub class GlobalInitReach derives RecursiveASTVisitor<GlobalInitReach> {
-    pub var spell: unsafe *CXXSpell = &null
-    pub var hit:   bool             = false
+    pub var spell: unsafe *Speller = &null
+    pub var hit:   bool            = false
 
     fn GlobalInitReach(self) { }
 
-    static fn needs_thunk(spell: unsafe *CXXSpell, v: unsafe *VariableDecl) -> bool {
+    static fn needs_thunk(spell: unsafe *Speller, v: unsafe *VariableDecl) -> bool {
         if v == &null || v->init == &null || v->is_eval() || v->is_poisoned() {
             return false
         }

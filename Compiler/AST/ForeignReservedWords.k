@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------- AST/CxxReservedWords.k --- ///
+/// --- The Kairo Project ------------------- AST/ForeignReservedWords.k --- ///
 ///
 ///   \brief The C++ keyword set for one file, plus the [lex.name]/3
 ///          reserved-identifier patterns clang does not flag.
@@ -24,7 +24,7 @@
 ///     the pipeline without re-reading this paragraph.
 ///
 ///     Two consumers: CxxNameCheck (VERIFY, pre-N) probes user names
-///     through CxxKeywordSet; CXXSpell::entry_stem asks is_cxx_keyword of
+///     through CxxKeywordSet; Speller::entry_stem asks is_cxx_keyword of
 ///     a file stem, which is no table entry at all. A leaf with no Sema
 ///     dependency, so it lives here and codegen can import it.
 ///

@@ -1627,7 +1627,7 @@ pub class <T: type> DeclParse {
                                            out: unsafe *kairo::std::StackBuf<Token, 3>) -> bool {
         // `op delete`, the destructor's pre-0.2.0 spelling: keyed as `op
         // finally` (a token minted with that spelling, so OperatorFacts and
-        // CXXSpell read "finally" off it). The callers report the spelling.
+        // Speller read "finally" off it). The callers report the spelling.
         if self.dyn()->check(TokenKind::KwDelete) {
             out->push_back(
                 self.dyn()->ctx->make_token(

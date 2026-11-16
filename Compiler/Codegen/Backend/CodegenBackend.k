@@ -8,7 +8,7 @@
 ///
 ///   Import rule (the anti-rot law of this layer):
 ///     - Backend/ is the ONLY directory that imports emitters: this file
-///       (an object), EmitCXXHeader.k (a header) and IncludeEmitter.k (the
+///       (an object), EmitHeader.k (a header) and IncludeEmitter.k (the
 ///       tokens of `#include "foo.k"`), each running a plan into a sink.
 ///     - Emitters import CodegenContext, never a Backend/ file. They reach
 ///       the sink through cg->sink.
@@ -667,7 +667,7 @@ pub class CodegenJob {
     pub var print: u8                                  = 0 ///< CodegenBackend::set_print_cg
     pub var path:  string ///< the TU's file name, for the printer
     pub var sets:  cxx::std::vector<unsafe *HeaderSet> ///< the implicit PCH's first (per-set fallback)
-    /// The interface PCH of this TU's flavour (CXXSpell::interface_flavour),
+    /// The interface PCH of this TU's flavour (Speller::interface_flavour),
     /// or null: the whole stream, as before it.
     pub var iface: unsafe *InterfacePCH = &null
     /// The TU's Preamble plan and its context, run on the pool before the

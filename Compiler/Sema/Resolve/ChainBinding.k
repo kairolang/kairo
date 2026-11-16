@@ -1632,7 +1632,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
     /// A member's `requires P impl I` (P a parameter of its record) holds
     /// wherever the member exists: C++ drops the member from an instance
-    /// that does not meet it (CXXSpell::member_requires), so its body sees
+    /// that does not meet it (Speller::member_requires), so its body sees
     /// I's members on P, as a taken `eval if P impl I` branch does.
     fn traverse_function_decl(self,
                               n: unsafe *Declarations::FunctionDecl) -> unsafe *Declarations::FunctionDecl {

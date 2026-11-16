@@ -21,7 +21,7 @@
 ///     the public name and the shared signature, so a C++ caller (a kcc
 ///     header, InterfaceEmitter) uses it like any other. The candidates are
 ///     `priv`: in the entry TU that puts them in the file's unnamed
-///     namespace (CXXSpell::is_anon), and a module header leaves them out.
+///     namespace (Speller::is_anon), and a module header leaves them out.
 ///     A method group's candidates are private members.
 ///
 ///   \par Identity

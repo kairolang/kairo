@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------- Codegen/Backend/EmitCXXHeader.k --- ///
+/// --- The Kairo Project ----------------- Codegen/Backend/EmitHeader.k --- ///
 ///
 ///   \brief The module's C++ interop header: the same InterfaceEmitter over
 ///          a header-mode plan, into a TextSink, written to
@@ -27,9 +27,9 @@ import Codegen::CodegenContext::{
     CodegenContext,
     CodegenPhase,
 }
-import Codegen::Emit::CXXSpell::CXXSpell
 import Codegen::Emit::EmitIR::EmitIR
 import Codegen::Emit::InterfaceEmitter::InterfaceEmitter
+import Codegen::Emit::Spell::Speller
 import Codegen::EmitPlan::{
     EmitPlan,
     PlanMode,
@@ -87,10 +87,10 @@ pub class EmitCXXHeader {
     }
 
     /// The header text, or "" for a TU that has none (a pathless one, which
-    /// nothing can import or include by module path: CXXSpell::is_entry_tu).
+    /// nothing can import or include by module path: Speller::is_entry_tu).
     pub fn render(self) -> string {
         var unsafe *tu = self._ctx->tu
-        if tu == &null || CXXSpell::is_entry_tu(tu) {
+        if tu == &null || Speller::is_entry_tu(tu) {
             return ""
         }
 
@@ -194,7 +194,7 @@ pub class EmitCXXHeader {
     pub fn path_under(self, const dir: string) -> string {
         var unsafe *tu = self._ctx->tu
         var cg = CodegenContext(self._ctx, &null, self._psym, self._instances)
-        var sp = CXXSpell(unsafe &cg)
+        var sp = Speller(unsafe &cg)
         return dir + "/" + sp.header_path(tu)
     }
 

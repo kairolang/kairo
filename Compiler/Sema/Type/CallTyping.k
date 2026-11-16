@@ -1016,7 +1016,7 @@ pub class <T: type> CallTyping {
         rt = r->ded.through_receiver(f, r->receiver, rt)
         // Register the generic function instance for M1/EmitPlan (see spec).
         // An extension member's instance arguments are its extension's, then
-        // its own: the order CXXSpell::template_params spells them in.
+        // its own: the order Speller::template_params spells them in.
         var unsafe *ext = decl_extension_of(unsafe (f as unsafe *Decl))
         var ext_n = if (ext != &null) => (decl_generic_params(
                         unsafe (ext as unsafe *Decl),

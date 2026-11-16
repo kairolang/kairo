@@ -103,7 +103,7 @@ pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
         }
 
         // A build with no builtin root has no `T?` to lower to; a `T?` that
-        // reaches codegen then ICEs naming this pass (CXXSpell), which is the
+        // reaches codegen then ICEs naming this pass (Speller), which is the
         // truth: nothing could lower it.
         if !self.sc->well_known->has(WellKnownType::Null) {
             return

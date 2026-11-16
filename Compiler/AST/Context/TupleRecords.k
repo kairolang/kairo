@@ -20,7 +20,7 @@
 ///     after T and to C++: TypeResolve canonicalizes the written type to
 ///     `record(Tuple2, [A, B])` through the instantiation registry, so a
 ///     tuple written in two TUs is one identity, EmitPlan reaches it like
-///     any record (only the arities a TU names are emitted), CXXSpell
+///     any record (only the arities a TU names are emitted), Speller
 ///     spells `Tuple2<int, double>`, and `t.1` is the field `_1`.
 ///
 ///     The decl is HOMED in the builtin root TU: its name imms live in that
@@ -153,7 +153,7 @@ pub class TupleRecords {
     }
 
     /// An identifier token whose imm is the ROOT's: the decl is spelled in
-    /// its own TU (CXXSpell::leaf reads the name through fid_of(d)).
+    /// its own TU (Speller::leaf reads the name through fid_of(d)).
     priv fn _ident(self,
                    ctx:            unsafe *ASTContext,
                    at:             SourceRange,
@@ -245,7 +245,7 @@ pub class TupleRecords {
             var unsafe *fd = unsafe (f as unsafe *Decl)
             fd->is_implicit = true
             // A member of the record to C++: where a spelling of it
-            // (CXXSpell::leaf, by its scope's TU) and a use of it
+            // (Speller::leaf, by its scope's TU) and a use of it
             // (EmitPlan::_member_owner) find it.
             fd->semantic_dc = sdc
             fd->lexical_dc  = sdc

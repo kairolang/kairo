@@ -783,7 +783,7 @@ pub class FlagTranslator {
 
         /// ### symbols / code model
         /// A `thread` global also carries its model as an attribute
-        /// (CXXSpell::tls_model), which follows --tls-model; the flag is for
+        /// (Speller::tls_model), which follows --tls-model; the flag is for
         /// the C++ thread_locals the ffi headers bring.
         if !cgo.tls_model.empty() {
             _fx_push(&o, f"-ftls-model={cgo.tls_model}")

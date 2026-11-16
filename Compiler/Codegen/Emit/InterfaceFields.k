@@ -1,0 +1,719 @@
+/// --- The Kairo Project --------------- Codegen/Emit/InterfaceFields.k --- ///
+///
+///   InterfaceEmitter, part: fields. A field's default member initializer,
+///   the slot declarations of a constructor that initializes const fields in
+///   place (EmitIR.k's header has the shape), and static fields, defined after
+///   the outermost record as inline variables.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
+
+ffi "c++" import "vector"
+
+import AST::DeclFacts
+import AST::Kind::TypeKind::TypeKind
+import AST::LangItems::LowerTargets
+import AST::Node::Base::{
+    Decl,
+    Type,
+}
+import AST::Node::CanonicalNodes::{
+    BuiltinKind,
+    BuiltinType,
+    RecordType,
+    builtin_info,
+    canon_unqual,
+}
+import AST::Node::Casting::{
+    cast,
+    dyn_cast,
+    isa,
+}
+import AST::Node::Declarations
+import AST::Node::Types::{
+    FixedArrayType,
+    FunctionPointerType,
+    PointerType,
+}
+import Codegen::Emit::InterfaceEmitter::InterfaceEmitter
+import Codegen::Emit::Spell::Speller
+import Codegen::EmitPlan::PlanTier
+
+extend InterfaceEmitter {
+    /// A field's C++ default member initializer, from what
+    /// FieldInitLowering made of its Kairo one: a constant as it is, or a
+    /// call of the member function holding the expression, named by leaf (a
+    /// default member initializer sees the whole class, that member's later
+    /// declaration included). Either way the text names nothing outside the
+    /// record, so the class stays a pure function of the decl.
+    prot fn _field_default(self, f: unsafe *Declarations::FieldDecl) -> string {
+        match f->init_fold {
+            case Declarations::FieldFold::Int {
+                var c = Declarations::IntConst{}
+                c.ok  = true
+                c.neg = f->init_neg
+                c.mag = f->init_mag
+                return " = " + self._enum_value(c)
+            } case Declarations::FieldFold::True {
+                return " = true"
+            } case Declarations::FieldFold::False {
+                return " = false"
+            } case Declarations::FieldFold::Null {
+                return " = nullptr"
+            } case Declarations::FieldFold::Thunk {
+                return " = " + self._spell->leaf(f->init_thunk) + "()"
+            }
+
+            // An array, leaf element by leaf element (FieldInitLowering,
+            // Arrays), braced per dimension of the field's type.
+            case Declarations::FieldFold::Elems {
+                var unsafe *at = canon_unqual(f->type_->canonical)
+                // A length that is a value parameter is not known here: the
+                // flat list, which C++ brace elision reads row-major.
+                if self._param_extent(at) {
+                    var flat = " = {"
+                    for var i: usize = 0; i < f->init_elems.size(); ++i {
+                        if i > 0 {
+                            flat += ", "
+                        }
+
+                        flat += self._spell->leaf(f->init_elems[i]) + "()"
+                    }
+
+                    return flat + "}"
+                }
+
+                var next: usize = 0
+                var s = " = " + self._elems_braced(f, at, unsafe &next)
+                if next != f->init_elems.size() {
+                    self._ice(
+                        f->name.range,
+                        "InterfaceEmitter: an array field's element thunks do not fill its type",
+                    )
+                }
+
+                return s
+            } default {
+                0
+            }
+        }
+
+        // An initializer still on the field is one FieldInitLowering leaves
+        // (an eval array field), which FeatureGateCheck rejects.
+        if f->init != &null {
+            self._ice(
+                f->name.range,
+                "InterfaceEmitter: initializer of an array-typed field reached codegen; FeatureGateCheck rejects it",
+            )
+        }
+
+        return ""
+    }
+
+    /// Some dimension of array type \p t has a value parameter's length.
+    priv fn _param_extent(self, t: unsafe *Type) -> bool {
+        var unsafe *a = dyn_cast<FixedArrayType>(t)
+        if a == &null {
+            return false
+        }
+
+        if a->extent_param != &null {
+            return true
+        }
+
+        return self._param_extent(canon_unqual(a->element))
+    }
+
+    /// `{t0(), t1()}` for array type \p at, each leaf the next of \p f's
+    /// element thunks (row-major, FieldInitLowering), an inner array its own
+    /// braces: `{{t0(), t1()}, {t2(), t3()}}`. Brace elision would accept
+    /// the flat list too; the nesting says what the Kairo literal said.
+    priv fn _elems_braced(self,
+                          f:    unsafe *Declarations::FieldDecl,
+                          at:   unsafe *Type,
+                          next: unsafe *usize) -> string {
+        var unsafe *a = dyn_cast<FixedArrayType>(at)
+        if a == &null {
+            self._ice(
+                f->name.range,
+                "InterfaceEmitter: an element-lowered field whose type is no array",
+            )
+
+            return ""
+        }
+
+        var unsafe *el   = canon_unqual(a->element)
+        var        inner = el != &null && isa<FixedArrayType>(el)
+        var        s     = "{"
+        for var i: u64 = 0; i < (a->size_bits as u64); ++i {
+            if i > 0 {
+                s += ", "
+            }
+
+            if inner {
+                s += self._elems_braced(f, el, next)
+                continue
+            }
+
+            if *next >= f->init_elems.size() {
+                self._ice(
+                    f->name.range,
+                    "InterfaceEmitter: an array field has fewer element thunks than its type has elements",
+                )
+
+                return ""
+            }
+
+            s += self._spell->leaf(f->init_elems[*next]) + "()"
+            *next += 1
+        }
+
+        return s + "}"
+    }
+
+    /// True when \p f, a field with no initializer, is value-initialized
+    /// by a `{}` default member initializer: a number, a pointer, a plain
+    /// enum, a union, a type parameter, an array of those. variables.mdx: a binding
+    /// of a type with a default and no initializer is zero-initialized, and
+    /// C++ default-initialization leaves a scalar member indeterminate in
+    /// every constructor that does not name it -- a user one with an empty
+    /// body included. On the class, not in each constructor, so the
+    /// implicit one and a split one's untouched fields read 0 as well. A
+    /// mem-initializer (a split constructor's) replaces it.
+    /// Left alone: a const field (every constructor builds it; CtorInitCheck),
+    /// a class or struct (its own constructor builds it, and one with no default
+    /// would make `{}` ill-formed though every constructor builds it), an
+    /// enum with payloads (likewise), an imported C++ type and anything
+    /// else not listed (clang's to decide, as for a local), and a union's
+    /// members (C++ allows at most one initializer there).
+    prot fn _zero_by_default(self, f: unsafe *Declarations::FieldDecl) -> bool {
+        if f->is_const() || f->init != &null || f->type_ == &null {
+            return false
+        }
+
+        var unsafe *c = if (f->type_->canonical != &null) => (f->type_->canonical) else => f->type_
+        c = canon_unqual(c)
+        while c != &null && isa<FixedArrayType>(c) {
+            c = canon_unqual(cast<FixedArrayType>(c)->element)
+        }
+
+        if c == &null {
+            return false
+        }
+
+        match c->kind {
+            case TypeKind::BuiltinType {
+                return true
+            } case TypeKind::PointerType {
+                return true
+            } case TypeKind::FunctionPointerType {
+                return true
+            }
+
+            // As `T v;` already did, `T v{}` asks the instance for a
+            // default; a class template instantiates it only for a
+            // constructor that leaves `v` to it.
+            case TypeKind::GenericParamType {
+                return true
+            } case TypeKind::SubstGenericParamType {
+                return true
+            } case TypeKind::AssocType {
+                return true
+            } case TypeKind::RecordType {
+                0
+            } default {
+                return false
+            }
+        }
+
+        var unsafe *rd = cast<RecordType>(c)->decl
+        if rd != &null && DeclFacts::decl_is_instance(rd) {
+            rd = DeclFacts::decl_pattern(rd)
+        }
+
+        rd = Speller::rep(rd)
+        if rd == &null {
+            return false
+        }
+
+        // A union's members are trivial (unions.mdx), and its first is
+        // zeroed by its own `{}` (_record_def).
+        if isa<Declarations::UnionDecl>(rd) {
+            return true
+        }
+
+        if !isa<Declarations::EnumDecl>(rd) {
+            return false
+        }
+
+        return !cast<Declarations::EnumDecl>(rd)->is_adt
+    }
+
+    /// # Const fields in a constructor
+
+    /// True when some record the plan defines has a split constructor, or
+    /// a body returns out of an expansion copy (EmitPlan::needs_ef_slot).
+    prot fn _needs_ctor_slots(self) -> bool {
+        if self._plan->needs_ef_slot {
+            return true
+        }
+
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var *e = &self._plan->entries[i]
+            if e->tier != PlanTier::Definitions
+                || e->scope != &null
+                || e->witness != &null
+                || e->eval_item != &null {
+                continue
+            }
+
+            if self._has_split_ctor(e->decl) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    priv fn _has_split_ctor(self, d: unsafe *Decl) -> bool {
+        if d == &null || (!isa<Declarations::ClassDecl>(d)) && !isa<Declarations::StructDecl>(d) {
+            return false
+        }
+
+        var methods = self._methods_of(d)
+        for var i: usize = 0; i < methods.size(); ++i {
+            if methods[i] != &null && methods[i]->ci_split > 0 {
+                return true
+            }
+        }
+
+        var unsafe *dc = Speller::dc_of(d)
+        if dc == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var unsafe *nd = *dc->dc_decls.get(i)
+            if nd != &null && self._has_split_ctor(Speller::rep(nd)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// `__kairo_lref<T>` is `T&` for every parameter spelling, `T&` and
+    /// `T&&` included (reference collapsing), so the pre-function and the
+    /// slot constructor take each parameter as the public one's lvalue.
+    /// `__kairo_slot<T>` holds a T that does not exist until S_pre first
+    /// assigns it: raw storage in a union, built in place through its box's
+    /// own placement operator new (no <new>, as an ADT payload's), and
+    /// destroyed only if it was built. It is never copied or moved: the
+    /// slot record is a temporary the public constructor passes by
+    /// reference. `init` is a first assignment (a const field, a local);
+    /// `put` may be a later one (a `var` field written twice), so only it
+    /// asks T for `operator=`.
+    /// An eval constructor's slots live inside one constant evaluation,
+    /// where C++23 allows no placement new (C++26 does) but does allow a
+    /// transient `new`/`delete`: there (`if consteval`) the value is a heap
+    /// box `__p`, which the slot's destructor frees before the evaluation
+    /// ends. Every member reads the value through `__v()`, which picks the
+    /// arm. The run-time arm is unchanged and never sees `__p`; clang emits
+    /// no code for the compile-time one.
+    prot fn _ctor_slot_helpers(self, header: bool) {
+        var at = self._tu_at()
+        if header {
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::ctor_slot_guard(),
+            )
+        }
+
+        if header {
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::ctor_slot_guard(),
+            )
+        }
+
+        self._cg->sink->spell(
+            at,
+            "template <class T> using " + LowerTargets::lref() + " = T&;",
+        )
+
+        self._cg->sink->brk()
+        var sl = LowerTargets::ctor_slot()
+        var sz = builtin_info(BuiltinKind::USize)->cxx
+        var t  = "template <class T> struct " + sl + " {"
+        t += " struct __b { T v; static void* operator new(" + sz + ", void* p) noexcept { return p; } };"
+        t += " struct __h { T v; };"
+        t += " union { __b b; };"
+        t += " __h* __p = nullptr;"
+        // The members EmitIR calls, one spelling each (LowerTargets).
+        var st = LowerTargets::ctor_slot_set()
+        var si = LowerTargets::ctor_slot_init()
+        t += " bool " + st + " = false;"
+        t += " constexpr " + sl + "() noexcept {}"
+        t += " " + sl + "(const " + sl + "&) = delete;"
+        t += " " + sl + "& operator=(const " + sl + "&) = delete;"
+        t += " constexpr ~" + sl + "() { if consteval { delete __p; } else { if (" + st + ") { b.~__b(); } } }"
+        t += " constexpr T& __v() noexcept { if consteval { return __p->v; } else { return b.v; } }"
+        t += " constexpr void " + si + "(T u) { if consteval { __p = new __h{static_cast<T&&>(u)}; } else { new (static_cast<void*>(&b)) __b{static_cast<T&&>(u)}; } " + st + " = true; }"
+        t += " constexpr void " + LowerTargets::ctor_slot_put() + "(T u) { if (" + st + ") { __v() = static_cast<T&&>(u); } else { " + si + "(static_cast<T&&>(u)); } }"
+        t += " constexpr T& " + LowerTargets::ctor_slot_get() + "() noexcept { return __v(); }"
+        t += " constexpr T&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<T&&>(__v()); }"
+        t += " };"
+        self._cg->sink->spell(at, t)
+        self._cg->sink->brk()
+        // An array field's slot. `init(T u)` would take a decayed pointer and
+        // an array has no `=`, so this one builds its elements from the
+        // array's, moved from a prvalue (a list literal) or copied from an
+        // lvalue, or one at a time (`init_at`), and has no `put`:
+        // CtorInitCheck allows one write. The field's mem-initializer reads
+        // `take()[i]` per element (EmitIR).
+        var a = "template <class T, " + sz + " N> struct " + sl + "<T[N]> {"
+        a += " using __a = T[N];"
+        a += " template <class I, I... K> struct __q {};"
+        a += " struct __b { T v[N]; static void* operator new(" + sz + ", void* p) noexcept { return p; } };"
+        a += " struct __h { T v[N]; };"
+        a += " union { __b b; };"
+        a += " __h* __p = nullptr;"
+        a += " bool " + st + " = false;"
+        a += " constexpr " + sl + "() noexcept {}"
+        a += " " + sl + "(const " + sl + "&) = delete;"
+        a += " " + sl + "& operator=(const " + sl + "&) = delete;"
+        a += " constexpr ~" + sl + "() { if consteval { delete __p; } else { if (" + st + ") { b.~__b(); } } }"
+        a += " constexpr __a& __v() noexcept { if consteval { return __p->v; } else { return b.v; } }"
+        a += " template <" + sz + "... K> constexpr void __mv(__a& u, __q<" + sz + ", K...>) { if consteval { __p = new __h{{static_cast<T&&>(u[K])...}}; } else { new (static_cast<void*>(&b)) __b{{static_cast<T&&>(u[K])...}}; } " + st + " = true; }"
+        a += " template <" + sz + "... K> constexpr void __cp(const __a& u, __q<" + sz + ", K...>) { if consteval { __p = new __h{{u[K]...}}; } else { new (static_cast<void*>(&b)) __b{{u[K]...}}; } " + st + " = true; }"
+        a += " constexpr void " + si + "(__a&& u) { __mv(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }"
+        a += " constexpr void " + si + "(const __a& u) { __cp(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }"
+        // Element by element (CtorInitCheck): each element is built once,
+        // in place, in its own box (no <new>), and the array counts as built
+        // when the last one is. A constructor never leaves S_pre with part of
+        // it built (it cannot panic or return there, and every path builds
+        // every element), so a partly built array is never destroyed.
+        // At compile time an element has no box of its own to be built in:
+        // the array is made whole first, which needs T's default (a T with
+        // none cannot be built this way in a constant evaluation, and clang
+        // says so where the evaluation stops).
+        a += " struct __e { T v; static void* operator new(" + sz + ", void* p) noexcept { return p; } };"
+        a += " " + sz + " __n = 0;"
+        a += " constexpr void " + LowerTargets::ctor_slot_init_at() + "(" + sz + " k, T u) { if consteval { if constexpr (__is_constructible(__h)) { if (__p == nullptr) { __p = new __h{}; } __p->v[k] = static_cast<T&&>(u); } } else { new (static_cast<void*>(&b.v[k])) __e{static_cast<T&&>(u)}; } if (++__n == N) { " + st + " = true; } }"
+        a += " constexpr __a& " + LowerTargets::ctor_slot_get() + "() noexcept { return __v(); }"
+        a += " constexpr __a&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<__a&&>(__v()); }"
+        a += " };"
+        self._cg->sink->spell(at, a)
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
+    }
+
+    /// `::__kairo_fn<R(A...)>`, the C++ type of a Kairo `fn(A) -> R` value
+    /// (Speller, Compiler/Spec/Codegen.md#emitir Closures). One of:
+    ///   - empty (a default-constructed `fn` local, constexpr);
+    ///   - a plain function pointer `__f`: a named function, or a closure
+    ///     that captures nothing (`+[](...){...}`);
+    ///   - a heap lambda `__o` with its three operations `__t`: a closure
+    ///     that captures, adopted by `own(new auto([...](...){...}))`. The
+    ///     lambda is built in its heap slot from the prvalue (no temporary,
+    ///     so each captured copy is made once and destroyed once).
+    /// Copying copies the lambda (each copy keeps its own captured copies,
+    /// as copying a C++ lambda does); a lambda with a move-only capture
+    /// cannot be copied, and copying one traps. Calling forwards each
+    /// argument as its parameter type. Converting to `R(*)(A...)` -- a C
+    /// callee's parameter, a C struct's field -- yields the function, and
+    /// traps on a capturing closure, which has none. No library header:
+    /// `new`/`delete` of a lambda need none, and `__builtin_trap` is
+    /// clang's.
+    prot fn _fn_value_helper(self, header: bool) {
+        var at = self._tu_at()
+        var fv = LowerTargets::fn_value()
+        if header {
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::fn_value_guard(),
+            )
+        }
+
+        if header {
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::fn_value_guard(),
+            )
+        }
+
+        self._cg->sink->spell(at, "template <class S> class " + fv + ";")
+        self._cg->sink->brk()
+        // A raw `unsafe fn`: the plain function pointer, as one name.
+        self._cg->sink->spell(
+            at,
+            "template <class S> using " + LowerTargets::raw_fn() + " = S*;",
+        )
+
+        self._cg->sink->brk()
+        // The call path is a Kairo frame: noexcept unless -funwind, as the
+        // closures it holds are.
+        var nx = (if (self._cg->opts.unwind) => ("") else => " noexcept")
+        var t  = "template <class R, class... A> class " + fv + "<R(A...)> {"
+        // The plain function it holds is a Kairo one (every Kairo function
+        // is noexcept), so the pointer type says so: a call through it is
+        // a call, not an invoke with a terminate landing pad.
+        t += " using __ptr = R (*)(A...)" + nx + ";"
+        // copy too: it builds a Kairo lambda, whose captures copy with
+        // Kairo (noexcept) constructors. A throwing pointer would put a
+        // terminate landing pad in every Kairo function that copies a `fn`
+        // value (set_oom_handler); noexcept moves the one `new` can need
+        // into __copy, out of line.
+        t += " struct __ops { R (*call)(void*, A&&...)" + nx + "; void* (*copy)(const void*)" + nx + "; void (*drop)(void*) noexcept; };"
+        t += " template <class F> static R __call(void* o, A&&... a)" + nx + " { return (*static_cast<F*>(o))(static_cast<A&&>(a)...); }"
+        t += " template <class F> static void* __copy(const void* o)" + nx + " {"
+        t += " if constexpr (requires (const F& f) { F(f); }) { return new F(*static_cast<const F*>(o)); }"
+        t += " else { " + LowerTargets::clang_trap() + "(); } }"
+        t += " template <class F> static void __drop(void* o) noexcept { delete static_cast<F*>(o); }"
+        t += " template <class F> static constexpr __ops __ops_of{&__call<F>, &__copy<F>, &__drop<F>};"
+        // A C++ function that may throw, held in __o: __rcall is a
+        // noexcept frame around a call C++ knows may throw, so clang gives
+        // it the terminate landing pad. Held as the noexcept __ptr instead,
+        // the call had none, and a throw unwound the Kairo frames above
+        // with no cleanups (UB) -- or, with no LSDA there, reached a C++
+        // catch past them.
+        if nx.size() > 0 {
+            t += " using __xptr = R (*)(A...);"
+            t += " static R __rcall(void* o, A&&... a) noexcept { return reinterpret_cast<__xptr>(o)(static_cast<A&&>(a)...); }"
+            t += " static void* __rcopy(const void* o) noexcept { return const_cast<void*>(o); }"
+            t += " static void __rdrop(void*) noexcept {}"
+            t += " static constexpr __ops __raw_ops{&__rcall, &__rcopy, &__rdrop};"
+        }
+
+        t += " __ptr __f = nullptr;"
+        t += " void* __o = nullptr;"
+        t += " const __ops* __t = nullptr;"
+        t += " public:"
+        // constexpr, so a namespace-scope `fn` value initialized from a
+        // function (or a captureless closure) is constant-initialized: no
+        // constructor call at startup, and no static-init order hazard for
+        // another TU's initializer that calls through it. The destructor
+        // stays a runtime one (it may delete a heap lambda), so C++ still
+        // registers it at exit; that is the only startup work left.
+        t += " constexpr " + fv + "() noexcept {}"
+        t += " constexpr " + fv + "(__ptr f) noexcept : __f(f) {}"
+        // A C++ function that is not noexcept (a host's `int f(int)`, kcc's
+        // #include "x.k" callers) still becomes a `fn` value, called through
+        // the __rcall thunk: a throw out of it ends in terminate at the `fn`
+        // value's own noexcept frame, as at any Kairo frame (c-cpp-
+        // exceptions.mdx). A template, so the exact-match constructor above
+        // wins for every Kairo function and their calls stay direct.
+        if nx.size() > 0 {
+            t += " template <class = void> " + fv + "(R (*f)(A...)) noexcept : __o(reinterpret_cast<void*>(f)), __t(&__raw_ops) {}"
+        }
+
+        t += " template <class F> static " + fv + " " + LowerTargets::fn_value_own() + "(F* o) noexcept { " + fv + " r; r.__o = o; r.__t = &__ops_of<F>; return r; }"
+        t += " " + fv + "(const " + fv + "& o)" + nx + " : __f(o.__f), __o(o.__o ? o.__t->copy(o.__o) : nullptr), __t(o.__t) {}"
+        t += " " + fv + "(" + fv + "&& o) noexcept : __f(o.__f), __o(o.__o), __t(o.__t) { o.__o = nullptr; }"
+        t += " " + fv + "& operator=(" + fv + " o) noexcept {"
+        t += " __ptr f = __f; void* p = __o; const __ops* q = __t;"
+        t += " __f = o.__f; __o = o.__o; __t = o.__t; o.__f = f; o.__o = p; o.__t = q; return *this; }"
+        t += " ~" + fv + "() { if (__o) { __t->drop(__o); } }"
+        // Always inline: out of line it is a call to a wrapper that spills
+        // every argument (the heap lambda's path takes them as A&&) before
+        // the indirect call it exists to make. Inlined, the caller makes the
+        // indirect call itself, and a `-> !` call site's unreachable
+        // (EmitIR::_call) follows it rather than the wrapper's call, so the
+        // wrapper's own return path is gone too.
+        t += " " + LowerTargets::attr_always_inline() + "R operator()(A... a) const" + nx + " { if (__o) { return __t->call(__o, static_cast<A&&>(a)...); } return __f(static_cast<A&&>(a)...); }"
+        // A held C++ function converts back to itself: whatever calls it
+        // through the C pointer type is C++, not a noexcept Kairo frame.
+        var raw_back = (if (nx.size() > 0) => (" if (__t == &__raw_ops) { return reinterpret_cast<__ptr>(__o); }")
+                        else => "")
+        t += " operator __ptr() const noexcept { if (__o) {" + raw_back + " " + LowerTargets::clang_trap() + "(); } return __f; }"
+        t += " };"
+        self._cg->sink->spell(at, t)
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
+    }
+
+    /// In the class, for split constructor \p m (FunctionDecl::ci_split):
+    ///   struct __kairo_ciK;
+    ///   static auto __kairo_ctor_preK(__kairo_ciK&& __kairo_s, __kairo_lref<P> p...) -> __kairo_ciK&;
+    ///   R(__kairo_ciK& __kairo_s, __kairo_lref<P> p...);
+    /// The slot record is only declared: its members name the types of
+    /// locals the class itself never needs complete, and it is defined
+    /// beside the bodies (EmitIR::_split_ctor). The trailing return keeps a
+    /// generic owner's out-of-line definition free of `typename`.
+    prot fn _split_ctor_decls(self, m: unsafe *Declarations::FunctionDecl, owner: unsafe *Decl) {
+        var at = self._at(m)
+        var ci = LowerTargets::ctor_slots(m->ci_index)
+        var sa = LowerTargets::ctor_slot_arg()
+        var ps = self._lref_params(m, owner)
+        // The halves run where the constructor runs: an eval one's at
+        // compile time only, so they are `consteval` with it (Compiler/Spec/Eval.md#eval-fn),
+        // and C++ wants every declaration to say so.
+        var ce = (if (m->is_eval()) => ("consteval ")
+                  else => (if (m->is_constexpr()) => ("constexpr ") else => ""))
+        self._cg->sink->spell(at, "struct " + ci + ";")
+        self._cg->sink->spell(
+            at,
+            "static " + ce + "auto " + LowerTargets::ctor_pre(
+                m->ci_index,
+            ) + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&;",
+        )
+
+        self._cg->sink->spell(
+            at,
+            ce + self._spell->leaf(owner) + "(" + ci + "& " + sa + ps + ");",
+        )
+    }
+
+    /// `, __kairo_lref<P> p` per parameter but `self`, in order.
+    priv fn _lref_params(self,
+                         m:     unsafe *Declarations::FunctionDecl,
+                         owner: unsafe *Decl) -> string {
+        var s = ""
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var unsafe *p = m->params[i]
+            if p == &null || p->is_self {
+                continue
+            }
+
+            s += ", ::" + LowerTargets::lref() + "<" + self._spell->param_type(
+                p,
+                &null,
+                owner,
+            ) + "> "
+            s += self._spell->tok_name(
+                p->name,
+                Speller::fid_of(unsafe (m as unsafe *Decl)),
+            )
+        }
+
+        return s
+    }
+
+    /// The definitions of \p d's static fields and of every nested record's,
+    /// after \p d's closing brace (file header, Static fields). \p d is the
+    /// outermost record of a tier-1 entry; anything else has no statics.
+    prot fn _static_defs(self, d: unsafe *Decl) {
+        if (!isa<Declarations::ClassDecl>(d)) && !isa<Declarations::StructDecl>(d) {
+            return
+        }
+
+        var fields = self._fields_of(d)
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *f = fields[i]
+            if f == &null || !f->is_static() || f->is_anonymous_union {
+                continue
+            }
+
+            self._static_def(f, d)
+        }
+
+        var unsafe *dc = Speller::dc_of(d)
+        if dc == &null {
+            return
+        }
+
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var unsafe *nd = *dc->dc_decls.get(i)
+            if nd == &null {
+                continue
+            }
+
+            if isa<Declarations::ClassDecl>(nd) || isa<Declarations::StructDecl>(nd) {
+                self._static_defs(Speller::rep(nd))
+            }
+        }
+    }
+
+    /// `[template <...>] inline [constinit] [thread_local] T R::s = init;`.
+    /// The initializer of a static member's definition is in its class's
+    /// scope, so a thunk is called by leaf, as a default calls it.
+    priv fn _static_def(self, f: unsafe *Declarations::FieldDecl, owner: unsafe *Decl) {
+        // A thunked eval field is defined after its consteval thunk's body,
+        // which a constant expression needs DEFINED (EmitIR::_eval_field_def).
+        if f->is_eval() && f->init_fold == Declarations::FieldFold::Thunk {
+            return
+        }
+
+        var s = self._spell->owner_template_head(owner)
+        s += "inline "
+        var folded = f->init_fold == Declarations::FieldFold::Int
+            || f->init_fold == Declarations::FieldFold::True
+            || f->init_fold == Declarations::FieldFold::False
+            || f->init_fold == Declarations::FieldFold::Null
+        if f->is_eval() {
+            s += "constexpr "
+        } else if folded {
+            s += "constinit "
+        }
+
+        if f->is_thread {
+            s += "thread_local "
+        }
+
+        // The class body declared it `static const T s;` (`static const`
+        // member); C++ rejects a definition whose type drops the const.
+        if f->is_const() || f->is_eval() {
+            s += "const "
+        }
+
+        var nm = self._spell->owner_qual(owner) + "::" + self._spell->leaf(
+            unsafe (f as unsafe *Decl),
+        )
+
+        s += self._spell->decl(f->type_, nm)
+        if f->init_fold == Declarations::FieldFold::None {
+            if f->init != &null {
+                self._ice(
+                    f->name.range,
+                    "InterfaceEmitter: a static field's initializer reached codegen unlowered; FieldInitLowering lowers every one",
+                )
+            }
+
+            s += "{}"
+        } else {
+            s += self._field_default(f)
+        }
+
+        s += ";"
+        self._cg->sink->spell(f->name.range, s)
+        // Compiler/Spec/Eval.md#deferred-conditions: the value an `eval if` was decided on (EmitIR::_global_var).
+        var pin = DeclFacts::decl_fold_pin(f)
+        if pin.size() > 0 {
+            self._cg->sink->spell(
+                f->name.range,
+                "static_assert(" + nm + " == " + pin + ", \"EVAL.md 4.2b: an eval if was decided on this constant; Kairo's type facts and clang disagree on its value\");",
+            )
+        }
+    }
+
+    /// A C++ enumerator value. The 64-bit minimum has no literal (its
+    /// magnitude is no long long), so it is spelled as an expression; a
+    /// magnitude past the long long range takes `u`, which keeps clang from
+    /// warning that the literal is too large for a signed type.
+    prot fn _enum_value(self, c: Declarations::IntConst) -> string {
+        var min_mag = (1 as u64) << (63 as u64)
+        if c.neg {
+            if c.mag == min_mag {
+                return "(-9223372036854775807 - 1)"
+            }
+
+            return f"-{c.mag}"
+        }
+
+        if c.mag >= min_mag {
+            return f"{c.mag}u"
+        }
+
+        return f"{c.mag}"
+    }
+}

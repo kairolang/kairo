@@ -45,12 +45,12 @@ import Codegen::CodegenContext::{
     CodegenContext,
     CodegenPhase,
 }
-import Codegen::Emit::CXXSpell::CXXSpell
 import Codegen::Emit::EmitIR::EmitIR
 import Codegen::Emit::InterfaceEmitter::{
     HelperBlock,
     InterfaceEmitter,
 }
+import Codegen::Emit::Spell::Speller
 import Codegen::EmitPlan::{
     EmitPlan,
     PlanEntry,
@@ -513,12 +513,12 @@ pub class IncludeEmitter {
         if !program { // no set lines (see \p program).
             var sets = cxx::std::vector<unsafe *HeaderSet>()
             for var i: usize = 0; i < plan->entries.size(); ++i {
-                _add_set(CXXSpell::tu_of(plan->entries[i].decl), &sets)
+                _add_set(Speller::tu_of(plan->entries[i].decl), &sets)
             }
 
             for var i: usize = 0; i < bodies.size(); ++i {
                 _add_set(
-                    CXXSpell::tu_of(unsafe (bodies[i] as unsafe *Decl)),
+                    Speller::tu_of(unsafe (bodies[i] as unsafe *Decl)),
                     &sets,
                 )
             }

@@ -675,7 +675,7 @@ pub class HeaderSet {
     /// (`::malloc`, `::exit`; through `extern "C"` too, which lookup sees
     /// through)? A Kairo module whose top C++ namespace would be \p name
     /// cannot open `namespace name {` in a TU that loads them
-    /// (CXXSpell::decide_tops); a namespace is only reopened. Reads the live
+    /// (Speller::decide_tops); a namespace is only reopened. Reads the live
     /// instance directly: ast() would pin the set (contributed), which
     /// release_unused must still be free to drop.
     pub fn declares_global(self, const name: string) -> bool {

@@ -124,7 +124,7 @@
 ///     with `other` otherwise bare: no mode, no default, nothing after it,
 ///     and no `const` under `@move`. Anything else of that shape is an error
 ///     at the declaration. The accepted ones are STAMPED: `other` gets the
-///     mode the marker means (`@copy` -> Inout, `@move` -> Move), so CXXSpell
+///     mode the marker means (`@copy` -> Inout, `@move` -> Move), so Speller
 ///     and MoveCheck read an ordinary parameter mode and never the marker.
 ///     The stamp lands after ExprTyper on purpose: X ranks a copy's argument
 ///     against the by-value view, which is what C++ overload resolution does
@@ -804,7 +804,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             }
 
             // A `fn` value may own a capturing closure, which it copies and
-            // frees with itself (CXXSpell: `::__kairo_fn`), so it is not the
+            // frees with itself (Speller: `::__kairo_fn`), so it is not the
             // bits of an address: a record holding one is not trivial. A
             // raw `unsafe fn` is the address alone.
             case TypeKind::FunctionPointerType {

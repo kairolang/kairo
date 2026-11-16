@@ -137,7 +137,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
 
     /// The place operator whose body is being rewritten, or null. A `return`
     /// inside one hands C++ the object, not its address: the decl still says
-    /// `*T` (importers' X reads it), but CXXSpell declares it `T&`.
+    /// `*T` (importers' X reads it), but Speller declares it `T&`.
     priv var _place_fn: unsafe *FunctionDecl = &null
 
     /// lower_one's calls, in the order built: when set, each call

@@ -5,7 +5,7 @@
 ///
 ///            could a user declare it in Kairo?
 ///              yes -> a LANG ITEM: a real decl in the builtins module,
-///                     found by lookup, spelled by CXXSpell like any decl.
+///                     found by lookup, spelled by Speller like any decl.
 ///              no  -> a LOWER TARGET: a fragment of the C++ name of
 ///                     something the USER declared (`__kairo_contains` is
 ///                     the member name of their `op in`), invented here.
@@ -316,7 +316,7 @@ pub fn cxx_std_name() -> string {
 }
 
 /// The program's entry point: a free function by this name at file scope
-/// is the program's (CXXSpell::is_main emits it as the global `int main`,
+/// is the program's (Speller::is_main emits it as the global `int main`,
 /// StmtTyping and ScriptRules hold it to that shape), and ScriptLowering
 /// mints one around a script's top-level statements. The linker's default
 /// entry SYMBOL (Config/Linker.k) is the C runtime's word for the same
@@ -357,7 +357,7 @@ pub fn tuple_field_name(i: usize) -> string {
 ///        item's own scope (Lib/builtin), then uses as declarations: a
 ///        lowering reads a Range's `begin` field or calls a Yield's `next`.
 ///        Not LowerTargets: those are names the compiler INVENTS; these are
-///        declared in Kairo source, and CXXSpell spells the decl it finds.
+///        declared in Kairo source, and Speller spells the decl it finds.
 ///        One spelling each, as the tuple names above: a rename in
 ///        Lib/builtin is a change here, not a sweep. `data` and `len` repeat
 ///        across string and Slice on purpose -- two declarations that
@@ -1896,7 +1896,7 @@ pub class LangMacros {
 ///   slot's `set` -- it becomes a row (ctor_slot_set), as every member
 ///   below did.
 pub class LowerTargets {
-    /// # Operators C++ cannot spell (writer: CXXSpell::operator_name)
+    /// # Operators C++ cannot spell (writer: Speller::operator_name)
 
     /// `fn op in (self, x: T) -> bool` -- containment.
     pub static fn op_contains() -> string {
@@ -2007,7 +2007,7 @@ pub class LowerTargets {
 
     /// The include guard around a witness definition in a header: every
     /// header that reaches one writes it, as a tuple record's. \p key is the
-    /// witness and its Self, already an identifier (CXXSpell::_path_ident).
+    /// witness and its Self, already an identifier (Speller::_path_ident).
     pub static fn witness_guard(const key: string) -> string {
         return "__KAIRO_W_" + key
     }
@@ -2163,7 +2163,7 @@ pub class LowerTargets {
         return h
     }
 
-    /// # Extension scopes (writer: InterfaceEmitter; reader: CXXSpell)
+    /// # Extension scopes (writer: InterfaceEmitter; reader: Speller)
 
     /// `struct N::__kairo_ext_<X>`: every extension member of X declared in
     /// namespace N is a static member of it (Compiler/Spec/Generics.md#partial-selection).
@@ -2408,7 +2408,7 @@ pub class LowerTargets {
         return f"__kairo_init{i}_" + field
     }
 
-    /// # Local declarations (writer: CXXSpell::leaf)
+    /// # Local declarations (writer: Speller::leaf)
 
     /// A `fn`, class, struct, union or enum declared in a function body is
     /// emitted at namespace scope (Compiler/Spec/Codegen.md#emitir, Local declarations), so its
@@ -2422,7 +2422,7 @@ pub class LowerTargets {
 
     /// `__kairo_mspec_<line>_<col>_<name>`: an extension member that
     /// specializes a class method (FunctionDecl::member_spec_of, writer:
-    /// CXXSpell::leaf), from the position of its own name.
+    /// Speller::leaf), from the position of its own name.
     pub static fn member_spec(const name: string, line: u32, col: u32) -> string {
         return f"__kairo_mspec_{line}_{col}_{name}"
     }
@@ -3086,7 +3086,7 @@ pub class LowerTargets {
         return "__kairo_destroy_at"
     }
 
-    /// # fn values and closures (writers: InterfaceEmitter, CXXSpell, EmitIR)
+    /// # fn values and closures (writers: InterfaceEmitter, Speller, EmitIR)
 
     /// `template <class S> class __kairo_fn`: a Kairo `fn(A) -> R` value,
     /// specialized on `R(A...)`. It holds either a plain function pointer
@@ -3288,7 +3288,7 @@ pub class LowerTargets {
     }
 
     /// The C++ attributes of `@hot_path`, `@cold_path`, `@pure` and `const fn`
-    /// (CXXSpell::fn_attrs), each with its trailing space.
+    /// (Speller::fn_attrs), each with its trailing space.
     // GNU spelling, not [[gnu::...]]: a C++11 attribute cannot follow
     // `static` / `virtual` in a member's head, and these lead it.
     pub static fn attr_hot() -> string {
@@ -3317,7 +3317,7 @@ pub class LowerTargets {
     }
 
     /// The calling conventions (FunctionDecl::call_conv), on every C++
-    /// declaration of the function (CXXSpell::fn_attrs). The GNU spelling,
+    /// declaration of the function (Speller::fn_attrs). The GNU spelling,
     /// not `[[clang::preserve_most]]`: a C++11 attribute may not follow
     /// `static` or `virtual`, which a method's head puts first.
     pub static fn attr_preserve_most() -> string {
@@ -3332,7 +3332,7 @@ pub class LowerTargets {
         return "__attribute__((preserve_none)) "
     }
 
-    /// A `thread` global's ELF TLS model (CXXSpell::tls_model), trailing
+    /// A `thread` global's ELF TLS model (Speller::tls_model), trailing
     /// its declarator with a leading space: "local-exec" or "initial-exec".
     pub static fn attr_tls_model(const m: string) -> string {
         return " __attribute__((tls_model(\"" + m + "\")))"

@@ -63,7 +63,7 @@
 ///
 ///   \par Generic bodies
 ///     A generic body's result may name its type parameters: one C++
-///     template serves every instance, and CXXSpell spells such a result
+///     template serves every instance, and Speller spells such a result
 ///     through `__kairo_pset`, which C++ orders per instance. Nothing here
 ///     spells what only the instance knows -- an arm's test and binding of
 ///     a dependent set are PanicOpExpr Holds / ErrorRef, an Err's place is
@@ -588,7 +588,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     }
 
     /// A panicking `fn` type's C++ result, formed and recorded on the
-    /// canonical node the first time any TU meets it (CXXSpell spells the
+    /// canonical node the first time any TU meets it (Speller spells the
     /// value type from it); its parameters' and result's `fn` types too.
     priv fn _fn_type_result(self, fp_in: unsafe *FunctionPointerType) -> unsafe *Type {
         if fp_in == &null {

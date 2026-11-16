@@ -4,7 +4,7 @@
 ///          `@align(N)` (LangAttrs). One reading for the three places that
 ///          act on them -- Sema's layout prediction
 ///          (EnumLayoutQuery::_plain_record_size), the C++ record and the
-///          C++ field / variable (CXXSpell) -- so the size Kairo folds and
+///          C++ field / variable (Speller) -- so the size Kairo folds and
 ///          the size clang lays out come from the same rule.
 ///
 ///   Read through the DECL'S OWN context: an annotation's name is a per-fid

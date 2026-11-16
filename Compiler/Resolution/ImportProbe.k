@@ -1260,7 +1260,7 @@ pub class ImportResolver {
     ///          there; taking the path would put two modules in one C++
     ///          namespace (and the driver reads a leading `builtin` as the
     ///          prelude). Such a file stays pathless, as one outside every
-    ///          root does (CXXSpell::is_entry_tu).
+    ///          root does (Speller::is_entry_tu).
     pub fn input_module_path(self, const file: Path) -> cxx::std::vector<string> {
         var lock = kairo::std::LockGuard(self._mu)
         var segs = self.canonical_module_path(file)

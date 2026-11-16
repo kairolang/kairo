@@ -125,14 +125,14 @@ import Codegen::Backend::CodegenBackend::{
     CodegenQueue,
     CodegenRun,
 }
-import Codegen::Backend::EmitCXXHeader::EmitCXXHeader
+import Codegen::Backend::EmitHeader::EmitCXXHeader
 import Codegen::Backend::InterfacePCH::InterfacePCH
 import Codegen::CodegenContext::{
     CodegenContext,
     CodegenPhase,
 }
-import Codegen::Emit::CXXSpell::CXXSpell
 import Codegen::Emit::InterfaceEmitter::InterfaceEmitter
+import Codegen::Emit::Spell::Speller
 import Codegen::EmitPlan::{
     EmitPlan,
     PlanMode,
@@ -1068,7 +1068,7 @@ pub class FrontendAction {
         }
 
         // Each module's top C++ namespace, decided once for the build
-        // (CXXSpell::decide_tops) from the graph's header sets, now that they
+        // (Speller::decide_tops) from the graph's header sets, now that they
         // are joined and before any stand-in (TypeExport) or TU is spelled. Not
         // only under `hc`: a build with no C++ headers still renames `main`.
         {
@@ -1087,11 +1087,11 @@ pub class FrontendAction {
                     self._global_scope->instances(),
                 )
 
-                var tsp = CXXSpell(unsafe &tcg)
+                var tsp = Speller(unsafe &tcg)
                 tops.push_back(tsp.top_segment(tctx->tu))
             }
 
-            CXXSpell::decide_tops(
+            Speller::decide_tops(
                 &tops,
                 fn (c: string) -> bool {
                     for var k: usize = 0; k < tsets.size(); ++k {
@@ -1539,7 +1539,7 @@ pub class FrontendAction {
                 // The header root set too (own pub decls, no uses), so both
                 // are golden-testable from one flag. A pathless TU has no
                 // header (EmitCXXHeader skips it), so its dump would be noise.
-                if CXXSpell::is_entry_tu(tu) {
+                if Speller::is_entry_tu(tu) {
                     continue
                 }
 
@@ -1578,7 +1578,7 @@ pub class FrontendAction {
                         self._fids[i],
                     )
 
-                    if bctx == &null || bctx->tu == &null || CXXSpell::is_entry_tu(bctx->tu) {
+                    if bctx == &null || bctx->tu == &null || Speller::is_entry_tu(bctx->tu) {
                         continue
                     }
 
@@ -3570,7 +3570,7 @@ pub class FrontendAction {
             var to_single = !single_obj.empty() && fid == self._file_id && !self.discovered
             if !to_single {
                 var ocg  = CodegenContext(ctx, &null, psym, insts)
-                var sp   = CXXSpell(unsafe &ocg)
+                var sp   = Speller(unsafe &ocg)
                 var segs = sp.module_segments(ctx->tu)
                 var rel  = ""
                 for var i: usize = 0; i < segs.size(); ++i {
@@ -3743,7 +3743,7 @@ pub class FrontendAction {
                 }
 
                 var gcg = CodegenContext(gctx, &null, psym, insts)
-                var gsp = CXXSpell(unsafe &gcg)
+                var gsp = Speller(unsafe &gcg)
                 rkeys.push_back(
                     "0" + self._module_key(
                         &gsp,
@@ -3801,7 +3801,7 @@ pub class FrontendAction {
             var plans = cxx::std::vector<unsafe *EmitPlan>()
             for var j: *CodegenJob in jobs {
                 var kcg = CodegenContext(j->ctx, &null, psym, insts)
-                var ksp = CXXSpell(unsafe &kcg)
+                var ksp = Speller(unsafe &kcg)
                 jkeys.push_back(
                     self._module_key(&ksp, j->ctx->tu, Path(j->path).filename()),
                 )
@@ -3837,7 +3837,7 @@ pub class FrontendAction {
         }
 
         // Which TUs compile under an interface PCH (Compiler/Spec/Codegen.md#the-interface-pch):
-        // one per flavour (CXXSpell::interface_flavour), since TUs that spell a
+        // one per flavour (Speller::interface_flavour), since TUs that spell a
         // declaration differently never share one. Not under --print-cg /
         // --print-ir, which print each TU's whole stream, nor -Wshift-count-
         // unproven, which reports on the own bodies a TU no longer writes.
@@ -3858,7 +3858,7 @@ pub class FrontendAction {
         flavour_on.push_back(0 as u8)
         for var j: *CodegenJob in jobs {
             var fcg = CodegenContext(j->ctx, &null, psym, insts)
-            var fsp = CXXSpell(unsafe &fcg)
+            var fsp = Speller(unsafe &fcg)
             flavours.push_back(fsp.interface_flavour(j->ctx->tu))
         }
 
@@ -4305,7 +4305,7 @@ pub class FrontendAction {
     /// file's name, never its directory: a key or record must not depend on
     /// where the checkout is).
     priv fn _module_key(self,
-                        sp:             *CXXSpell,
+                        sp:             *Speller,
                         tu:             unsafe *TranslationUnit,
                         const fallback: string) -> string {
         var segs = sp->module_segments(tu)

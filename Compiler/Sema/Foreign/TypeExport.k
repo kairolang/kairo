@@ -128,7 +128,7 @@ import AST::Node::Types::{
     NullableType,     OpaqueFFIType,    PointerType,    TypeExpr,
 }
 import Codegen::CodegenContext::CodegenContext
-import Codegen::Emit::CXXSpell::CXXSpell
+import Codegen::Emit::Spell::Speller
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Sema::Foreign::ForeignRegistry::ForeignRegistry
 import Sema::Foreign::TypeImport::TypeImport
@@ -147,8 +147,8 @@ pub class TypeExport {
     // Stand-ins for Kairo records (see the file header). All three or none:
     // with any of them null a Kairo record is refused, as it always was.
     pub var reg:       unsafe *ForeignRegistry         = &null ///< stand-in USR -> the Kairo decl.
-    pub var psym:      unsafe *PreprocessorSymbolTable = &null ///< CXXSpell's module segments.
-    pub var instances: unsafe *InstantiationRegistry   = &null ///< CXXSpell's CodegenContext wants it.
+    pub var psym:      unsafe *PreprocessorSymbolTable = &null ///< Speller's module segments.
+    pub var instances: unsafe *InstantiationRegistry   = &null ///< Speller's CodegenContext wants it.
     /// The TU a Kairo instance this export names first is homed in
     /// (InstanceEntry::home_fid: EmitPlan writes its explicit instantiation
     /// there). The demanding TU, which the fill knows; -1 falls back to the
@@ -1309,7 +1309,7 @@ pub class TypeExport {
         return self.cctx->getIntTypeForBitwidth(bits, sgn)
     }
 
-    /// The speller for the name EmitIR gives a Kairo decl. CXXSpell only
+    /// The speller for the name EmitIR gives a Kairo decl. Speller only
     /// reads decl facts, the TU's imm table and the PP symbols, so a
     /// sink-less context is enough. False if \p d has no TU to spell from
     /// or is nested in a type (the owner would need a stand-in of its own).
@@ -1318,13 +1318,13 @@ pub class TypeExport {
                        @inout segs: cxx::std::vector<string>,
                        @inout leaf: string,
                        fid:         unsafe *u32) -> bool {
-        var unsafe *tu = CXXSpell::tu_of(d)
+        var unsafe *tu = Speller::tu_of(d)
         if tu == &null || tu->ctx == &null {
             return false
         }
 
         var cg = CodegenContext(tu->ctx, &null, self.psym, self.instances)
-        var sp = CXXSpell(unsafe &cg)
+        var sp = Speller(unsafe &cg)
         if sp.owner_types(d).size() > 0 {
             return false
         }
@@ -1902,13 +1902,13 @@ pub class TypeExport {
                 return &null
             }
 
-            var unsafe *tu = CXXSpell::tu_of(d)
+            var unsafe *tu = Speller::tu_of(d)
             if tu == &null || tu->ctx == &null {
                 return &null
             }
 
             var cg = CodegenContext(tu->ctx, &null, self.psym, self.instances)
-            *leaf = CXXSpell(unsafe &cg).leaf(d)
+            *leaf = Speller(unsafe &cg).leaf(d)
             return unsafe (ord as unsafe *clang::DeclContext)
         }
 
@@ -2269,9 +2269,9 @@ pub class TypeExport {
         var loc = clang::SourceLocation()
         var unsafe *tu = self.cctx->getTranslationUnitDecl()
         var params: llvm::SmallVector<unsafe *clang::NamedDecl, 8>
-        var unsafe *tu_ctx = CXXSpell::tu_of(prim)->ctx
+        var unsafe *tu_ctx = Speller::tu_of(prim)->ctx
         var cg = CodegenContext(tu_ctx, &null, self.psym, self.instances)
-        var sp = CXXSpell(unsafe &cg)
+        var sp = Speller(unsafe &cg)
         for var i: usize = 0; i < gps.size(); ++i {
             // A parameter named in a macro body is a TkMacroExpand token,
             // whose imm is not an index into the declaring file's table:
@@ -2500,8 +2500,7 @@ pub class TypeExport {
                 kargs.push_back((args)[i])
             }
 
-            var hf = if (self.home_fid >= 0) => (self.home_fid as u32)
-                     else => CXXSpell::fid_of(prim)
+            var hf = if (self.home_fid >= 0) => (self.home_fid as u32) else => Speller::fid_of(prim)
             var unsafe *e = self.instances->instance_for(
                 prim,
                 unsafe &kargs,

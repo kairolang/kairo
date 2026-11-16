@@ -75,8 +75,8 @@
 ///   \par Codegen
 ///     EmitIR emits the DeclStmt(StructDecl) in place as `struct N {
 ///     fields; ~N() { body } };` (EmitIR::_local_record) and the local as
-///     any local; CXXSpell names a function-scope record by its leaf
-///     (CXXSpell::in_function_scope); EmitPlan admits none of it, since it
+///     any local; Speller names a function-scope record by its leaf
+///     (Speller::in_function_scope); EmitPlan admits none of it, since it
 ///     is part of a body, not of the interface.
 ///
 ///   Phase: LOWER, after CopyMoveLowering (its `T&&` cast wraps the node
@@ -356,8 +356,8 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
         var k  = (self._count as usize)
         self._count += 1
 
-        // The record, homed in the function: EmitPlan skips it and CXXSpell
-        // names it by leaf off this scope (CXXSpell::in_function_scope).
+        // The record, homed in the function: EmitPlan skips it and Speller
+        // names it by leaf off this scope (Speller::in_function_scope).
         var unsafe *fdc = unsafe (f as unsafe *DeclContext)
         var unsafe *rec = StructDecl::create(
             self.ctx,
@@ -369,7 +369,7 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
         rec->mark_definition() // synthesized whole (decl_only_forward)
         self._home(unsafe (rec as unsafe *Decl), fdc)
         // Implicit: a record the user writes in a body is hoisted to
-        // namespace scope (CXXSpell::is_hoisted_local); this one captures
+        // namespace scope (Speller::is_hoisted_local); this one captures
         // the body's locals by address and stays in it.
         rec->is_implicit = true
         var unsafe *rdc    = unsafe (rec as unsafe *DeclContext)

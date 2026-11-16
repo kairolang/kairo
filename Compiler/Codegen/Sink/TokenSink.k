@@ -572,7 +572,7 @@ pub class TokenSink derives EmitSink {
     ///          into the neighbouring fids.
     ///
     ///          A NAME anchor (the whole span one identifier: a declaration's
-    ///          name, CXXSpell::at) keeps its first byte for the token that
+    ///          name, Speller::at) keeps its first byte for the token that
     ///          spells exactly that name (\p exact). That token's location is
     ///          the declaration's to clang -- "'Point' declared here" -- and
     ///          the wrapper and keywords anchored on the same name would

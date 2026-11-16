@@ -59,7 +59,7 @@
 ///       - a `fn`, class, struct, union or enum declared in a body that
 ///         names a generic parameter of a declaration around it (the
 ///         function's `T`, or its class's). Codegen emits a local
-///         declaration at namespace scope (CXXSpell::is_hoisted_local),
+///         declaration at namespace scope (Speller::is_hoisted_local),
 ///         where that parameter is not in scope; it would have to become a
 ///         template over it, and every use in the body pass it. One that
 ///         names no outer parameter -- generic in its own right or not --

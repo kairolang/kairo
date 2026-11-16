@@ -113,7 +113,7 @@ pub class ScriptRules {
         return self.binding_of(item) == &null
     }
 
-    /// A free function named `main` at file scope (CXXSpell::is_main's test).
+    /// A free function named `main` at file scope (Speller::is_main's test).
     fn is_main(self, d: unsafe *Decl) -> bool {
         var unsafe *f = dyn_cast<FunctionDecl>(d)
         if f == &null || f->is_method() || f->is_operator {

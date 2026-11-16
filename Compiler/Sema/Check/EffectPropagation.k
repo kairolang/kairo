@@ -864,7 +864,7 @@ pub fn panic_type_depth(t: unsafe *Type, budget: u32) -> u32 {
 /// it overrides: C++ compares the declared parameter types (top-level cv
 /// dropped), so a Kairo `x: D` (by value; ParamPassInference leaves an
 /// override alone) does not override a C++ `const D&` (SI8), while a Kairo
-/// `const x: D` (CXXSpell::_param_type: `const D&`) does. 0 by value, 1
+/// `const x: D` (Speller::_param_type: `const D&`) does. 0 by value, 1
 /// `T&`, 2 `T&&`; \p inner_const is the referee's const.
 pub fn override_param_shape(p:           unsafe *Declarations::ParamDecl,
                             t:           unsafe *Type,

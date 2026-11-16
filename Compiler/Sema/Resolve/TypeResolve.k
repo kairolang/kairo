@@ -997,7 +997,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         // A string literal (Compiler/Spec/Eval.md#eval-classes, §11, USER): `Widget<Config(4,
         // "small")>`. Its node is its decoded bytes, so equal literals are
         // one value; C++ gets the string built over `__kairo_estr<...>`
-        // (CXXSpell::value). Only as an argument: a string is no length.
+        // (Speller::value). Only as an argument: a string is no length.
         if isa<StringLiteralExpr>(e) {
             var unsafe *sl = cast<StringLiteralExpr>(e)
             if self._vx_in_call == 0 {
@@ -2142,7 +2142,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         // A bare pack, `T...`, the one form an argument list takes today:
         // its canonical is the pack parameter, which stands for its
         // expansion wherever it is an argument (Deduction::substitute
-        // splices the elements in; CXXSpell spells `T...`). A pattern over
+        // splices the elements in; Speller spells `T...`). A pattern over
         // the pack (`Box<T>...`) has none yet.
         var unsafe *pc = canon_unqual(n->pattern->canonical)
         if pc != &null && isa<GenericParamType>(pc) && cast<GenericParamType>(pc)->is_pack {
@@ -5333,7 +5333,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     ///     (`extend <T> [*T]`) is an ordinary record target and stays legal.
     ///   - a function type, `fn(A) -> R` / `unsafe fn(A) -> R` (SC283E):
     ///     the type of a function pointer or closure, which has no scope to
-    ///     hold members (an ICE in CXXSpell::ext_scope_name before this).
+    ///     hold members (an ICE in Speller::ext_scope_name before this).
     ///   - a bare type parameter, `extend <T> T` with or without bounds, and
     ///     `extend <T> T?` (SC284E): a target that matches every type (or
     ///     every nullable one) would join the member lookup of all of them.

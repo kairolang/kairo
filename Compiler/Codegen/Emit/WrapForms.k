@@ -109,7 +109,7 @@ pub class WrapForms {
 
         if k == TokenKind::OpLessLess || k == TokenKind::OpGreaterGreater {
             // _shift_form per instance (SHIFT spec §3.3): R from T's size,
-            // as CXXSpell::reg_width computes it, and a signed `>>` through
+            // as Speller::reg_width computes it, and a signed `>>` through
             // S, U's signed twin (U is already promoted to at least
             // `unsigned`, so S is at least `int`: the sign-extension).
             var rr   = LowerTargets::wrap_tmp("R", d)

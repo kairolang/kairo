@@ -3780,7 +3780,7 @@ pub class <D: type> RecursiveASTVisitor {
         // `methods` exactly as it does for a class. Walking only the fields
         // left a struct ctor parsed and name-bound but never type-resolved:
         // its parameters' type nodes kept a null canonical, and the first
-        // thing to ask for one -- CXXSpell, emitting the interface -- ICEd
+        // thing to ask for one -- Speller, emitting the interface -- ICEd
         // with "type with no canonical reached codegen". Nullary ctors hid it,
         // which is why `struct string { string() }` was fine and
         // `struct <T> Slice { Slice(*T, usize) }` was not.

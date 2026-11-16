@@ -9,7 +9,7 @@
 ///     every `Panic<...>` whose set holds it (§1.1a). Every TU of a program
 ///     must compute the same id with no coordination, so it is a hash of a
 ///     spelling every TU agrees on: the type's C++ spelling, the one C++
-///     itself needs every TU to agree on (CXXSpell's qualified names for
+///     itself needs every TU to agree on (Speller's qualified names for
 ///     records, the emitted name for builtins). The hash is pinned in
 ///     Compiler/Spec/Panic.md#canonical-sets; nothing else may compute an id, and codegen reads the
 ///     ids off InstanceEntry::type_ids (EnumLayoutQuery::sweep) rather than
@@ -79,7 +79,7 @@ import AST::Node::Types::{
     PointerType,
 }
 import Codegen::CodegenContext::CodegenContext
-import Codegen::Emit::CXXSpell::CXXSpell
+import Codegen::Emit::Spell::Speller
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
@@ -253,7 +253,7 @@ pub class PanicTypeIds derives PackSetOrder {
     }
 
     /// The spelling \p t's id hashes: its C++ spelling, written here rather
-    /// than by CXXSpell::_type so that it is the same before and after the
+    /// than by Speller::_type so that it is the same before and after the
     /// lowerings (a `T?` is its Null record either way), needs no emit
     /// state, and takes no lock (record() and the registry call it while
     /// forming a type). "" when \p t has no id: dependent, a reference, an
@@ -335,9 +335,9 @@ pub class PanicTypeIds derives PackSetOrder {
                     return ""
                 }
 
-                // A raw `unsafe fn` is `::__kairo_raw_fn<R(A...)>` (CXXSpell).
+                // A raw `unsafe fn` is `::__kairo_raw_fn<R(A...)>` (Speller).
                 var fv = if (f->is_raw) => (LowerTargets::raw_fn()) else => LowerTargets::fn_value()
-                var s = "::" + fv + "<" + CXXSpell::call_conv_attr(f->call_conv) + r + "("
+                var s = "::" + fv + "<" + Speller::call_conv_attr(f->call_conv) + r + "("
                 for var i: usize = 0; i < f->params.size(); ++i {
                     var p = self.spelling(f->params[i])
                     if p.size() == 0 {
@@ -421,17 +421,17 @@ pub class PanicTypeIds derives PackSetOrder {
         return panic_fnv64(s)
     }
 
-    /// `::ns::Outer::Name` for a Kairo record, through CXXSpell over a
+    /// `::ns::Outer::Name` for a Kairo record, through Speller over a
     /// sink-less context (TypeExport's pattern): what every TU's C++ calls
     /// it. "" when the decl has no TU or the PP symbols are not wired.
     priv fn _qual(self, d: unsafe *Decl) -> string {
-        var unsafe *tu = CXXSpell::tu_of(d)
+        var unsafe *tu = Speller::tu_of(d)
         if tu == &null || tu->ctx == &null || self.psym == &null {
             return ""
         }
 
         var cg = CodegenContext(tu->ctx, &null, self.psym, &null)
-        var sp = CXXSpell(unsafe &cg)
+        var sp = Speller(unsafe &cg)
         return sp.qual_name(d)
     }
 

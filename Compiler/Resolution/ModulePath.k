@@ -34,7 +34,7 @@ pub class ModulePath { // 256-bit class (32 bytes - max)
 
 /// `geo/vec.hh` for the module path `geo::vec`: where `--emit-headers` puts
 /// a module's header under its output directory. The one statement of that
-/// layout, for the emitter (CXXSpell::header_path) and for kals, which tells
+/// layout, for the emitter (Speller::header_path) and for kals, which tells
 /// the clangd bridge where the header is (Analyzer/Index/Worker.k).
 pub fn header_path_of(const segs: cxx::std::vector<string>) -> string {
     var s = ""

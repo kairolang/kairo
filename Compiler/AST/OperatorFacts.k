@@ -3,7 +3,7 @@
 ///   \brief What an operator declaration IS, read off its tokens: the
 ///          operator with the fixity marker removed, its table key, whether
 ///          it is postfix, and the compound/base pairing. Every sema reader
-///          of `FunctionDecl::op_token` goes through here. CXXSpell's
+///          of `FunctionDecl::op_token` goes through here. Speller's
 ///          is_place_operator mirrors is_place, return-type test included,
 ///          on the codegen side of the import boundary, on purpose.
 ///

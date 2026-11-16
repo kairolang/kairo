@@ -53,7 +53,9 @@ Compiler/
 │   └── Lower/      Kairo -> core-Kairo rewrites that feed Codegen
 ├── Codegen/        Compiler/Spec/Codegen.md; checked tree -> tokens -> object:
 │   │               the emit plan and its read-only walks, the codegen
-│   │               context, ICE reports naming the program node
+│   │               context, ICE reports naming the program node; a large
+│   │               class (the plan, an emitter, the speller) spans files,
+│   │               one `extend` per concern, listed in its own file's header
 │   ├── Emit/       the emitters: bodies, declarations and interfaces,
 │   │               interface witnesses, C++ name spelling, builtin operators
 │   │               on a type C++ decides
@@ -87,7 +89,7 @@ Compiler/
 │                   ExprPrinter / ... / ASTPrinter entry points)
 │                   Top level: shared fact tables (DeclFacts, AttrFacts,
 │                   OperatorFacts, LangItems, EnumNiche, ParamMode,
-│                   PrimitiveLimits, CxxReservedWords, VisibilityFacts),
+│                   PrimitiveLimits, ForeignReservedWords, VisibilityFacts),
 │                   FrozenList (ASTSupport), the completion callback the
 │                   parser calls (CodeCompleteConsumer)
 ├── Interop/

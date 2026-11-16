@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------- Sema/Verify/CxxNameCheck.k --- ///
+/// --- The Kairo Project --------------- Sema/Verify/ForeignNameCheck.k --- ///
 ///
 ///   \brief Verify that every user-declared name is spellable as a C++
 ///          identifier. Kairo emits identical spellings across the FFI
@@ -9,7 +9,7 @@
 ///   \detail
 ///     Two rule families, both reported at the DECLARATION, never at a use:
 ///       1. C++ KEYWORDS   set built from clang's own tables (see
-///          CxxReservedWords.k), so it cannot drift from what clang rejects.
+///          ForeignReservedWords.k), so it cannot drift from what clang rejects.
 ///       2. RESERVED PATTERNS   double underscore anywhere and leading
 ///          underscore + uppercase, which [lex.name]/3 reserves at every
 ///          scope, and a plain leading underscore, which C++ reserves only
@@ -34,7 +34,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import AST::CxxReservedWords::{
+import AST::ForeignReservedWords::{
     CxxKeywordSet,
     cxx_reserved_everywhere,
     cxx_reserved_reason,
@@ -70,7 +70,7 @@ pub class CxxNameCheck derives RecursiveASTVisitor<CxxNameCheck> {
             return
         }
 
-        // Requires a fully-populated imm table   see CxxReservedWords.k.
+        // Requires a fully-populated imm table   see ForeignReservedWords.k.
         self.kw.build(self.sc->imm_table())
 
         var *items = &tu->program->items

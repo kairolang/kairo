@@ -6,7 +6,7 @@
 ///   \detail
 ///     `fn f(s: string)` was `f(::builtin::string::string s)`: every call
 ///     deep-copied an owned string, and the callee only ever read it. A
-///     `const s: string` was already `const T&` (CXXSpell::_param_type), so
+///     `const s: string` was already `const T&` (Speller::_param_type), so
 ///     a parameter whose body could have been written with `const` is
 ///     treated as if it had been, and the warning says to write it:
 ///
@@ -118,7 +118,7 @@
 ///
 ///   Phase: LOWER, after StringLowering (the last lowering): reads the tree
 ///   EmitIR will render, writes ParamDecl::inferred_const, read only by
-///   codegen (CXXSpell::_param_type, EmitIR::_fn_ref_adapter), which runs
+///   codegen (Speller::_param_type, EmitIR::_fn_ref_adapter), which runs
 ///   after every TU's Sema.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the

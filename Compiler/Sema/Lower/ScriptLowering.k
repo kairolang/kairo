@@ -855,7 +855,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
     }
 
     /// `fn main() -> i32 { body }` at file scope. Every field set, as
-    /// FieldInitLowering::_new_fn sets a thunk's; CXXSpell::is_main makes it
+    /// FieldInitLowering::_new_fn sets a thunk's; Speller::is_main makes it
     /// the C++ `int main`.
     priv fn _main(self, at: SourceRange, body: *ListBuilder<unsafe *Stmt>) -> unsafe *FunctionDecl {
         var unsafe *dc = self._tu_dc(self.sc->tu)

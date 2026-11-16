@@ -732,7 +732,7 @@ pub class FunctionPointerType derives Type {
     /// is `__kairo_fn<Panic<R, E...>(A...)>`. Formed once, by the first
     /// PanicLowering to meet the type (types are shared by every TU, and
     /// the form is canonical, so every TU forms the same one). Null
-    /// otherwise; CXXSpell spells `return_type` then.
+    /// otherwise; Speller spells `return_type` then.
     pub var panic_result: unsafe *Type = &null
 
     pub static fn create(ctx:         *ASTContext,

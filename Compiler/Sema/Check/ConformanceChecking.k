@@ -415,7 +415,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// predicates, on a concrete instance: each predicate at the receiver's
     /// arguments, and a false one is the error here, in Kairo's words.
     /// Codegen spells the predicates as the member's trailing C++ clause
-    /// (CXXSpell::member_requires), which is what refuses a call this
+    /// (Speller::member_requires), which is what refuses a call this
     /// cannot decide -- a record's layout, a trait only C++ answers.
     priv fn _check_member_requires(self, c: unsafe *CallExpr) {
         var unsafe *f = dyn_cast<Declarations::FunctionDecl>(self._callee_of(c))
@@ -1633,7 +1633,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
 
             // A member whose `requires` is false here is dropped from this
-            // instance by C++ (its trailing clause, CXXSpell::member_requires),
+            // instance by C++ (its trailing clause, Speller::member_requires),
             // so its body never runs as this instance: a reuse in it is no
             // use after move (vector.k's resize(n, value) on [Mv]).
             if self._requires_false_at(ms[k], unsafe &d) {
@@ -1762,7 +1762,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// The `@copy` constructor record type \p rt's declaration declares,
     /// when its `requires` is known false at \p rt, and the type argument
     /// whose copy it needed: C++ drops that constructor from the instance
-    /// (CXXSpell::member_requires), so the instance has no copy although
+    /// (Speller::member_requires), so the instance has no copy although
     /// ClassLifecycle, reading the declaration, calls it COPY (`[Mv]`).
     /// MoveCheck asks at each copy of an lvalue.
     pub fn dropped_copy(self, rt: unsafe *Type) -> DroppedCopy {
@@ -2253,7 +2253,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     }
 
     /// Clause \p e is made only of what the emitted C++ template head
-    /// carries (CXXSpell::requires_clause, CXXSpell::fn_preds_in_head):
+    /// carries (Speller::requires_clause, Speller::fn_preds_in_head):
     /// conformances to a concrete interface, which are concepts there, and
     /// value predicates over literals, value parameters, `sizeof` and
     /// `alignof`, under `!` `-` `~`, builtin arithmetic, comparisons, `&&`
@@ -2323,7 +2323,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     }
 
     /// The binary operators a predicate in a C++ head is spelled with
-    /// (CXXSpell::_pred_op).
+    /// (Speller::_pred_op).
     static fn _head_binary_op(k: TokenKind) -> bool {
         return k == TokenKind::OpPlus
             || k == TokenKind::OpMinus
@@ -3509,7 +3509,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     }
 
     /// Instance \p e's argument for \p gp, a parameter of \p prim or of its
-    /// extension: instance arguments run in CXXSpell::template_params order,
+    /// extension: instance arguments run in Speller::template_params order,
     /// an extension's first.
     priv fn _arg_of(self,
                     e:    unsafe *InstanceEntry,
@@ -4895,7 +4895,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return false
         }
 
-        // A pointer has no extension scope to carry a `hash` (CXXSpell has no
+        // A pointer has no extension scope to carry a `hash` (Speller has no
         // scope name for `extend <T> *T`), so its address is its hash.
         if self.tu.pointee(self._canon(x)) != &null {
             return true

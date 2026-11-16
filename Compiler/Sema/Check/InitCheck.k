@@ -38,7 +38,7 @@
 ///
 ///     One read that is allowed is not compiled yet: an earlier sibling read
 ///     in a GENERIC record's default. The thunk's body names it qualified,
-///     and CXXSpell spells that name without the record's template
+///     and Speller spells that name without the record's template
 ///     arguments, so clang rejects it. It is reported here as SC116E, since
 ///     this is the walk that finds it; FeatureGateCheck lists it.
 ///

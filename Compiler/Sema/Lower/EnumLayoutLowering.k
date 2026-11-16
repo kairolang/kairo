@@ -211,8 +211,8 @@ import AST::Visitor::ASTWriter::{
     ASTWriter,
     ListBuilder,
 }
-import Codegen::Emit::CXXSpell::{
-    CXXSpell,
+import Codegen::Emit::Spell::{
+    Speller,
     VIS_INTERNAL,
     VIS_NONE,
     VIS_PRIV,
@@ -1070,7 +1070,7 @@ pub class EnumLayoutQuery {
         }
 
         // `@packed` / `@align(N)` (AttrFacts), as clang lays out the
-        // `__attribute__((packed, aligned(N)))` CXXSpell writes: a packed
+        // `__attribute__((packed, aligned(N)))` Speller writes: a packed
         // record's members sit at alignment 1 unless a member's own
         // `@align` says otherwise; a member's `@align` raises its alignment
         // (in a packed record it IS its alignment); the record's `@align`
@@ -1374,7 +1374,7 @@ pub class EnumLayoutQuery {
             out.push_back(unsafe (mine->header_set as unsafe *HeaderSet))
         }
 
-        var unsafe *dtu = CXXSpell::tu_of(d)
+        var unsafe *dtu = Speller::tu_of(d)
         if dtu != &null && dtu->header_set != &null {
             var unsafe *hs = unsafe (dtu->header_set as unsafe *HeaderSet)
             if out.size() == 0 || out[0] != hs {
@@ -1888,7 +1888,7 @@ pub class EnumLayoutQuery {
 
     /// The emitted field is public: 1, 0, or -1 when that is not certain
     /// here (a compiler-made field keeps whatever access it was made with). A struct's or union's fields always are, and a class's
-    /// when it writes no constructor (CXXSpell::cxx_vis, an aggregate);
+    /// when it writes no constructor (Speller::cxx_vis, an aggregate);
     /// otherwise its Kairo visibility as InterfaceEmitter::_cxx_vis and
     /// _access spell it: `pub` and `internal` public, `priv` private, an
     /// unmarked variable private unless its default is protected, `prot`
@@ -1934,7 +1934,7 @@ pub class EnumLayoutQuery {
         }
 
         if v == VIS_PROT() {
-            return if (tu_module_dir(CXXSpell::tu_of(fdl)).empty()) => (0) else => 1
+            return if (tu_module_dir(Speller::tu_of(fdl)).empty()) => (0) else => 1
         }
 
         if v == VIS_NONE() {
@@ -2594,7 +2594,7 @@ pub class EnumLayoutQuery {
     }
 
     /// \p t names a type parameter among its elements: its canonical order
-    /// is C++'s to compute at each instance (CXXSpell spells it through the
+    /// is C++'s to compute at each instance (Speller spells it through the
     /// sorting alias), so no element index or tag of Sema's applies.
     priv fn _panic_dependent(self, t: unsafe *Type) -> bool {
         var args = self.tu.record_args(self.tu.as_value(t))
@@ -3982,7 +3982,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
             // A variant is not a DeclContext, so the parser leaves its
             // payload fields with no scope at all. To C++ they are members
             // of this struct, and that is where a spelling of one
-            // (CXXSpell::leaf reads the name in its scope's TU) and a use of
+            // (Speller::leaf reads the name in its scope's TU) and a use of
             // one (EmitPlan::_member_owner) must find it. This is the only
             // writer: a scope already here means a second one exists, and
             // whichever ran last would silently decide where the field lives.

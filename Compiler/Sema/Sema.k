@@ -123,7 +123,7 @@ import Sema::SemaContext::{
 }
 import Sema::Type::ExprTyper::ExprTyper
 import Sema::Verify::ArmOrderCheck::ArmOrderCheck
-import Sema::Verify::CxxNameCheck::CxxNameCheck
+import Sema::Verify::ForeignNameCheck::CxxNameCheck
 import Sema::Verify::JumpLabelCheck::JumpLabelCheck
 import Sema::Verify::LoopContextCheck::LoopContextCheck
 import Sema::Verify::ModulePinCheck::ModulePinCheck

@@ -435,7 +435,7 @@ pub class <T: type> StmtParse {
             dc->add_decl(d)
             // Where it was written, for whoever asks the decl and not the
             // tree around it: codegen hoists a local fn or type to the
-            // namespace of the function it sits in (CXXSpell::
+            // namespace of the function it sits in (Speller::
             // is_hoisted_local), and finds that function from here. The
             // symbol build stamps the same scope when it reaches the decl;
             // a body parsed after that build is not reached by it.

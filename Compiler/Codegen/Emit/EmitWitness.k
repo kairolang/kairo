@@ -55,7 +55,7 @@
 ///     type with no specialization fails the concept's `typename
 ///     I_witness<Self>::Node;` clause instead of hard-erroring inside the
 ///     primary's instantiation; a bounded body spells `T::Node` as
-///     `typename I_witness<T>::Node` (CXXSpell::assoc_spelling).
+///     `typename I_witness<T>::Node` (Speller::assoc_spelling).
 ///
 ///   Import law: CodegenContext only.
 ///
@@ -107,7 +107,7 @@ import AST::Node::Types::{
 import AST::OperatorFacts::OperatorFacts
 import Codegen::CodegenContext::CodegenContext
 import Codegen::CodegenICE::codegen_ice
-import Codegen::Emit::CXXSpell::CXXSpell
+import Codegen::Emit::Spell::Speller
 import Codegen::Emit::WrapForms::WrapForms
 import Location::SourceRange::SourceRange
 import Token::TokenKind::TokenKind
@@ -145,7 +145,7 @@ pub class WitnessPiece {
 
 pub class EmitWitness {
     priv var _cg:    unsafe *CodegenContext
-    priv var _spell: unsafe *CXXSpell
+    priv var _spell: unsafe *Speller
     /// Substitutions for requirements inherited through a DEPENDENT generic
     /// instance (members_with): no registry entry exists for one, so they
     /// are minted here and live as long as this emitter, which outlives
@@ -155,7 +155,7 @@ pub class EmitWitness {
     priv var _dep_src:   cxx::std::vector<unsafe *Type>
     priv var _dep_ent:   cxx::std::vector<unsafe *InstanceEntry>
 
-    fn EmitWitness(self, cg: unsafe *CodegenContext, spell: unsafe *CXXSpell) {
+    fn EmitWitness(self, cg: unsafe *CodegenContext, spell: unsafe *Speller) {
         self._cg    = cg
         self._spell = spell
     }
@@ -205,15 +205,15 @@ pub class EmitWitness {
             return out
         }
 
-        var unsafe *me = CXXSpell::rep(idecl)
+        var unsafe *me = Speller::rep(idecl)
         for var i: usize = 0; i < idecl->requirements.size(); ++i {
             var unsafe *r = idecl->requirements.get(i)
             var unsafe *f = dyn_cast<FunctionDecl>(r->decl)
             var sub: unsafe *InstanceEntry = &null
             if f != &null && r->source != &null && isa<RecordType>(canon_unqual(r->source)) {
                 var unsafe *src = cast<RecordType>(canon_unqual(r->source))
-                var unsafe *sd = CXXSpell::rep(
-                    decl_pattern(CXXSpell::rep(src->decl)),
+                var unsafe *sd = Speller::rep(
+                    decl_pattern(Speller::rep(src->decl)),
                 )
 
                 if sd != me && decl_generic_params(sd).size() > 0 {
@@ -231,7 +231,7 @@ pub class EmitWitness {
                         // leaf's own parameters, which are not in scope.
                         if sub == &null {
                             self._ice(
-                                CXXSpell::at(r->decl),
+                                Speller::at(r->decl),
                                 "EmitWitness: a row with no source for an inherited requirement; ConformanceChecking records it at the row's arguments",
                             )
                         }
@@ -276,7 +276,7 @@ pub class EmitWitness {
         }
 
         var unsafe *x = cast<RecordType>(row->conformer)->decl
-        if decl_is_imported(CXXSpell::rep(x)) {
+        if decl_is_imported(Speller::rep(x)) {
             return true
         }
 
@@ -347,13 +347,13 @@ pub class EmitWitness {
     /// \p m's signature names an associated type: the primary has no
     /// member type to spell it with.
     priv fn _names_assoc(self, m: unsafe *FunctionDecl) -> bool {
-        if CXXSpell::mentions_assoc(m->return_type) {
+        if Speller::mentions_assoc(m->return_type) {
             return true
         }
 
         for var i: usize = 0; i < m->params.size(); ++i {
             var unsafe *p = m->params[i]
-            if p != &null && !p->is_self && CXXSpell::mentions_assoc(p->type_) {
+            if p != &null && !p->is_self && Speller::mentions_assoc(p->type_) {
                 return true
             }
         }
@@ -431,7 +431,7 @@ pub class EmitWitness {
             k += 1
         }
 
-        if CXXSpell::op_is_postfix(m) {
+        if Speller::op_is_postfix(m) {
             s += if (k > 0) => (", int") else => "int"
         }
 
@@ -560,7 +560,7 @@ pub class EmitWitness {
 
             var call = self._member_call(m, me, LowerTargets::witness_receiver_name(), (if (targs.size() > 0) => ("template " + leaf + targs) else => leaf))
             self._cg->sink->spell(
-                CXXSpell::at(unsafe (m as unsafe *Decl)),
+                Speller::at(unsafe (m as unsafe *Decl)),
                 decl + " " + gate + " { return " + call + "; }",
             )
 
@@ -669,7 +669,7 @@ pub class EmitWitness {
                 continue
             }
 
-            if CXXSpell::op_is_postfix(m) {
+            if Speller::op_is_postfix(m) {
                 args += (if (args.size() > 0) => (", ") else => "") + "0"
             }
 
@@ -769,13 +769,13 @@ pub class EmitWitness {
                                    else => &null
                 if at_t == &null {
                     self._ice(
-                        CXXSpell::at(unsafe (ta as unsafe *Decl)),
+                        Speller::at(unsafe (ta as unsafe *Decl)),
                         "EmitWitness: a row with no type for an associated type; ConformanceChecking records only complete rows on an instance",
                     )
                 }
 
                 self._cg->sink->spell(
-                    CXXSpell::at(unsafe (ta as unsafe *Decl)),
+                    Speller::at(unsafe (ta as unsafe *Decl)),
                     self._assoc_head(ta, row, i) + "using " + self._spell->leaf(
                         ta,
                     ) + " = " + self._spell->_type(at_t, subst) + ";",
@@ -797,7 +797,7 @@ pub class EmitWitness {
 
             if w == &null {
                 self._ice(
-                    CXXSpell::at(m),
+                    Speller::at(m),
                     "EmitWitness: a row with no decl for a requirement; ConformanceChecking records only complete rows on an instance",
                 )
             }
@@ -858,7 +858,7 @@ pub class EmitWitness {
             }
 
             self._cg->sink->spell(
-                CXXSpell::at(m),
+                Speller::at(m),
                 decl + " { return " + call + "; }",
             )
         }
@@ -885,10 +885,10 @@ pub class EmitWitness {
             w = unsafe (ta as unsafe *Decl)
         }
 
-        var gps = decl_generic_params(CXXSpell::rep(w))
+        var gps = decl_generic_params(Speller::rep(w))
         if gps.size() != ta->generic_params.size() {
             self._ice(
-                CXXSpell::at(unsafe (ta as unsafe *Decl)),
+                Speller::at(unsafe (ta as unsafe *Decl)),
                 "EmitWitness: a generic associated type supplied by a decl of another arity; ConformanceChecking matches arities",
             )
         }
@@ -902,7 +902,7 @@ pub class EmitWitness {
             s += "class "
             s += self._spell->tok_name(
                 gps[k]->name,
-                CXXSpell::fid_of(CXXSpell::rep(w)),
+                Speller::fid_of(Speller::rep(w)),
             )
         }
 
@@ -939,11 +939,11 @@ pub class EmitWitness {
         var unsafe *x_ext = decl_extension_of(w)
         if x_ext != &null {
             // A generic extension's member takes the extension's arguments
-            // first, as the row bound them (CXXSpell::template_params order).
+            // first, as the row bound them (Speller::template_params order).
             var ne = decl_generic_params(unsafe (x_ext as unsafe *Decl)).size()
             if ne > 0 && ext_args->size() != ne {
                 self._ice(
-                    CXXSpell::at(w),
+                    Speller::at(w),
                     "EmitWitness: a generic extension's member as a witness with no extension arguments on its row; ConformanceChecking records them",
                 )
             }
@@ -1000,7 +1000,7 @@ pub class EmitWitness {
             return ""
         }
 
-        if self._own_args(m).size() > 0 || CXXSpell::op_is_postfix(m) {
+        if self._own_args(m).size() > 0 || Speller::op_is_postfix(m) {
             return ""
         }
 
@@ -1030,7 +1030,7 @@ pub class EmitWitness {
     }
 
     /// \p t is requirement \p m's `Self`: its interface's own record
-    /// (TypeResolve::_self_record), as CXXSpell spells it.
+    /// (TypeResolve::_self_record), as Speller spells it.
     priv fn _self_typed(self, m: unsafe *FunctionDecl, t: unsafe *Type) -> bool {
         if t == &null || m->semantic_dc == &null {
             return false
@@ -1046,15 +1046,15 @@ pub class EmitWitness {
 
         var unsafe *owner = (m->semantic_dc)->owner_decl()
         return owner != &null
-            && CXXSpell::rep(
-                decl_pattern(CXXSpell::rep(cast<RecordType>(c)->decl)),
-            ) == CXXSpell::rep(owner)
+            && Speller::rep(
+                decl_pattern(Speller::rep(cast<RecordType>(c)->decl)),
+            ) == Speller::rep(owner)
     }
 
     /// `decl { return <the builtin operator>; }` for operator requirement
     /// \p m, its receiver and operand as the member declares them.
     priv fn _native_member(self, m: unsafe *FunctionDecl, const decl: string, const ret: string) {
-        var at = CXXSpell::at(unsafe (m as unsafe *Decl))
+        var at = Speller::at(unsafe (m as unsafe *Decl))
         self._cg->sink->spell(at, decl + " { return ")
         WrapForms::witness_op(
             self._cg->sink,
@@ -1095,7 +1095,7 @@ pub class EmitWitness {
             return ""
         }
 
-        var fid = CXXSpell::fid_of(unsafe (m as unsafe *Decl))
+        var fid = Speller::fid_of(unsafe (m as unsafe *Decl))
         var s   = "<"
         for var i: usize = 0; i < m->generic_params.size(); ++i {
             if i > 0 {
@@ -1140,7 +1140,7 @@ pub class EmitWitness {
             ps += self._spell->param_decl(p, self._pname(m, p), subst)
         }
 
-        if CXXSpell::op_is_postfix(m) {
+        if Speller::op_is_postfix(m) {
             ps += ", int " + LowerTargets::witness_postfix()
         }
 
@@ -1148,7 +1148,7 @@ pub class EmitWitness {
         // the bound reaches the conformer with no extra hop of another one.
         var s = self._spell->template_head(
             unsafe (m as unsafe *Decl),
-        ) + "static " + CXXSpell::call_conv_attr(m->call_conv) + self._ret(
+        ) + "static " + Speller::call_conv_attr(m->call_conv) + self._ret(
             m,
             subst,
         ) + " " + self._spell->witness_member_name(m) + "(" + ps
@@ -1182,14 +1182,14 @@ pub class EmitWitness {
             s += "static_cast<decltype(" + nm + ")&&>(" + nm + ")"
         }
 
-        if CXXSpell::op_is_postfix(m) {
+        if Speller::op_is_postfix(m) {
             s += (if (s.size() > 0) => (", ") else => "") + LowerTargets::witness_postfix()
         }
 
         return s
     }
 
-    /// `[const ]S*`, or `[const ]S&` for an operator (CXXSpell::ext_receiver's rule).
+    /// `[const ]S*`, or `[const ]S&` for an operator (Speller::ext_receiver's rule).
     priv fn _receiver(self, m: unsafe *FunctionDecl, const self_s: string) -> string {
         var s = if (m->is_const()) => ("const ") else => ""
         return s + self_s + (if (m->is_operator) => ("&") else => "*")
@@ -1211,7 +1211,7 @@ pub class EmitWitness {
         var star = if (owner.size() == 0) => ("(*)") else => "(" + owner + "::*)"
         // The requirement's calling convention is part of the member's type;
         // clang takes it leading the whole type-id.
-        return CXXSpell::call_conv_attr(m->call_conv) + "auto " + star + self._member_params(
+        return Speller::call_conv_attr(m->call_conv) + "auto " + star + self._member_params(
             m,
             subst,
             me,
@@ -1245,7 +1245,7 @@ pub class EmitWitness {
 
         return self._spell->tok_name(
             p->name,
-            CXXSpell::fid_of(unsafe (m as unsafe *Decl)),
+            Speller::fid_of(unsafe (m as unsafe *Decl)),
         )
     }
 
@@ -1253,7 +1253,7 @@ pub class EmitWitness {
     priv fn _self_as(self, m: unsafe *FunctionDecl, const self_s: string) {
         var unsafe *dc    = m->semantic_dc
         var unsafe *owner = if (dc != &null) => (dc->owner_decl()) else => &null
-        self._spell->self_iface = if (owner != &null) => (CXXSpell::rep(owner)) else => &null
+        self._spell->self_iface = if (owner != &null) => (Speller::rep(owner)) else => &null
         self._spell->self_spelling = self_s
     }
 
@@ -1261,11 +1261,11 @@ pub class EmitWitness {
     priv fn _head(self, iface: unsafe *Decl) -> string {
         var s   = "template <class " + LowerTargets::witness_self()
         var gps = decl_generic_params(iface)
-        var fid = CXXSpell::fid_of(iface)
+        var fid = Speller::fid_of(iface)
         for var i: usize = 0; i < gps.size(); ++i {
             if gps[i]->is_const_param {
                 self._ice(
-                    CXXSpell::at(iface),
+                    Speller::at(iface),
                     "EmitWitness: an interface with a value parameter; not built",
                 )
             }
@@ -1281,7 +1281,7 @@ pub class EmitWitness {
     priv fn _self_params(self, iface: unsafe *Decl) -> string {
         var s   = "<" + LowerTargets::witness_self()
         var gps = decl_generic_params(iface)
-        var fid = CXXSpell::fid_of(iface)
+        var fid = Speller::fid_of(iface)
         for var i: usize = 0; i < gps.size(); ++i {
             s += ", " + self._spell->tok_name(gps[i]->name, fid)
         }
@@ -1313,10 +1313,10 @@ pub class EmitWitness {
             return "template <> "
         }
 
-        var h = self._spell->template_head(CXXSpell::rep(row->declared))
+        var h = self._spell->template_head(Speller::rep(row->declared))
         if h.size() == 0 {
             self._ice(
-                CXXSpell::at(row->declared),
+                Speller::at(row->declared),
                 "EmitWitness: a generic row whose declaring decl has no template parameters",
             )
         }
@@ -1337,7 +1337,7 @@ pub class EmitWitness {
             return self._iface_subst(unsafe (r as unsafe *Type))
         }
 
-        var unsafe *sd = CXXSpell::rep(decl_pattern(CXXSpell::rep(r->decl)))
+        var unsafe *sd = Speller::rep(decl_pattern(Speller::rep(r->decl)))
         if decl_generic_params(sd).size() == 0 {
             return &null
         }
@@ -1363,7 +1363,7 @@ pub class EmitWitness {
     /// The substitution a requirement inherited through dependent instance
     /// \p src of interface \p sd is spelled through: sd's parameters bound
     /// to src's arguments, which are written in the composing interface's
-    /// parameters. CXXSpell spells a substituted argument with no further
+    /// parameters. Speller spells a substituted argument with no further
     /// substitution, so `T` comes out as the composing interface's own name.
     priv fn _dep_subst(self, sd: unsafe *Decl, src: unsafe *RecordType) -> unsafe *InstanceEntry {
         var unsafe *key = unsafe (src as unsafe *Type)
@@ -1386,6 +1386,6 @@ pub class EmitWitness {
     }
 
     priv fn _at(self, p: unsafe *WitnessPiece) -> SourceRange {
-        return CXXSpell::at(p->iface)
+        return Speller::at(p->iface)
     }
 }

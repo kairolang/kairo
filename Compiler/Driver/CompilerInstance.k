@@ -1805,7 +1805,7 @@ pub class CompilerInstance {
     ///        `lib::y::f` an importer compiled in another run calls.
     ///        Empty for a pathless file -- one outside every
     ///        search dir, or one whose path a named library owns -- which
-    ///        keeps the pathless rules (CXXSpell::is_entry_tu).
+    ///        keeps the pathless rules (Speller::is_entry_tu).
     /// The module path the driver gives input \p path (ParseAPI's as_module).
     pub fn input_module_path(self, const path: string) -> ModulePath {
         return self._input_module_path(path)
