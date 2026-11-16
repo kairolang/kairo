@@ -121,6 +121,7 @@ import AST::Serialize::Serializer::{
 import AST::VisibilityFacts::stamp_tu_visibility
 import Codegen::Backend::CodegenAction::{
     EmitKind,
+    sema_agree_checks,
     sema_agree_reports,
 }
 import Codegen::Backend::CodegenBackend::{
@@ -131,6 +132,12 @@ import Codegen::Backend::CodegenBackend::{
 }
 import Codegen::Backend::EmitHeader::EmitCXXHeader
 import Codegen::Backend::InterfacePCH::InterfacePCH
+import Codegen::Backend::SemaAgreeReport::{
+    AgreeFinding,
+    agree_decode,
+    agree_emit,
+    agree_encode,
+}
 import Codegen::CodegenContext::{
     CodegenContext,
     CodegenPhase,
@@ -3897,16 +3904,36 @@ pub class FrontendAction {
                 gedges,
             )
 
-            // An object compiled while the Sema agreement pass only counts
-            // may hold a finding nobody was told of, so a run that reports
-            // keys its objects apart and compiles such a TU itself.
+            // What the Sema agreement pass does to an object and to the
+            // findings stored with it. A run without the walk stores no
+            // findings, so a run with it must not take its objects for
+            // ones the walk had nothing to say about; a repair changes the
+            // object's code; the test hook changes what is found. Whether
+            // a run reports or only counts is not here: the findings are
+            // stored either way, and the run that reuses the object decides.
             var *cgo = &self._ci->invocation()->codegen
-            if sema_agree_reports(
+            if cgo->sema_agreement == 0 {
+                ocache.run_part += "agree off\n"
+            } else if cgo->sema_agreement_repair == 0 {
+                ocache.run_part += "agree walk " + sema_agree_checks() + "\n"
+            } else {
+                ocache.run_part += "agree walk repair " + sema_agree_checks() + "\n"
+            }
+
+            if cgo->test_sema_agreement_no_adl {
+                ocache.run_part += "agree no-adl\n"
+            }
+
+            if !cgo->test_sema_agreement_swap.empty() {
+                ocache.run_part += "agree swap " + ObjectCache::clean(
+                    cgo->test_sema_agreement_swap,
+                ) + "\n"
+            }
+
+            var agree_says = sema_agree_reports(
                 cgo->sema_agreement,
                 cgo->test_sema_agreement_quiet,
-            ) {
-                ocache.run_part += "agree reports\n"
-            }
+            )
 
             {
                 var *cr  = &crun
@@ -3941,7 +3968,29 @@ pub class FrontendAction {
 
                 // --force-recompile: no lookup, every TU compiles, and the
                 // store is refreshed with what it writes.
-                if !fe.force_recompile && ocache.fetch(j->key, j->outs[0], &why) {
+                var found = ""
+                var hit = !fe.force_recompile && ocache.fetch(j->key, j->outs[0], &why, &found)
+
+                // The object's Sema agreement findings, said again as the
+                // compile that stored them said them. They name files by
+                // content: when one of those has other bytes now (an edit
+                // the key does not see, a comment's), the TU compiles and
+                // finds them where they are.
+                if hit && !found.empty() {
+                    if agree_decode(self._ci->sm(), found, &j->agree_found) {
+                        if agree_says {
+                            for var f: AgreeFinding in j->agree_found {
+                                agree_emit(j->ctx, f)
+                            }
+                        }
+                    } else {
+                        j->agree_found.clear()
+                        hit = false
+                        why = " nothing in the object, but a file its Sema agreement findings point into"
+                    }
+                }
+
+                if hit {
                     j->reused = true
                     j->ok     = true
                     j->written.push_back(j->outs[0])
@@ -4059,6 +4108,11 @@ pub class FrontendAction {
                 iface->add(j->ctx, j->fid, j->ksize, j->plan)
             }
 
+            var *icg = &self._ci->invocation()->codegen
+            if icg->sema_agreement != 0 {
+                iface->agree_start(icg->sema_agreement_repair != 0, fe.verbose)
+            }
+
             iface->build(be, merged, &crun.mounts, psym, insts)
             if fe.verbose && !iface->ok {
                 iface->diag.drain_into(self._ci->diag(), self._ci->sm())
@@ -4068,6 +4122,43 @@ pub class FrontendAction {
 
             if !iface->ok {
                 continue
+            }
+
+            // What the Sema agreement walk of the PCH found goes to the TU
+            // whose file holds the call, whichever TU's stream wrote the
+            // body: its object stores the finding and says it again. A TU
+            // whose object is reused has it among its stored findings.
+            var isays = sema_agree_reports(
+                icg->sema_agreement,
+                icg->test_sema_agreement_quiet,
+            )
+
+            for var f: AgreeFinding in iface->agree_found {
+                var fid       = self._ci->sm()->get_fid(f.at.start)
+                var hi: usize = mine.size()
+                for var k: usize = 0; k < mine.size(); ++k {
+                    if mine[k]->fid == fid {
+                        hi = k
+                        break
+                    }
+                }
+
+                // A file that is no TU of this build: the first TU that
+                // compiles carries it.
+                for var k: usize = 0; hi == mine.size() && k < mine.size(); ++k {
+                    if !mine[k]->reused {
+                        hi = k
+                    }
+                }
+
+                if hi == mine.size() || mine[hi]->reused {
+                    continue
+                }
+
+                mine[hi]->agree_found.push_back(f)
+                if isays {
+                    agree_emit(mine[hi]->ctx, f)
+                }
             }
 
             crun.mounts.add_pch(iface->path, unsafe &iface->pch->Data)
@@ -4169,13 +4260,48 @@ pub class FrontendAction {
                 && job->ok
                 && !job->reused
                 && job->sink.size() == 0
-                && job->agree_found == 0
                 && job->written.size() == 1
                 // The key says whether the TU compiled under the interface
                 // PCH (iface_on); an object compiled without it, after a
                 // failed PCH build or clang's retry, is not that key's.
                 && job->iface_used == job->iface_on {
-                ocache.store(job->key, job->written[0])
+                // The Sema agreement pass's findings are stored with the
+                // object and said again by the run that reuses it. When
+                // they cannot be written down (a file they point into has
+                // no bytes at hand), the object is not stored.
+                var found = ""
+                if job->agree_found.size() > 0 {
+                    found = agree_encode(
+                        self._ci->sm(),
+                        job->key,
+                        job->agree_found,
+                    )
+                }
+
+                if job->agree_found.size() > 0 && found.empty() {
+                    kairo::Logger::info(
+                        kairo::Logger::Stage::Driver,
+                        f"incremental: not stored {job->path}: a file its Sema agreement findings point into has no bytes at hand",
+                    )
+                } else if !ocache.store(job->key, job->written[0], found) {
+                    kairo::Logger::info(
+                        kairo::Logger::Stage::Driver,
+                        f"incremental: not stored {job->path}: the object does not carry its key, or the store could not be written",
+                    )
+                }
+            } else if caching && job->ok && !job->reused {
+                // Why this object compiles again in the next run.
+                var reason = "it has more than one output"
+                if job->sink.size() > 0 {
+                    reason = "clang reported on it, and a stored object says nothing again"
+                } else if job->iface_used != job->iface_on {
+                    reason = "it compiled without the interface PCH its key names"
+                }
+
+                kairo::Logger::info(
+                    kairo::Logger::Stage::Driver,
+                    f"incremental: not stored {job->path}: {reason}",
+                )
             }
 
             job->sink.drain_into(self._ci->diag(), self._ci->sm())
@@ -4217,6 +4343,10 @@ pub class FrontendAction {
             }
         }
 
+        if self._ci->invocation()->codegen.sema_agreement_summary {
+            self._agree_summary(jobs)
+        }
+
         for var j: unsafe *CodegenJob in jobs {
             kairo::std::destroy(j)
         }
@@ -4237,6 +4367,59 @@ pub class FrontendAction {
 
         self._stage = TUStage::Done
         return true
+    }
+
+    /// --sema-agreement-summary: one line on stderr counting what the Sema
+    /// agreement pass found over \p jobs, by kind. It counts a TU whose
+    /// object was reused (its stored findings) as one that compiled, and
+    /// does not depend on whether the findings were reported or on -w.
+    priv fn _agree_summary(self, const jobs: cxx::std::vector<unsafe *CodegenJob>) {
+        if self._ci->invocation()->codegen.sema_agreement == 0 {
+            io::eprintln("kairo: sema agreement: off")
+            return
+        }
+
+        var kinds        = cxx::std::vector<string>()
+        var counts       = cxx::std::vector<usize>()
+        var total: usize = 0
+        var files: usize = 0
+        for var j: unsafe *CodegenJob in jobs {
+            if j->agree_found.size() > 0 {
+                files += 1
+            }
+
+            for var f: AgreeFinding in j->agree_found {
+                total += 1
+                var at = kinds.size()
+                for var k: usize = 0; k < kinds.size(); ++k {
+                    if kinds[k] == f.kind {
+                        at = k
+                        break
+                    }
+                }
+
+                if at == kinds.size() {
+                    kinds.push_back(f.kind)
+                    counts.push_back(0)
+                }
+
+                counts[at] += 1
+            }
+        }
+
+        var by = ""
+        for var k: usize = 0; k < kinds.size(); ++k {
+            var sep = if (k == 0) => (" (") else => ", "
+            by += sep + f"{kinds[k]} {counts[k]}"
+        }
+
+        if !by.empty() {
+            by += ")"
+        }
+
+        io::eprintln(
+            f"kairo: sema agreement: {total} finding(s) in {files} of {jobs.size()} file(s){by}",
+        )
     }
 
     /// \p fid has nothing to define (EmitPlan::is_empty, on the preamble plan).

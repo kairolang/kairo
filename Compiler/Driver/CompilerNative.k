@@ -27,7 +27,11 @@ ffi "c++" import "system_error"
 
 import API::FS::LinkFS
 import API::Text::LinkText
-import Codegen::Backend::CodegenAction::EmitKind
+import Codegen::Backend::CodegenAction::{
+    EmitKind,
+    sema_agree_reports,
+}
+import Codegen::Backend::SemaAgreeReport::agree_emit
 import Command::FlagTranslator::{
     ClangSpelling,
     FlagTranslator,
@@ -411,10 +415,47 @@ extend CompilerInstance {
                 !self.invocation()->frontend.stops_at_parse() || self.kairo_feeds_includes(),
             )
 
+            var *cgo = &self.invocation()->codegen
+            if cgo->sema_agreement != 0 {
+                self._kincludes->agree_start(
+                    cgo->sema_agreement_repair != 0,
+                    self.invocation()->frontend.verbose,
+                )
+            }
+
             self._jobs->includes = self._kincludes
         }
 
         return self._jobs
+    }
+
+    /// What the Sema agreement pass found in the Kairo streams the last
+    /// run's C++ inputs included: I012W at the Kairo call, through the
+    /// context of the Kairo file, unless the run only counts.
+    priv fn _report_include_agreement(self) {
+        if self._kincludes == &null {
+            return
+        }
+
+        var *cgo = &self.invocation()->codegen
+        var says = sema_agree_reports(
+            cgo->sema_agreement,
+            cgo->test_sema_agreement_quiet,
+        )
+
+        for var i: usize = 0; i < self._kincludes->agree_found.size(); ++i {
+            var unsafe *ctx = self._kincludes->agree_ctx[i]
+            if says && ctx != &null {
+                agree_emit(ctx, self._kincludes->agree_found[i])
+                ctx->diag_sink.drain_into(
+                    unsafe (self._diag as unsafe *DiagEngine),
+                    unsafe (self._sm as unsafe *SourceManager),
+                )
+            }
+        }
+
+        self._kincludes->agree_found.clear()
+        self._kincludes->agree_ctx.clear()
     }
 
     /// One driver run for one input; a failure clang did not explain itself
@@ -426,6 +467,8 @@ extend CompilerInstance {
             unsafe (self._diag as unsafe *DiagEngine),
             unsafe (self._sm as unsafe *SourceManager),
         )
+
+        self._report_include_agreement()
 
         if ok {
             return true

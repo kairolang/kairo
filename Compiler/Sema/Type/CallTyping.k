@@ -2381,6 +2381,8 @@ pub class <T: type> CallTyping {
             ident->candidate_cell = &null
         }
 
+        n->via_adl = adl && self._outside(*cands, r.decl)
+
         if step != &null && step->resolved_decl == &null {
             step->resolved_decl  = r.decl
             step->candidate_cell = &null

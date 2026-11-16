@@ -32,6 +32,13 @@
 ///   it wants. The file name is a hint; a file with no record, another
 ///   schema's or a damaged one is a miss, never trusted.
 ///
+///   What the Sema agreement pass found in a TU is known only after clang's
+///   Sema, so it cannot be in the record. Such an object is stored as
+///   `<key>.f.o` with its findings as text in `<key>.agree`
+///   (Codegen/Backend/SemaAgreeReport.k), and served only when both are
+///   whole: an object whose findings are lost is a miss, never an object
+///   the pass had nothing to say about.
+///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
@@ -52,6 +59,7 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import API::FS::*
+import Codegen::Backend::SemaAgreeReport::agree_text_whole
 import Driver::CacheFormat::{
     CACHE_SCHEMA,
     cache_dir_name,
@@ -70,6 +78,7 @@ import Support::Escape::{
 import Support::FileIO::AtomicFile::{
     is_leftover_temp,
     now_ns,
+    publish_bytes,
     publish_copy,
 }
 import Support::Tuning::{
@@ -572,9 +581,16 @@ pub class ObjectCache {
     ///        (its own record says so) or when the store has one, copied in.
     ///        False is a miss: compile it.
     ///
-    /// \param why  on a miss of an \p out that holds an older record, the
-    ///             record lines that differ, for -v.
-    pub fn fetch(self, const key: string, const out: string, @inout why: string) -> bool {
+    /// \param why    on a miss of an \p out that holds an older record,
+    ///               the record lines that differ, for -v.
+    /// \param found  the Sema agreement findings stored with the object
+    ///               (store), "" for an object that has none.
+    pub fn fetch(self,
+                 const key:    string,
+                 const out:    string,
+                 @inout why:   string,
+                 @inout found: string) -> bool {
+        found = ""
         if !self.on {
             return false
         }
@@ -586,9 +602,31 @@ pub class ObjectCache {
         // \p out matching too only saves the copy.
         var have  = ObjectCache::_record_of(out)
         var entry = self._entry(key)
-        if ObjectCache::_record_key(ObjectCache::_record_of(entry)) != key {
+        var hit   = false
+        // An object with findings is another entry, served only with its
+        // findings whole: without them it would pass for one the walk had
+        // nothing to say about. Looked for first: a finding in a body the
+        // interface PCH holds is found by the build that walks the PCH, so
+        // one key can have been stored both ways, and the entry that says
+        // more is the one to serve.
+        var beside = self._entry_found(key)
+        if ObjectCache::_record_key(ObjectCache::_record_of(beside)) == key {
+            var text = ""
+            if LinkFS::read(self._found_path(key), &text) && agree_text_whole(text, key) {
+                entry = beside
+                found = text
+                hit   = true
+                self._used.insert(kairo::sref(self._found_path(key)))
+            }
+        }
+
+        if !hit {
+            hit = ObjectCache::_record_key(ObjectCache::_record_of(entry)) == key
+        }
+
+        if !hit {
             if ObjectCache::_record_key(have) == key {
-                why = " nothing, but clang reported on it, so it was not stored"
+                why = " nothing, but the build that compiled it did not store it (its -v log says why)"
             } else if !have.empty() {
                 why = self._diff(have)
             }
@@ -613,11 +651,19 @@ pub class ObjectCache {
         return false
     }
 
-    /// \brief stores \p out (just compiled under \p key, with no
-    ///        diagnostics) as the store's entry for \p key; true when stored.
-    ///        Only an object whose own record names \p key is stored, so a
-    ///        compile that wrote something else can never be served.
-    pub fn store(self, const key: string, const out: string) -> bool {
+    /// \brief stores \p out (just compiled under \p key, with nothing
+    ///        said by clang) as the store's entry for \p key; true when
+    ///        stored. Only an object whose own record names \p key is
+    ///        stored, so a compile that wrote something else can never be
+    ///        served.
+    ///
+    /// \param found  the Sema agreement findings of that compile as text
+    ///               (agree_encode), "" when it has none. They cannot be in
+    ///               the object's record, which is written into the stream
+    ///               before clang's Sema runs, so they are a file beside the
+    ///               object, and the object is filed under a name fetch
+    ///               serves only together with them.
+    pub fn store(self, const key: string, const out: string, const found: string) -> bool {
         if !self.on {
             return false
         }
@@ -627,6 +673,18 @@ pub class ObjectCache {
         }
 
         var entry = self._entry(key)
+        if !found.empty() {
+            // The findings first: an object without them is never served.
+            // Written again over an entry that is there: they place the
+            // findings in this run's bytes of the files they name.
+            if !publish_bytes(self._found_path(key), found) {
+                return false
+            }
+
+            self._used.insert(kairo::sref(self._found_path(key)))
+            entry = self._entry_found(key)
+        }
+
         // Content addressed: an entry whose record names this key is these
         // bytes already. One that does not (cut short, edited, foreign) is
         // replaced, or it would be a miss on every run.
@@ -696,6 +754,16 @@ pub class ObjectCache {
 
     priv fn _entry(self, const key: string) -> string {
         return self.dir + "/objects/" + key + ".o"
+    }
+
+    /// The entry of an object stored with Sema agreement findings, and the
+    /// findings' file.
+    priv fn _entry_found(self, const key: string) -> string {
+        return self.dir + "/objects/" + key + ".f.o"
+    }
+
+    priv fn _found_path(self, const key: string) -> string {
+        return self.dir + "/objects/" + key + ".agree"
     }
 
     /// The record section of \p path, "" when there is none or it is not

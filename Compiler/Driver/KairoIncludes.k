@@ -24,15 +24,26 @@
 
 ffi "c++" import "clang/Frontend/CompilerInstance.h"
 ffi "c++" import "clang/Lex/Token.h"
+ffi "c++" import "Native/ClangSemaAgree.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::Context::ASTContext::ASTContext
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
+import Codegen::Backend::CodegenAction::{
+    agree_fill_from,
+    agree_finding,
+    agree_log_counts,
+}
 import Codegen::Backend::IncludeEmitter::{
     IncludeEmitter,
     IncludedDecls,
 }
-import Codegen::Sink::TokenSink::TokenSink
+import Codegen::Backend::SemaAgreeReport::AgreeFinding
+import Codegen::Sink::TokenSink::{
+    AgreeSite,
+    TokenSink,
+}
 import Interop::Clang::ClangLocMap::ClangLocMap
 import Interop::Clang::KairoInclude::KairoIncludeSource
 import Location::SourceManager::{
@@ -55,6 +66,17 @@ pub class DriverIncludeSource derives KairoIncludeSource {
     priv var _bound:  unsafe *clang::CompilerInstance     = &null
     priv var _sinks:  cxx::std::vector<unsafe *TokenSink>         ///< owned; this host TU's
     priv var _seen:   IncludedDecls                               ///< this host TU's
+    /// The records of `agree`, on the Kairo side and in its order, and for
+    /// each the context of the file whose stream wrote it.
+    priv var _agree_sites: cxx::std::vector<AgreeSite>
+    priv var _agree_ctx:   cxx::std::vector<unsafe *ASTContext>
+    /// What the Sema agreement walk found in the host TUs run so far, with
+    /// the context each is reported through. The driver reports and
+    /// clears them after each run (take_agree_found): a disagreement in a
+    /// stream a C++ file included is Kairo's finding, said at the Kairo
+    /// call, never a diagnostic of the C++ file.
+    pub var agree_found: cxx::std::vector<AgreeFinding>
+    pub var agree_ctx:   cxx::std::vector<unsafe *ASTContext>
 
     fn DriverIncludeSource(self,
                            ksm:     *SourceManager,
@@ -65,6 +87,18 @@ pub class DriverIncludeSource derives KairoIncludeSource {
         self._scope   = scope
         self._psym    = psym
         self._lowered = lowered
+    }
+
+    /// Turns the Sema agreement pass on for the Kairo streams of every
+    /// host TU: \p repair and \p count_unrecorded as
+    /// KairoInject::agree_start.
+    pub fn agree_start(self, repair: bool, count_unrecorded: bool) {
+        if self.agree == &null {
+            self.agree = kairo::std::create<kairo::SemaAgreeTable>()
+        }
+
+        self.agree->repair           = repair
+        self.agree->count_unrecorded = count_unrecorded
     }
 
     override fn tokens_for(self,
@@ -113,6 +147,8 @@ pub class DriverIncludeSource derives KairoIncludeSource {
 
         var ksize = (self._ksm->get_file_size(kfid) as u32)
         var em    = IncludeEmitter()
+        em.agree = self.agree != &null
+        var before = self._sinks.size()
         if !em.emit(
             ci,
             self._locmap,
@@ -130,10 +166,57 @@ pub class DriverIncludeSource derives KairoIncludeSource {
             return false
         }
 
+        // The stream's records join the host TU's table before clang lexes
+        // the stream: the walk runs as its declarations are parsed.
+        if self.agree != &null && self._sinks.size() > before {
+            var unsafe *s = self._sinks.back()
+            self.agree->block_base = self._locmap->block_base()
+            self.agree->block_n    = self._locmap->mapped_count() as u32
+            agree_fill_from(self.agree, s)
+            for var k: usize = 0; k < s->agree_sites.size(); ++k {
+                self._agree_sites.push_back(s->agree_sites[k])
+                self._agree_ctx.push_back(ctx)
+            }
+        }
+
         return true
     }
 
     override fn end_tu(self) {
+        // While this host TU's map and sinks live.
+        if self.agree != &null {
+            if self._bound != &null && self._locmap != &null && self._agree_sites.size() > 0 {
+                agree_log_counts(
+                    self.agree,
+                    "the Kairo files a C++ translation unit includes",
+                )
+
+                var n = self.agree->finding_count()
+                for var i: usize = 0; i < n; ++i {
+                    var site = self.agree->finding_call(i) as usize
+                    if site >= self._agree_sites.size() {
+                        continue
+                    }
+
+                    self.agree_found.push_back(
+                        agree_finding(
+                            self.agree,
+                            i,
+                            self._agree_sites[site],
+                            self._agree_ctx[site],
+                            self._locmap,
+                        ),
+                    )
+
+                    self.agree_ctx.push_back(self._agree_ctx[site])
+                }
+            }
+
+            self.agree->reset()
+            self._agree_sites.clear()
+            self._agree_ctx.clear()
+        }
+
         for var i: usize = 0; i < self._sinks.size(); ++i {
             kairo::std::destroy(self._sinks[i])
         }
@@ -148,6 +231,11 @@ pub class DriverIncludeSource derives KairoIncludeSource {
 
     fn op finally (self) {
         self.end_tu()
+        if self.agree != &null {
+            kairo::std::destroy(self.agree)
+            self.agree = &null
+        }
+
         if self._locmap != &null {
             kairo::std::destroy(self._locmap)
             self._locmap = &null

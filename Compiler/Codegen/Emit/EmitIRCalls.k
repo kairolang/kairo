@@ -646,6 +646,9 @@ extend EmitIR {
         }
 
         self._cg->sink->agree_call(n->range, d->range, nr)
+        if n->via_adl && !self._cg->opts.agree_no_adl {
+            self._cg->sink->agree_adl()
+        }
 
         // Declared more than once (a prototype and its definition, an
         // out-of-line method): the stream may have written any of them, and

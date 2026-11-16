@@ -488,19 +488,26 @@ Per-Action pipeline (parallelism shown explicitly):
         |  SEMA AGREEMENT -- parallel over TUs            |   Spec/SemaAgreement.md
         |  clang has parsed and type-checked the tokens   |   Native/ClangSemaAgree.hh
         |  CodeGen built. Before clang's CodeGen takes a  |   Codegen/Backend/CodegenAction.k
-        |  declaration, walk it and check clang's Sema    |
-        |  reached Kairo's decisions. Built: each call's  |
-        |  chosen callee. Not built: overload ranking,    |
-        |  ADL candidates, conversions, the template /    |
-        |  specialization picked. A disagreement is a     |
-        |  Kairo bug (CodeGen left clang a choice, or     |
-        |  Sema ranked wrongly): an internal warning      |
-        |  naming both answers (I012W), reported by a     |
-        |  debug-built compiler or under                  |
+        |  declaration, walk it and check clang's Sema    |   Codegen/Backend/SemaAgreeReport.k
+        |  reached Kairo's decisions. Walked: each TU's   |
+        |  stream, the interface PCH's bodies at the      |
+        |  PCH's build, and the Kairo streams a C++ file  |
+        |  includes. Built: each call's chosen callee,    |
+        |  and whether it was found by                    |
+        |  argument-dependent lookup. Not built:          |
+        |  overload ranking, conversions, the template /  |
+        |  specialization picked, a dependent call in an  |
+        |  instance of a body the PCH holds. A            |
+        |  disagreement is a Kairo bug (CodeGen left      |
+        |  clang a choice, or Sema ranked wrongly): an    |
+        |  internal warning naming both answers (I012W),  |
+        |  reported by a debug-built compiler or under    |
         |  -fsema-agreement and only counted otherwise.   |
         |  The call is pointed at Kairo's answer where    |
         |  the two have one type; compilation continues   |
-        |  either way.                                    |
+        |  either way. A TU's findings are stored with    |
+        |  its cached object and said again by the build  |
+        |  that reuses it.                                |
         *=================================================*
                                 v
                   *------------------------------*

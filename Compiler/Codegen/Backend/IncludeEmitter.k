@@ -302,6 +302,9 @@ pub fn _set_lines(hs:           unsafe *HeaderSet,
 pub class IncludeEmitter {
     /// Why the last emit() failed.
     pub var error: string
+    /// Whether the sink records each call Sema bound (EmitSink::agree_call),
+    /// for a parse the Sema agreement pass walks.
+    pub var agree: bool = false
 
     /// The C++ TU being compiled (clang's main file) is under the module
     /// directory of the Kairo file \p ctx: the same nearest module.k.
@@ -382,6 +385,7 @@ pub class IncludeEmitter {
         )
 
         keep->push_back(sink)
+        sink->agree_on = self.agree
         // -E prints each token's bytes, which a borrowed punctuator does not
         // have (TokenSink::arena_puncts), and decides on spaces by reading
         // them too: every token gets one instead.

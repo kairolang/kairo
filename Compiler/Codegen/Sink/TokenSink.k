@@ -115,6 +115,9 @@ pub struct AgreeSite {
     pub var at:   SourceRange
     pub var decl: SourceRange
     pub var name: SourceRange
+    /// Sema found the declaration by argument-dependent lookup
+    /// (EmitSink::agree_adl).
+    pub var adl: bool = false
 }
 
 /// A redeclaration of site \p site's declaration (EmitSink::agree_alt).
@@ -236,6 +239,12 @@ pub class TokenSink derives EmitSink {
         s.decl = decl
         s.name = name
         self.agree_sites.push_back(s)
+    }
+
+    override fn agree_adl(self) {
+        if self.agree_on && self.agree_sites.size() > 0 {
+            self.agree_sites.back().adl = true
+        }
     }
 
     override fn agree_alt(self, name: SourceRange) {

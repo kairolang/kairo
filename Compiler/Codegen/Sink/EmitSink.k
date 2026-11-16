@@ -136,6 +136,9 @@ pub class EmitSink {
     /// The declaration of the last agree_call is declared more than once:
     /// \p name is the name token of another of its declarations.
     virtual fn agree_alt(self, name: SourceRange) { }
+    /// Sema found the declaration of the last agree_call by
+    /// argument-dependent lookup (CallExpr::via_adl).
+    virtual fn agree_adl(self) { }
     /// Whether agree_call records: an emitter asks before it works out what
     /// to say. Set by the owner of a sink that has clang behind it.
     pub var agree_on: bool = false

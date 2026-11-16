@@ -71,6 +71,9 @@ pub class EmitOptions {
     /// given (EmitIR::_agree).
     pub var agree_swap_from: string = ""
     pub var agree_swap_to:   string = ""
+    /// --test-sema-agreement-no-adl: no call is recorded as found by
+    /// argument-dependent lookup (EmitIR::_agree).
+    pub var agree_no_adl: bool = false
 
     fn EmitOptions(self) { }
 }
@@ -125,6 +128,7 @@ pub class CodegenContext {
             self.opts.tls_model           = ctx->ci->codegen.tls_model
             var tt = ctx->ci->target.effective_triple
             self.opts.x32 = tt.starts_with("x86_64") && tt.ends_with("x32")
+            self.opts.agree_no_adl = ctx->ci->codegen.test_sema_agreement_no_adl
             var sw = ctx->ci->codegen.test_sema_agreement_swap
             for var i: usize = 0; i < sw.size(); ++i {
                 if sw[i] == (':' as u8) {

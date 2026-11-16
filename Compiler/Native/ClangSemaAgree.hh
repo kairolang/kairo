@@ -82,7 +82,7 @@ struct SemaAgreeCall {
     uint32_t name = 0;     ///< the name token of the declaration Kairo chose; 0 when it has no clang location
     uint32_t decl = 0;     ///< first byte of that declaration; 0 likewise
     uint32_t decl_len = 0; ///< its length in bytes
-    uint8_t state = 0;     ///< bit 0: clang's AST held the call; bit 1: reported; bit 2: has entries in SemaAgreeTable::alts
+    uint8_t state = 0;     ///< bit 0: clang's AST held the call; bit 1: reported; bit 2: has entries in SemaAgreeTable::alts; bit 3: another record has its closing token's location; bit 4: Sema found the declaration by argument-dependent lookup
 };
 
 /// One disagreement.
@@ -92,6 +92,9 @@ struct SemaAgreeFinding {
     uint32_t clang_len = 0; ///< length of its name there
     bool repaired = false;
     bool adl = false; ///< clang found its callee by argument-dependent lookup
+    /// The callees agree; the lookups do not: clang found its callee by
+    /// argument-dependent lookup and Kairo's record says Sema did not.
+    bool lookup = false;
     /// Why the call was left as clang resolved it: 0 repaired, 1 repair is
     /// off, 2 Kairo's declaration has no counterpart in clang's AST, 3 the
     /// two function types differ, 4 the two are of different kinds, 5 the
@@ -117,18 +120,42 @@ public:
     uint64_t dependent = 0;  ///< joined, but clang resolves the call per instance
     uint64_t by_instance = 0; ///< in an instance, a member of the specialization C++ selected
     uint64_t unrecorded = 0; ///< clang calls in the stream with no record (count_unrecorded)
+    uint64_t adl_clang = 0;  ///< joined calls whose callee clang found by argument-dependent lookup
+    uint64_t adl_sema = 0;   ///< of those, calls Sema found that way too
     /// The clang FileIDs of the Kairo files are one contiguous block: its
     /// first hash value and its size.
     uint32_t block_base = 0;
     uint32_t block_n = 0;
 
-    void add(uint32_t at, uint32_t name, uint32_t decl, uint32_t decl_len) {
+    /// Empties the table for another parse: the records, what a walk
+    /// found and its counts. `repair` and `count_unrecorded` stay.
+    void reset() {
+        calls.clear();
+        findings.clear();
+        alts.clear();
+        _by_loc.clear();
+        seen = agreed = agreed_inside = unchecked = dependent = by_instance = unrecorded = 0;
+        adl_clang = adl_sema = 0;
+        block_base = block_n = 0;
+    }
+
+    /// \p adl: Sema found the declaration by argument-dependent lookup.
+    void add(uint32_t at, uint32_t name, uint32_t decl, uint32_t decl_len, bool adl) {
         SemaAgreeCall c;
+        c.state = adl ? 16 : 0;
         c.at = at;
         c.name = name;
         c.decl = decl;
         c.decl_len = decl_len;
-        _by_loc.try_emplace(static_cast<uint64_t>(at), static_cast<uint32_t>(calls.size()));
+        auto put = _by_loc.try_emplace(static_cast<uint64_t>(at), static_cast<uint32_t>(calls.size()));
+        if (!put.second) {
+            // Two streams of one parse (the interface PCH's) each place
+            // their tokens in a file's bytes on their own: a location both
+            // gave to a closing token joins neither call.
+            calls[put.first->second].state |= 8;
+            c.state |= 8;
+        }
+
         calls.push_back(c);
     }
 
@@ -160,6 +187,7 @@ public:
     uint32_t finding_clang_len(size_t i) const { return findings[i].clang_len; }
     bool finding_repaired(size_t i) const { return findings[i].repaired; }
     bool finding_adl(size_t i) const { return findings[i].adl; }
+    bool finding_lookup(size_t i) const { return findings[i].lookup; }
     uint8_t finding_why(size_t i) const { return findings[i].why; }
     ::std::string finding_clang_name(size_t i) const { return findings[i].clang_name; }
 
@@ -280,6 +308,11 @@ public:
         }
 
         _mark_seen(c);
+        if ((c->state & 8) != 0) {
+            _t->unchecked += 1;
+            return true;
+        }
+
         auto *fd = llvm::dyn_cast_or_null<clang::FunctionDecl>(e->getCalleeDecl());
         if (fd == nullptr) {
             // A dependent callee is resolved in each instance, where this
@@ -294,7 +327,11 @@ public:
             return true;
         }
 
-        _check(c, fd, e, e->usesADL());
+        bool agreed = _check(c, fd, e, e->usesADL());
+        if (e->usesADL()) {
+            _check_lookup(c, fd, agreed);
+        }
+
         return true;
     }
 
@@ -543,24 +580,53 @@ private:
         }
     }
 
-    void _check(SemaAgreeCall *c, clang::FunctionDecl *fd, clang::Expr *node, bool adl) {
-        if (fd == nullptr || (c->name == 0 && c->decl == 0)) {
-            _t->unchecked += 1;
+    /// Clang found \p fd, the callee of \p c's call, by argument-dependent
+    /// lookup. Kairo's Sema resolves such a call itself and CodeGen writes
+    /// the callee it chose, so where the record does not say Sema looked
+    /// the same way, the stream left the lookup to clang: a finding even
+    /// though the two reached one declaration (\p agreed).
+    void _check_lookup(SemaAgreeCall *c, clang::FunctionDecl *fd, bool agreed) {
+        _t->adl_clang += 1;
+        if ((c->state & 16) != 0) {
+            _t->adl_sema += 1;
             return;
+        }
+
+        if (!agreed || (c->state & 2) != 0) {
+            return;
+        }
+
+        c->state |= 2;
+        SemaAgreeFinding f;
+        f.call = _t->index_of(c);
+        f.clang_at = fd->getLocation().getRawEncoding();
+        f.clang_len = _name_len(fd);
+        f.adl = true;
+        f.lookup = true;
+        f.clang_name = _name(fd);
+        f.why = 6;
+        _t->findings.push_back(::std::move(f));
+    }
+
+    /// Whether clang's callee \p fd is the declaration \p c records.
+    bool _check(SemaAgreeCall *c, clang::FunctionDecl *fd, clang::Expr *node, bool adl) {
+        if (fd == nullptr || (c->state & 8) != 0 || (c->name == 0 && c->decl == 0)) {
+            _t->unchecked += 1;
+            return false;
         }
 
         FilePos want = _pos(clang::SourceLocation::getFromRawEncoding(c->name));
         FilePos k = _pos(clang::SourceLocation::getFromRawEncoding(c->decl));
         if (want.file == nullptr && k.file == nullptr) {
             _t->unchecked += 1;
-            return;
+            return false;
         }
 
         Where w;
         _scan_all(fd, want, k, c->decl_len, w);
         if (w.hit) {
             _t->agreed += 1;
-            return;
+            return true;
         }
 
         // A disagreement needs proof that clang's callee is written somewhere
@@ -572,11 +638,11 @@ private:
             if (w.inside) {
                 _t->agreed += 1;
                 _t->agreed_inside += 1;
-            } else {
-                _t->unchecked += 1;
+                return true;
             }
 
-            return;
+            _t->unchecked += 1;
+            return false;
         }
 
         // Kairo bound the call to one declaration of a function declared
@@ -589,7 +655,7 @@ private:
                 _scan_all(fd, _pos(clang::SourceLocation::getFromRawEncoding(it->second)), k, c->decl_len, a);
                 if (a.hit) {
                     _t->agreed += 1;
-                    return;
+                    return true;
                 }
             }
         }
@@ -600,11 +666,11 @@ private:
         // body, to the primary template's member.
         if (_instance > 0 && _specialized_member(fd)) {
             _t->by_instance += 1;
-            return;
+            return false;
         }
 
         if ((c->state & 2) != 0) {
-            return;
+            return false;
         }
 
         c->state |= 2;
@@ -617,6 +683,7 @@ private:
         f.why = _repair(want, fd, node);
         f.repaired = f.why == 0;
         _t->findings.push_back(::std::move(f));
+        return false;
     }
 
     /// Whether \p fd is a member of a class template's explicit

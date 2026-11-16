@@ -2755,6 +2755,30 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
 
     cmd->mark_hidden("test-sema-agreement-quiet")
 
+    // The lookup disagreement the pass reports does not arise from Kairo
+    // source either: this withholds what Sema recorded. Hidden from --help.
+    cmd->define<FlagKind::Bool>(
+        "test-sema-agreement-no-adl",
+        "",
+        "test-sema-agreement-no-adl",
+        "compiler tests only: the agreement pass is told Sema found no callee by argument-dependent lookup",
+        false,
+    )
+
+    cmd->mark_hidden("test-sema-agreement-no-adl")
+
+    // For a build script that compiles with -w, which hides the pass's
+    // warning, and with a compiler that only counts. Hidden from --help.
+    cmd->define<FlagKind::Bool>(
+        "sema-agreement-summary",
+        "",
+        "sema-agreement-summary",
+        "after codegen, print one line counting what the Sema agreement pass found in this build, reported or not",
+        false,
+    )
+
+    cmd->mark_hidden("sema-agreement-summary")
+
     cmd->define<FlagKind::Bool>(
         "test-fold-lie",
         "",

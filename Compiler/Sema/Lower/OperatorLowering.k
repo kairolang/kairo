@@ -1209,6 +1209,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         all.freeze_into(&call->args)
         call->adopt_sema(orig) // type, value category, dependence, poison.
         call->instance = inst
+        call->via_adl  = via_free
         if self._record {
             self.made.push_back(call)
         }

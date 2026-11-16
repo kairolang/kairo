@@ -51,7 +51,15 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "utility"
 
 import AST::Context::ASTContext::ASTContext
-import Codegen::Sink::TokenSink::TokenSink
+import Codegen::Backend::SemaAgreeReport::{
+    AgreeFinding,
+    AgreeNote,
+    agree_emit,
+}
+import Codegen::Sink::TokenSink::{
+    AgreeSite,
+    TokenSink,
+}
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Interop::Clang::ClangLocMap::ClangLocMap
@@ -83,6 +91,15 @@ pub enum EmitKind derives u8 {
     LLVMBC,  ///< `.bc` (EmitBCAction)
 }
 
+/// What the Sema agreement pass compares and where it walks, as words for
+/// the object key: an object stored with no findings says so only for the
+/// checks of the compiler that stored it, and a release build's key holds
+/// nothing else that tells two compilers of one version apart. A check
+/// that is added, or a parse that starts being walked, adds a word.
+pub fn sema_agree_checks() -> string {
+    return "callee adl pch"
+}
+
 /// Whether the Sema agreement pass reports what it finds (I012W) under
 /// -fsema-agreement's value \p want (1 on, 0 off, -1 not given) and
 /// --test-sema-agreement-quiet's \p quiet: asked for it reports; not
@@ -90,6 +107,126 @@ pub enum EmitKind derives u8 {
 /// (kairo::sema_agree_reports_unasked) and \p quiet does not say otherwise.
 pub fn sema_agree_reports(want: i32, quiet: bool) -> bool {
     return want == 1 || want != 0 && !quiet && kairo::sema_agree_reports_unasked()
+}
+
+/// Adds \p sink's records (EmitSink::agree_call, agree_alt) to \p t in
+/// order, as the walk reads them. After the sink's finish(), when a
+/// token's location is final, and before clang lexes it. A parse of
+/// several sinks (the interface PCH's) adds each in turn: record
+/// `t->call_count()` before the call is the sink's first.
+pub fn agree_fill_from(t: unsafe *kairo::SemaAgreeTable, sink: unsafe *TokenSink) {
+    var base = t->call_count() as u32
+    for var i: usize = 0; i < sink->agree_sites.size(); ++i {
+        var s        = sink->agree_sites[i]
+        var len: u32 = 0
+        if s.decl.is_valid() {
+            len = s.decl.size() as u32
+        }
+
+        t->add(
+            sink->token_raw_loc(s.tok as usize),
+            sink->clang_raw_loc(s.name.start),
+            sink->clang_raw_loc(s.decl.start),
+            len,
+            s.adl,
+        )
+    }
+
+    for var i: usize = 0; i < sink->agree_alts.size(); ++i {
+        var a = sink->agree_alts[i]
+        t->add_alt(base + a.site, sink->clang_raw_loc(a.name.start))
+    }
+}
+
+/// The INFO line that gives the counts of \p t's walk over \p what (a
+/// TU's file, or the interface PCH).
+pub fn agree_log_counts(t: unsafe *kairo::SemaAgreeTable, const what: string) {
+    kairo::Logger::info(
+        kairo::Logger::Stage::Driver,
+        f"sema agreement: {t->call_count()} calls recorded, {t->seen} joined, {t->agreed} agreed ({t->agreed_inside} by range), {t->dependent} dependent, {t->by_instance} chosen per instance, {t->unchecked} unchecked, {t->unrecorded} unrecorded, {t->adl_clang} found by ADL ({t->adl_sema} by Sema too), {t->finding_count()} disagreed in {what}",
+    )
+}
+
+/// Finding \p i of \p t's walk as it is reported, \p s being the record
+/// of its call. \p ctx spells the name of the declaration Sema chose;
+/// \p locmap is the parse's, for where clang's callee is written.
+pub fn agree_finding(t:       unsafe *kairo::SemaAgreeTable,
+                     i:       usize,
+                     const s: AgreeSite,
+                     ctx:     unsafe *ASTContext,
+                     locmap:  unsafe *ClangLocMap) -> AgreeFinding {
+    var cn = kairo::std::from_std_string<string>(t->finding_clang_name(i))
+    var kn = "<unnamed>"
+    if s.name.is_valid() {
+        kn = ctx->get_spelling(s.name)
+    }
+
+    var how = "found by argument-dependent lookup; "
+    if !t->finding_adl(i) {
+        how = ""
+    }
+
+    var why     = t->finding_why(i)
+    var outcome = "the call now goes to the declaration Kairo chose"
+    if why == 1 {
+        outcome = "left as clang resolved it (-fno-sema-agreement-repair)"
+    } else if why == 2 {
+        outcome = "left as clang resolved it: the declaration Kairo chose has no counterpart clang can call here"
+    } else if why == 3 {
+        outcome = "left as clang resolved it: the two declarations have different types, so the argument conversions would change"
+    } else if why == 4 {
+        outcome = "left as clang resolved it: the two declarations are of different kinds"
+    } else if why == 5 {
+        outcome = "left as clang resolved it: the call does not name its callee in a form that can be re-pointed"
+    }
+
+    var f = AgreeFinding{}
+    f.at = s.at
+    f.msg = f"internal: clang resolved this call to '{cn}', but Kairo's Sema chose '{kn}'; this is a compiler bug, please report it with the source that triggered it"
+    f.label = how + outcome
+    if t->finding_lookup(i) {
+        // The two reached one declaration, by different lookups.
+        f.kind = "adl"
+        f.msg = f"internal: clang found '{cn}' for this call by argument-dependent lookup, but Kairo's Sema found '{kn}' by its name alone; this is a compiler bug, please report it with the source that triggered it"
+        f.label = "the call is written unqualified, so the function it reaches follows the namespaces of its arguments' types"
+        if s.name.is_valid() {
+            f.notes.push_back(
+                AgreeNote { at: s.name, labelled: true, text: "both reached this declaration" },
+            )
+        }
+
+        return f
+    }
+
+    if s.name.is_valid() {
+        f.notes.push_back(
+            AgreeNote { at: s.name, labelled: true, text: "Kairo's Sema chose this declaration" },
+        )
+    } else if s.decl.is_valid() {
+        f.notes.push_back(
+            AgreeNote {
+                at:       SourceRange::single(s.decl.start),
+                labelled: false,
+                text:     "Kairo's Sema chose this declaration",
+            },
+        )
+    }
+
+    var cl = locmap->to_kairo(
+        clang::SourceLocation::getFromRawEncoding(t->finding_clang_at(i)),
+    )
+
+    if cl.is_valid() {
+        f.notes.push_back(
+            AgreeNote {
+                at:       SourceRange::from_bounds(cl, t->finding_clang_len(i)),
+                labelled: true,
+                text:     "clang resolved the call to this declaration",
+            },
+        )
+    }
+
+    return f
 }
 
 /// \class KairoInject
@@ -240,50 +377,23 @@ pub class KairoInject {
 
         self.agree->block_base = self.locmap->block_base()
         self.agree->block_n    = self.locmap->mapped_count() as u32
-        for var i: usize = 0; i < self.sink->agree_sites.size(); ++i {
-            var s        = self.sink->agree_sites[i]
-            var len: u32 = 0
-            if s.decl.is_valid() {
-                len = s.decl.size() as u32
-            }
-
-            self.agree->add(
-                self.sink->token_raw_loc(s.tok as usize),
-                self.sink->clang_raw_loc(s.name.start),
-                self.sink->clang_raw_loc(s.decl.start),
-                len,
-            )
-        }
-
-        self._agree_fill_alts()
+        agree_fill_from(self.agree, self.sink)
     }
 
-    priv fn _agree_fill_alts(self) {
-        for var i: usize = 0; i < self.sink->agree_alts.size(); ++i {
-            var a = self.sink->agree_alts[i]
-            self.agree->add_alt(a.site, self.sink->clang_raw_loc(a.name.start))
-        }
-    }
-
-    /// Reports each disagreement the walk found as I012W into \p ctx's
-    /// sink, and returns how many it reported: none when the run only
+    /// What the walk found, as \p out: one AgreeFinding per disagreement,
+    /// each also reported (I012W) into \p ctx's sink unless the run only
     /// counts (agree_start). \p path names the TU in the INFO line that
     /// gives the walk's counts, which is logged either way.
-    fn agree_report(self, ctx: unsafe *ASTContext, const path: string) -> usize {
+    fn agree_report(self,
+                    ctx:        unsafe *ASTContext,
+                    const path: string,
+                    @inout out: cxx::std::vector<AgreeFinding>) {
         if self.agree == &null || self.sink == &null {
-            return 0
+            return
         }
 
         var unsafe *t = self.agree
-        kairo::Logger::info(
-            kairo::Logger::Stage::Driver,
-            f"sema agreement: {t->call_count()} calls recorded, {t->seen} joined, {t->agreed} agreed ({t->agreed_inside} by range), {t->dependent} dependent, {t->by_instance} chosen per instance, {t->unchecked} unchecked, {t->unrecorded} unrecorded, {t->finding_count()} disagreed in {path}",
-        )
-
-        if !self.agree_says {
-            return 0
-        }
-
+        agree_log_counts(t, path)
         var n = t->finding_count()
         for var i: usize = 0; i < n; ++i {
             var ci = t->finding_call(i) as usize
@@ -291,66 +401,20 @@ pub class KairoInject {
                 continue
             }
 
-            var s = self.sink->agree_sites[ci]
-            var cn = kairo::std::from_std_string<string>(
-                t->finding_clang_name(i),
+            var f = agree_finding(
+                t,
+                i,
+                self.sink->agree_sites[ci],
+                ctx,
+                self.locmap,
             )
 
-            var kn = "<unnamed>"
-            if s.name.is_valid() {
-                kn = ctx->get_spelling(s.name)
+            if self.agree_says {
+                agree_emit(ctx, f)
             }
 
-            var how = "found by argument-dependent lookup; "
-            if !t->finding_adl(i) {
-                how = ""
-            }
-
-            var why     = t->finding_why(i)
-            var outcome = "the call now goes to the declaration Kairo chose"
-            if why == 1 {
-                outcome = "left as clang resolved it (-fno-sema-agreement-repair)"
-            } else if why == 2 {
-                outcome = "left as clang resolved it: the declaration Kairo chose has no counterpart clang can call here"
-            } else if why == 3 {
-                outcome = "left as clang resolved it: the two declarations have different types, so the argument conversions would change"
-            } else if why == 4 {
-                outcome = "left as clang resolved it: the two declarations are of different kinds"
-            } else if why == 5 {
-                outcome = "left as clang resolved it: the call does not name its callee in a form that can be re-pointed"
-            }
-
-            var b = ctx->diag_sink.report(
-                DiagCode(DiagID::I012W),
-                s.at.start,
-                f"internal: clang resolved this call to '{cn}', but Kairo's Sema chose '{kn}'; this is a compiler bug, please report it with the source that triggered it",
-            )
-
-            b.first(s.at, how + outcome)
-            if s.name.is_valid() {
-                b.note(s.name.start, "Kairo's Sema chose this declaration")->child_first(
-                    s.name,
-                )
-            } else if s.decl.is_valid() {
-                b.note(s.decl.start, "Kairo's Sema chose this declaration")
-            }
-
-            var cl = self.locmap->to_kairo(
-                clang::SourceLocation::getFromRawEncoding(
-                    t->finding_clang_at(i),
-                ),
-            )
-
-            if cl.is_valid() {
-                b.note(cl, "clang resolved the call to this declaration")->child_first(
-                    SourceRange::from_bounds(cl, t->finding_clang_len(i)),
-                )
-            }
-
-            b.emit()
+            out.push_back(f)
         }
-
-        return n
     }
 
     fn KairoInject(self) = default

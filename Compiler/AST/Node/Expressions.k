@@ -140,6 +140,13 @@ pub class CallExpr derives Expr {
     pub var cxx_spec:     unsafe *void = &null
     pub var cxx_spec_set: unsafe *void = &null
 
+    /// The selected callee is one only argument-dependent lookup found: it
+    /// is not among the candidates ordinary lookup of the callee's name
+    /// gave. Written by CallTyping at Selected, and by OperatorLowering on
+    /// the call it mints for a free operator found that way. The Sema
+    /// agreement pass compares it with how clang found its callee.
+    pub var via_adl: bool = false
+
     /// A call of a C++ function object, `f(args)` with `f` a value whose
     /// class has `operator()`: the selected operator, which `arg_map` is
     /// parallel to (its `self` is the callee object). EmitIR writes the

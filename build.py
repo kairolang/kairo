@@ -1021,6 +1021,20 @@ def kairo_has_flag(kairo: Path, flag: str) -> bool:
     return flag in _HELP_PROBE[key]
 
 
+def agree_summary(log_path: Path) -> str:
+    """What the compiler's --sema-agreement-summary line in a tool's build log says
+    after its `kairo: sema agreement: ` prefix: `0 finding(s) in 405 file(s)`, or the
+    count with its kinds, or `off`. `no count` when the log has no such line."""
+    last = "no count"
+    try:
+        for line in log_path.read_text(errors="replace").splitlines():
+            if line.startswith("kairo: sema agreement: "):
+                last = line[len("kairo: sema agreement: "):].strip()
+    except OSError:
+        pass
+    return last
+
+
 def tree_visibility_args(kairo: Path) -> list:
     """-fdefault-visibility=spec: the tree builds under
     the language's own rule. An unmarked declaration is `prot` to its module (each
@@ -1534,6 +1548,12 @@ def main() -> int:
         # The tree's visibility rule (see tree_visibility_args); a Kairo-only
         # flag, after native_common as above.
         common += tree_visibility_args(kairo)
+    # The Sema agreement pass's count for this build (agree_summary): asked of a
+    # compiler that has the flag. A Kairo-only flag, after native_common as above.
+    agree_flag = selfhost and not check_only and kairo_knows(kairo, "sema-agreement-summary")
+    agree = {}
+    if agree_flag:
+        common.append("--sema-agreement-summary")
     if repro:
         common += reproducible_args(os_, epoch, src, out)
         native_common += reproducible_args(os_, epoch, src, None)
@@ -1602,11 +1622,18 @@ def main() -> int:
             prog.log(f"{t}: checked in {secs:.0f} s, no binary (log {log_path})")
             continue
         prog.log(f"{t}: built {binary} in {secs:.0f} s (log {log_path})")
+        if agree_flag:
+            agree[t] = agree_summary(log_path)
 
     if staged:
         prog.next("stage tree (Scripts/stage_tree.py)")
         link_sysroot(out, triple, prog, kairo)
         postbuild(out, mode_name, tree_triple, cross_dir(a.target) / "llvm" if a.target else None, a.target, src)
+    if agree:
+        # One line per build: the tree compiles with -w, which hides the pass's
+        # warning (I012W), and a release-built seed only counts.
+        prog.log("sema agreement: " + "; ".join(f"{t} {agree[t]}" for t in sorted(agree))
+                 + ("" if a.warnings else "  (--warnings shows them)"))
     if not (a.print_jobs or a.print_command):
         prog.done()
         for t in sorted(a.targets) if not check_only else []:

@@ -1157,6 +1157,9 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         c->instance       = inst
         c->type_          = ty
         c->value_category = Expr::ValueCategory::RValue
+        // StmtTyping found it among the argument-dependent candidates, and
+        // a hidden friend can only be called unqualified.
+        c->via_adl = true
         return c
     }
 

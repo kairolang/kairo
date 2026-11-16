@@ -67,6 +67,7 @@ import Codegen::Backend::CodegenAction::{
 }
 import Codegen::Backend::IncludeEmitter::IncludedDecls
 import Codegen::Backend::InterfacePCH::InterfacePCH
+import Codegen::Backend::SemaAgreeReport::AgreeFinding
 import Codegen::CodegenContext::{
     CodegenContext,
     CodegenPhase,
@@ -134,10 +135,9 @@ pub class CodegenBackend derives TokenFiller {
     priv var _record: string = ""
     /// The Sema agreement pass (Compiler/Spec/SemaAgreement.md): whether a
     /// run of this TU has reported yet (a TU runs once per output kind, and
-    /// again without the interface PCH), and how many disagreements it
-    /// reported.
-    priv var _agree_said:  bool  = false
-    priv var _agree_found: usize = 0
+    /// again without the interface PCH), and the disagreements it found.
+    priv var _agree_said:  bool                           = false
+    priv var _agree_found: cxx::std::vector<AgreeFinding>
 
     fn CodegenBackend(self,
                       be:        unsafe *ClangBackend,
@@ -588,13 +588,13 @@ pub class CodegenBackend derives TokenFiller {
             return
         }
 
-        self._agree_said  = true
-        self._agree_found = inj->agree_report(self._ctx, self._path)
+        self._agree_said = true
+        inj->agree_report(self._ctx, self._path, &self._agree_found)
     }
 
-    /// How many calls clang bound to a declaration Kairo did not choose
-    /// were reported (I012W).
-    fn agree_found(self) -> usize {
+    /// The calls clang bound to a declaration Kairo did not choose, as
+    /// the walk of this TU's first run found them.
+    fn agree_found(self) -> cxx::std::vector<AgreeFinding> {
         return self._agree_found
     }
 }
@@ -708,10 +708,11 @@ pub class CodegenJob {
     /// TU that compiles drops what the hash's fill reported, since its own
     /// fill reports the same again.
     pub var diag_mark: usize = 0
-    /// How many disagreements the Sema agreement pass reported for this TU
-    /// (I012W). Such an object is not stored: a stored object replays no
-    /// diagnostics, and the warning is said on every build.
-    pub var agree_found: usize = 0
+    /// The disagreements the Sema agreement pass found in this TU: its
+    /// walk's when the TU compiled, the ones stored beside its object when
+    /// the object is reused (ObjectCache::fetch). The driver stores them
+    /// with the object, and the run that reuses it reports them again.
+    pub var agree_found: cxx::std::vector<AgreeFinding>
 
     pub fn run(self, r: *CodegenRun) {
         // The Kairo side of the TU's setup; CodegenBackend::run bills clang's.
@@ -767,8 +768,13 @@ pub class CodegenJob {
         time_bill_since("TUSetup", t_setup)
 
         self._run_kinds(&cg, a, be)
-        self.agree_found = cg.agree_found()
-        self.iface_used  = self.iface != &null && self.iface->ok
+        // Added to: the driver has put here what the interface PCH's walk
+        // found in this TU's file.
+        for var f: AgreeFinding in cg.agree_found() {
+            self.agree_found.push_back(f)
+        }
+
+        self.iface_used = self.iface != &null && self.iface->ok
         // Clang said something about this TU under the interface PCH: it is
         // said again from the whole stream, so a diagnostic names the bytes
         // and the order it always did. The PCH moves where a declaration's

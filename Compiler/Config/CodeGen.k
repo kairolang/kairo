@@ -150,6 +150,13 @@ pub class CodeGenOptions {
     /// --test-sema-agreement-quiet: with -fsema-agreement not given, the
     /// pass only counts, as it does in a release-built compiler.
     pub var test_sema_agreement_quiet: bool = false
+    /// --test-sema-agreement-no-adl: the pass is told Sema found no callee
+    /// by argument-dependent lookup. For compiler tests only.
+    pub var test_sema_agreement_no_adl: bool = false
+    /// --sema-agreement-summary: after codegen the driver prints one line
+    /// counting the pass's findings over the build's TUs, compiled or
+    /// reused, whether or not they were reported.
+    pub var sema_agreement_summary: bool = false
 
     /// # instrumentation feature toggles
 
@@ -312,6 +319,11 @@ pub class CodeGenOptions {
         o.sema_agreement_repair = args.get_feature("sema-agreement-repair")
         o.test_sema_agreement_swap = args.get_string("test-sema-agreement-swap")
         o.test_sema_agreement_quiet = args.get_bool("test-sema-agreement-quiet")
+        o.test_sema_agreement_no_adl = args.get_bool(
+            "test-sema-agreement-no-adl",
+        )
+
+        o.sema_agreement_summary = args.get_bool("sema-agreement-summary")
 
         /// ## instrumentation feature toggles
         o.f_coverage         = args.get_feature("coverage")

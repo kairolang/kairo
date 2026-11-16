@@ -48,17 +48,27 @@ ffi "c++" import "llvm/Support/VirtualFileSystem.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "Native/TokenArray.hh"
+ffi "c++" import "Native/ClangSemaAgree.hh"
 ffi "c++" import "memory"
 ffi "c++" import "vector"
 
 import AST::Context::ASTContext::ASTContext
 import AST::Context::InstantiationRegistry::InstantiationRegistry
+import Codegen::Backend::CodegenAction::{
+    agree_fill_from,
+    agree_finding,
+    agree_log_counts,
+}
 import Codegen::Backend::IncludeEmitter::{
     IncludeEmitter,
     IncludedDecls,
 }
+import Codegen::Backend::SemaAgreeReport::AgreeFinding
 import Codegen::EmitPlan::EmitPlan
-import Codegen::Sink::TokenSink::TokenSink
+import Codegen::Sink::TokenSink::{
+    AgreeSite,
+    TokenSink,
+}
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
 import Diagnostic::ClangDiagAdapter::ClangDiagAdapter
 import Interop::Clang::ClangBackend::{
@@ -107,6 +117,18 @@ pub class InterfacePCH {
     pub var seen: IncludedDecls
     /// The stream's size, for -v.
     pub var tokens: usize = 0
+    /// The Sema agreement pass's table for the PCH's parse
+    /// (Native/ClangSemaAgree.hh), or null when the pass is off
+    /// (agree_start). Owned. A body the PCH holds is parsed here and by no
+    /// TU, so this is the one walk of its calls.
+    pub var agree: unsafe *kairo::SemaAgreeTable = &null
+    /// What that walk found, for a build that is `ok`. The driver hands
+    /// each to the TU whose file holds the call.
+    pub var agree_found: cxx::std::vector<AgreeFinding>
+    /// The table's records on the Kairo side, in its order, and for each
+    /// the index of the TU whose stream wrote it.
+    priv var _agree_sites: cxx::std::vector<AgreeSite>
+    priv var _agree_tu:    cxx::std::vector<u32>
     /// What the build's clang said, in Kairo terms. Drained only on
     /// request (--verbose): the TUs report the same errors.
     pub var diag: BufferedDiagSink
@@ -129,6 +151,21 @@ pub class InterfacePCH {
 
     fn op finally(self) {
         self._free_sinks()
+        if self.agree != &null {
+            kairo::std::destroy(self.agree)
+            self.agree = &null
+        }
+    }
+
+    /// Turns the Sema agreement pass on for the PCH's parse: before
+    /// build(). \p repair and \p count_unrecorded as KairoInject::agree_start.
+    pub fn agree_start(self, repair: bool, count_unrecorded: bool) {
+        if self.agree == &null {
+            self.agree = kairo::std::create<kairo::SemaAgreeTable>()
+        }
+
+        self.agree->repair           = repair
+        self.agree->count_unrecorded = count_unrecorded
     }
 
     priv fn _free_sinks(self) {
@@ -214,6 +251,29 @@ pub class InterfacePCH {
         a->BeginSourceFile(be->invocation()->getLangOpts(), &null)
 
         var ok = self._parse(ci, be, mounts, a, fe->Inputs[0])
+        // While the map of this parse lives. A build that failed has no
+        // findings: every TU then parses, and walks, its whole stream.
+        if ok && self.agree != &null {
+            agree_log_counts(self.agree, f"the interface PCH {self.path}")
+            var n = self.agree->finding_count()
+            for var i: usize = 0; i < n; ++i {
+                var site = self.agree->finding_call(i) as usize
+                if site >= self._agree_sites.size() {
+                    continue
+                }
+
+                self.agree_found.push_back(
+                    agree_finding(
+                        self.agree,
+                        i,
+                        self._agree_sites[site],
+                        self._ctxs[self._agree_tu[site] as usize],
+                        self._locmap,
+                    ),
+                )
+            }
+        }
+
         kairo::std::destroy(ci)
         a->EndSourceFile()
         a->finish()
@@ -270,6 +330,7 @@ pub class InterfacePCH {
         var toks = cxx::std::vector<clang::Token>()
         for var i: usize = 0; i < self._ctxs.size(); ++i {
             var em = IncludeEmitter()
+            em.agree = self.agree != &null
             if !em.emit(
                 unsafe &ci,
                 self._locmap,
@@ -296,6 +357,21 @@ pub class InterfacePCH {
 
         if self._keep.size() == 0 {
             return false
+        }
+
+        // Every sink has finished, so each token's location is final: the
+        // records of all of them are one table, in stream order.
+        if self.agree != &null {
+            self.agree->block_base = self._locmap->block_base()
+            self.agree->block_n    = self._locmap->mapped_count() as u32
+            for var i: usize = 0; i < self._keep.size(); ++i {
+                var unsafe *s = self._keep[i]
+                agree_fill_from(self.agree, s)
+                for var k: usize = 0; k < s->agree_sites.size(); ++k {
+                    self._agree_sites.push_back(s->agree_sites[k])
+                    self._agree_tu.push_back(i as u32)
+                }
+            }
         }
 
         // The system headers the streams asked for (TokenSink::system_header),
@@ -347,19 +423,24 @@ pub class InterfacePCH {
 
 override fn InterfacePCHAction::CreateASTConsumer(self, @inout ci: clang::CompilerInstance, in_file: llvm::StringRef)
         -> cxx::std::unique_ptr<clang::ASTConsumer> {
-    // Same generator and arguments as CodegenPCHAction's (ASTWriter.h:1015).
-    return cxx::std::unique_ptr<clang::ASTConsumer>(
-        cxx::std::make_unique<clang::PCHGenerator>(
-            ci.getPreprocessor(),
-            ci.getModuleCache(),
-            llvm::StringRef(r"<kairo-interface>.pch"),
-            llvm::StringRef(r""),
-            self._buf,
-            ci.getCodeGenOpts(),
-            ci.getFrontendOpts().ModuleFileExtensions,
-            false,
-            false,
+    // Same generator and arguments as CodegenPCHAction's (ASTWriter.h:1015),
+    // behind the Sema agreement walk: a call it repairs is written to the
+    // PCH as repaired.
+    return kairo::sema_agree_wrap(
+        cxx::std::unique_ptr<clang::ASTConsumer>(
+            cxx::std::make_unique<clang::PCHGenerator>(
+                ci.getPreprocessor(),
+                ci.getModuleCache(),
+                llvm::StringRef(r"<kairo-interface>.pch"),
+                llvm::StringRef(r""),
+                self._buf,
+                ci.getCodeGenOpts(),
+                ci.getFrontendOpts().ModuleFileExtensions,
+                false,
+                false,
+            ),
         ),
+        self.owner->agree,
     )
 }
 

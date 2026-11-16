@@ -58,6 +58,9 @@ ffi "c++" import "clang/FrontendTool/Utils.h"
 ffi "c++" import "clang/Lex/HeaderSearch.h"
 ffi "c++" import "clang/Lex/Preprocessor.h"
 ffi "c++" import "clang/Lex/Token.h"
+ffi "c++" import "clang/AST/ASTConsumer.h"
+ffi "c++" import "Native/ClangSemaAgree.hh"
+ffi "c++" import "memory"
 ffi "c++" import "llvm/ADT/ArrayRef.h"
 ffi "c++" import "vector"
 ffi "c++" import "optional"
@@ -78,6 +81,11 @@ pub class KairoIncludeSource {
     virtual fn op finally(self) { }
     /// Why the last tokens_for failed, for the error at the include.
     pub var error: string
+    /// The Sema agreement pass's table for the host TU being compiled
+    /// (Native/ClangSemaAgree.hh), or null: no walk. The source owns it and
+    /// adds each stream's records as tokens_for writes the stream; the host
+    /// action's consumer walks with it.
+    pub var agree: unsafe *kairo::SemaAgreeTable = &null
     /// The `#include` lines the last tokens_for's stream needs (`<new>`,
     /// the modules' ffi headers), which the hook enters ahead of it.
     pub var include_lines: cxx::std::vector<string>
@@ -97,6 +105,15 @@ pub class KairoIncludeSource {
 
     /// The host TU is done: everything kept alive for its tokens may go.
     virtual fn end_tu(self) { }
+}
+
+/// The table the consumer of a host action walks with, null for none.
+fn host_agree_table(source: unsafe *KairoIncludeSource) -> unsafe *kairo::SemaAgreeTable {
+    if source == &null {
+        return &null
+    }
+
+    return source->agree
 }
 
 /// \class KairoIncludeHook
@@ -418,6 +435,16 @@ pub class KairoHostObj derives clang::EmitObjAction {
         self.hook.install(&ci)
         return true
     }
+
+    /// The action's consumer behind the Sema agreement walk of the Kairo
+    /// streams this host TU includes (KairoIncludeSource::agree).
+    override fn CreateASTConsumer(self, @inout ci: clang::CompilerInstance, in_file: llvm::StringRef)
+            -> cxx::std::unique_ptr<clang::ASTConsumer> {
+        return kairo::sema_agree_wrap(
+            clang::EmitObjAction::CreateASTConsumer(self, &ci, in_file),
+            host_agree_table(self.hook.source),
+        )
+    }
 }
 
 pub class KairoHostAsm derives clang::EmitAssemblyAction {
@@ -429,6 +456,16 @@ pub class KairoHostAsm derives clang::EmitAssemblyAction {
 
         self.hook.install(&ci)
         return true
+    }
+
+    /// The action's consumer behind the Sema agreement walk of the Kairo
+    /// streams this host TU includes (KairoIncludeSource::agree).
+    override fn CreateASTConsumer(self, @inout ci: clang::CompilerInstance, in_file: llvm::StringRef)
+            -> cxx::std::unique_ptr<clang::ASTConsumer> {
+        return kairo::sema_agree_wrap(
+            clang::EmitAssemblyAction::CreateASTConsumer(self, &ci, in_file),
+            host_agree_table(self.hook.source),
+        )
     }
 }
 
@@ -442,6 +479,16 @@ pub class KairoHostLLVM derives clang::EmitLLVMAction {
         self.hook.install(&ci)
         return true
     }
+
+    /// The action's consumer behind the Sema agreement walk of the Kairo
+    /// streams this host TU includes (KairoIncludeSource::agree).
+    override fn CreateASTConsumer(self, @inout ci: clang::CompilerInstance, in_file: llvm::StringRef)
+            -> cxx::std::unique_ptr<clang::ASTConsumer> {
+        return kairo::sema_agree_wrap(
+            clang::EmitLLVMAction::CreateASTConsumer(self, &ci, in_file),
+            host_agree_table(self.hook.source),
+        )
+    }
 }
 
 pub class KairoHostBC derives clang::EmitBCAction {
@@ -454,6 +501,16 @@ pub class KairoHostBC derives clang::EmitBCAction {
         self.hook.install(&ci)
         return true
     }
+
+    /// The action's consumer behind the Sema agreement walk of the Kairo
+    /// streams this host TU includes (KairoIncludeSource::agree).
+    override fn CreateASTConsumer(self, @inout ci: clang::CompilerInstance, in_file: llvm::StringRef)
+            -> cxx::std::unique_ptr<clang::ASTConsumer> {
+        return kairo::sema_agree_wrap(
+            clang::EmitBCAction::CreateASTConsumer(self, &ci, in_file),
+            host_agree_table(self.hook.source),
+        )
+    }
 }
 
 pub class KairoHostSyntax derives clang::SyntaxOnlyAction {
@@ -465,6 +522,16 @@ pub class KairoHostSyntax derives clang::SyntaxOnlyAction {
 
         self.hook.install(&ci)
         return true
+    }
+
+    /// The action's consumer behind the Sema agreement walk of the Kairo
+    /// streams this host TU includes (KairoIncludeSource::agree).
+    override fn CreateASTConsumer(self, @inout ci: clang::CompilerInstance, in_file: llvm::StringRef)
+            -> cxx::std::unique_ptr<clang::ASTConsumer> {
+        return kairo::sema_agree_wrap(
+            clang::SyntaxOnlyAction::CreateASTConsumer(self, &ci, in_file),
+            host_agree_table(self.hook.source),
+        )
     }
 }
 
@@ -489,6 +556,16 @@ pub class KairoHostPCH derives clang::GeneratePCHAction {
 
         self.hook.install(&ci)
         return true
+    }
+
+    /// The action's consumer behind the Sema agreement walk of the Kairo
+    /// streams this host TU includes (KairoIncludeSource::agree).
+    override fn CreateASTConsumer(self, @inout ci: clang::CompilerInstance, in_file: llvm::StringRef)
+            -> cxx::std::unique_ptr<clang::ASTConsumer> {
+        return kairo::sema_agree_wrap(
+            clang::GeneratePCHAction::CreateASTConsumer(self, &ci, in_file),
+            host_agree_table(self.hook.source),
+        )
     }
 }
 

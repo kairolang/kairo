@@ -438,6 +438,7 @@ fn io_call_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::CallExpr) {
         ar->sema_is(n->instance == &null, "CallExpr::instance")
         ar->sema_null<Decl>(n->ctor_decl, "CallExpr::ctor_decl")
         ar->sema_null<Decl>(n->functor_op, "CallExpr::functor_op")
+        ar->sema_false(n->via_adl, "CallExpr::via_adl")
         ar->sema_null<void>(n->cxx_spec, "CallExpr::cxx_spec")
         ar->sema_null<void>(n->cxx_spec_set, "CallExpr::cxx_spec_set")
         ar->sema_null<Type>(n->qualifier, "CallExpr::qualifier")
