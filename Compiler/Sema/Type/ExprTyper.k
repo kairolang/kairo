@@ -145,6 +145,7 @@ import Location::FullSourceLocation::FullSourceLocation
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Sema::Check::CaptureAnalysis::{
+    closure_declares,
     copies_script_var,
     script_top_var,
 }
@@ -1199,7 +1200,6 @@ pub class ExprTyper
             return &null
         }
 
-        var at  = d->range.start.id
         var top = self.script_top_capture(d)
         var i   = self.frames.size()
         while i > 0 {
@@ -1209,7 +1209,7 @@ pub class ExprTyper
                 return &null
             }
 
-            if at >= c->range.start.id && at < c->range.end.id {
+            if closure_declares(c, d) {
                 return &null
             }
 

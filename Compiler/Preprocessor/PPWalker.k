@@ -173,6 +173,10 @@ class ArgSplitter {
     }
 }
 
+const BRACE_MODULE: u8 = 0
+const BRACE_BRANCH: u8 = 1
+const BRACE_BLOCK:  u8 = 2
+
 pub class PPWalker {
     priv var _splices:          cxx::std::vector<unsafe *TokenBuffer<512>> ///< frame backing; freed in finalize
     priv var _opts:             PreprocessorOptions
@@ -203,6 +207,22 @@ pub class PPWalker {
     /// them for an invocation again.
     priv var _defined_raw:    llvm::DenseSet<u64>     ///< `raw as u64`, as _depth_reported
     priv var _unique_counter: u32                 = 0
+
+    /// A macro a block defines (_in_block), visible to the end
+    /// of that block and never in the MacroTable: no other file and no
+    /// sibling block can name it.
+    struct BlockMacro {
+        var entry: unsafe *MacroEntry
+        var depth: i32                ///< the defining block's place in _braces, from 1.
+    }
+
+    priv var _block_macros: cxx::std::vector<Self::BlockMacro> ///< innermost block last.
+    /// Every `{` the walk has open, outermost first: BRACE_MODULE (a module's
+    /// own), BRACE_BRANCH (an `eval if` branch: its declarations are the
+    /// enclosing scope's, so it is no scope for a macro either) or BRACE_BLOCK.
+    priv var _braces:      cxx::std::vector<u8>
+    priv var _branch_next: bool                                 = false ///< the next `{` opens an `eval if` branch.
+    priv var _block_owned: cxx::std::vector<unsafe *MacroEntry> ///< every block macro of the walk; freed with it.
 
     /// ffi headers this file imports, spelled as HeaderSet::unquote does,
     /// deduped, in SOURCE ORDER: the key of the one HeaderSet _finalize
@@ -367,6 +387,10 @@ pub class PPWalker {
             kairo::std::destroy(b)
         }
 
+        for e in self._block_owned {
+            kairo::std::destroy(e)
+        }
+
         self._splices.clear()
 
         if self._src != &null {
@@ -464,6 +488,7 @@ pub class PPWalker {
                 break
             }
 
+            self._note_eval_if(k)
             if k == TokenKind::KwImport {
                 {
                     var cur = self._silent_cursor()
@@ -473,8 +498,14 @@ pub class PPWalker {
                 continue
             }
 
+            // A block's macro is the walk's to define, where the block is.
             if k == TokenKind::KwMacro {
-                self._handle_macro_def(VisibilityKind::Public)
+                if self._in_block() {
+                    self._skip_macro_def()
+                } else {
+                    self._handle_macro_def(VisibilityKind::Public)
+                }
+
                 continue
             }
 
@@ -495,7 +526,12 @@ pub class PPWalker {
 
                 if nk == TokenKind::KwMacro {
                     self._src->next()
-                    self._handle_macro_def(vis)
+                    if self._in_block() {
+                        self._skip_macro_def()
+                    } else {
+                        self._handle_macro_def(vis)
+                    }
+
                     continue
                 }
 
@@ -603,6 +639,7 @@ pub class PPWalker {
                 break
             }
 
+            self._note_eval_if(k)
             if k == TokenKind::KwFfi {
                 self._handle_ffi()
                 continue
@@ -614,7 +651,7 @@ pub class PPWalker {
             } // an import is priv by default
 
             if k == TokenKind::KwMacro {
-                if self._macros_known { // a macro is pub by default
+                if self._macros_known && !self._in_block() { // a macro is pub by default
                     self._skip_macro_def()
                 } else {
                     self._handle_macro_def(VisibilityKind::Public)
@@ -636,7 +673,7 @@ pub class PPWalker {
 
                 if nk == TokenKind::KwMacro {
                     self._src->next()
-                    if self._macros_known {
+                    if self._macros_known && !self._in_block() {
                         self._skip_macro_def()
                     } else {
                         self._handle_macro_def(vis)
@@ -848,9 +885,73 @@ pub class PPWalker {
             return false
         }
 
+        if k == TokenKind::OpLBrace {
+            var kind = BRACE_BLOCK
+            if self._tracker->brace_depth() + 1 == self._tracker->scope_depth() {
+                kind = BRACE_MODULE
+            } else if self._branch_next {
+                kind = BRACE_BRANCH
+            }
+
+            self._branch_next = false
+            self._braces.push_back(kind)
+        }
+
         self._tracker->feed_stream(self._src, vis, fn() { self._emit_next() })
+        if k == TokenKind::OpRBrace {
+            var was = BRACE_BLOCK
+            if !self._braces.empty() {
+                was = self._braces.back()
+                self._braces.pop_back()
+            }
+
+            // `} else {` and `} else if c {`, the `else` on this line or
+            // a later one: the next `{` is a branch too.
+            if was == BRACE_BRANCH {
+                var at: usize = 0
+                while self._src->peek(at).kind == TokenKind::TkNewLine {
+                    at += 1
+                }
+
+                if self._src->peek(at).kind == TokenKind::KwElse {
+                    self._branch_next = true
+                }
+            }
+
+            while !self._block_macros.empty()
+                && (self._block_macros.back().depth as usize) > self._braces.size() {
+                self._block_macros.pop_back()
+            }
+        }
 
         return true
+    }
+
+    /// The place in _braces, from 1, of the innermost open `{` that scopes a
+    /// macro, or 0 at module level: an `eval if` branch is looked through.
+    priv fn _block_depth(self) -> i32 {
+        var i = self._braces.size()
+        while i > 0 {
+            if self._braces[i - 1] == BRACE_BRANCH {
+                i -= 1
+                continue
+            }
+
+            return if (self._braces[i - 1] == BRACE_BLOCK) => (i as i32) else => 0
+        }
+
+        return 0
+    }
+
+    priv fn _in_block(self) -> bool {
+        return self._block_depth() > 0
+    }
+
+    /// `eval if` at \p k: its branches' braces are no scope of their own.
+    priv fn _note_eval_if(self, k: TokenKind) {
+        if k == TokenKind::KwEval && self._src->peek(1).kind == TokenKind::KwIf {
+            self._branch_next = true
+        }
     }
 
     //  FFI
@@ -1414,7 +1515,30 @@ pub class PPWalker {
         entry->source_fid = self._fid
         entry->visibility = vis
 
-        if !self._macros->register_macro(entry) {
+        var fresh = true
+        if self._in_block() {
+            // One name, one macro, from the file's scope inward: a block's
+            // macro may not take the name of one an enclosing block or the
+            // enclosing module of this file defines.
+            fresh = self._block_macro(entry->name_sym) == &null
+                && self._macros->find_same_fid(
+                    entry->scope,
+                    entry->name_sym,
+                    self._fid,
+                ) == &null
+
+            self._block_owned.push_back(entry)
+            if fresh {
+                var bm = Self::BlockMacro{}
+                bm.entry = entry
+                bm.depth = self._block_depth()
+                self._block_macros.push_back(bm)
+            }
+        } else {
+            fresh = self._macros->register_macro(entry)
+        }
+
+        if !fresh {
             self._diag->report(
                 DiagCode(DiagID::S040E),
                 hdr.name.range.start,
@@ -3594,9 +3718,15 @@ pub class PPWalker {
             return &null // qualified NEVER falls back to unqualified
         }
 
-        // unqualified: current scope chain (same-fid, order irrelevant under
-        // the two-phase-free single walk since defs before this point are the
-        // only ones registered) -> named imports -> wildcards -> global
+        // unqualified: the open blocks, innermost first -> current scope
+        // chain (same-fid, order irrelevant under the two-phase-free single
+        // walk since defs before this point are the only ones registered)
+        // -> named imports -> wildcards -> global
+        var unsafe *bm = self._block_macro(inv.name_sym)
+        if bm != &null {
+            return bm
+        }
+
         var *scope = self._tracker->current_scope()
         var unsafe *e = self._macros->find_same_fid(
             *scope,
@@ -3635,6 +3765,19 @@ pub class PPWalker {
 
         // global scope (empty ModulePath)
         return self._macros->find(ModulePath(), inv.name_sym, self._fid)
+    }
+
+    /// The macro \p name of an open block, innermost first, or null.
+    priv fn _block_macro(self, name: SymbolID) -> unsafe *MacroEntry {
+        var i = self._block_macros.size()
+        while i > 0 {
+            i -= 1
+            if self._block_macros[i].entry->name_sym == name {
+                return self._block_macros[i].entry
+            }
+        }
+
+        return &null
     }
 
     priv fn _sym_name(self, id: SymbolID) -> string {

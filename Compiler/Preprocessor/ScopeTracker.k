@@ -114,6 +114,17 @@ pub class ScopeTracker {
         return self._brace_depth
     }
 
+    /// \brief the brace depth inside the innermost module block's own `{`
+    ///        (0 at file level): the `{` that raises the depth to it is that
+    ///        module's.
+    fn scope_depth(self) -> i32 {
+        if self._stack.size() == 0 {
+            return 0
+        }
+
+        return self._stack.back().brace_depth
+    }
+
 
     /// # Streaming driver (PP single-pass walk)
     /// Pulls from TokenSource; emits

@@ -111,6 +111,31 @@ pub fn copies_script_var(n: unsafe *ClosureExpr, d: unsafe *Decl) -> bool {
     return !named
 }
 
+/// \p d is declared inside closure \p c: a parameter of it, or a binding
+/// of its body. A declaration inside lies in the closure's range, and one
+/// written after the closure's first token is inside. One AT that token is
+/// a sibling or a child: a macro invocation that makes the closure and the
+/// declaration puts every token of both at the invocation, so there the
+/// tree answers.
+pub fn closure_declares(c: unsafe *ClosureExpr, d: unsafe *Decl) -> bool {
+    if c == &null || d == &null {
+        return false
+    }
+
+    var at = d->range.start.id
+    if at < c->range.start.id || at >= c->range.end.id {
+        return false
+    }
+
+    if at != c->range.start.id {
+        return true
+    }
+
+    var scan = FreeVarScan()
+    scan.run_closure(c)
+    return scan.declares(d)
+}
+
 pub class FreeVarScan derives RecursiveASTVisitor<FreeVarScan> {
     /// Bindings used in the walked tree and declared outside it, first use
     /// first. Statics and globals included: the caller decides what a free
@@ -140,6 +165,11 @@ pub class FreeVarScan derives RecursiveASTVisitor<FreeVarScan> {
         }
 
         self.dispatch_expr(unsafe (c as unsafe *Expr))
+    }
+
+    /// Whether the walked tree declares \p d.
+    fn declares(self, d: unsafe *Decl) -> bool {
+        return self._has(self._declared, d)
     }
 
     priv fn _has(self, const v: cxx::std::vector<unsafe *Decl>, d: unsafe *Decl) -> bool {

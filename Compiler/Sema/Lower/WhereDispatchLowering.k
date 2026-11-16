@@ -331,12 +331,23 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
     }
 
     /// \p m's position among \p order in source order: the k of its name.
+    /// Members one macro invocation made are all at that invocation; they
+    /// rank in dispatch order among themselves, so no two members of a group
+    /// share a k.
     priv fn _source_rank(self,
                          m:           unsafe *FunctionDecl,
                          const order: cxx::std::vector<unsafe *FunctionDecl>) -> usize {
-        var k: usize = 0
+        var k:   usize = 0
+        var seen       = false
         for var i: usize = 0; i < order.size(); ++i {
-            if (order)[i]->range.start.id < m->range.start.id {
+            var unsafe *o = (order)[i]
+            if o == m {
+                seen = true
+                continue
+            }
+
+            if o->range.start.id < m->range.start.id
+                || (o->range.start.id == m->range.start.id && !seen) {
                 k += 1
             }
         }

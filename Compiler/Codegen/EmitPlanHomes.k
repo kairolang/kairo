@@ -311,13 +311,16 @@ extend EmitPlan {
         // C++ entity (`*T` and `unsafe *T`, `usize` and `u64` on LP64): they
         // are homed as one, from the union of their users, or one TU would
         // write the entity's explicit instantiation twice (CL001E) or two TUs
-        // once each. The name: the primary's module and place in its file,
-        // and the arguments as the user with the least module path spells
-        // them with sizes folded (tier 3's key), so it is no fact of the graph.
+        // once each. The name: the primary, by the order its first instance
+        // is met, and the arguments as the user with the least module path
+        // spells them with sizes folded (tier 3's key). The primary is the
+        // declaration, never its place in its file: every declaration one
+        // macro invocation makes is at that invocation, and two generics
+        // homed as one leave the second defined by a TU that does not hold it.
         var gname = cxx::std::vector<string>()
         var gcand = cxx::std::vector<cxx::std::vector<usize>>()
         var gmembers = cxx::std::vector<cxx::std::vector<unsafe *InstanceEntry>>()
-        var gdef    = cxx::std::vector<u32>()
+        var prims   = llvm::DenseMap<u64, u32>()
         var by_name = llvm::StringMap<u32>()
         for var n: usize = 0; n < order.size(); ++n {
             var unsafe *ie = order[n]
@@ -349,20 +352,15 @@ extend EmitPlan {
 
             var unsafe *lp   = plans[least]
             var unsafe *prim = Speller::rep(ie->primary)
-            var        def   = Speller::fid_of(prim)
-            var        name  = ""
-            var        dit   = at.find(def as u64)
-            var unsafe *sm   = lp->_cg->ctx->sm
-            if dit != at.end() {
-                name = keys[dit->second as usize]
-            } else if sm != &null && def != u32::MAX {
-                name = sm->get_filename(def)
+            var        pit   = prims.find(prim as usize as u64)
+            var        pn    = prims.size() as u32
+            if pit == prims.end() {
+                prims.try_emplace(prim as usize as u64, pn)
+            } else {
+                pn = pit->second
             }
 
-            if sm != &null && prim->range.start.is_valid() {
-                name += f"@{sm->resolve(prim->range.start).offset}"
-            }
-
+            var name = f"{pn}"
             lp->_spell.fold_sizes   = true
             lp->_spell.sizes_folded = 0
             name += lp->_spell.args_str(ie->args)
@@ -375,7 +373,6 @@ extend EmitPlan {
                 gname.push_back(name)
                 gcand.push_back(cxx::std::vector<usize>())
                 gmembers.push_back(cxx::std::vector<unsafe *InstanceEntry>())
-                gdef.push_back(def)
             } else {
                 g = (git->second as usize)
             }

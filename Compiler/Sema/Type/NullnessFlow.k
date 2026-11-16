@@ -166,7 +166,10 @@ import AST::Visitor::RecursiveASTVisitor::{
 import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
-import Sema::Check::CaptureAnalysis::FreeVarScan
+import Sema::Check::CaptureAnalysis::{
+    FreeVarScan,
+    closure_declares,
+}
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
@@ -3770,8 +3773,7 @@ pub class NullnessFlow {
     }
 
     /// The current body is a closure's and \p d is declared outside it: a
-    /// capture. (Locations order within a file; a decl from another file
-    /// is outside too.)
+    /// capture (closure_declares; a decl from another file is outside too).
     priv fn _captured(self, d: unsafe *Decl) -> bool {
         if self._frames.empty() {
             return false
@@ -3782,9 +3784,7 @@ pub class NullnessFlow {
             return false
         }
 
-        var at     = d->range.start.id
-        var inside = at >= c->range.start.id && at < c->range.end.id
-        return !inside
+        return !closure_declares(c, d)
     }
 
     /// \p d is a variable a closure around this body captures by pointer,
@@ -3796,8 +3796,7 @@ pub class NullnessFlow {
             return false
         }
 
-        var at = d->range.start.id
-        var i  = self._frames.size()
+        var i = self._frames.size()
         while i > 0 {
             i = i - 1
             var unsafe *c = self._frames[i].closure
@@ -3805,7 +3804,7 @@ pub class NullnessFlow {
                 return false
             }
 
-            if at >= c->range.start.id && at < c->range.end.id {
+            if closure_declares(c, d) {
                 return false
             }
 
