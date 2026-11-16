@@ -90,8 +90,8 @@ import AST::Node::Declarations::{
     ParamDecl, TransferKind, TypeAliasDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
-    AlignOfExpr,       CallExpr,   ClosureExpr,  ConstraintExpr, FinalizeKind,      NamedArgExpr,
-    PackExpansionExpr, SizeOfExpr, TypeCastExpr, TypeTraitExpr,  UnaryOperatorExpr,
+    AlignOfExpr,  CallExpr,          ClosureExpr, ConstraintExpr, FinalizeKind,  IfExpr,
+    NamedArgExpr, PackExpansionExpr, SizeOfExpr,  TypeCastExpr,   TypeTraitExpr, UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
@@ -261,7 +261,71 @@ pub class <T: type> CallTyping {
             a.pass_moves = true
         }
 
+        // An `if` whose arms are all lvalues of its type is a C++
+        // conditional of lvalues, itself an lvalue ([expr.cond]/5): it
+        // binds `const T&`, not `T&&`, and the callee copies. To Kairo the
+        // expression stays a value: only the binding reads this.
+        var arms_const = false
+        if a.cat == Expr::ValueCategory::RValue
+            && !moves_on_pass(self.dyn()->sc, a.ty)
+            && self.if_of_lvalues(e, a.ty, &arms_const) {
+            a.cat      = Expr::ValueCategory::LValue
+            a.is_const = arms_const
+        }
+
         return a
+    }
+
+    /// \p e is an `if` expression every arm of which is an lvalue of type
+    /// \p join, the expression's own: the arms are emitted as written, so
+    /// the C++ conditional is an lvalue. An arm that converts to the join,
+    /// reads a narrowed nullable or never returns is no lvalue of it. One
+    /// const arm makes the conditional const (\p any_const), as
+    /// [expr.cond]/4 converts the other arm to it.
+    fn if_of_lvalues(self, e: unsafe *Expr, join: unsafe *Type, any_const: *bool) -> bool {
+        var x = self.dyn()->tu.strip_parens(e)
+        if x == &null || join == &null || !isa<IfExpr>(x) {
+            return false
+        }
+
+        var unsafe *n = cast<IfExpr>(x)
+        if !self._lvalue_arm(n->then_expr, join, any_const)
+            || !self._lvalue_arm(n->else_expr, join, any_const) {
+            return false
+        }
+
+        for var i: usize = 0; i < n->else_ifs.size(); ++i {
+            if !self._lvalue_arm(n->else_ifs.get(i)->body, join, any_const) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    priv fn _lvalue_arm(self, arm: unsafe *Expr, join: unsafe *Type, any_const: *bool) -> bool {
+        var y = self.dyn()->tu.strip_parens(arm)
+        if y == &null || y->type_ == &null {
+            return false
+        }
+
+        if self.dyn()->tu.as_value(y->type_) != self.dyn()->tu.as_value(join) {
+            return false
+        }
+
+        if isa<IfExpr>(y) {
+            return self.if_of_lvalues(y, join, any_const)
+        }
+
+        if y->value_category != Expr::ValueCategory::LValue {
+            return false
+        }
+
+        if self._const_lvalue(y) {
+            *any_const = true
+        }
+
+        return true
     }
 
     /// An lvalue's const-ness as far as a reference parameter can see it: a

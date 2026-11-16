@@ -531,7 +531,18 @@ pub class <T: type> MemberTyping {
             var recv_q: u8 = 0
             if cur_kind == ChainKind::Value {
                 recv_q = self.dyn()->ml.object_quals(val)
-                val    = self.dyn()->ml.peel_ref(val)
+                // An `if` of lvalues is one C++ lvalue, const when an arm
+                // is (CallTyping::if_of_lvalues): the object a member is
+                // read from or called on.
+                var arms_const = false
+                if i == 0 && self.dyn()->if_of_lvalues(n->base, val, &arms_const) {
+                    obj_cat = Expr::ValueCategory::LValue
+                    if arms_const {
+                        recv_q = recv_q | QUAL_CONST
+                    }
+                }
+
+                val = self.dyn()->ml.peel_ref(val)
                 if st->access_kind == ChainExpr::AccessKind::QuestionDot
                     || st->access_kind == ChainExpr::AccessKind::QuestionArrow {
                     var inner = self.dyn()->tu.nullable_inner(val)
