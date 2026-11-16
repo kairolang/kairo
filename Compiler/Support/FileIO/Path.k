@@ -24,7 +24,10 @@ ffi "c++" import "Native/FileSystem.hh" // dir_entry_type: `type` is a keyword
 ffi "c++" import "system_error"
 ffi "c++" import "vector"
 
-import Support::Ascii::string_from_ref
+import Support::Ascii::{
+    find,
+    string_from_ref,
+}
 import Support::FileIO::FileSystem::FileType
 
 ///
@@ -40,8 +43,8 @@ import Support::FileIO::FileSystem::FileType
 ///
 /// key behaviors:
 ///   - converts input into an absolute path on construction ('.' segments
-///     dropped; '..' kept, since folding it lexically is wrong through a
-///     symlink).
+///     dropped, '..' folded as the filesystem resolves it: see
+///     _fold_dot_dots).
 ///   - performs validation unless `mustExist = false`.
 ///   - caches file type for faster attribute lookups.
 ///   - stores and returns the generic ('/'-separated) form on every host.
@@ -530,20 +533,72 @@ pub class Path {
             && self.entry_type != FileType::status_error
     }
 
-    /// Absolute against the process cwd, '.' segments dropped, generic
-    /// separators. '..' survives: folding it lexically walks out of the
-    /// wrong directory when the segment before it is a symlink.
+    /// Absolute against the process cwd, '.' segments dropped, '..'
+    /// folded (_fold_dot_dots), generic separators.
     priv static fn _normalize(const input: string) -> string {
         var buf = llvm::SmallString<256>(kairo::sref(input))
         llvm::sys::fs::make_absolute(&buf)
         llvm::sys::path::remove_dots(&buf, false)
-        var generic = llvm::sys::path::convert_to_slash(
-            llvm::StringRef(buf.data(), buf.size()),
-        )
+        var folded  = Path::_fold_dot_dots(string_from_ref(buf.str()))
+        var generic = llvm::sys::path::convert_to_slash(kairo::sref(folded))
 
         return string(
             unsafe ((generic.data() as unsafe *const u8) as *const u8),
             generic.size(),
         )
+    }
+
+    /// \p abs (absolute, native separators) with every `..` folded as the
+    /// filesystem resolves it, so a file has one spelling however it was
+    /// named: `/w/q/../p/x.k` is `/w/p/x.k`, and a module path, a source
+    /// manager key or an include's identity computed from one spelling
+    /// agrees with the other. The segment before a `..` is dropped when it
+    /// is not a symlink; when it is, the path so far is resolved first,
+    /// because `link/..` is the parent of the link's target, not the
+    /// directory holding the link. A `..` at the root stays there. One
+    /// lstat per `..`; a path without one is returned as it is.
+    priv static fn _fold_dot_dots(const abs: string) -> string {
+        if find(abs, "..", 0) == usize::MAX {
+            return abs
+        }
+
+        var whole = kairo::sref(abs)
+        var root  = llvm::sys::path::root_path(whole)
+        var rel   = llvm::sys::path::relative_path(whole)
+        var acc   = llvm::SmallString<256>(root)
+        var any   = false
+        var it    = llvm::sys::path::begin(rel)
+        var end   = llvm::sys::path::end(rel)
+        while it != end {
+            if *it != kairo::sref("..") {
+                llvm::sys::path::append(&acc, llvm::Twine(*it))
+                ++it
+                continue
+            }
+
+            any = true
+            ++it
+            if llvm::sys::fs::is_symlink_file(llvm::Twine(acc.str())) {
+                var real: llvm::SmallString<256>
+                if llvm::sys::fs::real_path(
+                    llvm::Twine(acc.str()),
+                    &real,
+                    false,
+                ).value() == 0 {
+                    acc.clear()
+                    llvm::sys::path::append(&acc, llvm::Twine(real.str()))
+                }
+            }
+
+            if llvm::sys::path::root_path(acc.str()).size() < acc.size() {
+                llvm::sys::path::remove_filename(&acc)
+            }
+        }
+
+        if !any {
+            return abs
+        }
+
+        return string_from_ref(acc.str())
     }
 }

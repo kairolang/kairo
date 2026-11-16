@@ -37,6 +37,7 @@ import Codegen::EmitPlan::{
 import Codegen::Sink::TextSink::TextSink
 import Interop::Clang::HeaderSet::HeaderSet
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
+import Support::FileIO::AtomicFile::publish_bytes
 import Support::FileIO::Path::Path
 
 pub class EmitCXXHeader {
@@ -221,7 +222,7 @@ pub class EmitCXXHeader {
         if self.layout && self.line_directives {
             var oldp: string = ""
             if (!LinkFS::read(self._prelude_path, &oldp)) || (oldp != self.prelude) {
-                Path::write_file(self._prelude_path, self.prelude)
+                publish_bytes(self._prelude_path, self.prelude)
             }
         }
 
@@ -235,7 +236,9 @@ pub class EmitCXXHeader {
             }
         }
 
+        // Published whole: clangd and a C++ build may read the header while
+        // it is replaced, and must see the old text or the new, never a part.
         Path::make_parent_dirs(p)
-        return Path::write_file(p, text)
+        return publish_bytes(p, text)
     }
 }

@@ -53,6 +53,7 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::AtomicFile::publish_bytes
 import Support::FileIO::Path::Path
 import TextScan::{
     InterfacePlan,
@@ -631,11 +632,9 @@ extend Server {
         y += "\n  ]\n}\n"
         if y != disk {
             LinkFS::make_dirs(dir)
-            var tmp = ov + "." + Path::filename_of(self.tmp) + ".tmp"
-            if LinkFS::write(tmp, y) && LinkFS::rename(tmp, ov) {
+            if publish_bytes(ov, y) {
                 self.trace("bridge: wrote " + ov)
             } else {
-                LinkFS::remove(tmp)
                 self.trace("bridge: cannot write " + ov)
             }
         }
@@ -835,9 +834,11 @@ extend Server {
             return
         }
 
+        // Published whole: clangd reloads its config on every change and must
+        // never read a truncated one.
         var text = marker + "\n" + frag
-        if old != text {
-            LinkFS::write(path, text)
+        if old != text && !publish_bytes(path, text) {
+            self.trace("bridge: cannot write " + path)
         }
     }
 

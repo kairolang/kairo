@@ -2249,7 +2249,7 @@ def bridge(exe, base):
     check("bridge: overlay maps a.k to its header, external names off at the top and per entry",
           ("'name': '%s'" % ak) in o and ("'external-contents': '%s'" % hdr) in o
           and "'use-external-names': false" in o and "'use-external-name': false" in o, o)
-    # The .clangd is written after the overlay, and not through a rename.
+    # The .clangd is written after the overlay.
     cdp = os.path.join(root, ".clangd")
     seen_cd = [""]
 
