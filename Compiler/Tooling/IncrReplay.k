@@ -63,6 +63,11 @@ ffi "c++" import "Native/Shims.hh"
 
 import API::FS::*
 import Sema::SemaContext::SemaContext
+import Support::Ascii::{
+    find,
+    parse_decimal,
+    trim,
+}
 import Support::FileIO::Path::Path
 import Support::TimeReport::{
     time_enabled,
@@ -73,25 +78,43 @@ import Tooling::SemaObserver::SemaObserver
 import std::c_char
 import std::io
 
-fn replay_find(const hay: string, const needle: string, from: usize) -> usize {
-    var n = hay.size()
-    var m = needle.size()
-    if m == 0 || m > n {
-        return usize::MAX
+/// The command word of a script line, and in \p arg what follows the
+/// space after it: `replace a:::b:::c` is `replace` and `a:::b:::c`. A line
+/// with no space has no command ("").
+fn replay_command(const line: string, @inout arg: string) -> string {
+    var sp = find(line, " ", 0)
+    if sp == usize::MAX {
+        arg = ""
+        return ""
     }
 
-    for var i: usize = from; i + m <= n; ++i {
-        var j: usize = 0
-        while j < m && hay[i + j] == needle[j] {
-            j += 1
-        }
+    arg = line.subslice(sp + 1, line.size() - sp - 1)
+    return line.subslice(0, sp)
+}
 
-        if j == m {
-            return i
-        }
+/// An edit command: its name, how many `:::` fields its argument has (0:
+/// the argument is one path), and the argument's shape for a message.
+struct ReplayEdit {
+    pub var name:   string
+    pub var fields: usize  = 0
+    pub var usage:  string
+}
+
+/// The edit commands; \c name is "" when \p cmd is none of them.
+fn replay_edit(const cmd: string) -> ReplayEdit {
+    var e = ReplayEdit()
+    if cmd == "replace" {
+        e.fields = 3
+        e.usage  = "<file>:::<old>:::<new>"
+    } else if cmd == "write" || cmd == "append" {
+        e.fields = 2
+        e.usage  = "<file>:::<text>"
+    } else if cmd != "remove" {
+        return e
     }
 
-    return usize::MAX
+    e.name = cmd
+    return e
 }
 
 /// `\n` (two characters) becomes a line break.
@@ -117,7 +140,7 @@ fn replay_fields(const s: string) -> cxx::std::vector<string> {
     var out          = cxx::std::vector<string>()
     var start: usize = 0
     while true {
-        var at = replay_find(s, ":::", start)
+        var at = find(s, ":::", start)
         if at == usize::MAX {
             break
         }
@@ -207,24 +230,37 @@ class ReplayBuffers {
 fn replay_apply(const line: string,
                 touched:    *cxx::std::vector<string>,
                 bufs:       *ReplayBuffers) -> string {
-    if line.starts_with("replace ") {
-        var f = replay_fields(line.subslice(8, line.size() - 8))
-        if f.size() != 3 {
-            return "replace wants <file>:::<old>:::<new>"
-        }
+    var arg = ""
+    var e   = replay_edit(replay_command(line, &arg))
+    if e.name.empty() {
+        return "unknown command: " + line
+    }
 
+    if e.name == "remove" {
+        LinkFS::remove(arg)
+        touched->push_back(arg)
+        return ""
+    }
+
+    var f = replay_fields(arg)
+    if f.size() != e.fields {
+        return f"{e.name} wants {e.usage}"
+    }
+
+    if e.name == "replace" {
         var text = ""
         if !bufs->read(f[0], &text) {
             return "cannot read " + f[0]
         }
 
+        // An empty <old> is in no file.
         var old_ = replay_unescape(f[1])
-        var at   = replay_find(text, old_, 0)
+        var at   = if (old_.empty()) => (usize::MAX) else => find(text, old_, 0)
         if at == usize::MAX {
             return "the old text is not in " + f[0]
         }
 
-        if replay_find(text, old_, at + 1) != usize::MAX {
+        if find(text, old_, at + 1) != usize::MAX {
             return "the old text occurs more than once in " + f[0]
         }
 
@@ -241,12 +277,7 @@ fn replay_apply(const line: string,
         return ""
     }
 
-    if line.starts_with("write ") {
-        var f = replay_fields(line.subslice(6, line.size() - 6))
-        if f.size() != 2 {
-            return "write wants <file>:::<text>"
-        }
-
+    if e.name == "write" {
         if !bufs->write(f[0], replay_unescape(f[1])) {
             return "cannot write " + f[0]
         }
@@ -255,33 +286,18 @@ fn replay_apply(const line: string,
         return ""
     }
 
-    if line.starts_with("append ") {
-        var f = replay_fields(line.subslice(7, line.size() - 7))
-        if f.size() != 2 {
-            return "append wants <file>:::<text>"
-        }
-
-        var text = ""
-        if !bufs->read(f[0], &text) {
-            return "cannot read " + f[0]
-        }
-
-        if !bufs->write(f[0], text + replay_unescape(f[1])) {
-            return "cannot write " + f[0]
-        }
-
-        touched->push_back(f[0])
-        return ""
+    // append
+    var text = ""
+    if !bufs->read(f[0], &text) {
+        return "cannot read " + f[0]
     }
 
-    if line.starts_with("remove ") {
-        var p = line.subslice(7, line.size() - 7)
-        LinkFS::remove(p)
-        touched->push_back(p)
-        return ""
+    if !bufs->write(f[0], text + replay_unescape(f[1])) {
+        return "cannot write " + f[0]
     }
 
-    return "unknown command: " + line
+    touched->push_back(f[0])
+    return ""
 }
 
 /// --incr-replay-two-tier: the first tier of an edit of \p file, at once.
@@ -510,8 +526,10 @@ pub fn incr_replay_main(argc:         i32,
 
         var line = text.subslice(at, e - at)
         var last = e >= text.size()
+        var arg  = ""
+        var cmd  = replay_command(line, &arg)
         at = e + 1
-        if line.starts_with("aside ") {
+        if cmd == "aside" {
             if !open_ {
                 io::eprintln(
                     f"error [U001E]: --incr-replay: an edit before the first `step`: {line}",
@@ -520,12 +538,7 @@ pub fn incr_replay_main(argc:         i32,
                 return 1
             }
 
-            var no = replay_aside(
-                &live,
-                &bufs,
-                line.subslice(6, line.size() - 6),
-                n + 1,
-            )
+            var no = replay_aside(&live, &bufs, arg, n + 1)
 
             if !no.empty() {
                 io::eprintln(
@@ -537,16 +550,17 @@ pub fn incr_replay_main(argc:         i32,
 
             asides += 1
             line = ""
+            cmd  = ""
         }
 
-        var is_step = line.starts_with("step ")
+        var is_step = cmd == "step"
         if (is_step || last) && open_ {
             if last
                 && (!line.empty())
                 && (!is_step)
                 && line[0] != ('#' as u8)
-                && (!line.starts_with("drain "))
-                && !line.starts_with("prefer ") {
+                && cmd != "drain"
+                && cmd != "prefer" {
                 var why = replay_apply(line, &touched, &bufs)
                 if !why.empty() {
                     io::eprintln(
@@ -567,8 +581,7 @@ pub fn incr_replay_main(argc:         i32,
                 live.dump_interface = f"{dump}/step{n}.interface.json"
             }
 
-            // One call brings the result up to date today (every edit is a
-            // full check); a step that touched nothing still re-checks.
+            // A step that touched nothing still re-checks.
             var first = if (touched.empty()) => ("") else => Path(touched[0]).full_path()
             if two {
                 // Each edit had its first tier when it was read; what is
@@ -578,9 +591,7 @@ pub fn incr_replay_main(argc:         i32,
                     live.replace_file(first)
                 }
 
-                while live.drain(1000000, pref) {
-                    0
-                }
+                while live.drain(1000000, pref) { }
 
                 pref.clear()
             } else if bufs.on {
@@ -615,7 +626,7 @@ pub fn incr_replay_main(argc:         i32,
         }
 
         if is_step {
-            name  = line.subslice(5, line.size() - 5)
+            name  = arg
             open_ = true
             // In two tiers an edit is re-checked as it is read, and one
             // that takes a full check writes the step's dump then.
@@ -641,22 +652,16 @@ pub fn incr_replay_main(argc:         i32,
         // `prefer <file>`: from here to the step's end the queue is
         // re-checked towards that file first (LiveCheck::drain's prefer: a
         // tool's open buffers), then in Sema's order.
-        if line.starts_with("prefer ") {
-            pref.push_back(Path(line.subslice(7, line.size() - 7)).full_path())
+        if cmd == "prefer" {
+            pref.push_back(Path(arg).full_path())
             continue
         }
 
         // `drain <n>`: n queued files are re-checked before the step's next
         // edit (which then pre-empts the rest). Nothing, without two tiers.
-        if line.starts_with("drain ") {
+        if cmd == "drain" {
             if two {
-                var k: usize = 0
-                for var c: usize = 6; c < line.size(); ++c {
-                    if line[c] >= (48 as u8) && line[c] <= (57 as u8) {
-                        k = k * 10 + ((line[c] - (48 as u8)) as usize)
-                    }
-                }
-
+                var k = parse_decimal(trim(arg)) as usize
                 live.drain(k, pref)
                 io::println(
                     f"incr-replay:   drain {k}: {live.mode} ({live.why})",

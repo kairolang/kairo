@@ -9,13 +9,18 @@
 ///   result up to date. After either, the diagnostics are per file, as
 ///   objects (file_diags()), and flush() prints them as `kairo` would.
 ///
-///   TODAY EVERY replace_file IS A FULL CHECK in a new CompilerInstance:
-///   \c mode is always "full" and \c why says so. That is the fallback the
-///   design keeps for whatever cannot be retracted soundly, made the only
-///   path, so the API and its oracle (--incr-replay, and
-///   Scripts/incr_replay_check.py which compares every step with a clean
-///   run) exist before any reuse does. A step that re-checks in place has to
-///   pass the same oracle; \c mode is where it will say what it did.
+///   Without \c in_place every replace_file is a full check in a new
+///   CompilerInstance (\c mode "full"). With it, an edit is re-checked in
+///   place where that is sound: the edited file and every file that imports
+///   it, however far (the refresh set), against the rest of the graph as it
+///   stands (\c mode "refresh"). With \c two_tier as well, replace_file
+///   re-checks the edited file at once and queues its importers, which
+///   drain() re-checks a slice at a time. An edit that cannot be re-checked
+///   in place is a full check, with the reason in \c why; in a copy of the
+///   process that is thrown away (\c aside) it is refused instead (\c mode
+///   "refused"). Every mode answers what a fresh run answers, which the
+///   oracle checks: --incr-replay, and Scripts/incr_replay_check.py, which
+///   compares every step with a clean run.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -70,9 +75,33 @@ fn _live_us() -> i64 {
     ).count() as i64
 }
 
+/// One overlay of a LiveCheck, by path. \c cur is the text the live
+/// instance VIEWS (the source manager does not copy): one heap string per
+/// slot, so its bytes never move and are freed only once the instance views
+/// something else. \c next is the text set since, which the next step that
+/// re-reads the file swaps in. \c gone: the overlay was cleared, the next
+/// step reads the disk. \c disk: the current text is the LiveCheck's copy
+/// of the disk's (a file that was a buffer cannot go back to a mapping
+/// without a new fid).
+struct LiveOverlay {
+    pub var path: string
+    pub var cur:  unsafe *string = &null
+    pub var next: unsafe *string = &null
+    pub var gone: bool           = false
+    pub var disk: bool           = false
+}
+
+/// LiveCheck::_snapshot's record of a group of files before a re-check.
+struct GroupSnapshot {
+    pub var headers: cxx::std::vector<unsafe *void>
+    pub var imports: cxx::std::vector<cxx::std::vector<u32>>
+    pub var mods:    cxx::std::vector<ModulePath>
+}
+
 pub class LiveCheck {
-    /// What the last check() / replace_file() did: "full" (every file
-    /// checked, in a new CompilerInstance) is the only mode there is.
+    /// What the last check() / replace_file() / drain() did: "full" (every
+    /// file checked, in a new CompilerInstance), "refresh" (re-checked in
+    /// place) or "refused" (\c aside). \c why says why, or how much.
     pub var mode: string = ""
     pub var why:  string = ""
     /// The last step's counts.
@@ -155,19 +184,8 @@ pub class LiveCheck {
     /// \c mode before it uses what it collected.
     pub var observer: unsafe *void = &null
 
-    /// Overlays, one slot per path. \c _ov_cur is the text the live
-    /// instance VIEWS (the source manager does not copy): one heap string
-    /// per slot, so its bytes never move and are freed only once the
-    /// instance views something else. \c _ov_next is the text set since,
-    /// which the next step that re-reads the file swaps in. \c _ov_gone: the
-    /// overlay was cleared, the next step reads the disk. \c _ov_disk: the
-    /// current text is this object's copy of the disk's (a file that was a
-    /// buffer cannot go back to a mapping without a new fid).
-    priv var _ov_path: cxx::std::vector<string>
-    priv var _ov_cur:  cxx::std::vector<unsafe *string>
-    priv var _ov_next: cxx::std::vector<unsafe *string>
-    priv var _ov_gone: cxx::std::vector<u8>
-    priv var _ov_disk: cxx::std::vector<u8>
+    /// Overlays, one slot per path (LiveOverlay).
+    priv var _ov: cxx::std::vector<LiveOverlay>
 
     /// \param words  the compile command without its program name: the entry
     ///               and its flags. --type-check-only is added.
@@ -180,13 +198,13 @@ pub class LiveCheck {
 
     fn op finally (self) {
         self._drop()
-        for var i: usize = 0; i < self._ov_path.size(); ++i {
-            if self._ov_cur[i] != &null {
-                kairo::std::destroy(self._ov_cur[i])
+        for var i: usize = 0; i < self._ov.size(); ++i {
+            if self._ov[i].cur != &null {
+                kairo::std::destroy(self._ov[i].cur)
             }
 
-            if self._ov_next[i] != &null {
-                kairo::std::destroy(self._ov_next[i])
+            if self._ov[i].next != &null {
+                kairo::std::destroy(self._ov[i].next)
             }
         }
     }
@@ -537,6 +555,114 @@ pub class LiveCheck {
         return self._fd->diags.size()
     }
 
+    /// What a re-check of a group of files compares the re-read files with:
+    /// per file of the group, in its order, the header set, the import
+    /// edges (_imports_of) and the module path it is preprocessed under.
+    /// "" when every file is a checked file of the graph.
+    priv fn _snapshot(self, const files: cxx::std::vector<u32>, out: *GroupSnapshot) -> string {
+        for var f: u32 in files {
+            var unsafe *c = self._ci->global_scope()->get_context(f)
+            if c == &null || c->tu == &null {
+                return "not a checked file of the graph"
+            }
+
+            out->headers.push_back(self._action->header_set_of(f))
+            out->imports.push_back(self._imports_of(f))
+            out->mods.push_back(c->module_base)
+        }
+
+        return ""
+    }
+
+    /// Re-reads, preprocesses, indexes and parses \p group (named \p names,
+    /// \p edited the file whose text changed, u32::MAX for none), whose
+    /// diagnostics _forget has taken out (\p n0 is the per-file list's size
+    /// since), and runs Sema on it again through the action. "" when done;
+    /// otherwise why this takes a full check, with the instance possibly
+    /// left half-refreshed.
+    ///
+    /// \p tiered: a re-parse that reports diagnostics may still be checked
+    /// with its broken bodies dropped (\c past_syntax, _admit_bodies). The
+    /// files are re-read importers first: no live tree may point into a
+    /// file being re-read.
+    priv fn _recheck(self,
+                     const group: cxx::std::vector<u32>,
+                     const names: cxx::std::vector<string>,
+                     before:      *const GroupSnapshot,
+                     edited:      u32,
+                     n0:          usize,
+                     tiered:      bool) -> string {
+        for var i: usize = group.size(); i > 0; --i {
+            if !self._reread(group[i - 1], names[i - 1], group[i - 1] == edited) {
+                return "a file could not be re-read"
+            }
+        }
+
+        for var i: usize = 0; i < group.size(); ++i {
+            if !self._ci->pp()->preprocess_one(group[i], before->mods[i]) {
+                return "the preprocessor refused a file"
+            }
+        }
+
+        // Every hoisted table before any full parse: a file's parser reads
+        // those of the files it imports, in whatever order they come here.
+        for var i: usize = 0; i < group.size(); ++i {
+            self._ci->index_one(group[i])
+        }
+
+        for var i: usize = 0; i < group.size(); ++i {
+            if !self._ci->parse_one(group[i]) {
+                return "a file did not parse"
+            }
+
+            var unsafe *nctx = self._ci->global_scope()->get_context(group[i])
+            if nctx == &null || nctx->tu == &null {
+                return "a file did not parse"
+            }
+
+            nctx->diag_sink.drain_into(self._ci->diag(), nctx->sm)
+        }
+
+        if self._fd->diags.size() != n0 {
+            if !(tiered && self.past_syntax) {
+                return "a diagnostic from before Sema"
+            }
+
+            var no = self._admit_bodies(group, n0)
+            if !no.empty() {
+                return no
+            }
+        }
+
+        // Another list of C or C++ headers is another header set, which
+        // this instance never parsed.
+        for var i: usize = 0; i < group.size(); ++i {
+            if self._action->header_set_of(group[i]) != before->headers[i] {
+                return "a C or C++ import was added or removed"
+            }
+
+            var now = self._imports_of(group[i])
+            if now.size() != before->imports[i].size()
+                || self._ci->unresolved_import_count(group[i]) > 0 {
+                return "an import was added or removed"
+            }
+
+            for var k: usize = 0; k < now.size(); ++k {
+                if now[k] != before->imports[i][k] {
+                    return "an import was added or removed"
+                }
+            }
+        }
+
+        var moved = self._action->refresh(group)
+        if !moved.empty() {
+            self.detail = self._action->refresh_detail
+            return moved
+        }
+
+        return ""
+    }
+
     /// Re-checks \p path's refresh set in place. "" when done (\c why then
     /// says how many files); otherwise the reason this edit takes a full
     /// check, with the instance possibly left half-refreshed: the caller
@@ -550,15 +676,10 @@ pub class LiveCheck {
             return no
         }
 
-        var old_imports = cxx::std::vector<cxx::std::vector<u32>>()
-        var old_headers = cxx::std::vector<unsafe *void>()
-        var mods        = cxx::std::vector<ModulePath>()
-        for var f: u32 in set {
-            old_headers.push_back(self._action->header_set_of(f))
-            old_imports.push_back(self._imports_of(f))
-            mods.push_back(
-                self._ci->global_scope()->get_context(f)->module_base,
-            )
+        var before = GroupSnapshot()
+        no = self._snapshot(set, &before)
+        if !no.empty() {
+            return no
         }
 
         var n0 = self._forget(names)
@@ -574,72 +695,13 @@ pub class LiveCheck {
             return "a C++ template instance was first filled for an edited file"
         }
 
-        // Importers first: no live tree may point into a file being re-read.
-        for var i: usize = set.size(); i > 0; --i {
-            if !self._reread(set[i - 1], names[i - 1], set[i - 1] == fid) {
-                return "a file could not be re-read"
-            }
-        }
-
-        for var i: usize = 0; i < set.size(); ++i {
-            if !self._ci->pp()->preprocess_one(set[i], mods[i]) {
-                return "the preprocessor refused a file"
-            }
-        }
-
-        // Every hoisted table before any full parse: a file's parser reads
-        // those of the files it imports, in whatever order they come here.
-        for var i: usize = 0; i < set.size(); ++i {
-            self._ci->index_one(set[i])
-        }
-
-        for var i: usize = 0; i < set.size(); ++i {
-            if !self._ci->parse_one(set[i]) {
-                return "a file did not parse"
-            }
-
-            var unsafe *nctx = self._ci->global_scope()->get_context(set[i])
-            if nctx == &null || nctx->tu == &null {
-                return "a file did not parse"
-            }
-
-            nctx->diag_sink.drain_into(self._ci->diag(), nctx->sm)
-        }
-
-        if self._fd->diags.size() != n0 {
-            return "a diagnostic from before Sema"
-        }
-
-        // Another list of C or C++ headers is another header set, which
-        // this instance never parsed.
-        for var i: usize = 0; i < set.size(); ++i {
-            if self._action->header_set_of(set[i]) != old_headers[i] {
-                return "a C or C++ import was added or removed"
-            }
-        }
-
-        for var i: usize = 0; i < set.size(); ++i {
-            var now = self._imports_of(set[i])
-            if now.size() != old_imports[i].size()
-                || self._ci->unresolved_import_count(set[i]) > 0 {
-                return "an import was added or removed"
-            }
-
-            for var k: usize = 0; k < now.size(); ++k {
-                if now[k] != old_imports[i][k] {
-                    return "an import was added or removed"
-                }
-            }
-        }
-
         if !self.dump_interface.empty() {
             self._ci->invocation()->frontend.dump_interface = self.dump_interface
         }
 
-        var moved = self._action->refresh(set)
-        if !moved.empty() {
-            self.detail = self._action->refresh_detail
-            return moved
+        no = self._recheck(set, names, const &before, fid, n0, false)
+        if !no.empty() {
+            return no
         }
 
         self.why       = f"{set.size()} of {self.files} files"
@@ -849,10 +911,10 @@ pub class LiveCheck {
     /// itself first.
     priv fn _closure(self, fid: u32) -> cxx::std::vector<u32> {
         var out  = cxx::std::vector<u32>()
-        var seen = cxx::std::vector<u32>()
+        var seen = llvm::DenseSet<u64>()
         var todo = cxx::std::vector<u32>()
         todo.push_back(fid)
-        seen.push_back(fid)
+        seen.insert(fid as u64)
         while !todo.empty() {
             var f = todo.back()
             todo.pop_back()
@@ -861,15 +923,7 @@ pub class LiveCheck {
             }
 
             for var t: u32 in self._imports_of(f) {
-                var have = false
-                for var q: u32 in seen {
-                    if q == t {
-                        have = true
-                    }
-                }
-
-                if !have {
-                    seen.push_back(t)
+                if seen.insert(t as u64).second {
                     todo.push_back(t)
                 }
             }
@@ -892,21 +946,16 @@ pub class LiveCheck {
     /// order, and takes them off the queue. \p edited: the file whose text
     /// changed (u32::MAX for a background slice).
     priv fn _tier_redo(self, target: u32, edited: u32) -> string {
-        var group       = self._action->order_of(self._closure(target))
-        var names       = cxx::std::vector<string>()
-        var old_imports = cxx::std::vector<cxx::std::vector<u32>>()
-        var old_headers = cxx::std::vector<unsafe *void>()
-        var mods        = cxx::std::vector<ModulePath>()
-        for var f: u32 in group {
-            var unsafe *c = self._ci->global_scope()->get_context(f)
-            if c == &null || c->tu == &null {
-                return "not a checked file of the graph"
-            }
+        var group  = self._action->order_of(self._closure(target))
+        var before = GroupSnapshot()
+        var no     = self._snapshot(group, &before)
+        if !no.empty() {
+            return no
+        }
 
+        var names = cxx::std::vector<string>()
+        for var f: u32 in group {
             names.push_back(self._ci->sm()->get_filename(f))
-            old_headers.push_back(self._action->header_set_of(f))
-            old_imports.push_back(self._imports_of(f))
-            mods.push_back(c->module_base)
         }
 
         // KAIRO_LIVE_DEBUG: a step of more than one file is an import
@@ -928,80 +977,19 @@ pub class LiveCheck {
         }
 
         var n0 = self._forget(names)
-        for var i: usize = group.size(); i > 0; --i {
-            if !self._reread(group[i - 1], names[i - 1], group[i - 1] == edited) {
-                return "a file could not be re-read"
-            }
+        no = self._recheck(group, names, const &before, edited, n0, true)
+        if !no.empty() {
+            return no
         }
 
-        for var i: usize = 0; i < group.size(); ++i {
-            if !self._ci->pp()->preprocess_one(group[i], mods[i]) {
-                return "the preprocessor refused a file"
-            }
-        }
-
-        for var i: usize = 0; i < group.size(); ++i {
-            self._ci->index_one(group[i])
-        }
-
-        for var i: usize = 0; i < group.size(); ++i {
-            if !self._ci->parse_one(group[i]) {
-                return "a file did not parse"
-            }
-
-            var unsafe *nctx = self._ci->global_scope()->get_context(group[i])
-            if nctx == &null || nctx->tu == &null {
-                return "a file did not parse"
-            }
-
-            nctx->diag_sink.drain_into(self._ci->diag(), nctx->sm)
-        }
-
-        if self._fd->diags.size() != n0 {
-            if !self.past_syntax {
-                return "a diagnostic from before Sema"
-            }
-
-            var no = self._admit_bodies(group, n0)
-            if !no.empty() {
-                return no
-            }
-        }
-
-        for var i: usize = 0; i < group.size(); ++i {
-            if self._action->header_set_of(group[i]) != old_headers[i] {
-                return "a C or C++ import was added or removed"
-            }
-
-            var now = self._imports_of(group[i])
-            if now.size() != old_imports[i].size()
-                || self._ci->unresolved_import_count(group[i]) > 0 {
-                return "an import was added or removed"
-            }
-
-            for var k: usize = 0; k < now.size(); ++k {
-                if now[k] != old_imports[i][k] {
-                    return "an import was added or removed"
-                }
-            }
-        }
-
-        var moved = self._action->refresh(group)
-        if !moved.empty() {
-            self.detail = self._action->refresh_detail
-            return moved
+        var done = llvm::DenseSet<u64>()
+        for var f: u32 in group {
+            done.insert(f as u64)
         }
 
         var rest = cxx::std::vector<u32>()
         for var q: u32 in self._q {
-            var done = false
-            for var f: u32 in group {
-                if f == q {
-                    done = true
-                }
-            }
-
-            if !done {
+            if !done.contains(q as u64) {
                 rest.push_back(q)
             }
         }
@@ -1038,15 +1026,13 @@ pub class LiveCheck {
             return "a C++ template instance was first filled for an edited file"
         }
 
-        for var f: u32 in self._q {
-            var have = false
-            for var x: u32 in set {
-                if x == f {
-                    have = true
-                }
-            }
+        var in_set = llvm::DenseSet<u64>()
+        for var x: u32 in set {
+            in_set.insert(x as u64)
+        }
 
-            if !have {
+        for var f: u32 in self._q {
+            if in_set.insert(f as u64).second {
                 set.push_back(f)
             }
         }
@@ -1121,8 +1107,13 @@ pub class LiveCheck {
                     // KAIRO_LIVE_PREFER_UNORDERED: without that, as the
                     // control of the proof (the same scripts then take a
                     // full check where a first use moved).
-                    var want = self._closure(pf)
-                    var ok   = true
+                    var want    = self._closure(pf)
+                    var in_want = llvm::DenseSet<u64>()
+                    for var w: u32 in want {
+                        in_want.insert(w as u64)
+                    }
+
+                    var ok = true
                     while ok && cxx::std::getenv(r"KAIRO_LIVE_PREFER_UNORDERED") == &null {
                         var first = cxx::std::vector<u32>()
                         ok = self._action->prefer_first_users(
@@ -1138,14 +1129,7 @@ pub class LiveCheck {
 
                         for var x: u32 in first {
                             for var c: u32 in self._closure(x) {
-                                var have = false
-                                for var w: u32 in want {
-                                    if w == c {
-                                        have = true
-                                    }
-                                }
-
-                                if !have {
+                                if in_want.insert(c as u64).second {
                                     want.push_back(c)
                                 }
                             }
@@ -1164,15 +1148,8 @@ pub class LiveCheck {
                         break
                     }
 
-                    var hit = false
                     for var q: u32 in self._q {
-                        for var w: u32 in want {
-                            if w == q {
-                                hit = true
-                            }
-                        }
-
-                        if hit {
+                        if in_want.contains(q as u64) {
                             target = q
                             break
                         }
@@ -1202,8 +1179,8 @@ pub class LiveCheck {
     }
 
     priv fn _slot(self, const path: string) -> usize {
-        for var i: usize = 0; i < self._ov_path.size(); ++i {
-            if self._ov_path[i] == path {
+        for var i: usize = 0; i < self._ov.size(); ++i {
+            if self._ov[i].path == path {
                 return i
             }
         }
@@ -1219,11 +1196,11 @@ pub class LiveCheck {
         var k                        = self._slot(name)
         var next:     unsafe *string = &null
         var from_disk                = false
-        if k != usize::MAX && self._ov_next[k] != &null {
-            next = self._ov_next[k]
-        } else if k != usize::MAX && self._ov_cur[k] != &null {
+        if k != usize::MAX && self._ov[k].next != &null {
+            next = self._ov[k].next
+        } else if k != usize::MAX && self._ov[k].cur != &null {
             // A buffer, or this object's copy of the disk.
-            if self._ov_gone[k] != 0 || (edited && self._ov_disk[k] != 0) {
+            if self._ov[k].gone || (edited && self._ov[k].disk) {
                 var text = ""
                 if !LinkFS::read(name, &text) {
                     self._ci->detach_for_refresh(fid, &null, 0, false, false)
@@ -1258,14 +1235,14 @@ pub class LiveCheck {
         }
 
         // Only now: the instance viewed the old text until the swap.
-        if self._ov_cur[k] != &null {
-            kairo::std::destroy(self._ov_cur[k])
+        if self._ov[k].cur != &null {
+            kairo::std::destroy(self._ov[k].cur)
         }
 
-        self._ov_cur[k]  = next
-        self._ov_next[k] = &null
-        self._ov_gone[k] = (0 as u8)
-        self._ov_disk[k] = if (from_disk) => (1 as u8) else => (0 as u8)
+        self._ov[k].cur  = next
+        self._ov[k].next = &null
+        self._ov[k].gone = false
+        self._ov[k].disk = from_disk
         return true
     }
 
@@ -1289,20 +1266,18 @@ pub class LiveCheck {
     pub fn set_overlay(self, const path: string, const text: string) {
         var k = self._slot(path)
         if k == usize::MAX {
-            self._ov_path.push_back(path)
-            self._ov_cur.push_back(&null)
-            self._ov_next.push_back(&null)
-            self._ov_gone.push_back(0 as u8)
-            self._ov_disk.push_back(0 as u8)
-            k = self._ov_path.size() - 1
+            var slot = LiveOverlay()
+            slot.path = path
+            self._ov.push_back(slot)
+            k = self._ov.size() - 1
         }
 
-        if self._ov_next[k] != &null {
-            kairo::std::destroy(self._ov_next[k])
+        if self._ov[k].next != &null {
+            kairo::std::destroy(self._ov[k].next)
         }
 
-        self._ov_next[k] = kairo::std::create<string>(text)
-        self._ov_gone[k] = (0 as u8)
+        self._ov[k].next = kairo::std::create<string>(text)
+        self._ov[k].gone = false
     }
 
     /// \p path is read from the disk again, from the next step that
@@ -1313,19 +1288,19 @@ pub class LiveCheck {
             return
         }
 
-        if self._ov_next[k] != &null {
-            kairo::std::destroy(self._ov_next[k])
-            self._ov_next[k] = &null
+        if self._ov[k].next != &null {
+            kairo::std::destroy(self._ov[k].next)
+            self._ov[k].next = &null
         }
 
-        self._ov_gone[k] = (1 as u8)
+        self._ov[k].gone = true
     }
 
     /// Has \p path an overlay set and not yet read, or one cleared and not
     /// yet dropped?
     pub fn overlay_pending(self, const path: string) -> bool {
         var k = self._slot(path)
-        return k != usize::MAX && (self._ov_next[k] != &null || self._ov_gone[k] != 0)
+        return k != usize::MAX && (self._ov[k].next != &null || self._ov[k].gone)
     }
 
     /// Every file of the checked graph, by name, the entry first (as
@@ -1512,27 +1487,27 @@ pub class LiveCheck {
         // this object's, one heap string each, and are not touched while
         // the instance views them. The old instance is gone, so every
         // staged text is the current one from here.
-        for var i: usize = 0; i < self._ov_path.size(); ++i {
-            if self._ov_next[i] != &null || self._ov_gone[i] != 0 || self._ov_disk[i] != 0 {
-                if self._ov_cur[i] != &null {
-                    kairo::std::destroy(self._ov_cur[i])
+        for var i: usize = 0; i < self._ov.size(); ++i {
+            if self._ov[i].next != &null || self._ov[i].gone || self._ov[i].disk {
+                if self._ov[i].cur != &null {
+                    kairo::std::destroy(self._ov[i].cur)
                 }
 
-                self._ov_cur[i]  = self._ov_next[i]
-                self._ov_next[i] = &null
-                self._ov_gone[i] = (0 as u8)
-                self._ov_disk[i] = (0 as u8)
+                self._ov[i].cur  = self._ov[i].next
+                self._ov[i].next = &null
+                self._ov[i].gone = false
+                self._ov[i].disk = false
             }
 
-            if self._ov_cur[i] == &null {
+            if self._ov[i].cur == &null {
                 continue
             }
 
-            var unsafe *bytes = unsafe ((self._ov_cur[i]->raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
+            var unsafe *bytes = unsafe ((self._ov[i].cur->raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
             self._ci->sm()->stage_overlay(
-                Path(self._ov_path[i]),
+                Path(self._ov[i].path),
                 bytes,
-                self._ov_cur[i]->size(),
+                self._ov[i].cur->size(),
             )
         }
 

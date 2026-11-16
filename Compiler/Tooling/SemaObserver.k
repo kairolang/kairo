@@ -40,9 +40,7 @@ pub class SemaObserver {
     ///
     /// \warning The TU may have stopped before Checked (a hard stop in name
     ///          or type resolution): check `sc->phase` before trusting types.
-    pub virtual fn on_checked(self, sc: unsafe *SemaContext) {
-        0
-    }
+    pub virtual fn on_checked(self, sc: unsafe *SemaContext) { }
 
     /// The same TU once the rest of the schedule has run on it (lowering
     /// and mono), on the same thread and right after on_checked. Called for
@@ -52,7 +50,5 @@ pub class SemaObserver {
     /// lowered type -- which a layout query needs and the checked tree does
     /// not have yet. The tree is the lowered one: read declarations an
     /// earlier call recorded, never walk it as the user's text.
-    pub virtual fn on_lowered(self, sc: unsafe *SemaContext) {
-        0
-    }
+    pub virtual fn on_lowered(self, sc: unsafe *SemaContext) { }
 }
