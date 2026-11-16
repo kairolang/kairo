@@ -34,6 +34,7 @@ import Lexer::Immediate::{
     Immediate,
     ImmediateTable,
 }
+import Lexer::UnicodeTables::UnicodeTables
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
@@ -341,7 +342,7 @@ pub class Lexer {
                 return self.lex_text(start)
             } case kairo::CharClass::Unassigned, kairo::CharClass::Illegal {
                 // illegal character
-                return self.lex_illegal(start)
+                return self.lex_illegal(start, decode)
             } case kairo::CharClass::NewLine, kairo::CharClass::Whitespace {
                 // whitespace or newline
                 return self.lex_whitespace(
@@ -1004,8 +1005,47 @@ pub class Lexer {
 
     /// # Char Classification
 
+    /// ASCII is one table load (ASCII_CLASS). Any other character is
+    /// classified by its Unicode properties, from the tables in the
+    /// compiler and not from the host's C library, so every build of the
+    /// compiler reads a source file the same way.
     static fn classify(chr: char) -> kairo::CharClass {
-        return kairo::classify_char32(chr)
+        if (chr as u32) < 128 {
+            return kairo::classify_ascii(chr)
+        }
+
+        return Lexer::classify_unicode(chr as u32)
+    }
+
+    /// White_Space separates tokens and XID_Start starts a name (UAX #31);
+    /// no other non-ASCII character starts a token.
+    static fn classify_unicode(c: u32) -> kairo::CharClass {
+        if Lexer::in_ranges(UnicodeTables::XID_START, c) {
+            return kairo::CharClass::Identifier
+        }
+
+        if Lexer::in_ranges(UnicodeTables::WHITE_SPACE, c) {
+            return kairo::CharClass::Whitespace
+        }
+
+        return kairo::CharClass::Illegal
+    }
+
+    /// \brief \p c lies in one of the ranges of \p t, a UnicodeTables
+    ///        table: inclusive [first, last] pairs, ascending. Bisection.
+    static fn in_ranges(t: [const u32;], c: u32) -> bool {
+        var lo: usize = 0
+        var hi: usize = t.len / 2
+        while lo < hi {
+            var mid = lo + (hi - lo) / 2
+            if c > t[mid * 2 + 1] {
+                lo = mid + 1
+            } else {
+                hi = mid
+            }
+        }
+
+        return lo < t.len / 2 && c >= t[lo * 2]
     }
 
     /// # Lexical Parsing Functions
@@ -1049,21 +1089,31 @@ pub class Lexer {
         var unsafe *s_p  = p
         var        first = Lexer::decode_at(p, (end - p) as usize)
 
+        var first_len = (first.len as usize)
         if self.is_valid_name(first) == 0 {
-            self.advance_cursor((first.len as usize))
-            return self.create_unrecognized_token(start)
+            // A run of characters no name can contain is reported once and
+            // kept in the name: one error, and still one identifier.
+            first_len = 0
+            if first.len > 1 {
+                first_len = self.illegal_run(p, end)
+            }
+
+            if first_len == 0 {
+                self.advance_cursor((first.len as usize))
+                return self.create_unrecognized_token(start)
+            }
         }
 
         // the interner hashes the spelling's UTF-8 BYTES (find_ident,
         // intern_ident_copy), so the lexer must mix bytes too: mixing the
         // code point truncated to u8 gave a non-ASCII name a different hash
         // here than at every lookup, and `lib::naïve` never resolved.
-        for var b: usize = 0; b < (first.len as usize); ++b {
+        for var b: usize = 0; b < first_len; ++b {
             hash.mix(p[b])
         }
 
-        length += (first.len as usize)
-        p += first.len
+        length += first_len
+        p += first_len
 
         if first.len > 1 {
             keyword = false
@@ -1072,7 +1122,23 @@ pub class Lexer {
         while p < end {
             var d = Lexer::decode_at(p, (end - p) as usize)
             if self.is_valid_name(d) == 0 {
-                break // finished
+                var bad: usize = 0
+                if d.len > 1 {
+                    bad = self.illegal_run(p, end)
+                }
+
+                if bad == 0 {
+                    break // finished
+                }
+
+                for var b: usize = 0; b < bad; ++b {
+                    hash.mix(p[b])
+                }
+
+                p += bad
+                length += bad
+                keyword = false
+                continue
             }
 
             if keyword && d.len == 1 {
@@ -2351,8 +2417,89 @@ pub class Lexer {
         return tok
     }
 
-    priv inline fn lex_illegal(self, start: SourceLocation) -> Token {
+    /// \brief the character at the cursor starts no token.
+    ///
+    /// \details It is lexed as a name all the same, so the parser sees one
+    ///          identifier and not a hole. lex_name reports a character no
+    ///          name can contain (illegal_run); a character that may continue
+    ///          a name but not start one (a combining mark, a non-ASCII
+    ///          digit) is reported here, since lex_name takes it silently.
+    ///          An ASCII character (`$`, a backtick) and a byte that is not
+    ///          UTF-8 (reported as S072E, decoded as one byte) take the name
+    ///          path unreported: lex_name makes the first an unknown token
+    ///          and the second part of a name.
+    priv fn lex_illegal(self, start: SourceLocation, decode: kairo::DecodeResult) -> Token {
+        if decode.len > 1 && Lexer::in_ranges(UnicodeTables::XID_CONTINUE, decode.chr as u32) {
+            var range = SourceRange::from_bounds(start, decode.len as u32)
+            self._diag->report(
+                DiagCode(DiagID::S011E),
+                range.start,
+                f"character U+{Lexer::hex4(decode.chr as u32)} cannot start an identifier",
+            ).first(range)->emit()
+        }
+
         return self.lex_name(start)
+    }
+
+    /// \brief the length in bytes of the run of characters at \p p that no
+    ///        token can contain, reported once as S011E; 0 when \p p starts
+    ///        no such run.
+    ///
+    /// \details Such a character is non-ASCII and neither XID_Continue nor
+    ///          White_Space: a symbol, an emoji, punctuation, a format
+    ///          control. A byte that is not UTF-8 ends the run: it decodes
+    ///          as one byte, and validate_utf8 has reported it.
+    priv fn illegal_run(self, p: kairo::std::ConstPtr<u8>, end: kairo::std::ConstPtr<u8>) -> usize {
+        var n:     usize = 0
+        var first: u32   = 0
+        while p + n < end {
+            var d = Lexer::decode_at(p + n, (end - (p + n)) as usize)
+            if d.len <= 1
+                || Lexer::in_ranges(UnicodeTables::XID_CONTINUE, d.chr as u32)
+                || Lexer::in_ranges(UnicodeTables::WHITE_SPACE, d.chr as u32) {
+                break
+            }
+
+            if n == 0 {
+                first = d.chr as u32
+            }
+
+            n += (d.len as usize)
+        }
+
+        if n == 0 {
+            return 0
+        }
+
+        var at    = ((p - self.file_data()) as usize)
+        var range = self.create_source_range(at, at + n)
+        self._diag->report(
+            DiagCode(DiagID::S011E),
+            range.start,
+            f"character U+{Lexer::hex4(first)} cannot appear in an identifier, or anywhere outside a string, a character literal or a comment",
+        ).first(range)->emit()
+        return n
+    }
+
+    /// \p c in upper-case hex, at least four digits: the `XXXX` of `U+XXXX`.
+    static fn hex4(c: u32) -> string {
+        var out        = ""
+        var shift: u32 = 24
+        while shift > 0 {
+            shift -= 4
+            var nib = ((c >> shift) & 0xF) as u8
+            if nib == 0 && out.size() == 0 && shift > 12 {
+                continue
+            }
+
+            if nib < 10 {
+                out.push_back(('0' as u8) + nib)
+            } else {
+                out.push_back(('A' as u8) + (nib - 10))
+            }
+        }
+
+        return out
     }
 
     priv inline fn lex_whitespace(self,
@@ -2430,8 +2577,21 @@ pub class Lexer {
     /// \details table lookup (ASCII_LEX_FLAGS). This is called once per
     ///          character by lex_name's scan loop, so the body must stay small
     ///          enough to inline into it.
+    ///
+    ///          One byte is ASCII, the end of the buffer, or a byte that is
+    ///          not UTF-8 (name_char_kind keeps that one in the name). A
+    ///          longer character is a name character when it is
+    ///          XID_Continue.
     inline static fn is_valid_name(c: kairo::DecodeResult) -> u8 {
-        return kairo::name_char_kind(c.chr, c.len)
+        if c.len <= 1 {
+            return kairo::name_char_kind(c.chr, c.len)
+        }
+
+        if Lexer::in_ranges(UnicodeTables::XID_CONTINUE, c.chr as u32) {
+            return 2
+        }
+
+        return 0
     }
 
     /// \brief checks the escape after the backslash at \p start and moves the

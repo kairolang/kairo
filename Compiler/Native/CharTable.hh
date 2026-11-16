@@ -1,7 +1,8 @@
 /// --- The Kairo Project -------------------------- Native/CharTable.hh --- ///
 ///
-///   Character classification tables for the lexer: ASCII name/operator flags,
-///   Unicode ranges and char32_t normalization.
+///   Character classification tables for the lexer: ASCII classes and
+///   name/operator flags, and char32_t normalization. The Unicode properties
+///   of every other character are Lexer/UnicodeTables.k.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -16,7 +17,6 @@
 
 #include <array>
 #include <cstdint>
-#include <cwctype>
 #include "Prelude.hh"
 
 namespace kairo {
@@ -176,9 +176,11 @@ inline u8 name_char_kind(char32_t c, u8 len) noexcept {
     // len == 1 means the codepoint came from a single byte: ASCII, or an
     // invalid byte the decoder replaced with U+FFFD. The replacement must not
     // index the 128-entry table (an out-of-bounds read, whose answer depended
-    // on whatever the binary placed after it). It gets the class every
-    // non-ASCII character gets: S072E already reported the byte, and ending
-    // the identifier at it would only add a parse error on top.
+    // on whatever the binary placed after it). It stays a name character:
+    // S072E already reported the byte, and ending the identifier at it would
+    // only add a parse error on top. A character of more than one byte is
+    // the lexer's to judge (Lexer::is_valid_name, XID_Continue) and does not
+    // reach here.
     if (len > 1 || c == U'#' || c > 127) {
         return 2;
     }
@@ -194,45 +196,6 @@ inline bool is_operator_char(char32_t c, u8 len) noexcept {
 
     return (ASCII_LEX_FLAGS[c] & LEX_OP) != 0;
 }
-
-/// Unicode Range Table
-struct UnicodeRange {
-    char32_t  start;
-    char32_t  end;
-    CharClass cls;
-};
-
-static constexpr UnicodeRange UNICODE_RANGES[] = {
-    // NBSP
-    {.start = 0x00A0, .end = 0x00A0, .cls = CharClass::Whitespace},
-    // Combining marks
-    {.start = 0x0300, .end = 0x036F, .cls = CharClass::Identifier},
-    // Greek
-    {.start = 0x0370, .end = 0x03FF, .cls = CharClass::Identifier},
-    // Cyrillic
-    {.start = 0x0400, .end = 0x04FF, .cls = CharClass::Identifier},
-    // Armenian
-    {.start = 0x0530, .end = 0x058F, .cls = CharClass::Identifier},
-    // Hebrew
-    {.start = 0x0590, .end = 0x05FF, .cls = CharClass::Identifier},
-    // Arabic
-    {.start = 0x0600, .end = 0x06FF, .cls = CharClass::Identifier},
-    // Devanagari
-    {.start = 0x0900, .end = 0x097F, .cls = CharClass::Identifier},
-    // Hiragana
-    {.start = 0x3040, .end = 0x309F, .cls = CharClass::Identifier},
-    // Katakana
-    {.start = 0x30A0, .end = 0x30FF, .cls = CharClass::Identifier},
-    // CJK Unified Ideographs
-    {.start = 0x4E00, .end = 0x9FFF, .cls = CharClass::Identifier},
-    // spaces and punctuation
-    {.start = 0x2000, .end = 0x206F, .cls = CharClass::Whitespace},
-    // letterlike symbols
-    {.start = 0x2100, .end = 0x214F, .cls = CharClass::Identifier},
-    // math alphanumerics
-    {.start = 0x1D400, .end = 0x1D7FF, .cls = CharClass::Identifier},
-    // illegal range (non-characters)
-    {.start = 0, .end = 0, .cls = CharClass::Illegal}};
 
 /// Replacement Table (common confusables -> normalized form)
 inline char32_t normalize_char32(char32_t ch) noexcept {
@@ -315,33 +278,10 @@ inline char32_t normalize_char32(char32_t ch) noexcept {
     return ch;
 }
 
-/// # Unicode classification (for non-ASCII chars)
-
-inline CharClass classify_unicode(char32_t ch) noexcept {
-    if (libcxx::iswspace(static_cast<wint_t>(ch)) != 0) {
-        return CharClass::Whitespace;
-    }
-
-    if ((libcxx::iswalpha(static_cast<wint_t>(ch)) != 0) ||
-        (libcxx::iswdigit(static_cast<wint_t>(ch)) != 0)) {
-        return CharClass::Identifier;
-    }
-
-    // fallback to range table
-    for (const auto &r : UNICODE_RANGES) {
-        if (ch >= r.start && ch <= r.end) {
-            return r.cls;
-        }
-    }
-
-    return CharClass::Illegal;
-}
-
-inline CharClass classify_char32(char32_t raw) noexcept {
-    if (raw < 128) {
-        return ASCII_CLASS[raw];
-    }
-
-    return classify_unicode(raw);
+/// \brief the class of an ASCII character. \p c is below 128; the lexer
+///        classifies every other character from its Unicode tables
+///        (Lexer::classify_unicode).
+inline CharClass classify_ascii(char32_t c) noexcept {
+    return ASCII_CLASS[c & 0x7F];
 }
 }  // namespace kairo

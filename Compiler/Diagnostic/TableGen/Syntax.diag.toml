@@ -120,6 +120,18 @@ group = "syntax"
     }
     ```
 
+    a non-ASCII character outside a string, a character literal or a comment must be part of an
+    identifier or be white space. an identifier starts with a Unicode `XID_Start` character and
+    continues with `XID_Continue` characters (Unicode Standard Annex #31); white space is the
+    Unicode `White_Space` property. any other character there is this error: an emoji, a symbol
+    such as `→`, a zero-width space, a bidirectional control. so is a character that may continue
+    an identifier but not start one (a combining mark, a non-ASCII digit) at the start of a name.
+
+    ```kairo
+    var 😀 = 1      // error: U+1F600 cannot appear in an identifier
+    var année = 1   // fine
+    ```
+
     a NUL byte (U+0000) anywhere in a source file is this error too, including inside a string
     literal or a comment: a source file is text. each run of NUL bytes is reported once, at its
     first byte, and the rest of the file is still compiled.
