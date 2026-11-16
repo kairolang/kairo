@@ -23,7 +23,6 @@ ffi "c++" import "llvm/TargetParser/Triple.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 ffi "c++" import "string"
-ffi "c++" import "chrono"
 
 import API::EnvNames::cache_root
 import API::FS::LinkFS
@@ -42,6 +41,13 @@ import Driver::ObjectCache::{
 }
 import Location::SourceManager::FileID
 import Resolution::ModulePath::ModulePath
+import Support::Ascii::find
+import Support::FileIO::AtomicFile::{
+    file_stat,
+    is_leftover_temp,
+    now_ns,
+    publish_copy,
+}
 import Support::FileIO::Path::Path
 import Support::Tuning::{
     CACHE_ENTRY_MAX_AGE_NS,
@@ -72,14 +78,12 @@ extend CompilerInstance {
     /// `<path> <size> <mtime>` for one file, or `<path> -` when it cannot
     /// be stat'd (a file that appears later then changes the key too).
     priv static fn _rt_stamp(const p: string) -> string {
-        var st: llvm::sys::fs::file_status
-        var ec = llvm::sys::fs::status(llvm::Twine(kairo::sref(p)), &st, true)
-        if ec.value() != 0 {
+        var mtime: u64 = 0
+        var size:  u64 = 0
+        if !file_stat(p, &mtime, &size) {
             return p + " -\n"
         }
 
-        var size = (st.getSize())
-        var mtime = (st.getLastModificationTime().time_since_epoch().count() as u64)
         return f"{p} {size} {mtime}\n"
     }
 
@@ -174,19 +178,7 @@ extend CompilerInstance {
     ///
     /// \return true when the entry was written.
     prot static fn _rt_cache_store(const obj: string, const entry: string) -> bool {
-        var tmp = f"{entry}.tmp-{llvm::sys::Process::getProcessId()}"
-        var ec = llvm::sys::fs::copy_file(
-            llvm::Twine(kairo::sref(obj)),
-            llvm::Twine(kairo::sref(tmp)),
-        )
-
-        if ec.value() != 0 {
-            LinkFS::remove(tmp)
-            return false
-        }
-
-        if !LinkFS::rename(tmp, entry) {
-            LinkFS::remove(tmp)
+        if !publish_copy(obj, entry) {
             return false
         }
 
@@ -208,10 +200,7 @@ extend CompilerInstance {
             return true
         }
 
-        var prefix = string(
-            unsafe ((name.raw() as unsafe *const u8) as *const u8),
-            cut + 1,
-        )
+        var prefix = name.subslice(0, cut + 1)
 
         for var other: string in LinkFS::list_dir(dir) {
             if other == name || !other.starts_with(prefix) || !other.ends_with(".o") {
@@ -220,14 +209,12 @@ extend CompilerInstance {
 
             // Only <prefix><hash>.o; the slot hash already separates stems
             // that share a prefix, this is belt and braces.
-            var rest = string(
-                unsafe (((other.raw() as unsafe *const u8) + prefix.size()) as *const u8),
+            var rest = other.subslice(
+                prefix.size(),
                 other.size() - prefix.size(),
             )
 
-            if !(cxx::std::string::npos == kairo::std::to_std_string(rest).find(
-                r"-",
-            )) {
+            if find(rest, "-", 0) != usize::MAX {
                 continue
             }
 
@@ -249,9 +236,7 @@ extend CompilerInstance {
             return
         }
 
-        var now = (cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
-            cxx::std::chrono::system_clock::now().time_since_epoch(),
-        ).count() as u64)
+        var now        = now_ns()
         var kept       = cxx::std::vector<CacheEntryStat>()
         var total: u64 = 0
         for var name: string in LinkFS::list_dir(dir) {
@@ -260,12 +245,9 @@ extend CompilerInstance {
                 continue
             }
 
-            var partial = !(cxx::std::string::npos == kairo::std::to_std_string(
-                name,
-            ).find(r".tmp-"))
-
-            var last  = LinkFS::mtime(p)
-            var limit = if (partial) => (CACHE_PARTIAL_MAX_AGE_NS) else => CACHE_ENTRY_MAX_AGE_NS
+            var partial = is_leftover_temp(name)
+            var last    = LinkFS::mtime(p)
+            var limit   = if (partial) => (CACHE_PARTIAL_MAX_AGE_NS) else => CACHE_ENTRY_MAX_AGE_NS
             if last != 0 && now > last && now - last > limit {
                 LinkFS::remove(p)
                 continue
@@ -408,38 +390,24 @@ extend CompilerInstance {
                 continue
             }
 
-            var line = string(
-                unsafe (((text.raw() as unsafe *const u8) + start) as *const u8),
-                i - start,
-            )
+            var line = text.subslice(start, i - start)
 
             start = i + 1
             if line.starts_with("obj ") {
-                objs.push_back(
-                    dir + "/" + string(
-                        unsafe (((line.raw() as unsafe *const u8) + 4) as *const u8),
-                        line.size() - 4,
-                    ),
-                )
+                objs.push_back(dir + "/" + line.subslice(4, line.size() - 4))
 
                 continue
             }
 
             if line.starts_with("ar ") {
-                archive = dir + "/" + string(
-                    unsafe (((line.raw() as unsafe *const u8) + 3) as *const u8),
-                    line.size() - 3,
-                )
+                archive = dir + "/" + line.subslice(3, line.size() - 3)
 
                 continue
             }
 
             if line.starts_with("src ") {
                 // `src <mtime> <path>`: the path may hold spaces, the mtime not.
-                var rest = string(
-                    unsafe (((line.raw() as unsafe *const u8) + 4) as *const u8),
-                    line.size() - 4,
-                )
+                var rest = line.subslice(4, line.size() - 4)
 
                 var sp: usize = 0
                 while sp < rest.size() && rest[sp] != (' ' as u8) {
@@ -450,15 +418,8 @@ extend CompilerInstance {
                     return false
                 }
 
-                var want = string(
-                    unsafe ((rest.raw() as unsafe *const u8) as *const u8),
-                    sp,
-                )
-
-                var path = string(
-                    unsafe (((rest.raw() as unsafe *const u8) + sp + 1) as *const u8),
-                    rest.size() - sp - 1,
-                )
+                var want = rest.subslice(0, sp)
+                var path = rest.subslice(sp + 1, rest.size() - sp - 1)
 
                 if f"{LinkFS::mtime(path)}" != want {
                     return false
@@ -569,8 +530,8 @@ extend CompilerInstance {
                 return false
             }
 
-            man += "obj " + string(
-                unsafe (((o->raw() as unsafe *const u8) + tmp.size() + 1) as *const u8),
+            man += "obj " + o->subslice(
+                tmp.size() + 1,
                 o->size() - tmp.size() - 1,
             ) + "\n"
         }
@@ -648,10 +609,8 @@ extend CompilerInstance {
     ///          (_read_kairo_lib). \p keep, the one this run built, is never
     ///          removed.
     priv fn _gc_kairo_libs(self, const keep: string) {
-        var root = LinkFS::parent(keep)
-        var now = (cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
-            cxx::std::chrono::system_clock::now().time_since_epoch(),
-        ).count() as u64)
+        var root       = LinkFS::parent(keep)
+        var now        = now_ns()
         var kept       = cxx::std::vector<CacheEntryStat>()
         var total: u64 = LinkFS::tree_size(keep)
         for var name: string in LinkFS::list_dir(root) {
@@ -660,12 +619,7 @@ extend CompilerInstance {
                 continue
             }
 
-            var partial = !(cxx::std::string::npos == kairo::std::to_std_string(
-                name,
-            ).find(r".tmp-"))
-                || !(cxx::std::string::npos == kairo::std::to_std_string(name).find(
-                    r".stale-",
-                ))
+            var partial = is_leftover_temp(name)
 
             var last = LinkFS::mtime(p + "/used")
             if last == 0 {

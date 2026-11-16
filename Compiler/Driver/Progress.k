@@ -26,10 +26,11 @@ pub
 const PROGRESS_CODEGEN: i32 = 2
 
 /// Resolves --progress. False for a value that is none of auto, always,
-/// never, lines; the meter is then off.
-pub fn progress_configure(const flag: string, quiet_auto: bool) -> bool {
+/// never, lines; the meter is then off. `auto` is on whenever stderr is a
+/// terminal, --verbose included.
+pub fn progress_configure(const flag: string) -> bool {
     var f = flag
-    return kairo::ProgressMeter::configure(f.c_str(), quiet_auto)
+    return kairo::ProgressMeter::configure(f.c_str(), false)
 }
 
 /// Whether the meter writes anything; callers building a file name for a tick

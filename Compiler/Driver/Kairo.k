@@ -254,12 +254,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     /// The action strategy is encoded in CompilerInvocation::frontend.action.
     /// FrontendOptions::stops_at_* helpers gate each pipeline stage.
 
-    // auto stays off under --verbose: the log lines would share the pinned
-    // line's row.
-    if !progress_configure(
-        ci->invocation()->args.get_string("progress"),
-        fe_time.verbose,
-    ) {
+    if !progress_configure(ci->invocation()->args.get_string("progress")) {
         ci->diag()->report(
             DiagID::U001E,
             f"invalid --progress value '{ci->invocation()->args.get_string("progress")}'; expected one of: auto, always, never, lines",

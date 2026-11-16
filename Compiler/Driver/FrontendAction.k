@@ -75,8 +75,12 @@ import AST::Context::TranslationUnit::{
     ImportEdge,
     TranslationUnit,
 }
-import AST::DeclFacts::decl_is_imported
-import AST::DeclFacts::decl_spec_kind
+import AST::DeclFacts::{
+    dc_of,
+    decl_is_imported,
+    decl_spec_kind,
+    tu_of,
+}
 import AST::LangItems::{
     LowerTargets,
     builtin_root_name,
@@ -168,7 +172,6 @@ import Sema::Incremental::Facts::{
     FileFacts,
     IncrFacts,
     incr_decl_id,
-    incr_json,
     incr_resolve_deps,
 }
 import Sema::Incremental::Plan::PlanModule
@@ -187,7 +190,7 @@ import Sema::SemaContext::{
     SemaPhase,
 }
 import Sema::SemaDump::SemaDump
-import Support::Ascii::is_control
+import Support::Escape::json_string
 import Support::FileIO::Path::Path
 import Support::TimeReport::{
     TimeRegion,
@@ -1174,38 +1177,7 @@ pub class FrontendAction {
             var inject = !self._ci->invocation()->pp.no_builtins
             self._global_scope->mark_builtin_fid(bfid) // the loop skips the root below.
 
-            // alloc.k (`builtin::base::alloc`), when the PP put it in the graph
-            // for a file that writes `@create` / `@destroy`.
-            var afid = u32::MAX
-            {
-                var s_base = self._ci->pp()->get_symbol_table()->intern("base")
-                var s_alloc = self._ci->pp()->get_symbol_table()->intern(
-                    "alloc",
-                )
-
-                for var i: usize = 0; i < self._fids.size(); ++i {
-                    var unsafe *actx = self._global_scope->get_context(
-                        self._fids[i],
-                    )
-
-                    if actx == &null {
-                        continue
-                    }
-
-                    var *asg = &actx->module_base.segments
-                    if asg->size() != 3 {
-                        continue
-                    }
-
-                    if (*asg)[0].name == bsym
-                        && (*asg)[1].name == s_base
-                        && (*asg)[2].name == s_alloc {
-                        afid = self._fids[i]
-                        break
-                    }
-                }
-            }
-
+            var afid = self._alloc_module_fid()
             {
                 for var i: usize = 0; i < self._fids.size(); ++i {
                     var fid = self._fids[i]
@@ -1244,54 +1216,7 @@ pub class FrontendAction {
                         continue
                     }
 
-                    // The file's start, as the std alias below takes it (see there
-                    // for why not SourceLocation::from_base(fid, 0)).
-                    var prng = SourceRange::invalid()
-                    if pctx->sm != &null {
-                        var ploc = pctx->sm->get_loc(fid, 0)
-                        prng = SourceRange(ploc, ploc)
-                    }
-
-                    var unsafe *pid = Declarations::ImportDecl::create(
-                        pctx,
-                        prng,
-                        Declarations::ImportKind::Native,
-                    )
-
-                    pid->is_wildcard    = true
-                    pid->is_prelude     = true
-                    pid->resolved_fid   = bfid
-                    pid->file_seg_count = 1
-                    ptu->imports.push(pid)
-
-                    var pedge = ImportEdge{}
-                    pedge.target_fid = bfid
-                    pedge.decl       = pid
-                    ptu->import_edges.push(pedge)
-
-                    // `@create` / `@destroy` lower to alloc.k's create / destroy
-                    // pre-bound (AllocSugarDesugar), so this TU must be typed
-                    // AFTER alloc.k, whose N fills the lang item: an edge orders
-                    // that (_import_order reads import_edges). The ImportDecl
-                    // binds NO name -- plain, with no path segments, so phase I's
-                    // _fold_plain has no handle to bind -- and a hand-written
-                    // `create<T>()` with no import is still undeclared.
-                    if afid != u32::MAX && afid != fid && ptu->has_alloc_sugar {
-                        var unsafe *aid = Declarations::ImportDecl::create(
-                            pctx,
-                            prng,
-                            Declarations::ImportKind::Native,
-                        )
-
-                        aid->is_prelude     = true
-                        aid->resolved_fid   = afid
-                        aid->file_seg_count = 1
-                        ptu->imports.push(aid)
-                        var aedge = ImportEdge{}
-                        aedge.target_fid = afid
-                        aedge.decl       = aid
-                        ptu->import_edges.push(aedge)
-                    }
+                    self._add_prelude_imports(pctx, fid, bfid, afid)
                 }
             }
         }
@@ -1723,8 +1648,9 @@ pub class FrontendAction {
             }
         }
 
+        var afid = self._alloc_module_fid()
         for var fid: u32 in fids {
-            self._inject_prelude_one(fid)
+            self._inject_prelude_one(fid, afid)
             var unsafe *vctx = self._global_scope->get_context(fid)
             if vctx != &null && vctx->tu != &null {
                 stamp_tu_visibility(vctx->tu)
@@ -2212,7 +2138,7 @@ pub class FrontendAction {
                     continue
                 }
 
-                var unsafe *home  = NameLookup::tu_of(d->semantic_dc)
+                var unsafe *home  = tu_of(d->semantic_dc)
                 var        inside = false
                 for var f: u32 in set {
                     var unsafe *c = self._global_scope->get_context(f)
@@ -2404,8 +2330,9 @@ pub class FrontendAction {
 
     /// The prelude import of one non-builtin file, as _sema injects it for
     /// every file of a first check (see there for why it is a real
-    /// ImportDecl and why it is stamped rather than resolved).
-    priv fn _inject_prelude_one(self, fid: u32) {
+    /// ImportDecl and why it is stamped rather than resolved). \p afid is
+    /// _alloc_module_fid's answer.
+    priv fn _inject_prelude_one(self, fid: u32, afid: u32) {
         var bfid = self._global_scope->builtin_fid()
         if bfid == u32::MAX || fid == bfid || self._ci->invocation()->pp.no_builtins {
             return
@@ -2416,14 +2343,17 @@ pub class FrontendAction {
             return
         }
 
-        var unsafe *ptu = pctx->tu
-        var        afid = u32::MAX
-        var bsym = self._ci->pp()->get_symbol_table()->intern(
-            builtin_root_name(),
-        )
+        self._add_prelude_imports(pctx, fid, bfid, afid)
+    }
 
-        var s_base  = self._ci->pp()->get_symbol_table()->intern("base")
-        var s_alloc = self._ci->pp()->get_symbol_table()->intern("alloc")
+    /// alloc.k (`builtin::base::alloc`) among this action's files, when the
+    /// PP put it in the graph for a file that writes `@create` / `@destroy`;
+    /// u32::MAX when it is not there.
+    priv fn _alloc_module_fid(self) -> u32 {
+        var unsafe *sym    = self._ci->pp()->get_symbol_table()
+        var        s_root  = sym->intern(builtin_root_name())
+        var        s_base  = sym->intern("base")
+        var        s_alloc = sym->intern("alloc")
         for var i: usize = 0; i < self._fids.size(); ++i {
             var unsafe *actx = self._global_scope->get_context(self._fids[i])
             if actx == &null {
@@ -2435,13 +2365,28 @@ pub class FrontendAction {
                 continue
             }
 
-            if (*asg)[0].name == bsym && (*asg)[1].name == s_base && (*asg)[2].name == s_alloc {
-                afid = self._fids[i]
-                break
+            if (*asg)[0].name == s_root && (*asg)[1].name == s_base && (*asg)[2].name == s_alloc {
+                return self._fids[i]
             }
         }
 
-        var prng = SourceRange::invalid()
+        return u32::MAX
+    }
+
+    /// The file \p fid's prelude imports, on \p pctx's TU: a wildcard import
+    /// of the builtin root \p bfid, and, for a file that writes `@create` /
+    /// `@destroy`, one of alloc.k (\p afid), each with its ImportEdge.
+    ///
+    /// Both sit at the file's start. The sugar lowers to alloc.k's create /
+    /// destroy pre-bound (AllocSugarDesugar), so the TU must be typed AFTER
+    /// alloc.k, whose N fills the lang item: the edge orders that
+    /// (_import_order reads import_edges). That ImportDecl binds
+    /// NO name -- plain, with no path segments, so phase I's _fold_plain has
+    /// no handle to bind -- and a hand-written `create<T>()` with no import
+    /// is still undeclared.
+    priv fn _add_prelude_imports(self, pctx: unsafe *ASTContext, fid: u32, bfid: u32, afid: u32) {
+        var unsafe *ptu = pctx->tu
+        var        prng = SourceRange::invalid()
         if pctx->sm != &null {
             var ploc = pctx->sm->get_loc(fid, 0)
             prng = SourceRange(ploc, ploc)
@@ -2462,22 +2407,24 @@ pub class FrontendAction {
         pedge.target_fid = bfid
         pedge.decl       = pid
         ptu->import_edges.push(pedge)
-        if afid != u32::MAX && afid != fid && ptu->has_alloc_sugar {
-            var unsafe *aid = Declarations::ImportDecl::create(
-                pctx,
-                prng,
-                Declarations::ImportKind::Native,
-            )
-
-            aid->is_prelude     = true
-            aid->resolved_fid   = afid
-            aid->file_seg_count = 1
-            ptu->imports.push(aid)
-            var aedge = ImportEdge{}
-            aedge.target_fid = afid
-            aedge.decl       = aid
-            ptu->import_edges.push(aedge)
+        if afid == u32::MAX || afid == fid || !ptu->has_alloc_sugar {
+            return
         }
+
+        var unsafe *aid = Declarations::ImportDecl::create(
+            pctx,
+            prng,
+            Declarations::ImportKind::Native,
+        )
+
+        aid->is_prelude     = true
+        aid->resolved_fid   = afid
+        aid->file_seg_count = 1
+        ptu->imports.push(aid)
+        var aedge = ImportEdge{}
+        aedge.target_fid = afid
+        aedge.decl       = aid
+        ptu->import_edges.push(aedge)
     }
 
     /// Stamp every ffi ImportDecl of \p tu with what its header resolved to in
@@ -2761,10 +2708,7 @@ pub class FrontendAction {
         var order = cxx::std::vector<usize>()
         for var i: usize = 0; i < sems.size(); ++i {
             var unsafe *en = sems[i]->sc.nullable_enum()
-            var unsafe *home = if (en != &null) => (NameLookup::tu_of(
-                                   en->semantic_dc,
-                               ))
-                               else => &null
+            var unsafe *home = if (en != &null) => (tu_of(en->semantic_dc)) else => &null
             if home != &null && home == sems[i]->sc.tu {
                 order.push_back(i)
                 break
@@ -4701,7 +4645,7 @@ pub class FrontendAction {
             }
 
             first_tu = false
-            o += "{" + f"\"fid\": {fid}, \"path\": {_json_str(sm->get_filename(fid))}, \"imports\": ["
+            o += "{" + f"\"fid\": {fid}, \"path\": {json_string(sm->get_filename(fid))}, \"imports\": ["
 
             // The written imports, in source order; an origin is named by its
             // index here. The prelude is listed (so indices match tu->imports)
@@ -4745,7 +4689,7 @@ pub class FrontendAction {
                 }
 
                 var is_ffi = imp->path_segments.size() == 0 && !imp->is_prelude
-                o += "{" + f"\"idx\": {pi}, \"path\": {_json_str(path)}, \"line\": {line}, " + f"\"wildcard\": {_json_bool(imp->is_wildcard)}, \"selective\": {_json_bool(imp->has_items)}, " + f"\"anchor\": {_json_str(_import_anchor(imp))}, \"ffi\": {_json_bool(is_ffi)}, " + f"\"prelude\": {_json_bool(imp->is_prelude)}, \"pub\": {_json_bool(imp->is_public() || imp->is_protected())}, " + f"\"resolved_fid\": {imp->resolved_fid}, \"resolved_path\": {_json_str(rpath)}" + "}"
+                o += "{" + f"\"idx\": {pi}, \"path\": {json_string(path)}, \"line\": {line}, " + f"\"wildcard\": {_json_bool(imp->is_wildcard)}, \"selective\": {_json_bool(imp->has_items)}, " + f"\"anchor\": {json_string(_import_anchor(imp))}, \"ffi\": {_json_bool(is_ffi)}, " + f"\"prelude\": {_json_bool(imp->is_prelude)}, \"pub\": {_json_bool(imp->is_public() || imp->is_protected())}, " + f"\"resolved_fid\": {imp->resolved_fid}, \"resolved_path\": {json_string(rpath)}" + "}"
             }
 
             o += "], \"names\": ["
@@ -4856,7 +4800,7 @@ pub class FrontendAction {
                 }
 
                 first_name = false
-                o += "\n  {" + f"\"name\": {_json_str(imms->get_ident(order[n]))}, \"origins\": [{origins}], " + f"\"src_fids\": [{fids}], \"implicit\": {implicit}, \"foreign\": {foreign}, \"sites\": [{sl}]" + "}"
+                o += "\n  {" + f"\"name\": {json_string(imms->get_ident(order[n]))}, \"origins\": [{origins}], " + f"\"src_fids\": [{fids}], \"implicit\": {implicit}, \"foreign\": {foreign}, \"sites\": [{sl}]" + "}"
             }
 
             o += "]}"
@@ -4885,29 +4829,19 @@ pub class FrontendAction {
         var        prefix = root + "/"
 
         // Sorted by (module, path): the order of every file list below.
-        var order = cxx::std::vector<string>()
-        for var i: usize = 0; i < self._incr.size(); ++i {
-            order.push_back(
-                self._incr[i].mod_path + "\t" + self._incr[i].path + "\t" + f"{i}",
-            )
-        }
-
-        llvm::sort(order.begin(), order.end())
         var idx = cxx::std::vector<usize>()
-        for var i: usize = 0; i < order.size(); ++i {
-            var s        = order[i]
-            var n: usize = 0
-            var at       = s.size()
-            while at > 0 && s[at - 1] != ('\t' as u8) {
-                at -= 1
-            }
-
-            for var k: usize = at; k < s.size(); ++k {
-                n = n * 10 + ((s[k] - ('0' as u8)) as usize)
-            }
-
-            idx.push_back(n)
+        for var i: usize = 0; i < self._incr.size(); ++i {
+            idx.push_back(i)
         }
+
+        var *ff = &self._incr
+        llvm::sort(
+            idx.begin(),
+            idx.end(),
+            fn (a: usize, b: usize) |ff| -> bool = (*ff)[a].mod_path < (*ff)[b].mod_path
+                || (*ff)[a].mod_path == (*ff)[b].mod_path && ((*ff)[a].path < (*ff)[b].path
+                    || (*ff)[a].path == (*ff)[b].path && a < b),
+        )
 
         var overlays = llvm::DenseMap<u64, unsafe *TranslationUnit>()
         for var fid: u32 in self._fids {
@@ -4918,7 +4852,7 @@ pub class FrontendAction {
         }
 
         var rec = self._ci->incr.on
-        var head = "{\"version\": 1, \"root\": " + incr_json(root) + ", \"files\": ["
+        var head = "{\"version\": 1, \"root\": " + json_string(root) + ", \"files\": ["
         var io_: string = head
         var do_: string = head
         for var i: usize = 0; i < idx.size(); ++i {
@@ -4931,7 +4865,7 @@ pub class FrontendAction {
                 )
             }
 
-            var who = "\n{\"module\": " + incr_json(f->mod_path) + ", \"path\": " + incr_json(
+            var who = "\n{\"module\": " + json_string(f->mod_path) + ", \"path\": " + json_string(
                 rel,
             )
 
@@ -4943,9 +4877,9 @@ pub class FrontendAction {
             var io_at = io_.size()
             var do_at = do_.size()
 
-            io_ += who + ", \"phase\": " + incr_json(f->phase) + ", \"hash\": " + incr_json(
+            io_ += who + ", \"phase\": " + json_string(f->phase) + ", \"hash\": " + json_string(
                 f->hash,
-            ) + ", \"macros\": " + incr_json(f->macros) + ", \"decls\": ["
+            ) + ", \"macros\": " + json_string(f->macros) + ", \"decls\": ["
             for var k: usize = 0; k < f->decls.size(); ++k {
                 io_ += (if (k > 0) => (",\n  ") else => "\n  ") + f->decls[k]
             }
@@ -4975,7 +4909,7 @@ pub class FrontendAction {
 
             do_ += who + ", \"surface\": ["
             for var k: usize = 0; k < deps.surface.size(); ++k {
-                do_ += (if (k > 0) => (", ") else => "") + incr_json(
+                do_ += (if (k > 0) => (", ") else => "") + json_string(
                     deps.surface[k],
                 )
             }
@@ -5008,14 +4942,14 @@ pub class FrontendAction {
                         do_ += "]},"
                     }
 
-                    do_ += "\n  {\"of\": " + incr_json(of_) + ", \"names\": ["
+                    do_ += "\n  {\"of\": " + json_string(of_) + ", \"names\": ["
                     cur   = of_
                     open_ = true
                 } else {
                     do_ += ", "
                 }
 
-                do_ += incr_json(name)
+                do_ += json_string(name)
             }
 
             if open_ {
@@ -5049,9 +4983,9 @@ pub class FrontendAction {
                              prev.size() - cut - 1,
                          ))
                          else => ""
-                do_ += (if (first_) => ("\n  ") else => ",\n  ") + "{\"id\": " + incr_json(
+                do_ += (if (first_) => ("\n  ") else => ",\n  ") + "{\"id\": " + json_string(
                     id,
-                ) + ", \"part\": " + incr_json(part) + "}"
+                ) + ", \"part\": " + json_string(part) + "}"
                 first_ = false
             }
 
@@ -5072,7 +5006,7 @@ pub class FrontendAction {
                             continue
                         }
 
-                        imps += (if (imps.empty()) => ("") else => ", ") + incr_json(
+                        imps += (if (imps.empty()) => ("") else => ", ") + json_string(
                             self._ci->sm()->get_filename(e->target_fid),
                         )
                     }
@@ -5899,7 +5833,7 @@ fn _defines_foreign_members(tu:          unsafe *TranslationUnit,
             continue
         }
 
-        var unsafe *home  = NameLookup::tu_of(d->semantic_dc)
+        var unsafe *home  = tu_of(d->semantic_dc)
         var        inside = false
         for var k: usize = 0; k < group.size(); ++k {
             if (group)[k]->sc.tu == home {
@@ -5967,7 +5901,7 @@ fn _decl_refresh_specs(d: unsafe *Decl, exts: unsafe *cxx::std::vector<unsafe *D
     }
 
     if isa<Declarations::ModuleDecl>(d) {
-        return _refresh_specs(NameLookup::context_of(d), exts)
+        return _refresh_specs(dc_of(d), exts)
     }
 
     if isa<Declarations::ExtensionDecl>(d) {
@@ -5980,7 +5914,7 @@ fn _decl_refresh_specs(d: unsafe *Decl, exts: unsafe *cxx::std::vector<unsafe *D
         return true
     }
 
-    var unsafe *child = NameLookup::context_of(d)
+    var unsafe *child = dc_of(d)
     if child != &null && child->is_type_scope() {
         return _refresh_specs(child, exts)
     }
@@ -6076,7 +6010,7 @@ fn _decl_declares_specs(d: unsafe *Decl) -> bool {
     }
 
     if isa<Declarations::ModuleDecl>(d) {
-        return _declares_specs(NameLookup::context_of(d))
+        return _declares_specs(dc_of(d))
     }
 
     // An extension is in every TU's index whether the TU imports it or not
@@ -6091,7 +6025,7 @@ fn _decl_declares_specs(d: unsafe *Decl) -> bool {
         return true
     }
 
-    var unsafe *child = NameLookup::context_of(d)
+    var unsafe *child = dc_of(d)
     if child != &null && child->is_type_scope() {
         return _declares_specs(child)
     }
@@ -6134,26 +6068,6 @@ pub fn _overlay_vis_str(v: OverlayVisibility) -> string {
     }
 
     return "?"
-}
-
-/// A JSON string literal. Paths and identifiers only, so quote, backslash
-/// and control bytes are all that can need escaping.
-fn _json_str(const s: string) -> string {
-    var o: string = "\""
-    for var i: usize = 0; i < s.size(); ++i {
-        var c = s[i]
-        if c == ('"' as u8) || c == ('\\' as u8) {
-            o += "\\"
-            o.push_back(c)
-        } else if is_control(c) {
-            o += " "
-        } else {
-            o.push_back(c)
-        }
-    }
-
-    o += "\""
-    return o
 }
 
 fn _json_bool(b: bool) -> string {

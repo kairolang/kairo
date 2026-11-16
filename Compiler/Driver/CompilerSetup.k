@@ -620,36 +620,6 @@ extend CompilerInstance {
         return t
     }
 
-    /// Looks up a registered target by triple. Returns nullptr if not found
-    /// and writes the LLVM error message to `err_out`.
-    priv fn _lookup_target(self, const triple: string, @inout err_out: string) -> unsafe *void {
-        var result:    unsafe *void     = &null
-        var err:       cxx::std::string
-        var triple_str                  = triple
-
-        var llvm_triple = llvm::Triple(
-            llvm::Triple::normalize(kairo::sref(triple_str)),
-        )
-
-        var unsafe *T = llvm::TargetRegistry::lookupTarget(llvm_triple, &err)
-
-        if T == &null {
-            (err_out) = kairo::std::from_std_string<string>(err)
-        }
-
-        result = unsafe ((unsafe (T as unsafe *const void)) as unsafe *void)
-        return result
-    }
-
-    /// \brief the cc1 tokens `-ffast-math` stands for, as clang 22's driver
-    ///        spells them (checked with `clang -### -ffast-math`). Shared by
-    ///        -ffast-math and --fp-model=fast, which differ only in
-    ///        -complex-range.
-    ///
-    /// \details Spelled out rather than taken from the driver probe: the probe
-    ///          runs once per triple for target defaults, and its keep-list
-    ///          would also have to carry a default-on `-ffp-contract=on`
-    ///          that Kairo's cc1 line must not have.
     /// \brief the shared clang backend's configuration, from the
     ///        invocation: target, header roots, optimization and debug
     ///        info, the user's -W policy. initialize builds the backend from

@@ -620,13 +620,7 @@ extend CompilerInstance {
     ///        builtin root is found as the import resolver finds it:
     ///        --builtins-dir, else <resource-dir>/builtin. "" when none.
     prot fn _runtime_root(self) -> string {
-        var broot = self.invocation()->pp.builtins_dir
-        if broot.empty() && !self.invocation()->target.resource_dir.empty() {
-            broot = (Path(
-                self.invocation()->target.resource_dir,
-            ) / ResourceLayout::builtin_subdir()).full_path()
-        }
-
+        var broot = self._builtin_root()
         if broot.empty() {
             return ""
         }

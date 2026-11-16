@@ -29,13 +29,10 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/StringSet.h"
-ffi "c++" import "llvm/Support/FileSystem.h"
-ffi "c++" import "llvm/Support/Process.h"
 ffi "c++" import "Native/ObjCache.hh"
 ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
-ffi "c++" import "chrono"
 
 import API::EnvNames::EnvNames
 import API::FS::*
@@ -45,7 +42,17 @@ import Driver::CacheFormat::{
 }
 import Driver::ObjectCache::ObjectCache
 import Sema::Incremental::Plan::PlanModule
+import Support::Ascii::{
+    find,
+    parse_decimal,
+    split,
+}
 import Support::Escape::json_string
+import Support::FileIO::AtomicFile::{
+    file_stat,
+    now_ns,
+    publish_bytes,
+}
 import Support::FileIO::Path::Path
 import Support::Tuning::MTIME_SLACK_NS
 import std::env
@@ -85,6 +92,13 @@ fn incr_env_names() -> cxx::std::vector<string> {
     return v
 }
 
+/// One file the run read, for the manifest: its path and the hash of the
+/// bytes it read ("" when the disk's bytes are hashed at write time).
+pub struct SourceRead {
+    pub var path: string
+    pub var hash: string
+}
+
 pub class ModuleRecords {
     /// The flag is on and the run is of a shape a record can stand for.
     pub var on:           bool   = false
@@ -121,16 +135,15 @@ pub class ModuleRecords {
 
     /// What this run collected, for write(). Filled by the FrontendAction
     /// (modules, keys, header files) and by CompilerInstance (the rest).
-    pub var mod_names: cxx::std::vector<string> ///< module path per record
-    pub var mod_hash:  cxx::std::vector<string> ///< I(m), parallel
-    pub var mod_json:  cxx::std::vector<string> ///< the record body, parallel
-    pub var mod_plan:  cxx::std::vector<PlanModule> ///< the plan record, parallel
+    pub var mod_names: cxx::std::vector<string>             ///< module path per record
+    pub var mod_hash:  cxx::std::vector<string>             ///< I(m), parallel
+    pub var mod_json:  cxx::std::vector<string>             ///< the record body, parallel
+    pub var mod_plan:  cxx::std::vector<PlanModule>         ///< the plan record, parallel
     pub var errors:    bool                         = false ///< this run reported an error
-    pub var keys:      cxx::std::vector<string> ///< "<module>\t<O(m)>" per codegen job
-    pub var hdr_files: cxx::std::vector<string> ///< every header-set file path
-    pub var src_files: cxx::std::vector<string> ///< every SourceManager file path
-    pub var src_hash:  cxx::std::vector<string> ///< parallel: hash of the bytes the run read ("" = hash the disk)
-    pub var roots:     cxx::std::vector<string> ///< the import search roots
+    pub var keys:      cxx::std::vector<string>             ///< "<module>\t<O(m)>" per codegen job
+    pub var hdr_files: cxx::std::vector<string>             ///< every header-set file path
+    pub var sources:   cxx::std::vector<SourceRead>         ///< every SourceManager file
+    pub var roots:     cxx::std::vector<string>             ///< the import search roots
     pub var objects:   cxx::std::vector<string>
     pub var pthread:   bool                         = false
     pub var diag:      string                       = ""
@@ -140,11 +153,10 @@ pub class ModuleRecords {
     priv var _manifest: string = ""
     priv var _exe:      string = ""
     priv var _t_start:  u64    = 0
-    priv var _seq:      u64    = 0
     /// The manifest as check() parsed it, for the refresh a touched-but-same
     /// file triggers (its new mtime goes back in, so the next hit is a stat).
-    priv var _lines:     cxx::std::vector<string>
-    priv var _refreshed: bool                     = false
+    priv var _lines:     [string]
+    priv var _refreshed: bool     = false
 
     fn ModuleRecords(self) = default
 
@@ -169,7 +181,7 @@ pub class ModuleRecords {
             return false
         }
 
-        self._t_start = ModuleRecords::_now()
+        self._t_start = now_ns()
         var args = ""
         for var i: usize = 1; i < words.size(); ++i {
             var w = words[i]
@@ -234,7 +246,7 @@ pub class ModuleRecords {
 
         // The diagnostic stream is the tail, length-prefixed: it may hold
         // any byte, a newline included.
-        var at   = ModuleRecords::_find(text, "\ndiag ")
+        var at   = find(text, "\ndiag ", 0)
         var tail = ""
         if at == usize::MAX || !text.ends_with("\nend\n") {
             self.status = "miss: damaged record"
@@ -258,7 +270,7 @@ pub class ModuleRecords {
             tail = text.subslice(p, n as usize)
         }
 
-        self._lines = ModuleRecords::_split(text.subslice(0, at + 1))
+        self._lines = split(text.subslice(0, at + 1), '\n' as u8, true)
         if self._lines.empty() || self._lines[0] != incr_run_header() {
             self.status = "miss: record of another schema"
             return false
@@ -273,10 +285,10 @@ pub class ModuleRecords {
         }
 
         if have_f != self._f_lines {
-            var mine = ModuleRecords::_split(self._f_lines)
+            var mine = split(self._f_lines, '\n' as u8, true)
             for var l: string in mine {
-                if ModuleRecords::_find(have_f, l + "\n") == usize::MAX {
-                    var sp = ModuleRecords::_find(l, " ")
+                if find(have_f, l + "\n", 0) == usize::MAX {
+                    var sp = find(l, " ", 0)
                     var part = if (sp == usize::MAX) => (l) else => l.subslice(0, sp)
                     if part == "f.args" {
                         self.status = "miss: flags changed"
@@ -358,9 +370,7 @@ pub class ModuleRecords {
                 nmods += 1
                 self.old_mods.push_back(l.subslice(4, l.size() - 4))
             } else if l.starts_with("warns ") {
-                self.old_warns = (ModuleRecords::_num(
-                    l.subslice(6, l.size() - 6),
-                ) as u32)
+                self.old_warns = (parse_decimal(l.subslice(6, l.size() - 6)) as u32)
             } else if l.starts_with("pthread ") {
                 self.old_pthread = l == "pthread 1"
             } else if l == "errors 1" {
@@ -391,7 +401,7 @@ pub class ModuleRecords {
     pub fn load_plan(self, out: *cxx::std::vector<PlanModule>) -> bool {
         out->clear()
         for var l: string in self.old_mods {
-            var tab  = ModuleRecords::_find(l, "\t")
+            var tab  = find(l, "\t", 0)
             var name = if (tab == usize::MAX) => (l) else => l.subslice(0, tab)
             var text = ""
             if !LinkFS::read(self._plan_path(name), &text) {
@@ -421,7 +431,7 @@ pub class ModuleRecords {
             body += l + "\n"
         }
 
-        self._publish(
+        publish_bytes(
             self._manifest,
             body + f"diag {self.old_diag.size()}\n" + self.old_diag + "\nend\n",
         )
@@ -443,17 +453,15 @@ pub class ModuleRecords {
         m += self._file_line("exe", self._exe, "")
 
         // Every file the run opened, each once, by path order.
-        var seen  = llvm::StringSet<llvm::MallocAllocator>()
-        var all   = cxx::std::vector<string>()
-        var all_h = cxx::std::vector<string>()
-        for var i: usize = 0; i < self.src_files.size(); ++i {
-            var p = self.src_files[i]
-            if p.empty() || seen.contains(kairo::sref(p)) {
+        var seen = llvm::StringSet<llvm::MallocAllocator>()
+        var all  = cxx::std::vector<SourceRead>()
+        for *src in self.sources {
+            if src->path.empty() || seen.contains(kairo::sref(src->path)) {
                 continue
             }
 
-            seen.insert(kairo::sref(p))
-            all.push_back(p + "\t" + self.src_hash[i])
+            seen.insert(kairo::sref(src->path))
+            all.push_back(*src)
         }
 
         for var p: string in self.hdr_files {
@@ -462,17 +470,20 @@ pub class ModuleRecords {
             }
 
             seen.insert(kairo::sref(p))
-            all.push_back(p + "\t")
+            all.push_back(SourceRead { path: p, hash: "" })
         }
 
-        llvm::sort(all.begin(), all.end())
+        llvm::sort(
+            all.begin(),
+            all.end(),
+            fn (const a: SourceRead, const b: SourceRead) || -> bool = a.path < b.path,
+        )
+
         var dirs     = llvm::StringSet<llvm::MallocAllocator>()
         var dir_list = cxx::std::vector<string>()
-        for var e: string in all {
-            var tab = ModuleRecords::_find(e, "\t")
-            var p   = e.subslice(0, tab)
-            var h   = e.subslice(tab + 1, e.size() - tab - 1)
-            m += self._file_line("file", p, h)
+        for *e in all {
+            var p = e->path
+            m += self._file_line("file", p, e->hash)
             if p.ends_with(".k") {
                 self._dirs_of(p, unsafe &dirs, unsafe &dir_list)
             }
@@ -493,32 +504,20 @@ pub class ModuleRecords {
         var mods = cxx::std::vector<string>()
         for var i: usize = 0; i < self.mod_names.size(); ++i {
             var name = self.mod_names[i]
-            var ks   = ""
-            for var k: string in self.keys {
-                if k.starts_with(name + "\t") {
-                    ks += (if (ks.empty()) => ("") else => ",") + k.subslice(
-                        name.size() + 1,
-                        k.size() - name.size() - 1,
-                    )
-                }
-            }
-
-            if ks.empty() {
-                ks = "-"
-            }
+            var ks   = self._object_keys(name)
 
             var rec = "{\"version\": 1, \"module\": " + json_string(
                 name,
             ) + ", \"objects\": " + json_string(ks) + ",\n" + self.mod_json[i] + "}\n"
             var rp = self.dir + "/" + ObjectCache::hash(name) + ".json"
-            if !self._publish(rp, rec) {
+            if !publish_bytes(rp, rec) {
                 return false
             }
 
             // The same facts as the lines the plan reads, and the module's
             // own diagnostics (Sema/Incremental/Plan.k).
             if i < self.mod_plan.size()
-                && !self._publish(
+                && !publish_bytes(
                     self._plan_path(name),
                     self.mod_plan[i].render(),
                 ) {
@@ -540,7 +539,7 @@ pub class ModuleRecords {
         m += "pthread " + (if (self.pthread) => ("1") else => "0") + "\n"
         m += f"warns {self.warns}\n"
         m += f"diag {self.diag.size()}\n" + self.diag + "\nend\n"
-        return self._publish(self._manifest, m)
+        return publish_bytes(self._manifest, m)
     }
 
     /// A plan record belongs to ONE manifest: another input, or the same
@@ -557,25 +556,28 @@ pub class ModuleRecords {
         var out = cxx::std::vector<string>()
         for var i: usize = 0; i < self.mod_names.size(); ++i {
             var name = self.mod_names[i]
-            var ks   = ""
-            for var k: string in self.keys {
-                if k.starts_with(name + "\t") {
-                    ks += (if (ks.empty()) => ("") else => ",") + k.subslice(
-                        name.size() + 1,
-                        k.size() - name.size() - 1,
-                    )
-                }
-            }
-
-            if ks.empty() {
-                ks = "-"
-            }
+            var ks   = self._object_keys(name)
 
             out.push_back(name + "\t" + ks + "\t" + self.mod_hash[i])
         }
 
         llvm::sort(out.begin(), out.end())
         return out
+    }
+
+    /// \p name's O keys, comma-joined in codegen job order; "-" for none.
+    priv fn _object_keys(self, const name: string) -> string {
+        var ks = ""
+        for var k: string in self.keys {
+            if k.starts_with(name + "\t") {
+                ks += (if (ks.empty()) => ("") else => ",") + k.subslice(
+                    name.size() + 1,
+                    k.size() - name.size() - 1,
+                )
+            }
+        }
+
+        return if (ks.empty()) => ("-") else => ks
     }
 
     pub static fn same_list(a: *cxx::std::vector<string>, b: *cxx::std::vector<string>) -> bool {
@@ -602,7 +604,7 @@ pub class ModuleRecords {
                        const read_hash: string) -> string {
         var mt: u64 = 0
         var sz: u64 = 0
-        if !ModuleRecords::_stat(p, &mt, &sz) {
+        if !file_stat(p, &mt, &sz) {
             return kind + " 0 0 missing " + p + "\n"
         }
 
@@ -623,8 +625,8 @@ pub class ModuleRecords {
     priv fn _check_file(self, i: usize) -> string {
         var l    = self._lines[i]
         var kind = ModuleRecords::_field(l, 0)
-        var smt  = ModuleRecords::_num(ModuleRecords::_field(l, 1))
-        var ssz  = ModuleRecords::_num(ModuleRecords::_field(l, 2))
+        var smt  = parse_decimal(ModuleRecords::_field(l, 1))
+        var ssz  = parse_decimal(ModuleRecords::_field(l, 2))
         var sh   = ModuleRecords::_field(l, 3)
         var p    = ModuleRecords::_field_rest(l, 4)
         var what = "changed: "
@@ -642,7 +644,7 @@ pub class ModuleRecords {
 
         var mt: u64 = 0
         var sz: u64 = 0
-        var ok      = ModuleRecords::_stat(p, &mt, &sz)
+        var ok      = file_stat(p, &mt, &sz)
         if sh == "missing" {
             if ok {
                 return "added: " + p
@@ -669,7 +671,7 @@ pub class ModuleRecords {
 
         // Same bytes, new stat: a touch. Written back by refresh().
         var slack: u64 = 2000000000
-        if mt + slack < ModuleRecords::_now() && mt != smt {
+        if mt + slack < now_ns() && mt != smt {
             self._lines[i]  = kind + f" {mt} {sz} " + sh + " " + p
             self._refreshed = true
         }
@@ -759,23 +761,6 @@ pub class ModuleRecords {
         return ObjectCache::hash(s)
     }
 
-    /// Through a private name and a rename, as the object store writes.
-    priv fn _publish(self, const path: string, const text: string) -> bool {
-        self._seq += 1
-        var tmp = f"{path}.{llvm::sys::Process::getProcessId()}-{self._seq}.tmp"
-        if !LinkFS::write(tmp, text) {
-            LinkFS::remove(tmp)
-            return false
-        }
-
-        if !LinkFS::rename(tmp, path) {
-            LinkFS::remove(tmp)
-            return false
-        }
-
-        return true
-    }
-
     priv static fn _hash_file(const p: string) -> string {
         var h = kairo::std::from_std_string<string>(
             kairo::objcache_file_hash(kairo::sref(p)),
@@ -786,43 +771,6 @@ pub class ModuleRecords {
         }
 
         return h
-    }
-
-    priv static fn _stat(const p: string, @inout mt: u64, @inout sz: u64) -> bool {
-        var st: llvm::sys::fs::file_status
-        var ec = llvm::sys::fs::status(llvm::Twine(kairo::sref(p)), &st, true)
-        if ec.value() != 0 {
-            return false
-        }
-
-        mt = st.getLastModificationTime().time_since_epoch().count() as u64
-        sz = st.getSize() as u64
-        return true
-    }
-
-    /// Now, on the clock LinkFS::mtime reads (the object store's gc compares
-    /// the two the same way).
-    priv static fn _now() -> u64 {
-        return (cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
-            cxx::std::chrono::system_clock::now().time_since_epoch(),
-        ).count() as u64)
-    }
-
-    priv static fn _split(const s: string) -> cxx::std::vector<string> {
-        var out          = cxx::std::vector<string>()
-        var start: usize = 0
-        for var i: usize = 0; i < s.size(); ++i {
-            if s[i] == ('\n' as u8) {
-                out.push_back(s.subslice(start, i - start))
-                start = i + 1
-            }
-        }
-
-        if start < s.size() {
-            out.push_back(s.subslice(start, s.size() - start))
-        }
-
-        return out
     }
 
     /// Space-separated field \p k of \p l.
@@ -857,39 +805,5 @@ pub class ModuleRecords {
         }
 
         return ""
-    }
-
-    priv static fn _num(const s: string) -> u64 {
-        var n: u64 = 0
-        for var i: usize = 0; i < s.size(); ++i {
-            if s[i] < ('0' as u8) || s[i] > ('9' as u8) {
-                break
-            }
-
-            n = n * 10 + ((s[i] - ('0' as u8)) as u64)
-        }
-
-        return n
-    }
-
-    priv static fn _find(const hay: string, const needle: string) -> usize {
-        var n = hay.size()
-        var m = needle.size()
-        if m > n {
-            return usize::MAX
-        }
-
-        for var i: usize = 0; i + m <= n; ++i {
-            var j: usize = 0
-            while j < m && hay[i + j] == needle[j] {
-                j += 1
-            }
-
-            if j == m {
-                return i
-            }
-        }
-
-        return usize::MAX
     }
 }

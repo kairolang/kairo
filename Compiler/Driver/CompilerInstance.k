@@ -192,7 +192,10 @@ import Driver::InputKinds::{
     InputKind,
 }
 import Driver::KairoIncludes::DriverIncludeSource
-import Driver::ModuleRecords::ModuleRecords
+import Driver::ModuleRecords::{
+    ModuleRecords,
+    SourceRead,
+}
 import Driver::Progress::progress_finish
 import Driver::TUResult::TUResult
 import Driver::TUStage::TUStage
@@ -675,6 +678,29 @@ pub class CompilerInstance {
         return &self._inv
     }
 
+    /// \brief the builtin root the import resolver registers: --builtins-dir
+    ///        as given, else <resource-dir>/builtin (ResourceLayout) made
+    ///        absolute; "" with neither.
+    prot fn _builtin_root(self) -> string {
+        var root = ResourceLayout::builtin_root_of(unsafe &self._inv)
+        if root.empty() || !self.invocation()->pp.builtins_dir.empty() {
+            return root
+        }
+
+        return Path(root).full_path()
+    }
+
+    /// \brief the std root, as _builtin_root: --std-dir as given, else
+    ///        <resource-dir>/std made absolute; "" with neither.
+    prot fn _std_root(self) -> string {
+        var root = ResourceLayout::std_root_of(unsafe &self._inv)
+        if root.empty() || !self.invocation()->pp.std_dir.empty() {
+            return root
+        }
+
+        return Path(root).full_path()
+    }
+
     pub fn pp(self) -> unsafe *PreProcessor {
         return self._pp
     }
@@ -1034,13 +1060,7 @@ pub class CompilerInstance {
             // neither there is no builtin root at all, the prelude resolves to
             // nothing, and the lang items stay unbound -- which is diagnosed at
             // USE by whichever pass needs one, never here.
-            var broot = self.invocation()->pp.builtins_dir
-            if broot.empty() && !self.invocation()->target.resource_dir.empty() {
-                broot = (Path(
-                    self.invocation()->target.resource_dir,
-                ) / ResourceLayout::builtin_subdir()).full_path()
-            }
-
+            var broot = self._builtin_root()
             if !broot.empty() {
                 rb.add_include(Path(broot), builtin_root_name())
             }
@@ -1056,13 +1076,7 @@ pub class CompilerInstance {
             // the root entirely, and `import std::...` is then an ordinary
             // unresolved import.
             if !self.invocation()->pp.no_stdlib {
-                var sroot = self.invocation()->pp.std_dir
-                if sroot.empty() && !self.invocation()->target.resource_dir.empty() {
-                    sroot = (Path(
-                        self.invocation()->target.resource_dir,
-                    ) / ResourceLayout::std_subdir()).full_path()
-                }
-
+                var sroot = self._std_root()
                 if !sroot.empty() {
                     rb.add_include(
                         Path(sroot),
@@ -1567,8 +1581,7 @@ pub class CompilerInstance {
                 )
             }
 
-            self.incr.src_files.push_back(name)
-            self.incr.src_hash.push_back(h)
+            self.incr.sources.push_back(SourceRead { path: name, hash: h })
         }
 
         self.incr.roots   = self._imp->root_dirs()

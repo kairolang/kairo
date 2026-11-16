@@ -213,6 +213,58 @@ extend CompilerInstance {
         return EXIT_OK
     }
 
+    /// \brief the registered target for \p tt (\p triple normalized), for
+    ///        the info queries; &null after reporting P004F.
+    priv fn _info_target(self, const triple: string, tt: *llvm::Triple) -> unsafe *llvm::Target {
+        var err: cxx::std::string
+        var T: unsafe *llvm::Target = unsafe (llvm::TargetRegistry::lookupTarget(*tt, &err) as unsafe *llvm::Target)
+        if T != &null {
+            return T
+        }
+
+        // _apply_invocation already reported this triple (and cleared ok)
+        // when it resolved the target; a second P004F here printed the same
+        // line twice.
+        if self.invocation()->ok {
+            self._diag->report(
+                DiagID::P004F,
+                f"unknown target triple '{triple}': {kairo::std::from_std_string<string>(err)}",
+            ).emit()
+        }
+
+        // Info queries exit before execute(), so nothing else drains the
+        // engine; without this the error is built and never printed.
+        self.flush_errors()
+        return &null
+    }
+
+    /// \brief a TargetMachine for \p T on \p tt, generic CPU and no
+    ///        features, which the caller deletes; &null after reporting
+    ///        P005F.
+    priv fn _info_target_machine(self,
+                                 T:            unsafe *llvm::Target,
+                                 tt:           *llvm::Triple,
+                                 const triple: string) -> unsafe *llvm::TargetMachine {
+        var opts: llvm::TargetOptions
+        var TM: unsafe *llvm::TargetMachine = T->createTargetMachine(
+            *tt,
+            kairo::sref(/*CPU=*/r"generic"),
+            /*Features=*/kairo::sref(r""),
+            opts,
+            cxx::std::optional<llvm::Reloc::Model>(cxx::std::nullopt)
+        )
+
+        if TM == &null {
+            self._diag->report(
+                DiagID::P005F,
+                f"failed to create TargetMachine for '{triple}'",
+            ).emit()
+            self.flush_errors() // as _info_target: nothing else drains the engine
+        }
+
+        return TM
+    }
+
     //  --print-cpus
 
     /// Lists CPUs supported by the effective target. Uses --target if given,
@@ -223,48 +275,18 @@ extend CompilerInstance {
             llvm::Triple::normalize(kairo::sref(triple)),
         )
 
-        var err: cxx::std::string
-
-        var T: unsafe *llvm::Target = unsafe (llvm::TargetRegistry::lookupTarget(llvm_triple, &err) as unsafe *llvm::Target)
-
+        var unsafe *T = self._info_target(triple, &llvm_triple)
         if T == &null {
-            // _apply_invocation already reported this triple (and cleared ok)
-            // when it resolved the target; a second P004F here printed the
-            // same line twice.
-            if self.invocation()->ok {
-                self._diag->report(
-                    DiagID::P004F,
-                    f"unknown target triple '{triple}': {kairo::std::from_std_string<string>(err)}",
-                ).emit()
-            }
-
-            // Info queries exit before execute(), so nothing else drains the
-            // engine; without this the error is built and never printed.
-            self.flush_errors()
             return EXIT_FAILURE
         }
 
-        var TM:   unsafe *llvm::TargetMachine = &null
-        var opts: llvm::TargetOptions
-
-        TM = T->createTargetMachine(
-            llvm_triple,
-            kairo::sref(/*CPU=*/r"generic"),
-            /*Features=*/kairo::sref(r""),
-            opts,
-            cxx::std::optional<llvm::Reloc::Model>(cxx::std::nullopt)
-        )
+        var unsafe *TM = self._info_target_machine(T, &llvm_triple, triple)
+        if TM == &null {
+            return EXIT_FAILURE
+        }
 
         finally {
             @cxx::delete TM
-        }
-
-        if TM == &null {
-            self._diag->report(
-                DiagID::P005F,
-                f"failed to create TargetMachine for '{string(triple.raw())}'",
-            ).emit()
-            return EXIT_FAILURE
         }
 
         var STI: unsafe *llvm::MCSubtargetInfo = unsafe (TM->getMCSubtargetInfo() as unsafe *llvm::MCSubtargetInfo)
@@ -347,19 +369,8 @@ extend CompilerInstance {
             llvm::Triple::normalize(kairo::sref(triple)),
         )
 
-        var err: cxx::std::string
-
-        var T: unsafe *llvm::Target = unsafe (llvm::TargetRegistry::lookupTarget(llvm_triple, &err) as unsafe *llvm::Target)
-
+        var unsafe *T = self._info_target(triple, &llvm_triple)
         if T == &null {
-            if self.invocation()->ok { // see print_cpus: _apply_invocation may have reported it already
-                self._diag->report(
-                    DiagID::P004F,
-                    f"unknown target triple '{string(triple.raw())}': {kairo::std::from_std_string<string>(err)}",
-                ).emit()
-            }
-
-            self.flush_errors() // see print_cpus: info queries never reach execute()
             return EXIT_FAILURE
         }
 
@@ -431,22 +442,8 @@ extend CompilerInstance {
         io::println(f"Object format:   {obj_format}")
 
         // Data layout via TargetMachine
-        var TM:   unsafe *llvm::TargetMachine = &null
-        var opts: llvm::TargetOptions
-
-        TM = T->createTargetMachine(
-            llvm_triple,
-            kairo::sref(/*CPU=*/r"generic"),
-            /*Features=*/kairo::sref(r""),
-            opts,
-            cxx::std::optional<llvm::Reloc::Model>(cxx::std::nullopt)
-        )
-
+        var unsafe *TM = self._info_target_machine(T, &llvm_triple, triple)
         if TM == &null {
-            self._diag->report(
-                DiagID::P005F,
-                f"failed to create TargetMachine for '{string(triple.raw())}'",
-            ).emit()
             return EXIT_FAILURE
         }
 

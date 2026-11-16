@@ -44,15 +44,12 @@
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "llvm/ADT/StringSet.h"
-ffi "c++" import "llvm/Support/FileSystem.h"
-ffi "c++" import "llvm/Support/Process.h"
 ffi "c++" import "llvm/TargetParser/Triple.h"
 ffi "c++" import "Native/ObjCache.hh"
 ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
-ffi "c++" import "chrono"
 
 import API::FS::*
 import Driver::CacheFormat::{
@@ -65,6 +62,16 @@ import Driver::CacheFormat::{
 import Interop::Clang::ClangBackend::ClangBackend
 import Interop::Clang::HeaderSet::HeaderSet
 import Interop::Clang::HeaderSetCache::HeaderSetCache
+import Support::Ascii::find
+import Support::Escape::{
+    CEscapeStyle,
+    c_escape,
+}
+import Support::FileIO::AtomicFile::{
+    is_leftover_temp,
+    now_ns,
+    publish_copy,
+}
 import Support::Tuning::{
     CACHE_ENTRY_MAX_AGE_NS,
     CACHE_OBJECTS_MAX_BYTES,
@@ -153,7 +160,6 @@ pub class ObjectCache {
     priv var _diag_part: string                   = "" ///< clang -W words: what clang reports, not what it emits
     priv var _includes:  cxx::std::vector<string> ///< -include files, hashed with the headers
     priv var _fmt:       u8                       = 0 ///< 0 ELF, 1 Mach-O, 2 COFF
-    priv var _seq:       u64                      = 0
     /// begin_run's view of the graph for tu_headers: every header file once
     /// (index = rank in path order) with its content hash (filled on first
     /// use) and whether it is imported as C; header kfid -> index; Kairo
@@ -557,24 +563,9 @@ pub class ObjectCache {
             start = i + 1
         }
 
-        var text = open + "\n" + body + close + "\n"
         // As a C++ string literal: the asm text's quotes and newlines escaped.
-        var lit = "\x22"
-        for var i: usize = 0; i < text.size(); ++i {
-            var c = text[i]
-            if c == ('\n' as u8) {
-                lit += "\\n"
-            } else if c == ('\x22' as u8) {
-                lit += "\\\x22"
-            } else if c == ('\\' as u8) {
-                lit += "\\\\"
-            } else {
-                lit += text.subslice(i, 1)
-            }
-        }
-
-        lit += "\x22"
-        return lit
+        var text = open + "\n" + body + close + "\n"
+        return "\x22" + c_escape(text, CEscapeStyle::Readable) + "\x22"
     }
 
     /// \brief makes \p out hold \p key's object: true when it already does
@@ -610,7 +601,7 @@ pub class ObjectCache {
             return true
         }
 
-        if self._copy_into(entry, out) {
+        if publish_copy(entry, out) {
             self._used.insert(kairo::sref(entry))
             return true
         }
@@ -644,7 +635,7 @@ pub class ObjectCache {
             return true
         }
 
-        if !self._copy_into(out, entry) {
+        if !publish_copy(out, entry) {
             return false
         }
 
@@ -675,15 +666,13 @@ pub class ObjectCache {
             return
         }
 
-        var now = (cxx::std::chrono::duration_cast<cxx::std::chrono::nanoseconds>(
-            cxx::std::chrono::system_clock::now().time_since_epoch(),
-        ).count() as u64)
+        var now        = now_ns()
         var objs       = self.dir + "/objects"
         var kept       = cxx::std::vector<CacheEntryStat>()
         var total: u64 = 0
         for var name: string in LinkFS::list_dir(objs) {
             var p       = objs + "/" + name
-            var partial = name.ends_with(".tmp")
+            var partial = is_leftover_temp(name)
             var last    = LinkFS::mtime(p)
             var limit   = if (partial) => (CACHE_PARTIAL_MAX_AGE_NS) else => CACHE_ENTRY_MAX_AGE_NS
             if last != 0 && now > last && now - last > limit {
@@ -707,29 +696,6 @@ pub class ObjectCache {
 
     priv fn _entry(self, const key: string) -> string {
         return self.dir + "/objects/" + key + ".o"
-    }
-
-    /// Through a private name and a rename, so a parallel build (two
-    /// builds may share a cache) reads the whole object or none.
-    priv fn _copy_into(self, const from: string, const to: string) -> bool {
-        self._seq += 1
-        var tmp = f"{to}.{llvm::sys::Process::getProcessId()}-{self._seq}.tmp"
-        var ec = llvm::sys::fs::copy_file(
-            llvm::Twine(kairo::sref(from)),
-            llvm::Twine(kairo::sref(tmp)),
-        )
-
-        if ec.value() != 0 {
-            LinkFS::remove(tmp)
-            return false
-        }
-
-        if !LinkFS::rename(tmp, to) {
-            LinkFS::remove(tmp)
-            return false
-        }
-
-        return true
     }
 
     /// The record section of \p path, "" when there is none or it is not
@@ -756,11 +722,11 @@ pub class ObjectCache {
             return ""
         }
 
-        if ObjectCache::_find(r, f"\nschema {CACHE_SCHEMA}\n") == usize::MAX {
+        if find(r, f"\nschema {CACHE_SCHEMA}\n", 0) == usize::MAX {
             return ""
         }
 
-        var at = ObjectCache::_find(r, "\nO ")
+        var at = find(r, "\nO ", 0)
         if at == usize::MAX {
             return ""
         }
@@ -786,7 +752,7 @@ pub class ObjectCache {
 
             var line = have.subslice(start, i - start)
             start = i + 1
-            var sp = ObjectCache::_find(line, " ")
+            var sp = find(line, " ", 0)
             if sp == usize::MAX {
                 continue
             }
@@ -796,11 +762,11 @@ pub class ObjectCache {
                     out += " " + line.subslice(0, sp)
                 }
             } else if line.starts_with("diag ") {
-                if ObjectCache::_find(self.run_part, line + "\n") == usize::MAX {
+                if find(self.run_part, line + "\n", 0) == usize::MAX {
                     out += " " + line.subslice(0, sp)
                 }
             } else if line.starts_with(fingerprint_prefix()) {
-                if ObjectCache::_find(self._f_lines, line + "\n") == usize::MAX {
+                if find(self._f_lines, line + "\n", 0) == usize::MAX {
                     out += " " + line.subslice(0, sp)
                 }
             }
@@ -843,8 +809,8 @@ pub class ObjectCache {
         var out  = fingerprint_schema_key() + f" {CACHE_SCHEMA}\n"
         out += fingerprint_version_key() + " " + core + "\n"
         var dev = core.empty()
-            || ObjectCache::_find(ver, "+dev") != usize::MAX
-            || ObjectCache::_find(ver, "+rc") != usize::MAX
+            || find(ver, "+dev", 0) != usize::MAX
+            || find(ver, "+rc", 0) != usize::MAX
             || ver == "unknown"
         if dev {
             var exe = env::exe_path()
@@ -883,24 +849,17 @@ pub class ObjectCache {
             // in each TU's headers by content (and, with -g, by the path the
             // debug info records), so a root that finds nothing a TU reaches
             // (kfmt's own -I) does not split the store from kairo's.
-            if a == "-I" || a == "-iquote" || a == "-isystem" || a == "-idirafter" {
+            if ObjectCache::_search_root_word(a) {
                 skip_next = true
                 continue
             }
 
-            if a.starts_with("-I")
-                || a.starts_with("-isystem")
-                || a.starts_with("-iquote")
-                || a.starts_with("-idirafter") {
+            if ObjectCache::_search_root_joined(a) {
                 continue
             }
 
             if !self.with_locs {
-                if a == "-resource-dir"
-                    || a == "-isysroot"
-                    || a == "-internal-isystem"
-                    || a == "-internal-externc-isystem"
-                    || a == "-main-file-name" {
+                if ObjectCache::_location_word(a) {
                     skip_next = true
                     continue
                 }
@@ -916,6 +875,34 @@ pub class ObjectCache {
 
         out += "f.options " + ObjectCache::hash(opts) + "\n"
         return out
+    }
+
+    /// The cc1 words of ClangBackend::invocation_args() that name a header
+    /// search root and take the next word as theirs. Must list every such
+    /// word FlagTranslator and ClangBackend spell: one missing here keys the
+    /// store on the root's path, so two tools with different roots stop
+    /// sharing it.
+    priv static fn _search_root_word(const a: string) -> bool {
+        return a == "-I" || a == "-iquote" || a == "-isystem" || a == "-idirafter"
+    }
+
+    /// The same roots spelled as one word (`-I<dir>`).
+    priv static fn _search_root_joined(const a: string) -> bool {
+        return a.starts_with("-I")
+            || a.starts_with("-isystem")
+            || a.starts_with("-iquote")
+            || a.starts_with("-idirafter")
+    }
+
+    /// The cc1 words, with the next word as theirs, that name only a path
+    /// the object never records without debug info. Must list every such
+    /// word FlagTranslator and ClangBackend spell, as _search_root_word.
+    priv static fn _location_word(const a: string) -> bool {
+        return a == "-resource-dir"
+            || a == "-isysroot"
+            || a == "-internal-isystem"
+            || a == "-internal-externc-isystem"
+            || a == "-main-file-name"
     }
 
     /// `0.2.0` of `kairo-0.2.0+dev.20261108`: the first MAJOR.MINOR.PATCH
@@ -979,28 +966,6 @@ pub class ObjectCache {
         }
 
         return out
-    }
-
-    /// Byte offset of the first \p needle in \p hay, usize::MAX when absent.
-    priv static fn _find(const hay: string, const needle: string) -> usize {
-        var n = hay.size()
-        var m = needle.size()
-        if m > n {
-            return usize::MAX
-        }
-
-        for var i: usize = 0; i + m <= n; ++i {
-            var j: usize = 0
-            while j < m && hay[i + j] == needle[j] {
-                j += 1
-            }
-
-            if j == m {
-                return i
-            }
-        }
-
-        return usize::MAX
     }
 
     /// A module path for the record: its own characters cleaned the same way.
