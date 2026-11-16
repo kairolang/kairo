@@ -388,6 +388,25 @@ pub class SemaContext {
     /// function, written or inferred, calls an impure conversion unjudged.
     pub var implicit_convs: llvm::DenseMap<u64, unsafe *FunctionDecl>
 
+    /// Whether each conditional extension asked about so far exists in this
+    /// TU (extension_gate_holds), keyed by the ExtensionDecl's address.
+    /// MemberLookup's index is rebuilt per MemberLookup, and the answer is
+    /// a lookup per path.
+    pub var gate_answers: llvm::DenseMap<u64, bool>
+    /// Conditional extensions of this file whose paths the file does not
+    /// declare itself (ExtensionGate::local false). Counted by
+    /// DeclaredQueryFolding; ConditionalExtensionCheck walks the file only
+    /// when there is one.
+    pub var conditional_blocks: u32 = 0
+
+    /// The type each implicit_convs entry converts to, cv and reference
+    /// dropped, under the same key. The expression's own type is the
+    /// source, and a generic operator's written result is not the target.
+    pub var implicit_conv_targets: llvm::DenseMap<u64, unsafe *Type>
+    /// The registered instance of a generic extension's operator among the
+    /// implicit_conv_targets entries, under the same key.
+    pub var implicit_conv_instances: llvm::DenseMap<u64, unsafe *InstanceEntry>
+
     /// The `==` a literal or constant pattern on a record column (struct,
     /// class, enum) tests with, keyed by the Pattern as
     /// `reinterpret_cast::<u64>(pattern)`: a BinaryOperatorExpr X typed as

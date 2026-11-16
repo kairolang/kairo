@@ -40,6 +40,10 @@ ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
 import AST::Context::SymbolTable::DeclName
+import AST::DeclFacts::{
+    decl_extension_of,
+    decl_is_imported,
+}
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -889,11 +893,27 @@ pub class Conversion {
     /// and `B -> C` never chain into `A -> C`. A const source needs a
     /// `const self` operator. Two matches (an own and an inherited one) is
     /// the first: own members come first in the walk and hide the base's.
+    /// A member and an extension, or two extensions, that both declare the
+    /// conversion are still one answer here (a rank is asked many times per
+    /// call); implicit_ops lists them for the site that accepts one.
     fn implicit_op(self, from: unsafe *Type, to: unsafe *Type) -> unsafe *FunctionDecl {
+        var all = cxx::std::vector<unsafe *FunctionDecl>()
+        self.implicit_ops(from, to, unsafe &all, true)
+        return if (all.size() > 0) => (all[0]) else => &null
+    }
+
+    /// Every `@implicit op as` that takes \p from to exactly \p to, in
+    /// lookup order: the type's own members, then the extensions this TU
+    /// sees, then the bases'. \p first stops at one.
+    fn implicit_ops(self,
+                    from:  unsafe *Type,
+                    to:    unsafe *Type,
+                    out:   unsafe *cxx::std::vector<unsafe *FunctionDecl>,
+                    first: bool = false) {
         var unsafe *fu = canon_unqual(from)
         var unsafe *tq = canon_unqual(to)
-        if fu == &null || tq == &null || !isa<RecordType>(fu) {
-            return &null
+        if fu == &null || tq == &null {
+            return
         }
 
         var cands = cxx::std::vector<unsafe *Decl>()
@@ -903,22 +923,9 @@ pub class Conversion {
             unsafe &cands,
         )
 
-        if cands.size() == 0 {
-            return &null
-        }
-
-        var unsafe *pat = NameLookup::representative(
-            self.tu.pattern_of(self.tu.record_decl(fu)),
-        )
-
-        var args = self.tu.record_args(fu)
         for var i: usize = 0; i < cands.size(); ++i {
             var unsafe *f = dyn_cast<FunctionDecl>(cands[i])
             if f == &null || f->is_poisoned() || !OperatorFacts::is_implicit_conv(f) {
-                continue
-            }
-
-            if f->return_type == &null || f->return_type->canonical == &null {
                 continue
             }
 
@@ -926,17 +933,218 @@ pub class Conversion {
                 continue
             }
 
-            if self._same_through(
-                canon_unqual(f->return_type->canonical),
-                tq,
-                pat,
-                unsafe &args,
-            ) {
-                return f
+            if self.conversion_yields(f, fu, tq) {
+                out->push_back(f)
+                if first {
+                    return
+                }
+            }
+        }
+    }
+
+    /// The `op as` \p f, applied to a source of canonical type \p fu, yields
+    /// exactly \p tq (both cv-free). A member's result is read through the
+    /// instance's bindings (`Vector<T>`'s `-> [T;]` on a `Vector<i32>`); an
+    /// extension's through the bindings \p fu gives the extension's own
+    /// parameters (`extend <T> [T] { fn op as (const self) -> Box<T> }` on a
+    /// `[i32]` yields `Box<i32>`). An extension is asked whether it applies
+    /// to \p fu at all first: its members are indexed by the target's
+    /// primary, so `extend Wrap<i32>` is a candidate on every `Wrap<X>`.
+    fn conversion_yields(self,
+                         f:  unsafe *FunctionDecl,
+                         fu: unsafe *Type,
+                         tq: unsafe *Type) -> bool {
+        if f == &null || f->return_type == &null || f->return_type->canonical == &null {
+            return false
+        }
+
+        var unsafe *rt  = canon_unqual(f->return_type->canonical)
+        var unsafe *ext = decl_extension_of(f)
+        if ext == &null {
+            if !isa<RecordType>(fu) {
+                return rt == tq
+            }
+
+            var unsafe *pat = NameLookup::representative(
+                self.tu.pattern_of(self.tu.record_decl(fu)),
+            )
+
+            var args = self.tu.record_args(fu)
+            return self._same_through(rt, tq, pat, unsafe &args)
+        }
+
+        var binds = cxx::std::vector<unsafe *Type>()
+        if !self.extension_binds(f, fu, unsafe &binds) {
+            return false
+        }
+
+        if !rt->is_dependent() {
+            return rt == tq
+        }
+
+        return self._bind_through(rt, tq, ext, unsafe &binds)
+    }
+
+    /// What a source of canonical type \p fu gives the generic parameters
+    /// of the extension \p f is declared in, one per parameter, into
+    /// \p binds. False when the extension does not apply to \p fu, or when
+    /// its target leaves a parameter unfixed.
+    fn extension_binds(self,
+                       f:     unsafe *FunctionDecl,
+                       fu:    unsafe *Type,
+                       binds: unsafe *cxx::std::vector<unsafe *Type>) -> bool {
+        var unsafe *ext = decl_extension_of(f)
+        if ext == &null || ext->target == &null || ext->target->canonical == &null {
+            return false
+        }
+
+        // A dependent source (`Wrap<T>` in a generic body) fixes nothing:
+        // which extension applies is the instance's to say.
+        if fu->is_dependent() {
+            return false
+        }
+
+        binds->clear()
+        binds->resize(ext->generic_params.size(), &null)
+        if !self._bind_through(
+            canon_unqual(ext->target->canonical),
+            fu,
+            ext,
+            binds,
+        ) {
+            return false
+        }
+
+        for var i: usize = 0; i < binds->size(); ++i {
+            if (*binds)[i] == &null {
+                return false
             }
         }
 
-        return &null
+        return true
+    }
+
+    /// Match \p pattern, a type written with the generic parameters of
+    /// \p owner, against the concrete \p concrete, filling \p binds (one
+    /// slot per parameter of \p owner, null until met): a parameter binds on
+    /// its first sight and must read the same type at every later one.
+    priv fn _bind_through(self,
+                          pattern:  unsafe *Type,
+                          concrete: unsafe *Type,
+                          owner:    unsafe *Decl,
+                          binds:    unsafe *cxx::std::vector<unsafe *Type>) -> bool {
+        if pattern == &null || concrete == &null {
+            return false
+        }
+
+        if pattern == concrete {
+            return true
+        }
+
+        if !pattern->is_dependent() {
+            return false
+        }
+
+        if isa<GenericParamType>(pattern) {
+            var unsafe *g = cast<GenericParamType>(pattern)
+            if g->owner != owner || (g->param_index as usize) >= binds->size() {
+                return false
+            }
+
+            if (*binds)[g->param_index as usize] == &null {
+                (*binds)[g->param_index as usize] = concrete
+                return true
+            }
+
+            return (*binds)[g->param_index as usize] == concrete
+        }
+
+        if isa<QualifiedType>(pattern) {
+            if canon_quals(pattern) != canon_quals(concrete) {
+                return false
+            }
+
+            return self._bind_through(
+                canon_unqual(pattern),
+                canon_unqual(concrete),
+                owner,
+                binds,
+            )
+        }
+
+        if isa<PointerType>(pattern) {
+            if !isa<PointerType>(concrete)
+                || self.tu.is_unsafe_ptr(pattern) != self.tu.is_unsafe_ptr(
+                    concrete,
+                ) {
+                return false
+            }
+
+            return self._bind_through(
+                cast<PointerType>(pattern)->pointee,
+                cast<PointerType>(concrete)->pointee,
+                owner,
+                binds,
+            )
+        }
+
+        if isa<NullableType>(pattern) {
+            if !isa<NullableType>(concrete) {
+                return false
+            }
+
+            return self._bind_through(
+                cast<NullableType>(pattern)->inner,
+                cast<NullableType>(concrete)->inner,
+                owner,
+                binds,
+            )
+        }
+
+        if isa<RecordType>(pattern) {
+            if !isa<RecordType>(concrete) {
+                return false
+            }
+
+            var unsafe *pd = NameLookup::representative(
+                self.tu.pattern_of(self.tu.record_decl(pattern)),
+            )
+
+            var unsafe *cd = NameLookup::representative(
+                self.tu.pattern_of(self.tu.record_decl(concrete)),
+            )
+
+            if pd != cd {
+                return false
+            }
+
+            var pa = self.tu.record_args(pattern)
+            var ca = self.tu.record_args(concrete)
+            if pa.size() != ca.size() {
+                return false
+            }
+
+            for var i: usize = 0; i < pa.size(); ++i {
+                // An argument nobody wrote: `cxx::std::vector<T>` is
+                // `vector<T, _Allocator>` until T is known, the second
+                // argument being the C++ template's own defaulted parameter.
+                // It matches whatever the concrete instance has there:
+                // Sema cannot form the instance the default gives, and C++
+                // checks the call it is handed against the target.
+                var unsafe *pg = dyn_cast<GenericParamType>(canon_unqual(pa[i]))
+                if pg != &null && pg->owner != owner && decl_is_imported(pd) {
+                    continue
+                }
+
+                if !self._bind_through(pa[i], ca[i], owner, binds) {
+                    return false
+                }
+            }
+
+            return true
+        }
+
+        return false
     }
 
     /// A non-explicit C++ conversion function of the imported record \p from

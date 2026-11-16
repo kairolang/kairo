@@ -307,6 +307,15 @@ pub fn cxx_root_name() -> string {
     return "cxx"
 }
 
+/// `__builtin_is_declared<P>()`: whether the path P names a declaration in
+/// the scope the call is written in. It has no declaration in Lib/builtin:
+/// a library function's type argument is resolved before the call is, and
+/// this one's may name nothing. Sema recognises the call by this spelling
+/// and answers it before names are resolved (Sema/Expand/DeclaredQuery.k).
+pub fn declared_query_name() -> string {
+    return "__builtin_is_declared"
+}
+
 /// C++'s own `std`: the namespace a bare ffi import's headers declare, which
 /// ImportResolution keeps out of the bare-name fold and rebinds as the one
 /// member of cxx_root_name() (Compiler/Spec/Interop.md#ffi-imports). The same word as

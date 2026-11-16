@@ -84,8 +84,10 @@ ffi "c++" import "vector"
 ffi "c++" import "memory"
 
 import AST::ASTSupport::FrozenList
+import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::DeclFacts::{
     decl_builtin_id,
+    decl_extension_of,
     decl_is_imported,
 }
 import AST::Kind::DeclKind::{
@@ -141,6 +143,7 @@ import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Location::FullSourceLocation::FullSourceLocation
 import Location::SourceLocation::SourceLocation
+import Location::SourceRange::SourceRange
 import Sema::Check::CaptureAnalysis::{
     copies_script_var,
     script_top_var,
@@ -2010,19 +2013,136 @@ pub class ExprTyper
     }
 
     /// \p e, accepted into \p to, converts through a user `@implicit op as`:
-    /// record which, for FnPurityCheck (SemaContext::implicit_convs). A
-    /// record source only; the identity and every builtin rung leave it.
+    /// record which (SemaContext::implicit_convs), for FnPurityCheck and,
+    /// when the operator is an extension's, for ImplicitConvLowering, which
+    /// writes the call C++ cannot find. The identity and every builtin rung
+    /// leave it. A source other than a record has no member: only an
+    /// extension can convert it, and only where no builtin rung does.
     priv fn _note_implicit_op(self, e: unsafe *Expr, from: unsafe *Type, to: unsafe *Type) {
         var unsafe *fu = self.tu.as_value(from)
         var unsafe *tv = self.tu.as_value(to)
-        if fu == &null || tv == &null || fu == tv || !isa<RecordType>(fu) {
+        if fu == &null || tv == &null || fu == tv {
             return
         }
 
-        var unsafe *conv_fn = self.conv.implicit_op(fu, tv)
-        if conv_fn != &null {
-            self.sc->implicit_convs[e as usize as u64] = conv_fn
+        if !isa<RecordType>(fu) && self.conv.implicit_builtin(fu, tv) != ImplicitRank::None {
+            return
         }
+
+        var all = cxx::std::vector<unsafe *FunctionDecl>()
+        self.conv.implicit_ops(fu, tv, unsafe &all)
+        if all.size() == 0 {
+            return
+        }
+
+        self.sc->implicit_convs[e as usize as u64] = all[0]
+        // A builtin rung that also takes the value there (`T -> T?`) is the
+        // one applied; the lowering writes a call only for the user rung.
+        if self.conv.implicit_builtin(fu, tv) == ImplicitRank::None {
+            self.sc->implicit_conv_targets[e as usize as u64] = canon_unqual(tv)
+            var unsafe *inst = self.conversion_instance(all[0], fu)
+            if inst != &null {
+                self.sc->implicit_conv_instances[e as usize as u64] = inst
+            }
+        }
+
+        self.report_ambiguous_conversion(e->range, fu, tv, unsafe &all)
+    }
+
+    /// The registered instance of \p f, an `op as` of a generic extension
+    /// (`extend <T> [T]`), for a source of type \p from: its arguments are
+    /// what \p from gives the extension's parameters. ExtensionLowering
+    /// spells the call's template arguments from it. Null when \p f's
+    /// extension is not generic. Formed here and not by typing a call: the
+    /// result of one that names a C++ template with a defaulted argument
+    /// left out (`-> cxx::std::vector<T>`) is not a type Sema can form, and
+    /// a call typed that way registers nothing.
+    fn conversion_instance(self,
+                           f:    unsafe *FunctionDecl,
+                           from: unsafe *Type) -> unsafe *InstanceEntry {
+        var unsafe *ext = decl_extension_of(f)
+        if ext == &null || ext->generic_params.size() == 0 || f->generic_params.size() > 0 {
+            return &null
+        }
+
+        var args = cxx::std::vector<unsafe *Type>()
+        if !self.conv.extension_binds(f, canon_unqual(from), unsafe &args) {
+            return &null
+        }
+
+        return self.sc->instances->instance_for(
+            NameLookup::representative(unsafe (f as unsafe *Decl)),
+            unsafe &args,
+            self.sc->ctx->fid,
+            NameLookup::ctx_of(unsafe (f as unsafe *Decl)),
+        )
+    }
+
+    /// SC340E when \p ops, every `op as` that takes \p from to \p to in
+    /// lookup order, come from more than one place: the type's body and an
+    /// extension, or two extensions. Nothing ranks one above another, and a
+    /// member is never silently replaced by an extension a file happens to
+    /// import. A `const self` / `self` pair of one place is one conversion.
+    /// True when it reported.
+    fn report_ambiguous_conversion(self,
+                                   at:   SourceRange,
+                                   from: unsafe *Type,
+                                   to:   unsafe *Type,
+                                   ops:  unsafe *cxx::std::vector<unsafe *FunctionDecl>) -> bool {
+        if ops->size() < 2 {
+            return false
+        }
+
+        var unsafe *a                      = (*ops)[0]
+        var        b: unsafe *FunctionDecl = &null
+        for var i: usize = 1; i < ops->size(); ++i {
+            var unsafe *o = (*ops)[i]
+            // An inherited member is hidden by the type's own, as any member is.
+            if decl_extension_of(o) == &null && decl_extension_of(a) == &null {
+                continue
+            }
+
+            if decl_extension_of(o) != decl_extension_of(a) {
+                b = o
+                break
+            }
+        }
+
+        if b == &null {
+            return false
+        }
+
+        var d = self.sc->diag->report(
+            DiagID::SC340E,
+            at.start,
+            f"the conversion from '{self.tu.str(from)}' to '{self.tu.str(to)}' is ambiguous: {self._conv_homes(a, b)} both declare it",
+        )
+
+        d.first(at)
+        d.note(
+            DiagCode(DiagID::SC340N),
+            a->range.start,
+            "one 'op as' is declared here",
+        )->child_first(a->range)
+
+        d.note(
+            DiagCode(DiagID::SC340N),
+            b->range.start,
+            "another is declared here",
+        )->child_first(b->range)
+
+        d.emit()
+        return true
+    }
+
+    /// Where the two operators report_ambiguous_conversion names are
+    /// declared, as the subject of its message.
+    priv fn _conv_homes(self, a: unsafe *FunctionDecl, b: unsafe *FunctionDecl) -> string {
+        if decl_extension_of(a) != &null && decl_extension_of(b) != &null {
+            return "two extensions"
+        }
+
+        return "the type's body and an extension"
     }
 
     /// A tuple LITERAL converts element by element, each by the conversion

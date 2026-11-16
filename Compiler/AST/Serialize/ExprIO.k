@@ -789,6 +789,7 @@ fn io_type_cast_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::TypeCastExp
         // CastTyping's verdict on the cast.
         ar->sema_null<Decl>(n->resolved_op, "TypeCastExpr::resolved_op")
         ar->sema_false(n->op_via_free, "TypeCastExpr::op_via_free")
+        ar->sema_is(n->op_instance == &null, "TypeCastExpr::op_instance")
         ar->sema_null<Decl>(n->resolved_ctor, "TypeCastExpr::resolved_ctor")
         ar->sema_false(n->widening, "TypeCastExpr::widening")
         ar->sema_false(n->checked_downcast, "TypeCastExpr::checked_downcast")

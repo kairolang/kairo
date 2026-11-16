@@ -41,6 +41,7 @@
 /// call in Sema::_stage_lowerings and in the pass's own header.
 pub enum LowerStep derives u8 {
     None,
+    ImplicitConv,
     VariantInit,
     EnumLayout,
     ExprBody,

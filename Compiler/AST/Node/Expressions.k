@@ -2218,6 +2218,12 @@ pub class TypeCastExpr derives Expr {
     pub var resolved_op: unsafe *Decl = &null
     pub var op_via_free: bool         = false ///< a free `op` found by ADL (every operand is an argument).
 
+    /// The registered instance of a GENERIC extension's `op as` chosen as
+    /// resolved_op (`extend <T> [T] { fn op as ... }` on a `[i32]`), or null:
+    /// ExtensionLowering spells the call's template arguments from it. A
+    /// member's `op as` has none; C++ finds `operator T` on the instance.
+    pub var op_instance: unsafe *InstanceEntry = &null
+
     /// The converting constructor rung 5d selected, or null. Separate from
     /// resolved_op: a constructor has no op_token to spell. OperatorLowering
     /// rewrites the cast into the construction.

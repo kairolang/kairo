@@ -101,7 +101,10 @@
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
-import AST::Context::DeclContext::DeclContext
+import AST::Context::DeclContext::{
+    DeclContext,
+    DeclContextKind,
+}
 import AST::Context::SymbolTable::{
     DeclName,
     OverloadCell,
@@ -159,6 +162,7 @@ import Sema::Check::ClassLifecycle::{
     lifecycle_of,
 }
 import Sema::Check::ConstEval::ConstEval
+import Sema::Expand::DeclaredQuery::DeclaredQuery
 import Sema::Lower::EnumLayoutLowering::EnumLayoutQuery
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
@@ -336,6 +340,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     pub var  sc:  unsafe *SemaContext
     priv var _ce: ConstEval
     priv var _tu: TypeUtil
+    priv var _dq: DeclaredQuery
 
     /// The scopes a name in a condition is looked up from, innermost last.
     priv var _dcs: cxx::std::vector<unsafe *DeclContext>
@@ -384,6 +389,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         self.ctx = sc->ctx
         self._ce = ConstEval(sc)
         self._tu = TypeUtil(sc)
+        self._dq = DeclaredQuery(sc)
     }
 
     fn run(self) {
@@ -1265,6 +1271,10 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             return self._ref(e, d, depth)
         }
 
+        if isa<CallExpr>(e) && self._dq.call_of(e) != &null {
+            return self._declared(cast<CallExpr>(e))
+        }
+
         if isa<CallExpr>(e) {
             return self._no(
                 e,
@@ -1294,6 +1304,50 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         }
 
         return self._no(e, "this does not fold before names are resolved")
+    }
+
+    /// `__builtin_is_declared<P>()` in a condition: P looked up from the
+    /// scope the `eval if` stands in, minus what this pass discarded. A path
+    /// only an undecided `eval if` declares waits for it.
+    priv fn _declared(self, c: unsafe *CallExpr) -> FoldVal {
+        var unsafe *e = unsafe (c as unsafe *Expr)
+        // A type has one member list in every file that sees it, so the
+        // list cannot follow what the file asking happens to declare. The
+        // answer here would be this file's, once, which reads as if it were
+        // the importer's; an extension is where members come and go.
+        var unsafe *dc = self._dcs[self._dcs.size() - 1]
+        if self._body_depth == 0
+            && (dc->dc_kind == DeclContextKind::Class || dc->dc_kind == DeclContextKind::Struct) {
+            self._dq.refuse(
+                e,
+                "the members of a type are the same in every file, so they cannot depend on what a file declares; put them in an extension",
+            )
+
+            return self._bool(false)
+        }
+
+        var segs      = cxx::std::vector<string>()
+        var primitive = false
+        if !self._dq.path_of(c, unsafe &segs, &primitive) {
+            return self._bool(false)
+        }
+
+        if primitive {
+            return self._bool(true)
+        }
+
+        var found = cxx::std::vector<unsafe *Decl>()
+        if self._dq.resolve(dc, segs, unsafe &self._dropped, unsafe &found) {
+            return self._bool(true)
+        }
+
+        if self._dq.pending {
+            self._pending_name = true
+            self._why = f"'{segs[segs.size() - 1]}' is declared in a branch of an 'eval if' that is not decided yet"
+            return self._no_or_wait(e)
+        }
+
+        return self._bool(false)
     }
 
     priv fn _binary(self, b: unsafe *BinaryOperatorExpr, depth: u32) -> FoldVal {

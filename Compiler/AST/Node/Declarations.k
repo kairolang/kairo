@@ -1536,6 +1536,35 @@ pub class InterfaceDecl
     }
 }
 
+/// What an extension whose `requires` clause asks `__builtin_is_declared`
+/// is conditional on: the paths asked, and the declarations each one named
+/// when the extension's own file was checked. Another file sees the
+/// extension only where every path names one of the same declarations in
+/// that file's scope (Sema/Expand/DeclaredQuery.k). Sema's fact: built in
+/// phase E of the extension's file, read by every later file, not
+/// serialized.
+pub class ExtensionGate {
+    /// Each path asked, as written (`cxx::std::string`), in clause order.
+    pub var paths: cxx::std::vector<string>
+    /// The declarations the paths named, flat: path i's are
+    /// `decls[ends[i - 1] .. ends[i]]`.
+    pub var decls: cxx::std::vector<unsafe *Decl>
+    pub var ends:  cxx::std::vector<usize>
+    /// The paths as one C++ identifier, the suffix of the extension's scope
+    /// struct: a conditional block's members are in a struct of their own,
+    /// so the unconditional scope of the same target is one text in every
+    /// translation unit.
+    pub var scope: string
+    /// Every path is declared in the extension's own file: the file is one
+    /// of those the extension exists in, and uses it like any other. False
+    /// when a path was found only in the build's C++ headers and is bound
+    /// in the block's scope alone; the rest of the file then cannot rely on
+    /// the block (ConditionalExtensionCheck).
+    pub var local: bool = true
+
+    fn ExtensionGate(self) { }
+}
+
 ///
 ///  ExtensionDecl
 ///  extend Foo<T> impl Bar { fn m(self) { } }
@@ -1552,6 +1581,9 @@ pub class ExtensionDecl
     pub var target:     unsafe *Type                     ///< the type being extended.
     pub var methods:    FrozenList<unsafe *FunctionDecl>
     pub var implements: FrozenList<InheritEdge>          ///< `extend X impl Y`.
+    /// Non-null on an extension that exists only in the files where the
+    /// paths its `requires` clause asks about are declared.
+    pub var gate: unsafe *ExtensionGate = &null
 
     pub static fn create(ctx:    unsafe *ASTContext,
                          range:  SourceRange,

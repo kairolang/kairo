@@ -45,6 +45,7 @@ import Sema::Check::CallConvCheck::CallConvCheck
 import Sema::Check::ClassAllocatorCheck::ClassAllocatorCheck
 import Sema::Check::ClassLifecycle::ClassLifecycle
 import Sema::Check::ClosureCaptures::ClosureCaptures
+import Sema::Check::ConditionalExtensionCheck::ConditionalExtensionCheck
 import Sema::Check::ConformanceChecking::ConformanceChecking
 import Sema::Check::ConstraintExtraction::ConstraintExtraction
 import Sema::Check::ControlFlowAnalysis::ControlFlowAnalysis
@@ -72,6 +73,7 @@ import Sema::Check::TypeCycleCheck::TypeCycleCheck
 import Sema::Check::ValueCategoryPass::ValueCategoryPass
 import Sema::Check::WhereGuardCheck::WhereGuardCheck
 import Sema::Expand::AllocSugarDesugar::AllocSugarDesugar
+import Sema::Expand::DeclaredQuery::DeclaredQueryFolding
 import Sema::Expand::EvalIfFolding::EvalIfFolding
 import Sema::Expand::PrimitiveLimitDesugar::PrimitiveLimitDesugar
 import Sema::Expand::RequiresDesugar::RequiresDesugar
@@ -88,6 +90,7 @@ import Sema::Lower::ExtensionLowering::ExtensionLowering
 import Sema::Lower::FStringLowering::FStringLowering
 import Sema::Lower::FieldInitLowering::FieldInitLowering
 import Sema::Lower::FinallyLowering::FinallyLowering
+import Sema::Lower::ImplicitConvLowering::ImplicitConvLowering
 import Sema::Lower::IterLowering::IterLowering
 import Sema::Lower::LabelLowering::LabelLowering
 import Sema::Lower::ListLiteralLowering::ListLiteralLowering
@@ -568,6 +571,12 @@ pub class Sema {
         self._pass<AllocSugarDesugar>("AllocSugar")
         self._pass<EvalIfFolding>("EvalIfFolding")
 
+        // After the fold, so a name only an untaken branch declares is gone:
+        // each `__builtin_is_declared<P>()` left becomes its answer. Before
+        // N and T, which would report the path it asks about when the
+        // answer is no.
+        self._pass<DeclaredQueryFolding>("DeclaredQueryFolding")
+
         // TODO(sema): MacroExpansion(&self.sc).run();
         var desugar = RequiresDesugar(self.sc.ctx)
         desugar.run(self.sc.tu)
@@ -834,6 +843,7 @@ pub class Sema {
         // ExprTyper: it reads resolved declarations and operand types.
         // Before every lowering, so a user operator or a lowered call is
         // never mistaken for something the user wrote.
+        self._pass<ConditionalExtensionCheck>("ConditionalExtensionCheck")
         self._pass<FnPurityCheck>("FnPurity")
 
         // Where a calling convention may stand. REQUIRES ExprTyper (X writes
@@ -981,7 +991,12 @@ pub class Sema {
         // CtorInitLowering and CopyMoveLowering, then ScriptLowering,
         // PanicLowering and FinallyLowering, and the rest after them.
         //
-        // First: a variant construction becomes the node EmitIR renders -- a
+        // Before everything: an implicit conversion through an extension's
+        // `op as` becomes the cast it stands for. X's record of it is keyed
+        // by the expression node, and every pass below may replace nodes.
+        self._lowering<ImplicitConvLowering>("ImplicitConvLowering")
+
+        // Then: a variant construction becomes the node EmitIR renders -- a
         // VariantInitExpr, or for a plain enum's `.V` the enumerator's name --
         // from the facts X recorded on the node it was written as. Before any
         // pass rebuilds an initializer or a chain, which would lose them, and

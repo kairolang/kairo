@@ -80,6 +80,12 @@ pub class <T> FFILinkage {
     pub var origin_set: unsafe *void = &null
     /// Kairo fid of the header this decl was imported from.
     pub var origin_fid: u32 = 0
+    /// A header's record whose definition the import found, in whichever
+    /// header of the build has it: `class basic_string;` in `<iosfwd>` alone
+    /// leaves it false. A template pattern has no layout (`known` is false
+    /// for it), so this is the one fact that says the record is more than a
+    /// forward declaration. Written by DeclImport's define step.
+    pub var ffi_defined: bool = false
 
     // Functions.
     pub var cxx_param_spellings: cxx::std::vector<string> ///< clang's spelling per param (incl. `self`? no: value params only), for resolved-call casts.

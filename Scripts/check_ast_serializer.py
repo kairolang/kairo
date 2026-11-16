@@ -59,6 +59,7 @@ NOT_AST = {
     "ForeignLayout": "FFILinkage::layout, written by Sema/Foreign",
     "FloatLayout": "a builtin type's description, not a node",
     "BuiltinInfo": "a builtin type's description, not a node",
+    "ExtensionGate": "Sema's fact about a conditional extension (ExtensionDecl::gate), not a node",
 }
 
 # Fields the reader restores by recomputing them, per class.

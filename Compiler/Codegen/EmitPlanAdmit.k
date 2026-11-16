@@ -878,6 +878,12 @@ extend EmitPlan {
             return
         }
 
+        // A conditional block is never carried along with its target's
+        // definition: only a use brings its scope into a plan.
+        if x->gate != &null {
+            return
+        }
+
         self._scope_for(x, self._mode == PlanMode::Preamble)
     }
 

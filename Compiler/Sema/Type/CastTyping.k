@@ -64,7 +64,10 @@
 ffi "c++" import "vector"
 
 import AST::Context::SymbolTable::DeclName
-import AST::DeclFacts::decl_generic_params
+import AST::DeclFacts::{
+    decl_extension_of,
+    decl_generic_params,
+}
 import AST::LangItems::LangAttrs
 import AST::Node::Base::{
     Decl,
@@ -78,6 +81,7 @@ import AST::Node::CanonicalNodes::{
     canon_unqual,
 }
 import AST::Node::Casting::{
+    cast,
     dyn_cast,
     isa,
 }
@@ -733,6 +737,16 @@ pub class <T: type> CastTyping {
                 DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown),
                 &cands,
             )
+
+            // A nullable's own conversions, which only an extension of the
+            // nullable declares (`extend Foo? { fn op as ... }`).
+            if self.dyn()->tu.strip_nullable(src) != src {
+                self.dyn()->ml.lookup(
+                    src,
+                    DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown),
+                    &cands,
+                )
+            }
         }
 
         if cands.size() > 0 {
@@ -740,6 +754,28 @@ pub class <T: type> CastTyping {
             for var i: usize = 0; i < cands.size(); ++i {
                 var *f? = dyn_cast<FunctionDecl>(cands[i])
                 if f == &null {
+                    continue
+                }
+
+                // An extension's `op as`: whether it applies to this source,
+                // and what it yields there, read through the extension's own
+                // parameters (Conversion::conversion_yields).
+                var unsafe *uf = unsafe (cast<FunctionDecl>(cands[i]) as unsafe *FunctionDecl)
+                if decl_extension_of(uf) != &null {
+                    var unsafe *eu = canon_unqual(src)
+                    var unsafe *ei = canon_unqual(
+                        self.dyn()->tu.strip_nullable(src),
+                    )
+
+                    var unsafe *et = canon_unqual(
+                        self.dyn()->tu.strip_nullable(target),
+                    )
+
+                    if self.dyn()->conv.conversion_yields(uf, eu, et)
+                        || (ei != eu && self.dyn()->conv.conversion_yields(uf, ei, et)) {
+                        exact.push_back(cands[i])
+                    }
+
                     continue
                 }
 
@@ -758,6 +794,25 @@ pub class <T: type> CastTyping {
 
                 if rt != &null && rt == self.dyn()->tu.strip_nullable(target) {
                     exact.push_back(cands[i])
+                }
+            }
+
+            if exact.size() > 1 {
+                var ops = cxx::std::vector<unsafe *FunctionDecl>()
+                for var i: usize = 0; i < exact.size(); ++i {
+                    ops.push_back(
+                        unsafe (cast<FunctionDecl>(exact[i]) as unsafe *FunctionDecl),
+                    )
+                }
+
+                if self.dyn()->report_ambiguous_conversion(
+                    n->range,
+                    src,
+                    target,
+                    unsafe &ops,
+                ) {
+                    self.dyn()->poison_only(n)
+                    return &null
                 }
             }
 
@@ -784,6 +839,22 @@ pub class <T: type> CastTyping {
 
                 n->resolved_op = r.decl
                 n->op_via_free = r.via_free
+                // A generic extension's operator: the instance its call's
+                // template arguments are spelled from.
+                if decl_extension_of(n->resolved_op) != &null {
+                    n->op_instance = self.dyn()->conversion_instance(
+                        r.decl,
+                        self.dyn()->tu.strip_nullable(src),
+                    )
+
+                    if n->op_instance == &null {
+                        n->op_instance = self.dyn()->conversion_instance(
+                            r.decl,
+                            src,
+                        )
+                    }
+                }
+
                 return target
             }
         }

@@ -78,7 +78,10 @@ extend InterfaceEmitter {
         var nm      = self._spell->leaf(m)
         var is_dtor = m->is_operator && nm[0] == ('~' as u8)
         // `op as` spells `operator T`; C++ gives a conversion no return type.
-        var is_conv   = m->is_operator && m->op_token[0].kind == TokenKind::KwAs
+        // An extension's is a named static member with an ordinary one.
+        var is_conv = m->is_operator
+            && m->op_token[0].kind == TokenKind::KwAs
+            && DeclFacts::decl_extension_of(m) == &null
         var is_method = m->is_method()
 
         // Standard attributes before every decl-specifier, as _free_fn_text:

@@ -581,7 +581,21 @@ extend Speller {
     /// leaf would hold both or be defined twice. A generic record is named
     /// by its primary, a builtin by its Kairo spelling (`__kairo_ext_i32`).
     /// Deterministic, and a function of the source tree alone (invariant 9a).
+    ///
+    /// A conditional block (ExtensionDecl::gate) is in a scope of its own,
+    /// `__kairo_ext_<X>__if__<paths>`: it is defined only in the
+    /// translation units that use it, and the unconditional scope of the
+    /// same target must be one text in all of them.
     fn ext_scope_name(self, x: unsafe *Declarations::ExtensionDecl) -> string {
+        var base = self._ext_scope_base(x)
+        if x->gate != &null {
+            return base + "__if__" + x->gate->scope
+        }
+
+        return base
+    }
+
+    priv fn _ext_scope_base(self, x: unsafe *Declarations::ExtensionDecl) -> string {
         if x == &null || x->target == &null || x->target->canonical == &null {
             kairo::std::ice_fail(
                 "CXXSpell: extension with an unresolved target reached codegen",

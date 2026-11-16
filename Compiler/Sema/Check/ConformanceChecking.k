@@ -6122,7 +6122,24 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
         }
 
-        if missing.size() > 0 && row->hidden != &null {
+        var unsafe *hx = if (row->hidden != &null) => (decl_extension_of(row->hidden)) else => &null
+        if missing.size() > 0 && hx != &null && hx->gate != &null {
+            // A conditional extension: what is missing is a declaration of
+            // the path its clause asks about, not an import of its file.
+            var need = ""
+            for var gi: usize = 0; gi < hx->gate->paths.size(); ++gi {
+                if gi > 0 {
+                    need += "', '"
+                }
+
+                need += hx->gate->paths[gi]
+            }
+
+            d.note(
+                row->hidden->range.start,
+                f"this extension member implements it only in a file that declares '{need}'; this file does not",
+            )->child_first(row->hidden->range)
+        } else if missing.size() > 0 && row->hidden != &null {
             d.note(
                 row->hidden->range.start,
                 "this extension member implements it, in a file this one does not import; import its module here to use the conformance",

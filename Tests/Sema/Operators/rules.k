@@ -25,7 +25,7 @@ struct W {
 }
 
 extend V {
-    fn op as(self) -> i32 { return self.x }                     // member-only, in an extension
+    fn op [](self, i: usize) -> i32 { return self.x }           // member-only, in an extension
 }
 
 fn t(v: V, w: W, p: *i32, q: *i32, n: i32) {
@@ -45,7 +45,7 @@ fn t(v: V, w: W, p: *i32, q: *i32, n: i32) {
 // DIAG: error [SC055E]: 'op <' must return 'bool'
 // DIAG: error [SC055E]: 'op -=' returns nothing
 // DIAG: error [SC114E]: 'op []' cannot return 'unsafe *T'
-// DIAG: error [SC055E]: 'op as' cannot be declared in an extension
+// DIAG: error [SC055E]: 'op []' cannot be declared in an extension
 // DIAG: error [SC066E]: no 'op ==' on 'W'
 // DIAG: error [SC034E]: '===' needs a nullable operand; 'i32' and 'i32' are not nullable
 // DIAG: error [SC034E]: '===' needs a nullable operand; '*i32' and '*i32' are not nullable

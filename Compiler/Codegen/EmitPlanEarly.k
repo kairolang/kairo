@@ -593,7 +593,20 @@ extend EmitPlan {
                     continue
                 }
 
-                if Speller::fid_of(m) == self._home != want_own {
+                // A conditional block's members are nobody's own: the file
+                // that wrote the block compiles a body only when it uses the
+                // member, as every other file does, and a header never
+                // carries one.
+                var unsafe *mx = DeclFacts::decl_extension_of(
+                    unsafe (m as unsafe *Decl),
+                )
+
+                var own = Speller::fid_of(m) == self._home
+                if mx != &null && mx->gate != &null {
+                    own = false
+                }
+
+                if own != want_own {
                     continue
                 }
 

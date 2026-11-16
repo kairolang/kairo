@@ -1993,6 +1993,18 @@ pub class DeclImport {
     /// clang's layout onto the mixin. Only for a complete, non-dependent
     /// definition; a template pattern has no layout and `known` stays false.
     priv fn _layout(self, def: unsafe *clang::RecordDecl, kd: unsafe *Decl) {
+        // Reached with the record's definition only: a template pattern's
+        // too, which has no layout below.
+        if !def->isInvalidDecl() && def->isCompleteDefinition() {
+            if isa<Declarations::ClassDecl>(kd) {
+                cast<Declarations::ClassDecl>(kd)->ffi_defined = true
+            } else if isa<Declarations::StructDecl>(kd) {
+                cast<Declarations::StructDecl>(kd)->ffi_defined = true
+            } else if isa<Declarations::UnionDecl>(kd) {
+                cast<Declarations::UnionDecl>(kd)->ffi_defined = true
+            }
+        }
+
         if def->isDependentType() || def->isInvalidDecl() {
             return
         }

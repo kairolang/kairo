@@ -522,7 +522,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             n->resolved_op,
             false,
             args,
-            &null,
+            n->op_instance,
         )
 
         // A generic record's `op as -> T` is `operator T` in the template,

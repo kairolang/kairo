@@ -170,6 +170,13 @@ extend EmitIR {
                 }
             } case DeclKind::ExtensionDecl {
                 var unsafe *x = cast<ExtensionDecl>(d)
+                // A conditional block's bodies are emitted where a use
+                // brought its scope into the plan (EmitPlan::visible_bodies),
+                // this file included; never because the block is written here.
+                if x->gate != &null {
+                    return
+                }
+
                 for var i: usize = 0; i < x->methods.size(); ++i {
                     var unsafe *m = x->methods[i]
                     if m != &null {
@@ -420,8 +427,11 @@ extend EmitIR {
         var is_ctor = self._spell.leaf(m) == self._spell.leaf(owner)
         var nm      = self._spell.leaf(m)
         // `op as` spells `operator T`; C++ gives a conversion no return type.
-        var is_conv = m->is_operator && m->op_token[0].kind == TokenKind::KwAs
-        var qual    = self._spell.owner_qual(owner)
+        // An extension's is a named static member with an ordinary one.
+        var is_conv = m->is_operator
+            && m->op_token[0].kind == TokenKind::KwAs
+            && decl_extension_of(m) == &null
+        var qual = self._spell.owner_qual(owner)
         if is_ctor {
             // The qualifier spells the class's name, which is the
             // constructor's too: on the name it would take the byte the

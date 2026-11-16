@@ -105,6 +105,7 @@ import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
 import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceRange::SourceRange
+import Sema::Expand::DeclaredQuery::DeclaredQuery
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
@@ -115,9 +116,40 @@ import Token::TokenKind::TokenKind
 /// builtin file, one it imports or one those re-export (all three
 /// SemaContext::sees_extension_file), or the file that declares the
 /// extended record: an extension written beside its type travels with it.
+///
+/// A conditional extension (ExtensionDecl::gate) is asked one thing more,
+/// after the file rule and whichever arm of it held, the builtin subtree
+/// included: this TU declares the paths its clause asks about
+/// (extension_gate_holds).
 pub fn extension_visible(sc:   unsafe *SemaContext,
                          e:    unsafe *Declarations::ExtensionDecl,
                          efid: u32) -> bool {
+    return extension_file_visible(sc, e, efid) && extension_gate_holds(sc, e)
+}
+
+/// A conditional extension exists in TU \p sc: DeclaredQuery::gate_holds,
+/// asked once per TU and extension. True for an extension with no gate.
+pub fn extension_gate_holds(sc: unsafe *SemaContext,
+                            e:  unsafe *Declarations::ExtensionDecl) -> bool {
+    if e == &null || e->gate == &null || sc == &null {
+        return true
+    }
+
+    var key = e as usize as u64
+    var it  = sc->gate_answers.find(key)
+    if it != sc->gate_answers.end() {
+        return it->second
+    }
+
+    var ok = DeclaredQuery(sc).gate_holds(e)
+    sc->gate_answers[key] = ok
+    return ok
+}
+
+/// extension_visible's file rule alone.
+pub fn extension_file_visible(sc:   unsafe *SemaContext,
+                              e:    unsafe *Declarations::ExtensionDecl,
+                              efid: u32) -> bool {
     if sc == &null || sc->sees_extension_file(efid) {
         return true
     }

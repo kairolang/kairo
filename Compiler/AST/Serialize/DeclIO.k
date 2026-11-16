@@ -339,6 +339,7 @@ fn <N: type> io_ffi(ar: unsafe *ASTArchive, n: unsafe *N) {
         ar->sema_false(n->ffi_explicit, "FFILinkage::ffi_explicit")
         ar->sema_false(n->ffi_noexcept, "FFILinkage::ffi_noexcept")
         ar->sema_false(n->ffi_deleted, "FFILinkage::ffi_deleted")
+        ar->sema_false(n->ffi_defined, "FFILinkage::ffi_defined")
         ar->sema_false(n->ffi_constexpr, "FFILinkage::ffi_constexpr")
         ar->sema_false(n->ffi_virtual, "FFILinkage::ffi_virtual")
         ar->sema_false(n->ffi_pure_virtual, "FFILinkage::ffi_pure_virtual")
@@ -686,6 +687,10 @@ fn io_extension_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::ExtensionD
     ar->type_<Type>(&n->target)
     ar->decl_list<Declarations::FunctionDecl>(&n->methods)
     io_inherit_edges(ar, &n->implements)
+    eval if defined!(DEBUG) {
+        // DeclaredQueryFolding's verdict on a conditional extension.
+        ar->sema_is(n->gate == &null, "ExtensionDecl::gate")
+    }
 }
 
 fn io_enum_variant_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::EnumVariantDecl) {

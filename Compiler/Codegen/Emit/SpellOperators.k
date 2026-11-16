@@ -63,6 +63,17 @@ extend Speller {
                 self._ice(f->range, "CXXSpell: `op as` with no target type")
             }
 
+            // An extension's conversion is a static member of its scope, and
+            // a static member cannot be an `operator T`. Two conversions of
+            // one scope take the same receiver and differ only in the
+            // result, so the result is in the name, as a witness member's is.
+            if DeclFacts::decl_extension_of(f) != &null {
+                var rt = self._type(f->return_type)
+                return LowerTargets::witness_conversion(
+                    Speller::cxx_segment(rt),
+                )
+            }
+
             return "operator " + self._type(f->return_type)
         }
 
@@ -162,6 +173,12 @@ extend Speller {
     fn ext_forwarder_name(self, f: unsafe *Declarations::FunctionDecl) -> string {
         var sym = self._op_symbol(f)
         if Speller::named_operator(f).size() > 0 {
+            return ""
+        }
+
+        // A conversion function is a member in C++ ([class.conv.fct]): an
+        // extension's `op as` has no namespace-scope form to forward from.
+        if OperatorFacts::single_kind(f) == TokenKind::KwAs {
             return ""
         }
 

@@ -23,12 +23,15 @@
 ///     - One definition per pair: a type declares `op +` OR `op +=`; the
 ///       other is derived (OperatorTyping). Both in one type is an error.
 ///     - Extension operators are free functions taking `Self*`, which C++
-///       accepts for every operator that can be a non-member; `as`, `[]`,
-///       `->`, `delete` must be members and are declared in
-///       the type's body.
+///       accepts for every operator that can be a non-member; `[]`, `->`,
+///       `delete` must be members and are declared in the type's body.
+///       `as` is the exception: Kairo applies a conversion itself and writes
+///       the call at every use, so an extension's `op as` is a static member
+///       of its scope (Speller::operator_name) that C++ never looks up.
 ///     - `++`/`--` without `l`/`r`: prefix, with a warning.
-///     - `@implicit` goes on a member `op as` and nowhere else; it opens the
-///       conversion to Conversion::implicit's user rung.
+///     - `@implicit` goes on an `op as` (a member's or an extension's) and
+///       nowhere else; it opens the conversion to Conversion::implicit's
+///       user rung.
 ///
 ///   Phase: CHECK, after T (canonical return types), before X.
 ///
@@ -141,7 +144,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
                 DiagID::SC115E,
                 LangAttrs::quoted(
                     LangAttrs::implicit_conversion(),
-                ) + " applies only to a conversion operator: 'fn op as (self) -> T' in a type's body",
+                ) + " applies only to a conversion operator: 'fn op as (self) -> T' in a type's body or an extension",
             )
 
             return true
@@ -237,11 +240,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return true
         }
 
-        if in_ext
-            && (k == TokenKind::KwAs
-                || subs
-                || k == TokenKind::OpArrow
-                || k == TokenKind::KwFinally) {
+        if in_ext && (subs || k == TokenKind::OpArrow || k == TokenKind::KwFinally) {
             self._err(
                 f,
                 f"'op {sym}' cannot be declared in an extension; it must be a member, so declare it in the type's body",

@@ -107,6 +107,13 @@ extend EmitPlan {
 
         if isa<Declarations::ExtensionDecl>(d) {
             var unsafe *x = cast<Declarations::ExtensionDecl>(d)
+            // A conditional block is no root of its own file: its signatures
+            // may name what this file's headers do not declare. It enters a
+            // plan through a use (_admit_use), in a file that declares them.
+            if x->gate != &null {
+                return
+            }
+
             // A header reaches the scope through any visible member, and then
             // carries the WHOLE struct; a block with none adds no root.
             if self._mode != PlanMode::Preamble && self._hidden(d) {
@@ -397,6 +404,12 @@ extend EmitPlan {
 
         var ns = self._spell.scope_ns(x)
         if !self._same_ns_vec(self._scopes[k].ns, ns) {
+            return
+        }
+
+        // A conditional block's scope is its own (Speller::ext_scope_name):
+        // one target in one namespace can have several structs.
+        if self._spell.ext_scope_name(x) != self._scopes[k].name {
             return
         }
 

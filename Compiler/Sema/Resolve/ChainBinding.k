@@ -112,7 +112,10 @@ import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Resolve::GenericArgs::GenericArgs
-import Sema::Resolve::MemberLookup::MemberLookup
+import Sema::Resolve::MemberLookup::{
+    MemberLookup,
+    extension_file_visible,
+}
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::Resolve::ResolutionTrace::MemberOutcome
 import Sema::SemaContext::{
@@ -2233,6 +2236,35 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         var unsafe *sm = self.sc->ctx->sm
+        // A conditional extension this file does import: what is missing is
+        // not an import of the extension but a declaration of what it asks
+        // for, which only this file's own imports can add.
+        if e != &null
+            && sm != &null
+            && e->gate != &null
+            && extension_file_visible(
+                self.sc,
+                e,
+                sm->get_fid(e->range.start) as u32,
+            ) {
+            var need = ""
+            for var i: usize = 0; i < e->gate->paths.size(); ++i {
+                if i > 0 {
+                    need += "', '"
+                }
+
+                need += e->gate->paths[i]
+            }
+
+            b.note(
+                e->range.start,
+                f"an extension of '{tn}' declares '{spelled}' only in a file that declares '{need}'; this file does not",
+            )
+
+            b.emit()
+            return
+        }
+
         if e != &null && sm != &null {
             var epath = Path(sm->get_filename(e->range.start))
             var file  = epath.filename()

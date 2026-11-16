@@ -972,6 +972,14 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
     /// Whether a `return` from this function's expansion copies carries a
     /// value: EmitIR::_eval_for's has_val, read before its body is walked.
+    /// A conditional block's bodies are not this file's own: what they name
+    /// (the block's own conversions, C++ types this file's headers may not
+    /// declare) enters a plan only where a use made one of them a visible
+    /// body (_walk_visible), which walks the body itself.
+    fn visit_extension_decl(self, n: unsafe *Declarations::ExtensionDecl) -> bool {
+        return n->gate == &null
+    }
+
     fn visit_function_decl(self, n: unsafe *Declarations::FunctionDecl) -> bool {
         if n == &null {
             return true

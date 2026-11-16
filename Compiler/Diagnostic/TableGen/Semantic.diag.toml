@@ -6639,6 +6639,128 @@ group = "specialization"
     [SC333.N]
     explain = "Points at the other specialization that applies."
 
+[SC340]
+brief = "a conversion is declared in more than one place"
+group = "operators"
+
+    [SC340.E]
+    explain = """
+    # an ambiguous conversion
+
+    an `op as` to one target type may be declared in the type's body or in an extension. when
+    the body and an extension this file sees both declare it, or two extensions do, nothing
+    ranks one above the other: a member is never replaced by an extension a file happens to
+    import, and two extensions are equals. the use is an error; each declaration alone is not.
+    a `const self` and a `self` form in one place are one conversion.
+
+    ```kairo
+    struct Feet {
+        var v: i32
+        fn op as (const self) -> i32 { return self.v }
+    }
+
+    extend Feet {
+        fn op as (const self) -> i32 { return self.v * 12 }
+    }
+
+    var n = Feet{v: 1} as i32       // error: the body and an extension both declare it
+    ```
+
+    ## how to fix
+
+    keep one of the two, or stop importing the file whose extension adds the second. a named
+    method (`fn to_inches(const self) -> i32`) never competes with a conversion.
+    """
+
+    [SC340.N]
+    explain = "Points at one of the 'op as' declarations that apply."
+
+[SC341]
+brief = "'__builtin_is_declared' is not written as a query of one path"
+group = "eval"
+
+    [SC341.E]
+    explain = """
+    # the form of '__builtin_is_declared'
+
+    `__builtin_is_declared<P>()` asks whether the path `P` names a declaration in the file the
+    call is written in. `P` is a path of plain names, written between `<` and `>`, and the call
+    takes no arguments. a template is named without its arguments, because the question is
+    about the name: `cxx::std::vector`, not `cxx::std::vector<i32>`. a pointer, an array or a
+    function type is not a name.
+
+    ```kairo
+    eval HAS = __builtin_is_declared<cxx::std::vector<i32>>()   // error
+    eval HAS = __builtin_is_declared<cxx::std::vector>()        // ok
+    ```
+
+    a path that names nothing is not an error: the answer is `false`.
+    """
+
+[SC342]
+brief = "'__builtin_is_declared' is asked where its answer cannot be used"
+group = "eval"
+
+    [SC342.E]
+    explain = """
+    # '__builtin_is_declared' cannot be used here
+
+    the answer of `__builtin_is_declared<P>()` belongs to one file. two places cannot follow
+    it:
+
+    - the condition of an `eval if` in a type's body. a type has one list of members in
+      every file that sees it; it cannot gain a member in the files that declare `P` and
+      lack it in the others. members that exist only where a name is declared go in an
+      extension, whose `requires` clause is asked in each file that imports it.
+    - an extension's `requires` clause, anywhere but as a whole operand of its `&&` chain.
+      `requires __builtin_is_declared<P>() && T impl I` is the supported form; under `!` or
+      `||` the extension's body could not rely on `P` being declared.
+
+    ```kairo
+    class Text {
+        eval if __builtin_is_declared<cxx::std::string>() {     // error
+            fn to_cxx(const self) -> cxx::std::string { ... }
+        }
+    }
+
+    extend Text requires __builtin_is_declared<cxx::std::string>() {   // ok
+        fn to_cxx(const self) -> cxx::std::string { ... }
+    }
+    ```
+    """
+
+[SC343]
+brief = "a conditional extension's member is used from unconditional code of its own file"
+group = "interfaces"
+
+    [SC343.E]
+    explain = """
+    # a conditional extension used from outside it
+
+    an extension whose `requires` clause asks `__builtin_is_declared<P>()` exists only in the
+    files that declare `P`. when its own file does not declare `P` (a library that bridges to
+    a C++ type without importing the header), the rest of that file is unconditional code: it
+    exists in every build, including the ones where no file declares `P` and the extension is
+    never checked. such code cannot use the extension's members.
+
+    ```kairo
+    extend string requires __builtin_is_declared<cxx::std::string>() {
+        pub fn to_cxx(const self) -> cxx::std::string { ... }
+    }
+
+    pub fn len(const s: string) -> usize { return s.to_cxx().size() }      // error
+    ```
+
+    ## how to fix
+
+    put the use in an extension with the same `requires` clause, where the path is declared by
+    definition, or import the header in this file, which makes the file one of those the
+    extension exists in.
+    """
+
+    [SC343.N]
+    explain = "Points at the conditional extension whose member is used."
+
 [SC351]
 brief = "a class derives its own type parameter in a form that is not supported"
 group = "generics"
