@@ -49,8 +49,11 @@ import Driver::InputKinds::{
     InputClass,
     classify_input,
 }
+import Support::Ascii::find
 import Support::FileIO::Path::Path
 import Support::TimeReport::TimeRegion
+import Token::Token::Token
+import Token::TokenKind::TokenKind
 import std::env
 import std::io
 
@@ -410,22 +413,8 @@ extend CompilerInstance {
         }
     }
 
-    /// Decides, before any file is walked, whether this program's Kairo
-    /// files are compiled with __KAIRO_GLOBAL_ALLOCATOR_SET: the builtin's
-    /// Global is System inlined without it, and the kairo_global_* symbols
-    /// (whatever file set them) with it. Every TU of one program must agree,
-    /// the builtin's too, or the ones that inlined System bypass the
-    /// program's allocator; so the answer is one bit for the run, settled
-    /// here rather than when the setting file is parsed, which may be after
-    /// the builtin and earlier inputs were already compiled.
-    ///
-    /// On with --global-allocator-set or a -D naming the macro (same
-    /// meaning), or when a linked object's ABI note says its file set it,
-    /// else when a file the inputs reach writes
-    /// `@set_global_allocator` at the start of a line (the parser takes it
-    /// nowhere else, so a comment or a doc line naming it does not count).
-    /// The link holds Kairo code, so it needs builtin, std and the runtime
-    /// (--kairo-lib): a Kairo input, a C/C++ input that includes a .k
+    /// True when the link holds Kairo code and so needs builtin, std and the
+    /// runtime (--kairo-lib): a Kairo input, a C/C++ input that includes a .k
     /// (_discover_includes), or an object or archive carrying the ABI note
     /// (LinkABI::carries_note). kcc passes --kairo-lib on every link, so
     /// without this test a pure C or C++ program got the whole library, and
@@ -451,7 +440,21 @@ extend CompilerInstance {
         return false
     }
 
-    /// That scan reads the import graph the preprocessor would walk, which is
+    /// Decides, before any file is walked, whether this program's Kairo
+    /// files are compiled with __KAIRO_GLOBAL_ALLOCATOR_SET: the builtin's
+    /// Global is System inlined without it, and the kairo_global_* symbols
+    /// (whatever file set them) with it. Every TU of one program must agree,
+    /// the builtin's too, or the ones that inlined System bypass the
+    /// program's allocator; so the answer is one bit for the run, settled
+    /// here rather than when the setting file is parsed, which may be after
+    /// the builtin and earlier inputs were already compiled.
+    ///
+    /// On with --global-allocator-set or a -D naming the macro (same
+    /// meaning), or when a linked object's ABI note says its file set it,
+    /// else when a file the inputs reach writes `@set_global_allocator(` at
+    /// file scope (_sets_global_allocator).
+    ///
+    /// The scan reads the import graph the preprocessor would walk, which is
     /// the whole program under --emit-scope=graph; under inputs (kcc -c) it
     /// is only this run's share, and a file set apart needs the flag -- the
     /// ABI note check at the link catches a build that forgot it.
@@ -513,11 +516,6 @@ extend CompilerInstance {
                     continue
                 }
 
-                if CompilerInstance::_file_sets_global_allocator(k->path) {
-                    pp->global_allocator_set = true
-                    break
-                }
-
                 // A missing input is its action's error to report, once.
                 if !LinkFS::is_file(k->path) {
                     continue
@@ -526,6 +524,11 @@ extend CompilerInstance {
                 var f = (self._sm->load_file(Path(k->path)))
                 if f == u32::MAX {
                     continue
+                }
+
+                if self._sets_global_allocator(f) {
+                    pp->global_allocator_set = true
+                    break
                 }
 
                 var r = self._pp->reach(f)
@@ -537,9 +540,7 @@ extend CompilerInstance {
                     }
 
                     checked.insert(g as u64)
-                    if CompilerInstance::_file_sets_global_allocator(
-                        self._sm->get_filename(g),
-                    ) {
+                    if self._sets_global_allocator(g) {
                         pp->global_allocator_set = true
                         break
                     }
@@ -553,38 +554,61 @@ extend CompilerInstance {
         }
     }
 
-    /// true when \p path's text has a line starting (after blanks) with
-    /// `@set_global_allocator`. An unreadable path (a virtual file) is false.
-    priv static fn _file_sets_global_allocator(const path: string) -> bool {
+    /// true when the file \p fid writes `@set_global_allocator(` at file
+    /// scope, the one place ASTParse takes it: outside every brace, so a
+    /// comment, a string literal or a function body naming it does not
+    /// count. The bytes on disk are searched first, and only a file that
+    /// holds the name is lexed. A file with no bytes on disk (a virtual
+    /// buffer) is false.
+    priv fn _sets_global_allocator(self, fid: u32) -> bool {
+        var name = LangAttrs::set_global_allocator()
         var text = ""
-        if !LinkFS::read(path, &text) {
+        if !LinkFS::read(self._sm->get_filename(fid), &text) || find(text, name, 0) == usize::MAX {
             return false
         }
 
-        var pat       = "@" + LangAttrs::set_global_allocator()
-        var n         = text.size()
-        var i:  usize = 0
-        while i < n {
-            while i < n && (text[i] == (' ' as u8) || text[i] == ('\t' as u8)) {
-                i += 1
+        var stream = self._tcm->open_scan_stream(fid)
+        if stream.lexer == &null {
+            return false
+        }
+
+        finally {
+            self._tcm->close_scan_stream(&stream)
+        }
+
+        // The two tokens before this one, oldest first, comments and line
+        // breaks skipped: a spelling the parser may still refuse counts,
+        // since a false positive costs only the define and a false negative
+        // is SC140E. The name is read from the source text, since the scan's
+        // own immediate table is not the one TokenText resolves through.
+        var prev2            = TokenKind::TkEof
+        var prev1            = TokenKind::TkEof
+        var prev1_tok: Token
+        var depth:     i64   = 0
+        var tok:       Token
+        while stream.lexer->next(&tok) && tok.kind != TokenKind::TkEof {
+            var k = tok.kind
+            if k == TokenKind::AtComment || k == TokenKind::TkNewLine {
+                continue
             }
 
-            var hit = i + pat.size() <= n
-            for var j: usize = 0; hit && j < pat.size(); ++j {
-                if text[i + j] != pat[j] {
-                    hit = false
-                }
-            }
-
-            if hit {
+            if k == TokenKind::OpLParen
+                && depth <= 0
+                && prev2 == TokenKind::OpAt
+                && prev1 == TokenKind::LitIdentifier
+                && self._sm->get_text(prev1_tok.range) == name {
                 return true
             }
 
-            while i < n && text[i] != ('\n' as u8) {
-                i += 1
+            if k == TokenKind::OpLBrace {
+                depth += 1
+            } else if k == TokenKind::OpRBrace {
+                depth -= 1
             }
 
-            i += 1
+            prev2     = prev1
+            prev1     = k
+            prev1_tok = tok
         }
 
         return false

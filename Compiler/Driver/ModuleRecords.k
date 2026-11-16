@@ -45,6 +45,7 @@ import Driver::CacheFormat::{
 }
 import Driver::ObjectCache::ObjectCache
 import Sema::Incremental::Plan::PlanModule
+import Support::Escape::json_string
 import Support::FileIO::Path::Path
 import Support::Tuning::MTIME_SLACK_NS
 import std::env
@@ -506,9 +507,9 @@ pub class ModuleRecords {
                 ks = "-"
             }
 
-            var rec = "{\"version\": 1, \"module\": " + ModuleRecords::_json(
+            var rec = "{\"version\": 1, \"module\": " + json_string(
                 name,
-            ) + ", \"objects\": " + ModuleRecords::_json(ks) + ",\n" + self.mod_json[i] + "}\n"
+            ) + ", \"objects\": " + json_string(ks) + ",\n" + self.mod_json[i] + "}\n"
             var rp = self.dir + "/" + ObjectCache::hash(name) + ".json"
             if !self._publish(rp, rec) {
                 return false
@@ -890,19 +891,5 @@ pub class ModuleRecords {
         }
 
         return usize::MAX
-    }
-
-    priv static fn _json(const s: string) -> string {
-        var out = "\x22"
-        for var i: usize = 0; i < s.size(); ++i {
-            var c = s[i]
-            if c == ('"' as u8) || c == ('\\' as u8) {
-                out += "\\"
-            }
-
-            out += s.subslice(i, 1)
-        }
-
-        return out + "\x22"
     }
 }

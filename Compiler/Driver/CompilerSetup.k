@@ -1022,11 +1022,17 @@ extend CompilerInstance {
         // pins the other, so a checkout's Lib/std is checked against that
         // checkout's Lib/builtin and not against a toolchain copy.
         if input_builtin.empty() && !input_std.empty() {
-            input_builtin = self._sibling_library_dir(input_std, builtin_root_name())
+            input_builtin = self._sibling_library_dir(
+                input_std,
+                builtin_root_name(),
+            )
         }
 
         if input_std.empty() && !input_builtin.empty() {
-            input_std = self._sibling_library_dir(input_builtin, std_root_name())
+            input_std = self._sibling_library_dir(
+                input_builtin,
+                std_root_name(),
+            )
         }
 
         if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
@@ -1095,7 +1101,7 @@ extend CompilerInstance {
 
         var best = ""
         for const entry in LinkFS::list_dir(parent) {
-            var dir = Path::join_str(parent, entry)
+            var dir   = Path::join_str(parent, entry)
             var mod_k = Path::join_str(dir, "module.k")
             if !LinkFS::is_dir(dir) || !Path::exists_at(mod_k) {
                 continue
