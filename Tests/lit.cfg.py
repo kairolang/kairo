@@ -336,15 +336,25 @@ if os.path.isfile(ksys_bin):
     config.substitutions.append(("%ksys", _sh(ksys_bin)))
 # clang's own test corpus, run through kcc (Tests/CLI/Kcc/ClangCorpus): the
 # fork's clang/test and the bundled clang the preprocessor mode compares with.
+# The reference is the clang staged in the tree under test, else build/llvm's:
+# its predefined macros (__VERSION__, __clang_version__) name the LLVM build
+# it comes from, so only the clang of the LLVM kcc links prints the same
+# text. A release tree links the cross LLVM (Scripts/cross_llvm.py), a debug
+# tree build/llvm, and the two are separate builds. The sysroot is the one kcc
+# itself picks for the musl target, <tree>/sysroot/x86_64-linux-musl.
 _repo = os.path.dirname(config.test_source_root)
 _clang_tests = os.path.join(_repo, "Lib", "llvm-runtimes", "clang", "test")
-_bundled_clang = os.path.join(_repo, "build", "llvm", "bin", "clang")
+_bundled_clang = os.path.join(_tree, "bin", "clang" + _exe)
+if not os.path.isfile(_bundled_clang):
+    _bundled_clang = os.path.join(_repo, "build", "llvm", "bin", "clang")
+_musl_sysroot = os.path.join(_tree, "sysroot", "x86_64-linux-musl")
+if not os.path.isdir(_musl_sysroot):
+    _musl_sysroot = os.path.join(_tree, "..", "release", "sysroot", "x86_64-linux-musl")
 if os.path.isdir(_clang_tests) and os.path.isfile(_bundled_clang):
     config.available_features.add("clang-corpus")
     config.substitutions.append(("%clang_tests", _sh(_clang_tests)))
     config.substitutions.append(("%bundled_clang", _sh(_bundled_clang)))
-    config.substitutions.append(("%musl_sysroot", _sh(os.path.join(
-        os.path.dirname(os.path.dirname(kairo_bin)), "..", "release", "sysroot", "x86_64-linux-musl"))))
+    config.substitutions.append(("%musl_sysroot", _sh(_musl_sysroot)))
 # A kcc link builds and caches the Kairo library (builtin, std, the runtime)
 # on first use. One cache for the suite, under the build tree, never the
 # user cache directory; parallel tests that race to build it are safe (the
