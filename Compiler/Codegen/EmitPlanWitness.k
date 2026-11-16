@@ -156,7 +156,7 @@ extend EmitPlan {
             return
         }
 
-        // Keyed with usize / isize folded (Compiler/Spec/Witnesses.md#open-questions, question 3): where
+        // Keyed with usize / isize folded: where
         // the target spells usize as u64's C++ type, `Hash_witness<usize>` and
         // `Hash_witness<u64>` are one C++ class, and a second definition is a
         // clang redefinition. The first row in wins; two conformances of one C++
