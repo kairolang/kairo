@@ -20,6 +20,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
+// REQUIRES: clang
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %kairo %s -o %t.d/a.exe
 // RUN: %t.d/a.exe; test $? -eq 1

@@ -6,6 +6,9 @@
 fn main() -> i32 { return 4 }
 
 // --- lit wiring -----------------------------------------------------------
+// REQUIRES: default-sysroot
+// A file name cannot hold a tab on Windows.
+// UNSUPPORTED: host-windows
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: cp %s "%t.d/$(printf 'tab\there').k"
 // RUN: cd %t.d && %kairo "$(printf 'tab\there').k" -o a --cache-dir c --incremental-sema

@@ -377,39 +377,57 @@ extend CompilerInstance {
     /// The library's objects from \p dir's manifest into _lib_lazy; false
     /// when there is none or a recorded source has changed.
     priv fn _read_kairo_lib(self, const dir: string) -> bool {
+        var objs    = cxx::std::vector<string>()
+        var archive = ""
+        if !CompilerInstance::_check_kairo_lib(dir, &objs, &archive) {
+            return false
+        }
+
+        for *o in objs {
+            self._lib_lazy.push_back(*o)
+        }
+
+        self._lib_archive = archive
+        // Last use, for _gc_kairo_libs.
+        LinkFS::write(dir + "/used", "")
+        return true
+    }
+
+    /// The objects and the archive \p dir's manifest names, into \p objs
+    /// and \p archive; false when there is no manifest, it names no object,
+    /// a recorded source has changed or a named file is missing. Reads
+    /// only: _build_kairo_lib asks it too, of a library another build may
+    /// have just published.
+    priv static fn _check_kairo_lib(const dir:      string,
+                                    @inout objs:    cxx::std::vector<string>,
+                                    @inout archive: string) -> bool {
         var text = ""
         if !LinkFS::read(dir + "/manifest", &text) {
             return false
         }
 
-        var objs          = cxx::std::vector<string>()
-        var archive       = ""
-        var start:  usize = 0
+        var start: usize = 0
         for var i: usize = 0; i <= text.size(); ++i {
             if i < text.size() && text[i] != ('\n' as u8) {
                 continue
             }
 
             var line = text.subslice(start, i - start)
-
             start = i + 1
             if line.starts_with("obj ") {
                 objs.push_back(dir + "/" + line.subslice(4, line.size() - 4))
-
                 continue
             }
 
             if line.starts_with("ar ") {
                 archive = dir + "/" + line.subslice(3, line.size() - 3)
-
                 continue
             }
 
             if line.starts_with("src ") {
                 // `src <mtime> <path>`: the path may hold spaces, the mtime not.
-                var rest = line.subslice(4, line.size() - 4)
-
-                var sp: usize = 0
+                var rest       = line.subslice(4, line.size() - 4)
+                var sp:  usize = 0
                 while sp < rest.size() && rest[sp] != (' ' as u8) {
                     sp += 1
                 }
@@ -437,13 +455,6 @@ extend CompilerInstance {
             return false
         }
 
-        for *o in objs {
-            self._lib_lazy.push_back(*o)
-        }
-
-        self._lib_archive = archive
-        // Last use, for _gc_kairo_libs.
-        LinkFS::write(dir + "/used", "")
         return objs.size() > 0
     }
 
@@ -561,11 +572,25 @@ extend CompilerInstance {
             return false
         }
 
-        // A library already there is stale (_kairo_lib read it and refused
-        // it): moved aside first, since a rename cannot replace a full
-        // directory. If a parallel build renames its fresh one in between,
-        // this rename fails and theirs is used.
+        // A library already there was stale when _kairo_lib read it, and is
+        // moved aside, since a rename cannot replace a full directory. It is
+        // checked again first: a parallel build that missed too may have
+        // published its fresh library during this build, and moving that one
+        // aside would pull it from under that build's own read of it. Then
+        // theirs is used and this one is dropped (built stays false). If a
+        // parallel build renames its fresh one in after the check, the
+        // rename below fails and theirs is used.
         if LinkFS::is_dir(dir) {
+            var their_objs    = cxx::std::vector<string>()
+            var their_archive = ""
+            if CompilerInstance::_check_kairo_lib(
+                dir,
+                &their_objs,
+                &their_archive,
+            ) {
+                return true
+            }
+
             var old = f"{dir}.stale-{llvm::sys::Process::getProcessId()}"
             if LinkFS::rename(dir, old) {
                 LinkFS::remove_tree(old)

@@ -20,6 +20,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
+// REQUIRES: clang
 // RUN: %kairo %s --print-ir -o %t.exe > %t.ir 2>&1
 // RUN: not grep -q kairo_global_alloc %t.ir
 // RUN: grep -q 'int main' %t.ir
