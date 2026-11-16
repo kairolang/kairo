@@ -1838,6 +1838,28 @@ pub fn decl_dedup_pack_args(d:    unsafe *Decl,
     }
 }
 
+/// The `impl` list a class, struct or union declares; empty for every
+/// other kind (an extension's is ExtensionDecl::implements).
+pub fn decl_implements(d: unsafe *Decl) -> FrozenList<Declarations::InheritEdge> {
+    if d == &null {
+        return create_empty_frozen_list<Declarations::InheritEdge>()
+    }
+
+    if isa<Declarations::ClassDecl>(d) {
+        return cast<Declarations::ClassDecl>(d)->implements
+    }
+
+    if isa<Declarations::StructDecl>(d) {
+        return cast<Declarations::StructDecl>(d)->implements
+    }
+
+    if isa<Declarations::UnionDecl>(d) {
+        return cast<Declarations::UnionDecl>(d)->implements
+    }
+
+    return create_empty_frozen_list<Declarations::InheritEdge>()
+}
+
 /// `derives_list`: the kinds with nominal bases.
 pub fn decl_bases(d: unsafe *Decl) -> FrozenList<Declarations::InheritEdge> {
     if d == &null {

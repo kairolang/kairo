@@ -2844,6 +2844,8 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self._spec_intro(ud->spec_kind) // `<>` marker (#68)
         self.p.paint(Color::TypeName, self.tok(ud->name))
         self._spec_args(ud->spec_kind, ud->spec_args) // post-name `<...>` (#68)
+        self._inherit_list("impl", ud->implements)
+        self._requires(ud->requires_clause)
         self._member_body(ud->fields, ud->methods)
     }
 
@@ -5863,6 +5865,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self.p.put(" ")
         self.p.paint(Color::TypeName, self.tok(ud->name))
         self._dd_spec(ud->spec_kind, ud->spec_args) // specialization tag (#68)
+        self._inherit_list("impl", ud->implements)
         self.p.newline()
         var members = cxx::std::vector<unsafe *Decl>()
         self._collect_type_members(

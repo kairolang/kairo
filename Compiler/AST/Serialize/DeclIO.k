@@ -772,6 +772,7 @@ fn io_union_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::UnionDecl) {
     ar->tok(&n->name)
     ar->decl_list<Declarations::FieldDecl>(&n->fields)
     ar->decl_list<Declarations::FunctionDecl>(&n->methods)
+    io_inherit_edges(ar, &n->implements)
     eval if defined!(DEBUG) {
         ar->sema_false(n->is_anonymous, "UnionDecl::is_anonymous")
     }

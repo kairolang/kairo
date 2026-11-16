@@ -2535,6 +2535,14 @@ pub class <D: type> ASTWriter {
             n->requires_clause = self.dyn()->transform_expr(n->requires_clause)
         }
 
+        for var i: usize = 0; i < n->implements.size(); i++ {
+            if self.stop {
+                break
+            }
+
+            self.dyn()->transform_inherit_edge(n->implements.get(i))
+        }
+
         self.dyn()->rebuild_decl_list(
             unsafe ((&n->fields) as unsafe *FrozenList<*Decl>),
         )

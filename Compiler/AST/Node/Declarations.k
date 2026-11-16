@@ -1823,7 +1823,8 @@ pub class EnumDecl
 ///  union Register { var as_u32: u32; var as_bytes: [u8; 4] }
 ///
 ///  Trivial-field overlay. Fields stored as FieldDecl. Unsafe by default
-///  (type-punning); DeclContext holds nested type decls.
+///  (type-punning); DeclContext holds nested type decls. `implements` lists
+///  interface conformances, as a struct's does.
 ///
 pub class UnionDecl
   derives Decl,
@@ -1834,7 +1835,8 @@ pub class UnionDecl
     pub var name:   Token
     pub var fields: FrozenList<unsafe *FieldDecl>
     /// Constructors and operator overloads only - same rule as StructDecl.
-    pub var methods: FrozenList<unsafe *FunctionDecl>
+    pub var methods:    FrozenList<unsafe *FunctionDecl>
+    pub var implements: FrozenList<InheritEdge>          ///< `impl` interface list.
     /// No name (`name` is the empty token): the union exists only as the type
     /// of one FieldDecl with `is_anonymous_union`, and codegen emits it there,
     /// inline, never as a type of its own. Its members join no lookup table

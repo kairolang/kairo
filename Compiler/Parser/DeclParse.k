@@ -471,9 +471,9 @@ pub class <T: type> DeclParse {
 
                 return self._parse_function(unsafe &lead) // committed: it IS a decl
             } case TokenKind::KwClass {
-                return self._parse_class(unsafe &lead)
+                return self._parse_record(TokenKind::KwClass, unsafe &lead)
             } case TokenKind::KwStruct {
-                return self._parse_struct()
+                return self._parse_record(TokenKind::KwStruct, unsafe &lead)
             } case TokenKind::KwEnum {
                 return self._parse_enum()
             } case TokenKind::KwInterface {
@@ -487,7 +487,7 @@ pub class <T: type> DeclParse {
 
                 return iface
             } case TokenKind::KwUnion {
-                return self._parse_union()
+                return self._parse_record(TokenKind::KwUnion, unsafe &lead)
             } case TokenKind::KwExtend {
                 return self._parse_extension()
             } case TokenKind::KwType {
@@ -3117,7 +3117,7 @@ pub class <T: type> DeclParse {
             }
 
             // `= virtual` is not a pure-virtual spelling. A pure virtual
-            // method is a `virtual fn` with no body (_parse_class marks
+            // method is a `virtual fn` with no body (_mark_abstract marks
             // it), so the fix-it rewrites to that, and recovery reads the
             // method as pure virtual so the class is not also reported for
             // a missing body or a non-abstract instantiation.
@@ -4449,74 +4449,207 @@ pub class <T: type> DeclParse {
         return false
     }
 
-    //  Class
+    //  Class, struct and union
 
-    /// \brief parses a class declaration.
-    ///  Grammar:  'final'? 'class' generics? name (derives ...)? (impl ...)? body
-    priv fn _parse_class(self, lead: unsafe *Self::LeadMods) -> unsafe *Decl {
-        var start = if (lead->any) => (lead->range) else => self._cur_range()
+    /// \struct RecordSlots
+    /// \brief the members _parse_record writes, read off whichever of the
+    ///        three record kinds it built. Each kind derives its own mixin
+    ///        instantiations, so no base pointer reaches them.
+    struct RecordSlots {
+        var generic_params: unsafe *FrozenList<unsafe *Declarations::GenericParamDecl> = &null
+        var spec_args:      unsafe *FrozenList<unsafe *Type>                           = &null
+        var spec_kind:      unsafe *Declarations::SpecKind                             = &null
+        var implements:     unsafe *FrozenList<Declarations::InheritEdge>              = &null
+        var requires_clause: unsafe *(unsafe *Expr) = &null
+        var fields:  unsafe *FrozenList<unsafe *Declarations::FieldDecl>    = &null
+        var methods: unsafe *FrozenList<unsafe *Declarations::FunctionDecl> = &null
+        var dc:      unsafe *DeclContext                                    = &null
+    }
 
-        if !self.dyn()->enter_depth() {
-            return Declarations::ClassDecl::create_error(self.dyn()->ctx, start)
+    /// \brief the record keyword's word, as diagnostics spell it.
+    priv fn _record_word(self, kw: TokenKind) -> string {
+        if kw == TokenKind::KwClass {
+            return "class"
         }
 
-        self.dyn()->advance(T::SkipNL::After) // consume `class`
+        if kw == TokenKind::KwStruct {
+            return "struct"
+        }
 
-        // a class name may itself carry generics or a specialization marker:
+        return "union"
+    }
+
+    priv fn _record_error(self, kw: TokenKind, range: SourceRange) -> unsafe *Decl {
+        if kw == TokenKind::KwClass {
+            return Declarations::ClassDecl::create_error(self.dyn()->ctx, range)
+        }
+
+        if kw == TokenKind::KwStruct {
+            return Declarations::StructDecl::create_error(
+                self.dyn()->ctx,
+                range,
+            )
+        }
+
+        return Declarations::UnionDecl::create_error(self.dyn()->ctx, range)
+    }
+
+    /// \brief creates the record \p kw introduces and points \p slots at its
+    ///        members.
+    priv fn _record_create(self,
+                           kw:    TokenKind,
+                           start: SourceRange,
+                           name:  Token,
+                           slots: unsafe *Self::RecordSlots) -> unsafe *Decl {
+        var unsafe *parent = self.dyn()->scope.current_dc()
+        if kw == TokenKind::KwClass {
+            var unsafe *cd = Declarations::ClassDecl::create(
+                self.dyn()->ctx,
+                start,
+                name,
+                parent,
+            )
+
+            slots->generic_params  = unsafe &cd->generic_params
+            slots->spec_args       = unsafe &cd->spec_args
+            slots->spec_kind       = unsafe &cd->spec_kind
+            slots->implements      = unsafe &cd->implements
+            slots->requires_clause = unsafe &cd->requires_clause
+            slots->fields          = unsafe &cd->fields
+            slots->methods         = unsafe &cd->methods
+            slots->dc              = cd
+            return unsafe (cd as unsafe *Decl)
+        }
+
+        if kw == TokenKind::KwStruct {
+            var unsafe *sd = Declarations::StructDecl::create(
+                self.dyn()->ctx,
+                start,
+                name,
+                parent,
+            )
+
+            slots->generic_params  = unsafe &sd->generic_params
+            slots->spec_args       = unsafe &sd->spec_args
+            slots->spec_kind       = unsafe &sd->spec_kind
+            slots->implements      = unsafe &sd->implements
+            slots->requires_clause = unsafe &sd->requires_clause
+            slots->fields          = unsafe &sd->fields
+            slots->methods         = unsafe &sd->methods
+            slots->dc              = sd
+            return unsafe (sd as unsafe *Decl)
+        }
+
+        var unsafe *ud = Declarations::UnionDecl::create(
+            self.dyn()->ctx,
+            start,
+            name,
+            parent,
+        )
+
+        slots->generic_params  = unsafe &ud->generic_params
+        slots->spec_args       = unsafe &ud->spec_args
+        slots->spec_kind       = unsafe &ud->spec_kind
+        slots->implements      = unsafe &ud->implements
+        slots->requires_clause = unsafe &ud->requires_clause
+        slots->fields          = unsafe &ud->fields
+        slots->methods         = unsafe &ud->methods
+        slots->dc              = ud
+        return unsafe (ud as unsafe *Decl)
+    }
+
+    priv fn _mark_record_definition(self, d: unsafe *Decl) {
+        if isa<Declarations::ClassDecl>(d) {
+            cast<Declarations::ClassDecl>(d)->mark_definition()
+        } else if isa<Declarations::StructDecl>(d) {
+            cast<Declarations::StructDecl>(d)->mark_definition()
+        } else if isa<Declarations::UnionDecl>(d) {
+            cast<Declarations::UnionDecl>(d)->mark_definition()
+        }
+    }
+
+    /// \brief parses a class, struct or union declaration; \p kw is its
+    ///        keyword, the current token.
+    ///  Grammar:  'final'? 'class' head heritage requires? body?
+    ///            ('struct' | 'union') head ('impl' ...)* requires? body?
+    ///    head     := generics? name spec-args?
+    ///    heritage := ('derives' ... | 'impl' ...)*, either order
+    ///  No body is a forward declaration (a non-definition redecl link that
+    ///  merges with the definition wherever it sits in the scope); under ffi
+    ///  (`ffi "c" struct timezone`) it may instead name the header's tag
+    ///  (ImportResolution::_bind_ffi_forwards keys on the ffi linkage, not on
+    ///  the missing body). A struct or union body admits constructors and
+    ///  operators but no named method; only a class reads lead modifiers.
+    priv fn _parse_record(self, kw: TokenKind, lead: unsafe *Self::LeadMods) -> unsafe *Decl {
+        var is_class = kw == TokenKind::KwClass
+        var start = if (is_class && lead->any) => (lead->range) else => self._cur_range()
+
+        if !self.dyn()->enter_depth() {
+            return self._record_error(kw, start)
+        }
+
+        self.dyn()->advance(T::SkipNL::After) // consume the keyword
+
+        // the name may itself carry generics or a specialization marker:
         //   `class <T> Foo`     -> type params
         //   `class <> Box<T>`   -> primary via specialization form (#68)
         //   `class <> Box<i32>` -> explicit specialization
         //   `class <> Box<[T]>` -> partial specialization
         var gparams: kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
-        var cls_intro: Declarations::SpecKind = Declarations::SpecKind::None
-        self._parse_generic_or_spec_intro(unsafe &gparams, &cls_intro)
+        var intro: Declarations::SpecKind = Declarations::SpecKind::None
+        self._parse_generic_or_spec_intro(unsafe &gparams, &intro)
         var has_generics = !gparams.is_empty()
 
         if !self.dyn()->check_is_ident() {
             self.dyn()->diag->report(
                 DiagID::S046E,
                 start.start,
-                "expected class name",
+                f"expected {self._record_word(kw)} name",
             ).first(start)->emit()
             self.dyn()->exit_depth()
             self._sync_decl(Self::DeclSyncCtx::TopLevel)
-            return (Declarations::ClassDecl::create_error(
-                self.dyn()->ctx,
-                start | self.dyn()->prev().range,
-            ))
+            return self._record_error(kw, start | self.dyn()->prev().range)
         }
 
         var name = self.dyn()->current()
         self.dyn()->advance()
 
-        var cd: *Declarations::ClassDecl = Declarations::ClassDecl::create(
-            self.dyn()->ctx,
-            start,
-            name,
-            self.dyn()->scope.current_dc(),
-        )
+        var        slots = Self::RecordSlots{}
+        var unsafe *d    = self._record_create(kw, start, name, unsafe &slots)
+        if is_class {
+            cast<Declarations::ClassDecl>(d)->is_final = lead->is_final
+        }
 
-        cd->is_final = lead->is_final
         if has_generics {
-            cd->generic_params.from_buf(
+            slots.generic_params->from_buf(
                 gparams.data(),
                 gparams.size(),
                 self.dyn()->ctx,
             )
         }
 
-        // specialization argument pattern after the name: `Box<T>`, `Box<[T]>`.
-        // classes/structs/unions accept primary, explicit, and partial. (#68)
-        if (cls_intro != Declarations::SpecKind::None || has_generics)
+        // Specialization argument pattern (#68). Two heads reach it:
+        //   `<> Name<i32>`  - the explicit/full specialization marker.
+        //   `<P> Name<*P>`  - a PARTIAL specialization: the param list binds
+        //                     the pattern variables, the post-name args give
+        //                     the pattern. Without the second form SpecKind::
+        //                     Partial would be unreachable from the grammar.
+        // A bare `Name<i32>` with neither head is still not a specialization.
+        if (intro != Declarations::SpecKind::None || has_generics)
             && self.dyn()->check(TokenKind::OpLess) {
             var sargs: kairo::std::StackBuf<unsafe *Type, 4>
             self._parse_spec_args(&sargs)
-            cd->spec_args.from_buf(sargs.data(), sargs.size(), self.dyn()->ctx)
-            cd->spec_kind = self._classify_record_spec(
+            slots.spec_args->from_buf(
+                sargs.data(),
+                sargs.size(),
+                self.dyn()->ctx,
+            )
+
+            *slots.spec_kind = self._classify_record_spec(
                 unsafe &sargs,
                 unsafe &gparams,
             )
-        } else if cls_intro != Declarations::SpecKind::None {
+        } else if intro != Declarations::SpecKind::None {
             self.dyn()->diag->report(
                 DiagID::S049E,
                 name.range.start,
@@ -4530,22 +4663,33 @@ pub class <T: type> DeclParse {
         // shallowly into dc_decls for the hoist recursion.
         if self.dyn()->mode == T::ParseMode::Index {
             if self.dyn()->_index_skip_to_body() {
-                self._index_walk_body(cd)
+                self._index_walk_body(unsafe (slots.dc as *DeclContext))
             }
 
-            cd->range = start | self.dyn()->prev().range
+            d->range = start | self.dyn()->prev().range
             self.dyn()->exit_depth()
-            return unsafe (cd as unsafe *Decl)
+            return d
         }
 
-        // heritage
-        var dlist: kairo::std::StackBuf<Declarations::InheritEdge, 4>
         var ilist: kairo::std::StackBuf<Declarations::InheritEdge, 4>
-        self._parse_class_heritage(unsafe &dlist, unsafe &ilist)
-        cd->derives_list.from_buf(dlist.data(), dlist.size(), self.dyn()->ctx)
-        cd->implements.from_buf(ilist.data(), ilist.size(), self.dyn()->ctx)
+        if is_class {
+            var unsafe *cd = cast<Declarations::ClassDecl>(d)
+            var dlist: kairo::std::StackBuf<Declarations::InheritEdge, 4>
+            self._parse_class_heritage(unsafe &dlist, unsafe &ilist)
+            cd->derives_list.from_buf(
+                dlist.data(),
+                dlist.size(),
+                self.dyn()->ctx,
+            )
+        } else {
+            // structs and unions take only `impl` (no derives).
+            while self.dyn()->check(TokenKind::KwImpl) {
+                self._parse_inherit_edges(&ilist)
+            }
+        }
 
-        // optional requires
+        slots.implements->from_buf(ilist.data(), ilist.size(), self.dyn()->ctx)
+
         if self._peek_past_nl(TokenKind::KwRequires) {
             self.dyn()->advance(T::SkipNL::After)
             var req = self.dyn()->parse_expr(
@@ -4553,293 +4697,58 @@ pub class <T: type> DeclParse {
             )
 
             if req != &null && !is_recovery(req) {
-                cd->requires_clause = req
+                *slots.requires_clause = req
             }
         }
 
-        self._reject_where_on_type("class")
+        self._reject_where_on_type(self._record_word(kw))
 
-        // body, or a bodyless forward declaration (`class Foo`). A `{` opens the
-        // definition; anything else leaves `cd` a forward declaration (a
-        // non-definition redecl link) for FFI / mutually-recursive types.
         if self.dyn()->check(TokenKind::OpLBrace) {
-            self.dyn()->enter_scope(ScopeKind::Block, cd)
+            self.dyn()->enter_scope(ScopeKind::Block, slots.dc)
             var fields:  kairo::std::StackBuf<unsafe *Declarations::FieldDecl, 8>
-            var methods: kairo::std::StackBuf<unsafe *Declarations::FunctionDecl, 8>
-            self._parse_member_body(cd, name, &fields, &methods, true)
-            cd->fields.from_buf(fields.data(), fields.size(), self.dyn()->ctx)
-            cd->methods.from_buf(
+            var methods: kairo::std::StackBuf<unsafe *Declarations::FunctionDecl, 8> // a struct's or union's: ctors + operators only
+            self._parse_member_body(slots.dc, name, &fields, &methods, is_class)
+            slots.fields->from_buf(
+                fields.data(),
+                fields.size(),
+                self.dyn()->ctx,
+            )
+
+            slots.methods->from_buf(
                 methods.data(),
                 methods.size(),
                 self.dyn()->ctx,
             )
 
-            // A `virtual fn` with no body is pure virtual, and its class
-            // abstract (a bodyless method that is not virtual stays a
-            // declaration). FnBodyKind::Virtual is what every later stage
-            // reads: TypeUtil's polymorphism, ClassLifecycle, the `= 0`.
-            for var i: usize = 0; i < cd->methods.size(); ++i {
-                var unsafe *m = cd->methods[i]
-                if m->abi == Declarations::AbiKind::Virtual
-                    && m->body_kind == Declarations::FnBodyKind::None {
-                    m->body_kind = Declarations::FnBodyKind::Virtual
-                }
-
-                if m->body_kind == Declarations::FnBodyKind::Virtual {
-                    cd->is_abstract = true
-                }
+            if is_class {
+                self._mark_abstract(cast<Declarations::ClassDecl>(d))
             }
 
-            cd->mark_definition()
+            self._mark_record_definition(d)
             self.dyn()->exit_scope()
         }
 
-        cd->range = start | self.dyn()->prev().range
+        d->range = start | self.dyn()->prev().range
         self.dyn()->exit_depth()
-        return unsafe (cd as unsafe *Decl)
+        return d
     }
 
-    //  Struct
-
-    /// \brief parses a struct declaration.
-    ///  Grammar:  'struct' generics? name (impl ...)? body?  (no methods in-body; no body = forward decl)
-    priv fn _parse_struct(self) -> unsafe *Decl {
-        var start = self._cur_range()
-
-        if !self.dyn()->enter_depth() {
-            return Declarations::StructDecl::create_error(
-                self.dyn()->ctx,
-                start,
-            )
-        }
-
-        self.dyn()->advance(T::SkipNL::After) // consume `struct`
-
-        var gparams: kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
-        var struct_intro: Declarations::SpecKind = Declarations::SpecKind::None
-        self._parse_generic_or_spec_intro(unsafe &gparams, &struct_intro)
-        var has_generics = !gparams.is_empty()
-
-        if !self.dyn()->check_is_ident() {
-            self.dyn()->diag->report(
-                DiagID::S046E,
-                start.start,
-                "expected struct name",
-            ).first(start)->emit()
-            self.dyn()->exit_depth()
-            self._sync_decl(Self::DeclSyncCtx::TopLevel)
-            return (Declarations::StructDecl::create_error(
-                self.dyn()->ctx,
-                start | self.dyn()->prev().range,
-            ))
-        }
-
-        var name = self.dyn()->current()
-        self.dyn()->advance()
-
-        var sd: *Declarations::StructDecl = Declarations::StructDecl::create(
-            self.dyn()->ctx,
-            start,
-            name,
-            self.dyn()->scope.current_dc(),
-        )
-
-        if has_generics {
-            sd->generic_params.from_buf(
-                gparams.data(),
-                gparams.size(),
-                self.dyn()->ctx,
-            )
-        }
-
-        // Specialization argument pattern (#68). Two heads reach it:
-        //   `<> Name<i32>`  - the explicit/full specialization marker.
-        //   `<P> Name<*P>`  - a PARTIAL specialization: the param list binds
-        //                     the pattern variables, the post-name args give
-        //                     the pattern. Without the second form SpecKind::
-        //                     Partial would be unreachable from the grammar.
-        // A bare `Name<i32>` with neither head is still not a specialization.
-        if (struct_intro != Declarations::SpecKind::None || has_generics)
-            && self.dyn()->check(TokenKind::OpLess) {
-            var sargs: kairo::std::StackBuf<unsafe *Type, 4>
-            self._parse_spec_args(&sargs)
-            sd->spec_args.from_buf(sargs.data(), sargs.size(), self.dyn()->ctx)
-            sd->spec_kind = self._classify_record_spec(
-                unsafe &sargs,
-                unsafe &gparams,
-            )
-        } else if struct_intro != Declarations::SpecKind::None {
-            self.dyn()->diag->report(
-                DiagID::S049E,
-                name.range.start,
-                "expected specialization arguments '<...>' after the name "
-                "following the '<>' specialization marker",
-            ).first(name.range)->emit()
-        }
-
-        // index mode: see _parse_class.
-        if self.dyn()->mode == T::ParseMode::Index {
-            if self.dyn()->_index_skip_to_body() {
-                self._index_walk_body(sd)
+    /// \brief a `virtual fn` with no body is pure virtual, and its class
+    ///        abstract (a bodyless method that is not virtual stays a
+    ///        declaration). FnBodyKind::Virtual is what every later stage
+    ///        reads: TypeUtil's polymorphism, ClassLifecycle, the `= 0`.
+    priv fn _mark_abstract(self, cd: unsafe *Declarations::ClassDecl) {
+        for var i: usize = 0; i < cd->methods.size(); ++i {
+            var unsafe *m = cd->methods[i]
+            if m->abi == Declarations::AbiKind::Virtual
+                && m->body_kind == Declarations::FnBodyKind::None {
+                m->body_kind = Declarations::FnBodyKind::Virtual
             }
 
-            sd->range = start | self.dyn()->prev().range
-            self.dyn()->exit_depth()
-            return unsafe (sd as unsafe *Decl)
-        }
-
-        // structs take only `impl` (no derives).
-        var ilist: kairo::std::StackBuf<Declarations::InheritEdge, 4>
-        while self.dyn()->check(TokenKind::KwImpl) {
-            self._parse_inherit_edges(&ilist)
-        }
-
-        sd->implements.from_buf(ilist.data(), ilist.size(), self.dyn()->ctx)
-
-        if self._peek_past_nl(TokenKind::KwRequires) {
-            self.dyn()->advance(T::SkipNL::After)
-            var req = self.dyn()->parse_expr(
-                self.dyn()->stop_on(T::ExprStopKind::NoStructLiteral),
-            )
-
-            if req != &null && !is_recovery(req) {
-                sd->requires_clause = req
+            if m->body_kind == Declarations::FnBodyKind::Virtual {
+                cd->is_abstract = true
             }
         }
-
-        self._reject_where_on_type("struct")
-
-        // No `{`: a forward declaration (`struct Node`), like a bodiless
-        // class -- a non-definition link N(a) merges with the definition
-        // wherever it sits in the scope. Under ffi (`ffi "c" struct
-        // timezone`) it may instead name the header's tag
-        // (ImportResolution::_bind_ffi_forwards keys on the ffi linkage,
-        // not on the missing body).
-        if !self.dyn()->check(TokenKind::OpLBrace) {
-            sd->range = start | self.dyn()->prev().range
-            self.dyn()->exit_depth()
-            return unsafe (sd as unsafe *Decl)
-        }
-
-        self.dyn()->enter_scope(ScopeKind::Block, sd)
-        var fields:  kairo::std::StackBuf<unsafe *Declarations::FieldDecl, 8>
-        var methods: kairo::std::StackBuf<unsafe *Declarations::FunctionDecl, 8> // ctors + operators only
-        self._parse_member_body(sd, name, &fields, &methods, false)
-        sd->fields.from_buf(fields.data(), fields.size(), self.dyn()->ctx)
-        sd->methods.from_buf(methods.data(), methods.size(), self.dyn()->ctx)
-
-        sd->mark_definition()
-        sd->range = start | self.dyn()->prev().range
-        self.dyn()->exit_scope()
-        self.dyn()->exit_depth()
-        return unsafe (sd as unsafe *Decl)
-    }
-
-    //  Union
-
-    /// \brief parses a union declaration.
-    ///  Grammar:  'union' generics? name body?   (fields only, no methods; no body = forward decl)
-    priv fn _parse_union(self) -> unsafe *Decl {
-        var start = self._cur_range()
-
-        if !self.dyn()->enter_depth() {
-            return Declarations::UnionDecl::create_error(self.dyn()->ctx, start)
-        }
-
-        self.dyn()->advance(T::SkipNL::After) // consume `union`
-
-        var gparams: kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
-        var union_intro: Declarations::SpecKind = Declarations::SpecKind::None
-        self._parse_generic_or_spec_intro(unsafe &gparams, &union_intro)
-        var has_generics = !gparams.is_empty()
-
-        if !self.dyn()->check_is_ident() {
-            self.dyn()->diag->report(
-                DiagID::S046E,
-                start.start,
-                "expected union name",
-            ).first(start)->emit()
-            self.dyn()->exit_depth()
-            self._sync_decl(Self::DeclSyncCtx::TopLevel)
-            return (Declarations::UnionDecl::create_error(
-                self.dyn()->ctx,
-                start | self.dyn()->prev().range,
-            ))
-        }
-
-        var name = self.dyn()->current()
-        self.dyn()->advance()
-
-        var ud: *Declarations::UnionDecl = Declarations::UnionDecl::create(
-            self.dyn()->ctx,
-            start,
-            name,
-            self.dyn()->scope.current_dc(),
-        )
-
-        if has_generics {
-            ud->generic_params.from_buf(
-                gparams.data(),
-                gparams.size(),
-                self.dyn()->ctx,
-            )
-        }
-
-        // Specialization argument pattern (#68). Two heads reach it:
-        //   `<> Name<i32>`  - the explicit/full specialization marker.
-        //   `<P> Name<*P>`  - a PARTIAL specialization: the param list binds
-        //                     the pattern variables, the post-name args give
-        //                     the pattern. Without the second form SpecKind::
-        //                     Partial would be unreachable from the grammar.
-        // A bare `Name<i32>` with neither head is still not a specialization.
-        if (union_intro != Declarations::SpecKind::None || has_generics)
-            && self.dyn()->check(TokenKind::OpLess) {
-            var sargs: kairo::std::StackBuf<unsafe *Type, 4>
-            self._parse_spec_args(&sargs)
-            ud->spec_args.from_buf(sargs.data(), sargs.size(), self.dyn()->ctx)
-            ud->spec_kind = self._classify_record_spec(
-                unsafe &sargs,
-                unsafe &gparams,
-            )
-        } else if union_intro != Declarations::SpecKind::None {
-            self.dyn()->diag->report(
-                DiagID::S049E,
-                name.range.start,
-                "expected specialization arguments '<...>' after the name "
-                "following the '<>' specialization marker",
-            ).first(name.range)->emit()
-        }
-
-        // index mode: see _parse_class.
-        if self.dyn()->mode == T::ParseMode::Index {
-            if self.dyn()->_index_skip_to_body() {
-                self._index_walk_body(ud)
-            }
-
-            ud->range = start | self.dyn()->prev().range
-            self.dyn()->exit_depth()
-            return unsafe (ud as unsafe *Decl)
-        }
-
-        // No `{`: a forward declaration (`union Payload`); see _parse_struct.
-        if !self.dyn()->check(TokenKind::OpLBrace) {
-            ud->range = start | self.dyn()->prev().range
-            self.dyn()->exit_depth()
-            return unsafe (ud as unsafe *Decl)
-        }
-
-        self.dyn()->enter_scope(ScopeKind::Block, ud)
-        var fields:  kairo::std::StackBuf<unsafe *Declarations::FieldDecl, 8>
-        var methods: kairo::std::StackBuf<unsafe *Declarations::FunctionDecl, 8> // ctors + operators only
-        self._parse_member_body(ud, name, &fields, &methods, false)
-        ud->fields.from_buf(fields.data(), fields.size(), self.dyn()->ctx)
-        ud->methods.from_buf(methods.data(), methods.size(), self.dyn()->ctx)
-
-        ud->mark_definition()
-        ud->range = start | self.dyn()->prev().range
-        self.dyn()->exit_scope()
-        self.dyn()->exit_depth()
-        return unsafe (ud as unsafe *Decl)
     }
 
     //  Interface
@@ -4898,7 +4807,7 @@ pub class <T: type> DeclParse {
             )
         }
 
-        // index mode: see _parse_class.
+        // index mode: see _parse_record.
         if self.dyn()->mode == T::ParseMode::Index {
             if self.dyn()->_index_skip_to_body() {
                 self._index_walk_body(id)

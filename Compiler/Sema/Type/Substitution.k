@@ -39,6 +39,7 @@ import AST::ASTSupport::{
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_generic_params,
+    decl_implements,
     decl_is_ctor_requirement,
     decl_type_owner,
 }
@@ -1734,13 +1735,8 @@ pub class Substitution {
     }
 
     priv fn _impl_list_into(self, d: unsafe *Decl, out: unsafe *cxx::std::vector<unsafe *Type>) {
-        if isa<ClassDecl>(d) {
-            self._edges_into(&cast<ClassDecl>(d)->implements, &*out)
-        }
-
-        if isa<StructDecl>(d) {
-            self._edges_into(&cast<StructDecl>(d)->implements, &*out)
-        }
+        var edges = decl_implements(d)
+        self._edges_into(&edges, &*out)
     }
 
     priv fn _edges_into(self,
@@ -1846,15 +1842,8 @@ pub class Substitution {
     }
 
     priv fn _impl_list_reaches(self, d: unsafe *Decl, want: unsafe *Decl) -> bool {
-        if isa<ClassDecl>(d) {
-            return self._edges_reach(&cast<ClassDecl>(d)->implements, want)
-        }
-
-        if isa<StructDecl>(d) {
-            return self._edges_reach(&cast<StructDecl>(d)->implements, want)
-        }
-
-        return false
+        var edges = decl_implements(d)
+        return self._edges_reach(&edges, want)
     }
 
     priv fn _edges_reach(self, edges: *FrozenList<InheritEdge>, want: unsafe *Decl) -> bool {

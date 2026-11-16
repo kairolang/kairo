@@ -32,6 +32,7 @@ import AST::Context::SymbolTable::{
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
     decl_extension_of,
+    decl_implements,
     decl_is_ffi,
     decl_name_tok,
     decl_requires_clause,
@@ -276,10 +277,10 @@ extend IndexWalker {
             }
 
             self.method_edges_(d, &inherited)
-        } else if isa<Declarations::StructDecl>(d) {
-            var unsafe *c = cast<Declarations::StructDecl>(d)
-            for var i: usize = 0; i < c->implements.size(); ++i {
-                self.base_edge_(d, c->implements[i].base, &inherited)
+        } else if isa<Declarations::StructDecl>(d) || isa<Declarations::UnionDecl>(d) {
+            var impls = decl_implements(d)
+            for var i: usize = 0; i < impls.size(); ++i {
+                self.base_edge_(d, impls[i].base, &inherited)
             }
 
             self.method_edges_(d, &inherited)

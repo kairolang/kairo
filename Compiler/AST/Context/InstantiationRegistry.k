@@ -2726,6 +2726,7 @@ pub class InstantiationRegistry {
                 0,
             )
 
+            n->implements.from_raw(&null, 0)
             n->is_anonymous = p->is_anonymous
             return n
         }

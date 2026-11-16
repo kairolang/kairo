@@ -347,19 +347,10 @@ extend EmitPlan {
 
         // The witnesses of what the file declares d implements: on d itself,
         // and on every `extend d impl I` of the file.
-        if isa<Declarations::ClassDecl>(d) {
-            var *ce = &cast<Declarations::ClassDecl>(d)->implements
-            for var i: usize = 0; i < ce->size(); ++i {
-                if ce->get(i) != &null {
-                    self._ff_iface(ce->get(i)->base, out, 0)
-                }
-            }
-        } else if isa<Declarations::StructDecl>(d) {
-            var *se = &cast<Declarations::StructDecl>(d)->implements
-            for var i: usize = 0; i < se->size(); ++i {
-                if se->get(i) != &null {
-                    self._ff_iface(se->get(i)->base, out, 0)
-                }
+        var edges = DeclFacts::decl_implements(d)
+        for var i: usize = 0; i < edges.size(); ++i {
+            if edges.get(i) != &null {
+                self._ff_iface(edges.get(i)->base, out, 0)
             }
         }
 

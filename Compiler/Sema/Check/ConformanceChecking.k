@@ -69,8 +69,9 @@ import AST::Context::InstantiationRegistry::{
 import AST::Context::SymbolTable::DeclName
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
-    decl_extension_of, decl_generic_params, decl_is_ctor_requirement, decl_is_imported,
-    decl_is_instance,  decl_name_tok,       decl_pattern,             decl_requires_clause,
+    decl_extension_of,    decl_generic_params, decl_implements, decl_is_ctor_requirement,
+    decl_is_imported,     decl_is_instance,    decl_name_tok,   decl_pattern,
+    decl_requires_clause,
 }
 import AST::ExprFacts::callee_decl
 import AST::Kind::ExprKind::ExprKind
@@ -966,23 +967,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             self._cur_at = d->range
         }
 
-        if isa<Declarations::ClassDecl>(d) {
-            var unsafe *cd = cast<Declarations::ClassDecl>(d)
-            for var i: usize = 0; i < cd->implements.size(); ++i {
-                self._check_declared(
-                    d,
-                    self._self_type(d),
-                    cd->implements.get(i)->base,
-                )
-            }
-        } else if isa<Declarations::StructDecl>(d) {
-            var unsafe *sd = cast<Declarations::StructDecl>(d)
-            for var i: usize = 0; i < sd->implements.size(); ++i {
-                self._check_declared(
-                    d,
-                    self._self_type(d),
-                    sd->implements.get(i)->base,
-                )
+        if isa<Declarations::ClassDecl>(d)
+            || isa<Declarations::StructDecl>(d)
+            || isa<Declarations::UnionDecl>(d) {
+            var edges = decl_implements(d)
+            for var i: usize = 0; i < edges.size(); ++i {
+                self._check_declared(d, self._self_type(d), edges.get(i)->base)
             }
         } else if isa<Declarations::ExtensionDecl>(d) {
             var unsafe *x = cast<Declarations::ExtensionDecl>(d)
@@ -4167,19 +4157,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         var home = self.tu.fid_of(w)
         if self.tu.fid_of(rec) == home {
-            if isa<Declarations::ClassDecl>(rec)
-                && self._impl_edges_name(
-                    &cast<Declarations::ClassDecl>(rec)->implements,
-                    idecl,
-                ) {
-                return true
-            }
-
-            if isa<Declarations::StructDecl>(rec)
-                && self._impl_edges_name(
-                    &cast<Declarations::StructDecl>(rec)->implements,
-                    idecl,
-                ) {
+            var edges = decl_implements(rec)
+            if self._impl_edges_name(&edges, idecl) {
                 return true
             }
         }
@@ -4338,37 +4317,19 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return &null
         }
 
-        if isa<Declarations::ClassDecl>(pat) {
-            var unsafe *cd = cast<Declarations::ClassDecl>(pat)
-            for var i: usize = 0; i < cd->implements.size(); ++i {
-                var unsafe *g = self._covers(
-                    pat,
-                    self._self_type(pat),
-                    cd->implements.get(i)->base,
-                    x,
-                    iface,
-                    row,
-                )
+        var edges = decl_implements(pat)
+        for var i: usize = 0; i < edges.size(); ++i {
+            var unsafe *g = self._covers(
+                pat,
+                self._self_type(pat),
+                edges.get(i)->base,
+                x,
+                iface,
+                row,
+            )
 
-                if g != &null {
-                    return g
-                }
-            }
-        } else if isa<Declarations::StructDecl>(pat) {
-            var unsafe *sd = cast<Declarations::StructDecl>(pat)
-            for var i: usize = 0; i < sd->implements.size(); ++i {
-                var unsafe *g = self._covers(
-                    pat,
-                    self._self_type(pat),
-                    sd->implements.get(i)->base,
-                    x,
-                    iface,
-                    row,
-                )
-
-                if g != &null {
-                    return g
-                }
+            if g != &null {
+                return g
             }
         }
 

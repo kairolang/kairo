@@ -4056,6 +4056,14 @@ pub class <D: type> RecursiveASTVisitor {
             self.dyn()->dispatch_expr(n->requires_clause)
         }
 
+        for var i: usize = 0; i < n->implements.size(); i++ {
+            if self.stop {
+                break
+            }
+
+            self.dyn()->traverse_inherit_edge(n->implements.get(i))
+        }
+
         for var i: usize = 0; i < n->fields.size(); i++ {
             if self.stop {
                 break

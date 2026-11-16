@@ -54,8 +54,9 @@ import AST::Context::SymbolTable::{
 }
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
-    decl_bases,   decl_fields,  decl_generic_params,  decl_in_generic_owner, decl_is_instance,
-    decl_methods, decl_pattern, decl_requires_clause, decl_spec_args,
+    decl_bases,            decl_fields,      decl_generic_params, decl_implements,
+    decl_in_generic_owner, decl_is_instance, decl_methods,        decl_pattern,
+    decl_requires_clause,  decl_spec_args,
 }
 import AST::Kind::TypeKind::TypeKind
 import AST::Mixin::Annotation::VisibilityKind
@@ -950,9 +951,9 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             var unsafe *c = cast<Declarations::ClassDecl>(d)
             s += self._edges("i", &c->implements)
             s += f"|cf{c->is_final as u8}{c->is_abstract as u8}"
-        } else if isa<Declarations::StructDecl>(d) {
-            var unsafe *c = cast<Declarations::StructDecl>(d)
-            s += self._edges("i", &c->implements)
+        } else if isa<Declarations::StructDecl>(d) || isa<Declarations::UnionDecl>(d) {
+            var impls = decl_implements(d)
+            s += self._edges("i", &impls)
         } else if isa<Declarations::InterfaceDecl>(d) {
             // A requirement is read by every conformer, whether or not it
             // names it: all of them are layout.

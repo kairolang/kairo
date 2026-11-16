@@ -503,6 +503,17 @@ pub class FlagGates derives RecursiveASTVisitor<FlagGates> {
             )
         }
 
+        var icap = self.sc->opts.max_interface_impls
+        if icap > 0 && n->implements.size() > (icap as usize) {
+            self._limit(
+                n->name.range,
+                "union implements too many interfaces",
+                n->implements.size(),
+                icap,
+                "--cmax-interface-impls",
+            )
+        }
+
         return true
     }
 
