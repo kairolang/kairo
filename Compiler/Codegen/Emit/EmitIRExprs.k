@@ -88,6 +88,24 @@ import Codegen::Emit::EmitIRStmts
 import Codegen::Emit::Spell::Speller
 
 extend EmitIR {
+    /// A character literal borrows its bytes: C++ reads the same escapes.
+    /// `'\{'` and `'\}'` are the two it does not know (the lexer accepts
+    /// them with S022W), so those are spelled as the brace itself. The
+    /// bytes are the token's own; a literal a macro expansion carries has
+    /// the invocation's range and is borrowed as it is.
+    priv fn _char_lit(self, n: unsafe *CharacterLiteralExpr) {
+        var text = self._cg->ctx->sm->get_text(n->token.range)
+        if text.size() == 4 && text[1] == 0x5c && (text[2] == 0x7b || text[2] == 0x7d) {
+            var cxx_v = "'"
+            cxx_v.push_back(text[2])
+            cxx_v += "'"
+            self._cg->sink->create_char(n->token.range, &cxx_v)
+            return
+        }
+
+        self._cg->sink->synth(n->token, clang::tok::char_constant)
+    }
+
     /// # Expressions
 
     fn emit(self, e: unsafe *Expr) {
@@ -115,10 +133,7 @@ extend EmitIR {
             } case ExprKind::FloatingLiteralExpr {
                 self._float_lit(cast<FloatingLiteralExpr>(e))
             } case ExprKind::CharacterLiteralExpr {
-                self._cg->sink->synth(
-                    cast<CharacterLiteralExpr>(e)->token,
-                    clang::tok::char_constant,
-                )
+                self._char_lit(cast<CharacterLiteralExpr>(e))
             } case ExprKind::BooleanLiteralExpr {
                 self._cg->sink->spell(e->range, (if (cast<BooleanLiteralExpr>(e)->value) => ("true") else => "false"))
             } case ExprKind::NullLiteralExpr {

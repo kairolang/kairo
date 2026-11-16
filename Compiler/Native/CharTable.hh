@@ -109,9 +109,12 @@ alignas(64) static constexpr libcxx::array<CharClass, 128> ASCII_CLASS = [] {
     t['#'] = CharClass::Identifier;
 
     // operators
+    // The array's terminating NUL is not an operator: NUL keeps the class
+    // the whitespace loop gave it, and SourceManager::validate_utf8 reports
+    // every NUL byte of a file once, as S011E.
     constexpr const char ops[] = "{}()[]+-*/%^|&~<>!=?@:;,.\\";
-    for (char c : ops)
-        t[static_cast<unsigned char>(c)] = CharClass::Operator;
+    for (int i = 0; ops[i] != '\0'; ++i)
+        t[static_cast<unsigned char>(ops[i])] = CharClass::Operator;
 
     // strings
     t['"']  = CharClass::String;

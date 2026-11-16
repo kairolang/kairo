@@ -2478,12 +2478,17 @@ pub class Lexer {
                     self.get_source_location(),
                 )
 
+                // A warning: the literal stands, and the escape is the brace
+                // (Immediate::Escape's value), as every decoder reads it.
                 self._diag->report(
                     DiagCode(DiagID::S022W),
                     range.start,
                     "'\\{' and '\\}' escapes are only valid inside format strings (f\"...\"); remove the backslash or use an f-string prefix",
-                ).first(range)->emit()
-                return false
+                ).first(range)->remove(
+                    SourceRange::from_bounds(start, 1u32),
+                    "remove the backslash",
+                )->emit()
+                return true
             } case Immediate::EscapeKind::Hex, Immediate::EscapeKind::Unicode {
                 // \xHH, \uHHHH, \UHHHHHHHH: exactly 2, 4 or 8 hex digits
                 self.advance_cursor(e.len)

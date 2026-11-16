@@ -120,8 +120,13 @@ group = "syntax"
     }
     ```
 
+    a NUL byte (U+0000) anywhere in a source file is this error too, including inside a string
+    literal or a comment: a source file is text. each run of NUL bytes is reported once, at its
+    first byte, and the rest of the file is still compiled.
+
     ## how to fix
     check the syntax of your code and ensure that all tokens are valid and correctly placed. look for typos, missing punctuation, or incorrect syntax that may be causing the error.
+    for a NUL byte, delete it; to put a zero byte in a string, write the escape `\\0` or `\\x00`.
     """
 
     # no warning, note, remark or tip for this diagnostic, as it is a syntax error that must be fixed before the code can be compiled.
@@ -478,11 +483,11 @@ group = "syntax"
 
     [S022.W]
     explain = """
-    # `\\{` or `\\}` escape invalid in non-format string
+    # `\\{` or `\\}` escape outside a format string
 
-    this error occurs when the escape sequences `\\{` or `\\}` are used inside a regular (non-format) string literal.
-    these escapes are only meaningful in format strings (`f"..."`) where `{` and `}` have special interpolation meaning.
-    in a plain string they are unrecognized.
+    this warning is given when the escape sequences `\\{` or `\\}` are used inside a regular (non-format) string
+    or character literal. these escapes are only needed in format strings (`f"..."`), where `{` and `}` open and
+    close an interpolation. elsewhere the backslash does nothing: the literal is kept and the escape is the brace.
 
     ## example
 
@@ -493,7 +498,7 @@ group = "syntax"
 
     - incorrect usage:
     ```kairo
-    var s = "literal brace: \\{"  // invalid \\{ only works in f-strings
+    var s = "literal brace: \\{"  // warning: the same string as "literal brace: {"
     ```
 
     ## how to fix

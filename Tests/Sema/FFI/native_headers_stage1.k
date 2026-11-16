@@ -4,7 +4,7 @@
 // from Kairo with Kairo's own types in it -- the shapes the self-hosted
 // compiler's sources use:
 //
-//   StackBuf / Expected over Kairo records (TypeExport stand-ins fill them);
+//   StackBuf over Kairo records (TypeExport stand-ins fill them);
 //   sref and Logger over a Kairo string, an f-string and a literal (the
 //   native::bytes template takes any of them);
 //   ice_fail, the [[noreturn]] Stage 1 entry point, behind the Kairo macro
@@ -19,13 +19,10 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/SmallFunction.hh"
 
-import std::c_char
-
 macro ice_if!(cond, msg) { if cond { kairo::std::ice_fail(msg) } }
 macro ice_fail!(msg)     { kairo::std::ice_fail(msg) }
 
 struct Node { var v: i32 }
-enum ResolveError { NotFound, Ambiguous }
 
 fn stack_sum() -> i32 {
     var buf: kairo::std::StackBuf<Node, 2>
@@ -35,17 +32,6 @@ fn stack_sum() -> i32 {
     var sum: i32 = 0
     for var i: u32 = 0; i < buf.size(); ++i { sum += buf[i].v }
     return sum
-}
-
-fn expect_found(ok: bool) -> kairo::std::Expected<Node, ResolveError> {
-    if ok { return kairo::std::Expected<Node, ResolveError>(Node{v: 9}) }
-    return kairo::std::Expected<Node, ResolveError>(ResolveError::NotFound)
-}
-
-fn expected_value() -> i32 {
-    var r = expect_found(true)
-    if !r.check() { return -1 }
-    return r.value_or(Node{v: 0}).v
 }
 
 fn text(n: i32) -> usize {
@@ -72,10 +58,6 @@ fn locks() {
     m.lock()
     m.unlock()
     var order = kairo::std::MemoryOrder::relaxed
-}
-
-fn triple() -> unsafe *const c_char {
-    return kairo::std::default_target_triple_cstr()
 }
 
 fn main() -> i32 { return 0 }

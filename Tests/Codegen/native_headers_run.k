@@ -3,7 +3,6 @@
 //
 //   StackBuf  keeps N inline and grows to the heap past them; the elements
 //             survive the move (sum 1+2+3).
-//   Expected  holds a value or an error, never both; check() says which.
 //   sref      sees the exact bytes, embedded NUL included.
 //   ice_fail  prints the ICE banner with the message on stderr and abort()s
 //             (not exit): the process dies on SIGABRT, and nothing after it
@@ -21,12 +20,6 @@ import std::io
 macro ice_if!(cond, msg) { if cond { kairo::std::ice_fail(msg) } }
 
 struct Node { var v: i32 }
-enum ResolveError { NotFound, Ambiguous }
-
-fn find(ok: bool) -> kairo::std::Expected<Node, ResolveError> {
-    if ok { return kairo::std::Expected<Node, ResolveError>(Node{v: 9}) }
-    return kairo::std::Expected<Node, ResolveError>(ResolveError::Ambiguous)
-}
 
 var built: i32 = 0
 
@@ -43,10 +36,6 @@ fn main() -> i32 {
     var sum: i32 = 0
     for var i: u32 = 0; i < buf.size(); ++i { sum += buf[i].v }
     io::println(f"stackbuf {sum} {buf.size()}")
-
-    var a = find(true)
-    var b = find(false)
-    io::println(f"expected {a.check()} {a.value_or(Node{v: 0}).v} {b.check()}")
 
     var s: string = "ab"
     s.push_back(0)
@@ -72,7 +61,6 @@ fn main() -> i32 {
 // RUN: %FileCheck %s --check-prefix=ERR < %t.err
 //
 // OUT:      stackbuf 6 3
-// OUT-NEXT: expected true 9 false
 // OUT-NEXT: sref 4
 // OUT-NEXT: messages built 0
 // OUT-NOT:  not reached

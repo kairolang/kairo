@@ -142,6 +142,16 @@ static inline const u8 *skip_ascii_simd(const u8 *p, const u8 *end) noexcept {
 }
 
 
+/// \brief the first NUL byte in [p, end), or `end` when there is none.
+static inline const u8 *find_nul(const u8 *p, const u8 *end) noexcept {
+    if (p >= end) {
+        return end;
+    }
+
+    const void *hit = libcxx::memchr(p, 0, static_cast<usize>(end - p));
+    return hit != nullptr ? static_cast<const u8 *>(hit) : end;
+}
+
 ///
 /// \brief decodes a utf-8 sequence using a lookup table.
 ///

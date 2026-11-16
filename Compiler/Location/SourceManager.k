@@ -609,7 +609,8 @@ pub class SourceManager {
 
     ///
     /// \brief checks that \p fid's buffer is well-formed UTF-8, reporting
-    ///        S072E once per maximal run of invalid bytes.
+    ///        S072E once per maximal run of invalid bytes, and S011E once
+    ///        per run of NUL bytes.
     ///
     /// \details Runs once per file, before lexing, and is linear: ASCII is
     ///          skipped 16 bytes at a time and only non-ASCII reaches the
@@ -644,6 +645,8 @@ pub class SourceManager {
         const      end:  kairo::std::ConstPtr<u8> = base + buf.size()
         var unsafe *p                             = base
         var        valid                          = true
+
+        self._report_nul_bytes(fid, base, end)
 
         while p < end {
             p = kairo::skip_ascii_simd(p, end)
@@ -687,6 +690,41 @@ pub class SourceManager {
 
         self._files[fid]->utf8_valid = valid
         return valid
+    }
+
+    /// Reports S011E once per run of NUL bytes in [\p base, \p end), the
+    /// bytes of \p fid. A NUL is valid UTF-8 and no token: the lexer skips
+    /// it as whitespace between tokens and keeps it as content inside a
+    /// string or a comment, so this is the one place it is reported,
+    /// wherever it stands.
+    priv fn _report_nul_bytes(self,
+                              fid:  FileID,
+                              base: kairo::std::ConstPtr<u8>,
+                              end:  kairo::std::ConstPtr<u8>) {
+        var unsafe *p = kairo::find_nul(base, end)
+        while p < end {
+            var unsafe *run = p
+            while p < end && *p == 0 {
+                p += 1
+            }
+
+            var range = self.get_range(
+                fid,
+                (run - base) as usize,
+                (p - run) as usize,
+            )
+
+            var b = self._diag->report(
+                DiagID::S011E,
+                range.start,
+                "NUL byte in source; a source file is text and cannot contain U+0000",
+            )
+
+            b.first(range)
+            b.emit()
+
+            p = kairo::find_nul(p, end)
+        }
     }
 
     ///

@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------------------ Native/Types.hh --- ///
 ///
 ///   The C++ base layer under the compiler: ownership aliases, std re-exports,
-///   SmallFunction, Expected, StackBuf, target queries and the ICE hook.
+///   SmallFunction, StackBuf, target queries and the ICE hook.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -499,126 +499,6 @@ using ConstPtr = const T *;
 template <typename T>
 using restrict_ptr = T *__RESTRICT__;
 
-template <typename T, typename E>
-class Expected {
-    union {
-        T value;
-        E error;
-    };
-    bool has_value;
-
-  public:
-    /// An error state holding a value-initialized E: the destructor destroys
-    /// whichever member `has_value` names, so one of them is always alive.
-    constexpr Expected()
-        : error()
-        , has_value(false) {}
-
-    constexpr Expected(const T &val)
-        : value(val)
-        , has_value(true) {}
-
-    constexpr Expected(T &&val)
-        : value(libcxx::move(val))
-        , has_value(true) {}
-
-    constexpr Expected(const E &err)
-        : error(err)
-        , has_value(false) {}
-
-    constexpr Expected(E &&err)
-        : error(libcxx::move(err))
-        , has_value(false) {}
-
-    constexpr Expected(const Expected &other)
-        : has_value(other.has_value) {
-        if (has_value) {
-            libcxx::construct_at(&value, other.value);
-        } else {
-            libcxx::construct_at(&error, other.error);
-        }
-    }
-
-    constexpr Expected(Expected &&other) noexcept
-        : has_value(other.has_value) {
-        if (has_value) {
-            libcxx::construct_at(&value, libcxx::move(other.value));
-        } else {
-            libcxx::construct_at(&error, libcxx::move(other.error));
-        }
-    }
-
-    constexpr ~Expected() {
-        if (has_value) {
-            libcxx::destroy_at(&value);
-        } else {
-            libcxx::destroy_at(&error);
-        }
-    }
-
-    constexpr Expected &operator=(const Expected &other) {
-        if (this != &other) {
-            this->~Expected();
-            libcxx::construct_at(this, other);
-        }
-        return *this;
-    }
-
-    constexpr Expected &operator=(Expected &&other) noexcept {
-        if (this != &other) {
-            this->~Expected();
-            libcxx::construct_at(this, libcxx::move(other));
-        }
-        return *this;
-    }
-
-    constexpr explicit operator bool() const { return has_value; }
-    constexpr bool     check() const { return has_value; }
-
-    constexpr T       &operator*()       &{ return value; }
-    constexpr const T &operator*() const & { return value; }
-    constexpr T      &&operator*()      &&{ return libcxx::move(value); }
-
-    constexpr T       *operator->() { return &value; }
-    constexpr const T *operator->() const { return &value; }
-
-    constexpr E       &err()       &{ return error; }
-    constexpr const E &err() const & { return error; }
-    constexpr E      &&err()      &&{ return libcxx::move(error); }
-
-    constexpr T &value_or(T &default_value) & {
-        return has_value ? value : default_value;
-    }
-
-    constexpr T value_or(T &&default_value) && {
-        return has_value ? libcxx::move(value) : libcxx::move(default_value);
-    }
-
-    constexpr T value_or(const T &default_value) const & {
-        return has_value ? value : default_value;
-    }
-
-    constexpr T value_or(T &&default_value) const & {
-        return has_value ? value : libcxx::move(default_value);
-    }
-
-    constexpr E err_or(E &default_error) & {
-        return has_value ? default_error : error;
-    }
-
-    constexpr E err_or(E &&default_error) && {
-        return has_value ? libcxx::move(default_error) : libcxx::move(error);
-    }
-
-    constexpr E err_or(const E &default_error) const & {
-        return has_value ? default_error : error;
-    }
-
-    constexpr E err_or(E &&default_error) const & {
-        return has_value ? default_error : libcxx::move(error);
-    }
-};
-
 template <typename F>
 inline void
 sleep_while(F &&condition)  // NOLINT(cppcoreguidelines-missing-std-forward)
@@ -648,46 +528,6 @@ sleep_while(F &&condition)  // NOLINT(cppcoreguidelines-missing-std-forward)
     while (condition()) {
         libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(100));
     }
-}
-
-/// The triple this compiler targets when none is given: the host's arch and
-/// OS, with the vendor and environment Kairo ships for it. Compiler policy,
-/// not a host query, which is why it stays here rather than in std::env.
-/// A C string so both worlds can wrap it in their own string type.
-inline const char *default_target_triple_cstr() noexcept {
-#if defined(__aarch64__) || defined(_M_ARM64)
-#if defined(__APPLE__)
-    return "aarch64-apple-macosx11.0.0";
-#elif defined(__linux__)
-    return "aarch64-unknown-linux-musl";
-#elif defined(_WIN32)
-    return "aarch64-pc-windows-gnu";
-#else
-    return "aarch64-unknown-unknown";
-#endif
-#elif defined(__x86_64__) || defined(_M_X64)
-#if defined(__APPLE__)
-    return "x86_64-apple-macosx10.15.0";
-#elif defined(__linux__)
-    return "x86_64-unknown-linux-musl";
-#elif defined(_WIN32)
-    return "x86_64-pc-windows-gnu";
-#else
-    return "x86_64-unknown-unknown";
-#endif
-#elif defined(__riscv)
-#if defined(__riscv_xlen) && (__riscv_xlen == 64)
-    return "riscv64-unknown-linux-musl";
-#else
-    return "riscv32-unknown-linux-musl";
-#endif
-#elif defined(__wasm32__)
-    return "wasm32-unknown-unknown";
-#elif defined(__wasm64__)
-    return "wasm64-unknown-unknown";
-#else
-    return "unknown-unknown-unknown";
-#endif
 }
 
 inline const char *thread_model_cstr() noexcept {
