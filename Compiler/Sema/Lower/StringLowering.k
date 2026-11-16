@@ -21,9 +21,14 @@
 ///     (StringLiteralExpr::c_string) becomes the bytes alone:
 ///       strlen("ab")         ->  strlen("ab")
 ///
-///     Only a literal typed `string` is rewritten. The byte literals this
-///     pass and FStringLowering mint are pointer-typed and pass through to
-///     EmitIR, which spells them from their bytes.
+///     A byte string is the slice over its bytes, and nothing else: no
+///     `string`, no allocation, no copy. The bytes are the same static C++
+///     literal; its terminating NUL is not counted.
+///       b"ab\xff"            ->  Slice("ab\377" as unsafe *const u8, 3)
+///
+///     Only a literal typed `string`, and a byte string, is rewritten. The
+///     byte literals this pass and FStringLowering mint are pointer-typed
+///     and pass through to EmitIR, which spells them from their bytes.
 ///
 ///   \par Postcondition
 ///     No StringLiteralExpr typed `string` reaches codegen, and no f-string
@@ -108,6 +113,10 @@ pub class StringLowering derives ASTWriter<StringLowering> {
             return out
         }
 
+        if n->is_bytes() {
+            return self._byte_slice(n)
+        }
+
         if n->udl_op != &null && n->type_ != &null {
             // Typed as the operator's result, not `string`: the early return
             // below would leave a literal in codegen.
@@ -189,6 +198,52 @@ pub class StringLowering derives ASTWriter<StringLowering> {
             n->range,
             n->string_ctor,
             to_string(WellKnownType::String),
+            &args,
+            n->type_,
+        )
+    }
+
+    /// `Slice(<bytes> as unsafe *const u8, <len>)`, typed `[const u8;]`: the
+    /// address of the literal's static bytes and how many there are. Each
+    /// escape is one byte (string_chain_bytes reads the Bytes prefix).
+    priv fn _byte_slice(self, n: unsafe *StringLiteralExpr) -> unsafe *Expr {
+        if n->bytes_ctor == &null || n->type_ == &null {
+            kairo::std::ice_fail(
+                "StringLowering: byte string with no constructor bound; LiteralTyping must bind it",
+            )
+        }
+
+        var bytes = cxx::std::vector<u8>()
+        self._collect(n, unsafe &bytes)
+
+        var unsafe *u8t = self.sc->types->qualified(
+            self.sc->builtin(BuiltinKind::U8),
+            QUAL_CONST,
+        )
+
+        var unsafe *pu8 = self.sc->types->pointer(u8t)
+        var        args = self.list_builder<unsafe *Expr>()
+        args.push(
+            self.synth.cast_to(
+                n->range,
+                self.synth.bytes_literal(n->range, unsafe &bytes, pu8),
+                pu8,
+                CastMode::Unsafe,
+            ),
+        )
+
+        args.push(
+            self.synth.int_literal(
+                n->range,
+                bytes.size() as u64,
+                BuiltinKind::USize,
+            ),
+        )
+
+        return self.synth.ctor_call(
+            n->range,
+            n->bytes_ctor,
+            to_string(WellKnownType::Slice),
             &args,
             n->type_,
         )

@@ -42,6 +42,7 @@ fn good() {
 // DIAG: {{.*}}:14:26: error [S027E]: octal escape '\777' is out of byte range (0-255, i.e., \0-\377)
 // DIAG: {{.*}}:15:26: warning [S025W]: octal escape '\033' is only valid in byte strings (b"..."); use '\u' for unicode codepoints
 // DIAG: {{.*}}:16:26: warning [S022W]: '\{' and '\}' escapes are only valid inside format strings (f"..."); remove the backslash or use an f-string prefix
+// DIAG-NEXT: fix-it:"{{.*}}":{16:26-16:27}:""
 // DIAG: {{.*}}:23:21: warning [S025W]: octal escape '\0' is only valid in byte strings (b"..."); use '\u' for unicode codepoints
 // DIAG: {{.*}}:6:25: error [S063E]: unexpected token found where 'string' expected
 // DIAG: {{.*}}:7:25: error [S063E]: unexpected token found where 'string' expected
@@ -52,5 +53,4 @@ fn good() {
 // DIAG: {{.*}}:12:25: error [S063E]: unexpected token found where 'string' expected
 // DIAG: {{.*}}:13:25: error [S063E]: unexpected token found where 'string' expected
 // DIAG: {{.*}}:14:25: error [S063E]: unexpected token found where 'string' expected
-// DIAG: {{.*}}:16:25: error [S063E]: unexpected token found where 'string' expected
 // END-GENERATED-CHECKS(DIAG)

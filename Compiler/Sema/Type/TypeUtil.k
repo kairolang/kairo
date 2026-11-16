@@ -1279,7 +1279,8 @@ pub class TypeUtil {
     }
 
     /// \p e as written is a plain string literal (not an f-string, which
-    /// is built at run time): what a C string parameter of an imported
+    /// is built at run time, and not a byte string, which is a slice and
+    /// converts to no pointer): what a C string parameter of an imported
     /// function takes without a `string` being made. The bare
     /// literal only; a parenthesized one stays a `string`.
     fn c_string_literal(self, e: unsafe *Expr) -> unsafe *StringLiteralExpr {
@@ -1288,7 +1289,7 @@ pub class TypeUtil {
         }
 
         var unsafe *s = cast<StringLiteralExpr>(e)
-        if s->is_format() {
+        if s->is_format() || s->is_bytes() {
             return &null
         }
 

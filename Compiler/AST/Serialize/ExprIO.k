@@ -308,6 +308,7 @@ fn io_string_literal_expr(ar: unsafe *ASTArchive, n: unsafe *StringLiteralExpr) 
 
     eval if defined!(DEBUG) {
         ar->sema_null<Decl>(n->string_ctor, "StringLiteralExpr::string_ctor")
+        ar->sema_null<Decl>(n->bytes_ctor, "StringLiteralExpr::bytes_ctor")
         ar->sema_null<Decl>(n->fmt_ctor, "StringLiteralExpr::fmt_ctor")
         ar->sema_null<Decl>(n->fmt_text, "StringLiteralExpr::fmt_text")
         ar->sema_null<Decl>(n->fmt_finish, "StringLiteralExpr::fmt_finish")

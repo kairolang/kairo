@@ -394,7 +394,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
 
         if isa<StringLiteralExpr>(a) {
             var unsafe *sl = cast<StringLiteralExpr>(a)
-            if sl->is_format() {
+            if sl->is_format() || sl->is_bytes() {
                 return ""
             }
 
@@ -510,6 +510,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             && a != &null
             && isa<StringLiteralExpr>(a)
             && !cast<StringLiteralExpr>(a)->is_format()
+            && !cast<StringLiteralExpr>(a)->is_bytes()
         if ok {
             return
         }

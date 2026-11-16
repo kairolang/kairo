@@ -1014,6 +1014,13 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 )
             }
 
+            if sl->is_bytes() {
+                return self._vx_fail(
+                    e,
+                    "a byte string is not computed at compile time yet",
+                )
+            }
+
             var unsafe *st = ce.tu.string_type()
             if st == &null {
                 return self._vx_fail(e, "the string lang item is not declared")

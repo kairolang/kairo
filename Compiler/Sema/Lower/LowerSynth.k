@@ -780,7 +780,13 @@ pub class LowerSynth {
         }
 
         var view = self.sc->ctx->sm->get_view(range)
-        return Immediate::decode_escapes(view.data(), view.size(), raw, out)
+        return Immediate::decode_escapes(
+            view.data(),
+            view.size(),
+            raw,
+            false,
+            out,
+        )
     }
 
     /// The raw bytes of \p range, no decoding.

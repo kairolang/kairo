@@ -4,8 +4,9 @@
  Layout
 --------
 Compiler/
-├── Lexer/          source text -> tokens (Lexer.k; scanners: HexParser,
-│                   OctalParser, Immediate; BalanceTracker; ImmBig.k: wide
+├── Lexer/          source text -> tokens (Lexer.k; Immediate: literal
+│                   records and the escape table; UnicodeTables: generated
+│                   XID / White_Space ranges; BalanceTracker; ImmBig.k: wide
 │                   literal arithmetic, Int128 / ImmBigInt / ImmBigFloat)
 ├── Token/          token types and kind enums (Token, TokenKind), buffers and
 │                   windows over them (TokenBuffer, TokenSpan), an identifier's

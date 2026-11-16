@@ -963,12 +963,11 @@ pub module Immediate {
 
     /// A text literal's prefix letters, one bit each; a literal's set of them
     /// is a FlagSet (Support/FlagSet.k), empty for none, so `rf` is both.
+    /// Bytes (`b"..."`) stands alone: the lexer reports `br` and `bf`.
     pub enum TextPrefixKind derives u8 {
         Format = 1 << 0,
         Raw    = 1 << 1,
-        // Format
-        // Bytes
-        // BytesFormat
+        Bytes  = 1 << 2,
     }
 
     /// One f-string hole beyond what `exprs` carries: the format spec after
@@ -1173,14 +1172,17 @@ pub module Immediate {
     ///        \p out with every escape decoded; \p raw copies it verbatim.
     ///
     /// \details Every escape is written as UTF-8, `\xHH` and octal included
-    ///          (`\xFF` is the two bytes of U+00FF). False on an escape
+    ///          (`\xFF` is the two bytes of U+00FF). In a byte string
+    ///          (\p bytes) an escape is one byte instead, its value: the
+    ///          lexer admits none above 0xFF there. False on an escape
     ///          that is not complete (Escape::complete: an unknown letter, a short
     ///          digit run, a backslash at the end), which the lexer has
     ///          already reported for source text.
-    pub fn decode_escapes(p:   kairo::std::ConstPtr<u8>,
-                          n:   usize,
-                          raw: bool,
-                          out: unsafe *cxx::std::vector<u8>) -> bool {
+    pub fn decode_escapes(p:     kairo::std::ConstPtr<u8>,
+                          n:     usize,
+                          raw:   bool,
+                          bytes: bool,
+                          out:   unsafe *cxx::std::vector<u8>) -> bool {
         var i: usize = 0
         while i < n {
             var b = p[i]
@@ -1196,7 +1198,11 @@ pub module Immediate {
             }
 
             i += e.len
-            push_utf8(e.value, out)
+            if bytes {
+                out->push_back(e.value as u8)
+            } else {
+                push_utf8(e.value, out)
+            }
         }
 
         return true
@@ -1874,7 +1880,7 @@ pub fn next_string_segment(tbl: unsafe *ImmediateTable,
 ///
 /// \details A segment with owned text (stringify!, file!) is already
 ///          decoded and is copied; any other segment is its body, decoded
-///          per its own Raw prefix. Reads only: the chain, and the table,
+///          per its own Raw and Bytes prefix. Reads only: the chain, and the table,
 ///          are left as they are. False when a segment does not decode
 ///          (see decode_escapes); \p out then holds the bytes before it.
 ///
@@ -1896,6 +1902,7 @@ pub fn string_chain_bytes(tbl:  unsafe *ImmediateTable,
                 view.data(),
                 view.size(),
                 seg->prefix_kind.has(Immediate::TextPrefixKind::Raw),
+                seg->prefix_kind.has(Immediate::TextPrefixKind::Bytes),
                 out,
             ) {
                 return false

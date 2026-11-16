@@ -574,30 +574,29 @@ group = "syntax"
     """
 
 [S025]
-brief = "octal escape sequence in non-byte string"
+brief = "octal escape sequence in a string literal"
 group = "syntax"
 
     [S025.W]
     explain = """
-    # octal escape only valid in byte strings
+    # octal escape in a string
 
-    this error occurs when an octal escape sequence (`\\0`-`\\777`) appears in a regular (non-byte) string literal.
-    octal escapes encode raw byte values and are only permitted in byte string literals (`b"..."`).
+    this warning is given when an octal escape sequence (`\\0`-`\\377`) appears in a string or
+    character literal that is not a byte string. the escape is accepted, and stands for the
+    character with that code point (`\\033` is U+001B), exactly like the hex escape of the same
+    value. octal is the notation of raw bytes: it belongs in a byte string (`b"..."`), where each
+    escape is one byte.
 
     ## example
 
-    - correct usage:
     ```kairo
-    var byte_str = b"\\101"  // byte value 0x41 = 'A'
-    ```
-
-    - incorrect usage:
-    ```kairo
-    var s = "\\101"  // octal escapes require a byte string
+    var esc   = "\\033[0m"    // warning: write "\\x1b[0m"
+    var bytes = b"\\033[0m"   // fine: a byte string
     ```
 
     ## how to fix
-    prefix the string with `b` to make it a byte string, or use a unicode escape (`\\u0041`) in a regular string.
+    write the hex escape the warning names (`\\x1b`), or make the literal a byte string when the
+    value is meant as bytes.
     """
 
 [S026]
@@ -2194,4 +2193,38 @@ group = "ast"
     ## how to fix
 
     swap the two words (the fix-it does): `unsafe const &x`.
+    """
+
+[S097]
+brief = "malformed byte string literal"
+group = "syntax"
+
+    [S097.E]
+    explain = """
+    # malformed byte string
+
+    a byte string `b"..."` is a `[const u8;]`: a read-only view of the literal's bytes. it is
+    written in ASCII, and each escape in it is one byte (`\\n`, `\\t`, `\\\\`, `\\"`, `\\0`, an octal
+    escape up to `\\377`, `\\xNN`). this error is one of:
+
+    - a non-ASCII character in the literal: write its bytes as `\\xNN` escapes
+    - `br"..."` / `rb"..."`: there is no raw byte string; write `b"..."` and escape each backslash
+    - `bf"..."` / `fb"..."`: a byte string has no interpolation
+    - a suffix after the closing quote (`b"x"_km`): a literal suffix applies to a `string`
+    - a byte string next to a string (`b"a" "b"`): adjacent literals join only when every one is
+      a byte string, or none is
+
+    `\\u` and `\\U` escapes in a byte string are S029E, and `\\b` is S032E.
+
+    ## example
+
+    ```kairo
+    var magic = b"\\x7fELF"          // [const u8;] of 4 bytes
+    var two   = b"ab" b"cd"          // one byte string of 4 bytes
+    var bad   = b"caf\\u00e9"        // S029E; write b"caf\\xc3\\xa9"
+    ```
+
+    ## how to fix
+    follow the case above. for text, use a string (`"..."`); for bytes, keep the literal ASCII and
+    escape everything else.
     """

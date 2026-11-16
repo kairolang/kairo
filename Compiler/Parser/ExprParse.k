@@ -4043,6 +4043,12 @@ pub class <T: type> ExprParse {
                 skind.set(StringLiteralExpr::StringKind::Raw)
             }
 
+            // The head's, and so the chain's: the lexer reports a chain
+            // that mixes byte strings and strings.
+            if sdata->prefix_kind.has(Immediate::TextPrefixKind::Bytes) {
+                skind.set(StringLiteralExpr::StringKind::Bytes)
+            }
+
             var unsafe *seg = sdata
             while seg != &null {
                 if seg->prefix_kind.has(Immediate::TextPrefixKind::Format) {

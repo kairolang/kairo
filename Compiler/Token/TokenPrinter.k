@@ -544,6 +544,10 @@ pub class TokenPrinter {
         }
 
         var s: string = ""
+        if k.has(Immediate::TextPrefixKind::Bytes) {
+            s = s + "b"
+        }
+
         if k.has(Immediate::TextPrefixKind::Raw) {
             s = s + "r"
         }

@@ -4250,6 +4250,12 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
     fn _dx_string_literal(self, e: unsafe *StringLiteralExpr, is_last: bool) {
         self._head("StringLiteralExpr", is_last)
         self._inline_expr(e)
+        // The prefix is not part of the literal's token; `b` changes what
+        // the literal is, so it is shown.
+        if e->is_bytes() {
+            self._dim("bytes")
+        }
+
         // The suffix is a separate token, not part of the literal's own
         // spelling; without it `"hi"_len` dumped as a plain string though Sema
         // makes it a literal-operator call. It belongs to the whole joined

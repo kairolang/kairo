@@ -968,14 +968,17 @@ pub struct FormatHole {
 
 ///
 ///  StringLiteralExpr
-///  "hello" | r"raw \n" | f"hi {name}!"
+///  "hello" | r"raw \n" | f"hi {name}!" | b"bytes\xff"
 ///
 pub class StringLiteralExpr derives Expr {
     /// One bit per prefix; a literal's kind is a FlagSet of them
     /// (Support/FlagSet.k): empty for a plain "hello", both for `rf"..."`.
+    /// Bytes is never set with another: a byte string is not a `string` but
+    /// a `[const u8;]` over its bytes.
     pub enum StringKind derives u8 {
         Raw    = 1 << 0, ///< r"raw \n"
         Format = 1 << 1, ///< f"hi {name}!"
+        Bytes  = 1 << 2, ///< b"bytes\xff"
     }
 
     pub var token:       Token
@@ -985,7 +988,8 @@ pub class StringLiteralExpr derives Expr {
     pub var imm:         unsafe *Immediate::StringData = &null ///< pointer to the immediate table entry
 
     /// Written by X (LiteralTyping), read by the lowerings; nobody else.
-    pub var string_ctor: unsafe *Decl           = &null ///< string(data, len, cp_len). Every literal.
+    pub var string_ctor: unsafe *Decl           = &null ///< string(data, len, cp_len). Every literal but a byte string.
+    pub var bytes_ctor:  unsafe *Decl           = &null ///< Slice(data, len).           Byte strings.
     pub var fmt_ctor:    unsafe *Decl           = &null ///< FmtBuf(cap).            Format literals.
     pub var fmt_text:    unsafe *Decl           = &null ///< FmtBuf::text.
     pub var fmt_finish:  unsafe *Decl           = &null ///< FmtBuf::finish.
@@ -1019,6 +1023,7 @@ pub class StringLiteralExpr derives Expr {
         node->string_kind = string_kind
         node->ctx         = ctx
         node->string_ctor = &null
+        node->bytes_ctor  = &null
         node->fmt_ctor    = &null
         node->fmt_text    = &null
         node->fmt_finish  = &null
@@ -1039,6 +1044,7 @@ pub class StringLiteralExpr derives Expr {
         node->range         = range
         node->ctx           = ctx
         node->string_ctor   = &null
+        node->bytes_ctor    = &null
         node->fmt_ctor      = &null
         node->fmt_text      = &null
         node->fmt_finish    = &null
@@ -1202,6 +1208,10 @@ pub class StringLiteralExpr derives Expr {
 
     pub fn is_raw(self) -> bool {
         return self.string_kind.has(Self::StringKind::Raw)
+    }
+
+    pub fn is_bytes(self) -> bool {
+        return self.string_kind.has(Self::StringKind::Bytes)
     }
 
     fn is_plain(self) -> bool {

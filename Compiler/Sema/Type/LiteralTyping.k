@@ -46,6 +46,7 @@ import AST::Node::Base::{
 }
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
+    QUAL_CONST,
     builtin_info,
     canon_unqual,
     is_c_character,
@@ -735,12 +736,17 @@ pub class <T: type> LiteralTyping {
 
     /// # the rest
 
-    /// Every literal is a `string`. A plain one gets its constructor bound; a
-    /// format one gets, per hole, everything FStringLowering needs to mint
-    /// without a lookup: the kind, the conversion, the packed spec.
+    /// Every literal but a byte string is a `string`. A plain one gets its
+    /// constructor bound; a format one gets, per hole, everything
+    /// FStringLowering needs to mint without a lookup: the kind, the
+    /// conversion, the packed spec.
     fn type_string_literal(self,
                            n:        unsafe *StringLiteralExpr,
                            expected: unsafe *Type) -> unsafe *Type {
+        if n->is_bytes() {
+            return self._type_byte_literal(n)
+        }
+
         var s = self.dyn()->tu.string_type()
         if s == &null {
             self.dyn()->missing_lang_item(n, to_string(WellKnownType::String))
@@ -791,6 +797,26 @@ pub class <T: type> LiteralTyping {
 
         if !self._type_format_literal(n, s) {
             self.dyn()->poison_only(n)
+            return &null
+        }
+
+        return s
+    }
+
+    /// `b"..."` is a `[const u8;]`: a view of its bytes, which nothing
+    /// writes through. Its own type whatever is expected; the conversions
+    /// from there are a slice's. StringLowering builds it with the
+    /// constructor bound here, `Slice(data, len)`.
+    priv fn _type_byte_literal(self, n: unsafe *StringLiteralExpr) -> unsafe *Type {
+        var unsafe *elem = self.dyn()->sc->types->qualified(
+            self.dyn()->tu.builtin(BuiltinKind::U8),
+            QUAL_CONST,
+        )
+
+        var unsafe *s = self.dyn()->tu.slice_of(elem)
+        n->bytes_ctor = self._lang_ctor(WellKnownType::Slice, 2, false)
+        if s == &null || n->bytes_ctor == &null {
+            self.dyn()->missing_lang_item(n, to_string(WellKnownType::Slice))
             return &null
         }
 

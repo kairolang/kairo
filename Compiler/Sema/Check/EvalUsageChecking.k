@@ -157,7 +157,7 @@ pub class ReturnFinder derives RecursiveASTVisitor<ReturnFinder> {
 pub class ConstEvalStrings derives RecursiveASTVisitor<ConstEvalStrings> {
     fn ConstEvalStrings(self) { }
     fn visit_string_literal_expr(self, n: *StringLiteralExpr) -> bool {
-        if !n->is_format() {
+        if !n->is_format() && !n->is_bytes() {
             n->const_eval = true
         }
 
@@ -1371,11 +1371,12 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         // are a constant array and the literal constructor is constexpr. An
         // f-string is not: it formats into a heap buffer.
         var *sl? = dyn_cast<StringLiteralExpr>(e)
-        if sl != &null && sl->is_format() {
+        if sl != &null && (sl->is_format() || sl->is_bytes()) {
             var fb = self.sc->diag->report(
                 DiagID::SC116E,
                 e->range.start,
-                "an f-string in an eval context is not yet supported",
+                if (sl->is_format()) => ("an f-string in an eval context is not yet supported")
+                else => "a byte string in an eval context is not yet supported",
             )
 
             fb.first(e->range)

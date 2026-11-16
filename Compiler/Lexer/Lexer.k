@@ -180,6 +180,7 @@ pub class Lexer {
 
     const PFX_FORMAT: u8 = 1 << 0
     const PFX_RAW:    u8 = 1 << 1
+    const PFX_BYTES:  u8 = 1 << 2
 
     /// HashState values of the two-character runs lex_symbol turns into
     /// comments; no TokenKind is numbered with them.
@@ -212,6 +213,7 @@ pub class Lexer {
         var imm_idx:   u32
         var is_format: bool                        = false
         var is_raw:    bool                        = false
+        var is_bytes:  bool                        = false ///< `b"..."`: escapes are bytes, the text is ASCII
         var imm:       unsafe *Immediate::TextData = &null ///< the literal's StringData or CharData
         var prefix:    Token
 
@@ -1189,12 +1191,13 @@ pub class Lexer {
         token.set_range(self.create_source_range(start))
 
         // A string prefix touching its quote is read off its bytes and never
-        // interned: it names nothing. A longer name is a name.
+        // interned: it names nothing. A longer name is a name. `b` is a
+        // string's prefix only: before a `'` it is the name `b`.
         if length < 3 {
             var dec = self.peek_char32()
             if dec.chr == '"' || dec.chr == '\'' {
                 var ptype = self.text_prefix_bits(s_p, length)
-                if ptype != 0 {
+                if ptype != 0 && ((ptype & self.PFX_BYTES) == 0 || dec.chr == '"') {
                     token.imm = ptype
                     return self.lex_text(self.get_source_location(), token)
                 }
@@ -1819,6 +1822,10 @@ pub class Lexer {
 
         self.scan_text_body(&ctx)
 
+        if ctx.is_bytes && !ctx.has_error {
+            self.check_byte_text(&ctx)
+        }
+
         if !self.finalize_text(&ctx) {
             return self.create_error_token(start, TokenKind::LitString)
         }
@@ -1843,8 +1850,20 @@ pub class Lexer {
                 break
             }
 
+            // Bytes and text do not join: one is a `[const u8;]`, the other
+            // a `string`. The chain is still linked, so the one error is all
+            // the literal reports.
+            var unsafe *seg_d = self.get_imm<Immediate::StringData>(seg.imm)
+            if seg_d->prefix_kind.has(Immediate::TextPrefixKind::Bytes) != ctx.is_bytes {
+                self._diag->report(
+                    DiagCode(DiagID::S097E),
+                    seg.range.start,
+                    "a byte string and a string cannot be joined: every literal of a chain is b\"...\", or none is",
+                ).first(seg.range)->emit()
+            }
+
             *link = seg.imm
-            link  = unsafe &self.get_imm<Immediate::StringData>(seg.imm)->next
+            link  = unsafe &seg_d->next
             head.set_range(
                 SourceRange::from_bounds(head.range.start, seg.range.end),
             )
@@ -1915,8 +1934,9 @@ pub class Lexer {
         return seg
     }
 
-    /// \brief the length of the string prefix at the cursor (`f`, `r`, `fr`,
-    ///        `rf`, either case) when a `"` follows it directly, else 0.
+    /// \brief the length of the string prefix at the cursor (`f`, `r`, `b`,
+    ///        or two of them, either case) when a `"` follows it directly,
+    ///        else 0.
     ///
     /// \details decides, without consuming, that the name at the cursor is a
     ///          prefix and not a word, by the same test lex_name lexes it with.
@@ -1935,8 +1955,11 @@ pub class Lexer {
     }
 
     /// \brief the PFX_* bits of the \p n bytes at \p p when they spell a
-    ///        string prefix: `f`, `r`, `fr` or `rf`, either case. 0 for
-    ///        anything else, `ff` and `rr` included.
+    ///        string prefix: `f`, `r`, `b`, or two different ones, either
+    ///        case. 0 for anything else, `ff` and `rr` included.
+    ///
+    /// \details `br` and `bf` are prefixes here so that the literal after
+    ///          them is lexed as one; init_text_ctx reports them.
     priv inline fn text_prefix_bits(self, p: kairo::std::ConstPtr<u8>, n: usize) -> u8 {
         if n == 0 || n > 2 {
             return 0
@@ -1944,12 +1967,14 @@ pub class Lexer {
 
         var bits: u8 = 0
         for var i: usize = 0; i < n; ++i {
-            var lower    = p[i] | 0x20 // 'F' -> 'f', 'R' -> 'r'; no other byte lands on either
+            var lower    = p[i] | 0x20 // 'F' -> 'f', 'R' -> 'r', 'B' -> 'b'; no other byte lands on one
             var bit:  u8 = 0
             if lower == ('f' as u8) {
                 bit = self.PFX_FORMAT
             } else if lower == ('r' as u8) {
                 bit = self.PFX_RAW
+            } else if lower == ('b' as u8) {
+                bit = self.PFX_BYTES
             }
 
             if bit == 0 || (bits & bit) != 0 {
@@ -2024,10 +2049,26 @@ pub class Lexer {
         ctx.is_format = false
         ctx.is_raw    = false
 
+        ctx.is_bytes = false
+
         if prefix == TokenKind::LitIdentifier {
             ctx.is_format = (prefix.imm & self.PFX_FORMAT) != 0
             ctx.is_raw    = (prefix.imm & self.PFX_RAW) != 0
+            ctx.is_bytes  = (prefix.imm & self.PFX_BYTES) != 0
             ctx.prefix    = prefix
+        }
+
+        // `b` combines with nothing. The literal is still lexed whole, as
+        // bytes (raw when `r` was written, so its backslashes report
+        // nothing more; never with holes), and stays one token.
+        if ctx.is_bytes && (ctx.is_format || ctx.is_raw) {
+            self._diag->report(
+                DiagCode(DiagID::S097E),
+                prefix.range.start,
+                if (ctx.is_format) => ("a byte string cannot be a format string: 'b' and 'f' do not combine")
+                else => "a raw byte string is not supported: write b\"...\" and escape each backslash",
+            ).first(prefix.range)->emit()
+            ctx.is_format = false
         }
 
         ctx.in_format_depth  = 0
@@ -2197,7 +2238,7 @@ pub class Lexer {
                     self.advance_cursor((d.len as usize))
                     if !self.is_valid_escape(
                         esc_start,
-                        ctx.is_raw,
+                        ctx.is_bytes,
                         ctx.is_format,
                     ) {
                         ctx.has_error = true
@@ -2342,9 +2383,53 @@ pub class Lexer {
 
         if self.is_valid_name(self.peek_char32()) != 0 {
             var suffix = self.lex_name(self.get_source_location())
-            if suffix.kind != TokenKind::TkUnknown {
-                ctx.imm->suffix.set_range(suffix.range)
+            if suffix.kind == TokenKind::TkUnknown {
+                return
             }
+
+            // A suffix names a literal operator over a `string`; bytes have
+            // none. The name is consumed and dropped.
+            if ctx.is_bytes {
+                self._diag->report(
+                    DiagCode(DiagID::S097E),
+                    suffix.range.start,
+                    "a byte string takes no literal suffix",
+                ).first(suffix.range)->remove(suffix.range, "remove the suffix")->emit()
+                return
+            }
+
+            ctx.imm->suffix.set_range(suffix.range)
+        }
+    }
+
+    /// \brief reports each run of non-ASCII bytes in the body of the byte
+    ///        string \p ctx as S097E.
+    ///
+    /// \details A byte string's source text is ASCII: what a character
+    ///          above U+007F would mean (which encoding's bytes) is not
+    ///          left to the file's. One pass over the finished body, off
+    ///          scan_text_body's per-character path.
+    priv fn check_byte_text(self, @inout ctx: Self::TextCtx) {
+        const base: kairo::std::ConstPtr<u8> = self.file_data()
+        var i   = ((ctx.body_start.raw() - self._loc_base) as usize)
+        var end = ((ctx.body_end.raw() - self._loc_base) as usize)
+        while i < end {
+            if base[i] < 0x80 {
+                i += 1
+                continue
+            }
+
+            var run = i
+            while i < end && base[i] >= 0x80 {
+                i += 1
+            }
+
+            var range = self.create_source_range(run, i)
+            self._diag->report(
+                DiagCode(DiagID::S097E),
+                range.start,
+                "non-ASCII character in a byte string; write its bytes as '\\xNN' escapes",
+            ).first(range)->emit()
         }
     }
 
@@ -2410,6 +2495,10 @@ pub class Lexer {
 
         if ctx.is_format {
             prefix_kind.set(Immediate::TextPrefixKind::Format)
+        }
+
+        if ctx.is_bytes {
+            prefix_kind.set(Immediate::TextPrefixKind::Bytes)
         }
 
         ctx.imm->prefix_kind = prefix_kind
@@ -2479,6 +2568,21 @@ pub class Lexer {
             f"character U+{Lexer::hex4(first)} cannot appear in an identifier, or anywhere outside a string, a character literal or a comment",
         ).first(range)->emit()
         return n
+    }
+
+    /// The low byte of \p v as two lower-case hex digits: the `NN` of `\xNN`.
+    static fn hex2(v: u32) -> string {
+        var out = ""
+        for var shift: u32 = 8; shift > 0; shift -= 4 {
+            var nib = ((v >> (shift - 4)) & 0xF) as u8
+            if nib < 10 {
+                out.push_back(('0' as u8) + nib)
+            } else {
+                out.push_back(('a' as u8) + (nib - 10))
+            }
+        }
+
+        return out
     }
 
     /// \p c in upper-case hex, at least four digits: the `XXXX` of `U+XXXX`.
@@ -2735,11 +2839,28 @@ pub class Lexer {
                         self.get_source_location(),
                     )
 
-                    self._diag->report(
+                    // The hex escape is the same character: `\x` is a code
+                    // point here too. Above 0xFF there is none, and S027E
+                    // follows.
+                    var text = self._sm->get_text(range)
+                    var hex  = f"\\x{Lexer::hex2(e.value)}"
+                    var msg = f"octal escape '{text}' outside a byte string; octal escapes are for byte strings (b\"...\")"
+                    if e.value <= 0xFF {
+                        msg = f"octal escape '{text}' outside a byte string; write '{hex}' (octal escapes are for byte strings, b\"...\")"
+                    }
+
+                    var w = self._diag->report(
                         DiagCode(DiagID::S025W),
                         range.start,
-                        f"octal escape '{self._sm->get_text(range)}' is only valid in byte strings (b\"...\"); use '\\u' for unicode codepoints",
-                    ).first(range)->emit()
+                        msg,
+                    )
+
+                    w.first(range)
+                    if e.value <= 0xFF {
+                        w.fix(range, hex, "write the hex escape")
+                    }
+
+                    w.emit()
                 }
 
                 // three octal digits reach 0o777
@@ -6755,20 +6876,14 @@ pub fn Test() -> i32 {
         10,
     )
 
-    // PINNING TEST byte strings are NOT implemented in this lexer version.
-    // The prefix switch has no 'b'/'B' cases and no PFX_BYTES const, so
-    // b"..." lexes as identifier 'b' followed by an ordinary string, and the
-    // is_byte machinery in is_valid_escape (S029E etc.) is unreachable dead
-    // wiring. This test pins that behavior: when byte strings land, it will
-    // fail here at that point restore the real assertion (S029E on \u in a
-    // byte string) and wire TextCtx.is_bytes -> is_valid_escape properly
-    // (note: the call site currently passes ctx.is_raw as is_byte).
+    // `b"..."` is one string token with the Bytes prefix kind, and a
+    // unicode escape in it is an error (S029E).
     suite.equal<string>(
-        "byte string prefix not yet implemented (pin)",
+        "byte string prefix",
         "pass",
         fn () -> string {
             var res = create_lexer_from_string_with_diag(
-                "b\"\\u0041\"",
+                "b\"\\x41\"",
                 sm,
                 pool,
                 test_diag_p,
@@ -6786,20 +6901,52 @@ pub fn Test() -> i32 {
             }
 
             var unsafe *tokens = lexer->tokens()
-            if content_count(tokens) != 2 {
-                return dump_tokens(tokens, 2)
+            if content_count(tokens) != 1 {
+                return dump_tokens(tokens, 1)
             }
 
-            if tokens->get(0)->kind != TokenKind::LitIdentifier {
-                return f"expected 'b' as LitIdentifier, got {token_kind_to_readable_string(tokens->get(0)->kind)}"
+            if tokens->get(0)->kind != TokenKind::LitString {
+                return f"expected LitString, got {token_kind_to_readable_string(tokens->get(0)->kind)}"
             }
 
-            if tokens->get(1)->kind != TokenKind::LitString {
-                return f"expected LitString, got {token_kind_to_readable_string(tokens->get(1)->kind)}"
+            var unsafe *imm = lexer->get_imm<Immediate::StringData>(
+                tokens->get(0)->imm,
+            )
+
+            if !imm->prefix_kind.has(Immediate::TextPrefixKind::Bytes) {
+                return "expected prefix_kind Bytes"
             }
 
             if lexer->has_errors() {
-                return f"lexer reported {lexer->error_count()} error(s); byte strings implemented? restore the real test"
+                return f"lexer reported {lexer->error_count()} error(s) for a valid byte string"
+            }
+
+            return "pass"
+        },
+        10,
+    )
+
+    suite.equal<string>(
+        "unicode escape in a byte string is an error",
+        "pass",
+        fn () -> string {
+            var res = create_lexer_from_string_with_diag(
+                "b\"\\u0041\"",
+                sm,
+                pool,
+                test_diag_p,
+            )
+
+            var unsafe *lexer = res.0
+            var        fid    = res.1
+
+            finally {
+                kairo::std::destroy(lexer)
+            }
+
+            lexer->lex(fid)
+            if !lexer->has_errors() {
+                return "expected S029E for '\\u' in a byte string, but no errors found"
             }
 
             return "pass"

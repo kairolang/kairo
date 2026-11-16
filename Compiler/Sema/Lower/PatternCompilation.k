@@ -258,7 +258,7 @@ pub fn pattern_string_bytes(sc:  unsafe *SemaContext,
     }
 
     var unsafe *lit = cast<StringLiteralExpr>(e)
-    if lit->is_format() || lit->imm == &null {
+    if lit->is_format() || lit->is_bytes() || lit->imm == &null {
         return false
     }
 
