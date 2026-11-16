@@ -2995,8 +2995,12 @@ pub class <T: type> DeclParse {
     }
 
     /// \brief parses trailing function modifiers into fd->modifiers.
+    /// \details a modifier sits on the line of what it follows. A keyword
+    ///          that starts a line opens the next declaration: after a
+    ///          signature with no body, `eval if`, `eval N: T`, `inline fn`
+    ///          or `const x` on the following line is not this function's.
     priv fn _parse_fn_modifiers(self, fd: *Declarations::FunctionDecl) {
-        while true {
+        while !self.dyn()->starts_line() {
             if self.dyn()->check(TokenKind::KwConst) {
                 self._reject_trailing_const(fd)
             } else if self.dyn()->check(TokenKind::KwVolatile) {
