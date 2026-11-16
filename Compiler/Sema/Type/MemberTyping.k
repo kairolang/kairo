@@ -532,14 +532,12 @@ pub class <T: type> MemberTyping {
             if cur_kind == ChainKind::Value {
                 recv_q = self.dyn()->ml.object_quals(val)
                 // An `if` of lvalues is one C++ lvalue, const when an arm
-                // is (CallTyping::if_of_lvalues): the object a member is
-                // read from or called on.
+                // is (CallTyping::if_of_lvalues), and a method called on it
+                // is picked by that const. The chain's category is not
+                // read from it: to Kairo the `if` is a value, no place.
                 var arms_const = false
-                if i == 0 && self.dyn()->if_of_lvalues(n->base, val, &arms_const) {
-                    obj_cat = Expr::ValueCategory::LValue
-                    if arms_const {
-                        recv_q = recv_q | QUAL_CONST
-                    }
+                if i == 0 && self.dyn()->if_of_lvalues(n->base, val, &arms_const) && arms_const {
+                    recv_q = recv_q | QUAL_CONST
                 }
 
                 val = self.dyn()->ml.peel_ref(val)

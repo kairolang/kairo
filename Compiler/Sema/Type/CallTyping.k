@@ -267,10 +267,11 @@ pub class <T: type> CallTyping {
         // expression stays a value: only the binding reads this.
         var arms_const = false
         if a.cat == Expr::ValueCategory::RValue
-            && !moves_on_pass(self.dyn()->sc, a.ty)
-            && self.if_of_lvalues(e, a.ty, &arms_const) {
-            a.cat      = Expr::ValueCategory::LValue
-            a.is_const = arms_const
+            && self.if_of_lvalues(e, a.ty, &arms_const)
+            && !moves_on_pass(self.dyn()->sc, a.ty) {
+            a.cat       = Expr::ValueCategory::LValue
+            a.is_const  = arms_const
+            a.if_lvalue = true
         }
 
         return a

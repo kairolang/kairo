@@ -271,6 +271,10 @@ pub class ArgInfo {
     /// what an `@inout` parameter borrows -- an `@inout` argument is never
     /// moved from.
     pub var pass_moves: bool = false
+    /// `cat` is LValue only because the argument is an `if` expression of
+    /// lvalues, which C++ reads as one lvalue (CallTyping::if_of_lvalues).
+    /// To Kairo it is a value: an `@inout` parameter does not borrow it.
+    pub var if_lvalue: bool = false
     /// The `&` MARKER (AST/ParamMode.k). `marked` when the argument as
     /// written is `&e`. `expr` is the whole `&e`, typed as the address-of it
     /// may still turn out to be (against `x: *T` that is what it means);
@@ -3180,6 +3184,14 @@ pub class OverloadResolution {
                 obj     = *a
                 obj.cat = Expr::ValueCategory::LValue
                 ra      = &obj
+            } else if a->if_lvalue && p->mode == ParamMode::Inout {
+                // Kairo's own `@inout` borrows a place, and an `if`
+                // expression is none. A C++ `T&` still binds the lvalue the
+                // emitted conditional is, and asks for its marker.
+                obj          = *a
+                obj.cat      = Expr::ValueCategory::RValue
+                obj.is_const = false
+                ra           = &obj
             }
 
             var r = ImplicitRank::None
