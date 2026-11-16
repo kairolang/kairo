@@ -13,5 +13,6 @@ fn f() {
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:9:14: warning [S025W]: octal escape '\033' is only valid in byte strings (b"..."); use '\u' for unicode codepoints
+// DIAG: {{.*}}:9:14: warning [S025W]: octal escape '\033' outside a byte string; write '\x1b' (octal escapes are for byte strings, b"...")
+// DIAG-NEXT: fix-it:"{{.*}}":{9:14-9:18}:"\\x1b"
 // END-GENERATED-CHECKS(DIAG)

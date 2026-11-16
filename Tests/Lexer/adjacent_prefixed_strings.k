@@ -2,11 +2,11 @@
 // string, blanks and newlines are skipped and the next literal chains onto it
 // (StringData::next) when it starts with `"` or with a string prefix glued to
 // its quote: f, r, fr / rf, any case, the spellings lex_name accepts. Only the
-// head is a token; the parser gives the node every segment's holes.
+// head is a token; the parser gives the node every segment's holes. (A byte
+// string `b"..."` chains only with byte strings: Lexer/byte_string_errors.k.)
 //
 // Not a chain: a prefix with a space before its quote (`f "b"` is a name and
-// a string), a word that is not a prefix (`ff`, `b`: there are no byte
-// strings), and a char literal. A prefix glued to the closing quote
+// a string), a word that is not a prefix (`ff`), and a char literal. A prefix glued to the closing quote
 // (`"a"f"b"`) chains; it is not lexed as the literal's suffix, the whole
 // `f"b"` swallowed. A plain suffix (`"a"s "b"`) is still a suffix, and the
 // literal after it still chains.
@@ -24,7 +24,6 @@ fn chains(x: i32) {
 fn apart() {
     var p = "a" f "b"
     var q = "a" ff"b"
-    var r = "a" b"x"
     var s = "a" 'c'
     var t = "a"s "b"
 }
@@ -79,12 +78,6 @@ fn apart() {
 // TOK-NEXT: `- string "a"   kind=none interp-exprs=0{{$}}
 // TOK-NEXT: identifier 'ff'
 // TOK-NEXT: string '"b"'
-// TOK:      identifier 'r'
-// TOK-NEXT: = '='
-// TOK-NEXT: string '"a"'
-// TOK-NEXT: `- string "a"   kind=none interp-exprs=0{{$}}
-// TOK-NEXT: identifier 'b'
-// TOK-NEXT: string '"x"'
 // TOK:      identifier 's'
 // TOK-NEXT: = '='
 // TOK-NEXT: string '"a"'

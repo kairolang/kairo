@@ -38,12 +38,14 @@ fn good() {
 // DIAG: {{.*}}:11:26: error [S030E]: unicode escape '\U00110000' is out of the valid unicode range (U+0000-U+10FFFF)
 // DIAG: {{.*}}:12:26: error [S031E]: unicode escape '\uD800' encodes a surrogate code point (U+D800-U+DFFF), which is not a valid unicode scalar value
 // DIAG: {{.*}}:13:26: error [S031E]: unicode escape '\U0000DFFF' encodes a surrogate code point (U+D800-U+DFFF), which is not a valid unicode scalar value
-// DIAG: {{.*}}:14:26: warning [S025W]: octal escape '\777' is only valid in byte strings (b"..."); use '\u' for unicode codepoints
+// DIAG: {{.*}}:14:26: warning [S025W]: octal escape '\777' outside a byte string; octal escapes are for byte strings (b"...")
 // DIAG: {{.*}}:14:26: error [S027E]: octal escape '\777' is out of byte range (0-255, i.e., \0-\377)
-// DIAG: {{.*}}:15:26: warning [S025W]: octal escape '\033' is only valid in byte strings (b"..."); use '\u' for unicode codepoints
+// DIAG: {{.*}}:15:26: warning [S025W]: octal escape '\033' outside a byte string; write '\x1b' (octal escapes are for byte strings, b"...")
+// DIAG-NEXT: fix-it:"{{.*}}":{15:26-15:30}:"\\x1b"
 // DIAG: {{.*}}:16:26: warning [S022W]: '\{' and '\}' escapes are only valid inside format strings (f"..."); remove the backslash or use an f-string prefix
 // DIAG-NEXT: fix-it:"{{.*}}":{16:26-16:27}:""
-// DIAG: {{.*}}:23:21: warning [S025W]: octal escape '\0' is only valid in byte strings (b"..."); use '\u' for unicode codepoints
+// DIAG: {{.*}}:23:21: warning [S025W]: octal escape '\0' outside a byte string; write '\x00' (octal escapes are for byte strings, b"...")
+// DIAG-NEXT: fix-it:"{{.*}}":{23:21-23:23}:"\\x00"
 // DIAG: {{.*}}:6:25: error [S063E]: unexpected token found where 'string' expected
 // DIAG: {{.*}}:7:25: error [S063E]: unexpected token found where 'string' expected
 // DIAG: {{.*}}:8:25: error [S063E]: unexpected token found where 'string' expected
