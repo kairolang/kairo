@@ -958,6 +958,12 @@ pub fn overridden_at(tu:       unsafe *TypeUtil,
         }
 
         todo.push_back(canon_unqual(e->base->canonical))
+        // A base that is the class's type parameter: the virtuals its
+        // body overrides are the ones its bound's class declares.
+        var pb = tu->param_edge_bases(&null, e)
+        for var j: usize = 0; j < pb.size(); ++j {
+            todo.push_back(canon_unqual(pb[j]))
+        }
     }
 
     var k: usize = 0

@@ -6638,3 +6638,79 @@ group = "specialization"
 
     [SC333.N]
     explain = "Points at the other specialization that applies."
+
+[SC351]
+brief = "a class derives its own type parameter in a form that is not supported"
+group = "generics"
+
+    [SC351.E]
+    explain = """
+    # a base that is a type parameter
+
+    a generic class may derive one of its own type parameters, which makes it a mixin over a base
+    chosen at each use:
+
+    ```kairo
+    class <A derives Base> Hooked derives A {
+        override fn begin(self) -> bool { return A::begin(self) }
+    }
+
+    var h = Hooked<Concrete>()      // Hooked<Concrete> derives Concrete
+    ```
+
+    the body of such a class is checked once, where it is written, so all it may assume of its base
+    is what the parameter's `derives` bound promises: the members of `Base`. each instance then
+    derives its own argument.
+
+    the form is accepted when
+
+    - the parameter belongs to the class itself, and is a type parameter (no pack, no `const`
+      value, no `: type`);
+    - the parameter has exactly one `derives` bound that names a class;
+    - the class has no other base that is a type parameter, and the edge is not `virtual`;
+    - the base is built by its default constructor: a base initializer `A::A(self, ...)` cannot
+      be written, because the bound promises no constructor. for the same reason the class
+      cannot write its own `@copy` or `@move` constructor (`= default` and none at all are fine).
+
+    ## how to fix
+
+    give the parameter a class bound (`<A derives Base>`), or derive the class you mean directly.
+    to pass constructor arguments to the base, derive a concrete class.
+    """
+
+    [SC351.N]
+    explain = "Points at the type parameter the base names."
+
+[SC352]
+brief = "this type cannot be the base a generic class derives through its type parameter"
+group = "generics"
+
+    [SC352.E]
+    explain = """
+    # an argument that cannot be a base
+
+    `class <A derives Base> Hooked derives A` derives its argument, so `Hooked<X>` needs `X` to be
+    a class another class may derive: not `final`, and with a default constructor (the base of
+    such a class is always built by it).
+
+    the body of `Hooked` was checked against `Base`, so `X` must also leave the members of `Base`
+    in place: it may override a `virtual` and add overloads, but a field with the name of one of
+    `Base`'s, or a method with the name and parameter types of a non-virtual one, would be found
+    first in each instance while the body was bound to `Base`'s.
+
+    ```kairo
+    final class Sealed derives Base { }
+    var h = Hooked<Sealed>()        // error: 'Sealed' is final
+
+    class Shadow derives Base { pub var n: f64 = 0.0 }   // Base has a field 'n'
+    var s = Hooked<Shadow>()        // error: 'Shadow' declares a field 'n' that hides Base's
+    ```
+
+    ## how to fix
+
+    use an argument that can be derived from: remove `final`, give it a default constructor, or
+    rename the member that hides the bound's.
+    """
+
+    [SC352.N]
+    explain = "Points at the base clause that derives the type parameter."

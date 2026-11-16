@@ -1860,6 +1860,10 @@ pub class OverloadResolution {
             }
 
             var unsafe *c = canon_unqual(e->base->canonical)
+            if c != &null && self.tu.param_edge(e) != &null {
+                c = Substitution(self.sc).base_through(r, e) // the argument, or its bound's class.
+            }
+
             if c == &null || !isa<RecordType>(c) {
                 continue
             }
@@ -2118,6 +2122,28 @@ pub class OverloadResolution {
             var unsafe *r = dyn_cast<RecordType>(
                 canon_unqual(e->base->canonical),
             )
+
+            // A parameter base: by entity it reaches what its bound names,
+            // and every class deriving the bound, which an argument may be
+            // (a member such a class declares was found through the edge).
+            if r == &null && self.tu.param_edge(e) != &null {
+                var pb = self.tu.param_edge_bases(&null, e)
+                if pb.size() > 0 {
+                    r = dyn_cast<RecordType>(canon_unqual(pb[0]))
+                }
+
+                if r != &null && r->decl != &null {
+                    var s2 = cxx::std::vector<unsafe *Decl>()
+                    if self._class_derives(
+                        base,
+                        NameLookup::representative(self.tu.pattern_of(r->decl)),
+                        unsafe &s2,
+                        depth + 1,
+                    ) {
+                        return true
+                    }
+                }
+            }
 
             if r == &null || r->decl == &null {
                 continue

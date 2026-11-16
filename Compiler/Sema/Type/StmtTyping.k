@@ -887,7 +887,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return
         }
 
-        var pure = self.dyn()->tu.first_pure_left(d)
+        var pure = self.dyn()->tu.first_pure_left(d, c)
         if pure == &null {
             return
         }

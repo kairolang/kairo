@@ -934,7 +934,11 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
         var unsafe *r = dyn_cast<RecordType>(canon_unqual(e->base->canonical))
         if r == &null || r->decl == &null {
-            return &null
+            // A base that is a type parameter stands for the class its
+            // bound names: the members a path through it reaches are that
+            // class's.
+            var pds = self._tu.param_edge_decls(&null, e)
+            return if (pds.size() > 0) => (self._rep(pds[0])) else => &null
         }
 
         return self._rep(r->decl)
@@ -1078,6 +1082,14 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
             path->push_back(DerivesStep(e, d))
             if bd == base {
+                return true
+            }
+
+            // Through a base that is a type parameter, a member an argument
+            // declares (a class deriving the bound) is reached by the same
+            // edge as the bound's own.
+            var below = cxx::std::vector<unsafe *Decl>()
+            if self._tu.param_edge(e) != &null && self._derives(base, bd, unsafe &below, 0) {
                 return true
             }
 

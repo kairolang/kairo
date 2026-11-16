@@ -558,6 +558,22 @@ extend Speller {
             }
 
             var unsafe *bc = canon_unqual(e->base->canonical)
+            // A base that is the class's type parameter: what its bound's
+            // class has, every argument has. An argument that adds a
+            // virtual destructor its bound lacks is refused by Sema
+            // (SC352E), so the bound is the whole answer.
+            if isa<GenericParamType>(bc) {
+                var unsafe *pb = Speller::param_bound(
+                    cast<GenericParamType>(bc),
+                )
+
+                if pb != &null && Speller::has_virtual_dtor(pb->decl, depth + 1) {
+                    return true
+                }
+
+                continue
+            }
+
             if !isa<RecordType>(bc) {
                 continue
             }
@@ -568,6 +584,61 @@ extend Speller {
         }
 
         return false
+    }
+
+    /// The class the first `derives` bound of type parameter \p g names, read
+    /// off its owner's requires clause (where RequiresDesugar keeps every
+    /// bound); null when it has none.
+    static fn param_bound(g: unsafe *GenericParamType) -> unsafe *RecordType {
+        if g == &null || g->owner == &null {
+            return &null
+        }
+
+        var todo = cxx::std::vector<unsafe *Expr>()
+        todo.push_back(DeclFacts::decl_requires_clause(Speller::rep(g->owner)))
+        for var i: usize = 0; i < todo.size(); ++i {
+            var unsafe *x = todo[i]
+            if x == &null {
+                continue
+            }
+
+            var unsafe *b = dyn_cast<BinaryOperatorExpr>(x)
+            if b != &null
+                && (b->op_token.kind == TokenKind::OpAmpAmp
+                    || b->op_token.kind == TokenKind::KwAnd) {
+                todo.push_back(b->lhs)
+                todo.push_back(b->rhs)
+                continue
+            }
+
+            var unsafe *c = dyn_cast<ConstraintExpr>(x)
+            if c == &null || !c->is_derives() || c->rhs == &null || c->rhs->canonical == &null {
+                continue
+            }
+
+            var unsafe *id = dyn_cast<NamedIdentExpr>(c->lhs)
+            var unsafe *gp = if (id != &null) => (dyn_cast<Declarations::GenericParamDecl>(
+                                 id->resolved_decl,
+                             ))
+                             else => &null
+            if gp == &null || gp->index != g->param_index {
+                continue
+            }
+
+            var unsafe *r = dyn_cast<RecordType>(
+                canon_unqual(c->rhs->canonical),
+            )
+
+            if r != &null
+                && r->decl != &null
+                && isa<Declarations::ClassDecl>(
+                    Speller::rep(DeclFacts::decl_pattern(Speller::rep(r->decl))),
+                ) {
+                return r
+            }
+        }
+
+        return &null
     }
 
     /// A Kairo base of \p d0 has a virtual destructor, so \p d0's
@@ -592,6 +663,18 @@ extend Speller {
             }
 
             var unsafe *bc = canon_unqual(e->base->canonical)
+            if isa<GenericParamType>(bc) {
+                var unsafe *pb = Speller::param_bound(
+                    cast<GenericParamType>(bc),
+                )
+
+                if pb != &null && Speller::has_virtual_dtor(pb->decl, 1) {
+                    return true
+                }
+
+                continue
+            }
+
             if isa<RecordType>(bc) && Speller::has_virtual_dtor(cast<RecordType>(bc)->decl, 1) {
                 return true
             }

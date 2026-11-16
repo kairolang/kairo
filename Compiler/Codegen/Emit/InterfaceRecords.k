@@ -24,7 +24,10 @@ import AST::LangItems::{
     LowerTargets,
     entry_point_name,
 }
-import AST::Node::Base::Decl
+import AST::Node::Base::{
+    Decl,
+    Expr,
+}
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
     RecordType,
@@ -37,6 +40,12 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations
+import AST::Node::Expressions::{
+    BinaryOperatorExpr,
+    ConstraintExpr,
+}
+import AST::Node::PrimaryExpressions::NamedIdentExpr
+import AST::Node::Types
 import Codegen::Emit::EmitIR::EmitIR
 import Codegen::Emit::EmitIRExprs
 import Codegen::Emit::InterfaceDerived
@@ -883,6 +892,17 @@ extend InterfaceEmitter {
         }
 
         var unsafe *r = dyn_cast<RecordType>(canon_unqual(e->base->canonical))
+        if r == &null {
+            // `derives A`, A the class's own type parameter: the names its
+            // body shares with its base are the ones A's `derives` bound
+            // declares, and `using A::m;` finds them in every argument.
+            r = Speller::param_bound(
+                dyn_cast<Types::GenericParamType>(
+                    canon_unqual(e->base->canonical),
+                ),
+            )
+        }
+
         if r == &null || r->decl == &null {
             return &null
         }

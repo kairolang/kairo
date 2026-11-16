@@ -94,6 +94,7 @@ import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
     ChainType,
+    GenericParamType,
     NullableType,
     PointerType,
 }
@@ -106,6 +107,7 @@ import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceRange::SourceRange
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
+import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
 /// The extension-visibility rule (Compiler/Spec/MemberLookup.md): TU \p sc sees `extend`
@@ -499,7 +501,7 @@ pub class MemberLookup {
                 }
             }
 
-            self._walk_record(root, name, spelling, out, unsafe &seen)
+            self._walk_record(root, name, spelling, out, unsafe &seen, c)
         } else {
             var unsafe *exts = self.extensions_of_type(c)
             if exts != &null {
@@ -640,12 +642,21 @@ pub class MemberLookup {
                          name:           DeclName,
                          const spelling: string,
                          out:            unsafe *cxx::std::vector<unsafe *Decl>,
-                         seen:           unsafe *llvm::DenseSet<u64>) {
+                         seen:           unsafe *llvm::DenseSet<u64>,
+                         of:             unsafe *Type = &null) {
         if d == &null {
             return
         }
 
+        // A class that derives its type parameter is walked once per
+        // instance, not once: `Hooked<Hooked<Other>>` reaches the pattern
+        // twice, each time with another base. The canonical instance is
+        // the key there.
         var key = (d as usize as u64)
+        if of != &null && self._derives_param(d) {
+            key = (of as usize as u64)
+        }
+
         if !seen->insert(key).second {
             return
         }
@@ -723,7 +734,7 @@ pub class MemberLookup {
             //     selected for these args, when one was.
             if MemberLookup::unfilled(d) {
                 var unsafe *body = if (self.sc != &null) => (self.sc->body_of(d)) else => pat
-                self._walk_record(body, name, spelling, out, seen)
+                self._walk_record(body, name, spelling, out, seen, of)
                 return
             }
         }
@@ -796,6 +807,7 @@ pub class MemberLookup {
                     spelling,
                     out,
                     seen,
+                    of,
                 )
             }
 
@@ -1152,12 +1164,33 @@ pub class MemberLookup {
         return false
     }
 
+    /// \p d is a class with a base that is a type parameter.
+    priv fn _derives_param(self, d: unsafe *Decl) -> bool {
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(d)
+        if cd == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var unsafe *e = cd->derives_list.get(i)
+            if e != &null
+                && e->base != &null
+                && e->base->canonical != &null
+                && isa<GenericParamType>(canon_unqual(e->base->canonical)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     priv fn _walk_edge(self,
                        e:              unsafe *Declarations::InheritEdge,
                        name:           DeclName,
                        const spelling: string,
                        out:            unsafe *cxx::std::vector<unsafe *Decl>,
-                       seen:           unsafe *llvm::DenseSet<u64>) {
+                       seen:           unsafe *llvm::DenseSet<u64>,
+                       of:             unsafe *Type = &null) {
         if e == &null || e->base == &null {
             return
         }
@@ -1167,11 +1200,42 @@ pub class MemberLookup {
             return
         }
 
-        if !isa<RecordType>(c) { // ConformanceChecking diagnoses.
+        if !isa<RecordType>(c) {
+            // A base that is the class's own type parameter: the members of
+            // \p of's argument for it when the walk came through an
+            // instance (`Hooked<Concrete>`), else of the class the
+            // parameter's `derives` bound names -- all a body checked once
+            // may read of its base (TypeUtil::param_edge_bases). Anything
+            // else that is no record ConformanceChecking diagnoses.
+            var pbs = TypeUtil(self.sc).param_edge_bases(of, e)
+            for var i: usize = 0; i < pbs.size(); ++i {
+                var unsafe *bt = canon_unqual(pbs[i])
+                if bt == &null || !isa<RecordType>(bt) {
+                    continue
+                }
+
+                var unsafe *rd = cast<RecordType>(bt)->decl
+                if rd != &null && !decl_is_instance(rd) && self.sc != &null {
+                    var unsafe *b = self.sc->record_body(bt)
+                    if b != &null {
+                        rd = b
+                    }
+                }
+
+                self._walk_record(rd, name, spelling, out, seen, bt)
+            }
+
             return
         }
 
-        self._walk_record(cast<RecordType>(c)->decl, name, spelling, out, seen)
+        self._walk_record(
+            cast<RecordType>(c)->decl,
+            name,
+            spelling,
+            out,
+            seen,
+            c,
+        )
     }
 
     priv fn _append_from_extensions(

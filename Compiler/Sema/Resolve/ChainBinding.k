@@ -1951,6 +1951,36 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return self._bind_through_bounds(st, a, unsafe &b, pname, at, loc)
     }
 
+    /// \p gp is a base of the class that declares it (`class <A derives
+    /// Base> Hooked derives A`).
+    priv fn _is_own_base(self, gp: unsafe *Declarations::GenericParamDecl) -> bool {
+        if gp == &null || gp->owner == &null {
+            return false
+        }
+
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(gp->owner)
+        if cd == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var unsafe *e = cd->derives_list.get(i)
+            if e == &null || e->base == &null || e->base->canonical == &null {
+                continue
+            }
+
+            var unsafe *g = dyn_cast<GenericParamType>(
+                canon_unqual(e->base->canonical),
+            )
+
+            if g != &null && g->param_index == gp->index && !g->is_pack {
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// The member \p st names among bounds \p b (a parameter's, or an
     /// associated type's own), \p pname spelling what they bound.
     priv fn _bind_through_bounds(self,
@@ -2002,7 +2032,11 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         // fns, static fields/vars, and type members, from interface and base
         // bounds alike. An instance member reached by `::` is the wrong
         // separator, not a missing name, and says so.
-        if st->access_kind == ChainExpr::AccessKind::ColonColon {
+        //
+        // A parameter its own class derives is a base there, and a base's
+        // instance member is named through it as through any base:
+        // `A::begin(self)` in `class <A derives Base> Hooked derives A`.
+        if st->access_kind == ChainExpr::AccessKind::ColonColon && !self._is_own_base(b->param) {
             var inst: unsafe *Decl = &null
             var keep               = cxx::std::vector<unsafe *Decl>()
             for var i: usize = 0; i < cands.size(); ++i {
@@ -2028,6 +2062,24 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             }
 
             cands = keep
+        }
+
+        // `A::A(self, ...)` in a class deriving its parameter A: the bound
+        // promises no constructor, so the base is built by its default one.
+        if st->access_kind == ChainExpr::AccessKind::ColonColon
+            && spelled == pname
+            && self._is_own_base(b->param) {
+            self._err(
+                DiagID::SC351E,
+                at,
+                f"a base initializer for the type-parameter base '{pname}' is not supported yet: its bound promises no constructor, so the base is built by its default constructor",
+            )
+
+            st->name->poison()
+            self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
+            var r = Anchor()
+            r.kind = AnchorKind::Errored
+            return r
         }
 
         if cands.empty() {

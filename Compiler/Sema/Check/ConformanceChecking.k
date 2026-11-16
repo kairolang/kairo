@@ -69,9 +69,9 @@ import AST::Context::InstantiationRegistry::{
 import AST::Context::SymbolTable::DeclName
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
-    decl_extension_of,    decl_generic_params, decl_implements, decl_is_ctor_requirement,
-    decl_is_imported,     decl_is_instance,    decl_name_tok,   decl_pattern,
-    decl_requires_clause,
+    decl_extension_of,        decl_fields,       decl_generic_params, decl_implements,
+    decl_is_ctor_requirement, decl_is_imported,  decl_is_instance,    decl_methods,
+    decl_name_tok,            decl_only_forward, decl_pattern,        decl_requires_clause,
 }
 import AST::ExprFacts::callee_decl
 import AST::Kind::ExprKind::ExprKind
@@ -970,6 +970,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         if isa<Declarations::ClassDecl>(d)
             || isa<Declarations::StructDecl>(d)
             || isa<Declarations::UnionDecl>(d) {
+            if isa<Declarations::ClassDecl>(d) {
+                self._check_param_bases(cast<Declarations::ClassDecl>(d))
+            }
+
             var edges = decl_implements(d)
             for var i: usize = 0; i < edges.size(); ++i {
                 self._check_declared(d, self._self_type(d), edges.get(i)->base)
@@ -985,6 +989,350 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         return true
+    }
+
+    /// # a base that is a type parameter (TypeUtil::param_edge)
+
+    /// `class <A derives Base> Hooked derives A`, at the declaration: the
+    /// forms whose body cannot be checked once against a known base, or
+    /// that nothing builds yet, are refused here, each by name (SC351E).
+    /// An accepted edge reads as its bound's class everywhere the class's
+    /// own body is checked.
+    priv fn _check_param_bases(self, cd: unsafe *Declarations::ClassDecl) {
+        if decl_is_instance(unsafe (cd as unsafe *Decl))
+            || decl_is_imported(unsafe (cd as unsafe *Decl)) {
+            return
+        }
+
+        var seen_one = false
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var unsafe *e = cd->derives_list.get(i)
+            var unsafe *g = self.tu.param_edge(e)
+            if g == &null {
+                continue
+            }
+
+            var pn = self.tu.str(unsafe (g as unsafe *Type))
+            var cn = self.tu.decl_name(unsafe (cd as unsafe *Decl))
+            var gps = decl_generic_params(g->owner)
+            var gp: unsafe *Declarations::GenericParamDecl = &null
+            if (g->param_index as usize) < gps.size() {
+                gp = gps[g->param_index as usize]
+            }
+
+            var why = ""
+            var own = g->owner != &null
+                && NameLookup::representative(g->owner) == NameLookup::representative(
+                    unsafe (cd as unsafe *Decl),
+                )
+
+            var ncls = self.tu.bound_classes(unsafe (g as unsafe *Type)).size()
+            if !own {
+                why = f"'{pn}' is a type parameter of an enclosing declaration, not of '{cn}'; a class derives only its own type parameter (not supported yet)"
+            } else if g->is_pack || (gp != &null && gp->is_pack) {
+                why = f"'{pn}' is a parameter pack; a base is one class (not supported yet)"
+            } else if gp != &null && gp->is_const_param {
+                why = f"'{pn}' is a value parameter, not a type"
+            } else if gp != &null && gp->kind_bound == Declarations::GenericParamKindBound::Duck {
+                why = f"'{pn}' is declared ': type', so nothing is known of the base; give it a class bound: '{pn} derives SomeBase'"
+            } else if ncls == 0 {
+                why = f"'{pn}' has no 'derives' bound that names a class, so the body of '{cn}' could assume nothing of its base; write '<{pn} derives SomeBase>'"
+            } else if ncls > 1 {
+                why = f"'{pn}' has more than one class in its 'derives' bounds; a type-parameter base with several bound classes is not supported yet"
+            } else if e->is_virtual {
+                why = "a 'virtual' base that is a type parameter is not supported yet"
+            } else if seen_one {
+                why = f"'{cn}' already derives another of its type parameters; more than one type-parameter base is not supported yet"
+            } else if self._writes_transfer(cd) {
+                why = f"'{cn}' writes its own '@copy' or '@move' constructor, which would have to transfer the base through a constructor the bound of '{pn}' does not promise; declare it '= default' or leave it out (not supported yet)"
+            }
+
+            seen_one = true
+            if why.size() == 0 {
+                continue
+            }
+
+            var b = self.sc->diag->report(
+                DiagID::SC351E,
+                e->range.start,
+                f"'{cn}' cannot derive its type parameter '{pn}': {why}",
+            )
+
+            b.first(e->range)
+            if gp != &null && gp->range.start.is_valid() {
+                b.note(
+                    DiagCode(DiagID::SC351N),
+                    gp->range.start,
+                    f"'{pn}' is declared here",
+                )->child_first(gp->range)
+            }
+
+            b.emit()
+        }
+    }
+
+    /// \p cd declares a `@copy` or `@move` constructor with a body.
+    priv fn _writes_transfer(self, cd: unsafe *Declarations::ClassDecl) -> bool {
+        for var i: usize = 0; i < cd->methods.size(); ++i {
+            var unsafe *m = cd->methods[i]
+            if m == &null || m->transfer == Declarations::TransferKind::NotTransfer {
+                continue
+            }
+
+            if m->body_kind == Declarations::FnBodyKind::Block
+                || m->body_kind == Declarations::FnBodyKind::Expr {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// The first member a class from \p arg up to (not including) \p bound
+    /// declares that takes the place of one \p bound has: a field of the
+    /// same name, or a method with the same name and parameter types as a
+    /// non-virtual one. The body of a class deriving its parameter binds
+    /// such a name in \p bound, while each instance's C++ finds the nearer
+    /// one, so the two would differ. An override of a virtual is the one
+    /// redeclaration that agrees. Empty when there is none; otherwise the
+    /// reason, naming both. Imported classes are not read: C++ hides by
+    /// name, and what it calls there is clang's to say.
+    priv fn _hides_bound(self, arg: unsafe *Type, bound: unsafe *Type) -> string {
+        var sub   = Substitution(self.sc)
+        var below = cxx::std::vector<unsafe *Type>()
+        var above = cxx::std::vector<unsafe *Type>()
+        below.push_back(canon_unqual(arg))
+        sub.base_records(arg, &below)
+        above.push_back(canon_unqual(bound))
+        sub.base_records(bound, &above)
+        for var i: usize = 0; i < below.size(); ++i {
+            var unsafe *bd = self.sc->record_body(below[i])
+            if bd == &null || decl_is_imported(bd) {
+                continue
+            }
+
+            var is_above = false
+            for var k: usize = 0; k < above.size(); ++k {
+                if self.sc->record_body(above[k]) == bd {
+                    is_above = true
+                    break
+                }
+            }
+
+            if is_above {
+                continue
+            }
+
+            var bn = self.tu.decl_name(bd)
+            var fs = decl_fields(bd)
+            var ms = decl_methods(bd)
+            for var k: usize = 0; k < above.size(); ++k {
+                var unsafe *ad = self.sc->record_body(above[k])
+                if ad == &null {
+                    continue
+                }
+
+                var an  = self.tu.decl_name(ad)
+                var afs = decl_fields(ad)
+                var ams = decl_methods(ad)
+                for var x: usize = 0; x < fs.size(); ++x {
+                    if fs[x] == &null {
+                        continue
+                    }
+
+                    var nm = self.tu.decl_name(unsafe (fs[x] as unsafe *Decl))
+                    for var y: usize = 0; y < afs.size(); ++y {
+                        if afs[y] != &null
+                            && self.tu.decl_name(
+                                unsafe (afs[y] as unsafe *Decl),
+                            ) == nm {
+                            return f"'{bn}' declares a field '{nm}' that hides the one of '{an}'"
+                        }
+                    }
+                }
+
+                for var x: usize = 0; x < ms.size(); ++x {
+                    var unsafe *m = ms[x]
+                    if m == &null || m->is_implicit {
+                        continue
+                    }
+
+                    var nm = self._member_name(m)
+                    if nm == bn || nm.size() == 0 {
+                        continue // a constructor, a destructor.
+                    }
+
+                    for var y: usize = 0; y < ams.size(); ++y {
+                        var unsafe *o = ams[y]
+                        if o == &null || o->is_operator != m->is_operator {
+                            continue
+                        }
+
+                        if self._member_name(o) != nm || !self._same_params(m, o) {
+                            continue
+                        }
+
+                        var is_virtual = o->abi == Declarations::AbiKind::Virtual
+                            || o->abi == Declarations::AbiKind::Override
+                            || o->body_kind == Declarations::FnBodyKind::Virtual
+                        if !is_virtual {
+                            return f"'{bn}' declares a method '{nm}' with the parameters of the non-virtual one of '{an}', which it hides"
+                        }
+                    }
+                }
+            }
+        }
+
+        return ""
+    }
+
+    /// What _hides_bound compares a method by: its name, an operator's
+    /// symbol; empty for a destructor, which hides nothing.
+    priv fn _member_name(self, m: unsafe *Declarations::FunctionDecl) -> string {
+        if !m->is_operator {
+            return self.tu.decl_name(unsafe (m as unsafe *Decl))
+        }
+
+        if m->op_token.size() > 0 && m->op_token[0].kind == TokenKind::KwFinally {
+            return ""
+        }
+
+        return "op " + OperatorFacts::symbol(m)
+    }
+
+    /// \p a and \p b take the same parameters after `self`, by canonical type.
+    priv fn _same_params(self,
+                         a: unsafe *Declarations::FunctionDecl,
+                         b: unsafe *Declarations::FunctionDecl) -> bool {
+        if a->params.size() != b->params.size() {
+            return false
+        }
+
+        for var i: usize = 0; i < a->params.size(); ++i {
+            var unsafe *pa = a->params[i]
+            var unsafe *pb = b->params[i]
+            if pa == &null || pb == &null {
+                return false
+            }
+
+            if pa->is_self || pb->is_self {
+                if pa->is_self != pb->is_self {
+                    return false
+                }
+
+                continue
+            }
+
+            if pa->type_ == &null || pb->type_ == &null {
+                return false
+            }
+
+            if canon_unqual(pa->type_->canonical) != canon_unqual(
+                pb->type_->canonical,
+            ) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// Live instance \p e of a class that derives its type parameter: the
+    /// argument becomes a base, so it has to be a class a class may derive
+    /// (SC352E, at the use, with the chain): not `final`, built from
+    /// nothing, since the base of such a class is always
+    /// default-constructed, and hiding nothing of the bound (_hides_bound).
+    /// An imported C++ class's constructors are clang's to judge. A class
+    /// that derives the instance itself is TypeCycleCheck's.
+    priv fn _check_param_base_args(self, e: unsafe *InstanceEntry) {
+        if e == &null || e->primary == &null || !e->use_at.start.is_valid() {
+            return
+        }
+
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(e->primary)
+        if cd == &null {
+            return
+        }
+
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var unsafe *edge = cd->derives_list.get(i)
+            var unsafe *g    = self.tu.param_edge(edge)
+            if g == &null || g->is_pack || (g->param_index as usize) >= e->args.size() {
+                continue
+            }
+
+            var unsafe *a = canon_unqual(e->args[g->param_index as usize])
+            if a == &null || a->is_dependent() || a->is_instantiation_dependent() {
+                continue
+            }
+
+            var an  = self.tu.str(a)
+            var why = ""
+            var unsafe *rd = self.tu.record_decl(a)
+            var ac: unsafe *Declarations::ClassDecl = &null
+            if rd != &null {
+                ac = dyn_cast<Declarations::ClassDecl>(
+                    NameLookup::representative(self.tu.pattern_of(rd)),
+                )
+            }
+
+            if ac == &null {
+                why = f"'{an}' is not a class"
+            } else if ac->is_final || ac->ffi_is_final {
+                why = f"'{an}' is final"
+            } else if decl_only_forward(unsafe (ac as unsafe *Decl)) {
+                why = f"'{an}' is only forward-declared, so it is not complete here"
+            } else if !decl_is_imported(unsafe (ac as unsafe *Decl)) {
+                var nd = self.tu.why_no_default(a)
+                if nd.size() > 0 {
+                    why = f"the base of '{self._inst_name(e)}' is built by its default constructor, and {nd}"
+                }
+            }
+
+            if why.size() == 0 {
+                var bcs = self.tu.bound_classes(unsafe (g as unsafe *Type))
+                if bcs.size() > 0 {
+                    var hid = self._hides_bound(a, bcs[0])
+                    if hid.size() > 0 {
+                        why = f"{hid}, and '{self.tu.decl_name(e->primary)}' is checked against '{self.tu.str(bcs[0])}'"
+                    }
+                }
+
+                // The size a `*X` is destroyed with is the most derived
+                // class's, through a hook every class with a virtual
+                // destructor overrides. The mixin has the hook when its
+                // bound's class has the destructor; an argument that adds
+                // one below the bound would be measured without the mixin.
+                if why.size() == 0
+                    && bcs.size() > 0
+                    && !decl_is_imported(unsafe (ac as unsafe *Decl))
+                    && lifecycle_of(self.sc)->facts_of_type(a).virtual_dtor == LifecycleTri::Yes
+                    && lifecycle_of(self.sc)->facts_of_type(
+                        bcs[0],
+                    ).virtual_dtor != LifecycleTri::Yes {
+                    why = f"'{an}' has a virtual destructor and '{self.tu.str(bcs[0])}', the bound '{self.tu.decl_name(e->primary)}' is checked against, has none; declare 'virtual fn op finally(self)' in '{self.tu.str(bcs[0])}'"
+                }
+            }
+
+            if why.size() == 0 {
+                continue
+            }
+
+            var b = self.sc->diag->report(
+                DiagID::SC352E,
+                e->use_at.start,
+                f"'{self._inst_name(e)}' cannot derive '{an}': {why}",
+            )
+
+            b.first(e->use_at, f"'{self._inst_name(e)}' is instantiated here")
+            b.note(
+                DiagCode(DiagID::SC352N),
+                edge->range.start,
+                f"'{self.tu.decl_name(e->primary)}' derives its type parameter here",
+            )->child_first(edge->range)
+            self.chain_notes(unsafe &b, e)
+            b.emit()
+        }
     }
 
     /// interfaces.md, Defaults: "a default must satisfy its own bounds,
@@ -1547,6 +1895,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         self.sc->instances->add_rows(e, unsafe &rows)
         if ok {
+            self._check_param_base_args(e)
             self._check_facts(e)
             self._check_reuse(e)
         }

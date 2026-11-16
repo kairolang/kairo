@@ -86,8 +86,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    FnBodyKind,   FunctionDecl,  GenericParamDecl, InterfaceDecl, ModuleDecl, ParamDecl,
-    TransferKind, TypeAliasDecl, VariableDecl,
+    ClassDecl, FnBodyKind,   FunctionDecl,  GenericParamDecl, InterfaceDecl, ModuleDecl,
+    ParamDecl, TransferKind, TypeAliasDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
     AlignOfExpr,       CallExpr,   ClosureExpr,  ConstraintExpr, FinalizeKind,      NamedArgExpr,
@@ -2160,6 +2160,43 @@ pub class <T: type> CallTyping {
         return r
     }
 
+    /// `A::begin(self)` in a class that derives its type parameter A: the
+    /// method is found in A's bound, and the call names it through A, so
+    /// each instance calls its own base's -- the argument's override, not
+    /// the bound's method. A itself, as the qualifier EmitIR spells; null
+    /// for every other call. A static member is the bound's own, as it was
+    /// resolved: an argument may redeclare one with another type.
+    priv fn _param_base_qualifier(self, n: unsafe *CallExpr) -> unsafe *Type {
+        var unsafe *ce = dyn_cast<ChainExpr>(n->callee)
+        if ce == &null || ce->steps.size() != 1 {
+            return &null
+        }
+
+        var unsafe *id = dyn_cast<NamedIdentExpr>(ce->base)
+        if id == &null {
+            return &null
+        }
+
+        var unsafe *gp = dyn_cast<GenericParamDecl>(id->resolved_decl)
+        if gp == &null || gp->owner == &null || gp->is_pack || gp->is_const_param {
+            return &null
+        }
+
+        var unsafe *cd = dyn_cast<ClassDecl>(gp->owner)
+        if cd == &null {
+            return &null
+        }
+
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var unsafe *g = self.dyn()->tu.param_edge(cd->derives_list.get(i))
+            if g != &null && g->param_index == gp->index {
+                return unsafe (g as unsafe *Type)
+            }
+        }
+
+        return &null
+    }
+
     /// Resolve against \p cands, promote the winner onto \p ident or \p step.
     /// \param adl  the callee was an unqualified name: widen \p cands with
     ///             argument-dependent lookup before resolving.
@@ -2328,6 +2365,9 @@ pub class <T: type> CallTyping {
 
         if step != &null && step->access_kind == ChainExpr::AccessKind::ColonColon {
             n->qualifier = self._instance_qualifier(r.decl, recv)
+            if n->qualifier == &null && r.decl != &null && r.decl->is_method() {
+                n->qualifier = self._param_base_qualifier(n)
+            }
         }
 
         // promote cell -> decl (hard invariant #7). A name N bound to ONE
@@ -2682,8 +2722,8 @@ pub class <T: type> CallTyping {
     /// is CL001E "allocating an object of abstract class type" pointing into
     /// the generated C++. A pointer or reference to one is fine. Reports,
     /// poisons `n` and returns true when `d` is abstract.
-    fn reject_abstract(self, n: *Expr, d: *Decl) -> bool {
-        var pure = self.dyn()->tu.first_pure_left(d)
+    fn reject_abstract(self, n: *Expr, d: *Decl, of: unsafe *Type = &null) -> bool {
+        var pure = self.dyn()->tu.first_pure_left(d, of)
         if pure == &null {
             return false
         }
@@ -2766,7 +2806,7 @@ pub class <T: type> CallTyping {
             return &null
         }
 
-        if !dep && self.reject_abstract(n, d) {
+        if !dep && self.reject_abstract(n, d, rec) {
             self._type_args_blind(n)
             return &null
         }

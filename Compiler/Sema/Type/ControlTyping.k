@@ -1222,7 +1222,7 @@ pub class <T: type> ControlTyping {
             return &null
         }
 
-        if !rec->is_dependent() && self.dyn()->reject_abstract(n, d) {
+        if !rec->is_dependent() && self.dyn()->reject_abstract(n, d, rec) {
             for var i: usize = 0; i < fields.size(); ++i {
                 self.dyn()->type_of(fields.get(i)->value, &null)
             }

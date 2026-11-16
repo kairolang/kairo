@@ -23,8 +23,8 @@ import AST::ASTSupport::{
 }
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
-    decl_fields,       decl_generic_params, decl_is_imported,   decl_is_instance, decl_methods,
-    decl_only_forward, decl_pattern,        param_is_type_pack, peel_ref,
+    decl_fields,       decl_generic_params, decl_is_imported,     decl_is_instance,   decl_methods,
+    decl_only_forward, decl_pattern,        decl_requires_clause, param_is_type_pack, peel_ref,
 }
 import AST::ExprFacts
 import AST::Kind::DeclKind::{
@@ -525,6 +525,190 @@ pub class TypeUtil {
         return out
     }
 
+    /// # a base that is a type parameter
+    ///
+    /// `class <A derives Base> Hooked derives A`: the edge's canonical is the
+    /// parameter, and stays it (Speller writes `: public A`, and each
+    /// instance's base is its own argument). What the edge names for a
+    /// question is read off the record that asks:
+    ///
+    ///   - `Hooked<Concrete>`: `Concrete`, the instance's argument;
+    ///   - `Hooked<A>`, the class's own body, and `Hooked<U>` in another
+    ///     generic: the classes the parameter's `derives` bounds name,
+    ///     which is all a body checked once may assume of its base.
+
+    /// The parameter base edge \p e names, or null when \p e names a record
+    /// (or nothing). A pack and a value parameter are no base.
+    fn param_edge(self, e: unsafe *Declarations::InheritEdge) -> unsafe *Types::GenericParamType {
+        if e == &null || e->base == &null || e->base->canonical == &null {
+            return &null
+        }
+
+        var unsafe *c = canon_unqual(e->base->canonical)
+        if c == &null || !isa<Types::GenericParamType>(c) {
+            return &null
+        }
+
+        return cast<Types::GenericParamType>(c)
+    }
+
+    /// The classes parameter \p t's `derives` bounds name, as canonicals, in
+    /// clause order; everything that is no class (an interface, an
+    /// unresolved bound) is left out. Read off the owner's requires clause,
+    /// where RequiresDesugar keeps every bound, and not off the bound table
+    /// bound_bases reads: that one holds the declarations of the file being
+    /// checked, and a class deriving its parameter is asked about from every
+    /// file that uses it.
+    fn bound_classes(self, t: unsafe *Type) -> cxx::std::vector<unsafe *Type> {
+        var        out = cxx::std::vector<unsafe *Type>()
+        var unsafe *c  = canon_unqual(t)
+        if c == &null || !isa<Types::GenericParamType>(c) {
+            return out
+        }
+
+        var unsafe *g = cast<Types::GenericParamType>(c)
+        if g->owner == &null {
+            return out
+        }
+
+        var unsafe *req = decl_requires_clause(g->owner)
+        if req == &null {
+            req = decl_requires_clause(NameLookup::representative(g->owner))
+        }
+
+        var cs = cxx::std::vector<unsafe *ConstraintExpr>()
+        constraint_conjuncts(req, unsafe &cs)
+        for var i: usize = 0; i < cs.size(); ++i {
+            var unsafe *k = cs[i]
+            if !k->is_derives() || k->rhs == &null || k->rhs->canonical == &null {
+                continue
+            }
+
+            var unsafe *id = dyn_cast<NamedIdentExpr>(k->lhs)
+            if id == &null {
+                continue
+            }
+
+            var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+                id->resolved_decl,
+            )
+
+            if gp == &null || gp->index != g->param_index || gp->owner == &null {
+                continue
+            }
+
+            if NameLookup::representative(gp->owner) != NameLookup::representative(
+                g->owner,
+            ) {
+                continue
+            }
+
+            var unsafe *b = canon_unqual(k->rhs->canonical)
+            var unsafe *d = self.record_decl(b)
+            if d != &null
+                && isa<Declarations::ClassDecl>(
+                    NameLookup::representative(self.pattern_of(d)),
+                ) {
+                out.push_back(b)
+            }
+        }
+
+        return out
+    }
+
+    /// The records the parameter edge \p e of record type \p of stands for
+    /// (see above), as canonicals; none when \p e is no parameter edge. \p of
+    /// may be null: the class's own view. \p argument_only: the argument
+    /// or nothing, for a question the bound cannot answer for an instance
+    /// (what stays pure virtual).
+    fn param_edge_bases(self,
+                        of:            unsafe *Type,
+                        e:             unsafe *Declarations::InheritEdge,
+                        argument_only: bool = false) -> cxx::std::vector<unsafe *Type> {
+        var        out = cxx::std::vector<unsafe *Type>()
+        var unsafe *g  = self.param_edge(e)
+        if g == &null {
+            return out
+        }
+
+        var        args = self.record_args(of)
+        var unsafe *od  = self.record_decl(of)
+        // A partial's parameters are not the primary's: its edge reads the
+        // bound, never an argument by position.
+        var own = od != &null
+            && NameLookup::representative(self.pattern_of(od)) == NameLookup::representative(
+                g->owner,
+            )
+
+        if own && (g->param_index as usize) < args.size() && !g->is_pack {
+            var unsafe *a = canon_unqual(args[g->param_index as usize])
+            if a != &null && isa<RecordType>(a) {
+                out.push_back(a)
+                return out
+            }
+
+            if a != &null && isa<Types::GenericParamType>(a) && !argument_only {
+                return self.bound_classes(a)
+            }
+
+            return out
+        }
+
+        if argument_only {
+            return out
+        }
+
+        return self.bound_classes(unsafe (g as unsafe *Type))
+    }
+
+    /// param_edge_bases for a walk that holds declarations: \p holder is
+    /// the class whose edge \p e is, an instance of it, or null.
+    fn param_edge_decls(self,
+                        holder: unsafe *Decl,
+                        e:      unsafe *Declarations::InheritEdge) -> cxx::std::vector<unsafe *Decl> {
+        var        out = cxx::std::vector<unsafe *Decl>()
+        var unsafe *g  = self.param_edge(e)
+        if g == &null {
+            return out
+        }
+
+        // An implicit instance's arguments are its registry entry's (its
+        // own `spec_args` are the written list of an explicit one).
+        var bases              = cxx::std::vector<unsafe *Type>()
+        var a:    unsafe *Type = &null
+        var idx                = g->param_index as usize
+        var inst = holder != &null
+            && decl_is_instance(holder)
+            && !g->is_pack
+            && NameLookup::representative(self.pattern_of(holder)) == NameLookup::representative(
+                g->owner,
+            )
+
+        if inst && self.sc->instances != &null {
+            var unsafe *ie = self.sc->instances->entry_of(holder)
+            if ie != &null && idx < ie->args.size() {
+                a = canon_unqual(ie->args[idx])
+            }
+        }
+
+        if a != &null && isa<RecordType>(a) {
+            bases.push_back(a)
+        } else if a != &null && isa<Types::GenericParamType>(a) {
+            bases = self.bound_classes(a)
+        } else if a == &null {
+            bases = self.bound_classes(unsafe (g as unsafe *Type))
+        }
+
+        for var i: usize = 0; i < bases.size(); ++i {
+            var unsafe *d = self.record_decl(bases[i])
+            if d != &null {
+                out.push_back(d)
+            }
+        }
+
+        return out
+    }
+
     /// The declaration of \p t when it is a generic parameter whose body is
     /// checked against its bounds (Compiler/Spec/Generics.md#decisions): a bare parameter, a pack's
     /// included (an element `for x in xs` binds has the pack's type, and is
@@ -941,7 +1125,9 @@ pub class TypeUtil {
     /// by name and arity: overload resolution on the receiver is not this
     /// question's, and two same-named, same-arity methods in one chain are
     /// an override in practice (C++ would make a differing one a hide).
-    fn first_pure_left(self, d: unsafe *Decl) -> unsafe *Declarations::FunctionDecl {
+    fn first_pure_left(self,
+                       d:  unsafe *Decl,
+                       of: unsafe *Type = &null) -> unsafe *Declarations::FunctionDecl {
         if d == &null {
             return &null
         }
@@ -953,6 +1139,7 @@ pub class TypeUtil {
             unsafe &chain,
             unsafe &depths,
             0,
+            of,
         )
 
         for var i: usize = 0; i < chain.size(); ++i {
@@ -1015,7 +1202,8 @@ pub class TypeUtil {
                         d:      unsafe *Decl,
                         out:    unsafe *cxx::std::vector<unsafe *Decl>,
                         depths: unsafe *cxx::std::vector<u32>,
-                        depth:  u32) {
+                        depth:  u32,
+                        of:     unsafe *Type = &null) {
         if depth > 64 {
             return
         }
@@ -1046,14 +1234,34 @@ pub class TypeUtil {
                     out,
                     depths,
                     depth + 1,
+                    canon_unqual(e->base->canonical),
                 )
+            }
+
+            // A base that is a type parameter: \p of's argument, when it is
+            // a class. While the argument is unknown (the class's own body,
+            // an instance over another parameter) so is what it leaves
+            // pure, and the walk reports nothing through the edge: an
+            // abstract bound does not make every instance abstract.
+            var pbs = self.param_edge_bases(of, e, true)
+            for var k: usize = 0; k < pbs.size(); ++k {
+                var unsafe *pd = self.record_decl(pbs[k])
+                if pd != &null {
+                    self._chain_walk(
+                        NameLookup::representative(pd),
+                        out,
+                        depths,
+                        depth + 1,
+                        pbs[k],
+                    )
+                }
             }
         }
 
         // an instance's methods and bases are its pattern's.
         var unsafe *pat = self.pattern_of(d)
         if pat != d {
-            self._chain_walk(pat, out, depths, depth)
+            self._chain_walk(pat, out, depths, depth, of)
         }
     }
 
@@ -1070,7 +1278,8 @@ pub class TypeUtil {
     priv fn _poly_walk(self,
                        d:     unsafe *Decl,
                        seen:  unsafe *cxx::std::vector<unsafe *Decl>,
-                       depth: u32) -> bool {
+                       depth: u32,
+                       inst:  unsafe *Decl = &null) -> bool {
         if depth > 64 {
             return false
         }
@@ -1113,11 +1322,23 @@ pub class TypeUtil {
             if bd != &null && self._poly_walk(NameLookup::representative(bd), seen, depth + 1) {
                 return true
             }
+
+            // A parameter base: \p inst's argument, else the bound's classes.
+            var pds = self.param_edge_decls(inst, e)
+            for var k: usize = 0; k < pds.size(); ++k {
+                if self._poly_walk(
+                    NameLookup::representative(pds[k]),
+                    seen,
+                    depth + 1,
+                ) {
+                    return true
+                }
+            }
         }
 
         var unsafe *pat = self.pattern_of(d)
         if pat != d {
-            return self._poly_walk(pat, seen, depth + 1)
+            return self._poly_walk(pat, seen, depth + 1, d)
         }
 
         return false

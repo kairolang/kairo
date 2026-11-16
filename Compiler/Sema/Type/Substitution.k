@@ -2139,6 +2139,15 @@ pub class Substitution {
         }
 
         var unsafe *c = canon_unqual(e->base->canonical)
+        // A base that is \p of's own type parameter: its argument, or the
+        // class its bound names while the argument is itself a parameter.
+        // The first of several bound classes; a walk that needs them all
+        // asks TypeUtil::param_edge_bases.
+        if c != &null && self.tu.param_edge(e) != &null {
+            var pb = self.tu.param_edge_bases(of, e)
+            return if (pb.size() > 0) => (pb[0]) else => &null
+        }
+
         if c == &null || !isa<RecordType>(c) {
             return &null
         }

@@ -78,6 +78,7 @@ import AST::Node::Types::{
     ChainType,
     FixedArrayType,
     FunctionPointerType,
+    GenericParamType,
 }
 import AST::ParamMode::ParamMode
 import Codegen::Emit::EmitIR::EmitIR
@@ -449,7 +450,13 @@ extend EmitIR {
             self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren)
             self._args(n, f, bound, inst, true)
             self._cg->sink->synth_at_end(n->range, clang::tok::r_paren)
-            self._agree(n, f)
+            // Named through a base that is a type parameter (`A::begin(self)`),
+            // the call is each instance's argument's member by design, and
+            // clang choosing an override of \p f there is no disagreement.
+            if qt == &null || !isa<GenericParamType>(canon_unqual(qt)) {
+                self._agree(n, f)
+            }
+
             return
         }
 
