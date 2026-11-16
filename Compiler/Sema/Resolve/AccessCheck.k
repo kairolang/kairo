@@ -30,6 +30,10 @@
 ///     through the derived class: a base member found through an edge
 ///     marked `priv` is private to the file (and class) that wrote the
 ///     edge, through one marked `prot` protected to it.
+///     The derived class is the type of the object (`d.x`) or the class a
+///     `::` path names (`Der::make()`, `Der::LIMIT`, `Der::Inner`): one
+///     rule, so a static member, a nested type and an enumerator are as
+///     narrowed as a field.
 ///
 ///     What is checked: every `.` / `->` / `::` step of an expression chain
 ///     (fields, methods, statics, nested types named in an expression), the
@@ -311,13 +315,16 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             }
 
             var through: unsafe *Type = &null
+            var via:     unsafe *Decl = &null
             if i == 0 {
                 through = self._chain_head_type(n->base)
+                via     = self._head_record(n->base)
             } else {
                 through = n->steps.get(i - 1)->resolved_type
+                via     = self._named_record(n->steps.get(i - 1)->resolved_decl)
             }
 
-            self._check(st->resolved_decl, st->range, through)
+            self._check(st->resolved_decl, st->range, through, false, via)
         }
 
         return true
@@ -325,13 +332,52 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
     /// The type of the value a chain starts at. Null for a head that is no
     /// value (`Acc::hidden` names a type): that member is reached through
-    /// no object, and no inheritance edge is judged for it.
+    /// no object, and _head_record names the record its path starts at.
     priv fn _chain_head_type(self, e: unsafe *Expr) -> unsafe *Type {
         if e == &null {
             return &null
         }
 
         return e->type_
+    }
+
+    /// The record a chain's head names when the head is a type
+    /// (`Der::make()`, `Der::LIMIT`); null for a value head.
+    priv fn _head_record(self, e: unsafe *Expr) -> unsafe *Decl {
+        var unsafe *id = dyn_cast<NamedIdentExpr>(e)
+        if id == &null {
+            return &null
+        }
+
+        return self._named_record(id->resolved_decl)
+    }
+
+    /// The record \p d names as a type, as a pattern representative: a
+    /// class itself, or the class an alias stands for. Null for every other
+    /// declaration, so a value step (a field, a variable) names none.
+    priv fn _named_record(self, d: unsafe *Decl) -> unsafe *Decl {
+        if d == &null {
+            return &null
+        }
+
+        if isa<ClassDecl>(d) {
+            return self._rep(d)
+        }
+
+        var unsafe *ta = dyn_cast<TypeAliasDecl>(d)
+        if ta == &null || ta->aliased == &null || ta->aliased->canonical == &null {
+            return &null
+        }
+
+        var unsafe *rd = self._tu.record_decl(
+            canon_unqual(ta->aliased->canonical),
+        )
+
+        if rd == &null || !isa<ClassDecl>(rd) {
+            return &null
+        }
+
+        return self._rep(rd)
     }
 
     /// A construction (`Base(5)`), never a base initializer: that form
@@ -477,7 +523,12 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                 continue
             }
 
-            self._check(seg->resolved_decl, seg->range, &null)
+            var unsafe *prev = n->segments.get(i - 1)
+            var unsafe *via = if (prev != &null) => (self._named_record(
+                                  prev->resolved_decl,
+                              ))
+                              else => &null
+            self._check(seg->resolved_decl, seg->range, &null, false, via)
         }
 
         return true
@@ -489,11 +540,16 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
     /// is the type it was reached through (inheritance visibility, and the
     /// object a subclass reaches a `prot` member through), or null.
     /// \p construction: \p d is the constructor a construction selected.
+    /// \p via: the record a `::` path names \p d through (`Der` in
+    /// `Der::make()`), or null. It is judged for inheritance visibility
+    /// only: a path through a type reaches no object, so the `prot`
+    /// own-object rule never reads it.
     priv fn _check(self,
                    d_in:         unsafe *Decl,
                    at:           SourceRange,
                    through:      unsafe *Type,
-                   construction: bool = false) {
+                   construction: bool = false,
+                   via:          unsafe *Decl = &null) {
         var unsafe *d = d_in
         if d == &null || d->is_implicit || d->is_poisoned() || decl_is_imported(d) {
             return
@@ -511,7 +567,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
         var v = self._effective(d, owner)
         if v != VisibilityKind::Private && v != VisibilityKind::Protected {
-            self._check_edges(d, owner, at, through)
+            self._check_edges(d, owner, at, through, via)
             return
         }
 
@@ -528,7 +584,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             return
         }
 
-        self._check_edges(d, owner, at, through)
+        self._check_edges(d, owner, at, through, via)
     }
 
     /// Whether the use site may see a member of \p owner at visibility \p v
@@ -888,25 +944,26 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
     /// A member of \p owner reached through a record that derives it with a
     /// `priv` or `prot` edge on the way: the edge's class is the member's
-    /// home for this use, at the edge's visibility.
+    /// home for this use, at the edge's visibility. The record is the one
+    /// \p through is a value of, or \p via for a member named through a
+    /// type (a static, a nested type, an enumerator): one rule for both.
     priv fn _check_edges(self,
                          d:       unsafe *Decl,
                          owner:   unsafe *Decl,
                          at:      SourceRange,
-                         through: unsafe *Type) {
-        if through == &null {
-            return
+                         through: unsafe *Type,
+                         via:     unsafe *Decl) {
+        var unsafe *from = via
+        if through != &null {
+            var unsafe *rd = self._tu.record_decl(
+                canon_unqual(self._tu.as_value(self._strip(through))),
+            )
+
+            if rd != &null {
+                from = self._rep(rd)
+            }
         }
 
-        var unsafe *rd = self._tu.record_decl(
-            canon_unqual(self._tu.as_value(self._strip(through))),
-        )
-
-        if rd == &null {
-            return
-        }
-
-        var unsafe *from = self._rep(rd)
         if from == &null || from == owner {
             return
         }
