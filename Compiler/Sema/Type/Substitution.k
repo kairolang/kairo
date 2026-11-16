@@ -1918,15 +1918,19 @@ pub class Substitution {
         return if (s != &null) => (s) else => mt
     }
 
-    /// What `x->m` reads `m` from when \p ty (x's type, reference and cv
-    /// peeled) is a record: the pointee of what its `op ->` returns, with
-    /// `->` applied again while that result is itself a record
+    /// What `x->m` reads `m` from when \p ty (x's type, carrying the
+    /// object's cv) is a record: the pointee of what its `op ->` returns,
+    /// with `->` applied again while that result is itself a record
     /// ([over.ref]/2, [over.match.oper]/2: `x->m` is `(x.operator->())->m`).
     /// That is how a C++ iterator or smart pointer is read (`it->second`),
     /// and operator-overloading.md promises it for a Kairo `op ->`. Null
     /// when \p ty is no record or declares no `op ->`, which leaves the
     /// R027E "'->' requires a pointer" to the caller. A const receiver takes
     /// the `const self` overload where there is one.
+    ///
+    /// The pointee keeps its cv: a const iterator's `op ->` returns a
+    /// pointer to const, and the member is then read from a const object.
+    /// Callers peel it once they have read it.
     fn arrow_target(self, ty: unsafe *Type, ml: *MemberLookup) -> unsafe *Type {
         var unsafe *cur = ty
         for var hop: u32 = 0; hop < 8; ++hop {
@@ -1934,7 +1938,7 @@ pub class Substitution {
                 return &null
             }
 
-            var        want_const = (canon_quals(cur) & QUAL_CONST) != 0
+            var        want_const = (ml->object_quals(cur) & QUAL_CONST) != 0
             var unsafe *rec       = canon_unqual(ml->peel_ref(cur))
             if rec == &null || !isa<RecordType>(rec) {
                 return &null
@@ -1979,7 +1983,7 @@ pub class Substitution {
 
             var unsafe *pv = canon_unqual(ml->peel_ref(rt))
             if pv != &null && isa<PointerType>(pv) {
-                return ml->peel_ref(cast<PointerType>(pv)->pointee)
+                return cast<PointerType>(pv)->pointee
             }
 
             cur = rt

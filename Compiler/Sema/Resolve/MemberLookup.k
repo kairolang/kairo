@@ -82,6 +82,7 @@ import AST::Node::Base::{
 import AST::Node::CanonicalNodes::{
     QualifiedType,
     RecordType,
+    canon_quals,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -1090,6 +1091,27 @@ pub class MemberLookup {
         }
 
         return c
+    }
+
+    /// The cv of the object an expression of type \p t names: \p t's own,
+    /// read through a C++ reference (`const T&` names a const object).
+    fn object_quals(self, t: unsafe *Type) -> u8 {
+        var unsafe *c = t
+        while c != &null {
+            if isa<CXXLValueRefType>(c) {
+                c = cast<CXXLValueRefType>(c)->referee
+                continue
+            }
+
+            if isa<CXXRValueRefType>(c) {
+                c = cast<CXXRValueRefType>(c)->referee
+                continue
+            }
+
+            break
+        }
+
+        return canon_quals(c)
     }
 
     priv fn _peel(self, t: unsafe *Type) -> unsafe *Type {

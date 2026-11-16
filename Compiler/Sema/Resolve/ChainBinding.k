@@ -1229,9 +1229,14 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             // A record's `op ->` (a C++ iterator's, a smart pointer's): the
             // member is read from what it points to. Null when it has none.
             if !isa<PointerType>(ty) {
-                return Substitution(self.sc).arrow_target(
-                    self.ml.peel_ref(a.ty),
-                    &self.ml,
+                return self.ml.peel_ref(
+                    Substitution(self.sc).arrow_target(
+                        self.sc->types->qualified(
+                            self.ml.peel_ref(a.ty),
+                            self.ml.object_quals(a.ty),
+                        ),
+                        &self.ml,
+                    ),
                 )
             }
 

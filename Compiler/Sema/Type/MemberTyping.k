@@ -530,7 +530,7 @@ pub class <T: type> MemberTyping {
             // `s.data()` on a const `s` must rank `data() const` alone.
             var recv_q: u8 = 0
             if cur_kind == ChainKind::Value {
-                recv_q = self._object_quals(val)
+                recv_q = self.dyn()->ml.object_quals(val)
                 val    = self.dyn()->ml.peel_ref(val)
                 if st->access_kind == ChainExpr::AccessKind::QuestionDot
                     || st->access_kind == ChainExpr::AccessKind::QuestionArrow {
@@ -554,16 +554,18 @@ pub class <T: type> MemberTyping {
                     var p = self.dyn()->tu.pointee(val)
                     // A record with `op ->` reads the member through it, as
                     // ChainBinding bound it (Substitution::arrow_target).
+                    // The object's cv goes with it: a const object takes
+                    // the `const self` overload, as C++ picks `operator->`.
                     if p == &null {
                         p = Substitution(self.dyn()->sc).arrow_target(
-                            val,
+                            self.dyn()->sc->types->qualified(val, recv_q),
                             &self.dyn()->ml,
                         )
                     }
 
                     if p != &null {
                         val    = p
-                        recv_q = self._object_quals(p)
+                        recv_q = self.dyn()->ml.object_quals(p)
                     }
                 }
 
@@ -1009,25 +1011,6 @@ pub class <T: type> MemberTyping {
 
         var tu = self.dyn()->sc->tu
         return tu != &null && tu->cxx_module != &null && id->resolved_decl == tu->cxx_module
-    }
-
-    priv fn _object_quals(self, t: unsafe *Type) -> u8 {
-        var unsafe *c = t
-        while c != &null {
-            if isa<CXXLValueRefType>(c) {
-                c = cast<CXXLValueRefType>(c)->referee
-                continue
-            }
-
-            if isa<CXXRValueRefType>(c) {
-                c = cast<CXXRValueRefType>(c)->referee
-                continue
-            }
-
-            break
-        }
-
-        return canon_quals(c)
     }
 
     /// `b[i]` through the record's own `op []`: \p cands is what the
