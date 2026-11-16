@@ -144,12 +144,15 @@ import AST::ASTSupport::FrozenList
 import AST::Context::DeclContext::DeclContextKind
 import AST::DeclFacts::{
     decl_is_imported,
+    decl_methods,
     place_has_const_root,
 }
 import AST::ExprFacts::callee_expr_decl
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::StmtKind::StmtKind
+import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::LangAttrs
+import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -5469,6 +5472,45 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self.n_errored += 1
     }
 
+    /// The type of \p e is a record with a public `fn copy(const self) -> Self`:
+    /// the one requirement of std's CopiesItself, read off the record so the
+    /// answer does not depend on std::utility being imported.
+    priv fn _copies_itself(self, e: unsafe *Expr) -> bool {
+        if e->type_ == &null {
+            return false
+        }
+
+        var unsafe *c  = self._tu.as_value(e->type_)
+        var unsafe *rd = self._tu.record_decl(c)
+        if rd == &null || self._tu.is_tuple(c) {
+            return false
+        }
+
+        var ms = decl_methods(rd)
+        for var i: usize = 0; i < ms.size(); ++i {
+            var unsafe *m = ms[i]
+            if m->is_operator || (!m->is_method()) || (!m->is_const()) || m->params.size() != 1 {
+                continue
+            }
+
+            if self.sc->ctx->get_spelling(m->name) != "copy" || m->return_type == &null {
+                continue
+            }
+
+            if m->visibility == VisibilityKind::Private
+                || m->visibility == VisibilityKind::Protected {
+                continue
+            }
+
+            if m->return_type->kind == TypeKind::SelfType
+                || self._tu.record_decl(self._tu.as_value(m->return_type)) == rd {
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// # reads
 
     priv fn _read(self, n: unsafe *NamedIdentExpr) {
@@ -5544,6 +5586,20 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         b.note(mp.at.start, f"'{taken}' was moved here, {mp.how}")->child_first(
             mp.at,
         )
+
+        // The moved type makes its own copies (`fn copy(const self) -> Self`,
+        // what std's CopiesItself requires): the move may have been meant
+        // as one.
+        if mp.site != &null && self._copies_itself(mp.site) {
+            b.note(
+                mp.site->range.end,
+                f"'{taken}' has a 'copy' method: write '{taken}.copy()' here if a copy was meant",
+            )->child_fix(
+                SourceRange(mp.site->range.end, mp.site->range.end),
+                ".copy()",
+                "copy it instead",
+            )
+        }
 
         if mp.has_via {
             b.note(
