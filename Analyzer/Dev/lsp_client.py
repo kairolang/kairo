@@ -101,9 +101,18 @@ class Client:
                 # none is.
                 if n["method"] == "$/kals/analysed" and n["params"]["revision"] >= n["params"]["current"] \
                         and n["params"].get("pending", 0) == 0:
+                    self.barrier()
                     return True
             self.pump(0.1)
         return False
+
+    def barrier(self, timeout=30):
+        """Returns once the server has answered a request sent now. The
+        server finishes a turn before it reads its input, so everything it
+        sent in the turn of the last message seen is in `notes` then: what
+        follows `$/kals/analysed` in that turn (the `$/progress` end, a live
+        worker's aside diagnostics, refresh requests)."""
+        self._request("$/kals/text", {"textDocument": {"uri": "file:///kals-smoke-barrier"}}, timeout)
 
     def uri(self, rel):
         return "file://" + os.path.join(self.root, rel)

@@ -1379,12 +1379,17 @@ def syntax(exe, root):
     M = "src/main.k"
     src = c.open(M)
     c.settle()
-    begins = [n for n in c.notes if n["method"] == "$/progress" and n["params"]["value"]["kind"] == "begin"]
-    ends = [n for n in c.notes if n["method"] == "$/progress" and n["params"]["value"]["kind"] == "end"]
-    created = [n for n in c.notes if n["method"] == "window/workDoneProgress/create"]
+    # The end follows the run's `$/kals/analysed`: waited for by itself.
+    at = lambda kind: [i for i, n in enumerate(c.notes) if n["method"] == "$/progress" and n["params"]["value"]["kind"] == kind]
+    made = lambda: [i for i, n in enumerate(c.notes) if n["method"] == "window/workDoneProgress/create"]
+    token = lambda i: c.notes[i]["params"]["token"]
+    wait_for(lambda: made() and any(token(i) == token(made()[0]) for i in at("end")), 60, c)
+    begins, ends, created = at("begin"), at("end"), made()
+    # LSP: the token is created before any `$/progress` of it.
     check("progress: the first analysis shows begin and end", begins and ends and created
-          and begins[0]["params"]["value"]["title"] == "Indexing Kairo"
-          and begins[0]["params"]["token"] == ends[0]["params"]["token"] == created[0]["params"]["token"], [n["method"] for n in c.notes][:12])
+          and c.notes[begins[0]]["params"]["value"]["title"] == "Indexing Kairo"
+          and token(begins[0]) == token(ends[0]) == token(created[0])
+          and created[0] < begins[0] < ends[0], [n["method"] for n in c.notes][:12])
 
     def syntax_errors():
         return [x for x in c.diagnostics(M) or [] if x["code"].startswith("S") and not x["code"].startswith("SC")]
@@ -2205,6 +2210,15 @@ def wait_for(pred, seconds, c=None):
     return pred()
 
 
+def process_gone(pid):
+    """Whether the process pid has ended: no such process, or a zombie its parent has
+    not reaped yet (Linux /proc)."""
+    try:
+        return open("/proc/%d/stat" % pid).read().rsplit(")", 1)[-1].split()[0] == "Z"
+    except OSError:
+        return True
+
+
 def bridge(exe, base):
     """The clangd bridge (section 15): a.k, b.cc including it, and
     compile_commands.json; the header and the overlay, an edit through
@@ -2235,15 +2249,29 @@ def bridge(exe, base):
     check("bridge: overlay maps a.k to its header, external names off at the top and per entry",
           ("'name': '%s'" % ak) in o and ("'external-contents': '%s'" % hdr) in o
           and "'use-external-names': false" in o and "'use-external-name': false" in o, o)
-    cd = read(os.path.join(root, ".clangd"))
+    # The .clangd is written after the overlay, and not through a rename.
+    cdp = os.path.join(root, ".clangd")
+    seen_cd = [""]
+
+    def clangd_written():
+        seen_cd[0] = read(cdp)
+        return ("-ivfsoverlay, '%s'" % ov) in seen_cd[0]
+    wait_for(clangd_written, 60, c)
+    cd = seen_cd[0]
     check("bridge: a .clangd fragment adds -ivfsoverlay", cd.startswith("# Written by kals") and ("-ivfsoverlay, '%s'" % ov) in cd, cd)
     mt = os.path.getmtime(ov)
     # An edit of the buffer, not saved: the header follows it.
     c.open("a.k", BR_A)
     edited = "pub fn twice(v: i32) -> i32 {\n    return v * 2\n}\n\n" + BR_A
     c.change("a.k", 2, edited)
-    ok = wait_for(lambda: "twice(signed int v)" in read(hdr), 60, c)
-    h2 = read(hdr).split("\n")
+    # The header the check reads is the one the wait saw.
+    seen = [""]
+
+    def regenerated():
+        seen[0] = read(hdr)
+        return "twice(signed int v)" in seen[0]
+    ok = wait_for(regenerated, 60, c)
+    h2 = seen[0].split("\n")
     at2 = next((i for i, l in enumerate(h2) if "add(signed int a" in l), -1)
     check("bridge: an unsaved edit regenerates the header, add moves to physical line 6", ok and at2 == 5, h2[:8])
     check("bridge: overlay not rewritten when the set of files did not change", os.path.getmtime(ov) == mt)
@@ -2424,12 +2452,17 @@ def bridge_real(exe, base):
         c.start()
         c.open("test.k", BR_REAL_K)
         wait_for(lambda: False, 6, c)
+        hints = lambda: [n for n in c.notes if n["method"] in ("window/logMessage", "window/showMessage")
+                         and "for clangd to resolve them" in n["params"]["message"]]
         for v in (2, 3):
             c.change("test.k", v, BR_REAL_K + "\npub fn extra%d() -> i32 { return %d }\n" % (v, v))
             wait_for(lambda: ("extra%d" % v) in read(hdr), 60, c)
             c.pump(1)
-        hs = [n for n in c.notes if n["method"] in ("window/logMessage", "window/showMessage")
-              and "for clangd to resolve them" in n["params"]["message"]]
+        # The hint is said by the bridge pass after a header job, which may
+        # land after the header it waited for.
+        if want:
+            wait_for(lambda: len(hints()) >= want, 30, c)
+        hs = hints()
         c.stop()
         check("bridge real: " + label, len(hs) == want and read(cdf) == user_text, [h["params"]["message"][:300] for h in hs])
         return hs
@@ -2972,11 +3005,12 @@ def persistent_syntax(exe, base):
     check("persistent syntax: one syntax-server child is running", w is not None, w)
     if w:
         os.kill(w, 9)
-        time.sleep(0.2)
+        wait_for(lambda: process_gone(w), 5)
         c.change(F, 3, broken_at(7))
         check("persistent syntax: a killed worker still yields this edit's diagnostics", wait_for(lambda: (syn_lines() or [None])[0] == 7, 3, c), syn_lines())
         check("persistent syntax: the worker is restarted", wait_for(lambda: worker() not in (None, w), 3, c), worker())
-        check("persistent syntax: the restart is logged", any(n["method"] == "window/logMessage" and "syntax worker" in n["params"]["message"] for n in c.notes))
+        check("persistent syntax: the restart is logged",
+              wait_for(lambda: any(n["method"] == "window/logMessage" and "syntax worker" in n["params"]["message"] for n in c.notes), 10, c))
     for k in range(300):
         c.change(F, 10 + k, broken_at(k % 12 if k < 299 else 11, 12))
     final_ok = wait_for(lambda: syn_lines() == [11], 3, c)

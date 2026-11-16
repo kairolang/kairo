@@ -18,9 +18,13 @@
 ///   drain() re-checks a slice at a time. An edit that cannot be re-checked
 ///   in place is a full check, with the reason in \c why; in a copy of the
 ///   process that is thrown away (\c aside) it is refused instead (\c mode
-///   "refused"). Every mode answers what a fresh run answers, which the
-///   oracle checks: --incr-replay, and Scripts/incr_replay_check.py, which
-///   compares every step with a clean run.
+///   "refused", nothing is brought up to date). A full check, and a
+///   refresh once nothing is queued, are meant to print what a fresh run
+///   prints, and the oracle compares them with one: --incr-replay, and
+///   Scripts/incr_replay_check.py, which runs a clean check per step. While
+///   files are queued the result mixes new and old (\c two_tier); a kept
+///   C++ instance can make a refresh wrong (\c strict_cxx); and a
+///   \c past_syntax check in an \c aside copy is not what a run prints.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
