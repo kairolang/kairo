@@ -74,7 +74,6 @@ import AST::Node::Base::{
     Decl,
     Expr,
     Stmt,
-    Type,
 }
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
@@ -90,19 +89,17 @@ import AST::Node::Declarations::{
     EnumDecl,
     FnBodyKind,
     FunctionDecl,
-    VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr, BinaryOperatorExpr, CallExpr,     ImplicitBoundaryCastExpr, OpRewrite,
-    ParenExpr,          REMAKE_DEAD,        REMAKE_MAYBE, StmtExpr,                 SubscriptExpr,
-    TypeCastExpr,       UnaryOperatorExpr,
+    ParenExpr,          REMAKE_DEAD,        REMAKE_MAYBE, SubscriptExpr,            TypeCastExpr,
+    UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
 import AST::Node::Statements::{
-    CompoundStmt,
     DeclStmt,
     ExpressionStmt,
     ReturnStmt,
@@ -113,10 +110,7 @@ import AST::Node::Types::{
     PointerType,
 }
 import AST::OperatorFacts::OperatorFacts
-import AST::Visitor::ASTWriter::{
-    ASTWriter,
-    ListBuilder,
-}
+import AST::Visitor::ASTWriter::ASTWriter
 import Location::SourceRange::SourceRange
 import Sema::Lower::EnumLayoutLowering::EnumLayoutQuery
 import Sema::Lower::LowerStep::LowerStep
@@ -602,7 +596,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         var unsafe *t = self.synth.bind(at, "ecast", ut, v, unsafe &stmts)
         var miss: unsafe *Expr = &null
         if dense {
-            miss = self._cmp(
+            miss = self.synth.bool_binary(
                 at,
                 self.synth.use_of(t, at, Expr::ValueCategory::LValue),
                 self.synth.int_literal(at, count, uk),
@@ -610,14 +604,19 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             )
 
             if builtin_info(uk)->is_signed() {
-                var unsafe *neg = self._cmp(
+                var unsafe *neg = self.synth.bool_binary(
                     at,
                     self.synth.use_of(t, at, Expr::ValueCategory::LValue),
                     self.synth.int_literal(at, 0, uk),
                     TokenKind::OpLess,
                 )
 
-                miss = self._cmp(at, neg, miss, TokenKind::OpPipePipe)
+                miss = self.synth.bool_binary(
+                    at,
+                    neg,
+                    miss,
+                    TokenKind::OpPipePipe,
+                )
             }
         } else {
             // The `&&` of every `t != value` is built as a balanced tree, not
@@ -642,7 +641,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
                     lit               = m
                 }
 
-                var unsafe *ne = self._cmp(
+                var unsafe *ne = self.synth.bool_binary(
                     at,
                     self.synth.use_of(t, at, Expr::ValueCategory::LValue),
                     lit,
@@ -659,7 +658,9 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
                 var unsafe *a = terms[head]
                 var unsafe *b = terms[head + 1]
                 head += 2
-                terms.push_back(self._cmp(at, a, b, TokenKind::OpAmpAmp))
+                terms.push_back(
+                    self.synth.bool_binary(at, a, b, TokenKind::OpAmpAmp),
+                )
             }
 
             if terms.size() - head == 1 {
@@ -730,7 +731,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
 
         nd->type_          = self.sc->builtin(BuiltinKind::Bool)
         nd->value_category = Expr::ValueCategory::RValue
-        var unsafe *miss = self._cmp(
+        var unsafe *miss = self.synth.bool_binary(
             at,
             self.synth.use_of(s, at, Expr::ValueCategory::LValue),
             nd,
@@ -758,25 +759,6 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         )
 
         return self.synth.stmt_expr(unsafe (n as unsafe *Expr), &stmts, dt)
-    }
-
-    /// `l <op> r`, a builtin compare or logical operator, typed bool.
-    priv fn _cmp(self,
-                 at: SourceRange,
-                 l:  unsafe *Expr,
-                 r:  unsafe *Expr,
-                 k:  TokenKind) -> unsafe *Expr {
-        var unsafe *b = BinaryOperatorExpr::create(
-            self.ctx,
-            at,
-            l,
-            r,
-            self.synth.punct(at, k),
-        )
-
-        b->type_          = self.sc->builtin(BuiltinKind::Bool)
-        b->value_category = Expr::ValueCategory::RValue
-        return b
     }
 
     /// `if miss { unwrap_failed("<message>", <len>) }`: the message names
@@ -892,7 +874,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             n->op_instance,
         )
 
-        eq->type_ = self._ret(f) // bool, as OperatorSignatureCheck requires.
+        eq->type_ = self.synth.result_type(f) // bool, as OperatorSignatureCheck requires.
         var unsafe *no = UnaryOperatorExpr::create(
             self.ctx,
             n->range,
@@ -924,7 +906,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             n->op_instance,
         )
 
-        cmp->type_ = self._ret(f) // Ordering.
+        cmp->type_ = self.synth.result_type(f) // Ordering.
         // An imported `<=>` answers a C++ ordering (`std::strong_ordering`),
         // which converts to no integer (and its type may be a dependent member
         // alias, no record Sema can name): C++ itself compares it with a literal
@@ -1001,7 +983,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             n->op_instance,
         )
 
-        mut->type_          = self._ret(f)
+        mut->type_          = self.synth.result_type(f)
         mut->value_category = Expr::ValueCategory::RValue
 
         var unsafe *mv = TypeCastExpr::create(
@@ -1024,7 +1006,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             unsafe (ExpressionStmt::create(self.ctx, n->range, unsafe (mv as unsafe *Expr)) as unsafe *Stmt),
         )
 
-        return self._stmt_expr(n, &stmts, lt)
+        return self.synth.stmt_expr(n, &stmts, lt)
     }
 
     /// `a += b` from `op +`:  `a = a.op+(b)`. An `a` with side effects is
@@ -1059,7 +1041,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
                 n->op_instance,
             )
 
-            sum->type_          = self._ret(f)
+            sum->type_          = self.synth.result_type(f)
             sum->value_category = Expr::ValueCategory::RValue
             var unsafe *asg = AssignOperatorExpr::create(
                 self.ctx,
@@ -1093,7 +1075,11 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
 
         var unsafe *sum = self._call(
             unsafe (n as unsafe *Expr),
-            self._deref(vd, n->range, lt),
+            self.synth.deref(
+                n->range,
+                self.synth.use_of(vd, n->range, Expr::ValueCategory::LValue),
+                lt,
+            ),
             base_tok,
             f,
             n->op_via_free,
@@ -1101,12 +1087,16 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             n->op_instance,
         )
 
-        sum->type_          = self._ret(f)
+        sum->type_          = self.synth.result_type(f)
         sum->value_category = Expr::ValueCategory::RValue
         var unsafe *asg = AssignOperatorExpr::create(
             self.ctx,
             n->range,
-            self._deref(vd, n->range, lt),
+            self.synth.deref(
+                n->range,
+                self.synth.use_of(vd, n->range, Expr::ValueCategory::LValue),
+                lt,
+            ),
             sum,
             eq_tok,
         )
@@ -1122,38 +1112,11 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             unsafe (ExpressionStmt::create(self.ctx, n->range, unsafe (asg as unsafe *Expr)) as unsafe *Stmt),
         )
 
-        return self._stmt_expr(unsafe (n as unsafe *Expr), &stmts, n->type_)
-    }
-
-    /// `*p`, an lvalue of \p lt, reading the pointer local \p vd.
-    priv fn _deref(self,
-                   vd: unsafe *VariableDecl,
-                   at: SourceRange,
-                   lt: unsafe *Type) -> unsafe *Expr {
-        var unsafe *d = UnaryOperatorExpr::create(
-            self.ctx,
-            at,
-            self.synth.use_of(vd, at, Expr::ValueCategory::LValue),
-            self.synth.punct(at, TokenKind::OpStar),
-            UnaryOperatorExpr::Fix::Prefix,
+        return self.synth.stmt_expr(
+            unsafe (n as unsafe *Expr),
+            &stmts,
+            n->type_,
         )
-
-        d->type_          = lt
-        d->value_category = Expr::ValueCategory::LValue
-        return d
-    }
-
-    priv fn _stmt_expr(self,
-                       orig:  unsafe *Expr,
-                       stmts: *ListBuilder<unsafe *Stmt>,
-                       ty:    unsafe *Type) -> unsafe *Expr {
-        var unsafe *body = CompoundStmt::create(self.ctx, orig->range)
-        stmts->freeze_into(&body->body)
-        var unsafe *se = StmtExpr::create(self.ctx, orig->range, body)
-        se->adopt_sema(orig)
-        se->type_          = ty
-        se->value_category = Expr::ValueCategory::RValue
-        return se
     }
 
     /// # building the call
@@ -1167,20 +1130,6 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         }
 
         return f
-    }
-
-    /// The call's declared result, read from the decl: a derived operator's
-    /// node is typed as the DERIVED expression, not as the call it contains.
-    priv fn _ret(self, f: unsafe *FunctionDecl) -> unsafe *Type {
-        if f->is_noreturn {
-            return self.sc->builtin(BuiltinKind::Never)
-        }
-
-        if f->return_type == &null {
-            return self.sc->builtin(BuiltinKind::Void)
-        }
-
-        return f->return_type->canonical
     }
 
     priv fn _call(self,

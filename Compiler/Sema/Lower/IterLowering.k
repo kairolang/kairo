@@ -114,9 +114,8 @@ import AST::Node::Declarations::{
     VariableDecl,
 }
 import AST::Node::Expressions::{
-    AssignOperatorExpr, BinaryOperatorExpr, CallExpr,  CastMode,  ClosureExpr,
-    ListLiteralExpr,    ListStorage,        ParenExpr, RangeExpr, SubscriptExpr,
-    UnaryOperatorExpr,
+    AssignOperatorExpr, BinaryOperatorExpr, CallExpr, CastMode, ClosureExpr, ParenExpr, RangeExpr,
+    SubscriptExpr,      UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -825,7 +824,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         var unsafe *ptr = self.sc->types->pointer(pe)
 
         var unsafe *s = self._local(pre, at, "seq", st, n->iterable)
-        self._extend(n->iterable)
+        self.synth.mark_extended(n->iterable)
 
         var unsafe *data = self._lang_member(
             WellKnownType::Slice,
@@ -1587,24 +1586,5 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             cond,
             self._block(at, &*body),
         )
-    }
-
-    /// A slice literal bound to a local here lives to the end of the block,
-    /// as one bound to a `var` does (LiteralTyping::mark_list_storage).
-    priv fn _extend(self, e_in: unsafe *Expr) {
-        var unsafe *e = self.tu.strip_parens(e_in)
-        if e == &null || !isa<ListLiteralExpr>(e) {
-            return
-        }
-
-        var unsafe *l = cast<ListLiteralExpr>(e)
-        if l->type_ == &null || !self.tu.is_slice(l->type_) {
-            return
-        }
-
-        l->storage = ListStorage::Extended
-        for var i: usize = 0; i < l->elements.size(); ++i {
-            self._extend(l->elements[i])
-        }
     }
 }

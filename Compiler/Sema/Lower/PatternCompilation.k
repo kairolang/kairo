@@ -134,7 +134,6 @@ import AST::Node::Patterns::{
     UnresolvedConstructorPattern,
 }
 import AST::Node::PrimaryExpressions::StringLiteralExpr
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     MatchCase,
     MatchStmt,
@@ -143,7 +142,7 @@ import AST::Node::Statements::{
 import AST::Visitor::ASTWriter::ListBuilder
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Registry::DiagID
-import Lexer::Immediate::Immediate
+import Lexer::Immediate::string_chain_bytes
 import Sema::Check::PatternSpace::{
     Ctor,
     CtorKind,
@@ -152,7 +151,6 @@ import Sema::Check::PatternSpace::{
     PatternSpace,
     sort_unique_keys,
 }
-import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
     SemaContext,
     SemaPhase,
@@ -264,35 +262,15 @@ pub fn pattern_string_bytes(sc:  unsafe *SemaContext,
         return false
     }
 
-    // StringLowering::_collect, without spending the chain: the literal is
-    // still in the tree, and StringLowering lowers it later.
-    var        synth = LowerSynth(sc)
-    var unsafe *tbl  = sc->imm_table()
+    var unsafe *tbl = sc->imm_table()
     if lit->ctx != &null { // the writing file's (StringLowering::_collect).
         tbl = lit->ctx->get_payload_table(lit->token)
     }
 
-    var unsafe *seg = lit->imm
-    var        raw  = lit->is_raw()
-    while seg != &null {
-        if seg->has_owned_text() {
-            for var i: usize = 0; i < (seg->owned_len as usize); ++i {
-                out->push_back(seg->owned_ptr[i])
-            }
-        } else {
-            if !synth.decode_text(seg->body, raw, out) {
-                kairo::std::ice_fail(
-                    "PatternCompilation: escape the lexer accepted but the decoder does not know; keep Lexer::is_valid_escape and LowerSynth::decode_text in step",
-                )
-            }
-        }
-
-        if seg->next == u32::MAX {
-            break
-        }
-
-        seg = tbl->get<Immediate::StringData>(seg->next)
-        raw = seg->prefix_kind.has(Immediate::TextPrefixKind::Raw)
+    if !string_chain_bytes(tbl, sc->ctx->sm, lit->imm, out) {
+        kairo::std::ice_fail(
+            "PatternCompilation: escape the lexer accepted but the decoder does not know; Immediate::Escape is the one table for both",
+        )
     }
 
     return true
@@ -351,31 +329,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::TypesResolved)
         var unsafe *tu = self.sc->tu
-        if tu == &null {
-            return
-        }
-
-        if tu->program == &null {
-            return
-        }
-
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            if self.stop {
-                break
-            }
-
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(tu)
     }
 
     /// ## entry points

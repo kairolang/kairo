@@ -87,7 +87,6 @@
 
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
-ffi "c++" import "cstring"
 
 import AST::ASTSupport::create_empty_frozen_list
 import AST::Context::DeclContext::{
@@ -99,10 +98,8 @@ import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_extension_of,
     decl_generic_params,
-    decl_is_imported,
     param_is_type_pack,
 }
-import AST::Kind::DeclKind::DeclKind
 import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::{
     LowerTargets,
@@ -122,8 +119,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,   ClassDecl, FnBodyKind, FnModifier, FunctionDecl, ParamDecl, SpecKind, StructDecl,
-    UnionDecl,
+    FunctionDecl,
+    ParamDecl,
 }
 import AST::Node::Expressions::{
     CallExpr,
@@ -153,7 +150,6 @@ import AST::Visitor::ASTWriter::{
     ListBuilder,
 }
 import Location::FullSourceLocation::FullSourceLocation
-import Location::SourceRange::SourceRange
 import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
@@ -426,7 +422,7 @@ pub class CallLowering derives ASTWriter<CallLowering> {
             nt.imm = cctx->get_imm_table()->intern_ident_copy(name)
         }
 
-        var unsafe *th = self._new_fn(at, nt, sem)
+        var unsafe *th = FunctionDecl::create_synth(self.ctx, at, nt, sem)
         th->semantic_dc    = sem
         th->lexical_dc     = lex
         th->visibility     = VisibilityKind::Public
@@ -447,33 +443,6 @@ pub class CallLowering derives ASTWriter<CallLowering> {
         return th
     }
 
-    /// A FunctionDecl with every field set: ASTContext::alloc runs no
-    /// constructor, so the node is zeroed first (the registry's pattern).
-    priv fn _new_fn(self,
-                    at:     SourceRange,
-                    name:   Token,
-                    parent: unsafe *DeclContext) -> unsafe *FunctionDecl {
-        var unsafe *n = self.ctx->alloc<FunctionDecl>()
-        cxx::std::memset(unsafe (n as unsafe *void), 0, sizeof(FunctionDecl))
-        n->kind  = DeclKind::FunctionDecl
-        n->range = at
-        n->name  = name
-        n->init_annotations(unsafe &self.ctx->ast_alloc)
-        n->init_dc(DeclContextKind::Function, self.ctx, parent, n)
-        n->init_redecl()
-        n->params          = create_empty_frozen_list<unsafe *ParamDecl>()
-        n->op_token        = create_empty_frozen_list<Token>()
-        n->spec_args       = create_empty_frozen_list<unsafe *Type>()
-        n->abi             = AbiKind::None
-        n->modifiers       = FnModifier::None
-        n->body_kind       = FnBodyKind::Block
-        n->spec_kind       = SpecKind::None
-        n->requires_clause = &null
-        n->where_clause    = &null
-        n->qualifier       = &null
-        return n
-    }
-
     /// `{ return <v> }`.
     priv fn _fill(self, th: unsafe *FunctionDecl, v: unsafe *Expr) {
         var unsafe *ret  = ReturnStmt::create(self.ctx, v->range, v)
@@ -486,58 +455,9 @@ pub class CallLowering derives ASTWriter<CallLowering> {
 
     /// A default written on `fn C::g(...)`: its thunk would be a member of C.
     /// Unreachable: RedeclMerge rejects such a default (R056E) and clears it.
-    /// The body stays so the guard names the cause if that ever changes.
     priv fn _append_member(self, carrier: unsafe *FunctionDecl, th: unsafe *FunctionDecl) {
         kairo::std::ice_fail(
             "CallLowering: a default on an out-of-line definition reached lowering; RedeclMerge (R056E) clears it",
-        )
-
-        var unsafe *dc = carrier->semantic_dc
-        if dc == &null || !dc->is_type_scope() {
-            kairo::std::ice_fail(
-                "CallLowering: out-of-line definition with no owning type",
-            )
-        }
-
-        var unsafe *owner = dc->dc_owner
-        if decl_is_imported(owner) {
-            kairo::std::ice_fail(
-                "CallLowering: a default on an out-of-line definition of an imported C++ member; a C++ class cannot gain a member",
-            )
-        }
-
-        if isa<ClassDecl>(owner) {
-            var rw = self.rewriter<unsafe *FunctionDecl>(
-                unsafe &cast<ClassDecl>(owner)->methods,
-            )
-
-            rw.append(th)
-            rw.apply()
-            return
-        }
-
-        if isa<StructDecl>(owner) {
-            var rw = self.rewriter<unsafe *FunctionDecl>(
-                unsafe &cast<StructDecl>(owner)->methods,
-            )
-
-            rw.append(th)
-            rw.apply()
-            return
-        }
-
-        if isa<UnionDecl>(owner) {
-            var rw = self.rewriter<unsafe *FunctionDecl>(
-                unsafe &cast<UnionDecl>(owner)->methods,
-            )
-
-            rw.append(th)
-            rw.apply()
-            return
-        }
-
-        kairo::std::ice_fail(
-            "CallLowering: out-of-line definition in a scope that holds no methods",
         )
     }
 
@@ -1129,28 +1049,11 @@ pub class CallLowering derives ASTWriter<CallLowering> {
 
     priv fn _bind(self, e: unsafe *Expr, stmts: *ListBuilder<unsafe *Stmt>) -> unsafe *Expr {
         var unsafe *vd = self.synth.local(e->range, "carg", e->type_, e)
-        self._mark_extended(e)
+        self.synth.mark_extended(e)
         stmts->push(
             unsafe (DeclStmt::create(self.ctx, e->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
         )
 
         return self.synth.use_of(vd, e->range, Expr::ValueCategory::LValue)
-    }
-
-    priv fn _mark_extended(self, e_in: unsafe *Expr) {
-        var unsafe *e = self.tu.strip_parens(e_in)
-        if e == &null || !isa<ListLiteralExpr>(e) {
-            return
-        }
-
-        var unsafe *l = cast<ListLiteralExpr>(e)
-        if l->type_ == &null || !self.tu.is_slice(l->type_) {
-            return
-        }
-
-        l->storage = ListStorage::Extended
-        for var i: usize = 0; i < l->elements.size(); ++i {
-            self._mark_extended(l->elements[i])
-        }
     }
 }

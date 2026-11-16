@@ -84,26 +84,18 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 ffi "c++" import "cstring"
+ffi "c++" import "llvm/ADT/DenseMap.h"
 
-import AST::ASTSupport::{
-    FrozenList,
-    create_empty_frozen_list,
-}
+import AST::ASTSupport::FrozenList
 import AST::Context::ASTContext::ASTContext
-import AST::Context::DeclContext::DeclContextKind
-import AST::Kind::DeclKind::DeclKind
 import AST::LangItems::LowerTargets
 import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::{
     Decl,
     Expr,
     Stmt,
-    Type,
 }
-import AST::Node::CanonicalNodes::{
-    BuiltinKind,
-    QUAL_CONST,
-}
+import AST::Node::CanonicalNodes::QUAL_CONST
 import AST::Node::Casting::{
     cast,
     dyn_cast,
@@ -111,9 +103,7 @@ import AST::Node::Casting::{
 import AST::Node::Declarations::{
     FnBodyKind,
     FunctionDecl,
-    GenericParamDecl,
     ParamDecl,
-    SpecKind,
 }
 import AST::Node::Expressions::CallExpr
 import AST::Node::PrimaryExpressions::{
@@ -177,8 +167,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
     // Every member already given its candidate, and that candidate:
     // parallel. A member is reached once per list that holds it (a method
     // in a visibility group is in two), and each reach answers the same.
-    priv var _members: cxx::std::vector<unsafe *FunctionDecl>
-    priv var _cands:   cxx::std::vector<unsafe *FunctionDecl>
+    priv var _cand: llvm::DenseMap<unsafe *FunctionDecl, unsafe *FunctionDecl> ///< member -> its candidate.
 
     fn WhereDispatchLowering(self, sc: unsafe *SemaContext) {
         self.sc    = sc
@@ -248,13 +237,8 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
     }
 
     priv fn _cand_of(self, f: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
-        for var i: usize = 0; i < self._members.size(); ++i {
-            if self._members[i] == f {
-                return self._cands[i]
-            }
-        }
-
-        return &null
+        var it = self._cand.find(f)
+        return if (it != self._cand.end()) => (it->second) else => &null
     }
 
     /// # one group
@@ -294,8 +278,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
                 ),
             )
 
-            self._members.push_back(m)
-            self._cands.push_back(c)
+            self._cand.try_emplace(m, c)
         }
 
         // The lead's own parameters went to its candidate; the dispatcher
@@ -378,22 +361,12 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
     /// A candidate: \p m's parameters, body and contract under \p name,
     /// private, where \p m was declared. \p m keeps nothing of either.
     priv fn _mint(self, m: unsafe *FunctionDecl, name: Token) -> unsafe *FunctionDecl {
-        var unsafe *c = self.ctx->alloc<FunctionDecl>()
-        cxx::std::memset(unsafe (c as unsafe *void), 0, sizeof(FunctionDecl))
-        c->kind  = DeclKind::FunctionDecl
-        c->range = m->range
-        c->name  = name
-        c->init_annotations(unsafe &self.ctx->ast_alloc)
-        c->init_dc(DeclContextKind::Function, self.ctx, m->semantic_dc, c)
-        c->init_redecl()
-        c->generic_params = create_empty_frozen_list<unsafe *GenericParamDecl>()
-        c->op_token        = create_empty_frozen_list<Token>()
-        c->spec_args       = create_empty_frozen_list<unsafe *Type>()
-        c->spec_kind       = SpecKind::None
-        c->requires_clause = &null
-        c->where_clause    = &null
-        c->where_lead      = &null
-        c->qualifier       = &null
+        var unsafe *c = FunctionDecl::create_synth(
+            self.ctx,
+            m->range,
+            name,
+            m->semantic_dc,
+        )
 
         c->semantic_dc = m->semantic_dc
         c->lexical_dc  = m->lexical_dc
@@ -494,7 +467,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
             args.push(use)
         }
 
-        var unsafe *rt                = self._ret(c)
+        var unsafe *rt                = self.synth.result_type(c)
         var        call: unsafe *Expr = &null
         if recv != &null {
             call = self.synth.member_call(
@@ -581,17 +554,5 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         use->type_          = t
         use->value_category = Expr::ValueCategory::LValue
         return use
-    }
-
-    priv fn _ret(self, f: unsafe *FunctionDecl) -> unsafe *Type {
-        if f->is_noreturn {
-            return self.sc->builtin(BuiltinKind::Never)
-        }
-
-        if f->return_type == &null {
-            return self.sc->builtin(BuiltinKind::Void)
-        }
-
-        return f->return_type->canonical
     }
 }

@@ -187,7 +187,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     /// main's first statement (the teardown `finally`) nulls g on the way
     /// out. Nothing else puts an Extended literal under an expression
     /// statement: the other writers (IterLowering::_extend,
-    /// CallLowering::_mark_extended, SequenceLowering::_mark_extended) mark
+    /// LowerSynth::mark_extended) mark
     /// a literal that initializes a local they mint as a DeclStmt.
     fn transform_expression_stmt(self,
                                  n: unsafe *Statements::ExpressionStmt) -> cxx::std::vector<unsafe *Stmt> {

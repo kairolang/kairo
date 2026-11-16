@@ -29,6 +29,7 @@ ffi "c++" import "Native/UTF8Decode.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::ASTSupport::FrozenList
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::decl_pattern
 import AST::Kind::ExprKind::{
@@ -59,16 +60,12 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtRole,
-    EnumDecl,
-    FunctionDecl,
-    StorageClass,
-    VariableDecl,
+    AdtRole, ClassDecl, EnumDecl, FieldDecl, FunctionDecl, StorageClass, StructDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
-    BinaryOperatorExpr, CallExpr,        CastMode,      ImplicitBoundaryCastExpr, ListLiteralExpr,
-    ParenExpr,          StmtExpr,        SubscriptExpr, TypeCastExpr,             UnaryOperatorExpr,
-    UnsafeExpr,         VariantInitExpr,
+    BinaryOperatorExpr, CallExpr,             CastMode,   ImplicitBoundaryCastExpr, ListLiteralExpr,
+    ListStorage,        NamedInitializerExpr, ParenExpr,  StmtExpr,                 SubscriptExpr,
+    TypeCastExpr,       UnaryOperatorExpr,    UnsafeExpr, VariantInitExpr,
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr,
@@ -89,7 +86,10 @@ import AST::Node::Types::{
 }
 import AST::Visitor::ASTWriter::ListBuilder
 import Codegen::CodegenICE::codegen_ice
-import Lexer::Immediate::Immediate
+import Lexer::Immediate::{
+    Immediate,
+    string_chain_bytes,
+}
 import Location::SourceRange::SourceRange
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
@@ -149,7 +149,7 @@ pub class LowerSynth {
         d->value_hi = 0
         d->bits     = 0
         d->base     = 10
-        d->flags    = 0
+        d->assign_flags(FlagSet<Immediate::IntFlags, u8>())
 
         var t = Token()
         t.kind  = TokenKind::LitInt
@@ -282,6 +282,206 @@ pub class LowerSynth {
         )
 
         return en == &null || en->is_adt
+    }
+
+    /// \p e as an rvalue of \p t: `static_cast<T &&>(e)`, the move out of a
+    /// place nothing reads again.
+    fn rref(self, at: SourceRange, e: unsafe *Expr, t: unsafe *Type) -> unsafe *Expr {
+        return self.cast_to(
+            at,
+            e,
+            self.sc->types->cxx_rref(t),
+            CastMode::Default,
+        )
+    }
+
+    /// `l <k> r`, typed bool: a comparison or a logical operator.
+    fn bool_binary(self,
+                   at: SourceRange,
+                   l:  unsafe *Expr,
+                   r:  unsafe *Expr,
+                   k:  TokenKind) -> unsafe *Expr {
+        var unsafe *b = BinaryOperatorExpr::create(
+            self.sc->ctx,
+            at,
+            l,
+            r,
+            self.punct(at, k),
+        )
+
+        b->type_          = self.sc->builtin(BuiltinKind::Bool)
+        b->value_category = Expr::ValueCategory::RValue
+        return b
+    }
+
+    /// `!e`, typed bool.
+    fn logical_not(self, at: SourceRange, e: unsafe *Expr) -> unsafe *Expr {
+        var unsafe *u = UnaryOperatorExpr::create(
+            self.sc->ctx,
+            at,
+            e,
+            self.punct(at, TokenKind::OpExclaim),
+            UnaryOperatorExpr::Fix::Prefix,
+        )
+
+        u->type_          = self.sc->builtin(BuiltinKind::Bool)
+        u->value_category = Expr::ValueCategory::RValue
+        return u
+    }
+
+    /// `*e`, an lvalue of \p t.
+    fn deref(self, at: SourceRange, e: unsafe *Expr, t: unsafe *Type) -> unsafe *Expr {
+        var unsafe *u = UnaryOperatorExpr::create(
+            self.sc->ctx,
+            at,
+            e,
+            self.punct(at, TokenKind::OpStar),
+            UnaryOperatorExpr::Fix::Prefix,
+        )
+
+        u->type_          = t
+        u->value_category = Expr::ValueCategory::LValue
+        return u
+    }
+
+    /// `{ stmts }`.
+    fn block(self,
+             at:          SourceRange,
+             const stmts: cxx::std::vector<unsafe *Stmt>) -> unsafe *CompoundStmt {
+        var unsafe *blk = CompoundStmt::create(self.sc->ctx, at)
+        var        lb   = ListBuilder<unsafe *Stmt>(self.sc->ctx)
+        for var i: usize = 0; i < stmts.size(); ++i {
+            lb.push(stmts[i])
+        }
+
+        lb.freeze_into(&blk->body)
+        return blk
+    }
+
+    /// What a call of \p f yields, read from the decl: `!` for a function
+    /// that does not return, `void` for one that declares no result.
+    fn result_type(self, f: unsafe *FunctionDecl) -> unsafe *Type {
+        if f->is_noreturn {
+            return self.sc->builtin(BuiltinKind::Never)
+        }
+
+        if f->return_type == &null {
+            return self.sc->builtin(BuiltinKind::Void)
+        }
+
+        return f->return_type->canonical
+    }
+
+    /// A slice literal bound to a local lives to the end of the local's
+    /// block, as one bound to a `var` does (LiteralTyping::mark_list_storage):
+    /// its backing array, and that of every slice literal nested in it, is
+    /// marked Extended.
+    fn mark_extended(self, e_in: unsafe *Expr) {
+        var        tu = TypeUtil(self.sc)
+        var unsafe *e = tu.strip_parens(e_in)
+        if e == &null || !isa<ListLiteralExpr>(e) {
+            return
+        }
+
+        var unsafe *l = cast<ListLiteralExpr>(e)
+        if l->type_ == &null || !tu.is_slice(l->type_) {
+            return
+        }
+
+        l->storage = ListStorage::Extended
+        for var i: usize = 0; i < l->elements.size(); ++i {
+            self.mark_extended(l->elements[i])
+        }
+    }
+
+    /// \p n names its fields in an order other than the one its struct or
+    /// class declares them in. False when that cannot be told: no record
+    /// type, or a field that names no declared field.
+    fn out_of_order(self, n: unsafe *NamedInitializerExpr) -> bool {
+        var unsafe *rt = dyn_cast<RecordType>(canon_unqual(n->type_))
+        if rt == &null || rt->decl == &null {
+            return false
+        }
+
+        var unsafe *rd                                                = rt->decl
+        var        decl_fields: unsafe *FrozenList<unsafe *FieldDecl> = &null
+        if isa<StructDecl>(rd) {
+            decl_fields = unsafe &cast<StructDecl>(rd)->fields
+        } else if isa<ClassDecl>(rd) {
+            decl_fields = unsafe &cast<ClassDecl>(rd)->fields
+        }
+
+        if decl_fields == &null {
+            return false
+        }
+
+        // Each written field's declaration position; written order is
+        // declaration order when those rise.
+        var in_order       = true
+        var prev:    usize = 0
+        var any            = false
+        for var i: usize = 0; i < n->fields.size(); ++i {
+            var nm = self.sc->ctx->get_spelling(n->fields.get(i)->name)
+            var at = usize::MAX
+            for var j: usize = 0; j < decl_fields->size(); ++j {
+                var unsafe *fd = (*decl_fields)[j]
+                if fd != &null && self.sc->ctx->get_spelling(fd->name) == nm {
+                    at = j
+                    break
+                }
+            }
+
+            if at == usize::MAX {
+                return false
+            }
+
+            if any && at < prev {
+                in_order = false
+            }
+
+            prev = at
+            any  = true
+        }
+
+        return !in_order
+    }
+
+    /// \p n's field indices in the order the fields were written.
+    fn written_order(self, n: unsafe *VariantInitExpr) -> cxx::std::vector<usize> {
+        var out   = cxx::std::vector<usize>()
+        var count = n->fields.size()
+        for var k: usize = 0; k < count; ++k {
+            for var i: usize = 0; i < count; ++i {
+                if (n->source_order[i] as usize) == k {
+                    out.push_back(i)
+                }
+            }
+        }
+
+        return out
+    }
+
+    /// `({ stmts; n })` with \p n rebuilt over \p bound, one value per field
+    /// in declaration order. \p stmts computed them in the order written,
+    /// so the written order of \p n is declaration order from here on.
+    fn variant_over(self,
+                    n:            unsafe *VariantInitExpr,
+                    const bound:  cxx::std::vector<unsafe *Expr>,
+                    @inout stmts: ListBuilder<unsafe *Stmt>) -> unsafe *Expr {
+        var fields = ListBuilder<unsafe *Expr>(self.sc->ctx)
+        var order  = ListBuilder<u32>(self.sc->ctx)
+        for var i: usize = 0; i < bound.size(); ++i {
+            fields.push(bound[i])
+            order.push(i as u32)
+        }
+
+        fields.freeze_into(&n->fields)
+        order.freeze_into(&n->source_order)
+        stmts.push(
+            unsafe (ExpressionStmt::create(self.sc->ctx, n->range, unsafe (n as unsafe *Expr)) as unsafe *Stmt),
+        )
+
+        return self.stmt_expr(unsafe (n as unsafe *Expr), &stmts, n->type_)
     }
 
     /// `&e`, typed `*T` for an \p e of T. A C++ `T&` (an `operator*` result)
@@ -549,8 +749,7 @@ pub class LowerSynth {
     /// The extent C++ gives string literal \p sl as `const char[N]`: its
     /// decoded bytes, every chained part, plus the terminator. 0 when
     /// an escape does not decode, which the caller reads as "no literal".
-    /// Typing needs it before StringLowering has built the bytes, so it
-    /// decodes the chain as StringLowering::_collect does.
+    /// Typing needs it before StringLowering has built the bytes.
     fn c_literal_extent(self, sl: unsafe *StringLiteralExpr) -> u64 {
         if sl == &null {
             return 0
@@ -563,133 +762,25 @@ pub class LowerSynth {
             tbl = sl->ctx->get_payload_table(sl->token)
         }
 
-        var        out  = cxx::std::vector<u8>()
-        var unsafe *seg = sl->imm
-        var        raw  = sl->is_raw()
-        while seg != &null {
-            if seg->has_owned_text() {
-                for var i: usize = 0; i < (seg->owned_len as usize); ++i {
-                    out.push_back(seg->owned_ptr[i])
-                }
-            } else if !self.decode_text(seg->body, raw, unsafe &out) {
-                return 0
-            }
-
-            if seg->next == u32::MAX || tbl == &null {
-                break
-            }
-
-            seg = tbl->get<Immediate::StringData>(seg->next)
-            raw = seg->prefix_kind.has(Immediate::TextPrefixKind::Raw)
+        var out = cxx::std::vector<u8>()
+        if !string_chain_bytes(tbl, self.sc->ctx->sm, sl->imm, unsafe &out) {
+            return 0
         }
 
         return (out.size() as u64) + 1
     }
 
     /// The bytes of \p range decoded: every escape the lexer accepts, into
-    /// UTF-8. \p raw copies verbatim. False for an escape the lexer accepted
-    /// and this does not know; the caller ICEs, since the two must agree.
+    /// UTF-8 (Immediate::decode_escapes). \p raw copies verbatim. False for
+    /// an escape that is not whole, which the lexer has already rejected; the
+    /// caller ICEs.
     fn decode_text(self, range: SourceRange, raw: bool, out: unsafe *cxx::std::vector<u8>) -> bool {
         if !range.is_valid() {
             return true
         }
 
-        var        view       = self.sc->ctx->sm->get_view(range)
-        var unsafe *p         = view.data()
-        var        n          = view.size()
-        var        i:   usize = 0
-        while i < n {
-            var b = p[i]
-            if raw || b != 0x5c {
-                out->push_back(b)
-                i += 1
-                continue
-            }
-
-            i += 1
-            if i >= n {
-                return false
-            }
-
-            var e = p[i]
-            i += 1
-            match e {
-                case 0x6e /* 'n' */ {
-                    out->push_back(0x0a)
-                } case 0x72 /* 'r' */ {
-                    out->push_back(0x0d)
-                } case 0x74 /* 't' */ {
-                    out->push_back(0x09)
-                } case 0x76 /* 'v' */ {
-                    out->push_back(0x0b)
-                } case 0x66 /* 'f' */ {
-                    out->push_back(0x0c)
-                } case 0x61 /* 'a' */ {
-                    out->push_back(0x07)
-                } case 0x62 /* 'b' */ {
-                    out->push_back(0x08)
-                } case 0x27 /* '\x27' */ {
-                    out->push_back(0x27)
-                } case 0x22 /* '\x22' */ {
-                    out->push_back(0x22)
-                } case 0x5c /* '\\' */ {
-                    out->push_back(0x5c)
-                } case 0x7b /* '{' */ {
-                    out->push_back(0x7b)
-                } case 0x7d /* '}' */ {
-                    out->push_back(0x7d)
-                } case 0x78 /* 'x' */ {
-                    if i + 2 > n {
-                        return false
-                    }
-
-                    var cp = LowerSynth::_hex(p[i]) << 4 | LowerSynth::_hex(
-                        p[i + 1],
-                    )
-
-                    i += 2
-                    LowerSynth::push_utf8(cp, &*out)
-                } case 0x75 /* 'u' */ {
-                    if i + 4 > n {
-                        return false
-                    }
-
-                    var cp: u32 = 0
-                    for var k: usize = 0; k < 4; ++k {
-                        cp = cp << 4 | LowerSynth::_hex(p[i + k])
-                    }
-
-                    i += 4
-                    LowerSynth::push_utf8(cp, &*out)
-                } case 0x55 /* 'U' */ {
-                    if i + 8 > n {
-                        return false
-                    }
-
-                    var cp: u32 = 0
-                    for var k: usize = 0; k < 8; ++k {
-                        cp = cp << 4 | LowerSynth::_hex(p[i + k])
-                    }
-
-                    i += 8
-                    LowerSynth::push_utf8(cp, &*out)
-                } case 0x30 /* '0' */, 0x31 /* '1' */, 0x32 /* '2' */, 0x33 /* '3' */, 0x34 /* '4' */, 0x35 /* '5' */, 0x36 /* '6' */, 0x37 /* '7' */ {
-                    var cp:     u32   = e - ('0' as u8)
-                    var digits: usize = 1
-                    while i < n && digits < 3 && p[i] >= ('0' as u8) && p[i] <= ('7' as u8) {
-                        cp = cp << 3 | ((p[i] - ('0' as u8)) as u32)
-                        i += 1
-                        digits += 1
-                    }
-
-                    LowerSynth::push_utf8(cp, &*out)
-                } default {
-                    return false
-                }
-            }
-        }
-
-        return true
+        var view = self.sc->ctx->sm->get_view(range)
+        return Immediate::decode_escapes(view.data(), view.size(), raw, out)
     }
 
     /// The raw bytes of \p range, no decoding.
@@ -713,35 +804,10 @@ pub class LowerSynth {
         }
     }
 
-    static fn push_utf8(cp: u32, @inout out: cxx::std::vector<u8>) {
-        if cp < 0x80 {
-            out.push_back(cp as u8)
-            return
-        }
-
-        if cp < 0x800 {
-            out.push_back((0xC0 | cp >> 6) as u8)
-            out.push_back((0x80 | cp & 0x3F) as u8)
-            return
-        }
-
-        if cp < 0x10000 {
-            out.push_back((0xE0 | cp >> 12) as u8)
-            out.push_back((0x80 | cp >> 6 & 0x3F) as u8)
-            out.push_back((0x80 | cp & 0x3F) as u8)
-            return
-        }
-
-        out.push_back((0xF0 | cp >> 18) as u8)
-        out.push_back((0x80 | cp >> 12 & 0x3F) as u8)
-        out.push_back((0x80 | cp >> 6 & 0x3F) as u8)
-        out.push_back((0x80 | cp & 0x3F) as u8)
-    }
-
     /// Codepoints in \p bytes: every byte that is not a continuation byte.
     ///
     /// Requires valid UTF-8, which SourceManager::validate_utf8 (source bytes)
-    /// plus decode_text's escape encoding (every escape is written as a full
+    /// plus decode_escapes' encoding (every escape is written as a full
     /// UTF-8 sequence) guarantee; on anything else the count is wrong, not an
     /// error. Debug builds re-decode \p bytes to catch a path that bypassed
     /// validation.
@@ -769,22 +835,6 @@ pub class LowerSynth {
         }
 
         return cp
-    }
-
-    priv static fn _hex(b: u8) -> u32 {
-        if b >= ('0' as u8) && b <= ('9' as u8) {
-            return b - ('0' as u8)
-        }
-
-        if b >= ('a' as u8) && b <= ('f' as u8) {
-            return b - ('a' as u8) + 10
-        }
-
-        if b >= ('A' as u8) && b <= ('F' as u8) {
-            return b - ('A' as u8) + 10
-        }
-
-        return 0 // the lexer validated the digit; unreachable.
     }
 
     /// An empty vec may have no buffer; the interner still wants a pointer.

@@ -61,7 +61,7 @@ import AST::Node::Declarations::FunctionDecl
 import AST::Node::Expressions::CastMode
 import AST::Node::PrimaryExpressions::StringLiteralExpr
 import AST::Visitor::ASTWriter::ASTWriter
-import Lexer::Immediate::Immediate
+import Lexer::Immediate::string_chain_bytes
 import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
@@ -236,7 +236,8 @@ pub class StringLowering derives ASTWriter<StringLowering> {
     }
 
     /// The literal's decoded bytes: its own body, then every chained part.
-    /// A segment with owned text (stringify!, file!) is already decoded.
+    /// Reads only: the chain is the lexer's, and the same literal reaches
+    /// lowering again from every expansion of a macro that writes it.
     priv fn _collect(self, n: unsafe *StringLiteralExpr, out: unsafe *cxx::std::vector<u8>) {
         // The chain lives in the table that holds n->imm: the file that
         // wrote the literal, which for an imported macro's body is not this
@@ -247,29 +248,10 @@ pub class StringLowering derives ASTWriter<StringLowering> {
             tbl = n->ctx->get_payload_table(n->token)
         }
 
-        var unsafe *seg = n->imm
-        var        raw  = n->is_raw()
-        while seg != &null {
-            if seg->has_owned_text() {
-                for var i: usize = 0; i < (seg->owned_len as usize); ++i {
-                    out->push_back(seg->owned_ptr[i])
-                }
-            } else {
-                if !self.synth.decode_text(seg->body, raw, out) {
-                    kairo::std::ice_fail(
-                        "StringLowering: escape the lexer accepted but the decoder does not know; keep Lexer::is_valid_escape and LowerSynth::decode_text in step",
-                    )
-                }
-            }
-
-            if seg->next == u32::MAX {
-                break
-            }
-
-            seg = tbl->get<Immediate::StringData>(seg->next)
-            raw = seg->prefix_kind.has(Immediate::TextPrefixKind::Raw)
+        if !string_chain_bytes(tbl, self.sc->ctx->sm, n->imm, out) {
+            kairo::std::ice_fail(
+                "StringLowering: escape the lexer accepted but the decoder does not know; Immediate::Escape is the one table for both",
+            )
         }
-
-        n->imm->next = u32::MAX // one literal now; the chain is spent.
     }
 }

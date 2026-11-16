@@ -84,15 +84,9 @@
 
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
-ffi "c++" import "cstring"
 
-import AST::ASTSupport::create_empty_frozen_list
-import AST::Context::DeclContext::{
-    DeclContext,
-    DeclContextKind,
-}
+import AST::Context::DeclContext::DeclContext
 import AST::Context::TranslationUnit::TranslationUnit
-import AST::Kind::DeclKind::DeclKind
 import AST::LangItems::{
     WellKnownType,
     entry_point_name,
@@ -114,8 +108,9 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,      FnBodyKind,   FnModifier, FunctionDecl, GenericParamDecl, ParamDecl, SpecKind,
-    StorageClass, VariableDecl,
+    FunctionDecl,
+    StorageClass,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr, BinaryOperatorExpr, CallExpr, ClosureExpr, IfExpr, MatchExpr, TryCatchExpr,
@@ -148,7 +143,6 @@ import Sema::SemaContext::{
     SemaPhase,
 }
 import Sema::Type::TypeUtil::TypeUtil
-import Token::Token::Token
 import Token::TokenKind::TokenKind
 
 /// One read of a variable, or one direct call of a function, that
@@ -912,35 +906,22 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         return Statements::FinallyStmt::create(self.ctx, at, blk)
     }
 
-    /// `fn main() -> i32 { body }` at file scope. Every field set, as
-    /// FieldInitLowering::_new_fn sets a thunk's; Speller::is_main makes it
+    /// `fn main() -> i32 { body }` at file scope; Speller::is_main makes it
     /// the C++ `int main`.
     priv fn _main(self, at: SourceRange, body: *ListBuilder<unsafe *Stmt>) -> unsafe *FunctionDecl {
         var unsafe *dc = self._tu_dc(self.sc->tu)
-        var unsafe *n  = self.ctx->alloc<FunctionDecl>()
-        cxx::std::memset(unsafe (n as unsafe *void), 0, sizeof(FunctionDecl))
-        n->kind  = DeclKind::FunctionDecl
-        n->range = at
-        n->name  = self.synth.ident(at, entry_point_name())
-        n->init_annotations(unsafe &self.ctx->ast_alloc)
-        n->init_dc(DeclContextKind::Function, self.ctx, dc, n)
-        n->init_redecl()
-        n->params = create_empty_frozen_list<unsafe *ParamDecl>()
-        n->generic_params = create_empty_frozen_list<unsafe *GenericParamDecl>()
-        n->op_token        = create_empty_frozen_list<Token>()
-        n->spec_args       = create_empty_frozen_list<unsafe *Type>()
-        n->abi             = AbiKind::None
-        n->modifiers       = FnModifier::None
-        n->body_kind       = FnBodyKind::Block
-        n->spec_kind       = SpecKind::None
-        n->requires_clause = &null
-        n->where_clause    = &null
-        n->qualifier       = &null
-        n->semantic_dc     = dc
-        n->lexical_dc      = dc
-        n->visibility      = VisibilityKind::Public
-        n->is_implicit     = true
-        n->return_type     = self.sc->builtin(BuiltinKind::I32)
+        var unsafe *n = FunctionDecl::create_synth(
+            self.ctx,
+            at,
+            self.synth.ident(at, entry_point_name()),
+            dc,
+        )
+
+        n->semantic_dc = dc
+        n->lexical_dc  = dc
+        n->visibility  = VisibilityKind::Public
+        n->is_implicit = true
+        n->return_type = self.sc->builtin(BuiltinKind::I32)
         // TODO(panic): Compiler/Spec/Panic.md#where-nothing-may-leave -- top-level code handles every panic.
         // The synthesized main is the place that catches what escapes the
         // script's statements; nothing to catch until PanicLowering lands.

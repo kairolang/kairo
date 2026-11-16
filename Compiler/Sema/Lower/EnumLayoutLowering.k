@@ -227,6 +227,7 @@ import Sema::Check::ClassLifecycle::{
     LifecycleTri,
     lifecycle_of,
     lifecycle_open,
+    lifecycle_tri,
 }
 import Sema::Foreign::TypeExport::TypeExport
 import Sema::Lower::LowerStep::LowerStep
@@ -527,27 +528,27 @@ pub class EnumLayoutQuery {
         }
 
         var verdict = self.niche_verdict(en, ft)
-        if verdict < 0 {
+        if verdict == LifecycleTri::Unknown {
             return AdtShape::Opaque
         }
 
-        return if (verdict > 0) => (AdtShape::Niche) else => AdtShape::Tagged
+        return if (verdict == LifecycleTri::Yes) => (AdtShape::Niche) else => AdtShape::Tagged
     }
 
     /// Whether a niche-shaped \p en whose one payload field has type \p ft
-    /// is laid out niche-filled: 1 yes, 0 no, -1 unknown. The rule (spec
+    /// is laid out niche-filled, or Unknown. The rule (spec
     /// ENUMLAYOUT §5.2): the field holds a niche of at least as many
     /// patterns as there are dataless variants, and is trivially copied and
     /// destroyed, which keeps every special member trivial. InterfaceEmitter
     /// writes C++'s side of it as the specialization's constraint.
-    fn niche_verdict(self, en: unsafe *Declarations::EnumDecl, ft: unsafe *Type) -> i8 {
+    fn niche_verdict(self, en: unsafe *Declarations::EnumDecl, ft: unsafe *Type) -> LifecycleTri {
         var n = self.niche_of(ft)
         if n == niche_unknown() {
-            return -1
+            return LifecycleTri::Unknown
         }
 
         if n < adt_niche_dataless(en) {
-            return 0
+            return LifecycleTri::No
         }
 
         return self.trivial(ft)
@@ -591,11 +592,11 @@ pub class EnumLayoutQuery {
 
             var unsafe *inner = cast<NullableType>(c)->inner
             var        v      = self.niche_verdict(nd, inner)
-            if v < 0 {
+            if v == LifecycleTri::Unknown {
                 return niche_unknown()
             }
 
-            if v == 0 {
+            if v == LifecycleTri::No {
                 return adt_tag_niche_count(nd)
             }
 
@@ -705,18 +706,18 @@ pub class EnumLayoutQuery {
         return self.field_type_at(en, args, pv->payload[0]->type_)
     }
 
-    /// \p t is trivially copied and destroyed: 1, 0, or -1 unknown. Read off
+    /// \p t is trivially copied and destroyed, or Unknown. Read off
     /// the structure for what C++ decides by the structure (an ADT is
     /// trivial exactly when its payloads are: its special members are
     /// defaulted then), off ClassLifecycle for a record.
-    fn trivial(self, t: unsafe *Type) -> i8 {
+    fn trivial(self, t: unsafe *Type) -> LifecycleTri {
         if t == &null || t->canonical == &null {
-            return -1
+            return LifecycleTri::Unknown
         }
 
         var unsafe *c = canon_unqual(t->canonical)
         if c == &null {
-            return -1
+            return LifecycleTri::Unknown
         }
 
         if isa<NullableType>(c) {
@@ -724,13 +725,14 @@ pub class EnumLayoutQuery {
         }
 
         if isa<BuiltinType>(c) || isa<PointerType>(c) {
-            return 1
+            return LifecycleTri::Yes
         }
 
         if isa<FunctionPointerType>(c) {
-            return if (cast<FunctionPointerType>(c)->is_unprototyped
-                       || cast<FunctionPointerType>(c)->is_raw) => (1)
-                   else => 0
+            return lifecycle_tri(
+                cast<FunctionPointerType>(c)->is_unprototyped
+                    || cast<FunctionPointerType>(c)->is_raw,
+            )
         }
 
         if isa<FixedArrayType>(c) {
@@ -738,14 +740,14 @@ pub class EnumLayoutQuery {
         }
 
         if c->is_dependent() || c->is_instantiation_dependent() {
-            return -1
+            return LifecycleTri::Unknown
         }
 
         if isa<RecordType>(c) {
             var unsafe *d  = self.tu.pattern_of(cast<RecordType>(c)->decl)
             var unsafe *en = dyn_cast<Declarations::EnumDecl>(d)
             if en != &null && !en->is_adt {
-                return 1
+                return LifecycleTri::Yes
             }
 
             if en != &null && en->generic_params.size() > 0 {
@@ -760,29 +762,29 @@ pub class EnumLayoutQuery {
                         )
 
                         if ft == &null {
-                            return -1
+                            return LifecycleTri::Unknown
                         }
 
                         var k = self.trivial(ft)
-                        if k != 1 {
+                        if k != LifecycleTri::Yes {
                             return k
                         }
                     }
                 }
 
-                return 1
+                return LifecycleTri::Yes
             }
         }
 
         var f = lifecycle_of(self.sc)->facts_of_type(c)
         if f.trivially_copyable == LifecycleTri::Unknown
             || f.trivial_dtor == LifecycleTri::Unknown {
-            return -1
+            return LifecycleTri::Unknown
         }
 
-        return if (f.trivially_copyable == LifecycleTri::Yes
-                   && f.trivial_dtor == LifecycleTri::Yes) => (1)
-               else => 0
+        return lifecycle_tri(
+            f.trivially_copyable == LifecycleTri::Yes && f.trivial_dtor == LifecycleTri::Yes,
+        )
     }
 
     /// The size and alignment in bytes of a value of type \p t, for the
@@ -3311,7 +3313,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
             niche = EnumLayoutQuery(self.sc).niche_verdict(
                 en,
                 npv->payload[0]->type_,
-            ) == 1
+            ) == LifecycleTri::Yes
         }
 
         // A generic ADT whose niche field names no parameter (`enum <T> GK
@@ -3330,7 +3332,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
                 && (!gft->canonical->is_dependent())
                 && !gft->canonical->is_instantiation_dependent() {
                 self._prebuild(gft)
-                if EnumLayoutQuery(self.sc).niche_verdict(en, gft) == 0 {
+                if EnumLayoutQuery(self.sc).niche_verdict(en, gft) == LifecycleTri::No {
                     shaped = false
                 }
             }

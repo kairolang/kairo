@@ -65,19 +65,14 @@ import AST::Node::Base::{
 }
 import AST::Node::CanonicalNodes::{
     QUAL_CONST,
-    RecordType,
     canon_has_const,
     canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
     dyn_cast,
-    isa,
 }
-import AST::Node::Declarations::{
-    EnumDecl,
-    VariableDecl,
-}
+import AST::Node::Declarations::VariableDecl
 import AST::Node::Expressions::{
     CastMode,
     InitField,
@@ -373,21 +368,11 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
     /// binder. A record only; a scalar or pointer copies as cheaply.
     priv fn _moved(self, place: unsafe *Expr) -> unsafe *Expr {
         var unsafe *c = canon_unqual(place->type_)
-        if c == &null || !isa<RecordType>(c) {
+        if !self.synth.is_class_value(c) {
             return place
         }
 
-        var unsafe *en = dyn_cast<EnumDecl>(cast<RecordType>(c)->decl)
-        if en != &null && !en->is_adt {
-            return place
-        }
-
-        return self.synth.cast_to(
-            place->range,
-            place,
-            self.sc->types->cxx_rref(c),
-            CastMode::Default,
-        )
+        return self.synth.rref(place->range, place, c)
     }
 
     /// # match scrutinees

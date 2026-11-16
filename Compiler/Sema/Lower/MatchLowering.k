@@ -123,7 +123,6 @@ import AST::Node::CanonicalNodes::{
     BuiltinKind,
     BuiltinType,
     QUAL_CONST,
-    RecordType,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -140,8 +139,8 @@ import AST::Node::Declarations::{
     VariableDecl,
 }
 import AST::Node::Expressions::{
-    AssignOperatorExpr, BinaryOperatorExpr, CallExpr,         CastMode,          IfExpr, MatchExpr,
-    ParenExpr,          StmtExpr,           TupleLiteralExpr, UnaryOperatorExpr,
+    AssignOperatorExpr, BinaryOperatorExpr, CallExpr, IfExpr, MatchExpr, ParenExpr, StmtExpr,
+    TupleLiteralExpr,   UnaryOperatorExpr,
 }
 import AST::Node::Patterns::{
     LiteralPattern,
@@ -447,7 +446,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             all.push_back(code[i])
         }
 
-        return self._block(&all)
+        return self.synth.block(self._at, all)
     }
 
     priv fn _reset(self) {
@@ -582,19 +581,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// A class value is bound by reference; a scalar or a plain enum is copied.
     priv fn _is_class(self, t: unsafe *Type) -> bool {
-        if t == &null || !isa<RecordType>(t) {
-            return false
-        }
-
-        var unsafe *en = dyn_cast<EnumDecl>(
-            self.tu.pattern_of(cast<RecordType>(t)->decl),
-        )
-
-        if en != &null {
-            return en->is_adt
-        }
-
-        return true
+        return self.synth.is_class_value(t)
     }
 
     priv fn _referee(self, t: unsafe *Type) -> unsafe *Type {
@@ -878,7 +865,8 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         var *a = &self._arms[arm as usize]
         if a->slots {
             var unsafe *s = self._slot(arm, vd)
-            return self._deref(
+            return self.synth.deref(
+                self._at,
                 self.synth.use_of(s, self._at, Expr::ValueCategory::LValue),
                 self._binder_type(vd),
             )
@@ -961,7 +949,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             out.push_back(self._expr_stmt(mc->expression))
         }
 
-        return self._block(&out)
+        return self.synth.block(self._at, out)
     }
 
     /// Value form: the arm's value, `({ binders; (e); })` when it binds.
@@ -1010,12 +998,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 return e
             }
 
-            return self.synth.cast_to(
-                e->range,
-                e,
-                self.sc->types->cxx_rref(vt),
-                CastMode::Default,
-            )
+            return self.synth.rref(e->range, e, vt)
         }
 
         return e
@@ -1190,7 +1173,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         se->value_category = Expr::ValueCategory::RValue
         var one = cxx::std::vector<unsafe *Stmt>()
         one.push_back(self._expr_stmt(se))
-        return self._block(&one)
+        return self.synth.block(self._at, one)
     }
 
     /// # nodes
@@ -1315,12 +1298,12 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 self.ctx,
                 mc->guard->range,
                 mc->guard,
-                self._block(&take),
+                self.synth.block(self._at, take),
                 &null,
             ),
         )
 
-        return self._block(&inner)
+        return self.synth.block(self._at, inner)
     }
 
     /// The blocks of guards reached on several paths: the guard once, then
@@ -1525,22 +1508,33 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     /// Strings: `switch (s.len)` into one bucket per length, each a run of
     /// `memcmp`s; whatever no bucket takes goes to the default.
     priv fn _switch_strings(self, n: DNode, out: unsafe *cxx::std::vector<unsafe *Stmt>) {
+        // Each edge's text, decoded once: edge k's is texts[k].
+        var texts = cxx::std::vector<cxx::std::vector<u8>>()
+        for var k: u32 = 0; k < n.nedge; ++k {
+            var b = cxx::std::vector<u8>()
+            pattern_string_bytes(
+                self.sc,
+                self._t->edges[(n.edge0 + k) as usize].pat,
+                unsafe &b,
+            )
+
+            texts.push_back(b)
+        }
+
         var lens   = cxx::std::vector<usize>()
         var bucket = cxx::std::vector<Token>()
         for var k: u32 = 0; k < n.nedge; ++k {
-            var e = self._t->edges[(n.edge0 + k) as usize]
-            var b = cxx::std::vector<u8>()
-            pattern_string_bytes(self.sc, e.pat, unsafe &b)
+            var *b   = &texts[k as usize]
             var seen = false
             for var j: usize = 0; j < lens.size(); ++j {
-                if lens[j] == b.size() {
+                if lens[j] == b->size() {
                     seen = true
                     break
                 }
             }
 
             if !seen {
-                lens.push_back(b.size())
+                lens.push_back(b->size())
                 bucket.push_back(
                     self._name(
                         LowerTargets::match_node(
@@ -1568,11 +1562,11 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             if lens[j] == 0 {
                 // Length alone settles the empty string: no bucket, no memcmp.
                 for var k: u32 = 0; k < n.nedge; ++k {
-                    var e = self._t->edges[(n.edge0 + k) as usize]
-                    var b = cxx::std::vector<u8>()
-                    pattern_string_bytes(self.sc, e.pat, unsafe &b)
-                    if b.size() == 0 {
-                        c.target = self._target(e.child as i32)
+                    if texts[k as usize].size() == 0 {
+                        c.target = self._target(
+                            self._t->edges[(n.edge0 + k) as usize].child as i32,
+                        )
+
                         break
                     }
                 }
@@ -1601,16 +1595,13 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
             out->push_back(self._label_stmt(bucket[j]))
             for var k: u32 = 0; k < n.nedge; ++k {
-                var e = self._t->edges[(n.edge0 + k) as usize]
-                var b = cxx::std::vector<u8>()
-                pattern_string_bytes(self.sc, e.pat, unsafe &b)
-                if b.size() != lens[j] {
+                if texts[k as usize].size() != lens[j] {
                     continue
                 }
 
                 self._if_goto(
-                    self._memcmp_eq(n.occ, unsafe &b),
-                    e.child as i32,
+                    self._memcmp_eq(n.occ, unsafe &texts[k as usize]),
+                    self._t->edges[(n.edge0 + k) as usize].child as i32,
                     &*out,
                 )
             }
@@ -1629,7 +1620,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                     return self._occ(occ)
                 }
 
-                return self._not(self._occ(occ))
+                return self.synth.logical_not(self._at, self._occ(occ))
             } case CtorKind::Int {
                 var        d  = self.ps.domain_of(self._occ_type(occ))
                 var unsafe *t = self._occ_type(occ)
@@ -1639,7 +1630,8 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
                 var c: unsafe *Expr = &null
                 if e.lo > (0 as u64) {
-                    c = self._cmp(
+                    c = self.synth.bool_binary(
+                        self._at,
                         self._occ(occ),
                         self._int_value(d, e.lo, t),
                         TokenKind::OpGreaterEqual,
@@ -1649,7 +1641,8 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 if e.hi < d.max_key {
                     c = self._and(
                         c,
-                        self._cmp(
+                        self.synth.bool_binary(
+                            self._at,
                             self._occ(occ),
                             self._int_value(d, e.hi, t),
                             TokenKind::OpLessEqual,
@@ -1738,7 +1731,8 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 var unsafe *r              = cast<RangePattern>(p)
                 var        c: unsafe *Expr = &null
                 if r->lo != &null {
-                    c = self._cmp(
+                    c = self.synth.bool_binary(
+                        self._at,
                         self._occ(occ),
                         r->lo,
                         TokenKind::OpGreaterEqual,
@@ -1748,7 +1742,15 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 if r->hi != &null {
                     var k = if (r->is_inclusive) => (TokenKind::OpLessEqual)
                             else => TokenKind::OpLess
-                    c = self._and(c, self._cmp(self._occ(occ), r->hi, k))
+                    c = self._and(
+                        c,
+                        self.synth.bool_binary(
+                            self._at,
+                            self._occ(occ),
+                            r->hi,
+                            k,
+                        ),
+                    )
                 }
 
                 if c == &null {
@@ -2004,7 +2006,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 self.ctx,
                 self._at,
                 c,
-                self._block(&take),
+                self.synth.block(self._at, take),
                 &null,
             ),
         )
@@ -2142,17 +2144,6 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         return JumpIntrinsicStmt::create(self.ctx, self._at, t)
     }
 
-    priv fn _block(self, @inout stmts: cxx::std::vector<unsafe *Stmt>) -> unsafe *CompoundStmt {
-        var lb = self.list_builder<unsafe *Stmt>()
-        for var i: usize = 0; i < stmts.size(); ++i {
-            lb.push((stmts)[i])
-        }
-
-        var unsafe *c = CompoundStmt::create(self.ctx, self._at)
-        lb.freeze_into(&c->body)
-        return c
-    }
-
     priv fn _expr_stmt(self, e: unsafe *Expr) -> unsafe *Stmt {
         return ExpressionStmt::create(self.ctx, e->range, e)
     }
@@ -2179,21 +2170,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     }
 
     priv fn _eq(self, l: unsafe *Expr, r: unsafe *Expr) -> unsafe *Expr {
-        return self._cmp(l, r, TokenKind::OpEqualEqual)
-    }
-
-    priv fn _cmp(self, l: unsafe *Expr, r: unsafe *Expr, k: TokenKind) -> unsafe *Expr {
-        var unsafe *b = BinaryOperatorExpr::create(
-            self.ctx,
-            self._at,
-            l,
-            r,
-            self.synth.punct(self._at, k),
-        )
-
-        b->type_          = self._bool()
-        b->value_category = Expr::ValueCategory::RValue
-        return b
+        return self.synth.bool_binary(self._at, l, r, TokenKind::OpEqualEqual)
     }
 
     /// `l && r`; a null \p l is `r`.
@@ -2202,21 +2179,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             return r
         }
 
-        return self._cmp(l, r, TokenKind::OpAmpAmp)
-    }
-
-    priv fn _not(self, e: unsafe *Expr) -> unsafe *Expr {
-        var unsafe *u = UnaryOperatorExpr::create(
-            self.ctx,
-            self._at,
-            e,
-            self.synth.punct(self._at, TokenKind::OpExclaim),
-            UnaryOperatorExpr::Fix::Prefix,
-        )
-
-        u->type_          = self._bool()
-        u->value_category = Expr::ValueCategory::RValue
-        return u
+        return self.synth.bool_binary(self._at, l, r, TokenKind::OpAmpAmp)
     }
 
     priv fn _neg(self, e: unsafe *Expr, t: unsafe *Type) -> unsafe *Expr {
@@ -2263,19 +2226,5 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         a->type_          = l->type_
         a->value_category = Expr::ValueCategory::LValue
         return a
-    }
-
-    priv fn _deref(self, e: unsafe *Expr, t: unsafe *Type) -> unsafe *Expr {
-        var unsafe *u = UnaryOperatorExpr::create(
-            self.ctx,
-            self._at,
-            e,
-            self.synth.punct(self._at, TokenKind::OpStar),
-            UnaryOperatorExpr::Fix::Prefix,
-        )
-
-        u->type_          = t
-        u->value_category = Expr::ValueCategory::LValue
-        return u
     }
 }

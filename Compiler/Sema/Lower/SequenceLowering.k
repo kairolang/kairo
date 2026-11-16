@@ -24,7 +24,7 @@
 ///     sat, so `c && f(g(), h())` still short-circuits and a call in a loop
 ///     header still runs per iteration. Its block is also the scope of every
 ///     temporary an argument needs, which is what lets a slice literal be
-///     hoisted at all (see _mark_extended).
+///     hoisted at all (see LowerSynth::mark_extended).
 ///
 ///     A literal, an eval constant, a local nothing else can reach and `&x`
 ///     never need binding, so almost every node is untouched. The receiver
@@ -78,7 +78,6 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
-import AST::ASTSupport::FrozenList
 import AST::Context::DeclContext::DeclContextKind
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::TypeKind::TypeKind
@@ -100,7 +99,11 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,    EnumDecl, EnumVariantDecl, FieldDecl, FunctionDecl, ParamDecl, StructDecl,
+    EnumDecl,
+    EnumVariantDecl,
+    FieldDecl,
+    FunctionDecl,
+    ParamDecl,
     VariableDecl,
 }
 import AST::Node::Expressions
@@ -108,7 +111,6 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
-import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::{
     CompoundStmt,
     DeclStmt,
@@ -680,53 +682,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             return out
         }
 
-        var unsafe *rt = dyn_cast<RecordType>(canon_unqual(n->type_))
-        if rt == &null || rt->decl == &null {
-            return out
-        }
-
-        var unsafe *rd                                                = rt->decl
-        var        decl_fields: unsafe *FrozenList<unsafe *FieldDecl> = &null
-        if isa<StructDecl>(rd) {
-            decl_fields = unsafe &cast<StructDecl>(rd)->fields
-        } else if isa<ClassDecl>(rd) {
-            decl_fields = unsafe &cast<ClassDecl>(rd)->fields
-        }
-
-        if decl_fields == &null {
-            return out
-        }
-
-        // Each written field's declaration position; written order is
-        // declaration order when those rise.
-        var in_order       = true
-        var prev:    usize = 0
-        var any            = false
-        for var i: usize = 0; i < n->fields.size(); ++i {
-            var unsafe *f = n->fields.get(i)
-            var        nm = self.sc->ctx->get_spelling(f->name)
-            var        at = usize::MAX
-            for var j: usize = 0; j < decl_fields->size(); ++j {
-                var unsafe *fd = (*decl_fields)[j]
-                if fd != &null && self.sc->ctx->get_spelling(fd->name) == nm {
-                    at = j
-                    break
-                }
-            }
-
-            if at == usize::MAX {
-                return out
-            }
-
-            if any && at < prev {
-                in_order = false
-            }
-
-            prev = at
-            any  = true
-        }
-
-        if in_order {
+        if !self.synth.out_of_order(n) {
             return out
         }
 
@@ -1177,15 +1133,13 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         // of a dependent type: copied as `auto`, the type C++ deduces.
         var        pv  = e->type_ != &null && !self._materialized(e)
         var unsafe *pc = if (pv) => (canon_unqual(e->type_)) else => &null
-        var plain = pc != &null
-            && (isa<BuiltinType>(pc)
-                || isa<PointerType>(pc)
-                || pc->kind == TypeKind::RecordType && !isa<EnumDecl>(cast<RecordType>(pc)->decl))
+        var record = pc != &null
+            && pc->kind == TypeKind::RecordType
+            && !isa<EnumDecl>(cast<RecordType>(pc)->decl)
+        var scalar = pc != &null && (isa<BuiltinType>(pc) || isa<PointerType>(pc))
         if pv
-            && (!plain || e->type_->is_dependent() || e->type_->is_instantiation_dependent())
-            && (pc == &null
-                || pc->kind != TypeKind::RecordType
-                || isa<EnumDecl>(cast<RecordType>(pc)->decl)) {
+            && !record
+            && (!scalar || e->type_->is_dependent() || e->type_->is_instantiation_dependent()) {
             var unsafe *dv = self.synth.local(e->range, "ord", e->type_, e)
             dv->auto_copy = true
             stmts->push(
@@ -1416,39 +1370,14 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
 
         var stmts = self.list_builder<unsafe *Stmt>()
         var bound = cxx::std::vector<unsafe *Expr>()
-        for var i: usize = 0; i < count; ++i {
-            bound.push_back(&null)
+        bound.resize(count, &null)
+        var order = self.synth.written_order(n)
+        for var k: usize = 0; k < order.size(); ++k {
+            var i = order[k]
+            bound[i] = self._moved(self._bind(n->fields[i], &stmts))
         }
 
-        for var k: usize = 0; k < count; ++k {
-            for var i: usize = 0; i < count; ++i {
-                if (n->source_order[i] as usize) != k {
-                    continue
-                }
-
-                bound[i] = self._moved(self._bind(n->fields[i], &stmts))
-            }
-        }
-
-        var fields = self.list_builder<unsafe *Expr>()
-        var order  = self.list_builder<u32>()
-        for var i: usize = 0; i < count; ++i {
-            fields.push(bound[i])
-            order.push(i as u32)
-        }
-
-        fields.freeze_into(&n->fields)
-        order.freeze_into(&n->source_order) // the locals are read in place: written order is declaration order now.
-
-        stmts.push(
-            unsafe (ExpressionStmt::create(self.ctx, n->range, unsafe (n as unsafe *Expr)) as unsafe *Stmt),
-        )
-
-        return self.synth.stmt_expr(
-            unsafe (n as unsafe *Expr),
-            &stmts,
-            n->type_,
-        )
+        return self.synth.variant_over(n, bound, &stmts)
     }
 
     /// A call whose result is a reference (an lvalue or xvalue: an
@@ -1547,7 +1476,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
                 u->operand,
             )
 
-            self._mark_extended(u->operand)
+            self.synth.mark_extended(u->operand)
             stmts.push(
                 unsafe (DeclStmt::create(self.ctx, e->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
             )
@@ -1577,7 +1506,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
 
         var unsafe *t  = e->type_
         var unsafe *vd = self.synth.local(e->range, "ord", t, e)
-        self._mark_extended(e) // a slice literal's backing lives in this block.
+        self.synth.mark_extended(e) // a slice literal's backing lives in this block.
         stmts.push(
             unsafe (DeclStmt::create(self.ctx, e->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
         )
@@ -1597,31 +1526,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             return use
         }
 
-        return self.synth.cast_to(
-            use->range,
-            use,
-            self.sc->types->cxx_rref(t),
-            Expressions::CastMode::Default,
-        )
-    }
-
-    /// Mirrors LiteralTyping::mark_list_storage: the local this literal now
-    /// initializes is a `var`, so its backing array extends to the block.
-    priv fn _mark_extended(self, e_in: unsafe *Expr) {
-        var unsafe *e = self.tu.strip_parens(e_in)
-        if e == &null || !isa<Expressions::ListLiteralExpr>(e) {
-            return
-        }
-
-        var unsafe *n = cast<Expressions::ListLiteralExpr>(e)
-        if n->type_ == &null || !self.tu.is_slice(n->type_) {
-            return
-        }
-
-        n->storage = Expressions::ListStorage::Extended
-        for var i: usize = 0; i < n->elements.size(); ++i {
-            self._mark_extended(n->elements[i])
-        }
+        return self.synth.rref(use->range, use, t)
     }
 }
 
@@ -1659,24 +1564,7 @@ pub class SequenceCheck derives RecursiveASTVisitor<SequenceCheck> {
 
     fn run(self) {
         self.sc->begin_lower(LowerStep::SequenceCheck)
-        var unsafe *tu = self.sc->tu
-        if tu == &null || tu->program == &null {
-            return
-        }
-
-        var *items = &tu->program->items
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *items->get(i)
-            match item.get_kind() {
-                case TopLevelKind::Decl {
-                    self.dyn()->dispatch_decl(item.as_decl())
-                } case TopLevelKind::Stmt {
-                    self.dyn()->dispatch_stmt(item.as_stmt())
-                } case TopLevelKind::Expr {
-                    self.dyn()->dispatch_expr(item.as_expr())
-                }
-            }
-        }
+        self.run(self.sc->tu)
     }
 
     priv fn _fx(self, e: unsafe *Expr) -> u32 {
@@ -1776,7 +1664,9 @@ pub class SequenceCheck derives RecursiveASTVisitor<SequenceCheck> {
             return true
         }
 
-        if !self._out_of_order(n) {
+        if !self.synth.out_of_order(
+            unsafe (n as unsafe *Expressions::NamedInitializerExpr),
+        ) {
             return true
         }
 
@@ -1826,54 +1716,5 @@ pub class SequenceCheck derives RecursiveASTVisitor<SequenceCheck> {
         }
 
         return true
-    }
-
-    /// SequenceLowering::transform_named_initializer_expr's test: the
-    /// fields' declaration positions do not rise in written order. False
-    /// when that cannot be told (no record, a field not found).
-    priv fn _out_of_order(self, n: *Expressions::NamedInitializerExpr) -> bool {
-        var unsafe *rt = dyn_cast<RecordType>(canon_unqual(n->type_))
-        if rt == &null || rt->decl == &null {
-            return false
-        }
-
-        var unsafe *rd                                                = rt->decl
-        var        decl_fields: unsafe *FrozenList<unsafe *FieldDecl> = &null
-        if isa<StructDecl>(rd) {
-            decl_fields = unsafe &cast<StructDecl>(rd)->fields
-        } else if isa<ClassDecl>(rd) {
-            decl_fields = unsafe &cast<ClassDecl>(rd)->fields
-        }
-
-        if decl_fields == &null {
-            return false
-        }
-
-        var prev: usize = 0
-        var any         = false
-        for var i: usize = 0; i < n->fields.size(); ++i {
-            var nm = self.sc->ctx->get_spelling(n->fields.get(i)->name)
-            var at = usize::MAX
-            for var j: usize = 0; j < decl_fields->size(); ++j {
-                var unsafe *fd = (*decl_fields)[j]
-                if fd != &null && self.sc->ctx->get_spelling(fd->name) == nm {
-                    at = j
-                    break
-                }
-            }
-
-            if at == usize::MAX {
-                return false
-            }
-
-            if any && at < prev {
-                return true
-            }
-
-            prev = at
-            any  = true
-        }
-
-        return false
     }
 }

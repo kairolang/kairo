@@ -211,15 +211,20 @@ pub class CaptureRewrite derives ASTWriter<CaptureRewrite> {
     }
 }
 
+/// One enclosing body: a function (\p closure null) or a closure
+/// (\p fn_decl null).
+pub struct FinallyFrame {
+    var fn_decl: unsafe *FunctionDecl = &null
+    var closure: unsafe *ClosureExpr  = &null
+}
+
 pub class FinallyLowering derives ASTWriter<FinallyLowering> {
     pub var  sc:    unsafe *SemaContext
     priv var tu:    TypeUtil
     priv var synth: LowerSynth
-    /// Enclosing functions and closures, innermost last, parallel: a
-    /// function frame has a null closure, a closure frame a null function.
-    priv var _fns:   cxx::std::vector<unsafe *FunctionDecl>
-    priv var _cls:   cxx::std::vector<unsafe *ClosureExpr>
-    priv var _count: u32                                    = 0
+    /// Enclosing functions and closures, innermost last.
+    priv var _frames: cxx::std::vector<FinallyFrame>
+    priv var _count:  u32                            = 0
 
     fn FinallyLowering(self, sc: unsafe *SemaContext) {
         self.sc    = sc
@@ -241,34 +246,34 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
     /// # scope tracking
 
     fn transform_function_decl(self, n: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
-        self._fns.push_back(n)
-        self._cls.push_back(&null)
+        var fr = FinallyFrame{}
+        fr.fn_decl = n
+        self._frames.push_back(fr)
         var out = ASTWriter<FinallyLowering>::transform_function_decl(self, n)
-        self._fns.pop_back()
-        self._cls.pop_back()
+        self._frames.pop_back()
         return out
     }
 
     fn transform_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *Expr {
-        self._fns.push_back(&null)
-        self._cls.push_back(n)
+        var fr = FinallyFrame{}
+        fr.closure = n
+        self._frames.push_back(fr)
         var unsafe *out = ASTWriter<FinallyLowering>::transform_closure_expr(
             self,
             n,
         )
 
-        self._fns.pop_back()
-        self._cls.pop_back()
+        self._frames.pop_back()
         return out
     }
 
     /// The innermost enclosing function: the guard record's home.
     priv fn _home_fn(self) -> unsafe *FunctionDecl {
-        var i = self._fns.size()
+        var i = self._frames.size()
         while i > 0 {
             i = i - 1
-            if self._fns[i] != &null {
-                return self._fns[i]
+            if self._frames[i].fn_decl != &null {
+                return self._frames[i].fn_decl
             }
         }
 
@@ -277,10 +282,10 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
 
     /// \p p is a parameter of a closure between the home function and here.
     priv fn _closure_param(self, p: unsafe *ParamDecl) -> bool {
-        var i = self._cls.size()
+        var i = self._frames.size()
         while i > 0 {
             i = i - 1
-            var unsafe *c = self._cls[i]
+            var unsafe *c = self._frames[i].closure
             if c == &null { // the home function's frame.
                 return false
             }
@@ -299,10 +304,10 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
     /// name is that pointer: the type the body's first use \p at_use was
     /// typed with. Null where \p d is the binding itself.
     priv fn _closure_view(self, d: unsafe *Decl, at_use: unsafe *NamedIdentExpr) -> unsafe *Type {
-        var i = self._cls.size()
+        var i = self._frames.size()
         while i > 0 {
             i = i - 1
-            var unsafe *c = self._cls[i]
+            var unsafe *c = self._frames[i].closure
             if c == &null {
                 return &null
             }
