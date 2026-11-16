@@ -61,11 +61,7 @@ import Lexer::Lexer::Lexer
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Macro::Sentinel::MacroSentinel
-import Parser::Shared::ImportGrammar::{
-    ImportGrammar,
-    ImportSpec,
-}
-import Parser::Shared::MacroHeaderGrammar::MacroHeaderGrammar
+import Parser::Shared::ImportGrammar::ImportSpec
 import Preprocessor::FileImportIndex::FileImportIndex
 import Preprocessor::MacroTable::{
     MacroEntry,
@@ -79,6 +75,7 @@ import Preprocessor::ScopeTracker::{
     ModuleVisibility,
     ScopeTracker,
 }
+import Preprocessor::StreamCursor::StreamCursor
 import Preprocessor::TokenSource::{
     InvokeHop,
     TokenSource,
@@ -161,9 +158,7 @@ class ArgSplitter {
     }
 }
 
-pub class PPWalker
-  derives ImportGrammar<PPWalker>,
-          MacroHeaderGrammar<PPWalker> {
+pub class PPWalker {
     priv var _splices:          cxx::std::vector<unsafe *TokenBuffer<512>> ///< frame backing; freed in finalize
     priv var _opts:             PreprocessorOptions
     priv var _src:              unsafe *TokenSource
@@ -377,74 +372,26 @@ pub class PPWalker
 
     /// # shared-grammar host surface (raw kinds; stream is pre-expansion)
 
-    fn ig_kind(self) -> TokenKind {
-        var t = self._src->peek(0)
-        return t.kind
+    /// The shared grammars read this walk's stream through a StreamCursor:
+    /// it reports into the walk's engine, and nothing while the walk is quiet.
+    priv fn _silent_cursor(self) -> StreamCursor {
+        return StreamCursor(unsafe (self._src as *TokenSource), &null)
     }
 
-    fn ig_peek_kind(self) -> TokenKind {
-        var t = self._src->peek(1)
-        return t.kind
-    }
-
-    fn ig_tok(self) -> Token {
-        return self._src->peek(0)
-    }
-
-    fn ig_bump(self) {
-        self._src->next()
-    }
-
-    fn ig_bump_nl(self) {
-        self._src->next()
-        while self._src->peek(0).kind == TokenKind::TkNewLine {
-            self._src->next()
-        }
-    }
-
-    fn ig_eof(self) -> bool {
-        return self._src->at_eof()
-    }
-
-    fn ig_err(self, r: SourceRange, const msg: string, code: DiagID) {
-        if self._quiet {
-            return
+    priv fn _cursor(self) -> StreamCursor {
+        var diag: unsafe *DiagEngine = &null
+        if !self._quiet {
+            diag = self._diag
         }
 
-        self._diag->report(DiagCode(code), r.start, msg).first(r)->emit()
+        return StreamCursor(unsafe (self._src as *TokenSource), diag)
     }
 
-    fn ig_err_remove(self,
-                     r:             SourceRange,
-                     const msg:     string,
-                     code:          DiagID,
-                     cut:           SourceRange,
-                     const fix_msg: string) {
-        if self._quiet {
-            return
-        }
-
-        var b = self._diag->report(DiagCode(code), r.start, msg)
-        b.first(r)
-        b.remove(cut, fix_msg)
-        b.emit()
-    }
-
-    fn ig_err_insert(self,
-                     r:             SourceRange,
-                     const msg:     string,
-                     code:          DiagID,
-                     at:            SourceRange,
-                     const text:    string,
-                     const fix_msg: string) {
-        if self._quiet {
-            return
-        }
-
-        var b = self._diag->report(DiagCode(code), r.start, msg)
-        b.first(r)
-        b.insert(at.start, text, fix_msg)
-        b.emit()
+    /// An error of the walk's own grammar (ffi imports), reported as the
+    /// shared grammars report theirs.
+    priv fn _err(self, r: SourceRange, const msg: string, code: DiagID) {
+        var cur = self._cursor()
+        cur.ig_err(r, msg, code)
     }
 
     /// Frame 0 from tokens already lexed (TokenSource::set_replay).
@@ -504,13 +451,8 @@ pub class PPWalker
 
             if k == TokenKind::KwImport {
                 {
-                    var was = self._quiet
-                    self._quiet = true
-                    finally {
-                        self._quiet = was
-                    }
-
-                    self.parse_import_spec()
+                    var cur = self._silent_cursor()
+                    cur.parse_import_spec()
                 }
 
                 continue
@@ -529,13 +471,8 @@ pub class PPWalker
                 if nk == TokenKind::KwImport {
                     self._src->next()
                     {
-                        var was = self._quiet
-                        self._quiet = true
-                        finally {
-                            self._quiet = was
-                        }
-
-                        self.parse_import_spec()
+                        var cur = self._silent_cursor()
+                        cur.parse_import_spec()
                     }
 
                     continue
@@ -582,10 +519,8 @@ pub class PPWalker
             return
         }
 
-        var was = self._quiet
-        self._quiet = true
-        var hdr = self.parse_macro_header()
-        self._quiet = was
+        var cur = self._silent_cursor()
+        var hdr = cur.macro_header()
         if !hdr.ok {
             self._recover_to_terminator()
             return
@@ -982,7 +917,7 @@ pub class PPWalker
                         has_alias = true
                         last      = alias_tok
                     } else if !bad {
-                        self.ig_err(
+                        self._err(
                             t.range,
                             "expected a name after 'as' in ffi import",
                             DiagID::S064E,
@@ -1000,7 +935,7 @@ pub class PPWalker
                         msg = "an ffi import takes one header, not a list; write one 'ffi \"c++\" import \"header\"' line per header"
                     }
 
-                    self.ig_err(t.range, msg, DiagID::S064E)
+                    self._err(t.range, msg, DiagID::S064E)
                     bad = true
                 }
 
@@ -1025,7 +960,7 @@ pub class PPWalker
             // lexer chains them), whose spelling is the first segment's, so
             // "b.h" was never looked for.
             if saw_header && !bad && self._chained_string(header_tok) {
-                self.ig_err(
+                self._err(
                     header_tok.range,
                     "an ffi import takes one header, not a list; write one 'ffi \"c++\" import \"header\"' line per header",
                     DiagID::S064E,
@@ -1035,7 +970,7 @@ pub class PPWalker
             }
 
             if !saw_header && !bad {
-                self.ig_err(
+                self._err(
                     ffi_kw.range | last.range,
                     "expected a header path string after 'ffi \"...\" import'",
                     DiagID::S064E,
@@ -1114,7 +1049,8 @@ pub class PPWalker
         // carries Private unless caller saw pub/prot/priv.
         var vis = default_vis
 
-        var spec = self.parse_import_spec() // shared grammar (consumes stmt)
+        var cur  = self._cursor()
+        var spec = cur.parse_import_spec() // shared grammar (consumes stmt)
         if !spec.ok {
             self._recover_to_terminator()
             return
@@ -1215,7 +1151,8 @@ pub class PPWalker
             return // remaining @-macro tokens flow to output via the walk
         }
 
-        var hdr = self.parse_macro_header() // shared grammar
+        var cur = self._cursor()
+        var hdr = cur.macro_header() // shared grammar
         if !hdr.ok {
             self._recover_to_terminator()
             return

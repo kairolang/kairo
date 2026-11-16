@@ -1,4 +1,4 @@
-// The wrap forms EmitIR spells (Codegen/Emit/EmitIR.k, "the wrap forms"),
+// The wrap forms EmitIR spells (Codegen/Emit/EmitIRForms.k),
 // copied verbatim and constant-evaluated: each static_assert proves the value
 // AND the absence of UB, since a constant expression may not overflow.
 extern "C" [[noreturn, gnu::cold]] void kairo_rt_div_zero() noexcept;

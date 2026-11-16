@@ -11,7 +11,6 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/CharTable.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "vector"

@@ -630,9 +630,6 @@ pub class ImportResolver {
         }
     }
 
-    /// No-op: the roots are probed lazily, so there is no index to wait for.
-    pub fn wait_for_index(self) { }
-
     //  Module resolution (THE home of import path semantics)
     //
     //  Each import form looks in exactly one place

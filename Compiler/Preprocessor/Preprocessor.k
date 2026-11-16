@@ -407,7 +407,6 @@ pub class PreProcessor {
     ///        --force-include, and without walking anything. For ordering
     ///        the batch's inputs before the first walk (CompilerInstance).
     pub fn reach(self, entry_fid: u32) -> cxx::std::set<u32> {
-        self._resolver->wait_for_index()
         var scanner = DepScanner(
             self._sm,
             self._tcm,
@@ -746,7 +745,6 @@ pub class PreProcessor {
     ///      does this), otherwise the walked-set check refuses and this is a
     ///      no-op returning false.
     pub fn preprocess_one(self, fid: u32, const mod_path: ModulePath) -> bool {
-        self._resolver->wait_for_index()
         return self._walk_one(fid, mod_path)
     }
 
@@ -866,14 +864,6 @@ pub class PreProcessor {
 
     pub fn preprocess(self, entry_fid: u32, const entry_path: ModulePath) -> PPResult {
         var out = PPResult()
-
-        // Separate region: the resolver index is built on the pool at
-        // initialize() to overlap with this. Time spent here is time the
-        // overlap failed to hide.
-        {
-            var _tw = TimeRegion("ResolverIndexWait")
-            self._resolver->wait_for_index()
-        }
 
         // Timed inside DepScanner::build_graph, not wrapped here: hoisting the
         // graph out of a timing block would cost a default-construct plus a
