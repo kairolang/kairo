@@ -4444,29 +4444,8 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         for var o: usize = 0; o < owners.size(); ++o {
-            var at: usize = 0
-            for var i: usize = 0; i < gps.size(); ++i {
-                var unsafe *gp = gps[i]
-                if gp == &null {
-                    continue
-                }
-
-                if gp->is_pack {
-                    ded.open_pack(owners[o], gp->index)
-                    for var k: usize = at; k < args.size(); ++k {
-                        ded.push_pack(owners[o], gp->index, (args)[k])
-                    }
-
-                    at = args.size()
-                    continue
-                }
-
-                if at >= args.size() {
-                    return &null
-                }
-
-                ded.bind(owners[o], gp->index, (args)[at])
-                at += 1
+            if !ded.bind_params(owners[o], gps, args) {
+                return &null
             }
         }
 

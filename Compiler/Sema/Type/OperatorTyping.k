@@ -585,6 +585,13 @@ pub class <T: type> OperatorTyping {
                 self.dyn()->ml.lookup(bound[i], name, cands)
             }
 
+            // A bound that requires both `op l++` and `op r++` offers both
+            // under the one `++` key: keep the fixity the use wrote, as for
+            // a concrete receiver below.
+            if want_postfix >= 0 {
+                self._filter_fixity(&*cands, want_postfix == 1)
+            }
+
             return
         }
 

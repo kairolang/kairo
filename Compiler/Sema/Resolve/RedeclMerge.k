@@ -203,7 +203,6 @@ import AST::DeclFacts::{
     for_each_unwrapped_decl,
 }
 import AST::Kind::DeclKind::DeclKind
-import AST::Kind::ExprKind::ExprKind
 import AST::LangItems::LangAttrs
 import AST::Node::Base::{
     Decl,
@@ -219,10 +218,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations
-import AST::Node::Expressions::{
-    BinaryOperatorExpr,
-    ConstraintExpr,
-}
+import AST::Node::Expressions::ConstraintExpr
 import AST::Node::PrimaryExpressions::NamedIdentExpr
 import AST::Node::Types::{
     CXXLValueRefType,
@@ -241,7 +237,10 @@ import Sema::SemaContext::{
     SemaPhase,
 }
 import Sema::Type::Substitution::Substitution
-import Sema::Type::TypeUtil::TypeUtil
+import Sema::Type::TypeUtil::{
+    TypeUtil,
+    constraint_conjuncts,
+}
 import Token::TokenKind::TokenKind
 
 ///
@@ -939,10 +938,7 @@ pub class RedeclMerge {
                                  out: *cxx::std::vector<unsafe *Declarations::FunctionDecl>) {
         var tu = TypeUtil(self.sc)
         var nm = tu.decl_name(unsafe (f as unsafe *Decl))
-        var ms = if (isa<Declarations::ClassDecl>(cls)) => (cast<Declarations::ClassDecl>(
-                     cls,
-                 )->methods)
-                 else => cast<Declarations::StructDecl>(cls)->methods
+        var ms = decl_methods(cls)
         for var i: usize = 0; i < ms.size(); ++i {
             var unsafe *m = ms[i]
             if m == &null || m->is_poisoned() || m->is_operator {
@@ -998,16 +994,12 @@ pub class RedeclMerge {
             sub.bind(cls, i as u32, (*xs)[i])
         }
 
-        var unsafe *head = m->first_decl()
-        var unsafe *cur  = head
-        while cur != &null {
+        var links = cxx::std::vector<unsafe *Decl>()
+        NameLookup::collect_chain(unsafe (m as unsafe *Decl), &links)
+        for var l: usize = 0; l < links.size(); ++l {
+            var unsafe *cur = cast<Declarations::FunctionDecl>(links[l])
             for var j: usize = 0; j < ys->size() && j < cur->generic_params.size(); ++j {
-                sub.bind(unsafe (cur as unsafe *Decl), j as u32, (*ys)[j])
-            }
-
-            cur = cur->next_in_chain()
-            if cur == head {
-                break
+                sub.bind(links[l], j as u32, (*ys)[j])
             }
         }
 
@@ -1942,8 +1934,8 @@ pub class RedeclMerge {
 
         var ca = cxx::std::vector<unsafe *ConstraintExpr>()
         var cb = cxx::std::vector<unsafe *ConstraintExpr>()
-        self._conjuncts(prev->requires_clause, unsafe &ca)
-        self._conjuncts(cur->requires_clause, unsafe &cb)
+        constraint_conjuncts(prev->requires_clause, unsafe &ca)
+        constraint_conjuncts(cur->requires_clause, unsafe &cb)
         for var i: usize = 0; i < n; ++i {
             var ba = cxx::std::vector<ParamBound>()
             var bb = cxx::std::vector<ParamBound>()
@@ -1966,30 +1958,6 @@ pub class RedeclMerge {
         }
 
         return ""
-    }
-
-    /// Every `impl` / `derives` conjunct of \p e (an `&&` / `and` tree), in
-    /// clause order.
-    priv fn _conjuncts(self,
-                       e:   unsafe *Expr,
-                       out: unsafe *cxx::std::vector<unsafe *ConstraintExpr>) {
-        if e == &null {
-            return
-        }
-
-        if e->kind == ExprKind::BinaryOperatorExpr {
-            var unsafe *b = cast<BinaryOperatorExpr>(e)
-            if b->op_token.kind == TokenKind::OpAmpAmp || b->op_token.kind == TokenKind::KwAnd {
-                self._conjuncts(b->lhs, out)
-                self._conjuncts(b->rhs, out)
-            }
-
-            return
-        }
-
-        if e->kind == ExprKind::ConstraintExpr {
-            out->push_back(cast<ConstraintExpr>(e))
-        }
     }
 
     /// The bounds the conjuncts \p cs put on \p gp, into \p out: each

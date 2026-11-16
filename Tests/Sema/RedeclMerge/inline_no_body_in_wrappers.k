@@ -29,12 +29,10 @@ module m {
 inline fn defined() -> i32 { return 0 }
 
 // --- lit wiring ---
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
-// DIAG-DAG: {{.*}}:6:1: error [R062E]: 'plain' is declared inline but has no body
-// DIAG-DAG: {{.*}}:9:5: error [R062E]: 'in_group' is declared inline but has no body
-// DIAG-DAG: {{.*}}:13:5: error [R062E]: 'in_eval' is declared inline but has no body
-// DIAG-DAG: {{.*}}:16:9: error [R062E]: 'single_ffi' is declared inline but has no body
-// DIAG-DAG: {{.*}}:19:5: error [R062E]: 'in_ffi' is declared inline but has no body
-// DIAG-DAG: {{.*}}:25:9: error [R062E]: 'in_module_eval' is declared inline but has no body
-// DIAG-NOT: declared_only
-// DIAG-NOT: 'defined'
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error ["
+// DIAG: {{.*}}:6:1: error [R062E]: 'plain' is declared inline but has no body
+// DIAG: {{.*}}:9:5: error [R062E]: 'in_group' is declared inline but has no body
+// DIAG: {{.*}}:13:5: error [R062E]: 'in_eval' is declared inline but has no body
+// DIAG: {{.*}}:16:9: error [R062E]: 'single_ffi' is declared inline but has no body
+// DIAG: {{.*}}:19:5: error [R062E]: 'in_ffi' is declared inline but has no body
+// DIAG: {{.*}}:25:9: error [R062E]: 'in_module_eval' is declared inline but has no body
