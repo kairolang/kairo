@@ -76,6 +76,11 @@ pub class Deduction derives Substitution {
     /// an argument. OverloadResolution then ranks an argument against its
     /// parameter with them substituted in.
     pub var seeded: bool = false
+    /// The last dependent `T&&` parameter unify() matched: how its referee
+    /// matched the argument, before the category-blind cap unify() returns.
+    /// It is the binding's rank for an argument known to be an rvalue, or
+    /// to reach a forwarding reference (OverloadResolution::_rank_arg).
+    pub var rref_rank: ImplicitRank = ImplicitRank::None
 
     fn Deduction(self) {
         self.sc   = &null
@@ -253,7 +258,9 @@ pub class Deduction derives Substitution {
         // a reference type, the type referred to by P is used" -- so
         // `push(const T&)` with an i32 deduces T := i32. Binding then ranks
         // as Conversion::_bind_ref does: lvalue refs as the referee's match,
-        // rvalue refs never better than Converted. Concrete refs never reach
+        // rvalue refs never better than Converted, since no value category
+        // is known here. A caller that knows the argument's reads the
+        // referee's own match from rref_rank. Concrete refs never reach
         // here; the branch above sends them through Conversion.
         if isa<CXXLValueRefType>(param) || isa<CXXRValueRefType>(param) {
             var unsafe *a = arg
@@ -277,6 +284,7 @@ pub class Deduction derives Substitution {
                 a,
             )
 
+            self.rref_rank = rr
             return if (rr != ImplicitRank::None) => (ImplicitRank::Converted)
                    else => ImplicitRank::None
         }

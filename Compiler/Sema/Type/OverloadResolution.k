@@ -3383,6 +3383,14 @@ pub class OverloadResolution {
             if r == ImplicitRank::Exact {
                 c->judged[i].bind = if (mode == ParamMode::Inout) => (RefBind::LRef)
                                     else => self._bind_kind(rt)
+                // Only a forwarding reference takes an lvalue at `T&&`: T
+                // deduces to the lvalue reference and the parameter
+                // collapses to it ([dcl.ref]/6), `T&` or `const T&` as the
+                // argument is.
+                if c->judged[i].bind == RefBind::RRef && ra->cat == Expr::ValueCategory::LValue {
+                    c->judged[i].bind = if (ra->is_const) => (RefBind::ConstLRef)
+                                        else => RefBind::LRef
+                }
             }
 
             // A reference reached through a conversion binds the converted
@@ -3692,6 +3700,12 @@ pub class OverloadResolution {
                 }
 
                 var ur = c->ded.unify(pt, def, true)
+                // A literal is a prvalue: it binds a deduced `T&&` as its
+                // referee matched.
+                if ur != ImplicitRank::None && isa<CXXRValueRefType>(canon_unqual(pt)) {
+                    ur = c->ded.rref_rank
+                }
+
                 // A list literal reaching a slice or vector is never Exact.
                 if ur != ImplicitRank::None
                     && a->lit == LitKind::List
@@ -3730,6 +3744,15 @@ pub class OverloadResolution {
                 if lvalue && !forwarding {
                     return ImplicitRank::None
                 }
+
+                // Deduction ranked the binding without the category. With
+                // it, the binding is the referee's own match: an rvalue
+                // binds `X<T>&&` directly, and a forwarding reference
+                // deduces the argument's own type and kind
+                // ([temp.deduct.call]/3), an identity either way. Ranked
+                // as a conversion, a forwarding constructor lost to a
+                // `const T&` one that C++ ranks below it.
+                return c->ded.rref_rank
             } else if isa<CXXLValueRefType>(pc) {
                 // A MOVE value is only an xvalue by CallTyping's say-so; a plain `T&` borrows it.
                 if rvalue
