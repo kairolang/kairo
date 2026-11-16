@@ -459,6 +459,23 @@ pub fn float_widens_exactly(from: *FloatLayout, to: *FloatLayout) -> bool {
     return to->exp >= from->exp && to->mant >= from->mant
 }
 
+/// \brief The precision of \p f in bits: the stored mantissa and the
+///        implicit leading bit (x87 stores its leading bit, so its 64 are
+///        the precision already). 0 for a row with no layout.
+///
+/// An integer of at most this many bits converts into \p f exactly.
+pub fn float_precision(f: *FloatLayout) -> usize {
+    if f->sem == FloatSem::None || f->exp == 0 {
+        return 0
+    }
+
+    if f->explicit_int_bit {
+        return f->mant as usize
+    }
+
+    return (f->mant as usize) + 1
+}
+
 /// Category bits for BuiltinInfo::flags. The predicates below read these
 /// instead of comparing enum values, which is what makes BuiltinKind's
 /// ordering genuinely arbitrary the way its doc comment claims.

@@ -46,8 +46,8 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind,  QualifiedType,  RecordType, builtin_info, canon_has_const, canon_quals,
-    canon_unqual, is_c_character,
+    BuiltinKind, QualifiedType, RecordType,      builtin_info,         canon_has_const,
+    canon_quals, canon_unqual,  float_precision, float_widens_exactly, is_c_character,
 }
 import AST::Node::Casting::{
     cast,
@@ -395,20 +395,23 @@ pub class Conversion {
         return ConvClass::E // R2 iN->uM never
     }
 
+    /// Whether \p f is a float an implicit widening may produce (R5): the
+    /// formats of at most 64 value bits. f80 exists on some targets only,
+    /// and f128 and wider are library arithmetic, so a conversion into one
+    /// is always written.
+    priv fn _float_w_target(self, f: BuiltinKind) -> bool {
+        var bi = builtin_info(f)
+        return bi->is_float() && bi->bits <= 64
+    }
+
+    /// The precision of the W target \p f in bits (its stored mantissa and
+    /// the implicit leading bit); 0 for a float that is no W target.
     priv fn _mantissa(self, f: BuiltinKind) -> usize {
-        match f {
-            case BuiltinKind::F16 {
-                return 11
-            } case BuiltinKind::BF16 {
-                return 8
-            } case BuiltinKind::F32 {
-                return 24
-            } case BuiltinKind::F64 {
-                return 53
-            } default { // f8*, f80, f128+: never a W target (R5).
-                return 0
-            }
+        if !self._float_w_target(f) {
+            return 0
         }
+
+        return float_precision(&builtin_info(f)->fp)
     }
 
     priv fn _int_float(self, s: BuiltinKind, t: BuiltinKind) -> ConvClass {
@@ -429,17 +432,17 @@ pub class Conversion {
         return if (sb <= m) => (ConvClass::W) else => ConvClass::E // R3
     }
 
+    /// R4, read off the float table: S widens into T when every value of S
+    /// is a value of T (float_widens_exactly: T has at least S's exponent
+    /// and mantissa bits, and an infinity when S has one) and T is a W
+    /// target (R5). f16 and bf16 are 16 bits each and neither holds the
+    /// other, so width never decides this.
     priv fn _float_float(self, s: BuiltinKind, t: BuiltinKind) -> ConvClass {
-        // R4, plus bf16 -> f32/f64 which is exact by construction.
-        if s == BuiltinKind::F16 && (t == BuiltinKind::F32 || t == BuiltinKind::F64) {
-            return ConvClass::W
+        if s == t || !self._float_w_target(t) {
+            return ConvClass::E
         }
 
-        if s == BuiltinKind::BF16 && (t == BuiltinKind::F32 || t == BuiltinKind::F64) {
-            return ConvClass::W
-        }
-
-        if s == BuiltinKind::F32 && t == BuiltinKind::F64 {
+        if float_widens_exactly(&builtin_info(s)->fp, &builtin_info(t)->fp) {
             return ConvClass::W
         }
 

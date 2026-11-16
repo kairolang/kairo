@@ -31,7 +31,10 @@ import AST::Node::Base::{
 }
 import AST::Node::CanonicalNodes::{
     AssocType,
+    BuiltinKind,
+    BuiltinType,
     RecordType,
+    builtin_info,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -626,18 +629,48 @@ extend EmitIR {
                 ) + ">((__kr > 0) - (__kr < 0)); }((",
             )
 
-            self.emit(n->lhs)
+            self._operand(n->lhs, n->rhs)
             s->create(n->op_token)
-            self.emit(n->rhs)
+            self._operand(n->rhs, n->lhs)
             s->spell(n->range, ")))")
             return
         }
 
         self._cg->sink->spell(n->range, "(")
-        self.emit(n->lhs)
+        self._operand(n->lhs, n->rhs)
         self._cg->sink->create(n->op_token)
-        self.emit(n->rhs)
+        self._operand(n->rhs, n->lhs)
         self._cg->sink->spell(n->range, ")")
+    }
+
+    /// Operand \p e of a builtin binary operator whose other operand is
+    /// \p other. An f8e4m3 / f8e5m2 beside a wider float is widened to it
+    /// (the conversion lattice's W) in so many words: the f8 formats are
+    /// classes in C++, where `a + w` would weigh the class's `operator+`
+    /// against the built-in one and find the call ambiguous. Every other
+    /// pair of operands is C++'s own promotion, the same one.
+    priv fn _operand(self, e: unsafe *Expr, other: unsafe *Expr) {
+        if other != &null && self._f8(e->type_) && !self._f8(other->type_) {
+            var unsafe *o = Speller::strip_ref(other->type_)
+            if o != &null
+                && isa<BuiltinType>(o)
+                && builtin_info(cast<BuiltinType>(o)->builtin)->is_float() {
+                self._value(e, o)
+                return
+            }
+        }
+
+        self.emit(e)
+    }
+
+    priv fn _f8(self, t: unsafe *Type) -> bool {
+        var unsafe *c = Speller::strip_ref(t)
+        if c == &null || !isa<BuiltinType>(c) {
+            return false
+        }
+
+        var b = cast<BuiltinType>(c)->builtin
+        return b == BuiltinKind::F8E4M3 || b == BuiltinKind::F8E5M2
     }
 
     /// An arithmetic or bitwise binary operator \p k as its compound form's
