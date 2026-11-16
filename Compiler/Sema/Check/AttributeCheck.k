@@ -36,6 +36,8 @@
 ///         `@align(N)`: a class, struct, union, field or variable; N is an
 ///         integer literal, a power of two no larger than 2^28. AttrFacts
 ///         reads both for the layout and the C++ spelling.
+///       - `@relocatable` (no arguments): a class, struct or union.
+///         AttrFacts spells it as clang's `trivial_abi`.
 ///       - `@deprecated` / `@deprecated("msg")`, `@no_warn(CODE, ...)`: any
 ///         declaration. A `@no_warn` code must name a warning: an unknown
 ///         code, or one of an error, is an error.
@@ -628,7 +630,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             return
         }
 
-        if nm == LangAttrs::packed() {
+        if nm == LangAttrs::packed() || nm == LangAttrs::relocatable() {
             if !self._is_record(d) {
                 self._misplaced(
                     e,
@@ -645,7 +647,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
                 self._bad_arg(
                     e,
                     e->range,
-                    LangAttrs::quoted(LangAttrs::packed()) + " takes no arguments",
+                    LangAttrs::quoted(nm) + " takes no arguments",
                 )
             }
 

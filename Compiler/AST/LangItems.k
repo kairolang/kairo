@@ -1132,6 +1132,14 @@ pub class LangAttrs {
         return "align"
     }
 
+    /// `@relocatable` on a class, struct or union: the record is passed and
+    /// returned as a trivial type of its size and layout would be, and the
+    /// callee destroys a by-value parameter. AttrFacts::record_attr spells
+    /// it as clang's `trivial_abi`.
+    pub static fn relocatable() -> string {
+        return "relocatable"
+    }
+
     /// `@deprecated` / `@deprecated(msg)` on any declaration: a warning at
     /// every use (AttributeCheck::run_uses).
     pub static fn deprecated() -> string {
@@ -1205,6 +1213,8 @@ pub class LangAttrs {
                 return LangAttrs::set_global_allocator()
             } case 24 {
                 return LangAttrs::no_inline()
+            } case 25 {
+                return LangAttrs::relocatable()
             } default {
                 return ""
             }
@@ -1321,6 +1331,10 @@ pub class LangAttrs {
             return "type"
         }
 
+        if word == LangAttrs::relocatable() {
+            return "type"
+        }
+
         if word == LangAttrs::align() {
             return "type field var"
         }
@@ -1425,6 +1439,10 @@ pub class LangAttrs {
 
         if word == LangAttrs::packed() {
             return "Remove padding between members"
+        }
+
+        if word == LangAttrs::relocatable() {
+            return "Pass and return the record in registers where its layout allows; a by-value parameter is destroyed by the callee"
         }
 
         if word == LangAttrs::align() {

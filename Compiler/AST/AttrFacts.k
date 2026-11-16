@@ -118,6 +118,11 @@ pub class AttrFacts {
         return AttrFacts::find(d, LangAttrs::packed()) != &null
     }
 
+    /// `@relocatable` on \p d (a record).
+    pub static fn is_relocatable(d: unsafe *Decl) -> bool {
+        return AttrFacts::find(d, LangAttrs::relocatable()) != &null
+    }
+
     /// The N of \p d's `@align(N)`, or 0 when it has none (or an invalid one).
     pub static fn align_of(d: unsafe *Decl, local: unsafe *ImmediateTable = &null) -> u64 {
         return AttrFacts::align_value(
@@ -131,23 +136,37 @@ pub class AttrFacts {
     /// `alignas` below the natural alignment is ill-formed C++, where
     /// Kairo's `@align` is a minimum (max(N, natural)). With `@packed` the
     /// two combine as clang's `packed, aligned(N)`: members at alignment 1,
-    /// the record at N.
+    /// the record at N. `@relocatable` is `trivial_abi` in the same list:
+    /// the GNU spelling of `[[clang::trivial_abi]]`, which every target's
+    /// C++ is compiled with, the Microsoft ABI ones included.
     pub static fn record_attr(d: unsafe *Decl) -> string {
-        var p = AttrFacts::is_packed(d)
+        var list: string = ""
+        if AttrFacts::is_packed(d) {
+            list = "packed"
+        }
+
         var n = AttrFacts::align_of(d)
-        if p && n != 0 {
-            return f"__attribute__((packed, aligned({n}))) "
-        }
-
-        if p {
-            return "__attribute__((packed)) "
-        }
-
         if n != 0 {
-            return f"__attribute__((aligned({n}))) "
+            if !list.empty() {
+                list += ", "
+            }
+
+            list += f"aligned({n})"
         }
 
-        return ""
+        if AttrFacts::is_relocatable(d) {
+            if !list.empty() {
+                list += ", "
+            }
+
+            list += "trivial_abi"
+        }
+
+        if list.empty() {
+            return ""
+        }
+
+        return "__attribute__((" + list + ")) "
     }
 
     /// The C++ attribute leading a field or variable declaration, with its
