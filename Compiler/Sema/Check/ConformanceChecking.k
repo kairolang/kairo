@@ -72,6 +72,7 @@ import AST::DeclFacts::{
     decl_extension_of,        decl_fields,       decl_generic_params, decl_implements,
     decl_is_ctor_requirement, decl_is_imported,  decl_is_instance,    decl_methods,
     decl_name_tok,            decl_only_forward, decl_pattern,        decl_requires_clause,
+    visibility_decl,
 }
 import AST::ExprFacts::callee_decl
 import AST::Kind::ExprKind::ExprKind
@@ -971,6 +972,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             || isa<Declarations::StructDecl>(d)
             || isa<Declarations::UnionDecl>(d) {
             if isa<Declarations::ClassDecl>(d) {
+                self._check_bases(cast<Declarations::ClassDecl>(d))
                 self._check_param_bases(cast<Declarations::ClassDecl>(d))
             }
 
@@ -989,6 +991,86 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         return true
+    }
+
+    /// # what a class may derive
+
+    /// SC353E for a base edge of \p cd that names no class a class may
+    /// derive (classes-inheritance.mdx): a primitive or any other type that
+    /// is no record, an interface (conformance is `impl`), a Kairo struct,
+    /// union or enum, or a `final` class. An imported C++ class or struct
+    /// is a base like a Kairo class. A type-parameter edge is
+    /// _check_param_bases's; the class itself as its own base and a base
+    /// that is only forward-declared are TypeCycleCheck's.
+    priv fn _check_bases(self, cd: unsafe *Declarations::ClassDecl) {
+        if decl_is_instance(unsafe (cd as unsafe *Decl))
+            || decl_is_imported(unsafe (cd as unsafe *Decl)) {
+            return
+        }
+
+        var cn = self.tu.decl_name(unsafe (cd as unsafe *Decl))
+        var unsafe *self_rep = NameLookup::representative(
+            decl_pattern(unsafe (cd as unsafe *Decl)),
+        )
+
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var unsafe *e = cd->derives_list.get(i)
+            if e == &null
+                || e->base == &null
+                || e->base->is_poisoned()
+                || e->base->canonical == &null
+                || self.tu.param_edge(e) != &null {
+                continue
+            }
+
+            var unsafe *c               = canon_unqual(e->base->canonical)
+            var        bn               = self.tu.str(c)
+            var        why              = ""
+            var unsafe *rd              = self.tu.record_decl(c)
+            var        bd: unsafe *Decl = &null
+            if rd != &null {
+                bd = NameLookup::representative(self.tu.pattern_of(rd))
+            }
+
+            if bd == &null {
+                why = f"'{bn}' is not a class"
+            } else if bd == self_rep {
+                continue
+            } else if isa<Declarations::InterfaceDecl>(bd) {
+                why = f"'{bn}' is an interface; a class conforms to an interface with 'impl': 'class {cn} impl {bn}'"
+            } else if isa<Declarations::StructDecl>(bd) {
+                if !decl_is_imported(bd) {
+                    why = f"'{bn}' is a struct; a class derives a class, and holds a struct as a field"
+                }
+            } else if !isa<Declarations::ClassDecl>(bd) {
+                why = f"'{bn}' is not a class"
+            } else if cast<Declarations::ClassDecl>(bd)->is_final
+                || cast<Declarations::ClassDecl>(bd)->ffi_is_final {
+                why = f"'{bn}' is final"
+            }
+
+            if why.size() == 0 {
+                continue
+            }
+
+            var b = self.sc->diag->report(
+                DiagID::SC353E,
+                e->range.start,
+                f"'{cn}' cannot derive '{bn}': {why}",
+            )
+
+            b.first(e->range)
+            if bd != &null && bd->range.start.is_valid() && !decl_is_imported(bd) {
+                var tok = decl_name_tok(bd)
+                b.note(
+                    DiagCode(DiagID::SC353N),
+                    tok.range.start,
+                    f"'{bn}' is declared here",
+                )->child_first(tok.range)
+            }
+
+            b.emit()
+        }
     }
 
     /// # a base that is a type parameter (TypeUtil::param_edge)
@@ -4476,11 +4558,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return true
         }
 
-        var unsafe *r = NameLookup::representative(w)
-        var        v  = w->visibility
-        if v == VisibilityKind::None && r != &null {
-            v = r->visibility
-        }
+        var unsafe *vd = visibility_decl(w)
+        var        v   = vd->visibility
 
         // An unmarked member has the documented default visibility, not
         // `pub`: `priv` outside a module, `prot` in one
@@ -4488,7 +4567,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         // satisfy an interface structurally is written `pub`, in its own
         // file as in any other.
         if v == VisibilityKind::None {
-            v = default_visibility_of(if (r != &null) => (r) else => w)
+            v = default_visibility_of(vd)
         }
 
         if v != VisibilityKind::Private && v != VisibilityKind::Protected {

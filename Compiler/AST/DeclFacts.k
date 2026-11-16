@@ -39,6 +39,7 @@ import AST::Context::DeclContext::{
     DeclContextKind,
 }
 import AST::Context::TranslationUnit::TranslationUnit
+import AST::Mixin::Annotation::VisibilityKind
 import AST::Mixin::TemplateParams::ForeignFill
 import AST::Node::Base::{
     Decl,
@@ -1074,6 +1075,53 @@ pub fn representative(d: unsafe *Decl) -> unsafe *Decl {
     }
 
     return c
+}
+
+/// The declaration that says how visible \p d's entity is: the link of its
+/// redeclaration chain that writes a visibility keyword (\p d itself, then
+/// the representative, then the others in chain order). With none written
+/// it is where a keyword would go: a member function's in-class
+/// declaration, else the representative. An out-of-line definition writes
+/// no keyword, so a member defined out of line is as visible as its
+/// in-class declaration says.
+pub fn visibility_decl(d: unsafe *Decl) -> unsafe *Decl {
+    if d == &null || d->visibility != VisibilityKind::None {
+        return d
+    }
+
+    var unsafe *r = representative(d)
+    if r == &null {
+        return d
+    }
+
+    if r->visibility != VisibilityKind::None {
+        return r
+    }
+
+    var unsafe *f = dyn_cast<Declarations::FunctionDecl>(r)
+    if f == &null {
+        return r
+    }
+
+    var        in_class: unsafe *Decl = &null
+    var unsafe *head                  = f->first_decl()
+    var unsafe *cur                   = head
+    while true {
+        if cur->visibility != VisibilityKind::None {
+            return unsafe (cur as unsafe *Decl)
+        }
+
+        if in_class == &null && !cur->is_out_of_line() {
+            in_class = unsafe (cur as unsafe *Decl)
+        }
+
+        cur = cur->next_in_chain()
+        if cur == head {
+            break
+        }
+    }
+
+    return if (in_class != &null) => (in_class) else => r
 }
 
 /// Calls \p visit on each declaration \p d stands for, in source order:

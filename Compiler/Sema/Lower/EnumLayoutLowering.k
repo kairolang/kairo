@@ -146,6 +146,7 @@ import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
     adt_expansion_at,    adt_pack_param,   adt_pack_variant, adt_variant_at, adt_variant_pos,
     decl_generic_params, decl_is_imported, decl_is_instance, decl_pattern,   decl_requires_clause,
+    visibility_decl,
 }
 import AST::EnumNiche::{
     adt_declared_tag_kind,
@@ -1921,11 +1922,7 @@ pub class EnumLayoutQuery {
             return -1
         }
 
-        var        v  = (fdl->visibility as u8)
-        var unsafe *r = NameLookup::representative(fdl)
-        if v == VIS_NONE() && r != &null && r != fdl {
-            v = (r->visibility as u8)
-        }
+        var v = (visibility_decl(fdl)->visibility as u8)
 
         if v == VIS_PUB() || v == VIS_INTERNAL() {
             return 1

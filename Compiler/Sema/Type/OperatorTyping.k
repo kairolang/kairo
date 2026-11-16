@@ -3448,35 +3448,89 @@ pub class <T: type> OperatorTyping {
         return &null
     }
 
-    /// The const binding whose element \p x is: `cb` for `cb[i]` or
-    /// `cb[i][j]` when every container on the way is const, so a write
-    /// through it names the container rather than "a const place".
-    /// Null when \p x is no subscript, or the const came from elsewhere (an
-    /// `op []` returning `*const T` on a mutable container).
-    priv fn _const_container_decl(self, x: unsafe *Expr) -> unsafe *Decl {
+    /// The binding a const place \p x is part of: `cb` for `cb[i]`,
+    /// `c.f`, `c.f.g[i]` or `t.0` when every object on the way is const, so
+    /// a write through it names the binding rather than "a const place".
+    /// \p via_ptr is set when the binding is a pointer and \p x a field of
+    /// what it points to (`pc->f`, `pc->f.g`): the pointee is what is const.
+    /// Null when \p x is no element or field, when the object is `self`
+    /// (the `const self` rule has its own wording), or when the const came
+    /// from elsewhere (an `op []` returning `*const T` on a mutable
+    /// container, a call's result).
+    priv fn _const_root(self, x: unsafe *Expr, via_ptr: *bool) -> unsafe *Decl {
+        *via_ptr = false
         var unsafe *cur = x
         while true {
-            var unsafe *s = dyn_cast<SubscriptExpr>(cur)
-            if s == &null {
+            var        b: unsafe *Expr = &null
+            var unsafe *s              = dyn_cast<SubscriptExpr>(cur)
+            var unsafe *c              = dyn_cast<ChainExpr>(cur)
+            if s != &null {
+                b = self.dyn()->tu.strip_parens(s->base)
+            } else if c != &null && c->base != &null && c->steps.size() > 0 {
+                // Fields all the way: a method call or a static in the path
+                // starts another object.
+                for var i: usize = 0; i < c->steps.size(); ++i {
+                    var unsafe *st = c->steps.get(i)
+                    if st->resolved_decl == &null
+                        || !isa<FieldDecl>(st->resolved_decl)
+                        || st->access_kind == ChainExpr::AccessKind::ColonColon {
+                        return &null
+                    }
+
+                    var arrow = st->access_kind == ChainExpr::AccessKind::Arrow
+                        || st->access_kind == ChainExpr::AccessKind::QuestionArrow
+                    if arrow && i > 0 {
+                        return &null
+                    }
+
+                    if arrow {
+                        *via_ptr = true
+                    }
+                }
+
+                b = self.dyn()->tu.strip_parens(c->base)
+            } else {
                 break
             }
 
-            var unsafe *b = self.dyn()->tu.strip_parens(s->base)
-            if b == &null || b->type_ == &null || (self._object_quals(b->type_) & QUAL_CONST) == 0 {
+            if b == &null || b->type_ == &null {
                 return &null
             }
 
             cur = b
+            if *via_ptr {
+                break
+            }
+
+            if (self._object_quals(b->type_) & QUAL_CONST) == 0 {
+                return &null
+            }
         }
 
-        if cur == x {
+        // `(*pc).f`: the object is what `pc` points to.
+        var unsafe *u = dyn_cast<UnaryOperatorExpr>(cur)
+        if cur != x
+            && (!*via_ptr)
+            && u != &null
+            && u->is_prefix()
+            && u->op_token.kind == TokenKind::OpStar {
+            *via_ptr = true
+            cur      = self.dyn()->tu.strip_parens(u->operand)
+        }
+
+        var unsafe *id = dyn_cast<NamedIdentExpr>(cur)
+        if cur == x || id == &null || id->resolved_decl == &null {
             return &null
         }
 
-        var unsafe *d = self._assigned_decl(cur)
-        var unsafe *vd = if (d != &null) => (dyn_cast<VariableDecl>(d)) else => &null
-        var unsafe *pd = if (d != &null) => (dyn_cast<ParamDecl>(d)) else => &null
-        if (vd != &null && vd->is_const()) || (pd != &null && pd->is_const) {
+        var unsafe *d  = id->resolved_decl
+        var unsafe *vd = dyn_cast<VariableDecl>(d)
+        var unsafe *pd = dyn_cast<ParamDecl>(d)
+        if *via_ptr {
+            return if (vd != &null || (pd != &null && !pd->is_self)) => (d) else => &null
+        }
+
+        if (vd != &null && vd->is_const()) || (pd != &null && pd->is_const && !pd->is_self) {
             return d
         }
 
@@ -3493,10 +3547,11 @@ pub class <T: type> OperatorTyping {
     /// emitted (a `const c: *i32` parameter).
     /// A const FIELD is CtorInitCheck's (SC171E): a constructor of its own
     /// record initializes it once, a write this rule cannot tell from an
-    /// assignment. A field of `self` in a `const self` method is const
-    /// through its object (MemberTyping types `self.f` const there), and a
-    /// write to it is reported here; a `mutable var` field is not const
-    /// there, as C++ `mutable` is not.
+    /// assignment. A field or an element of a const object is const through
+    /// its object (MemberTyping types `c.f` const there, and `self.f` in a
+    /// `const self` method), and a write to it is reported here; a
+    /// `mutable var` field is not const there, as C++ `mutable` is not, and
+    /// neither is what a pointer held by the object points to.
     /// \return whether it reported (the caller stops typing \p n).
     priv fn _reject_const_write(self, n: unsafe *Expr, lhs: unsafe *Expr, verb: string) -> bool {
         var x = self.dyn()->tu.strip_parens(lhs)
@@ -3504,14 +3559,17 @@ pub class <T: type> OperatorTyping {
             return false
         }
 
-        var unsafe *d = self._assigned_decl(x)
-        if d != &null && isa<FieldDecl>(d) {
-            return self._reject_const_self_field_write(
-                n,
-                x,
-                cast<FieldDecl>(d),
-                verb,
-            )
+        var unsafe *d       = self._assigned_decl(x)
+        var        is_field = d != &null && isa<FieldDecl>(d)
+        if is_field {
+            var unsafe *f = cast<FieldDecl>(d)
+            if self._reject_const_self_field_write(n, x, f, verb) {
+                return true
+            }
+
+            if f->storage == StorageClass::Const {
+                return false
+            }
         }
 
         var vd: unsafe *VariableDecl = &null
@@ -3551,15 +3609,17 @@ pub class <T: type> OperatorTyping {
             }
         }
 
-        // An element of a const container (`cb[0] = 5`, `cb` const) is
-        // the container's fault, and its declaration is the note.
+        // An element or a field of a const binding (`cb[0] = 5`,
+        // `c.v = 5`) is the binding's fault, and its declaration is the
+        // note; so is a field of what a pointer to const points to.
         var by_owner = false
+        var by_ptr   = false
         if (!by_decl) && vd == &null && pd == &null {
-            var unsafe *od = self._const_container_decl(x)
+            var unsafe *od = self._const_root(x, &by_ptr)
             if od != &null {
                 vd       = dyn_cast<VariableDecl>(od)
                 pd       = dyn_cast<ParamDecl>(od)
-                by_owner = true
+                by_owner = !by_ptr
             }
         }
 
@@ -3573,11 +3633,14 @@ pub class <T: type> OperatorTyping {
             at = pd->name.range
         }
 
-        var msg = "cannot " + verb + " a const place"
+        var part = if (is_field) => ("a field") else => "an element"
+        var msg  = "cannot " + verb + " a const place"
         if by_decl {
             msg = "cannot " + verb + " \x27" + nm + "\x27: it is const"
         } else if by_owner {
-            msg = "cannot " + verb + " an element of \x27" + nm + "\x27: \x27" + nm + "\x27 is const"
+            msg = "cannot " + verb + " " + part + " of \x27" + nm + "\x27: \x27" + nm + "\x27 is const"
+        } else if by_ptr && !nm.empty() {
+            msg = "cannot " + verb + " a field of \x27*" + nm + "\x27: \x27" + nm + "\x27 points to const"
         } else if !nm.empty() {
             msg = "cannot " + verb + " \x27*" + nm + "\x27: \x27" + nm + "\x27 points to const"
         }

@@ -615,7 +615,8 @@ pub class <T: type> MemberTyping {
                 // pattern's field `_i` is typed `Ti`, which is args[i] in
                 // this instance by construction. The step is bound to the
                 // field so TupleLowering has a name to spell for it.
-                cur               = elems[st->index as usize]
+                cur = self._member_of_object(elems[st->index as usize], recv_q)
+
                 st->resolved_type = cur
                 st->resolved_decl = unsafe (self.dyn()->tu.tuple_field(val, st->index as usize) as unsafe *Decl)
                 n->value_category = MemberTyping::_field_category( // a field: `t.0 = x` assigns through.
@@ -734,20 +735,14 @@ pub class <T: type> MemberTyping {
                     )
 
                     cur = self.dyn()->ded_scratch()->member_through(seen, ft)
-                    // In a `const self` method a field reached from `self`
-                    // through `.` is part of the const object, so it is
-                    // const too (C++ reads `this->f` in a const member
-                    // function the same way). A `mutable var` field stays
-                    // writable, as C++ `mutable` does. Through `->` the
-                    // field belongs to the pointee, whose const is its own.
-                    if cur != &null
-                        && cur_kind == ChainKind::Value
-                        && (recv_q & QUAL_CONST) != 0
-                        && !f->is_mutable
-                        && st->access_kind != ChainExpr::AccessKind::Arrow
-                        && st->access_kind != ChainExpr::AccessKind::QuestionArrow
-                        && self.chain_self_param(n) != &null {
-                        cur = self.dyn()->sc->types->qualified(cur, QUAL_CONST)
+                    // A field is part of its object, so a field of a const
+                    // object is const too, as C++ reads `c.f` and, in a
+                    // const member function, `this->f`: \p recv_q is the cv
+                    // of the object the step reads, the pointee's after
+                    // `->`. A `mutable var` field stays writable, as C++
+                    // `mutable` does, and a static belongs to no object.
+                    if cur_kind == ChainKind::Value && !f->is_mutable && !f->is_static() {
+                        cur = self._member_of_object(cur, recv_q)
                     }
 
                     st->through = self._instance_through(st, cur_kind, cur_type)
@@ -1155,6 +1150,17 @@ pub class <T: type> MemberTyping {
     /// form of a subscript belongs here too.
     priv fn _subscript_receiver(self, recv: unsafe *Type, obj_q: u8) -> unsafe *Type {
         return self._with_object_const(recv, obj_q)
+    }
+
+    /// \p t, the type of a field or tuple element, as read from an object
+    /// whose cv is \p obj_q: const when the object is. A member of
+    /// reference type names another object, whose const is its own.
+    priv fn _member_of_object(self, t: unsafe *Type, obj_q: u8) -> unsafe *Type {
+        if t == &null || isa<CXXLValueRefType>(t) || isa<CXXRValueRefType>(t) {
+            return t
+        }
+
+        return self._with_object_const(t, obj_q)
     }
 
     /// \p t, const when the object's quals \p obj_q are: an element of a

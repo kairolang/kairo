@@ -83,6 +83,7 @@ import AST::DeclFacts::{
     decl_is_imported,
     decl_name_tok,
     decl_pattern,
+    visibility_decl,
 }
 import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::{
@@ -753,13 +754,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
     /// The keyword \p d's redeclaration chain wrote, or None.
     priv fn _written(self, d: unsafe *Decl) -> VisibilityKind {
-        var unsafe *r = NameLookup::representative(d)
-        var        v  = d->visibility
-        if v == VisibilityKind::None && r != &null {
-            v = r->visibility
-        }
-
-        return v
+        return visibility_decl(d)->visibility
     }
 
     /// # top-level declarations
@@ -1126,10 +1121,9 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
         var b = self.sc->diag->report(DiagID::SC242E, at.start, msg)
         b.first(at, "not accessible here")
-        var unsafe *r = NameLookup::representative(d)
-        if r == &null {
-            r = d
-        }
+        // The declaration a keyword is, or would be, written on: the
+        // in-class one for a member defined out of line.
+        var unsafe *r = visibility_decl(d)
 
         var unsafe *home     = self._home(d, owner)
         var        in_module = !tu_module_dir(home).empty()
@@ -1276,12 +1270,8 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         )
 
         b.first(at, "not accessible through this object")
-        var unsafe *r = NameLookup::representative(d)
-        if r == &null {
-            r = d
-        }
-
-        var tok_r = self._name_range(r)
+        var unsafe *r    = visibility_decl(d)
+        var        tok_r = self._name_range(r)
         b.note(
             DiagCode(DiagID::SC242N),
             tok_r.start,
@@ -1306,12 +1296,8 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         )
 
         b.first(at, "not accessible here")
-        var unsafe *r = NameLookup::representative(d)
-        if r == &null {
-            r = d
-        }
-
-        var tok_r = self._name_range(r)
+        var unsafe *r    = visibility_decl(d)
+        var        tok_r = self._name_range(r)
         b.note(
             DiagCode(DiagID::SC242N),
             tok_r.start,

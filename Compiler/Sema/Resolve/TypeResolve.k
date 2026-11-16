@@ -2737,6 +2737,19 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                             sspell0,
                         )
 
+                        // Inherited: `Der<i32>::Inner` with `Inner` a
+                        // member type of `Base<T>`, read at `Base<i32>`.
+                        if !sr0.found() && isa<Declarations::ClassDecl>(cur) {
+                            sr0 = self._in_bases(
+                                cast<Declarations::ClassDecl>(cur),
+                                kt,
+                                simm0,
+                                sspell0,
+                                0,
+                                unsafe &through,
+                            )
+                        }
+
                         // Not in the body chosen here, but the template has
                         // specializations: one Kairo cannot select (a pack
                         // pattern is never registered) may hold the member,
@@ -2865,19 +2878,19 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 }
             }
 
-            // `Derived::Nested` where the nested type belongs to an IMPORTED
-            // class's base (`clang::TargetInfo::IntType` is declared in
-            // TransferrableTargetInfo): C++ finds it through the bases, so a
-            // miss in the class's own table walks them.
-            if !sr.found()
-                && mods.size() <= 1
-                && isa<Declarations::ClassDecl>(cur)
-                && decl_is_imported(cur) {
-                sr = self._in_foreign_bases(
+            // `Derived::Nested` where the nested type belongs to a base of
+            // the class (`clang::TargetInfo::IntType` is declared in
+            // TransferrableTargetInfo): a member type is inherited like any
+            // other member, so a miss in the class's own table walks the
+            // bases. AccessCheck judges the edge it was reached through.
+            if !sr.found() && mods.size() <= 1 && isa<Declarations::ClassDecl>(cur) {
+                sr = self._in_bases(
                     cast<Declarations::ClassDecl>(cur),
+                    &null,
                     simm,
                     sspell,
                     0,
+                    unsafe &through,
                 )
             }
 
@@ -4077,12 +4090,19 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// the step misses as it always did).
     /// \p cd's nested name \p simm through its base classes, depth-first in
     /// declaration order (the first base that has it answers; a type found by
-    /// two paths is one entity). Bounded so a malformed cycle cannot spin.
-    priv fn _in_foreign_bases(self,
-                              cd:             unsafe *Declarations::ClassDecl,
-                              simm:           u32,
-                              const spelling: string,
-                              depth:          u32) -> SemaLookupResult {
+    /// two paths is one entity), as a member named in an expression is
+    /// found. \p of is the type \p cd was named as (`Der<i32>`), or null: a
+    /// base is read through its arguments (Substitution::base_through), and
+    /// \p via receives the base the name was found in, at those arguments,
+    /// so the result is read through it too. Bounded so a malformed cycle
+    /// cannot spin.
+    priv fn _in_bases(self,
+                      cd:             unsafe *Declarations::ClassDecl,
+                      of:             unsafe *Type,
+                      simm:           u32,
+                      const spelling: string,
+                      depth:          u32,
+                      via:            unsafe *cxx::std::vector<unsafe *Type>) -> SemaLookupResult {
         var none = SemaLookupResult::not_found()
         if depth > 32 {
             return none
@@ -4094,7 +4114,23 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 continue
             }
 
+            // A class declared further down the file: its base is resolved
+            // here, in the class's own scope, as the walk will find it.
+            if self.sc->rstate.type_state(e->base) == ResolveState::Unresolved
+                && !self._foreign(unsafe (cd as unsafe *Decl)) {
+                var saved = self._enter_decl_scope(unsafe (cd as unsafe *Decl))
+                self.dispatch_type(e->base)
+                self._leave_decl_scope(&saved)
+            }
+
             var unsafe *bc = canon_unqual(e->base->canonical)
+            if of != &null {
+                var unsafe *h = Substitution(self.sc).base_through(of, e)
+                if h != &null {
+                    bc = canon_unqual(h)
+                }
+            }
+
             if bc == &null || !isa<RecordType>(bc) {
                 continue
             }
@@ -4104,8 +4140,24 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 continue
             }
 
+            // An instance of a Kairo generic holds its member types on the
+            // body its arguments select; an imported one is clang's to fill.
             MemberLookup::ensure_filled(self.sc, bd)
-            var unsafe *bdc = NameLookup::context_of(bd)
+            var unsafe *body = bd
+            var unsafe *pat  = decl_instantiated_from(bd)
+            if pat != &null
+                && decl_is_instance(bd)
+                && !MemberLookup::primary_is_imported(
+                    NameLookup::representative(pat),
+                )
+                && MemberLookup::unfilled(bd) {
+                var unsafe *rb = self.sc->record_body(bc)
+                if rb != &null {
+                    body = rb
+                }
+            }
+
+            var unsafe *bdc = NameLookup::context_of(body)
             if bdc != &null {
                 var hit = self.sc->lookup.in_context(
                     bdc,
@@ -4114,16 +4166,19 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 )
 
                 if hit.found() {
+                    via->push_back(bc)
                     return hit
                 }
             }
 
-            if isa<Declarations::ClassDecl>(bd) {
-                var deeper = self._in_foreign_bases(
-                    cast<Declarations::ClassDecl>(bd),
+            if isa<Declarations::ClassDecl>(body) {
+                var deeper = self._in_bases(
+                    cast<Declarations::ClassDecl>(body),
+                    bc,
                     simm,
                     spelling,
                     depth + 1,
+                    via,
                 )
 
                 if deeper.found() {

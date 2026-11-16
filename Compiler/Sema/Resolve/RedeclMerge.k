@@ -204,6 +204,7 @@ import AST::DeclFacts::{
 }
 import AST::Kind::DeclKind::DeclKind
 import AST::LangItems::LangAttrs
+import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -230,6 +231,7 @@ import AST::ParamMode::ParamMode
 import Diagnostic::Code::DiagCode
 import Diagnostic::NoteText::previously_declared_here
 import Diagnostic::Registry::DiagID
+import Location::SourceRange::SourceRange
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -1611,6 +1613,32 @@ pub class RedeclMerge {
                     "the in-class declaration, where defaults go",
                 )->child_first(hit->range)->emit()
                 p->default_val = &null
+            }
+
+            // How visible a member is belongs to the in-class declaration
+            // too: a keyword here would be a second answer, and every reader
+            // takes the declaration's (DeclFacts::visibility_decl). Cleared
+            // once diagnosed, so the declaration's is the only one left.
+            if f->visibility != VisibilityKind::None && home->is_type_scope() {
+                var vr = f->visibility_range()
+                var b = self.sc->diag->report(
+                    DiagID::R071E,
+                    if (vr.is_valid()) => (vr.start) else => f->range.start,
+                    f"a visibility keyword cannot be written on the out-of-line definition of '{nm}'; it takes the visibility of its in-class declaration",
+                )
+
+                if vr.is_valid() {
+                    b.first(vr)
+                    b.remove(vr, "remove the keyword")
+                }
+
+                b.note(
+                    DiagCode(DiagID::R071N),
+                    hit->range.start,
+                    "the in-class declaration, where the visibility goes",
+                )->child_first(hit->range)
+                b.emit()
+                f->set_visibility(VisibilityKind::None, SourceRange::invalid())
             }
 
             // File-scope rule, deliberately: the out-of-line definition is

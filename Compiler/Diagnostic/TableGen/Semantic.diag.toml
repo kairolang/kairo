@@ -6836,3 +6836,36 @@ group = "generics"
 
     [SC352.N]
     explain = "Points at the base clause that derives the type parameter."
+
+[SC353]
+brief = "a class derives a type that cannot be its base"
+group = "classes"
+
+    [SC353.E]
+    explain = """
+    # a type that cannot be a base
+
+    a class derives classes: a Kairo class, or a class or struct of an imported C++ header, that
+    is not `final`. nothing else can follow
+    `derives` on a class: not a primitive, an enum, a union or a Kairo struct, and not an
+    interface, which a class conforms to with `impl`.
+
+    ```kairo
+    interface Shape { fn area(self) -> f64 }
+    final class Sealed { }
+    struct Point { var x: i32 = 0 }
+
+    class A derives i32 { }      // error: 'i32' is not a class
+    class B derives Shape { }    // error: an interface; write 'class B impl Shape'
+    class C derives Sealed { }   // error: 'Sealed' is final
+    class D derives Point { }    // error: a struct
+    ```
+
+    ## how to fix
+
+    derive a class that is not `final`; conform to an interface with `impl`; hold a struct as a
+    field.
+    """
+
+    [SC353.N]
+    explain = "Points at the declaration of the type named as the base."

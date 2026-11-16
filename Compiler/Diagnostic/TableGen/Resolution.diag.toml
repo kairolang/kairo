@@ -1715,3 +1715,31 @@ group = "import"
 
     [R070.N]
     explain = "Says what to do instead: a header declares what it needs; C++ reaches Kairo declarations through kcc's `#include \"file.k\"` or the headers `--emit-headers` writes; Kairo reaches a Kairo file with `import`."
+
+[R071]
+brief = "a visibility keyword cannot be written on an out-of-line definition"
+group = "redeclaration"
+
+    [R071.E]
+    explain = """
+    # visibility on an out-of-line definition
+
+    how visible a member is belongs to its in-class declaration: the class is the interface. an
+    out-of-line definition `fn C::m(...)` writes no `pub`, `prot` or `priv`; the member is as
+    visible as the declaration in the class says, and with no keyword there it has the default.
+
+    ```kairo
+    class C {
+        pub fn m(self) -> i32
+    }
+    pub fn C::m(self) -> i32 { return 1 }   // error
+    ```
+
+    ## how to fix
+
+    remove the keyword from the definition; the fix-it does. to change the member's visibility,
+    write the keyword on the in-class declaration.
+    """
+
+    [R071.N]
+    explain = "the in-class declaration, where the visibility goes."
