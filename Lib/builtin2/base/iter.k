@@ -1,5 +1,6 @@
 /// builtin/base/iter.k
 
+import base::copy::*
 import base::intrinsics::*
 import builtin::Null
 import coro::generator::*
@@ -25,9 +26,23 @@ pub interface <T> FromIterator {
 }
 
 /// Every generator is an Iterator, so `iter(xs.lines()).map(...)` works.
+///
+/// `next` resumes the generator to its next `yield` and returns that value,
+/// or null once the body has finished. Calling it again after the first
+/// null resumes a finished coroutine, which is undefined: stop at the first
+/// null, as a `for` loop does.
+///
+/// The value is moved out of the generator's frame. A `yield` of a
+/// temporary loses nothing by it; a `yield` of one of the generator's own
+/// variables leaves that variable moved-from when the generator resumes, as
+/// a move-only item has to.
 extend <T> Yield<T> impl Iterator {
     type Item = T
     fn next(self) -> T? {
-        __builtin_trap() // BODY-TODO
+        if self.resume() {
+            return move(*self.current())
+        }
+
+        return null
     }
 }
