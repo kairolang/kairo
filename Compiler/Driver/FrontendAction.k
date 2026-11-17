@@ -1507,6 +1507,28 @@ pub class FrontendAction {
         //
         // First, which hidden decls another file's header names (EmitPlan::note_borrowed): their home headers declare them, so every
         // header plan has to see the whole set. Serial, before any header.
+        // Over every graph of the compile so far (CompilerInstance::
+        // header_graph), whose headers are all written again below: a file
+        // an earlier input claimed may be the home of a decl only this
+        // input's headers name, or sit in a cycle only this input closes.
+        var *hg = &self._ci->header_graph
+        if !fe.emit_headers.is_empty() {
+            for var f: u32 in self._graph {
+                var have = false
+                for var k: usize = 0; k < hg->size(); ++k {
+                    if (*hg)[k] == f {
+                        have = true
+                        break
+                    }
+                }
+
+                if !have {
+                    hg->push_back(f)
+                }
+            }
+        }
+
+        var hn = hg->size()
         if !fe.emit_headers.is_empty() && !self._ci->diag()->has_errors() {
             EmitPlan::clear_borrowed()
             var grew   = true
@@ -1514,10 +1536,8 @@ pub class FrontendAction {
             while grew && rounds < 8 {
                 grew   = false
                 rounds = rounds + 1
-                for var i: usize = 0; i < n; ++i {
-                    var unsafe *bctx = self._global_scope->get_context(
-                        self._fids[i],
-                    )
+                for var i: usize = 0; i < hn; ++i {
+                    var unsafe *bctx = self._global_scope->get_context((*hg)[i])
 
                     if bctx == &null || bctx->tu == &null || Speller::is_entry_tu(bctx->tu) {
                         continue
@@ -1537,9 +1557,42 @@ pub class FrontendAction {
                     }
                 }
             }
+
+            // Then which headers include each other in a cycle (modules of
+            // the builtin directory may import each other): such a header is
+            // written as two files (EmitCXXHeader), and every header of the
+            // cycle has to know the others.
+            var hpaths = cxx::std::vector<string>()
+            var hfrom  = cxx::std::vector<usize>()
+            var hto    = cxx::std::vector<string>()
+            for var i: usize = 0; i < hn; ++i {
+                var unsafe *bctx = self._global_scope->get_context((*hg)[i])
+                if bctx == &null || bctx->tu == &null || Speller::is_entry_tu(bctx->tu) {
+                    continue
+                }
+
+                var bcg = CodegenContext(
+                    bctx,
+                    &null,
+                    self._ci->pp()->get_symbol_table(),
+                    self._global_scope->instances(),
+                )
+
+                var bplan = EmitPlan(unsafe &bcg, PlanMode::Header)
+                bplan.run()
+                var incs = bplan.header_includes(0 as u8)
+                for var k: usize = 0; k < incs.size(); ++k {
+                    hfrom.push_back(hpaths.size())
+                    hto.push_back(incs[k].copy())
+                }
+
+                hpaths.push_back(bplan.own_header_path())
+            }
+
+            EmitPlan::note_header_cycles(&hpaths, &hfrom, &hto)
         }
 
-        if fe.print_cxx || !fe.emit_headers.is_empty() {
+        if fe.print_cxx {
             for var i: usize = 0; i < n; ++i {
                 var        fid  = self._fids[n - 1 - i]
                 var unsafe *ctx = self._global_scope->get_context(fid)
@@ -1554,7 +1607,7 @@ pub class FrontendAction {
 
                 // An empty TU prints nothing, not even its banner: a module that
                 // only re-exports must not change a golden.
-                if fe.print_cxx && !self._tu_is_empty(fid) {
+                if !self._tu_is_empty(fid) {
                     var ts = TextSink(self._ci->sm(), self._ci->tcm())
                     var tcg = CodegenContext(
                         ctx,
@@ -1573,11 +1626,21 @@ pub class FrontendAction {
 
                     io::println(f"{ts.out}")
                 }
+            }
+        }
+
+        if !fe.emit_headers.is_empty() {
+            for var i: usize = 0; i < hn; ++i {
+                var        fid  = (*hg)[hn - 1 - i]
+                var unsafe *ctx = self._global_scope->get_context(fid)
+                if ctx == &null || ctx->tu == &null {
+                    continue
+                }
 
                 // EmitCXXHeader skips the entry TU and writes nothing for it.
                 // Nor after an error: the bodies it emits need a lowered tree,
                 // and sema stops short of lowering once anything fails.
-                if !fe.emit_headers.is_empty() && !self._ci->diag()->has_errors() {
+                if !self._ci->diag()->has_errors() {
                     var h = EmitCXXHeader(
                         ctx,
                         self._ci->pp()->get_symbol_table(),
@@ -1611,7 +1674,7 @@ pub class FrontendAction {
         }
 
         // The set names this compile's decls by address: a later compile in
-        // the same process must not read it.
+        // the same process must not read it. The next input recomputes it.
         EmitPlan::clear_borrowed()
 
         // TODO(sema): full pipeline once N/T/checks land: Sema(ctx, gs).run().

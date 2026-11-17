@@ -1685,6 +1685,28 @@ group = "ast"
     an arm that needs several statements belongs in the statement form (`if c { ... }`, a
     statement-form `match`), or in a `({ ... })` statement expression. to `try` a brace
     expression such as a set literal, parenthesize it: `try ({1, 2}) catch => {}`.
+
+    ## '=>' followed by braces
+
+    an arm is one form or the other, never both. `=>` and braces together is how an arm is
+    written in languages whose arms are blocks:
+
+    ```kairo
+    match x {
+        case 1 => { e }           // error: a value arm takes no braces
+        case 2 => { x(); y(); }   // error: a statement arm takes no '=>'
+    }
+    ```
+
+    ```kairo
+    match x {
+        case 1 => e               // value form: the arm yields e
+        case 2 { x(); y(); }      // statement form: the arm yields nothing
+    }
+    ```
+
+    the fix-it drops the braces around a single expression and drops the `=>` in front of
+    statements. a one-element set literal as an arm's value takes a trailing comma: `=> { e, }`.
     """
 
 [S074]

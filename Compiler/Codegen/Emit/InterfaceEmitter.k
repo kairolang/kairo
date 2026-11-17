@@ -220,6 +220,13 @@ pub class InterfaceEmitter {
     /// it skips them later. Null (`--print-cxx`'s preamble dump): a local
     /// one defines them.
     pub var ir: unsafe *EmitIR = &null
+
+    /// Header mode: this header sits in an include cycle (EmitPlan::
+    /// header_cycle), so run() writes its declaration part only
+    /// (EmitCXXHeader writes the rest): it includes the declaration parts of
+    /// the cycle's other headers the declarations need, and leaves tier 3
+    /// to emit_extern_instantiations, which needs every template defined.
+    pub var split_cycle: bool = false
     /// The instances a kcc include's plan named but does not instantiate
     /// (IncludeEmitter prunes tier 3): their type-id specializations are
     /// still the host's to see.
@@ -1015,10 +1022,29 @@ pub class InterfaceEmitter {
         }
 
         // tier 3
+        if self.split_cycle {
+            return
+        }
+
         while i < n && self._plan->entries[i].tier == PlanTier::Instantiations {
             var *e = &self._plan->entries[i]
             i += 1
             if e->is_home { // definitions come after the bodies; see emit_home_instantiations
+                continue
+            }
+
+            self._instantiation(e)
+        }
+    }
+
+    /// Tier 3's explicit instantiation declarations, for a header whose
+    /// run() left them out (split_cycle): after its includes, which define
+    /// every template they name.
+    fn emit_extern_instantiations(self) {
+        self._cg->require_phase(CodegenPhase::Planned)
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var *e = &self._plan->entries[i]
+            if e->tier != PlanTier::Instantiations || e->is_home {
                 continue
             }
 
@@ -1044,9 +1070,13 @@ pub class InterfaceEmitter {
     /// # Header prologue
 
     /// `#pragma once`, then one `#include` per foreign module reached at
-    /// Complete, or whose FUNCTION is declared: only an inline or template
-    /// body names a foreign function, and tier 2 leaves a foreign one to its
-    /// own header. Kairo forbids import cycles, so the include graph is a DAG.
+    /// Complete, or whose FUNCTION is declared (EmitPlan::header_includes).
+    /// Import cycles exist only among the builtin directory's modules; a
+    /// header in one (split_cycle) is its declaration part here, which
+    /// includes the declaration part of each other header of its cycle the
+    /// declarations need, and the whole header of every other module they
+    /// need. That part is acyclic, since a cycle among layouts is a Kairo
+    /// error.
     priv fn _header_prologue(self) {
         var at = self._tu_at()
         self._cg->sink->directive(at, "#pragma once")
@@ -1057,39 +1087,24 @@ pub class InterfaceEmitter {
             self._cg->sink->directive(at, self._ffi_lines[i])
         }
 
-        var seen = cxx::std::vector<string>()
-        for var i: usize = 0; i < self._plan->entries.size(); ++i {
-            var *e = &self._plan->entries[i]
-            if e->own {
-                continue
+        var group: u32 = 0
+        if self.split_cycle {
+            group = EmitPlan::header_cycle(
+                self._spell->header_path(self._cg->tu),
+            )
+        }
+
+        var incs = self._plan->header_includes(
+            if (self.split_cycle) => (1 as u8) else => (0 as u8),
+        )
+
+        for var i: usize = 0; i < incs.size(); ++i {
+            var p = incs[i].copy()
+            if group != 0 && EmitPlan::header_cycle(p) == group {
+                p = EmitPlan::decl_unit_path(p)
             }
 
-            if e->tier == PlanTier::Instantiations {
-                continue
-            }
-
-            if e->need != PlanNeed::Complete && e->tier != PlanTier::Functions {
-                continue
-            }
-
-            var p   = self._spell->header_path(Speller::tu_of(e->decl))
-            var dup = false
-            for var j: usize = 0; j < seen.size(); ++j {
-                if seen[j] == p {
-                    dup = true
-                    break
-                }
-            }
-
-            if dup {
-                continue
-            }
-
-            seen.push_back(p)
-            var line = "#include \""
-            line += p
-            line += "\""
-            self._cg->sink->directive(at, line)
+            self._cg->sink->directive(at, "#include \"" + p + "\"")
         }
     }
 

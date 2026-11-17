@@ -308,6 +308,12 @@ pub class CompilerInstance {
     priv var _claimed: llvm::DenseSet<u64>
     /// A C/C++ input includes a .k (_discover_includes).
     prot var _includes_kairo: bool = false
+    /// `--emit-headers`: every fid of every input's graph so far, in the
+    /// order first met. Each input writes the headers of all of them, so the
+    /// last input's are those of the whole compile: a header's text depends
+    /// on what other files' headers borrow from it and on which headers
+    /// include each other (FrontendAction).
+    pub var header_graph: cxx::std::vector<u32>
     /// The sysroot generator refused (or failed) for this --target
     /// (_sysroot_from_generator): the run exits 2 (3 on a failed build)
     /// rather than 1, as `ksys ensure` would (Compiler/Spec/SysRoot.md 8).

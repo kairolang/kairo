@@ -60,12 +60,8 @@ import Codegen::Emit::Spell::{
     VIS_PUB,
 }
 import Codegen::EmitPlan::{
-    EmitPlan,
-    ExtScope,
-    FileFriends,
-    PlanMode,
-    PlanNeed,
-    _BORROWED,
+    EmitPlan,       ExtScope, FileFriends, PlanMode, PlanNeed, PlanTier, _BORROWED, _HDR_CYCLE_PATH,
+    _HDR_CYCLE_SCC,
 }
 import Codegen::EmitPlanAdmit
 import Codegen::EmitPlanLayout
@@ -81,6 +77,143 @@ extend EmitPlan {
 
     pub static fn clear_borrowed() {
         _BORROWED.clear()
+        _HDR_CYCLE_PATH.clear()
+        _HDR_CYCLE_SCC.clear()
+    }
+
+    /// # Header includes and include cycles
+
+    /// The headers a Header plan's text includes, by header path, once each
+    /// in entry order: the module of every foreign entry reached at Complete,
+    /// or whose function is declared (only an inline or template body names
+    /// a foreign function, and tier 2 leaves it to its own header).
+    /// \p part: 0 all of them; 1 those the declarations need (an entry the
+    /// declarations reach at Complete, or a function they name); 2 the rest,
+    /// which only the bodies need.
+    pub fn header_includes(self, part: u8) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        for var i: usize = 0; i < self.entries.size(); ++i {
+            var *e = &self.entries[i]
+            if e->own || e->tier == PlanTier::Instantiations {
+                continue
+            }
+
+            var is_fn = e->tier == PlanTier::Functions
+            if e->need != PlanNeed::Complete && !is_fn {
+                continue
+            }
+
+            if part != 0 {
+                var by_decl = if (is_fn) => (self.decl_reached(e->decl))
+                              else => self.decl_complete(e->decl)
+                if by_decl != (part == 1) {
+                    continue
+                }
+            }
+
+            var p   = self._spell.header_path(Speller::tu_of(e->decl))
+            var dup = false
+            for var j: usize = 0; j < out.size(); ++j {
+                if out[j] == p {
+                    dup = true
+                    break
+                }
+            }
+
+            if !dup {
+                out.push_back(p)
+            }
+        }
+
+        return out
+    }
+
+    /// The path of the TU's own header (`a/b.hh`), as an includer spells it.
+    pub fn own_header_path(self) -> string {
+        return self._spell.header_path(self._cg->tu)
+    }
+
+    /// The path of the declaration part of header \p p (`a/b.hh` ->
+    /// `a/b.decl.hh`): what a header in an include cycle includes of the
+    /// others in its cycle group.
+    pub static fn decl_unit_path(const p: string) -> string {
+        if p.ends_with(".hh") {
+            return p.subslice(0, p.size() - 3) + ".decl.hh"
+        }
+
+        return p + ".decl.hh"
+    }
+
+    /// \p p's cycle group (from 1), or 0 when no include cycle runs through
+    /// it (note_header_cycles).
+    pub static fn header_cycle(const p: string) -> u32 {
+        for var i: usize = 0; i < _HDR_CYCLE_PATH.size(); ++i {
+            if _HDR_CYCLE_PATH[i] == p {
+                return _HDR_CYCLE_SCC[i]
+            }
+        }
+
+        return 0
+    }
+
+    /// Records which headers sit in an include cycle: \p paths[i] includes
+    /// every \p to[k] with \p from[k] == i. A header is in a cycle when it
+    /// reaches itself; two are in one group when each reaches the other.
+    pub static fn note_header_cycles(@inout paths: cxx::std::vector<string>,
+                                     @inout from:  cxx::std::vector<usize>,
+                                     @inout to:    cxx::std::vector<string>) {
+        _HDR_CYCLE_PATH.clear()
+        _HDR_CYCLE_SCC.clear()
+        var n = paths.size()
+        // reach[i * n + j]: header i includes header j, directly or not.
+        var reach = cxx::std::vector<u8>()
+        reach.resize(n * n, 0 as u8)
+        for var k: usize = 0; k < from.size(); ++k {
+            for var j: usize = 0; j < n; ++j {
+                if paths[j] == to[k] {
+                    reach[from[k] * n + j] = 1 as u8
+                }
+            }
+        }
+
+        // Warshall's closure: tens of headers.
+        for var m: usize = 0; m < n; ++m {
+            for var i: usize = 0; i < n; ++i {
+                if reach[i * n + m] == (0 as u8) {
+                    continue
+                }
+
+                for var j: usize = 0; j < n; ++j {
+                    if reach[m * n + j] != (0 as u8) {
+                        reach[i * n + j] = 1 as u8
+                    }
+                }
+            }
+        }
+
+        var group = cxx::std::vector<u32>()
+        group.resize(n, 0 as u32)
+        var next: u32 = 1
+        for var i: usize = 0; i < n; ++i {
+            if group[i] != 0 || reach[i * n + i] == (0 as u8) {
+                continue
+            }
+
+            for var j: usize = i; j < n; ++j {
+                if reach[i * n + j] != (0 as u8) && reach[j * n + i] != (0 as u8) {
+                    group[j] = next
+                }
+            }
+
+            next += 1
+        }
+
+        for var i: usize = 0; i < n; ++i {
+            if group[i] != 0 {
+                _HDR_CYCLE_PATH.push_back(paths[i].copy())
+                _HDR_CYCLE_SCC.push_back(group[i])
+            }
+        }
     }
 
     /// After run() of a Header plan: every foreign function or global it

@@ -343,6 +343,14 @@ kcc_bin = os.path.join(os.path.dirname(kairo_bin), "kcc")
 if os.path.isfile(kcc_bin):
     config.available_features.add("kcc")
     _kcc_x = "".join(" -Xkairo " + _sh(w) for w in ["--error-format=basic", _kairo_threads.strip()] + _shlex.split(kairo_roots))
+    # `%kcc_new` is %kcc on the two-word library, as %kairo_new is %kairo:
+    # the roots name Lib/builtin2 and Lib/std2 and nothing else changes.
+    # Before %kcc, which lit would otherwise substitute inside it.
+    _kcc_new_x = "".join(" -Xkairo " + _sh(w) for w in
+                         ["--error-format=basic", _kairo_threads.strip()]
+                         + _shlex.split(_clang_roots(with_builtins=False, with_std=False))
+                         + ["--builtins-dir=" + _new_builtin, "--std-dir=" + _new_std])
+    config.substitutions.append(("%kcc_new", _sh(kcc_bin) + _kcc_new_x))
     config.substitutions.append(("%kcc", _sh(kcc_bin) + _kcc_x))
 # --- long-tests ----------------------------------------------------------------
 # Tests that take more than ~30 s (ksys sysroot builds, kcc/runtime-cache

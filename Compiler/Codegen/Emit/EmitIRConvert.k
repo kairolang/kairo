@@ -231,12 +231,17 @@ extend EmitIR {
         // parameter's UNSUBSTITUTED type -- `static_cast<fs<T ...>>` names a
         // T that does not exist at the call -- and would also move fmt's
         // consteval format check off the literal it inspects.
+        // So is a scalar handed to one: in a generic body a C++ member of an
+        // instance over the body's parameters (`unordered_map<K, V>::reserve`)
+        // takes a member type of the C++ template (`size_type`) that only
+        // the template's own parameters spell (`unordered_map<_Key, ...>`).
         if canon_unqual(w)->kind == TypeKind::OpaqueFFIType {
             var unsafe *hu = canon_unqual(have)
             if hu != &null
                 && (hu->kind == TypeKind::RecordType
                     || hu->kind == TypeKind::PointerType
-                    || hu->kind == TypeKind::OpaqueFFIType) {
+                    || hu->kind == TypeKind::OpaqueFFIType
+                    || hu->kind == TypeKind::BuiltinType) {
                 return false
             }
         }

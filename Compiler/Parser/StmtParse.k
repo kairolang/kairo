@@ -1976,6 +1976,14 @@ pub class <T: type> StmtParse {
             )
         }
 
+        if self.dyn()->_arm_was_stmts {
+            // `=> { stmts }` stands for a statement arm, so it does not make
+            // the match mix its forms.
+            self.dyn()->_arm_was_stmts = false
+            *form                      = ArmForm::Block
+            return result // both stay null
+        }
+
         if value == &null {
             return result // both stay null
         }

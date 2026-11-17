@@ -366,16 +366,32 @@ var _G_PHASE: GraphPhase = GraphPhase::Unset
 /// after; cleared by clear_borrowed.
 var _BORROWED: cxx::std::vector<unsafe *Decl> = cxx::std::vector<unsafe *Decl>()
 
+/// The headers of this `--emit-headers` run that sit in an include cycle
+/// (modules of the builtin directory may import each other), by header
+/// path, each with the index of its cycle group (strongly connected
+/// component, from 1). Filled by note_header_cycles on the driver thread
+/// before any header is made, read-only after; cleared by clear_borrowed.
+var _HDR_CYCLE_PATH: cxx::std::vector<string> = cxx::std::vector<string>()
+var _HDR_CYCLE_SCC:  cxx::std::vector<u32>    = cxx::std::vector<u32>()
+
 pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     prot var _cg:    unsafe *CodegenContext
     prot var _spell: Speller
     prot var _mode:  PlanMode               = PlanMode::Preamble
     prot var _home:  u32                    = 0
 
-    prot var _set:   cxx::std::vector<unsafe *Decl>
-    prot var _need:  cxx::std::vector<PlanNeed>
-    prot var _queue: cxx::std::vector<usize>
-    prot var _insts: cxx::std::vector<unsafe *InstanceEntry>
+    prot var _set:  cxx::std::vector<unsafe *Decl>
+    prot var _need: cxx::std::vector<PlanNeed>
+    /// Per _set entry, the strongest need reached from the declarations
+    /// rather than from a body walk (_walk_visible), as a PlanNeed's value;
+    /// u8::MAX when only bodies reach it. A header in an include cycle reads
+    /// it to split its includes (decl_complete).
+    prot var _decl_need: cxx::std::vector<u8>
+    /// The admission in progress comes from a body walk, or from the
+    /// expansion of an entry only bodies reach at its strength.
+    prot var _in_body: bool                                    = false
+    prot var _queue:   cxx::std::vector<usize>
+    prot var _insts:   cxx::std::vector<unsafe *InstanceEntry>
     /// _insts' members by address: what _insts already holds.
     prot var _inst_seen: llvm::DenseSet<u64>
     /// _rank_of's walk: fid -> this TU's order (u32::MAX: not met).

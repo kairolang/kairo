@@ -21,6 +21,7 @@ import AST::EnumNiche::enum_has_niche_trait
 import AST::LangItems::{
     LangMembers,
     LowerTargets,
+    WellKnownType,
 }
 import AST::Node::Base::Decl
 import AST::Node::CanonicalNodes::{
@@ -624,15 +625,30 @@ extend InterfaceEmitter {
             var tw = self._cg->tu != &null
                 && self._cg->tu->global_scope != &null
                 && self._cg->tu->global_scope->well_known()->two_word()
-            var sd = LangMembers::string_data(tw) + "()"
-            var sl = LangMembers::string_size(tw) + "()"
-            // No `: ::name` anywhere: a header's text sink writes no space
-            // between tokens, and `:::` lexes as `::` `:`. The base is
-            // default-built in the copy (std::exception holds nothing).
+            // `m.data()`, `m.size()` on the message; on the two-word library
+            // they are extension members, static members of string's scope
+            // (`S::data(&m)`), named through a dependent alias so lookup waits
+            // for the instance, by which time the scope is defined.
+            var sd = "m." + LangMembers::string_data(tw) + "()"
+            var sl = "m." + LangMembers::string_size(tw) + "()"
+            var xs = if (tw) => (self._string_scope(LangMembers::string_data(tw))) else => ""
+            var dp = "__kairo_dep"
+            if !xs.empty() {
+                var q = "::" + api + "::" + dp + "<E, " + xs + ">::type::"
+                sd = q + LangMembers::string_data(tw) + "(&m)"
+                sl = q + LangMembers::string_size(tw) + "(&m)"
+            }
+
+            // The base is default-built in the copy (std::exception holds
+            // nothing).
             // The memory orders by value (relaxed 0, acq_rel 4): a kcc
             // include's tokens are past the preprocessor, so the
             // __ATOMIC_* macros would not expand.
             var t = "namespace " + api + " { "
+            if !xs.empty() {
+                t += "template <class D, class T> struct " + dp + " { using type = T; }; "
+            }
+
             t += "struct " + eb + " : public " + LowerTargets::cxx_exception_base() + " { " + u + " type; " + u + " site; "
             t += eb + "(const " + eb + "& o) noexcept : type(o.type), site(o.site), " + w + "(o." + w + ") { if (" + w + ") { " + LowerTargets::clang_atomic_fetch_add() + "(" + w + ", 1, 0); } } "
             t += eb + "& operator=(const " + eb + "& o) noexcept { if (o." + w + ") { " + LowerTargets::clang_atomic_fetch_add() + "(o." + w + ", 1, 0); } " + drp + "(); type = o.type; site = o.site; " + w + " = o." + w + "; return *this; } "
@@ -644,7 +660,7 @@ extend InterfaceEmitter {
             t += "void " + bld + "(const unsigned char* m, " + sz + " ml, bool hm, const char* name) noexcept { " + sz + " n = ::" + api + "::" + im + "::text(nullptr, m, ml, hm, name, site); " + w + " = static_cast<" + cnt + "*>(" + LowerTargets::clang_malloc() + "(sizeof(" + cnt + ") + n + 1)); if (!" + w + ") { return; } *" + w + " = 1; " + "char* o = reinterpret_cast<char*>(" + w + " + 1); ::" + api + "::" + im + "::text(o, m, ml, hm, name, site); o[n] = 0; } "
             t += "}; "
             t += "template <class E> struct " + et + " : public ::" + api + "::" + eb + " { E " + LowerTargets::panic_api_error() + "; "
-            t += "template <class A> " + et + "(A&& e, " + u + " s) noexcept : " + eb + "(" + tid + "<E>, s), " + LowerTargets::panic_api_error() + "(static_cast<A&&>(e)) { " + "const E& x = this->" + LowerTargets::panic_api_error() + "; " + "if constexpr (requires (const E& y) { y." + LowerTargets::op_panic() + "(); }) { auto m = x." + LowerTargets::op_panic() + "(); this->" + bld + "(m." + sd + ", m." + sl + ", true, " + nm + "); } " + "else if constexpr (requires (const E& y) { ::" + LowerTargets::panic_msg_trait() + "<E>::" + LowerTargets::panic_msg_get() + "(y); }) { " + "auto m = ::" + LowerTargets::panic_msg_trait() + "<E>::" + LowerTargets::panic_msg_get() + "(x); this->" + bld + "(m." + sd + ", m." + sl + ", true, " + nm + "); } " + "else { this->" + bld + "(nullptr, 0, false, " + nm + "); } } }; "
+            t += "template <class A> " + et + "(A&& e, " + u + " s) noexcept : " + eb + "(" + tid + "<E>, s), " + LowerTargets::panic_api_error() + "(static_cast<A&&>(e)) { " + "const E& x = this->" + LowerTargets::panic_api_error() + "; " + "if constexpr (requires (const E& y) { y." + LowerTargets::op_panic() + "(); }) { auto m = x." + LowerTargets::op_panic() + "(); this->" + bld + "(" + sd + ", " + sl + ", true, " + nm + "); } " + "else if constexpr (requires (const E& y) { ::" + LowerTargets::panic_msg_trait() + "<E>::" + LowerTargets::panic_msg_get() + "(y); }) { " + "auto m = ::" + LowerTargets::panic_msg_trait() + "<E>::" + LowerTargets::panic_msg_get() + "(x); this->" + bld + "(" + sd + ", " + sl + ", true, " + nm + "); } " + "else { this->" + bld + "(nullptr, 0, false, " + nm + "); } } }; "
             // The error the result holds, thrown as panic_error<X>: moved
             // out of an rvalue result, copied out of an lvalue one.
             t += "struct " + th + " { "
@@ -942,5 +958,34 @@ extend InterfaceEmitter {
         }
 
         return false
+    }
+
+    /// The qualified extension scope of the String lang record that
+    /// declares member \p name, when this plan carries it, else "".
+    priv fn _string_scope(self, const name: string) -> string {
+        var *gs = self._cg->tu->global_scope
+        if gs == &null {
+            return ""
+        }
+
+        var unsafe *sd = gs->well_known()->get(WellKnownType::String)
+        if sd == &null {
+            return ""
+        }
+
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var unsafe *x = self._plan->entries[i].scope
+            if x == &null || x->target != Spell::Speller::rep(sd) {
+                continue
+            }
+
+            for var k: usize = 0; k < x->members.size(); ++k {
+                if DeclFacts::decl_name(unsafe (x->members[k] as unsafe *Decl)) == name {
+                    return "::" + self._spell->ns_join(&x->ns) + "::" + x->name
+                }
+            }
+        }
+
+        return ""
     }
 }

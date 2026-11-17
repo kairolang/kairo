@@ -772,7 +772,10 @@ pub class FlagTranslator {
             _fx_push(&o, f"-ftrivial-auto-var-init={cgo.auto_var_init}")
         }
 
-        if cgo.f_delete_null_checks == 0 {
+        // Kept unless asked for: a safe pointer is non-null by rule, not by
+        // proof, and one that came from C++ or an unsafe cast must still
+        // trap at its dereference instead of having the load folded away.
+        if cgo.f_delete_null_checks != 1 {
             _fx_push(&o, "-fno-delete-null-pointer-checks")
         }
 

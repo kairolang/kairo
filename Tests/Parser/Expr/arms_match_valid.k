@@ -35,7 +35,7 @@ fn brace_values() {
     var k = match s {
         case 1 => {1, 2}
         case 2 => ({ var t = f(); (t + 1); })
-        default => {3}
+        default => {3,}
     }
 }
 

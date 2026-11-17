@@ -156,16 +156,43 @@ extend EmitPlan {
             self._set_at.try_emplace(c as usize as u64, (self._set.size() as u64))
             self._set.push_back(c)
             self._need.push_back(need)
+            self._decl_need.push_back(
+                if (self._in_body) => (u8::MAX) else => (need as u8),
+            )
+
             self._queue.push_back(self._set.size() - 1)
             self._admit_specs(c, need)
             return
+        }
+
+        // A declaration reaching what only a body reached before expands it
+        // again, so what it needs is reached from the declarations too.
+        var by_decl = !self._in_body
+            && (self._decl_need[at] == u8::MAX || (need as u8) > self._decl_need[at])
+        if by_decl {
+            self._decl_need[at] = need as u8
         }
 
         if (need as u8) > (self._need[at] as u8) {
             self._need[at] = need
             self._queue.push_back(at)
             self._admit_specs(c, need)
+        } else if by_decl {
+            self._queue.push_back(at)
         }
+    }
+
+    /// \p d is in the set at Complete for the declarations themselves (a
+    /// layout, a signature's default argument), not only for a body.
+    fn decl_complete(self, d: unsafe *Decl) -> bool {
+        var at = self._index_of(d)
+        return at != usize::MAX && self._decl_need[at] == (PlanNeed::Complete as u8)
+    }
+
+    /// \p d is reached from the declarations at any strength.
+    fn decl_reached(self, d: unsafe *Decl) -> bool {
+        var at = self._index_of(d)
+        return at != usize::MAX && self._decl_need[at] != u8::MAX
     }
 
     /// A generic record's specializations ride with it at the same strength:
@@ -571,11 +598,17 @@ extend EmitPlan {
     /// # Closure
 
     fn _close(self) {
+        var outer = self._in_body
         while self._queue.size() > 0 {
             var at = self._queue[self._queue.size() - 1]
             self._queue.pop_back()
+            self._in_body = outer
+                || self._decl_need[at] == u8::MAX
+                || self._decl_need[at] < (self._need[at] as u8)
             self._expand(self._set[(at)], self._need[(at)])
         }
+
+        self._in_body = outer
     }
 
     fn _expand(self, d: unsafe *Decl, need: PlanNeed) {
@@ -902,7 +935,10 @@ extend EmitPlan {
             return
         }
 
-        self._scope_for(x, self._mode == PlanMode::Preamble)
+        // An include is emitted as a preamble is, the bodies of what it
+        // carries included, and a member's out-of-line body needs its scope
+        // defined: only a header, which carries no foreign body, declares it.
+        self._scope_for(x, self._mode != PlanMode::Header)
     }
 
     /// The layout decl an extension targets: the primary for a generic one.

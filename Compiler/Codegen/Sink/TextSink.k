@@ -145,8 +145,11 @@ pub class TextSink derives EmitSink {
 
         var s = string(unsafe ((p as unsafe *const u8) as *const u8))
 
+        // `::` after `:` keeps its space: `private: ::ns::T f;` glued is
+        // `private:::ns::T`, which lexes as `::` `:` and is a syntax error.
         var tight_before = k == clang::tok::semi || k == clang::tok::comma || k == clang::tok::r_paren
-                        || k == clang::tok::greater || k == clang::tok::coloncolon || k == clang::tok::l_paren
+                        || k == clang::tok::greater || k == clang::tok::l_paren
+                        || (k == clang::tok::coloncolon && self._last_word != ":")
                         || k == clang::tok::less || k == clang::tok::l_square || k == clang::tok::r_square
                         || k == clang::tok::star || k == clang::tok::amp || k == clang::tok::ampamp
                         // `operator+`, not `operator +`: the symbol is part of

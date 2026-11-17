@@ -171,6 +171,11 @@ be READ: it records what the compiler does today, not what it should do.
 --builtins-dir/--std-dir/--resource-dir roots, `%s` to the test file, `%t` to
 a scratch path.
 
+A test that compiles to `%t.exe` and then runs it starts with
+`// RUN: rm -f %t.exe`. `%t` is the same path on every run, so without it a
+compile that fails (behind `|| true`) leaves the previous run's executable in
+place, and the test runs that one and passes.
+
 Tests whose expected behaviour is not implemented yet get `// XFAIL: *` and a
 comment saying what the CHECK lines describe and when to remove the marker --
 see Sema/Types/type_cycle_generic.k for the pattern. An

@@ -21,7 +21,7 @@ fn main() -> i32 {
     }
 
     match const &a {
-        case var x => {
+        case var x {
             n += *x
         }
     }

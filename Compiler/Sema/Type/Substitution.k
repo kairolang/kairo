@@ -154,6 +154,60 @@ pub class Substitution {
         return &null
     }
 
+    /// Argument \p i of record \p r when it is the stand-in for a default
+    /// of an imported primary (the primary's own parameter) and \p placed,
+    /// the arguments before it already substituted, are all concrete: that
+    /// default over them (`allocator<i32>` for `vector<i32, _Allocator>`).
+    /// Null otherwise, and the argument is substituted as any other.
+    priv fn _cxx_default_arg(self,
+                             r:      unsafe *RecordType,
+                             placed: unsafe *cxx::std::vector<unsafe *Type>,
+                             i:      usize) -> unsafe *Type {
+        var unsafe *g = dyn_cast<GenericParamType>(canon_unqual(r->args[i]))
+        if g == &null || g->is_pack || g->owner == &null {
+            return &null
+        }
+
+        var unsafe *primary = NameLookup::representative(
+            self.tu.pattern_of(r->decl),
+        )
+
+        if primary == &null
+            || NameLookup::representative(g->owner) != primary
+            || !MemberLookup::primary_is_imported(primary)
+            || (g->param_index as usize) != i
+            || placed->size() != i {
+            return &null
+        }
+
+        var gps = decl_generic_params(primary)
+        if i >= gps.size() || gps[i] == &null || gps[i]->default_type == &null {
+            return &null
+        }
+
+        var unsafe *dc = gps[i]->default_type->canonical
+        if dc == &null {
+            return &null
+        }
+
+        var sub = Substitution(self.sc)
+        for var j: usize = 0; j < i; ++j {
+            var unsafe *a = (*placed)[j]
+            if a == &null || a->is_dependent() || a->is_instantiation_dependent() {
+                return &null
+            }
+
+            sub.bind(primary, j as u32, a)
+        }
+
+        var unsafe *out = sub.substitute(dc)
+        if out == &null || out->is_dependent() || out->is_instantiation_dependent() {
+            return &null
+        }
+
+        return out
+    }
+
     /// False on a conflicting rebind.
     fn bind(self, owner: unsafe *Decl, index: u32, ty: unsafe *Type) -> bool {
         if ty == &null {
@@ -688,6 +742,17 @@ pub class Substitution {
                 var args = cxx::std::vector<unsafe *Type>()
                 var dep  = false
                 for var i: usize = 0; i < r->args.size(); ++i {
+                    // A C++ default its primary's own param stands in for
+                    // (GenericArgs: `vector<T>`'s `allocator<T>` while T is
+                    // a generic's parameter) is the default again once the
+                    // arguments before it are concrete, so the instance is
+                    // the one the same type written out names.
+                    var unsafe *fill = self._cxx_default_arg(r, unsafe &args, i)
+                    if fill != &null {
+                        args.push_back(fill)
+                        continue
+                    }
+
                     // `R<i32, E...>`: a pack argument is its expansion, so a
                     // bound pack splices its elements in, none included.
                     var unsafe *pg = dyn_cast<GenericParamType>(r->args[i])

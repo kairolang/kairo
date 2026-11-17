@@ -36,6 +36,7 @@ import Codegen::EmitPlan::{
 }
 import Codegen::Sink::TextSink::TextSink
 import Interop::Clang::HeaderSet::HeaderSet
+import Location::SourceRange::SourceRange
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Support::FileIO::AtomicFile::publish_bytes
 import Support::FileIO::Path::Path
@@ -74,9 +75,13 @@ pub class EmitCXXHeader {
     /// Layout only: out-of-line function bodies left out, their declarations
     /// holding their lines, and kept because C++ may need them
     /// (TextSink::bodies_dropped).
-    pub var  bodies_dropped: usize  = 0
-    pub var  bodies_needed:  usize  = 0
-    priv var _prelude_path:  string = ""
+    pub var bodies_dropped: usize = 0
+    pub var bodies_needed:  usize = 0
+
+    /// After render() of a header in an include cycle: its declaration
+    /// part, written beside it as EmitPlan::decl_unit_path; "" otherwise.
+    pub var  decl_text:     string = ""
+    priv var _prelude_path: string = ""
 
     pub fn EmitCXXHeader(self,
                          ctx:       unsafe *ASTContext,
@@ -136,7 +141,38 @@ pub class EmitCXXHeader {
         var ie = InterfaceEmitter(unsafe &cg, unsafe &plan)
         ie.ir = unsafe &ir // the early items (EmitPlan::early), defined in tier 1.
         ie.set_ffi_lines(self._ffi_lines(tu))
+        // A header in an include cycle is two files (EmitPlan::header_cycle):
+        // whichever header of the cycle a C++ TU includes first, every
+        // header's bodies must follow the declarations of all it names, and
+        // one guarded file per module cannot order that. Not with #line
+        // directives: kals' bridge reads one file per module.
+        var self_path = plan.own_header_path()
+        ie.split_cycle = !ts.line_mode && EmitPlan::header_cycle(self_path) != 0
+        self.decl_text = ""
         ie.run()
+        if ie.split_cycle {
+            // The declaration part is what run() wrote; the header proper
+            // includes it, then the whole header of every module the plan
+            // reaches, so the bodies below see each one's declarations
+            // (one already being included has written them), then tier 3.
+            ts.brk()
+            self.decl_text = ts.out.copy()
+            ts.out         = ""
+            var at = SourceRange()
+            ts.directive(at, "#pragma once")
+            ts.directive(
+                at,
+                "#include \"" + EmitPlan::decl_unit_path(self_path) + "\"",
+            )
+
+            var incs = plan.header_includes(0 as u8)
+            for var i: usize = 0; i < incs.size(); ++i {
+                ts.directive(at, "#include \"" + incs[i] + "\"")
+            }
+
+            ie.emit_extern_instantiations()
+        }
+
         // The module's inline and template bodies, after every class
         // definition: C++ consumers need them for the reason Kairo importers
         // do -- they are part of the interface. Out of line, so the class
@@ -239,6 +275,10 @@ pub class EmitCXXHeader {
         // Published whole: clangd and a C++ build may read the header while
         // it is replaced, and must see the old text or the new, never a part.
         Path::make_parent_dirs(p)
+        if !self.decl_text.empty() && !publish_bytes(EmitPlan::decl_unit_path(p), self.decl_text) {
+            return false
+        }
+
         return publish_bytes(p, text)
     }
 }

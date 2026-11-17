@@ -1461,7 +1461,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
 
     cmd->define<FlagKind::Feature>(
         "delete-null-pointer-checks",
-        "let the optimizer drop null checks after a dereference (on)",
+        "let the optimizer drop null checks after a dereference (off)",
     )
 
     cmd->define<FlagKind::Feature>(

@@ -1,12 +1,10 @@
 // C++ that includes the header `--emit-headers` writes for a module passing
-// `string` and `[i32]` by value, receives both by value and returns them.
-// Expected to fail: the headers emitted for Lib/builtin2 do not compile
-// (base/hash.hh instantiates `Slice<u8>` and `Vector<u8>` before their
-// definitions, and string.hh names a `Chars::ptr` the record does not
-// declare); the headers emitted for the same module over Lib/builtin do.
+// `string` and `[i32]` by value, receives both by value and returns them,
+// built and linked by kcc on the same library. The library's headers sit in
+// include cycles (slice and vector, hash, string and errors/crash include
+// each other), which emitted_headers_all.k checks file by file.
 // abi_registers_x86_64.k proves the same passing through hand-written
 // twins.
-// XFAIL: *
 
 @no_inline pub fn echo_string(s: string) -> string {
     return s
@@ -30,5 +28,5 @@ pub fn take_string(s: string) -> usize {
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %kairo_new %s --type-check-only --emit-headers %t.d/h
 // RUN: printf '#include "h/emitted_header_cxx.hh"\nusing S = ::builtin::string::string;\nusing V = ::builtin::containers::vector::Vector<int>;\nS pass_s(S s) { return s; }\nV pass_v(V v) { return v; }\nint main() { return emitted_header_cxx::take_string(pass_s(emitted_header_cxx::echo_string(emitted_header_cxx::make_string(3)))) == 38 ? 0 : 1; }\n' > %t.d/use.cc
-// RUN: %kcc -std=c++23 -I %t.d -I %t.d/h %t.d/use.cc %s -Xkairo --builtins-dir=%S/../../../Lib/builtin2 -Xkairo --std-dir=%S/../../../Lib/std2 -o %t.exe
+// RUN: %kcc_new -std=c++23 -I %t.d -I %t.d/h %t.d/use.cc %s -o %t.exe
 // RUN: %t.exe

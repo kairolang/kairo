@@ -700,12 +700,15 @@ extend EmitPlan {
     /// member's receiver is emitted as its first parameter, so the extension's
     /// target is laid out here.
     fn _walk_body(self, f: unsafe *Declarations::FunctionDecl) {
+        var outer = self._in_body
+        self._in_body = true
         var unsafe *x = DeclFacts::decl_extension_of(f)
         if x != &null && x->target != &null {
             self._admit_type(x->target, PlanNeed::Complete)
         }
 
         self.dispatch_decl(f)
+        self._in_body = outer
     }
 
     /// A compile-time literal's bytes, \p n of them at \p p: one past the

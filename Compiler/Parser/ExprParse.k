@@ -143,6 +143,11 @@ pub class <T: type> ExprParse {
     /// catch-arm value of an enclosing `try`; 0 when there is none. See
     /// _parse_try_catch_expr.
     priv var _bare_try_at: usize = 0
+    /// the `=>` in front of a braced arm, for the fix-it that removes it.
+    priv var _arm_arrow: SourceRange = SourceRange::invalid()
+    /// set when the last arm parsed was `=> { stmts }`: the arm stands for a
+    /// statement arm, so the value-form rules that follow it are not reported.
+    pub var _arm_was_stmts: bool = false
 
     /// \brief SyncCtx, as the expression parser names it.
     type ExprSyncCtx = SyncCtx
@@ -4744,6 +4749,73 @@ pub class <T: type> ExprParse {
         Value,      ///< an arm value: `{ v }` becomes `=> v`.
         TryOperand, ///< a `try` operand: `{ v }` becomes `v`.
         ArrowBlock, ///< `=> { stmts }`: the arrow is already consumed; wrap in `({ ... })`.
+        ArrowStmts, ///< `=> { stmts }` in an `if` or `match` arm: the arrow goes (`_arm_arrow`).
+        ArrowValue, ///< `=> { v }`: the arrow is already consumed; the braces go.
+    }
+
+    /// \brief true when the `{` that follows the current `=>` holds one
+    ///        element and nothing that marks a literal. Consumes nothing.
+    /// \details `=> { v }` is how an arm is written in languages whose arms
+    ///          are blocks, and it would otherwise parse as a one-element set.
+    ///          `assigns` is set when that element is an assignment.
+    ///          A `,` or `:` at the brace's own depth, a leading `.` and an
+    ///          empty brace are literals and are left alone.
+    priv fn _arrow_brace_is_single(self, assigns: *bool) -> bool {
+        *assigns = false
+        var i = self.dyn()->c_idx + 1   // past the `=>`
+        var n = self.dyn()->span.size()
+        while i < n {
+            var k0 = self.dyn()->resolve_kind_deep(self.dyn()->span.get(i))
+            if k0 != TokenKind::TkNewLine && k0 != TokenKind::AtComment {
+                break
+            }
+
+            ++i
+        }
+
+        if i >= n || self.dyn()->resolve_kind_deep(self.dyn()->span.get(i)) != TokenKind::OpLBrace {
+            return false
+        }
+
+        ++i
+        var depth: i32 = 1
+        var first      = true
+        while i < n {
+            var k = self.dyn()->resolve_kind_deep(self.dyn()->span.get(i))
+            ++i
+            if k == TokenKind::AtComment || k == TokenKind::TkNewLine {
+                continue
+            }
+
+            if depth == 1 {
+                if k == TokenKind::OpComma || k == TokenKind::OpColon {
+                    return false
+                }
+
+                // `{ n += 1 }` is one statement, not a value.
+                if self._is_assign_op(k) {
+                    *assigns = true
+                }
+
+                if first && (k == TokenKind::OpDot || k == TokenKind::OpRBrace) {
+                    return false
+                }
+            }
+
+            first = false
+            if k == TokenKind::OpLBrace || k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
+                ++depth
+            } else if k == TokenKind::OpRBrace
+                || k == TokenKind::OpRParen
+                || k == TokenKind::OpRSquare {
+                --depth
+                if depth == 0 {
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     /// \brief true when the `{` that follows the current `=>` opens statements
@@ -4878,6 +4950,29 @@ pub class <T: type> ExprParse {
     ///          reporting, when no value follows.
     pub fn _parse_arm_value(self, stop: Self::ExprStop, bare_try: bool = false) -> unsafe *Expr {
         var arrow = self.dyn()->current_ptr()->range
+        self._arm_was_stmts = false
+        if self._peek_kind_past_nl(1) == TokenKind::OpLBrace {
+            var block  = self._arrow_brace_is_block()
+            var single = false
+            if !block {
+                var assigns = false
+                single = self._arrow_brace_is_single(&assigns)
+                if single && assigns {
+                    block  = true
+                    single = false
+                }
+            }
+
+            if block || single {
+                self.dyn()->advance(T::SkipNL::After) // consume `=>`
+                self._arm_arrow     = arrow
+                self._arm_was_stmts = block
+                return self._recover_braced_branch(
+                    if (block) => (Self::BraceArm::ArrowStmts) else => Self::BraceArm::ArrowValue,
+                )
+            }
+        }
+
         self.dyn()->advance(T::SkipNL::After) // consume `=>`
 
         if bare_try {
@@ -5062,7 +5157,13 @@ pub class <T: type> ExprParse {
         var arm_msg = "value arms are written '=> expr'; '{ }' arms are statement-only"
         if kind == Self::BraceArm::ArrowBlock {
             arm_msg = "an arm is a single expression, not a block; use a statement expression '({ ... })'"
+        } else if kind == Self::BraceArm::ArrowStmts {
+            arm_msg = "a statement arm takes no '=>': write the block alone"
+        } else if kind == Self::BraceArm::ArrowValue {
+            arm_msg = "a value arm takes no braces: write the value after '=>'"
         }
+
+        var arrowed = kind == Self::BraceArm::ArrowStmts || kind == Self::BraceArm::ArrowValue
 
         var b = self.dyn()->diag->report(
             DiagID::S073E,
@@ -5077,6 +5178,14 @@ pub class <T: type> ExprParse {
             // so the single-expression rewrite below never applies.
             b.insert(lbrace.start, "(", "wrap the block in '(' ... ')'")
             b.insert(rbrace.end, ")", "close the statement expression")
+        } else if kind == Self::BraceArm::ArrowStmts {
+            // `=> ` goes with the space after it when the brace shares its line.
+            var gone = self._arm_arrow
+            if self._line_of(gone.start) == self._line_of(lbrace.start) {
+                gone = SourceRange(gone.start, lbrace.start)
+            }
+
+            b.remove(gone, "remove '=>'")
         } else if value != &null {
             var same_open = self._line_of(lbrace.start) == self._line_of(
                 value->range.start,
@@ -5117,6 +5226,20 @@ pub class <T: type> ExprParse {
             b.note(
                 lbrace.start,
                 "multi-statement arms are statement-only; use a statement form or a '({ ... })' statement expression",
+            )
+        }
+
+        if arrowed {
+            b.note(
+                lbrace.start,
+                "'if', 'match' and 'try' have a value form, 'case 1 => e', and a statement form, 'case 2 { x(); y(); }', which yields no value",
+            )
+        }
+
+        if kind == Self::BraceArm::ArrowValue {
+            b.note(
+                lbrace.start,
+                "a one-element set literal as an arm's value takes a trailing comma: '=> { e, }'",
             )
         }
 
@@ -5438,7 +5561,17 @@ pub class <T: type> ExprParse {
             break // else is terminal
         }
 
-        // mandatory else
+        // mandatory else; an arm that was statements already has its error,
+        // and its fix makes this a statement `if`, which needs no else.
+        var stmts_arm = self._arm_was_stmts
+        self._arm_was_stmts = false
+        if else_expr == &null && stmts_arm {
+            return (Expressions::IfExpr::create_error(
+                self.dyn()->ctx,
+                start_range | self.dyn()->prev().range,
+            ))
+        }
+
         if else_expr == &null {
             self.dyn()->diag->report(
                 DiagID::S054E,
