@@ -248,7 +248,7 @@ pub class SysRuntimes {
                                 @inout why: string) -> bool {
         var t = SysTemplate()
         if !t.load(tmpl) {
-            why = t.error
+            why = t.error.copy()
             return false
         }
 
@@ -267,15 +267,15 @@ pub class SysRuntimes {
     pub static fn layout_path(r: *SysRecipe, const g: string) -> string {
         var inc = r->list("layout", "include")
         var lib = r->list("layout", "lib")
-        if LinkText::starts_with(g, "include/") && !inc.empty() {
+        if LinkText::starts_with(g.copy(), "include/") && !inc.empty() {
             return inc[0] + LinkText::slice(g, 7, g.size())
         }
 
-        if LinkText::starts_with(g, "lib/") && !lib.empty() {
+        if LinkText::starts_with(g.copy(), "lib/") && !lib.empty() {
             return lib[0] + LinkText::slice(g, 3, g.size())
         }
 
-        return g
+        return g.copy()
     }
 
     /// # Steps
@@ -294,7 +294,7 @@ pub class SysRuntimes {
         env.tables = ctx->input_dir("runtimes-recipe")
         env.src    = ctx->input_dir("runtimes")
         if env.tables.empty() && !tmpl.empty() {
-            env.tables = tmpl
+            env.tables = tmpl.copy()
         }
 
         if env.tables.empty() || env.src.empty() {
@@ -315,11 +315,11 @@ pub class SysRuntimes {
             )
         }
 
-        env.share   = ctx->share
+        env.share   = ctx->share.copy()
         env.work    = ctx->stage + "/work"
         env.build   = env.work + "/build"
         env.sysroot = env.work + "/sysroot"
-        env.trees   = env.tables
+        env.trees   = env.tables.copy()
         LinkFS::remove_tree(env.work)
         if !LinkFS::make_dirs(env.work) {
             return out.fail(f"cannot create {env.work}", "")
@@ -338,7 +338,7 @@ pub class SysRuntimes {
             }
 
             env.tables = env.work + "/tables"
-            env.trees  = tmpl
+            env.trees  = tmpl.copy()
         }
 
         var tpath = f"{env.tables}/targets/{ctx->target.name}.toml"
@@ -412,9 +412,9 @@ pub class SysRuntimes {
         for var i: usize = 1; i < dirs.size(); ++i {
             var j = i
             while j > 0 && SysRuntimes::_depth(dirs[j]) < SysRuntimes::_depth(dirs[j - 1]) {
-                var t = dirs[j]
-                dirs[j]     = dirs[j - 1]
-                dirs[j - 1] = t
+                var t = dirs[j].copy()
+                dirs[j]     = dirs[j - 1].copy()
+                dirs[j - 1] = t.copy()
                 j -= 1
             }
         }
@@ -434,7 +434,7 @@ pub class SysRuntimes {
 
             var under = false
             for var t: string in taken {
-                if LinkText::starts_with(d, t + "/") {
+                if LinkText::starts_with(d.copy(), t + "/") {
                     under = true
                 }
             }
@@ -532,8 +532,8 @@ pub class SysRuntimes {
                 continue
             }
 
-            var how   = m.raw_vals[i].text
-            var colon = LinkText::find(how, ":", 0)
+            var how   = m.raw_vals[i].text.copy()
+            var colon = LinkText::find(how.copy(), ":", 0)
             if colon >= how.size() {
                 return out.refuse(
                     f"{man}: {m.raw_keys[i]} = \x22{how}\x22 is neither src: nor gen:",
@@ -663,7 +663,8 @@ pub class SysRuntimes {
     priv static fn _groups(t: *SysRecipe) -> cxx::std::vector<string> {
         var gs = cxx::std::vector<string>()
         for var tb: string in t->raw_tables {
-            if LinkText::starts_with(tb, "group.") && (gs.empty() || gs[gs.size() - 1] != tb) {
+            if LinkText::starts_with(tb.copy(), "group.")
+                && (gs.empty() || gs[gs.size() - 1] != tb) {
                 gs.push_back(tb)
             }
         }
@@ -722,7 +723,7 @@ pub class SysRuntimes {
 
     /// The object a member ref `<runtime>:<entry>` was compiled to.
     priv static fn _obj(env: *RtEnv, const ref: string) -> string {
-        var colon = LinkText::find(ref, ":", 0)
+        var colon = LinkText::find(ref.copy(), ":", 0)
         var rt    = LinkText::slice(ref, 0, colon)
         var e     = LinkText::slice(ref, colon + 1, ref.size())
         return env->work + "/obj/" + rt + "/" + SysRuntimes::_entry_member(e)
@@ -730,13 +731,13 @@ pub class SysRuntimes {
 
     /// `<path>` or `<path>=<member>`: the source path.
     priv static fn _entry_path(const e: string) -> string {
-        var eq = LinkText::find(e, "=", 0)
+        var eq = LinkText::find(e.copy(), "=", 0)
         return if (eq >= e.size()) => (e) else => LinkText::slice(e, 0, eq)
     }
 
     /// The member (object) name: after `=`, else the file name + ".o".
     priv static fn _entry_member(const e: string) -> string {
-        var eq = LinkText::find(e, "=", 0)
+        var eq = LinkText::find(e.copy(), "=", 0)
         if eq < e.size() {
             return LinkText::slice(e, eq + 1, e.size())
         }
@@ -746,7 +747,7 @@ pub class SysRuntimes {
 
     priv static fn _expand(env: *RtEnv, const f: string) -> string {
         if !LinkText::contains(f, "{") {
-            return f
+            return f.copy()
         }
 
         var s = SysUtil::fill(f, "src", env->src)
@@ -756,13 +757,13 @@ pub class SysRuntimes {
     }
 
     priv static fn _first_error(const text: string) -> string {
-        for var l: string in LinkText::split_lines(text) {
+        for var l: string in LinkText::split_lines(text.copy()) {
             if LinkText::contains(l, "error") {
                 return LinkText::trim(l)
             }
         }
 
-        var lines = LinkText::split_lines(text)
+        var lines = LinkText::split_lines(text.copy())
         return if (lines.empty()) => ("compile failed (no output)") else => LinkText::trim(lines[0])
     }
 }

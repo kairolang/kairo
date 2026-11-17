@@ -197,10 +197,10 @@ fn tree_dump(const u: Parsed) -> string {
         }
 
         var row = out.subslice(a, b - a)
-        var drop = find_str(row, "doc-comment") < row.size()
-            || find_str(row, "line-comment") < row.size()
-            || find_str(row, "block-comment") < row.size()
-            || find_str(row, "<annotation>") < row.size()
+        var drop = find_str(row.copy(), "doc-comment") < row.size()
+            || find_str(row.copy(), "line-comment") < row.size()
+            || find_str(row.copy(), "block-comment") < row.size()
+            || find_str(row.copy(), "<annotation>") < row.size()
         if !drop {
             kept += row
             kept += "\n"
@@ -366,7 +366,7 @@ fn signature(f: *Formatter, set: Settings) -> Sig {
             // string segment) is code too
             var gtxt = f->_trimmed(prev, t.start)
             if gtxt.size() > 0 {
-                g.code.push_back("\x01" + squeeze(gtxt))
+                g.code.push_back("\x01" + squeeze(gtxt.copy()))
             }
         }
 
@@ -547,7 +547,7 @@ fn verify(ci:             unsafe *CompilerInstance,
     }
 
     var f2 = Formatter(v.ctx, ci, vfid, set)
-    f2.file_dir = file_dir
+    f2.file_dir = file_dir.copy()
     f2.roots    = roots
     if !f2.prepare() {
         *why = "the output does not lex"
@@ -575,7 +575,7 @@ fn verify(ci:             unsafe *CompilerInstance,
     // 4. the same tree
     var tb = tree_dump(v)
     if ta != tb {
-        *why = f"the tree changed ({first_diff(ta, tb)})"
+        *why = f"the tree changed ({first_diff(ta.copy(), tb.copy())})"
         return false
     }
 
@@ -635,7 +635,7 @@ fn format_one_file(ci:         unsafe *CompilerInstance,
     }
 
     var fmt = Formatter(u.ctx, ci, fid, set)
-    fmt.file_dir = Path::parent_of(Path::absolute_if_exists(name))
+    fmt.file_dir = Path::parent_of(Path::absolute_if_exists(name.copy()))
     fmt.roots    = roots
     if !fmt.prepare() {
         io::eprintln(f"kfmt: {name}: could not lex")
@@ -924,7 +924,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     // every .k file named, or under a named directory; sorted so runs agree
     var files = cxx::std::vector<string>()
     for var x: usize = 0; x < inputs.size(); ++x {
-        var target_path = inputs[x]
+        var target_path = inputs[x].copy()
         var path = cxx::std::filesystem::path(kairo::sref(target_path).str())
         if !cxx::std::filesystem::exists(path) {
             io::eprintln(f"kfmt: path does not exist: {target_path}")

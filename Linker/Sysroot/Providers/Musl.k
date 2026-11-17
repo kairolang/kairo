@@ -203,9 +203,9 @@ pub class MuslProvider derives SysrootProvider {
         var crts    = cxx::std::vector<string>()
         for var i: usize = 0; i < objs.size(); ++i {
             var o   = objs[i]
-            var crt = LinkText::starts_with(o.obj, "crt/")
-            var libc = LinkText::starts_with(o.obj, "src/")
-                || LinkText::starts_with(o.obj, "compat/")
+            var crt = LinkText::starts_with(o.obj.copy(), "crt/")
+            var libc = LinkText::starts_with(o.obj.copy(), "src/")
+                || LinkText::starts_with(o.obj.copy(), "compat/")
             if !crt && !libc {
                 continue
             }
@@ -262,7 +262,7 @@ pub class MuslProvider derives SysrootProvider {
                 if !LinkFS::write_archive(lib + "/libc.a", &archive) {
                     return out.fail(f"cannot write {lib}/libc.a", "")
                 }
-            } else if LinkText::ends_with(name, ".o") {
+            } else if LinkText::ends_with(name.copy(), ".o") {
                 // lib/%.o: obj/crt/<ARCH>/%.o first, then obj/crt/%.o.
                 var stem = LinkText::slice(name, 0, name.size() - 2)
                 var from = obj + "/crt/" + ma + "/" + name
@@ -280,7 +280,7 @@ pub class MuslProvider derives SysrootProvider {
                 if !SysRun::put_file(from, lib + "/" + name, false) {
                     return out.fail(f"cannot copy {from}", "")
                 }
-            } else if LinkText::ends_with(name, ".a") {
+            } else if LinkText::ends_with(name.copy(), ".a") {
                 // EMPTY_LIBS: `ar rc` with no members.
                 if !LinkFS::write(lib + "/" + name, "!<arch>\n") {
                     return out.fail(f"cannot write {lib}/{name}", "")
@@ -302,7 +302,7 @@ pub class MuslProvider derives SysrootProvider {
             var p = sub + "/" + n
             if LinkFS::is_dir(p) {
                 for var m: string in LinkFS::list_dir(p) {
-                    if LinkText::ends_with(m, ".h") && LinkFS::is_file(p + "/" + m) {
+                    if LinkText::ends_with(m.copy(), ".h") && LinkFS::is_file(p + "/" + m) {
                         if !SysRun::put_file(
                             p + "/" + m,
                             inc + "/" + n + "/" + m,
@@ -312,7 +312,7 @@ pub class MuslProvider derives SysrootProvider {
                         }
                     }
                 }
-            } else if LinkText::ends_with(n, ".h") {
+            } else if LinkText::ends_with(n.copy(), ".h") {
                 if !SysRun::put_file(p, inc + "/" + n, false) {
                     return false
                 }
@@ -336,7 +336,7 @@ pub class MuslProvider derives SysrootProvider {
         dirs.push_back(src + "/arch/" + ma + "/bits")
         for var d: string in dirs {
             for var n: string in LinkFS::list_dir(d) {
-                if LinkText::ends_with(n, ".h")
+                if LinkText::ends_with(n.copy(), ".h")
                     && !SysRun::put_file(d + "/" + n, inc + "/bits/" + n, false) {
                     return false
                 }
@@ -367,9 +367,9 @@ pub class MuslProvider derives SysrootProvider {
     pub static fn syscall_h(const src: string, const ma: string) -> string {
         var text = ""
         LinkFS::read(src + "/arch/" + ma + "/bits/syscall.h.in", &text)
-        var out = text
+        var out = text.copy()
         for var l: string in MuslProvider::_lines(text) {
-            var at = LinkText::find(l, "__NR_", 0)
+            var at = LinkText::find(l.copy(), "__NR_", 0)
             if at < l.size() {
                 out += LinkText::slice(l, 0, at) + "SYS_" + LinkText::slice(
                     l,
@@ -408,7 +408,7 @@ pub class MuslProvider derives SysrootProvider {
         var arch_srcs = cxx::std::vector<string>()
         for var d: string in dirs {
             for var n: string in LinkFS::list_dir(src + "/" + d) {
-                if LinkText::ends_with(n, ".c") && LinkFS::is_file(src + "/" + d + "/" + n) {
+                if LinkText::ends_with(n.copy(), ".c") && LinkFS::is_file(src + "/" + d + "/" + n) {
                     base_objs.push_back(
                         d + "/" + LinkText::slice(n, 0, n.size() - 2),
                     )
@@ -451,7 +451,7 @@ pub class MuslProvider derives SysrootProvider {
         var replaced = cxx::std::vector<string>()
         var marker   = "/" + ma + "/"
         for var o: string in arch_objs {
-            var at = LinkText::find(o, marker, 0)
+            var at = LinkText::find(o.copy(), marker.copy(), 0)
             if at < o.size() {
                 replaced.push_back(
                     LinkText::slice(o, 0, at) + "/" + LinkText::slice(
@@ -480,10 +480,10 @@ pub class MuslProvider derives SysrootProvider {
         cxx::std::sort(keys.begin(), keys.end())
         for var k: string in keys {
             var m = MuslObj{}
-            m.obj = k
+            m.obj = k.copy()
             for var i: usize = 0; i < arch_objs.size(); ++i {
                 if arch_objs[i] == k {
-                    m.src = arch_srcs[i]
+                    m.src = arch_srcs[i].copy()
                 }
             }
 
@@ -498,13 +498,13 @@ pub class MuslProvider derives SysrootProvider {
 
         var ordered = cxx::std::vector<MuslObj>()
         for var m: MuslObj in out {
-            if !LinkText::starts_with(m.obj, "compat/") {
+            if !LinkText::starts_with(m.obj.copy(), "compat/") {
                 ordered.push_back(m)
             }
         }
 
         for var m: MuslObj in out {
-            if LinkText::starts_with(m.obj, "compat/") {
+            if LinkText::starts_with(m.obj.copy(), "compat/") {
                 ordered.push_back(m)
             }
         }
@@ -521,7 +521,7 @@ pub class MuslProvider derives SysrootProvider {
         ma = ""
         for var q: SysQuirk in ctx->quirks {
             if !q.musl_arch.empty() {
-                ma = q.musl_arch
+                ma = q.musl_arch.copy()
             }
         }
 
@@ -558,8 +558,8 @@ pub class MuslProvider derives SysrootProvider {
 
         for var l: string in MuslProvider::_lines(text) {
             var t = LinkText::trim(l)
-            if LinkText::starts_with(t, "COMPAT_SRC_DIRS") {
-                var eq = LinkText::find(t, "=", 0)
+            if LinkText::starts_with(t.copy(), "COMPAT_SRC_DIRS") {
+                var eq = LinkText::find(t.copy(), "=", 0)
                 for var w: string in SysUtil::split(LinkText::trim(LinkText::slice(t, eq + 1, t.size())), (' ' as u8)) {
                     if !w.empty() {
                         out.push_back(w)
@@ -573,15 +573,15 @@ pub class MuslProvider derives SysrootProvider {
 
     /// 1 .s, 2 .S, 3 .c; 0 for anything else.
     priv static fn _ext_rank(const n: string) -> i32 {
-        if LinkText::ends_with(n, ".s") {
+        if LinkText::ends_with(n.copy(), ".s") {
             return 1
         }
 
-        if LinkText::ends_with(n, ".S") {
+        if LinkText::ends_with(n.copy(), ".S") {
             return 2
         }
 
-        if LinkText::ends_with(n, ".c") {
+        if LinkText::ends_with(n.copy(), ".c") {
             return 3
         }
 
@@ -590,7 +590,7 @@ pub class MuslProvider derives SysrootProvider {
 
     /// One line through tools/mkalltypes.sed's three substitutions.
     priv static fn _mkalltypes(const l: string) -> string {
-        if LinkText::starts_with(l, "TYPEDEF ") && LinkText::ends_with(l, ";") {
+        if LinkText::starts_with(l.copy(), "TYPEDEF ") && LinkText::ends_with(l.copy(), ";") {
             // TYPEDEF \(.*\) \([^ ]*\);$ : the name is the last word.
             var body = LinkText::slice(l, 8, l.size() - 1)
             var sp   = body.size()
@@ -606,14 +606,14 @@ pub class MuslProvider derives SysrootProvider {
                 return f"#if defined(__NEED_{name}) && !defined(__DEFINED_{name})\ntypedef {ty} {name};\n#define __DEFINED_{name}\n#endif\n"
             }
 
-            return l
+            return l.copy()
         }
 
         var kinds = cxx::std::vector<string>()
         kinds.push_back("STRUCT")
         kinds.push_back("UNION")
         for var k: string in kinds {
-            if !LinkText::starts_with(l, k) || !LinkText::ends_with(l, ";") {
+            if !LinkText::starts_with(l.copy(), k.copy()) || !LinkText::ends_with(l.copy(), ";") {
                 continue
             }
 
@@ -642,7 +642,7 @@ pub class MuslProvider derives SysrootProvider {
             return f"#if defined(__NEED_{lo}_{tag}) && !defined(__DEFINED_{lo}_{tag})\n{lo} {tag} {body};\n#define __DEFINED_{lo}_{tag}\n#endif\n"
         }
 
-        return l
+        return l.copy()
     }
 
     /// Lines without their '\n'; a final line without one is kept.

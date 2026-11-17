@@ -164,7 +164,7 @@ extend IndexWalker {
                 }
 
                 if !dup {
-                    out->push_back(sig)
+                    out->push_back(sig.copy())
                 }
             }
         }
@@ -252,8 +252,8 @@ extend IndexWalker {
                     row.base_fid  = res.fid as u32
                     row.base_off  = res.offset as u32
                     row.base_len  = bn.size() as u32
-                    row.name      = mn
-                    row.base_name = mn
+                    row.name      = mn.copy()
+                    row.base_name = mn.copy()
                     row.kind      = SYM_METHOD as u32
                     row.base_kind = SYM_METHOD as u32
                     self.bases.push_back(row)
@@ -344,7 +344,7 @@ extend IndexWalker {
 
             var row = InlayRow{}
             row.off       = (p + 1) as u32
-            row.label     = label
+            row.label     = label.copy()
             row.kind      = 0
             row.pad_left  = true
             row.pad_right = true

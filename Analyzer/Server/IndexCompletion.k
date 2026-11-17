@@ -394,7 +394,7 @@ extend Server {
 
         var req = CompReq()
         req.di   = di
-        req.path = self.docs.docs[di].path
+        req.path = self.docs.docs[di].path.copy()
         var pos   = d->get(params, K_POSITION)
         var *text = &self.docs.docs[di].text
         var at = self.docs.docs[di].lines.offset(
@@ -542,7 +542,7 @@ extend Server {
                 req->site.end + 1,
             )
 
-            bang_edit = bw.out
+            bang_edit = bw.out.copy()
         }
 
         w.key(K_ITEMS)
@@ -558,13 +558,13 @@ extend Server {
 
             // sortText orders groups; within one the editor sorts by label.
             w.field(K_SORT_TEXT, f"{c->sort}{c->label}")
-            var text: string = c->label
+            var text: string = c->label.copy()
             var snip         = c->snippet && self.snippet_ok
             var over_bang = (!bang_edit.empty()) && c->label.ends_with("!")
             if over_bang {
                 snip = false
             } else if (!c->insert.empty()) && (snip || (!c->snippet)) {
-                text = c->insert
+                text = c->insert.copy()
             }
 
             if snip {
@@ -598,7 +598,7 @@ extend Server {
                     }
 
                     if pi == usize::MAX {
-                        self.comp_paths.push_back(tb->path)
+                        self.comp_paths.push_back(tb->path.copy())
                         pi = self.comp_paths.size() - 1
                     }
 
@@ -640,9 +640,9 @@ extend Server {
             self.docs.docs[bi].sync()
             // The table's line is the indexed text's.
             if !self.docs.docs[bi].idx_text.empty() {
-                text = self.docs.docs[bi].idx_text
+                text = self.docs.docs[bi].idx_text.copy()
             } else {
-                text = self.docs.docs[bi].text
+                text = self.docs.docs[bi].text.copy()
             }
         } else if !LinkFS::read(self.comp_paths[pi], &text) {
             return ""
@@ -657,9 +657,9 @@ extend Server {
     fn row_cand_(self, req: *CompReq, ti: usize, r: i64, sort: u32) -> Cand {
         var *tb = &self.entries[req->ei].tb
         var c   = Cand{}
-        c.label  = tb->t[ti].name[r as usize]
+        c.label  = tb->t[ti].name[r as usize].copy()
         c.kind   = tb->t[ti].kind[r as usize]
-        c.detail = tb->t[ti].detail[r as usize]
+        c.detail = tb->t[ti].detail[r as usize].copy()
         c.sort   = sort
         c.t      = ti
         c.r      = r
@@ -686,7 +686,7 @@ extend Server {
             )
 
             if to.t != usize::MAX {
-                c.detail = tb->t[to.t].detail[to.r as usize]
+                c.detail = tb->t[to.t].detail[to.r as usize].copy()
                 c.t      = to.t
                 c.r      = to.r
             }
@@ -720,7 +720,7 @@ extend Server {
                 return self.type_name_recv_(req, type_head(c.type_))
             }
 
-            var init       = c.init
+            var init       = c.init.copy()
             var p:   usize = 0
             while (p < init.size()) && ((init[p] == (' ' as u8)) || (init[p] == ('\t' as u8))) {
                 p += 1
@@ -803,11 +803,11 @@ extend Server {
             sub.ei     = req->ei
             sub.f      = req->f
             sub.ti     = req->ti
-            sub.cls    = req->cls
-            sub.blocks = req->blocks
+            sub.cls    = req->cls.copy()
+            sub.blocks = req->blocks.copy()
             sub.sh     = req->sh
-            sub.sees   = req->sees
-            sub.users  = req->users
+            sub.sees   = req->sees.copy()
+            sub.users  = req->users.copy()
             sub.site   = req->site
             sub.depth  = req->depth + 1
             sub.typing = true
@@ -893,7 +893,7 @@ extend Server {
                 return out
             }
 
-            text = c.type_
+            text = c.type_.copy()
             if text.empty() {
                 text = decl_type_text(c.detail, c.label, false)
             }
@@ -910,7 +910,7 @@ extend Server {
                     break
                 }
 
-                text = e
+                text = e.copy()
                 k += 1
             }
 
@@ -1032,13 +1032,13 @@ extend Server {
             return ""
         }
 
-        return self.entries[req->ei].tb.t[req->ti].mod
+        return self.entries[req->ei].tb.t[req->ti].mod.copy()
     }
 
     /// Whether the file that asks is in the module of table \p ti's file
     /// (VisibilityFacts.k, same_module: one module directory, not none).
     fn same_module_(self, req: *CompReq, ti: usize) -> bool {
-        var m = self.entries[req->ei].tb.t[ti].mod
+        var m = self.entries[req->ei].tb.t[ti].mod.copy()
         return (!m.empty()) && (m == self.use_mod_(req))
     }
 
@@ -1259,7 +1259,7 @@ extend Server {
             return
         }
 
-        var name: string = t->name[r as usize]
+        var name: string = t->name[r as usize].copy()
         // A leading underscore is reserved for interop and a trailing one
         // marks a file's private helper: neither is offered from another
         // file (CompletionItems.k, item_).
@@ -1382,7 +1382,7 @@ extend Server {
         var i:    usize    = 0
         while i < path.size() {
             if (path[i] == (':' as u8)) && ((i + 1) < path.size()) && (path[i + 1] == (':' as u8)) {
-                segs.push_back(cur)
+                segs.push_back(cur.copy())
                 cur = ""
                 i += 2
                 continue
@@ -1392,7 +1392,7 @@ extend Server {
             i += 1
         }
 
-        segs.push_back(cur)
+        segs.push_back(cur.copy())
         if segs[0].empty() {
             return out
         }
@@ -1412,8 +1412,8 @@ extend Server {
         var recv = self.cand_recv_(&tmp, tmp.out[at as usize], false)
         for var k: usize = 1; (k < segs.size()) && recv.ok; ++k {
             tmp.reset()
-            tmp.users  = req->users
-            tmp.sees   = req->sees
+            tmp.users  = req->users.copy()
+            tmp.sees   = req->sees.copy()
             tmp.typing = true
             self.members_into_(&tmp, recv, recv, 0, 0)
             var m = tmp.find(segs[k])
@@ -1599,8 +1599,8 @@ extend Server {
 
                                     for var dk: usize = 0; dk < ds.size(); ++dk {
                                         if ds[dk].off == off {
-                                            c.type_ = ds[dk].type_
-                                            c.init  = ds[dk].init
+                                            c.type_ = ds[dk].type_.copy()
+                                            c.init  = ds[dk].init.copy()
                                         }
                                     }
                                 }
@@ -1688,12 +1688,12 @@ extend Server {
 
         for var k: usize = 0; k < decls.size(); ++k {
             var c = Cand{}
-            c.label = decls[k].name
+            c.label = decls[k].name.copy()
             c.kind  = CIK_VARIABLE
             c.sort  = SORT_LOCAL
             c.local = true
-            c.type_ = decls[k].type_
-            c.init  = decls[k].init
+            c.type_ = decls[k].type_.copy()
+            c.init  = decls[k].init.copy()
             c.at    = decls[k].off
             if !c.type_.empty() {
                 c.detail = c.label + ":" + c.type_
@@ -1865,7 +1865,7 @@ extend Server {
             }
 
             var c = Cand{}
-            c.label = names[k]
+            c.label = names[k].copy()
             c.kind  = CIK_TEXT
             c.sort  = SORT_FILE
             req->add(c)
@@ -1915,7 +1915,7 @@ extend Server {
                         if r >= 0 {
                             c.t      = tt
                             c.r      = r
-                            c.detail = e->tb.t[tt].detail[r as usize]
+                            c.detail = e->tb.t[tt].detail[r as usize].copy()
                         }
                     }
                 }
@@ -1967,7 +1967,7 @@ extend Server {
                 var c = Cand{}
                 c.label   = t->name[r] + "!"
                 c.kind    = CIK_SNIPPET
-                c.detail  = t->detail[r]
+                c.detail  = t->detail[r].copy()
                 c.sort    = SORT_MACRO
                 c.t       = from[k]
                 c.r       = r as i64
@@ -1986,8 +1986,8 @@ extend Server {
             var c  = Cand{}
             c.label   = m->word + "!"
             c.kind    = CIK_SNIPPET
-            c.detail  = m->usage
-            c.doc     = m->summary
+            c.detail  = m->usage.copy()
+            c.doc     = m->summary.copy()
             c.sort    = SORT_BUILTIN
             c.insert  = usage_snippet(m->usage)
             c.snippet = c.insert != m->usage
@@ -2060,7 +2060,7 @@ extend Server {
             }
 
             var c = Cand{}
-            c.label = self.words[k].text
+            c.label = self.words[k].text.copy()
             c.kind  = CIK_KEYWORD
             c.sort  = SORT_KEYWORD
             req->add(c)
@@ -2069,7 +2069,7 @@ extend Server {
 
     /// Drops the candidates from \p from on that are not types.
     fn keep_types_(self, req: *CompReq, from: usize) {
-        var all = req->out
+        var all = req->out.copy()
         req->reset()
         for var k: usize = 0; k < all.size(); ++k {
             if (k < from) || is_type_kind(all[k].kind) {
@@ -2113,11 +2113,11 @@ extend Server {
         tmp.ei     = req->ei
         tmp.f      = req->f
         tmp.ti     = req->ti
-        tmp.cls    = req->cls
-        tmp.blocks = req->blocks
+        tmp.cls    = req->cls.copy()
+        tmp.blocks = req->blocks.copy()
         tmp.sh     = req->sh
-        tmp.sees   = req->sees
-        tmp.users  = req->users
+        tmp.sees   = req->sees.copy()
+        tmp.users  = req->users.copy()
         tmp.site   = req->site
         tmp.depth  = req->depth
         tmp.typing = true
@@ -2194,9 +2194,9 @@ extend Server {
         var cs = primitive_consts(b)
         for var i: usize = 0; i < cs.size(); ++i {
             var c = Cand{}
-            c.label  = cs[i].name
+            c.label  = cs[i].name.copy()
             c.kind   = CIK_CONSTANT
-            c.detail = cs[i].detail
+            c.detail = cs[i].detail.copy()
             req->add(c)
         }
 
@@ -2238,8 +2238,8 @@ extend Server {
             tmp.ei     = req->ei
             tmp.f      = req->f
             tmp.ti     = req->ti
-            tmp.sees   = req->sees
-            tmp.users  = req->users
+            tmp.sees   = req->sees.copy()
+            tmp.users  = req->users.copy()
             tmp.depth  = req->depth
             tmp.typing = true
             self.members_into_(&tmp, recv, recv, 0, 0)
@@ -2268,7 +2268,7 @@ extend Server {
             self.attr_rows = builtin_attributes()
         }
 
-        var nw:   string = req->site.next_word
+        var nw:   string = req->site.next_word.copy()
         var want: string = ""
         if nw == "fn" {
             want = "fn"
@@ -2289,10 +2289,10 @@ extend Server {
             }
 
             var c = Cand{}
-            c.label   = a->word
+            c.label   = a->word.copy()
             c.kind    = CIK_KEYWORD
             c.detail  = "@" + a->usage
-            c.doc     = a->summary
+            c.doc     = a->summary.copy()
             c.insert  = usage_snippet(a->usage)
             c.snippet = c.insert != a->usage
             if (!c.snippet) && (c.insert == c.label) {
@@ -2343,7 +2343,7 @@ extend Server {
             }
 
             if !dir.empty() {
-                dir = Path::absolute_if_exists(dir, self.entries[ei].dir)
+                dir = Path::absolute_if_exists(dir.copy(), self.entries[ei].dir)
                 var dup = false
                 for var k: usize = 0; k < out.size(); ++k {
                     if out[k] == dir {
@@ -2352,7 +2352,7 @@ extend Server {
                 }
 
                 if !dup {
-                    out.push_back(dir)
+                    out.push_back(dir.copy())
                 }
             }
 
@@ -2386,22 +2386,22 @@ extend Server {
 
         var dirs = self.include_dirs_(req->di, cxx)
         for var k: usize = 0; k < dirs.size(); ++k {
-            var dir = dirs[k]
+            var dir = dirs[k].copy()
             if !typed.empty() {
-                dir = Path::join_str(dir, typed)
+                dir = Path::join_str(dir, typed.copy())
             }
 
             var names = LinkFS::list_dir(dir)
             for var n: usize = 0; n < names.size(); ++n {
-                var name: string = names[n]
+                var name: string = names[n].copy()
                 if name.starts_with(".") {
                     continue
                 }
 
                 var c = Cand{}
-                c.label = name
+                c.label = name.copy()
                 c.sort  = if (k == 0) => (0 as u32) else => (1 as u32)
-                if LinkFS::is_dir(Path::join_str(dir, name)) {
+                if LinkFS::is_dir(Path::join_str(dir, name.copy())) {
                     c.kind   = CIK_FOLDER
                     c.insert = name + "/"
                 } else {
@@ -2431,15 +2431,15 @@ extend Server {
                     }
 
                     c.kind   = CIK_FILE
-                    c.detail = dirs[k]
+                    c.detail = dirs[k].copy()
                 }
 
                 req->add(c)
             }
         }
 
-        self.hdr_key   = key
+        self.hdr_key   = key.copy()
         self.hdr_ms    = now_ms()
-        self.hdr_cands = req->out
+        self.hdr_cands = req->out.copy()
     }
 }

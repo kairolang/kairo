@@ -41,7 +41,7 @@ pub class LinkDiag {
     pub static fn make(sev: LinkSeverity, const text: string) -> LinkMessage {
         var m = LinkMessage{}
         m.severity = sev
-        m.text     = text
+        m.text     = text.copy()
         return m
     }
 
@@ -62,12 +62,13 @@ pub class LinkDiag {
     static fn parse(const text: string, @inout out: cxx::std::vector<LinkMessage>) {
         var have = false
         var cur  = LinkMessage{}
-        for var line: string in LinkText::split_lines(text) {
+        for var line: string in LinkText::split_lines(text.copy()) {
             if LinkText::trim(line).empty() {
                 continue
             }
 
-            if LinkText::starts_with(line, ">>>") || LinkText::starts_with(line, " ") {
+            if LinkText::starts_with(line.copy(), ">>>")
+                || LinkText::starts_with(line.copy(), " ") {
                 if have {
                     cur.text += "\n"
                     cur.text += line
@@ -99,20 +100,20 @@ pub class LinkDiag {
     /// such entries (COFF's one-line form).
     pub static fn definers(const text: string) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
-        for var line: string in LinkText::split_lines(text) {
-            if !LinkText::starts_with(line, ">>>") {
+        for var line: string in LinkText::split_lines(text.copy()) {
+            if !LinkText::starts_with(line.copy(), ">>>") {
                 continue
             }
 
             var rest  = LinkText::trim(LinkText::slice(line, 3, line.size()))
             var fresh = false
-            if LinkText::starts_with(rest, "defined at ")
-                || LinkText::starts_with(rest, "defined in ") {
+            if LinkText::starts_with(rest.copy(), "defined at ")
+                || LinkText::starts_with(rest.copy(), "defined in ") {
                 rest  = LinkText::trim(LinkText::slice(rest, 11, rest.size()))
                 fresh = true
             }
 
-            var obj      = LinkText::find(rest, ":(", 0)
+            var obj      = LinkText::find(rest.copy(), ":(", 0)
             var have_obj = obj < rest.size()
             if have_obj {
                 rest = LinkText::slice(rest, 0, obj)
@@ -124,7 +125,7 @@ pub class LinkDiag {
             }
 
             if have_obj && out.size() > 0 {
-                out[out.size() - 1] = rest
+                out[out.size() - 1] = rest.copy()
             }
         }
 
@@ -135,9 +136,9 @@ pub class LinkDiag {
     /// stays a warning.
     priv static fn _classify(const line: string) -> LinkMessage {
         var n  = line.size()
-        var pe = LinkText::find(line, ": error: ", 0)
-        var pw = LinkText::find(line, ": warning: ", 0)
-        var pn = LinkText::find(line, ": note: ", 0)
+        var pe = LinkText::find(line.copy(), ": error: ", 0)
+        var pw = LinkText::find(line.copy(), ": warning: ", 0)
+        var pn = LinkText::find(line.copy(), ": note: ", 0)
 
         if pe < n && pe <= pw && pe <= pn {
             return LinkDiag::make(
@@ -161,14 +162,14 @@ pub class LinkDiag {
         }
 
         // The dispatcher's own errors (bad -flavor) carry no program prefix.
-        if LinkText::starts_with(line, "error: ") {
+        if LinkText::starts_with(line.copy(), "error: ") {
             return LinkDiag::make(
                 LinkSeverity::Error,
                 LinkText::slice(line, 7, n),
             )
         }
 
-        if LinkText::starts_with(line, "warning: ") {
+        if LinkText::starts_with(line.copy(), "warning: ") {
             return LinkDiag::make(
                 LinkSeverity::Warning,
                 LinkText::slice(line, 9, n),

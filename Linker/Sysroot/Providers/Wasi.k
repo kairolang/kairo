@@ -59,7 +59,7 @@ pub class WasiProvider derives SysrootProvider {
             )
         }
 
-        var base = ctx->inputs[0]
+        var base = ctx->inputs[0].copy()
         for var k: string in ctx->recipe.keys_of("bundle_layout") {
             var from = base + "/" + k
             if !LinkFS::is_dir(from) {
@@ -121,7 +121,7 @@ pub class WasiProvider derives SysrootProvider {
         var work = ctx->stage + "/libc"
         var env  = CrtEnv()
         env.src     = tables + "/src"
-        env.build   = work
+        env.build   = work.copy()
         env.sysroot = work + "/sysroot"
         env.src_tag = "wasi-libc"
         LinkFS::remove_tree(work)

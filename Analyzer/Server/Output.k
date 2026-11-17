@@ -120,7 +120,7 @@ extend Server {
         w.field_raw(K_ID, id)
         w.field_raw(K_RESULT, result)
         w.end_object()
-        var head = result
+        var head = result.copy()
         if head.size() > 80 {
             head = head.subslice(0, 80)
         }
@@ -229,7 +229,7 @@ extend Server {
     fn path_of(self, const uri: string) -> string {
         var i = self.docs.index_of(uri)
         if i != usize::MAX {
-            return self.docs.docs[i].path
+            return self.docs.docs[i].path.copy()
         }
 
         return Path::real_path_of(uri_to_path(uri))
@@ -238,7 +238,7 @@ extend Server {
     fn uri_of(self, const path: string) -> string {
         var i = self.docs.index_of_path(path)
         if i != usize::MAX {
-            return self.docs.docs[i].uri
+            return self.docs.docs[i].uri.copy()
         }
 
         return path_to_uri(path)
@@ -247,7 +247,7 @@ extend Server {
     /// A sibling tool of the toolchain: beside this binary first (one
     /// install, one version), then on PATH. "" when it is in neither.
     fn tool(self, const name: string) -> string {
-        var beside = Path::join_str(Path::parent_of(self.exe), name)
+        var beside = Path::join_str(Path::parent_of(self.exe), name.copy())
         if Path::exists_at(beside) {
             return beside
         }

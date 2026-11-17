@@ -284,7 +284,7 @@ pub class LinkABI {
                 }
 
                 var g = AllocNote{}
-                g.path  = path
+                g.path  = path.copy()
                 g.flags = bits
                 allocs.push_back(g)
                 i += m + 1
@@ -306,7 +306,7 @@ pub class LinkABI {
             }
 
             var a = AbiNote{}
-            a.path  = path
+            a.path  = path.copy()
             a.bits  = bits
             a.major = major
             out.push_back(a)

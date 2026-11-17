@@ -68,7 +68,7 @@ pub class JsonDoc {
     fn parse(self, const text: string) -> bool {
         self.nodes.clear()
         self.error = ""
-        self.src_  = text
+        self.src_  = text.copy()
         self.pos_  = 0
         self.root  = self.value_(0)
         if self.error.empty() {
@@ -153,7 +153,7 @@ pub class JsonDoc {
             return ""
         }
 
-        return self.nodes[n as usize].key
+        return self.nodes[n as usize].key.copy()
     }
 
     fn str(const self, n: u32) -> string {
@@ -161,7 +161,7 @@ pub class JsonDoc {
             return ""
         }
 
-        return self.nodes[n as usize].text
+        return self.nodes[n as usize].text.copy()
     }
 
     fn as_int(const self, n: u32) -> i64 {
@@ -205,7 +205,7 @@ pub class JsonDoc {
     fn dump(const self, n: u32) -> string {
         var w = JsonWriter()
         self.dump_(n, &w)
-        return w.out
+        return w.out.copy()
     }
 
     priv fn dump_(const self, n: u32, w: *JsonWriter) {
@@ -330,7 +330,7 @@ pub class JsonDoc {
         if c == ('"' as u8) {
             var n = self.new_(JsonKind::String)
             var s = self.string_()
-            self.nodes[n as usize].text = s
+            self.nodes[n as usize].text = s.copy()
             return n
         }
 
@@ -402,7 +402,7 @@ pub class JsonDoc {
                 break
             }
 
-            self.nodes[v as usize].key = k
+            self.nodes[v as usize].key = k.copy()
             if last == JSON_NONE() {
                 self.nodes[obj as usize].first = v
             } else {

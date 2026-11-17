@@ -196,7 +196,7 @@ extend Server {
     fn point_range_(const self, line: i64, ch: i64) -> string {
         var rw = JsonWriter()
         write_lsp_range(&rw, line, ch, line, ch)
-        return rw.out
+        return rw.out.copy()
     }
 
     /// True when a file of snapshot \p s declares something called \p name.

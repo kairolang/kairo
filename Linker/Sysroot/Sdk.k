@@ -77,14 +77,14 @@ pub class SysSdk {
     /// share tree; "" for neither.
     pub static fn overlays() -> string {
         var prefix = LinkFS::parent(LinkFS::parent(env::exe_path()))
-        var dir    = LinkText::join(prefix, "share/kairo/sdk-overlays")
+        var dir    = LinkText::join(prefix.copy(), "share/kairo/sdk-overlays")
         if LinkFS::is_dir(dir) {
             return dir
         }
 
         var share = ShareTree::locate("")
         dir = LinkText::join(
-            LinkFS::parent(LinkText::strip_slash(share)),
+            LinkFS::parent(LinkText::strip_slash(share.copy())),
             "sdk-overlays",
         )
 
@@ -100,7 +100,7 @@ pub class SysSdk {
     /// (macOS hosts only). "" for none.
     pub static fn find_macos_sdk(const input: string) -> string {
         if !input.empty() {
-            return LinkFS::real(input)
+            return LinkFS::real(input.copy())
         }
 
         var mac = false
@@ -134,7 +134,7 @@ pub class SysSdk {
 
         // MacOSX.sdk is a link to MacOSX26.x.sdk: the key and the root's
         // provenance name the real one.
-        return if (sdk.empty()) => ("") else => LinkFS::real(sdk)
+        return if (sdk.empty()) => ("") else => LinkFS::real(sdk.copy())
     }
 
     /// xwin's arch directory name for \p arch.
@@ -143,7 +143,7 @@ pub class SysSdk {
             return "x86"
         }
 
-        return arch
+        return arch.copy()
     }
 
     /// An xwin splat with the SDK headers and \p xa's CRT: \p input, $XWIN,
@@ -163,15 +163,15 @@ pub class SysSdk {
                 mc = LinkText::join(SysSdk::prefix(), "share/kairo/msvc-cache")
             }
 
-            cands.push_back(LinkText::join(mc, "splat"))
+            cands.push_back(LinkText::join(mc.copy(), "splat"))
         }
 
         for var c: string in cands {
-            var um = LinkText::join(c, "sdk/include/um")
-            var hd = LinkFS::is_file(LinkText::join(um, "Windows.h"))
-                || LinkFS::is_file(LinkText::join(um, "windows.h"))
-            if hd && LinkFS::is_dir(LinkText::join(c, f"crt/lib/{xa}")) {
-                return LinkFS::real(c)
+            var um = LinkText::join(c.copy(), "sdk/include/um")
+            var hd = LinkFS::is_file(LinkText::join(um.copy(), "Windows.h"))
+                || LinkFS::is_file(LinkText::join(um.copy(), "windows.h"))
+            if hd && LinkFS::is_dir(LinkText::join(c.copy(), f"crt/lib/{xa}")) {
+                return LinkFS::real(c.copy())
             }
         }
 
@@ -195,10 +195,10 @@ pub class SysSdk {
         }
 
         var darwin = t->family == "darwin"
-        var arch   = t->arch
+        var arch   = t->arch.copy()
         var family = if (darwin) => ("darwin") else => "msvc"
         var ovs    = SysSdk::overlays()
-        var ov = if (ovs.empty()) => ("") else => LinkText::join(ovs, f"{family}-{arch}")
+        var ov = if (ovs.empty()) => ("") else => LinkText::join(ovs.copy(), f"{family}-{arch}")
         var ov_lib = if (darwin) => ("usr/lib/libc++.a") else => "lib/libc++.lib"
         var script = if (darwin) => (f"darwin-sysroot.sh {arch}") else => f"msvc-sysroot.ps1 {arch}"
         var scripts = LinkText::join(SysSdk::prefix(), "scripts")
@@ -211,12 +211,12 @@ pub class SysSdk {
         if input.empty()
             && !have.empty()
             && LinkFS::is_file(
-                LinkText::join(have, SysrootManifest::file_name()),
+                LinkText::join(have.copy(), SysrootManifest::file_name()),
             ) {
             src = if (darwin) => (SysSdk::find_macos_sdk(""))
                   else => SysSdk::find_msvc_splat("", xa)
             if src.empty() {
-                path = have
+                path = have.copy()
                 return true
             }
         }
@@ -230,9 +230,9 @@ pub class SysSdk {
                 )
             }
 
-            if !LinkFS::is_file(LinkText::join(src, "SDKSettings.json"))
+            if !LinkFS::is_file(LinkText::join(src.copy(), "SDKSettings.json"))
                 || !LinkFS::is_file(
-                    LinkText::join(src, "usr/lib/libSystem.tbd"),
+                    LinkText::join(src.copy(), "usr/lib/libSystem.tbd"),
                 ) {
                 return out.refuse(
                     f"{src} is not a macOS SDK (no SDKSettings.json or usr/lib/libSystem.tbd)",
@@ -256,7 +256,7 @@ pub class SysSdk {
             }
 
             if src.empty() {
-                var ps = LinkText::join(scripts, "msvc-sysroot.ps1")
+                var ps = LinkText::join(scripts.copy(), "msvc-sysroot.ps1")
                 return out.refuse(
                     f"no sysroot for {t->name}: no Visual Studio C++ tools and no MSVC splat were found",
                     f"run: powershell -ExecutionPolicy Bypass -File \x22{ps}\x22 {arch} (it downloads Microsoft\x27s CRT and Windows SDK after you accept their license), or install the Visual Studio Build Tools, or set XWIN=<an xwin splat>",
@@ -264,7 +264,7 @@ pub class SysSdk {
             }
         }
 
-        if ov.empty() || !LinkFS::is_file(LinkText::join(ov, ov_lib)) {
+        if ov.empty() || !LinkFS::is_file(LinkText::join(ov.copy(), ov_lib.copy())) {
             return out.refuse(
                 f"no prebuilt libc++ overlay for {t->name} in this toolchain",
                 f"build the root from source with {scripts}/{script} --from-source (needs cmake and ninja)",
@@ -278,7 +278,7 @@ pub class SysSdk {
         }
 
         var dir = c.sysroot_dir(key)
-        if !LinkFS::is_file(LinkText::join(dir, ".ok")) {
+        if !LinkFS::is_file(LinkText::join(dir.copy(), ".ok")) {
             var tmp = dir + ".tmp"
             LinkFS::remove_tree(tmp)
             if !LinkFS::make_dirs(tmp) {
@@ -308,7 +308,7 @@ pub class SysSdk {
                 return false
             }
 
-            LinkFS::write(LinkText::join(tmp, ".ok"), "")
+            LinkFS::write(LinkText::join(tmp.copy(), ".ok"), "")
             LinkFS::remove_tree(dir)
             if !LinkFS::rename(tmp, dir) {
                 LinkFS::remove_tree(tmp)
@@ -332,7 +332,7 @@ pub class SysSdk {
             return out.fail(f"cannot write {c.root}/by-name/{t->name}", "")
         }
 
-        path = dir
+        path = dir.copy()
         return true
     }
 
@@ -352,8 +352,13 @@ pub class SysSdk {
         settings.push_back("SDKSettings.json")
         settings.push_back("SDKSettings.plist")
         for var f: string in settings {
-            var s = LinkText::join(sdk, f)
-            if LinkFS::is_file(s) && !SysRun::put_file(s, LinkText::join(dst, f), false) {
+            var s = LinkText::join(sdk.copy(), f.copy())
+            if LinkFS::is_file(s)
+                && !SysRun::put_file(
+                    s,
+                    LinkText::join(dst.copy(), f.copy()),
+                    false,
+                ) {
                 return out.fail(f"cannot copy {s}", "")
             }
         }
@@ -361,8 +366,8 @@ pub class SysSdk {
         var inc_skip = cxx::std::vector<string>()
         inc_skip.push_back("c++")
         if !SysSdk::_copy(
-            LinkText::join(sdk, "usr/include"),
-            LinkText::join(dst, "usr/include"),
+            LinkText::join(sdk.copy(), "usr/include"),
+            LinkText::join(dst.copy(), "usr/include"),
             &inc_skip,
             &none,
             0,
@@ -374,8 +379,8 @@ pub class SysSdk {
         lib_skip.push_back("swift")
         lib_skip.push_back("libc++*.tbd")
         if !SysSdk::_copy(
-            LinkText::join(sdk, "usr/lib"),
-            LinkText::join(dst, "usr/lib"),
+            LinkText::join(sdk.copy(), "usr/lib"),
+            LinkText::join(dst.copy(), "usr/lib"),
             &lib_skip,
             &none,
             0,
@@ -383,7 +388,7 @@ pub class SysSdk {
             return out.fail(f"cannot copy {sdk}/usr/lib", "")
         }
 
-        var fw = LinkText::join(sdk, "System/Library/Frameworks")
+        var fw = LinkText::join(sdk.copy(), "System/Library/Frameworks")
         if LinkFS::is_dir(fw) {
             var swift = cxx::std::vector<string>()
             swift.push_back("*.swiftmodule")
@@ -392,7 +397,7 @@ pub class SysSdk {
             swift.push_back("*.abi.json")
             if !SysSdk::_copy(
                 fw,
-                LinkText::join(dst, "System/Library/Frameworks"),
+                LinkText::join(dst.copy(), "System/Library/Frameworks"),
                 &none,
                 &swift,
                 0,
@@ -413,7 +418,7 @@ pub class SysSdk {
                                const dst:   string,
                                @inout out:  SysOutcome) -> bool {
         var none = cxx::std::vector<string>()
-        var m    = LinkText::join(dst, "msvc")
+        var m    = LinkText::join(dst.copy(), "msvc")
         var dirs = cxx::std::vector<string>()
         dirs.push_back("crt/include")
         dirs.push_back(f"crt/lib/{xa}")
@@ -424,7 +429,7 @@ pub class SysSdk {
         dirs.push_back(f"sdk/lib/um/{xa}")
         dirs.push_back(f"sdk/lib/ucrt/{xa}")
         for var d: string in dirs {
-            var s = LinkText::join(splat, d)
+            var s = LinkText::join(splat.copy(), d.copy())
             if !LinkFS::is_dir(s) {
                 if d == "sdk/include/winrt" {
                     continue
@@ -436,7 +441,13 @@ pub class SysSdk {
                 )
             }
 
-            if !SysSdk::_copy(s, LinkText::join(m, d), &none, &none, 0) {
+            if !SysSdk::_copy(
+                s,
+                LinkText::join(m.copy(), d.copy()),
+                &none,
+                &none,
+                0,
+            ) {
                 return out.fail(f"cannot copy {s}", "")
             }
         }
@@ -465,8 +476,8 @@ pub class SysSdk {
         parts.push_back("compiler-rt")
         for var d: string in parts {
             if !SysRun::copy_tree(
-                LinkText::join(ov, d),
-                LinkText::join(dst, d),
+                LinkText::join(ov.copy(), d.copy()),
+                LinkText::join(dst.copy(), d.copy()),
                 &none,
             ) {
                 return out.fail(f"cannot copy the overlay {ov}/{d}", "")
@@ -532,7 +543,7 @@ pub class SysSdk {
             s += "cc_isolation  = [\x22-nostdlibinc\x22, \x22-nostdinc++\x22]\n"
         }
 
-        var p = LinkText::join(dst, SysrootManifest::file_name())
+        var p = LinkText::join(dst.copy(), SysrootManifest::file_name())
         if !LinkFS::write(p, s) {
             return out.fail(f"cannot write {p}", "")
         }
@@ -559,20 +570,20 @@ pub class SysSdk {
         }
 
         for var n: string in need {
-            if !LinkFS::is_file(LinkText::join(r, n)) {
+            if !LinkFS::is_file(LinkText::join(r.copy(), n.copy())) {
                 return out.fail(f"{t->name}: the staged root has no {n}", "")
             }
         }
 
         if darwin {
-            if !LinkFS::is_dir(LinkText::join(r, "usr/lib/system")) {
+            if !LinkFS::is_dir(LinkText::join(r.copy(), "usr/lib/system")) {
                 return out.fail(
                     f"{t->name}: the staged root has no usr/lib/system",
                     "",
                 )
             }
 
-            for var f: string in LinkFS::list_dir(LinkText::join(r, "usr/lib")) {
+            for var f: string in LinkFS::list_dir(LinkText::join(r.copy(), "usr/lib")) {
                 if SysSdk::_glob(f, "libc++*.tbd") {
                     return out.fail(
                         f"{t->name}: Apple\x27s libc++ stub {f} leaked into the root",
@@ -587,7 +598,11 @@ pub class SysSdk {
         // A dll-import __config_site would make every libc++ use an __imp_
         // reference the static libc++.lib does not define.
         var cs = ""
-        LinkFS::read(LinkText::join(r, "include/c++/v1/__config_site"), &cs)
+        LinkFS::read(
+            LinkText::join(r.copy(), "include/c++/v1/__config_site"),
+            &cs,
+        )
+
         if !LinkText::contains(cs, "_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS") {
             return out.fail(
                 f"{t->name}: the overlay\x27s __config_site is not static-only",
@@ -611,7 +626,7 @@ pub class SysSdk {
             exe = "kcc.exe"
         }
 
-        var kcc = LinkText::join(tools, exe)
+        var kcc = LinkText::join(tools.copy(), exe.copy())
         var bundled = LinkText::join(
             LinkFS::parent(tools),
             f"sysroot/{t->name}",
@@ -621,20 +636,20 @@ pub class SysSdk {
             return true
         }
 
-        var w = LinkText::join(r, ".validate")
+        var w = LinkText::join(r.copy(), ".validate")
         LinkFS::make_dirs(w)
-        var src = LinkText::join(w, "t.cpp")
+        var src = LinkText::join(w.copy(), "t.cpp")
         LinkFS::write(
             src,
             "#include <cstdio>\n#include <stdexcept>\n#include <string>\n#include <vector>\nint main() {\n  std::vector<std::string> v{\"a\", \"b\"};\n  try { throw std::runtime_error(v[0] + v[1]); }\n  catch (const std::exception &e) { std::printf(\"%s\\n\", e.what()); }\n  return 0;\n}\n",
         )
 
-        var ct = t->clang_triple
+        var ct = t->clang_triple.copy()
         if t->family == "darwin" {
             ct = f"{t->arch}-apple-macosx{Toolchain::macos_floor(t->clang_triple)}"
         }
 
-        var log  = LinkText::join(w, "compile.log")
+        var log  = LinkText::join(w.copy(), "compile.log")
         var argv = cxx::std::vector<string>()
         argv.push_back(kcc)
         KccArgv::push_target(&argv, ct, r)
@@ -642,7 +657,7 @@ pub class SysSdk {
         argv.push_back("-c")
         argv.push_back(src)
         argv.push_back("-o")
-        argv.push_back(LinkText::join(w, "t.o"))
+        argv.push_back(LinkText::join(w.copy(), "t.o"))
         if SysRun::run(&argv, log) != 0 {
             var keep = LinkFS::temp_file("ksys-sdk-validate", ".log")
             SysRun::put_file(log, keep, false)
@@ -672,7 +687,7 @@ pub class SysSdk {
 
         var pf = LinkFS::env("ProgramFiles(x86)")
         var vswhere = LinkText::join(
-            pf,
+            pf.copy(),
             "Microsoft Visual Studio/Installer/vswhere.exe",
         )
 
@@ -698,7 +713,7 @@ pub class SysSdk {
         LinkFS::remove(log)
         var vs = LinkText::trim(text)
         var vc = LinkText::join(
-            vs,
+            vs.copy(),
             "VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt",
         )
 
@@ -729,7 +744,7 @@ pub class SysSdk {
 
         var stamp = SysUtil::sha256_file(
             LinkText::join(
-                vs,
+                vs.copy(),
                 "VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt",
             ),
         )
@@ -753,11 +768,15 @@ pub class SysSdk {
         }
 
         var dir = c.sysroot_dir(key)
-        if !LinkFS::is_file(LinkText::join(dir, ".ok")) {
+        if !LinkFS::is_file(LinkText::join(dir.copy(), ".ok")) {
             var stage = dir + ".tmp"
             LinkFS::remove_tree(stage)
             LinkFS::make_dirs(stage)
-            var log = LinkText::join(c.root, f"logs/{t->name}-msvc-sysroot.log")
+            var log = LinkText::join(
+                c.root.copy(),
+                f"logs/{t->name}-msvc-sysroot.log",
+            )
+
             LinkFS::make_dirs(LinkFS::parent(log))
             var argv = cxx::std::vector<string>()
             argv.push_back(shell)
@@ -780,8 +799,11 @@ pub class SysSdk {
             LinkFS::set_env("OUT", old_out)
             LinkFS::set_env("WORK", old_work)
             LinkFS::remove_tree(stage + ".work")
-            var made = LinkText::join(stage, t->name)
-            if rc != 0 || !LinkFS::is_file(LinkText::join(made, SysrootManifest::file_name())) {
+            var made = LinkText::join(stage.copy(), t->name.copy())
+            if rc != 0
+                || !LinkFS::is_file(
+                    LinkText::join(made.copy(), SysrootManifest::file_name()),
+                ) {
                 LinkFS::remove_tree(stage)
                 return out.fail(
                     f"msvc-sysroot.ps1 {t->arch} failed (exit {rc})",
@@ -789,7 +811,7 @@ pub class SysSdk {
                 )
             }
 
-            LinkFS::write(LinkText::join(made, ".ok"), "")
+            LinkFS::write(LinkText::join(made.copy(), ".ok"), "")
             LinkFS::remove_tree(dir)
             var ok = LinkFS::rename(made, dir)
             LinkFS::remove_tree(stage)
@@ -806,14 +828,14 @@ pub class SysSdk {
             return out.fail(f"cannot write {c.root}/by-name/{t->name}", "")
         }
 
-        path = dir
+        path = dir.copy()
         return true
     }
 
     priv static fn _powershell() -> string {
         var root = LinkFS::env("SystemRoot")
         var sys = LinkText::join(
-            root,
+            root.copy(),
             "System32/WindowsPowerShell/v1.0/powershell.exe",
         )
 
@@ -837,10 +859,10 @@ pub class SysSdk {
     /// overlay, the toolchain.
     priv static fn _key(t: *SysTarget, const src: string, const ov: string) -> string {
         var sdk = if (t->family == "darwin") => (SysUtil::sha256_file(
-                      LinkText::join(src, "SDKSettings.json"),
+                      LinkText::join(src.copy(), "SDKSettings.json"),
                   ))
                   else => SysUtil::tree_stamp(
-                      LinkText::join(src, "sdk/include/um"),
+                      LinkText::join(src.copy(), "sdk/include/um"),
                       true,
                   )
 
@@ -931,7 +953,7 @@ pub class SysSdk {
 
     /// \p name against \p pat, which holds at most one `*`.
     priv static fn _glob(const name: string, const pat: string) -> bool {
-        var star = LinkText::find(pat, "*", 0)
+        var star = LinkText::find(pat.copy(), "*", 0)
         if star >= pat.size() {
             return name == pat
         }
@@ -939,7 +961,7 @@ pub class SysSdk {
         var head = LinkText::slice(pat, 0, star)
         var tail = LinkText::slice(pat, star + 1, pat.size())
         return name.size() >= head.size() + tail.size()
-            && LinkText::starts_with(name, head)
-            && LinkText::ends_with(name, tail)
+            && LinkText::starts_with(name.copy(), head.copy())
+            && LinkText::ends_with(name.copy(), tail.copy())
     }
 }

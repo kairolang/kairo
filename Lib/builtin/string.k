@@ -182,6 +182,12 @@ pub class string {
         if other.cap != 0 { self.own_exact_() }
     }
 
+    /// A copy, made by the copy constructor: the spelling of a copy the
+    /// source means to make.
+    pub fn copy(const self) -> string {
+        return string(self)
+    }
+
     fn op delete(self) {
         if self.cap != 0 {
             unsafe { free_raw(self.data as unsafe *u8, self.cap, 1) }

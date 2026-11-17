@@ -80,7 +80,7 @@ pub class MachOArgs {
 
         var shared  = o->shared
         var no_libs = o->no_default_libs || o->freestanding
-        var arm     = LinkText::starts_with(tc.darwin_arch, "arm64")
+        var arm     = LinkText::starts_with(tc.darwin_arch.copy(), "arm64")
 
         MachOArgs::_elf_only(o, &msgs)
 
@@ -175,7 +175,7 @@ pub class MachOArgs {
             // Only the two dyld-relative anchors (optionally followed by a
             // subpath): @rpath is what -rpath entries are searched through, so
             // an rpath that is itself @rpath/... would never resolve.
-            var ro      = o->rpath_origin
+            var ro      = o->rpath_origin.copy()
             var ok      = false
             var anchors = MachOArgs::_anchors()
             for var a: string in anchors {
@@ -183,7 +183,7 @@ pub class MachOArgs {
                     ok = true
                 }
 
-                if LinkText::starts_with(ro, a + "/") {
+                if LinkText::starts_with(ro.copy(), a + "/") {
                     ok = true
                 }
             }
@@ -354,9 +354,9 @@ pub class MachOArgs {
                              @inout tc:   Toolchain,
                              @inout argv: cxx::std::vector<string>,
                              @inout msgs: cxx::std::vector<LinkMessage>) {
-        var name = spec
+        var name = spec.copy()
         var mode = ""
-        var c    = LinkText::find(spec, ":", 0)
+        var c    = LinkText::find(spec.copy(), ":", 0)
         if c < spec.size() {
             mode = LinkText::slice(spec, 0, c)
             name = LinkText::slice(spec, c + 1, spec.size())
@@ -380,10 +380,10 @@ pub class MachOArgs {
         }
 
         if LinkText::contains(name, "/")
-            || LinkText::ends_with(name, ".a")
-            || LinkText::ends_with(name, ".o")
-            || LinkText::ends_with(name, ".dylib")
-            || LinkText::ends_with(name, ".tbd") {
+            || LinkText::ends_with(name.copy(), ".a")
+            || LinkText::ends_with(name.copy(), ".o")
+            || LinkText::ends_with(name.copy(), ".dylib")
+            || LinkText::ends_with(name.copy(), ".tbd") {
             argv.push_back(name)
             return
         }
@@ -431,21 +431,21 @@ pub class MachOArgs {
                                  @inout tc:  Toolchain) -> string {
         var file = f"lib{name}.a"
         for var d: string in o->lib_dirs {
-            var p = LinkText::join(d, file)
+            var p = LinkText::join(d.copy(), file.copy())
             if LinkFS::is_file(p) {
                 return p
             }
         }
 
         if !tc.toolchain_lib.empty() {
-            var p = LinkText::join(tc.toolchain_lib, file)
+            var p = LinkText::join(tc.toolchain_lib.copy(), file.copy())
             if LinkFS::is_file(p) {
                 return p
             }
         }
 
         for var d: string in tc.lib_dirs {
-            var p = LinkText::join(d, file)
+            var p = LinkText::join(d.copy(), file.copy())
             if LinkFS::is_file(p) {
                 return p
             }

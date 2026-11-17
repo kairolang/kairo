@@ -351,7 +351,7 @@ pub class WasmArgs {
                         const name:  string,
                         @inout argv: cxx::std::vector<string>,
                         @inout msgs: cxx::std::vector<LinkMessage>) {
-        var p = tc.find_lib_file(name)
+        var p = tc.find_lib_file(name.copy())
         if p.empty() {
             var _where = if (!tc.crt_dir.empty()) => (tc.crt_dir) else => tc.sysroot
             msgs.push_back(
@@ -373,10 +373,10 @@ pub class WasmArgs {
     priv static fn _user_lib(const spec:  string,
                              @inout argv: cxx::std::vector<string>,
                              @inout msgs: cxx::std::vector<LinkMessage>) {
-        var name = spec
-        if LinkText::starts_with(spec, "static:") {
+        var name = spec.copy()
+        if LinkText::starts_with(spec.copy(), "static:") {
             name = LinkText::slice(spec, 7, spec.size())
-        } else if LinkText::starts_with(spec, "dynamic:") {
+        } else if LinkText::starts_with(spec.copy(), "dynamic:") {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -399,8 +399,8 @@ pub class WasmArgs {
         }
 
         if LinkText::contains(name, "/")
-            || LinkText::ends_with(name, ".a")
-            || LinkText::ends_with(name, ".o") {
+            || LinkText::ends_with(name.copy(), ".a")
+            || LinkText::ends_with(name.copy(), ".o") {
             argv.push_back(name)
             return
         }

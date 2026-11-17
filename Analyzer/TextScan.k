@@ -440,7 +440,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
         return plan
     }
 
-    var iname = iname_in
+    var iname = iname_in.copy()
     if iname.empty() {
         iname = "I" + name
     }
@@ -724,10 +724,10 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                             )
                         } else if !skip {
                             for var k: usize = 0; k < docs.size(); ++k {
-                                lines.push_back(docs[k])
+                                lines.push_back(docs[k].copy())
                             }
 
-                            lines.push_back(sig)
+                            lines.push_back(sig.copy())
                             plan.methods += 1
                         }
                     }
@@ -783,7 +783,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
     out += "}\n\n"
 
     plan.ok   = true
-    plan.name = name
-    plan.text = out
+    plan.name = name.copy()
+    plan.text = out.copy()
     return plan
 }

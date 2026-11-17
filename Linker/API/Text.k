@@ -95,17 +95,17 @@ pub class LinkText {
             return true
         }
 
-        return LinkText::find(s, p, 0) < s.size()
+        return LinkText::find(s.copy(), p.copy(), 0) < s.size()
     }
 
     pub static fn trim(const s: string) -> string {
         var b: usize = 0
         var e        = s.size()
-        while b < e && LinkText::_space(s, b) {
+        while b < e && LinkText::_space(s.copy(), b) {
             b += 1
         }
 
-        while e > b && LinkText::_space(s, e - 1) {
+        while e > b && LinkText::_space(s.copy(), e - 1) {
             e -= 1
         }
 

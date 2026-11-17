@@ -41,7 +41,7 @@ pub class BundleProvider derives SysrootProvider {
             )
         }
 
-        var base = ctx->inputs[0]
+        var base = ctx->inputs[0].copy()
         var keys = ctx->recipe.keys_of("bundle_layout")
         if keys.empty() {
             return out.refuse(

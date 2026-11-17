@@ -65,7 +65,7 @@ pub class SysTemplate {
     }
 
     pub fn load(self, const dir: string) -> bool {
-        self.dir = dir
+        self.dir = dir.copy()
         var at = dir + "/index.toml"
         if !self.index.load(at) {
             self.error = f"{at}: {self.index.error}"
@@ -133,7 +133,7 @@ pub class SysTemplate {
         var rts = cxx::std::vector<TmplRuntime>()
         for var n: string in SysTemplate::runtimes() {
             var rt = TmplRuntime()
-            rt.name = n
+            rt.name = n.copy()
             rts.push_back(rt)
         }
 
@@ -236,8 +236,8 @@ pub class SysTemplate {
         var out = cxx::std::vector<string>()
         var pre = prefix + ".f"
         for var i: usize = 0; i < r->raw_keys.size(); ++i {
-            var tb = r->raw_tables[i]
-            if r->raw_keys[i] != "add" || !LinkText::starts_with(tb, pre) {
+            var tb = r->raw_tables[i].copy()
+            if r->raw_keys[i] != "add" || !LinkText::starts_with(tb.copy(), pre.copy()) {
                 continue
             }
 
@@ -276,7 +276,7 @@ pub class SysTemplate {
                     continue
                 }
 
-                var eq = LinkText::find(c, "=", 0)
+                var eq = LinkText::find(c.copy(), "=", 0)
                 var vs = SysUtil::split(LinkText::slice(c, eq + 1, c.size()), ('|' as u8))
                 if !SysUtil::contains(&vs, p->get(LinkText::slice(c, 0, eq))) {
                     all = false
@@ -300,13 +300,13 @@ pub class SysTemplate {
                          const sfx:  string,
                          @inout ref: string,
                          @inout why: string) -> bool {
-        var atp    = LinkText::find(e, "@", 0)
+        var atp    = LinkText::find(e.copy(), "@", 0)
         var body   = LinkText::slice(e, 0, atp)
         var pid    = LinkText::slice(e, atp + 1, e.size())
-        var col    = LinkText::find(body, ":", 0)
+        var col    = LinkText::find(body.copy(), ":", 0)
         var rt     = LinkText::slice(body, 0, col)
         var rest   = LinkText::slice(body, col + 1, body.size())
-        var eq     = LinkText::find(rest, "=", 0)
+        var eq     = LinkText::find(rest.copy(), "=", 0)
         var path   = LinkText::slice(rest, 0, eq)
         var member = LinkFS::filename(path) + sfx
         if eq < rest.size() {
@@ -320,11 +320,11 @@ pub class SysTemplate {
         }
 
         var lang = ""
-        if LinkText::ends_with(path, ".c") {
+        if LinkText::ends_with(path.copy(), ".c") {
             lang = "c"
-        } else if LinkText::ends_with(path, ".cpp") {
+        } else if LinkText::ends_with(path.copy(), ".cpp") {
             lang = "cxx"
-        } else if LinkText::ends_with(path, ".S") {
+        } else if LinkText::ends_with(path.copy(), ".S") {
             lang = "asm"
         } else {
             why = f"runtimes template entry {e}: no language for its extension"

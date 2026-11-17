@@ -67,7 +67,7 @@ pub class StageCtx {
     pub fn input_dir(self, const rel: string) -> string {
         for var i: usize = 0; i < self.input_names.size() && i < self.inputs.size(); ++i {
             if self.input_names[i] == rel {
-                return self.inputs[i]
+                return self.inputs[i].copy()
             }
         }
 
@@ -79,8 +79,9 @@ pub class StageCtx {
     pub fn input_root(self, const path: string) -> string {
         var best = ""
         for var d: string in self.inputs {
-            if (path == d || LinkText::starts_with(path, d + "/")) && d.size() > best.size() {
-                best = d
+            if (path == d || LinkText::starts_with(path.copy(), d + "/"))
+                && d.size() > best.size() {
+                best = d.copy()
             }
         }
 

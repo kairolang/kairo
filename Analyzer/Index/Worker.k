@@ -208,7 +208,7 @@ pub class IndexObserver derives SemaObserver {
                 var        tw0 = worker_us()
                 var unsafe *tw = kairo::std::create<IndexWalker>(sc)
                 tw->run_table(fid)
-                var table: string = tw->table
+                var table: string = tw->table.copy()
                 kairo::std::destroy(tw)
                 var lock = kairo::std::LockGuard(self.mu_)
                 self.walk_us += worker_us() - tw0
@@ -223,7 +223,7 @@ pub class IndexObserver derives SemaObserver {
         // and rows from it would be guesses. The snapshot names it.
         if sc->ctx->syntax_skipped {
             var lock = kairo::std::LockGuard(self.mu_)
-            self.unchecked.push_back(path)
+            self.unchecked.push_back(path.copy())
             return
         }
 
@@ -231,7 +231,7 @@ pub class IndexObserver derives SemaObserver {
         // for everything else, none inside those bodies.
         if sc->tu->recovered_bodies.size() > 0 {
             var lock = kairo::std::LockGuard(self.mu_)
-            self.partial.push_back(path)
+            self.partial.push_back(path.copy())
         }
 
         var        t0      = worker_us()
@@ -239,7 +239,7 @@ pub class IndexObserver derives SemaObserver {
         walker->facts = unsafe &self.facts
         walker->run(fid)
         walker->named_ = named
-        walker->path_  = path
+        walker->path_  = path.copy()
         var t1 = worker_us()
 
         // Held until on_lowered: a type's size is the compiler's layout
@@ -302,14 +302,14 @@ pub class IndexObserver derives SemaObserver {
 
         for var i: usize = 0; i < self.t_paths.size(); ++i {
             if self.t_paths[i] == path {
-                self.t_blocks[i] = table
+                self.t_blocks[i] = table.copy()
                 self.t_seq[i]    = self.seq
                 return
             }
         }
 
-        self.t_paths.push_back(path)
-        self.t_blocks.push_back(table)
+        self.t_paths.push_back(path.copy())
+        self.t_blocks.push_back(table.copy())
         self.t_seq.push_back(self.seq)
     }
 
@@ -318,8 +318,8 @@ pub class IndexObserver derives SemaObserver {
         var w  = JsonWriter()
         walker->write(&w)
         var named         = walker->named_
-        var wpath         = walker->path_
-        var table: string = walker->table
+        var wpath         = walker->path_.copy()
+        var table: string = walker->table.copy()
         kairo::std::destroy(walker)
         var t2 = worker_us()
 
@@ -329,13 +329,13 @@ pub class IndexObserver derives SemaObserver {
         if self.keep {
             for var i: usize = 0; i < self.k_paths.size(); ++i {
                 if self.k_paths[i] == wpath {
-                    self.k_blocks[i] = w.out
+                    self.k_blocks[i] = w.out.copy()
                     return
                 }
             }
 
-            self.k_paths.push_back(wpath)
-            self.k_blocks.push_back(w.out)
+            self.k_paths.push_back(wpath.copy())
+            self.k_blocks.push_back(w.out.copy())
             return
         }
 
@@ -481,7 +481,7 @@ pub class DiagCollector derives DiagConsumer {
             }
 
             w->begin_object()
-            var title = d->fixits[i].message
+            var title = d->fixits[i].message.copy()
             if title.empty() {
                 title = "apply fix"
             }
@@ -552,7 +552,7 @@ pub class DiagCollector derives DiagConsumer {
         if diag->has_loc && diag->loc.is_valid() {
             var rw = JsonWriter()
             var fi = self.range_(&rw, self.span_(diag), true)
-            path = self.files_[fi].path
+            path = self.files_[fi].path.copy()
             dw.field_raw(K_RANGE, rw.out)
         } else {
             // No location (a bad flag, a missing root): the editor still has
@@ -565,7 +565,7 @@ pub class DiagCollector derives DiagConsumer {
         dw.field(K_CODE, diag->code as string)
         dw.field(K_SOURCE, "kairo")
 
-        var msg     = diag->message
+        var msg     = diag->message.copy()
         var related = JsonWriter()
         related.begin_array()
         var nrel: usize = 0
@@ -674,8 +674,8 @@ fn syntax_main(const out_path: string,
             continue
         }
 
-        held.push_back(text)
-        named.push_back((*real)[k])
+        held.push_back(text.copy())
+        named.push_back((*real)[k].copy())
     }
 
     var out = syntax_answer(file, const &named, const &held, &words)
@@ -745,7 +745,7 @@ fn syntax_answer(const file:   string,
 
     var ft = FileText()
     ft.fid  = fid
-    ft.path = file
+    ft.path = file.copy()
     var size = ci->sm()->get_file_size(fid)
     if size > 0 {
         var view = ci->sm()->get_view(ci->sm()->get_range(fid, 0, size))
@@ -765,7 +765,7 @@ fn syntax_answer(const file:   string,
     w.field_raw(SK_DIAGNOSTICS, "[" + collector->out + "]")
     lexical_tokens(ci->sm(), fid, const &ft, &w)
     w.end_object()
-    return w.out
+    return w.out.copy()
 }
 
 fn fail_json(const why: string) -> string {
@@ -774,7 +774,7 @@ fn fail_json(const why: string) -> string {
     w.field_bool(SK_OK, false)
     w.field(SK_ERROR, why)
     w.end_object()
-    return w.out
+    return w.out.copy()
 }
 
 /// `kals --worker --syntax-server -- [kairo args]`: the syntax pass of
@@ -820,7 +820,7 @@ fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
             }
 
             ids.push_back(d.get_int(d.root, RQ_ID))
-            files.push_back(f)
+            files.push_back(f.copy())
             texts.push_back(d.get_str(d.root, RQ_TEXT))
         }
 
@@ -838,9 +838,9 @@ fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
             words.push_back(CF_TYPE_CHECK_ONLY)
             words.push_back(CF_THREADS_ONE)
             var real: [string]
-            real.push_back(files[k])
+            real.push_back(files[k].copy())
             var txt: [string]
-            txt.push_back(texts[k])
+            txt.push_back(texts[k].copy())
             var body = syntax_answer(files[k], const &real, const &txt, &words)
             var idn  = ids[k]
             // `{"id":N,` spliced before the answer's own members.
@@ -876,7 +876,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         return syntax_server_main(&base)
     }
 
-    var out_path              = args[0]
+    var out_path              = args[0].copy()
     var root:        string   = ""
     var syntax_file: string   = ""
     var progress:    string   = ""
@@ -889,7 +889,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
     var i: usize = 1
     while i < args.size() {
-        var a = args[i]
+        var a = args[i].copy()
         if a == WA_END {
             i += 1
             break
@@ -904,13 +904,13 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         }
 
         if (a == WA_ROOT) && ((i + 1) < args.size()) {
-            root = args[i + 1]
+            root = args[i + 1].copy()
             i += 2
             continue
         }
 
         if (a == WA_SYNTAX_ONLY) && ((i + 1) < args.size()) {
-            syntax_file = args[i + 1]
+            syntax_file = args[i + 1].copy()
             i += 2
             continue
         }
@@ -925,14 +925,14 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         }
 
         if (a == WA_PROGRESS) && ((i + 1) < args.size()) {
-            progress = args[i + 1]
+            progress = args[i + 1].copy()
             i += 2
             continue
         }
 
         if (a == WA_OVERLAY) && ((i + 2) < args.size()) {
-            real.push_back(args[i + 1])
-            tmps.push_back(args[i + 2])
+            real.push_back(args[i + 1].copy())
+            tmps.push_back(args[i + 2].copy())
             i += 3
             continue
         }
@@ -1004,9 +1004,9 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         return worker_fail(out_path, "the compile command names no entry file")
     }
 
-    observer->root     = root
-    observer->named    = real
-    observer->progress = progress
+    observer->root     = root.copy()
+    observer->named    = real.copy()
+    observer->progress = progress.copy()
 
     ci->invocation()->frontend.sema_observer = unsafe (observer as unsafe *void)
 
@@ -1026,7 +1026,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
             continue
         }
 
-        held.push_back(text)
+        held.push_back(text.copy())
         var unsafe *bytes = unsafe ((held[held.size() - 1].raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
         // Staged, not loaded: the file gets its id where the graph first
         // loads it, as a fresh `kairo` run numbers it. Loaded here it was
@@ -1054,7 +1054,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     var w = JsonWriter()
     w.begin_object()
     w.field_bool(SK_OK, true)
-    var files = observer->out
+    var files = observer->out.copy()
     var wide  = unit.fids.size() <= WIDE_INDEX_LIMIT
     if wide && (observer->rest_count > 0) {
         if observer->count > 0 {

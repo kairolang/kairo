@@ -48,7 +48,7 @@ pub struct PkgConfigError {
     pub var message: string
 
     fn op panic(const self) -> string {
-        return self.message
+        return self.message.copy()
     }
 }
 
@@ -133,7 +133,7 @@ pub class HostSystem {
             return
         }
 
-        var r = LinkFS::real(d)
+        var r = LinkFS::real(d.copy())
         for var s: string in seen {
             if s == r {
                 return
@@ -188,7 +188,7 @@ pub class HostSystem {
             prog_name = "pkg-config"
         }
 
-        var prog = prog_name
+        var prog = prog_name.copy()
         if !LinkText::contains(prog_name, "/") {
             var found = llvm::sys::findProgramByName(kairo::sref(prog_name))
             if found.getError().value() != 0 {
@@ -268,12 +268,12 @@ pub class HostSystem {
         var text = ""
         if rc != 0 {
             LinkFS::read(err_path, &text)
-            var lines = LinkText::split_lines(text)
+            var lines = LinkText::split_lines(text.copy())
             var why   = ""
             for var l: string in lines {
                 var t = LinkText::trim(l)
                 if !t.empty() {
-                    why = t
+                    why = t.copy()
                     break
                 }
             }
@@ -283,11 +283,11 @@ pub class HostSystem {
                 msg = msg + f" ({why})"
             }
 
-            panic PkgConfigError { message: msg }
+            panic PkgConfigError { message: msg.copy() }
         }
 
         LinkFS::read(out_path, &text)
-        words = HostSystem::split_words(text)
+        words = HostSystem::split_words(text.copy())
     }
 
     /// Shell-style words: whitespace separates, a backslash escapes the next
@@ -362,13 +362,13 @@ pub class HostSystem {
                        static_only: bool) -> string {
         for var d: string in dirs {
             if !static_only {
-                var so = LinkText::join(d, f"lib{name}.so")
+                var so = LinkText::join(d.copy(), f"lib{name}.so")
                 if LinkFS::is_file(so) {
                     return so
                 }
             }
 
-            var ar = LinkText::join(d, f"lib{name}.a")
+            var ar = LinkText::join(d.copy(), f"lib{name}.a")
             if LinkFS::is_file(ar) {
                 return ar
             }
@@ -380,7 +380,7 @@ pub class HostSystem {
     /// Whether \p path names a shared object: foo.so or foo.so.1.2.
     pub static fn is_shared(const path: string) -> bool {
         var base = LinkFS::filename(path)
-        return LinkText::ends_with(base, ".so") || LinkText::contains(base, ".so.")
+        return LinkText::ends_with(base.copy(), ".so") || LinkText::contains(base, ".so.")
     }
 
     /// Whether \p path lies under directory \p root (both made real).
@@ -389,9 +389,9 @@ pub class HostSystem {
             return false
         }
 
-        var p = LinkFS::real(path)
-        var r = LinkText::strip_slash(LinkFS::real(root))
-        return LinkText::starts_with(p, r + "/")
+        var p = LinkFS::real(path.copy())
+        var r = LinkText::strip_slash(LinkFS::real(root.copy()))
+        return LinkText::starts_with(p.copy(), r + "/")
     }
 
     /// # DT_VERNEED
@@ -401,7 +401,7 @@ pub class HostSystem {
     /// truncated one, rather than reading past its end.
     static fn glibc_needs(const path: string) -> HostLibNeeds {
         var r    = HostLibNeeds{}
-        var real = LinkFS::real(path)
+        var real = LinkFS::real(path.copy())
         r.soname = LinkFS::filename(real)
         var d = ""
         if !LinkFS::read(real, &d) {
@@ -484,10 +484,10 @@ pub class HostSystem {
                             HostSystem::_rd(&d, va + 8, 4, be),
                         )
 
-                        var v = HostSystem::glibc_version_of(nm)
+                        var v = HostSystem::glibc_version_of(nm.copy())
                         if !v.empty()
                             && (r.max_glibc.empty() || Toolchain::version_less(r.max_glibc, v)) {
-                            r.max_glibc = v
+                            r.max_glibc = v.copy()
                         }
 
                         var anext = HostSystem::_rd(&d, va + 12, 4, be)
@@ -517,7 +517,7 @@ pub class HostSystem {
                         var val = HostSystem::_rd(&d, e + esz / 2, ((if (w64) => (8) else => 4) as u64), be)
                         var so = HostSystem::_cstr(&d, str_off, str_len, val)
                         if !so.empty() {
-                            r.soname = so
+                            r.soname = so.copy()
                         }
                     }
 
@@ -531,7 +531,7 @@ pub class HostSystem {
 
     /// "2.34" for "GLIBC_2.34"; "" for anything else (GLIBC_PRIVATE too).
     static fn glibc_version_of(name: string) -> string {
-        if !LinkText::starts_with(name, "GLIBC_") {
+        if !LinkText::starts_with(name.copy(), "GLIBC_") {
             return ""
         }
 

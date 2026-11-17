@@ -6027,7 +6027,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// the answer needs no import. A COPY type with no such method also
     /// takes `.copy()` (the Copyable lang item), but that is its copy
     /// constructor again, which an implicit copy already runs: no `.copy()`
-    /// is offered for it.
+    /// is offered for it. An instance of a generic record (`[T]`, `{K: V}`)
+    /// declares its methods on its pattern, where the return type names the
+    /// pattern (`Vector<T>`): both are read through the pattern.
     priv fn _copies_itself(self, e: unsafe *Expr) -> bool {
         if e->type_ == &null {
             return false
@@ -6039,7 +6041,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return false
         }
 
-        var ms = decl_methods(rd)
+        var unsafe *pd = self._tu.pattern_of(rd)
+        var        ms  = decl_methods(if (pd != &null) => (pd) else => rd)
         for var i: usize = 0; i < ms.size(); ++i {
             var unsafe *m = ms[i]
             if m->is_operator || (!m->is_method()) || (!m->is_const()) || m->params.size() != 1 {
@@ -6059,8 +6062,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             // its canonical form is read.
             var unsafe *rt = if (m->return_type->canonical != &null) => (m->return_type->canonical)
                              else => m->return_type
+            var unsafe *rrd = self._tu.record_decl(self._tu.as_value(rt))
             if m->return_type->kind == TypeKind::SelfType
-                || self._tu.record_decl(self._tu.as_value(rt)) == rd {
+                || rrd == rd
+                || (rrd != &null && self._tu.pattern_of(rrd) == pd) {
                 return true
             }
         }

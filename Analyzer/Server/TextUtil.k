@@ -118,7 +118,7 @@ pub fn k_includes(const text: string) -> [string] {
     var all           = quoted_includes(text)
     for var i: usize = 0; i < all.size(); ++i {
         if all[i].ends_with(kairo_dot_ext()) {
-            out.push_back(all[i])
+            out.push_back(all[i].copy())
         }
     }
 
@@ -163,7 +163,7 @@ pub fn quoted_includes(const text: string) -> [string] {
 
                     var name = text.subslice(p + 1, q - p - 1)
                     if (q < le) && (!name.empty()) {
-                        out.push_back(name)
+                        out.push_back(name.copy())
                     }
                 }
             }
@@ -278,7 +278,7 @@ pub fn top_level_names(const src: string) -> [string] {
                 }
 
                 if !dup {
-                    out.push_back(name)
+                    out.push_back(name.copy())
                 }
             }
         }
@@ -295,7 +295,7 @@ pub fn keyword_list(const all: string) -> [string] {
     for var i: usize = 0; i < all.size(); ++i {
         if all[i] == (' ' as u8) {
             if !cur.empty() {
-                k.push_back(cur)
+                k.push_back(cur.copy())
             }
 
             cur = string()
@@ -305,7 +305,7 @@ pub fn keyword_list(const all: string) -> [string] {
     }
 
     if !cur.empty() {
-        k.push_back(cur)
+        k.push_back(cur.copy())
     }
 
     return k

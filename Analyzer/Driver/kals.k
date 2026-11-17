@@ -252,7 +252,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
         var rest: [string]
         for var i: usize = 1; i < args.size(); ++i {
-            rest.push_back(args[i])
+            rest.push_back(args[i].copy())
         }
 
         if (rest.size() > 0) && (rest[0] == WA_INDEX_SERVER) {

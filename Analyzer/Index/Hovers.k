@@ -355,7 +355,7 @@ extend IndexWalker {
 
         if isa<Declarations::FunctionDecl>(d) {
             var unsafe *f        = cast<Declarations::FunctionDecl>(d)
-            var        s: string = head
+            var        s: string = head.copy()
             if full && (!d->is_implicit) && (!decl_is_ffi(d)) {
                 if f->abi == Declarations::AbiKind::Static {
                     s += "static "
@@ -1107,7 +1107,7 @@ extend IndexWalker {
             return *hit
         }
 
-        var base = self.hovers[self.hover_(d) as usize]
+        var base = self.hovers[self.hover_(d) as usize].copy()
         // Past the code block's closing fence, where hover_ puts the line.
         var at = base.size()
         for var k: usize = 9; (k + 4) <= base.size(); ++k {
@@ -1120,7 +1120,7 @@ extend IndexWalker {
             }
         }
 
-        self.hovers.push_back(base)
+        self.hovers.push_back(base.copy())
         var        idx  = (self.hovers.size() - 1) as u32
         var unsafe *ctx = NameLookup::ctx_of(d)
         if ctx == &null {
@@ -1208,7 +1208,7 @@ extend IndexWalker {
 
             var idx = self.layout_hover_[i] as usize
             var at  = self.layout_at_[i]
-            var h   = self.hovers[idx]
+            var h   = self.hovers[idx].copy()
             self.hovers[idx] = h.subslice(0, at) + "\n\n" + lay + h.subslice(
                 at,
                 h.size() - at,
@@ -1251,7 +1251,7 @@ extend IndexWalker {
             md += doc
         }
 
-        self.hovers.push_back(md)
+        self.hovers.push_back(md.copy())
         var idx = (self.hovers.size() - 1) as u32
         if isa<Declarations::ClassDecl>(d)
             || isa<Declarations::StructDecl>(d)

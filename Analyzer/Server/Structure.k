@@ -293,7 +293,7 @@ extend Server {
                         }
 
                         if !dup {
-                            seen.push_back(key)
+                            seen.push_back(key.copy())
                             w.begin_object()
                             w.field(K_NAME, name)
                             w.field_int(K_KIND, o->get_int(sy, K_KIND))

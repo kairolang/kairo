@@ -176,9 +176,9 @@ extend Server {
         LinkFS::write(src, self.docs.docs[i].text)
 
         var argv: [string]
-        argv.push_back(kfmt)
+        argv.push_back(kfmt.copy())
         argv.push_back("--stdout")
-        argv.push_back(src)
+        argv.push_back(src.copy())
         var rc = self.run_and_wait(&argv, out)
 
         var text: string = ""

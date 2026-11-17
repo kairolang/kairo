@@ -237,7 +237,7 @@ extend IndexWalker {
 
                 fresh_line = false
                 text += sp
-                prev = sp
+                prev = sp.copy()
                 if sp == "{" {
                     depth += 1
                 }

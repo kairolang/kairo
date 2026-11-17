@@ -398,7 +398,7 @@ extend Server {
         }
 
         sh.active     = true
-        sh.path       = doc->path
+        sh.path       = doc->path.copy()
         sh.entry      = ei
         sh.changed_at = doc->changed_at
         sh.pre        = pre as i64
@@ -547,7 +547,7 @@ extend Server {
                         }
 
                         if !dup {
-                            seen.push_back(key)
+                            seen.push_back(key.copy())
                             if mode == 0 {
                                 w->begin_object()
                                 w->field(K_URI, uri)

@@ -110,7 +110,7 @@ pub class Doc {
     static fn text(const s: string) -> Doc {
         var d = Doc()
         d.kind = DocKind::Text
-        d.txt  = s
+        d.txt  = s.copy()
         return d
     }
 

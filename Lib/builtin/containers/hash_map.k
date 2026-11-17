@@ -141,6 +141,12 @@ pub class <K impl Hash, V> HashMap {
         }
     }
 
+    /// A deep copy, made by the copy constructor: the spelling of a copy
+    /// the source means to make.
+    pub fn copy(const self) -> HashMap<K, V> {
+        return HashMap<K, V>(self)
+    }
+
     fn op delete(self) {
         self.destroy_entries()
         block_free(self.block, self.cap, sizeof MapEntry<K, V>, alignof MapEntry<K, V>)

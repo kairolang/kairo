@@ -567,7 +567,7 @@ extend IndexWalker {
 
         w.end_array()
         w.end_object()
-        self.table = w.out
+        self.table = w.out.copy()
     }
 
     /// A walk for the table alone: a file outside the indexed root (the
@@ -678,11 +678,11 @@ extend IndexWalker {
         }
 
         var r = ScopeRow{}
-        r.name   = f.name
+        r.name   = f.name.copy()
         r.kind   = f.kind
         r.sort   = sort
         r.off    = f.off
-        r.detail = f.detail
+        r.detail = f.detail.copy()
         if f.fid != u32::MAX {
             r.file = self.sfile_(f.fid)
         }
@@ -729,13 +729,13 @@ extend IndexWalker {
                     (fnv1a(path) << 16) | ((paths.size() as u64) & 0xFFFF),
                 )
 
-                paths.push_back(path)
+                paths.push_back(path.copy())
             }
         }
 
         sort_u64(&keys)
         for var i: usize = 0; i < keys.size(); ++i {
-            self.sees.push_back(paths[(keys[i] & 0xFFFF) as usize])
+            self.sees.push_back(paths[(keys[i] & 0xFFFF) as usize].copy())
         }
     }
 

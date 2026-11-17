@@ -95,6 +95,12 @@ pub class <T impl Hash> HashSet {
         }
     }
 
+    /// A deep copy, made by the copy constructor: the spelling of a copy
+    /// the source means to make.
+    pub fn copy(const self) -> HashSet<T> {
+        return HashSet<T>(self)
+    }
+
     fn op delete(self) {
         self.destroy_items()
         block_free(self.block, self.cap, sizeof T, alignof T)

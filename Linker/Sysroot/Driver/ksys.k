@@ -95,15 +95,15 @@ fn ksys_opt(@inout args: cxx::std::vector<string>,
             @inout i:    usize,
             const name:  string,
             @inout val:  string) -> bool {
-    var a = args[i]
-    if LinkText::starts_with(a, name + "=") {
+    var a = args[i].copy()
+    if LinkText::starts_with(a.copy(), name + "=") {
         val = LinkText::slice(a, name.size() + 1, a.size())
         return true
     }
 
     if a == name && i + 1 < args.size() {
         i += 1
-        val = args[i]
+        val = args[i].copy()
         return true
     }
 
@@ -129,7 +129,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var out_dir = ""
     var words   = cxx::std::vector<string>()
     for var i: usize = 0; i < args.size(); ++i {
-        var a = args[i]
+        var a = args[i].copy()
         var v = ""
         if a == "--help" || a == "-h" {
             io::println(ksys_usage())
@@ -150,20 +150,20 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         if a == "-q" || a == "--quiet" {
             gen.quiet = true
         } else if ksys_opt(&args, &i, "--share", &v) {
-            gen.share_flag = v
+            gen.share_flag = v.copy()
         } else if ksys_opt(&args, &i, "--cache", &v) {
-            gen.cache_root = v
+            gen.cache_root = v.copy()
         } else if ksys_opt(&args, &i, "--glibc", &v) {
-            gen.glibc = v
+            gen.glibc = v.copy()
         } else if ksys_opt(&args, &i, "--input", &v) {
-            gen.input = v
+            gen.input = v.copy()
         } else if ksys_opt(&args, &i, "--out", &v) {
-            out_dir = v
+            out_dir = v.copy()
         } else if a == "--libc-only" {
             gen.libc_only = true
         } else if ksys_opt(&args, &i, "--jobs", &v)
             || ksys_opt(&args, &i, "-j", &v)
-            || LinkText::starts_with(a, "-j") && a.size() > 2 {
+            || LinkText::starts_with(a.copy(), "-j") && a.size() > 2 {
             if v.empty() {
                 v = LinkText::slice(a, 2, a.size())
             }
@@ -184,7 +184,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             }
 
             gen.jobs = n
-        } else if LinkText::starts_with(a, "-") && a.size() > 1 {
+        } else if LinkText::starts_with(a.copy(), "-") && a.size() > 1 {
             return ksys_usage_error(f"unknown option {a}")
         } else {
             words.push_back(a)
@@ -195,7 +195,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         return ksys_usage_error("no command")
     }
 
-    var cmd   = words[0]
+    var cmd   = words[0].copy()
     var o     = SysOutcome()
     var nargs = words.size() - 1
     var want = if (cmd == "probe"

@@ -36,16 +36,16 @@ pub class SysOutcome {
     /// Exit 2. Returns false, so `return out.refuse(...)` ends a step.
     pub fn refuse(self, const message: string, const note: string) -> bool {
         self.status  = SYS_STATUS_REFUSED
-        self.message = message
-        self.note    = note
+        self.message = message.copy()
+        self.note    = note.copy()
         return false
     }
 
     /// Exit 3.
     pub fn fail(self, const message: string, const note: string) -> bool {
         self.status  = SYS_STATUS_FAILED
-        self.message = message
-        self.note    = note
+        self.message = message.copy()
+        self.note    = note.copy()
         return false
     }
 }

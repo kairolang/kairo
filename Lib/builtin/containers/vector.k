@@ -146,6 +146,12 @@ pub class <T> Vector {
         self.copy_from(other.buf, other.len)
     }
 
+    /// A deep copy, made by the copy constructor: the spelling of a copy
+    /// the source means to make.
+    pub fn copy(const self) -> Vector<T> requires (!__builtin_is_complete<T>()) || __builtin_is_constructible<T, const T>() {
+        return Vector<T>(self)
+    }
+
     fn op delete(self) {
         self.destroy_range(0, self.len)
         free_raw(self.storage(), self.cap * sizeof T, alignof T)

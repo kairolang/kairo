@@ -72,17 +72,17 @@ pub class Project {
     /// script wants.
     fn load(self, const start: string) {
         self.path  = ""
-        self.dir   = start
+        self.dir   = start.copy()
         self.error = ""
         self.entries.clear()
         self.default_args.clear()
 
-        var dir = start
+        var dir = start.copy()
         for var depth: usize = 0; depth < 64; ++depth {
             var cand = Path::join_str(dir, project_file_name())
             if Path::exists_at(cand) {
-                self.path = cand
-                self.dir  = dir
+                self.path = cand.copy()
+                self.dir  = dir.copy()
                 break
             }
 
@@ -91,7 +91,7 @@ pub class Project {
                 break
             }
 
-            dir = up
+            dir = up.copy()
         }
 
         if self.path.empty() {
@@ -121,9 +121,9 @@ pub class Project {
         while e != JSON_NONE() {
             var pe      = ProjectEntry()
             var rel_dir = doc.get_str(e, "directory")
-            pe.dir = self.dir
+            pe.dir = self.dir.copy()
             if !rel_dir.empty() {
-                pe.dir = Path::absolute_if_exists(rel_dir, self.dir)
+                pe.dir = Path::absolute_if_exists(rel_dir.copy(), self.dir)
             }
 
             var entry = doc.get_str(e, "entry")
@@ -133,7 +133,7 @@ pub class Project {
                 continue
             }
 
-            pe.entry = Path::absolute_if_exists(entry, pe.dir)
+            pe.entry = Path::absolute_if_exists(entry.copy(), pe.dir)
             var arg = doc.first(doc.get(e, "args"))
             while arg != JSON_NONE() {
                 pe.args.push_back(doc.str(arg))

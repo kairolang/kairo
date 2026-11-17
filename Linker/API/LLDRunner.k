@@ -71,7 +71,7 @@ pub class LLDRunner {
                   const kld_path: string,
                   force_process:  bool) -> LLDRun {
         if force_process || LLDRunner::poisoned() || LLDRunner::needs_process(&argv) {
-            return LLDRunner::_spawn(&argv, kld_path)
+            return LLDRunner::_spawn(&argv, kld_path.copy())
         }
 
         return LLDRunner::_in_process(&argv)
@@ -87,12 +87,13 @@ pub class LLDRunner {
                 return true
             }
 
-            if LinkText::starts_with(a, "-mllvm=") || LinkText::starts_with(a, "--mllvm=") {
+            if LinkText::starts_with(a.copy(), "-mllvm=")
+                || LinkText::starts_with(a.copy(), "--mllvm=") {
                 return true
             }
 
-            if LinkText::starts_with(a, "-plugin-opt=-")
-                || LinkText::starts_with(a, "--plugin-opt=-") {
+            if LinkText::starts_with(a.copy(), "-plugin-opt=-")
+                || LinkText::starts_with(a.copy(), "--plugin-opt=-") {
                 return true
             }
         }
@@ -227,7 +228,7 @@ pub class LLDRunner {
             rsp_path = LinkFS::temp_file("kld", "rsp")
             var text = ""
             for var a: string in rest {
-                text += LinkText::quote_rsp(a)
+                text += LinkText::quote_rsp(a.copy())
                 text += "\n"
             }
 
@@ -303,12 +304,12 @@ pub class LLDRunner {
         res.ret = rc
         var t = ""
         if !out_path.empty() && LinkFS::read(out_path, &t) {
-            res.stdout_text = t
+            res.stdout_text = t.copy()
         }
 
         t = ""
         if !err_path.empty() && LinkFS::read(err_path, &t) {
-            res.stderr_text = t
+            res.stderr_text = t.copy()
         }
 
         return res

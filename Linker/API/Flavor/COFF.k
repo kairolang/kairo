@@ -418,9 +418,9 @@ pub class COFFArgs {
     priv static fn _user_lib(const spec:  string,
                              @inout argv: cxx::std::vector<string>,
                              @inout msgs: cxx::std::vector<LinkMessage>) {
-        var name = spec
+        var name = spec.copy()
         var mode = ""
-        var c    = LinkText::find(spec, ":", 0)
+        var c    = LinkText::find(spec.copy(), ":", 0)
         if c < spec.size() {
             mode = LinkText::slice(spec, 0, c)
             name = LinkText::slice(spec, c + 1, spec.size())
@@ -448,17 +448,17 @@ pub class COFFArgs {
             return
         }
 
-        if LinkText::ends_with(name, ".def") {
+        if LinkText::ends_with(name.copy(), ".def") {
             argv.push_back(f"-def:{name}")
             return
         }
 
         if LinkText::contains(name, "/")
-            || LinkText::ends_with(name, ".lib")
-            || LinkText::ends_with(name, ".obj")
-            || LinkText::ends_with(name, ".o")
-            || LinkText::ends_with(name, ".a")
-            || LinkText::ends_with(name, ".res") {
+            || LinkText::ends_with(name.copy(), ".lib")
+            || LinkText::ends_with(name.copy(), ".obj")
+            || LinkText::ends_with(name.copy(), ".o")
+            || LinkText::ends_with(name.copy(), ".a")
+            || LinkText::ends_with(name.copy(), ".res") {
             argv.push_back(name)
             return
         }
@@ -546,29 +546,29 @@ pub class COFFArgs {
 
     priv static fn _lib(@inout tc: Toolchain, const name: string) -> string {
         if !tc.toolchain_lib.empty() {
-            var p = LinkText::join(tc.toolchain_lib, name)
+            var p = LinkText::join(tc.toolchain_lib.copy(), name.copy())
             if LinkFS::is_file(p) {
                 return p
             }
         }
 
-        return tc.find_lib_file(name)
+        return tc.find_lib_file(name.copy())
     }
 
     priv static fn _user_links_crt(o: *LinkerOptions) -> bool {
         for var spec: string in o->link_libs {
-            var n = spec
-            var c = LinkText::find(spec, ":", 0)
+            var n = spec.copy()
+            var c = LinkText::find(spec.copy(), ":", 0)
             if c < spec.size() {
                 n = LinkText::slice(spec, c + 1, spec.size())
             }
 
-            if LinkText::starts_with(n, "msvcrt")
-                || LinkText::starts_with(n, "libcmt")
-                || LinkText::starts_with(n, "ucrt")
-                || LinkText::starts_with(n, "libucrt")
-                || LinkText::starts_with(n, "vcruntime")
-                || LinkText::starts_with(n, "libvcruntime") {
+            if LinkText::starts_with(n.copy(), "msvcrt")
+                || LinkText::starts_with(n.copy(), "libcmt")
+                || LinkText::starts_with(n.copy(), "ucrt")
+                || LinkText::starts_with(n.copy(), "libucrt")
+                || LinkText::starts_with(n.copy(), "vcruntime")
+                || LinkText::starts_with(n.copy(), "libvcruntime") {
                 return true
             }
         }

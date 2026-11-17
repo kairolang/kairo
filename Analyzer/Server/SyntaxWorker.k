@@ -161,7 +161,7 @@ extend Server {
     /// that buffer's pass as a process so this keystroke still gets its
     /// diagnostics.
     fn syntax_lost(self, const why: string) {
-        var path = self.syn.path
+        var path = self.syn.path.copy()
         var was  = self.syn.busy()
         self.syntax_stop()
         self.syn.restarts += 1
@@ -233,7 +233,7 @@ extend Server {
 
         self.syn.state   = SynWorker::Busy
         self.syn.id      = self.syn_seq
-        self.syn.path    = self.docs.docs[di].path
+        self.syn.path    = self.docs.docs[di].path.copy()
         self.syn.rev     = self.rev
         self.syn.sent_ms = now_ms()
         self.docs.docs[di].syn.begin(self.docs.docs[di].changed_at)

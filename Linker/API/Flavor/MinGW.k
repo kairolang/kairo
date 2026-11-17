@@ -162,12 +162,12 @@ pub class MinGWArgs {
         if !no_crt {
             if tc.has_manifest && !tc.manifest.crt_startup.empty() {
                 for var n: string in tc.manifest.crt_startup {
-                    var name = n
-                    if shared && LinkText::starts_with(n, "crt1") {
+                    var name = n.copy()
+                    if shared && LinkText::starts_with(n.copy(), "crt1") {
                         name = "dllcrt1.o"
                     }
 
-                    if shared && LinkText::starts_with(n, "crt2") {
+                    if shared && LinkText::starts_with(n.copy(), "crt2") {
                         name = "dllcrt2.o"
                     }
 
@@ -449,7 +449,7 @@ pub class MinGWArgs {
                         const name:  string,
                         @inout argv: cxx::std::vector<string>,
                         @inout msgs: cxx::std::vector<LinkMessage>) {
-        var p = tc.find_lib_file(name)
+        var p = tc.find_lib_file(name.copy())
         if p.empty() {
             var _where = if (!tc.crt_dir.empty()) => (tc.crt_dir) else => tc.sysroot
             msgs.push_back(
@@ -473,12 +473,12 @@ pub class MinGWArgs {
                              want_stat:   bool,
                              @inout argv: cxx::std::vector<string>,
                              @inout msgs: cxx::std::vector<LinkMessage>) {
-        var name = spec
+        var name = spec.copy()
         var mode = ""
-        if LinkText::starts_with(spec, "static:") {
+        if LinkText::starts_with(spec.copy(), "static:") {
             mode = "static"
             name = LinkText::slice(spec, 7, spec.size())
-        } else if LinkText::starts_with(spec, "dynamic:") {
+        } else if LinkText::starts_with(spec.copy(), "dynamic:") {
             mode = "dynamic"
             name = LinkText::slice(spec, 8, spec.size())
         }
@@ -495,12 +495,12 @@ pub class MinGWArgs {
         }
 
         if LinkText::contains(name, "/")
-            || LinkText::ends_with(name, ".a")
-            || LinkText::ends_with(name, ".o")
-            || LinkText::ends_with(name, ".obj")
-            || LinkText::ends_with(name, ".lib")
-            || LinkText::ends_with(name, ".dll")
-            || LinkText::ends_with(name, ".def") {
+            || LinkText::ends_with(name.copy(), ".a")
+            || LinkText::ends_with(name.copy(), ".o")
+            || LinkText::ends_with(name.copy(), ".obj")
+            || LinkText::ends_with(name.copy(), ".lib")
+            || LinkText::ends_with(name.copy(), ".dll")
+            || LinkText::ends_with(name.copy(), ".def") {
             argv.push_back(name)
             return
         }
@@ -590,7 +590,7 @@ pub class MinGWArgs {
         var user_crt = MinGWArgs::_user_links_crt(o)
         for var x: string in libc {
             if user_crt
-                && LinkText::starts_with(x, "-l")
+                && LinkText::starts_with(x.copy(), "-l")
                 && MinGWArgs::_is_crt(LinkText::slice(x, 2, x.size())) {
                 continue
             }
@@ -601,8 +601,8 @@ pub class MinGWArgs {
 
     priv static fn _user_links_crt(o: *LinkerOptions) -> bool {
         for var spec: string in o->link_libs {
-            var n = spec
-            var c = LinkText::find(spec, ":", 0)
+            var n = spec.copy()
+            var c = LinkText::find(spec.copy(), ":", 0)
             if c < spec.size() {
                 n = LinkText::slice(spec, c + 1, spec.size())
             }
@@ -616,8 +616,8 @@ pub class MinGWArgs {
     }
 
     priv static fn _is_crt(const name: string) -> bool {
-        return LinkText::starts_with(name, "msvcr")
-            || LinkText::starts_with(name, "ucrt")
-            || LinkText::starts_with(name, "crtdll")
+        return LinkText::starts_with(name.copy(), "msvcr")
+            || LinkText::starts_with(name.copy(), "ucrt")
+            || LinkText::starts_with(name.copy(), "crtdll")
     }
 }

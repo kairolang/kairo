@@ -50,7 +50,7 @@ pub class TomlLite {
     pub var table: string
 
     pub fn TomlLite(self, const text: string) {
-        self._s = text
+        self._s = text.copy()
     }
 
     /// Next key/value pair. False at end of input or on error (check error).
@@ -211,7 +211,7 @@ pub class TomlLite {
             if c == q {
                 res += LinkText::slice(self._s, b, self._i)
                 self._i += 1
-                out = res
+                out = res.copy()
                 return true
             }
 
@@ -326,7 +326,7 @@ pub class SysrootManifest {
 
     pub static fn load(const path: string, @inout out: SysrootManifest) -> bool {
         out      = SysrootManifest()
-        out.path = path
+        out.path = path.copy()
         out.dir  = LinkFS::parent(path)
 
         var text = ""
@@ -345,7 +345,7 @@ pub class SysrootManifest {
         }
 
         if !toml.error.empty() {
-            out.error = toml.error
+            out.error = toml.error.copy()
             return false
         }
 
@@ -447,7 +447,7 @@ pub class SysrootManifest {
             return false
         }
 
-        dst = v.text
+        dst = v.text.copy()
         return true
     }
 

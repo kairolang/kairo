@@ -385,7 +385,7 @@ pub class Formatter {
 
         // Our own line table: the source manager's is not part of its API,
         // and a virtual buffer (the output being checked) needs one too.
-        var src = self.src
+        var src = self.src.copy()
         self.lstart.push_back(0)
         for var i: usize = 0; i < src.size(); ++i {
             if src[i] == ('\n' as u8) {
@@ -620,7 +620,7 @@ pub class Formatter {
         var l   = self._list(self.base, self.base + self.size, 0, unsafe &els)
         var out = Renderer::render(unsafe &l.body, self.set)
         // 3.5: the renderer writes LF; with the rule off a CRLF file keeps CRLF
-        if !rules().crlf_to_lf && find_str(self.src, "\r\n") < self.src.size() {
+        if !rules().crlf_to_lf && find_str(self.src.copy(), "\r\n") < self.src.size() {
             var crlf: string = ""
             for var i: usize = 0; i < out.size(); ++i {
                 if out[i] == ('\n' as u8) {
@@ -1245,7 +1245,7 @@ pub class Formatter {
             end = nx
         }
 
-        im->path = path
+        im->path = path.copy()
 
         if !im->braced && !im->star {
             var a = self._next_tok(end)
@@ -1340,7 +1340,7 @@ pub class Formatter {
         }
 
         var bases = cxx::std::vector<string>()
-        var d     = self.file_dir
+        var d     = self.file_dir.copy()
         while d.size() > 0 {
             bases.push_back(d)
             bases.push_back(Path::join_str(d, "Lib"))
@@ -1349,7 +1349,7 @@ pub class Formatter {
                 break
             }
 
-            d = p
+            d = p.copy()
         }
 
         for var r: usize = 0; r < self.roots.size(); ++r {
@@ -1357,7 +1357,7 @@ pub class Formatter {
         }
 
         for var b: usize = 0; b < bases.size(); ++b {
-            var f = Path::join_str(bases[b], rel)
+            var f = Path::join_str(bases[b], rel.copy())
             if Path::exists_at(f + ".k") || Path::exists_at(Path::join_str(f, "module.k")) {
                 return true
             }
@@ -1399,18 +1399,18 @@ pub class Formatter {
             return ""
         }
 
-        var it = im.items[0]
+        var it = im.items[0].copy()
         if it == "*" {
             return if rules().import_unbrace_more => it else => ""
         }
 
-        var base = it
-        var cut  = find_str(it, " as ")
+        var base = it.copy()
+        var cut  = find_str(it.copy(), " as ")
         if cut < it.size() {
             base = it.subslice(0, cut)
         }
 
-        var nested = find_str(base, "::") < base.size()
+        var nested = find_str(base.copy(), "::") < base.size()
         if nested && !rules().import_unbrace_more {
             return ""
         }
@@ -1427,11 +1427,11 @@ pub class Formatter {
     /// joined by \x01, below every printable byte, so comparing the joined
     /// strings is comparing the tuples.
     fn import_key(self, const im: ImportInfo) -> string {
-        var path         = im.path
+        var path         = im.path.copy()
         var tail: string = ""
         var one          = self.unbraced_item(im)
         if one.size() > 0 {
-            var cut = find_str(one, " as ")
+            var cut = find_str(one.copy(), " as ")
             if cut < one.size() {
                 path += "::" + one.subslice(0, cut)
                 tail = "as " + one.subslice(cut + 4, one.size() - cut - 4)
@@ -1810,7 +1810,7 @@ pub class Formatter {
         e.doc       = self._v(a, b)
         e.first     = self._line(a)
         e.last      = self._line(b - 1)
-        e.cmt       = cmt
+        e.cmt       = cmt.copy()
         e.next_kind = self._kind_at(self._sig_after(b))
         es->push_back(e)
     }
@@ -2016,9 +2016,9 @@ pub class Formatter {
         for var x: usize = 1; x < kai.size(); ++x {
             var y = x
             while y > 0 && keys[y] < keys[y - 1] {
-                var tk = keys[y]
-                keys[y]     = keys[y - 1]
-                keys[y - 1] = tk
+                var tk = keys[y].copy()
+                keys[y]     = keys[y - 1].copy()
+                keys[y - 1] = tk.copy()
                 var ti = kai[y]
                 kai[y]     = kai[y - 1]
                 kai[y - 1] = ti
@@ -2312,7 +2312,7 @@ pub class Formatter {
         }
 
         for var r = i; r < j; ++r {
-            var c = (*es)[r].cmt
+            var c = (*es)[r].cmt.copy()
             if c.size() > 0 && widest + 1 + width_of(c) > self._room() {
                 return false
             }
@@ -2638,7 +2638,7 @@ pub class Formatter {
             if p < self.toks.size() => self.toks[p].end else => cs,
         )
 
-        if !Formatter::_same_words(written, kw) {
+        if !Formatter::_same_words(written.copy(), kw) {
             return self._hb(a, blk)
         }
 
@@ -5436,9 +5436,9 @@ pub fn sort_strings(xs: unsafe *cxx::std::vector<string>) {
     for var i: usize = 1; i < xs->size(); ++i {
         var j = i
         while j > 0 && (*xs)[j] < (*xs)[j - 1] {
-            var t = (*xs)[j]
-            (*xs)[j]     = (*xs)[j - 1]
-            (*xs)[j - 1] = t
+            var t = (*xs)[j].copy()
+            (*xs)[j]     = (*xs)[j - 1].copy()
+            (*xs)[j - 1] = t.copy()
             j -= 1
         }
     }

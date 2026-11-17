@@ -253,9 +253,9 @@ extend Server {
                     }
 
                     if g == keys.size() {
-                        keys.push_back(key)
-                        heads.push_back(head.out)
-                        ranges.push_back(rw.out)
+                        keys.push_back(key.copy())
+                        heads.push_back(head.out.copy())
+                        ranges.push_back(rw.out.copy())
                     } else if find_from(ranges[g], rw.out, 0) == usize::MAX {
                         ranges[g] = ranges[g] + "," + rw.out
                     }
@@ -332,7 +332,7 @@ extend Server {
                     var kind: i64    = SYM_CLASS
                     if up && (fpath == path) && (dl == ql) && (dc == ch) {
                         hit  = true
-                        rp   = bpath
+                        rp   = bpath.copy()
                         rl   = bl
                         rc   = bc
                         rn   = o->as_int(self.nth(o, b, BASE_BASE_LEN))
@@ -340,7 +340,7 @@ extend Server {
                         kind = o->as_int(self.nth(o, b, BASE_BASE_KIND))
                     } else if (!up) && (bpath == path) && (bl == ql) && (bc == ch) {
                         hit  = true
-                        rp   = fpath
+                        rp   = fpath.copy()
                         rl   = dl
                         rc   = dc
                         rn   = o->as_int(self.nth(o, b, BASE_LEN))
@@ -362,7 +362,7 @@ extend Server {
                         }
 
                         if !dup {
-                            seen.push_back(key)
+                            seen.push_back(key.copy())
                             if items {
                                 self.hierarchy_item(
                                     w,
@@ -436,7 +436,7 @@ extend Server {
                         // compares equal to the dumped selectionRange starts.
                         var kw = JsonWriter()
                         write_lsp_position(&kw, dl, dc)
-                        var key = kw.out
+                        var key = kw.out.copy()
                         var site = fpath + ":" + f"{o->as_int(self.nth(o, r, REF_LINE))}" + ":" + f"{o->as_int(self.nth(o, r, REF_CHAR))}" + ";"
                         for var k: usize = 0; k < decl_keys.size(); ++k {
                             if (decl_keys[k] == key)

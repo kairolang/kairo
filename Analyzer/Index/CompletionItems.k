@@ -148,7 +148,7 @@ extend IndexWalker {
         }
 
         var it = ItemRow{}
-        it.label  = name
+        it.label  = name.copy()
         it.detail = self.signature_(d)
         it.kind   = self.item_kind_(d)
         it.sort   = sort
@@ -432,8 +432,8 @@ extend IndexWalker {
         var cs = primitive_consts(b)
         for var i: usize = 0; i < cs.size(); ++i {
             var it = ItemRow{}
-            it.label  = cs[i].name
-            it.detail = cs[i].detail
+            it.label  = cs[i].name.copy()
+            it.detail = cs[i].detail.copy()
             it.kind   = CIK_CONSTANT as u32
             it.sort   = 0
             self.items.push_back(it)

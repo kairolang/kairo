@@ -170,7 +170,7 @@ extend Server {
                         }
 
                         if !dup {
-                            labels.push_back(label)
+                            labels.push_back(label.copy())
                             var sep = find_from(md, "\n---\n\n", 0)
                             if sep != usize::MAX {
                                 docs.push_back(
@@ -203,7 +203,7 @@ extend Server {
                     )
 
                     if di != usize::MAX {
-                        src = self.docs.docs[di].text
+                        src = self.docs.docs[di].text.copy()
                     } else if !LinkFS::read(self.entries[ei].files[fidx], &src) {
                         continue
                     }
@@ -258,7 +258,7 @@ extend Server {
                         }
 
                         if !dup {
-                            labels.push_back(label)
+                            labels.push_back(label.copy())
                             docs.push_back("")
                         }
                     }

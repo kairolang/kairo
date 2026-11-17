@@ -90,7 +90,7 @@ pub class SysProps {
     pub fn get(self, const k: string) -> string {
         for var i: usize = 0; i < self.keys.size(); ++i {
             if self.keys[i] == k {
-                return self.vals[i]
+                return self.vals[i].copy()
             }
         }
 
@@ -185,7 +185,7 @@ pub class SysNames {
             return "msvc"
         }
 
-        return family
+        return family.copy()
     }
 
     pub static fn provider_of(const family: string) -> string {
@@ -215,8 +215,8 @@ pub class SysNames {
     /// The target \p family / \p arch names, glibc at \p glibc.
     pub static fn make(const family: string, const arch: string, const glibc: string) -> SysTarget {
         var t = SysTarget{}
-        t.family   = family
-        t.arch     = arch
+        t.family   = family.copy()
+        t.arch     = arch.copy()
         t.provider = SysNames::provider_of(family)
         t.recipe   = SysNames::recipe_of(family)
         // 32-bit Arm on Linux is hard-float (eabihf) here, whatever the
@@ -231,7 +231,7 @@ pub class SysNames {
             t.name         = f"x86_64-linux-{env}"
             if family == "linux-gnu" {
                 t.name         = t.name + f"-glibc{glibc}"
-                t.libc_version = glibc
+                t.libc_version = glibc.copy()
             }
         } else if family == "linux-musl" {
             t.name = f"{arch}-linux-musl"
@@ -241,7 +241,7 @@ pub class SysNames {
             var env = if (arm) => ("gnueabihf") else => "gnu"
             t.name         = f"{arch}-linux-{env}-glibc{glibc}"
             t.clang_triple = f"{arch}-unknown-linux-{env}"
-            t.libc_version = glibc
+            t.libc_version = glibc.copy()
         } else if family == "windows-gnu" {
             t.name         = f"{arch}-windows-gnu"
             t.clang_triple = f"{arch}-w64-windows-gnu"
@@ -290,23 +290,23 @@ pub class SysNames {
     /// the spelling, so `.2.28` never reaches clang's triple or the env macro.
     pub static fn split_glibc(const input: string, @inout ver: string) -> string {
         ver = ""
-        var spelled = input
+        var spelled = input.copy()
         // Zig's spelling, `<...>-gnu<env>.<X.Y>`: the same as -glibc<X.Y>.
-        var gnu = LinkText::find(spelled, "-gnu", 0)
+        var gnu = LinkText::find(spelled.copy(), "-gnu", 0)
         if gnu < spelled.size() {
             // The dot ends the environment component: -glibc2.31 has its own
             // dash first, and is not this spelling.
-            var dot  = LinkText::find(spelled, ".", gnu)
-            var dash = LinkText::find(spelled, "-", gnu + 1)
+            var dot  = LinkText::find(spelled.copy(), ".", gnu)
+            var dash = LinkText::find(spelled.copy(), "-", gnu + 1)
             var tail = LinkText::slice(spelled, dot + 1, spelled.size())
             if dot < spelled.size() && dash > dot && SysNames::_is_version(tail) {
-                ver = tail
+                ver = tail.copy()
                 return LinkText::slice(spelled, 0, dot)
             }
         }
 
         // `-glibc<X.Y>` is ours, not llvm's.
-        var at = LinkText::find(spelled, "-glibc", 0)
+        var at = LinkText::find(spelled.copy(), "-glibc", 0)
         if at < spelled.size() {
             ver = LinkText::slice(spelled, at + 6, spelled.size())
             return LinkText::slice(spelled, 0, at)
@@ -329,7 +329,7 @@ pub class SysNames {
         var spelled = SysNames::split_glibc(input, &ver)
         var glibc   = if (ver.empty()) => (glibc_default) else => ver
         var named = if (ver.empty()) => (spelled) else => spelled + "-glibc" + ver
-        if LinkText::ends_with(input, "-glibc") {
+        if LinkText::ends_with(input.copy(), "-glibc") {
             why = f"\x27{input}\x27 names no glibc version after -glibc"
             return false
         }
@@ -358,7 +358,7 @@ pub class SysNames {
         // every one it could mean.
         if hits.empty() {
             for var t: SysTarget in table {
-                if LinkText::starts_with(t.name, input + "-") {
+                if LinkText::starts_with(t.name.copy(), input + "-") {
                     hits.push_back(t)
                 }
             }
@@ -407,14 +407,14 @@ pub class SysNames {
             return false
         }
 
-        var arch = parts[0]
-        var os   = parts[2]
+        var arch = parts[0].copy()
+        var os   = parts[2].copy()
         var env  = if (parts.size() > 3) => (parts[3]) else => ""
         var fam  = ""
         if tt.isOSLinux() {
-            if LinkText::starts_with(env, "musl") {
+            if LinkText::starts_with(env.copy(), "musl") {
                 fam = "linux-musl"
-            } else if env.empty() || LinkText::starts_with(env, "gnu") {
+            } else if env.empty() || LinkText::starts_with(env.copy(), "gnu") {
                 fam = "linux-gnu"
             } else {
                 why = f"\x27{spelled}\x27: Linux sysroots are musl or gnu, not {env}"
@@ -433,11 +433,11 @@ pub class SysNames {
             }
         } else if tt.isOSWindows() {
             fam = if (env == "gnu") => ("windows-gnu") else => "windows-msvc"
-        } else if LinkText::starts_with(os, "freebsd") {
+        } else if LinkText::starts_with(os.copy(), "freebsd") {
             fam = "freebsd"
-        } else if LinkText::starts_with(os, "netbsd") {
+        } else if LinkText::starts_with(os.copy(), "netbsd") {
             fam = "netbsd"
-        } else if LinkText::starts_with(os, "wasi") {
+        } else if LinkText::starts_with(os.copy(), "wasi") {
             fam = "wasi"
         } else if tt.getOS() == llvm::Triple::Darwin || tt.getOS() == llvm::Triple::MacOSX {
             // macOS only: iOS / tvOS / watchOS are Darwin too, and a macOS
@@ -470,27 +470,31 @@ pub class SysNames {
     pub static fn cpu_of(const arch: string) -> string {
         if arch == "x86_64"
             || arch == "x32"
-            || arch.size() == 4 && arch[0] == ('i' as u8) && LinkText::ends_with(arch, "86") {
+            || arch.size() == 4
+                && arch[0] == ('i' as u8)
+                && LinkText::ends_with(arch.copy(), "86") {
             return "x86"
         }
 
-        if LinkText::starts_with(arch, "aarch64") || LinkText::starts_with(arch, "arm64") {
+        if LinkText::starts_with(arch.copy(), "aarch64")
+            || LinkText::starts_with(arch.copy(), "arm64") {
             return "aarch64"
         }
 
-        if LinkText::starts_with(arch, "arm") || LinkText::starts_with(arch, "thumb") {
+        if LinkText::starts_with(arch.copy(), "arm")
+            || LinkText::starts_with(arch.copy(), "thumb") {
             return "arm"
         }
 
-        if LinkText::starts_with(arch, "riscv") {
+        if LinkText::starts_with(arch.copy(), "riscv") {
             return "riscv"
         }
 
-        if LinkText::starts_with(arch, "wasm") {
+        if LinkText::starts_with(arch.copy(), "wasm") {
             return "wasm"
         }
 
-        if LinkText::starts_with(arch, "powerpc") {
+        if LinkText::starts_with(arch.copy(), "powerpc") {
             return "powerpc"
         }
 
@@ -498,19 +502,19 @@ pub class SysNames {
             return "systemz"
         }
 
-        if LinkText::starts_with(arch, "mips") {
+        if LinkText::starts_with(arch.copy(), "mips") {
             return "mips"
         }
 
-        if LinkText::starts_with(arch, "loongarch") {
+        if LinkText::starts_with(arch.copy(), "loongarch") {
             return "loongarch"
         }
 
-        if LinkText::starts_with(arch, "sparc") {
+        if LinkText::starts_with(arch.copy(), "sparc") {
             return "sparc"
         }
 
-        return arch
+        return arch.copy()
     }
 
     /// 64-bit pointers, as the arch spells it (every aarch64 too).
@@ -532,16 +536,20 @@ pub class SysNames {
     /// Big-endian, as the arch spells it: *_be / *eb, s390x, sparc but
     /// sparcel, powerpc and mips without le / el.
     pub static fn is_big_endian(const arch: string) -> bool {
-        if LinkText::ends_with(arch, "_be") || LinkText::ends_with(arch, "eb") || arch == "s390x" {
+        if LinkText::ends_with(arch.copy(), "_be")
+            || LinkText::ends_with(arch.copy(), "eb")
+            || arch == "s390x" {
             return true
         }
 
-        if LinkText::starts_with(arch, "sparc") {
+        if LinkText::starts_with(arch.copy(), "sparc") {
             return arch != "sparcel"
         }
 
-        if LinkText::starts_with(arch, "powerpc") || LinkText::starts_with(arch, "mips") {
-            return !LinkText::ends_with(arch, "le") && !LinkText::ends_with(arch, "el")
+        if LinkText::starts_with(arch.copy(), "powerpc")
+            || LinkText::starts_with(arch.copy(), "mips") {
+            return !LinkText::ends_with(arch.copy(), "le")
+                && !LinkText::ends_with(arch.copy(), "el")
         }
 
         return false
@@ -571,8 +579,8 @@ pub class SysNames {
     /// them yet).
     pub static fn properties(t: *SysTarget) -> SysProps {
         var p    = SysProps()
-        var libc = t->recipe
-        var arch = t->arch
+        var libc = t->recipe.copy()
+        var arch = t->arch.copy()
         var cpu  = SysNames::cpu_of(arch)
         var os = if (libc == "musl" || libc == "glibc") => ("linux")
                  else => if (libc == "mingw") => ("windows") else => libc
@@ -586,14 +594,15 @@ pub class SysNames {
         var fl     = "na"
         if cpu == "arm" {
             // armv7-linux-gnueabihf has no vendor: the env is the last component.
-            fl = if (os == "windows" || LinkText::ends_with(t->clang_triple, "hf")) => ("hard")
+            fl = if (os == "windows"
+                     || LinkText::ends_with(t->clang_triple.copy(), "hf")) => ("hard")
                  else => "soft"
         }
 
         // compiler-rt's builtins arch (its <arch>_SOURCES): armv6 is
         // arm_min, armv7 and later arm (soft) / armhf (hard), MinGW's arm,
         // i?86 i386.
-        var rt = arch
+        var rt = arch.copy()
         if arch == "x32" {
             rt = "x32"
         } else if cpu == "x86" {
@@ -601,13 +610,14 @@ pub class SysNames {
         } else if cpu == "aarch64" {
             rt = "aarch64"
         } else if cpu == "arm" {
-            var skip: usize = if (LinkText::starts_with(arch, "thumb")) => (5) else => 3
+            var skip: usize = if (LinkText::starts_with(arch.copy(), "thumb")) => (5) else => 3
             var sub = LinkText::slice(arch, skip, arch.size())
             if os == "windows" {
                 rt = "arm"
-            } else if LinkText::starts_with(sub, "v6") {
+            } else if LinkText::starts_with(sub.copy(), "v6") {
                 rt = "armv6"
-            } else if LinkText::starts_with(sub, "v5") || LinkText::starts_with(sub, "v4") {
+            } else if LinkText::starts_with(sub.copy(), "v5")
+                || LinkText::starts_with(sub.copy(), "v4") {
                 rt = "armv" + LinkText::slice(sub, 1, sub.size())
             } else {
                 rt = if (fl == "hard") => ("armhf") else => "arm"
@@ -620,7 +630,7 @@ pub class SysNames {
 
         // The arch in crtbegin/crtend's object names (the crt configure's
         // own spelling).
-        var crt = rt
+        var crt = rt.copy()
         if cpu == "arm" {
             crt = if (fl == "hard") => ("armhf") else => "arm"
         }

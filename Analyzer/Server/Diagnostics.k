@@ -86,7 +86,7 @@ extend Server {
         while d != JSON_NONE() {
             var p = s->get_str(d, SK_PATH)
             if p.empty() {
-                p = self.entries[ei].entry
+                p = self.entries[ei].entry.copy()
             }
 
             var seen = false
@@ -97,7 +97,7 @@ extend Server {
             }
 
             if !seen {
-                paths.push_back(p)
+                paths.push_back(p.copy())
             }
 
             d = s->next(d)
@@ -107,7 +107,7 @@ extend Server {
         // that pass's errors (compose_diags), even where the run reported
         // nothing for it.
         for var k: usize = 0; k < self.docs.docs.size(); ++k {
-            var dp = self.docs.docs[k].path
+            var dp = self.docs.docs[k].path.copy()
             if ((self.docs.docs[k].syn.landed
                 && (self.docs.docs[k].syn.at > self.entries[ei].snap_rev))
                 || self.docs.docs[k].side_current())
@@ -120,7 +120,7 @@ extend Server {
                 }
 
                 if !seen {
-                    paths.push_back(dp)
+                    paths.push_back(dp.copy())
                 }
             }
         }
@@ -140,7 +140,7 @@ extend Server {
             w.field_raw(K_DIAGNOSTICS, arr)
             w.end_object()
             self.notify(M_PUBLISH_DIAGNOSTICS, w.out)
-            now.push_back(uri)
+            now.push_back(uri.copy())
         }
 
         for var i: usize = 0; i < self.entries[ei].published.size(); ++i {
@@ -161,7 +161,7 @@ extend Server {
             }
         }
 
-        self.entries[ei].published = now
+        self.entries[ei].published = now.copy()
     }
 
     // --- snapshot lookups ------------------------------------------------
@@ -178,23 +178,23 @@ extend Server {
 
         var j = Job()
         j.kind       = JobKind::Syntax
-        j.path       = self.docs.docs[di].path
+        j.path       = self.docs.docs[di].path.copy()
         j.out        = self.scratch(".json")
         j.log        = self.scratch(".log")
         j.rev        = self.rev
         j.started_ms = now_ms()
 
         var argv: [string]
-        argv.push_back(self.exe)
-        argv.push_back(WA_WORKER)
-        argv.push_back(j.out)
-        argv.push_back(WA_SYNTAX_ONLY)
-        argv.push_back(j.path)
-        argv.push_back(WA_OVERLAY)
-        argv.push_back(j.path)
-        argv.push_back(overlay)
-        argv.push_back(WA_END)
-        argv.push_back(j.path)
+        argv.push_back(self.exe.copy())
+        argv.push_back(WA_WORKER.copy())
+        argv.push_back(j.out.copy())
+        argv.push_back(WA_SYNTAX_ONLY.copy())
+        argv.push_back(j.path.copy())
+        argv.push_back(WA_OVERLAY.copy())
+        argv.push_back(j.path.copy())
+        argv.push_back(overlay.copy())
+        argv.push_back(WA_END.copy())
+        argv.push_back(j.path.copy())
 
         // The buffer is no longer due only once its pass is running: a
         // refused launch leaves it due, and the loop tries again.
@@ -309,7 +309,7 @@ extend Server {
             while d != JSON_NONE() {
                 var p = s->get_str(d, SK_PATH)
                 if p.empty() {
-                    p = self.entries[ei].entry
+                    p = self.entries[ei].entry.copy()
                 }
 
                 var dg = s->get(d, SK_DIAG)
@@ -333,7 +333,7 @@ extend Server {
     /// Publishes buffer \p di's diagnostics after its syntax pass, unless
     /// the entry's last run is at least as new (it has published already).
     fn publish_syntax(self, di: usize) {
-        var path = self.docs.docs[di].path
+        var path = self.docs.docs[di].path.copy()
         var ei   = self.entry_of(path)
         if (ei != usize::MAX)
             && self.entries[ei].has_snap
@@ -354,19 +354,19 @@ extend Server {
             return
         }
 
-        var uri            = self.docs.docs[di].uri
+        var uri            = self.docs.docs[di].uri.copy()
         var kept: [string]
         for var k: usize = 0; k < self.entries[ei].published.size(); ++k {
             if self.entries[ei].published[k] != uri {
-                kept.push_back(self.entries[ei].published[k])
+                kept.push_back(self.entries[ei].published[k].copy())
             }
         }
 
         if n > 0 {
-            kept.push_back(uri)
+            kept.push_back(uri.copy())
         }
 
-        self.entries[ei].published = kept
+        self.entries[ei].published = kept.copy()
     }
 
     /// Publishes buffer \p di's diagnostics as they now compose (a live
@@ -382,19 +382,19 @@ extend Server {
         w.end_object()
         self.notify(M_PUBLISH_DIAGNOSTICS, w.out)
 
-        var uri            = self.docs.docs[di].uri
+        var uri            = self.docs.docs[di].uri.copy()
         var kept: [string]
         for var k: usize = 0; k < self.entries[ei].published.size(); ++k {
             if self.entries[ei].published[k] != uri {
-                kept.push_back(self.entries[ei].published[k])
+                kept.push_back(self.entries[ei].published[k].copy())
             }
         }
 
         if n > 0 {
-            kept.push_back(uri)
+            kept.push_back(uri.copy())
         }
 
-        self.entries[ei].published = kept
+        self.entries[ei].published = kept.copy()
     }
 
     // --- parking ---------------------------------------------------------

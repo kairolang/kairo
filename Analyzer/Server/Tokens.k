@@ -239,10 +239,10 @@ extend Server {
         }
 
         if slot == self.tok_uri.size() {
-            self.tok_uri.push_back(uri)
+            self.tok_uri.push_back(uri.copy())
             self.tok_id.push_back(0)
             var none: [i64]
-            self.tok_data.push_back(none)
+            self.tok_data.push_back(none.copy())
         }
 
         self.tok_seq += 1

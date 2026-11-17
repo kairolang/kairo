@@ -117,7 +117,7 @@ pub class Link {
         res.ran         = true
         res.in_process  = run.in_process
         res.ret         = run.ret
-        res.stdout_text = run.stdout_text
+        res.stdout_text = run.stdout_text.copy()
 
         var errs0 = LinkDiag::error_count(&res.messages)
         LinkDiag::parse(run.stderr_text, &res.messages)
@@ -154,7 +154,7 @@ pub class Link {
     /// once per library, at its highest version; the link itself is fine.
     priv static fn _check_glibc_floor(@inout job:  LinkJob,
                                       @inout msgs: cxx::std::vector<LinkMessage>) {
-        var floor = job.glibc_floor
+        var floor = job.glibc_floor.copy()
         if floor.empty() {
             return
         }
@@ -169,7 +169,7 @@ pub class Link {
                 continue
             }
 
-            var v = n.max_glibc
+            var v = n.max_glibc.copy()
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Warning,
@@ -200,7 +200,7 @@ pub class Link {
                 s += " "
             }
 
-            s += LinkText::quote_shell(argv[i])
+            s += LinkText::quote_shell(argv[i].copy())
         }
 
         return s

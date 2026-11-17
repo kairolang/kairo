@@ -309,7 +309,7 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
             return
         }
 
-        b->word   = w
+        b->word   = w.copy()
         b->scopes = true
         while (p < to) && blank(text[p]) {
             p += 1
@@ -349,7 +349,7 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
             p += name.size()
         }
 
-        b->name = name
+        b->name = name.copy()
         return
     }
 }
@@ -499,7 +499,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
 
                     if !closed {
                         s.what    = SITE_HEADER
-                        s.lang    = lang
+                        s.lang    = lang.copy()
                         s.path_at = q + 1
                         // What is replaced is the last path segment.
                         s.start = at
@@ -1008,7 +1008,7 @@ fn read_decl(const text: string,
     }
 
     var d = LexDecl{}
-    d.name  = name
+    d.name  = name.copy()
     d.off   = p
     d.param = param
     p += name.size()
@@ -1063,7 +1063,7 @@ fn read_decl(const text: string,
         }
     }
 
-    var ty = rest
+    var ty = rest.copy()
     if eq != usize::MAX {
         ty     = rest.subslice(0, eq)
         d.init = rest.subslice(eq + 1, rest.size() - eq - 1)
@@ -1106,7 +1106,7 @@ pub fn lex_decls(const text: string, const cls: [u8], from: usize, to: usize) ->
 
                 if (w == "catch") || (word_from(text, after) == "in") {
                     var d = LexDecl{}
-                    d.name = name
+                    d.name = name.copy()
                     d.off  = q
                     out.push_back(d)
                 }

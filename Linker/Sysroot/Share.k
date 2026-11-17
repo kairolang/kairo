@@ -55,7 +55,7 @@ pub class SysRecipe {
     pub var error:      string
 
     pub fn load(self, const path: string) -> bool {
-        self.path = path
+        self.path = path.copy()
         var text = ""
         if !LinkFS::read(path, &text) {
             self.error = "cannot read the file"
@@ -69,7 +69,7 @@ pub class SysRecipe {
             self.raw_tables.push_back(toml.table)
             self.raw_keys.push_back(key)
             self.raw_vals.push_back(val)
-            if LinkText::starts_with(toml.table, "per_arch.") && val.kind == 1 {
+            if LinkText::starts_with(toml.table.copy(), "per_arch.") && val.kind == 1 {
                 var v = LinkText::slice(toml.table, 9, toml.table.size())
                 self.per_arch_keys.push_back(v + "." + key)
                 self.per_arch_vals.push_back(val.text)
@@ -81,13 +81,13 @@ pub class SysRecipe {
             }
 
             if key == "family" && val.kind == 1 {
-                self.family = val.text
+                self.family = val.text.copy()
             } else if key == "triple" && val.kind == 1 {
-                self.triple = val.text
+                self.triple = val.text.copy()
             } else if key == "clang_triple" && val.kind == 1 {
-                self.clang_triple = val.text
+                self.clang_triple = val.text.copy()
             } else if key == "os_version" && val.kind == 1 {
-                self.os_version = val.text
+                self.os_version = val.text.copy()
             } else if key == "arches" && val.kind == 3 {
                 self.arches = val.list
             } else if key == "inputs" && val.kind == 3 {
@@ -98,7 +98,7 @@ pub class SysRecipe {
         }
 
         if !toml.error.empty() {
-            self.error = toml.error
+            self.error = toml.error.copy()
             return false
         }
 
@@ -124,7 +124,7 @@ pub class SysRecipe {
             return ""
         }
 
-        return v->text
+        return v->text.copy()
     }
 
     /// A bool key; \p dflt when absent or not a bool.
@@ -163,9 +163,9 @@ pub class SysRecipe {
     /// {os_version} filled for \p t. {triple} is the recipe's own `triple`
     /// template, itself expanded (glibc's names go through it).
     pub fn expand(self, const tmpl: string, t: *SysTarget) -> string {
-        var s = tmpl
+        var s = tmpl.copy()
         for var i: usize = 0; i < self.per_arch_keys.size(); ++i {
-            var dot = LinkText::find(self.per_arch_keys[i], ".", 0)
+            var dot = LinkText::find(self.per_arch_keys[i].copy(), ".", 0)
             var v   = LinkText::slice(self.per_arch_keys[i], 0, dot)
             var a = LinkText::slice(
                 self.per_arch_keys[i],
@@ -215,7 +215,7 @@ pub class SysRecipe {
                 val = "\x22" + self.expand(v->text, t) + "\x22"
             }
 
-            var k = key
+            var k = key.copy()
             while k.size() < 13 {
                 k += " "
             }
@@ -248,14 +248,14 @@ pub class GlibcVersions {
             if key == "versions" && val.kind == 3 {
                 self.versions = val.list
             } else if key == "floor" && val.kind == 1 {
-                self.floor = val.text
+                self.floor = val.text.copy()
             } else if key == "default" && val.kind == 1 {
-                self.default_ = val.text
+                self.default_ = val.text.copy()
             }
         }
 
         if !toml.error.empty() {
-            self.error = toml.error
+            self.error = toml.error.copy()
             return false
         }
 
@@ -307,7 +307,7 @@ pub class QuirkSet {
         var key  = ""
         var val  = TomlValue{}
         while toml.next(&key, &val) {
-            if !LinkText::starts_with(toml.table, "quirk.") {
+            if !LinkText::starts_with(toml.table.copy(), "quirk.") {
                 self.error = f"{path}: key {key} outside a [quirk.<id>] table"
                 return false
             }
@@ -315,7 +315,7 @@ pub class QuirkSet {
             var id = LinkText::slice(toml.table, 6, toml.table.size())
             if self.quirks.empty() || self.quirks[self.quirks.size() - 1].id != id {
                 var q = SysQuirk{}
-                q.id = id
+                q.id = id.copy()
                 self.quirks.push_back(q)
             }
 
@@ -365,7 +365,7 @@ pub class QuirkSet {
 
             var probe_ok = true
             for var p: string in q.match_probe {
-                var neg = LinkText::starts_with(p, "!")
+                var neg = LinkText::starts_with(p.copy(), "!")
                 var fact = if (neg) => (LinkText::slice(p, 1, p.size())) else => p
                 if SysUtil::contains(&probe, fact) == neg {
                     probe_ok = false
@@ -385,13 +385,13 @@ pub class QuirkSet {
         q->effects.push_back(key + "=" + as_text)
         if v.kind == 1 {
             if key == "target_rewrite" {
-                q->target_rewrite = v.text
+                q->target_rewrite = v.text.copy()
             } else if key == "force_include_file" {
-                q->force_include_file = v.text
+                q->force_include_file = v.text.copy()
             } else if key == "post_archive" {
-                q->post_archive = v.text
+                q->post_archive = v.text.copy()
             } else if key == "musl_arch" {
-                q->musl_arch = v.text
+                q->musl_arch = v.text.copy()
             } else {
                 return false
             }
@@ -460,25 +460,25 @@ pub class ShareTree {
     /// <prefix>/share/kairo/sysroot with <prefix> the dir above bin/.
     pub static fn locate(const flag: string) -> string {
         if !flag.empty() {
-            return ShareTree::_absolute(LinkText::strip_slash(flag))
+            return ShareTree::_absolute(LinkText::strip_slash(flag.copy()))
         }
 
         var e = LinkFS::env(EnvNames::kairo_sysroot_share())
         if !e.empty() {
-            return ShareTree::_absolute(LinkText::strip_slash(e))
+            return ShareTree::_absolute(LinkText::strip_slash(e.copy()))
         }
 
         var prefix = LinkFS::parent(LinkFS::parent(env::exe_path()))
-        return LinkText::join(prefix, "share/kairo/sysroot")
+        return LinkText::join(prefix.copy(), "share/kairo/sysroot")
     }
 
     pub static fn present(const dir: string) -> bool {
-        return LinkFS::is_file(LinkText::join(dir, "registry.toml"))
+        return LinkFS::is_file(LinkText::join(dir.copy(), "registry.toml"))
     }
 
     pub fn load(self, const dir: string) -> bool {
-        self.dir = dir
-        var path = LinkText::join(dir, "registry.toml")
+        self.dir = dir.copy()
+        var path = LinkText::join(dir.copy(), "registry.toml")
         var text = ""
         if !LinkFS::read(path, &text) {
             self.error = f"{path} is missing"
@@ -491,7 +491,7 @@ pub class ShareTree {
         var schema = ""
         while toml.next(&key, &val) {
             if toml.table.empty() && key == "schema" {
-                schema = val.text
+                schema = val.text.copy()
             } else if toml.table == "inputs" && val.kind == 1 {
                 self.input_dirs.push_back(key)
                 self.input_sha.push_back(val.text)
@@ -511,7 +511,7 @@ pub class ShareTree {
             return false
         }
 
-        self.schema = schema
+        self.schema = schema.copy()
         return true
     }
 
@@ -524,7 +524,7 @@ pub class ShareTree {
     pub fn registered(self, const rel: string) -> string {
         for var i: usize = 0; i < self.input_dirs.size(); ++i {
             if self.input_dirs[i] == rel {
-                return self.input_sha[i]
+                return self.input_sha[i].copy()
             }
         }
 
@@ -534,7 +534,7 @@ pub class ShareTree {
     /// An input dir on disk. `runtimes` falls back to the 0.2.0 sibling
     /// share/kairo/runtimes, so the tree need not carry it twice.
     pub fn input_path(self, const rel: string) -> string {
-        var p = LinkText::join(self.dir, rel)
+        var p = LinkText::join(self.dir.copy(), rel.copy())
         if rel == "runtimes" && !LinkFS::is_dir(p) {
             return LinkText::join(LinkFS::parent(self.dir), "runtimes")
         }
@@ -548,10 +548,10 @@ pub class ShareTree {
     /// records the headers it finds absolute, and the share's location then
     /// ends up in every object.
     priv static fn _absolute(const p: string) -> string {
-        var abs = LinkText::starts_with(p, "/")
-            || LinkText::starts_with(p, "\\")
+        var abs = LinkText::starts_with(p.copy(), "/")
+            || LinkText::starts_with(p.copy(), "\\")
             || p.size() > 2 && p[1] == (':' as u8)
-        return if (abs) => (p) else => LinkFS::real(p)
+        return if (abs) => (p) else => LinkFS::real(p.copy())
     }
 
     /// runtimes/REVISION, trimmed; "" when absent.

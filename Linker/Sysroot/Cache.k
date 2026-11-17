@@ -98,7 +98,7 @@ pub class SysCache {
     pub var root: string
 
     pub fn SysCache(self, const root: string) {
-        self.root = LinkText::strip_slash(root)
+        self.root = LinkText::strip_slash(root.copy())
     }
 
     /// The `schema` field of every key object (Compiler/Spec/SysRoot.md
@@ -111,7 +111,7 @@ pub class SysCache {
     pub static fn default_root() -> string {
         var r = LinkFS::env(EnvNames::kairo_sysroot_cache())
         if !r.empty() {
-            return SysCache::_slashes(LinkText::strip_slash(r))
+            return SysCache::_slashes(LinkText::strip_slash(r.copy()))
         }
 
         r = cache_root()
@@ -139,7 +139,7 @@ pub class SysCache {
     pub fn lookup(self, const name: string) -> string {
         var entry = f"{self.root}/by-name/{name}"
         if LinkFS::is_dir(entry) {
-            return LinkFS::real(entry)
+            return LinkFS::real(entry.copy())
         }
 
         if LinkFS::is_file(entry) {
@@ -203,7 +203,7 @@ pub class SysCache {
         cxx::std::sort(names.begin(), names.end())
         var out = cxx::std::vector<string>()
         for var n: string in names {
-            if LinkText::starts_with(n, ".") {
+            if LinkText::starts_with(n.copy(), ".") {
                 continue
             }
 
@@ -241,7 +241,7 @@ pub class SysCache {
     pub fn gc(self, now: u64, max_age_ticks: u64) -> cxx::std::vector<string> {
         var removed = cxx::std::vector<string>()
         for var name: string in LinkFS::list_dir(f"{self.root}/by-name") {
-            if LinkText::starts_with(name, ".") {
+            if LinkText::starts_with(name.copy(), ".") {
                 var p = f"{self.root}/by-name/{name}"
                 LinkFS::remove(p)
                 removed.push_back(p)
@@ -288,7 +288,7 @@ pub class SysCache {
 
     priv fn _referenced(self, const key: string) -> bool {
         for var name: string in LinkFS::list_dir(f"{self.root}/by-name") {
-            if !LinkText::starts_with(name, ".") && self.key_of(name) == key {
+            if !LinkText::starts_with(name.copy(), ".") && self.key_of(name) == key {
                 return true
             }
         }
@@ -297,7 +297,7 @@ pub class SysCache {
     }
 
     priv static fn _slashes(const s: string) -> string {
-        var out = s
+        var out = s.copy()
         eval if defined!(_WIN32) {
             for var i: usize = 0; i < out.size(); ++i {
                 if out[i] == ('\\' as u8) {
@@ -316,7 +316,7 @@ pub class SysStage {
     pub var dir: string
 
     pub fn SysStage(self, const dir: string) {
-        self.dir = dir
+        self.dir = dir.copy()
     }
 
     pub fn done(self) -> bool {

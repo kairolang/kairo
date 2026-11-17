@@ -291,8 +291,8 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             }
         }
 
-        self.locals_    = kept
-        self.locals_at_ = at
+        self.locals_    = kept.copy()
+        self.locals_at_ = at.copy()
     }
 
     /// Whether \p d is declared inside a function or a closure (a local

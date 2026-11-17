@@ -88,7 +88,7 @@ extend Server {
         for var i: usize = 0; i <= spec.size(); ++i {
             if (i == spec.size()) || (spec[i] == (',' as u8)) { // ','
                 if !name.empty() {
-                    self.dbg_fail_kind.push_back(name)
+                    self.dbg_fail_kind.push_back(name.copy())
                     self.dbg_fail_left.push_back(n)
                 }
 
@@ -130,7 +130,7 @@ extend Server {
         if (self.docs.docs[i].tmp_rev != self.docs.docs[i].revision)
             || self.docs.docs[i].tmp_path.empty() {
             if !self.docs.docs[i].tmp_path.empty() {
-                self.garbage.push_back(self.docs.docs[i].tmp_path)
+                self.garbage.push_back(self.docs.docs[i].tmp_path.copy())
             }
 
             self.docs.docs[i].tmp_path = self.scratch(kairo_dot_ext())
@@ -138,7 +138,7 @@ extend Server {
             LinkFS::write(self.docs.docs[i].tmp_path, self.docs.docs[i].text)
         }
 
-        return self.docs.docs[i].tmp_path
+        return self.docs.docs[i].tmp_path.copy()
     }
 
     fn scratch(self, const suffix: string) -> string {
@@ -226,8 +226,8 @@ extend Server {
                 f"launch refused kind={kind} refusals={self.launch_refusals} retry_ms={wait}",
             )
 
-            self.garbage.push_back(j->out)
-            self.garbage.push_back(j->log)
+            self.garbage.push_back(j->out.copy())
+            self.garbage.push_back(j->log.copy())
             return LaunchResult::Refused
         }
 
@@ -269,11 +269,11 @@ extend Server {
                    const marked_tmp:  string) -> [string] {
         self.docs.sync_all()
         var argv: [string]
-        argv.push_back(self.exe)
-        argv.push_back(WA_WORKER)
-        argv.push_back(out)
-        argv.push_back(WA_CWD)
-        argv.push_back(self.entries[ei].dir)
+        argv.push_back(self.exe.copy())
+        argv.push_back(WA_WORKER.copy())
+        argv.push_back(out.copy())
+        argv.push_back(WA_CWD.copy())
+        argv.push_back(self.entries[ei].dir.copy())
         // `--root` indexes every file under the project, and the worker
         // drops those rows again when the graph is wide (WIDE_INDEX_LIMIT):
         // on the kals graph (418 files) walking them was 2.2 s of CPU in a
@@ -282,12 +282,12 @@ extend Server {
         self.entries[ei].rooted = !(self.entries[ei].ran
             && (self.entries[ei].files.size() > WIDE_INDEX_LIMIT))
         if self.entries[ei].rooted {
-            argv.push_back(WA_ROOT)
-            argv.push_back(self.project.dir)
+            argv.push_back(WA_ROOT.copy())
+            argv.push_back(self.project.dir.copy())
         }
 
         for var i: usize = 0; i < self.docs.docs.size(); ++i {
-            var path = self.docs.docs[i].path
+            var path = self.docs.docs[i].path.copy()
             // Before the first run the entry's files are unknown, so every
             // buffer is offered; one the graph never loads is ignored.
             if self.entries[ei].ran && (!self.entries[ei].holds(path)) {
@@ -298,23 +298,23 @@ extend Server {
                 continue
             }
 
-            argv.push_back(WA_OVERLAY)
-            argv.push_back(path)
+            argv.push_back(WA_OVERLAY.copy())
+            argv.push_back(path.copy())
             argv.push_back(self.overlay_of_(i))
         }
 
         if !marked_path.empty() {
-            argv.push_back(WA_OVERLAY)
-            argv.push_back(marked_path)
-            argv.push_back(marked_tmp)
+            argv.push_back(WA_OVERLAY.copy())
+            argv.push_back(marked_path.copy())
+            argv.push_back(marked_tmp.copy())
         }
 
-        argv.push_back(WA_END)
+        argv.push_back(WA_END.copy())
         for var i: usize = 0; i < self.entries[ei].args.size(); ++i {
-            argv.push_back(self.entries[ei].args[i])
+            argv.push_back(self.entries[ei].args[i].copy())
         }
 
-        argv.push_back(self.entries[ei].entry)
+        argv.push_back(self.entries[ei].entry.copy())
         return argv
     }
 
@@ -388,8 +388,8 @@ extend Server {
                 continue
             }
 
-            j.text_paths.push_back(self.docs.docs[b].path)
-            j.texts.push_back(self.docs.docs[b].text)
+            j.text_paths.push_back(self.docs.docs[b].path.copy())
+            j.texts.push_back(self.docs.docs[b].text.copy())
         }
 
         // A first analysis, or one already known to be slow, is long enough
@@ -398,23 +398,23 @@ extend Server {
         // reads (section 14).
         var argv: [string]
         for var q: usize = 0; q < 3; ++q {
-            argv.push_back(wargv[q])
+            argv.push_back(wargv[q].copy())
         }
 
         var want = (!self.entries[ei].ran) || self.entries[ei].slow
         if want {
             j.prog_file = self.scratch(".prog")
-            argv.push_back(WA_PROGRESS)
-            argv.push_back(j.prog_file)
+            argv.push_back(WA_PROGRESS.copy())
+            argv.push_back(j.prog_file.copy())
         }
 
         for var q: usize = 3; q < wargv.size(); ++q {
-            argv.push_back(wargv[q])
+            argv.push_back(wargv[q].copy())
         }
 
         if self.launch_job(&argv, &j, "index") != LaunchResult::Started {
             if !j.prog_file.empty() {
-                self.garbage.push_back(j.prog_file)
+                self.garbage.push_back(j.prog_file.copy())
             }
 
             // Still due, and retried after the backoff (a request waiting
@@ -496,7 +496,7 @@ extend Server {
                 }
 
                 if !j.prog_file.empty() {
-                    self.garbage.push_back(j.prog_file)
+                    self.garbage.push_back(j.prog_file.copy())
                 }
             } else if j.kind == JobKind::Syntax {
                 self.finish_syntax(&j, done.ReturnCode)
@@ -506,10 +506,10 @@ extend Server {
                 self.finish_complete(&j, done.ReturnCode)
             }
 
-            self.garbage.push_back(j.out)
-            self.garbage.push_back(j.log)
+            self.garbage.push_back(j.out.copy())
+            self.garbage.push_back(j.log.copy())
             if !j.marked.empty() {
-                self.garbage.push_back(j.marked)
+                self.garbage.push_back(j.marked.copy())
             }
         }
 
@@ -526,13 +526,13 @@ extend Server {
                 }
 
                 if live {
-                    keep.push_back(self.garbage[g])
+                    keep.push_back(self.garbage[g].copy())
                 } else {
                     Path::remove_file(self.garbage[g])
                 }
             }
 
-            self.garbage = keep
+            self.garbage = keep.copy()
         }
     }
 
@@ -715,7 +715,7 @@ extend Server {
         // one a new import reaches) it is as if changed now: older than this
         // index, and the entry runs again with it overlaid.
         for var k: usize = 0; k < self.docs.docs.size(); ++k {
-            var kp = self.docs.docs[k].path
+            var kp = self.docs.docs[k].path.copy()
             if !self.entries[ei].holds(kp) {
                 continue
             }

@@ -100,11 +100,11 @@ extend Server {
             }
 
             self.comp_wait    = d->dump(d->root)
-            self.comp_wait_id = id
+            self.comp_wait_id = id.copy()
             return
         }
 
-        var path = self.docs.docs[i].path
+        var path = self.docs.docs[i].path.copy()
         var ei   = self.ensure_entry(path)
         if ei == usize::MAX {
             self.respond(id, "{\"isIncomplete\":true,\"items\":[]}")
@@ -201,17 +201,17 @@ extend Server {
         j.out      = self.scratch(".json")
         j.log      = self.scratch(".log")
         j.rev      = self.rev
-        j.id       = id
-        j.path     = path
+        j.id       = id.copy()
+        j.path     = path.copy()
         j.member   = member
-        j.edit     = edit
-        j.marked   = mpath
+        j.edit     = edit.copy()
+        j.marked   = mpath.copy()
         j.t0_us    = t0_us
 
         var argv = self.worker_argv(ei, j.out, path, j.marked)
         if self.launch_job(&argv, &j, "complete") != LaunchResult::Started {
             // Nothing is due after a completion: the request is answered.
-            self.garbage.push_back(j.marked)
+            self.garbage.push_back(j.marked.copy())
             self.respond(id, "[]")
             return
         }
@@ -336,7 +336,7 @@ extend Server {
             }
 
             if (c == (':' as u8)) && ((q + 1) < spec.size()) && (spec[q + 1] == (':' as u8)) {
-                segs.push_back(cur)
+                segs.push_back(cur.copy())
                 cur = string()
                 q += 2
                 continue
@@ -358,12 +358,12 @@ extend Server {
         var roots: [string]
         roots.push_back(Path::parent_of(self.docs.docs[i].path))
         if ei != usize::MAX {
-            roots.push_back(self.entries[ei].dir)
+            roots.push_back(self.entries[ei].dir.copy())
             for var a: usize = 0; (a + 1) < self.entries[ei].args.size(); ++a {
                 if self.entries[ei].args[a] == "-I" {
                     roots.push_back(
                         Path::absolute_if_exists(
-                            self.entries[ei].args[a + 1],
+                            self.entries[ei].args[a + 1].copy(),
                             self.entries[ei].dir,
                         ),
                     )
@@ -387,13 +387,13 @@ extend Server {
 
         var rel: string = ""
         for var g: usize = 0; g < segs.size(); ++g {
-            rel = Path::join_str(rel, segs[g])
+            rel = Path::join_str(rel, segs[g].copy())
         }
 
         for var r: usize = 0; r < roots.size(); ++r {
-            var dir = roots[r]
+            var dir = roots[r].copy()
             if !rel.empty() {
-                dir = Path::join_str(roots[r], rel)
+                dir = Path::join_str(roots[r], rel.copy())
             }
 
             // The path so far names a FILE: offer what it declares.
@@ -415,7 +415,7 @@ extend Server {
                         }
 
                         if !dup {
-                            seen.push_back(names[n])
+                            seen.push_back(names[n].copy())
                             self.item(
                                 &w,
                                 names[n],
@@ -437,7 +437,7 @@ extend Server {
             // segment.
             var names = LinkFS::list_dir(dir)
             for var n: usize = 0; n < names.size(); ++n {
-                var name      = names[n]
+                var name      = names[n].copy()
                 var kind: i64 = CIK_FOLDER
                 if name.ends_with(kairo_dot_ext()) {
                     name = name.subslice(
@@ -449,7 +449,8 @@ extend Server {
                     if name == module_file_stem() {
                         continue
                     }
-                } else if (!LinkFS::is_dir(Path::join_str(dir, name))) || name.starts_with(".") {
+                } else if (!LinkFS::is_dir(Path::join_str(dir, name.copy())))
+                    || name.starts_with(".") {
                     continue
                 }
 
@@ -462,7 +463,7 @@ extend Server {
                     var is_lib = (kind == CIK_FOLDER)
                         && LinkFS::is_file(
                             Path::join_str(
-                                Path::join_str(dir, name),
+                                Path::join_str(dir, name.copy()),
                                 module_file_name(),
                             ),
                         )
@@ -482,7 +483,7 @@ extend Server {
                 }
 
                 if !dup {
-                    seen.push_back(name)
+                    seen.push_back(name.copy())
                     self.item(&w, name, kind, "", "0" + name, edit)
                 }
             }
@@ -520,7 +521,7 @@ extend Server {
                         var idoc = doc.get_str(it, SK_DOC)
                         if !idoc.empty() {
                             self.item_labels.push_back(doc.get_str(it, K_LABEL))
-                            self.item_docs.push_back(idoc)
+                            self.item_docs.push_back(idoc.copy())
                         }
 
                         self.item(

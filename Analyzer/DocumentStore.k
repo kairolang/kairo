@@ -10,7 +10,7 @@ import Protocol::*
 pub fn uri_to_path(const uri: string) -> string {
     var prefix = "file://"
     if !uri.starts_with(prefix) {
-        return uri
+        return uri.copy()
     }
 
     var out = string()
@@ -441,7 +441,7 @@ pub class GapText {
             )
         }
 
-        self.buf = nb
+        self.buf = nb.copy()
         self.ge  = new_cap - tail
     }
 
@@ -480,7 +480,7 @@ pub class GapText {
             nl[new_cap - tail + i] = self.ls[self.lge + i]
         }
 
-        self.ls  = nl
+        self.ls  = nl.copy()
         self.lge = new_cap - tail
     }
 
@@ -623,8 +623,8 @@ pub class SyntaxState {
         self.at     = rev
         self.parsed = parsed
         self.unsure = unsure
-        self.diags  = diags
-        self.tokens = tokens
+        self.diags  = diags.copy()
+        self.tokens = tokens.copy()
         return true
     }
 }
@@ -729,10 +729,10 @@ pub class Document {
     /// Records \p text as what entry \p entry's index of revision \p rev
     /// read for this buffer.
     fn set_indexed(self, const text: string, rev: u64, const entry: string) {
-        self.idx_text = text
+        self.idx_text = text.copy()
         self.idx_lines.build(text)
         self.idx_rev   = rev
-        self.idx_entry = entry
+        self.idx_entry = entry.copy()
     }
 
     fn set_text(self, const text: string) {
@@ -818,7 +818,7 @@ pub class DocumentStore {
         var i = self.index_of(uri)
         if i == usize::MAX {
             var d = Document()
-            d.uri  = uri
+            d.uri  = uri.copy()
             d.path = uri_to_path(uri)
             self.next_slot += 1
             d.slot = self.next_slot

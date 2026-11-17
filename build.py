@@ -1046,14 +1046,19 @@ def tree_visibility_args(kairo: Path) -> list:
     return ["-fdefault-visibility=spec"] if kairo_knows(kairo, "fdefault-visibility") else []
 
 
-def tree_library_args(src: Path) -> list:
+def tree_library_args(src: Path, lib_dir=None) -> list:
     """--builtins-dir / --std-dir naming the source tree's own Lib/builtin and Lib/std.
     A compiler finds its library beside itself (<exe>/../lib), which for a release seed
     is the copy staged when that seed was built. The tree is written against the
     library it ships, so it is compiled against that one: a change to the library and
     to the source that uses it land in one build. The runtime root is the builtin
-    root's parent, Lib/, where rt/ sits."""
-    return ["--builtins-dir", str(src / "Lib" / "builtin"), "--std-dir", str(src / "Lib" / "std")]
+    root's parent, Lib/, where rt/ sits.
+
+    lib_dir (--lib-dir) names another library root holding builtin/ and rt/, and
+    std/ where it differs from the tree's; a root without std/ keeps the tree's."""
+    lib = Path(lib_dir).resolve() if lib_dir else src / "Lib"
+    std = lib / "std" if (lib / "std").is_dir() else src / "Lib" / "std"
+    return ["--builtins-dir", str(lib / "builtin"), "--std-dir", str(std)]
 
 
 def find_kairo(arg, triple: str) -> Path:
@@ -1419,6 +1424,10 @@ def main() -> int:
                          "<out>/obj. The pipeline passes build/<triple>/cache/<stage>; kairo reuses the objects "
                          "of unchanged TUs from it (incremental compilation, phase 1)")
     ap.add_argument("--no-path", action="store_true", help="release pipeline: leave the toolchain on PATH alone")
+    ap.add_argument("--lib-dir", metavar="DIR",
+                    help="compile the tree against the library root DIR (builtin/ and rt/, "
+                         "std/ if it has one) instead of the tree's own Lib/; for a scratch "
+                         "copy of the library, e.g. one whose copy constructors are deprecated")
     ap.add_argument("--compiler-flag", action="append", default=[], metavar="FLAG",
                     help="pass FLAG to every kairo invocation of the build (repeatable), e.g. "
                          "--compiler-flag=--type-check-only --compiler-flag=--error-format=basic")
@@ -1502,7 +1511,7 @@ def main() -> int:
         reg_extra = llvm_include_args(llvm_src, cross_dir(a.target) / "llvm" if a.target else llvm_build)
         reg_extra.append("-fduck-generics")  # internal; the compiler tree's own build (see `common`)
         reg_extra += tree_visibility_args(kairo)  # internal; see tree_visibility_args
-        reg_extra += tree_library_args(src)
+        reg_extra += tree_library_args(src, a.lib_dir)
         if a.target:
             reg_extra += ["--target", a.target, *floor_args(CROSS[a.target][1])]
         reg_o = selfhost_registry(kairo, src, out, prog, reg_extra, cache_root)
@@ -1560,7 +1569,7 @@ def main() -> int:
         # flag, after native_common as above.
         common += tree_visibility_args(kairo)
         # The tree's own library, not the seed's staged copy (tree_library_args).
-        common += tree_library_args(src)
+        common += tree_library_args(src, a.lib_dir)
     # The Sema agreement pass's count for this build (agree_summary): asked of a
     # compiler that has the flag. A Kairo-only flag, after native_common as above.
     agree_flag = selfhost and not check_only and kairo_knows(kairo, "sema-agreement-summary")

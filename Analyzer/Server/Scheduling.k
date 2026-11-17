@@ -554,7 +554,7 @@ extend Server {
             }
 
             var root = Path::absolute_if_exists(
-                self.entries[ei].args[a + 1],
+                self.entries[ei].args[a + 1].copy(),
                 self.entries[ei].dir,
             )
 
@@ -624,9 +624,9 @@ extend Server {
         }
 
         var e = Entry()
-        e.entry      = path
-        e.dir        = self.project.dir
-        e.args       = self.project.default_args
+        e.entry      = path.copy()
+        e.dir        = self.project.dir.copy()
+        e.args       = self.project.default_args.copy()
         e.adhoc      = true
         e.change_rev = self.rev
         return self.add_entry_(&e)
@@ -637,7 +637,7 @@ extend Server {
     /// text the buffer holds. usize::MAX when a run is needed (an edited
     /// buffer, a file the last run did not index, an entry not yet run).
     fn unchanged_on_disk_(self, di: usize) -> usize {
-        var path = self.docs.docs[di].path
+        var path = self.docs.docs[di].path.copy()
         var ei   = self.entry_of(path)
         if (ei == usize::MAX)
             || (!self.entries[ei].fresh())
@@ -685,7 +685,7 @@ extend Server {
                     }
 
                     if !have {
-                        self.entries[i].live_changed.push_back(path)
+                        self.entries[i].live_changed.push_back(path.copy())
                     }
                 }
             }
@@ -718,7 +718,7 @@ extend Server {
 
         if is_cxx_source(path) {
             self.br_rescan = true
-            self.br_changed.push_back(path)
+            self.br_changed.push_back(path.copy())
             var told = false
             for var q: usize = 0; q < self.br_told.size(); ++q {
                 if self.br_told[q] == path {
@@ -727,14 +727,14 @@ extend Server {
             }
 
             if !told {
-                self.br_told.push_back(path)
+                self.br_told.push_back(path.copy())
             }
 
             // Most recent last, bounded: its .k files' headers go first.
             var others: [string]
             for var q: usize = 0; q < self.br_recent.size(); ++q {
                 if self.br_recent[q] != path {
-                    others.push_back(self.br_recent[q])
+                    others.push_back(self.br_recent[q].copy())
                 }
             }
 
@@ -745,11 +745,11 @@ extend Server {
             }
 
             for var q = from; q < others.size(); ++q {
-                recent.push_back(others[q])
+                recent.push_back(others[q].copy())
             }
 
-            recent.push_back(path)
-            self.br_recent = recent
+            recent.push_back(path.copy())
+            self.br_recent = recent.copy()
         }
 
         for var b: usize = 0; b < self.br_files.size(); ++b {
@@ -822,7 +822,7 @@ extend Server {
 
     fn park(self, const msg: string) {
         var p = Parked()
-        p.msg   = msg
+        p.msg   = msg.copy()
         p.since = now_ms()
         self.parked.push_back(p)
     }
@@ -830,7 +830,7 @@ extend Server {
     /// Runs every parked request again. With \p force, the ones that have
     /// waited too long are answered from whatever snapshot there is.
     fn retry_parked(self, force: bool) {
-        var old = self.parked
+        var old = self.parked.copy()
         self.parked.clear()
         for var i: usize = 0; i < old.size(); ++i {
             var waited = now_ms() - old[i].since

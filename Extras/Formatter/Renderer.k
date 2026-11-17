@@ -248,7 +248,7 @@ pub class Renderer {
                     if c.doc != &null
                         && c.doc->kind == DocKind::GapLine
                         && !pen.bol
-                        && closer_only_line(pen.out) {
+                        && closer_only_line(pen.out.copy()) {
                         pen.out += "\n"
                     }
 
@@ -423,7 +423,7 @@ pub class Renderer {
             pen.out += "\n"
         }
 
-        return pen.out
+        return pen.out.copy()
     }
 
     priv static fn _is_newline(const c: Cmd) -> bool {
@@ -465,7 +465,7 @@ pub class Renderer {
     }
 
     priv static fn _lit(ind: i32, pad: i32, s: string) -> Cmd {
-        return Cmd { ind: ind, pad: pad, brk: false, doc: &null, lit: s }
+        return Cmd { ind: ind, pad: pad, brk: false, doc: &null, lit: s.copy() }
     }
 
     priv static fn _nl(ind: i32, pad: i32) -> Cmd {
@@ -479,8 +479,8 @@ pub class Renderer {
                          c:     Cmd,
                          pen:   unsafe *Pen,
                          width: i32) {
-        var        open  = d->seps[0]
-        var        close = d->seps[1]
+        var        open  = d->seps[0].copy()
+        var        close = d->seps[1].copy()
         var        n     = (d->children.size() - 1) / 2
         var unsafe *flat = unsafe &d->children[0]
         var        set   = pen->set
@@ -557,7 +557,7 @@ pub class Renderer {
         }
 
         var seq = cxx::std::vector<Cmd>()
-        seq.push_back(Renderer::_lit(c.ind, c.pad, open))
+        seq.push_back(Renderer::_lit(c.ind, c.pad, open.copy()))
 
         if aligned {
             var col = pen->at() + width_of(open)
@@ -571,7 +571,7 @@ pub class Renderer {
                 Renderer::_item(unsafe &seq, d, i, c.ind, pad, keys, kw)
             }
 
-            seq.push_back(Renderer::_lit(c.ind, pad, close))
+            seq.push_back(Renderer::_lit(c.ind, pad, close.copy()))
             Renderer::_push_seq(stack, unsafe &seq)
             return
         }
@@ -586,7 +586,7 @@ pub class Renderer {
         }
 
         seq.push_back(Renderer::_nl(c.ind, c.pad))
-        seq.push_back(Renderer::_lit(c.ind, c.pad, close))
+        seq.push_back(Renderer::_lit(c.ind, c.pad, close.copy()))
         Renderer::_push_seq(stack, unsafe &seq)
     }
 
@@ -679,7 +679,7 @@ pub class Renderer {
         }
 
         var seq = cxx::std::vector<Cmd>()
-        seq.push_back(Renderer::_lit(c.ind, c.pad, d->seps[0]))
+        seq.push_back(Renderer::_lit(c.ind, c.pad, d->seps[0].copy()))
         for var i: usize = 0; i < n; ++i {
             var k = i % ncol
             if k == 0 {
@@ -711,7 +711,7 @@ pub class Renderer {
         }
 
         seq.push_back(Renderer::_nl(c.ind, c.pad))
-        seq.push_back(Renderer::_lit(c.ind, c.pad, d->seps[1]))
+        seq.push_back(Renderer::_lit(c.ind, c.pad, d->seps[1].copy()))
         Renderer::_push_seq(stack, unsafe &seq)
     }
 
@@ -872,7 +872,7 @@ pub class Renderer {
                 var unsafe *cell        = unsafe &d->children[r * cols + k]
                 var        sep:  string = ""
                 if k > 0 && w[k] > 0 {
-                    sep = d->seps[k]
+                    sep = d->seps[k].copy()
                 }
 
                 if cell->is_empty() {
@@ -891,7 +891,7 @@ pub class Renderer {
                 }
 
                 if sep.length() > 0 {
-                    seq.push_back(Renderer::_lit(c.ind, c.pad, sep))
+                    seq.push_back(Renderer::_lit(c.ind, c.pad, sep.copy()))
                 }
 
                 seq.push_back(

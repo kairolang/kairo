@@ -79,7 +79,7 @@ pub class SysUtil {
         var links = cxx::std::vector<string>()
         SysUtil::_walk(dir, "", 0, follow, &rels, &links)
         if !links.empty() {
-            err = f"{LinkText::join(dir, links[0])} is a symlink; a schema 2 input holds none (links.tsv records them)"
+            err = f"{LinkText::join(dir.copy(), links[0].copy())} is a symlink; a schema 2 input holds none (links.tsv records them)"
             return ""
         }
 
@@ -87,9 +87,9 @@ pub class SysUtil {
 
         var stream = ""
         for var r: string in rels {
-            var fh = SysUtil::sha256_file(LinkText::join(dir, r))
+            var fh = SysUtil::sha256_file(LinkText::join(dir.copy(), r.copy()))
             if fh.empty() {
-                err = f"cannot read {LinkText::join(dir, r)}"
+                err = f"cannot read {LinkText::join(dir.copy(), r.copy())}"
                 return ""
             }
 
@@ -114,7 +114,7 @@ pub class SysUtil {
 
         var stream = if (follow) => ("schema 1\n") else => "schema 2\n"
         for var r: string in rels {
-            var p = LinkText::join(dir, r)
+            var p = LinkText::join(dir.copy(), r.copy())
             stream += f"{r} {SysUtil::file_size(p)} {LinkFS::mtime(p)}\n"
         }
 
@@ -205,8 +205,8 @@ pub class SysUtil {
                         const key:     string,
                         const json:    string) {
         var f = SysJsonField{}
-        f.key  = key
-        f.json = json
+        f.key  = key.copy()
+        f.json = json.copy()
         fields.push_back(f)
     }
 
@@ -310,7 +310,7 @@ pub class SysUtil {
         }
 
         for var name: string in LinkFS::list_dir(dir) {
-            var p = LinkText::join(dir, name)
+            var p = LinkText::join(dir.copy(), name.copy())
             var r = if (rel.empty()) => (name) else => rel + "/" + name
             if !follow && llvm::sys::fs::is_symlink_file(llvm::Twine(kairo::sref(p))) {
                 links.push_back(r)

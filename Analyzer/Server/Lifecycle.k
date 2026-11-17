@@ -91,9 +91,9 @@ extend Server {
         self.live_stop_all()
         for var i: usize = 0; i < self.project.entries.size(); ++i {
             var e = Entry()
-            e.entry      = self.project.entries[i].entry
-            e.dir        = self.project.entries[i].dir
-            e.args       = self.project.entries[i].args
+            e.entry      = self.project.entries[i].entry.copy()
+            e.dir        = self.project.entries[i].dir.copy()
+            e.args       = self.project.entries[i].args.copy()
             e.change_rev = self.rev
             // Not analysed until a buffer needs it (ensure_entry): a project
             // file may list a dozen entry points, each a whole compile.
@@ -130,7 +130,7 @@ extend Server {
             self.root = Path::real_path_of(uri_to_path(root))
         }
 
-        self.project.dir = self.root
+        self.project.dir = self.root.copy()
 
         var opts = d->get(params, "initializationOptions")
         var dms  = d->get_int(opts, OPT_DEBOUNCE_MS)

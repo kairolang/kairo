@@ -100,7 +100,7 @@ pub class SysCrtTable {
     /// One pass over the file: the tables are large (1500 archives for
     /// armv7 MinGW), so nothing is looked up by key afterwards.
     pub fn load(self, const path: string) -> bool {
-        self.path = path
+        self.path = path.copy()
         var text = ""
         if !LinkFS::read(path, &text) {
             self.error = f"{path}: cannot read the file"
@@ -112,14 +112,14 @@ pub class SysCrtTable {
         var val  = TomlValue{}
         var last = ""
         while toml.next(&key, &val) {
-            var tb    = toml.table
+            var tb    = toml.table.copy()
             var fresh = tb != last
-            last = tb
+            last = tb.copy()
             if tb.empty() {
                 if key == "clang_triple" {
-                    self.clang_triple = val.text
+                    self.clang_triple = val.text.copy()
                 } else if key == "dlltool_machine" {
-                    self.dlltool_machine = val.text
+                    self.dlltool_machine = val.text.copy()
                 } else if key == "dlltool_flags" {
                     self.dlltool_flags = val.list
                 } else if key == "empty" {
@@ -127,8 +127,8 @@ pub class SysCrtTable {
                 }
             } else if tb == "files" || tb == "headers" || tb == "install" {
                 var pr = CrtPair{}
-                pr.key = key
-                pr.val = val.text
+                pr.key = key.copy()
+                pr.val = val.text.copy()
                 if tb == "files" {
                     self.files.push_back(pr)
                 } else if tb == "headers" {
@@ -138,60 +138,60 @@ pub class SysCrtTable {
                 }
             } else if tb == "flags" {
                 var f = CrtFlags{}
-                f.lang = key
+                f.lang = key.copy()
                 f.list = val.list
                 self.flags.push_back(f)
-            } else if LinkText::starts_with(tb, "group.") {
+            } else if LinkText::starts_with(tb.copy(), "group.") {
                 if fresh {
                     self.groups.push_back(CrtGroup{})
                 }
 
                 var *g = &self.groups[self.groups.size() - 1]
                 if key == "lang" {
-                    g->lang = val.text
+                    g->lang = val.text.copy()
                 } else if key == "flags" {
                     g->flags = val.list
                 } else if key == "sources" {
                     g->sources = val.list
                 }
-            } else if LinkText::starts_with(tb, "def.") {
+            } else if LinkText::starts_with(tb.copy(), "def.") {
                 if fresh {
                     self.defs.push_back(CrtDef{})
                 }
 
                 var *d = &self.defs[self.defs.size() - 1]
                 if key == "source" {
-                    d->source = val.text
+                    d->source = val.text.copy()
                 } else if key == "out" {
-                    d->out = val.text
+                    d->out = val.text.copy()
                 } else if key == "flags" {
                     d->flags = val.list
                 } else if key == "strip_at" {
                     d->strip_at = val.flag
                 }
-            } else if LinkText::starts_with(tb, "archive.") {
+            } else if LinkText::starts_with(tb.copy(), "archive.") {
                 if fresh {
                     self.archives.push_back(CrtArchive{})
                 }
 
                 var *a = &self.archives[self.archives.size() - 1]
                 if key == "out" {
-                    a->out = val.text
+                    a->out = val.text.copy()
                 } else if key == "def" {
-                    a->def = val.text
+                    a->def = val.text.copy()
                 } else if key == "members" {
                     a->members = val.list
                 } else if key == "addlib" {
                     a->addlib = val.list
                 }
-            } else if LinkText::starts_with(tb, "link.") {
+            } else if LinkText::starts_with(tb.copy(), "link.") {
                 if fresh {
                     self.links.push_back(CrtLink{})
                 }
 
                 var *l = &self.links[self.links.size() - 1]
                 if key == "out" {
-                    l->out = val.text
+                    l->out = val.text.copy()
                 } else if key == "ld" {
                     l->ld = val.list
                 } else if key == "members" {
@@ -236,7 +236,7 @@ pub class CrtEnv {
 pub class SysCrt {
     pub static fn expand(env: *CrtEnv, const s: string) -> string {
         if !LinkText::contains(s, "{") {
-            return s
+            return s.copy()
         }
 
         var r = SysUtil::fill(s, "src", env->src)
@@ -299,7 +299,7 @@ pub class SysCrt {
             }
 
             for var e: string in g.sources {
-                var eq = LinkText::find(e, "=", 0)
+                var eq = LinkText::find(e.copy(), "=", 0)
                 if eq >= e.size() {
                     jobs.wait_all()
                     return out.refuse(
@@ -367,13 +367,13 @@ pub class SysCrt {
                 res += "\n"
             }
 
-            var l   = lines[i]
+            var l   = lines[i].copy()
             var end = l.size()
             if end > 0 && l[end - 1] == ('\r' as u8) {
                 end -= 1
             }
 
-            var sp = LinkText::find(l, " ", 0)
+            var sp = LinkText::find(l.copy(), " ", 0)
             var we = if (sp < l.size()) => (sp) else => end
             var at = we
             for var j: usize = 0; j < we; ++j {
@@ -406,13 +406,13 @@ pub class SysCrt {
     }
 
     pub static fn first_error(const text: string) -> string {
-        for var l: string in LinkText::split_lines(text) {
+        for var l: string in LinkText::split_lines(text.copy()) {
             if LinkText::contains(l, "error") {
                 return LinkText::trim(l)
             }
         }
 
-        var lines = LinkText::split_lines(text)
+        var lines = LinkText::split_lines(text.copy())
         return if (lines.empty()) => ("compile failed (no output)") else => LinkText::trim(lines[0])
     }
 
@@ -430,7 +430,7 @@ pub class SysCrt {
                           const to:   string,
                           hard:       bool,
                           @inout err: string) -> bool {
-        var colon = LinkText::find(how, ":", 0)
+        var colon = LinkText::find(how.copy(), ":", 0)
         var kind = if (colon < how.size()) => (LinkText::slice(how, 0, colon)) else => ""
         if kind != "src" && kind != "gen" {
             err = f"\x27{how}\x27 is neither src: nor gen:"

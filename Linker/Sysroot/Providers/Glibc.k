@@ -352,7 +352,7 @@ pub class GlibcProvider derives SysrootProvider {
                                  const dst:  string,
                                  @inout out: SysOutcome) -> bool {
         var hroot = ctx->share_path(ctx->recipe.str("libc", "headers"))
-        var arch  = ctx->target.arch
+        var arch  = ctx->target.arch.copy()
         var row   = GlibcRow{}
         if !GlibcProvider::target_row(ctx, &row, &out) {
             return false
@@ -432,12 +432,12 @@ pub class GlibcProvider derives SysrootProvider {
             )
         }
 
-        var v     = ctx->target.libc_version
-        var dot   = LinkText::find(v, ".", 0)
+        var v     = ctx->target.libc_version.copy()
+        var dot   = LinkText::find(v.copy(), ".", 0)
         var minor = LinkText::slice(v, dot + 1, v.size())
         var fixed = ""
         var hits  = 0
-        for var line: string in LinkText::split_lines(ft) {
+        for var line: string in LinkText::split_lines(ft.copy()) {
             var w = GlibcProvider::_words(line)
             if w.size() == 3 && w[0] == "#define" && w[1] == "__GLIBC_MINOR__" {
                 line = "#define\t__GLIBC_MINOR__\t" + minor
@@ -485,13 +485,13 @@ pub class GlibcProvider derives SysrootProvider {
             )
         }
 
-        var v      = ctx->target.libc_version
+        var v      = ctx->target.libc_version.copy()
         var folded = !SysUtil::version_less(v, "2.34")
         var libs   = cxx::std::vector<GlibcLib>()
         var all    = cxx::std::vector<cxx::std::vector<GlibcSym>>()
         for var stem: string in GlibcProvider::stems() {
             var l = GlibcLib{}
-            l.stem = stem
+            l.stem = stem.copy()
             l.soname = if (stem == "ld") => (row.ld)
                        else => GlibcProvider::_lookup(
                            &row.so_keys,
@@ -549,8 +549,8 @@ pub class GlibcProvider derives SysrootProvider {
     pub static fn source_crt(ctx: *StageCtx, const lib: string, @inout out: SysOutcome) -> bool {
         var croot = ctx->share_path(ctx->recipe.str("libc", "crt"))
         var sroot = ctx->share_path(ctx->recipe.str("libc", "src"))
-        var arch  = ctx->target.arch
-        var v     = ctx->target.libc_version
+        var arch  = ctx->target.arch.copy()
+        var v     = ctx->target.libc_version.copy()
         var t     = GlibcCrtTable{}
         var found = false
         for var era: string in LinkFS::list_dir(croot) {
@@ -693,7 +693,7 @@ pub class GlibcProvider derives SysrootProvider {
     /// soname and floor, plus [sonames]; refuses a release below the floor.
     pub static fn target_row(ctx: *StageCtx, @inout row: GlibcRow, @inout out: SysOutcome) -> bool {
         var ab   = ctx->share_path(ctx->recipe.str("libc", "abilists"))
-        var arch = ctx->target.arch
+        var arch = ctx->target.arch.copy()
         var text = ""
         if !LinkFS::read(ab + "/targets.toml", &text) {
             return out.refuse(f"share input {ab}/targets.toml missing", "")
@@ -708,11 +708,11 @@ pub class GlibcProvider derives SysrootProvider {
                 row.so_vals.push_back(val.text)
             } else if toml.table == arch && val.kind == 1 {
                 if key == "abi" {
-                    row.abi = val.text
+                    row.abi = val.text.copy()
                 } else if key == "ld" {
-                    row.ld = val.text
+                    row.ld = val.text.copy()
                 } else if key == "floor" {
-                    row.floor = val.text
+                    row.floor = val.text.copy()
                 }
             }
         }
@@ -731,7 +731,7 @@ pub class GlibcProvider derives SysrootProvider {
             )
         }
 
-        var v = ctx->target.libc_version
+        var v = ctx->target.libc_version.copy()
         if !row.floor.empty() && SysUtil::version_less(v, row.floor) {
             return out.refuse(
                 f"glibc {v} predates the {arch} port (first release {row.floor})",
@@ -753,7 +753,7 @@ pub class GlibcProvider derives SysrootProvider {
                           const v:          string,
                           @inout nodes:     cxx::std::vector<string>) -> cxx::std::vector<GlibcSym> {
         var text = ""
-        for var line: string in LinkText::split_lines(abilist) {
+        for var line: string in LinkText::split_lines(abilist.copy()) {
             var w = GlibcProvider::_words(line)
             if w.size() < 4 || !GlibcProvider::in_ranges(w[w.size() - 1], v) {
                 continue
@@ -768,7 +768,7 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         var co = ""
-        for var line: string in LinkText::split_lines(compat) {
+        for var line: string in LinkText::split_lines(compat.copy()) {
             var w = GlibcProvider::_words(line)
             if w.size() == 4 && GlibcProvider::in_ranges(w[3], v) {
                 co += w[0] + " " + w[1] + " " + w[2] + "\n"
@@ -776,7 +776,7 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         nodes.clear()
-        for var line: string in LinkText::split_lines(nodes_text) {
+        for var line: string in LinkText::split_lines(nodes_text.copy()) {
             var w = GlibcProvider::_words(line)
             if w.size() == 2 && !SysUtil::version_less(v, w[1]) {
                 nodes.push_back(w[0])
@@ -792,7 +792,7 @@ pub class GlibcProvider derives SysrootProvider {
     /// \p v is in it (a bare release means from it to the newest).
     pub static fn in_ranges(const spec: string, const v: string) -> bool {
         for var r: string in SysUtil::split(spec, (',' as u8)) {
-            var dash = LinkText::find(r, "-", 0)
+            var dash = LinkText::find(r.copy(), "-", 0)
             var lo = if (dash < r.size()) => (LinkText::slice(r, 0, dash)) else => r
             var hi = if (dash < r.size()) => (LinkText::slice(r, dash + 1, r.size())) else => ""
             if SysUtil::version_less(v, lo) {
@@ -822,21 +822,22 @@ pub class GlibcProvider derives SysrootProvider {
         var val  = TomlValue{}
         var last = ""
         while toml.next(&key, &val) {
-            var tb    = toml.table
+            var tb    = toml.table.copy()
             var fresh = tb != last
-            last = tb
+            last = tb.copy()
             if tb.empty() {
                 if key == "era" {
-                    t.era = val.text
+                    t.era = val.text.copy()
                 } else if key == "releases" {
-                    t.releases = val.text
+                    t.releases = val.text.copy()
                 } else if key == "crt" {
                     t.crt = val.list
                 } else if key == "nonshared" {
                     t.nonshared = val.list
                 }
-            } else if LinkText::starts_with(tb, "compile.") || LinkText::starts_with(tb, "link.") {
-                var link = LinkText::starts_with(tb, "link.")
+            } else if LinkText::starts_with(tb.copy(), "compile.")
+                || LinkText::starts_with(tb.copy(), "link.") {
+                var link = LinkText::starts_with(tb.copy(), "link.")
                 if fresh {
                     if link {
                         t.links.push_back(GlibcStep{})
@@ -852,9 +853,9 @@ pub class GlibcProvider derives SysrootProvider {
 
                 if key == "out" {
                     if link {
-                        t.links[n - 1].out = val.text
+                        t.links[n - 1].out = val.text.copy()
                     } else {
-                        t.compiles[n - 1].out = val.text
+                        t.compiles[n - 1].out = val.text.copy()
                     }
                 } else if (key == "args" || key == "inputs") && val.kind == 3 {
                     if link {
@@ -867,7 +868,7 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         if !toml.error.empty() {
-            why = toml.error
+            why = toml.error.copy()
             return false
         }
 
@@ -884,7 +885,7 @@ pub class GlibcProvider derives SysrootProvider {
                            const k:     string) -> string {
         for var i: usize = 0; i < keys.size(); ++i {
             if keys[i] == k {
-                return vals[i]
+                return vals[i].copy()
             }
         }
 
@@ -896,7 +897,7 @@ pub class GlibcProvider derives SysrootProvider {
     /// 2.34 the SONAME is the file.
     pub static fn file_name(l: *GlibcLib, const version: string) -> string {
         if version.empty() || !SysUtil::version_less(version, "2.34") {
-            return l->soname
+            return l->soname.copy()
         }
 
         return l->stem + "-" + version + ".so"
@@ -948,19 +949,19 @@ pub class GlibcProvider derives SysrootProvider {
 
             if libs.empty() || libs[libs.size() - 1].stem != toml.table {
                 var l = GlibcLib{}
-                l.stem = toml.table
+                l.stem = toml.table.copy()
                 libs.push_back(l)
             }
 
             if key == "soname" && val.kind == 1 {
-                libs[libs.size() - 1].soname = val.text
+                libs[libs.size() - 1].soname = val.text.copy()
             } else if key == "versions" && val.kind == 3 {
                 libs[libs.size() - 1].versions = val.list
             }
         }
 
         if !toml.error.empty() {
-            why = toml.error
+            why = toml.error.copy()
             return false
         }
 
@@ -972,18 +973,18 @@ pub class GlibcProvider derives SysrootProvider {
     pub static fn parse_abilist(const text:   string,
                                 const compat: string) -> cxx::std::vector<GlibcSym> {
         var syms = cxx::std::vector<GlibcSym>()
-        for var line: string in LinkText::split_lines(text) {
+        for var line: string in LinkText::split_lines(text.copy()) {
             var w = GlibcProvider::_words(line)
-            if w.size() < 3 || LinkText::starts_with(w[0], "#") {
+            if w.size() < 3 || LinkText::starts_with(w[0].copy(), "#") {
                 continue
             }
 
             var s = GlibcSym{}
-            s.version = w[0]
-            s.name    = w[1]
-            s.kind    = w[2]
+            s.version = w[0].copy()
+            s.name    = w[1].copy()
+            s.kind    = w[2].copy()
             if w.size() > 3 {
-                s.size = w[3]
+                s.size = w[3].copy()
             }
 
             syms.push_back(s)
@@ -998,7 +999,7 @@ pub class GlibcProvider derives SysrootProvider {
                 if names[i] == s.name {
                     found = true
                     if GlibcProvider::ver_less(newest[i], s.version) {
-                        newest[i] = s.version
+                        newest[i] = s.version.copy()
                     }
 
                     break
@@ -1013,7 +1014,7 @@ pub class GlibcProvider derives SysrootProvider {
 
         var over_keys = cxx::std::vector<string>()
         var over_vals = cxx::std::vector<string>()
-        for var line: string in LinkText::split_lines(compat) {
+        for var line: string in LinkText::split_lines(compat.copy()) {
             var w = GlibcProvider::_words(line)
             if w.size() == 3 {
                 over_keys.push_back(w[0] + " " + w[1])
@@ -1095,9 +1096,9 @@ pub class GlibcProvider derives SysrootProvider {
         for var i: usize = 1; i < extra.size(); ++i {
             var j = i
             while j > 0 && GlibcProvider::ver_less(extra[j], extra[j - 1]) {
-                var t = extra[j]
-                extra[j]     = extra[j - 1]
-                extra[j - 1] = t
+                var t = extra[j].copy()
+                extra[j]     = extra[j - 1].copy()
+                extra[j - 1] = t.copy()
                 j -= 1
             }
         }
@@ -1109,7 +1110,7 @@ pub class GlibcProvider derives SysrootProvider {
         map = ""
         var prev = ""
         for var i: usize = 0; i < nodes.size(); ++i {
-            var v    = nodes[i]
+            var v    = nodes[i].copy()
             var body = ""
             for var j: usize = 0; j < abs_nodes.size(); ++j {
                 if abs_nodes[j] == v {
@@ -1127,7 +1128,7 @@ pub class GlibcProvider derives SysrootProvider {
 
             map += v + " {\n" + body + "}"
             map += if (prev.empty()) => (";\n") else => " " + prev + ";\n"
-            prev = v
+            prev = v.copy()
         }
     }
 
@@ -1169,11 +1170,11 @@ pub class GlibcProvider derives SysrootProvider {
     priv static fn _ver_prefix(const v: string) -> string {
         var d = GlibcProvider::_ver_digits(v)
         if d >= v.size() {
-            return v
+            return v.copy()
         }
 
         var p = LinkText::slice(v, 0, d)
-        if LinkText::ends_with(p, "_") {
+        if LinkText::ends_with(p.copy(), "_") {
             p = LinkText::slice(p, 0, p.size() - 1)
         }
 
@@ -1183,7 +1184,7 @@ pub class GlibcProvider derives SysrootProvider {
     priv static fn _soname(@inout libs: cxx::std::vector<GlibcLib>, const stem: string) -> string {
         for var l: GlibcLib in libs {
             if l.stem == stem {
-                return l.soname
+                return l.soname.copy()
             }
         }
 

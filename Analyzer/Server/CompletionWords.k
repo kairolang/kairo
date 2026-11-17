@@ -144,7 +144,7 @@ pub fn builtin_attributes() -> [BuiltinRow] {
 
         if !dup {
             var r = BuiltinRow{}
-            r.word    = word
+            r.word    = word.copy()
             r.usage   = LangAttrs::usage(word)
             r.summary = LangAttrs::summary(word)
             r.targets = LangAttrs::targets(word)
@@ -168,7 +168,7 @@ pub fn builtin_macros() -> [BuiltinRow] {
         }
 
         var r = BuiltinRow{}
-        r.word    = word
+        r.word    = word.copy()
         r.usage   = LangMacros::usage(word)
         r.summary = LangMacros::summary(word)
         out.push_back(r)
@@ -183,7 +183,7 @@ pub fn builtin_macros() -> [BuiltinRow] {
         }
 
         var r = BuiltinRow{}
-        r.word    = word
+        r.word    = word.copy()
         r.usage   = LangIntrinsics::usage(word)
         r.summary = LangIntrinsics::summary(word)
         out.push_back(r)
@@ -230,7 +230,7 @@ pub fn usage_snippet(const usage: string) -> string {
         // `create T(args)`: the word, then the rest as one placeholder.
         var sp = first_byte(usage, ' ' as u8)
         if sp == usize::MAX {
-            return usage
+            return usage.copy()
         }
 
         return usage.subslice(0, sp + 1) + "${1:" + usage.subslice(

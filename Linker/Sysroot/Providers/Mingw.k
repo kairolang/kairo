@@ -111,7 +111,7 @@ pub class MingwProvider derives SysrootProvider {
         cxx::std::sort(names.begin(), names.end())
         var flags = ctx->recipe.list("libc", "dlltool_flags")
         for var n: string in names {
-            if !LinkText::ends_with(n, ".def") {
+            if !LinkText::ends_with(n.copy(), ".def") {
                 continue
             }
 

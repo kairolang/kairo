@@ -401,7 +401,7 @@ extend IndexWalker {
     /// A header string's spelling without its `"..."` or `<...>`.
     fn unquote_(self, const lit: string) -> string {
         if lit.size() < 2 {
-            return lit
+            return lit.copy()
         }
 
         var a = lit[0]
@@ -411,7 +411,7 @@ extend IndexWalker {
             return lit.subslice(1, lit.size() - 2)
         }
 
-        return lit
+        return lit.copy()
     }
 
     fn import_(self, d: unsafe *Decl) {
@@ -504,7 +504,7 @@ extend IndexWalker {
                     var row = LinkRow{}
                     row.off    = hoff
                     row.len    = hlen
-                    row.target = target
+                    row.target = target.copy()
                     self.links.push_back(row)
                 }
             }
@@ -525,7 +525,7 @@ extend IndexWalker {
                 var row = LinkRow{}
                 row.off    = off
                 row.len    = last.raw() - first.raw()
-                row.target = target
+                row.target = target.copy()
                 self.links.push_back(row)
             }
         }

@@ -99,7 +99,7 @@ pub fn server_main(const self_path: string) -> i32 {
         kairo::std::destroy(s)
     }
 
-    s->exe = self_path
+    s->exe = self_path.copy()
     s->read_debug_knobs_()
     s->tmp = LinkFS::temp_dir("kals")
     if s->tmp.empty() {
@@ -334,8 +334,8 @@ pub class Server {
                     "cancelled: the server is shutting down",
                 )
 
-                self.garbage.push_back(self.lives[k].asks[q].out)
-                self.garbage.push_back(self.lives[k].asks[q].marked)
+                self.garbage.push_back(self.lives[k].asks[q].out.copy())
+                self.garbage.push_back(self.lives[k].asks[q].marked.copy())
             }
 
             self.lives[k].asks.clear()
@@ -481,7 +481,10 @@ pub class Server {
                 d.get_str(td, K_TEXT),
             )
 
-            self.docs.docs[i].path = Path::real_path_of(self.docs.docs[i].path)
+            self.docs.docs[i].path = Path::real_path_of(
+                self.docs.docs[i].path.copy(),
+            )
+
             // A buffer opened with the text its entry's last run read from
             // the disk, and indexed by that run, changes nothing the
             // compiler sees: the index answers for it as it is. Only the
@@ -526,9 +529,9 @@ pub class Server {
             var uri = text_document_uri(const &d, params)
             var i   = self.docs.index_of(uri)
             if i != usize::MAX {
-                var path = self.docs.docs[i].path
+                var path = self.docs.docs[i].path.copy()
                 if !self.docs.docs[i].tmp_path.empty() {
-                    self.garbage.push_back(self.docs.docs[i].tmp_path)
+                    self.garbage.push_back(self.docs.docs[i].tmp_path.copy())
                 }
 
                 // The disk text is the truth again: a change only when the
@@ -719,7 +722,7 @@ pub class Server {
                 }
             }
 
-            self.parked = kept
+            self.parked = kept.copy()
             for var q: usize = 0; q < self.jobs.size(); ++q {
                 if (self.jobs[q].kind == JobKind::Complete)
                     && (self.jobs[q].id == want)
@@ -941,7 +944,7 @@ pub class Server {
             }
 
             if (!self.comp_wait.empty()) && (self.running(JobKind::Complete) == 0) {
-                var m = self.comp_wait
+                var m = self.comp_wait.copy()
                 self.comp_wait    = ""
                 self.comp_wait_id = ""
                 self.handle(m)

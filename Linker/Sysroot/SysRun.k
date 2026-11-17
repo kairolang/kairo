@@ -145,7 +145,7 @@ pub class SysRun {
     /// relative). False where links cannot be made.
     pub static fn symlink(const target: string, const at: string) -> bool {
         LinkFS::remove(at)
-        var t = target
+        var t = target.copy()
         var ec = llvm::sys::fs::create_link(
             llvm::Twine(kairo::sref(t)),
             llvm::Twine(kairo::sref(at)),
@@ -228,7 +228,7 @@ pub class SysRun {
         var tgts = cxx::std::vector<string>()
         var text = ""
         if LinkFS::read(root + "/links.tsv", &text) {
-            for var line: string in LinkText::split_lines(text) {
+            for var line: string in LinkText::split_lines(text.copy()) {
                 if line.empty() {
                     continue
                 }
@@ -297,7 +297,7 @@ pub class SysRun {
 
         var stored = cxx::std::vector<string>()
         var real   = cxx::std::vector<string>()
-        for var line: string in LinkText::split_lines(text) {
+        for var line: string in LinkText::split_lines(text.copy()) {
             if line.empty() {
                 continue
             }
@@ -354,7 +354,7 @@ pub class SysRun {
             return to + "/" + rel
         }
 
-        if !LinkText::starts_with(rel, sub + "/") {
+        if !LinkText::starts_with(rel.copy(), sub + "/") {
             return ""
         }
 
@@ -399,7 +399,7 @@ pub class SysRun {
                 continue
             }
 
-            var h = parts[head]
+            var h = parts[head].copy()
             head += 1
             if h.empty() || h == "." {
                 continue
@@ -558,7 +558,7 @@ pub class SysJobs {
             )
 
             LinkFS::write(log, f"cannot run {argv[0]}: {why}\n")
-            self.failed_log = log
+            self.failed_log = log.copy()
             self.failed_rc  = -1
             return false
         }
@@ -585,10 +585,10 @@ pub class SysJobs {
             unsafe &emsg,
         )
 
-        var log = self._logs[self._head]
+        var log = self._logs[self._head].copy()
         self._head += 1
         if done.ReturnCode != 0 && self.failed_log.empty() {
-            self.failed_log = log
+            self.failed_log = log.copy()
             self.failed_rc  = done.ReturnCode
         }
     }

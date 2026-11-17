@@ -150,10 +150,10 @@ fn yaml_value_(const line: string, const key: string) -> string {
 extend Server {
     fn bridge_root_(const self) -> string {
         if !self.project.dir.empty() {
-            return self.project.dir
+            return self.project.dir.copy()
         }
 
-        return self.root
+        return self.root.copy()
     }
 
     fn bridge_dir_(const self) -> string {
@@ -168,7 +168,7 @@ extend Server {
         var di = self.docs.index_of_path(path)
         if di != usize::MAX {
             self.docs.sync_all()
-            return self.docs.docs[di].text
+            return self.docs.docs[di].text.copy()
         }
 
         var text: string = ""
@@ -199,11 +199,11 @@ extend Server {
             while x != JSON_NONE() {
                 var f = doc.get_str(x, "file")
                 if (!f.empty()) && (f[0] != ('/' as u8)) {
-                    f = Path::join_str(doc.get_str(x, "directory"), f)
+                    f = Path::join_str(doc.get_str(x, "directory"), f.copy())
                 }
 
                 if is_cxx_source(f) {
-                    out.push_back(f)
+                    out.push_back(f.copy())
                 }
 
                 x = doc.next(x)
@@ -221,13 +221,13 @@ extend Server {
         var walked: [string]
         self.walk_sources_(r, 0, &walked)
         for var w: usize = 0; w < walked.size(); ++w {
-            out.push_back(walked[w])
+            out.push_back(walked[w].copy())
         }
 
         // And the ones the editor reported (a watched-file event), wherever
         // they are.
         for var w: usize = 0; w < self.br_told.size(); ++w {
-            out.push_back(self.br_told[w])
+            out.push_back(self.br_told[w].copy())
         }
 
         return out
@@ -247,11 +247,11 @@ extend Server {
                 continue
             }
 
-            var p = Path::join_str(dir, name)
+            var p = Path::join_str(dir, name.copy())
             if LinkFS::is_dir(p) {
-                subs.push_back(p)
+                subs.push_back(p.copy())
             } else if is_cxx_source(p) {
-                out->push_back(p)
+                out->push_back(p.copy())
             }
         }
 
@@ -263,13 +263,13 @@ extend Server {
     /// \p name as `#include "name"` in \p from finds it: beside \p from,
     /// else under the project root; real path, or "" when neither exists.
     fn bridge_resolve_(self, const from: string, const name: string) -> string {
-        var p = name
+        var p = name.copy()
         if p[0] != ('/' as u8) {
-            var beside = Path::join_str(Path::parent_of(from), p)
+            var beside = Path::join_str(Path::parent_of(from), p.copy())
             if LinkFS::is_file(beside) {
-                p = beside
+                p = beside.copy()
             } else {
-                p = Path::join_str(self.bridge_root_(), p)
+                p = Path::join_str(self.bridge_root_(), p.copy())
             }
         }
 
@@ -277,7 +277,7 @@ extend Server {
             return ""
         }
 
-        return Path::real_path_of(p)
+        return Path::real_path_of(p.copy())
     }
 
     /// The `.k` files \p src reaches through quoted includes, directly or
@@ -300,10 +300,10 @@ extend Server {
                        m_h:       *[string]) {
         var st_f: [string]
         var st_d: [u32]
-        st_f.push_back(src)
+        st_f.push_back(src.copy())
         st_d.push_back(0)
         while !st_f.empty() {
-            var f = st_f[st_f.size() - 1]
+            var f = st_f[st_f.size() - 1].copy()
             var d = st_d[st_d.size() - 1]
             st_f.pop_back()
             st_d.pop_back()
@@ -337,8 +337,8 @@ extend Server {
                 }
 
                 at = m_k->size()
-                m_k->push_back(kj)
-                m_h->push_back(hj)
+                m_k->push_back(kj.copy())
+                m_h->push_back(hj.copy())
                 (*memo)[f] = at
             }
 
@@ -356,10 +356,10 @@ extend Server {
             // Pushed last-first, so they are visited in include order.
             var hl = split_lines_((*m_h)[at])
             for var i = hl.size(); i > 0; --i {
-                var h = hl[i - 1]
+                var h = hl[i - 1].copy()
                 if (h != src) && (find_from(*seen, h + "\n", 0) == usize::MAX) {
                     *seen = *seen + h + "\n"
-                    st_f.push_back(h)
+                    st_f.push_back(h.copy())
                     st_d.push_back(d + 1)
                 }
             }
@@ -399,8 +399,8 @@ extend Server {
             }
 
             if known {
-                inc_of.push_back(self.br_src_inc[i])
-                seen_of.push_back(self.br_src_seen[i])
+                inc_of.push_back(self.br_src_inc[i].copy())
+                seen_of.push_back(self.br_src_seen[i].copy())
             } else {
                 var ks:   string = ""
                 var seen: string = ""
@@ -414,8 +414,8 @@ extend Server {
                     &m_h,
                 )
 
-                inc_of.push_back(ks)
-                seen_of.push_back(seen)
+                inc_of.push_back(ks.copy())
+                seen_of.push_back(seen.copy())
             }
         }
 
@@ -425,9 +425,9 @@ extend Server {
             )
         }
 
-        self.br_src      = srcs
-        self.br_src_inc  = inc_of
-        self.br_src_seen = seen_of
+        self.br_src      = srcs.copy()
+        self.br_src_inc  = inc_of.copy()
+        self.br_src_seen = seen_of.copy()
         self.br_changed.clear()
         var rank: [usize] ///< per found file: the latest recency of a source including it
         for var i: usize = 0; i < srcs.size(); ++i {
@@ -444,7 +444,7 @@ extend Server {
 
             var incs = split_lines_(inc_of[i])
             for var k: usize = 0; k < incs.size(); ++k {
-                var p  = incs[k]
+                var p  = incs[k].copy()
                 var at = usize::MAX
                 for var q: usize = 0; q < found.size(); ++q {
                     if found[q] == p {
@@ -453,7 +453,7 @@ extend Server {
                 }
 
                 if at == usize::MAX {
-                    found.push_back(p)
+                    found.push_back(p.copy())
                     rank.push_back(recency)
                 } else if recency > rank[at] {
                     rank[at] = recency
@@ -477,14 +477,14 @@ extend Server {
                 }
             }
 
-            files.push_back(found[q])
+            files.push_back(found[q].copy())
             if old != usize::MAX {
-                hdr.push_back(self.br_hdr[old])
-                deps.push_back(self.br_deps[old])
+                hdr.push_back(self.br_hdr[old].copy())
+                deps.push_back(self.br_deps[old].copy())
                 dirty.push_back(self.br_dirty[old])
                 running.push_back(self.br_running[old])
-                cxx_w.push_back(self.br_cxx_w[old])
-                c_w.push_back(self.br_c_w[old])
+                cxx_w.push_back(self.br_cxx_w[old].copy())
+                c_w.push_back(self.br_c_w[old].copy())
             } else {
                 hdr.push_back("")
                 deps.push_back("")
@@ -495,14 +495,14 @@ extend Server {
             }
         }
 
-        self.br_files   = files
-        self.br_hdr     = hdr
-        self.br_deps    = deps
-        self.br_dirty   = dirty
-        self.br_running = running
-        self.br_rank    = rank
-        self.br_cxx_w   = cxx_w
-        self.br_c_w     = c_w
+        self.br_files   = files.copy()
+        self.br_hdr     = hdr.copy()
+        self.br_deps    = deps.copy()
+        self.br_dirty   = dirty.copy()
+        self.br_running = running.copy()
+        self.br_rank    = rank.copy()
+        self.br_cxx_w   = cxx_w.copy()
+        self.br_c_w     = c_w.copy()
         self.trace(
             f"bridge: {found.size()} included .k file(s) in {srcs.size()} C/C++ source(s)",
         )
@@ -566,8 +566,8 @@ extend Server {
         var hdrs:  [string]
         for var b: usize = 0; b < self.br_files.size(); ++b {
             if (!self.br_hdr[b].empty()) && LinkFS::is_file(self.br_hdr[b]) {
-                names.push_back(self.br_files[b])
-                hdrs.push_back(self.br_hdr[b])
+                names.push_back(self.br_files[b].copy())
+                hdrs.push_back(self.br_hdr[b].copy())
             }
         }
 
@@ -589,10 +589,10 @@ extend Server {
             }
 
             if at == usize::MAX {
-                names.push_back(name)
-                hdrs.push_back(hdr)
+                names.push_back(name.copy())
+                hdrs.push_back(hdr.copy())
             } else if (hdrs[at] != hdr) && (LinkFS::mtime(hdr) > LinkFS::mtime(hdrs[at])) {
-                hdrs[at] = hdr
+                hdrs[at] = hdr.copy()
             }
         }
 
@@ -605,12 +605,12 @@ extend Server {
         for var i: usize = 1; i < names.size(); ++i {
             var j = i
             while (j > 0) && (names[j] < names[j - 1]) {
-                var n = names[j]
-                names[j]     = names[j - 1]
-                names[j - 1] = n
-                var h = hdrs[j]
-                hdrs[j]     = hdrs[j - 1]
-                hdrs[j - 1] = h
+                var n = names[j].copy()
+                names[j]     = names[j - 1].copy()
+                names[j - 1] = n.copy()
+                var h = hdrs[j].copy()
+                hdrs[j]     = hdrs[j - 1].copy()
+                hdrs[j - 1] = h.copy()
                 j -= 1
             }
         }
@@ -658,16 +658,16 @@ extend Server {
     fn bridge_includers_(self, words: *[string]) -> [string] {
         var out:     [string]
         var r                 = self.bridge_root_()
-        var rr                = Path::real_path_of(r)
+        var rr                = Path::real_path_of(r.copy())
         var any_cxx: string   = ""
         var any_c:   string   = ""
         for var b: usize = 0; b < self.br_files.size(); ++b {
             if any_cxx.empty() {
-                any_cxx = self.br_cxx_w[b]
+                any_cxx = self.br_cxx_w[b].copy()
             }
 
             if any_c.empty() {
-                any_c = self.br_c_w[b]
+                any_c = self.br_c_w[b].copy()
             }
         }
 
@@ -676,12 +676,12 @@ extend Server {
                 continue
             }
 
-            var p   = self.br_src[i]
+            var p   = self.br_src[i].copy()
             var rel = ""
             if p.starts_with(r + "/") {
                 rel = p.subslice(r.size() + 1, p.size() - r.size() - 1)
             } else {
-                var rp = Path::real_path_of(p)
+                var rp = Path::real_path_of(p.copy())
                 if rp.starts_with(rr + "/") {
                     rel = rp.subslice(rr.size() + 1, rp.size() - rr.size() - 1)
                 }
@@ -709,23 +709,23 @@ extend Server {
                 for var b: usize = 0; w.empty() && (b < self.br_files.size()); ++b {
                     if self.br_files[b] == ks[k] {
                         if is_c {
-                            w = self.br_c_w[b]
+                            w = self.br_c_w[b].copy()
                         } else {
-                            w = self.br_cxx_w[b]
+                            w = self.br_cxx_w[b].copy()
                         }
                     }
                 }
             }
 
             if w.empty() && is_c {
-                w = any_c
+                w = any_c.copy()
             } else if w.empty() {
-                w = any_cxx
+                w = any_cxx.copy()
             }
 
             if !w.empty() {
-                out.push_back(rel)
-                words->push_back(w)
+                out.push_back(rel.copy())
+                words->push_back(w.copy())
             }
         }
 
@@ -759,7 +759,7 @@ extend Server {
             }
 
             if !dup {
-                sets.push_back(words[q])
+                sets.push_back(words[q].copy())
             }
         }
 
@@ -787,7 +787,7 @@ extend Server {
                 }
 
                 y += yaml_word_(ws[k])
-                all_words->push_back(ws[k])
+                all_words->push_back(ws[k].copy())
             }
 
             y += "]\n"
@@ -818,7 +818,7 @@ extend Server {
                 return
             }
 
-            self.br_said = frag
+            self.br_said = frag.copy()
             self.say(
                 MSG_INFO,
                 "the C/C++ files include Kairo files; for clangd to resolve them, add to " + path + ":\n" + frag,
@@ -850,16 +850,16 @@ extend Server {
         self.docs.sync_all()
         var j = Job()
         j.kind       = JobKind::Header
-        j.path       = self.br_files[b]
+        j.path       = self.br_files[b].copy()
         j.out        = self.scratch(".json")
         j.log        = self.scratch(".log")
         j.rev        = self.rev
         j.started_ms = now_ms()
 
         var argv: [string]
-        argv.push_back(self.exe)
-        argv.push_back(WA_WORKER)
-        argv.push_back(j.out)
+        argv.push_back(self.exe.copy())
+        argv.push_back(WA_WORKER.copy())
+        argv.push_back(j.out.copy())
         // The flags of the entry whose graph holds the file (its -I roots
         // name its imports), else the project's default_args.
         var held = usize::MAX
@@ -869,35 +869,35 @@ extend Server {
             }
         }
 
-        argv.push_back(WA_CWD)
+        argv.push_back(WA_CWD.copy())
         if held != usize::MAX {
-            argv.push_back(self.entries[held].dir)
+            argv.push_back(self.entries[held].dir.copy())
         } else {
             argv.push_back(self.bridge_root_())
         }
 
-        argv.push_back(WA_AS_MODULE)
+        argv.push_back(WA_AS_MODULE.copy())
         for var i: usize = 0; i < self.docs.docs.size(); ++i {
-            argv.push_back(WA_OVERLAY)
-            argv.push_back(self.docs.docs[i].path)
+            argv.push_back(WA_OVERLAY.copy())
+            argv.push_back(self.docs.docs[i].path.copy())
             argv.push_back(self.overlay_of_(i))
         }
 
-        argv.push_back(WA_END)
+        argv.push_back(WA_END.copy())
         if held != usize::MAX {
             for var i: usize = 0; i < self.entries[held].args.size(); ++i {
-                argv.push_back(self.entries[held].args[i])
+                argv.push_back(self.entries[held].args[i].copy())
             }
         } else {
             for var i: usize = 0; i < self.project.default_args.size(); ++i {
-                argv.push_back(self.project.default_args[i])
+                argv.push_back(self.project.default_args[i].copy())
             }
         }
 
-        argv.push_back(CF_EMIT_HEADERS)
+        argv.push_back(CF_EMIT_HEADERS.copy())
         argv.push_back(self.bridge_dir_())
-        argv.push_back(CF_EMIT_HEADERS_LAYOUT)
-        argv.push_back(self.br_files[b])
+        argv.push_back(CF_EMIT_HEADERS_LAYOUT.copy())
+        argv.push_back(self.br_files[b].copy())
 
         // Clean only once its job is running: a refused launch leaves the
         // row due, and bridge_next_ offers it again after the backoff.
@@ -939,14 +939,14 @@ extend Server {
             x = doc.next(x)
         }
 
-        self.br_deps[b] = deps
+        self.br_deps[b] = deps.copy()
         var h = Path::join_str(
             self.bridge_dir_(),
             doc.get_str(doc.root, SK_HEADER),
         )
 
         if LinkFS::is_file(h) {
-            self.br_hdr[b] = h
+            self.br_hdr[b] = h.copy()
         }
 
         // kcc's words for a C++ and for a C source that includes this
@@ -966,11 +966,11 @@ extend Server {
         }
 
         if !cxx.empty() {
-            self.br_cxx_w[b] = cxx
+            self.br_cxx_w[b] = cxx.copy()
         }
 
         if !cw.empty() {
-            self.br_c_w[b] = cw
+            self.br_c_w[b] = cw.copy()
         }
 
         var errs = doc.get_int(doc.root, SK_ERRORS)

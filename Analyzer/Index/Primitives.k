@@ -61,7 +61,7 @@ pub fn primitive_of(const name: string) -> BuiltinKind {
 
 /// The source spelling of primitive \p b (`usize`).
 pub fn primitive_spelling(b: BuiltinKind) -> string {
-    return builtin_info(b)->spelling
+    return builtin_info(b)->spelling.copy()
 }
 
 /// The associated constants \p b has, in the enum's order: every

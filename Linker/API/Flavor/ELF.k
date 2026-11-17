@@ -63,7 +63,7 @@ pub class ELFArgs {
 
         var shared     = o->shared
         var want_stat  = o->static_link || tc.static_only
-        var is_linux   = LinkText::starts_with(tc.os, "linux")
+        var is_linux   = LinkText::starts_with(tc.os.copy(), "linux")
         var static_pie = want_stat && !shared && o->f_pie == 1
         var pie        = !shared && !want_stat && (o->f_pie == 1 || o->f_pie == -1 && is_linux)
         var dyn_exe    = !shared && !want_stat
@@ -122,8 +122,8 @@ pub class ELFArgs {
         // MIPS: sysv only, as clang's driver links it. Its ABI sorts .dynsym
         // by GOT order and .gnu.hash wants bucket order, so lld refuses
         // .gnu.hash outright and the "gnu" default would fail every MIPS link.
-        var hs = o->hash_style
-        if LinkText::starts_with(tc.arch, "mips") && (hs == "gnu" || hs == "both") {
+        var hs = o->hash_style.copy()
+        if LinkText::starts_with(tc.arch.copy(), "mips") && (hs == "gnu" || hs == "both") {
             hs = "sysv"
         }
 
@@ -134,7 +134,7 @@ pub class ELFArgs {
         // An empty value (--build-id=) means "the default", not "no note": the
         // note is what debuggers and symbol servers key on, and dropping the
         // flag would silently turn it off only for people who wrote it.
-        var bid = o->build_id
+        var bid = o->build_id.copy()
         if bid.empty() {
             bid = "fast"
         }
@@ -210,7 +210,7 @@ pub class ELFArgs {
                         continue
                     }
 
-                    var name = n
+                    var name = n.copy()
                     if is_start && static_pie {
                         name = "rcrt1.o"
                     } else if is_start && pie {
@@ -295,7 +295,7 @@ pub class ELFArgs {
 
         /// # host libraries (the default build's glibc floor)
         if job.target->host_mode == "floor" && tc.libc == "glibc" && tc.has_manifest {
-            job.glibc_floor = tc.manifest.glibc_version
+            job.glibc_floor = tc.manifest.glibc_version.copy()
             ELFArgs::_scan_host_libs(&job, &tc, want_stat, &msgs)
             // A host shared library was linked against the host's glibc, and
             // the floor's libc.so stubs lack its newer symbol versions; lld
@@ -440,12 +440,12 @@ pub class ELFArgs {
 
         var found = cxx::std::vector<string>()
         for var spec: string in o->link_libs {
-            var name = spec
+            var name = spec.copy()
             var stat = want_stat
-            if LinkText::starts_with(spec, "static:") {
+            if LinkText::starts_with(spec.copy(), "static:") {
                 name = LinkText::slice(spec, 7, spec.size())
                 stat = true
-            } else if LinkText::starts_with(spec, "dynamic:") {
+            } else if LinkText::starts_with(spec.copy(), "dynamic:") {
                 name = LinkText::slice(spec, 8, spec.size())
             }
 
@@ -454,9 +454,9 @@ pub class ELFArgs {
             }
 
             if LinkText::contains(name, "/")
-                || LinkText::ends_with(name, ".a")
-                || LinkText::ends_with(name, ".o")
-                || LinkText::ends_with(name, ".so") {
+                || LinkText::ends_with(name.copy(), ".a")
+                || LinkText::ends_with(name.copy(), ".o")
+                || LinkText::ends_with(name.copy(), ".so") {
                 if LinkFS::is_file(name) {
                     found.push_back(name)
                 }
@@ -496,14 +496,14 @@ pub class ELFArgs {
                 continue
             }
 
-            if !LinkText::ends_with(p, ".a") {
+            if !LinkText::ends_with(p.copy(), ".a") {
                 continue
             }
 
             var host_dir = false
             var pdir     = LinkFS::real(LinkFS::parent(p))
             for var d: string in tc.host_lib_dirs {
-                if LinkFS::real(d) == pdir {
+                if LinkFS::real(d.copy()) == pdir {
                     host_dir = true
                 }
             }
@@ -525,7 +525,7 @@ pub class ELFArgs {
                         const name:  string,
                         @inout argv: cxx::std::vector<string>,
                         @inout msgs: cxx::std::vector<LinkMessage>) {
-        var p = tc.find_lib_file(name)
+        var p = tc.find_lib_file(name.copy())
         if p.empty() {
             var _where = if (!tc.crt_dir.empty()) => (tc.crt_dir) else => tc.sysroot
             msgs.push_back(
@@ -547,12 +547,12 @@ pub class ELFArgs {
                              want_stat:   bool,
                              @inout argv: cxx::std::vector<string>,
                              @inout msgs: cxx::std::vector<LinkMessage>) {
-        var name = spec
+        var name = spec.copy()
         var mode = ""
-        if LinkText::starts_with(spec, "static:") {
+        if LinkText::starts_with(spec.copy(), "static:") {
             mode = "static"
             name = LinkText::slice(spec, 7, spec.size())
-        } else if LinkText::starts_with(spec, "dynamic:") {
+        } else if LinkText::starts_with(spec.copy(), "dynamic:") {
             mode = "dynamic"
             name = LinkText::slice(spec, 8, spec.size())
         }
@@ -569,9 +569,9 @@ pub class ELFArgs {
         }
 
         if LinkText::contains(name, "/")
-            || LinkText::ends_with(name, ".a")
-            || LinkText::ends_with(name, ".o")
-            || LinkText::ends_with(name, ".so") {
+            || LinkText::ends_with(name.copy(), ".a")
+            || LinkText::ends_with(name.copy(), ".o")
+            || LinkText::ends_with(name.copy(), ".so") {
             argv.push_back(name)
             return
         }
@@ -622,9 +622,9 @@ pub class ELFArgs {
         } else if !tc.native_bundle.empty() {
             // --native: the bundled libc++ by path, never by -L (that dir's
             // libc would win over the host's), and the host's libc.
-            var nb = LinkText::join(tc.native_bundle, "lib")
-            cxx_v.push_back(LinkText::join(nb, "libc++.a"))
-            cxx_v.push_back(LinkText::join(nb, "libc++abi.a"))
+            var nb = LinkText::join(tc.native_bundle.copy(), "lib")
+            cxx_v.push_back(LinkText::join(nb.copy(), "libc++.a"))
+            cxx_v.push_back(LinkText::join(nb.copy(), "libc++abi.a"))
             if tc.libc == "glibc" {
                 libc.push_back("-lpthread")
             }
@@ -651,7 +651,7 @@ pub class ELFArgs {
         var uw = cxx::std::vector<string>()
         if !tc.has_manifest {
             var nb_uw = LinkText::join(
-                LinkText::join(tc.native_bundle, "lib"),
+                LinkText::join(tc.native_bundle.copy(), "lib"),
                 "libunwind.a",
             )
 
