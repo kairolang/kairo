@@ -1,7 +1,7 @@
 # The Kairo Programming Language
 
 <div align="center">
-  <img src="Assets/kairo-logo.svg" alt="Kairo Programming Language Logo" width="60%">
+  <img src="Assets/kairo-logo.svg" alt="Kairo Programming Language Logo" width="100%">
 </div>
 
 ---
@@ -20,9 +20,10 @@ Kairo is a **statically typed compiled general purpose language**, built for sys
 
 ### Current Status
 
-The **Stage 1 compiler**, written in Kairo, is fully self hosted (November 2026). A release build is bootstrapped by the previous release, and having a seed kairo compiler is a strict requirement. There's a lit suite of about 2,000 tests. Releases ship prebuilt for 14 host platforms, and every one of them cross-compiles to 48 targets out of the box: Linux (glibc 2.17 to 2.42, and musl) on up to 19 architectures, Windows, macOS, FreeBSD, NetBSD and WebAssembly.
+The **Stage 1 compiler**, written in Kairo, is fully self hosted (November 2026). A release build is bootstrapped by the previous release, and having a seed kairo compiler is a requirement. There's a lit suite of more than 2,000 tests. Releases ship prebuilt for 14 host platforms, and every one of them cross-compiles to 48 targets out of the box: Linux (glibc 2.17 to 2.42, and musl) on up to 19 architectures, Windows, macOS, FreeBSD, NetBSD and WebAssembly.
 
-> [!WARNING] The [documentation](https://www.kairolang.org/docs) covers the language as Stage 1 implements it, and the [status page](https://www.kairolang.org/docs/status/) lists what is not built yet. The compiler is not ready for production use. If you want to help with documentation, please reach out to us on [Discord](https://discord.gg/VHCnPccDc)
+> [!WARNING]
+> The compiler is **not** yet ready for production use *yet*. If you want to help with anything, please reach out to us on [Discord](https://discord.gg/VHCnPccDc) or Github Discussions.
 
 ### Why Kairo?
 
