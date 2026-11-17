@@ -28,7 +28,7 @@ pub class StringTable {
     var index: llvm::StringMap<u32>
 
     pub fn StringTable(self) {
-        self.items.push_back("")
+        self.items.push("")
         self.index.try_emplace(kairo::sref(""), 0 as u32)
     }
 
@@ -39,7 +39,7 @@ pub class StringTable {
         }
 
         var id = self.items.size() as u32
-        self.items.push_back(s.copy())
+        self.items.push(s.copy())
         self.index.try_emplace(kairo::sref(s), id)
         return id
     }
@@ -70,7 +70,10 @@ pub class StringTable {
             var n = self.items[i].size()
             w.put_varint(n as u64)
             if n > 0 {
-                w.put_bytes(unsafe (self.items[i].raw() as unsafe *const u8), n)
+                w.put_bytes(
+                    unsafe (self.items[i].data() as unsafe *const u8),
+                    n,
+                )
             }
         }
     }
@@ -86,9 +89,9 @@ pub class StringTable {
             }
 
             if len == 0 {
-                self.items.push_back("")
+                self.items.push("")
             } else {
-                self.items.push_back(string(unsafe (p as *const u8), len))
+                self.items.push(string(unsafe (p as *const u8), len))
             }
         }
     }

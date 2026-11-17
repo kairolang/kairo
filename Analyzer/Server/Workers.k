@@ -87,9 +87,9 @@ extend Server {
         var in_n         = false
         for var i: usize = 0; i <= spec.size(); ++i {
             if (i == spec.size()) || (spec[i] == (',' as u8)) { // ','
-                if !name.empty() {
-                    self.dbg_fail_kind.push_back(name.copy())
-                    self.dbg_fail_left.push_back(n)
+                if !name.is_empty() {
+                    self.dbg_fail_kind.push(name.copy())
+                    self.dbg_fail_left.push(n)
                 }
 
                 name = ""
@@ -128,9 +128,9 @@ extend Server {
     /// The file it replaces is removed once no worker runs.
     fn overlay_of_(self, i: usize) -> string {
         if (self.docs.docs[i].tmp_rev != self.docs.docs[i].revision)
-            || self.docs.docs[i].tmp_path.empty() {
-            if !self.docs.docs[i].tmp_path.empty() {
-                self.garbage.push_back(self.docs.docs[i].tmp_path.copy())
+            || self.docs.docs[i].tmp_path.is_empty() {
+            if !self.docs.docs[i].tmp_path.is_empty() {
+                self.garbage.push(self.docs.docs[i].tmp_path.copy())
             }
 
             self.docs.docs[i].tmp_path = self.scratch(kairo_dot_ext())
@@ -226,8 +226,8 @@ extend Server {
                 f"launch refused kind={kind} refusals={self.launch_refusals} retry_ms={wait}",
             )
 
-            self.garbage.push_back(j->out.copy())
-            self.garbage.push_back(j->log.copy())
+            self.garbage.push(j->out.copy())
+            self.garbage.push(j->log.copy())
             return LaunchResult::Refused
         }
 
@@ -269,11 +269,11 @@ extend Server {
                    const marked_tmp:  string) -> [string] {
         self.docs.sync_all()
         var argv: [string]
-        argv.push_back(self.exe.copy())
-        argv.push_back(WA_WORKER.copy())
-        argv.push_back(out.copy())
-        argv.push_back(WA_CWD.copy())
-        argv.push_back(self.entries[ei].dir.copy())
+        argv.push(self.exe.copy())
+        argv.push(WA_WORKER.copy())
+        argv.push(out.copy())
+        argv.push(WA_CWD.copy())
+        argv.push(self.entries[ei].dir.copy())
         // `--root` indexes every file under the project, and the worker
         // drops those rows again when the graph is wide (WIDE_INDEX_LIMIT):
         // on the kals graph (418 files) walking them was 2.2 s of CPU in a
@@ -282,8 +282,8 @@ extend Server {
         self.entries[ei].rooted = !(self.entries[ei].ran
             && (self.entries[ei].files.size() > WIDE_INDEX_LIMIT))
         if self.entries[ei].rooted {
-            argv.push_back(WA_ROOT.copy())
-            argv.push_back(self.project.dir.copy())
+            argv.push(WA_ROOT.copy())
+            argv.push(self.project.dir.copy())
         }
 
         for var i: usize = 0; i < self.docs.docs.size(); ++i {
@@ -298,23 +298,23 @@ extend Server {
                 continue
             }
 
-            argv.push_back(WA_OVERLAY.copy())
-            argv.push_back(path.copy())
-            argv.push_back(self.overlay_of_(i))
+            argv.push(WA_OVERLAY.copy())
+            argv.push(path.copy())
+            argv.push(self.overlay_of_(i))
         }
 
-        if !marked_path.empty() {
-            argv.push_back(WA_OVERLAY.copy())
-            argv.push_back(marked_path.copy())
-            argv.push_back(marked_tmp.copy())
+        if !marked_path.is_empty() {
+            argv.push(WA_OVERLAY.copy())
+            argv.push(marked_path.copy())
+            argv.push(marked_tmp.copy())
         }
 
-        argv.push_back(WA_END.copy())
+        argv.push(WA_END.copy())
         for var i: usize = 0; i < self.entries[ei].args.size(); ++i {
-            argv.push_back(self.entries[ei].args[i].copy())
+            argv.push(self.entries[ei].args[i].copy())
         }
 
-        argv.push_back(self.entries[ei].entry.copy())
+        argv.push(self.entries[ei].entry.copy())
         return argv
     }
 
@@ -388,8 +388,8 @@ extend Server {
                 continue
             }
 
-            j.text_paths.push_back(self.docs.docs[b].path.copy())
-            j.texts.push_back(self.docs.docs[b].text.copy())
+            j.text_paths.push(self.docs.docs[b].path.copy())
+            j.texts.push(self.docs.docs[b].text.copy())
         }
 
         // A first analysis, or one already known to be slow, is long enough
@@ -398,23 +398,23 @@ extend Server {
         // reads (section 14).
         var argv: [string]
         for var q: usize = 0; q < 3; ++q {
-            argv.push_back(wargv[q].copy())
+            argv.push(wargv[q].copy())
         }
 
         var want = (!self.entries[ei].ran) || self.entries[ei].slow
         if want {
             j.prog_file = self.scratch(".prog")
-            argv.push_back(WA_PROGRESS.copy())
-            argv.push_back(j.prog_file.copy())
+            argv.push(WA_PROGRESS.copy())
+            argv.push(j.prog_file.copy())
         }
 
         for var q: usize = 3; q < wargv.size(); ++q {
-            argv.push_back(wargv[q].copy())
+            argv.push(wargv[q].copy())
         }
 
         if self.launch_job(&argv, &j, "index") != LaunchResult::Started {
-            if !j.prog_file.empty() {
-                self.garbage.push_back(j.prog_file.copy())
+            if !j.prog_file.is_empty() {
+                self.garbage.push(j.prog_file.copy())
             }
 
             // Still due, and retried after the backoff (a request waiting
@@ -466,7 +466,7 @@ extend Server {
         }
 
         self.entries[ei].running = true
-        self.jobs.push_back(j)
+        self.jobs.push(j)
     }
 
     /// Looks at every worker; finishes the ones that have exited.
@@ -488,15 +488,15 @@ extend Server {
             var j = self.jobs[i]
             // Order does not matter: swap the last one in and drop the tail.
             self.jobs[i] = self.jobs[self.jobs.size() - 1]
-            self.jobs.pop_back()
+            self.jobs.pop()
             if j.kind == JobKind::Index {
                 self.finish_index(&j, done.ReturnCode)
-                if !j.progress.empty() {
+                if !j.progress.is_empty() {
                     self.progress(j.progress, "end", "", -1)
                 }
 
-                if !j.prog_file.empty() {
-                    self.garbage.push_back(j.prog_file.copy())
+                if !j.prog_file.is_empty() {
+                    self.garbage.push(j.prog_file.copy())
                 }
             } else if j.kind == JobKind::Syntax {
                 self.finish_syntax(&j, done.ReturnCode)
@@ -506,14 +506,14 @@ extend Server {
                 self.finish_complete(&j, done.ReturnCode)
             }
 
-            self.garbage.push_back(j.out.copy())
-            self.garbage.push_back(j.log.copy())
-            if !j.marked.empty() {
-                self.garbage.push_back(j.marked.copy())
+            self.garbage.push(j.out.copy())
+            self.garbage.push(j.log.copy())
+            if !j.marked.is_empty() {
+                self.garbage.push(j.marked.copy())
             }
         }
 
-        if self.jobs.empty() && (self.live_inflight() == 0) && (!self.garbage.empty()) {
+        if self.jobs.is_empty() && (self.live_inflight() == 0) && (!self.garbage.is_empty()) {
             // Only now: a running worker reads its overlays when it starts,
             // and a file removed under it would turn into an empty buffer.
             var keep: [string]
@@ -526,7 +526,7 @@ extend Server {
                 }
 
                 if live {
-                    keep.push_back(self.garbage[g].copy())
+                    keep.push(self.garbage[g].copy())
                 } else {
                     Path::remove_file(self.garbage[g])
                 }
@@ -557,7 +557,7 @@ extend Server {
             aw.field_uint("pending", j->l_pending)
             // Buffers that do not parse were tried aside, not kept: how
             // each went (LiveIndex.k).
-            if !j->l_aside.empty() {
+            if !j->l_aside.is_empty() {
                 aw.field("aside", j->l_aside)
             }
         }
@@ -616,7 +616,7 @@ extend Server {
             // A crash (no output) or a refused command line. The last good
             // snapshot stays; say why once, where the user can find it.
             var why = doc.get_str(doc.root, SK_ERROR)
-            if why.empty() {
+            if why.is_empty() {
                 var tail: string = ""
                 LinkFS::read(j->log, &tail)
                 if tail.size() > 600 {
@@ -692,7 +692,7 @@ extend Server {
         )
 
         while d != JSON_NONE() {
-            self.entries[ei].files.push_back(self.entries[ei].snap.str(d))
+            self.entries[ei].files.push(self.entries[ei].snap.str(d))
             d = self.entries[ei].snap.next(d)
         }
 
@@ -701,7 +701,7 @@ extend Server {
         if !self.entries[ei].adhoc {
             for var k: usize = 0; k < self.entries.size(); ++k {
                 if self.entries[k].adhoc
-                    && (!self.entries[k].entry.empty())
+                    && (!self.entries[k].entry.is_empty())
                     && self.entries[ei].holds(self.entries[k].entry) {
                     self.retire_(k)
                 }

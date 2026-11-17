@@ -180,7 +180,7 @@ pub class ModuleRecords {
                  const format:    string,
                  color:           bool) -> bool {
         self.on = false
-        if cache_dir.empty() || words.empty() {
+        if cache_dir.is_empty() || words.empty() {
             return false
         }
 
@@ -222,7 +222,7 @@ pub class ModuleRecords {
         // more than the hit saves. KAIRO_INCR_TEST_EXE stands in for it in
         // the tests, which cannot swap the binary under lit.
         self._exe = LinkFS::env(EnvNames::kairo_incr_test_exe())
-        if self._exe.empty() {
+        if self._exe.is_empty() {
             self._exe = env::exe_path()
         }
 
@@ -274,7 +274,7 @@ pub class ModuleRecords {
         }
 
         self._lines = split(text.subslice(0, at + 1), '\n' as u8, true)
-        if self._lines.empty() || self._lines[0] != incr_run_header() {
+        if self._lines.is_empty() || self._lines[0] != incr_run_header() {
             self.status = "miss: record of another schema"
             return false
         }
@@ -332,7 +332,7 @@ pub class ModuleRecords {
             var l = self._lines[i].copy()
             if l.starts_with("file ") || l.starts_with("exe ") || l.starts_with("obj ") {
                 var why = self._check_file(i)
-                if !why.empty() {
+                if !why.is_empty() {
                     if !missed {
                         self.status = "miss: " + why
                         missed      = true
@@ -458,7 +458,7 @@ pub class ModuleRecords {
         var seen = llvm::StringSet<llvm::MallocAllocator>()
         var all  = cxx::std::vector<SourceRead>()
         for *src in self.sources {
-            if src->path.empty() || seen.contains(kairo::sref(src->path)) {
+            if src->path.is_empty() || seen.contains(kairo::sref(src->path)) {
                 continue
             }
 
@@ -467,7 +467,7 @@ pub class ModuleRecords {
         }
 
         for var p: string in self.hdr_files {
-            if p.empty() || seen.contains(kairo::sref(p)) {
+            if p.is_empty() || seen.contains(kairo::sref(p)) {
                 continue
             }
 
@@ -557,7 +557,7 @@ pub class ModuleRecords {
     priv static fn _mod_field(const row: string) -> string {
         var name  = ModuleRecords::_row_name(row)
         var rest  = row.subslice(name.size(), row.size() - name.size())
-        var plain = name.empty() || name[0] != ('"' as u8)
+        var plain = name.is_empty() || name[0] != ('"' as u8)
         for var i: usize = 0; plain && i < name.size(); ++i {
             plain = name[i] >= 0x20
         }
@@ -588,7 +588,7 @@ pub class ModuleRecords {
     /// plan for it is a miss, not a wrong hit.
     priv static fn _read_mod_line(const l: string) -> string {
         var field = l.subslice(4, l.size() - 4)
-        if field.empty() || field[0] != ('"' as u8) {
+        if field.is_empty() || field[0] != ('"' as u8) {
             return field
         }
 
@@ -624,14 +624,14 @@ pub class ModuleRecords {
         for var k: string in self.keys {
             var tab = k.rfind("\t")
             if tab == name.size() && k.starts_with(name) {
-                ks += (if (ks.empty()) => ("") else => ",") + k.subslice(
+                ks += (if (ks.is_empty()) => ("") else => ",") + k.subslice(
                     name.size() + 1,
                     k.size() - name.size() - 1,
                 )
             }
         }
 
-        return if (ks.empty()) => ("-") else => ks
+        return if (ks.is_empty()) => ("-") else => ks
     }
 
     pub static fn same_list(a: *cxx::std::vector<string>, b: *cxx::std::vector<string>) -> bool {
@@ -663,7 +663,7 @@ pub class ModuleRecords {
         }
 
         var h = read_hash.copy()
-        if h.empty() {
+        if h.is_empty() {
             h = ModuleRecords::_hash_file(p)
         }
 
@@ -751,7 +751,7 @@ pub class ModuleRecords {
             }
         }
 
-        if best.empty() {
+        if best.is_empty() {
             return
         }
 
@@ -780,7 +780,7 @@ pub class ModuleRecords {
     priv static fn _add_dir(const d: string,
                             set:     unsafe *llvm::StringSet<llvm::MallocAllocator>,
                             list:    unsafe *cxx::std::vector<string>) {
-        if d.empty() || set->contains(kairo::sref(d)) {
+        if d.is_empty() || set->contains(kairo::sref(d)) {
             return
         }
 
@@ -820,7 +820,7 @@ pub class ModuleRecords {
             kairo::objcache_file_hash(kairo::sref(p)),
         )
 
-        if h.empty() {
+        if h.is_empty() {
             return "missing"
         }
 

@@ -683,7 +683,7 @@ pub class CompilerInstance {
     ///        absolute; "" with neither.
     prot fn _builtin_root(self) -> string {
         var root = ResourceLayout::builtin_root_of(unsafe &self._inv)
-        if root.empty() || !self.invocation()->pp.builtins_dir.empty() {
+        if root.is_empty() || !self.invocation()->pp.builtins_dir.is_empty() {
             return root
         }
 
@@ -694,7 +694,7 @@ pub class CompilerInstance {
     ///        <resource-dir>/std made absolute; "" with neither.
     prot fn _std_root(self) -> string {
         var root = ResourceLayout::std_root_of(unsafe &self._inv)
-        if root.empty() || !self.invocation()->pp.std_dir.empty() {
+        if root.is_empty() || !self.invocation()->pp.std_dir.is_empty() {
             return root
         }
 
@@ -804,7 +804,7 @@ pub class CompilerInstance {
     }
 
     fn wants_explain(self) -> bool {
-        return !self.invocation()->args.get_string("explain").empty()
+        return !self.invocation()->args.get_string("explain").is_empty()
     }
 
     /// \brief whether this instance's invocation is usable.
@@ -897,12 +897,12 @@ pub class CompilerInstance {
         var pos = kairo::std::to_std_string(spec).find(('=' as u8) as c_char)
         if pos != usize::MAX && !Path(spec).is_directory() {
             var name = string(
-                unsafe ((spec.raw() as unsafe *const u8) as *const u8),
+                unsafe ((spec.data() as unsafe *const u8) as *const u8),
                 pos,
             )
 
             var dir = string(
-                unsafe (((spec.raw() as unsafe *const u8) + pos + 1) as *const u8),
+                unsafe (((spec.data() as unsafe *const u8) + pos + 1) as *const u8),
                 spec.size() - pos - 1,
             )
 
@@ -1002,7 +1002,7 @@ pub class CompilerInstance {
     /// \return false after reporting; the caller must stop.
     fn apply_input_options(self) -> bool {
         var enc = self.invocation()->input_encoding.copy()
-        var is_utf8 = enc.empty()
+        var is_utf8 = enc.is_empty()
             || enc == "utf-8"
             || enc == "UTF-8"
             || enc == "utf8"
@@ -1016,7 +1016,7 @@ pub class CompilerInstance {
         }
 
         var wd = self.invocation()->working_dir.copy()
-        if wd.empty() {
+        if wd.is_empty() {
             return true
         }
 
@@ -1061,7 +1061,7 @@ pub class CompilerInstance {
             // nothing, and the lang items stay unbound -- which is diagnosed at
             // USE by whichever pass needs one, never here.
             var broot = self._builtin_root()
-            if !broot.empty() {
+            if !broot.is_empty() {
                 rb.add_include(Path(broot), builtin_root_name())
             }
 
@@ -1077,7 +1077,7 @@ pub class CompilerInstance {
             // unresolved import.
             if !self.invocation()->pp.no_stdlib {
                 var sroot = self._std_root()
-                if !sroot.empty() {
+                if !sroot.is_empty() {
                     rb.add_include(
                         Path(sroot),
                         std_root_name(),
@@ -1196,7 +1196,7 @@ pub class CompilerInstance {
             return "no command line"
         }
 
-        if self.invocation()->linker.cache_dir.empty() {
+        if self.invocation()->linker.cache_dir.is_empty() {
             return "no --cache-dir"
         }
 
@@ -1288,7 +1288,7 @@ pub class CompilerInstance {
         }
 
         var why = self._incr_ineligible(order)
-        if why.empty()
+        if why.is_empty()
             && !self.incr.setup(
                 self.invocation()->linker.cache_dir,
                 self.incr_words,
@@ -1300,7 +1300,7 @@ pub class CompilerInstance {
             why = "no --cache-dir"
         }
 
-        if !why.empty() {
+        if !why.is_empty() {
             self.incr.on = false
             if self.incr.print_status {
                 io::println(f"incremental: miss: not eligible ({why})")
@@ -1394,22 +1394,22 @@ pub class CompilerInstance {
 
         var all = self.incr.plan_all.copy()
         var old = cxx::std::vector<PlanModule>()
-        if all.empty() && !self.incr.plan_base {
+        if all.is_empty() && !self.incr.plan_base {
             all = "no record"
         }
 
-        if all.empty() && !self.incr.load_plan(&old) {
+        if all.is_empty() && !self.incr.load_plan(&old) {
             all = "no plan records"
         }
 
-        if all.empty() && !incr_plan_same_graph(&old, now) {
+        if all.is_empty() && !incr_plan_same_graph(&old, now) {
             all = "the set of modules changed"
         }
 
         // R0: the modules whose text changed. A changed file that is no
         // module of this run's graph is a graph change.
         var edited = cxx::std::vector<string>()
-        for var ci: usize = 0; all.empty() && ci < self.incr.changed.size(); ++ci {
+        for var ci: usize = 0; all.is_empty() && ci < self.incr.changed.size(); ++ci {
             var found = false
             for var mi: usize = 0; mi < now->size(); ++mi {
                 if (*now)[mi].path == self.incr.changed[ci] {
@@ -1423,7 +1423,7 @@ pub class CompilerInstance {
             }
         }
 
-        if !all.empty() {
+        if !all.is_empty() {
             if show {
                 io::println(
                     f"incremental: plan: re-check all {now->size()} modules ({all})",
@@ -1532,7 +1532,7 @@ pub class CompilerInstance {
                 }
             }
 
-            if !diff.empty() {
+            if !diff.is_empty() {
                 if self.incr.print_status {
                     io::println(f"incremental: hit, verify FAILED: {diff}")
                 }
@@ -1569,7 +1569,7 @@ pub class CompilerInstance {
         var _t = TimeRegion("IncrRecords")
         for var fid: usize = 0; fid < self._sm->file_count(); ++fid {
             var name = self._sm->get_filename(fid as u32)
-            if name.empty() || name == "<invalid>" || name[0] == ('<' as u8) {
+            if name.is_empty() || name == "<invalid>" || name[0] == ('<' as u8) {
                 continue
             }
 
@@ -1644,7 +1644,7 @@ pub class CompilerInstance {
 
         // Before the library: its objects are cached by this bit too.
         self._settle_global_allocator()
-        if !self._link_out.empty()
+        if !self._link_out.is_empty()
             && self.invocation()->linker.kairo_lib
             && self._link_has_kairo() {
             if !self._kairo_lib() {
@@ -1731,11 +1731,11 @@ pub class CompilerInstance {
         // `main`: two in one link are two programs, which the linker would
         // reject as a duplicate symbol naming neither file. Only a link joins
         // them, so `-c` and --type-check-only of several scripts stay legal.
-        if !self._link_out.empty() {
+        if !self._link_out.is_empty() {
             self._reject_second_script(&result)
         }
 
-        if !self._link_out.empty() {
+        if !self._link_out.is_empty() {
             self._reject_second_global_allocator(&result)
         }
 
@@ -1778,7 +1778,7 @@ pub class CompilerInstance {
 
         // The link runs after every TU and native compile, and before the
         // totals are taken, so a link error fails the batch like any other.
-        if !self._link_out.empty() {
+        if !self._link_out.is_empty() {
             if !result.aborted && self._diag->error_count() == 0 {
                 self._link(&result)
             }

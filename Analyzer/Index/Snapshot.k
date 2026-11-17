@@ -214,7 +214,7 @@ pub class ScopeFacts {
         }
 
         self.at_[key] = self.rows_.size() as u32
-        self.rows_.push_back(f)
+        self.rows_.push(f)
     }
 
     pub fn clear(self) {

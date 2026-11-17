@@ -165,7 +165,7 @@ pub class CxxKeywordSet {
 /// reserves everywhere by its own rule (SC005W). Only meaningful when
 /// cxx_reserved_reason(s) is non-empty.
 pub fn cxx_reserved_everywhere(const s: string) -> bool {
-    var n = s.length()
+    var n = s.size()
     for var i: usize = 1; i < n; ++i {
         if s[i - 1] == ('_' as u8) && s[i] == ('_' as u8) {
             return true
@@ -182,7 +182,7 @@ pub fn cxx_reserved_everywhere(const s: string) -> bool {
 /// Non-empty reason if \p s matches a [lex.name]/3 reserved pattern. These
 /// are shape rules on the spelling, not identity   no interning involved.
 pub fn cxx_reserved_reason(const s: string) -> string {
-    var n = s.length()
+    var n = s.size()
     if n == 0 {
         return ""
     }
@@ -214,7 +214,7 @@ pub fn cxx_reserved_reason(const s: string) -> string {
 /// stem). Over-inclusive on purpose: a C-only or extension keyword costs a
 /// trailing `_`, a missed one costs a clang error.
 pub fn is_cxx_keyword(const s: string) -> bool {
-    if s.length() == 0 {
+    if s.size() == 0 {
         return false
     }
 

@@ -86,7 +86,7 @@ pub class Link {
         res.argv = argv
 
         var parent = LinkFS::parent(job.output)
-        if !parent.empty() && !LinkFS::make_dirs(parent) {
+        if !parent.is_empty() && !LinkFS::make_dirs(parent) {
             res.messages.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -106,7 +106,7 @@ pub class Link {
         }
 
         var run = LLDRunner::run(&argv, job.kld_path, job.out_of_process)
-        if !run.spawn_error.empty() {
+        if !run.spawn_error.is_empty() {
             res.messages.push_back(
                 LinkDiag::make(LinkSeverity::Fatal, run.spawn_error),
             )
@@ -155,13 +155,13 @@ pub class Link {
     priv static fn _check_glibc_floor(@inout job:  LinkJob,
                                       @inout msgs: cxx::std::vector<LinkMessage>) {
         var floor = job.glibc_floor.copy()
-        if floor.empty() {
+        if floor.is_empty() {
             return
         }
 
         for var p: string in job.host_shared {
             var n = HostSystem::glibc_needs(p)
-            if !n.ok || n.max_glibc.empty() {
+            if !n.ok || n.max_glibc.is_empty() {
                 continue
             }
 

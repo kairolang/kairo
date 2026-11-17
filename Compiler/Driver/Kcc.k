@@ -270,7 +270,7 @@ fn _kcc_is_clang_query(const w: string) -> bool {
 
     var n = w.copy()
     if w.starts_with("--") {
-        n = w.subslice(1, w.length() - 1)
+        n = w.subslice(1, w.size() - 1)
     }
 
     if n == "-print-libgcc-file-name"

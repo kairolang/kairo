@@ -339,7 +339,7 @@ pub class TextSink derives EmitSink {
             return
         }
 
-        if (!self.layout) && (!self._line_file.empty()) {
+        if (!self.layout) && (!self._line_file.is_empty()) {
             return
         }
 
@@ -355,7 +355,7 @@ pub class TextSink derives EmitSink {
             return
         }
 
-        if self._line_file.empty() {
+        if self._line_file.is_empty() {
             if self.layout {
                 self._remember_fid_(name, fl.file_id as u32)
             }
@@ -369,11 +369,11 @@ pub class TextSink derives EmitSink {
 
     priv fn _flush_line(self) {
         if self.layout {
-            self._rec_text.push_back(self._line.copy())
-            self._rec_file.push_back(self._line_file.copy())
-            self._rec_line.push_back(self._line_no)
-            self._rec_dir.push_back(self._line_dir)
-            self._rec_depth.push_back(self._depth)
+            self._rec_text.push(self._line.copy())
+            self._rec_file.push(self._line_file.copy())
+            self._rec_line.push(self._line_no)
+            self._rec_dir.push(self._line_dir)
+            self._rec_depth.push(self._depth)
             self._line      = ""
             self._line_file = ""
             self._line_no   = 0
@@ -384,7 +384,7 @@ pub class TextSink derives EmitSink {
         self._line_dir = false
         var file = self._line_file.copy()
         var line = self._line_no
-        if file.empty() {
+        if file.is_empty() {
             file = self.self_path.copy()
             line = self._phys + 1
             if (self._map_file != file) || (self._map_line != line) {
@@ -441,7 +441,7 @@ pub class TextSink derives EmitSink {
         // attributed to it: a small module that instantiates an imported
         // template (a `Panic<T, E>`) has more lines from that template's
         // file than from its own.
-        for var q: usize = 0; (q < n) && (!self.home_path.empty()); ++q {
+        for var q: usize = 0; (q < n) && (!self.home_path.is_empty()); ++q {
             if self._rec_file[q] == self.home_path {
                 home = self.home_path.copy()
             }
@@ -460,8 +460,8 @@ pub class TextSink derives EmitSink {
 
             var kind = self._chunk_kind_(i, j)
             for var q = i; q <= j; ++q {
-                c_end.push_back(j)
-                c_kind.push_back(kind)
+                c_end.push(j)
+                c_kind.push(kind)
             }
 
             i = j + 1
@@ -469,7 +469,7 @@ pub class TextSink derives EmitSink {
 
         var first = n
         for var q: usize = 0; (q < n) && (first == n); ++q {
-            if (!home.empty()) && (self._rec_file[q] == home) && (c_kind[q] != 1) {
+            if (!home.is_empty()) && (self._rec_file[q] == home) && (c_kind[q] != 1) {
                 first = q
             }
         }
@@ -505,7 +505,7 @@ pub class TextSink derives EmitSink {
         self._home   = home.copy()
         self._skip_fwd.clear()
         for var q: usize = 0; q < n; ++q {
-            self._skip_fwd.push_back(
+            self._skip_fwd.push(
                 (c_kind[q] == 0)
                     && (q >= first)
                     && (self._rec_file[q] == home)
@@ -517,7 +517,7 @@ pub class TextSink derives EmitSink {
 
         self._drop.clear()
         for var q: usize = 0; q < n; ++q {
-            self._drop.push_back(false)
+            self._drop.push(false)
         }
 
         self._lay_(first, include_line)
@@ -569,13 +569,13 @@ pub class TextSink derives EmitSink {
                 )
 
                 if (c_kind[q] == 1)
-                    && (!fwd.empty())
+                    && (!fwd.is_empty())
                     && (self._rec_file[q] == home)
                     && (at > 0)
                     && (!TextSink::_has_line_(self._doc_done, at)) {
                     var top: usize = 0
                     var doc        = self._doc_above_(at, &top)
-                    if !doc.empty() {
+                    if !doc.is_empty() {
                         var pad = self._rec_text[q].subslice(
                             0,
                             self._rec_text[q].size() - TextSink::_trim_(
@@ -588,7 +588,7 @@ pub class TextSink derives EmitSink {
                             prelude += "\n"
                         }
 
-                        self._doc_done.push_back(at)
+                        self._doc_done.push(at)
                         self.docs_prelude += 1
                     }
                 }
@@ -610,8 +610,8 @@ pub class TextSink derives EmitSink {
             }
 
             var top: usize = 0
-            if !self._doc_above_(at, &top).empty() {
-                missed.push_back(at)
+            if !self._doc_above_(at, &top).is_empty() {
+                missed.push(at)
                 self.docs_dropped += 1
             }
         }
@@ -639,16 +639,16 @@ pub class TextSink derives EmitSink {
         self._pl_decl.clear()
         self._doc_done.clear()
         self._pl_rec.clear()
-        self._pl_text.push_back(include_line.copy())
-        self._pl_lock.push_back(true)
-        self._pl_depth.push_back(0)
-        self._pl_decl.push_back(0)
-        self._pl_rec.push_back(usize::MAX)
-        self._pl_text.push_back("_Pragma(\"once\")")
-        self._pl_lock.push_back(false)
-        self._pl_depth.push_back(0)
-        self._pl_decl.push_back(0)
-        self._pl_rec.push_back(usize::MAX)
+        self._pl_text.push(include_line.copy())
+        self._pl_lock.push(true)
+        self._pl_depth.push(0)
+        self._pl_decl.push(0)
+        self._pl_rec.push(usize::MAX)
+        self._pl_text.push("_Pragma(\"once\")")
+        self._pl_lock.push(false)
+        self._pl_depth.push(0)
+        self._pl_decl.push(0)
+        self._pl_rec.push(usize::MAX)
         self._cursor   = 2
         self._run_dep  = 0
         self._mapped   = false
@@ -753,7 +753,7 @@ pub class TextSink derives EmitSink {
                         self._pl_rec[k - 1] = q
                         landed              = k
                     } else if hoist {
-                        if self._pl_text[k - 1].empty() {
+                        if self._pl_text[k - 1].is_empty() {
                             self._pl_text[k - 1] = piece.copy()
                             self._pl_decl[k - 1] = k
                             self._pl_rec[k - 1]  = q
@@ -771,9 +771,9 @@ pub class TextSink derives EmitSink {
                     var t = TextSink::_trim_(self._rec_text[q])
                     if t.starts_with("extern ") {
                         var vn = TextSink::_var_name_(t)
-                        if !vn.empty() {
-                            nb_names.push_back(vn.copy())
-                            nb_lines.push_back(landed)
+                        if !vn.is_empty() {
+                            nb_names.push(vn.copy())
+                            nb_lines.push(landed)
                             if landed > nb_max {
                                 nb_max = landed
                             }
@@ -827,21 +827,21 @@ pub class TextSink derives EmitSink {
                 var cls = TextSink::_class_name_(TextSink::_untemplate_(head))
                 if spec {
                     var sn = TextSink::_spec_name_(head)
-                    if sn.empty() {
+                    if sn.is_empty() {
                         barrier = self._cursor
                     } else {
-                        nb_names.push_back(sn.copy())
-                        nb_lines.push_back(self._cursor)
+                        nb_names.push(sn.copy())
+                        nb_lines.push(self._cursor)
                         nb_max = self._cursor
                     }
-                } else if !cls.empty() {
-                    cls_names.push_back(cls.copy())
-                    cls_lines.push_back(self._cursor)
-                } else if (!head.empty()) && (!TextSink::_has_(head, "(")) {
+                } else if !cls.is_empty() {
+                    cls_names.push(cls.copy())
+                    cls_lines.push(self._cursor)
+                } else if (!head.is_empty()) && (!TextSink::_has_(head, "(")) {
                     var vn = TextSink::_var_name_(head)
-                    if !vn.empty() {
-                        nb_names.push_back(vn.copy())
-                        nb_lines.push_back(self._cursor)
+                    if !vn.is_empty() {
+                        nb_names.push(vn.copy())
+                        nb_lines.push(self._cursor)
                         nb_max = self._cursor
                     } else if opener || (j0 < r) {
                         barrier = self._cursor
@@ -905,7 +905,7 @@ pub class TextSink derives EmitSink {
 
             var u = TextSink::_untemplate_all_(head)
             if shape
-                && ((!TextSink::_class_name_(u).empty())
+                && ((!TextSink::_class_name_(u).is_empty())
                     || u.starts_with("namespace ")
                     || u.starts_with("using ")
                     || (!TextSink::_has_(u, "("))) {
@@ -934,7 +934,7 @@ pub class TextSink derives EmitSink {
             var name = TextSink::_fn_name_(u, &qual)
             var k    = self._rec_line[h]
             var c    = usize::MAX
-            if (!name.empty())
+            if (!name.is_empty())
                 && (k >= 2)
                 && (k <= self._pl_text.size())
                 && (self._pl_decl[k - 1] == k) {
@@ -952,7 +952,7 @@ pub class TextSink derives EmitSink {
                         && (self._rec_depth[c] >= 2)
                         && TextSink::_has_word_(t, name)
                         && (!TextSink::_has_word_(t, "friend"))
-                        && TextSink::_class_name_(TextSink::_untemplate_all_(t)).empty()
+                        && TextSink::_class_name_(TextSink::_untemplate_all_(t)).is_empty()
                 } else {
                     held = (self._c_kind[c] == 2)
                         && (TextSink::_proto_key_(t) == TextSink::_proto_key_(
@@ -1038,7 +1038,7 @@ pub class TextSink derives EmitSink {
             }
 
             var id = u.subslice(b, e - b)
-            if id.empty()
+            if id.is_empty()
                 || (id == "decltype")
                 || (id == "sizeof")
                 || (id == "alignof")
@@ -1163,7 +1163,7 @@ pub class TextSink derives EmitSink {
         var names:  [string]
         var counts: [usize]
         for var i: usize = 0; i < self._rec_file.size(); ++i {
-            if self._rec_file[i].empty() {
+            if self._rec_file[i].is_empty() {
                 continue
             }
 
@@ -1176,8 +1176,8 @@ pub class TextSink derives EmitSink {
             }
 
             if !found {
-                names.push_back(self._rec_file[i].copy())
-                counts.push_back(1)
+                names.push(self._rec_file[i].copy())
+                counts.push(1)
             }
         }
 
@@ -1270,18 +1270,18 @@ pub class TextSink derives EmitSink {
     /// Text on line \p k, the lines between padded with nothing.
     priv fn _fresh_(self, k: usize, const text: string, depth_after: usize) {
         while self._pl_text.size() < (k - 1) {
-            self._pl_text.push_back("")
-            self._pl_lock.push_back(false)
-            self._pl_depth.push_back(self._run_dep)
-            self._pl_decl.push_back(0)
-            self._pl_rec.push_back(usize::MAX)
+            self._pl_text.push("")
+            self._pl_lock.push(false)
+            self._pl_depth.push(self._run_dep)
+            self._pl_decl.push(0)
+            self._pl_rec.push(usize::MAX)
         }
 
-        self._pl_text.push_back(text.copy())
-        self._pl_lock.push_back(false)
-        self._pl_depth.push_back(depth_after)
-        self._pl_decl.push_back(0)
-        self._pl_rec.push_back(usize::MAX)
+        self._pl_text.push(text.copy())
+        self._pl_lock.push(false)
+        self._pl_depth.push(depth_after)
+        self._pl_decl.push(0)
+        self._pl_rec.push(usize::MAX)
         self._cursor  = k
         self._run_dep = depth_after
     }
@@ -1293,8 +1293,8 @@ pub class TextSink derives EmitSink {
             }
         }
 
-        self._fnames.push_back(name.copy())
-        self._fids.push_back(fid)
+        self._fnames.push(name.copy())
+        self._fids.push(fid)
     }
 
     priv static fn _has_line_(const set: [usize], k: usize) -> bool {
@@ -1326,7 +1326,7 @@ pub class TextSink derives EmitSink {
             )
 
             if s.starts_with("///") {
-                rev.push_back(
+                rev.push(
                     self._sm->get_line_text(self._home_fid, (j - 1) as u32),
                 )
 
@@ -1334,7 +1334,7 @@ pub class TextSink derives EmitSink {
                 continue
             }
 
-            if s.starts_with("@") && rev.empty() {
+            if s.starts_with("@") && rev.is_empty() {
                 j -= 1
                 continue
             }
@@ -1342,13 +1342,13 @@ pub class TextSink derives EmitSink {
             break
         }
 
-        if rev.empty() || trim_start(rev[rev.size() - 1]).starts_with("/// ---") {
+        if rev.is_empty() || trim_start(rev[rev.size() - 1]).starts_with("/// ---") {
             return none
         }
 
         var out: [string]
         for var i: usize = rev.size(); i > 0; --i {
-            out.push_back(TextSink::_doc_line_(rev[i - 1]))
+            out.push(TextSink::_doc_line_(rev[i - 1]))
         }
 
         *top = j
@@ -1424,7 +1424,7 @@ pub class TextSink derives EmitSink {
 
             var top: usize = 0
             var doc        = self._doc_above_(k, &top)
-            if doc.empty() || (top < 2) {
+            if doc.is_empty() || (top < 2) {
                 continue
             }
 
@@ -1434,14 +1434,14 @@ pub class TextSink derives EmitSink {
                 if j == self._line_at {
                     has_dir = true
                 } else if self._pl_lock[j - 1]
-                    || (!TextSink::_trim_(self._pl_text[j - 1]).empty()) {
+                    || (!TextSink::_trim_(self._pl_text[j - 1]).is_empty()) {
                     fits = false
                 }
             }
 
             var open  = TextSink::_openers_(self._pl_text[k - 1])
             var above = top - 1 // the opener's line, and the `#line`'s
-            if (!open.empty())
+            if (!open.is_empty())
                 && ((above < 1) || self._pl_lock[above - 1] || (above == self._line_at)) {
                 fits = false
             }
@@ -1452,7 +1452,7 @@ pub class TextSink derives EmitSink {
 
             if has_dir {
                 var to = above
-                if !open.empty() {
+                if !open.is_empty() {
                     to = above - 1
                 }
 
@@ -1462,21 +1462,21 @@ pub class TextSink derives EmitSink {
                 self._line_at          = 0
                 if (to >= 3)
                     && (!self._pl_lock[to - 1])
-                    && TextSink::_trim_(self._pl_text[to - 1]).empty() {
+                    && TextSink::_trim_(self._pl_text[to - 1]).is_empty() {
                     self._pl_text[to - 1] = f"#line {to + 1} \"" + self._home + "\""
                     self._pl_lock[to - 1] = true
                     self._line_at         = to
                 }
             }
 
-            if !open.empty() {
+            if !open.is_empty() {
                 var rest = self._pl_text[k - 1].subslice(
                     open.size(),
                     self._pl_text[k - 1].size() - open.size(),
                 )
 
                 self._pl_text[k - 1] = TextSink::_trim_(rest)
-                if TextSink::_trim_(self._pl_text[above - 1]).empty() {
+                if TextSink::_trim_(self._pl_text[above - 1]).is_empty() {
                     self._pl_text[above - 1] = TextSink::_trim_(open)
                 } else {
                     self._pl_text[above - 1] += " " + TextSink::_trim_(open)
@@ -1488,7 +1488,7 @@ pub class TextSink derives EmitSink {
                 self._pl_lock[top + d - 1] = true
             }
 
-            self._doc_done.push_back(k)
+            self._doc_done.push(k)
             self.docs_placed += 1
         }
     }
@@ -1728,7 +1728,7 @@ pub class TextSink derives EmitSink {
 
     /// \p name in \p s as a whole identifier.
     priv static fn _has_word_(const s: string, const name: string) -> bool {
-        if name.empty() || (name.size() > s.size()) {
+        if name.is_empty() || (name.size() > s.size()) {
             return false
         }
 

@@ -196,7 +196,7 @@ pub class ObjectCache {
     ///        (nothing is cached) without a cache dir or a ready backend.
     pub fn setup(self, be: unsafe *ClangBackend, const cache_dir: string) -> bool {
         self.on = false
-        if cache_dir.empty() || be == &null || !be->ready() {
+        if cache_dir.is_empty() || be == &null || !be->ready() {
             return false
         }
 
@@ -487,7 +487,7 @@ pub class ObjectCache {
 
     /// The content hash of header \p i, computed once.
     priv fn _content_of(self, i: usize) -> string {
-        if self._hdr_hash[i].empty() {
+        if self._hdr_hash[i].is_empty() {
             self._hdr_hash[i] = kairo::std::from_std_string<string>(
                 kairo::objcache_file_hash(kairo::sref(self._hdr_path[i])),
             )
@@ -627,7 +627,7 @@ pub class ObjectCache {
         if !hit {
             if ObjectCache::_record_key(have) == key {
                 why = " nothing, but the build that compiled it did not store it (its -v log says why)"
-            } else if !have.empty() {
+            } else if !have.is_empty() {
                 why = self._diff(have)
             }
 
@@ -644,7 +644,7 @@ pub class ObjectCache {
             return true
         }
 
-        if !have.empty() {
+        if !have.is_empty() {
             why = self._diff(have)
         }
 
@@ -673,7 +673,7 @@ pub class ObjectCache {
         }
 
         var entry = self._entry(key)
-        if !found.empty() {
+        if !found.is_empty() {
             // The findings first: an object without them is never served.
             // Written again over an entry that is there: they place the
             // findings in this run's bytes of the files they name.
@@ -786,7 +786,7 @@ pub class ObjectCache {
 
     /// The O line of a record of this schema that ends whole; "" otherwise.
     priv static fn _record_key(const r: string) -> string {
-        if r.empty() || !r.ends_with("end\n") {
+        if r.is_empty() || !r.ends_with("end\n") {
             return ""
         }
 
@@ -840,7 +840,7 @@ pub class ObjectCache {
             }
         }
 
-        if out.empty() {
+        if out.is_empty() {
             out = " stream"
         }
 
@@ -876,7 +876,7 @@ pub class ObjectCache {
         var core = ObjectCache::_version_core(ver)
         var out  = fingerprint_schema_key() + f" {CACHE_SCHEMA}\n"
         out += fingerprint_version_key() + " " + core + "\n"
-        var dev = core.empty()
+        var dev = core.is_empty()
             || find(ver, "+dev", 0) != usize::MAX
             || find(ver, "+rc", 0) != usize::MAX
             || ver == "unknown"

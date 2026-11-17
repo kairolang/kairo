@@ -361,7 +361,7 @@ extend Speller {
 
         return Speller::cxx_segment(
             string(
-                unsafe (((path.raw() as unsafe *const u8) + start) as *const u8),
+                unsafe (((path.data() as unsafe *const u8) + start) as *const u8),
                 end - start,
             ),
         )

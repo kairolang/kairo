@@ -35,7 +35,7 @@ pub fn println(const s: string) { write_line_(1, s) }
 /// Unbuffered, like `println`. Write errors are ignored.
 ///
 /// \param s   the text to write
-pub fn print(const s: string) { write_all_(1, s.as_ptr(), s.length()) }
+pub fn print(const s: string) { write_all_(1, s.data(), s.size()) }
 
 /// Writes `s` followed by a newline to standard error.
 ///
@@ -48,7 +48,7 @@ pub fn eprintln(const s: string) { write_line_(2, s) }
 /// Writes `s` to standard error without a trailing newline.
 ///
 /// \param s   the text to write
-pub fn eprint(const s: string) { write_all_(2, s.as_ptr(), s.length()) }
+pub fn eprint(const s: string) { write_all_(2, s.data(), s.size()) }
 
 /// Flushes the C runtime's stdio buffers on every stream.
 ///
@@ -64,15 +64,15 @@ pub fn flush() {
 /// line from one thread is never split by another's (and a reader of a pipe
 /// sees whole lines); a longer one is two writes.
 priv fn write_line_(fd: i32, const s: string) {
-    const n = s.length()
+    const n = s.size()
     if n < 4096 {
         var buf: [u8; 4096]                       // never initialized; only the bytes written are read
-        for var i: usize = 0; i < n; ++i { buf[i] = s.as_ptr()[i] }
+        for var i: usize = 0; i < n; ++i { buf[i] = s.data()[i] }
         buf[n] = 10
         write_all_(fd, const &buf[0], n + 1)
         return
     }
-    write_all_(fd, s.as_ptr(), n)
+    write_all_(fd, s.data(), n)
     var nl: [u8; 1]
     nl[0] = 10
     write_all_(fd, const &nl[0], 1)

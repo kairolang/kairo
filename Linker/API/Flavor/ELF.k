@@ -53,7 +53,7 @@ pub class ELFArgs {
         var errs0 = LinkDiag::error_count(&msgs)
         var *o    = job.opts
 
-        if job.output.empty() {
+        if job.output.is_empty() {
             msgs.push_back(
                 LinkDiag::make(LinkSeverity::Error, "link: no output path"),
             )
@@ -105,12 +105,12 @@ pub class ELFArgs {
         // A bitcode archive still can (LinkJob::lto_cache_dir): its compiled
         // modules are reused across links. Capped so the cache cannot grow
         // without bound; lld prunes it.
-        if !job.lto_cache_dir.empty() {
+        if !job.lto_cache_dir.is_empty() {
             argv.push_back(f"--thinlto-cache-dir={job.lto_cache_dir}")
             argv.push_back("--thinlto-cache-policy=cache_size_bytes=4g")
         }
 
-        if !tc.emulation.empty() {
+        if !tc.emulation.is_empty() {
             argv.push_back("-m")
             argv.push_back(tc.emulation)
         }
@@ -127,7 +127,7 @@ pub class ELFArgs {
             hs = "sysv"
         }
 
-        if !want_stat && !hs.empty() {
+        if !want_stat && !hs.is_empty() {
             argv.push_back(f"--hash-style={hs}")
         }
 
@@ -135,7 +135,7 @@ pub class ELFArgs {
         // note is what debuggers and symbol servers key on, and dropping the
         // flag would silently turn it off only for people who wrote it.
         var bid = o->build_id.copy()
-        if bid.empty() {
+        if bid.is_empty() {
             bid = "fast"
         }
 
@@ -181,7 +181,7 @@ pub class ELFArgs {
         }
 
         if dyn_exe {
-            if tc.dynamic_linker.empty() {
+            if tc.dynamic_linker.is_empty() {
                 msgs.push_back(
                     LinkDiag::make(
                         LinkSeverity::Error,
@@ -230,7 +230,7 @@ pub class ELFArgs {
             }
 
             var cb = tc.crt_object("crtbegin", begin_v)
-            if !cb.empty() {
+            if !cb.is_empty() {
                 argv.push_back(cb)
             }
         }
@@ -240,11 +240,11 @@ pub class ELFArgs {
             argv.push_back(f"-L{d}")
         }
 
-        if !tc.toolchain_lib.empty() {
+        if !tc.toolchain_lib.is_empty() {
             argv.push_back(f"-L{tc.toolchain_lib}")
         }
 
-        if !tc.gcc_dir.empty() {
+        if !tc.gcc_dir.is_empty() {
             argv.push_back(f"-L{tc.gcc_dir}")
         }
 
@@ -277,7 +277,7 @@ pub class ELFArgs {
             }
         }
 
-        if !want_stat && !no_libs && !tc.toolchain_lib.empty() {
+        if !want_stat && !no_libs && !tc.toolchain_lib.is_empty() {
             argv.push_back("-rpath")
             argv.push_back(tc.toolchain_lib)
             msgs.push_back(
@@ -338,26 +338,26 @@ pub class ELFArgs {
             argv.push_back("--strip-debug")
         }
 
-        if !o->linker_script.empty() {
+        if !o->linker_script.is_empty() {
             argv.push_back("-T")
             argv.push_back(o->linker_script)
         }
 
-        if !o->version_script.empty() {
+        if !o->version_script.is_empty() {
             argv.push_back(f"--version-script={o->version_script}")
         }
 
-        if !o->map_file.empty() {
+        if !o->map_file.is_empty() {
             argv.push_back(f"--Map={o->map_file}")
         }
 
-        if !o->compress_debug.empty() && o->compress_debug != "none" {
+        if !o->compress_debug.is_empty() && o->compress_debug != "none" {
             argv.push_back(f"--compress-debug-sections={o->compress_debug}")
         }
 
         // With crt, main is called by crt1 and the ELF entry is _start. The
         // entry flag only names the ELF entry when there is no crt to do it.
-        if no_crt && !shared && !o->no_entry && !o->entry.empty() {
+        if no_crt && !shared && !o->no_entry && !o->entry.is_empty() {
             argv.push_back("-e")
             argv.push_back(o->entry)
         }
@@ -391,7 +391,7 @@ pub class ELFArgs {
         /// # crt end
         if !no_crt {
             var ce = tc.crt_object("crtend", end_v)
-            if !ce.empty() {
+            if !ce.is_empty() {
                 argv.push_back(ce)
             }
 
@@ -422,11 +422,11 @@ pub class ELFArgs {
             dirs.push_back(d)
         }
 
-        if !tc.toolchain_lib.empty() {
+        if !tc.toolchain_lib.is_empty() {
             dirs.push_back(tc.toolchain_lib)
         }
 
-        if !tc.gcc_dir.empty() {
+        if !tc.gcc_dir.is_empty() {
             dirs.push_back(tc.gcc_dir)
         }
 
@@ -449,7 +449,7 @@ pub class ELFArgs {
                 name = LinkText::slice(spec, 8, spec.size())
             }
 
-            if name.empty() {
+            if name.is_empty() {
                 continue
             }
 
@@ -465,7 +465,7 @@ pub class ELFArgs {
             }
 
             var p = HostSystem::find_lib(name, &dirs, stat)
-            if !p.empty() {
+            if !p.is_empty() {
                 found.push_back(p)
             }
         }
@@ -526,8 +526,8 @@ pub class ELFArgs {
                         @inout argv: cxx::std::vector<string>,
                         @inout msgs: cxx::std::vector<LinkMessage>) {
         var p = tc.find_lib_file(name.copy())
-        if p.empty() {
-            var _where = if (!tc.crt_dir.empty()) => (tc.crt_dir) else => tc.sysroot
+        if p.is_empty() {
+            var _where = if (!tc.crt_dir.is_empty()) => (tc.crt_dir) else => tc.sysroot
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -557,7 +557,7 @@ pub class ELFArgs {
             name = LinkText::slice(spec, 8, spec.size())
         }
 
-        if name.empty() {
+        if name.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -619,7 +619,7 @@ pub class ELFArgs {
 
             cxx_v = tc.manifest.libcxx_link
             libc  = tc.manifest.libc_link
-        } else if !tc.native_bundle.empty() {
+        } else if !tc.native_bundle.is_empty() {
             // --native: the bundled libc++ by path, never by -L (that dir's
             // libc would win over the host's), and the host's libc.
             var nb = LinkText::join(tc.native_bundle.copy(), "lib")
@@ -640,7 +640,7 @@ pub class ELFArgs {
 
         var rt = cxx::std::vector<string>()
         if tc.rtlib == "compiler-rt" {
-            if !tc.builtins.empty() {
+            if !tc.builtins.is_empty() {
                 rt.push_back(tc.builtins)
             }
         } else {
@@ -655,7 +655,9 @@ pub class ELFArgs {
                 "libunwind.a",
             )
 
-            if tc.unwindlib == "libunwind" && !tc.native_bundle.empty() && LinkFS::is_file(nb_uw) {
+            if tc.unwindlib == "libunwind"
+                && !tc.native_bundle.is_empty()
+                && LinkFS::is_file(nb_uw) {
                 uw.push_back(nb_uw)
             } else if tc.unwindlib == "libunwind" {
                 uw.push_back("-lunwind")

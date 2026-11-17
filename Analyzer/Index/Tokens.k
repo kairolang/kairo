@@ -201,7 +201,7 @@ pub fn is_builtin_macro_name(const word: string) -> bool {
     var i: usize = 0
     while true {
         var w = LangMacros::known(i)
-        if w.empty() {
+        if w.is_empty() {
             break
         }
 
@@ -215,7 +215,7 @@ pub fn is_builtin_macro_name(const word: string) -> bool {
     i = 0
     while true {
         var w = LangIntrinsics::known(i)
-        if w.empty() {
+        if w.is_empty() {
             break
         }
 
@@ -382,7 +382,7 @@ pub fn lexical_tokens(sm: unsafe *SourceManager, fid: u32, f: *const FileText, w
             st.len  = len
             st.kind = kind
             st.mods = mods
-            all.push_back(st)
+            all.push(st)
         }
 
         lx->close()
@@ -519,7 +519,7 @@ extend IndexWalker {
                     tk,
                 )
 
-                out->push_back(st)
+                out->push(st)
                 continue
             }
 
@@ -531,7 +531,7 @@ extend IndexWalker {
                     st.mods = st.mods | *em
                 }
 
-                out->push_back(st)
+                out->push(st)
                 continue
             }
 
@@ -562,7 +562,7 @@ extend IndexWalker {
             st.len  = len
             st.kind = kind
             st.mods = mods
-            out->push_back(st)
+            out->push(st)
             if t.kind == TokenKind::LitString {
                 self.chained_(imm, t, off + len, &by_off, out)
             }
@@ -635,7 +635,7 @@ extend IndexWalker {
                         st.mods = st.mods | *em
                     }
 
-                    out->push_back(st)
+                    out->push(st)
                     c += st.len as usize
                     continue
                 }
@@ -769,6 +769,6 @@ extend IndexWalker {
         st.len  = (to - from) as u32
         st.kind = kind
         st.mods = 0
-        out->push_back(st)
+        out->push(st)
     }
 }

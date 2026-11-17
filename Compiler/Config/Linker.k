@@ -172,7 +172,7 @@ pub class LinkerOptions {
         // (`--emit=obj -S`), as -c stops at objects.
         o.compile_only = args.get_bool("compile-only")
             || args.get_bool("emit-asm")
-            || !emit.links(!args.get_string("output").empty())
+            || !emit.links(!args.get_string("output").is_empty())
         o.emit_scope    = args.get_string("emit-scope")
         o.kairo_lib     = args.get_bool("kairo-lib")
         o.print_ld_args = args.get_bool("print-ld-args")

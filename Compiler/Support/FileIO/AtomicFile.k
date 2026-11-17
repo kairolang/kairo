@@ -198,7 +198,7 @@ pub fn sweep_leftover_temps(const dir: string, max_age_ns: u64) -> usize {
         }
 
         if now > mtime && now - mtime > max_age_ns {
-            doomed.push_back(p.copy())
+            doomed.push(p.copy())
         }
     }
 

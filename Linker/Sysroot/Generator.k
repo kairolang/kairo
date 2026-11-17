@@ -155,7 +155,7 @@ pub class SysGen {
 
     pub fn cache(self) -> SysCache {
         var r = self.cache_root.copy()
-        if r.empty() {
+        if r.is_empty() {
             r = SysCache::default_root()
         }
 
@@ -205,7 +205,7 @@ pub class SysGen {
         // The key on stderr: what `ksys ls` and the cache dirs are named by.
         self._log(f"{p.target.name}: key {p.key}")
         var c = self.cache()
-        if c.root.empty() {
+        if c.root.is_empty() {
             return out.refuse(
                 "no cache directory for sysroots",
                 "set KAIRO_SYSROOT_CACHE (or KAIRO_CACHE_DIR, XDG_CACHE_HOME, HOME)",
@@ -295,7 +295,7 @@ pub class SysGen {
 
         for var rt: string in SysTemplate::runtimes() {
             var key = tt.str("", rt)
-            if key.empty() {
+            if key.is_empty() {
                 continue
             }
 
@@ -376,7 +376,7 @@ pub class SysGen {
         }
 
         var log = LinkFS::temp_dir("ksys-validate")
-        if log.empty() {
+        if log.is_empty() {
             return out.fail(
                 "cannot create a temporary directory for validation",
                 "",
@@ -425,14 +425,14 @@ pub class SysGen {
 
         rep += f"manifest:     {mpath}" + "\n"
         rep += f"triple:       {m.triple} ({t->family})" + "\n"
-        if m.clang_triple.empty() {
+        if m.clang_triple.is_empty() {
             rep += "clang_triple: (none: derived by the driver)" + "\n"
         } else {
             rep += f"clang_triple: {m.clang_triple}" + "\n"
         }
 
         var base = m.dir.copy()
-        if !m.sysroot.empty() && m.sysroot != "." {
+        if !m.sysroot.is_empty() && m.sysroot != "." {
             base = LinkText::join(m.dir.copy(), m.sysroot.copy())
         }
 
@@ -455,7 +455,7 @@ pub class SysGen {
         }
 
         rep += "structure:    ok" + "\n"
-        if share.empty() {
+        if share.is_empty() {
             return out.refuse(
                 "validation needs the share tree: its validate/ programs and the family recipe",
                 SysGen::_share_note(),
@@ -522,7 +522,7 @@ pub class SysGen {
         var mkey  = ""
         var mval  = TomlValue{}
         while mtoml.next(&mkey, &mval) {
-            if mtoml.table.empty() && mkey == "extra_cflags" && mval.kind == 3 {
+            if mtoml.table.is_empty() && mkey == "extra_cflags" && mval.kind == 3 {
                 extra = mval.list
             }
         }
@@ -562,7 +562,7 @@ pub class SysGen {
             }
 
             var missing = ""
-            if !need.empty() {
+            if !need.is_empty() {
                 for var ty: string in SysUtil::split(need, (',' as u8)) {
                     if !SysGen::_has_type(
                         kcc,
@@ -573,12 +573,12 @@ pub class SysGen {
                         &have,
                         &lack,
                     ) {
-                        missing += if (missing.empty()) => (ty) else => ", " + ty
+                        missing += if (missing.is_empty()) => (ty) else => ", " + ty
                     }
                 }
             }
 
-            if !missing.empty() {
+            if !missing.is_empty() {
                 var spad = src + ":"
                 while spad.size() < 14 {
                     spad += " "
@@ -639,7 +639,7 @@ pub class SysGen {
                 )
             }
 
-            if !skip.empty() {
+            if !skip.is_empty() {
                 rep += f"{pad}built; run SKIP ({skip})" + "\n"
                 continue
             }
@@ -683,7 +683,7 @@ pub class SysGen {
             var path = share.input_path(rel)
             if !LinkFS::is_dir(path) {
                 io::println(f"MISSING   {rel}")
-                if first.empty() {
+                if first.is_empty() {
                     first = f"share input {path} missing"
                 }
 
@@ -692,9 +692,9 @@ pub class SysGen {
 
             var err = ""
             var got = SysUtil::tree_sha256(path, share.follows_links(), &err)
-            if !err.empty() {
+            if !err.is_empty() {
                 io::println(f"ERROR     {rel}")
-                if first.empty() {
+                if first.is_empty() {
                     first = f"share input {err}"
                 }
 
@@ -703,7 +703,7 @@ pub class SysGen {
 
             if got != share.input_sha[i] {
                 io::println(f"MISMATCH  {rel}")
-                if first.empty() {
+                if first.is_empty() {
                     first = f"share input {path}: tree hash mismatch (registry.toml)"
                 }
 
@@ -715,11 +715,11 @@ pub class SysGen {
 
         var have = share.revision()
         var want = SysGen::runtimes_revision()
-        if have != want && first.empty() {
+        if have != want && first.is_empty() {
             first = f"runtimes/REVISION {have} does not match the compiler ({want}); reinstall the toolchain"
         }
 
-        if !first.empty() {
+        if !first.is_empty() {
             return out.refuse(first, "")
         }
 
@@ -741,7 +741,7 @@ pub class SysGen {
         var gv      = GlibcVersions()
         var gdef    = glibc_default_version()
         var have_gv = present && gv.load(LinkText::join(sdir.copy(), "glibc/VERSIONS.toml"))
-        if have_gv && !gv.default_.empty() {
+        if have_gv && !gv.default_.is_empty() {
             gdef = gv.default_.copy()
         }
 
@@ -751,7 +751,7 @@ pub class SysGen {
             return out.refuse(why, "")
         }
 
-        if !self.glibc.empty() {
+        if !self.glibc.is_empty() {
             if p.target.family != "linux-gnu" {
                 return out.refuse(
                     f"--glibc applies to glibc targets, and {p.target.name} is not one",
@@ -769,7 +769,7 @@ pub class SysGen {
         p.row("name", p.target.name)
         p.row("family", p.target.family)
         p.row("provider", p.target.provider)
-        if !p.target.libc_version.empty() {
+        if !p.target.libc_version.is_empty() {
             p.row("libc_version", p.target.libc_version)
         }
 
@@ -791,9 +791,13 @@ pub class SysGen {
 
         var have = p.share.revision()
         var want = SysGen::runtimes_revision()
-        p.row("runtimes", if (have.empty()) => ("(no REVISION)") else => have)
+        p.row(
+            "runtimes",
+            if (have.is_empty()) => ("(no REVISION)") else => have,
+        )
+
         if have != want {
-            var shown = if (have.empty()) => ("(missing)") else => have
+            var shown = if (have.is_empty()) => ("(missing)") else => have
             return out.refuse(
                 f"runtimes/REVISION {shown} does not match the compiler ({want}); reinstall the toolchain",
                 "",
@@ -844,7 +848,7 @@ pub class SysGen {
         // arch it does not port (glibc's {per_arch.triple}): keep the
         // built-in triple then, so the backend probe and the provider's
         // refusal name the target and not the template.
-        if !p.recipe.clang_triple.empty() {
+        if !p.recipe.clang_triple.is_empty() {
             var ct = p.recipe.expand(p.recipe.clang_triple, &p.target)
             if !LinkText::contains(ct, "{") {
                 p.target.clang_triple = ct.copy()
@@ -894,7 +898,7 @@ pub class SysGen {
         var rewrites = cxx::std::vector<string>()
         for var q: SysQuirk in p.quirks {
             qids.push_back(q.id)
-            if !q.target_rewrite.empty() {
+            if !q.target_rewrite.is_empty() {
                 rewrites.push_back(q.id)
                 p.target.clang_triple = p.recipe.expand(
                     q.target_rewrite,
@@ -952,7 +956,7 @@ pub class SysGen {
         tools.push_back("llvm-ar")
         for var t: string in tools {
             var at = SysGen::find_tool(t)
-            if at.empty() {
+            if at.is_empty() {
                 p.row("tools", f"{t} missing")
                 return out.refuse(
                     f"{t} not found beside {LinkFS::parent(env::exe_path())} or on PATH",
@@ -960,7 +964,7 @@ pub class SysGen {
                 )
             }
 
-            if p.tools.empty() {
+            if p.tools.is_empty() {
                 p.tools = LinkFS::parent(at)
             }
         }
@@ -994,17 +998,17 @@ pub class SysGen {
         // not needed (and taken only when listed too). Without it the
         // tables are required as before.
         var c        = self.cache()
-        var has_tmpl = !p.share.registered("runtimes-template").empty()
+        var has_tmpl = !p.share.registered("runtimes-template").is_empty()
         var rtin     = cxx::std::vector<string>()
         rtin.push_back("runtimes")
         rtin.push_back("runtimes-template")
         rtin.push_back("runtimes-recipe")
         for var rt: string in rtin {
-            var need = !p.recipe.runtimes.empty() || !p.share.registered(rt).empty()
+            var need = !p.recipe.runtimes.empty() || !p.share.registered(rt).is_empty()
             if rt == "runtimes-template" {
                 need = has_tmpl
             } else if rt == "runtimes-recipe" && has_tmpl {
-                need = !p.share.registered(rt).empty()
+                need = !p.share.registered(rt).is_empty()
             }
 
             if need && !SysUtil::contains(&rels, rt) {
@@ -1014,7 +1018,7 @@ pub class SysGen {
 
         for var rel: string in rels {
             var reg = p.share.registered(rel)
-            if reg.empty() {
+            if reg.is_empty() {
                 return out.refuse(
                     f"share input {rel} is not listed in {sdir}/registry.toml",
                     "",
@@ -1034,7 +1038,7 @@ pub class SysGen {
                 &err,
             )
 
-            if !err.empty() {
+            if !err.is_empty() {
                 return out.refuse(f"share input {err}", "")
             }
 
@@ -1210,7 +1214,7 @@ pub class SysGen {
                                  p:          *SysPlan,
                                  const dest: string,
                                  @inout out: SysOutcome) -> bool {
-        if dest.empty() {
+        if dest.is_empty() {
             return out.refuse("--libc-only builds with --out only", "")
         }
 
@@ -1220,7 +1224,7 @@ pub class SysGen {
         parts.push_back("libc-libs")
         for var n: string in parts {
             var from = ctx->product(n)
-            if from.empty() || !LinkFS::copy_tree(from, dest) {
+            if from.is_empty() || !LinkFS::copy_tree(from, dest) {
                 return out.fail(f"cannot copy the {n} product into {dest}", "")
             }
         }
@@ -1328,7 +1332,7 @@ pub class SysGen {
                 }
             }
 
-            if lic.empty() {
+            if lic.is_empty() {
                 return out.refuse(
                     f"share input {rel} has no [licenses] entry in registry.toml",
                     "",
@@ -1375,7 +1379,7 @@ pub class SysGen {
     /// table order, `f"{key:<13} = {value}"`, templates expanded.
     priv static fn _stage_toml(ctx: *StageCtx, @inout out: SysOutcome) -> bool {
         var text = SysGen::render_toml(&ctx->recipe, &ctx->target)
-        if text.empty() {
+        if text.is_empty() {
             return out.refuse(
                 f"the {ctx->target.recipe} recipe has no [toml] table",
                 "",
@@ -1439,7 +1443,7 @@ pub class SysGen {
                             c:          *SysCache,
                             const dest: string,
                             @inout out: SysOutcome) -> bool {
-        var fin = if (dest.empty()) => (c->sysroot_dir(p->key))
+        var fin = if (dest.is_empty()) => (c->sysroot_dir(p->key))
                   else => LinkText::strip_slash(dest.copy())
         var tmp  = fin + ".tmp"
         var none = cxx::std::vector<string>()
@@ -1502,7 +1506,7 @@ pub class SysGen {
             return out.fail(f"cannot write {tmp}/.kairo-sysroot.json", "")
         }
 
-        if dest.empty() && !LinkFS::write(tmp + "/.ok", "") {
+        if dest.is_empty() && !LinkFS::write(tmp + "/.ok", "") {
             LinkFS::remove_tree(tmp)
             return out.fail(f"cannot write {tmp}/.ok", "")
         }
@@ -1519,7 +1523,7 @@ pub class SysGen {
     /// The dir the toolchain binaries are in: kcc's, as plan() finds it.
     priv static fn _tools_dir() -> string {
         var k = SysGen::find_tool("kcc")
-        return if (k.empty()) => (LinkFS::parent(env::exe_path())) else => LinkFS::parent(k)
+        return if (k.is_empty()) => (LinkFS::parent(env::exe_path())) else => LinkFS::parent(k)
     }
 
     priv static fn _exe(const dir: string, const name: string) -> string {
@@ -1665,13 +1669,13 @@ pub class SysGen {
         var native = harch == t->arch
             || harch == "x86_64" && t->arch == "i686"
             || harch == "x86_64" && t->arch == "x32"
-        if mode == "link-only" || mode.empty() {
+        if mode == "link-only" || mode.is_empty() {
             return "link-only target"
         }
 
         if mode == "wine-if-present" {
             var wine = SysGen::find_tool("wine")
-            if wine.empty() {
+            if wine.is_empty() {
                 return "no wine on PATH"
             }
 
@@ -1684,7 +1688,7 @@ pub class SysGen {
             // encoding, which node runs (behind its exnref flag) and
             // wasmtime rejects.
             var node = SysGen::find_tool("node")
-            if !node.empty() {
+            if !node.is_empty() {
                 var js   = LinkText::join(work.copy(), "run-wasi.mjs")
                 var q    = "\x27"
                 var code = "import { readFile } from " + q + "node:fs/promises" + q + ";\n"
@@ -1702,7 +1706,7 @@ pub class SysGen {
             }
 
             var wt = SysGen::find_tool("wasmtime")
-            if wt.empty() {
+            if wt.is_empty() {
                 return "no wasmtime or node on PATH"
             }
 
@@ -1733,14 +1737,14 @@ pub class SysGen {
         }
 
         var qemu = SysGen::find_tool("qemu-" + qa)
-        if qemu.empty() {
+        if qemu.is_empty() {
             return f"no qemu-{qa} on PATH"
         }
 
         argv.push_back(qemu)
         if mode == "native-or-qemu-with-root" {
             var qroot = LinkFS::env("KAIRO_QEMU_ROOT_" + t->arch)
-            if qroot.empty() {
+            if qroot.is_empty() {
                 return f"a dynamic {t->arch} binary under qemu needs KAIRO_QEMU_ROOT_{t->arch}"
             }
 
@@ -1842,13 +1846,13 @@ pub class SysGen {
         )
 
         SysUtil::field(&f, "provider_extra", SysUtil::json_list(&p->extra))
-        if !stage.empty() {
+        if !stage.is_empty() {
             SysUtil::field(&f, "stage", SysUtil::json_str(stage))
         }
 
         var qs = cxx::std::vector<string>()
         for var q: SysQuirk in p->quirks {
-            if stage.empty() || SysGen::_quirk_touches(&q, stage) {
+            if stage.is_empty() || SysGen::_quirk_touches(&q, stage) {
                 qs.push_back(q.id + ":" + SysUtil::joined(&q.effects, ";"))
             }
         }
@@ -1858,7 +1862,7 @@ pub class SysGen {
     }
 
     priv static fn _quirk_touches(q: *SysQuirk, const stage: string) -> bool {
-        if !q->target_rewrite.empty() {
+        if !q->target_rewrite.is_empty() {
             return true
         }
 
@@ -1868,11 +1872,11 @@ pub class SysGen {
             return true
         }
 
-        if stage == "builtins" && (!q->post_archive.empty() || !q->required_symbols.empty()) {
+        if stage == "builtins" && (!q->post_archive.is_empty() || !q->required_symbols.empty()) {
             return true
         }
 
-        if (stage == "libc-headers" || stage == "libc-libs") && !q->musl_arch.empty() {
+        if (stage == "libc-headers" || stage == "libc-libs") && !q->musl_arch.is_empty() {
             return true
         }
 
@@ -1891,7 +1895,7 @@ pub class SysGen {
                                  @inout err: string) -> string {
         var stamp = SysUtil::tree_stamp(dir, follow)
         var memo  = ""
-        if !c->root.empty() {
+        if !c->root.is_empty() {
             memo = f"{c->root}/verify/{SysUtil::sha256(dir)}"
             var text = ""
             if LinkFS::read(memo, &text) {
@@ -1903,7 +1907,7 @@ pub class SysGen {
         }
 
         var sha = SysUtil::tree_sha256(dir, follow, &err)
-        if !sha.empty() && !memo.empty() {
+        if !sha.is_empty() && !memo.is_empty() {
             LinkFS::make_dirs(LinkFS::parent(memo))
             LinkFS::write(memo, f"{stamp} {sha}\n")
         }
@@ -1939,9 +1943,9 @@ pub class SysGen {
             stamp += f"{b} {SysUtil::file_size(b)} {LinkFS::mtime(b)}\n"
         }
 
-        var memo = if (c->root.empty()) => ("") else => c->root + "/build-id"
+        var memo = if (c->root.is_empty()) => ("") else => c->root + "/build-id"
         var text = ""
-        if !memo.empty() && LinkFS::read(memo, &text) {
+        if !memo.is_empty() && LinkFS::read(memo, &text) {
             var lines = LinkText::split_lines(text.copy())
             if lines.size() >= 1 && text == stamp + lines[lines.size() - 1] + "\n" {
                 return lines[lines.size() - 1].copy()
@@ -1954,7 +1958,7 @@ pub class SysGen {
         }
 
         var id = SysUtil::sha256(all)
-        if !memo.empty() {
+        if !memo.is_empty() {
             LinkFS::make_dirs(c->root)
             LinkFS::write(memo, stamp + id + "\n")
         }

@@ -1408,7 +1408,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         // keeps "its copy constructor is deleted": no part is why.
         if copy_deleted && (!copy_written) && decl_is_imported(d) {
             var why = self._imported_copy_reason(d)
-            if !why.empty() {
+            if !why.is_empty() {
                 f->why_not_copyable = why.copy()
             }
         }
@@ -1825,7 +1825,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             why = "its transfer constructors are deleted, so nothing moves it"
         }
 
-        if why.empty() {
+        if why.is_empty() {
             return
         }
 

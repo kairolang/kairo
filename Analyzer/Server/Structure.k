@@ -80,7 +80,7 @@ extend Server {
         w->begin_object()
         w->field(K_NAME, s->get_str(c, K_NAME))
         var detail = s->get_str(c, K_DETAIL)
-        if !detail.empty() {
+        if !detail.is_empty() {
             w->field(K_DETAIL, detail)
         }
 
@@ -202,8 +202,8 @@ extend Server {
             }
 
             if we > ws {
-                los.push_back(ws)
-                his.push_back(we)
+                los.push(ws)
+                his.push(we)
             }
 
             var k = sp.size()
@@ -214,32 +214,32 @@ extend Server {
                 }
 
                 if (sp[k].open < at) && (at <= sp[k].close) {
-                    los.push_back(sp[k].open + 1)
-                    his.push_back(sp[k].close)
-                    los.push_back(sp[k].open)
-                    his.push_back(sp[k].close + 1)
+                    los.push(sp[k].open + 1)
+                    his.push(sp[k].close)
+                    los.push(sp[k].open)
+                    his.push(sp[k].close + 1)
                 }
             }
 
-            los.push_back(0)
-            his.push_back(text->size())
+            los.push(0)
+            his.push(text->size())
 
             // A parent must contain its child; drop any range that does not
             // strictly grow, then nest from the outside in.
             var keep_lo: [usize]
             var keep_hi: [usize]
             for var q: usize = 0; q < los.size(); ++q {
-                if keep_lo.empty() {
-                    keep_lo.push_back(los[q])
-                    keep_hi.push_back(his[q])
+                if keep_lo.is_empty() {
+                    keep_lo.push(los[q])
+                    keep_hi.push(his[q])
                     continue
                 }
 
                 var pl = keep_lo[keep_lo.size() - 1]
                 var ph = keep_hi[keep_hi.size() - 1]
                 if (los[q] <= pl) && (his[q] >= ph) && ((los[q] < pl) || (his[q] > ph)) {
-                    keep_lo.push_back(los[q])
-                    keep_hi.push_back(his[q])
+                    keep_lo.push(los[q])
+                    keep_hi.push(his[q])
                 }
             }
 
@@ -282,7 +282,7 @@ extend Server {
                 var sy   = o->first(o->get(of, SK_SYMBOLS))
                 while (sy != JSON_NONE()) && (total < WORKSPACE_SYMBOL_CAP) {
                     var name = o->get_str(sy, K_NAME)
-                    if needle.empty() || (find_from(lower(name), needle, 0) != usize::MAX) {
+                    if needle.is_empty() || (find_from(lower(name), needle, 0) != usize::MAX) {
                         var range = o->dump(o->get(sy, K_SELECTION_RANGE))
                         var key   = path + range
                         var dup   = false
@@ -293,7 +293,7 @@ extend Server {
                         }
 
                         if !dup {
-                            seen.push_back(key.copy())
+                            seen.push(key.copy())
                             w.begin_object()
                             w.field(K_NAME, name)
                             w.field_int(K_KIND, o->get_int(sy, K_KIND))

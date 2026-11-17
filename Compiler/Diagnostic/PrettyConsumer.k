@@ -170,7 +170,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     /// "<...>" names are synthetic buffers, not files; never join them onto
     /// the cwd.
     priv fn display_path(self, p: string) -> string {
-        if !self._abs_paths || p.empty() {
+        if !self._abs_paths || p.is_empty() {
             return p
         }
 
@@ -437,7 +437,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 continue
             }
 
-            return d->labels[li].text.length() > 0
+            return d->labels[li].text.size() > 0
         }
 
         return false
@@ -481,15 +481,15 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         )
 
         var last_line          = group.line_num + ctx_after
-        var max_num_len: usize = f"{last_line}".length()
+        var max_num_len: usize = f"{last_line}".size()
 
         // Calculate unified indentation padding so gutter pipe aligns below '@'
-        var left_pad = sev_name.length()
+        var left_pad = sev_name.size()
         if max_num_len > left_pad {
             left_pad = max_num_len
         }
 
-        var pad_len    = left_pad - sev_name.length()
+        var pad_len    = left_pad - sev_name.size()
         var header_pad = string(' ' as u8, pad_len)
 
         // Header format: "severity @ filename:line:col"
@@ -579,7 +579,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 self._place_span(&span, line_text, label.range, sm)
 
                 var ltext: string = label.text.copy()
-                if (ltext.length() == 0) && (!emitted_any) {
+                if (ltext.size() == 0) && (!emitted_any) {
                     ltext = default_text.copy()
                 }
 
@@ -648,7 +648,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var fix_ins_cells:  usize  = 0                ///< inserted text width ('+' markers)
         var shown_text:     string = line_text.copy() ///< the primary line as printed
         if has_primary_fix {
-            var fb = self._byte_span(primary_fix.range, line_text.length(), sm)
+            var fb = self._byte_span(primary_fix.range, line_text.size(), sm)
             fix_start_col = fb.start_col
             var f_end_col = fb.end_col
             fix_mid_len = f_end_col - fix_start_col
@@ -656,7 +656,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
             fix_start_cell = self._cells(line_text, fix_start_col)
             fix_mid_cells  = self._cells(line_text, f_end_col) - fix_start_cell
-            fix_ins_cells  = self._cells(rep, rep.length())
+            fix_ins_cells  = self._cells(rep, rep.size())
 
             // The fixed line keeps the removed text (struck) AND adds the
             // inserted text, so every column past the edit moves right by
@@ -681,7 +681,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             }
 
             fixed += rep
-            for var i: usize = f_end_col; i < line_text.length(); ++i {
+            for var i: usize = f_end_col; i < line_text.size(); ++i {
                 fixed.push_back(line_text[i])
             }
 
@@ -723,7 +723,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         for var ln: u32 = first_line; ln <= last_line; ++ln {
             var text    = sm->get_line_text(group.key.file_id, ln)
             var num_str = f"{ln}"
-            var npad    = string(' ' as u8, left_pad - num_str.length())
+            var npad    = string(' ' as u8, left_pad - num_str.size())
             var prefix  = f"{npad}{line_col_esc}{num_str} {pipe} {reset_esc}"
 
             if ln == group.line_num && has_primary_fix {
@@ -808,7 +808,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             /// ### Stacked label rows
             var active_spans: cxx::std::vector<CaretSpan>
             for var s: usize = 0; s < spans.size(); ++s {
-                if spans[s].text.length() > 0 {
+                if spans[s].text.size() > 0 {
                     active_spans.push_back(spans[s])
                 }
             }
@@ -904,7 +904,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var        filename = self.display_path(sm->get_filename(diag->loc))
 
         // Find the maximum line width in the target labels to calculate padding
-        var max_num_len = f"{loc_info.line}".length()
+        var max_num_len                              = f"{loc_info.line}".size()
         var temp_labels: cxx::std::vector<DiagLabel>
 
         var has_own_text = false
@@ -912,7 +912,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             for var i: usize = 0; i < diag->labels.size(); ++i {
                 temp_labels.push_back(diag->labels[i])
                 var l_line = sm->get_line_col(diag->labels[i].range.start).line
-                var l_len  = f"{l_line}".length()
+                var l_len  = f"{l_line}".size()
                 if l_len > max_num_len {
                     max_num_len = l_len
                 }
@@ -922,7 +922,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             // text, attach it to the first primary one or it is never rendered.
             var has_text = false
             for var i: usize = 0; i < temp_labels.size(); ++i {
-                if temp_labels[i].text.length() > 0 {
+                if temp_labels[i].text.size() > 0 {
                     has_text = true
                     break
                 }
@@ -946,7 +946,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             temp_labels.push_back(label)
         }
 
-        var sev_len  = sev_name.length()
+        var sev_len  = sev_name.size()
         var left_pad = sev_len
         if max_num_len > left_pad {
             left_pad = max_num_len
@@ -1045,7 +1045,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                             else => ""
 
             var line_num_str = f"{start_lc.line}"
-            var pad_count    = left_pad - line_num_str.length()
+            var pad_count    = left_pad - line_num_str.size()
             var num_pad      = string(' ' as u8, pad_count)
             var line_col     = if (color) => (f"{self.BOLD}{self.WHITE}") else => ""
             var reset_col    = if (color) => (self.RESET) else => ""
@@ -1064,7 +1064,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             for var ln: u32 = first_line; (ln as usize) < start_lc.line; ++ln {
                 var t       = sm->get_line_text((fid as u32), ln)
                 var num_str = f"{ln}"
-                var npad    = string(' ' as u8, left_pad - num_str.length())
+                var npad    = string(' ' as u8, left_pad - num_str.size())
                 out += f"{indent}{npad}{line_col}{num_str} {pipe} {reset_col}" + renderer.highlight_snippet(
                     t,
                     lang,
@@ -1090,7 +1090,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
             out += pad + (if color => f"{glyph_col}{underline}{self.RESET}" else => underline)
 
-            if label.text.length() > 0 {
+            if label.text.size() > 0 {
                 out += " " + label.text
             }
 
@@ -1111,7 +1111,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var fix_pfx = if (color) => (f"{self.BOLD}{self.CYAN}fix{self.RESET}") else => "fix"
         var out     = ""
         for var i: usize = 0; i < diag->fixits.size(); ++i {
-            if diag->fixits[i].message.length() > 0 {
+            if diag->fixits[i].message.size() > 0 {
                 out += lead + f"> {fix_pfx}: {diag->fixits[i].message}\n"
             }
         }
@@ -1158,7 +1158,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                         const line_text: string,
                         range:           SourceRange,
                         sm:              unsafe *SourceManager) {
-        var bytes = self._byte_span(range, line_text.length(), sm)
+        var bytes = self._byte_span(range, line_text.size(), sm)
         span.start_col = self._cells(line_text, bytes.start_col)
         span.end_col   = self._cells(line_text, bytes.end_col)
         if span.end_col <= span.start_col {
@@ -1237,7 +1237,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         }
 
         var n: usize = 1
-        while (n <= need) && ((i + n) < text.length()) {
+        while (n <= need) && ((i + n) < text.size()) {
             var c = text[i + n] as u8
             if n == 1 {
                 if (c < lo) || (c > hi) {
@@ -1261,7 +1261,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     priv fn _cells(self, const text: string, bytes: usize) -> usize {
         var n: usize = 0
         var i: usize = 0
-        while (i < bytes) && (i < text.length()) {
+        while (i < bytes) && (i < text.size()) {
             i += self._cell_bytes(text, i)
             n += 1
         }
@@ -1278,7 +1278,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var out:  string
         var cell: usize  = 0
         var i:    usize  = 0
-        while (i < text.length()) && (cell < to) {
+        while (i < text.size()) && (cell < to) {
             var b = text[i] as u8
             i += self._cell_bytes(text, i)
             if cell >= from {
@@ -1295,8 +1295,8 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         // Cells past the end of the text (a caret after the last character).
         if to > from {
             var want = to - from
-            if out.length() < want {
-                out += string(' ' as u8, want - out.length())
+            if out.size() < want {
+                out += string(' ' as u8, want - out.size())
             }
         }
 
@@ -1310,8 +1310,8 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     /// extension, a virtual buffer included, stays Kairo.
     priv fn snippet_lang(self, path: string) -> string {
         var ext = Path::extension_of(path)
-        if ext.length() > 1 {
-            return ext.subslice(1, ext.length() - 1)
+        if ext.size() > 1 {
+            return ext.subslice(1, ext.size() - 1)
         }
 
         var inc = "/include/"
@@ -1354,7 +1354,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             mid.push_back(line_text[i])
         }
 
-        for var i: usize = start_col + mid_len; i < line_text.length(); ++i {
+        for var i: usize = start_col + mid_len; i < line_text.size(); ++i {
             tail.push_back(line_text[i])
         }
 
@@ -1363,11 +1363,11 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var del_vis = if (color) => (f"{self.RED}{self.STRIKE}{mid}{self.RESET}") else => mid
         var ins_vis = if (color) => (f"{self.GREEN}{ins}{self.RESET}") else => ins
 
-        if mid.length() == 0 {
+        if mid.size() == 0 {
             del_vis = ""
         }
 
-        if ins.length() == 0 {
+        if ins.size() == 0 {
             ins_vis = ""
         }
 
@@ -1413,7 +1413,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     }
 
     priv fn is_line_blank(self, const s: string) -> bool {
-        for var i: usize = 0; i < s.length(); ++i {
+        for var i: usize = 0; i < s.size(); ++i {
             var c = s[i]
             if c != (' ' as u8) && c != ('\t' as u8) && c != ('\r' as u8) && c != ('\n' as u8) {
                 return false

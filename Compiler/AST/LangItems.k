@@ -3519,7 +3519,7 @@ pub class LowerTargets {
     /// identifier, so it reaches the emitted C++ as whatever the user named
     /// with it.
     pub static fn unique_ident(const tag: string, fid: u32, k: u32) -> string {
-        if tag.empty() {
+        if tag.is_empty() {
             return f"__synth_{fid}_{k}"
         }
 

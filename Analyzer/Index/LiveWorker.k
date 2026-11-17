@@ -188,7 +188,7 @@ fn live_render(st: *LiveState, live: *LiveCheck, all: bool, owners: *const [stri
     var unsafe *fd            = live->file_diags()
     var        before: string = ""
     for var i: usize = 0; i < st->d_owner.size(); ++i {
-        if all || st->d_owner[i].empty() || live_has(owners, st->d_owner[i]) {
+        if all || st->d_owner[i].is_empty() || live_has(owners, st->d_owner[i]) {
             before += st->d_owner[i] + "\n" + st->d_rows[i] + "\n"
         }
     }
@@ -204,13 +204,13 @@ fn live_render(st: *LiveState, live: *LiveCheck, all: bool, owners: *const [stri
         for var i: usize = 0; i < st->d_owner.size(); ++i {
             // The driver's own are few and located outside every re-checked
             // file (LiveCheck refuses a refresh otherwise): rendered again.
-            if st->d_owner[i].empty() || live_has(owners, st->d_owner[i]) {
+            if st->d_owner[i].is_empty() || live_has(owners, st->d_owner[i]) {
                 continue
             }
 
-            ko.push_back(st->d_owner[i].copy())
-            kr.push_back(st->d_rows[i].copy())
-            kc.push_back(st->d_count[i])
+            ko.push(st->d_owner[i].copy())
+            kr.push(st->d_rows[i].copy())
+            kc.push(st->d_count[i])
         }
 
         st->d_owner = ko.copy()
@@ -231,7 +231,7 @@ fn live_render(st: *LiveState, live: *LiveCheck, all: bool, owners: *const [stri
 
     for var i: usize = 0; i < fd->diags.size(); ++i {
         var owner: string = fd->owners[i].copy()
-        if (!all) && (!owner.empty()) && (!live_has(owners, owner)) {
+        if (!all) && (!owner.is_empty()) && (!live_has(owners, owner)) {
             continue
         }
 
@@ -251,9 +251,9 @@ fn live_render(st: *LiveState, live: *LiveCheck, all: bool, owners: *const [stri
         }
 
         if slot == usize::MAX {
-            st->d_owner.push_back(owner.copy())
-            st->d_rows.push_back(col->out.copy())
-            st->d_count.push_back(1)
+            st->d_owner.push(owner.copy())
+            st->d_rows.push(col->out.copy())
+            st->d_count.push(1)
         } else {
             st->d_rows[slot] += ","
             st->d_rows[slot] += col->out
@@ -265,7 +265,7 @@ fn live_render(st: *LiveState, live: *LiveCheck, all: bool, owners: *const [stri
     // asked for are compared in the order they were rendered in both times.
     var after: string = ""
     for var i: usize = 0; i < st->d_owner.size(); ++i {
-        if all || st->d_owner[i].empty() || live_has(owners, st->d_owner[i]) {
+        if all || st->d_owner[i].is_empty() || live_has(owners, st->d_owner[i]) {
             after += st->d_owner[i] + "\n" + st->d_rows[i] + "\n"
         }
     }
@@ -302,7 +302,7 @@ fn live_snapshot(st:    *LiveState,
             }
 
             if (!named)
-                && ((!narrow) || st->root.empty() || (!obs->k_paths[i].starts_with(st->root))) {
+                && ((!narrow) || st->root.is_empty() || (!obs->k_paths[i].starts_with(st->root))) {
                 continue
             }
 
@@ -420,12 +420,12 @@ fn live_take(t: *Transport, r: *LiveReq, asks: *[LiveReq]) {
             a.aside_out = d.get_str(d.root, RQ_ASIDE_OUT)
             var x = d.first(d.get(d.root, RQ_ASIDE))
             while x != JSON_NONE() {
-                a.aside_paths.push_back(d.get_str(x, RQ_PATH))
-                a.aside_files.push_back(d.get_str(x, RQ_FILE))
+                a.aside_paths.push(d.get_str(x, RQ_PATH))
+                a.aside_files.push(d.get_str(x, RQ_FILE))
                 x = d.next(x)
             }
 
-            asks->push_back(a)
+            asks->push(a)
             continue
         }
 
@@ -446,8 +446,8 @@ fn live_take(t: *Transport, r: *LiveReq, asks: *[LiveReq]) {
         r->open_files.clear()
         var o = d.first(d.get(d.root, RQ_OPEN))
         while o != JSON_NONE() {
-            r->open_paths.push_back(d.get_str(o, RQ_PATH))
-            r->open_files.push_back(d.get_str(o, RQ_FILE))
+            r->open_paths.push(d.get_str(o, RQ_PATH))
+            r->open_files.push(d.get_str(o, RQ_FILE))
             o = d.next(o)
         }
 
@@ -455,7 +455,7 @@ fn live_take(t: *Transport, r: *LiveReq, asks: *[LiveReq]) {
         while c != JSON_NONE() {
             var p = d.str(c)
             if !live_has(const &r->changed, p) {
-                r->changed.push_back(p.copy())
+                r->changed.push(p.copy())
             }
 
             c = d.next(c)
@@ -466,8 +466,8 @@ fn live_take(t: *Transport, r: *LiveReq, asks: *[LiveReq]) {
         r->aside_out = d.get_str(d.root, RQ_ASIDE_OUT)
         var s = d.first(d.get(d.root, RQ_ASIDE))
         while s != JSON_NONE() {
-            r->aside_paths.push_back(d.get_str(s, RQ_PATH))
-            r->aside_files.push_back(d.get_str(s, RQ_FILE))
+            r->aside_paths.push(d.get_str(s, RQ_PATH))
+            r->aside_files.push(d.get_str(s, RQ_FILE))
             s = d.next(s)
         }
     }
@@ -496,14 +496,14 @@ fn live_step(st:   *LiveState,
     // the server said so or not.
     var changed: [string]
     for var k: usize = 0; k < r->changed.size(); ++k {
-        changed.push_back(r->changed[k].copy())
+        changed.push(r->changed[k].copy())
     }
 
     for var k: usize = 0; k < r->open_paths.size(); ++k {
         // `keep`: open, and the text held for it stands (its current text
         // is tried aside, not kept).
         var text: string = ""
-        if r->open_files[k].empty() || !LinkFS::read(r->open_files[k], &text) {
+        if r->open_files[k].is_empty() || !LinkFS::read(r->open_files[k], &text) {
             continue
         }
 
@@ -523,8 +523,8 @@ fn live_step(st:   *LiveState,
             // A buffer opened with the text the disk has changes nothing.
             var disk: string = ""
             var same = st->checked && LinkFS::read(r->open_paths[k], &disk) && (disk == text)
-            st->held_paths.push_back(r->open_paths[k].copy())
-            st->held_texts.push_back(text.copy())
+            st->held_paths.push(r->open_paths[k].copy())
+            st->held_texts.push(text.copy())
             live->set_overlay(r->open_paths[k], text)
             if same {
                 continue
@@ -535,7 +535,7 @@ fn live_step(st:   *LiveState,
         }
 
         if !live_has(const &changed, r->open_paths[k]) {
-            changed.push_back(r->open_paths[k].copy())
+            changed.push(r->open_paths[k].copy())
         }
     }
 
@@ -545,8 +545,8 @@ fn live_step(st:   *LiveState,
     var ht: [string]
     for var h: usize = 0; h < st->held_paths.size(); ++h {
         if live_has(const &r->open_paths, st->held_paths[h]) {
-            hp.push_back(st->held_paths[h].copy())
-            ht.push_back(st->held_texts[h].copy())
+            hp.push(st->held_paths[h].copy())
+            ht.push(st->held_texts[h].copy())
             continue
         }
 
@@ -554,7 +554,7 @@ fn live_step(st:   *LiveState,
         var disk: string = ""
         if (!LinkFS::read(st->held_paths[h], &disk)) || (disk != st->held_texts[h]) {
             if !live_has(const &changed, st->held_paths[h]) {
-                changed.push_back(st->held_paths[h].copy())
+                changed.push(st->held_paths[h].copy())
             }
         }
     }
@@ -595,7 +595,7 @@ fn live_step(st:   *LiveState,
             if live_has(const &st->deps, r->open_paths[k])
                 && (!live_has(const &obs->k_paths, r->open_paths[k]))
                 && (!live_has(const &changed, r->open_paths[k])) {
-                changed.push_back(r->open_paths[k].copy())
+                changed.push(r->open_paths[k].copy())
             }
         }
 
@@ -629,7 +629,7 @@ fn live_step(st:   *LiveState,
             for var q: usize = 0; q < live->rechecked.size(); ++q {
                 var name: string = live->rechecked[q].copy()
                 if !live_has(const &rechecked, name) {
-                    rechecked.push_back(name.copy())
+                    rechecked.push(name.copy())
                 }
             }
         }
@@ -655,7 +655,10 @@ fn live_step(st:   *LiveState,
 /// The buffers of \p r that are tried and not kept, in a copy of this
 /// process: see the head of this file. Returns how it went (LiveReq::aside).
 fn live_aside(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *LiveReq) -> string {
-    if r->aside_paths.empty() || r->aside_out.empty() || (!st->checked) || (live->ci() == &null) {
+    if r->aside_paths.is_empty()
+        || r->aside_out.is_empty()
+        || (!st->checked)
+        || (live->ci() == &null) {
         return ""
     }
 
@@ -695,17 +698,17 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
     var stopped          = false
     for var k: usize = 0; k < r->aside_paths.size(); ++k {
         var text: string = ""
-        whys.push_back("")
+        whys.push("")
         if stopped
             || (!live_has(const &st->deps, r->aside_paths[k]))
             || (!LinkFS::read(r->aside_files[k], &text)) {
-            states.push_back(AS_NONE.copy())
+            states.push(AS_NONE.copy())
             continue
         }
 
         live->set_overlay(r->aside_paths[k], text)
         if (!live->replace_file(r->aside_paths[k])) || (live->ci() == &null) {
-            states.push_back(AS_NONE.copy())
+            states.push(AS_NONE.copy())
             stopped = true
             continue
         }
@@ -717,7 +720,7 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
             // errors of its own, it declares a specialization, ...) the
             // diagnostics the copy holds are the KEPT text's, at that
             // text's positions: nothing was found out about this one.
-            states.push_back(
+            states.push(
                 if (live->overlay_pending(r->aside_paths[k])) => AS_NONE else => AS_UNCHECKED,
             )
 
@@ -726,9 +729,7 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
             continue
         }
 
-        states.push_back(
-            if (live->dropped_bodies) => AS_PARTIAL else => AS_CHECKED,
-        )
+        states.push(if (live->dropped_bodies) => AS_PARTIAL else => AS_CHECKED)
     }
 
     obs->flush()
@@ -741,7 +742,7 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
         w.begin_object()
         w.field(SK_PATH, r->aside_paths[k])
         w.field(AS_STATE, states[k])
-        if !whys[k].empty() {
+        if !whys[k].is_empty() {
             w.field(AS_WHY, whys[k])
         }
 
@@ -757,7 +758,7 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
 
         for var i: usize = 0; i < obs->k_paths.size(); ++i {
             if obs->k_paths[i] == r->aside_paths[k] {
-                if !files.empty() {
+                if !files.is_empty() {
                     files += ","
                 }
 
@@ -776,7 +777,7 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
         var unsafe *col = kairo::std::create<DiagCollector>(live->ci()->sm())
         for var i: usize = 0; i < fd->diags.size(); ++i {
             var owner: string = fd->owners[i].copy()
-            if owner.empty() && fd->diags[i]->has_loc {
+            if owner.is_empty() && fd->diags[i]->has_loc {
                 owner = live->ci()->sm()->get_filename(fd->diags[i]->loc)
             }
 
@@ -791,7 +792,7 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
                 continue
             }
 
-            if !diags.empty() {
+            if !diags.is_empty() {
                 diags += ","
             }
 
@@ -835,7 +836,7 @@ fn live_finish(st:         *LiveState,
     if full {
         st->deps.clear()
         for var f: string in live->graph_files() {
-            st->deps.push_back(f.copy())
+            st->deps.push(f.copy())
         }
 
         // Rows of a file the graph no longer holds.
@@ -843,8 +844,8 @@ fn live_finish(st:         *LiveState,
         var kb: [string]
         for var i: usize = 0; i < obs->k_paths.size(); ++i {
             if live_has(const &st->deps, obs->k_paths[i]) {
-                kp.push_back(obs->k_paths[i].copy())
-                kb.push_back(obs->k_blocks[i].copy())
+                kp.push(obs->k_paths[i].copy())
+                kb.push(obs->k_blocks[i].copy())
             }
         }
 
@@ -855,9 +856,9 @@ fn live_finish(st:         *LiveState,
         var ts: [u64]
         for var i: usize = 0; i < obs->t_paths.size(); ++i {
             if live_has(const &st->deps, obs->t_paths[i]) {
-                tp.push_back(obs->t_paths[i].copy())
-                tb.push_back(obs->t_blocks[i].copy())
-                ts.push_back(obs->t_seq[i])
+                tp.push(obs->t_paths[i].copy())
+                tb.push(obs->t_blocks[i].copy())
+                ts.push(obs->t_seq[i])
             }
         }
 
@@ -874,37 +875,37 @@ fn live_finish(st:         *LiveState,
     var pp: [string]
     for var i: usize = 0; i < st->unchecked.size(); ++i {
         if !live_has(rechecked, st->unchecked[i]) {
-            up.push_back(st->unchecked[i].copy())
+            up.push(st->unchecked[i].copy())
         }
     }
 
     for var i: usize = 0; i < st->partial.size(); ++i {
         if !live_has(rechecked, st->partial[i]) {
-            pp.push_back(st->partial[i].copy())
+            pp.push(st->partial[i].copy())
         }
     }
 
     for var i: usize = 0; i < obs->unchecked.size(); ++i {
         if !live_has(const &up, obs->unchecked[i]) {
-            up.push_back(obs->unchecked[i].copy())
+            up.push(obs->unchecked[i].copy())
         }
     }
 
     for var i: usize = 0; i < obs->partial.size(); ++i {
         if !live_has(const &pp, obs->partial[i]) {
-            pp.push_back(obs->partial[i].copy())
+            pp.push(obs->partial[i].copy())
         }
     }
 
     st->unchecked = up.copy()
     st->partial   = pp.copy()
-    if !st->unchecked.empty() {
+    if !st->unchecked.is_empty() {
         var kp: [string]
         var kb: [string]
         for var i: usize = 0; i < obs->k_paths.size(); ++i {
             if !live_has(const &st->unchecked, obs->k_paths[i]) {
-                kp.push_back(obs->k_paths[i].copy())
-                kb.push_back(obs->k_blocks[i].copy())
+                kp.push(obs->k_paths[i].copy())
+                kb.push(obs->k_blocks[i].copy())
             }
         }
 
@@ -971,7 +972,7 @@ fn live_finish(st:         *LiveState,
     // What the re-checks since the last whole check replaced and hold.
     w.field_uint(RP_RETIRED_FILES, live->retired_files())
     w.field_uint(RP_RETIRED_MB, live->retired_bytes() / 1048576)
-    if (!bg) && (!r->aside.empty()) {
+    if (!bg) && (!r->aside.is_empty()) {
         w.field(RP_ASIDE, r->aside)
     }
 
@@ -1005,7 +1006,7 @@ fn live_slice(st:   *LiveState,
     var rechecked: [string]
     for var q: usize = 0; q < live->rechecked.size(); ++q {
         var name: string = live->rechecked[q].copy()
-        rechecked.push_back(name.copy())
+        rechecked.push(name.copy())
     }
 
     // A slice that could not be re-checked in place re-checked everything.

@@ -76,7 +76,7 @@ pub class WasiProvider derives SysrootProvider {
         }
 
         var tables = ctx->input_dir("wasi-libc")
-        if tables.empty() {
+        if tables.is_empty() {
             return true
         }
 
@@ -106,7 +106,7 @@ pub class WasiProvider derives SysrootProvider {
     /// Runs after builtins: libc.so links the builtins archive.
     pub override fn libs(self, ctx: *StageCtx, const dst: string, @inout out: SysOutcome) -> bool {
         var tables = ctx->input_dir("wasi-libc")
-        if tables.empty() {
+        if tables.is_empty() {
             return LinkFS::make_dirs(dst) || out.fail(f"cannot create {dst}", "")
         }
 

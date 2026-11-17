@@ -161,23 +161,23 @@ pub class EnvNames {
 ///        %LOCALAPPDATA%/kairo. "" when none is set: nothing is cached.
 pub fn cache_root() -> string {
     var root = LinkFS::env(EnvNames::kairo_cache_dir())
-    if root.empty() {
+    if root.is_empty() {
         var xdg = LinkFS::env(EnvNames::xdg_cache_home())
-        if !xdg.empty() {
+        if !xdg.is_empty() {
             root = xdg + "/kairo"
         }
     }
 
-    if root.empty() {
+    if root.is_empty() {
         var home = LinkFS::env(EnvNames::home())
-        if !home.empty() {
+        if !home.is_empty() {
             root = home + "/.cache/kairo"
         }
     }
 
-    if root.empty() {
+    if root.is_empty() {
         var local = LinkFS::env(EnvNames::local_app_data())
-        if !local.empty() {
+        if !local.is_empty() {
             root = local + "/kairo"
         }
     }

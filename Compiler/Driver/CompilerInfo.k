@@ -100,7 +100,7 @@ extend CompilerInstance {
 
         io::println(f"installed at:      {Path::parent_of(env::exe_path())}")
         var sr = self._version_sysroot()
-        if sr.empty() {
+        if sr.is_empty() {
             sr = "could not find associated sysroot"
         }
 
@@ -112,15 +112,15 @@ extend CompilerInstance {
     /// --sysroot, else "".
     priv fn _version_sysroot(self) -> string {
         var want = self._sysroot_target()
-        if !want.empty() {
+        if !want.is_empty() {
             var dir = self._bundled_sysroot_dir(want)
-            if !dir.empty() {
+            if !dir.is_empty() {
                 return dir
             }
 
             // Then the generator's cache, as the --target hook looks: never
             // a build, --version only reports.
-            if self.invocation()->target.sysroot.empty() {
+            if self.invocation()->target.sysroot.is_empty() {
                 var tgt   = SysTarget{}
                 var cands = cxx::std::vector<string>()
                 var why   = ""
@@ -136,9 +136,9 @@ extend CompilerInstance {
                 }
 
                 var cache = SysCache(SysCache::default_root())
-                if !cache.root.empty() {
+                if !cache.root.is_empty() {
                     var cached = cache.lookup(name)
-                    if !cached.empty() {
+                    if !cached.is_empty() {
                         return cached
                     }
                 }
@@ -167,7 +167,7 @@ extend CompilerInstance {
 
         var diag_id = diag_from_code(code)
         var explain = diag_explain(diag_id)
-        if explain.empty() {
+        if explain.is_empty() {
             io::eprintln(f"error: unknown diagnostic code '{code}'")
             return EXIT_FAILURE
         }
@@ -293,12 +293,12 @@ extend CompilerInstance {
         if STI == &null {
             self._diag->report(
                 DiagID::P005F,
-                f"no subtarget info for '{string(triple.raw())}'",
+                f"no subtarget info for '{string(triple.data())}'",
             ).emit()
             return EXIT_FAILURE
         }
 
-        io::println(f"Available CPUs for target '{string(triple.raw())}':")
+        io::println(f"Available CPUs for target '{string(triple.data())}':")
 
         var cpu_rows: cxx::std::vector<cxx::std::string>
         var max_cpu:  usize                              = 0
@@ -623,7 +623,7 @@ extend CompilerInstance {
         }
 
         var w = cxx::std::vector<string>()
-        if !self.invocation()->target.resource_dir.empty() {
+        if !self.invocation()->target.resource_dir.is_empty() {
             w.push_back(
                 "-resource-dir=" + self.invocation()->target.resource_dir,
             )
@@ -636,7 +636,7 @@ extend CompilerInstance {
         var exe  = Path::join_str(Path::parent_of(env::exe_path()), "clang")
         var jobs = ClangJobs(be, exe)
         if !jobs.query(&w) {
-            if !jobs.error.empty() {
+            if !jobs.error.is_empty() {
                 self._diag->report(DiagID::U011E, jobs.error.copy()).emit()
             }
 
@@ -696,7 +696,7 @@ extend CompilerInstance {
             w.push_back(Path(k.path).stem() + ".o")
             var jobs = ClangJobs(be, exe)
             if !jobs.plan(&w) {
-                if !jobs.error.empty() {
+                if !jobs.error.is_empty() {
                     self._diag->report(DiagID::U011E, f"{k.path}: {jobs.error}").emit()
                 }
 
@@ -716,7 +716,7 @@ extend CompilerInstance {
         var *lk = &self.invocation()->linker
         if with_link && !lk->compile_only && !self.invocation()->frontend.stops_before_codegen() {
             var job = LinkJob(&self.invocation()->target, lk)
-            job.output = if (!self.invocation()->frontend.output.empty()) => (self.invocation()->frontend.output)
+            job.output = if (!self.invocation()->frontend.output.is_empty()) => (self.invocation()->frontend.output)
                          else => "a.out"
             for var i: usize = 0; i < n_in; ++i {
                 var k = classify_input(

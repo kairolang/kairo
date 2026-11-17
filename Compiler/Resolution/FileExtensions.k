@@ -64,7 +64,7 @@ pub class FileExtensions {
     }
 
     fn categorize(self, const ext: string) -> FileCategory {
-        if ext.empty() {
+        if ext.is_empty() {
             return FileCategory::CxxHeader
         }
 

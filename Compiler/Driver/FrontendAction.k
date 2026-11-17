@@ -819,7 +819,7 @@ pub class FrontendAction {
         /// # print-ast / mem stats: unchanged
 
         var ast_mode = self._ci->invocation()->frontend.print_ast.copy()
-        if !ast_mode.empty() {
+        if !ast_mode.is_empty() {
             var use_color              = !self._ci->invocation()->diag.no_color
             var opts:     PrintOptions
             if ast_mode == "tree" {
@@ -896,7 +896,7 @@ pub class FrontendAction {
         }
 
         // dump the hoisted scope as well
-        if !ast_mode.empty() {
+        if !ast_mode.is_empty() {
             io::println(f"-- hoisted scope: {self.path.full_path()} --")
             self._global_scope->dump()
         }
@@ -918,7 +918,7 @@ pub class FrontendAction {
     /// file's, and nothing else is running to race it here.
     priv fn _ast_serialize(self, @inout fids: cxx::std::vector<u32>) -> bool {
         var fe = self._ci->invocation()->frontend
-        if fe.emit_ast_bin.empty() && (!fe.ast_roundtrip) && (!fe.verify_ast_roundtrip) {
+        if fe.emit_ast_bin.is_empty() && (!fe.ast_roundtrip) && (!fe.verify_ast_roundtrip) {
             return true
         }
 
@@ -942,7 +942,7 @@ pub class FrontendAction {
 
             var name = self._ci->sm()->get_filename(fid)
 
-            if (!fe.emit_ast_bin.empty()) && fid == self._file_id {
+            if (!fe.emit_ast_bin.is_empty()) && fid == self._file_id {
                 var w = ASTBinWriter()
                 if !w.write(ctx->tu, psym, gs) {
                     var why = w.error()
@@ -1424,11 +1424,11 @@ pub class FrontendAction {
             self._dump_overlays()
         }
 
-        if !fe.dump_import_uses.empty() {
+        if !fe.dump_import_uses.is_empty() {
             self._dump_import_uses(fe.dump_import_uses)
         }
 
-        if (!fe.dump_interface.empty()) || (!fe.dump_deps.empty()) || self._ci->incr.on {
+        if (!fe.dump_interface.is_empty()) || (!fe.dump_deps.is_empty()) || self._ci->incr.on {
             self._dump_incremental(fe.dump_interface, fe.dump_deps)
         }
 
@@ -1507,7 +1507,7 @@ pub class FrontendAction {
         //
         // First, which hidden decls another file's header names (EmitPlan::note_borrowed): their home headers declare them, so every
         // header plan has to see the whole set. Serial, before any header.
-        if !fe.emit_headers.empty() && !self._ci->diag()->has_errors() {
+        if !fe.emit_headers.is_empty() && !self._ci->diag()->has_errors() {
             EmitPlan::clear_borrowed()
             var grew   = true
             var rounds = 0
@@ -1539,7 +1539,7 @@ pub class FrontendAction {
             }
         }
 
-        if fe.print_cxx || !fe.emit_headers.empty() {
+        if fe.print_cxx || !fe.emit_headers.is_empty() {
             for var i: usize = 0; i < n; ++i {
                 var        fid  = self._fids[n - 1 - i]
                 var unsafe *ctx = self._global_scope->get_context(fid)
@@ -1577,7 +1577,7 @@ pub class FrontendAction {
                 // EmitCXXHeader skips the entry TU and writes nothing for it.
                 // Nor after an error: the bodies it emits need a lowered tree,
                 // and sema stops short of lowering once anything fails.
-                if !fe.emit_headers.empty() && !self._ci->diag()->has_errors() {
+                if !fe.emit_headers.is_empty() && !self._ci->diag()->has_errors() {
                     var h = EmitCXXHeader(
                         ctx,
                         self._ci->pp()->get_symbol_table(),
@@ -1885,7 +1885,7 @@ pub class FrontendAction {
             }
         }
 
-        if (!self.tiered) && ((!fe.dump_interface.empty()) || (!fe.dump_deps.empty())) {
+        if (!self.tiered) && ((!fe.dump_interface.is_empty()) || (!fe.dump_deps.is_empty())) {
             self._dump_incremental(fe.dump_interface, fe.dump_deps)
         }
 
@@ -1897,7 +1897,7 @@ pub class FrontendAction {
     ///        the result stands; otherwise why it takes a full check.
     pub fn tier_finish(self) -> string {
         var why = ""
-        for var i: usize = 0; i < self._rearmed.size() && why.empty(); ++i {
+        for var i: usize = 0; i < self._rearmed.size() && why.is_empty(); ++i {
             if self._rearm_ok[i] == 0 {
                 var unsafe *re = self._rearmed[i]
                 var what = if (re->primary != &null) => (incr_decl_id(
@@ -1921,12 +1921,12 @@ pub class FrontendAction {
         self._tt_first_prim.clear()
         self._tt_first_fid.clear()
         self._tt_first_entry.clear()
-        if !why.empty() {
+        if !why.is_empty() {
             return why
         }
 
         var fe = self._ci->invocation()->frontend
-        if (!fe.dump_interface.empty()) || (!fe.dump_deps.empty()) {
+        if (!fe.dump_interface.is_empty()) || (!fe.dump_deps.is_empty()) {
             self._dump_incremental(fe.dump_interface, fe.dump_deps)
         }
 
@@ -3467,7 +3467,7 @@ pub class FrontendAction {
         // not what -o is about: they go under the object dir. So the I004F count
         // is user inputs and kinds, never `own`, which always holds the prelude.
         var single_obj = self._ci->single_object()
-        if !single_obj.empty() {
+        if !single_obj.is_empty() {
             var n_out = self._ci->kairo_input_count() * kinds.size()
             if n_out > 1 {
                 return self._fatal(
@@ -3527,7 +3527,7 @@ pub class FrontendAction {
             // dir) is named by its file stem instead.
             var stem     = ""
             var obj_stem = "" // the object dir's name for it, whatever `stem` became
-            var to_single = !single_obj.empty() && fid == self._file_id && !self.discovered
+            var to_single = !single_obj.is_empty() && fid == self._file_id && !self.discovered
             if !to_single {
                 var ocg  = CodegenContext(ctx, &null, psym, insts)
                 var sp   = Speller(unsafe &ocg)
@@ -3574,7 +3574,7 @@ pub class FrontendAction {
                 used_stems.push_back(obj_stem)
                 var beside = if (self.discovered || fid != self._file_id) => ("")
                              else => self._ci->emit_beside(self.path.stem())
-                if !beside.empty() {
+                if !beside.is_empty() {
                     stem = beside.copy()
                 }
             }
@@ -3884,7 +3884,7 @@ pub class FrontendAction {
         iface_first.push_back("")
         for var oi: usize in iface_order {
             var fl = flavours[oi] as usize
-            if iface_first[fl].empty() {
+            if iface_first[fl].is_empty() {
                 iface_first[fl] = jkeys[oi].copy()
             }
         }
@@ -3933,7 +3933,7 @@ pub class FrontendAction {
                 ocache.run_part += "agree no-adl\n"
             }
 
-            if !cgo->test_sema_agreement_swap.empty() {
+            if !cgo->test_sema_agreement_swap.is_empty() {
                 ocache.run_part += "agree swap " + ObjectCache::clean(
                     cgo->test_sema_agreement_swap,
                 ) + "\n"
@@ -3985,7 +3985,7 @@ pub class FrontendAction {
                 // content: when one of those has other bytes now (an edit
                 // the key does not see, a comment's), the TU compiles and
                 // finds them where they are.
-                if hit && !found.empty() {
+                if hit && !found.is_empty() {
                     if agree_decode(self._ci->sm(), found, &j->agree_found) {
                         if agree_says {
                             for var f: AgreeFinding in j->agree_found {
@@ -4037,7 +4037,7 @@ pub class FrontendAction {
                         kairo::Logger::Stage::Driver,
                         f"incremental: compiling {modname} (--force-recompile)",
                     )
-                } else if why.empty() {
+                } else if why.is_empty() {
                     kairo::Logger::info(
                         kairo::Logger::Stage::Driver,
                         f"incremental: compiling {modname} (not cached)",
@@ -4287,7 +4287,7 @@ pub class FrontendAction {
                     )
                 }
 
-                if job->agree_found.size() > 0 && found.empty() {
+                if job->agree_found.size() > 0 && found.is_empty() {
                     kairo::Logger::info(
                         kairo::Logger::Stage::Driver,
                         f"incremental: not stored {job->path}: a file its Sema agreement findings point into has no bytes at hand",
@@ -4422,7 +4422,7 @@ pub class FrontendAction {
             by += sep + f"{kinds[k]} {counts[k]}"
         }
 
-        if !by.empty() {
+        if !by.is_empty() {
             by += ")"
         }
 
@@ -4454,7 +4454,7 @@ pub class FrontendAction {
             out += segs[i]
         }
 
-        if out.empty() {
+        if out.is_empty() {
             out = Path(fallback).filename()
         }
 
@@ -5083,7 +5083,7 @@ pub class FrontendAction {
 
             io_ += "]}"
 
-            if deps_path.empty() && !rec {
+            if deps_path.is_empty() && !rec {
                 continue
             }
 
@@ -5198,13 +5198,13 @@ pub class FrontendAction {
                             continue
                         }
 
-                        imps += (if (imps.empty()) => ("") else => ", ") + json_string(
+                        imps += (if (imps.is_empty()) => ("") else => ", ") + json_string(
                             self._ci->sm()->get_filename(e->target_fid),
                         )
                     }
                 }
 
-                var name = if (f->mod_path.empty()) => (f->path) else => f->mod_path
+                var name = if (f->mod_path.is_empty()) => (f->path) else => f->mod_path
                 // The same facts as lines the invalidation rules read
                 // (Sema/Incremental/Plan.k), with the TU's diagnostics.
                 var pm = PlanModule()
@@ -5244,14 +5244,14 @@ pub class FrontendAction {
 
         io_ += "\n]}\n"
         do_ += "\n]}\n"
-        if (!iface_path.empty()) && !Path::write_file(iface_path, io_) {
+        if (!iface_path.is_empty()) && !Path::write_file(iface_path, io_) {
             self._ci->diag()->report(
                 DiagID::U023E,
                 f"cannot write interface dump '{iface_path}'",
             ).emit()
         }
 
-        if (!deps_path.empty()) && !Path::write_file(deps_path, do_) {
+        if (!deps_path.is_empty()) && !Path::write_file(deps_path, do_) {
             self._ci->diag()->report(
                 DiagID::U023E,
                 f"cannot write dependency dump '{deps_path}'",

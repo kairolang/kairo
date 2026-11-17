@@ -64,12 +64,12 @@ pub class HostSystem {
         var env_g = if (hf) => ("gnueabihf") else => "gnu"
         var env_m = if (hf) => ("musleabihf") else => "musl"
         var gl    = Toolchain::dynamic_linker_for(arch, "linux", env_g, "glibc")
-        if !gl.empty() && LinkFS::exists(gl) {
+        if !gl.is_empty() && LinkFS::exists(gl) {
             return "glibc"
         }
 
         var ml = Toolchain::dynamic_linker_for(arch, "linux", env_m, "musl")
-        if !ml.empty() && LinkFS::exists(ml) {
+        if !ml.is_empty() && LinkFS::exists(ml) {
             return "musl"
         }
 
@@ -84,7 +84,7 @@ pub class HostSystem {
         var seen = cxx::std::vector<string>()
         var ma   = Toolchain::multiarch(arch, "linux", env)
         HostSystem::add_dir(&out, &seen, "/usr/local/include")
-        if !ma.empty() {
+        if !ma.is_empty() {
             HostSystem::add_dir(&out, &seen, f"/usr/include/{ma}")
         }
 
@@ -103,7 +103,7 @@ pub class HostSystem {
         var seen = cxx::std::vector<string>()
         var ma   = Toolchain::multiarch(arch, "linux", env)
         HostSystem::add_dir(&out, &seen, "/usr/local/lib")
-        if !ma.empty() {
+        if !ma.is_empty() {
             HostSystem::add_dir(&out, &seen, f"/usr/lib/{ma}")
         }
 
@@ -112,7 +112,7 @@ pub class HostSystem {
         }
 
         HostSystem::add_dir(&out, &seen, "/usr/lib")
-        if !ma.empty() {
+        if !ma.is_empty() {
             HostSystem::add_dir(&out, &seen, f"/lib/{ma}")
         }
 
@@ -129,7 +129,7 @@ pub class HostSystem {
     pub static fn add_dir(@inout out:  cxx::std::vector<string>,
                           @inout seen: cxx::std::vector<string>,
                           const d:     string) {
-        if d.empty() || !LinkFS::is_dir(d) {
+        if d.is_empty() || !LinkFS::is_dir(d) {
             return
         }
 
@@ -150,7 +150,7 @@ pub class HostSystem {
     pub static fn env_list(const name: string) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
         var v   = LinkFS::env(name)
-        if v.empty() {
+        if v.is_empty() {
             return out
         }
 
@@ -158,7 +158,7 @@ pub class HostSystem {
         for var i: usize = 0; i <= v.size(); ++i {
             if i == v.size() || v[i] == (':' as u8) {
                 var part = LinkText::slice(v, b, i)
-                if part.empty() {
+                if part.is_empty() {
                     part = "."
                 }
 
@@ -184,7 +184,7 @@ pub class HostSystem {
     pub static fn pkg_config(const name:   string,
                              @inout words: cxx::std::vector<string>) panic(PkgConfigError) {
         var prog_name = LinkFS::env("PKG_CONFIG")
-        if prog_name.empty() {
+        if prog_name.is_empty() {
             prog_name = "pkg-config"
         }
 
@@ -205,16 +205,16 @@ pub class HostSystem {
         var out_path = LinkFS::temp_file("kairo-pkgconfig-out", "txt")
         var err_path = LinkFS::temp_file("kairo-pkgconfig-err", "txt")
         finally {
-            if !out_path.empty() {
+            if !out_path.is_empty() {
                 LinkFS::remove(out_path)
             }
 
-            if !err_path.empty() {
+            if !err_path.is_empty() {
                 LinkFS::remove(err_path)
             }
         }
 
-        if out_path.empty() || err_path.empty() {
+        if out_path.is_empty() || err_path.is_empty() {
             panic PkgConfigError {
                 message: "cannot create a temporary file for pkg-config's output",
             }
@@ -272,14 +272,14 @@ pub class HostSystem {
             var why   = ""
             for var l: string in lines {
                 var t = LinkText::trim(l)
-                if !t.empty() {
+                if !t.is_empty() {
                     why = t.copy()
                     break
                 }
             }
 
             var msg = f"pkg-config does not know the package '{name}\x27"
-            if !why.empty() {
+            if !why.is_empty() {
                 msg = msg + f" ({why})"
             }
 
@@ -385,7 +385,7 @@ pub class HostSystem {
 
     /// Whether \p path lies under directory \p root (both made real).
     static fn under(const path: string, const root: string) -> bool {
-        if root.empty() || root == "/" {
+        if root.is_empty() || root == "/" {
             return false
         }
 
@@ -485,8 +485,8 @@ pub class HostSystem {
                         )
 
                         var v = HostSystem::glibc_version_of(nm.copy())
-                        if !v.empty()
-                            && (r.max_glibc.empty() || Toolchain::version_less(r.max_glibc, v)) {
+                        if !v.is_empty()
+                            && (r.max_glibc.is_empty() || Toolchain::version_less(r.max_glibc, v)) {
                             r.max_glibc = v.copy()
                         }
 
@@ -516,7 +516,7 @@ pub class HostSystem {
                     if tag == 14 { // DT_SONAME
                         var val = HostSystem::_rd(&d, e + esz / 2, ((if (w64) => (8) else => 4) as u64), be)
                         var so = HostSystem::_cstr(&d, str_off, str_len, val)
-                        if !so.empty() {
+                        if !so.is_empty() {
                             r.soname = so.copy()
                         }
                     }

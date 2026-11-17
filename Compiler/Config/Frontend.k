@@ -318,7 +318,7 @@ pub class FrontendOptions {
         }
 
         var v = args.get_string(key)
-        return if (v.empty()) => (dfl) else => v
+        return if (v.is_empty()) => (dfl) else => v
     }
 
     /// \p emit is EmitKinds::parse of --emit and -S, parsed once for this

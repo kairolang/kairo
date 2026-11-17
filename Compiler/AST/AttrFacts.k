@@ -151,7 +151,7 @@ pub class AttrFacts {
 
         var n = AttrFacts::align_of(d)
         if n != 0 {
-            if !list.empty() {
+            if !list.is_empty() {
                 list += ", "
             }
 
@@ -159,14 +159,14 @@ pub class AttrFacts {
         }
 
         if AttrFacts::is_relocatable(d) && !ms_abi {
-            if !list.empty() {
+            if !list.is_empty() {
                 list += ", "
             }
 
             list += "trivial_abi"
         }
 
-        if list.empty() {
+        if list.is_empty() {
             return ""
         }
 

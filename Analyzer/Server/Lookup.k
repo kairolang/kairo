@@ -272,22 +272,22 @@ extend Server {
         var *s = &e->idx
         var f  = s->first(s->get(s->root, SK_FILES))
         while f != JSON_NONE() {
-            e->cf_node.push_back(f)
-            e->cf_lo.push_back(e->cr_row.size())
+            e->cf_node.push(f)
+            e->cf_lo.push(e->cr_row.size())
             var r = s->first(s->get(f, SK_REFS))
             while r != JSON_NONE() {
                 var a = s->first(r)
                 var b = s->next(a)
                 var c = s->next(b)
-                e->cr_row.push_back(r)
-                e->cr_line.push_back(s->as_int(a))
-                e->cr_ch.push_back(s->as_int(b))
-                e->cr_len.push_back(s->as_int(c))
+                e->cr_row.push(r)
+                e->cr_line.push(s->as_int(a))
+                e->cr_ch.push(s->as_int(b))
+                e->cr_len.push(s->as_int(c))
                 r = s->next(r)
             }
 
-            e->cf_hi.push_back(e->cr_row.size())
-            e->ct_lo.push_back(e->ct_data.size())
+            e->cf_hi.push(e->cr_row.size())
+            e->ct_lo.push(e->ct_data.size())
             // `panics` is in every snapshot; it is sent only to a client
             // that asked (initializationOptions.highlightPanics).
             var t         = s->first(s->get(f, SK_TOKENS))
@@ -298,12 +298,12 @@ extend Server {
                     v = v & (~(TM_PANICS() as i64))
                 }
 
-                e->ct_data.push_back(v)
+                e->ct_data.push(v)
                 t = s->next(t)
                 at += 1
             }
 
-            e->ct_hi.push_back(e->ct_data.size())
+            e->ct_hi.push(e->ct_data.size())
             f = s->next(f)
         }
     }
@@ -373,7 +373,7 @@ extend Server {
     /// for that run, or another entry's run recorded it since).
     fn line_shift(self, ei: usize, di: usize) -> LineShift {
         var sh = LineShift()
-        if self.docs.docs[di].idx_entry.empty()
+        if self.docs.docs[di].idx_entry.is_empty()
             || (self.docs.docs[di].idx_entry != self.entries[ei].entry)
             || (self.docs.docs[di].idx_rev != self.entries[ei].idx_rev) {
             return sh
@@ -514,7 +514,7 @@ extend Server {
             var of = o->first(o->get(o->root, SK_FILES))
             while of != JSON_NONE() {
                 var path = o->get_str(of, SK_PATH)
-                if (!only.empty()) && (path != only) {
+                if (!only.is_empty()) && (path != only) {
                     of = o->next(of)
                     continue
                 }
@@ -547,7 +547,7 @@ extend Server {
                         }
 
                         if !dup {
-                            seen.push_back(key.copy())
+                            seen.push(key.copy())
                             if mode == 0 {
                                 w->begin_object()
                                 w->field(K_URI, uri)

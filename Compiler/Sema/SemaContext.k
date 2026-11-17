@@ -254,9 +254,9 @@ pub class SemaOptions {
         self.strict_cxx_moves = ci->lang.strict_cxx_moves != 0
         self.union_locals_all = ci->lang.union_locals_all
         self.print_stats      = ci->frontend.print_stats
-        self.log_import_uses  = !ci->frontend.dump_import_uses.empty()
-        self.log_deps = (!ci->frontend.dump_deps.empty())
-            || (!ci->frontend.dump_interface.empty())
+        self.log_import_uses  = !ci->frontend.dump_import_uses.is_empty()
+        self.log_deps = (!ci->frontend.dump_deps.is_empty())
+            || (!ci->frontend.dump_interface.is_empty())
             || ci->frontend.incremental_sema
         self.duck_generics = ci->lang.duck_generics == 1 // unset = off (see above)
         // FlagTranslator's test of a hosted target, on the resolved triple.
@@ -878,7 +878,7 @@ pub class SemaContext {
 
         var name = decl_name_tok(d)
         var mac  = self.ctx->macro_invocation_name(name)
-        if mac.length() == 0 {
+        if mac.size() == 0 {
             return
         }
 

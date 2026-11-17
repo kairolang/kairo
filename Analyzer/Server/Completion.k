@@ -92,7 +92,7 @@ extend Server {
         }
 
         if self.running(JobKind::Complete) > 0 {
-            if !self.comp_wait_id.empty() {
+            if !self.comp_wait_id.is_empty() {
                 self.respond(
                     self.comp_wait_id,
                     "{\"isIncomplete\":true,\"items\":[]}",
@@ -211,12 +211,12 @@ extend Server {
         var argv = self.worker_argv(ei, j.out, path, j.marked)
         if self.launch_job(&argv, &j, "complete") != LaunchResult::Started {
             // Nothing is due after a completion: the request is answered.
-            self.garbage.push_back(j.marked.copy())
+            self.garbage.push(j.marked.copy())
             self.respond(id, "[]")
             return
         }
 
-        self.jobs.push_back(j)
+        self.jobs.push(j)
     }
 
     /// One completion item. \p edit is the range it replaces: stated on every
@@ -233,15 +233,15 @@ extend Server {
         w->begin_object()
         w->field(K_LABEL, label)
         w->field_int(K_KIND, kind)
-        if !detail.empty() {
+        if !detail.is_empty() {
             w->field(K_DETAIL, detail)
         }
 
-        if !sort.empty() {
+        if !sort.is_empty() {
             w->field(K_SORT_TEXT, sort)
         }
 
-        if !edit.empty() {
+        if !edit.is_empty() {
             w->key(K_TEXT_EDIT)
             write_lsp_text_edit_raw(w, edit, label)
         }
@@ -336,7 +336,7 @@ extend Server {
             }
 
             if (c == (':' as u8)) && ((q + 1) < spec.size()) && (spec[q + 1] == (':' as u8)) {
-                segs.push_back(cur.copy())
+                segs.push(cur.copy())
                 cur = string()
                 q += 2
                 continue
@@ -356,12 +356,12 @@ extend Server {
         // the last run read (a directory holding a module.k is a module, so
         // its parent is where its name resolves from).
         var roots: [string]
-        roots.push_back(Path::parent_of(self.docs.docs[i].path))
+        roots.push(Path::parent_of(self.docs.docs[i].path))
         if ei != usize::MAX {
-            roots.push_back(self.entries[ei].dir.copy())
+            roots.push(self.entries[ei].dir.copy())
             for var a: usize = 0; (a + 1) < self.entries[ei].args.size(); ++a {
                 if self.entries[ei].args[a] == "-I" {
-                    roots.push_back(
+                    roots.push(
                         Path::absolute_if_exists(
                             self.entries[ei].args[a + 1].copy(),
                             self.entries[ei].dir,
@@ -373,7 +373,7 @@ extend Server {
             for var f: usize = 0; f < self.entries[ei].files.size(); ++f {
                 if Path::filename_of(self.entries[ei].files[f]) == module_file_name() {
                     var lib = Path::parent_of(self.entries[ei].files[f])
-                    roots.push_back(Path::parent_of(lib))
+                    roots.push(Path::parent_of(lib))
                 }
             }
         }
@@ -392,17 +392,17 @@ extend Server {
 
         for var r: usize = 0; r < roots.size(); ++r {
             var dir = roots[r].copy()
-            if !rel.empty() {
+            if !rel.is_empty() {
                 dir = Path::join_str(roots[r], rel.copy())
             }
 
             // The path so far names a FILE: offer what it declares.
             var file = dir + kairo_dot_ext()
-            if (!rel.empty()) && (!Path::exists_at(file)) {
+            if (!rel.is_empty()) && (!Path::exists_at(file)) {
                 file = Path::join_str(dir, module_file_name())
             }
 
-            if (!rel.empty()) && Path::exists_at(file) {
+            if (!rel.is_empty()) && Path::exists_at(file) {
                 var src: string = ""
                 if LinkFS::read(file, &src) {
                     var names = top_level_names(src)
@@ -415,7 +415,7 @@ extend Server {
                         }
 
                         if !dup {
-                            seen.push_back(names[n].copy())
+                            seen.push(names[n].copy())
                             self.item(
                                 &w,
                                 names[n],
@@ -456,7 +456,7 @@ extend Server {
 
                 // At the top level only library roots are offered from a
                 // library's parent directory, not everything beside them.
-                if rel.empty() && (r >= 2) {
+                if rel.is_empty() && (r >= 2) {
                     // A library is a directory with a module.k: `std` sits
                     // beside `builtin` and is one whether or not this file
                     // has imported it yet.
@@ -483,7 +483,7 @@ extend Server {
                 }
 
                 if !dup {
-                    seen.push_back(name.copy())
+                    seen.push(name.copy())
                     self.item(&w, name, kind, "", "0" + name, edit)
                 }
             }
@@ -519,9 +519,9 @@ extend Server {
                     self.item_docs.clear()
                     while it != JSON_NONE() {
                         var idoc = doc.get_str(it, SK_DOC)
-                        if !idoc.empty() {
-                            self.item_labels.push_back(doc.get_str(it, K_LABEL))
-                            self.item_docs.push_back(idoc.copy())
+                        if !idoc.is_empty() {
+                            self.item_labels.push(doc.get_str(it, K_LABEL))
+                            self.item_docs.push(idoc.copy())
                         }
 
                         self.item(
@@ -572,7 +572,7 @@ extend Server {
         if !j->member {
             // Every word of the language: this path does not know where the
             // name stands (the index path does, CompletionSite.k).
-            if self.words.empty() {
+            if self.words.is_empty() {
                 self.words = language_words()
             }
 

@@ -953,7 +953,7 @@ pub class <T: type> LiteralTyping {
 
         w.first(first->suffix.range, f"suffix of all {segs} segments")
         var joined = self._join_chain(n, last, sfx)
-        if !joined.empty() {
+        if !joined.is_empty() {
             var at = SourceRange(
                 self._segment_start(n->imm),
                 self._segment_end(last),

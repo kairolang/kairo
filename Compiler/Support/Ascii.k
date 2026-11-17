@@ -127,14 +127,14 @@ pub fn split(const s: string, sep: u8, keep_empty: bool) -> [string] {
         }
 
         if keep_empty || i > start {
-            out.push_back(s.subslice(start, i - start))
+            out.push(s.subslice(start, i - start))
         }
 
         start = i + 1
     }
 
     if start < s.size() {
-        out.push_back(s.subslice(start, s.size() - start))
+        out.push(s.subslice(start, s.size() - start))
     }
 
     return out

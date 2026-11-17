@@ -313,13 +313,13 @@ extend IndexWalker {
         // "references, excluding the declaration" must list it.
         r.is_decl = !is_ctor
         self.target_(d, &r)
-        self.refs.push_back(r)
+        self.refs.push(r)
 
         // The outline lists what a reader navigates to: not parameters, not
         // locals, not type parameters.
         if (kind == TT_PARAMETER()) || (kind == TT_SELF()) || (kind == TT_TYPE_PARAM()) {
-            self.locals_.push_back(d)
-            self.locals_at_.push_back(off)
+            self.locals_.push(d)
+            self.locals_at_.push(off)
             return
         }
 
@@ -334,8 +334,8 @@ extend IndexWalker {
         }
 
         if local {
-            self.locals_.push_back(d)
-            self.locals_at_.push_back(off)
+            self.locals_.push(d)
+            self.locals_at_.push(off)
             return
         }
 
@@ -362,10 +362,10 @@ extend IndexWalker {
         }
 
         if s.kind != 0 {
-            self.syms.push_back(s)
+            self.syms.push(s)
         }
 
-        self.globals_.push_back(d)
+        self.globals_.push(d)
     }
 
     /// The declaration an import binds under \p bound, recorded as a use at
@@ -499,13 +499,13 @@ extend IndexWalker {
                 var target = self.sm->get_filename(im->resolved_fid)
                 if (hoff != u32::MAX)
                     && (hlen > 0)
-                    && (!hdr.empty())
+                    && (!hdr.is_empty())
                     && target.ends_with("/" + hdr) {
                     var row = LinkRow{}
                     row.off    = hoff
                     row.len    = hlen
                     row.target = target.copy()
-                    self.links.push_back(row)
+                    self.links.push(row)
                 }
             }
 
@@ -521,12 +521,12 @@ extend IndexWalker {
             var last = im->path_segments[im->path_segments.size() - 1].range.end
             var off    = self.own_off_(first)
             var target = self.sm->get_filename(im->resolved_fid)
-            if (off != u32::MAX) && (!target.empty()) && (last.raw() > first.raw()) {
+            if (off != u32::MAX) && (!target.is_empty()) && (last.raw() > first.raw()) {
                 var row = LinkRow{}
                 row.off    = off
                 row.len    = last.raw() - first.raw()
                 row.target = target.copy()
-                self.links.push_back(row)
+                self.links.push(row)
             }
         }
     }
@@ -854,7 +854,7 @@ extend IndexWalker {
         r.off = off
         r.len = len
         self.target_(d, &r)
-        self.refs.push_back(r)
+        self.refs.push(r)
     }
 
     // --- completion ------------------------------------------------------

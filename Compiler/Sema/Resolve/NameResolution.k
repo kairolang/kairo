@@ -1344,7 +1344,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         var def: unsafe *Decl = &null
         for var i: usize = 0; i < group.size(); ++i {
             var unsafe *d = (group)[i]
-            if self._record_keyword(d).empty() {
+            if self._record_keyword(d).is_empty() {
                 return false
             }
 
@@ -1619,7 +1619,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 && dv != &null
                 && isa<Declarations::VariableDecl>(prev) {
                 var fresh = self._free_name(dc, name)
-                if !fresh.empty() {
+                if !fresh.is_empty() {
                     b.fix(
                         dv->name.range,
                         fresh,
@@ -3743,7 +3743,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         var unsafe *t        = unsafe &entry->targets[0]
         var unsafe *d        = self._target_decl(t)
         var unsafe *home     = self._target_tu(t)
-        var        in_module = !tu_module_dir(home).empty()
+        var        in_module = !tu_module_dir(home).is_empty()
         var        msg       = f"'{nm}' is imported but is declared private in its module"
         var        written   = VisibilityKind::None
         if d != &null {

@@ -139,12 +139,12 @@ pub class Transport {
             if self.fd_out >= 0 {
                 w = unsafe kals_fd_write(
                     self.fd_out,
-                    unsafe &msg.raw()[off],
+                    unsafe &msg.data()[off],
                     (msg.size() - off) as u64,
                 )
             } else {
                 w = unsafe kals_stdout_write(
-                    unsafe &msg.raw()[off],
+                    unsafe &msg.data()[off],
                     (msg.size() - off) as u64,
                 )
             }

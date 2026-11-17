@@ -133,7 +133,7 @@ extend IndexWalker {
             }
 
             var pn = ctx->get_spelling(p->name)
-            if pn.empty() || pn.starts_with("$") || pn.starts_with("_") {
+            if pn.is_empty() || pn.starts_with("$") || pn.starts_with("_") {
                 continue
             }
 
@@ -152,7 +152,7 @@ extend IndexWalker {
             row.label     = pn + ":"
             row.kind      = IHK_PARAMETER as u32
             row.pad_right = true
-            self.inlays.push_back(row)
+            self.inlays.push(row)
         }
     }
 }

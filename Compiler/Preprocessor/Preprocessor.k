@@ -225,7 +225,7 @@ pub class PreProcessor {
                 value = "1"
             }
 
-            if name.empty() {
+            if name.is_empty() {
                 // An empty name is diagnosed: skipping it would make a typo'd
                 // -D look accepted while the macro never existed.
                 self._diag->report(
@@ -802,7 +802,7 @@ pub class PreProcessor {
         // a slice's `to_owned()` returns the vector whose file imports the
         // slice. Told by directory, since a builtin file compiled as the
         // entry has no prelude to be the closure of.
-        if !self._opts.builtins_dir.empty() {
+        if !self._opts.builtins_dir.is_empty() {
             var root = Path::real_path_of(self._opts.builtins_dir.copy())
             if !root.ends_with("/") {
                 root += "/"
@@ -904,7 +904,7 @@ pub class PreProcessor {
         scanner.set_known(unsafe &self._scanned)
         var graph = scanner.build_graph(entry_fid, entry_path)
 
-        if !graph.depth_exceeded_path.empty() {
+        if !graph.depth_exceeded_path.is_empty() {
             self._diag->report(
                 DiagID::R019E,
                 f"import depth limit ({self._opts.max_import_depth}) exceeded at '{graph.depth_exceeded_path}'; raise it with --cmax-import-depth=N",

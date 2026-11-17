@@ -202,7 +202,7 @@ pub class EmitCXXHeader {
     /// Render and write. False if nothing to write or the write failed.
     pub fn write(self, const dir: string) -> bool {
         var p = self.path_under(dir)
-        if self.line_directives && self.header_name.empty() {
+        if self.line_directives && self.header_name.is_empty() {
             self.header_name = p.copy()
         }
 

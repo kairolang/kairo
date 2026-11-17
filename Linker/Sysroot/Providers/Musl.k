@@ -487,7 +487,7 @@ pub class MuslProvider derives SysrootProvider {
                 }
             }
 
-            if m.src.empty() {
+            if m.src.is_empty() {
                 m.src = k + ".c"
             }
 
@@ -520,16 +520,16 @@ pub class MuslProvider derives SysrootProvider {
                             @inout out: SysOutcome) -> bool {
         ma = ""
         for var q: SysQuirk in ctx->quirks {
-            if !q.musl_arch.empty() {
+            if !q.musl_arch.is_empty() {
                 ma = q.musl_arch.copy()
             }
         }
 
-        if ma.empty() {
+        if ma.is_empty() {
             ma = ctx->recipe.expand("{per_arch.musl_arch}", &ctx->target)
         }
 
-        if ma.empty() || LinkText::contains(ma, "{") {
+        if ma.is_empty() || LinkText::contains(ma, "{") {
             return out.refuse(
                 f"musl has no ARCH for {ctx->target.arch}: the recipe has no [per_arch.musl_arch] entry",
                 "",
@@ -561,7 +561,7 @@ pub class MuslProvider derives SysrootProvider {
             if LinkText::starts_with(t.copy(), "COMPAT_SRC_DIRS") {
                 var eq = LinkText::find(t.copy(), "=", 0)
                 for var w: string in SysUtil::split(LinkText::trim(LinkText::slice(t, eq + 1, t.size())), (' ' as u8)) {
-                    if !w.empty() {
+                    if !w.is_empty() {
                         out.push_back(w)
                     }
                 }

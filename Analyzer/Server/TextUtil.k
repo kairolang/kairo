@@ -70,7 +70,7 @@ import std::io
 
 /// Offset of \p needle in \p hay at or after \p from, or usize::MAX.
 pub fn find_from(const hay: string, const needle: string, from: usize) -> usize {
-    if needle.empty() || (needle.size() > hay.size()) {
+    if needle.is_empty() || (needle.size() > hay.size()) {
         return usize::MAX
     }
 
@@ -118,7 +118,7 @@ pub fn k_includes(const text: string) -> [string] {
     var all           = quoted_includes(text)
     for var i: usize = 0; i < all.size(); ++i {
         if all[i].ends_with(kairo_dot_ext()) {
-            out.push_back(all[i].copy())
+            out.push(all[i].copy())
         }
     }
 
@@ -162,8 +162,8 @@ pub fn quoted_includes(const text: string) -> [string] {
                     }
 
                     var name = text.subslice(p + 1, q - p - 1)
-                    if (q < le) && (!name.empty()) {
-                        out.push_back(name.copy())
+                    if (q < le) && (!name.is_empty()) {
+                        out.push(name.copy())
                     }
                 }
             }
@@ -278,7 +278,7 @@ pub fn top_level_names(const src: string) -> [string] {
                 }
 
                 if !dup {
-                    out.push_back(name.copy())
+                    out.push(name.copy())
                 }
             }
         }
@@ -294,8 +294,8 @@ pub fn keyword_list(const all: string) -> [string] {
     var cur          = string()
     for var i: usize = 0; i < all.size(); ++i {
         if all[i] == (' ' as u8) {
-            if !cur.empty() {
-                k.push_back(cur.copy())
+            if !cur.is_empty() {
+                k.push(cur.copy())
             }
 
             cur = string()
@@ -304,8 +304,8 @@ pub fn keyword_list(const all: string) -> [string] {
         }
     }
 
-    if !cur.empty() {
-        k.push_back(cur.copy())
+    if !cur.is_empty() {
+        k.push(cur.copy())
     }
 
     return k

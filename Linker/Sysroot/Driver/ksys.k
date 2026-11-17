@@ -76,7 +76,7 @@ fn ksys_report(@inout o: SysOutcome) -> i32 {
 
     var code = if (o.status == SYS_STATUS_FAILED) => ("P010E") else => "P009E"
     io::eprintln(f"ksys: error [{code}]: {o.message}")
-    if !o.note.empty() {
+    if !o.note.is_empty() {
         io::eprintln(f"ksys: note [P009N]: {o.note}")
     }
 
@@ -164,7 +164,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         } else if ksys_opt(&args, &i, "--jobs", &v)
             || ksys_opt(&args, &i, "-j", &v)
             || LinkText::starts_with(a.copy(), "-j") && a.size() > 2 {
-            if v.empty() {
+            if v.is_empty() {
                 v = LinkText::slice(a, 2, a.size())
             }
 
@@ -236,7 +236,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     }
 
     if cmd == "build" {
-        if out_dir.empty() {
+        if out_dir.is_empty() {
             return ksys_usage_error("build needs --out DIR")
         }
 
@@ -245,7 +245,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     }
 
     if cmd == "tables" {
-        if out_dir.empty() {
+        if out_dir.is_empty() {
             return ksys_usage_error("tables needs --out DIR")
         }
 
@@ -264,7 +264,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     }
 
     var c = gen.cache()
-    if c.root.empty() {
+    if c.root.is_empty() {
         o.refuse(
             "no cache directory for sysroots",
             "set KAIRO_SYSROOT_CACHE, or pass --cache DIR",

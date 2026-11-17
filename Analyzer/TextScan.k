@@ -156,7 +156,7 @@ pub fn spans(const text: string) -> [Span] {
             sp.open  = s
             sp.close = e
             sp.kind  = 3
-            out.push_back(sp)
+            out.push(sp)
             continue
         }
 
@@ -168,8 +168,8 @@ pub fn spans(const text: string) -> [Span] {
                 sp.close = usize::MAX
                 sp.kind = if c == ('{' as u8) => (0 as u8)
                           else => (if c == ('(' as u8) => (1 as u8) else => (2 as u8))
-                out.push_back(sp)
-                stack.push_back(out.size() - 1)
+                out.push(sp)
+                stack.push(out.size() - 1)
             } else if (c == ('}' as u8)) || (c == (')' as u8)) || (c == (']' as u8)) {
                 var want: u8 = if c == ('}' as u8) => (0 as u8)
                                else => (if c == (')' as u8) => (1 as u8) else => (2 as u8))
@@ -182,7 +182,7 @@ pub fn spans(const text: string) -> [Span] {
                     if out[stack[k]].kind == want {
                         out[stack[k]].close = i
                         while stack.size() > k {
-                            stack.pop_back()
+                            stack.pop()
                         }
 
                         break
@@ -441,14 +441,14 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
     }
 
     var iname = iname_in.copy()
-    if iname.empty() {
+    if iname.is_empty() {
         iname = "I" + name
     }
 
     // The interface's type arguments in the `impl` clause: each generic
     // parameter's own name, without its bounds.
     var args: string = ""
-    if !generics.empty() {
+    if !generics.is_empty() {
         args = "<"
         var i:    usize = 1
         var first       = true
@@ -579,7 +579,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                         e -= 1
                     }
 
-                    docs.push_back(text.subslice(q, e - q))
+                    docs.push(text.subslice(q, e - q))
                 } else {
                     docs.clear()
                 }
@@ -605,7 +605,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                     }
 
                     var word = word_at(text, cls, w)
-                    if word.empty() {
+                    if word.is_empty() {
                         break
                     }
 
@@ -719,15 +719,15 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                         }
 
                         if (!skip) && bare_panic {
-                            lines.push_back(
+                            lines.push(
                                 "// " + mname + ": declared with a bare `panic`; a requirement needs its set, `panic(E)`",
                             )
                         } else if !skip {
                             for var k: usize = 0; k < docs.size(); ++k {
-                                lines.push_back(docs[k].copy())
+                                lines.push(docs[k].copy())
                             }
 
-                            lines.push_back(sig.copy())
+                            lines.push(sig.copy())
                             plan.methods += 1
                         }
                     }
@@ -765,7 +765,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
     }
 
     var out = indent + "pub interface "
-    if !generics.empty() {
+    if !generics.is_empty() {
         out += generics
         out += " "
     }

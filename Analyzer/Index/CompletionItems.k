@@ -117,7 +117,7 @@ extend IndexWalker {
         }
 
         var name = sema_dump_decl_name(ctx, d)
-        if name.empty() || name.starts_with("op ") || (name == completion_marker()) {
+        if name.is_empty() || name.starts_with("op ") || (name == completion_marker()) {
             return
         }
 
@@ -153,7 +153,7 @@ extend IndexWalker {
         it.kind   = self.item_kind_(d)
         it.sort   = sort
         it.doc    = self.doc_(d)
-        self.items.push_back(it)
+        self.items.push(it)
     }
 
     /// Every name declared directly in \p dc.
@@ -175,7 +175,7 @@ extend IndexWalker {
     fn tu_decls_(self, tu: unsafe *TranslationUnit, out: *[unsafe *Decl]) {
         var unsafe *dc = unsafe (tu as unsafe *DeclContext)
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            out->push_back(*dc->dc_decls.get(i))
+            out->push(*dc->dc_decls.get(i))
         }
 
         if tu->program == &null {
@@ -186,11 +186,11 @@ extend IndexWalker {
         for var i: usize = 0; i < items->size(); i++ {
             var item = *items->get(i)
             if item.kind == TopLevelKind::Decl {
-                out->push_back(item.as_decl())
+                out->push(item.as_decl())
             } else if item.kind == TopLevelKind::Stmt {
                 var unsafe *st = item.as_stmt()
                 if (st != &null) && isa<Statements::DeclStmt>(st) {
-                    out->push_back(cast<Statements::DeclStmt>(st)->decl)
+                    out->push(cast<Statements::DeclStmt>(st)->decl)
                 }
             }
         }
@@ -288,46 +288,46 @@ extend IndexWalker {
         if isa<Declarations::ClassDecl>(d) {
             var unsafe *c = cast<Declarations::ClassDecl>(d)
             for var i: usize = 0; i < c->fields.size(); ++i {
-                out->push_back(unsafe (c->fields[i] as unsafe *Decl))
+                out->push(unsafe (c->fields[i] as unsafe *Decl))
             }
 
             for var i: usize = 0; i < c->methods.size(); ++i {
-                out->push_back(unsafe (c->methods[i] as unsafe *Decl))
+                out->push(unsafe (c->methods[i] as unsafe *Decl))
             }
         } else if isa<Declarations::StructDecl>(d) {
             var unsafe *c = cast<Declarations::StructDecl>(d)
             for var i: usize = 0; i < c->fields.size(); ++i {
-                out->push_back(unsafe (c->fields[i] as unsafe *Decl))
+                out->push(unsafe (c->fields[i] as unsafe *Decl))
             }
 
             for var i: usize = 0; i < c->methods.size(); ++i {
-                out->push_back(unsafe (c->methods[i] as unsafe *Decl))
+                out->push(unsafe (c->methods[i] as unsafe *Decl))
             }
         } else if isa<Declarations::UnionDecl>(d) {
             var unsafe *c = cast<Declarations::UnionDecl>(d)
             for var i: usize = 0; i < c->fields.size(); ++i {
-                out->push_back(unsafe (c->fields[i] as unsafe *Decl))
+                out->push(unsafe (c->fields[i] as unsafe *Decl))
             }
 
             for var i: usize = 0; i < c->methods.size(); ++i {
-                out->push_back(unsafe (c->methods[i] as unsafe *Decl))
+                out->push(unsafe (c->methods[i] as unsafe *Decl))
             }
         } else if isa<Declarations::EnumDecl>(d) {
             var unsafe *c = cast<Declarations::EnumDecl>(d)
             for var i: usize = 0; i < c->variants.size(); ++i {
-                out->push_back(unsafe (c->variants[i] as unsafe *Decl))
+                out->push(unsafe (c->variants[i] as unsafe *Decl))
             }
         } else if isa<Declarations::InterfaceDecl>(d) {
             var unsafe *c = cast<Declarations::InterfaceDecl>(d)
             for var i: usize = 0; i < c->methods.size(); ++i {
-                out->push_back(unsafe (c->methods[i] as unsafe *Decl))
+                out->push(unsafe (c->methods[i] as unsafe *Decl))
             }
         }
 
         var unsafe *dc = self.context_of_decl_(d)
         if dc != &null {
             for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-                out->push_back(*dc->dc_decls.get(i))
+                out->push(*dc->dc_decls.get(i))
             }
         }
     }
@@ -436,7 +436,7 @@ extend IndexWalker {
             it.detail = cs[i].detail.copy()
             it.kind   = CIK_CONSTANT as u32
             it.sort   = 0
-            self.items.push_back(it)
+            self.items.push(it)
         }
 
         if self.sc->types == &null {

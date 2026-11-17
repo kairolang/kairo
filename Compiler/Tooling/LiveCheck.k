@@ -235,11 +235,11 @@ pub class LiveCheck {
                     // instance's first use, a stand-in's layout). A copy
                     // that is thrown away reports the edited file and never
                     // gets there, so it does not ask.
-                    if why.empty() && self._q.empty() && !self.aside {
+                    if why.is_empty() && self._q.empty() && !self.aside {
                         why = self._tier_end()
                     }
 
-                    if why.empty() {
+                    if why.is_empty() {
                         self.pending = self._q.size()
                         self.why = f"{self.rechecked.size()} of {self.files} files, {self.pending} pending"
                     }
@@ -249,14 +249,14 @@ pub class LiveCheck {
             }
         }
 
-        if (!why.empty()) && self.aside {
+        if (!why.is_empty()) && self.aside {
             self.mode = "refused"
             self.why  = why.copy()
             self._count()
             return true
         }
 
-        if !why.empty() {
+        if !why.is_empty() {
             return self._full(why)
         }
 
@@ -414,7 +414,7 @@ pub class LiveCheck {
         }
 
         var blocked = self._action->refresh_blocker(*set)
-        if !blocked.empty() {
+        if !blocked.is_empty() {
             return blocked
         }
 
@@ -440,7 +440,7 @@ pub class LiveCheck {
 
             var at     = self._ci->sm()->get_filename(d->loc)
             var inside = is_name.find(kairo::sref(at)) != is_name.end()
-            if self._fd->owners[i].empty() {
+            if self._fd->owners[i].is_empty() {
                 if inside {
                     return "a diagnostic from before Sema"
                 }
@@ -633,7 +633,7 @@ pub class LiveCheck {
             }
 
             var no = self._admit_bodies(group, n0)
-            if !no.empty() {
+            if !no.is_empty() {
                 return no
             }
         }
@@ -659,7 +659,7 @@ pub class LiveCheck {
         }
 
         var moved = self._action->refresh(group)
-        if !moved.empty() {
+        if !moved.is_empty() {
             self.detail = self._action->refresh_detail.copy()
             return moved
         }
@@ -676,13 +676,13 @@ pub class LiveCheck {
         var set       = cxx::std::vector<u32>()
         var names     = cxx::std::vector<string>()
         var no        = self._plan(path, &fid, &set, &names)
-        if !no.empty() {
+        if !no.is_empty() {
             return no
         }
 
         var before = GroupSnapshot()
         no = self._snapshot(set, &before)
-        if !no.empty() {
+        if !no.is_empty() {
             return no
         }
 
@@ -699,12 +699,12 @@ pub class LiveCheck {
             return "a C++ template instance was first filled for an edited file"
         }
 
-        if !self.dump_interface.empty() {
+        if !self.dump_interface.is_empty() {
             self._ci->invocation()->frontend.dump_interface = self.dump_interface.copy()
         }
 
         no = self._recheck(set, names, const &before, fid, n0, false)
-        if !no.empty() {
+        if !no.is_empty() {
             return no
         }
 
@@ -953,7 +953,7 @@ pub class LiveCheck {
         var group  = self._action->order_of(self._closure(target))
         var before = GroupSnapshot()
         var no     = self._snapshot(group, &before)
-        if !no.empty() {
+        if !no.is_empty() {
             return no
         }
 
@@ -982,7 +982,7 @@ pub class LiveCheck {
 
         var n0 = self._forget(names)
         no = self._recheck(group, names, const &before, edited, n0, true)
-        if !no.empty() {
+        if !no.is_empty() {
             return no
         }
 
@@ -1014,7 +1014,7 @@ pub class LiveCheck {
         var dbg       = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
         var t0        = _live_us()
         var no        = self._plan(path, &fid, &set, &names)
-        if !no.empty() {
+        if !no.is_empty() {
             return no
         }
 
@@ -1057,18 +1057,18 @@ pub class LiveCheck {
     /// The queue is empty: what one refresh of the whole set decides at
     /// its end.
     priv fn _tier_end(self) -> string {
-        if !self.dump_interface.empty() {
+        if !self.dump_interface.is_empty() {
             self._ci->invocation()->frontend.dump_interface = self.dump_interface.copy()
         }
 
         var why = self._action->tier_finish()
         self._edited.clear()
-        if !why.empty() {
+        if !why.is_empty() {
             self.detail = self._action->refresh_detail.copy()
         }
 
         self._self_check()
-        if why.empty() {
+        if why.is_empty() {
             self._release_retired()
         }
 
@@ -1093,7 +1093,7 @@ pub class LiveCheck {
         }
 
         var why = ""
-        while (!self._q.empty()) && self.rechecked.size() < max_files && why.empty() {
+        while (!self._q.empty()) && self.rechecked.size() < max_files && why.is_empty() {
             // Towards a preferred file, one step at a time: the first
             // queued file, in Sema's order, of what it imports. That file
             // imports nothing queued, so the step is one file (or one
@@ -1166,11 +1166,11 @@ pub class LiveCheck {
             why = self._tier_redo(target, u32::MAX)
         }
 
-        if why.empty() && self._q.empty() {
+        if why.is_empty() && self._q.empty() {
             why = self._tier_end()
         }
 
-        if !why.empty() {
+        if !why.is_empty() {
             self._full(why)
             return false
         }
@@ -1221,7 +1221,7 @@ pub class LiveCheck {
             return self._ci->detach_for_refresh(fid, &null, 0, true, false)
         }
 
-        var unsafe *bytes = unsafe ((next->raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
+        var unsafe *bytes = unsafe ((next->data() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
         var ok = self._ci->detach_for_refresh(
             fid,
             bytes,
@@ -1372,7 +1372,7 @@ pub class LiveCheck {
         // were first drained.
         io::eprint(f"{self._ci->incr_diag_text(0, self._pre)}")
         for var i: usize = 0; i < self._fd->diags.size(); ++i {
-            if self._fd->owners[i].empty() {
+            if self._fd->owners[i].is_empty() {
                 io::eprint(f"{self._ci->incr_render(self._fd->diags[i])}")
             }
         }
@@ -1483,7 +1483,7 @@ pub class LiveCheck {
         self._fd  = kairo::std::create<FileDiagConsumer>()
         self._ci->diag()->add_consumer(self._fd)
         self._ci->invocation()->frontend.file_diags = unsafe (self._fd as unsafe *void)
-        if !self.dump_interface.empty() {
+        if !self.dump_interface.is_empty() {
             self._ci->invocation()->frontend.dump_interface = self.dump_interface.copy()
         }
 
@@ -1507,7 +1507,7 @@ pub class LiveCheck {
                 continue
             }
 
-            var unsafe *bytes = unsafe ((self._ov[i].cur->raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
+            var unsafe *bytes = unsafe ((self._ov[i].cur->data() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
             self._ci->sm()->stage_overlay(
                 Path(self._ov[i].path),
                 bytes,

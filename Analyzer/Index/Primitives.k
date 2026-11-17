@@ -45,7 +45,7 @@ pub struct PrimConst {
 /// maps a type-position token (builtin_for_token), so a name is a
 /// primitive here exactly when it is one to the compiler.
 pub fn primitive_of(const name: string) -> BuiltinKind {
-    if name.empty() {
+    if name.is_empty() {
         return BuiltinKind::COUNT
     }
 
@@ -87,7 +87,7 @@ pub fn primitive_consts(b: BuiltinKind) -> [PrimConst] {
         c.detail = "const " + c.name + ": " + builtin_info(
             PrimitiveLimits::result_kind(b, k),
         )->spelling
-        out.push_back(c)
+        out.push(c)
     }
 
     return out

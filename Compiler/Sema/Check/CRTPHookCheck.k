@@ -163,7 +163,7 @@ pub class CRTPCallScan derives RecursiveASTVisitor<CRTPCallScan> {
             }
         }
 
-        if via.empty() {
+        if via.is_empty() {
             return true
         }
 

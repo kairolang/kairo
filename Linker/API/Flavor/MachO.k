@@ -59,7 +59,7 @@ pub class MachOArgs {
         var errs0 = LinkDiag::error_count(&msgs)
         var *o    = job.opts
 
-        if job.output.empty() {
+        if job.output.is_empty() {
             msgs.push_back(
                 LinkDiag::make(LinkSeverity::Error, "link: no output path"),
             )
@@ -122,7 +122,7 @@ pub class MachOArgs {
 
         // Only a dylib has an install name; on an executable ld64 would
         // accept and ignore it, so say so instead of looking like it worked.
-        if !o->install_name.empty() && !shared {
+        if !o->install_name.is_empty() && !shared {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Warning,
@@ -133,7 +133,7 @@ pub class MachOArgs {
 
         if shared && !MachOArgs::_has_flag(&o->ld_flags, "-install_name") {
             argv.push_back("-install_name")
-            if !o->install_name.empty() {
+            if !o->install_name.is_empty() {
                 argv.push_back(o->install_name)
             } else {
                 argv.push_back(f"@rpath/{LinkFS::filename(job.output)}")
@@ -156,7 +156,7 @@ pub class MachOArgs {
             argv.push_back(f"-L{d}")
         }
 
-        if !tc.toolchain_lib.empty() {
+        if !tc.toolchain_lib.is_empty() {
             argv.push_back(f"-L{tc.toolchain_lib}")
         }
 
@@ -171,7 +171,7 @@ pub class MachOArgs {
             argv.push_back(r)
         }
 
-        if !o->rpath_origin.empty() {
+        if !o->rpath_origin.is_empty() {
             // Only the two dyld-relative anchors (optionally followed by a
             // subpath): @rpath is what -rpath entries are searched through, so
             // an rpath that is itself @rpath/... would never resolve.
@@ -201,7 +201,7 @@ pub class MachOArgs {
             }
         }
 
-        if !no_libs && !tc.toolchain_lib.empty() {
+        if !no_libs && !tc.toolchain_lib.is_empty() {
             argv.push_back("-rpath")
             argv.push_back(tc.toolchain_lib)
             msgs.push_back(
@@ -252,7 +252,7 @@ pub class MachOArgs {
             argv.push_back("-S")
         }
 
-        if !o->map_file.empty() {
+        if !o->map_file.is_empty() {
             argv.push_back("-map")
             argv.push_back(o->map_file)
         }
@@ -263,7 +263,7 @@ pub class MachOArgs {
 
         // --entry names a source-level symbol. Mach-O C symbols carry a
         // leading underscore, so main is _main.
-        if !shared && !o->no_entry && !o->entry.empty() {
+        if !shared && !o->no_entry && !o->entry.is_empty() {
             argv.push_back("-e")
             argv.push_back("_" + o->entry)
         }
@@ -300,7 +300,7 @@ pub class MachOArgs {
     /// Options that mean something on ELF and nothing here. Diagnosed only
     /// where dropping them silently changes the output.
     priv static fn _elf_only(o: *LinkerOptions, @inout msgs: cxx::std::vector<LinkMessage>) {
-        if !o->linker_script.empty() {
+        if !o->linker_script.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -309,7 +309,7 @@ pub class MachOArgs {
             )
         }
 
-        if !o->version_script.empty() {
+        if !o->version_script.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -327,7 +327,7 @@ pub class MachOArgs {
             )
         }
 
-        if !o->emulation.empty() {
+        if !o->emulation.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Warning,
@@ -336,7 +336,7 @@ pub class MachOArgs {
             )
         }
 
-        if !o->dynamic_linker.empty() {
+        if !o->dynamic_linker.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Warning,
@@ -362,7 +362,7 @@ pub class MachOArgs {
             name = LinkText::slice(spec, c + 1, spec.size())
         }
 
-        if name.empty() {
+        if name.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -392,7 +392,7 @@ pub class MachOArgs {
             // No -Bstatic: ld64 takes the first of libfoo.dylib / libfoo.tbd /
             // libfoo.a in each directory, so a static request is a path.
             var a = MachOArgs::_find_archive(name, o, &tc)
-            if a.empty() {
+            if a.is_empty() {
                 msgs.push_back(
                     LinkDiag::make(
                         LinkSeverity::Error,
@@ -412,7 +412,7 @@ pub class MachOArgs {
             return
         }
 
-        if !mode.empty() && mode != "dynamic" {
+        if !mode.is_empty() && mode != "dynamic" {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -437,7 +437,7 @@ pub class MachOArgs {
             }
         }
 
-        if !tc.toolchain_lib.empty() {
+        if !tc.toolchain_lib.is_empty() {
             var p = LinkText::join(tc.toolchain_lib.copy(), file.copy())
             if LinkFS::is_file(p) {
                 return p
@@ -493,7 +493,7 @@ pub class MachOArgs {
             argv.push_back(x)
         }
 
-        if !tc.builtins.empty() {
+        if !tc.builtins.is_empty() {
             argv.push_back(tc.builtins)
         }
     }

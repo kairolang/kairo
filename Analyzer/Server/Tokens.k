@@ -82,11 +82,11 @@ extend Server {
                      len:  i64,
                      kind: i64,
                      mods: i64) {
-        out->push_back(line - (*pl))
-        out->push_back(if line == (*pl) => (ch - (*pc)) else => ch)
-        out->push_back(len)
-        out->push_back(kind)
-        out->push_back(mods)
+        out->push(line - (*pl))
+        out->push(if line == (*pl) => (ch - (*pc)) else => ch)
+        out->push(len)
+        out->push(kind)
+        out->push(mods)
         *pl = line
         *pc = ch
     }
@@ -239,10 +239,10 @@ extend Server {
         }
 
         if slot == self.tok_uri.size() {
-            self.tok_uri.push_back(uri.copy())
-            self.tok_id.push_back(0)
+            self.tok_uri.push(uri.copy())
+            self.tok_id.push(0)
             var none: [i64]
-            self.tok_data.push_back(none.copy())
+            self.tok_data.push(none.copy())
         }
 
         self.tok_seq += 1

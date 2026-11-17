@@ -176,7 +176,7 @@ pub class SysRun {
     pub static fn put_file(const from: string, const to: string, hard: bool) -> bool {
         LinkFS::make_dirs(LinkFS::parent(to))
         var tgt = SysRun::read_link(from)
-        if !tgt.empty() {
+        if !tgt.is_empty() {
             return SysRun::symlink(tgt, to)
         }
 
@@ -218,7 +218,7 @@ pub class SysRun {
             return false
         }
 
-        if root.empty() {
+        if root.is_empty() {
             return true
         }
 
@@ -229,7 +229,7 @@ pub class SysRun {
         var text = ""
         if LinkFS::read(root + "/links.tsv", &text) {
             for var line: string in LinkText::split_lines(text.copy()) {
-                if line.empty() {
+                if line.is_empty() {
                     continue
                 }
 
@@ -249,7 +249,7 @@ pub class SysRun {
         var copies = cxx::std::vector<usize>()
         for var i: usize = 0; i < rels.size(); ++i {
             var at = SysRun::_mapped(sub, rels[i], to)
-            if at.empty() {
+            if at.is_empty() {
                 continue
             }
 
@@ -271,7 +271,7 @@ pub class SysRun {
         for var i: usize in copies {
             var at  = SysRun::_mapped(sub, rels[i], to)
             var res = SysRun::_resolve_recorded(root, rels[i], &rels, &tgts)
-            if res.empty() {
+            if res.is_empty() {
                 err = f"{root}/links.tsv: {rels[i]} -> {tgts[i]} does not resolve inside the input"
                 return false
             }
@@ -298,7 +298,7 @@ pub class SysRun {
         var stored = cxx::std::vector<string>()
         var real   = cxx::std::vector<string>()
         for var line: string in LinkText::split_lines(text.copy()) {
-            if line.empty() {
+            if line.is_empty() {
                 continue
             }
 
@@ -309,7 +309,7 @@ pub class SysRun {
             }
 
             var s = SysRun::_mapped(sub, cols[0], to)
-            if !s.empty() {
+            if !s.is_empty() {
                 stored.push_back(s)
                 real.push_back(SysRun::_mapped(sub, cols[1], to))
             }
@@ -350,7 +350,7 @@ pub class SysRun {
     /// \p rel (input-relative) under the copied subdir \p sub, as a path
     /// under \p to; "" when \p rel is not under \p sub.
     priv static fn _mapped(const sub: string, const rel: string, const to: string) -> string {
-        if sub.empty() {
+        if sub.is_empty() {
             return to + "/" + rel
         }
 
@@ -375,7 +375,7 @@ pub class SysRun {
         var head: usize = 0
         while head < parts.size() {
             var cur = SysUtil::joined(&done, "/")
-            cur = if (cur.empty()) => (parts[head]) else => cur + "/" + parts[head]
+            cur = if (cur.is_empty()) => (parts[head]) else => cur + "/" + parts[head]
             var hit = rels.size()
             for var i: usize = 0; i < rels.size(); ++i {
                 if rels[i] == cur {
@@ -401,7 +401,7 @@ pub class SysRun {
 
             var h = parts[head].copy()
             head += 1
-            if h.empty() || h == "." {
+            if h.is_empty() || h == "." {
                 continue
             }
 
@@ -418,7 +418,7 @@ pub class SysRun {
         }
 
         var res = SysUtil::joined(&done, "/")
-        if res.empty() || !LinkFS::exists(root + "/" + res) {
+        if res.is_empty() || !LinkFS::exists(root + "/" + res) {
             return ""
         }
 
@@ -450,7 +450,7 @@ pub class SysRun {
             var s    = from + "/" + name
             var d    = to + "/" + name
             var link = SysRun::read_link(s)
-            if !link.empty() {
+            if !link.is_empty() {
                 if !SysRun::symlink(link, d) {
                     return false
                 }
@@ -496,7 +496,7 @@ pub class SysJobs {
     }
 
     pub fn ok(self) -> bool {
-        return self.failed_log.empty()
+        return self.failed_log.is_empty()
     }
 
     /// At most \p n in flight instead of SysRun::jobs(); 0 keeps that.
@@ -587,7 +587,7 @@ pub class SysJobs {
 
         var log = self._logs[self._head].copy()
         self._head += 1
-        if done.ReturnCode != 0 && self.failed_log.empty() {
+        if done.ReturnCode != 0 && self.failed_log.is_empty() {
             self.failed_log = log.copy()
             self.failed_rc  = done.ReturnCode
         }

@@ -344,14 +344,14 @@ pub class Command {
             if def->kind == FlagKind::Feature {
                 nm = if (result->get_feature(def->key) == 1) => (f"-f{def->key}")
                      else => f"-fno-{def->key}"
-            } else if def->key.length() > 2
+            } else if def->key.size() > 2
                 && def->key[0] == ('c' as u8)
                 && def->key[1] == (':' as u8) {
                 var bare = def->key.subslice(2, def->key.size())
                 nm = f"--c{bare}"
-            } else if def->long_.length() > 0 {
+            } else if def->long_.size() > 0 {
                 nm = f"--{def->long_}"
-            } else if def->short_.length() > 0 {
+            } else if def->short_.size() > 0 {
                 nm = f"-{def->short_}"
             } else {
                 nm = f"--{def->key}"
@@ -385,7 +385,7 @@ pub class Command {
                 return def
             }
 
-            if def->long_.length() == 0 && def->key == name { // key as long fallback
+            if def->long_.size() == 0 && def->key == name { // key as long fallback
                 return def
             }
         }
@@ -431,7 +431,7 @@ pub class Command {
             return exact
         }
 
-        var split: i32 = (name.length() as i32) - 1
+        var split: i32 = (name.size() as i32) - 1
         while split >= 1 {
             var        prefix = name.subslice(0, (split as usize))
             var        suffix = name.subslice(split as usize, name.size())
@@ -453,8 +453,8 @@ pub class Command {
     /// classic two-row Levenshtein; only ever runs on a failed lookup, so the
     /// O(n*m) over a CLI-sized table is free in practice
     priv fn _edit_distance(self, const a: string, const b: string) -> usize {
-        var n = a.length()
-        var m = b.length()
+        var n = a.size()
+        var m = b.size()
         if n == 0 {
             return m
         }
@@ -518,24 +518,24 @@ pub class Command {
             }
 
             // config flags are stored as key = "c:{name}" and typed as --c{name}
-            if def->key.length() > 2 && def->key.starts_with("c:") {
+            if def->key.size() > 2 && def->key.starts_with("c:") {
                 var bare = def->key.subslice(2, def->key.size())
                 out_names.push_back(f"c{bare}")
                 out_disp.push_back(f"--c{bare}")
                 continue
             }
 
-            if def->long_.length() > 0 {
+            if def->long_.size() > 0 {
                 out_names.push_back(def->long_)
                 out_disp.push_back(f"--{def->long_}")
-            } else if def->key.length() > 0 {
+            } else if def->key.size() > 0 {
                 out_names.push_back(def->key)
                 out_disp.push_back(f"--{def->key}")
             }
 
             // single-letter shorts are never useful suggestions - too many
             // of them sit one edit apart from each other
-            if def->short_.length() > 1 {
+            if def->short_.size() > 1 {
                 out_names.push_back(def->short_)
                 out_disp.push_back(f"-{def->short_}")
             }
@@ -580,9 +580,9 @@ pub class Command {
             for var i: usize = 0; i < nw.size(); ++i {
                 // tolerance per word, by that word's length
                 var tol: usize = 2
-                if nw[i].length() <= 3 {
+                if nw[i].size() <= 3 {
                     tol = 0
-                } else if nw[i].length() <= 6 {
+                } else if nw[i].size() <= 6 {
                     tol = 1
                 }
 
@@ -610,9 +610,9 @@ pub class Command {
 
         // route 3: plain edit distance over the whole name
         var limit: usize = 3
-        if name.length() <= 3 {
+        if name.size() <= 3 {
             limit = 1
-        } else if name.length() <= 7 {
+        } else if name.size() <= 7 {
             limit = 2
         }
 
@@ -628,7 +628,7 @@ pub class Command {
     /// enough to be worth printing. `name` is the bare text the user typed,
     /// without its '-' / '--' / '/' prefix.
     priv fn _suggest(self, const name: string) -> string {
-        if name.length() < 2 { // a one-char typo has no unique fix
+        if name.size() < 2 { // a one-char typo has no unique fix
             return ""
         }
 
@@ -652,7 +652,7 @@ pub class Command {
 
             // ties go to the shorter flag - it is the less surprising guess
             if sc < best_s
-                || sc == best_s && best < names.size() && names[i].length() < names[best].length() {
+                || sc == best_s && best < names.size() && names[i].size() < names[best].size() {
                 best_s = sc
                 best   = i
             }
@@ -731,7 +731,7 @@ pub class Command {
     /// features `'-f<name>'`. Rendering `-{short}` unconditionally printed a
     /// bare `'-'` for every long-only flag.
     priv fn _flag_name(self, def: unsafe *FlagDef) -> string {
-        if def->key.length() > 2 && def->key[0] == ('c' as u8) && def->key[1] == (':' as u8) {
+        if def->key.size() > 2 && def->key[0] == ('c' as u8) && def->key[1] == (':' as u8) {
             var bare = def->key.subslice(2, def->key.size())
             return f"'--c{bare}'"
         }
@@ -740,8 +740,8 @@ pub class Command {
             return f"'-f{def->key}'"
         }
 
-        var has_s = def->short_.length() > 0
-        var has_l = def->long_.length() > 0
+        var has_s = def->short_.size() > 0
+        var has_l = def->long_.size() > 0
         if has_s && has_l {
             return f"'-{def->short_}' / '--{def->long_}'"
         }
@@ -760,11 +760,11 @@ pub class Command {
     /// case-insensitive compare against an already-lowercase ASCII word.
     /// Works on code points so no char arithmetic is needed.
     priv fn _ieq_lower(self, const raw: string, const word: string) -> bool {
-        if raw.length() != word.length() {
+        if raw.size() != word.size() {
             return false
         }
 
-        for var k: usize = 0; k < raw.length(); ++k {
+        for var k: usize = 0; k < raw.size(); ++k {
             var c: i32 = (raw[k])
             if c >= ('A' as i32) && c <= ('Z' as i32) {
                 c += ('a' as i32) - ('A' as i32)
@@ -822,7 +822,7 @@ pub class Command {
 
     priv fn _apply(self, def: unsafe *FlagDef, const raw: string, result: *ParsedArgs) {
         var *cell = result->_cell(def->key)
-        if !self._tag_key.empty() && def->key == self._tag_key {
+        if !self._tag_key.is_empty() && def->key == self._tag_key {
             self._tag_dirty = true
         }
 
@@ -843,17 +843,17 @@ pub class Command {
                             set += ", "
                         }
 
-                        set += if (def->short_.length() > 0) => (f"-{def->short_}{def->choices[c]}")
+                        set += if (def->short_.size() > 0) => (f"-{def->short_}{def->choices[c]}")
                                else => def->choices[c]
                     }
 
-                    if def->has_bare && def->short_.length() > 0 {
+                    if def->has_bare && def->short_.size() > 0 {
                         set += f", -{def->short_}"
                     }
 
                     if !found {
                         // A long-only flag has no `-X` spelling to name.
-                        var nm = if (def->short_.length() > 0) => (f"'-{def->short_}' / '--{def->key}'")
+                        var nm = if (def->short_.size() > 0) => (f"'-{def->short_}' / '--{def->key}'")
                                  else => f"'--{def->key}'"
                         self._diag->report(
                             DiagCode(DiagID::U003E),
@@ -875,8 +875,8 @@ pub class Command {
                 // choice.
                 var items        = cxx::std::vector<string>()
                 var start: usize = 0
-                for var i: usize = 0; i <= raw.length(); ++i {
-                    if i == raw.length() || raw[i] == (',' as u8) {
+                for var i: usize = 0; i <= raw.size(); ++i {
+                    if i == raw.size() || raw[i] == (',' as u8) {
                         items.push_back(raw.subslice(start, i - start))
                         start = i + 1
                     }
@@ -979,7 +979,7 @@ pub class Command {
     priv fn _push_file(self, result: *ParsedArgs, const path: string) {
         var input = InputArg()
         input.path = path.copy()
-        if !self._tag_key.empty() && result->has(self._tag_key) {
+        if !self._tag_key.is_empty() && result->has(self._tag_key) {
             input.lang = result->get_string(self._tag_key)
         }
 
@@ -1007,7 +1007,7 @@ pub class Command {
         var i: usize = 1 // skip args[0] (program name)
         while i < args.size() {
             var elem = args[i].copy()
-            var elen = elem.length()
+            var elen = elem.size()
 
             if gstate == Self::GlobalState::PathsOnly {
                 self._push_file(&result, elem)
@@ -1089,13 +1089,13 @@ pub class Command {
                     var unsafe *def = self._find(name)
 
                     // try config flag: --cmax-recursion-depth=128
-                    if def == &null && name.length() > 1 && name[0] == ('c' as u8) {
+                    if def == &null && name.size() > 1 && name[0] == ('c' as u8) {
                         def = self._find_cfg(name.subslice(1, name.size()))
                     }
 
                     if def == &null {
                         var hint = self._suggest(name)
-                        var msg = if (hint.length() > 0) => (f"unknown flag '--{name}'; did you mean '{hint}'; run '--help' to see available options")
+                        var msg = if (hint.size() > 0) => (f"unknown flag '--{name}'; did you mean '{hint}'; run '--help' to see available options")
                                   else => f"unknown flag '--{name}'; run '--help' to see available options"
                         self._diag->report(DiagCode(DiagID::U002E), msg.copy()).emit()
                         result.ok = false
@@ -1134,7 +1134,7 @@ pub class Command {
                     var unsafe *def           = self._find_split(name, &joined)
 
                     // try feature flag: -funsafe  -fno-unsafe
-                    if def == &null && name.length() > 4 && name.starts_with("fno-") {
+                    if def == &null && name.size() > 4 && name.starts_with("fno-") {
                         var unsafe *feat = self._find_feature(
                             name.subslice(4, name.size()),
                         )
@@ -1157,7 +1157,7 @@ pub class Command {
                         }
                     }
 
-                    if def == &null && name.length() > 1 && name[0] == ('f' as u8) {
+                    if def == &null && name.size() > 1 && name[0] == ('f' as u8) {
                         var unsafe *feat = self._find_feature(
                             name.subslice(1, name.size()),
                         )
@@ -1182,7 +1182,7 @@ pub class Command {
 
                     if def == &null {
                         var hint = self._suggest(name)
-                        var msg = if (hint.length() > 0) => (f"unknown flag '{lead}{name}'; did you mean '{hint}'; run '--help' to see available options")
+                        var msg = if (hint.size() > 0) => (f"unknown flag '{lead}{name}'; did you mean '{hint}'; run '--help' to see available options")
                                   else => f"unknown flag '{lead}{name}'; run '--help' to see available options"
                         self._diag->report(DiagCode(DiagID::U002E), msg.copy()).emit()
                         result.ok = false
@@ -1194,7 +1194,7 @@ pub class Command {
                         var evalue: string = elem.subslice(j + 1, elem.size())
                         if def->kind == FlagKind::Bool {
                             self._apply_bool_value(def, evalue, &result)
-                        } else if joined.length() > 0
+                        } else if joined.size() > 0
                             && (def->kind == FlagKind::String
                                 || def->kind == FlagKind::StringList
                                 || def->kind == FlagKind::Path) {
@@ -1206,7 +1206,7 @@ pub class Command {
                         }
                     } else if def->kind == FlagKind::Bool {
                         self._apply(def, "", &result)
-                    } else if joined.length() > 0 { // joined value from prefix split, e.g. -O2
+                    } else if joined.size() > 0 { // joined value from prefix split, e.g. -O2
                         self._apply(def, joined, &result)
                     } else if def->has_bare { // bare '-O' means '-O1', never 'take the next argument'
                         self._apply(def, def->bare_, &result)
@@ -1292,7 +1292,7 @@ pub class Command {
                     result.ok = false
                 }
             } else if !result.is_set(def->key) {
-                var name = if (def->long_.length() > 0) => (f"--{def->long_}")
+                var name = if (def->long_.size() > 0) => (f"--{def->long_}")
                            else => f"-{def->short_}"
                 self._diag->report(
                     DiagCode(DiagID::U004E),
@@ -1344,8 +1344,8 @@ pub class Command {
         args.push_back("prog") // argv[0] placeholder
 
         var start: usize = 0
-        for var i: usize = 0; i <= cmdline.length(); ++i {
-            var at_end = i == cmdline.length()
+        for var i: usize = 0; i <= cmdline.size(); ++i {
+            var at_end = i == cmdline.size()
             var is_sep = !at_end && cmdline[i] == (' ' as u8)
             if at_end || is_sep {
                 if i > start {
@@ -1406,7 +1406,7 @@ pub class Command {
             if def->kind == FlagKind::Feature {
                 // -f[no-]<key>
                 lhs += f"-f[no-]{def->key}"
-            } else if def->key.length() > 2
+            } else if def->key.size() > 2
                 && def->key[0] == ('c' as u8)
                 && def->key[1] == (':' as u8) {
                 // config flag: --c<name>=<type>
@@ -1427,15 +1427,15 @@ pub class Command {
                 }
             } else {
                 // regular flag: -s, --long <value>
-                if def->short_.length() > 0 {
+                if def->short_.size() > 0 {
                     lhs += f"-{def->short_}"
                 }
 
-                if def->short_.length() > 0 && def->long_.length() > 0 {
+                if def->short_.size() > 0 && def->long_.size() > 0 {
                     lhs += ", "
                 }
 
-                if def->long_.length() > 0 {
+                if def->long_.size() > 0 {
                     lhs += f"--{def->long_}"
                 }
 
@@ -1471,7 +1471,7 @@ pub class Command {
                     } case FlagKind::String,
                          FlagKind::Path {
                         var dfl = def->default_.as_string()
-                        if dfl.length() > 0 {
+                        if dfl.size() > 0 {
                             rhs += f" (default: {dfl})"
                         }
                     } case FlagKind::I32 {
@@ -1490,15 +1490,15 @@ pub class Command {
                 rhs += " [internal]"
             }
 
-            if lhs.length() < COL {
-                while lhs.length() < COL {
+            if lhs.size() < COL {
+                while lhs.size() < COL {
                     lhs.push_back(' ' as u8)
                 }
 
                 io::println(f"{lhs}{rhs}")
             } else {
                 var pad: string = ""
-                while pad.length() < COL {
+                while pad.size() < COL {
                     pad.push_back(' ' as u8)
                 }
 
@@ -1515,7 +1515,7 @@ pub class Command {
 
             io::println("")
             var lhs: string = "  <files...>"
-            while lhs.length() < COL {
+            while lhs.size() < COL {
                 lhs.push_back(' ' as u8)
             }
 

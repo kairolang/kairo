@@ -115,7 +115,7 @@ pub class SysCrtTable {
             var tb    = toml.table.copy()
             var fresh = tb != last
             last = tb.copy()
-            if tb.empty() {
+            if tb.is_empty() {
                 if key == "clang_triple" {
                     self.clang_triple = val.text.copy()
                 } else if key == "dlltool_machine" {
@@ -200,12 +200,12 @@ pub class SysCrtTable {
             }
         }
 
-        if !toml.error.empty() {
+        if !toml.error.is_empty() {
             self.error = f"{path}: {toml.error}"
             return false
         }
 
-        if self.clang_triple.empty() {
+        if self.clang_triple.is_empty() {
             self.error = f"{path}: no clang_triple"
             return false
         }

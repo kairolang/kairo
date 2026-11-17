@@ -98,7 +98,7 @@ pub class ClangDiagGroup {
     /// The group names a Kairo record that copies only from a non-const
     /// lvalue, and is about copying one.
     fn explained(self) -> bool {
-        return self.about_copy && !self.why_rec.empty() && self.why_ctor_at.is_valid()
+        return self.about_copy && !self.why_rec.is_empty() && self.why_ctor_at.is_valid()
     }
 }
 
@@ -709,7 +709,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// would never see them together. Without this the user saw only clang's
     /// error and, under it, every name of both headers unresolved.
     priv fn _explain_redefinition(self, kloc: SourceRange, const info: clang::Diagnostic) {
-        if self._redef_file.empty() || (!kloc.is_valid()) || self._in_kairo_source(kloc) {
+        if self._redef_file.is_empty() || (!kloc.is_valid()) || self._in_kairo_source(kloc) {
             return
         }
 
@@ -807,7 +807,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         for var i: usize = 0; i < self._g.fixes.size(); ++i {
             var fx  = self._g.fixes[i]
             var msg = ""
-            if fx.text.length() == 0 {
+            if fx.text.size() == 0 {
                 b->remove(fx.at, msg)
             } else {
                 b->fix(fx.at, fx.text, msg)
@@ -869,7 +869,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var nm = self.ksm->get_filename(r)
         for var i: usize = 0; i < self.lib_roots.size(); ++i {
             var root = self.lib_roots[i].copy()
-            if root.empty() {
+            if root.is_empty() {
                 continue
             }
 
@@ -995,7 +995,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var c    = self._g.why_ctor_rec.copy()
         var p    = self._g.why_param.copy()
         var tail = f"takes a non-const '{p}' (C++ '{c}({c}&)')"
-        if self._g.why_field.empty() {
+        if self._g.why_field.is_empty() {
             return f"its copy constructor {tail} and it has no move constructor"
         }
 
@@ -1034,7 +1034,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
                 || self._has(msg, "conversion")
         }
 
-        if !self._g.why_rec.empty() || !info.hasSourceManager() {
+        if !self._g.why_rec.is_empty() || !info.hasSourceManager() {
             return
         }
 
@@ -1064,7 +1064,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var        p_at  = SourceRange::invalid()
         if src != &null {
             var nm = ClangDiagAdapter::_std(src->getNameAsString())
-            if !nm.empty() {
+            if !nm.is_empty() {
                 pname = nm.copy()
                 p_at  = self._param_in_decl(ctor_at, nm)
             }
@@ -1120,7 +1120,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// exactly at, the Kairo tokens they come from, so the name is found in
     /// the Kairo text, up to the body's `{` or a `;`.
     priv fn _param_in_decl(self, at: SourceRange, const nm: string) -> SourceRange {
-        if !at.is_valid() || nm.empty() {
+        if !at.is_valid() || nm.is_empty() {
             return SourceRange::invalid()
         }
 

@@ -96,7 +96,7 @@ pub class KairoIncludeScan {
 
             var angled = false
             var name = self._include_name(text, unsafe &dirs[i], unsafe &angled)
-            if name.empty() {
+            if name.is_empty() {
                 continue
             }
 
@@ -108,7 +108,7 @@ pub class KairoIncludeScan {
 
             var hit = if (angled) => (self._resolve_in("", name, self._angle))
                       else => self._resolve_in(here, name, self._dirs)
-            if hit.empty() {
+            if hit.is_empty() {
                 continue
             }
 
@@ -169,7 +169,7 @@ pub class KairoIncludeScan {
                         const here: string,
                         const name: string,
                         const dirs: cxx::std::vector<string>) -> string {
-        if !here.empty() {
+        if !here.is_empty() {
             var first = Path::absolute_if_exists(
                 Path::join_str(here, name.copy()),
             )

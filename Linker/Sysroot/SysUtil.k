@@ -88,7 +88,7 @@ pub class SysUtil {
         var stream = ""
         for var r: string in rels {
             var fh = SysUtil::sha256_file(LinkText::join(dir.copy(), r.copy()))
-            if fh.empty() {
+            if fh.is_empty() {
                 err = f"cannot read {LinkText::join(dir.copy(), r.copy())}"
                 return ""
             }
@@ -311,7 +311,7 @@ pub class SysUtil {
 
         for var name: string in LinkFS::list_dir(dir) {
             var p = LinkText::join(dir.copy(), name.copy())
-            var r = if (rel.empty()) => (name) else => rel + "/" + name
+            var r = if (rel.is_empty()) => (name) else => rel + "/" + name
             if !follow && llvm::sys::fs::is_symlink_file(llvm::Twine(kairo::sref(p))) {
                 links.push_back(r)
             } else if LinkFS::is_dir(p) {

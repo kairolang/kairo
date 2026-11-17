@@ -437,7 +437,7 @@ extend Server {
     fn add_entry_(self, @inout e: Entry) -> usize {
         self.entry_seq += 1
         e.id = self.entry_seq
-        self.entries.push_back(e)
+        self.entries.push(e)
         return self.entries.size() - 1
     }
 
@@ -450,7 +450,7 @@ extend Server {
         }
 
         for var i: usize = 0; i < self.entries.size(); ++i {
-            if (self.entries[i].id == id) && (!self.entries[i].entry.empty()) {
+            if (self.entries[i].id == id) && (!self.entries[i].entry.is_empty()) {
                 return i
             }
         }
@@ -594,7 +594,7 @@ extend Server {
         var best              = usize::MAX
         var best_score: usize = 0
         for var i: usize = 0; i < self.entries.size(); ++i {
-            if self.entries[i].adhoc || self.entries[i].ran || self.entries[i].entry.empty() {
+            if self.entries[i].adhoc || self.entries[i].ran || self.entries[i].entry.is_empty() {
                 continue
             }
 
@@ -685,7 +685,7 @@ extend Server {
                     }
 
                     if !have {
-                        self.entries[i].live_changed.push_back(path.copy())
+                        self.entries[i].live_changed.push(path.copy())
                     }
                 }
             }
@@ -718,7 +718,7 @@ extend Server {
 
         if is_cxx_source(path) {
             self.br_rescan = true
-            self.br_changed.push_back(path.copy())
+            self.br_changed.push(path.copy())
             var told = false
             for var q: usize = 0; q < self.br_told.size(); ++q {
                 if self.br_told[q] == path {
@@ -727,14 +727,14 @@ extend Server {
             }
 
             if !told {
-                self.br_told.push_back(path.copy())
+                self.br_told.push(path.copy())
             }
 
             // Most recent last, bounded: its .k files' headers go first.
             var others: [string]
             for var q: usize = 0; q < self.br_recent.size(); ++q {
                 if self.br_recent[q] != path {
-                    others.push_back(self.br_recent[q].copy())
+                    others.push(self.br_recent[q].copy())
                 }
             }
 
@@ -745,10 +745,10 @@ extend Server {
             }
 
             for var q = from; q < others.size(); ++q {
-                recent.push_back(others[q].copy())
+                recent.push(others[q].copy())
             }
 
-            recent.push_back(path.copy())
+            recent.push(path.copy())
             self.br_recent = recent.copy()
         }
 
@@ -791,7 +791,7 @@ extend Server {
         for var k: usize = 0; k < self.entries.size(); ++k {
             if self.entries[k].dirty
                 && (!self.entries[k].running)
-                && (!self.entries[k].entry.empty())
+                && (!self.entries[k].entry.is_empty())
                 && self.can_start(k) {
                 run_due = true
             }
@@ -824,7 +824,7 @@ extend Server {
         var p = Parked()
         p.msg   = msg.copy()
         p.since = now_ms()
-        self.parked.push_back(p)
+        self.parked.push(p)
     }
 
     /// Runs every parked request again. With \p force, the ones that have
@@ -837,7 +837,7 @@ extend Server {
             var stale  = force && (waited >= PARK_LIMIT_MS)
             // A first index that has not come after two minutes is not coming.
             if !self.feature(old[i].msg, stale, waited >= FIRST_INDEX_LIMIT_MS) {
-                self.parked.push_back(old[i])
+                self.parked.push(old[i])
             }
         }
     }

@@ -2455,7 +2455,7 @@ pub class <T: type> StmtParse {
             }
         }
 
-        if !problem.empty() {
+        if !problem.is_empty() {
             self.dyn()->diag->report(
                 DiagID::S060E,
                 start_range.start,

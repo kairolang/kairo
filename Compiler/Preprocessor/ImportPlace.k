@@ -92,7 +92,7 @@ pub fn resolve_import_place(res:        *ImportResolver,
     var anchor = dir
     if kind == ImportKind::ModuleRelative {
         var mdir = if (has_dir) => (module_dir_at_or_above(dir.full_path())) else => ""
-        if mdir.empty() {
+        if mdir.is_empty() {
             out.no_module_root = true
             return out
         }

@@ -73,7 +73,7 @@ extend Server {
     /// (Re)reads the project file and rebuilds the entry list from it.
     fn load_project(self) {
         self.project.load(self.root)
-        if !self.project.error.empty() {
+        if !self.project.error.is_empty() {
             self.show(MSG_WARNING, self.project.error)
         }
 
@@ -117,14 +117,14 @@ extend Server {
             root = d->get_str(wf, K_URI)
         }
 
-        if root.empty() {
+        if root.is_empty() {
             var rp = d->get_str(params, "rootPath")
-            if !rp.empty() {
+            if !rp.is_empty() {
                 root = path_to_uri(rp)
             }
         }
 
-        if root.empty() {
+        if root.is_empty() {
             self.root = Path::cwd().full_path()
         } else {
             self.root = Path::real_path_of(uri_to_path(root))

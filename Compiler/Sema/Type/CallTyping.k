@@ -3032,7 +3032,7 @@ pub class <T: type> CallTyping {
                 // every base and field can be built from nothing -- the one
                 // answer `var x: R` gets too (TypeUtil::why_no_default).
                 var why = if (dep) => ("") else => self.dyn()->tu.why_no_default(rec)
-                if !why.empty() {
+                if !why.is_empty() {
                     var nm = self.dyn()->tu.decl_name(d)
                     self.dyn()->sc->diag->report(
                         DiagID::SC250E,

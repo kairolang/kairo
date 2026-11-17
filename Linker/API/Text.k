@@ -91,7 +91,7 @@ pub class LinkText {
     }
 
     pub static fn contains(const s: string, const p: string) -> bool {
-        if p.empty() {
+        if p.is_empty() {
             return true
         }
 
@@ -137,11 +137,11 @@ pub class LinkText {
 
     /// Path join with '/'. An absolute \p b replaces \p a; "." is \p a.
     pub static fn join(a: string, b: string) -> string {
-        if b.empty() || b == "." {
+        if b.is_empty() || b == "." {
             return a
         }
 
-        if a.empty() || b[0] == ('/' as u8) {
+        if a.is_empty() || b[0] == ('/' as u8) {
             return b
         }
 
@@ -165,7 +165,7 @@ pub class LinkText {
     /// POSIX shell quoting, so --print-ld-args and -v output paste straight
     /// back into a shell.
     static fn quote_shell(a: string) -> string {
-        if a.empty() {
+        if a.is_empty() {
             return "''"
         }
 

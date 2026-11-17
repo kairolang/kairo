@@ -214,7 +214,7 @@ pub class DirEntry {
                     var full = Path::from_known(full_raw, etype)
                     var cat  = self.ext_cfg->categorize(ext)
                     var key  = stem.copy()
-                    if !ext.empty() {
+                    if !ext.is_empty() {
                         key = stem + "." + ext
                     }
 

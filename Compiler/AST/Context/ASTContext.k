@@ -487,7 +487,7 @@ pub class ASTContext {
             return Token()
         }
 
-        var unsafe *r = unsafe (str->raw() as kairo::std::ConstPtr<u8>)
+        var unsafe *r = unsafe (str->data() as kairo::std::ConstPtr<u8>)
         var        l  = str->size()
         var        h  = compute_hash(r, l)
         tok.imm = self.tcm->intern_ident(self.fid, r, l, (h as u32))
@@ -640,7 +640,7 @@ pub class ASTContext {
         }
 
         var text = self.sm->get_text(tok.range)
-        for var i: usize = 0; i < text.length() && i < 64; ++i {
+        for var i: usize = 0; i < text.size() && i < 64; ++i {
             if text[i] == ('!' as u8) {
                 return text.subslice(0, i + 1)
             }

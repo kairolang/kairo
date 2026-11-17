@@ -225,7 +225,7 @@ pub class KairoIncludeHook {
             toks->clear()
         }
 
-        if !why.empty() {
+        if !why.is_empty() {
             self._error_at(
                 csm->getIncludeLoc(fid),
                 f"cannot include '{path}': {why}",
@@ -236,7 +236,7 @@ pub class KairoIncludeHook {
         // no line for an #include), so this entry stands down to the
         // sentinel and the headers come from a buffer entered beneath it,
         // which includes them and then this file again.
-        if why.empty() && !self.source->include_lines.empty() {
+        if why.is_empty() && !self.source->include_lines.empty() {
             self._held_uids.push_back(uid)
             self._held.push_back(toks)
             // Absolute: a quoted include from a buffer has no directory of

@@ -99,7 +99,7 @@ extend Server {
     fn live_busy_others(const self, ei: usize) -> usize {
         var n: usize = 0
         for var k: usize = 0; k < self.lives.size(); ++k {
-            if (!self.lives[k].sent.empty()) && (self.lives[k].entry != self.entries[ei].entry) {
+            if (!self.lives[k].sent.is_empty()) && (self.lives[k].entry != self.entries[ei].entry) {
                 n += 1
             }
         }
@@ -111,7 +111,7 @@ extend Server {
     /// the first LIVE_MAX_CHILDREN of them to ask: a file checked on its
     /// own is small, and a process for it costs nothing to keep correct.
     fn live_takes(self, ei: usize) -> bool {
-        if (!self.live_on) || self.entries[ei].adhoc || self.entries[ei].entry.empty() {
+        if (!self.live_on) || self.entries[ei].adhoc || self.entries[ei].entry.is_empty() {
             return false
         }
 
@@ -126,7 +126,7 @@ extend Server {
 
         var c = LiveChild()
         c.entry = self.entries[ei].entry.copy()
-        self.lives.push_back(c)
+        self.lives.push(c)
         return true
     }
 
@@ -162,7 +162,7 @@ extend Server {
         var to_child:   i32 = -1
         var from_child: i32 = -1
         var pid: i64 = unsafe kals_child_spawn(
-            unsafe &words.raw()[0],
+            unsafe &words.data()[0],
             words.size() as u64,
             unsafe &to_child,
             unsafe &from_child,
@@ -207,7 +207,7 @@ extend Server {
 
         self.lives[k].pid = -1
         for var q: usize = 0; q < self.lives[k].sent.size(); ++q {
-            self.garbage.push_back(self.lives[k].sent[q].out.copy())
+            self.garbage.push(self.lives[k].sent[q].out.copy())
             self.live_progress_end_(&self.lives[k].sent[q])
         }
 
@@ -224,10 +224,10 @@ extend Server {
     /// The completion \p a goes to a process of its own (or, when its
     /// entry is gone, is answered with nothing).
     fn live_ask_falls_back_(self, a: *LiveAsk) {
-        self.garbage.push_back(a->out.copy())
+        self.garbage.push(a->out.copy())
         var ei = self.entry_by_id(a->entry_id)
         if (ei == usize::MAX) || (self.session == Session::ShutDown) {
-            self.garbage.push_back(a->marked.copy())
+            self.garbage.push(a->marked.copy())
             self.respond(a->lsp_id, "{\"isIncomplete\":true,\"items\":[]}")
             return
         }
@@ -303,24 +303,24 @@ extend Server {
         w.end_object()
         self.lives[k].t.send(w.out)
         if self.lives[k].t.closed {
-            self.garbage.push_back(a.out.copy())
+            self.garbage.push(a.out.copy())
             return false
         }
 
-        self.lives[k].asks.push_back(a)
+        self.lives[k].asks.push(a)
         self.trace(f"live completion sent id={a.id} " + path)
         return true
     }
 
     /// A begin is always followed by an end, whatever became of the request.
     fn live_progress_end_(self, s: *LiveSent) {
-        if !s->progress.empty() {
+        if !s->progress.is_empty() {
             self.progress(s->progress, "end", "", -1)
             s->progress = ""
         }
 
-        if !s->prog_file.empty() {
-            self.garbage.push_back(s->prog_file.copy())
+        if !s->prog_file.is_empty() {
+            self.garbage.push(s->prog_file.copy())
             s->prog_file = ""
         }
     }
@@ -415,9 +415,9 @@ extend Server {
             }
 
             if (self.docs.docs[b].tmp_rev != self.docs.docs[b].revision)
-                || self.docs.docs[b].tmp_path.empty() {
-                if !self.docs.docs[b].tmp_path.empty() {
-                    self.garbage.push_back(self.docs.docs[b].tmp_path.copy())
+                || self.docs.docs[b].tmp_path.is_empty() {
+                if !self.docs.docs[b].tmp_path.is_empty() {
+                    self.garbage.push(self.docs.docs[b].tmp_path.copy())
                 }
 
                 self.docs.docs[b].tmp_path = self.scratch(".k")
@@ -439,11 +439,9 @@ extend Server {
             if path.ends_with(".k") && self.docs.docs[b].held_back() {
                 if self.docs.docs[b].idx_entry == self.entries[ei].entry {
                     if (self.docs.docs[b].held_rev != self.docs.docs[b].idx_rev)
-                        || self.docs.docs[b].held_tmp.empty() {
-                        if !self.docs.docs[b].held_tmp.empty() {
-                            self.garbage.push_back(
-                                self.docs.docs[b].held_tmp.copy(),
-                            )
+                        || self.docs.docs[b].held_tmp.is_empty() {
+                        if !self.docs.docs[b].held_tmp.is_empty() {
+                            self.garbage.push(self.docs.docs[b].held_tmp.copy())
                         }
 
                         self.docs.docs[b].held_tmp = self.scratch(
@@ -461,12 +459,12 @@ extend Server {
                     w.field(RQ_PATH, path)
                     w.field(RQ_FILE, self.docs.docs[b].held_tmp)
                     w.end_object()
-                    s.text_paths.push_back(path.copy())
-                    s.texts.push_back(self.docs.docs[b].idx_text.copy())
+                    s.text_paths.push(path.copy())
+                    s.texts.push(self.docs.docs[b].idx_text.copy())
                 }
 
-                s.aside_paths.push_back(path.copy())
-                aside_files.push_back(self.docs.docs[b].tmp_path.copy())
+                s.aside_paths.push(path.copy())
+                aside_files.push(self.docs.docs[b].tmp_path.copy())
                 continue
             }
 
@@ -474,12 +472,12 @@ extend Server {
             w.field(RQ_PATH, path)
             w.field(RQ_FILE, self.docs.docs[b].tmp_path)
             w.end_object()
-            s.text_paths.push_back(path.copy())
-            s.texts.push_back(self.docs.docs[b].text.copy())
+            s.text_paths.push(path.copy())
+            s.texts.push(self.docs.docs[b].text.copy())
         }
 
         w.end_array()
-        if !s.aside_paths.empty() {
+        if !s.aside_paths.is_empty() {
             s.aside_out = self.scratch(".json")
             w.field(RQ_ASIDE_OUT, s.aside_out)
             w.key(RQ_ASIDE)
@@ -546,7 +544,7 @@ extend Server {
         self.entries[ei].live_changed.clear()
         self.entries[ei].dirty   = false
         self.entries[ei].running = true
-        self.lives[k].sent.push_back(s)
+        self.lives[k].sent.push(s)
         self.trace(
             f"live send entry={self.entries[ei].entry} rev={s.rev} id={s.id}",
         )
@@ -615,7 +613,7 @@ extend Server {
                     mine = self.lives[k].asks[q]
                     have = true
                 } else {
-                    rest.push_back(self.lives[k].asks[q])
+                    rest.push(self.lives[k].asks[q])
                 }
             }
 
@@ -646,8 +644,8 @@ extend Server {
             cj.t0_us    = mine.t0_us
             self.trace(f"live completion done id={id} {now_ms() - mine.ms} ms")
             self.finish_complete(&cj, 0)
-            self.garbage.push_back(mine.out.copy())
-            self.garbage.push_back(mine.marked.copy())
+            self.garbage.push(mine.out.copy())
+            self.garbage.push(mine.marked.copy())
             return
         }
 
@@ -673,7 +671,7 @@ extend Server {
             var rest: [LiveSent]
             for var q: usize = 0; q < self.lives[k].sent.size(); ++q {
                 if q != at {
-                    rest.push_back(self.lives[k].sent[q])
+                    rest.push(self.lives[k].sent[q])
                 }
             }
 
@@ -694,17 +692,17 @@ extend Server {
             }
         }
 
-        if (!ptoken.empty()) && ((ei == usize::MAX) || (!d.get_bool(d.root, RP_OK))) {
+        if (!ptoken.is_empty()) && ((ei == usize::MAX) || (!d.get_bool(d.root, RP_OK))) {
             self.progress(ptoken, "end", "", -1)
             ptoken = ""
         }
 
-        if (!bg) && (!s.aside_out.empty()) {
-            self.garbage.push_back(s.aside_out.copy()) // read below, in this call
+        if (!bg) && (!s.aside_out.is_empty()) {
+            self.garbage.push(s.aside_out.copy()) // read below, in this call
         }
 
         if d.get_bool(d.root, RP_SUPERSEDED) {
-            self.garbage.push_back(s.out.copy())
+            self.garbage.push(s.out.copy())
             self.trace(f"live superseded id={id}")
             return
         }
@@ -728,12 +726,12 @@ extend Server {
             }
         }
 
-        if newer && (!out.empty()) {
-            self.garbage.push_back(out.copy())
+        if newer && (!out.is_empty()) {
+            self.garbage.push(out.copy())
             out = ""
         }
 
-        if bg && out.empty() && d.get_bool(d.root, RP_OK) && (ei != usize::MAX) {
+        if bg && out.is_empty() && d.get_bool(d.root, RP_OK) && (ei != usize::MAX) {
             self.entries[ei].live_pending = pending as usize
             var nj = Job()
             nj.kind        = JobKind::Index
@@ -748,19 +746,19 @@ extend Server {
             return
         }
 
-        if out.empty() {
+        if out.is_empty() {
             out = s.out.copy()
         }
 
         if ei == usize::MAX {
-            self.garbage.push_back(s.out.copy())
+            self.garbage.push(s.out.copy())
             return // the project was reloaded under this request
         }
 
         if !d.get_bool(d.root, RP_OK) {
             // The command line was refused: the process run says so in
             // the words a user is shown, and the worker starts over.
-            self.garbage.push_back(s.out.copy())
+            self.garbage.push(s.out.copy())
             self.live_stop_(k)
             self.lives[k].skip_once  = true
             self.entries[ei].running = false
@@ -792,12 +790,12 @@ extend Server {
             for var q: usize = 0; q < s.aside_paths.size(); ++q {
                 var tdi = self.docs.index_of_path(s.aside_paths[q])
                 if (tdi != usize::MAX) && (self.docs.docs[tdi].changed_at <= s.rev) {
-                    tried.push_back(s.aside_paths[q].copy())
+                    tried.push(s.aside_paths[q].copy())
                 }
             }
         }
 
-        if !tried.empty() {
+        if !tried.is_empty() {
             j.l_aside = self.live_side_states_(s.aside_out)
         }
 
@@ -852,14 +850,14 @@ extend Server {
         }
 
         self.entries[ei].rooted = rooted
-        self.garbage.push_back(out.copy())
+        self.garbage.push(out.copy())
         // A change made since is still to be sent: a slice's result is of
         // the text before it.
         if was_dirty {
             self.entries[ei].dirty = true
         }
 
-        if !ptoken.empty() {
+        if !ptoken.is_empty() {
             self.progress(ptoken, "end", "", -1)
         }
 
@@ -887,7 +885,7 @@ extend Server {
         )
 
         if (rss > 0)
-            && self.lives[k].sent.empty()
+            && self.lives[k].sent.is_empty()
             && (rss > (((self.lives[k].base_rss * LIVE_RSS_FACTOR_PCT) / 100) + LIVE_RSS_SLACK_MB)) {
             self.live_recycle_(k, ei)
         }
@@ -905,7 +903,7 @@ extend Server {
 
         var st = doc.first(doc.get(doc.root, AS_STATES))
         while st != JSON_NONE() {
-            if !all.empty() {
+            if !all.is_empty() {
                 all += ","
             }
 
@@ -920,7 +918,7 @@ extend Server {
     /// live_aside_copy, in \p out) becomes their diagnostics, until they
     /// change again.
     fn live_side_(self, ei: usize, tried: *const [string], const out: string) {
-        if tried->empty() {
+        if tried->is_empty() {
             return
         }
 
@@ -1030,7 +1028,7 @@ extend Server {
             // Grown, and the editor quiet: restart it now, while nobody
             // waits for it (Tuning.k, LIVE_RSS_IDLE_PCT).
             if (self.lives[k].pid >= 0)
-                && self.lives[k].sent.empty()
+                && self.lives[k].sent.is_empty()
                 && (self.lives[k].rss > 0)
                 && (self.lives[k].base_rss > 0)
                 && ((now - self.last_change_ms) > LIVE_IDLE_RECYCLE_MS)
@@ -1051,25 +1049,25 @@ extend Server {
 
             // A completion the worker has not got to: a process, now.
             if (self.lives[k].pid >= 0)
-                && (!self.lives[k].asks.empty())
+                && (!self.lives[k].asks.is_empty())
                 && ((now - self.lives[k].asks[0].ms) > LIVE_ASK_TIMEOUT_MS) {
                 var late            = self.lives[k].asks[0]
                 var rest: [LiveAsk]
                 for var q: usize = 1; q < self.lives[k].asks.size(); ++q {
-                    rest.push_back(self.lives[k].asks[q])
+                    rest.push(self.lives[k].asks[q])
                 }
 
                 self.lives[k].asks = rest.copy()
                 self.live_ask_falls_back_(&late)
             }
 
-            if (self.lives[k].pid < 0) || self.lives[k].sent.empty() {
+            if (self.lives[k].pid < 0) || self.lives[k].sent.is_empty() {
                 continue
             }
 
             // The count of checked files, as report_progress reads a run's.
             for var q: usize = 0; q < self.lives[k].sent.size(); ++q {
-                if self.lives[k].sent[q].progress.empty() {
+                if self.lives[k].sent[q].progress.is_empty() {
                     continue
                 }
 

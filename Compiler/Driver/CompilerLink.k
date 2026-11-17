@@ -176,7 +176,7 @@ extend CompilerInstance {
             return false
         }
 
-        if !out.empty() && (LinkText::ends_with(out.copy(), "/") || LinkFS::is_dir(out)) {
+        if !out.is_empty() && (LinkText::ends_with(out.copy(), "/") || LinkFS::is_dir(out)) {
             self._diag->report(
                 DiagID::I004F,
                 f"-o {out} is a directory; -o names the output file, and object files go to --cache-dir <dir>",
@@ -230,7 +230,7 @@ extend CompilerInstance {
             && !self.invocation()->frontend.stops_before_codegen()
             && linkable
         if !links {
-            if self._obj_dir.empty() {
+            if self._obj_dir.is_empty() {
                 self._obj_dir = "."
             }
 
@@ -238,7 +238,7 @@ extend CompilerInstance {
             // count known: a check inside codegen would already have written
             // the first TU's object to -o before a later input proved there
             // were two. A header writes one .pch whatever --emit says.
-            if !out.empty() && !fe->stops_before_codegen() {
+            if !out.is_empty() && !fe->stops_before_codegen() {
                 var n_kinds: usize = 0
                 if fe->emit_obj {
                     n_kinds += 1
@@ -269,7 +269,7 @@ extend CompilerInstance {
             return true
         }
 
-        self._link_out = if (!out.empty()) => (out) else => "a.out"
+        self._link_out = if (!out.is_empty()) => (out) else => "a.out"
         // `--emit obj,asm -o app` (EmitKinds::links): the link needs
         // objects whether or not obj was listed, and the listed kinds are
         // outputs. Under --cache-dir they are kept there with everything
@@ -278,10 +278,10 @@ extend CompilerInstance {
         if fe->emit_asm || fe->emit_llvm_ir || fe->emit_llvm_bc {
             self._obj_listed  = fe->emit_obj
             fe->emit_obj      = true
-            self._emit_beside = self._obj_dir.empty()
+            self._emit_beside = self._obj_dir.is_empty()
         }
 
-        if !self._obj_dir.empty() {
+        if !self._obj_dir.is_empty() {
             return true
         }
 
@@ -292,7 +292,7 @@ extend CompilerInstance {
 
         self._obj_dir = LinkFS::temp_dir("kairo-obj")
         self._obj_tmp = true
-        if self._obj_dir.empty() {
+        if self._obj_dir.is_empty() {
             self._diag->report(
                 DiagID::L004F,
                 "cannot create a temporary directory for object files",
@@ -329,7 +329,7 @@ extend CompilerInstance {
     ///          Imported modules and the prelude stay in the object dir:
     ///          they are link inputs, not what the user asked to see.
     fn emit_beside(self, const stem: string) -> string {
-        if !self._emit_beside || self._link_out.empty() {
+        if !self._emit_beside || self._link_out.is_empty() {
             return ""
         }
 
@@ -338,7 +338,7 @@ extend CompilerInstance {
                        self._link_out,
                    ))
                    else => self.kairo_object_stem(stem.copy())
-        if dir.empty() {
+        if dir.is_empty() {
             return name
         }
 
@@ -354,11 +354,11 @@ extend CompilerInstance {
     /// True when this run links and --emit listed kinds beyond the object.
     fn emits_beside_link(self) -> bool {
         var *fe = &self.invocation()->frontend
-        return !self._link_out.empty() && (fe->emit_asm || fe->emit_llvm_ir || fe->emit_llvm_bc)
+        return !self._link_out.is_empty() && (fe->emit_asm || fe->emit_llvm_ir || fe->emit_llvm_bc)
     }
 
     fn single_object(self) -> string {
-        if !self._link_out.empty() {
+        if !self._link_out.is_empty() {
             return ""
         }
 
@@ -490,7 +490,7 @@ extend CompilerInstance {
             if nk >= 2 && self._sm->file_count() == 0 {
                 self._sm->load_virtual(
                     Path(r"<kairo-batch>"),
-                    unsafe (self._fid0_text.raw() as kairo::std::ConstPtr<u8>),
+                    unsafe (self._fid0_text.data() as kairo::std::ConstPtr<u8>),
                     self._fid0_text.size(),
                 )
             }
@@ -707,7 +707,7 @@ extend CompilerInstance {
     /// sits at its path under the object dir). Any other object, as given.
     priv fn _object_module(self, o: string) -> string {
         var dir = self.object_dir()
-        if dir.empty()
+        if dir.is_empty()
             || !LinkText::starts_with(o.copy(), dir + "/")
             || !LinkText::ends_with(o.copy(), ".o") {
             return o
@@ -786,7 +786,7 @@ extend CompilerInstance {
             // read-only home, a sandbox) means no cache, not a failed link --
             // lld errors on a cache dir it cannot create.
             var croot = CompilerInstance::_cache_root()
-            if !croot.empty() {
+            if !croot.is_empty() {
                 var ldir = croot + "/lto"
                 if LinkFS::make_dirs(ldir) {
                     job.lto_cache_dir = ldir.copy()
@@ -854,7 +854,7 @@ extend CompilerInstance {
         Link::execute(&job, &argv, &res)
         self._global_alloc_clash(&result, &res.messages)
         self._report_link(&res.messages)
-        if !res.stdout_text.empty() {
+        if !res.stdout_text.is_empty() {
             io::println(f"{res.stdout_text}")
         }
 

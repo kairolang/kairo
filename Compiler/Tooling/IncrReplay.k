@@ -232,7 +232,7 @@ fn replay_apply(const line: string,
                 bufs:       *ReplayBuffers) -> string {
     var arg = ""
     var e   = replay_edit(replay_command(line, &arg))
-    if e.name.empty() {
+    if e.name.is_empty() {
         return "unknown command: " + line
     }
 
@@ -255,7 +255,7 @@ fn replay_apply(const line: string,
 
         // An empty <old> is in no file.
         var old_ = replay_unescape(f[1])
-        var at   = if (old_.empty()) => (usize::MAX) else => find(text, old_, 0)
+        var at = if (old_.is_empty()) => (usize::MAX) else => find(text, old_, 0)
         if at == usize::MAX {
             return "the old text is not in " + f[0]
         }
@@ -326,7 +326,7 @@ fn replay_fg(live:       *LiveCheck,
         f"incr-replay:   {what} {file}: {live->mode} ({live->why}), {ms} ms",
     )
 
-    if !live->detail.empty() {
+    if !live->detail.is_empty() {
         io::println(f"incr-replay:   detail: {live->detail}")
     }
 
@@ -338,7 +338,7 @@ fn replay_fg(live:       *LiveCheck,
             // Its own, and what was reported for it before Sema (the
             // preprocessor's, the parser's: no file owns those).
             var owner: string = fd->owners[i].copy()
-            var early = owner.empty()
+            var early = owner.is_empty()
                 && fd->diags[i]->has_loc
                 && live->ci()->sm()->get_filename(fd->diags[i]->loc) == full
             if owner == full || early {
@@ -365,7 +365,7 @@ fn replay_aside(live: *LiveCheck, bufs: *ReplayBuffers, const edit: string, n: u
     if pid == 0 {
         var touched = cxx::std::vector<string>()
         var why     = replay_apply(edit, &touched, bufs)
-        if !why.empty() {
+        if !why.is_empty() {
             io::eprintln(f"error [U001E]: --incr-replay aside: {why}")
             kairo::aside_exit(3)
         }
@@ -413,7 +413,7 @@ fn replay_report(live: *LiveCheck, n: usize, const name: string, t0: u64) {
         f"incr-replay: step {n} {name}: {live->mode} ({live->why}), {live->files} files, {live->errors} errors, {ms} ms",
     )
 
-    if !live->detail.empty() {
+    if !live->detail.is_empty() {
         io::println(f"incr-replay:   detail: {live->detail}")
     }
 
@@ -482,7 +482,7 @@ pub fn incr_replay_main(argc:         i32,
         return 1
     }
 
-    if (!dump.empty()) && !LinkFS::make_dirs(dump) {
+    if (!dump.is_empty()) && !LinkFS::make_dirs(dump) {
         io::eprintln(f"error [U023E]: cannot create '{dump}'")
         return 1
     }
@@ -503,7 +503,7 @@ pub fn incr_replay_main(argc:         i32,
     live.strict_cxx = strict_cxx
     var n: usize = 0
     var t0       = replay_now_ms()
-    if !dump.empty() {
+    if !dump.is_empty() {
         live.dump_interface = f"{dump}/step{n}.interface.json"
     }
 
@@ -540,7 +540,7 @@ pub fn incr_replay_main(argc:         i32,
 
             var no = replay_aside(&live, &bufs, arg, n + 1)
 
-            if !no.empty() {
+            if !no.is_empty() {
                 io::eprintln(
                     f"error [U001E]: --incr-replay step '{name}': {no}",
                 )
@@ -556,13 +556,13 @@ pub fn incr_replay_main(argc:         i32,
         var is_step = cmd == "step"
         if (is_step || last) && open_ {
             if last
-                && (!line.empty())
+                && (!line.is_empty())
                 && (!is_step)
                 && line[0] != ('#' as u8)
                 && cmd != "drain"
                 && cmd != "prefer" {
                 var why = replay_apply(line, &touched, &bufs)
-                if !why.empty() {
+                if !why.is_empty() {
                     io::eprintln(
                         f"error [U001E]: --incr-replay step '{name}': {why}",
                     )
@@ -577,7 +577,7 @@ pub fn incr_replay_main(argc:         i32,
 
             n += 1
             t0 = replay_now_ms()
-            if !dump.empty() {
+            if !dump.is_empty() {
                 live.dump_interface = f"{dump}/step{n}.interface.json"
             }
 
@@ -630,14 +630,14 @@ pub fn incr_replay_main(argc:         i32,
             open_ = true
             // In two tiers an edit is re-checked as it is read, and one
             // that takes a full check writes the step's dump then.
-            if two && !dump.empty() {
+            if two && !dump.is_empty() {
                 live.dump_interface = f"{dump}/step{n + 1}.interface.json"
             }
 
             continue
         }
 
-        if last || line.empty() || line[0] == ('#' as u8) {
+        if last || line.is_empty() || line[0] == ('#' as u8) {
             continue
         }
 
@@ -674,7 +674,7 @@ pub fn incr_replay_main(argc:         i32,
         }
 
         var why = replay_apply(line, &touched, &bufs)
-        if !why.empty() {
+        if !why.is_empty() {
             io::eprintln(f"error [U001E]: --incr-replay step '{name}': {why}")
             return 1
         }

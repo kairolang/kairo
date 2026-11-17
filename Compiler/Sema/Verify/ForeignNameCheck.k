@@ -133,7 +133,7 @@ pub class CxxNameCheck derives RecursiveASTVisitor<CxxNameCheck> {
         }
 
         var why = cxx_reserved_reason(s)
-        if !why.empty() {
+        if !why.is_empty() {
             // Two messages, because only one of them is C++'s rule. A plain
             // `_lower` is reserved by C++ at global scope alone; a member or
             // a local spelled so is legal C++, and Kairo refuses it on its

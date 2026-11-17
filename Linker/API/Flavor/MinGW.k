@@ -69,7 +69,7 @@ pub class MinGWArgs {
         var errs0 = LinkDiag::error_count(&msgs)
         var *o    = job.opts
 
-        if job.output.empty() {
+        if job.output.is_empty() {
             msgs.push_back(
                 LinkDiag::make(LinkSeverity::Error, "link: no output path"),
             )
@@ -77,7 +77,7 @@ pub class MinGWArgs {
             return false
         }
 
-        if tc.emulation.empty() {
+        if tc.emulation.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -151,7 +151,7 @@ pub class MinGWArgs {
 
         if o->build_id == "none" {
             argv.push_back("--build-id=none")
-        } else if !o->build_id.empty() {
+        } else if !o->build_id.is_empty() {
             argv.push_back("--build-id")
         }
 
@@ -182,7 +182,7 @@ pub class MinGWArgs {
                 )
 
                 var cb = tc.crt_object("crtbegin", "")
-                if !cb.empty() {
+                if !cb.is_empty() {
                     argv.push_back(cb)
                 }
             }
@@ -193,11 +193,11 @@ pub class MinGWArgs {
             argv.push_back(f"-L{d}")
         }
 
-        if !tc.toolchain_lib.empty() {
+        if !tc.toolchain_lib.is_empty() {
             argv.push_back(f"-L{tc.toolchain_lib}")
         }
 
-        if !tc.gcc_dir.empty() {
+        if !tc.gcc_dir.is_empty() {
             argv.push_back(f"-L{tc.gcc_dir}")
         }
 
@@ -239,7 +239,7 @@ pub class MinGWArgs {
             argv.push_back("--strip-debug")
         }
 
-        if !o->map_file.empty() {
+        if !o->map_file.is_empty() {
             argv.push_back(f"--Map={o->map_file}")
         }
 
@@ -248,7 +248,7 @@ pub class MinGWArgs {
         // With crt, crt2's mainCRTStartup is the entry and calls main. The
         // MinGW driver strips i386's leading underscore itself, so the name
         // goes in undecorated.
-        if no_crt && !shared && !o->entry.empty() {
+        if no_crt && !shared && !o->entry.is_empty() {
             argv.push_back("-e")
             argv.push_back(o->entry)
         }
@@ -265,7 +265,7 @@ pub class MinGWArgs {
         // The MinGW driver has no --start-lib: job.lazy_objects come as
         // their archive, which every linker reads lazily. Eagerly they would
         // clash with a run's own builtin objects.
-        if !job.lazy_archive.empty() {
+        if !job.lazy_archive.is_empty() {
             argv.push_back(job.lazy_archive)
         } else if job.lazy_objects.size() > 0 {
             msgs.push_back(
@@ -278,7 +278,7 @@ pub class MinGWArgs {
 
         // The MinGW driver has no --def: a .def file is an input, like any
         // other, and the driver reads the exports from it.
-        if !o->def.empty() {
+        if !o->def.is_empty() {
             argv.push_back(o->def)
         }
 
@@ -298,7 +298,7 @@ pub class MinGWArgs {
                 }
             } else {
                 var ce = tc.crt_object("crtend", "")
-                if !ce.empty() {
+                if !ce.is_empty() {
                     argv.push_back(ce)
                 }
             }
@@ -325,21 +325,21 @@ pub class MinGWArgs {
             }
         }
 
-        if !o->pdb.empty() {
+        if !o->pdb.is_empty() {
             argv.push_back(f"--pdb={o->pdb}")
         }
 
-        if !o->implib.empty() {
+        if !o->implib.is_empty() {
             argv.push_back(f"--out-implib={o->implib}")
         }
 
         // The MinGW driver has no manifest option; -Xlink hands lld-link's
         // through. A custom manifest is only valid with /manifest:embed.
-        if o->manifest || !o->manifest_file.empty() {
+        if o->manifest || !o->manifest_file.is_empty() {
             argv.push_back("-Xlink=-manifest:embed")
         }
 
-        if !o->manifest_file.empty() {
+        if !o->manifest_file.is_empty() {
             argv.push_back(f"-Xlink=-manifestinput:{o->manifest_file}")
         }
 
@@ -399,7 +399,7 @@ pub class MinGWArgs {
     /// Options that mean something on ELF and nothing here. Diagnosed only
     /// where dropping them silently changes the output.
     priv static fn _elf_only(o: *LinkerOptions, @inout msgs: cxx::std::vector<LinkMessage>) {
-        if !o->linker_script.empty() {
+        if !o->linker_script.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -408,7 +408,7 @@ pub class MinGWArgs {
             )
         }
 
-        if !o->version_script.empty() {
+        if !o->version_script.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -435,7 +435,7 @@ pub class MinGWArgs {
             )
         }
 
-        if !o->dynamic_linker.empty() {
+        if !o->dynamic_linker.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Warning,
@@ -450,8 +450,8 @@ pub class MinGWArgs {
                         @inout argv: cxx::std::vector<string>,
                         @inout msgs: cxx::std::vector<LinkMessage>) {
         var p = tc.find_lib_file(name.copy())
-        if p.empty() {
-            var _where = if (!tc.crt_dir.empty()) => (tc.crt_dir) else => tc.sysroot
+        if p.is_empty() {
+            var _where = if (!tc.crt_dir.is_empty()) => (tc.crt_dir) else => tc.sysroot
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -483,7 +483,7 @@ pub class MinGWArgs {
             name = LinkText::slice(spec, 8, spec.size())
         }
 
-        if name.empty() {
+        if name.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -580,7 +580,7 @@ pub class MinGWArgs {
         }
 
         if tc.rtlib == "compiler-rt" {
-            if !tc.builtins.empty() {
+            if !tc.builtins.is_empty() {
                 argv.push_back(tc.builtins)
             }
         } else {

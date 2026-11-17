@@ -61,6 +61,11 @@ inline fn <T> vector_move_into(dst: unsafe *u8, @move src: T) {
     __builtin_construct_at<T>(dst, src)
 }
 
+/// Moves `src` out of its slot; the slot is left to be destroyed.
+inline fn <T> vector_take(@move src: T) -> T {
+    return src
+}
+
 /// Out of line and cold: what an out-of-range `[]`, `front`, `back` or
 /// `pop_back` runs.
 @cold_path @no_inline
@@ -184,6 +189,8 @@ pub class <T> Vector {
     pub inline fn size(const self) -> usize { return self.len }
     /// Returns true when the vector holds no elements. O(1).
     pub inline fn empty(const self) -> bool { return self.len == 0 }
+    /// Returns true when there are no elements; same as `empty()`.
+    pub inline fn is_empty(const self) -> bool { return self.len == 0 }
     /// Returns how many elements fit before the next reallocation. O(1).
     pub inline fn capacity(const self) -> usize { return self.cap }
 
@@ -303,6 +310,16 @@ pub class <T> Vector {
         @unlikely if self.len == 0 { vector_out_of_range() }
         self.len -= 1
         if !__builtin_is_trivially_destructible<T>() { __builtin_destruct_at(&self.buf[self.len]) }
+    }
+
+    /// Removes the last element and returns it, or returns null when the vector is empty. O(1).
+    pub fn pop(self) -> T? {
+        var none: T?
+        if self.len == 0 { return none }
+        self.len -= 1
+        var out: T? = vector_take<T>(self.buf[self.len])
+        if !__builtin_is_trivially_destructible<T>() { __builtin_destruct_at(&self.buf[self.len]) }
+        return out
     }
 
     /// Destroys every element and sets the size to 0. Keeps the storage. O(n), O(1) for trivial T.

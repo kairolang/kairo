@@ -113,7 +113,7 @@ extend CompilerInstance {
             if LinkText::starts_with(w.copy(), "-I") {
                 out.push_back(
                     string(
-                        unsafe (((w.raw() as unsafe *const u8) + 2) as *const u8),
+                        unsafe (((w.data() as unsafe *const u8) + 2) as *const u8),
                         w.size() - 2,
                     ),
                 )
@@ -150,7 +150,7 @@ extend CompilerInstance {
             if LinkText::starts_with(w.copy(), "-iquote") {
                 quote.push_back(
                     string(
-                        unsafe (((w.raw() as unsafe *const u8) + 7) as *const u8),
+                        unsafe (((w.data() as unsafe *const u8) + 7) as *const u8),
                         w.size() - 7,
                     ),
                 )
@@ -161,7 +161,7 @@ extend CompilerInstance {
             if LinkText::starts_with(w.copy(), "-I") {
                 angle.push_back(
                     string(
-                        unsafe (((w.raw() as unsafe *const u8) + 2) as *const u8),
+                        unsafe (((w.data() as unsafe *const u8) + 2) as *const u8),
                         w.size() - 2,
                     ),
                 )
@@ -211,7 +211,7 @@ extend CompilerInstance {
         if self._sm->file_count() == 0 {
             self._sm->load_virtual(
                 Path(r"<kairo-batch>"),
-                unsafe (self._fid0_text.raw() as kairo::std::ConstPtr<u8>),
+                unsafe (self._fid0_text.data() as kairo::std::ConstPtr<u8>),
                 self._fid0_text.size(),
             )
         }

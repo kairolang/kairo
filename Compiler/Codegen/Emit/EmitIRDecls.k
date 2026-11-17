@@ -319,7 +319,7 @@ extend EmitIR {
     /// ordinary function with one definition, which inline would let its
     /// home TU drop when nothing there calls it.
     fn _templated_inline(self, const head: string) -> bool {
-        return !head.empty() && !head.starts_with("template <>")
+        return !head.is_empty() && !head.starts_with("template <>")
     }
 
     /// A free function, or an extension member (\p ext non-null): the

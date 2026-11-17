@@ -64,7 +64,7 @@ extend Server {
 
         var live = false
         for var k: usize = 0; (k < self.lives.size()) && (n < 30); ++k {
-            if (self.lives[k].pid >= 0) && (!self.lives[k].sent.empty()) {
+            if (self.lives[k].pid >= 0) && (!self.lives[k].sent.is_empty()) {
                 fds[n as usize] = self.lives[k].t.fd_in
                 n += 1
                 live = true
@@ -115,7 +115,7 @@ extend Server {
         var pid:        i64 = -1
         if !self.debug_refuse_("syntax-server") {
             pid = unsafe kals_child_spawn(
-                unsafe &words.raw()[0],
+                unsafe &words.data()[0],
                 words.size() as u64,
                 unsafe &to_child,
                 unsafe &from_child,

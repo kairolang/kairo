@@ -1411,7 +1411,7 @@ pub class InterfaceEmitter {
             return if (self._plan->mode() != PlanMode::Preamble) => (VIS_PRIV()) else => v
         }
 
-        if v == VIS_PROT() && !tu_module_dir(Speller::tu_of(d)).empty() {
+        if v == VIS_PROT() && !tu_module_dir(Speller::tu_of(d)).is_empty() {
             return VIS_PUB()
         }
 

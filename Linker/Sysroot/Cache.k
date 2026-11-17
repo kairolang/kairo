@@ -110,12 +110,12 @@ pub class SysCache {
 
     pub static fn default_root() -> string {
         var r = LinkFS::env(EnvNames::kairo_sysroot_cache())
-        if !r.empty() {
+        if !r.is_empty() {
             return SysCache::_slashes(LinkText::strip_slash(r.copy()))
         }
 
         r = cache_root()
-        if r.empty() {
+        if r.is_empty() {
             return ""
         }
 
@@ -157,7 +157,7 @@ pub class SysCache {
     /// The key by-name/\p name points at; "" for none.
     pub fn key_of(self, const name: string) -> string {
         var dir = self.lookup(name)
-        if dir.empty() {
+        if dir.is_empty() {
             return ""
         }
 
@@ -208,7 +208,7 @@ pub class SysCache {
             }
 
             var key = self.key_of(n)
-            if key.empty() {
+            if key.is_empty() {
                 out.push_back(f"{n}  (dangling)")
             } else {
                 out.push_back(f"{n}  {self.sysroot_dir(key)}")
@@ -228,7 +228,7 @@ pub class SysCache {
 
         var key = self.key_of(name)
         LinkFS::remove(entry)
-        if !key.empty() && !self._referenced(key) {
+        if !key.is_empty() && !self._referenced(key) {
             LinkFS::remove_tree(self.sysroot_dir(key))
         }
 
@@ -248,7 +248,7 @@ pub class SysCache {
                 continue
             }
 
-            if self.key_of(name).empty() {
+            if self.key_of(name).is_empty() {
                 var p = f"{self.root}/by-name/{name}"
                 LinkFS::remove(p)
                 removed.push_back(p)

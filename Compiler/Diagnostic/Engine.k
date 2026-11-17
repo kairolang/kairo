@@ -151,7 +151,7 @@ pub fn diag_policy_key(cat: DiagCategory, number: u32) -> u32 {
 /// a bare number is rejected on purpose, since it cannot say which category
 /// it means.
 pub fn diag_policy_key_from_string(const code: string) -> u32 {
-    var n           = code.length()
+    var n           = code.size()
     var i:   usize  = 0
     var pfx: string = ""
     while i < n && (code[i] == (' ' as u8) || code[i] == ('\t' as u8)) {
@@ -963,7 +963,7 @@ pub class DiagEngine derives DiagEngineVBase {
         }
 
         if self._warn_count > 0 {
-            if out.length() > 0 {
+            if out.size() > 0 {
                 out += ", "
             }
 
@@ -971,7 +971,7 @@ pub class DiagEngine derives DiagEngineVBase {
         }
 
         if self._note_count > 0 {
-            if out.length() > 0 {
+            if out.size() > 0 {
                 out += ", "
             }
 
@@ -979,14 +979,14 @@ pub class DiagEngine derives DiagEngineVBase {
         }
 
         if self._suppressed_count > 0 {
-            if out.length() > 0 {
+            if out.size() > 0 {
                 out += ", "
             }
 
             out += f"{self._suppressed_count} suppressed"
         }
 
-        if out.length() == 0 {
+        if out.size() == 0 {
             out = "no diagnostics"
         }
 

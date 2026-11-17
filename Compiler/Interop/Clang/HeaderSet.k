@@ -1274,10 +1274,10 @@ pub class HeaderSet {
                 importer = Path::real_path_of(sm->get_filename(hit->import_at))
             }
 
-            if hit->header.empty() {
+            if hit->header.is_empty() {
                 // The import names the .k itself. Quoted as the import
                 // spells it: the set's buffer includes the resolved path.
-                var named = if (imported.empty()) => (hit->spelled) else => imported
+                var named = if (imported.is_empty()) => (hit->spelled) else => imported
                 var b = engine->report(
                     DiagCode(DiagID::R070E),
                     hit->import_at.start,
@@ -1290,7 +1290,7 @@ pub class HeaderSet {
 
                 // `self::stem` is only right for a file beside the importer.
                 var how = "a Kairo file is imported with `import`, not `ffi import`"
-                if Path::parent_of(named).empty() {
+                if Path::parent_of(named).is_empty() {
                     how += f"; this one is `import self::{Path::stem_of(named)}`"
                 }
 
@@ -1301,7 +1301,7 @@ pub class HeaderSet {
             }
 
             var why = ""
-            if !importer.empty() && importer == hit->real {
+            if !importer.is_empty() && importer == hit->real {
                 why = " (it is the file that imports this header)"
             } else if sm->find_fid(Path(hit->path)) != none
                 || sm->find_fid(Path(hit->real)) != none {

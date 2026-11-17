@@ -164,7 +164,7 @@ extend IndexWalker {
         var order: [u64]
         order.reserve(self.refs.size())
         for var i: usize = 0; i < self.refs.size(); ++i {
-            order.push_back(((self.refs[i].off as u64) << 32) | (i as u64))
+            order.push(((self.refs[i].off as u64) << 32) | (i as u64))
         }
 
         sort_u64(&order)
@@ -336,7 +336,7 @@ extend IndexWalker {
             var s = self.syms[i]
             w->begin_object()
             w->field(K_NAME, s.name)
-            if !s.detail.empty() {
+            if !s.detail.is_empty() {
                 w->field(K_DETAIL, s.detail)
             }
 
@@ -384,14 +384,14 @@ extend IndexWalker {
                 w->begin_object()
                 w->field(K_LABEL, it.label)
                 w->field_uint(K_KIND, it.kind as usize)
-                if !it.detail.empty() {
+                if !it.detail.is_empty() {
                     w->field(K_DETAIL, it.detail)
                 }
 
                 // sortText orders groups (locals before members before
                 // imports); within a group the editor sorts by label.
                 w->field(K_SORT_TEXT, f"{it.sort}{it.label}")
-                if !it.doc.empty() {
+                if !it.doc.is_empty() {
                     w->field(SK_DOC, it.doc)
                 }
 

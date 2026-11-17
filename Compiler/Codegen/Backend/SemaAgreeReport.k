@@ -161,7 +161,7 @@ class AgreeFiles {
 
         if idx == self.fids.size() {
             var h = _file_hash(sm, fid)
-            if h.empty() {
+            if h.is_empty() {
                 self.ok = false
             }
 

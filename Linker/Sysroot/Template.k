@@ -207,11 +207,11 @@ pub class SysTemplate {
 
         var bkey = self.index.str(fam, "build")
         var hkey = self.index.str(fam, "headers")
-        if !bkey.empty() {
+        if !bkey.is_empty() {
             tt += f"build        = \x22{bkey}\x22\n"
         }
 
-        if !hkey.empty() {
+        if !hkey.is_empty() {
             tt += f"headers      = \x22{hkey}\x22\n"
             var hd = self.index.str(fam, "headers_dest")
             tt += f"headers_dest = \x22{hd}\x22\n"
@@ -272,7 +272,7 @@ pub class SysTemplate {
         for var alt: string in when {
             var all = true
             for var c: string in SysUtil::split(alt, (' ' as u8)) {
-                if c.empty() {
+                if c.is_empty() {
                     continue
                 }
 
@@ -388,7 +388,7 @@ pub class SysTemplate {
             }
 
             var fl = cxx::std::vector<string>()
-            if !rt->pids[i].empty() {
+            if !rt->pids[i].is_empty() {
                 fl = SysTemplate::pick(profs, "profile." + rt->pids[i], p)
             }
 

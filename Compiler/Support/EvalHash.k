@@ -125,7 +125,7 @@ pub fn compute_hash(str: unsafe *const string) -> u32 {
         return u32::MAX
     }
 
-    return compute_hash(unsafe (str->raw() as unsafe *const u8), str->length())
+    return compute_hash(unsafe (str->data() as unsafe *const u8), str->size())
 }
 
 

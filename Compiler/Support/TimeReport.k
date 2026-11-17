@@ -94,7 +94,7 @@ pub inline fn time_print() {
 ///          owns the critical path. No-op unless time_enable was called with
 ///          trace = true.
 pub fn time_write_trace(const path: string) -> bool {
-    if path.empty() {
+    if path.is_empty() {
         return false
     }
 

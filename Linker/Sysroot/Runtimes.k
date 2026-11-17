@@ -220,7 +220,7 @@ pub class SysRuntimes {
         if crt {
             for var n: string in SysRuntimes::crt_names() {
                 var ref = env.target.str("objects", rl + "/" + n)
-                if ref.empty() {
+                if ref.is_empty() {
                     return out.fail(
                         f"the runtimes recipe for {ctx->target.name} has no object {rl}/{n}",
                         "",
@@ -293,12 +293,12 @@ pub class SysRuntimes {
         var tmpl = ctx->input_dir("runtimes-template")
         env.tables = ctx->input_dir("runtimes-recipe")
         env.src    = ctx->input_dir("runtimes")
-        if env.tables.empty() && !tmpl.empty() {
+        if env.tables.is_empty() && !tmpl.is_empty() {
             env.tables = tmpl.copy()
         }
 
-        if env.tables.empty() || env.src.empty() {
-            var miss = if (env.tables.empty()) => ("runtimes-recipe") else => "runtimes"
+        if env.tables.is_empty() || env.src.is_empty() {
+            var miss = if (env.tables.is_empty()) => ("runtimes-recipe") else => "runtimes"
             return out.refuse(
                 f"share input {miss} is not listed in {ctx->share}/registry.toml",
                 "the builtins and runtimes stages compile from runtimes/ with the runtimes-recipe/ tables",
@@ -325,7 +325,7 @@ pub class SysRuntimes {
             return out.fail(f"cannot create {env.work}", "")
         }
 
-        if !tmpl.empty() {
+        if !tmpl.is_empty() {
             var why = ""
             if !SysRuntimes::from_template(
                 &ctx->target,
@@ -369,7 +369,7 @@ pub class SysRuntimes {
         }
 
         var bkey = env.target.str("", "build")
-        if with_build && !bkey.empty() {
+        if with_build && !bkey.is_empty() {
             var man = f"{env.trees}/build/{bkey}.toml"
             var gen = f"{env.trees}/build/{bkey}"
             if !SysRuntimes::_materialise(
@@ -398,7 +398,7 @@ pub class SysRuntimes {
                               const dst:  string,
                               @inout out: SysOutcome) -> bool {
         var prod = ctx->product("libc-headers")
-        if prod.empty() {
+        if prod.is_empty() {
             return out.fail("the libc-headers stage has not run", "")
         }
 
@@ -486,7 +486,7 @@ pub class SysRuntimes {
             var s    = from + "/" + name
             var d    = to + "/" + name
             var link = SysRun::read_link(s)
-            if !link.empty() {
+            if !link.is_empty() {
                 if !SysRun::symlink(link, d) {
                     return false
                 }
@@ -580,7 +580,7 @@ pub class SysRuntimes {
         var n: usize = 0
         for var rt: string in rts {
             var key = env->target.str("", rt)
-            if key.empty() {
+            if key.is_empty() {
                 continue
             }
 
@@ -708,7 +708,7 @@ pub class SysRuntimes {
     /// Installs the table's c++/v1 headers at \p to.
     priv static fn _headers(env: *RtEnv, const to: string, @inout out: SysOutcome) -> bool {
         var key = env->target.str("", "headers")
-        if key.empty() {
+        if key.is_empty() {
             return out.fail(
                 "the runtimes recipe has headers_dest but no headers key",
                 "",

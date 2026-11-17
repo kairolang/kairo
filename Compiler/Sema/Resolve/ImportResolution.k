@@ -743,7 +743,7 @@ pub class ImportResolution {
             // DeclImport::_bind_named): no source spells it, so it has no
             // business in an importer's overlay.
             // Scanned in place: a std::string copy per row was the cost.
-            var unsafe *sp = unsafe (spelling.raw() as kairo::std::ConstPtr<u8>)
+            var unsafe *sp = unsafe (spelling.data() as kairo::std::ConstPtr<u8>)
             var spaced = false
             for var k: usize = 0; k < spelling.size(); ++k {
                 if sp[k] == (' ' as u8) {

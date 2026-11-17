@@ -116,7 +116,7 @@ pub class GlibcProvider derives SysrootProvider {
                             ctx:        *StageCtx,
                             const dst:  string,
                             @inout out: SysOutcome) -> bool {
-        if !ctx->recipe.str("libc", "headers").empty() {
+        if !ctx->recipe.str("libc", "headers").is_empty() {
             return GlibcProvider::source_headers(ctx, dst, &out)
         }
 
@@ -151,7 +151,7 @@ pub class GlibcProvider derives SysrootProvider {
     }
 
     pub override fn libs(self, ctx: *StageCtx, const dst: string, @inout out: SysOutcome) -> bool {
-        if !ctx->recipe.str("libc", "abilists").empty() {
+        if !ctx->recipe.str("libc", "abilists").is_empty() {
             return GlibcProvider::source_libs(ctx, dst, &out)
         }
 
@@ -167,7 +167,7 @@ pub class GlibcProvider derives SysrootProvider {
             )
         }
 
-        if fmt.empty() {
+        if fmt.is_empty() {
             return out.refuse(
                 f"glibc: no linker-script OUTPUT_FORMAT known for {ctx->target.arch}",
                 "",
@@ -301,7 +301,7 @@ pub class GlibcProvider derives SysrootProvider {
         var ld      = GlibcProvider::_soname(&libs, "ld")
         var libm    = GlibcProvider::_soname(&libs, "libm")
         var libmvec = GlibcProvider::_soname(&libs, "libmvec")
-        if libc.empty() || ld.empty() || libm.empty() {
+        if libc.is_empty() || ld.is_empty() || libm.is_empty() {
             return out.refuse("the glibc libraries lack libc, ld or libm", "")
         }
 
@@ -313,7 +313,7 @@ pub class GlibcProvider derives SysrootProvider {
 
         // libm.so is a script only where libmvec exists to pull in, as
         // glibc installs it; elsewhere the plain dev link.
-        if !libmvec.empty() {
+        if !libmvec.is_empty() {
             var ms = f"/* GNU ld script\n*/\nOUTPUT_FORMAT({fmt})\nGROUP ( {libm}  AS_NEEDED ( {libmvec} ) )\n"
             if !LinkFS::write(lib + "/libm.so", ms) {
                 return out.fail(f"cannot write {lib}/libm.so", "")
@@ -372,7 +372,7 @@ pub class GlibcProvider derives SysrootProvider {
         var key    = ""
         var val    = TomlValue{}
         while toml.next(&key, &val) {
-            if toml.table.empty() && key == "arches" && val.kind == 3 {
+            if toml.table.is_empty() && key == "arches" && val.kind == 3 {
                 arches = val.list
             } else if toml.table == "omit" && key == arch && val.kind == 3 {
                 omit = val.list
@@ -478,7 +478,7 @@ pub class GlibcProvider derives SysrootProvider {
             fmt = GlibcProvider::output_format(ctx->target.arch)
         }
 
-        if fmt.empty() {
+        if fmt.is_empty() {
             return out.refuse(
                 f"glibc: no linker-script OUTPUT_FORMAT known for {ctx->target.arch}",
                 "",
@@ -523,7 +523,7 @@ pub class GlibcProvider derives SysrootProvider {
                 continue
             }
 
-            if l.soname.empty() {
+            if l.soname.is_empty() {
                 return out.refuse(
                     f"share input {ab}/targets.toml names no soname for {stem}",
                     "",
@@ -649,12 +649,12 @@ pub class GlibcProvider derives SysrootProvider {
             }
 
             for var c: GlibcStep in t.compiles {
-                if from.empty() && LinkFS::filename(c.out) == name {
+                if from.is_empty() && LinkFS::filename(c.out) == name {
                     from = work + "/" + c.out
                 }
             }
 
-            if from.empty() || !SysRun::put_file(from, lib + "/" + name, false) {
+            if from.is_empty() || !SysRun::put_file(from, lib + "/" + name, false) {
                 return out.fail(f"glibc start file {name} was not built", "")
             }
         }
@@ -717,14 +717,14 @@ pub class GlibcProvider derives SysrootProvider {
             }
         }
 
-        if !toml.error.empty() {
+        if !toml.error.is_empty() {
             return out.refuse(
                 f"share input {ab}/targets.toml: {toml.error}",
                 "",
             )
         }
 
-        if row.abi.empty() || row.ld.empty() {
+        if row.abi.is_empty() || row.ld.is_empty() {
             return out.refuse(
                 f"glibc has no port for {arch} (share input {ab}/targets.toml)",
                 "",
@@ -732,7 +732,7 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         var v = ctx->target.libc_version.copy()
-        if !row.floor.empty() && SysUtil::version_less(v, row.floor) {
+        if !row.floor.is_empty() && SysUtil::version_less(v, row.floor) {
             return out.refuse(
                 f"glibc {v} predates the {arch} port (first release {row.floor})",
                 "",
@@ -799,7 +799,7 @@ pub class GlibcProvider derives SysrootProvider {
                 continue
             }
 
-            if hi.empty() || hi == "newest" || !SysUtil::version_less(hi, v) {
+            if hi.is_empty() || hi == "newest" || !SysUtil::version_less(hi, v) {
                 return true
             }
         }
@@ -825,7 +825,7 @@ pub class GlibcProvider derives SysrootProvider {
             var tb    = toml.table.copy()
             var fresh = tb != last
             last = tb.copy()
-            if tb.empty() {
+            if tb.is_empty() {
                 if key == "era" {
                     t.era = val.text.copy()
                 } else if key == "releases" {
@@ -867,12 +867,12 @@ pub class GlibcProvider derives SysrootProvider {
             }
         }
 
-        if !toml.error.empty() {
+        if !toml.error.is_empty() {
             why = toml.error.copy()
             return false
         }
 
-        if t.era.empty() || t.releases.empty() || t.crt.empty() {
+        if t.era.is_empty() || t.releases.is_empty() || t.crt.empty() {
             why = "no era, releases or crt"
             return false
         }
@@ -896,7 +896,7 @@ pub class GlibcProvider derives SysrootProvider {
     /// lib<x>-<ver>.so with the SONAME a link to it (ld: ld-<ver>.so); from
     /// 2.34 the SONAME is the file.
     pub static fn file_name(l: *GlibcLib, const version: string) -> string {
-        if version.empty() || !SysUtil::version_less(version, "2.34") {
+        if version.is_empty() || !SysUtil::version_less(version, "2.34") {
             return l->soname.copy()
         }
 
@@ -943,7 +943,7 @@ pub class GlibcProvider derives SysrootProvider {
         var key  = ""
         var val  = TomlValue{}
         while toml.next(&key, &val) {
-            if toml.table.empty() {
+            if toml.table.is_empty() {
                 continue
             }
 
@@ -960,7 +960,7 @@ pub class GlibcProvider derives SysrootProvider {
             }
         }
 
-        if !toml.error.empty() {
+        if !toml.error.is_empty() {
             why = toml.error.copy()
             return false
         }
@@ -1118,7 +1118,7 @@ pub class GlibcProvider derives SysrootProvider {
                 }
             }
 
-            if !body.empty() {
+            if !body.is_empty() {
                 body = "  global:\n" + body
             }
 
@@ -1127,7 +1127,7 @@ pub class GlibcProvider derives SysrootProvider {
             }
 
             map += v + " {\n" + body + "}"
-            map += if (prev.empty()) => (";\n") else => " " + prev + ";\n"
+            map += if (prev.is_empty()) => (";\n") else => " " + prev + ";\n"
             prev = v.copy()
         }
     }
@@ -1197,7 +1197,7 @@ pub class GlibcProvider derives SysrootProvider {
         for var i: usize = 0; i < line.size(); ++i {
             var ch = line[i]
             if ch == (' ' as u8) || ch == ('\t' as u8) || ch == ('\r' as u8) {
-                if !cur.empty() {
+                if !cur.is_empty() {
                     out.push_back(cur)
                     cur = ""
                 }
@@ -1206,7 +1206,7 @@ pub class GlibcProvider derives SysrootProvider {
             }
         }
 
-        if !cur.empty() {
+        if !cur.is_empty() {
             out.push_back(cur)
         }
 

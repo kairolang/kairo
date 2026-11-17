@@ -56,7 +56,7 @@ pub class WasmArgs {
         var errs0 = LinkDiag::error_count(&msgs)
         var *o    = job.opts
 
-        if job.output.empty() {
+        if job.output.is_empty() {
             msgs.push_back(
                 LinkDiag::make(LinkSeverity::Error, "link: no output path"),
             )
@@ -75,7 +75,7 @@ pub class WasmArgs {
             return false
         }
 
-        var bare    = tc.libc.empty()
+        var bare    = tc.libc.is_empty()
         var no_libs = o->no_default_libs || o->freestanding
         var reactor = o->wasm_exec_model == "reactor"
         if o->wasm_exec_model != "command" && !reactor {
@@ -117,7 +117,7 @@ pub class WasmArgs {
         }
 
         // wasm-ld writes no build id unless asked, so "none" is the default.
-        if !o->build_id.empty() && o->build_id != "none" {
+        if !o->build_id.is_empty() && o->build_id != "none" {
             argv.push_back(f"--build-id={o->build_id}")
         }
 
@@ -127,7 +127,7 @@ pub class WasmArgs {
         /// # crt startup
         if reactor && !o->no_crt && !o->freestanding && !bare {
             var rc = tc.find_lib_file("crt1-reactor.o")
-            if rc.empty() {
+            if rc.is_empty() {
                 msgs.push_back(
                     LinkDiag::make(
                         LinkSeverity::Warning,
@@ -146,7 +146,7 @@ pub class WasmArgs {
                 }
             } else {
                 var c = tc.find_lib_file("crt1-command.o")
-                if c.empty() {
+                if c.is_empty() {
                     WasmArgs::_crt(&tc, "crt1.o", &argv, &msgs)
                 } else {
                     argv.push_back(c)
@@ -159,7 +159,7 @@ pub class WasmArgs {
             argv.push_back(f"-L{d}")
         }
 
-        if !tc.toolchain_lib.empty() {
+        if !tc.toolchain_lib.is_empty() {
             argv.push_back(f"-L{tc.toolchain_lib}")
         }
 
@@ -186,13 +186,13 @@ pub class WasmArgs {
             argv.push_back("--strip-debug")
         }
 
-        if !o->map_file.empty() {
+        if !o->map_file.is_empty() {
             argv.push_back(f"--Map={o->map_file}")
         }
 
         // With crt, _start is the entry. Without it the module has none unless
         // one is named.
-        if o->no_entry || reactor || no_crt && o->entry.empty() {
+        if o->no_entry || reactor || no_crt && o->entry.is_empty() {
             argv.push_back("--no-entry")
         } else if no_crt {
             argv.push_back(f"--entry={o->entry}")
@@ -301,7 +301,7 @@ pub class WasmArgs {
     }
 
     priv static fn _ignored(o: *LinkerOptions, @inout msgs: cxx::std::vector<LinkMessage>) {
-        if !o->linker_script.empty() {
+        if !o->linker_script.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -310,7 +310,7 @@ pub class WasmArgs {
             )
         }
 
-        if !o->version_script.empty() {
+        if !o->version_script.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -337,7 +337,7 @@ pub class WasmArgs {
             )
         }
 
-        if !o->dynamic_linker.empty() {
+        if !o->dynamic_linker.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Warning,
@@ -352,8 +352,8 @@ pub class WasmArgs {
                         @inout argv: cxx::std::vector<string>,
                         @inout msgs: cxx::std::vector<LinkMessage>) {
         var p = tc.find_lib_file(name.copy())
-        if p.empty() {
-            var _where = if (!tc.crt_dir.empty()) => (tc.crt_dir) else => tc.sysroot
+        if p.is_empty() {
+            var _where = if (!tc.crt_dir.is_empty()) => (tc.crt_dir) else => tc.sysroot
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -387,7 +387,7 @@ pub class WasmArgs {
             return
         }
 
-        if name.empty() {
+        if name.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -439,7 +439,7 @@ pub class WasmArgs {
             argv.push_back("-lc")
         }
 
-        if !tc.builtins.empty() {
+        if !tc.builtins.is_empty() {
             argv.push_back(tc.builtins)
         }
     }

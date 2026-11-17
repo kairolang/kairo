@@ -86,7 +86,7 @@ pub fn c_escape(p: unsafe *const u8, len: usize, style: CEscapeStyle) -> string 
 }
 
 pub fn c_escape(const s: string, style: CEscapeStyle) -> string {
-    return c_escape(unsafe (s.raw() as unsafe *const u8), s.size(), style)
+    return c_escape(unsafe (s.data() as unsafe *const u8), s.size(), style)
 }
 
 /// \p s as a C++ narrow string literal, quotes included, every byte outside

@@ -285,8 +285,8 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
                 if isa<Declarations::GenericParamDecl>(l)
                     && (l->semantic_dc != &null)
                     && l->semantic_dc->is_type_scope() {
-                    kept.push_back(l)
-                    at.push_back(self.locals_at_[i])
+                    kept.push(l)
+                    at.push(self.locals_at_[i])
                 }
             }
         }
@@ -337,7 +337,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         }
 
         f.lines.build(f.text)
-        self.files.push_back(f)
+        self.files.push(f)
         return self.files.size() - 1
     }
 
@@ -637,7 +637,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         t.len  = len
         t.kind = kind
         t.mods = mods
-        self.toks.push_back(t)
+        self.toks.push(t)
     }
 
     /// Is \p d (of token kind \p kd) a type declared in the builtin library?
@@ -694,7 +694,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         r.off = off
         r.len = len
         self.target_(d, &r)
-        self.refs.push_back(r)
+        self.refs.push(r)
     }
 
     pub fn visit_decl(self, n: *Decl) -> bool {
@@ -750,11 +750,11 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
                 var name = self.ctx->unwrap_token(v->name)
                 var off  = self.own_off_(name.range.end)
                 var txt  = self.type_str_(v->type_, self.ctx)
-                if (off != u32::MAX) && (!txt.empty()) {
+                if (off != u32::MAX) && (!txt.is_empty()) {
                     var row = InlayRow{}
                     row.off   = off
                     row.label = ": " + txt
-                    self.inlays.push_back(row)
+                    self.inlays.push(row)
                 }
             }
         }

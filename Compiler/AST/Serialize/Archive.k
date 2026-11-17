@@ -204,9 +204,9 @@ pub class ASTArchive {
     pub var stat_payloads: u64 = 0
 
     pub fn ASTArchive(self) {
-        self.ws.push_back(ByteWriter())
+        self.ws.push(ByteWriter())
         var me = FileEntry{}
-        self.files.push_back(me)
+        self.files.push(me)
     }
 
     pub fn me(self) -> unsafe *ASTArchive {
@@ -331,10 +331,10 @@ pub class ASTArchive {
 
     priv fn _push_stream(self) {
         self.flush_bits()
-        self.off_stack.push_back(self.last_off)
+        self.off_stack.push(self.last_off)
         self.wtop += 1
         if self.ws.size() <= self.wtop {
-            self.ws.push_back(ByteWriter())
+            self.ws.push(ByteWriter())
         } else {
             self.ws[self.wtop].clear()
         }
@@ -347,7 +347,7 @@ pub class ASTArchive {
         self.payload_w.put_writer(self.ws[self.wtop])
         self.wtop -= 1
         self.last_off = self.off_stack[self.off_stack.size() - 1]
-        self.off_stack.pop_back()
+        self.off_stack.pop()
     }
 
     //  numbers that mean the same in every process
@@ -595,7 +595,7 @@ pub class ASTArchive {
         e.fid  = f
 
         var idx = self.files.size() as u32
-        self.files.push_back(e)
+        self.files.push(e)
         self.file_ids[f] = idx
         return idx
     }
@@ -853,7 +853,7 @@ pub class ASTArchive {
         // lexer's index, which is the first one interned, so such a name
         // is found by its bytes, lowest index first; find_ident would
         // answer the copy another pass interned by spelling.
-        var raw  = s.raw()
+        var raw  = s.data()
         var wide = false
         for var i: usize = 0; i < s.size(); ++i {
             var c: u8 = raw[i]
@@ -1481,8 +1481,8 @@ pub class ASTArchive {
                 return
             }
 
-            self.payload_imm.push_back(imm)
-            self.payload_cls.push_back(cls)
+            self.payload_imm.push(imm)
+            self.payload_cls.push(cls)
             self.stat_payloads += 1
         }
     }
@@ -1511,7 +1511,7 @@ pub class ASTArchive {
         var slot = NodeSlot{}
         slot.cat = cat
         slot.ptr = p
-        self.nodes.push_back(slot)
+        self.nodes.push(slot)
 
         self.put(1)
         return true
@@ -1550,7 +1550,7 @@ pub class ASTArchive {
         var slot = NodeSlot{}
         slot.cat = cat
         slot.ptr = p
-        self.nodes.push_back(slot)
+        self.nodes.push(slot)
 
         out = p
         return true

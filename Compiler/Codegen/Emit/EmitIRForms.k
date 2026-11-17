@@ -436,11 +436,11 @@ extend EmitIR {
         var path                     = full.path.full_path()
         var b                        = ctx->ci->pp.builtins_dir.copy()
         var d                        = ctx->ci->pp.std_dir.copy()
-        if !b.empty() && path.starts_with(b) {
+        if !b.is_empty() && path.starts_with(b) {
             return true
         }
 
-        return !d.empty() && path.starts_with(d)
+        return !d.is_empty() && path.starts_with(d)
     }
 
     /// -Wshift-count-unproven (SHIFT spec §5): a shift whose count is not

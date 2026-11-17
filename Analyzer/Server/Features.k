@@ -388,7 +388,7 @@ extend Server {
                 )
 
                 for var q = self.entries[ei].ct_lo[k]; q < self.entries[ei].ct_hi[k]; ++q {
-                    now.push_back(self.entries[ei].ct_data[q])
+                    now.push(self.entries[ei].ct_data[q])
                 }
             }
 

@@ -2951,8 +2951,8 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             // arguments and the namespace, which is what the user needs to
             // tell two receivers apart.
             var cxx = decl_cxx_spelling(cast<RecordType>(t)->decl)
-            if cxx.length() > 0 {
-                return if cxx.starts_with("::") => cxx.subslice(2, cxx.length() - 2) else => cxx
+            if cxx.size() > 0 {
+                return if cxx.starts_with("::") => cxx.subslice(2, cxx.size() - 2) else => cxx
             }
 
             return decl_name(cast<RecordType>(t)->decl, self.sc->ctx)

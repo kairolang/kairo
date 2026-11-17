@@ -902,7 +902,7 @@ extend Speller {
             return LowerTargets::attr_tls_model(ie)
         }
 
-        if !self._cg->opts.tls_model.empty() {
+        if !self._cg->opts.tls_model.is_empty() {
             return LowerTargets::attr_tls_model(self._cg->opts.tls_model)
         }
 

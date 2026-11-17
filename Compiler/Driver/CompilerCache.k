@@ -68,7 +68,7 @@ extend CompilerInstance {
         }
 
         var root = CompilerInstance::_cache_root()
-        if root.empty() {
+        if root.is_empty() {
             return ""
         }
 
@@ -102,7 +102,7 @@ extend CompilerInstance {
     prot fn _rt_fingerprint(self) -> string {
         var out   = CompilerInstance::_rt_stamp(env::exe_path())
         var rroot = self._runtime_root()
-        if rroot.empty() {
+        if rroot.is_empty() {
             return out
         }
 
@@ -232,7 +232,7 @@ extend CompilerInstance {
     ///        does (cache_evict_to_cap). Run after a store, which is
     ///        rare; a hit lists nothing.
     prot static fn _rt_cache_gc(const dir: string, const used: cxx::std::vector<string>) {
-        if dir.empty() {
+        if dir.is_empty() {
             return
         }
 
@@ -291,7 +291,7 @@ extend CompilerInstance {
     ///          nothing.
     prot fn _kairo_lib(self) -> bool {
         var dir = self._kairo_lib_dir()
-        if dir.empty() { // no cache root: the run's own objects are all there is
+        if dir.is_empty() { // no cache root: the run's own objects are all there is
             return true
         }
 
@@ -329,7 +329,7 @@ extend CompilerInstance {
     /// The cache directory for this target and option set; "" without a root.
     priv fn _kairo_lib_dir(self) -> string {
         var root = CompilerInstance::_cache_root()
-        if root.empty() || self._backend == &null {
+        if root.is_empty() || self._backend == &null {
             return ""
         }
 
@@ -451,7 +451,7 @@ extend CompilerInstance {
             }
         }
 
-        if !archive.empty() && !LinkFS::is_file(archive) {
+        if !archive.is_empty() && !LinkFS::is_file(archive) {
             return false
         }
 
@@ -553,7 +553,7 @@ extend CompilerInstance {
             var p = self._sm->get_filename(i as FileID)
             // Virtual buffers (-D) have no file; the entry is in tmp, which
             // the rename below moves.
-            if p.empty() || !LinkFS::is_file(p) || p.starts_with(tmp + "/") {
+            if p.is_empty() || !LinkFS::is_file(p) || p.starts_with(tmp + "/") {
                 continue
             }
 

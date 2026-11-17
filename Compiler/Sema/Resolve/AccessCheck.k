@@ -844,7 +844,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         if v == VisibilityKind::Protected {
             msg = if (tu_module_dir(
                       home,
-                  ).empty()) => (f"'{nm}' is protected, and its file is in no module, so it is visible only in its file")
+                  ).is_empty()) => (f"'{nm}' is protected, and its file is in no module, so it is visible only in its file")
                   else => f"'{nm}' is protected to its module"
         }
 
@@ -873,7 +873,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
     /// Why an unmarked declaration of \p home is what it is.
     priv fn _default_why(self, home: unsafe *TranslationUnit) -> string {
-        if tu_module_dir(home).empty() {
+        if tu_module_dir(home).is_empty() {
             return "a declaration with no visibility keyword is 'priv' when its file has no module.k above it"
         }
 
@@ -888,7 +888,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                                home:     unsafe *TranslationUnit,
                                at:       SourceRange,
                                const nm: string) {
-        if v != VisibilityKind::Protected || !tu_module_dir(home).empty() {
+        if v != VisibilityKind::Protected || !tu_module_dir(home).is_empty() {
             return
         }
 
@@ -1151,7 +1151,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         var unsafe *r = visibility_decl(d)
 
         var unsafe *home     = self._home(d, owner)
-        var        in_module = !tu_module_dir(home).empty()
+        var        in_module = !tu_module_dir(home).is_empty()
         var        why       = f"accessible only in the file that declares '{on}'"
         if v == VisibilityKind::Protected {
             why = f"accessible only in the file that declares '{on}' and in classes that derive from it"
@@ -1252,7 +1252,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         var tn    = self._tu.decl_name(tgt)
         var dir   = tu_module_dir(home)
         var reach = f"the file that declares '{on}', which has no module.k above it"
-        if !dir.empty() {
+        if !dir.is_empty() {
             reach = f"a file of the module '{on}' is declared in, rooted at '{dir}' (the directory of its module.k)"
         }
 

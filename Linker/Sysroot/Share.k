@@ -76,7 +76,7 @@ pub class SysRecipe {
                 continue
             }
 
-            if !toml.table.empty() {
+            if !toml.table.is_empty() {
                 continue
             }
 
@@ -97,7 +97,7 @@ pub class SysRecipe {
             }
         }
 
-        if !toml.error.empty() {
+        if !toml.error.is_empty() {
             self.error = toml.error.copy()
             return false
         }
@@ -178,7 +178,7 @@ pub class SysRecipe {
             }
         }
 
-        if !self.triple.empty()
+        if !self.triple.is_empty()
             && LinkText::contains(s, "{triple}")
             && !LinkText::contains(self.triple, "{triple}") {
             s = SysUtil::fill(s, "triple", self.expand(self.triple, t))
@@ -254,7 +254,7 @@ pub class GlibcVersions {
             }
         }
 
-        if !toml.error.empty() {
+        if !toml.error.is_empty() {
             self.error = toml.error.copy()
             return false
         }
@@ -326,7 +326,7 @@ pub class QuirkSet {
             }
         }
 
-        if !toml.error.empty() {
+        if !toml.error.is_empty() {
             self.error = f"{path}: {toml.error}"
             return false
         }
@@ -459,12 +459,12 @@ pub class ShareTree {
     /// \p flag (--share), else $KAIRO_SYSROOT_SHARE, else
     /// <prefix>/share/kairo/sysroot with <prefix> the dir above bin/.
     pub static fn locate(const flag: string) -> string {
-        if !flag.empty() {
+        if !flag.is_empty() {
             return ShareTree::_absolute(LinkText::strip_slash(flag.copy()))
         }
 
         var e = LinkFS::env(EnvNames::kairo_sysroot_share())
-        if !e.empty() {
+        if !e.is_empty() {
             return ShareTree::_absolute(LinkText::strip_slash(e.copy()))
         }
 
@@ -490,7 +490,7 @@ pub class ShareTree {
         var val    = TomlValue{}
         var schema = ""
         while toml.next(&key, &val) {
-            if toml.table.empty() && key == "schema" {
+            if toml.table.is_empty() && key == "schema" {
                 schema = val.text.copy()
             } else if toml.table == "inputs" && val.kind == 1 {
                 self.input_dirs.push_back(key)
@@ -501,7 +501,7 @@ pub class ShareTree {
             }
         }
 
-        if !toml.error.empty() {
+        if !toml.error.is_empty() {
             self.error = f"{path}: {toml.error}"
             return false
         }

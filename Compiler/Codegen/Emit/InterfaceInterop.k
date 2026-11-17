@@ -93,7 +93,7 @@ extend InterfaceEmitter {
         var        names = self._adt_factory_names(en, lay, nm, mk)
         for var i: usize = 0; i < en->variants.size(); ++i {
             var unsafe *v = en->variants[i]
-            if v == &null || names[i].empty() {
+            if v == &null || names[i].is_empty() {
                 continue
             }
 

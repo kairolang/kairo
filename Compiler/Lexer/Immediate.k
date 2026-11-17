@@ -111,12 +111,12 @@ pub module Immediate {
     /// \param is_unsigned output: set to true if unsigned suffix
     /// \returns bit width, or 0 if no valid suffix
     pub static fn parse_int_suffix(const suffix: string, @inout is_unsigned: bool) -> u16 {
-        var len = suffix.length()
+        var len = suffix.size()
         if len == 0 {
             return 0
         }
 
-        var *data       = suffix.raw()
+        var *data       = suffix.data()
         var idx:  usize = 0
 
         is_unsigned = false
@@ -159,12 +159,12 @@ pub module Immediate {
     /// \param suffix the suffix text (e.g., "f32", "f64", "f128")
     /// \returns bit width, or 0 if no valid suffix
     pub static fn parse_float_suffix(const suffix: string) -> u32 {
-        var len = suffix.length()
+        var len = suffix.size()
         if len == 0 {
             return 0
         }
 
-        var *data = suffix.raw()
+        var *data = suffix.data()
 
         // must start with 'f' or 'F'
         if data[0] != ('f' as u8) && data[0] != ('F' as u8) {
@@ -280,14 +280,14 @@ pub module Immediate {
             self.clear_flag(IntFlags::IsBig)
 
             var body_text = sm->get_text(self.body)
-            var body_len  = body_text.length()
+            var body_len  = body_text.size()
 
             if body_len == 0 {
                 tbl->end_evaluation()
                 return
             }
 
-            var *data    = body_text.raw()
+            var *data    = body_text.data()
             var base_u64 = (self.base as u64)
 
             // phase 1: try to fit in 64 bits
@@ -544,14 +544,14 @@ pub module Immediate {
             self.clear_flag(FloatFlags::UseBigFloat)
 
             var body_text = sm->get_text(self.body)
-            var body_len  = body_text.length()
+            var body_len  = body_text.size()
 
             if body_len == 0 {
                 tbl->end_evaluation()
                 return
             }
 
-            var *data  = body_text.raw()
+            var *data  = body_text.data()
             var is_hex = self.has_flag(FloatFlags::IsHex)
 
             // parsing state
@@ -1621,7 +1621,7 @@ pub class ImmediateTable {
     pub fn find_ident(self, const s: string) -> u32 {
         // string::raw is const: read s in place (the copy this made was a
         // heap allocation per probe, for nothing).
-        var unsafe *r = unsafe (s.raw() as kairo::std::ConstPtr<u8>)
+        var unsafe *r = unsafe (s.data() as kairo::std::ConstPtr<u8>)
         var        l  = s.size()
         var        h  = compute_hash(r, l)
         return self.find_ident(r, l, (h as u32))
@@ -1642,7 +1642,7 @@ pub class ImmediateTable {
         // it reaches): answer from the probe, skipping the copy into
         // synth_names and the write lock. Same index either way.
         {
-            var unsafe *pr = unsafe (s.raw() as kairo::std::ConstPtr<u8>)
+            var unsafe *pr = unsafe (s.data() as kairo::std::ConstPtr<u8>)
             var        pl  = s.size()
             var hit = self.find_ident(pr, pl, (compute_hash(pr, pl) as u32))
             if hit != u32::MAX {
@@ -1661,7 +1661,7 @@ pub class ImmediateTable {
             stored = self.synth_names->push(s.copy())
         }
 
-        var unsafe *r = unsafe (stored->raw() as kairo::std::ConstPtr<u8>)
+        var unsafe *r = unsafe (stored->data() as kairo::std::ConstPtr<u8>)
         var        l  = stored->size()
         var        h  = compute_hash(r, l)
         return self.intern_ident(r, l, (h as u32))
@@ -1689,7 +1689,7 @@ pub class ImmediateTable {
         var unsafe *data = self.get<Immediate::StringData>(idx)
 
         var unsafe *stored = self.synth_names->push(s.copy())
-        data->owned_ptr   = unsafe (stored->raw() as kairo::std::ConstPtr<u8>)
+        data->owned_ptr   = unsafe (stored->data() as kairo::std::ConstPtr<u8>)
         data->owned_len   = (stored->size() as u32)
         data->prefix_kind = FlagSet<Immediate::TextPrefixKind, u8>()
         return idx
@@ -1715,7 +1715,7 @@ pub class ImmediateTable {
             ),
         )
 
-        slot->owned_ptr   = unsafe (stored->raw() as kairo::std::ConstPtr<u8>)
+        slot->owned_ptr   = unsafe (stored->data() as kairo::std::ConstPtr<u8>)
         slot->owned_len   = (stored->size() as u32)
         slot->prefix_kind = FlagSet<Immediate::TextPrefixKind, u8>()
         return idx

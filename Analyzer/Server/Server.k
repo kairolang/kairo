@@ -102,7 +102,7 @@ pub fn server_main(const self_path: string) -> i32 {
     s->exe = self_path.copy()
     s->read_debug_knobs_()
     s->tmp = LinkFS::temp_dir("kals")
-    if s->tmp.empty() {
+    if s->tmp.is_empty() {
         io::eprintln("kals: cannot create a scratch directory")
         return 1
     }
@@ -284,7 +284,7 @@ pub class Server {
         }
 
         self.parked.clear()
-        if !self.comp_wait_id.empty() {
+        if !self.comp_wait_id.is_empty() {
             self.respond_error(
                 self.comp_wait_id,
                 ERR_REQUEST_CANCELLED,
@@ -311,7 +311,7 @@ pub class Server {
                 )
             }
 
-            if !self.jobs[q].progress.empty() {
+            if !self.jobs[q].progress.is_empty() {
                 self.progress(self.jobs[q].progress, "end", "", -1)
             }
 
@@ -334,8 +334,8 @@ pub class Server {
                     "cancelled: the server is shutting down",
                 )
 
-                self.garbage.push_back(self.lives[k].asks[q].out.copy())
-                self.garbage.push_back(self.lives[k].asks[q].marked.copy())
+                self.garbage.push(self.lives[k].asks[q].out.copy())
+                self.garbage.push(self.lives[k].asks[q].marked.copy())
             }
 
             self.lives[k].asks.clear()
@@ -360,7 +360,7 @@ pub class Server {
         var id     = d.dump(idn)
         var params = d.get(d.root, K_PARAMS)
 
-        if method.empty() {
+        if method.is_empty() {
             self.trace("<- reply " + id)
             return // a reply to one of our own requests
         }
@@ -451,7 +451,7 @@ pub class Server {
                 self.request_with(M_REGISTER_CAPABILITY, WATCH_REGISTRATION)
             }
 
-            if self.project.path.empty() {
+            if self.project.path.is_empty() {
                 self.say(
                     MSG_INFO,
                     "no kairo_compile.json found: each file is checked on its own",
@@ -530,8 +530,8 @@ pub class Server {
             var i   = self.docs.index_of(uri)
             if i != usize::MAX {
                 var path = self.docs.docs[i].path.copy()
-                if !self.docs.docs[i].tmp_path.empty() {
-                    self.garbage.push_back(self.docs.docs[i].tmp_path.copy())
+                if !self.docs.docs[i].tmp_path.is_empty() {
+                    self.garbage.push(self.docs.docs[i].tmp_path.copy())
                 }
 
                 // The disk text is the truth again: a change only when the
@@ -674,7 +674,7 @@ pub class Server {
                 && (d.get(params, K_DATA) != JSON_NONE())
                 && (out.size() > 1) {
                 var doc = self.resolve_doc_(const &d, params)
-                if !doc.empty() {
+                if !doc.is_empty() {
                     var dw = JsonWriter()
                     dw.begin_object()
                     dw.field(K_KIND, MARKUP_MARKDOWN)
@@ -718,7 +718,7 @@ pub class Server {
                 if pd.parse(self.parked[q].msg) && (pd.dump(pd.get(pd.root, K_ID)) == want) {
                     self.respond_error(want, ERR_REQUEST_CANCELLED, "cancelled")
                 } else {
-                    kept.push_back(self.parked[q])
+                    kept.push(self.parked[q])
                 }
             }
 
@@ -732,7 +732,7 @@ pub class Server {
                 }
             }
 
-            if (!self.comp_wait_id.empty()) && (self.comp_wait_id == want) {
+            if (!self.comp_wait_id.is_empty()) && (self.comp_wait_id == want) {
                 self.respond_error(want, ERR_REQUEST_CANCELLED, "cancelled")
                 self.comp_wait    = ""
                 self.comp_wait_id = ""
@@ -897,7 +897,7 @@ pub class Server {
             if (now - self.last_change_ms) >= self.debounce_ms {
                 for var i: usize = 0; i < self.entries.size(); ++i {
                     if (!self.entries[i].dirty)
-                        || self.entries[i].entry.empty()
+                        || self.entries[i].entry.is_empty()
                         || ((now - self.last_change_ms) < self.debounce_of(
                             self.entries[i].slow,
                         )) {
@@ -933,7 +933,7 @@ pub class Server {
 
             // Another kals on this root (a second editor) rewrites
             // overlay.yaml from what it knows: merge this one's entries back.
-            if (!self.br_files.empty())
+            if (!self.br_files.is_empty())
                 && ((now - self.br_ov_check_ms) >= BRIDGE_OVERLAY_CHECK_MS) {
                 self.br_ov_check_ms = now
                 if LinkFS::mtime(
@@ -943,20 +943,20 @@ pub class Server {
                 }
             }
 
-            if (!self.comp_wait.empty()) && (self.running(JobKind::Complete) == 0) {
+            if (!self.comp_wait.is_empty()) && (self.running(JobKind::Complete) == 0) {
                 var m = self.comp_wait.copy()
                 self.comp_wait    = ""
                 self.comp_wait_id = ""
                 self.handle(m)
             }
 
-            if !self.parked.empty() {
+            if !self.parked.is_empty() {
                 self.retry_parked(true)
             }
         }
 
         self.stop_work_()
-        if !self.tmp.empty() {
+        if !self.tmp.is_empty() {
             Path::remove_tree(self.tmp)
         }
 

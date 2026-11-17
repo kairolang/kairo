@@ -161,7 +161,7 @@ extend Server {
         }
 
         var kfmt = self.tool("kfmt")
-        if kfmt.empty() {
+        if kfmt.is_empty() {
             self.respond_error(
                 id,
                 ERR_REQUEST_FAILED,
@@ -176,9 +176,9 @@ extend Server {
         LinkFS::write(src, self.docs.docs[i].text)
 
         var argv: [string]
-        argv.push_back(kfmt.copy())
-        argv.push_back("--stdout")
-        argv.push_back(src.copy())
+        argv.push(kfmt.copy())
+        argv.push("--stdout")
+        argv.push(src.copy())
         var rc = self.run_and_wait(&argv, out)
 
         var text: string = ""

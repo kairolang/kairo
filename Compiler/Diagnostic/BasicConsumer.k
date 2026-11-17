@@ -120,7 +120,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
     /// The path as the user asked to see it. "<...>" names are synthetic
     /// buffers, not files, and must not be joined onto the cwd.
     priv fn display_path(self, p: string) -> string {
-        if !self._abs_paths || p.empty() {
+        if !self._abs_paths || p.is_empty() {
             return p
         }
 
@@ -141,7 +141,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
         // A run incremental Sema skipped replays the frontend's diagnostics
         // as the run that recorded them rendered them, ahead of whatever
         // this run reported itself (Driver/ModuleRecords.k).
-        if !self.replay.empty() {
+        if !self.replay.is_empty() {
             io::eprint(f"{self.replay}")
         }
 

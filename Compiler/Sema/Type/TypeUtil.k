@@ -2411,7 +2411,7 @@ pub class TypeUtil {
                     depth + 1,
                 )
 
-                if !bw.empty() {
+                if !bw.is_empty() {
                     return f"'{nm}' has no default constructor: the implicit one cannot build its base ({bw})"
                 }
             }
@@ -2449,7 +2449,7 @@ pub class TypeUtil {
                 depth + 1,
             )
 
-            if !fw.empty() {
+            if !fw.is_empty() {
                 return f"'{nm}' has no default constructor: the implicit one cannot build field '{fnm}', which has no initializer ({fw})"
             }
         }
@@ -3045,7 +3045,7 @@ pub class TypeUtil {
             // addresses.
             case TypeKind::OpaqueFFIType {
                 var sp = cast<Types::OpaqueFFIType>(t)->text()
-                if sp.length() == 0 {
+                if sp.size() == 0 {
                     return "<ffi type>"
                 }
 

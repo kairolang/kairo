@@ -440,7 +440,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         }
 
         var id = diag_from_code(text)
-        if id == DiagID::Invalid || diag_explain(id).empty() {
+        if id == DiagID::Invalid || diag_explain(id).is_empty() {
             (why) = "'" + text + "' is not a diagnostic code"
             return DiagID::Invalid
         }

@@ -2627,7 +2627,7 @@ pub class ASTParse
 
         var name         = self.ctx->sm->get_text(invoke)
         var tail: string = " (in a macro expansion)"
-        if name.length() > 0 && name.length() <= 64 {
+        if name.size() > 0 && name.size() <= 64 {
             // invoke spans the WHOLE invocation (name, `!`, and any args), so
             // name already reads e.g. "foo!" or "error!(\"yes\")" -- no extra
             // '!' here, or a bare invocation renders as "foo!!" .
@@ -2718,7 +2718,7 @@ pub class ASTParse
             var mname = self.ctx->sm->get_text(info->invoke_range)
             if depth == 0 && skip_innermost {
                 0 // caller's primary already sits on this exact range
-            } else if mname.length() > 0 && mname.length() <= 64 {
+            } else if mname.size() > 0 && mname.size() <= 64 {
                 builder->note(
                     info->invoke_range.start,
                     f"in expansion of macro '{mname}' invoked here",

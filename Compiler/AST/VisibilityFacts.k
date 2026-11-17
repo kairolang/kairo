@@ -67,7 +67,7 @@ import Support::FileIO::Path::Path
 /// Resolution's (module_dir_at_or_above), so `import module::x` anchors at
 /// the same directory this answers for `prot`.
 pub fn module_dir_of_path(const file: string) -> string {
-    if file.empty() || file.starts_with("<") {
+    if file.is_empty() || file.starts_with("<") {
         return ""
     }
 
@@ -159,7 +159,7 @@ pub fn same_module(a: unsafe *TranslationUnit, b: unsafe *TranslationUnit) -> bo
     }
 
     var da = tu_module_dir(a)
-    if da.empty() {
+    if da.is_empty() {
         return false
     }
 
@@ -206,7 +206,7 @@ pub fn tu_default_vis(tu: unsafe *TranslationUnit) -> VisibilityKind {
         return VisibilityKind::Public
     }
 
-    if tu_module_dir(tu).empty() {
+    if tu_module_dir(tu).is_empty() {
         return VisibilityKind::Private
     }
 

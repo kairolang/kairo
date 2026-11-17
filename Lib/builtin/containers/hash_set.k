@@ -112,6 +112,8 @@ pub class <T impl Hash> HashSet {
     pub inline fn size(const self) -> usize { return self.len }
     /// Returns true when the set has no elements. O(1).
     pub inline fn empty(const self) -> bool { return self.len == 0 }
+    /// Returns true when the set has no elements; same as `empty()`.
+    pub inline fn is_empty(const self) -> bool { return self.len == 0 }
     /// Returns how many elements fit before the next growth.
     pub inline fn capacity(const self) -> usize { return self.cap }
 
@@ -224,6 +226,13 @@ pub class <T impl Hash> HashSet {
         self.len -= 1
         return true
     }
+
+    /// Removes `x` and returns true, or returns false when it was absent; same as `erase`.
+    pub inline fn swap_remove(self, const x: T) -> bool { return self.erase(x) }
+
+    /// Removes `x` keeping the others' order and returns true, or returns false when it was
+    /// absent; same as `erase_ordered`.
+    pub inline fn shift_remove(self, const x: T) -> bool { return self.erase_ordered(x) }
 
     /// Removes every element, keeping the capacity. O(capacity).
     pub fn clear(self) {

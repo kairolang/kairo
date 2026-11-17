@@ -159,7 +159,7 @@ pub class CompReq {
     /// Adds \p c unless a candidate has its label already: overloads share
     /// one item, and the first found is the nearest.
     pub fn add(self, const c: Cand) -> bool {
-        if c.label.empty() {
+        if c.label.is_empty() {
             return false
         }
 
@@ -179,7 +179,7 @@ pub class CompReq {
             self.seen_[h] = self.out.size() as u32
         }
 
-        self.out.push_back(c)
+        self.out.push(c)
         return true
     }
 
@@ -414,7 +414,7 @@ extend Server {
         // division and `"` any string's quote, `>` a comparison and `:` a
         // type's colon: a list after each of those would be noise.
         var tc = d->get_str(d->get(params, K_CONTEXT), K_TRIGGER_CHARACTER)
-        if !tc.empty() {
+        if !tc.is_empty() {
             var meant = true
             if (tc == "/") || (tc == "\"") {
                 meant = req.site.what == SITE_HEADER
@@ -463,7 +463,7 @@ extend Server {
 
         req.ei = ei0
         var *e = &self.entries[ei0]
-        if (!e->has_idx) || e->tb.t.empty() {
+        if (!e->has_idx) || e->tb.t.is_empty() {
             return false
         }
 
@@ -477,7 +477,7 @@ extend Server {
         req.blocks = blocks_before(*text, req.cls, req.site.start)
         var s = e->idx.first(e->idx.get(req.f, SK_SEES))
         while s != JSON_NONE() {
-            req.sees.push_back(e->idx.str(s))
+            req.sees.push(e->idx.str(s))
             s = e->idx.next(s)
         }
 
@@ -552,7 +552,7 @@ extend Server {
             w.begin_object()
             w.field(K_LABEL, c->label)
             w.field_int(K_KIND, c->kind)
-            if !c->detail.empty() {
+            if !c->detail.is_empty() {
                 w.field(K_DETAIL, c->detail)
             }
 
@@ -560,10 +560,10 @@ extend Server {
             w.field(K_SORT_TEXT, f"{c->sort}{c->label}")
             var text: string = c->label.copy()
             var snip         = c->snippet && self.snippet_ok
-            var over_bang = (!bang_edit.empty()) && c->label.ends_with("!")
+            var over_bang = (!bang_edit.is_empty()) && c->label.ends_with("!")
             if over_bang {
                 snip = false
-            } else if (!c->insert.empty()) && (snip || (!c->snippet)) {
+            } else if (!c->insert.is_empty()) && (snip || (!c->snippet)) {
                 text = c->insert.copy()
             }
 
@@ -581,7 +581,7 @@ extend Server {
                 w.field(K_TEXT_EDIT_TEXT, text)
             }
 
-            if !c->doc.empty() {
+            if !c->doc.is_empty() {
                 w.key(K_DOCUMENTATION)
                 w.begin_object()
                 w.field(K_KIND, MARKUP_MARKDOWN)
@@ -598,7 +598,7 @@ extend Server {
                     }
 
                     if pi == usize::MAX {
-                        self.comp_paths.push_back(tb->path.copy())
+                        self.comp_paths.push(tb->path.copy())
                         pi = self.comp_paths.size() - 1
                     }
 
@@ -639,7 +639,7 @@ extend Server {
         if bi != usize::MAX {
             self.docs.docs[bi].sync()
             // The table's line is the indexed text's.
-            if !self.docs.docs[bi].idx_text.empty() {
+            if !self.docs.docs[bi].idx_text.is_empty() {
                 text = self.docs.docs[bi].idx_text.copy()
             } else {
                 text = self.docs.docs[bi].text.copy()
@@ -716,7 +716,7 @@ extend Server {
             }
 
             // A local the text declares: `var x: T`, `var x = T(...)`.
-            if !c.type_.empty() {
+            if !c.type_.is_empty() {
                 return self.type_name_recv_(req, type_head(c.type_))
             }
 
@@ -792,7 +792,7 @@ extend Server {
             var expr  = init.subslice(b, end - b)
             var steps = receiver_steps(expr, classify(expr), expr.size())
             // The whole initialiser, not the tail of a larger expression.
-            if steps.empty() || (steps[0].off != 0) {
+            if steps.is_empty() || (steps[0].off != 0) {
                 return out
             }
 
@@ -894,16 +894,16 @@ extend Server {
             }
 
             text = c.type_.copy()
-            if text.empty() {
+            if text.is_empty() {
                 text = decl_type_text(c.detail, c.label, false)
             }
 
             // Element types as text while they are collections; at a named
             // type, its record (the index's type of the local when it has
             // one) and from there its `op []`.
-            while (k < n) && (!text.empty()) {
+            while (k < n) && (!text.is_empty()) {
                 var e = elem_type_text(text)
-                if e.empty() {
+                if e.is_empty() {
                     cur = if (c.ty.ok && (k == 0)) => (c.ty)
                           else => (self.type_name_recv_(req, type_head(text)))
                     text = ""
@@ -916,12 +916,12 @@ extend Server {
 
             // No type as text (an inferred local): the record cand_recv_
             // reads (the index's type, or the initialiser), and its `op []`.
-            if (k == 0) && text.empty() && (!cur.ok) {
+            if (k == 0) && text.is_empty() && (!cur.ok) {
                 cur = self.cand_recv_(req, c, false)
             }
 
             if k == n {
-                if text.empty() {
+                if text.is_empty() {
                     return out
                 }
 
@@ -1039,7 +1039,7 @@ extend Server {
     /// (VisibilityFacts.k, same_module: one module directory, not none).
     fn same_module_(self, req: *CompReq, ti: usize) -> bool {
         var m = self.entries[req->ei].tb.t[ti].mod.copy()
-        return (!m.empty()) && (m == self.use_mod_(req))
+        return (!m.is_empty()) && (m == self.use_mod_(req))
     }
 
     /// \brief whether the cursor may name member row \p r of table \p ti.
@@ -1367,7 +1367,7 @@ extend Server {
             if is_type_word(b->word) || (b->word == "extend") {
                 var r = self.block_type_(req, k)
                 if r.ok && (!r.file) && ((b->word != "extend") || (r.t == req->ti)) {
-                    req->users.push_back(r)
+                    req->users.push(r)
                 }
             }
         }
@@ -1382,7 +1382,7 @@ extend Server {
         var i:    usize    = 0
         while i < path.size() {
             if (path[i] == (':' as u8)) && ((i + 1) < path.size()) && (path[i + 1] == (':' as u8)) {
-                segs.push_back(cur.copy())
+                segs.push(cur.copy())
                 cur = ""
                 i += 2
                 continue
@@ -1392,8 +1392,8 @@ extend Server {
             i += 1
         }
 
-        segs.push_back(cur.copy())
-        if segs[0].empty() {
+        segs.push(cur.copy())
+        if segs[0].is_empty() {
             return out
         }
 
@@ -1628,8 +1628,8 @@ extend Server {
                                     }
                                 }
 
-                                found.push_back(c)
-                                offs.push_back(off)
+                                found.push(c)
+                                offs.push(off)
                             }
                         }
 
@@ -1643,7 +1643,7 @@ extend Server {
         // declaration first, so a shadowing name is the one kept.
         var order: [usize]
         for var k: usize = 0; k < found.size(); ++k {
-            order.push_back(k)
+            order.push(k)
         }
 
         // Insertion sort by offset, descending: a function's locals are few.
@@ -1681,7 +1681,7 @@ extend Server {
                 && (b->open <= to) {
                 var ps = lex_params(*text, req->cls, b->hstart, b->open)
                 for var q: usize = 0; q < ps.size(); ++q {
-                    decls.push_back(ps[q])
+                    decls.push(ps[q])
                 }
             }
         }
@@ -1695,19 +1695,19 @@ extend Server {
             c.type_ = decls[k].type_.copy()
             c.init  = decls[k].init.copy()
             c.at    = decls[k].off
-            if !c.type_.empty() {
+            if !c.type_.is_empty() {
                 c.detail = c.label + ":" + c.type_
             } else {
                 // No type written: the one its initialiser plainly has, a
                 // construction's or a literal's.
                 var ty = self.init_type_(req, c.init)
-                if !ty.empty() {
+                if !ty.is_empty() {
                     c.detail = c.label + ": " + ty
                 }
             }
 
-            found->push_back(c)
-            offs->push_back(decls[k].off)
+            found->push(c)
+            offs->push(decls[k].off)
         }
     }
 
@@ -1881,7 +1881,7 @@ extend Server {
         var tabs: [usize]
         var sf            = s->first(s->get(req->f, SK_SFILES))
         while sf != JSON_NONE() {
-            tabs.push_back(e->tb.find(s->str(sf)))
+            tabs.push(e->tb.find(s->str(sf)))
             sf = s->next(sf)
         }
 
@@ -1934,14 +1934,14 @@ extend Server {
         var *s            = &e->idx
         var from: [usize]
         if req->ti != usize::MAX {
-            from.push_back(req->ti)
+            from.push(req->ti)
         }
 
         var l = s->first(s->get(req->f, SK_LINKS))
         while l != JSON_NONE() {
             var tt = e->tb.find(s->str(self.nth(s, l, LINK_TARGET)))
             if tt != usize::MAX {
-                from.push_back(tt)
+                from.push(tt)
             }
 
             l = s->next(l)
@@ -1949,7 +1949,7 @@ extend Server {
 
         for var k: usize = 0; k < e->tb.t.size(); ++k {
             if e->tb.t[k].builtin {
-                from.push_back(k)
+                from.push(k)
             }
         }
 
@@ -1977,7 +1977,7 @@ extend Server {
             }
         }
 
-        if self.macro_rows.empty() {
+        if self.macro_rows.is_empty() {
             self.macro_rows = builtin_macros()
         }
 
@@ -2008,7 +2008,7 @@ extend Server {
                 var kept: [Cand]
                 for var k: usize = 0; k < req->out.size(); ++k {
                     if req->out[k].kind == CIK_TYPE_PARAMETER {
-                        kept.push_back(req->out[k])
+                        kept.push(req->out[k])
                     }
                 }
 
@@ -2050,7 +2050,7 @@ extend Server {
             }
         }
 
-        if self.words.empty() {
+        if self.words.is_empty() {
             self.words = language_words()
         }
 
@@ -2156,7 +2156,7 @@ extend Server {
     fn member_candidates_(self, req: *CompReq) -> bool {
         var *text = &self.docs.docs[req->di].text
         var steps = receiver_steps(*text, req->cls, req->site.recv_end)
-        if steps.empty() {
+        if steps.is_empty() {
             return false
         }
 
@@ -2182,7 +2182,7 @@ extend Server {
         }
 
         self.members_into_(req, recv, recv, 0, 0)
-        return !req->out.empty()
+        return !req->out.is_empty()
     }
 
     /// After `b::`, \p b a primitive: its associated constants (the
@@ -2264,7 +2264,7 @@ extend Server {
     /// After `@`: the attributes the compiler gives a meaning, those that
     /// can stand before what follows when that is written already.
     fn attribute_candidates_(self, req: *CompReq) {
-        if self.attr_rows.empty() {
+        if self.attr_rows.is_empty() {
             self.attr_rows = builtin_attributes()
         }
 
@@ -2284,7 +2284,9 @@ extend Server {
 
         for var k: usize = 0; k < self.attr_rows.size(); ++k {
             var *a = &self.attr_rows[k]
-            if (!want.empty()) && (!has_word(a->targets, want)) && (!has_word(a->targets, "any")) {
+            if (!want.is_empty())
+                && (!has_word(a->targets, want))
+                && (!has_word(a->targets, "any")) {
                 continue
             }
 
@@ -2309,7 +2311,7 @@ extend Server {
     /// their kin), C++'s for \p cxx.
     fn include_dirs_(self, di: usize, cxx: bool) -> [string] {
         var out: [string]
-        out.push_back(Path::parent_of(self.docs.docs[di].path))
+        out.push(Path::parent_of(self.docs.docs[di].path))
         var ei = self.entry_of(self.docs.docs[di].path)
         if (ei == usize::MAX) || (!self.entries[ei].has_snap) {
             return out
@@ -2342,7 +2344,7 @@ extend Server {
                 dir = w.subslice(8, w.size() - 8)
             }
 
-            if !dir.empty() {
+            if !dir.is_empty() {
                 dir = Path::absolute_if_exists(dir.copy(), self.entries[ei].dir)
                 var dup = false
                 for var k: usize = 0; k < out.size(); ++k {
@@ -2352,7 +2354,7 @@ extend Server {
                 }
 
                 if !dup {
-                    out.push_back(dir.copy())
+                    out.push(dir.copy())
                 }
             }
 
@@ -2387,7 +2389,7 @@ extend Server {
         var dirs = self.include_dirs_(req->di, cxx)
         for var k: usize = 0; k < dirs.size(); ++k {
             var dir = dirs[k].copy()
-            if !typed.empty() {
+            if !typed.is_empty() {
                 dir = Path::join_str(dir, typed.copy())
             }
 

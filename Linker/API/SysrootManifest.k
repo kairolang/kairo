@@ -344,12 +344,12 @@ pub class SysrootManifest {
             }
         }
 
-        if !toml.error.empty() {
+        if !toml.error.is_empty() {
             out.error = toml.error.copy()
             return false
         }
 
-        if out.triple.empty() {
+        if out.triple.is_empty() {
             out.error = "no triple key: a sysroot manifest must name its target"
             return false
         }

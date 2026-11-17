@@ -259,7 +259,7 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
         }
 
         var w = word_from(text, p)
-        if w.empty() {
+        if w.is_empty() {
             return
         }
 
@@ -376,11 +376,11 @@ pub fn blocks_before(const text: string, const cls: [u8], at: usize) -> [Block] 
             b.open   = i
             b.hstart = stmt_start(text, cls, i)
             read_header(text, cls, b.hstart, i, &b)
-            open.push_back(out.size())
-            out.push_back(b)
-        } else if (c == ('}' as u8)) && (!open.empty()) {
+            open.push(out.size())
+            out.push(b)
+        } else if (c == ('}' as u8)) && (!open.is_empty()) {
             out[open[open.size() - 1]].close = i
-            open.pop_back()
+            open.pop()
         }
 
         i += 1
@@ -585,7 +585,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
 
         for var m: usize = 0; m < 6; ++m {
             var w = word_from(text, q)
-            if w.empty() || (!is_modifier(w)) {
+            if w.is_empty() || (!is_modifier(w)) {
                 break
             }
 
@@ -767,7 +767,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
     if (inner == usize::MAX)
         || ((blocks[inner].word != "fn")
             && (blocks[inner].word != "test")
-            && (!blocks[inner].word.empty())) {
+            && (!blocks[inner].word.is_empty())) {
         s.kc = if (first) => (KC_DECL) else => (KC_DECL | KC_EXPR | KC_TYPE)
         return s
     }
@@ -1003,7 +1003,7 @@ fn read_decl(const text: string,
     }
 
     var name = word_from(text, p)
-    if name.empty() || ((name[0] >= ('0' as u8)) && (name[0] <= ('9' as u8))) {
+    if name.is_empty() || ((name[0] >= ('0' as u8)) && (name[0] <= ('9' as u8))) {
         return
     }
 
@@ -1069,11 +1069,11 @@ fn read_decl(const text: string,
         d.init = rest.subslice(eq + 1, rest.size() - eq - 1)
     }
 
-    if (!ty.empty()) && (ty[0] == (':' as u8)) {
+    if (!ty.is_empty()) && (ty[0] == (':' as u8)) {
         d.type_ = ty.subslice(1, ty.size() - 1)
     }
 
-    out->push_back(d)
+    out->push(d)
 }
 
 /// The names \p text declares in [\p from, \p to): `var` / `const` / `eval`
@@ -1098,7 +1098,7 @@ pub fn lex_decls(const text: string, const cls: [u8], from: usize, to: usize) ->
             }
 
             var name = word_from(text, q)
-            if (!name.empty()) && (name != "var") && (name != "const") {
+            if (!name.is_empty()) && (name != "var") && (name != "const") {
                 var after = q + name.size()
                 while (after < to) && blank(text[after]) {
                     after += 1
@@ -1108,13 +1108,13 @@ pub fn lex_decls(const text: string, const cls: [u8], from: usize, to: usize) ->
                     var d = LexDecl{}
                     d.name = name.copy()
                     d.off  = q
-                    out.push_back(d)
+                    out.push(d)
                 }
             }
         }
 
         p = q
-        if w.empty() {
+        if w.is_empty() {
             p += 1
         }
     }
@@ -1321,7 +1321,7 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
                 }
             }
 
-            if inner.empty() || (inner[0].off != first) {
+            if inner.is_empty() || (inner[0].off != first) {
                 return none
             }
 
@@ -1345,7 +1345,7 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
             inner[inner.size() - 1].index += st.index
             var ik = inner.size()
             while ik > 0 {
-                rev.push_back(inner[ik - 1])
+                rev.push(inner[ik - 1])
                 ik -= 1
             }
 
@@ -1358,7 +1358,7 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
 
         st.name = text.subslice(p, e - p)
         st.off  = p
-        rev.push_back(st)
+        rev.push(st)
 
         var q = p
         while (q > 0) && blank(text[q - 1]) {
@@ -1393,7 +1393,7 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
     var out: [RecvStep]
     var k               = rev.size()
     while k > 0 {
-        out.push_back(rev[k - 1])
+        out.push(rev[k - 1])
         k -= 1
     }
 
@@ -1406,10 +1406,10 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
 pub fn doc_above(const text: string, line: usize) -> string {
     // Line starts up to and including `line`.
     var starts: [usize]
-    starts.push_back(0)
+    starts.push(0)
     for var i: usize = 0; (i < text.size()) && (starts.size() <= line); ++i {
         if text[i] == ('\n' as u8) {
-            starts.push_back(i + 1)
+            starts.push(i + 1)
         }
     }
 
@@ -1441,13 +1441,13 @@ pub fn doc_above(const text: string, line: usize) -> string {
                 e -= 1
             }
 
-            lines.push_back(text.subslice(b, e - b))
+            lines.push(text.subslice(b, e - b))
             k -= 1
             continue
         }
 
         // An attribute or a visibility keyword on a line of its own.
-        if lines.empty()
+        if lines.is_empty()
             && (p < le)
             && ((text[p] == ('@' as u8))
                 || (word_from(text, p) == "pub")

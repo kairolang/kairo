@@ -120,7 +120,7 @@ extend IndexWalker {
             }
         }
 
-        self.t_fids_.push_back(fid)
+        self.t_fids_.push(fid)
         return (self.t_fids_.size() - 1) as i64
     }
 
@@ -289,7 +289,7 @@ extend IndexWalker {
         }
 
         var name = sema_dump_decl_name(ctx, d)
-        if name.empty() || name.starts_with("op ") || (name == completion_marker()) {
+        if name.is_empty() || name.starts_with("op ") || (name == completion_marker()) {
             return -1
         }
 
@@ -441,12 +441,10 @@ extend IndexWalker {
                     &bfi,
                     &boff,
                 ) {
-                    self.t_bases_.push_back(row)
-                    self.t_bases_.push_back(bfi)
-                    self.t_bases_.push_back(boff)
-                    self.t_bases_.push_back(
-                        c->derives_list[i].visibility as i64,
-                    )
+                    self.t_bases_.push(row)
+                    self.t_bases_.push(bfi)
+                    self.t_bases_.push(boff)
+                    self.t_bases_.push(c->derives_list[i].visibility as i64)
                 }
             }
         }
@@ -467,7 +465,7 @@ extend IndexWalker {
             name = name.subslice(0, name.size() - 1)
         }
 
-        if (off == u32::MAX) || name.empty() {
+        if (off == u32::MAX) || name.is_empty() {
             return
         }
 
@@ -600,7 +598,7 @@ extend IndexWalker {
         }
 
         f.name = sema_dump_decl_name(ctx, d)
-        if f.name.empty() || f.name.starts_with("op ") || (f.name == completion_marker()) {
+        if f.name.is_empty() || f.name.starts_with("op ") || (f.name == completion_marker()) {
             return f
         }
 
@@ -691,7 +689,7 @@ extend IndexWalker {
             self.scope_seen_[h] = self.scope_rows.size() as u32
         }
 
-        self.scope_rows.push_back(r)
+        self.scope_rows.push(r)
     }
 
     /// Builds `scope_rows` and `sees`: what depends on the file that asks.
@@ -725,17 +723,17 @@ extend IndexWalker {
 
             if self.sc->sees_extension_file(f) {
                 var path = self.sm->get_filename(f)
-                keys.push_back(
+                keys.push(
                     (fnv1a(path) << 16) | ((paths.size() as u64) & 0xFFFF),
                 )
 
-                paths.push_back(path.copy())
+                paths.push(path.copy())
             }
         }
 
         sort_u64(&keys)
         for var i: usize = 0; i < keys.size(); ++i {
-            self.sees.push_back(paths[(keys[i] & 0xFFFF) as usize].copy())
+            self.sees.push(paths[(keys[i] & 0xFFFF) as usize].copy())
         }
     }
 
@@ -747,8 +745,8 @@ extend IndexWalker {
             }
         }
 
-        self.scope_fids_.push_back(fid)
-        self.scope_files.push_back(self.sm->get_filename(fid))
+        self.scope_fids_.push(fid)
+        self.scope_files.push(self.sm->get_filename(fid))
         return (self.scope_fids_.size() - 1) as i64
     }
 
@@ -764,7 +762,7 @@ extend IndexWalker {
             w->uint(r->sort as usize)
             w->integer(r->file)
             w->integer(r->off)
-            if !r->detail.empty() {
+            if !r->detail.is_empty() {
                 w->str(r->detail)
             }
 

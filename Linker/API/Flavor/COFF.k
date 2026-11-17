@@ -80,7 +80,7 @@ pub class COFFArgs {
         var errs0 = LinkDiag::error_count(&msgs)
         var *o    = job.opts
 
-        if job.output.empty() {
+        if job.output.is_empty() {
             msgs.push_back(
                 LinkDiag::make(LinkSeverity::Error, "link: no output path"),
             )
@@ -111,7 +111,7 @@ pub class COFFArgs {
         }
 
         var machine = Toolchain::msvc_machine(tc.arch)
-        if machine.empty() {
+        if machine.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -126,7 +126,7 @@ pub class COFFArgs {
         var no_crt  = o->no_crt || o->freestanding
         var no_libs = o->no_default_libs || o->freestanding
 
-        if no_crt && !shared && o->entry.empty() {
+        if no_crt && !shared && o->entry.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -158,7 +158,7 @@ pub class COFFArgs {
         // only names the entry when there is no CRT to own it.
         if shared && o->no_entry {
             argv.push_back("-noentry")
-        } else if no_crt && !o->entry.empty() {
+        } else if no_crt && !o->entry.is_empty() {
             argv.push_back(f"-entry:{o->entry}")
         }
 
@@ -172,7 +172,7 @@ pub class COFFArgs {
             argv.push_back(f"-libpath:{d}")
         }
 
-        if !tc.toolchain_lib.empty() {
+        if !tc.toolchain_lib.is_empty() {
             argv.push_back(f"-libpath:{tc.toolchain_lib}")
         }
 
@@ -187,7 +187,7 @@ pub class COFFArgs {
 
         if o->build_id == "none" {
             argv.push_back("-build-id:no")
-        } else if !o->build_id.empty() {
+        } else if !o->build_id.is_empty() {
             argv.push_back("-build-id")
         }
 
@@ -218,7 +218,7 @@ pub class COFFArgs {
             argv.push_back("-opt:noicf")
         }
 
-        if !o->map_file.empty() {
+        if !o->map_file.is_empty() {
             argv.push_back(f"-map:{o->map_file}")
         }
 
@@ -271,25 +271,25 @@ pub class COFFArgs {
             }
         }
 
-        if !o->pdb.empty() {
+        if !o->pdb.is_empty() {
             argv.push_back(f"-pdb:{o->pdb}")
         }
 
-        if !o->def.empty() {
+        if !o->def.is_empty() {
             argv.push_back(f"-def:{o->def}")
         }
 
-        if !o->implib.empty() {
+        if !o->implib.is_empty() {
             argv.push_back(f"-implib:{o->implib}")
         }
 
         // A custom manifest is only valid with /manifest:embed, so naming one
         // implies embedding it.
-        if o->manifest || !o->manifest_file.empty() {
+        if o->manifest || !o->manifest_file.is_empty() {
             argv.push_back("-manifest:embed")
         }
 
-        if !o->manifest_file.empty() {
+        if !o->manifest_file.is_empty() {
             argv.push_back(f"-manifestinput:{o->manifest_file}")
         }
 
@@ -347,7 +347,7 @@ pub class COFFArgs {
     }
 
     priv static fn _ignored(o: *LinkerOptions, @inout msgs: cxx::std::vector<LinkMessage>) {
-        if !o->linker_script.empty() {
+        if !o->linker_script.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -356,7 +356,7 @@ pub class COFFArgs {
             )
         }
 
-        if !o->version_script.empty() {
+        if !o->version_script.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -392,7 +392,7 @@ pub class COFFArgs {
             )
         }
 
-        if !o->dynamic_linker.empty() {
+        if !o->dynamic_linker.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Warning,
@@ -401,7 +401,7 @@ pub class COFFArgs {
             )
         }
 
-        if !o->emulation.empty() {
+        if !o->emulation.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Warning,
@@ -426,7 +426,7 @@ pub class COFFArgs {
             name = LinkText::slice(spec, c + 1, spec.size())
         }
 
-        if !mode.empty() && mode != "static" && mode != "dynamic" {
+        if !mode.is_empty() && mode != "static" && mode != "dynamic" {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -437,7 +437,7 @@ pub class COFFArgs {
             return
         }
 
-        if name.empty() {
+        if name.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -492,11 +492,11 @@ pub class COFFArgs {
             }
         } else {
             var s = COFFArgs::_lib(&tc, "libc++.lib")
-            if !s.empty() {
+            if !s.is_empty() {
                 cxx_v.push_back(s)
             } else {
                 var d = COFFArgs::_lib(&tc, "c++.lib")
-                if d.empty() {
+                if d.is_empty() {
                     msgs.push_back(
                         LinkDiag::make(
                             LinkSeverity::Error,
@@ -535,7 +535,7 @@ pub class COFFArgs {
             argv.push_back(x)
         }
 
-        if tc.rtlib == "compiler-rt" && !tc.builtins.empty() {
+        if tc.rtlib == "compiler-rt" && !tc.builtins.is_empty() {
             argv.push_back(tc.builtins)
         }
 
@@ -545,7 +545,7 @@ pub class COFFArgs {
     }
 
     priv static fn _lib(@inout tc: Toolchain, const name: string) -> string {
-        if !tc.toolchain_lib.empty() {
+        if !tc.toolchain_lib.is_empty() {
             var p = LinkText::join(tc.toolchain_lib.copy(), name.copy())
             if LinkFS::is_file(p) {
                 return p

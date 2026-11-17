@@ -172,7 +172,7 @@ pub class IndexObserver derives SemaObserver {
     pub fn IndexObserver(self) = default
 
     priv fn count_(self) {
-        if self.progress.empty() {
+        if self.progress.is_empty() {
             return
         }
 
@@ -201,7 +201,7 @@ pub class IndexObserver derives SemaObserver {
         var fid   = sc->ctx->fid
         var path  = sc->ctx->sm->get_filename(fid)
         var named = self.is_named_(path)
-        if (!named) && (self.root.empty() || (!path.starts_with(self.root))) {
+        if (!named) && (self.root.is_empty() || (!path.starts_with(self.root))) {
             // Outside what is indexed (the library): no rows, but its
             // declarations are what the indexed files name and complete.
             if (!sc->ctx->syntax_skipped) && (!sc->tu->is_foreign) {
@@ -223,7 +223,7 @@ pub class IndexObserver derives SemaObserver {
         // and rows from it would be guesses. The snapshot names it.
         if sc->ctx->syntax_skipped {
             var lock = kairo::std::LockGuard(self.mu_)
-            self.unchecked.push_back(path.copy())
+            self.unchecked.push(path.copy())
             return
         }
 
@@ -231,7 +231,7 @@ pub class IndexObserver derives SemaObserver {
         // for everything else, none inside those bodies.
         if sc->tu->recovered_bodies.size() > 0 {
             var lock = kairo::std::LockGuard(self.mu_)
-            self.partial.push_back(path.copy())
+            self.partial.push(path.copy())
         }
 
         var        t0      = worker_us()
@@ -247,7 +247,7 @@ pub class IndexObserver derives SemaObserver {
         // it (Hovers.k, fill_layouts_).
         var lock = kairo::std::LockGuard(self.mu_)
         self.walk_us += t1 - t0
-        self.held_.push_back(walker)
+        self.held_.push(walker)
     }
 
     /* OVERRIDE */
@@ -259,7 +259,7 @@ pub class IndexObserver derives SemaObserver {
                 if self.held_[i]->sc == sc {
                     walker        = self.held_[i]
                     self.held_[i] = self.held_[self.held_.size() - 1]
-                    self.held_.pop_back()
+                    self.held_.pop()
                     break
                 }
             }
@@ -276,9 +276,9 @@ pub class IndexObserver derives SemaObserver {
     /// Whatever on_lowered never got back (a run that stopped between the
     /// two calls): written without the layout lines, after the compile.
     pub fn flush(self) {
-        while !self.held_.empty() {
+        while !self.held_.is_empty() {
             var unsafe *walker = self.held_[self.held_.size() - 1]
-            self.held_.pop_back()
+            self.held_.pop()
             walker->sc = &null
             self.finish_(walker)
         }
@@ -286,7 +286,7 @@ pub class IndexObserver derives SemaObserver {
 
     /// Under the lock: \p path's table is \p table ("": it has none).
     priv fn keep_table_(self, const path: string, const table: string) {
-        if table.empty() {
+        if table.is_empty() {
             return
         }
 
@@ -308,9 +308,9 @@ pub class IndexObserver derives SemaObserver {
             }
         }
 
-        self.t_paths.push_back(path.copy())
-        self.t_blocks.push_back(table.copy())
-        self.t_seq.push_back(self.seq)
+        self.t_paths.push(path.copy())
+        self.t_blocks.push(table.copy())
+        self.t_seq.push(self.seq)
     }
 
     priv fn finish_(self, walker: unsafe *IndexWalker) {
@@ -334,8 +334,8 @@ pub class IndexObserver derives SemaObserver {
                 }
             }
 
-            self.k_paths.push_back(wpath.copy())
-            self.k_blocks.push_back(w.out.copy())
+            self.k_paths.push(wpath.copy())
+            self.k_blocks.push(w.out.copy())
             return
         }
 
@@ -409,7 +409,7 @@ pub class DiagCollector derives DiagConsumer {
         }
 
         f.lines.build(f.text)
-        self.files_.push_back(f)
+        self.files_.push(f)
         return self.files_.size() - 1
     }
 
@@ -482,7 +482,7 @@ pub class DiagCollector derives DiagConsumer {
 
             w->begin_object()
             var title = d->fixits[i].message.copy()
-            if title.empty() {
+            if title.is_empty() {
                 title = "apply fix"
             }
 
@@ -602,7 +602,7 @@ pub class DiagCollector derives DiagConsumer {
         // it joins the message.
         for var i: usize = 0; i < diag->labels.size(); ++i {
             if (diag->labels[i].style == DiagLabel::Style::Primary)
-                && (!diag->labels[i].text.empty()) {
+                && (!diag->labels[i].text.is_empty()) {
                 msg += "\n"
                 msg += diag->labels[i].text
                 break
@@ -674,8 +674,8 @@ fn syntax_main(const out_path: string,
             continue
         }
 
-        held.push_back(text.copy())
-        named.push_back((*real)[k].copy())
+        held.push(text.copy())
+        named.push((*real)[k].copy())
     }
 
     var out = syntax_answer(file, const &named, const &held, &words)
@@ -721,7 +721,7 @@ fn syntax_answer(const file:   string,
 
     // The bytes must outlive the pass: the source manager keeps a view.
     for var k: usize = 0; k < real->size(); ++k {
-        var unsafe *bytes = unsafe (((*texts)[k].raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
+        var unsafe *bytes = unsafe (((*texts)[k].data() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
         ci->sm()->load_overlay(Path((*real)[k]), bytes, (*texts)[k].size())
     }
 
@@ -819,9 +819,9 @@ fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
                 }
             }
 
-            ids.push_back(d.get_int(d.root, RQ_ID))
-            files.push_back(f.copy())
-            texts.push_back(d.get_str(d.root, RQ_TEXT))
+            ids.push(d.get_int(d.root, RQ_ID))
+            files.push(f.copy())
+            texts.push(d.get_str(d.root, RQ_TEXT))
         }
 
         for var k: usize = 0; k < files.size(); ++k {
@@ -838,9 +838,9 @@ fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
             words.push_back(CF_TYPE_CHECK_ONLY)
             words.push_back(CF_THREADS_ONE)
             var real: [string]
-            real.push_back(files[k].copy())
+            real.push(files[k].copy())
             var txt: [string]
-            txt.push_back(texts[k].copy())
+            txt.push(texts[k].copy())
             var body = syntax_answer(files[k], const &real, const &txt, &words)
             var idn  = ids[k]
             // `{"id":N,` spliced before the answer's own members.
@@ -931,8 +931,8 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         }
 
         if (a == WA_OVERLAY) && ((i + 2) < args.size()) {
-            real.push_back(args[i + 1].copy())
-            tmps.push_back(args[i + 2].copy())
+            real.push(args[i + 1].copy())
+            tmps.push(args[i + 2].copy())
             i += 3
             continue
         }
@@ -952,11 +952,11 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
     // The index run checks what syntax errors leave sound
     // (LanguageServer.md section 9); the syntax pass stops at the parse.
-    if syntax_file.empty() {
+    if syntax_file.is_empty() {
         words.push_back(CF_CHECK_PAST_SYNTAX_ERRORS)
     }
 
-    if !syntax_file.empty() {
+    if !syntax_file.is_empty() {
         // One file has nothing to share out: a thread pool of every core
         // costs more to start and stop (and to schedule on a busy machine)
         // than the parse it would run.
@@ -1026,8 +1026,8 @@ pub fn worker_main(@inout args: [string]) -> i32 {
             continue
         }
 
-        held.push_back(text.copy())
-        var unsafe *bytes = unsafe ((held[held.size() - 1].raw() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
+        held.push(text.copy())
+        var unsafe *bytes = unsafe ((held[held.size() - 1].data() as unsafe *const u8) as kairo::std::ConstPtr<u8>)
         // Staged, not loaded: the file gets its id where the graph first
         // loads it, as a fresh `kairo` run numbers it. Loaded here it was
         // minted ahead of every file of the graph, and whatever is ordered

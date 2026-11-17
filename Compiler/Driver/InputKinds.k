@@ -205,7 +205,7 @@ pub fn classify_input(const path: string, const xlang: string) -> InputKind {
         return k
     }
 
-    if !lang.empty() {
+    if !lang.is_empty() {
         k.ty = clang::driver::types::lookupTypeForTypeSpecifier(lang.c_str())
         if k.ty == clang::driver::types::TY_INVALID {
             k.cls = InputClass::BadLanguage
@@ -236,7 +236,7 @@ pub fn classify_input(const path: string, const xlang: string) -> InputKind {
     k.ty = clang::driver::types::lookupTypeForExtension(kairo::sref(ext))
     _class_of_type(&k)
     if k.cls == InputClass::Unknown {
-        k.why = if (!ext.empty()) => (f"unknown input type '.{ext}'; name its language with -x <lang>")
+        k.why = if (!ext.is_empty()) => (f"unknown input type '.{ext}'; name its language with -x <lang>")
                 else => "input has no extension; name its language with -x <lang>"
         // Only reachable after a bare `--`, where every word is an input.
         // There is no clang passthrough: Kairo has its own spelling for the

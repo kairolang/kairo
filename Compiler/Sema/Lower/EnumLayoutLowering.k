@@ -1933,7 +1933,7 @@ pub class EnumLayoutQuery {
         }
 
         if v == VIS_PROT() {
-            return if (tu_module_dir(Speller::tu_of(fdl)).empty()) => (0) else => 1
+            return if (tu_module_dir(Speller::tu_of(fdl)).is_empty()) => (0) else => 1
         }
 
         if v == VIS_NONE() {

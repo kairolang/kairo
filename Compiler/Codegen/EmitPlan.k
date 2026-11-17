@@ -715,7 +715,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         }
 
         // prot, written or by default: a module's, never a file-only one's.
-        return !self.host_in_module || tu_module_dir(Speller::tu_of(d)).empty()
+        return !self.host_in_module || tu_module_dir(Speller::tu_of(d)).is_empty()
     }
 
     /// # Dump

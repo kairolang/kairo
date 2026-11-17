@@ -102,7 +102,7 @@ extend CompilerInstance {
             return false
         }
 
-        if (!self.invocation()->pp.prelude_path.empty())
+        if (!self.invocation()->pp.prelude_path.is_empty())
             || self.invocation()->pp.force_includes.size() > 0 {
             return false
         }

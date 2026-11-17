@@ -63,7 +63,7 @@ pub class LinkDiag {
         var have = false
         var cur  = LinkMessage{}
         for var line: string in LinkText::split_lines(text.copy()) {
-            if LinkText::trim(line).empty() {
+            if LinkText::trim(line).is_empty() {
                 continue
             }
 

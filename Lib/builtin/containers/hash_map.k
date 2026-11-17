@@ -53,6 +53,11 @@ import base::hash::*
 import containers::slice::*
 import containers::hash_index::*
 
+/// Moves `src` out of its entry; the entry is left to be destroyed.
+inline fn <T> map_take(@move src: T) -> T {
+    return src
+}
+
 /// One key and its value, as a HashMap stores and iterates them (`m.find(k)`, `m.begin()`,
 /// `m.entries()`).
 ///
@@ -158,6 +163,8 @@ pub class <K impl Hash, V> HashMap {
     pub inline fn size(const self) -> usize { return self.len }
     /// Returns true when the map has no entries. O(1).
     pub inline fn empty(const self) -> bool { return self.len == 0 }
+    /// Returns true when the map has no entries; same as `empty()`.
+    pub inline fn is_empty(const self) -> bool { return self.len == 0 }
     /// Returns how many entries fit before the next growth.
     pub inline fn capacity(const self) -> usize { return self.cap }
 
@@ -262,6 +269,14 @@ pub class <K impl Hash, V> HashMap {
     /// Stage 0's `emplace(k, v)`: the same as `insert`.
     pub inline fn emplace(self, const k: K, const v: V) -> bool { return self.insert(k, v) }
 
+    /// Adds `(k, v)` when `k` is absent and returns null; when `k` is present, changes nothing
+    /// and returns `v`. O(1) amortized.
+    pub fn try_insert(self, k: K, v: V) -> V? {
+        var none: V?
+        if self.insert(k, v) { return none }
+        return v
+    }
+
     /// Room for n entries without growing.
     /// Ensures room for `n` entries without growing. O(size()) when it grows.
     pub fn reserve(self, n: usize) {
@@ -317,6 +332,32 @@ pub class <K impl Hash, V> HashMap {
         shift_down_after(self.slot_table(), self.cap * 2, e)
         self.len -= 1
         return true
+    }
+
+    /// Removes `k` and returns its value, or returns null when it was absent. The last entry
+    /// takes its place, as in `erase`. O(1) expected.
+    pub fn swap_remove(self, const k: K) -> V? {
+        var e = self.index_of(k)
+        var none: V?
+        if e == HASH_NPOS { return none }
+        var ent: *MapEntry<K, V> = &null
+        unsafe { ent = (self.entry_array() + e) as *MapEntry<K, V> }
+        var out: V? = map_take<V>(ent->value)
+        self.erase(k)
+        return out
+    }
+
+    /// Removes `k` and returns its value, or returns null when it was absent. Every other
+    /// entry keeps its order, as in `erase_ordered`. O(n).
+    pub fn shift_remove(self, const k: K) -> V? {
+        var e = self.index_of(k)
+        var none: V?
+        if e == HASH_NPOS { return none }
+        var ent: *MapEntry<K, V> = &null
+        unsafe { ent = (self.entry_array() + e) as *MapEntry<K, V> }
+        var out: V? = map_take<V>(ent->value)
+        self.erase_ordered(k)
+        return out
     }
 
     /// Removes every entry, keeping the capacity. O(capacity).

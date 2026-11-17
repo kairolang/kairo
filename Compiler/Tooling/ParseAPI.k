@@ -468,7 +468,7 @@ pub fn parse_fid(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> 
     }
 
     var name = ci->sm()->get_filename(fid)
-    if name.empty() {
+    if name.is_empty() {
         return ParsedUnit::failure(fid, TUStage::Failed)
     }
 

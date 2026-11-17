@@ -199,7 +199,7 @@ pub class DepScanner {
         }
 
         if self._max_depth > 0 && (depth as i32) > self._max_depth {
-            if graph->depth_exceeded_path.empty() {
+            if graph->depth_exceeded_path.is_empty() {
                 graph->depth_exceeded_path = self._sm->get_filename(fid)
             }
 

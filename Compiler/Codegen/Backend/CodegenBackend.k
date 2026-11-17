@@ -301,7 +301,7 @@ pub class CodegenBackend derives TokenFiller {
         // The cache record, after everything the key hashed (hash_stream
         // writes the same stream without it): one top-level asm whose
         // section the linker drops. Unanchored: it has no Kairo bytes.
-        if !self._record.empty() {
+        if !self._record.is_empty() {
             var fid = self._kfid
             var at = if (self._ctx->sm->get_file_size(fid) == 0) => (self._ctx->sm->get_range(
                          fid,
@@ -734,7 +734,7 @@ pub class CodegenJob {
             // The library's own files are never the anchor: its root as the
             // resource layout places it, and the directories passed in its
             // place.
-            if !ci->target.resource_dir.empty() {
+            if !ci->target.resource_dir.is_empty() {
                 a->lib_roots.push_back(
                     ci->target.resource_dir + "/" + ResourceLayout::builtin_subdir(),
                 )

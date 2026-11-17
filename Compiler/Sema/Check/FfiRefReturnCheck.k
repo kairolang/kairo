@@ -209,7 +209,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         }
 
         var why = self._illegal_owner(n)
-        if why.empty() {
+        if why.is_empty() {
             return true
         }
 

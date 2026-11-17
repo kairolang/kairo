@@ -1135,7 +1135,7 @@ pub class ImportResolver {
         }
 
         var other_real = string()
-        if other.empty() {
+        if other.is_empty() {
             if !self._lib_pins.contains(kairo::sref(key)) {
                 self._lib_pins[kairo::sref(key)]     = real.copy()
                 self._lib_pin_dirs[kairo::sref(key)] = dir.copy()
@@ -1271,7 +1271,7 @@ pub class ImportResolver {
                 continue
             }
 
-            if !self._relative_to(file, r->base_path).empty() { // its own library
+            if !self._relative_to(file, r->base_path).is_empty() { // its own library
                 continue
             }
 

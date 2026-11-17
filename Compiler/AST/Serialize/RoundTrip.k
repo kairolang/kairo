@@ -79,8 +79,8 @@ fn first_difference(const a: string, const b: string) -> string {
             eb += 1
         }
 
-        var la = string(unsafe ((a.raw() + ia) as *const u8), ea - ia)
-        var lb = string(unsafe ((b.raw() + ib) as *const u8), eb - ib)
+        var la = string(unsafe ((a.data() + ia) as *const u8), ea - ia)
+        var lb = string(unsafe ((b.data() + ib) as *const u8), eb - ib)
         if la != lb {
             return f"line {line}: parsed `{la}`, reloaded `{lb}`"
         }
@@ -425,7 +425,7 @@ pub class ASTRoundTrip {
             &ib,
         )
 
-        if !tu_diff.empty() {
+        if !tu_diff.is_empty() {
             err = f"the reloaded TU's symbol table differs: {tu_diff}"
             return false
         }
@@ -490,7 +490,7 @@ pub class ASTRoundTrip {
                 &ib,
             )
 
-            if !diff.empty() {
+            if !diff.is_empty() {
                 err = f"node {i}: the reloaded scope's symbol table differs: {diff}"
                 return false
             }

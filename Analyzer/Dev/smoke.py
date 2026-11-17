@@ -4396,7 +4396,7 @@ def library_files(exe, base):
         shutil.copytree(os.path.join(ROOT, "Lib", lib), os.path.join(root, "Lib", lib), symlinks=True)
     c = Client(exe, root)
     c.start()
-    for rel, needle in (("Lib/builtin/string.k", "cmp_(self.data, other.data, n)"),
+    for rel, needle in (("Lib/builtin/string.k", "cmp_(self.buf, other.buf, n)"),
                         ("Lib/std/io.k", "write_line_(1, s)")):
         text = c.open(rel)
         c.settle()

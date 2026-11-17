@@ -71,14 +71,14 @@ pub class JsonDoc {
         self.src_  = text.copy()
         self.pos_  = 0
         self.root  = self.value_(0)
-        if self.error.empty() {
+        if self.error.is_empty() {
             self.ws_()
             if self.pos_ < self.src_.size() {
                 self.fail_("trailing characters after the value")
             }
         }
 
-        if !self.error.empty() {
+        if !self.error.is_empty() {
             self.root = JSON_NONE()
             return false
         }
@@ -263,7 +263,7 @@ pub class JsonDoc {
     priv fn fail_(self, const why: string) {
         // The FIRST failure is the cause; everything after it is the parser
         // unwinding through input it no longer understands.
-        if self.error.empty() {
+        if self.error.is_empty() {
             self.error = f"JSON: {why} at byte {self.pos_}"
         }
     }
@@ -285,7 +285,7 @@ pub class JsonDoc {
     priv fn new_(self, kind: JsonKind) -> u32 {
         var n = JsonNode{}
         n.kind = kind
-        self.nodes.push_back(n)
+        self.nodes.push(n)
         return (self.nodes.size() - 1) as u32
     }
 
@@ -382,7 +382,7 @@ pub class JsonDoc {
             return obj
         }
 
-        while self.error.empty() {
+        while self.error.is_empty() {
             self.ws_()
             if (self.pos_ >= self.src_.size()) || (self.src_[self.pos_] != ('"' as u8)) {
                 self.fail_("expected a member name")
@@ -444,7 +444,7 @@ pub class JsonDoc {
             return arr
         }
 
-        while self.error.empty() {
+        while self.error.is_empty() {
             var v = self.value_(depth + 1)
             if v == JSON_NONE() {
                 break
@@ -687,7 +687,7 @@ pub class JsonWriter {
             return
         }
 
-        if self.has_.empty() {
+        if self.has_.is_empty() {
             return
         }
 
@@ -702,23 +702,23 @@ pub class JsonWriter {
     fn begin_object(self) {
         self.sep_()
         self.out.push_back('{' as u8)
-        self.has_.push_back(false)
+        self.has_.push(false)
     }
 
     fn end_object(self) {
         self.out.push_back('}' as u8)
-        self.has_.pop_back()
+        self.has_.pop()
     }
 
     fn begin_array(self) {
         self.sep_()
         self.out.push_back('[' as u8)
-        self.has_.push_back(false)
+        self.has_.push(false)
     }
 
     fn end_array(self) {
         self.out.push_back(']' as u8)
-        self.has_.pop_back()
+        self.has_.pop()
     }
 
     fn key(self, const k: string) {

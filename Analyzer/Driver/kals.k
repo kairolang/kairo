@@ -213,7 +213,7 @@ fn usage() {
 pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var args: [string]
     for var i: i32 = 1; i < argc; ++i {
-        args.push_back(
+        args.push(
             string(
                 unsafe ((argv[i] as unsafe *const u8) as *const u8),
                 cxx::std::strlen(argv[i]),
@@ -234,7 +234,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     // Workers are this same binary; argv[0] may be a bare name found on
     // PATH, which a child process cannot be started from.
     var self_path = env::exe_path()
-    if self_path.empty() {
+    if self_path.is_empty() {
         self_path = string(
             unsafe ((argv[0] as unsafe *const u8) as *const u8),
             cxx::std::strlen(argv[0]),
@@ -252,7 +252,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
         var rest: [string]
         for var i: usize = 1; i < args.size(); ++i {
-            rest.push_back(args[i].copy())
+            rest.push(args[i].copy())
         }
 
         if (rest.size() > 0) && (rest[0] == WA_INDEX_SERVER) {

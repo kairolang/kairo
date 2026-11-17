@@ -326,7 +326,7 @@ pub class LinkFS {
     }
 
     pub static fn remove_tree(const p: string) {
-        if p.empty() {
+        if p.is_empty() {
             return
         }
 
@@ -362,12 +362,12 @@ pub class LinkFS {
     /// otherwise an installed tree that is not on PATH prints an
     /// unsymbolized backtrace.
     pub static fn use_sibling_symbolizer() {
-        if !LinkFS::env("LLVM_SYMBOLIZER_PATH").empty() {
+        if !LinkFS::env("LLVM_SYMBOLIZER_PATH").is_empty() {
             return
         }
 
         var exe = env::exe_path()
-        if exe.empty() {
+        if exe.is_empty() {
             return
         }
 

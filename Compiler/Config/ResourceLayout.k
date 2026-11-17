@@ -87,7 +87,7 @@ pub class ResourceLayout {
         }
 
         var root = ci->pp.builtins_dir.copy()
-        if root.empty() && !ci->target.resource_dir.empty() {
+        if root.is_empty() && !ci->target.resource_dir.is_empty() {
             root = ci->target.resource_dir + "/" + ResourceLayout::builtin_subdir()
         }
 
@@ -104,7 +104,7 @@ pub class ResourceLayout {
         }
 
         var root = ci->pp.std_dir.copy()
-        if root.empty() && !ci->target.resource_dir.empty() {
+        if root.is_empty() && !ci->target.resource_dir.is_empty() {
             root = ci->target.resource_dir + "/" + ResourceLayout::std_subdir()
         }
 
@@ -116,7 +116,7 @@ pub class ResourceLayout {
     priv static fn _under_std_as_spelled(ci:         unsafe *CompilerInvocation,
                                          const file: string) -> bool {
         var root = ResourceLayout::std_root_of(ci)
-        if root.empty() {
+        if root.is_empty() {
             return false
         }
 
@@ -135,7 +135,7 @@ pub class ResourceLayout {
         }
 
         var root = ResourceLayout::std_root_of(ci)
-        if root.empty() {
+        if root.is_empty() {
             return false
         }
 

@@ -34,14 +34,14 @@ pub class ByteWriter {
     }
 
     pub inline fn put_u8(self, v: u8) {
-        self.buf.push_back(v)
+        self.buf.push(v)
     }
 
     pub fn put_u32le(self, v: u32) {
-        self.buf.push_back((v & 0xFF) as u8)
-        self.buf.push_back(((v >> 8) & 0xFF) as u8)
-        self.buf.push_back(((v >> 16) & 0xFF) as u8)
-        self.buf.push_back(((v >> 24) & 0xFF) as u8)
+        self.buf.push((v & 0xFF) as u8)
+        self.buf.push(((v >> 8) & 0xFF) as u8)
+        self.buf.push(((v >> 16) & 0xFF) as u8)
+        self.buf.push(((v >> 24) & 0xFF) as u8)
     }
 
     pub fn put_u64le(self, v: u64) {
@@ -62,11 +62,11 @@ pub class ByteWriter {
     pub fn put_varint(self, v: u64) {
         var x = v
         while x >= 0x80 {
-            self.buf.push_back(((x & 0x7F) | 0x80) as u8)
+            self.buf.push(((x & 0x7F) | 0x80) as u8)
             x = x >> 7
         }
 
-        self.buf.push_back(x as u8)
+        self.buf.push(x as u8)
     }
 
     /// Zigzag, so a small negative number is a short varint too.
@@ -78,7 +78,7 @@ pub class ByteWriter {
     pub fn put_bytes(self, p: unsafe *const u8, n: usize) {
         self.buf.reserve(self.buf.size() + n)
         for var i: usize = 0; i < n; ++i {
-            self.buf.push_back(p[i])
+            self.buf.push(p[i])
         }
     }
 
@@ -86,7 +86,7 @@ pub class ByteWriter {
         var n = other.buf.size()
         self.buf.reserve(self.buf.size() + n)
         for var i: usize = 0; i < n; ++i {
-            self.buf.push_back(other.buf[i])
+            self.buf.push(other.buf[i])
         }
     }
 

@@ -804,7 +804,7 @@ pub class LowerSynth {
 
     /// A compiler string (wide) as UTF-8 bytes.
     static fn push_string(const s: string, @inout out: cxx::std::vector<u8>) {
-        var unsafe *r = unsafe (s.raw() as kairo::std::ConstPtr<u8>) // raw is const: no working copy
+        var unsafe *r = unsafe (s.data() as kairo::std::ConstPtr<u8>) // raw is const: no working copy
         for var i: usize = 0; i < s.size(); ++i {
             out.push_back(r[i])
         }

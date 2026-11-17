@@ -568,7 +568,7 @@ fn io_binary_operator_expr(ar: unsafe *ASTArchive, top: unsafe *Expressions::Bin
     var spine: [unsafe *Expressions::BinaryOperatorExpr]
     var cur                                              = top
     while true {
-        spine.push_back(cur)
+        spine.push(cur)
         var fresh = ar->expr_begin(&cur->lhs)
         if !fresh {
             break
@@ -586,7 +586,7 @@ fn io_binary_operator_expr(ar: unsafe *ASTArchive, top: unsafe *Expressions::Bin
 
     while spine.size() > 0 {
         var n = spine[spine.size() - 1]
-        spine.pop_back()
+        spine.pop()
         ar->expr<Expr>(&n->rhs)
         ar->tok(&n->op_token)
         eval if defined!(DEBUG) {

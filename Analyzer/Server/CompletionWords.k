@@ -116,8 +116,8 @@ pub fn language_words() -> [Word] {
         var w = Word{}
         w.text = token_kind_to_readable_string(kinds[i])
         w.kc   = word_context(kinds[i])
-        if !w.text.empty() {
-            out.push_back(w)
+        if !w.text.is_empty() {
+            out.push(w)
         }
     }
 
@@ -130,7 +130,7 @@ pub fn builtin_attributes() -> [BuiltinRow] {
     var i:   usize        = 0
     while true {
         var word = LangAttrs::known(i)
-        if word.empty() {
+        if word.is_empty() {
             break
         }
 
@@ -148,7 +148,7 @@ pub fn builtin_attributes() -> [BuiltinRow] {
             r.usage   = LangAttrs::usage(word)
             r.summary = LangAttrs::summary(word)
             r.targets = LangAttrs::targets(word)
-            out.push_back(r)
+            out.push(r)
         }
 
         i += 1
@@ -163,7 +163,7 @@ pub fn builtin_macros() -> [BuiltinRow] {
     var i:   usize        = 0
     while true {
         var word = LangMacros::known(i)
-        if word.empty() {
+        if word.is_empty() {
             break
         }
 
@@ -171,14 +171,14 @@ pub fn builtin_macros() -> [BuiltinRow] {
         r.word    = word.copy()
         r.usage   = LangMacros::usage(word)
         r.summary = LangMacros::summary(word)
-        out.push_back(r)
+        out.push(r)
         i += 1
     }
 
     i = 0
     while true {
         var word = LangIntrinsics::known(i)
-        if word.empty() {
+        if word.is_empty() {
             break
         }
 
@@ -186,7 +186,7 @@ pub fn builtin_macros() -> [BuiltinRow] {
         r.word    = word.copy()
         r.usage   = LangIntrinsics::usage(word)
         r.summary = LangIntrinsics::summary(word)
-        out.push_back(r)
+        out.push(r)
         i += 1
     }
 
@@ -255,7 +255,7 @@ pub fn usage_snippet(const usage: string) -> string {
         }
 
         arg = arg.subslice(a, arg.size() - a)
-        if !arg.empty() {
+        if !arg.is_empty() {
             if n > 1 {
                 out += ", "
             }

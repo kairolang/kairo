@@ -3773,9 +3773,9 @@ pub class <T: type> OperatorTyping {
             msg = "cannot " + verb + " \x27" + nm + "\x27: it is const"
         } else if by_owner {
             msg = "cannot " + verb + " " + part + " of \x27" + nm + "\x27: \x27" + nm + "\x27 is const"
-        } else if by_ptr && !nm.empty() {
+        } else if by_ptr && !nm.is_empty() {
             msg = "cannot " + verb + " a field of \x27*" + nm + "\x27: \x27" + nm + "\x27 points to const"
-        } else if !nm.empty() {
+        } else if !nm.is_empty() {
             msg = "cannot " + verb + " \x27*" + nm + "\x27: \x27" + nm + "\x27 points to const"
         }
 

@@ -227,7 +227,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     // --incr-replay: the entry is checked by a live session of its own
     // (Tooling/IncrReplay.k), which makes its instances from the command
     // line; this one only parsed the flags.
-    if !ci->invocation()->frontend.incr_replay.empty() {
+    if !ci->invocation()->frontend.incr_replay.is_empty() {
         return incr_replay_main(
             argc,
             argv,
@@ -237,10 +237,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     }
 
     var fe_time    = ci->invocation()->frontend
-    var want_stats = fe_time.print_stats || !fe_time.stats_file.empty()
-    if fe_time.time_passes || want_stats || !fe_time.time_trace.empty() {
+    var want_stats = fe_time.print_stats || !fe_time.stats_file.is_empty()
+    if fe_time.time_passes || want_stats || !fe_time.time_trace.is_empty() {
         want_tp = true
-        want_tt = want_tt || !fe_time.time_trace.empty()
+        want_tt = want_tt || !fe_time.time_trace.is_empty()
         time_enable(true, want_tt)
     }
 
@@ -277,11 +277,11 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         time_finish()
         // --stats-file alone replaces the stderr table; --time-passes still
         // asks for stderr, so it keeps it.
-        if fe_time.time_passes || !want_stats || fe_time.stats_file.empty() {
+        if fe_time.time_passes || !want_stats || fe_time.stats_file.is_empty() {
             time_print()
         }
 
-        if !fe_time.stats_file.empty() {
+        if !fe_time.stats_file.is_empty() {
             if !_time_print_to(fe_time.stats_file) {
                 io::eprintln(
                     f"error [U023E]: cannot write statistics to '{fe_time.stats_file}'",
@@ -301,7 +301,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
                 // A bare --time-trace names no path at all; that was never a
                 // write failure, so it keeps its old exit status.
-                if !fe_time.time_trace.empty() {
+                if !fe_time.time_trace.is_empty() {
                     out_failed = true
                 }
             }

@@ -79,7 +79,7 @@ pub class MingwProvider derives SysrootProvider {
 
     pub override fn libs(self, ctx: *StageCtx, const dst: string, @inout out: SysOutcome) -> bool {
         var tables = ctx->input_dir("mingw-crt")
-        if !tables.empty() {
+        if !tables.is_empty() {
             return MingwProvider::_from_source(ctx, tables, dst, &out)
         }
 
@@ -240,7 +240,7 @@ pub class MingwProvider derives SysrootProvider {
                              t:          *SysCrtTable,
                              env:        *CrtEnv,
                              @inout out: SysOutcome) -> bool {
-        if ctx->ar.empty() {
+        if ctx->ar.is_empty() {
             return out.refuse(
                 "llvm-ar not found beside the toolchain or on PATH",
                 "",
@@ -251,7 +251,7 @@ pub class MingwProvider derives SysrootProvider {
             var o = env->build + "/" + a.out
             LinkFS::make_dirs(LinkFS::parent(o))
             LinkFS::remove(o)
-            if a.def.empty() {
+            if a.def.is_empty() {
                 continue
             }
 

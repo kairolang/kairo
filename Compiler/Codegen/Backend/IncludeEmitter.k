@@ -312,7 +312,7 @@ pub class IncludeEmitter {
                             csm: unsafe *clang::SourceManager,
                             ctx: unsafe *ASTContext) -> bool {
         var dir = tu_module_dir(ctx->tu)
-        if dir.empty() {
+        if dir.is_empty() {
             return false
         }
 

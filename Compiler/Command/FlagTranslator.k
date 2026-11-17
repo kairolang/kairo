@@ -79,7 +79,7 @@ pub fn _fx_xclang(@inout o: cxx::std::vector<string>, const w: string) {
 /// \brief extracts the numeric part of a diagnostic code: "S025W" -> 25,
 ///        "C889" -> 889, 0 when there is no digit.
 pub fn _fx_code_number(const code: string) -> u32 {
-    var n           = code.length()
+    var n           = code.size()
     var i:    usize = 0
     var val:  u32   = 0
     var seen: bool  = false
@@ -101,7 +101,7 @@ pub fn _fx_code_number(const code: string) -> u32 {
 /// True for a clang-sourced C-code (C followed by a digit: C889, C889W);
 /// CL... (Lowering) and the native categories have no clang warning group.
 pub fn _fx_is_clang_code(const code: string) -> bool {
-    var n        = code.length()
+    var n        = code.size()
     var i: usize = 0
     while i < n && (code[i] == (' ' as u8) || code[i] == ('\t' as u8)) {
         i += 1
@@ -469,7 +469,7 @@ pub class FlagTranslator {
         for *w in user_cc1 {
             if w->starts_with("-ffp-contract=") {
                 contract = string(
-                    unsafe (((w->raw() as unsafe *const u8) + 14) as *const u8),
+                    unsafe (((w->data() as unsafe *const u8) + 14) as *const u8),
                     w->size() - 14,
                 )
 
@@ -491,11 +491,11 @@ pub class FlagTranslator {
             kairo_contract = "fast"
         }
 
-        if contract.empty() {
+        if contract.is_empty() {
             contract = "off"
         }
 
-        if kairo_contract.empty() {
+        if kairo_contract.is_empty() {
             kairo_contract = "off"
         }
 
@@ -538,7 +538,7 @@ pub class FlagTranslator {
                 r"-windows",
             )) {
             return "thumb" + string(
-                unsafe (((triple.raw() as unsafe *const u8) + 3) as *const u8),
+                unsafe (((triple.data() as unsafe *const u8) + 3) as *const u8),
                 triple.size() - 3,
             )
         }
@@ -575,7 +575,7 @@ pub class FlagTranslator {
         /// ### target ISA
         /// (--march rides the driver probe; --mcpu is in target(), which the
         /// caller places so a cpu given there wins over a march's.)
-        if !tgt.mtune.empty() {
+        if !tgt.mtune.is_empty() {
             if cc1 {
                 _fx_push2(&o, "-tune-cpu", tgt.mtune)
             } else {
@@ -583,7 +583,7 @@ pub class FlagTranslator {
             }
         }
 
-        if !tgt.mabi.empty() {
+        if !tgt.mabi.is_empty() {
             if cc1 {
                 _fx_push2(&o, "-target-abi", tgt.mabi)
             } else {
@@ -727,7 +727,7 @@ pub class FlagTranslator {
         /// spellings (-fstack-protector, -strong, -all); -f[no-]stack-
         /// protector is its basic|none shorthand, and the explicit level wins.
         var sp_level = cgo.stack_protector.copy()
-        if sp_level.empty() {
+        if sp_level.is_empty() {
             if cgo.f_stack_protector == 1 {
                 sp_level = "basic"
             }
@@ -760,15 +760,15 @@ pub class FlagTranslator {
             _fx_push(&o, "-fno-stack-protector")
         }
 
-        if !cgo.cf_protection.empty() {
+        if !cgo.cf_protection.is_empty() {
             _fx_push(&o, f"-fcf-protection={cgo.cf_protection}")
         }
 
-        if !cgo.zero_call_used_regs.empty() {
+        if !cgo.zero_call_used_regs.is_empty() {
             _fx_push(&o, f"-fzero-call-used-regs={cgo.zero_call_used_regs}")
         }
 
-        if !cgo.auto_var_init.empty() {
+        if !cgo.auto_var_init.is_empty() {
             _fx_push(&o, f"-ftrivial-auto-var-init={cgo.auto_var_init}")
         }
 
@@ -785,11 +785,11 @@ pub class FlagTranslator {
         /// A `thread` global also carries its model as an attribute
         /// (Speller::tls_model), which follows --tls-model; the flag is for
         /// the C++ thread_locals the ffi headers bring.
-        if !cgo.tls_model.empty() {
+        if !cgo.tls_model.is_empty() {
             _fx_push(&o, f"-ftls-model={cgo.tls_model}")
         }
 
-        if !cgo.visibility.empty() {
+        if !cgo.visibility.is_empty() {
             _fx_push(&o, f"-fvisibility={cgo.visibility}")
         }
 
@@ -875,7 +875,7 @@ pub class FlagTranslator {
         }
 
         // After --kernel-mode's own -mcmodel=kernel: the last one wins.
-        if !cgo.mcmodel.empty() {
+        if !cgo.mcmodel.is_empty() {
             _fx_push(&o, f"-mcmodel={cgo.mcmodel}")
         }
 
@@ -980,13 +980,13 @@ pub class FlagTranslator {
         // Kairo objects carry no other timestamp. The driver has no flag
         // for it (it reads SOURCE_DATE_EPOCH from the environment).
         var epoch = ""
-        if !cgo.source_date_epoch.empty() {
+        if !cgo.source_date_epoch.is_empty() {
             epoch = cgo.source_date_epoch.copy()
         } else if cgo.no_timestamps {
             epoch = "0"
         }
 
-        if !epoch.empty() {
+        if !epoch.is_empty() {
             if cc1 {
                 _fx_push2(&o, "-source-date-epoch", epoch)
             } else {
@@ -1037,7 +1037,7 @@ pub class FlagTranslator {
     pub static fn target(@inout tgt: TargetOptions, sp: ClangSpelling) -> cxx::std::vector<string> {
         var o   = cxx::std::vector<string>()
         var cc1 = sp == ClangSpelling::CC1
-        if !tgt.mcpu.empty() {
+        if !tgt.mcpu.is_empty() {
             // Not the driver's -mcpu=: x86 rejects it (its CPU is -march=),
             // and elsewhere it also turns features on. kairo's --mcpu is the
             // CPU alone, over the features the target or --march implies,
@@ -1071,7 +1071,7 @@ pub class FlagTranslator {
     ///        For kairo's own TUs it rides the target probe.
     pub static fn march_driver(@inout tgt: TargetOptions) -> cxx::std::vector<string> {
         var o = cxx::std::vector<string>()
-        if !tgt.march.empty() {
+        if !tgt.march.is_empty() {
             _fx_push(&o, f"-march={tgt.march}")
         }
 
@@ -1265,7 +1265,7 @@ pub class FlagTranslator {
         var o   = cxx::std::vector<string>()
         var cgo = inv.codegen
         var tgt = inv.target
-        if clang_tri.empty() {
+        if clang_tri.is_empty() {
             _fx_push(
                 &o,
                 "--target=" + FlagTranslator::clang_triple(triple.copy()),
@@ -1374,7 +1374,7 @@ pub class FlagTranslator {
         for *c in d.allow_list {
             if _fx_is_clang_code(*c) {
                 var g = clang_diag_group(_fx_code_number(*c))
-                if !g.empty() {
+                if !g.is_empty() {
                     out.push_back(f"-Wno-{g}")
                 }
             }
@@ -1383,7 +1383,7 @@ pub class FlagTranslator {
         for *c in d.warn_list {
             if _fx_is_clang_code(*c) {
                 var g = clang_diag_group(_fx_code_number(*c))
-                if !g.empty() {
+                if !g.is_empty() {
                     out.push_back(f"-W{g}")
                 }
             }
@@ -1392,7 +1392,7 @@ pub class FlagTranslator {
         for *c in d.deny_list {
             if _fx_is_clang_code(*c) {
                 var g = clang_diag_group(_fx_code_number(*c))
-                if !g.empty() {
+                if !g.is_empty() {
                     out.push_back(f"-Werror={g}")
                 }
             }
@@ -1401,7 +1401,7 @@ pub class FlagTranslator {
         for *c in d.forbid_list {
             if _fx_is_clang_code(*c) {
                 var g = clang_diag_group(_fx_code_number(*c))
-                if !g.empty() {
+                if !g.is_empty() {
                     out.push_back(f"-Werror={g}")
                 }
             }
@@ -1622,7 +1622,7 @@ pub class FlagTranslator {
                         }
                     }
 
-                    if !cur.empty() {
+                    if !cur.is_empty() {
                         kairo_out.push_back(cur)
                     }
                 } else if row->shape == RevShape::LdPair {

@@ -170,14 +170,14 @@ extend Server {
                         }
 
                         if !dup {
-                            labels.push_back(label.copy())
+                            labels.push(label.copy())
                             var sep = find_from(md, "\n---\n\n", 0)
                             if sep != usize::MAX {
-                                docs.push_back(
+                                docs.push(
                                     md.subslice(sep + 6, md.size() - sep - 6),
                                 )
                             } else {
-                                docs.push_back("")
+                                docs.push("")
                             }
                         }
                     }
@@ -189,7 +189,7 @@ extend Server {
             }
         }
 
-        if labels.empty() {
+        if labels.is_empty() {
             // No snapshot has seen this function declared or used (it is
             // being called for the first time). Its declaration is still in
             // some file the entry reads: find `fn name(` in their text.
@@ -258,15 +258,15 @@ extend Server {
                         }
 
                         if !dup {
-                            labels.push_back(label.copy())
-                            docs.push_back("")
+                            labels.push(label.copy())
+                            docs.push("")
                         }
                     }
                 }
             }
         }
 
-        if labels.empty() {
+        if labels.is_empty() {
             self.respond(id, "null")
             return
         }
@@ -280,7 +280,7 @@ extend Server {
         for var q: usize = 0; q < labels.size(); ++q {
             w.begin_object()
             w.field(K_LABEL, labels[q])
-            if !docs[q].empty() {
+            if !docs[q].is_empty() {
                 w.key(K_DOCUMENTATION)
                 w.begin_object()
                 w.field(K_KIND, MARKUP_MARKDOWN)

@@ -253,9 +253,9 @@ extend Server {
                     }
 
                     if g == keys.size() {
-                        keys.push_back(key.copy())
-                        heads.push_back(head.out.copy())
-                        ranges.push_back(rw.out.copy())
+                        keys.push(key.copy())
+                        heads.push(head.out.copy())
+                        ranges.push(rw.out.copy())
                     } else if find_from(ranges[g], rw.out, 0) == usize::MAX {
                         ranges[g] = ranges[g] + "," + rw.out
                     }
@@ -362,7 +362,7 @@ extend Server {
                         }
 
                         if !dup {
-                            seen.push_back(key.copy())
+                            seen.push(key.copy())
                             if items {
                                 self.hierarchy_item(
                                     w,
@@ -409,9 +409,9 @@ extend Server {
         var c                   = s->first(s->get(f, SK_SYMBOLS))
         while c != JSON_NONE() {
             var ss = s->get(s->get(c, K_SELECTION_RANGE), K_START)
-            decl_keys.push_back(s->dump(ss))
-            counts.push_back(0)
-            sites.push_back("")
+            decl_keys.push(s->dump(ss))
+            counts.push(0)
+            sites.push("")
             c = s->next(c)
         }
 

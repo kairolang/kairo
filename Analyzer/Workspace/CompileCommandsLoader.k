@@ -87,14 +87,14 @@ pub class Project {
             }
 
             var up = Path::parent_of(dir)
-            if up.empty() || (up == dir) {
+            if up.is_empty() || (up == dir) {
                 break
             }
 
             dir = up.copy()
         }
 
-        if self.path.empty() {
+        if self.path.is_empty() {
             return
         }
 
@@ -113,7 +113,7 @@ pub class Project {
         var d = doc.get(doc.root, "default_args")
         var a = doc.first(d)
         while a != JSON_NONE() {
-            self.default_args.push_back(doc.str(a))
+            self.default_args.push(doc.str(a))
             a = doc.next(a)
         }
 
@@ -122,12 +122,12 @@ pub class Project {
             var pe      = ProjectEntry()
             var rel_dir = doc.get_str(e, "directory")
             pe.dir = self.dir.copy()
-            if !rel_dir.empty() {
+            if !rel_dir.is_empty() {
                 pe.dir = Path::absolute_if_exists(rel_dir.copy(), self.dir)
             }
 
             var entry = doc.get_str(e, "entry")
-            if entry.empty() {
+            if entry.is_empty() {
                 self.error = self.path + ": an entry has no \"entry\" file"
                 e          = doc.next(e)
                 continue
@@ -136,11 +136,11 @@ pub class Project {
             pe.entry = Path::absolute_if_exists(entry.copy(), pe.dir)
             var arg = doc.first(doc.get(e, "args"))
             while arg != JSON_NONE() {
-                pe.args.push_back(doc.str(arg))
+                pe.args.push(doc.str(arg))
                 arg = doc.next(arg)
             }
 
-            self.entries.push_back(pe)
+            self.entries.push(pe)
             e = doc.next(e)
         }
     }

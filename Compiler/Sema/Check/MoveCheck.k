@@ -4561,7 +4561,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         var ts = self._tu.str(c)
         var cs = self._record_name(owner)
-        if cs.empty() {
+        if cs.is_empty() {
             cs = ts.copy()
         }
 
@@ -5163,8 +5163,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // elements: LiteralTyping bound the calls.
         var two = self.sc->well_known->two_word()
         var by_move = two
-            || !self._why_no_copy(a).empty()
-            || b != &null && !self._why_no_copy(b).empty()
+            || !self._why_no_copy(a).is_empty()
+            || b != &null && !self._why_no_copy(b).is_empty()
         var built = if (two) => (self.sc->literal_calls.count(e as usize as u64) != 0)
                     else => self._tu.literal_build(k).add != &null
         if !by_move || !built {
@@ -5182,7 +5182,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         var why = if (moves_on_pass(self.sc, e->type_)) => ("") else => self._why_no_copy(e->type_)
-        if why.empty() {
+        if why.is_empty() {
             self.sc->built_literals.insert(e as usize as u64)
             return true
         }
@@ -6222,7 +6222,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         b.first(at)
         var unsafe *n = b.note(at.end, why)
-        if src != &null && facts.deprecated_copy_via.empty() && self._copies_itself(src) {
+        if src != &null && facts.deprecated_copy_via.is_empty() && self._copies_itself(src) {
             var unsafe *x = src
             if isa<NamedIdentExpr>(x)
                 || isa<ChainExpr>(x)
@@ -6237,7 +6237,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
-        if !facts.deprecated_copy_via.empty() {
+        if !facts.deprecated_copy_via.is_empty() {
             b.note(
                 at.start,
                 f"a copy of a '{ts}' copies {facts.deprecated_copy_via}",

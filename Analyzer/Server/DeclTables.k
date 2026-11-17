@@ -90,7 +90,7 @@ pub class DeclTable {
         self.builtin = d->get_bool(n, SK_BUILTIN)
         var f = d->first(d->get(n, SK_FILES))
         while f != JSON_NONE() {
-            self.files.push_back(d->str(f))
+            self.files.push(d->str(f))
             f = d->next(f)
         }
 
@@ -98,30 +98,30 @@ pub class DeclTable {
         while r != JSON_NONE() {
             // the DC_* columns, in order
             var c = d->first(r)
-            self.name.push_back(d->str(c))
+            self.name.push(d->str(c))
             c = d->next(c)
-            self.kind.push_back(d->as_int(c))
+            self.kind.push(d->as_int(c))
             c = d->next(c)
-            self.parent.push_back(d->as_int(c))
+            self.parent.push(d->as_int(c))
             c = d->next(c)
             var off = d->as_int(c)
-            self.off.push_back(off)
+            self.off.push(off)
             c = d->next(c)
-            self.line.push_back(d->as_int(c))
+            self.line.push(d->as_int(c))
             c = d->next(c)
-            self.ch.push_back(d->as_int(c))
+            self.ch.push(d->as_int(c))
             c = d->next(c)
-            self.vis.push_back(d->as_int(c))
+            self.vis.push(d->as_int(c))
             c = d->next(c)
-            self.flags.push_back(d->as_int(c))
+            self.flags.push(d->as_int(c))
             c = d->next(c)
-            self.detail.push_back(d->str(c))
+            self.detail.push(d->str(c))
             c = d->next(c)
-            self.tfile.push_back(d->as_int(c))
+            self.tfile.push(d->as_int(c))
             c = d->next(c)
-            self.toff.push_back(d->as_int(c))
+            self.toff.push(d->as_int(c))
             c = d->next(c)
-            self.efile.push_back(
+            self.efile.push(
                 if (c == JSON_NONE()) => (-1 as i64) else => (d->as_int(c)),
             )
 
@@ -129,7 +129,7 @@ pub class DeclTable {
                 c = d->next(c)
             }
 
-            self.eoff.push_back(
+            self.eoff.push(
                 if (c == JSON_NONE()) => (-1 as i64) else => (d->as_int(c)),
             )
 
@@ -144,7 +144,7 @@ pub class DeclTable {
         while b != JSON_NONE() {
             var c = d->first(b)
             while c != JSON_NONE() {
-                self.bases.push_back(d->as_int(c))
+                self.bases.push(d->as_int(c))
                 c = d->next(c)
             }
 
@@ -231,7 +231,7 @@ pub class DeclTables {
             var kept: [DeclTable]
             for var k: usize = 0; k < self.t.size(); ++k {
                 if deps.get(fnv1a(self.t[k].path)) != null {
-                    kept.push_back(self.t[k])
+                    kept.push(self.t[k])
                 }
             }
 
@@ -242,7 +242,7 @@ pub class DeclTables {
                     self.by_path_[h] = self.t.size() as u32
                 }
 
-                self.t.push_back(kept[k])
+                self.t.push(kept[k])
             }
         }
 
@@ -258,7 +258,7 @@ pub class DeclTables {
                     self.by_path_[h] = self.t.size() as u32
                 }
 
-                self.t.push_back(nt)
+                self.t.push(nt)
             } else {
                 self.t[at] = nt
             }
@@ -305,7 +305,7 @@ pub class DeclTables {
             for var i: usize = 0; i < self.t.size(); ++i {
                 for var r: usize = 0; r < self.t[i].flags.size(); ++r {
                     if (self.t[i].flags[r] & DF_EXT) != 0 {
-                        self.exts_.push_back(((i as u64) << 32) | (r as u64))
+                        self.exts_.push(((i as u64) << 32) | (r as u64))
                     }
                 }
             }

@@ -93,7 +93,7 @@ fn diag_line(const d: ToolDiag) -> string {
         head = f"{d.file}:{d.line}:{d.column}: "
     }
 
-    if d.code.empty() {
+    if d.code.is_empty() {
         return f"{head}{d.message}"
     }
 

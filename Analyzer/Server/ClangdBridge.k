@@ -80,7 +80,7 @@ fn split_lines_(const text: string) -> [string] {
             break
         }
 
-        out.push_back(text.subslice(at, nl - at))
+        out.push(text.subslice(at, nl - at))
         at = nl + 1
     }
 
@@ -149,7 +149,7 @@ fn yaml_value_(const line: string, const key: string) -> string {
 
 extend Server {
     fn bridge_root_(const self) -> string {
-        if !self.project.dir.empty() {
+        if !self.project.dir.is_empty() {
             return self.project.dir.copy()
         }
 
@@ -183,8 +183,8 @@ extend Server {
         var out:   [string]
         var r               = self.bridge_root_()
         var cands: [string]
-        cands.push_back(Path::join_str(r, "compile_commands.json"))
-        cands.push_back(
+        cands.push(Path::join_str(r, "compile_commands.json"))
+        cands.push(
             Path::join_str(Path::join_str(r, "build"), "compile_commands.json"),
         )
 
@@ -198,12 +198,12 @@ extend Server {
             var x = doc.first(doc.root)
             while x != JSON_NONE() {
                 var f = doc.get_str(x, "file")
-                if (!f.empty()) && (f[0] != ('/' as u8)) {
+                if (!f.is_empty()) && (f[0] != ('/' as u8)) {
                     f = Path::join_str(doc.get_str(x, "directory"), f.copy())
                 }
 
                 if is_cxx_source(f) {
-                    out.push_back(f.copy())
+                    out.push(f.copy())
                 }
 
                 x = doc.next(x)
@@ -221,13 +221,13 @@ extend Server {
         var walked: [string]
         self.walk_sources_(r, 0, &walked)
         for var w: usize = 0; w < walked.size(); ++w {
-            out.push_back(walked[w].copy())
+            out.push(walked[w].copy())
         }
 
         // And the ones the editor reported (a watched-file event), wherever
         // they are.
         for var w: usize = 0; w < self.br_told.size(); ++w {
-            out.push_back(self.br_told[w].copy())
+            out.push(self.br_told[w].copy())
         }
 
         return out
@@ -240,7 +240,7 @@ extend Server {
 
         var subs: [string]
         for var name: string in LinkFS::list_dir(dir) {
-            if name.empty()
+            if name.is_empty()
                 || (name[0] == ('.' as u8))
                 || (name == "build")
                 || (name == "node_modules") {
@@ -249,9 +249,9 @@ extend Server {
 
             var p = Path::join_str(dir, name.copy())
             if LinkFS::is_dir(p) {
-                subs.push_back(p.copy())
+                subs.push(p.copy())
             } else if is_cxx_source(p) {
-                out->push_back(p.copy())
+                out->push(p.copy())
             }
         }
 
@@ -300,13 +300,13 @@ extend Server {
                        m_h:       *[string]) {
         var st_f: [string]
         var st_d: [u32]
-        st_f.push_back(src.copy())
-        st_d.push_back(0)
-        while !st_f.empty() {
+        st_f.push(src.copy())
+        st_d.push(0)
+        while !st_f.is_empty() {
             var f = st_f[st_f.size() - 1].copy()
             var d = st_d[st_d.size() - 1]
-            st_f.pop_back()
-            st_d.pop_back()
+            st_f.pop()
+            st_d.pop()
             var at  = usize::MAX
             var hit = memo->get(f)
             if hit != null {
@@ -325,7 +325,7 @@ extend Server {
                 var names        = quoted_includes(self.text_of_(f))
                 for var i: usize = 0; i < names.size(); ++i {
                     var r = self.bridge_resolve_(f, names[i])
-                    if r.empty() {
+                    if r.is_empty() {
                         continue
                     }
 
@@ -337,8 +337,8 @@ extend Server {
                 }
 
                 at = m_k->size()
-                m_k->push_back(kj.copy())
-                m_h->push_back(hj.copy())
+                m_k->push(kj.copy())
+                m_h->push(hj.copy())
                 (*memo)[f] = at
             }
 
@@ -359,8 +359,8 @@ extend Server {
                 var h = hl[i - 1].copy()
                 if (h != src) && (find_from(*seen, h + "\n", 0) == usize::MAX) {
                     *seen = *seen + h + "\n"
-                    st_f.push_back(h.copy())
-                    st_d.push_back(d + 1)
+                    st_f.push(h.copy())
+                    st_d.push(d + 1)
                 }
             }
         }
@@ -399,8 +399,8 @@ extend Server {
             }
 
             if known {
-                inc_of.push_back(self.br_src_inc[i].copy())
-                seen_of.push_back(self.br_src_seen[i].copy())
+                inc_of.push(self.br_src_inc[i].copy())
+                seen_of.push(self.br_src_seen[i].copy())
             } else {
                 var ks:   string = ""
                 var seen: string = ""
@@ -414,8 +414,8 @@ extend Server {
                     &m_h,
                 )
 
-                inc_of.push_back(ks.copy())
-                seen_of.push_back(seen.copy())
+                inc_of.push(ks.copy())
+                seen_of.push(seen.copy())
             }
         }
 
@@ -431,7 +431,7 @@ extend Server {
         self.br_changed.clear()
         var rank: [usize] ///< per found file: the latest recency of a source including it
         for var i: usize = 0; i < srcs.size(); ++i {
-            if inc_of[i].empty() {
+            if inc_of[i].is_empty() {
                 continue
             }
 
@@ -453,8 +453,8 @@ extend Server {
                 }
 
                 if at == usize::MAX {
-                    found.push_back(p.copy())
-                    rank.push_back(recency)
+                    found.push(p.copy())
+                    rank.push(recency)
                 } else if recency > rank[at] {
                     rank[at] = recency
                 }
@@ -477,21 +477,21 @@ extend Server {
                 }
             }
 
-            files.push_back(found[q].copy())
+            files.push(found[q].copy())
             if old != usize::MAX {
-                hdr.push_back(self.br_hdr[old].copy())
-                deps.push_back(self.br_deps[old].copy())
-                dirty.push_back(self.br_dirty[old])
-                running.push_back(self.br_running[old])
-                cxx_w.push_back(self.br_cxx_w[old].copy())
-                c_w.push_back(self.br_c_w[old].copy())
+                hdr.push(self.br_hdr[old].copy())
+                deps.push(self.br_deps[old].copy())
+                dirty.push(self.br_dirty[old])
+                running.push(self.br_running[old])
+                cxx_w.push(self.br_cxx_w[old].copy())
+                c_w.push(self.br_c_w[old].copy())
             } else {
-                hdr.push_back("")
-                deps.push_back("")
-                dirty.push_back(true)
-                running.push_back(false)
-                cxx_w.push_back("")
-                c_w.push_back("")
+                hdr.push("")
+                deps.push("")
+                dirty.push(true)
+                running.push(false)
+                cxx_w.push("")
+                c_w.push("")
             }
         }
 
@@ -565,9 +565,9 @@ extend Server {
         var names: [string]
         var hdrs:  [string]
         for var b: usize = 0; b < self.br_files.size(); ++b {
-            if (!self.br_hdr[b].empty()) && LinkFS::is_file(self.br_hdr[b]) {
-                names.push_back(self.br_files[b].copy())
-                hdrs.push_back(self.br_hdr[b].copy())
+            if (!self.br_hdr[b].is_empty()) && LinkFS::is_file(self.br_hdr[b]) {
+                names.push(self.br_files[b].copy())
+                hdrs.push(self.br_hdr[b].copy())
             }
         }
 
@@ -577,7 +577,10 @@ extend Server {
         for var i: usize = 0; i < lines.size(); ++i {
             var name = yaml_value_(lines[i], "name")
             var hdr  = yaml_value_(lines[i], "external-contents")
-            if name.empty() || hdr.empty() || (!LinkFS::is_file(name)) || (!LinkFS::is_file(hdr)) {
+            if name.is_empty()
+                || hdr.is_empty()
+                || (!LinkFS::is_file(name))
+                || (!LinkFS::is_file(hdr)) {
                 continue
             }
 
@@ -589,14 +592,14 @@ extend Server {
             }
 
             if at == usize::MAX {
-                names.push_back(name.copy())
-                hdrs.push_back(hdr.copy())
+                names.push(name.copy())
+                hdrs.push(hdr.copy())
             } else if (hdrs[at] != hdr) && (LinkFS::mtime(hdr) > LinkFS::mtime(hdrs[at])) {
                 hdrs[at] = hdr.copy()
             }
         }
 
-        if names.empty() {
+        if names.is_empty() {
             self.br_ov_mtime = LinkFS::mtime(ov)
             return
         }
@@ -662,17 +665,17 @@ extend Server {
         var any_cxx: string   = ""
         var any_c:   string   = ""
         for var b: usize = 0; b < self.br_files.size(); ++b {
-            if any_cxx.empty() {
+            if any_cxx.is_empty() {
                 any_cxx = self.br_cxx_w[b].copy()
             }
 
-            if any_c.empty() {
+            if any_c.is_empty() {
                 any_c = self.br_c_w[b].copy()
             }
         }
 
         for var i: usize = 0; i < self.br_src.size(); ++i {
-            if (i >= self.br_src_inc.size()) || self.br_src_inc[i].empty() {
+            if (i >= self.br_src_inc.size()) || self.br_src_inc[i].is_empty() {
                 continue
             }
 
@@ -687,7 +690,7 @@ extend Server {
                 }
             }
 
-            if rel.empty() {
+            if rel.is_empty() {
                 continue // outside the root: this .clangd does not apply to it
             }
 
@@ -705,8 +708,8 @@ extend Server {
             var is_c        = p.ends_with(".c") || p.ends_with(".m")
             var w:   string = ""
             var ks          = split_lines_(self.br_src_inc[i])
-            for var k: usize = 0; w.empty() && (k < ks.size()); ++k {
-                for var b: usize = 0; w.empty() && (b < self.br_files.size()); ++b {
+            for var k: usize = 0; w.is_empty() && (k < ks.size()); ++k {
+                for var b: usize = 0; w.is_empty() && (b < self.br_files.size()); ++b {
                     if self.br_files[b] == ks[k] {
                         if is_c {
                             w = self.br_c_w[b].copy()
@@ -717,15 +720,15 @@ extend Server {
                 }
             }
 
-            if w.empty() && is_c {
+            if w.is_empty() && is_c {
                 w = any_c.copy()
-            } else if w.empty() {
+            } else if w.is_empty() {
                 w = any_cxx.copy()
             }
 
-            if !w.empty() {
-                out.push_back(rel.copy())
-                words->push_back(w.copy())
+            if !w.is_empty() {
+                out.push(rel.copy())
+                words->push(w.copy())
             }
         }
 
@@ -759,7 +762,7 @@ extend Server {
             }
 
             if !dup {
-                sets.push_back(words[q].copy())
+                sets.push(words[q].copy())
             }
         }
 
@@ -787,7 +790,7 @@ extend Server {
                 }
 
                 y += yaml_word_(ws[k])
-                all_words->push_back(ws[k].copy())
+                all_words->push(ws[k].copy())
             }
 
             y += "]\n"
@@ -830,7 +833,9 @@ extend Server {
         // No header job has reported kcc's words yet (a restart, a second
         // kals on the root): the scoped fragments of the .clangd kals wrote
         // before are better than none until one has.
-        if ws.empty() && old.starts_with(marker) && (find_from(old, "PathMatch", 0) != usize::MAX) {
+        if ws.is_empty()
+            && old.starts_with(marker)
+            && (find_from(old, "PathMatch", 0) != usize::MAX) {
             return
         }
 
@@ -857,9 +862,9 @@ extend Server {
         j.started_ms = now_ms()
 
         var argv: [string]
-        argv.push_back(self.exe.copy())
-        argv.push_back(WA_WORKER.copy())
-        argv.push_back(j.out.copy())
+        argv.push(self.exe.copy())
+        argv.push(WA_WORKER.copy())
+        argv.push(j.out.copy())
         // The flags of the entry whose graph holds the file (its -I roots
         // name its imports), else the project's default_args.
         var held = usize::MAX
@@ -869,35 +874,35 @@ extend Server {
             }
         }
 
-        argv.push_back(WA_CWD.copy())
+        argv.push(WA_CWD.copy())
         if held != usize::MAX {
-            argv.push_back(self.entries[held].dir.copy())
+            argv.push(self.entries[held].dir.copy())
         } else {
-            argv.push_back(self.bridge_root_())
+            argv.push(self.bridge_root_())
         }
 
-        argv.push_back(WA_AS_MODULE.copy())
+        argv.push(WA_AS_MODULE.copy())
         for var i: usize = 0; i < self.docs.docs.size(); ++i {
-            argv.push_back(WA_OVERLAY.copy())
-            argv.push_back(self.docs.docs[i].path.copy())
-            argv.push_back(self.overlay_of_(i))
+            argv.push(WA_OVERLAY.copy())
+            argv.push(self.docs.docs[i].path.copy())
+            argv.push(self.overlay_of_(i))
         }
 
-        argv.push_back(WA_END.copy())
+        argv.push(WA_END.copy())
         if held != usize::MAX {
             for var i: usize = 0; i < self.entries[held].args.size(); ++i {
-                argv.push_back(self.entries[held].args[i].copy())
+                argv.push(self.entries[held].args[i].copy())
             }
         } else {
             for var i: usize = 0; i < self.project.default_args.size(); ++i {
-                argv.push_back(self.project.default_args[i].copy())
+                argv.push(self.project.default_args[i].copy())
             }
         }
 
-        argv.push_back(CF_EMIT_HEADERS.copy())
-        argv.push_back(self.bridge_dir_())
-        argv.push_back(CF_EMIT_HEADERS_LAYOUT.copy())
-        argv.push_back(self.br_files[b].copy())
+        argv.push(CF_EMIT_HEADERS.copy())
+        argv.push(self.bridge_dir_())
+        argv.push(CF_EMIT_HEADERS_LAYOUT.copy())
+        argv.push(self.br_files[b].copy())
 
         // Clean only once its job is running: a refused launch leaves the
         // row due, and bridge_next_ offers it again after the backoff.
@@ -908,7 +913,7 @@ extend Server {
         self.br_dirty[b]   = false
         self.br_running[b] = true
         self.trace("bridge: header start " + j.path)
-        self.jobs.push_back(j)
+        self.jobs.push(j)
     }
 
     fn finish_header_(self, j: *Job, rc: i32) {
@@ -965,11 +970,11 @@ extend Server {
             a = doc.next(a)
         }
 
-        if !cxx.empty() {
+        if !cxx.is_empty() {
             self.br_cxx_w[b] = cxx.copy()
         }
 
-        if !cw.empty() {
+        if !cw.is_empty() {
             self.br_c_w[b] = cw.copy()
         }
 

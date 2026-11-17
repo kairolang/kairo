@@ -156,7 +156,7 @@ extend IndexWalker {
                 continue
             }
 
-            if space && (!out.empty()) {
+            if space && (!out.is_empty()) {
                 out += " "
             }
 
@@ -187,7 +187,7 @@ extend IndexWalker {
                 }
 
                 var t = self.source_text_(e->range)
-                if t.empty() || (t[0] != ('@' as u8)) {
+                if t.is_empty() || (t[0] != ('@' as u8)) {
                     continue // not an `@` the text shows: a range a macro made
                 }
 
@@ -210,7 +210,7 @@ extend IndexWalker {
     /// Index of \p needle in \p hay at a word start (the front, or after a
     /// space), or usize::MAX.
     fn word_in_(const self, const hay: string, const needle: string) -> usize {
-        if needle.empty() || (hay.size() < needle.size()) {
+        if needle.is_empty() || (hay.size() < needle.size()) {
             return usize::MAX
         }
 
@@ -260,7 +260,7 @@ extend IndexWalker {
                 || (ch == ('\r' as u8)) {
                 space = true
             } else {
-                if space && (!raw.empty()) {
+                if space && (!raw.is_empty()) {
                     raw += " "
                 }
 
@@ -292,7 +292,7 @@ extend IndexWalker {
             head = head.subslice(0, cut)
         }
 
-        while (!head.empty()) && (head[head.size() - 1] == (' ' as u8)) {
+        while (!head.is_empty()) && (head[head.size() - 1] == (' ' as u8)) {
             head = head.subslice(0, head.size() - 1)
         }
 
@@ -441,7 +441,7 @@ extend IndexWalker {
                         pt = pt.subslice(0, pt.size() - 1)
                     }
 
-                    while (!pt.empty()) && (pt[pt.size() - 1] == (' ' as u8)) {
+                    while (!pt.is_empty()) && (pt[pt.size() - 1] == (' ' as u8)) {
                         pt = pt.subslice(0, pt.size() - 1)
                     }
                 }
@@ -452,13 +452,13 @@ extend IndexWalker {
                 }
 
                 var pn = ctx->get_spelling(p->name)
-                if pn.empty() || pn.starts_with("$") {
+                if pn.is_empty() || pn.starts_with("$") {
                     s += pt
                     continue
                 }
 
                 s += pn
-                if !pt.empty() {
+                if !pt.is_empty() {
                     s += ": "
                     s += pt
                 }
@@ -481,7 +481,7 @@ extend IndexWalker {
                 // As written, its set included; an inferred set is no
                 // specifier (the parser alone sets the range).
                 var pt = self.source_text_(f->panic_range)
-                if !pt.empty() {
+                if !pt.is_empty() {
                     s += " "
                     s += pt
                 }
@@ -489,14 +489,14 @@ extend IndexWalker {
 
             var rt = self.type_str_(f->return_type, ctx)
             if (f->return_type != &null)
-                && (!rt.empty())
+                && (!rt.is_empty())
                 && (f->return_type->canonical != &null)
                 && (isa<Types::CXXLValueRefType>(f->return_type->canonical)
                     || isa<Types::CXXRValueRefType>(f->return_type->canonical)) {
                 rt = self.tu_.return_str(f->return_type->canonical)
             }
 
-            if (!rt.empty()) && (rt != "void") {
+            if (!rt.is_empty()) && (rt != "void") {
                 s += " -> "
                 s += rt
             }
@@ -529,7 +529,7 @@ extend IndexWalker {
 
             s += name
             var t = self.type_str_(v->type_, ctx)
-            if !t.empty() {
+            if !t.is_empty() {
                 s += ": "
                 s += t
             }
@@ -550,7 +550,7 @@ extend IndexWalker {
 
             s += name
             var t = self.type_str_(p->type_, ctx)
-            if !t.empty() {
+            if !t.is_empty() {
                 s += ": "
                 s += t
             }
@@ -569,7 +569,7 @@ extend IndexWalker {
 
             s += name
             var t = self.type_str_(f->type_, ctx)
-            if !t.empty() {
+            if !t.is_empty() {
                 s += ": "
                 s += t
             }
@@ -585,7 +585,7 @@ extend IndexWalker {
                 ctx,
             )
 
-            if !t.empty() {
+            if !t.is_empty() {
                 s += " = "
                 s += t
             }
@@ -620,7 +620,7 @@ extend IndexWalker {
             // `derives`), and the default underlying type where none is.
             if full && (!d->is_implicit) && (!decl_is_ffi(d)) {
                 var th = self.type_head_text_(d, "enum ")
-                if !th.empty() {
+                if !th.is_empty() {
                     if (e->underlying == &null)
                         && (!e->is_adt)
                         && (self.word_in_(th, "derives ") == usize::MAX) {
@@ -635,7 +635,7 @@ extend IndexWalker {
             s += name
             if e->underlying != &null {
                 var t = self.type_str_(e->underlying, ctx)
-                if !t.empty() {
+                if !t.is_empty() {
                     s += " derives "
                     s += t
                 }
@@ -678,7 +678,7 @@ extend IndexWalker {
                 || isa<Declarations::InterfaceDecl>(d)) {
             var bare = if (isa<Declarations::ClassDecl>(d)) => ("class ") else => kw
             var th = self.type_head_text_(d, bare)
-            if !th.empty() {
+            if !th.is_empty() {
                 if kw.starts_with("final ") {
                     return head + "final " + th
                 }
@@ -742,7 +742,7 @@ extend IndexWalker {
                     p += 1
                 }
 
-                lines.push_back(self.files[fi].text.subslice(p, le - p))
+                lines.push(self.files[fi].text.subslice(p, le - p))
                 first -= 1
                 continue
             }
@@ -753,7 +753,7 @@ extend IndexWalker {
                 break // a bare `//` ends a doc block
             }
 
-            if (p < le) && (self.files[fi].text[p] == ('@' as u8)) && lines.empty() {
+            if (p < le) && (self.files[fi].text[p] == ('@' as u8)) && lines.is_empty() {
                 first -= 1 // an attribute line above the declaration
                 continue
             }
@@ -763,7 +763,7 @@ extend IndexWalker {
 
         // A license banner is not documentation: the block that opens a file
         // with a `/// ---` rule belongs to the file.
-        if (!lines.empty()) && lines[lines.size() - 1].starts_with("--- ") {
+        if (!lines.is_empty()) && lines[lines.size() - 1].starts_with("--- ") {
             return out
         }
 
@@ -792,14 +792,14 @@ extend IndexWalker {
             // requirement is the declaration alone (inherited_methods_).
             var own: [string]
             for var i: usize = 0; i < it->methods.size(); ++i {
-                lines.push_back(
+                lines.push(
                     "    " + self.signature_(
                         unsafe (it->methods[i] as unsafe *Decl),
                         true,
                     ),
                 )
 
-                own.push_back(
+                own.push(
                     self.signature_(unsafe (it->methods[i] as unsafe *Decl)),
                 )
             }
@@ -816,7 +816,7 @@ extend IndexWalker {
                 }
 
                 if !dup {
-                    lines.push_back(line + "  // inherited")
+                    lines.push(line + "  // inherited")
                 }
             }
         } else if isa<Declarations::ClassDecl>(d)
@@ -827,17 +827,17 @@ extend IndexWalker {
             if isa<Declarations::ClassDecl>(d) {
                 var unsafe *c = cast<Declarations::ClassDecl>(d)
                 for var i: usize = 0; i < c->fields.size(); ++i {
-                    fields.push_back(unsafe (c->fields[i] as unsafe *Decl))
+                    fields.push(unsafe (c->fields[i] as unsafe *Decl))
                 }
             } else if isa<Declarations::StructDecl>(d) {
                 var unsafe *c = cast<Declarations::StructDecl>(d)
                 for var i: usize = 0; i < c->fields.size(); ++i {
-                    fields.push_back(unsafe (c->fields[i] as unsafe *Decl))
+                    fields.push(unsafe (c->fields[i] as unsafe *Decl))
                 }
             } else {
                 var unsafe *c = cast<Declarations::UnionDecl>(d)
                 for var i: usize = 0; i < c->fields.size(); ++i {
-                    fields.push_back(unsafe (c->fields[i] as unsafe *Decl))
+                    fields.push(unsafe (c->fields[i] as unsafe *Decl))
                 }
             }
 
@@ -845,19 +845,19 @@ extend IndexWalker {
             if isa<Declarations::UnionDecl>(d) {
                 var unsafe *c = cast<Declarations::UnionDecl>(d)
                 for var i: usize = 0; i < c->methods.size(); ++i {
-                    meths.push_back(unsafe (c->methods[i] as unsafe *Decl))
+                    meths.push(unsafe (c->methods[i] as unsafe *Decl))
                 }
             }
 
             for var i: usize = 0; (i < fields.size()) && (lines.size() < 40); ++i {
                 if !fields[i]->is_implicit {
-                    lines.push_back("    " + self.signature_(fields[i], true))
+                    lines.push("    " + self.signature_(fields[i], true))
                 }
             }
 
             for var i: usize = 0; (i < meths.size()) && (lines.size() < 40); ++i {
                 if !meths[i]->is_implicit {
-                    lines.push_back("    " + self.signature_(meths[i], true))
+                    lines.push("    " + self.signature_(meths[i], true))
                 }
             }
 
@@ -883,7 +883,7 @@ extend IndexWalker {
                     }
 
                     for var m: usize = 0; (m < ext->methods.size()) && (lines.size() < 60); ++m {
-                        lines.push_back(
+                        lines.push(
                             "    " + self.signature_(
                                 unsafe (ext->methods[m] as unsafe *Decl),
                                 true,
@@ -900,7 +900,7 @@ extend IndexWalker {
             }
 
             for var i: usize = 0; (i < e->variants.size()) && (lines.size() < 60); ++i {
-                lines.push_back(
+                lines.push(
                     "    " + self.head_(
                         unsafe (e->variants[i] as unsafe *Decl),
                     ) + self.variant_line_(e->variants[i], ctx),
@@ -910,7 +910,7 @@ extend IndexWalker {
             return ""
         }
 
-        if lines.empty() {
+        if lines.is_empty() {
             return " { }"
         }
 
@@ -941,7 +941,7 @@ extend IndexWalker {
 
                 s += sema_dump_decl_name(ctx, unsafe (f as unsafe *Decl))
                 var t = self.type_str_(f->type_, ctx)
-                if !t.empty() {
+                if !t.is_empty() {
                     s += ": "
                     s += t
                 }
@@ -1068,7 +1068,7 @@ extend IndexWalker {
     /// the entry named one with --target, which may not be the host.
     fn target_note_(self) -> string {
         var unsafe *ctx = self.ast_()
-        if (ctx == &null) || (ctx->ci == &null) || ctx->ci->target.triple.empty() {
+        if (ctx == &null) || (ctx->ci == &null) || ctx->ci->target.triple.is_empty() {
             return ""
         }
 
@@ -1120,18 +1120,18 @@ extend IndexWalker {
             }
         }
 
-        self.hovers.push_back(base.copy())
+        self.hovers.push(base.copy())
         var        idx  = (self.hovers.size() - 1) as u32
         var unsafe *ctx = NameLookup::ctx_of(d)
         if ctx == &null {
             ctx = self.ast_()
         }
 
-        self.layout_hover_.push_back(idx)
-        self.layout_at_.push_back(at)
-        self.layout_decl_.push_back(d)
-        self.layout_type_.push_back(c)
-        self.layout_name_.push_back(self.type_str_(c, ctx))
+        self.layout_hover_.push(idx)
+        self.layout_at_.push(at)
+        self.layout_decl_.push(d)
+        self.layout_type_.push(c)
+        self.layout_name_.push(self.type_str_(c, ctx))
         self.hover_of_[key] = idx
         return idx
     }
@@ -1195,14 +1195,14 @@ extend IndexWalker {
             var lay: string = ""
             if self.layout_type_[i] != &null {
                 lay = self.layout_of_type_(self.layout_type_[i])
-                if (!lay.empty()) && (!self.layout_name_[i].empty()) {
+                if (!lay.is_empty()) && (!self.layout_name_[i].is_empty()) {
                     lay += " (`" + self.layout_name_[i] + "`)"
                 }
             } else {
                 lay = self.layout_(self.layout_decl_[i])
             }
 
-            if lay.empty() {
+            if lay.is_empty() {
                 continue
             }
 
@@ -1238,7 +1238,7 @@ extend IndexWalker {
         if (d->semantic_dc != &null) && (d->semantic_dc->dc_owner != &null) {
             var unsafe *owner = d->semantic_dc->dc_owner
             var        on     = sema_dump_decl_name(self.ast_(), owner)
-            if (!on.empty()) && (!isa<Declarations::FunctionDecl>(owner)) {
+            if (!on.is_empty()) && (!isa<Declarations::FunctionDecl>(owner)) {
                 md += "\n\nin `"
                 md += on
                 md += "`"
@@ -1246,23 +1246,23 @@ extend IndexWalker {
         }
 
         var doc = self.doc_(d)
-        if !doc.empty() {
+        if !doc.is_empty() {
             md += "\n\n---\n\n"
             md += doc
         }
 
-        self.hovers.push_back(md.copy())
+        self.hovers.push(md.copy())
         var idx = (self.hovers.size() - 1) as u32
         if isa<Declarations::ClassDecl>(d)
             || isa<Declarations::StructDecl>(d)
             || isa<Declarations::UnionDecl>(d)
             || isa<Declarations::EnumDecl>(d)
             || isa<Declarations::TypeAliasDecl>(d) {
-            self.layout_hover_.push_back(idx)
-            self.layout_at_.push_back(lay_at)
-            self.layout_decl_.push_back(d)
-            self.layout_type_.push_back(&null)
-            self.layout_name_.push_back("")
+            self.layout_hover_.push(idx)
+            self.layout_at_.push(lay_at)
+            self.layout_decl_.push(d)
+            self.layout_type_.push(&null)
+            self.layout_name_.push("")
         }
 
         self.hover_of_[key] = idx

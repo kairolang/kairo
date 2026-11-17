@@ -106,11 +106,11 @@ pub class LineMap {
 
     fn build(self, const text: string) {
         self.starts.clear()
-        self.starts.push_back(0)
+        self.starts.push(0)
         self.size = text.size()
         for var i: usize = 0; i < text.size(); ++i {
             if text[i] == ('\n' as u8) {
-                self.starts.push_back(i + 1)
+                self.starts.push(i + 1)
             }
         }
     }
@@ -822,7 +822,7 @@ pub class DocumentStore {
             d.path = uri_to_path(uri)
             self.next_slot += 1
             d.slot = self.next_slot
-            self.docs.push_back(d)
+            self.docs.push(d)
             i = self.docs.size() - 1
         }
 

@@ -66,7 +66,8 @@ pub class UserProvider derives SysrootProvider {
         var what = if (t->family == "darwin") => ("a macOS SDK, as xcrun --show-sdk-path names")
                    else => "an MSVC + Windows SDK splat, as xwin or scripts/msvc-sysroot.sh lays out"
         var mark = UserProvider::marker(t)
-        if self.input.empty() || !LinkFS::is_file(LinkText::join(self.input.copy(), mark.copy())) {
+        if self.input.is_empty()
+            || !LinkFS::is_file(LinkText::join(self.input.copy(), mark.copy())) {
             return out.refuse(
                 f"{t->family} needs --input DIR ({what}); marker {mark} not found",
                 "",

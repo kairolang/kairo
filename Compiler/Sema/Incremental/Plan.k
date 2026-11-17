@@ -59,7 +59,7 @@ pub fn plan_split(const s: string, sep: u8) -> cxx::std::vector<string> {
 
 /// The items of a list field; none for an empty field.
 pub fn plan_items(const s: string) -> cxx::std::vector<string> {
-    if s.empty() {
+    if s.is_empty() {
         return cxx::std::vector<string>()
     }
 
@@ -334,7 +334,7 @@ class PlanIndex {
                 var key = m->name + "\t" + f[1] + "\t" + f[2]
                 self.names.add(key, f[0] + "\x1e" + f[3])
                 self.bodies.add(key, f[0] + "\x1e" + f[4])
-                if !f[5].empty() {
+                if !f[5].is_empty() {
                     self.ext.add(f[5] + "\t" + f[2], f[0] + "\x1e" + f[3])
                 }
 
@@ -352,7 +352,7 @@ class PlanIndex {
                     continue
                 }
 
-                if !f[1].empty() {
+                if !f[1].is_empty() {
                     var it = self.ext_of.find(kairo::sref(f[0]))
                     if it == self.ext_of.end() {
                         self.ext_of.try_emplace(
@@ -367,7 +367,7 @@ class PlanIndex {
                 }
 
                 for var nm: string in plan_items(f[2]) {
-                    if f[0].empty() {
+                    if f[0].is_empty() {
                         self.file_names.insert(kairo::sref(m->name + "\t" + nm))
                     }
 
@@ -434,7 +434,7 @@ class PlanDiff {
 
     priv fn _presence(self, const key: string) {
         var f = plan_split(key, 9 as u8)
-        if f.size() != 3 || !f[1].empty() {
+        if f.size() != 3 || !f[1].is_empty() {
             return
         }
 
@@ -529,7 +529,7 @@ class PlanDiff {
                 }
 
                 var f = plan_split(k, 9 as u8)
-                if f.size() != 3 || !f[1].empty() {
+                if f.size() != 3 || !f[1].is_empty() {
                     continue
                 }
 
@@ -548,7 +548,7 @@ class PlanDiff {
                 }
 
                 var f = plan_split(k, 9 as u8)
-                if f.size() == 3 && f[1].empty() {
+                if f.size() == 3 && f[1].is_empty() {
                     self.body_scope.insert(kairo::sref(f[2] + "\t" + f[0]))
                     self.body_scope_n.insert(kairo::sref(f[2]))
                 }
@@ -561,7 +561,7 @@ class PlanDiff {
             var *y = if (side == 0) => (b) else => a
             for var i: usize = 0; i < x->names.keys.size(); ++i {
                 var f = plan_split(x->names.keys[i], 9 as u8)
-                if f.size() != 3 || !f[1].empty() {
+                if f.size() != 3 || !f[1].is_empty() {
                     continue
                 }
 
@@ -701,13 +701,14 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
         for var r: string in f->names {
             if d.names.contains(kairo::sref(r)) {
                 var k = plan_split(r, 9 as u8)
-                var where_ = if (k.size() == 3 && !k[1].empty()) => (k[1]) else => k[0] + "#<file>"
+                var where_ = if (k.size() == 3 && !k[1].is_empty()) => (k[1])
+                             else => k[0] + "#<file>"
                 reason = "R1 name " + (if (k.size() == 3) => (k[2]) else => r) + " in " + where_
                 break
             }
 
             var k = plan_split(r, 9 as u8)
-            if k.size() == 3 && !k[1].empty() {
+            if k.size() == 3 && !k[1].is_empty() {
                 var target = k[1].copy()
                 if !ia.ext_target(k[1], &target) {
                     ib.ext_target(k[1], &target)
@@ -722,7 +723,7 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
 
         // R2: an overlay row, and a file of that overlay's surface changed
         // the name at file scope; or the surface itself changed.
-        if reason.empty() {
+        if reason.is_empty() {
             for var o: string in f->overlay {
                 var k = plan_split(o, 9 as u8)
                 if k.size() != 2 {
@@ -750,14 +751,14 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                     }
                 }
 
-                if !reason.empty() {
+                if !reason.is_empty() {
                     break
                 }
             }
         }
 
         // R3: a declaration row.
-        if reason.empty() {
+        if reason.is_empty() {
             for var r: string in f->rows {
                 var cut: usize = 0
                 while cut < r.size() && r[cut] != (9 as u8) {
@@ -779,7 +780,7 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                     reason = "R3 body of " + id
                 }
 
-                if !reason.empty() {
+                if !reason.is_empty() {
                     break
                 }
             }
@@ -787,21 +788,21 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
 
         // R4: a name appeared at or went from the file scope of a file in
         // the surface while another file of it (or this one) declares it.
-        if reason.empty() && !d.presence.keys.empty() {
+        if reason.is_empty() && !d.presence.keys.empty() {
             var surf = plan_surface(&ia, &ib, m)
-            for var pi: usize = 0; pi < d.presence.keys.size() && reason.empty(); ++pi {
+            for var pi: usize = 0; pi < d.presence.keys.size() && reason.is_empty(); ++pi {
                 var n     = d.presence.keys[pi].copy()
                 var *mods = &d.presence.vals[pi]
                 var src   = ""
                 for var s: string in surf {
                     for var pm: string in (*mods) {
-                        if pm == s && (src.empty() || s < src) {
+                        if pm == s && (src.is_empty() || s < src) {
                             src = s.copy()
                         }
                     }
                 }
 
-                if src.empty() {
+                if src.is_empty() {
                     continue
                 }
 
@@ -825,18 +826,18 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                     }
                 }
 
-                if other.empty() && (ia.declares(m, n) || ib.declares(m, n)) {
+                if other.is_empty() && (ia.declares(m, n) || ib.declares(m, n)) {
                     other = m.copy()
                 }
 
-                if !other.empty() {
+                if !other.is_empty() {
                     reason = "R4 import collision on " + n + " (" + src + " vs " + other + ")"
                 }
             }
         }
 
         // R7: the macros of a file in the surface changed.
-        if reason.empty() {
+        if reason.is_empty() {
             for var s: string in plan_surface(&ia, &ib, m) {
                 if d.macros.contains(kairo::sref(s)) {
                     reason = "R7 macros of " + s
@@ -845,7 +846,7 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
             }
         }
 
-        if !reason.empty() {
+        if !reason.is_empty() {
             out->add(m, reason)
         }
     }
@@ -991,28 +992,28 @@ pub fn incr_plan_verify(old:          *cxx::std::vector<PlanModule>,
             what = "interface"
         }
 
-        for var k: usize = 0; what.empty() && k < a->decls.size(); ++k {
+        for var k: usize = 0; what.is_empty() && k < a->decls.size(); ++k {
             if a->decls[k] != b->decls[k] {
                 what = "interface"
             }
         }
 
-        for var k: usize = 0; what.empty() && k < a->scopes.size(); ++k {
+        for var k: usize = 0; what.is_empty() && k < a->scopes.size(); ++k {
             if a->scopes[k] != b->scopes[k] {
                 what = "interface"
             }
         }
 
-        if what.empty() && a->diag != b->diag {
+        if what.is_empty() && a->diag != b->diag {
             what = "diagnostics"
         }
 
-        if what.empty() {
+        if what.is_empty() {
             continue
         }
 
         holes += 1
-        if first.empty() {
+        if first.is_empty() {
             first = a->name + ": predicted unaffected, but its " + what + " changed"
         }
     }

@@ -119,7 +119,7 @@ extend IndexWalker {
             return
         }
 
-        inherited->push_back(bd)
+        inherited->push(bd)
 
         var name = self.ast_()->unwrap_token(decl_name_tok(d))
         var off  = self.own_off_(name.range.start)
@@ -139,7 +139,7 @@ extend IndexWalker {
         row.base_name = sema_dump_decl_name(self.ast_(), bd)
         row.kind      = self.symbol_kind_(d)
         row.base_kind = self.symbol_kind_(bd)
-        self.bases.push_back(row)
+        self.bases.push(row)
     }
 
     /// Every requirement an interface gets from the interfaces it derives,
@@ -164,7 +164,7 @@ extend IndexWalker {
                 }
 
                 if !dup {
-                    out->push_back(sig.copy())
+                    out->push(sig.copy())
                 }
             }
         }
@@ -187,17 +187,17 @@ extend IndexWalker {
         if isa<Declarations::ClassDecl>(d) {
             var unsafe *c = cast<Declarations::ClassDecl>(d)
             for var i: usize = 0; i < c->methods.size(); ++i {
-                out->push_back(unsafe (c->methods[i] as unsafe *Decl))
+                out->push(unsafe (c->methods[i] as unsafe *Decl))
             }
         } else if isa<Declarations::StructDecl>(d) {
             var unsafe *c = cast<Declarations::StructDecl>(d)
             for var i: usize = 0; i < c->methods.size(); ++i {
-                out->push_back(unsafe (c->methods[i] as unsafe *Decl))
+                out->push(unsafe (c->methods[i] as unsafe *Decl))
             }
         } else if isa<Declarations::InterfaceDecl>(d) {
             var unsafe *c = cast<Declarations::InterfaceDecl>(d)
             for var i: usize = 0; i < c->methods.size(); ++i {
-                out->push_back(unsafe (c->methods[i] as unsafe *Decl))
+                out->push(unsafe (c->methods[i] as unsafe *Decl))
             }
         }
     }
@@ -210,7 +210,7 @@ extend IndexWalker {
     fn method_edges_(self, d: unsafe *Decl, inherited: *[unsafe *Decl]) {
         var mine: [unsafe *Decl]
         self.methods_of_(d, &mine)
-        if mine.empty() {
+        if mine.is_empty() {
             return
         }
 
@@ -256,7 +256,7 @@ extend IndexWalker {
                     row.base_name = mn.copy()
                     row.kind      = SYM_METHOD as u32
                     row.base_kind = SYM_METHOD as u32
-                    self.bases.push_back(row)
+                    self.bases.push(row)
                 }
             }
         }
@@ -315,14 +315,14 @@ extend IndexWalker {
                     continue
                 }
 
-                if !label.empty() {
+                if !label.is_empty() {
                     label += "; "
                 }
 
                 label += sigs[i]
             }
 
-            if label.empty() {
+            if label.is_empty() {
                 return
             }
 
@@ -348,7 +348,7 @@ extend IndexWalker {
             row.kind      = 0
             row.pad_left  = true
             row.pad_right = true
-            self.inlays.push_back(row)
+            self.inlays.push(row)
         }
     }
 }

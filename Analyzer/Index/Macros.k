@@ -96,7 +96,7 @@ extend IndexWalker {
     /// keeps no inter-token whitespace, so this is a reading aid, as
     /// `--dump-preprocessed` is (which puts one space everywhere).
     fn glue_(self, const prev: string, const cur: string) -> bool {
-        if prev.empty() {
+        if prev.is_empty() {
             return true
         }
 
@@ -212,7 +212,7 @@ extend IndexWalker {
                 }
 
                 if u.kind == TokenKind::TkNewLine {
-                    if !text.empty() {
+                    if !text.is_empty() {
                         fresh_line = true
                     }
 
@@ -224,7 +224,7 @@ extend IndexWalker {
                     depth -= 1
                 }
 
-                if fresh_line && (!text.empty()) {
+                if fresh_line && (!text.is_empty()) {
                     text += "\n"
                     for var d: usize = 0; d < depth; ++d {
                         text += "    "
@@ -244,7 +244,7 @@ extend IndexWalker {
             }
 
             i = j
-            if text.empty() {
+            if text.is_empty() {
                 continue
             }
 

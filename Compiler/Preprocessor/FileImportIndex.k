@@ -546,6 +546,6 @@ pub class FileImportIndex {
     }
 
     priv fn _has_module_root(self) -> bool {
-        return self._has_dir && !module_dir_at_or_above(self._dir.full_path()).empty()
+        return self._has_dir && !module_dir_at_or_above(self._dir.full_path()).is_empty()
     }
 }

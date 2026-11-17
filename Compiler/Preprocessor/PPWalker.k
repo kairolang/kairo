@@ -1572,7 +1572,7 @@ pub class PPWalker {
 
         var unsafe *d      = tbl->get<Immediate::StringData>(tok.imm)
         var        refused = refused_prefix(d, what)
-        if refused.empty() {
+        if refused.is_empty() {
             return
         }
 
@@ -2119,7 +2119,7 @@ pub class PPWalker {
                                const note:   string = "expanded from here",
                                const remark: string = "") {
         var site = self._inv_site(inv)
-        if !remark.empty() {
+        if !remark.is_empty() {
             if site.start.id != inv->range.start.id {
                 self._diag->report(DiagCode(code), site.start, msg.copy()).first(
                     site,
@@ -2158,7 +2158,8 @@ pub class PPWalker {
 
             var nm = self._sym_name(inv->name_sym)
             if within_trace_depth
-                && (self._opts.macro_debug_filter.empty() || nm == self._opts.macro_debug_filter) {
+                && (self._opts.macro_debug_filter.is_empty()
+                    || nm == self._opts.macro_debug_filter) {
                 // Straight to stderr, not the Logger: Logger::info is gated on -v,
                 // which made --macro-debug print nothing on its own. The user
                 // asked for this trace by name; it must not need a second flag.
@@ -3201,7 +3202,7 @@ pub class PPWalker {
     /// added there is reserved here; `_try_builtin` dispatches the same rows.
     priv fn _is_builtin_name(self, const name: string) -> bool {
         var i: usize = 0
-        while !LangMacros::known(i).empty() {
+        while !LangMacros::known(i).is_empty() {
             if name == LangMacros::known(i) {
                 return true
             }
@@ -3585,7 +3586,7 @@ pub class PPWalker {
     }
 
     priv fn _is_identifier_text(self, const s: string) -> bool {
-        if s.empty() {
+        if s.is_empty() {
             return false
         }
 
@@ -3593,7 +3594,7 @@ pub class PPWalker {
             return false
         }
 
-        for var i: usize = 1; i < s.length(); ++i {
+        for var i: usize = 1; i < s.size(); ++i {
             if !is_ident_char(s[i]) && s[i] != ('#' as u8) {
                 return false
             }
@@ -3953,7 +3954,7 @@ pub class PPWalker {
 
         // Tagged inside a macro expansion: stable for this dynamic expansion
         // instance and this tag.
-        if !tag.empty() && serial != 0 {
+        if !tag.is_empty() && serial != 0 {
             var key = f"{serial}:{tag}"
             var it  = self._unique_tag_cache.find(kairo::sref(key))
 

@@ -344,12 +344,12 @@ priv fn get_hash(@inout r: ByteReader) -> string {
     for var i: usize = 0; i < 16; ++i {
         var b = r.get_u8()
         out += string(
-            unsafe ((digits.raw() + ((b >> 4) as usize)) as *const u8),
+            unsafe ((digits.data() + ((b >> 4) as usize)) as *const u8),
             1,
         )
 
         out += string(
-            unsafe ((digits.raw() + ((b & 15) as usize)) as *const u8),
+            unsafe ((digits.data() + ((b & 15) as usize)) as *const u8),
             1,
         )
     }
@@ -576,7 +576,7 @@ pub class ASTBinReader {
                     e.base = ar->strings.get(r.get_varint() as u32)
                     e.size = r.get_varint()
                     e.hash = get_hash(&r)
-                    ar->files.push_back(e)
+                    ar->files.push(e)
                 }
 
                 if r.failed {

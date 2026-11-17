@@ -108,7 +108,7 @@ extend CompilerInstance {
             || fe_rt->stops_before_codegen()
             || !fe_rt->emit_obj
             || self.invocation()->linker.inputs_only()
-            || self._link_out.empty() {
+            || self._link_out.is_empty() {
             return
         }
 
@@ -173,13 +173,13 @@ extend CompilerInstance {
         // serial loop's whatever finishes first.
 
         var cache = self._rt_cache_dir()
-        if !cache.empty() && !LinkFS::make_dirs(cache) {
+        if !cache.is_empty() && !LinkFS::make_dirs(cache) {
             cache = ""
         }
 
         self._rt_cache = cache.copy()
         var fp = ""
-        if !cache.empty() {
+        if !cache.is_empty() {
             fp = kairo::std::from_std_string<string>(
                 llvm::utohexstr(
                     llvm::xxh3_64bits(kairo::sref(self._rt_fingerprint())),
@@ -207,7 +207,7 @@ extend CompilerInstance {
 
             var entry = ""
             var hit   = false
-            if !cache.empty() && inv.get() != &null {
+            if !cache.is_empty() && inv.get() != &null {
                 // <stem>-<slot>-<inputs>.o: the slot is the compiler and the
                 // cc1 line, the second hash every file the object is built
                 // from. A store replaces its slot's older entries, so a
@@ -292,7 +292,7 @@ extend CompilerInstance {
         var ok     = true
         var stored = false
         for var i: usize = 0; i < n; ++i {
-            if !self._rt_logs[i].empty() {
+            if !self._rt_logs[i].is_empty() {
                 io::eprint(f"{self._rt_logs[i]}")
             }
 
@@ -301,7 +301,7 @@ extend CompilerInstance {
                 continue
             }
 
-            if !self._rt_ents[i].empty() {
+            if !self._rt_ents[i].is_empty() {
                 if CompilerInstance::_rt_cache_store(
                     self._rt_objs[i],
                     self._rt_ents[i],
@@ -360,7 +360,7 @@ extend CompilerInstance {
         // last-wins, so following --cxx-flags takes nothing from them.
         if k.needs_headers() {
             var rt_root = self._runtime_root()
-            if !rt_root.empty() {
+            if !rt_root.is_empty() {
                 w.push_back("-I")
                 w.push_back(rt_root)
             }
@@ -474,7 +474,7 @@ extend CompilerInstance {
             return true
         }
 
-        if !jobs->error.empty() {
+        if !jobs->error.is_empty() {
             self._diag->report(DiagID::U011E, f"{k.path}: {jobs->error}").emit()
         }
 
@@ -527,7 +527,7 @@ extend CompilerInstance {
 
                 var w = self._native_words(*k)
                 w.push_back(if (pp) => ("-E") else => "-fsyntax-only")
-                if pp && !single.empty() {
+                if pp && !single.is_empty() {
                     if natives.size() != 1 {
                         self._diag->report(
                             DiagID::I004F,
@@ -575,7 +575,7 @@ extend CompilerInstance {
 
         // A header writes one .pch whatever --emit says.
         var n_out = self.kairo_input_count() * kinds.size() + self._header_inputs
-        if !single.empty() && n_out > 1 {
+        if !single.is_empty() && n_out > 1 {
             self._diag->report(
                 DiagID::I004F,
                 f"-o {single} names one output, but this build emits {n_out}; use --cache-dir <dir> for them",
@@ -600,7 +600,7 @@ extend CompilerInstance {
                     pdir = "."
                 }
 
-                if pch.empty() {
+                if pch.is_empty() {
                     pch = pdir + "/" + Path(k->path).filename() + ".pch"
                 }
 
@@ -618,7 +618,7 @@ extend CompilerInstance {
 
             for var i: usize = 0; i < kinds.size(); ++i {
                 var out = single.copy()
-                if out.empty() {
+                if out.is_empty() {
                     out = dir + "/" + Path(k->path).stem() + exts[i]
                 }
 
@@ -664,7 +664,7 @@ extend CompilerInstance {
     ///        --builtins-dir, else <resource-dir>/builtin. "" when none.
     prot fn _runtime_root(self) -> string {
         var broot = self._builtin_root()
-        if broot.empty() {
+        if broot.is_empty() {
             return ""
         }
 
@@ -679,7 +679,7 @@ extend CompilerInstance {
     prot fn _runtime_sources(self) -> cxx::std::vector<InputKind> {
         var out   = cxx::std::vector<InputKind>()
         var rroot = self._runtime_root()
-        if rroot.empty() {
+        if rroot.is_empty() {
             return out
         }
 
@@ -735,7 +735,7 @@ extend CompilerInstance {
     prot fn _runtime_deps(self) -> cxx::std::vector<string> {
         var out   = cxx::std::vector<string>()
         var rroot = self._runtime_root()
-        if rroot.empty() {
+        if rroot.is_empty() {
             return out
         }
 

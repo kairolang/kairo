@@ -906,7 +906,7 @@ pub class ClangBackend {
         var rd  = self._cfg.resource_dir.copy()
         o.push_back(if (cc1) => ("-nostdsysteminc") else => "-nostdlibinc")
         o.push_back("-nostdinc++")
-        if !rd.empty() {
+        if !rd.is_empty() {
             o.push_back("-resource-dir")
             o.push_back(rd)
         }
@@ -934,20 +934,20 @@ pub class ClangBackend {
             o.push_back(*d)
         }
 
-        if !sr.empty() {
+        if !sr.is_empty() {
             o.push_back("-isysroot")
             o.push_back(sr)
         }
 
         // The driver also anchors its toolchain search (crt, gcc install
         // detection) on --sysroot; without it that search is the host's.
-        if !cc1 && !sr.empty() {
+        if !cc1 && !sr.is_empty() {
             o.push_back(f"--sysroot={sr}")
         }
 
         // The driver adds the builtin directory itself, as an internal
         // system root; cc1 has to be told (builtin <stdint.h> -> uintptr_t).
-        if cc1 && !rd.empty() {
+        if cc1 && !rd.is_empty() {
             o.push_back("-internal-isystem")
             o.push_back(f"{rd}/include")
         }
@@ -976,13 +976,13 @@ pub class ClangBackend {
                     o.push_back(*d)
                     kinds.push_back(ROOT_CXX_LIB)
                 }
-            } else if !sr.empty() {
+            } else if !sr.is_empty() {
                 o.push_back(f"{sr}/include/c++/v1")
                 kinds.push_back(ROOT_CXX_LIB)
             }
         }
 
-        if !rd.empty() {
+        if !rd.is_empty() {
             o.push_back(f"{rd}/include")
             kinds.push_back(ROOT_BUILTINS)
         }
@@ -992,7 +992,7 @@ pub class ClangBackend {
                 o.push_back(*d)
                 kinds.push_back(ROOT_C_LIB)
             }
-        } else if !sr.empty() {
+        } else if !sr.is_empty() {
             o.push_back(f"{sr}/include")
             kinds.push_back(ROOT_C_LIB)
         }
@@ -1021,7 +1021,7 @@ pub class ClangBackend {
                 o.push_back(all[i])
             } else if !cxx_lib && k == ROOT_BUILTINS {
                 o.push_back(all[i])
-            } else if !cxx_lib && k == ROOT_C_LIB && !self._cfg.sysroot.empty() {
+            } else if !cxx_lib && k == ROOT_C_LIB && !self._cfg.sysroot.is_empty() {
                 o.push_back(all[i])
             }
         }
@@ -1044,7 +1044,7 @@ pub class ClangBackend {
     /// spelling still goes through FlagTranslator::clang_triple: its
     /// wasm32-unknown-wasi names the compiler-rt dir, and clang wants wasip1.
     priv fn _clang_triple(self) -> string {
-        if !self._cfg.clang_triple.empty() {
+        if !self._cfg.clang_triple.is_empty() {
             return FlagTranslator::clang_triple(self._cfg.clang_triple.copy())
         }
 

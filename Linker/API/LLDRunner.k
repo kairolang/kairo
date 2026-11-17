@@ -185,8 +185,8 @@ pub class LLDRunner {
         var res = LLDRun{}
         res.in_process = false
 
-        if kld_path.empty() || !LinkFS::is_file(kld_path) {
-            var _where = if (kld_path.empty()) => ("<unset>") else => kld_path
+        if kld_path.is_empty() || !LinkFS::is_file(kld_path) {
+            var _where = if (kld_path.is_empty()) => ("<unset>") else => kld_path
             res.spawn_error = f"this link has to run out of process, and kld was not found at {_where}"
             return res
         }
@@ -203,15 +203,15 @@ pub class LLDRunner {
         var err_path = LinkFS::temp_file("kld-err", "txt")
         var rsp_path = ""
         finally {
-            if !out_path.empty() {
+            if !out_path.is_empty() {
                 LinkFS::remove(out_path)
             }
 
-            if !err_path.empty() {
+            if !err_path.is_empty() {
                 LinkFS::remove(err_path)
             }
 
-            if !rsp_path.empty() {
+            if !rsp_path.is_empty() {
                 LinkFS::remove(rsp_path)
             }
         }
@@ -232,7 +232,7 @@ pub class LLDRunner {
                 text += "\n"
             }
 
-            if rsp_path.empty() || !LinkFS::write(rsp_path, text) {
+            if rsp_path.is_empty() || !LinkFS::write(rsp_path, text) {
                 res.spawn_error = "cannot write the linker response file"
                 return res
             }
@@ -303,12 +303,12 @@ pub class LLDRunner {
 
         res.ret = rc
         var t = ""
-        if !out_path.empty() && LinkFS::read(out_path, &t) {
+        if !out_path.is_empty() && LinkFS::read(out_path, &t) {
             res.stdout_text = t.copy()
         }
 
         t = ""
-        if !err_path.empty() && LinkFS::read(err_path, &t) {
+        if !err_path.is_empty() && LinkFS::read(err_path, &t) {
             res.stderr_text = t.copy()
         }
 

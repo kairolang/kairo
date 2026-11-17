@@ -141,7 +141,7 @@ pub class DiagCode {
 ///          number and severity, so at most one of them is registered.
 pub fn diag_from_code(const text: string) -> DiagID {
     var id = diag_from_string(text.copy())
-    if !diag_explain(id).empty() {
+    if !diag_explain(id).is_empty() {
         return id
     }
 
@@ -183,7 +183,7 @@ pub fn diag_from_code(const text: string) -> DiagID {
         }
 
         var cand = diag_from_string(prefix + pad + digits + sev)
-        if !diag_explain(cand).empty() {
+        if !diag_explain(cand).is_empty() {
             return cand
         }
     }

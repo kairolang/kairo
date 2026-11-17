@@ -327,8 +327,8 @@ pub class SysNames {
         cands.clear()
         var ver     = ""
         var spelled = SysNames::split_glibc(input, &ver)
-        var glibc   = if (ver.empty()) => (glibc_default) else => ver
-        var named = if (ver.empty()) => (spelled) else => spelled + "-glibc" + ver
+        var glibc   = if (ver.is_empty()) => (glibc_default) else => ver
+        var named = if (ver.is_empty()) => (spelled) else => spelled + "-glibc" + ver
         if LinkText::ends_with(input.copy(), "-glibc") {
             why = f"\x27{input}\x27 names no glibc version after -glibc"
             return false
@@ -376,7 +376,7 @@ pub class SysNames {
                 return true
             }
 
-            if why.empty() {
+            if why.is_empty() {
                 why = f"\x27{input}\x27 is not a sysroot name, or the triple of one"
             }
 
@@ -414,7 +414,7 @@ pub class SysNames {
         if tt.isOSLinux() {
             if LinkText::starts_with(env.copy(), "musl") {
                 fam = "linux-musl"
-            } else if env.empty() || LinkText::starts_with(env.copy(), "gnu") {
+            } else if env.is_empty() || LinkText::starts_with(env.copy(), "gnu") {
                 fam = "linux-gnu"
             } else {
                 why = f"\x27{spelled}\x27: Linux sysroots are musl or gnu, not {env}"
@@ -452,7 +452,7 @@ pub class SysNames {
     }
 
     priv static fn _is_version(const s: string) -> bool {
-        if s.empty() {
+        if s.is_empty() {
             return false
         }
 

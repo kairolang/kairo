@@ -90,7 +90,7 @@ pub class TermRenderer {
     priv fn clip_to_width(self, const s: string, max_cols: u32) -> string {
         var w: u32   = 0
         var i: usize = 0
-        while i < s.length() {
+        while i < s.size() {
             var len: usize = 0
             var cols       = self.char_width(s, i, &len)
             if w + cols > max_cols {
@@ -143,12 +143,12 @@ pub class TermRenderer {
                 out += "  ┌"
 
                 var header = string()
-                if info.lang.length() > 0 {
+                if info.lang.size() > 0 {
                     header += " " + info.lang + " "
                 }
 
-                if info.file.length() > 0 {
-                    if header.length() > 0 {
+                if info.file.size() > 0 {
+                    if header.size() > 0 {
                         header += "· "
                     } else {
                         header += " "
@@ -157,12 +157,12 @@ pub class TermRenderer {
                     header += info.file + " "
                 }
 
-                if header.length() > 0 {
+                if header.size() > 0 {
                     out += "-"
                     out += self.style(self.RESET + self.BOLD)
                     out += header
                     out += self.style(self.RESET + self.DIM)
-                    var remaining = self._width - 3 - (header.length() as u32) - 2
+                    var remaining = self._width - 3 - (header.size() as u32) - 2
                     for _ in (0 as u32) .. remaining {
                         out += "-"
                     }
@@ -203,7 +203,7 @@ pub class TermRenderer {
                 continue
             }
 
-            if trimmed.length() == 0 {
+            if trimmed.size() == 0 {
                 out += "\n"
                 i += 1
                 continue
@@ -241,27 +241,27 @@ pub class TermRenderer {
             }
 
             if trimmed.starts_with("- ") {
-                var content = trimmed.subslice(2, trimmed.length() - 2)
+                var content = trimmed.subslice(2, trimmed.size() - 2)
                 out += self.wrap_inline(content, 4, "  • ")
                 i += 1
                 continue
             }
 
             var num_prefix = self.numbered_prefix(trimmed)
-            if num_prefix.length() > 0 {
+            if num_prefix.size() > 0 {
                 var content = trimmed.subslice(
-                    num_prefix.length(),
-                    trimmed.length() - num_prefix.length(),
+                    num_prefix.size(),
+                    trimmed.size() - num_prefix.size(),
                 )
 
                 var pad = string()
-                for _ in (0 as usize) .. ((num_prefix.length() + 2)) {
+                for _ in (0 as usize) .. ((num_prefix.size() + 2)) {
                     pad += " "
                 }
 
                 out += self.wrap_inline(
                     content,
-                    pad.length() as u32,
+                    pad.size() as u32,
                     "  " + num_prefix,
                 )
 
@@ -370,7 +370,7 @@ pub class TermRenderer {
     priv fn display_width(self, const s: string) -> u32 {
         var w: u32   = 0
         var i: usize = 0
-        while i < s.length() {
+        while i < s.size() {
             var len: usize = 0
             w += self.char_width(s, i, &len)
             i += len
@@ -382,7 +382,7 @@ pub class TermRenderer {
     /// The columns of the character at byte \p i of \p s (see
     /// display_width), and in \p len its length in bytes, at least 1.
     priv fn char_width(self, const s: string, i: usize, @inout len: usize) -> u32 {
-        var n       = s.length()
+        var n       = s.size()
         var b0      = ((s[i]) as u32)
         var cp: u32 = 0
         len = 0
@@ -443,7 +443,7 @@ pub class TermRenderer {
         col = self.display_width(first_prefix)
 
         var i: usize = 0
-        while i < text.length() {
+        while i < text.size() {
             if text[i] == ('`' as u8) {
                 // No closing backtick on this line: the backtick is text.
                 var close = find(text, "`", i + 1)
@@ -569,7 +569,7 @@ pub class TermRenderer {
 
         var out       = string()
         var i:  usize = 0
-        var n         = line.length()
+        var n         = line.size()
 
         while i < n {
             var c = line[i]
@@ -848,12 +848,12 @@ pub class TermRenderer {
 
         lx.SetCommentRetentionState(true)
 
-        var n                      = line.length()
+        var n                      = line.size()
         var out                    = string()
-        var pos:      usize        = 0             ///< bytes of `line` already in `out`
+        var pos:      usize        = 0           ///< bytes of `line` already in `out`
         var first                  = true
-        var directive              = false         ///< the token after a line-leading `#`
-        var held_at                = false         ///< an ObjC `@`, held to join what follows
+        var directive              = false       ///< the token after a line-leading `#`
+        var held_at                = false       ///< an ObjC `@`, held to join what follows
         var tok:      clang::Token
         while true {
             var last = lx.LexFromRawLexer(&tok)
@@ -872,7 +872,7 @@ pub class TermRenderer {
             // `@interface`, `@"str"`, `@42`: one token to the eye.
             if held_at {
                 held_at = false
-                if gap.length() == 0 {
+                if gap.size() == 0 {
                     if kind == clang::tok::raw_identifier {
                         var *ai = &ids.get(tok.getRawIdentifier())
                         if ai->getObjCKeywordID() != clang::tok::objc_not_keyword {
@@ -1026,11 +1026,11 @@ pub class TermRenderer {
         }
 
         var k = end
-        while k < line.length() && (line[k] == (' ' as u8) || line[k] == ('\t' as u8)) {
+        while k < line.size() && (line[k] == (' ' as u8) || line[k] == ('\t' as u8)) {
             k += 1
         }
 
-        if k < line.length() && line[k] == ('(' as u8) {
+        if k < line.size() && line[k] == ('(' as u8) {
             return self.style(self.HL_FUNC.copy()) + text + self.style(
                 self.RESET.copy(),
             )
@@ -1050,15 +1050,15 @@ pub class TermRenderer {
     fn split_lines(self, const text: string) -> cxx::std::vector<string> {
         var lines        = cxx::std::vector<string>()
         var start: usize = 0
-        for i in (0 as usize) .. (text.length()) {
+        for i in (0 as usize) .. (text.size()) {
             if text[i] == ('\n' as u8) {
                 lines.push_back(text.subslice(start, i - start))
                 start = i + 1
             }
         }
 
-        if start <= text.length() {
-            lines.push_back(text.subslice(start, text.length() - start))
+        if start <= text.size() {
+            lines.push_back(text.subslice(start, text.size() - start))
         }
 
         return lines
@@ -1074,11 +1074,11 @@ pub class TermRenderer {
 
     fn heading_level(self, const line: string) -> u32 {
         var level: u32 = 0
-        while level < 4 && (level as usize) < line.length() && line[level as usize] == ('#' as u8) {
+        while level < 4 && (level as usize) < line.size() && line[level as usize] == ('#' as u8) {
             level += 1
         }
 
-        if level > 0 && (level as usize) < line.length() && line[level as usize] == (' ' as u8) {
+        if level > 0 && (level as usize) < line.size() && line[level as usize] == (' ' as u8) {
             return level
         }
 
@@ -1087,21 +1087,21 @@ pub class TermRenderer {
 
     fn after_prefix(self, const s: string, skip: u32) -> string {
         var start = (skip as usize)
-        if start >= s.length() {
+        if start >= s.size() {
             return ""
         }
 
-        return s.subslice(start, s.length() - start)
+        return s.subslice(start, s.size() - start)
     }
 
     fn numbered_prefix(self, const line: string) -> string {
         // matches: "1. ", "12. ", "123. "
         var i: usize = 0
-        while i < line.length() && line[i] >= ('0' as u8) && line[i] <= ('9' as u8) {
+        while i < line.size() && line[i] >= ('0' as u8) && line[i] <= ('9' as u8) {
             i += 1
         }
 
-        if i > 0 && i + 1 < line.length() && line[i] == ('.' as u8) && line[i + 1] == (' ' as u8) {
+        if i > 0 && i + 1 < line.size() && line[i] == ('.' as u8) && line[i + 1] == (' ' as u8) {
             return line.subslice(0, i + 2)
         }
 
@@ -1110,7 +1110,7 @@ pub class TermRenderer {
 
     fn find_word_end(self, const s: string, from: usize) -> usize {
         var i = from
-        while i < s.length() && s[i] != (' ' as u8) && s[i] != ('`' as u8) && s[i] != ('\n' as u8) {
+        while i < s.size() && s[i] != (' ' as u8) && s[i] != ('`' as u8) && s[i] != ('\n' as u8) {
             i += 1
         }
 
@@ -1119,35 +1119,35 @@ pub class TermRenderer {
 
     priv fn parse_fence(self, const line: string) -> Self::CodeBlockInfo {
         var info = Self::CodeBlockInfo()
-        var rest = trim(line.subslice(3, line.length() - 3))
+        var rest = trim(line.subslice(3, line.size() - 3))
 
         // split on spaces: ```kairo file=a.k
         var i: usize = 0
 
         // language
-        while i < rest.length() && rest[i] != (' ' as u8) {
+        while i < rest.size() && rest[i] != (' ' as u8) {
             i += 1
         }
 
         info.lang = rest.subslice(0, i)
 
         // remaining key=value pairs
-        while i < rest.length() {
-            while i < rest.length() && rest[i] == (' ' as u8) {
+        while i < rest.size() {
+            while i < rest.size() && rest[i] == (' ' as u8) {
                 i += 1
             }
 
             var kv_start = i
-            while i < rest.length() && rest[i] != (' ' as u8) {
+            while i < rest.size() && rest[i] != (' ' as u8) {
                 i += 1
             }
 
             var kv = rest.subslice(kv_start, i - kv_start)
 
             var eq = find(kv, "=", 0)
-            if eq != usize::MAX && eq > 0 && eq + 1 < kv.length() {
+            if eq != usize::MAX && eq > 0 && eq + 1 < kv.size() {
                 var key = kv.subslice(0, eq)
-                var val = kv.subslice(eq + 1, kv.length() - eq - 1)
+                var val = kv.subslice(eq + 1, kv.size() - eq - 1)
                 if key == "file" {
                     info.file = val.copy()
                 }

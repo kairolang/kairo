@@ -763,7 +763,7 @@ pub class SourceManager {
 
         var full   = self._files[file_id]->path
         var parent = full.parent_path()
-        if !parent.empty() {
+        if !parent.is_empty() {
             out = Path(parent, false)
         }
 

@@ -107,7 +107,7 @@ extend Server {
     }
 
     fn flush_trace(self) {
-        if self.trace_dirty && (!self.tmp.empty()) {
+        if self.trace_dirty && (!self.tmp.is_empty()) {
             LinkFS::write(Path::join_str(self.tmp, "trace.log"), self.trace_buf)
             self.trace_dirty = false
         }
@@ -196,7 +196,7 @@ extend Server {
             w.field_bool("cancellable", false)
         }
 
-        if !message.empty() {
+        if !message.is_empty() {
             w.field(K_MESSAGE, message)
         }
 
@@ -273,7 +273,7 @@ extend Server {
     /// run read (unknown on a very first run: a count without a percentage).
     fn report_progress(self) {
         for var q: usize = 0; q < self.jobs.size(); ++q {
-            if (self.jobs[q].kind != JobKind::Index) || self.jobs[q].progress.empty() {
+            if (self.jobs[q].kind != JobKind::Index) || self.jobs[q].progress.is_empty() {
                 continue
             }
 

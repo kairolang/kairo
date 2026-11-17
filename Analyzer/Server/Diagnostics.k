@@ -85,7 +85,7 @@ extend Server {
         var d               = s->first(diags)
         while d != JSON_NONE() {
             var p = s->get_str(d, SK_PATH)
-            if p.empty() {
+            if p.is_empty() {
                 p = self.entries[ei].entry.copy()
             }
 
@@ -97,7 +97,7 @@ extend Server {
             }
 
             if !seen {
-                paths.push_back(p.copy())
+                paths.push(p.copy())
             }
 
             d = s->next(d)
@@ -120,7 +120,7 @@ extend Server {
                 }
 
                 if !seen {
-                    paths.push_back(dp.copy())
+                    paths.push(dp.copy())
                 }
             }
         }
@@ -140,7 +140,7 @@ extend Server {
             w.field_raw(K_DIAGNOSTICS, arr)
             w.end_object()
             self.notify(M_PUBLISH_DIAGNOSTICS, w.out)
-            now.push_back(uri.copy())
+            now.push(uri.copy())
         }
 
         for var i: usize = 0; i < self.entries[ei].published.size(); ++i {
@@ -185,16 +185,16 @@ extend Server {
         j.started_ms = now_ms()
 
         var argv: [string]
-        argv.push_back(self.exe.copy())
-        argv.push_back(WA_WORKER.copy())
-        argv.push_back(j.out.copy())
-        argv.push_back(WA_SYNTAX_ONLY.copy())
-        argv.push_back(j.path.copy())
-        argv.push_back(WA_OVERLAY.copy())
-        argv.push_back(j.path.copy())
-        argv.push_back(overlay.copy())
-        argv.push_back(WA_END.copy())
-        argv.push_back(j.path.copy())
+        argv.push(self.exe.copy())
+        argv.push(WA_WORKER.copy())
+        argv.push(j.out.copy())
+        argv.push(WA_SYNTAX_ONLY.copy())
+        argv.push(j.path.copy())
+        argv.push(WA_OVERLAY.copy())
+        argv.push(j.path.copy())
+        argv.push(overlay.copy())
+        argv.push(WA_END.copy())
+        argv.push(j.path.copy())
 
         // The buffer is no longer due only once its pass is running: a
         // refused launch leaves it due, and the loop tries again.
@@ -204,7 +204,7 @@ extend Server {
 
         self.docs.docs[di].syn.begin(self.docs.docs[di].changed_at)
         self.trace(f"syntax start rev={j.rev} " + j.path)
-        self.jobs.push_back(j)
+        self.jobs.push(j)
     }
 
     fn finish_syntax(self, j: *Job, rc: i32) {
@@ -244,7 +244,7 @@ extend Server {
         var diags: string = ""
         var x             = doc->first(doc->get(doc->root, SK_DIAGNOSTICS))
         while x != JSON_NONE() {
-            if !diags.empty() {
+            if !diags.is_empty() {
                 diags += ","
             }
 
@@ -255,7 +255,7 @@ extend Server {
         var tokens: [i64]
         var t             = doc->first(doc->get(doc->root, SK_TOKENS))
         while t != JSON_NONE() {
-            tokens.push_back(doc->as_int(t))
+            tokens.push(doc->as_int(t))
             t = doc->next(t)
         }
 
@@ -298,7 +298,7 @@ extend Server {
         var syn_newer = (di != usize::MAX)
             && self.docs.docs[di].syn.landed
             && ((!have_snap) || (self.docs.docs[di].syn.at > self.entries[ei].snap_rev))
-        if syn_newer && (!self.docs.docs[di].syn.diags.empty()) {
+        if syn_newer && (!self.docs.docs[di].syn.diags.is_empty()) {
             out += self.docs.docs[di].syn.diags
             *n = 1
         }
@@ -308,7 +308,7 @@ extend Server {
             var d  = s->first(s->get(s->root, SK_DIAGNOSTICS))
             while d != JSON_NONE() {
                 var p = s->get_str(d, SK_PATH)
-                if p.empty() {
+                if p.is_empty() {
                     p = self.entries[ei].entry.copy()
                 }
 
@@ -358,12 +358,12 @@ extend Server {
         var kept: [string]
         for var k: usize = 0; k < self.entries[ei].published.size(); ++k {
             if self.entries[ei].published[k] != uri {
-                kept.push_back(self.entries[ei].published[k].copy())
+                kept.push(self.entries[ei].published[k].copy())
             }
         }
 
         if n > 0 {
-            kept.push_back(uri.copy())
+            kept.push(uri.copy())
         }
 
         self.entries[ei].published = kept.copy()
@@ -386,12 +386,12 @@ extend Server {
         var kept: [string]
         for var k: usize = 0; k < self.entries[ei].published.size(); ++k {
             if self.entries[ei].published[k] != uri {
-                kept.push_back(self.entries[ei].published[k].copy())
+                kept.push(self.entries[ei].published[k].copy())
             }
         }
 
         if n > 0 {
-            kept.push_back(uri.copy())
+            kept.push(uri.copy())
         }
 
         self.entries[ei].published = kept.copy()

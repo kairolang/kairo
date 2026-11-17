@@ -57,7 +57,7 @@ pub class ToolDiag {
             head = f"{self.file}:{self.line}:{self.column}: "
         }
 
-        if self.code.empty() {
+        if self.code.is_empty() {
             return f"{head}{self.message}"
         }
 

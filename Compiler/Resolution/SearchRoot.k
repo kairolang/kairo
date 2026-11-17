@@ -142,7 +142,7 @@ pub fn split_module_name(const name: string) -> cxx::std::vector<string> {
 /// the real path, so a symlinked tree and its target agree, and bounded by
 /// the filesystem root.
 pub fn module_dir_at_or_above(const dir: string) -> string {
-    if dir.empty() || dir.starts_with("<") {
+    if dir.is_empty() || dir.starts_with("<") {
         return ""
     }
 

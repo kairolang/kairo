@@ -141,7 +141,7 @@ pub class Pen {
     }
 
     fn put(self, const s: string) {
-        if s.length() == 0 {
+        if s.size() == 0 {
             return
         }
 
@@ -890,7 +890,7 @@ pub class Renderer {
                     continue
                 }
 
-                if sep.length() > 0 {
+                if sep.size() > 0 {
                     seq.push_back(Renderer::_lit(c.ind, c.pad, sep.copy()))
                 }
 

@@ -571,7 +571,7 @@ extend EmitIR {
         var b: i32 = 0
         unsafe {
             b = kairo::f8_literal_bits(
-                unsafe (digits->as_ptr() as unsafe *const u8),
+                unsafe (digits->data() as unsafe *const u8),
                 digits->size(),
                 e5m2,
             ) as i32

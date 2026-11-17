@@ -99,7 +99,7 @@ pub class SysSdk {
     /// The macOS SDK to stage: \p input when given, else the installed one
     /// (macOS hosts only). "" for none.
     pub static fn find_macos_sdk(const input: string) -> string {
-        if !input.empty() {
+        if !input.is_empty() {
             return LinkFS::real(input.copy())
         }
 
@@ -113,7 +113,7 @@ pub class SysSdk {
         }
 
         var sdk = Toolchain::find_sdk("macos")
-        if sdk.empty()
+        if sdk.is_empty()
             && LinkFS::exists("/var/db/xcode_select_link")
             && LinkFS::is_file("/usr/bin/xcrun") {
             // Only with developer tools selected: on a bare Mac the xcrun
@@ -134,7 +134,7 @@ pub class SysSdk {
 
         // MacOSX.sdk is a link to MacOSX26.x.sdk: the key and the root's
         // provenance name the real one.
-        return if (sdk.empty()) => ("") else => LinkFS::real(sdk.copy())
+        return if (sdk.is_empty()) => ("") else => LinkFS::real(sdk.copy())
     }
 
     /// xwin's arch directory name for \p arch.
@@ -150,16 +150,16 @@ pub class SysSdk {
     /// or the script's cached splat. "" for none.
     pub static fn find_msvc_splat(const input: string, const xa: string) -> string {
         var cands = cxx::std::vector<string>()
-        if !input.empty() {
+        if !input.is_empty() {
             cands.push_back(input)
         } else {
             var x = LinkFS::env(EnvNames::xwin())
-            if !x.empty() {
+            if !x.is_empty() {
                 cands.push_back(x)
             }
 
             var mc = LinkFS::env(EnvNames::msvc_cache())
-            if mc.empty() {
+            if mc.is_empty() {
                 mc = LinkText::join(SysSdk::prefix(), "share/kairo/msvc-cache")
             }
 
@@ -187,7 +187,7 @@ pub class SysSdk {
                          const tools: string,
                          @inout path: string,
                          @inout out:  SysOutcome) -> bool {
-        if c.root.empty() {
+        if c.root.is_empty() {
             return out.refuse(
                 "no cache directory for sysroots",
                 "set KAIRO_SYSROOT_CACHE (or KAIRO_CACHE_DIR, XDG_CACHE_HOME, HOME)",
@@ -198,7 +198,7 @@ pub class SysSdk {
         var arch   = t->arch.copy()
         var family = if (darwin) => ("darwin") else => "msvc"
         var ovs    = SysSdk::overlays()
-        var ov = if (ovs.empty()) => ("") else => LinkText::join(ovs.copy(), f"{family}-{arch}")
+        var ov = if (ovs.is_empty()) => ("") else => LinkText::join(ovs.copy(), f"{family}-{arch}")
         var ov_lib = if (darwin) => ("usr/lib/libc++.a") else => "lib/libc++.lib"
         var script = if (darwin) => (f"darwin-sysroot.sh {arch}") else => f"msvc-sysroot.ps1 {arch}"
         var scripts = LinkText::join(SysSdk::prefix(), "scripts")
@@ -208,14 +208,14 @@ pub class SysSdk {
         var have = c.lookup(t->name)
         var src  = ""
         var xa   = SysSdk::msvc_arch(arch)
-        if input.empty()
-            && !have.empty()
+        if input.is_empty()
+            && !have.is_empty()
             && LinkFS::is_file(
                 LinkText::join(have.copy(), SysrootManifest::file_name()),
             ) {
             src = if (darwin) => (SysSdk::find_macos_sdk(""))
                   else => SysSdk::find_msvc_splat("", xa)
-            if src.empty() {
+            if src.is_empty() {
                 path = have.copy()
                 return true
             }
@@ -223,7 +223,7 @@ pub class SysSdk {
 
         if darwin {
             src = SysSdk::find_macos_sdk(input)
-            if src.empty() {
+            if src.is_empty() {
                 return out.refuse(
                     f"no macOS SDK found for {t->name}",
                     "install the Command Line Tools (xcode-select --install) or Xcode, or set SDKROOT=<path to MacOSX.sdk>",
@@ -241,9 +241,9 @@ pub class SysSdk {
             }
         } else {
             src = SysSdk::find_msvc_splat(input, xa)
-            if src.empty() && input.empty() {
+            if src.is_empty() && input.is_empty() {
                 var vs = SysSdk::_visual_studio()
-                if !vs.empty() {
+                if !vs.is_empty() {
                     return SysSdk::_run_msvc_script(
                         &c,
                         t,
@@ -255,7 +255,7 @@ pub class SysSdk {
                 }
             }
 
-            if src.empty() {
+            if src.is_empty() {
                 var ps = LinkText::join(scripts.copy(), "msvc-sysroot.ps1")
                 return out.refuse(
                     f"no sysroot for {t->name}: no Visual Studio C++ tools and no MSVC splat were found",
@@ -264,7 +264,7 @@ pub class SysSdk {
             }
         }
 
-        if ov.empty() || !LinkFS::is_file(LinkText::join(ov.copy(), ov_lib.copy())) {
+        if ov.is_empty() || !LinkFS::is_file(LinkText::join(ov.copy(), ov_lib.copy())) {
             return out.refuse(
                 f"no prebuilt libc++ overlay for {t->name} in this toolchain",
                 f"build the root from source with {scripts}/{script} --from-source (needs cmake and ninja)",
@@ -691,7 +691,7 @@ pub class SysSdk {
             "Microsoft Visual Studio/Installer/vswhere.exe",
         )
 
-        if pf.empty() || !LinkFS::is_file(vswhere) {
+        if pf.is_empty() || !LinkFS::is_file(vswhere) {
             return ""
         }
 
@@ -717,7 +717,7 @@ pub class SysSdk {
             "VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt",
         )
 
-        return if (!vs.empty() && LinkFS::is_file(vc)) => (vs) else => ""
+        return if (!vs.is_empty() && LinkFS::is_file(vc)) => (vs) else => ""
     }
 
     /// The installed Visual Studio as the root's Microsoft half: the
@@ -735,7 +735,7 @@ pub class SysSdk {
         }
 
         var shell = SysSdk::_powershell()
-        if shell.empty() {
+        if shell.is_empty() {
             return out.refuse(
                 "Visual Studio found, but no powershell.exe to run msvc-sysroot.ps1 with",
                 "",
@@ -839,7 +839,7 @@ pub class SysSdk {
             "System32/WindowsPowerShell/v1.0/powershell.exe",
         )
 
-        if !root.empty() && LinkFS::is_file(sys) {
+        if !root.is_empty() && LinkFS::is_file(sys) {
             return sys
         }
 
@@ -917,7 +917,7 @@ pub class SysSdk {
             var s    = from + "/" + name
             var d    = to + "/" + name
             var link = SysRun::read_link(s)
-            if !link.empty() {
+            if !link.is_empty() {
                 if !SysRun::symlink(link, d) {
                     return false
                 }

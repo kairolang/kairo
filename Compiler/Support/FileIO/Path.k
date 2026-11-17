@@ -80,7 +80,7 @@ pub class Path {
     pub fn Path(self, const input: string, mustExist: bool = false) {
         self.path_data = Path::_normalize(input)
 
-        if self.path_data.empty() {
+        if self.path_data.is_empty() {
             kairo::std::ice_fail("Path: empty path string")
         }
 
@@ -151,12 +151,12 @@ pub class Path {
     ///             process cwd.
     ///
     pub static fn absolute_if_exists(p: string, const base: string = "") -> string {
-        if p.empty() {
+        if p.is_empty() {
             return p
         }
 
         var cand = p.copy()
-        if !base.empty() && !llvm::sys::path::is_absolute(llvm::Twine(kairo::sref(p))) {
+        if !base.is_empty() && !llvm::sys::path::is_absolute(llvm::Twine(kairo::sref(p))) {
             cand = Path::join_str(base, p.copy())
         }
 
@@ -175,7 +175,7 @@ pub class Path {
     ///          against; llvm's append() would glue the two together instead.
     ///
     pub static fn join_str(const base: string, rel: string) -> string {
-        if base.empty() || llvm::sys::path::is_absolute(llvm::Twine(kairo::sref(rel))) {
+        if base.is_empty() || llvm::sys::path::is_absolute(llvm::Twine(kairo::sref(rel))) {
             return rel
         }
 
@@ -224,7 +224,7 @@ pub class Path {
     ///          what the user typed (a vendored symlink) is what a diagnostic
     ///          should quote.
     pub static fn real_path_of(p: string) -> string {
-        if p.empty() {
+        if p.is_empty() {
             return p
         }
 
@@ -247,7 +247,7 @@ pub class Path {
 
     /// \p dir and every missing parent. True when it exists afterwards.
     pub static fn make_dirs(const dir: string) -> bool {
-        if dir.empty() {
+        if dir.is_empty() {
             return true
         }
 
@@ -269,7 +269,7 @@ pub class Path {
 
     /// \p dir and everything under it; a missing \p dir is not an error.
     pub static fn remove_tree(const dir: string) {
-        if dir.empty() {
+        if dir.is_empty() {
             return
         }
 

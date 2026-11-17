@@ -320,7 +320,7 @@ fn io_opaque_ffi_type(ar: unsafe *ASTArchive, n: unsafe *Types::OpaqueFFIType) {
             var unsafe *mem = ar->ctx->alloc_array<u8>(sp.size() + 1)
             cxx::std::memcpy(
                 unsafe (mem as unsafe *void),
-                unsafe (sp.raw() as unsafe *const void),
+                unsafe (sp.data() as unsafe *const void),
                 sp.size(),
             )
 

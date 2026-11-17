@@ -188,7 +188,7 @@ extend CompilerInstance {
     /// manifest that fails to load is left to the linker to report.
     priv fn _sysroot_header_roots(self, @inout bcfg: ClangBackendConfig) {
         var sr = LinkText::strip_slash(bcfg.sysroot.copy())
-        if sr.empty() || sr == "/" {
+        if sr.is_empty() || sr == "/" {
             return
         }
 
@@ -207,7 +207,7 @@ extend CompilerInstance {
                 return
             }
 
-            if !m.sysroot.empty() && m.sysroot != "." {
+            if !m.sysroot.is_empty() && m.sysroot != "." {
                 root = LinkText::join(sr.copy(), m.sysroot.copy())
             }
 
@@ -278,7 +278,7 @@ extend CompilerInstance {
         // library is still found, by _apply_host_system, for its libc++ and
         // compiler-rt only.
         if tg->native {
-            if tg->sysroot.empty() {
+            if tg->sysroot.is_empty() {
                 tg->sysroot = "/"
             }
 
@@ -289,17 +289,17 @@ extend CompilerInstance {
         // exact headers to compile against. A bundled root for the same
         // triple (x86_64-linux-gnu-glibc2.31 while building 2.42) would
         // otherwise win and mix two C libraries' headers.
-        if self.invocation()->args.get_bool("sysroot-exact") && !tg->sysroot.empty() {
+        if self.invocation()->args.get_bool("sysroot-exact") && !tg->sysroot.is_empty() {
             return true
         }
 
         var want = self._sysroot_target()
-        if want.empty() {
+        if want.is_empty() {
             return true
         }
 
         var dir = self._bundled_sysroot_dir(want)
-        if dir.empty() {
+        if dir.is_empty() {
             return self._sysroot_from_generator(want)
         }
 
@@ -316,7 +316,7 @@ extend CompilerInstance {
             }
         }
 
-        if !why.empty() {
+        if !why.is_empty() {
             self._diag->report(
                 DiagID::P007E,
                 f"the bundled sysroot for '{want}' is malformed: {dir}",
@@ -358,11 +358,11 @@ extend CompilerInstance {
     priv fn _sysroot_from_generator(self, const want: string) -> bool {
         var *inv = self.invocation()
         var *tg  = &inv->target
-        if !tg->sysroot.empty() {
+        if !tg->sysroot.is_empty() {
             return true
         }
 
-        if inv->lang.freestanding || inv->linker.freestanding || !inv->linker.macos_sdk.empty() {
+        if inv->lang.freestanding || inv->linker.freestanding || !inv->linker.macos_sdk.is_empty() {
             return true
         }
 
@@ -378,9 +378,9 @@ extend CompilerInstance {
 
         // Before the SDK check: a macOS / MSVC root staged by hand (ksys
         // ensure --input, the SDK= of the scripts) serves any host.
-        var cache  = SysCache(SysCache::default_root())
-        var cached = if (cache.root.empty()) => ("") else => cache.lookup(name)
-        if !cached.empty()
+        var cache = SysCache(SysCache::default_root())
+        var cached = if (cache.root.is_empty()) => ("") else => cache.lookup(name)
+        if !cached.is_empty()
             && LinkFS::is_file(
                 LinkText::join(cached.copy(), SysrootManifest::file_name()),
             ) {
@@ -434,7 +434,7 @@ extend CompilerInstance {
 
         var id = if (o.status == SYS_STATUS_FAILED) => (DiagID::P010E) else => DiagID::P009E
         self._diag->report(id, o.message.copy()).emit()
-        if !o.note.empty() {
+        if !o.note.is_empty() {
             self._diag->report(DiagID::P009N, o.note.copy()).emit()
         }
 
@@ -472,13 +472,13 @@ extend CompilerInstance {
     /// pinned glibc still finds or builds its own root.
     priv fn _canonical_target(self) {
         var *tg = &self.invocation()->target
-        if tg->triple.empty() {
+        if tg->triple.is_empty() {
             return
         }
 
         var ver  = ""
         var bare = SysNames::split_glibc(tg->triple, &ver)
-        if !ver.empty() {
+        if !ver.is_empty() {
             tg->glibc  = ver.copy()
             tg->triple = bare.copy()
         }
@@ -496,8 +496,8 @@ extend CompilerInstance {
         }
 
         var want = tg->triple.copy()
-        if want.empty() {
-            if !tg->sysroot.empty() {
+        if want.is_empty() {
+            if !tg->sysroot.is_empty() {
                 return ""
             }
 
@@ -513,7 +513,7 @@ extend CompilerInstance {
         // A pinned glibc names its root (aarch64-linux-gnu-glibc2.28), which
         // _bundled_sysroot_dir matches exactly: the plain triple would find
         // the bundled 2.31 root by spelling and silently build against it.
-        if !tg->glibc.empty() {
+        if !tg->glibc.is_empty() {
             var spelled = want + "-glibc" + tg->glibc
             var tgt     = SysTarget{}
             var cands   = cxx::std::vector<string>()
@@ -543,7 +543,7 @@ extend CompilerInstance {
         )
 
         var dir = LinkText::join(root.copy(), want.copy())
-        if !LinkFS::exists(dir) && !self.invocation()->target.glibc.empty() {
+        if !LinkFS::exists(dir) && !self.invocation()->target.glibc.is_empty() {
             return ""
         }
 
@@ -561,12 +561,12 @@ extend CompilerInstance {
                     continue
                 }
 
-                if pick.empty() || name < pick {
+                if pick.is_empty() || name < pick {
                     pick = name.copy()
                 }
             }
 
-            if pick.empty() {
+            if pick.is_empty() {
                 return ""
             }
 
@@ -596,7 +596,7 @@ extend CompilerInstance {
     prot fn _effective_triple(self) -> string {
         var *tg             = &self.invocation()->target
         var t               = tg->triple.copy()
-        var explicit_target = !t.empty()
+        var explicit_target = !t.is_empty()
         if !explicit_target {
             t = self.get_default_target_triple()
         }
@@ -642,7 +642,7 @@ extend CompilerInstance {
         // invocation long before this; until they are copied here they reach
         // nothing.
         var tgt = self.invocation()->target
-        if !tgt.cxx_std.empty() {
+        if !tgt.cxx_std.is_empty() {
             bcfg.cxx_std = tgt.cxx_std.copy()
         }
 
@@ -705,7 +705,7 @@ extend CompilerInstance {
             env_sr.size(),
         )
 
-        if env_nm.empty() {
+        if env_nm.is_empty() {
             env_nm = "unknown"
         }
 
@@ -718,7 +718,7 @@ extend CompilerInstance {
         // invocation) and from Lib/rt/fmt_*.c (native_invocation shares these
         // arguments).
         var rt_root = self._runtime_root()
-        if !rt_root.empty() {
+        if !rt_root.is_empty() {
             bcfg.extra_cc1.push_back("-I")
             bcfg.extra_cc1.push_back(rt_root)
         }
@@ -731,8 +731,8 @@ extend CompilerInstance {
         // hermetic build, and not on a C/C++ input's driver line, where
         // clang's driver adds them itself (ClangJobs drops them when
         // hermetic).
-        bcfg.strip_env = tgt.host_mode.empty()
-        if !tgt.host_mode.empty() {
+        bcfg.strip_env = tgt.host_mode.is_empty()
+        if !tgt.host_mode.is_empty() {
             for var d: string in HostSystem::env_list(EnvNames::cpath()) {
                 bcfg.extra_cc1.push_back("-I")
                 bcfg.extra_cc1.push_back(d)
@@ -769,7 +769,7 @@ extend CompilerInstance {
             bcfg.cxx_include_dirs.clear()
             bcfg.include_dirs.clear()
             bcfg.defines.clear()
-            if !tgt.native_bundle.empty() {
+            if !tgt.native_bundle.is_empty() {
                 var nb = ClangBackendConfig{}
                 nb.triple  = bcfg.triple.copy()
                 nb.sysroot = tgt.native_bundle.copy()
@@ -917,7 +917,7 @@ extend CompilerInstance {
                 continue
             }
 
-            var better = pick.empty()
+            var better = pick.is_empty()
             if !better {
                 var cur = LinkFS::filename(pick)
                 better = name.size() > cur.size() || name.size() == cur.size() && name > cur
@@ -962,13 +962,13 @@ extend CompilerInstance {
         var prefix = CompilerInstance::_toolchain_prefix()
         var lib    = LinkText::join(prefix.copy(), ResourceLayout::lib_subdir())
 
-        var rd_given = !inv->target.resource_dir.empty()
+        var rd_given = !inv->target.resource_dir.is_empty()
         if !rd_given {
             var rd = CompilerInstance::_pick_resource_dir(
                 LinkText::join(lib.copy(), ResourceLayout::clang_subdir()),
             )
 
-            if !rd.empty() {
+            if !rd.is_empty() {
                 inv->target.resource_dir = rd.copy()
             } else {
                 self._queue_root_warning(
@@ -986,36 +986,36 @@ extend CompilerInstance {
         // filled so the sibling rule below sees both.
         var input_builtin = ""
         var input_std     = ""
-        if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
+        if inv->pp.builtins_dir.is_empty() && !inv->pp.no_prelude {
             input_builtin = self._input_library_dir(builtin_root_name())
         }
 
-        if inv->pp.std_dir.empty() && !inv->pp.no_stdlib {
+        if inv->pp.std_dir.is_empty() && !inv->pp.no_stdlib {
             input_std = self._input_library_dir(std_root_name())
         }
 
         // A source copy of one library brings the directory beside it that
         // pins the other, so a checkout's Lib/std is checked against that
         // checkout's Lib/builtin and not against a toolchain copy.
-        if input_builtin.empty() && !input_std.empty() {
+        if input_builtin.is_empty() && !input_std.is_empty() {
             input_builtin = self._sibling_library_dir(
                 input_std,
                 builtin_root_name(),
             )
         }
 
-        if input_std.empty() && !input_builtin.empty() {
+        if input_std.is_empty() && !input_builtin.is_empty() {
             input_std = self._sibling_library_dir(
                 input_builtin,
                 std_root_name(),
             )
         }
 
-        if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
+        if inv->pp.builtins_dir.is_empty() && !inv->pp.no_prelude {
             inv->pp.builtins_dir = input_builtin.copy()
         }
 
-        if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
+        if inv->pp.builtins_dir.is_empty() && !inv->pp.no_prelude {
             var legacy = ""
             if rd_given {
                 legacy = LinkText::join(
@@ -1029,7 +1029,7 @@ extend CompilerInstance {
                 ResourceLayout::builtin_subdir(),
             )
 
-            if !legacy.empty() && LinkFS::is_dir(legacy) {
+            if !legacy.is_empty() && LinkFS::is_dir(legacy) {
                 inv->pp.builtins_dir = legacy.copy()
             } else if LinkFS::is_dir(dir) {
                 inv->pp.builtins_dir = dir.copy()
@@ -1041,11 +1041,11 @@ extend CompilerInstance {
             }
         }
 
-        if inv->pp.std_dir.empty() && !inv->pp.no_stdlib {
+        if inv->pp.std_dir.is_empty() && !inv->pp.no_stdlib {
             inv->pp.std_dir = input_std.copy()
         }
 
-        if inv->pp.std_dir.empty() && !inv->pp.no_stdlib {
+        if inv->pp.std_dir.is_empty() && !inv->pp.no_stdlib {
             var legacy = ""
             if rd_given {
                 legacy = LinkText::join(
@@ -1055,7 +1055,7 @@ extend CompilerInstance {
             }
 
             var dir = LinkText::join(lib.copy(), ResourceLayout::std_subdir())
-            if !legacy.empty() && LinkFS::is_dir(legacy) {
+            if !legacy.is_empty() && LinkFS::is_dir(legacy) {
                 inv->pp.std_dir = legacy.copy()
             } else if LinkFS::is_dir(dir) {
                 inv->pp.std_dir = dir.copy()
@@ -1075,7 +1075,7 @@ extend CompilerInstance {
     priv fn _sibling_library_dir(self, const lib_dir: string, const name: string) -> string {
         var want   = split_module_name(name)
         var parent = Path::parent_of(lib_dir)
-        if parent.empty() || parent.size() >= lib_dir.size() {
+        if parent.is_empty() || parent.size() >= lib_dir.size() {
             return ""
         }
 
@@ -1094,7 +1094,7 @@ extend CompilerInstance {
 
             var pin = read_module_pin(mod_k.copy())
             if pin.size() > 0 && root_names_equal(pin, want) {
-                if best.empty() || entry < LinkFS::filename(best) {
+                if best.is_empty() || entry < LinkFS::filename(best) {
                     best = real.copy()
                 }
             }
@@ -1121,7 +1121,7 @@ extend CompilerInstance {
             }
 
             var walk = Path::parent_of(*f)
-            while !walk.empty() {
+            while !walk.is_empty() {
                 var mod_k = Path::join_str(walk, "module.k")
                 var pin   = cxx::std::vector<string>()
                 if Path::exists_at(mod_k) {
@@ -1131,7 +1131,7 @@ extend CompilerInstance {
                 if pin.size() > 0 {
                     if root_names_equal(pin, want) {
                         var real = LinkFS::real(walk.copy())
-                        if found.empty() {
+                        if found.is_empty() {
                             found = real.copy()
                         } else if found != real {
                             return ""
@@ -1142,7 +1142,7 @@ extend CompilerInstance {
                 }
 
                 var up = Path::parent_of(walk)
-                if up.empty() || up.size() >= walk.size() {
+                if up.is_empty() || up.size() >= walk.size() {
                     break
                 }
 
@@ -1172,15 +1172,15 @@ extend CompilerInstance {
             return true
         }
 
-        if !inv->linker.macos_sdk.empty() {
+        if !inv->linker.macos_sdk.is_empty() {
             return true
         }
 
         var sr = inv->target.sysroot.copy()
         var note = "pass --sysroot=<dir>, or --freestanding to compile without system headers and libraries"
-        if sr.empty() {
+        if sr.is_empty() {
             var want = self._sysroot_target()
-            if want.empty() {
+            if want.is_empty() {
                 want = self._effective_triple()
             }
 
@@ -1235,7 +1235,7 @@ extend CompilerInstance {
             return true
         }
 
-        if !tg->triple.empty() {
+        if !tg->triple.is_empty() {
             self._diag->report(
                 DiagID::U016E,
                 f"--native and --target={tg->triple} cannot be combined",
@@ -1299,7 +1299,7 @@ extend CompilerInstance {
         var mode         = ""
         if tg->native {
             mode = "native"
-        } else if tg->triple.empty()
+        } else if tg->triple.is_empty()
             && !sysroot_given
             && !freestanding
             && host.isOSLinux()
@@ -1310,7 +1310,7 @@ extend CompilerInstance {
 
         tg->host_mode = mode.copy()
 
-        if !mode.empty() {
+        if !mode.is_empty() {
             var an: llvm::StringRef = eff.getArchName()
             var arch = Toolchain::canon_arch(
                 string(
@@ -1381,7 +1381,7 @@ extend CompilerInstance {
             if mode == "native" {
                 var t = kairo::std::from_std_string<string>(eff.getTriple())
                 tg->native_bundle = self._bundled_sysroot_dir(t)
-                if tg->native_bundle.empty() {
+                if tg->native_bundle.is_empty() {
                     self._queue_root_warning(
                         f"--native: no bundled sysroot for '{t}' to take libc++ and compiler-rt from",
                         "the build uses whatever C++ runtime the host has (-lc++, libgcc)",
@@ -1394,9 +1394,9 @@ extend CompilerInstance {
             return true
         }
 
-        if !tg->triple.empty()
-            && LinkFS::env(EnvNames::pkg_config_sysroot_dir()).empty()
-            && LinkFS::env(EnvNames::pkg_config_libdir()).empty() {
+        if !tg->triple.is_empty()
+            && LinkFS::env(EnvNames::pkg_config_sysroot_dir()).is_empty()
+            && LinkFS::env(EnvNames::pkg_config_libdir()).is_empty() {
             self._diag->report(
                 DiagID::U018E,
                 f"--pkg-config cannot be used with --target={tg->triple} as is: this machine's .pc files describe this machine, not the target",
@@ -1503,7 +1503,7 @@ extend CompilerInstance {
 
             i += step
 
-            if kind.empty() {
+            if kind.is_empty() {
                 self._diag->report(
                     DiagID::U020W,
                     f"--pkg-config {name}: ignoring '{w}', which kairo has no place for",
@@ -1511,7 +1511,7 @@ extend CompilerInstance {
                 continue
             }
 
-            if val.empty() {
+            if val.is_empty() {
                 continue
             }
 
@@ -1550,7 +1550,7 @@ extend CompilerInstance {
                 for var k: usize = 0; k <= val.size(); ++k {
                     if k == val.size() || val[k] == (',' as u8) {
                         var part = LinkText::slice(val, b, k)
-                        if !part.empty() {
+                        if !part.is_empty() {
                             inv->linker.ld_flags.push_back(part)
                         }
 
@@ -1696,7 +1696,7 @@ extend CompilerInstance {
 
         // Before _use_bundled_sysroot fills it: whether the user named the
         // root, which keeps a default build off the host's dirs.
-        var sysroot_given = !self.invocation()->target.sysroot.empty()
+        var sysroot_given = !self.invocation()->target.sysroot.is_empty()
         if !self._check_host_flags() {
             self.invocation()->ok = false
             return
@@ -1726,11 +1726,11 @@ extend CompilerInstance {
         // on clang's spelling. real() leaves a path that does not exist
         // unchanged; the resolvers report it.
         var *tg = &self.invocation()->target
-        if !tg->sysroot.empty() {
+        if !tg->sysroot.is_empty() {
             tg->sysroot = LinkFS::real(tg->sysroot.copy())
         }
 
-        if !tg->resource_dir.empty() {
+        if !tg->resource_dir.is_empty() {
             tg->resource_dir = LinkFS::real(tg->resource_dir.copy())
         }
 
@@ -1740,11 +1740,11 @@ extend CompilerInstance {
         // NullTestLowering; resolved, a debug run with no flags sees exactly
         // the roots lit passes.
         var *ppo = &self.invocation()->pp
-        if !ppo->builtins_dir.empty() {
+        if !ppo->builtins_dir.is_empty() {
             ppo->builtins_dir = LinkFS::real(ppo->builtins_dir.copy())
         }
 
-        if !ppo->std_dir.empty() {
+        if !ppo->std_dir.is_empty() {
             ppo->std_dir = LinkFS::real(ppo->std_dir.copy())
         }
 
@@ -1838,7 +1838,7 @@ extend CompilerInstance {
         // nothing about the target, and guessing would silently build for a
         // machine nobody asked for.
         if self._inv.target.mcpu == "native" {
-            if !self._inv.target.triple.empty() {
+            if !self._inv.target.triple.is_empty() {
                 self._diag->report(
                     DiagID::P006E,
                     f"'--mcpu native' names the host CPU and cannot be used with --target '{self._inv.target.triple}'",
@@ -1858,7 +1858,7 @@ extend CompilerInstance {
             )
         }
 
-        if !self._inv.target.mcpu.empty() {
+        if !self._inv.target.mcpu.is_empty() {
             var unsafe *STI = T->createMCSubtargetInfo(
                 tt,
                 kairo::sref(r""),
@@ -1889,7 +1889,7 @@ extend CompilerInstance {
         // (armv8.2-a+crypto, rv64gc) that only clang's per-target parsers
         // read, so it is left to them.
         var march = self._inv.target.march.copy()
-        if (!march.empty()) && march != "native" && t->is_x86 {
+        if (!march.is_empty()) && march != "native" && t->is_x86 {
             var unsafe *XSTI = T->createMCSubtargetInfo(
                 tt,
                 kairo::sref(r""),

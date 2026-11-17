@@ -461,7 +461,7 @@ pub class RedeclMerge {
                 // a member list may not repeat a member, so only a file-scope
                 // declaration and its definition are one entity with them,
                 // and _link holds that pair to one set of bounds.
-                if in_type_body && !self._bounds_differ(a, b).empty() {
+                if in_type_body && !self._bounds_differ(a, b).is_empty() {
                     continue
                 }
 
@@ -1540,7 +1540,7 @@ pub class RedeclMerge {
                     hit = group[j]
                 }
 
-                if self._bounds_differ(group[j], f).empty() {
+                if self._bounds_differ(group[j], f).is_empty() {
                     hit = group[j]
                     break
                 }
@@ -2053,7 +2053,7 @@ pub class RedeclMerge {
                                 prev:       unsafe *Declarations::FunctionDecl,
                                 cur:        unsafe *Declarations::FunctionDecl) {
         var p = self._bounds_differ(prev, cur)
-        if p.empty() {
+        if p.is_empty() {
             return
         }
 

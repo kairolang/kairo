@@ -213,7 +213,7 @@ pub class Toolchain {
                 self.arch.copy(),
             )
 
-            if self.platform.empty() {
+            if self.platform.is_empty() {
                 msgs.push_back(
                     LinkDiag::make(
                         LinkSeverity::Fatal,
@@ -272,7 +272,7 @@ pub class Toolchain {
         // --macos-sdk names the SDK directly and beats --sysroot and the
         // bundled one: it is the more specific request, and -syslibroot must
         // agree with the SDK the version is read from.
-        if darwin && !o->macos_sdk.empty() {
+        if darwin && !o->macos_sdk.is_empty() {
             if self.platform == "macos" {
                 sr = LinkText::strip_slash(o->macos_sdk.copy())
             } else {
@@ -285,9 +285,9 @@ pub class Toolchain {
             }
         }
 
-        if darwin && (sr.empty() || sr == "/") {
+        if darwin && (sr.is_empty() || sr == "/") {
             sr = Toolchain::find_sdk(self.platform)
-            if sr.empty() {
+            if sr.is_empty() {
                 msgs.push_back(
                     LinkDiag::make(
                         LinkSeverity::Fatal,
@@ -299,7 +299,7 @@ pub class Toolchain {
             }
         }
 
-        if sr.empty() {
+        if sr.is_empty() {
             sr = "/"
         }
 
@@ -343,7 +343,7 @@ pub class Toolchain {
             self._find_compiler_rt(t, &msgs)
         }
 
-        if self.native_bundle.empty() {
+        if self.native_bundle.is_empty() {
             self._find_toolchain_lib(t)
         }
 
@@ -362,7 +362,7 @@ pub class Toolchain {
             self._darwin_versions(o, &msgs)
         } else {
             self.emulation = o->emulation.copy()
-            if self.emulation.empty() {
+            if self.emulation.is_empty() {
                 if coff {
                     self.emulation = if (self.libc == "mingw") => (Toolchain::pe_emulation_for(
                                          self.arch,
@@ -379,7 +379,7 @@ pub class Toolchain {
                 }
             }
 
-            if coff && self.libc == "mingw" && self.emulation.empty() {
+            if coff && self.libc == "mingw" && self.emulation.is_empty() {
                 msgs.push_back(
                     LinkDiag::make(
                         LinkSeverity::Error,
@@ -390,7 +390,7 @@ pub class Toolchain {
 
             if !coff && !wasm {
                 self.dynamic_linker = o->dynamic_linker.copy()
-                if self.dynamic_linker.empty() {
+                if self.dynamic_linker.is_empty() {
                     self.dynamic_linker = Toolchain::dynamic_linker_for(
                         self.arch,
                         self.os,
@@ -408,7 +408,7 @@ pub class Toolchain {
     priv fn _layout_manifest(self, @inout msgs: cxx::std::vector<LinkMessage>) {
         var *m   = &self.manifest
         var root = m->dir.copy()
-        if !m->sysroot.empty() && m->sysroot != "." {
+        if !m->sysroot.is_empty() && m->sysroot != "." {
             root = LinkText::join(m->dir.copy(), m->sysroot.copy())
         }
 
@@ -497,7 +497,7 @@ pub class Toolchain {
         var ma = Toolchain::multiarch(self.arch, self.os, self.env)
         for var b: string in bases {
             var lib = LinkText::join(b.copy(), "lib")
-            if !ma.empty() {
+            if !ma.is_empty() {
                 self._add_dir(LinkText::join(lib.copy(), ma.copy()))
             }
 
@@ -585,7 +585,7 @@ pub class Toolchain {
         )
 
         var up = LinkFS::parent(self.sysroot)
-        if !up.empty() {
+        if !up.is_empty() {
             groots.push_back(
                 LinkText::join(LinkText::join(up.copy(), "lib"), "gcc"),
             )
@@ -611,7 +611,7 @@ pub class Toolchain {
 
         if self.sysroot == "/" {
             for var d: string in Toolchain::_split(LinkFS::env(EnvNames::lib()), ';' as u8) {
-                if !d.empty() {
+                if !d.is_empty() {
                     self._add_dir(LinkText::strip_slash(d.copy()))
                 }
             }
@@ -632,7 +632,7 @@ pub class Toolchain {
             for var vc: string in vcs {
                 var root = LinkText::join(sr.copy(), vc.copy())
                 var v    = Toolchain::newest_version(root)
-                if !v.empty() {
+                if !v.is_empty() {
                     self._add_dir(LinkText::join(root.copy(), f"{v}/lib/{vs}"))
                 }
             }
@@ -644,7 +644,7 @@ pub class Toolchain {
             for var k: string in kits {
                 var root = LinkText::join(sr.copy(), k.copy())
                 var v    = Toolchain::newest_version(root)
-                if v.empty() {
+                if v.is_empty() {
                     continue
                 }
 
@@ -654,19 +654,21 @@ pub class Toolchain {
         }
 
         var missing = ""
-        if self.find_lib_file("libcmt.lib").empty() && self.find_lib_file("msvcrt.lib").empty() {
+        if self.find_lib_file("libcmt.lib").is_empty()
+            && self.find_lib_file("msvcrt.lib").is_empty() {
             missing += " the MSVC CRT (libcmt.lib),"
         }
 
-        if self.find_lib_file("libucrt.lib").empty() && self.find_lib_file("ucrt.lib").empty() {
+        if self.find_lib_file("libucrt.lib").is_empty()
+            && self.find_lib_file("ucrt.lib").is_empty() {
             missing += " the UCRT (libucrt.lib),"
         }
 
-        if self.find_lib_file("kernel32.lib").empty() {
+        if self.find_lib_file("kernel32.lib").is_empty() {
             missing += " the Windows SDK (kernel32.lib),"
         }
 
-        if !missing.empty() {
+        if !missing.is_empty() {
             var _where = if (self.sysroot == "/") => ("LIB and ") else => ""
             msgs.push_back(
                 LinkDiag::make(
@@ -682,11 +684,11 @@ pub class Toolchain {
     priv fn _layout_wasm(self, @inout msgs: cxx::std::vector<LinkMessage>) {
         self.style        = "prefix"
         self.pass_sysroot = false
-        if self.libc.empty() {
+        if self.libc.is_empty() {
             return
         }
 
-        var env = if (self.env.empty()) => ("") else => f"-{self.env}"
+        var env = if (self.env.is_empty()) => ("") else => f"-{self.env}"
         var lib = LinkText::join(self.sysroot.copy(), "lib")
         self._add_dir(LinkText::join(lib.copy(), f"{self.arch}-{self.os}{env}"))
         if self.os == "wasip1" {
@@ -726,7 +728,7 @@ pub class Toolchain {
 
     priv fn _pick_runtimes(self, o: *LinkerOptions, @inout msgs: cxx::std::vector<LinkMessage>) {
         if self.format == ObjectFormat::MachO {
-            if !o->rtlib.empty() && o->rtlib != "compiler-rt" {
+            if !o->rtlib.is_empty() && o->rtlib != "compiler-rt" {
                 msgs.push_back(
                     LinkDiag::make(
                         LinkSeverity::Error,
@@ -735,7 +737,7 @@ pub class Toolchain {
                 )
             }
 
-            if !o->unwindlib.empty() && o->unwindlib != "libunwind" && o->unwindlib != "none" {
+            if !o->unwindlib.is_empty() && o->unwindlib != "libunwind" && o->unwindlib != "none" {
                 msgs.push_back(
                     LinkDiag::make(
                         LinkSeverity::Error,
@@ -751,11 +753,11 @@ pub class Toolchain {
 
         if self.libc == "msvc" {
             var rt = o->rtlib.copy()
-            if rt.empty() && self.has_manifest {
+            if rt.is_empty() && self.has_manifest {
                 rt = self.manifest.rtlib.copy()
             }
 
-            if rt.empty() {
+            if rt.is_empty() {
                 rt = "vcruntime"
             }
 
@@ -768,7 +770,7 @@ pub class Toolchain {
                 )
             }
 
-            if !o->unwindlib.empty() && o->unwindlib != "none" {
+            if !o->unwindlib.is_empty() && o->unwindlib != "none" {
                 msgs.push_back(
                     LinkDiag::make(
                         LinkSeverity::Error,
@@ -784,11 +786,11 @@ pub class Toolchain {
 
         if self.format == ObjectFormat::Wasm {
             var rt = o->rtlib.copy()
-            if rt.empty() && self.has_manifest {
+            if rt.is_empty() && self.has_manifest {
                 rt = self.manifest.rtlib.copy()
             }
 
-            if rt.empty() {
+            if rt.is_empty() {
                 rt = "compiler-rt"
             }
 
@@ -802,11 +804,11 @@ pub class Toolchain {
             }
 
             var uw = o->unwindlib.copy()
-            if uw.empty() && self.has_manifest {
+            if uw.is_empty() && self.has_manifest {
                 uw = self.manifest.unwindlib.copy()
             }
 
-            if uw.empty() {
+            if uw.is_empty() {
                 uw = "none"
             }
 
@@ -825,19 +827,19 @@ pub class Toolchain {
         }
 
         var rt = o->rtlib.copy()
-        if rt.empty() && self.has_manifest {
+        if rt.is_empty() && self.has_manifest {
             rt = self.manifest.rtlib.copy()
         }
 
         // --native keeps the bundled compiler-rt over the host's libgcc: the
         // bundled libc++ and libunwind were built against it.
-        if rt.empty() && !self.native_bundle.empty() {
+        if rt.is_empty() && !self.native_bundle.is_empty() {
             rt = "compiler-rt"
         }
 
-        if rt.empty() {
+        if rt.is_empty() {
             rt = if ((self.libc == "glibc" || self.libc == "mingw")
-                     && !self.gcc_dir.empty()) => ("libgcc")
+                     && !self.gcc_dir.is_empty()) => ("libgcc")
                  else => "compiler-rt"
         }
 
@@ -850,7 +852,7 @@ pub class Toolchain {
             )
         }
 
-        if rt == "libgcc" && self.gcc_dir.empty() && !self.has_manifest {
+        if rt == "libgcc" && self.gcc_dir.is_empty() && !self.has_manifest {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -862,11 +864,11 @@ pub class Toolchain {
         self.rtlib = rt.copy()
 
         var uw = o->unwindlib.copy()
-        if uw.empty() && self.has_manifest {
+        if uw.is_empty() && self.has_manifest {
             uw = self.manifest.unwindlib.copy()
         }
 
-        if uw.empty() {
+        if uw.is_empty() {
             uw = if (rt == "libgcc") => ("libgcc") else => "libunwind"
         }
 
@@ -884,13 +886,13 @@ pub class Toolchain {
 
     priv fn _rt_roots(self, t: *TargetOptions) -> cxx::std::vector<string> {
         var roots = cxx::std::vector<string>()
-        if !self.native_bundle.empty() {
+        if !self.native_bundle.is_empty() {
             roots.push_back(
                 LinkText::join(self.native_bundle.copy(), "compiler-rt"),
             )
         }
 
-        if self.has_manifest && !self.manifest.resource_dir.empty() {
+        if self.has_manifest && !self.manifest.resource_dir.is_empty() {
             roots.push_back(
                 LinkText::join(
                     self.sysroot.copy(),
@@ -899,7 +901,7 @@ pub class Toolchain {
             )
         }
 
-        if !t->resource_dir.empty() {
+        if !t->resource_dir.is_empty() {
             roots.push_back(LinkText::strip_slash(t->resource_dir.copy()))
         }
 
@@ -927,7 +929,7 @@ pub class Toolchain {
                 looked += f"\n  {d}"
             }
 
-            if !osdir.empty() {
+            if !osdir.is_empty() {
                 var d = LinkText::join(lib.copy(), osdir.copy())
                 if self._try_rt(d, f"-{rtarch}") {
                     return
@@ -958,7 +960,7 @@ pub class Toolchain {
             }
         }
 
-        if looked.empty() {
+        if looked.is_empty() {
             looked = "\n  (nowhere: pass --resource-dir, or give the sysroot manifest a resource_dir)"
         }
 
@@ -1045,7 +1047,7 @@ pub class Toolchain {
             looked += f"\n  {a}"
         }
 
-        if looked.empty() {
+        if looked.is_empty() {
             looked = "\n  (nowhere: pass --resource-dir)"
         }
 
@@ -1071,11 +1073,11 @@ pub class Toolchain {
 
     priv fn _rt_triples(self, t: *TargetOptions) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
-        var env = if (t->env_name.empty()) => ("") else => f"-{t->env_name}"
+        var env = if (t->env_name.is_empty()) => ("") else => f"-{t->env_name}"
         // A root ksys built names the dir itself (SysRoot.md 4.8:
         // compiler-rt/lib/<clang_triple>); the spellings below are guesses
         // for roots older than that key.
-        if self.has_manifest && !self.manifest.clang_triple.empty() {
+        if self.has_manifest && !self.manifest.clang_triple.is_empty() {
             Toolchain::_push_unique(&out, self.manifest.clang_triple)
         }
 
@@ -1109,7 +1111,7 @@ pub class Toolchain {
     }
 
     priv fn _find_toolchain_lib(self, t: *TargetOptions) {
-        if self.has_manifest || t->resource_dir.empty() {
+        if self.has_manifest || t->resource_dir.is_empty() {
             return
         }
 
@@ -1117,7 +1119,7 @@ pub class Toolchain {
             LinkFS::parent(LinkText::strip_slash(t->resource_dir.copy())),
         )
 
-        if base.empty() {
+        if base.is_empty() {
             return
         }
 
@@ -1163,7 +1165,7 @@ pub class Toolchain {
             flag_name = "--ios-version-min"
         }
 
-        if !o->macos_version_min.empty() && self.platform != "macos" {
+        if !o->macos_version_min.is_empty() && self.platform != "macos" {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Warning,
@@ -1172,7 +1174,7 @@ pub class Toolchain {
             )
         }
 
-        if !o->ios_version_min.empty() && !LinkText::starts_with(self.platform.copy(), "ios") {
+        if !o->ios_version_min.is_empty() && !LinkText::starts_with(self.platform.copy(), "ios") {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Warning,
@@ -1181,7 +1183,7 @@ pub class Toolchain {
             )
         }
 
-        if !flag.empty() && !Toolchain::is_version(flag.copy()) {
+        if !flag.is_empty() && !Toolchain::is_version(flag.copy()) {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -1194,20 +1196,20 @@ pub class Toolchain {
 
         var var_name = Toolchain::deployment_env(self.platform)
         var v        = flag.copy()
-        if v.empty() {
-            v = if (var_name.empty()) => ("") else => LinkFS::env(var_name)
+        if v.is_empty() {
+            v = if (var_name.is_empty()) => ("") else => LinkFS::env(var_name)
         }
 
-        if v.empty() {
+        if v.is_empty() {
             v = self._triple_version()
         }
 
-        if v.empty() {
+        if v.is_empty() {
             v = self.sdk_version.copy()
         }
 
-        if v.empty() {
-            var how = if (var_name.empty()) => ("a versioned triple")
+        if v.is_empty() {
+            var how = if (var_name.is_empty()) => ("a versioned triple")
                       else => f"{var_name} or a versioned triple"
             msgs.push_back(
                 LinkDiag::make(
@@ -1221,7 +1223,7 @@ pub class Toolchain {
 
         self.min_version = v.copy()
 
-        if self.sdk_version.empty() {
+        if self.sdk_version.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Warning,
@@ -1265,7 +1267,7 @@ pub class Toolchain {
             &text,
         ) {
             var v = Toolchain::json_string(text.copy(), "Version")
-            if !v.empty() {
+            if !v.is_empty() {
                 return v
             }
         }
@@ -1331,12 +1333,12 @@ pub class Toolchain {
             }
 
             for var v: string in LinkFS::list_dir(tdir) {
-                if v.empty() || v[0] < ('0' as u8) || v[0] > ('9' as u8) {
+                if v.is_empty() || v[0] < ('0' as u8) || v[0] > ('9' as u8) {
                     continue
                 }
 
                 var d = LinkText::join(tdir.copy(), v.copy())
-                if !multilib.empty() {
+                if !multilib.is_empty() {
                     d = LinkText::join(d.copy(), multilib.copy())
                 }
 
@@ -1344,7 +1346,7 @@ pub class Toolchain {
                     continue
                 }
 
-                if best.empty() || Toolchain::version_less(best_v, v) {
+                if best.is_empty() || Toolchain::version_less(best_v, v) {
                     best   = d.copy()
                     best_v = v.copy()
                 }
@@ -1406,7 +1408,7 @@ pub class Toolchain {
             return if (LinkFS::is_file(name)) => (name) else => ""
         }
 
-        if !self.crt_dir.empty() {
+        if !self.crt_dir.is_empty() {
             var p = LinkText::join(self.crt_dir.copy(), name.copy())
             if LinkFS::is_file(p) {
                 return p
@@ -1428,7 +1430,7 @@ pub class Toolchain {
     /// ship them in base). \p variant is "", "S" or "T". "" when none: a
     /// target without them links without them.
     fn crt_object(self, const stem: string, const variant: string) -> string {
-        if self.rtlib == "compiler-rt" && !self.rt_dir.empty() {
+        if self.rtlib == "compiler-rt" && !self.rt_dir.is_empty() {
             var p = LinkText::join(
                 self.rt_dir.copy(),
                 f"clang_rt.{stem}{self.rt_suffix}.o",
@@ -1439,7 +1441,7 @@ pub class Toolchain {
             }
         }
 
-        if !self.gcc_dir.empty() {
+        if !self.gcc_dir.is_empty() {
             var p = LinkText::join(self.gcc_dir.copy(), f"{stem}{variant}.o")
             if LinkFS::is_file(p) {
                 return p
@@ -1549,7 +1551,7 @@ pub class Toolchain {
             )
         }
 
-        if !self.native_bundle.empty() {
+        if !self.native_bundle.is_empty() {
             out.push_back(f"native bundle:   {self.native_bundle}")
         }
 
@@ -1652,7 +1654,7 @@ pub class Toolchain {
         }
 
         var e = env.copy()
-        if e.empty() {
+        if e.is_empty() {
             e = "gnu"
         }
 
@@ -1913,11 +1915,11 @@ pub class Toolchain {
 
         var best = ""
         for var v: string in LinkFS::list_dir(dir) {
-            if v.empty() || v[0] < ('0' as u8) || v[0] > ('9' as u8) {
+            if v.is_empty() || v[0] < ('0' as u8) || v[0] > ('9' as u8) {
                 continue
             }
 
-            if best.empty() || Toolchain::version_less(best, v) {
+            if best.is_empty() || Toolchain::version_less(best, v) {
                 best = v.copy()
             }
         }
@@ -1958,7 +1960,7 @@ pub class Toolchain {
         }
 
         var e = env.copy()
-        if e.empty() {
+        if e.is_empty() {
             e = "gnu"
         }
 
@@ -1996,7 +1998,7 @@ pub class Toolchain {
     /// is what -platform_version accepts. Anything else makes ld64.lld fail
     /// with a message that does not name the flag.
     static fn is_version(v: string) -> bool {
-        if v.empty() {
+        if v.is_empty() {
             return false
         }
 
@@ -2177,12 +2179,12 @@ pub class Toolchain {
     /// must not satisfy an iOS link.
     pub static fn find_sdk(const platform: string) -> string {
         var pname = Toolchain::sdk_platform_name(platform)
-        if pname.empty() {
+        if pname.is_empty() {
             return ""
         }
 
         var sdkroot = LinkText::strip_slash(LinkFS::env(EnvNames::sdkroot()))
-        if !sdkroot.empty()
+        if !sdkroot.is_empty()
             && LinkFS::is_dir(sdkroot)
             && LinkText::starts_with(
                 LinkFS::filename(LinkFS::real(sdkroot.copy())),
@@ -2193,7 +2195,7 @@ pub class Toolchain {
 
         var devs = cxx::std::vector<string>()
         var dd   = LinkText::strip_slash(LinkFS::env(EnvNames::developer_dir()))
-        if !dd.empty() {
+        if !dd.is_empty() {
             devs.push_back(dd)
         }
 
@@ -2307,7 +2309,7 @@ pub class Toolchain {
         }
 
         var floor = Toolchain::macos_floor(triple)
-        if floor.empty() {
+        if floor.is_empty() {
             return triple
         }
 
@@ -2368,7 +2370,7 @@ pub class Toolchain {
     }
 
     static fn or_none(s: string) -> string {
-        return if (s.empty()) => ("(none)") else => s
+        return if (s.is_empty()) => ("(none)") else => s
     }
 
     priv static fn _num(s: string, @inout i: usize) -> u32 {
