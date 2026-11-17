@@ -30,6 +30,13 @@
 ///         address is taken anywhere in the body (`&x`, `&x.f`, a pointer
 ///         capture, a C++ `T&` or `@inout` argument, `&a` of a `for` binding
 ///         over it): a read through that pointer is no read of the binding.
+///         A transfer of such a value out of storage the body does not own
+///         (`*p`, `p->f`, `*f()`, a part of `self` or of a reference
+///         parameter) is not pending: it moves at an instance that cannot
+///         copy the value and copies at every other (MoveKind::Instance),
+///         as the transfer of a MOVE value does in a body that is not
+///         generic. A later read of that storage, and a transfer out of a
+///         const place, are judged per instance too.
 ///
 ///     (c) Use after move. A moved local or parameter (`self` included), or
 ///         a part of one, is MOVED-FROM from that point. A part is a field
@@ -286,6 +293,12 @@ pub enum MoveKind derives u8 {
     /// Not real: what a closure's body leaves moved-from in storage it
     /// captured, applied where the closure is made, not where it runs.
     ClosureLeaves,
+    /// A generic body's transfer out of storage it does not own (`*p`,
+    /// `p->f`, `self.f`) of a value whose category the instance decides
+    /// (_instance_move): a move at an instance that cannot copy the value, a
+    /// copy at every other. A read of it is judged per instance
+    /// (_reuse_site), never here.
+    Instance,
 }
 
 /// One moved part: a binding, and the path under it that was moved out
@@ -1515,6 +1528,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// ends the object), an `@inout` or C++ `T&` parameter, or what any
     /// parameter points at.
     priv fn _outlives(self, const mp: MovedPart) -> bool {
+        // The caller sees a move made only at some instances as none: the
+        // pattern's record (move_out) is every instance's.
+        if mp.kind == MoveKind::Instance {
+            return false
+        }
+
         for var i: usize = 0; i < self._caps.size(); ++i {
             if self._caps[i] == mp.d {
                 return true
@@ -4792,6 +4811,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 self._move_elem(el, "tuple")
             } else {
                 self._deprecated_copy_place(el, "into the tuple")
+                self._dependent_transfer(el)
             }
         }
 
@@ -5147,10 +5167,6 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
-        if self._const_place(x) {
-            return
-        }
-
         var unsafe *c = canon_unqual(e->type_)
         if c == &null || !c->is_dependent() && !c->is_instantiation_dependent() {
             return
@@ -5166,15 +5182,31 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
+        // A const place is copied at every instance; one that cannot copy
+        // the value is told so there (_instance_copy).
+        if self._const_place(x) || self._const_root(e) || place_has_const_root(x) {
+            self._instance_copy(e)
+            return
+        }
+
         var pl = self._place(e)
+        // `*f()`: what a call's pointer points at, which no binding names.
+        if pl.d == &null
+            && isa<Expressions::UnaryOperatorExpr>(x)
+            && self._is_deref(cast<Expressions::UnaryOperatorExpr>(x)) {
+            self.sc->instance_move_sites.insert(e as usize as u64)
+            return
+        }
+
         if pl.d == &null || !pl.whole || pl.elem {
             return
         }
 
-        // Only storage this body owns: not a part of a const binding, of
-        // `self` or of a pointee, and not a parameter that refers to the
-        // caller's object.
-        if pl.has_ptr || self._const_root(e) {
+        // Storage the body does not own -- a pointee, a part of `self`, of a
+        // parameter that refers to the caller's object -- is never this
+        // body's last use to take: it moves only where it must.
+        if pl.has_ptr {
+            self._instance_move(e, pl)
             return
         }
 
@@ -5182,6 +5214,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         if isa<ParamDecl>(d) {
             var unsafe *pd = cast<ParamDecl>(d)
             if pd->is_self || pd->mode != ParamMode::Value && pd->mode != ParamMode::Move {
+                self._instance_move(e, pl)
                 return
             }
         }
@@ -5193,6 +5226,50 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st.add_pending(pm)
         self._tentative.push_back(e)
         self._tentative_decl.push_back(d)
+    }
+
+    /// _dependent_transfer out of storage the body does not own: as the
+    /// same transfer of a MOVE value is in a body that is not generic, a
+    /// move out of the part, which a later read may not see again -- but
+    /// only at an instance that cannot copy the value. CopyMoveLowering
+    /// casts the site so (SemaContext::instance_move_sites): one C++
+    /// template moves at that instance and copies at every other. The part
+    /// is marked moved (MoveKind::Instance) so a read before it is
+    /// assigned again is kept with the site (_read_part) for the instance
+    /// check, which reports it as a use after move.
+    priv fn _instance_move(self, e: unsafe *Expr, const pl: MovePlace) {
+        self.sc->instance_move_sites.insert(e as usize as u64)
+        var mp = MovedPart()
+        mp.kind  = MoveKind::Instance
+        mp.site  = e
+        mp.d     = pl.d
+        mp.path  = pl.path
+        mp.shown = pl.shown
+        mp.segs  = pl.segs
+        mp.at    = e->range
+        self._st.mark(mp)
+    }
+
+    /// A transfer that copies at every instance (a const place): kept with
+    /// itself as the read (_reuse_site), so an instance that cannot copy
+    /// the value reports the copy (ConformanceChecking::_reuse_in) rather
+    /// than leave it to clang.
+    priv fn _instance_copy(self, e: unsafe *Expr) {
+        self._keep_reuse(e, e)
+    }
+
+    /// \p read follows \p site, a transfer whose instance decides whether it
+    /// moved; once per site.
+    priv fn _keep_reuse(self, site: unsafe *Expr, read: unsafe *Expr) {
+        for var r: usize = 0; r < self._reuse_site.size(); ++r {
+            if self._reuse_site[r] == site {
+                return
+            }
+        }
+
+        self._reuse_site.push_back(site)
+        self._reuse_read.push_back(read)
+        self._reuse_decl.push_back(&null)
     }
 
     /// A read of \p path under \p d: every pending transfer out of storage
@@ -5998,6 +6075,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         var i = self._st.overlap_of(d, path)
         if i == usize::MAX {
+            return
+        }
+
+        // Moved only at an instance that cannot copy it: that instance's
+        // error, with this read (_instance_move).
+        if self._st.moved[i].kind == MoveKind::Instance {
+            self._keep_reuse(self._st.moved[i].site, n)
             return
         }
 

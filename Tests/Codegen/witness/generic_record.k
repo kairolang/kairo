@@ -41,9 +41,9 @@ fn main() -> i32 {
 // CXX: template<> struct Scalable_witness<{{ ?}}::{{.*}}::Metric> {
 // CXX: template<class T> class Box {
 // CXX: template<class U> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<U>) signed int both(U other) const noexcept;
-// CXX: template<class T> signed int Box<T>::twice() const noexcept {
+// CXX: template<class T> inline signed int Box<T>::twice() const noexcept {
 // CXX-NEXT: {{.*}}Scalable_witness<T>::scale((& this->item), 2);
-// CXX: template<class T> template<class U> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<U>) signed int Box<T>::both(U other) const noexcept {
+// CXX: template<class T> template<class U> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<U>) inline signed int Box<T>::both(U other) const noexcept {
 // CXX: template class{{ ?}}::{{.*}}::Box<{{ ?}}::{{.*}}::Metric>;
 // CXX-NEXT: static_assert({{ ?}}::{{.*}}::Scalable_c<{{ ?}}::{{.*}}::Metric>, "Kairo checked this bound at the instance; C++ disagrees");
 

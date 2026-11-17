@@ -207,6 +207,9 @@ pub class CanonicalTypeStore {
     ///        0 means unfilled and keeps the x86_64 128/128.
     /// \param wchar_bits sizeof(wchar_t) in bits, for c_wchar (32, or 16 on
     ///        Windows). 0 means unfilled and keeps 32.
+    /// \param aligns each builtin's alignment in bits, indexed by
+    ///        BuiltinKind (TargetOptions::builtin_align). A missing or 0 row aligns
+    ///        that builtin to its width.
     ///
     /// \details the i64/u64 spellings are written into BuiltinTable itself,
     ///          not onto the nodes: every emitter reads builtin_info()->cxx,
@@ -217,7 +220,8 @@ pub class CanonicalTypeStore {
                 int64_is_long: bool,
                 ld_bits:       usize,
                 ld_align:      usize,
-                wchar_bits:    usize) {
+                wchar_bits:    usize,
+                const aligns:  cxx::std::vector<usize>) {
         var lock = kairo::std::LockGuard(self._mu)
         if self._ready {
             return
@@ -260,6 +264,9 @@ pub class CanonicalTypeStore {
 
             bt->size_bits  = bits
             bt->align_bits = bits
+            if i < aligns.size() && aligns[i] != 0 && bits != 0 {
+                bt->align_bits = aligns[i]
+            }
 
             // The one row whose storage is not its value width. Where f80 is
             // gated off this is never reached by a resolved type, so the

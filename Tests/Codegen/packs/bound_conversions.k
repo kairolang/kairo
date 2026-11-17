@@ -50,9 +50,9 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // A pack's bound is a fold over its elements, and an element's witness is
 // named by the element's own type (an unexpanded `T` there is ill-formed).
-// CXX: template<class ... T> requires(( {{.*}}Named_c<T> && ...)) decltype(sizeof(0)) total(T && ... args) noexcept {
+// CXX: template<class ... T> requires(( {{.*}}Named_c<T> && ...)) inline decltype(sizeof(0)) total(T && ... args) noexcept {
 // CXX: Named_witness<__remove_cvref(decltype(arg))>::__kairo_op_as
-// CXX: template<class ... T> requires(( {{.*}}Shown_c<T> && ...)) decltype(sizeof(0)) shown(T && ... args) noexcept {
+// CXX: template<class ... T> requires(( {{.*}}Shown_c<T> && ...)) inline decltype(sizeof(0)) shown(T && ... args) noexcept {
 // CXX: Shown_witness<__remove_cvref(decltype(arg))>::repr
 
 // REQUIRES: clang

@@ -496,8 +496,15 @@ pub class TokenSink derives EmitSink {
     }
 
     /// \p cxx INCLUDES the quotes.
+    /// The literal's prefix is its kind: clang decodes a character
+    /// constant by its token kind, not by its first byte.
     override fn create_char(self, at: SourceRange, @inout cxx_v: string) -> bool {
-        return self._arena_tok(clang::tok::char_constant, at, &cxx_v)
+        var k = clang::tok::char_constant
+        if cxx_v.starts_with("U'") {
+            k = clang::tok::utf32_char_constant
+        }
+
+        return self._arena_tok(k, at, &cxx_v)
     }
 
     /// Recorded, not emitted (system_headers); once per header.

@@ -70,7 +70,7 @@ fn main() -> i32 {
 // IR:      consteval auto Tag::__kairo_ctor_pre0(
 // IR:      consteval Tag::Tag(__kairo_ci0 & __kairo_s,
 // IR:      consteval Tag::Tag(signed int id) noexcept: Tag(
-// IR:      template<class T> consteval Cell<T>::Cell(T v) noexcept: Cell(
+// IR:      template<class T> inline consteval Cell<T>::Cell(T v) noexcept: Cell(
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

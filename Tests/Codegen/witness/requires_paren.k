@@ -58,7 +58,7 @@ fn main() -> i32 {
 // CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>){{ ?}}::builtin::Tuple2<signed int, signed int> tuple_of(
 // CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>){{ ?}}::{{.*}}::Pair pair_of(
 // CXX: requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T> && {{ ?}}::{{.*}}::Bumpable_c<U>){{ ?}}::builtin::Tuple2<signed int, signed int> both(
-// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>){{ ?}}::builtin::Tuple2<signed int, signed int> tuple_of(
+// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) inline::builtin::Tuple2<signed int, signed int> tuple_of(
 // CXX-NOT: error
 
 // REQUIRES: clang

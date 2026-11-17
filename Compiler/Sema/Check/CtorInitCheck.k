@@ -54,6 +54,14 @@
 ///         passed or returned, no `&self.f`, no field S_pre never writes;
 ///       - no `return` in S_pre (it would leave a half-built object).
 ///
+///     A field whose default its generic instance decides (a type
+///     parameter, an associated type, a tuple over one; TypeUtil::
+///     default_is_dependent) is read the same way when the constructor
+///     allows it, so an instance whose type has no default is still built:
+///     a trial that counts such fields as having none and reports nothing
+///     decides (_split_ctor_dependent); a constructor it rejects is judged
+///     without them.
+///
 ///     A base is built from the slots too, after S_pre, so in S_pre a field
 ///     of a base is what an own `var` field with a default is: `self.f = e`
 ///     rides in a slot and is assigned once the base exists, and a read is
@@ -93,9 +101,11 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
+import AST::Context::DeclContext::DeclContextKind
 import AST::DeclFacts::{
     decl_generic_params,
     decl_is_ctor,
@@ -131,6 +141,7 @@ import AST::Node::PrimaryExpressions::{
 import AST::Node::Statements
 import AST::Node::Types::FixedArrayType
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import Diagnostic::BufferedDiagSink::BufferedDiagSink
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
@@ -609,6 +620,8 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     /// The walk that finds the frontier runs before the one that judges
     /// S_pre: it reports nothing and approves nothing.
     priv var _quiet: bool = false
+    /// The fields _split_ctor_dependent's trial treats as having no default.
+    priv var _dependent: cxx::std::vector<unsafe *FieldDecl>
     /// Only const fields drive the frontier: the diagnostics keep saying
     /// "const field", as they did before any other field could.
     priv var _const_only: bool = true
@@ -783,7 +796,8 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 continue
             }
 
-            if self._split_ctor(d, fields, def, index) {
+            if self._split_ctor_dependent(d, fields, def, index)
+                || self._split_ctor(d, fields, def, index) {
                 index += 1
                 // The in-class declaration carries the facts too: the class
                 // definition is written from it (InterfaceEmitter).
@@ -795,6 +809,77 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 }
             }
         }
+    }
+
+    /// A field whose default the instance decides (TypeUtil::
+    /// default_is_dependent) is initialized by the constructor's first
+    /// whole write, as one with no default is, when the constructor meets
+    /// every rule for that on its own: then each instance builds the field
+    /// from that value, so one with no default is built at all. A constructor
+    /// that does not (a branch leaves the field to its default, a method call
+    /// comes first) is judged without such fields, and its instances are
+    /// value-initialized as before. The trial reports nothing and leaves no
+    /// trace when it fails; true when it split the constructor.
+    priv fn _split_ctor_dependent(self,
+                                  owner:  unsafe *Decl,
+                                  fields: FrozenList<unsafe *FieldDecl>,
+                                  f:      unsafe *FunctionDecl,
+                                  index:  u32) -> bool {
+        self._dependent.clear()
+        if f->body_kind != FnBodyKind::Block || f->body_block == &null {
+            return false
+        }
+
+        // A record declared in a function body is emitted at namespace
+        // scope, where a split constructor of a generic one is not spelled
+        // as a constructor: left as it is.
+        var unsafe *dc = owner->semantic_dc
+        if dc != &null
+            && (dc->is_function()
+                || dc->dc_kind == DeclContextKind::Block
+                || dc->dc_kind == DeclContextKind::Lambda) {
+            return false
+        }
+
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *fd = fields[i]
+            if fd == &null
+                || fd->is_static()
+                || fd->is_const()
+                || fd->is_anonymous_union
+                || fd->init != &null
+                || fd->type_ == &null
+                || fd->type_->canonical == &null {
+                continue
+            }
+
+            if self._tu.default_is_dependent(fd->type_->canonical) {
+                self._dependent.push_back(fd)
+            }
+        }
+
+        if self._dependent.size() == 0 {
+            return false
+        }
+
+        // The trial reports into a sink of its own, which is dropped.
+        var        approved = self._approved.size()
+        var unsafe *sink    = kairo::std::create<BufferedDiagSink>()
+        var unsafe *real    = self.sc->diag
+        self.sc->diag = sink
+        var split = self._split_ctor(owner, fields, f, index)
+        self.sc->diag = real
+
+        var clean = split && !self._failed && sink->size() == 0
+        sink->discard()
+        kairo::std::destroy(sink)
+        self._dependent.clear()
+        if !clean {
+            self._approved.resize(approved)
+            f->ci_split = 0
+        }
+
+        return clean
     }
 
     /// A method named after the type it is declared in (StmtTyping's rule).
@@ -1886,6 +1971,12 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         var i = self._index(f)
         if i != usize::MAX && i >= self._own {
             return false
+        }
+
+        for var j: usize = 0; j < self._dependent.size(); ++j {
+            if self._dependent[j] == f {
+                return true
+            }
         }
 
         return f->is_const() || self._why(f).size() > 0

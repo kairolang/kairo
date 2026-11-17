@@ -1046,6 +1046,16 @@ def tree_visibility_args(kairo: Path) -> list:
     return ["-fdefault-visibility=spec"] if kairo_knows(kairo, "fdefault-visibility") else []
 
 
+def tree_library_args(src: Path) -> list:
+    """--builtins-dir / --std-dir naming the source tree's own Lib/builtin and Lib/std.
+    A compiler finds its library beside itself (<exe>/../lib), which for a release seed
+    is the copy staged when that seed was built. The tree is written against the
+    library it ships, so it is compiled against that one: a change to the library and
+    to the source that uses it land in one build. The runtime root is the builtin
+    root's parent, Lib/, where rt/ sits."""
+    return ["--builtins-dir", str(src / "Lib" / "builtin"), "--std-dir", str(src / "Lib" / "std")]
+
+
 def find_kairo(arg, triple: str) -> Path:
     """The compiler a build uses: --kairo, else $KAIRO_SEED, else
     build/<host>/release/bin/kairo (the last good release), else whatever `kairo` is on
@@ -1492,6 +1502,7 @@ def main() -> int:
         reg_extra = llvm_include_args(llvm_src, cross_dir(a.target) / "llvm" if a.target else llvm_build)
         reg_extra.append("-fduck-generics")  # internal; the compiler tree's own build (see `common`)
         reg_extra += tree_visibility_args(kairo)  # internal; see tree_visibility_args
+        reg_extra += tree_library_args(src)
         if a.target:
             reg_extra += ["--target", a.target, *floor_args(CROSS[a.target][1])]
         reg_o = selfhost_registry(kairo, src, out, prog, reg_extra, cache_root)
@@ -1548,6 +1559,8 @@ def main() -> int:
         # The tree's visibility rule (see tree_visibility_args); a Kairo-only
         # flag, after native_common as above.
         common += tree_visibility_args(kairo)
+        # The tree's own library, not the seed's staged copy (tree_library_args).
+        common += tree_library_args(src)
     # The Sema agreement pass's count for this build (agree_summary): asked of a
     # compiler that has the flag. A Kairo-only flag, after native_common as above.
     agree_flag = selfhost and not check_only and kairo_knows(kairo, "sema-agreement-summary")

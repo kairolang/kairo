@@ -37,12 +37,12 @@ fn main() -> i32 {
 // The checks sit inside the integral arm, and the mask is R's.
 // RUN: { %kairo -fduck-generics %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}dependent_edges_run.k
-// CXX: template<class T> T quot(T a, T b) noexcept {
+// CXX: template<class T> inline T quot(T a, T b) noexcept {
 // CXX: if constexpr(__is_integral(__kairo_T0) &&(!__is_same(__kairo_T0, bool))) {
 // CXX-NEXT: using __kairo_U0 =
 // CXX-NEXT: if(__builtin_expect(__kairo_b0 == 0, 0))::kairo_rt_div_zero();
 // CXX-NEXT: if constexpr(__is_signed(__kairo_T0)) {
 // CXX-NEXT: if(__kairo_b0 == static_cast<__kairo_T0>(- 1)) {
-// CXX: template<class T> T shl(T a, signed int n) noexcept {
+// CXX: template<class T> inline T shl(T a, signed int n) noexcept {
 // CXX: constexpr auto __kairo_R0 =
 // CXX: (static_cast<__kairo_U0>(__kairo_b0) & static_cast<__kairo_U0>(__kairo_R0 - 1))

@@ -39,7 +39,7 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: template<class T> decltype(sizeof(0)) addr(T * p) noexcept {
+// CXX: template<class T> inline decltype(sizeof(0)) addr(T * p) noexcept {
 // CXX-NEXT: return reinterpret_cast<decltype(sizeof(0))>(p);
 
 // REQUIRES: clang

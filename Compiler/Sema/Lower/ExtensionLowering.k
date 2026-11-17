@@ -150,6 +150,15 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
 
     /// # the rewrite
 
+    /// A requirement call's witness is read off the receiver's bounds, and
+    /// a body's `requires` clause adds to them (TypeUtil::body_clauses).
+    fn transform_function_decl(self, n: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
+        var saved = self.tu.enter_body(n)
+        var out = ASTWriter<ExtensionLowering>::transform_function_decl(self, n)
+        self.tu.leave_body(saved)
+        return out
+    }
+
     fn transform_call_expr(self, n: unsafe *CallExpr) -> unsafe *Expr {
         ASTWriter<ExtensionLowering>::transform_call_expr(self, n) // receiver and arguments first.
         if n->is_poisoned() {

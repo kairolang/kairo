@@ -758,6 +758,17 @@ extend EmitIR {
         if n->target != &null
             && n->target->canonical != &null
             && isa<CXXRValueRefType>(n->target->canonical) {
+            if n->instance_move {
+                self._cg->sink->spell(
+                    n->range,
+                    "::" + LowerTargets::instance_move() + "(",
+                )
+
+                self.emit(n->operand)
+                self._cg->sink->spell(n->range, ")")
+                return
+            }
+
             self._cast_to(n->target, n->operand, "static_cast")
             return
         }

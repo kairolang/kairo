@@ -80,8 +80,8 @@ import AST::Node::Declarations::{
     pointer_shorthand_spelling,
 }
 import AST::Node::Expressions::{
-    AssignOperatorExpr, BinaryOperatorExpr, CallExpr, ClosureExpr, RangeExpr, SubscriptExpr,
-    UnaryOperatorExpr,
+    AssignOperatorExpr, BinaryOperatorExpr, CallExpr, ClosureExpr, ConstraintExpr, RangeExpr,
+    SubscriptExpr,      UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr,
@@ -165,6 +165,9 @@ pub class TyperFrame {
     /// SemaContext::same_types as the enclosing body had it, put back when
     /// this frame is popped.
     pub var outer_same: cxx::std::vector<unsafe *Type>
+    /// SemaContext::clause_bounds as the enclosing body had it, put back
+    /// when this frame is popped.
+    pub var outer_clauses: cxx::std::vector<unsafe *ConstraintExpr>
     fn TyperFrame(self) { }
 }
 
@@ -205,6 +208,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var facts = fr.outer_same
         self.dyn()->conv.same_type_facts(f, unsafe &facts)
         self.dyn()->sc->same_types = facts
+        fr.outer_clauses           = self.dyn()->tu.enter_body(f)
         self.dyn()->frames.push_back(fr)
         self.dyn()->flow.enter() // a body starts knowing nothing about any nullable.
     }
@@ -251,6 +255,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             // A closure's frame took no copy: it reads its function's.
             if fr->closure == &null {
                 self.dyn()->sc->same_types = fr->outer_same
+                self.dyn()->tu.leave_body(fr->outer_clauses)
             }
 
             self.dyn()->frames.pop_back()
@@ -1050,10 +1055,15 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         if n->requires_clause != &null {
+            // With the clause in force: `J impl It && J::Item impl Eq` on a
+            // member names J::Item through the first conjunct.
+            var outer = self.dyn()->tu.enter_body(n)
             self.dyn()->type_of(
                 n->requires_clause,
                 self.dyn()->tu.builtin(BuiltinKind::Bool),
             )
+
+            self.dyn()->tu.leave_body(outer)
         }
 
         if n->where_clause != &null {

@@ -44,6 +44,7 @@ import AST::Node::Expressions::{
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr,
+    ChainExpr,
     IntegerLiteralExpr,
     NamedIdentExpr,
 }
@@ -936,8 +937,15 @@ extend Speller {
                 continue
             }
 
-            var unsafe *gp  = Speller::_bound_param(c)
-            var        mine = false
+            // The constrained type: a parameter of the owner, or an
+            // associated type reached from one (`J::Item impl Eq`).
+            var unsafe *gp = Speller::_bound_param(c)
+            var unsafe *at = if (gp == &null) => (Speller::_bound_assoc(c)) else => &null
+            if at != &null {
+                gp = Speller::_assoc_root(at)
+            }
+
+            var mine = false
             for var k: usize = 0; gp != &null && k < tps.size(); ++k {
                 if tps[k] == gp {
                     mine = true
@@ -960,11 +968,10 @@ extend Speller {
                 continue
             }
 
+            var subj = if (at != &null) => (self.type_specifier(at))
+                       else => self.tparam_name(gp, Speller::rep(gp->owner))
             s += if (s.size() == 0) => (" requires (") else => " && "
-            s += self.concept_name(idecl) + self.witness_args(
-                self.tparam_name(gp, Speller::rep(gp->owner)),
-                rhs,
-            )
+            s += self.concept_name(idecl) + self.witness_args(subj, rhs)
         }
 
         return s
@@ -1294,6 +1301,44 @@ extend Speller {
         }
 
         return dyn_cast<Declarations::GenericParamDecl>(id->resolved_decl)
+    }
+
+    /// The associated type conjunct \p c constrains (`J::Item impl Eq`), or
+    /// null when its left side names none.
+    static fn _bound_assoc(c: unsafe *ConstraintExpr) -> unsafe *AssocType {
+        var unsafe *ch = dyn_cast<ChainExpr>(c->lhs)
+        if ch == &null || ch->steps.size() == 0 {
+            return &null
+        }
+
+        var unsafe *st = ch->steps.get(ch->steps.size() - 1)
+        if st->resolved_type == &null {
+            return &null
+        }
+
+        return dyn_cast<AssocType>(canon_unqual(st->resolved_type))
+    }
+
+    /// The generic parameter associated type \p a is reached from at any
+    /// depth (`J` of `J::Item::Key`), or null.
+    static fn _assoc_root(a: unsafe *AssocType) -> unsafe *Declarations::GenericParamDecl {
+        var unsafe *b = canon_unqual(a->base)
+        while b != &null && isa<AssocType>(b) {
+            b = canon_unqual(cast<AssocType>(b)->base)
+        }
+
+        if b == &null || !isa<GenericParamType>(b) {
+            return &null
+        }
+
+        var unsafe *g = cast<GenericParamType>(b)
+        if g->owner == &null {
+            return &null
+        }
+
+        var gps = DeclFacts::decl_generic_params(g->owner)
+        return if ((g->param_index as usize) < gps.size()) => (gps[g->param_index as usize])
+               else => &null
     }
 
     /// Every `impl` conjunct of requires clause \p e, in clause order.

@@ -2470,6 +2470,20 @@ pub class LowerTargets {
         return "__kairo_nd"
     }
 
+    /// `template <class T> decltype(auto) __kairo_xfer(T& v)`: \p v as an
+    /// rvalue when T cannot be copied from it, else as itself. A generic
+    /// body's transfer out of storage it does not own (TypeCastExpr::
+    /// instance_move) moves at an instance that cannot copy, copies at every
+    /// other.
+    pub static fn instance_move() -> string {
+        return "__kairo_xfer"
+    }
+
+    /// The header guard around instance_move's definition.
+    pub static fn instance_move_guard() -> string {
+        return "__KAIRO_XFER"
+    }
+
     /// # Deferred f-string holes (writer: InterfaceEmitter; reader: EmitIR)
 
     /// `template <class B, class T> void __kairo_fmt_put(B&, T&&, name, len,

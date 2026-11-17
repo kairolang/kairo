@@ -325,6 +325,14 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                 via     = self._named_record(n->steps.get(i - 1)->resolved_decl)
             }
 
+            // A member found through one `@implicit op as` (ConversionHop) is
+            // reached through the conversion's result; the conversion itself
+            // is checked with the other implicit ones (visit_expr).
+            if st->hop_conv != &null {
+                through = st->hop_type
+                via     = &null
+            }
+
             self._check(st->resolved_decl, st->range, through, false, via)
         }
 
@@ -452,6 +460,23 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             self._check(n->resolved_ctor, n->range, &null, true)
         }
 
+        return true
+    }
+
+    /// An expression converted implicitly through an `@implicit op as`
+    /// (SemaContext::implicit_convs) calls it as `x as T` would, so a
+    /// `priv` one is refused outside its reach here too.
+    fn visit_expr(self, n: *Expr) -> bool {
+        if n->is_poisoned() || self.sc->implicit_convs.empty() {
+            return true
+        }
+
+        var it = self.sc->implicit_convs.find(n as usize as u64)
+        if it == self.sc->implicit_convs.end() || it->second == &null {
+            return true
+        }
+
+        self._check(unsafe (it->second as unsafe *Decl), n->range, n->type_)
         return true
     }
 

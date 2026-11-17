@@ -35,7 +35,7 @@ fn main() -> i32 {
 // RUN: %t.exe | %FileCheck %s --check-prefixes=ADD,DIV,BUMP
 // RUN: { %kairo -fduck-generics %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}dependent_run.k
-// CXX: template<class T> T add(T a, T b) noexcept {
+// CXX: template<class T> inline T add(T a, T b) noexcept {
 // CXX: auto && __kairo_a0 =(a);
 // CXX-NEXT: auto && __kairo_b0 =(b);
 // CXX: using __kairo_T0 = __remove_cvref(decltype(__kairo_a0));

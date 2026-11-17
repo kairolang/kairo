@@ -68,7 +68,7 @@ fn main() -> i32 {
 // IR-NOT:   Pair::~Pair
 // IR:       Pinned::Pinned(signed int n) noexcept {
 // IR-NOT:   Pinned::Pinned({{.*}}other)
-// IR:       Cell<T>::Cell(T v) noexcept {
+// IR:       Cell<T>::Cell(T v) noexcept
 // IR-NOT:   Cell<T>::Cell({{.*}}other)
 // IR:       Cell<T>::get() const noexcept requires({{.*}}sizeof(T){{.*}}8{{.*}}) {
 

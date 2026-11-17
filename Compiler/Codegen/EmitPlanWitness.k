@@ -43,6 +43,7 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::ConstraintExpr
+import AST::Node::Types::NullableType
 import AST::ParamMode::ParamMode
 import Codegen::Emit::EmitWitness::{
     EmitWitness,
@@ -447,13 +448,20 @@ extend EmitPlan {
 
     /// A by-value record \p t is a Complete dependency of witness \p k. An
     /// interface (the requirement's own `Self`) is spelled as Self, never laid
-    /// out; an imported record is the header's.
+    /// out; an imported record is the header's. `T?` is its record to C++
+    /// (NullableTypeLowering), held by value.
     fn _witness_dep(self, k: usize, t: unsafe *Type) {
         if t == &null || t->canonical == &null {
             return
         }
 
         var unsafe *c = canon_unqual(t->canonical)
+        if isa<NullableType>(c) {
+            self._admit_type(t, PlanNeed::Complete)
+            self._witness_dep(k, self._nullable_record(c))
+            return
+        }
+
         if !isa<RecordType>(c) {
             self._admit_type(t, PlanNeed::Complete)
             return
@@ -465,15 +473,22 @@ extend EmitPlan {
         }
 
         if c->is_dependent() {
-            // A generic interface's panic result names its parameters (Compiler/Spec/Panic.md):
-            // a full specialization's body returns it at the row's
-            // arguments, which C++ instantiates right there -- from the Panic
-            // template, defined first, over elements complete by then.
+            // A requirement's signature names a generic record at its own
+            // parameters: `Self::Item?` is `Null<Self::Item>`, and a generic
+            // interface's panic result names its parameters (Compiler/Spec/Panic.md).
+            // A specialization's inline forwarder spells it at the row's
+            // associated types, which C++ instantiates where the forwarder is
+            // defined whenever they are concrete -- a partial
+            // specialization's too (`Item = i64` over `Widen<I>`). So the
+            // template is defined first; the row's associated types are deps
+            // of their own. Nothing waits on a specialization, so the edge
+            // closes no cycle. The primary stays a template over Self: only
+            // the panic record is needed ahead of it.
             var unsafe *en = dyn_cast<Declarations::EnumDecl>(
                 Speller::rep(cast<RecordType>(c)->decl),
             )
 
-            if en == &null || !en->adt_explicit_tags {
+            if self._witnesses[k].row == &null && (en == &null || !en->adt_explicit_tags) {
                 return
             }
 

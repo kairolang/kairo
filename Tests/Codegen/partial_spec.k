@@ -92,8 +92,8 @@ fn main() -> i32 {
 // CXX-NEXT: template<class P> static P read(const{{ ?}}::{{.*}}::Store<P *> * self) noexcept;
 // A partial's members are templates over ITS parameters; an explicit
 // spec's are ordinary members with no `template <>` (C++ [temp.expl.spec]).
-// CXX: template<class P> signed int Store<P *>::tag() const noexcept {
-// CXX: template<class P> signed int Store<const P *>::tag() const noexcept {
+// CXX: template<class P> inline signed int Store<P *>::tag() const noexcept {
+// CXX: template<class P> inline signed int Store<const P *>::tag() const noexcept {
 // CXX: {{^ *}}Store<bool>::Store(bool v) noexcept {
 // CXX: {{^ *}}__attribute((const)) signed int Store<bool>::tag() const noexcept {
 // The instances are named, never re-specialized; the explicit one is not

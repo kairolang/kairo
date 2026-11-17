@@ -1,6 +1,7 @@
 // The type-fact intrinsics (EVAL.md 4.2b): a bool C++ computes with the
 // clang builtin of the same name. In a function body an `eval if` on one
-// is `if constexpr`, decided by clang.
+// of a concrete type is decided by Sema, and the taken branch is kept after
+// a static assertion of the condition, which clang checks.
 struct Plain { var x: i32 }
 
 fn main() -> i32 {
@@ -22,7 +23,7 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
-// IR: if constexpr{{ ?}}(__is_trivially_copyable(
+// IR: static_assert{{ ?}}(__is_trivially_copyable(
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

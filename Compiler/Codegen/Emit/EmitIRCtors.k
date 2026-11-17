@@ -90,7 +90,7 @@ extend EmitIR {
         var wrap = self._open_ns(owner, at)
         var oh   = self._spell.owner_template_head(owner)
         var q    = self._spell.owner_qual(owner)
-        var inl  = if (m->is_inline()) => ("inline ") else => ""
+        var inl = if (m->is_inline() || self._templated_inline(oh)) => ("inline ") else => ""
         // An eval constructor is `consteval` in the class (Compiler/Spec/Eval.md#eval-fn), and
         // so are its halves (InterfaceEmitter::_split_ctor_decls): every
         // definition repeats it, or clang reads a run-time redeclaration.

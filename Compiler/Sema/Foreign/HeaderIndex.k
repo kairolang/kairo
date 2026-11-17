@@ -211,12 +211,14 @@ pub class HeaderIndex {
         var ldb:     usize = 0
         var lda:     usize = 0
         var wcb:     usize = 0
+        var aligns         = cxx::std::vector<usize>()
         if self._inv != &null {
             pbits    = self._inv->target.pointer_width
             i64_long = self._inv->target.int64_is_long
             ldb      = self._inv->target.long_double_bits
             lda      = self._inv->target.long_double_align
             wcb      = self._inv->target.wchar_bits
+            aligns   = self._inv->target.builtin_align
         }
 
         if pbits == 0 {
@@ -224,7 +226,7 @@ pub class HeaderIndex {
             i64_long = true
         }
 
-        self._g->types()->init(pbits, i64_long, ldb, lda, wcb)
+        self._g->types()->init(pbits, i64_long, ldb, lda, wcb, aligns)
 
         // 1. fids + contexts + TUs, in clang's touch order.
         var fresh = cxx::std::vector<unsafe *HeaderTarget>()

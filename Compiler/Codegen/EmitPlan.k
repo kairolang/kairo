@@ -110,8 +110,8 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    AlignOfExpr,   BinaryOperatorExpr, CallExpr, ClosureExpr, ConstraintExpr, SizeOfExpr,
-    TypeTraitExpr,
+    AlignOfExpr,  BinaryOperatorExpr, CallExpr, ClosureExpr, ConstraintExpr, SizeOfExpr,
+    TypeCastExpr, TypeTraitExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -427,8 +427,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// A body holds a deferred f-string hole (CallExpr::fmt_dyn): the
     /// preamble must define `::__kairo_fmt_put` (LowerTargets::fmt_dyn).
     /// Only then, so other TUs keep their text.
-    pub var  needs_fmt_dyn: bool = false
-    priv var _ef_value_fn:  bool = false
+    pub var needs_fmt_dyn: bool = false
+    /// A body holds a move its generic instance decides (TypeCastExpr::
+    /// instance_move): the preamble must define LowerTargets::instance_move.
+    /// Only then, so other TUs keep their text.
+    pub var  needs_instance_move: bool = false
+    priv var _ef_value_fn:        bool = false
     /// Compile-time string literals too long for `__kairo_estr<...>`
     /// (LowerTargets::eval_str_inline_max, Compiler/Spec/Eval.md#value-nodes), once each by
     /// content: InterfaceEmitter defines each as a named `inline constexpr`
@@ -818,6 +822,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
         if e->kind == ExprKind::CallExpr && cast<CallExpr>(e)->fmt_dyn {
             self.needs_fmt_dyn = true
+        }
+
+        if e->kind == ExprKind::TypeCastExpr && cast<TypeCastExpr>(e)->instance_move {
+            self.needs_instance_move = true
         }
 
         if e->type_ != &null {

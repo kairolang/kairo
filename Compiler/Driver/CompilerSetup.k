@@ -47,6 +47,7 @@ import AST::LangItems::{
     builtin_root_name,
     std_root_name,
 }
+import AST::Node::CanonicalNodes::BuiltinKind
 import Command::FlagTranslator::{
     ClangSpelling,
     FlagTranslator,
@@ -58,6 +59,7 @@ import Config::Diagnostic::{
 import Config::ResourceLayout::ResourceLayout
 import Config::Target::{
     ObjectFormat,
+    TargetOptions,
     object_format_name,
 }
 import Diagnostic::BasicConsumer::BasicDiagConsumer
@@ -2034,5 +2036,51 @@ extend CompilerInstance {
         t->long_double_align    = (ti->getLongDoubleAlign() as usize)
         t->has_float128         = ti->hasFloat128Type()
         t->wchar_bits           = (ti->getWCharWidth() as usize)
+        _fill_builtin_align(t, ti.get())
     }
+}
+
+/// TargetOptions::builtin_align from \p ti: each builtin's row is the alignment
+/// clang gives the C++ type it lowers to. The rows left 0 (F80, which
+/// long_double_align covers, and the builtins lowered to Kairo classes) keep
+/// the width rule.
+fn _fill_builtin_align(t: *TargetOptions, ti: unsafe *clang::TargetInfo) {
+    var n  = (BuiltinKind::COUNT as u8 as usize)
+    var a  = cxx::std::vector<usize>(n, 0)
+    var ch = (ti->getCharAlign() as usize)
+    var i64_a = if (t->int64_is_long) => ((ti->getLongAlign() as usize))
+                else => (ti->getLongLongAlign() as usize)
+    var ptr_a = (ti->getTypeAlign(ti->getSizeType()) as usize)
+    a[BuiltinKind::Bool as u8 as usize]    = (ti->getBoolAlign() as usize)
+    a[BuiltinKind::I8 as u8 as usize]      = ch
+    a[BuiltinKind::U8 as u8 as usize]      = ch
+    a[BuiltinKind::Byte as u8 as usize]    = ch
+    a[BuiltinKind::CChar as u8 as usize]   = ch
+    a[BuiltinKind::CChar8 as u8 as usize]  = ch
+    a[BuiltinKind::I16 as u8 as usize]     = (ti->getShortAlign() as usize)
+    a[BuiltinKind::U16 as u8 as usize]     = (ti->getShortAlign() as usize)
+    a[BuiltinKind::CChar16 as u8 as usize] = (ti->getChar16Align() as usize)
+    a[BuiltinKind::I32 as u8 as usize]     = (ti->getIntAlign() as usize)
+    a[BuiltinKind::U32 as u8 as usize]     = (ti->getIntAlign() as usize)
+    a[BuiltinKind::Char as u8 as usize]    = (ti->getChar32Align() as usize)
+    a[BuiltinKind::CWChar as u8 as usize]  = (ti->getWCharAlign() as usize)
+    a[BuiltinKind::I64 as u8 as usize]     = i64_a
+    a[BuiltinKind::U64 as u8 as usize]     = i64_a
+    a[BuiltinKind::I128 as u8 as usize]    = (ti->getInt128Align() as usize)
+    a[BuiltinKind::U128 as u8 as usize]    = (ti->getInt128Align() as usize)
+    a[BuiltinKind::I256 as u8 as usize]    = (ti->getBitIntAlign(256) as usize)
+    a[BuiltinKind::U256 as u8 as usize]    = (ti->getBitIntAlign(256) as usize)
+    a[BuiltinKind::I512 as u8 as usize]    = (ti->getBitIntAlign(512) as usize)
+    a[BuiltinKind::U512 as u8 as usize]    = (ti->getBitIntAlign(512) as usize)
+    a[BuiltinKind::USize as u8 as usize]   = ptr_a
+    a[BuiltinKind::ISize as u8 as usize]   = ptr_a
+    a[BuiltinKind::F16 as u8 as usize]     = (ti->getHalfAlign() as usize)
+    a[BuiltinKind::BF16 as u8 as usize]    = (ti->getBFloat16Align() as usize)
+    a[BuiltinKind::F32 as u8 as usize]     = (ti->getFloatAlign() as usize)
+    a[BuiltinKind::F64 as u8 as usize]     = (ti->getDoubleAlign() as usize)
+    if ti->hasFloat128Type() {
+        a[BuiltinKind::F128 as u8 as usize] = (ti->getFloat128Align() as usize)
+    }
+
+    t->builtin_align = a
 }

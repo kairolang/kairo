@@ -2,15 +2,6 @@
 // `var cjk = '漢'`), and converts to its code point with `as`. Found while
 // writing run_int_edges.k, which reaches these code points through
 // integers instead.
-//
-// XFAIL: *
-// Waits on spelling a non-ASCII char literal as a wide C++
-// character literal. EmitIR writes '漢' as the C++ literal
-// '漢' (type char / int, multi-byte) where char is char32_t, so clang
-// refuses it: CL001E "character too large for enclosing character literal
-// type". ASCII literals ('A') build only because a narrow literal of them
-// happens to convert. The spelling must be U'漢' (or the code point as a
-// char32_t constant). When it XPASSes, delete the XFAIL.
 
 import std::io::println
 

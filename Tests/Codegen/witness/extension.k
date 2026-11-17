@@ -41,7 +41,7 @@ fn main() -> i32 {
 // CXX-NEXT: return{{ ?}}::{{.*}}::__kairo_ext_Metric::scale(self, static_cast<decltype(factor) &&>(factor));
 // The bound renders as the concept, declaration and body alike.
 // CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) signed int twice(T a) noexcept;
-// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) signed int twice(T a) noexcept {
+// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) inline signed int twice(T a) noexcept {
 // CXX-NEXT: return{{ ?}}::{{.*}}::Scalable_witness<T>::scale((& a), 2);
 
 // REQUIRES: clang

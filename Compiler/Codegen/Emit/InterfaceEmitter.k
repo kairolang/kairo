@@ -179,6 +179,7 @@ pub enum HelperBlock derives u16 {
     Nopanic      = 1 << 11, ///< _nopanic_helpers.
     CxxAlloc     = 1 << 12, ///< _cxx_alloc_helpers.
     UnionLocal   = 1 << 13, ///< _union_local_helpers.
+    InstanceMove = 1 << 14, ///< LowerTargets::instance_move.
 }
 
 /// HelperBlock's variants are its FlagSet's bits (Support/FlagSet.k).
@@ -351,6 +352,7 @@ pub class InterfaceEmitter {
                 "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return " + LowerTargets::clang_addressof() + "(t); }",
             )
 
+
             self._cg->sink->brk()
             // The non-deduced spelling of a type (InterfaceFunctions::_forwarder).
             self._cg->sink->spell(
@@ -441,6 +443,37 @@ pub class InterfaceEmitter {
 
             self._cg->sink->unanchored(false)
             self.written.set(HelperBlock::FmtDyn)
+        }
+
+        // The instance-decided move (EmitPlan::needs_instance_move), guarded
+        // on its own for the same reason: the same test the instance check
+        // reads as "cannot be copied".
+        if !self.written.has(HelperBlock::InstanceMove) && self._plan->needs_instance_move {
+            self._cg->sink->unanchored(true)
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#ifndef " + LowerTargets::instance_move_guard(),
+                )
+
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#define " + LowerTargets::instance_move_guard(),
+                )
+            }
+
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <class T> constexpr decltype(auto) " + LowerTargets::instance_move() + "(T& v) noexcept { if constexpr (__is_constructible(T, T&)) { return static_cast<T&>(v); } else { return static_cast<T&&>(v); } }",
+            )
+
+            self._cg->sink->brk()
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#endif")
+            }
+
+            self._cg->sink->unanchored(false)
+            self.written.set(HelperBlock::InstanceMove)
         }
 
         // A Kairo `fn` value (EmitPlan::needs_fn_value), guarded on its own

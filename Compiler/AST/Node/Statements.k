@@ -816,9 +816,10 @@ pub class ConditionalStmt derives Stmt {
     /// `eval if`, and every `else if` of its chain: folded by EvalIfFolding
     /// where its condition folds, else C++ `if constexpr` (Compiler/Spec/Eval.md#folding-eval-if).
     pub var is_eval: bool
-    /// The head of a declaration-scope `eval if` whose condition reads a
-    /// type fact: E left it in place for EvalIfLateFolding (Compiler/Spec/Eval.md#deferred-conditions).
-    /// One writer: EvalIfFolding.
+    /// The head of an `eval if` whose condition reads a type fact: E left
+    /// it in place for EvalIfLateFolding (Compiler/Spec/Eval.md#deferred-conditions).
+    /// In a function body it is cleared when the late fold leaves the
+    /// statement as `if constexpr`. One writer: EvalIfFolding.
     pub var eval_deferred: bool
     /// `@likely` / `@unlikely` written between the previous branch's `}` and
     /// the `else` of this statement's else_ (a BranchHint as u8: 0 none, 1

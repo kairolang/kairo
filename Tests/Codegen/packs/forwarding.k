@@ -63,14 +63,14 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: template<class ... T> signed int tok_inner(T && ... args) noexcept {
+// CXX: template<class ... T> inline signed int tok_inner(T && ... args) noexcept {
 // CXX-NEXT: return::forwarding::take(static_cast<T &&>(args) ...);
-// CXX: template<class ... T> signed int tok_outer(T && ... args) noexcept {
+// CXX: template<class ... T> inline signed int tok_outer(T && ... args) noexcept {
 // CXX-NEXT: return::forwarding::tok_inner(static_cast<T &&>(args) ...);
-// CXX: template<class ... T> signed int count(T && ... args) noexcept {
+// CXX: template<class ... T> inline signed int count(T && ... args) noexcept {
 // CXX: (... &&[&]({{\[\[}}maybe_unused{{\]\]}} auto & a)->bool {
 // CXX: (args));
-// CXX: template<class ... T> signed int count_const(const T ... args) noexcept {
+// CXX: template<class ... T> inline signed int count_const(const T ... args) noexcept {
 // CXX-NEXT: return::forwarding::count(args ...);
 // CXX: ::forwarding::tok_outer<{{ ?}}::forwarding::Tok>({{ ?}}::forwarding::Tok(5))
 // CXX: ::forwarding::tok_outer<{{ ?}}::forwarding::Tok>(static_cast<{{ ?}}::forwarding::Tok &&>(h))

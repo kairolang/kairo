@@ -230,6 +230,15 @@ pub class TargetOptions {
     /// never filled, and the store keeps 32.
     pub var wchar_bits: usize = 0
 
+    /// The alignment in bits of each builtin's C++ type as a record member,
+    /// from clang::TargetInfo, one row per BuiltinKind (indexed by its u8
+    /// value). Not the width: i386 System V aligns `long long` and `double`
+    /// to 4 bytes in a record, and `_BitInt(256)` is 8-aligned on x86_64.
+    /// The type store aligns each builtin by its row, so Sema's predicted
+    /// layouts (a `T?`, an ADT, a tuple) are clang's. Empty, or a 0 row,
+    /// means never filled, and the store aligns that builtin to its width.
+    pub var builtin_align: cxx::std::vector<usize>
+
     /// # C++ `size_t` / `ptrdiff_t` against the fixed-width pair
     ///
     /// `usize` emits as `decltype(sizeof(0))` and `isize` as its signed twin,

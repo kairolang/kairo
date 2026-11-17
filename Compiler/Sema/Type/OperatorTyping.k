@@ -1426,6 +1426,35 @@ pub class <T: type> OperatorTyping {
             }
         }
 
+        // `x in xs` with xs a dependent record (`v in self` in `class <T>
+        // Bag`): a viable `op in` taking x is found as on any record. C++ has
+        // no `in`, so it cannot be left to clang. One that takes no argument
+        // (`[T]`'s iteration) is no membership test, and the use defers.
+        if k == TokenKind::KwIn
+            && self._is_dependent(rt)
+            && self.dyn()->tu.record_decl(rt) != &null {
+            var in_found = false
+            var in_args  = cxx::std::vector<unsafe *Expr>()
+            in_args.push_back(n->lhs)
+            var unsafe *in_t = self.resolve_user_op(
+                n,
+                TokenKind::KwIn,
+                TokenKind::TkUnknown,
+                n->rhs,
+                rt,
+                lt,
+                in_args,
+                -1,
+                "op in",
+                unsafe &in_found,
+                true,
+            )
+
+            if in_found {
+                return in_t
+            }
+        }
+
         var own_op = k != TokenKind::OpQuestionQuestion
             && k != TokenKind::OpEqualEqualEqual
             && k != TokenKind::KwIn

@@ -44,9 +44,9 @@ fn main() -> i32 {
 // CXX-NEXT:   template<class T> static T get(const::generic::Cell<T> * self) noexcept;
 // CXX-NEXT:   template<class T, class U> static::generic::Cell<U> map(const::generic::Cell<T> * self, ::__kairo_fn<U(T)> f) noexcept;
 // CXX-NEXT:   template<class T> static::generic::Cell<T> make(T v) noexcept;
-// CXX:      template<class T, class U>::generic::Cell<U> __kairo_ext_Cell::map(
+// CXX:      template<class T, class U> inline::generic::Cell<U> __kairo_ext_Cell::map(
 // CXX:      return::generic::Cell<U> {
-// CXX:      template<class T>::generic::Cell<T> __kairo_ext_Cell::make(T v) noexcept {
+// CXX:      template<class T> inline::generic::Cell<T> __kairo_ext_Cell::make(T v) noexcept {
 // CXX-NEXT: return::generic::Cell<T> {
 // i64 is `long` or `long long` by target (Codegen/target_int64.k).
 // CXX:      ::generic::__kairo_ext_Cell::make<signed long{{( long)?}}>(0);

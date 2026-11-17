@@ -67,6 +67,7 @@ import AST::Node::Expressions::{
     ListLiteralExpr,
 }
 import AST::Node::PrimaryExpressions::{
+    ChainExpr,
     NamedIdentExpr,
     StringLiteralExpr,
 }
@@ -458,10 +459,19 @@ pub class TypeUtil {
             return out
         }
 
-        var unsafe *g = cast<Types::GenericParamType>(c)
-        var        it = self.sc->bounds.find(g->owner as usize as u64)
+        self._declared_ifaces(cast<Types::GenericParamType>(c), &out)
+        self.append_clause_ifaces(c, &out)
+        return out
+    }
+
+    /// bound_ifaces' half from the bound table: what \p g's own
+    /// declaration promised.
+    priv fn _declared_ifaces(self,
+                             g:          unsafe *Types::GenericParamType,
+                             @inout out: cxx::std::vector<unsafe *Type>) {
+        var it = self.sc->bounds.find(g->owner as usize as u64)
         if it == self.sc->bounds.end() {
-            return out
+            return
         }
 
         var *_set = &it->second
@@ -492,8 +502,6 @@ pub class TypeUtil {
 
             out.push_back(canon_unqual(k->rhs->canonical))
         }
-
-        return out
     }
 
     /// The bases a generic parameter \p t's `derives` bounds promise
@@ -543,6 +551,150 @@ pub class TypeUtil {
         }
 
         return out
+    }
+
+    /// # bounds a body's clauses add
+
+    /// The `impl` conjuncts \p f's body may rely on that the bound table
+    /// does not file under the owner of what they constrain: those of \p f's
+    /// `requires`, of the functions it is nested in, and of the extension
+    /// or record it is written in, except a conjunct on a parameter of the
+    /// clause's own declaration (the table has that one under it). So a
+    /// member's `requires T impl I` on its record's T, and any conjunct on
+    /// an associated type (`J::Item impl Eq`), give I's members in the
+    /// body, as `<T impl I>` does; C++ drops the member from an instance
+    /// that does not meet its clause (Speller::member_requires), so the
+    /// body is never instantiated where they do not hold.
+    fn body_clauses(self,
+                    f: unsafe *Declarations::FunctionDecl) -> cxx::std::vector<unsafe *ConstraintExpr> {
+        var        out     = cxx::std::vector<unsafe *ConstraintExpr>()
+        var unsafe *d      = unsafe (f as unsafe *Decl)
+        var        n:  u32 = 0
+        while d != &null && n < 64 {
+            n += 1
+            self._clause_extras(d, &out)
+            if d->lexical_dc == &null {
+                break
+            }
+
+            d = d->lexical_dc->owner_decl()
+        }
+
+        return out
+    }
+
+    /// Make \p f's body_clauses the ones in force (SemaContext::clause_bounds)
+    /// and return those they replace, for leave_body. A body typed on demand
+    /// in the middle of another one sees its own clauses only.
+    fn enter_body(self,
+                  f: unsafe *Declarations::FunctionDecl) -> cxx::std::vector<unsafe *ConstraintExpr> {
+        var saved = self.sc->clause_bounds
+        self.sc->clause_bounds = self.body_clauses(f)
+        return saved
+    }
+
+    fn leave_body(self, const saved: cxx::std::vector<unsafe *ConstraintExpr>) {
+        self.sc->clause_bounds = saved
+    }
+
+    /// Append to \p out the interfaces the clauses in force grant the
+    /// dependent type \p t (a bare parameter or an associated type), as
+    /// canonical instances (`From<U>` keeps its arguments).
+    fn append_clause_ifaces(self, t: unsafe *Type, @inout out: cxx::std::vector<unsafe *Type>) {
+        var unsafe *c = canon_unqual(t)
+        if c == &null || self.sc->clause_bounds.size() == 0 {
+            return
+        }
+
+        for var i: usize = 0; i < self.sc->clause_bounds.size(); ++i {
+            var unsafe *k = self.sc->clause_bounds[i]
+            if k->rhs == &null || k->rhs->canonical == &null || !self._clause_names(k, c) {
+                continue
+            }
+
+            var unsafe *rc = canon_unqual(k->rhs->canonical)
+            var        dup = false
+            for var j: usize = 0; j < out.size(); ++j {
+                if out[j] == rc {
+                    dup = true
+                    break
+                }
+            }
+
+            if !dup {
+                out.push_back(rc)
+            }
+        }
+    }
+
+    /// Whether conjunct \p k constrains canonical \p c: the same parameter
+    /// (index and declaring owner), or the same associated type.
+    fn clause_names(self, k: unsafe *ConstraintExpr, c: unsafe *Type) -> bool {
+        return self._clause_names(k, canon_unqual(c))
+    }
+
+    priv fn _clause_names(self, k: unsafe *ConstraintExpr, c: unsafe *Type) -> bool {
+        var unsafe *e  = self.strip_parens(k->lhs)
+        var unsafe *id = dyn_cast<NamedIdentExpr>(e)
+        if id != &null {
+            var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+                id->resolved_decl,
+            )
+
+            if gp == &null || gp->owner == &null || !isa<Types::GenericParamType>(c) {
+                return false
+            }
+
+            var unsafe *g = cast<Types::GenericParamType>(c)
+            return gp->index == g->param_index
+                && NameLookup::representative(gp->owner) == NameLookup::representative(
+                    g->owner,
+                )
+        }
+
+        if !isa<AssocType>(c) {
+            return false
+        }
+
+        var unsafe *ch = dyn_cast<ChainExpr>(e)
+        if ch == &null || ch->steps.size() == 0 {
+            return false
+        }
+
+        var unsafe *st = ch->steps.get(ch->steps.size() - 1)
+        return st->resolved_type != &null && canon_unqual(st->resolved_type) == c
+    }
+
+    /// The `impl` conjuncts of declaration \p d's clause that body_clauses
+    /// keeps (see there).
+    priv fn _clause_extras(self,
+                           d:          unsafe *Decl,
+                           @inout out: cxx::std::vector<unsafe *ConstraintExpr>) {
+        var cs = cxx::std::vector<unsafe *ConstraintExpr>()
+        self.impl_conjuncts(decl_requires_clause(d), &cs)
+        for var i: usize = 0; i < cs.size(); ++i {
+            var unsafe *id = dyn_cast<NamedIdentExpr>(
+                self.strip_parens(cs[i]->lhs),
+            )
+
+            if id != &null {
+                var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+                    id->resolved_decl,
+                )
+
+                if gp == &null {
+                    continue
+                }
+
+                if NameLookup::representative(gp->owner) == NameLookup::representative(
+                    d,
+                ) {
+                    continue
+                }
+            }
+
+            out.push_back(cs[i])
+        }
     }
 
     /// # a base that is a type parameter
@@ -1963,6 +2115,49 @@ pub class TypeUtil {
     /// constructor must build (CtorInitCheck).
     fn why_no_default(self, t: unsafe *Type) -> string {
         return self._why_no_default(t, 0)
+    }
+
+    /// True when whether \p t has a default is the instance's to answer:
+    /// a generic parameter or an associated type, or a record with no
+    /// declared constructor (a tuple) whose generic arguments include one,
+    /// since its implicit default rests on its fields. why_no_default
+    /// answers empty for every such type; an array, a pointer and `T?`
+    /// answer the same at every instance and are not included.
+    fn default_is_dependent(self, t: unsafe *Type) -> bool {
+        return self._default_is_dependent(t, 0)
+    }
+
+    priv fn _default_is_dependent(self, t: unsafe *Type, depth: u32) -> bool {
+        var unsafe *u = canon_unqual(t)
+        if u == &null || depth > 16 || !u->is_dependent() {
+            return false
+        }
+
+        match u->kind {
+            case TypeKind::GenericParamType {
+                return !cast<Types::GenericParamType>(u)->is_pack
+            } case TypeKind::AssocType {
+                return true
+            } case TypeKind::RecordType {
+                0
+            } default {
+                return false
+            }
+        }
+
+        var unsafe *rd = self.default_record(u)
+        if rd == &null || self.declares_ctor(rd) {
+            return false
+        }
+
+        var unsafe *r = cast<RecordType>(u)
+        for var i: usize = 0; i < r->args.size(); ++i {
+            if self._default_is_dependent(r->args[i], depth + 1) {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// \p depth bounds the walk into fields: a by-value cycle is

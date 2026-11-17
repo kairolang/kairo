@@ -36,14 +36,14 @@ fn main() -> i32 {
 // DIAG-NOT: error
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: template<class ... T> {{.*}} once(T && ... xs) noexcept {
+// CXX: template<class ... T> inline {{.*}} once(T && ... xs) noexcept {
 // CXX-NEXT: len(static_cast<T &&>(xs){{ ?}}...);
-// CXX: template<class ... T> {{.*}} twice(T && ... xs) noexcept {
+// CXX: template<class ... T> inline {{.*}} twice(T && ... xs) noexcept {
 // CXX-NOT: static_cast<T &&>
 // CXX: len(xs{{ ?}}...)
 // CXX-NOT: xs
 // CXX: len(static_cast<T &&>(xs){{ ?}}...)
-// CXX: template<class ... T> {{.*}} looped(T && ... xs) noexcept {
+// CXX: template<class ... T> inline {{.*}} looped(T && ... xs) noexcept {
 // CXX-NOT: static_cast<T &&>
 // CXX: len(xs{{ ?}}...)
 

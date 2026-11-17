@@ -306,6 +306,22 @@ extend EmitIR {
         }
     }
 
+    /// Whether a definition under template head \p head is spelled C++
+    /// `inline`: every one is. An instance named in its home TU is an
+    /// explicit instantiation there and `extern template` in every other
+    /// TU, and an explicit instantiation declaration suppresses the implicit
+    /// instantiation of a non-inline function only ([temp.explicit]/12).
+    /// Inline, the importing TU still instantiates the body for its
+    /// optimizer (an `available_externally` definition at -O1 and above)
+    /// while the home TU's instantiation remains the one definition, so a
+    /// generic called from another module is inlinable as a C++ template
+    /// in a header is. An explicit specialization (`template <> `) is an
+    /// ordinary function with one definition, which inline would let its
+    /// home TU drop when nothing there calls it.
+    fn _templated_inline(self, const head: string) -> bool {
+        return !head.empty() && !head.starts_with("template <>")
+    }
+
     /// A free function, or an extension member (\p ext non-null): the
     /// out-of-line definition of its scope's static member, receiver first
     /// (`void __kairo_ext_Vec::push(Vec* self, ...)`; no `static` out of line).
@@ -335,7 +351,8 @@ extend EmitIR {
         }
 
         // One merged list: the extension's parameters, then the member's.
-        var head = self._spell.template_head(n)
+        var head  = self._spell.template_head(n)
+        var templ = self._templated_inline(head)
         // Spelled on the definition too, not left to the interface's
         // declaration: the definition alone must say what symbol it is.
         if ext == &null && !is_main {
@@ -351,8 +368,9 @@ extend EmitIR {
 
         // `inline` puts the body in the interface (EmitPlan::visible_bodies):
         // every TU that declares it defines it, its own TU included, with the
-        // same text, and the linker keeps one.
-        if n->is_inline() && !is_main {
+        // same text, and the linker keeps one. A template is C++ `inline`
+        // too (_templated_inline).
+        if (n->is_inline() || templ) && !is_main {
             head += "inline "
         }
 
@@ -409,11 +427,12 @@ extend EmitIR {
 
         var head = self._spell.owner_template_head(owner)
         head += self._spell.template_head(m)
+        var inl = m->is_inline() || self._templated_inline(head)
         head += Speller::fn_attrs(m)
         self._cc_mark(m)
         // Out of line, so the class definition stays the same bytes in every
         // TU (invariant 11); see _free_fn.
-        if m->is_inline() {
+        if inl {
             head += "inline "
         }
 
@@ -696,7 +715,7 @@ extend EmitIR {
         }
 
         var head = self._spell.owner_template_head(owner)
-        if m->is_inline() {
+        if m->is_inline() || self._templated_inline(head) {
             head += "inline "
         }
 

@@ -88,22 +88,27 @@ import Codegen::Emit::EmitIRStmts
 import Codegen::Emit::Spell::Speller
 
 extend EmitIR {
-    /// A character literal borrows its bytes: C++ reads the same escapes.
-    /// `'\{'` and `'\}'` are the two it does not know (the lexer accepts
-    /// them with S022W), so those are spelled as the brace itself. The
-    /// bytes are the token's own; a literal a macro expansion carries has
-    /// the invocation's range and is borrowed as it is.
+    /// A character literal is its own bytes with C++'s `U` prefix: a
+    /// `char` is a Unicode scalar value and lowers to `char32_t`, and a
+    /// plain `'...'` is a one-byte `char` literal, which clang rejects for
+    /// any character past U+007F (`'\u00e9'`, `'漢'`). C++ reads every
+    /// other escape as Kairo does, `\xHH` included (one code unit of a
+    /// `U` literal is the code point). `'\{'` and `'\}'` are the two it does
+    /// not know (the lexer accepts them with S022W), so those are spelled
+    /// as the brace itself. A literal a macro expansion carries has the
+    /// invocation's range and is borrowed as it is.
     priv fn _char_lit(self, n: unsafe *CharacterLiteralExpr) {
-        var text = self._cg->ctx->sm->get_text(n->token.range)
+        var text  = self._cg->ctx->sm->get_text(n->token.range)
+        var cxx_v = "U"
         if text.size() == 4 && text[1] == 0x5c && (text[2] == 0x7b || text[2] == 0x7d) {
-            var cxx_v = "'"
+            cxx_v += "'"
             cxx_v.push_back(text[2])
             cxx_v += "'"
-            self._cg->sink->create_char(n->token.range, &cxx_v)
-            return
+        } else {
+            cxx_v += text
         }
 
-        self._cg->sink->synth(n->token, clang::tok::char_constant)
+        self._cg->sink->create_char(n->token.range, &cxx_v)
     }
 
     /// # Expressions

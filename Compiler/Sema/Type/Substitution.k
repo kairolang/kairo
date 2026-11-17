@@ -36,6 +36,7 @@ import AST::ASTSupport::{
     FrozenList,
     create_empty_frozen_list,
 }
+import AST::Context::DeclContext::DeclContextKind
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_generic_params,
@@ -57,8 +58,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,   ComposeState, FunctionDecl,  GenericParamDecl, InheritEdge, InterfaceDecl,
-    Requirement, StructDecl,   TypeAliasDecl,
+    ClassDecl,     ComposeState, ExtensionDecl, FunctionDecl,  GenericParamDecl, InheritEdge,
+    InterfaceDecl, Requirement,  StructDecl,    TypeAliasDecl,
 }
 import AST::Node::Expressions::ConstraintExpr
 import AST::Node::Types::{
@@ -1175,6 +1176,7 @@ pub class Substitution {
                 var s = Substitution(self.sc)
                 if isa<RecordType>(x) {
                     s.bind_from_record(x)
+                    s._bind_extension_args(ta, cast<RecordType>(x))
                 }
 
                 var unsafe *tr = NameLookup::representative(
@@ -1267,6 +1269,42 @@ pub class Substitution {
         return d
     }
 
+    /// An alias a generic extension declares (`extend <I impl It> D<I> {
+    /// type Item = I::Item }`) is written over the extension's parameters,
+    /// not the record's: each one the extension's target names as a bare
+    /// argument (`D<I>`) is \p x's argument in that position.
+    fn _bind_extension_args(self, ta: unsafe *TypeAliasDecl, x: unsafe *RecordType) {
+        var unsafe *lex = ta->lexical_dc
+        if lex == &null || lex->dc_kind != DeclContextKind::Extension {
+            return
+        }
+
+        var unsafe *ext = dyn_cast<ExtensionDecl>(lex->dc_owner)
+        if ext == &null || ext->target == &null || ext->target->canonical == &null {
+            return
+        }
+
+        var unsafe *tgt = dyn_cast<RecordType>(
+            canon_unqual(ext->target->canonical),
+        )
+
+        if tgt == &null {
+            return
+        }
+
+        for var i: usize = 0; i < tgt->args.size() && i < x->args.size(); ++i {
+            var unsafe *g = dyn_cast<GenericParamType>(
+                canon_unqual(tgt->args[i]),
+            )
+
+            if g == &null || g->is_pack {
+                continue
+            }
+
+            self.bind(g->owner, g->param_index, x->args[i])
+        }
+    }
+
     /// THE way an associated type is formed in Sema: interned, and its bound
     /// cache (AssocType::bounds) filled when its requirement's clause is
     /// resolved. Every AssocType goes through here (T, substitution, the
@@ -1305,8 +1343,17 @@ pub class Substitution {
             return self.tu.bound_ifaces(t)
         }
 
-        var unsafe *a  = cast<AssocType>(c)
-        var        out = cxx::std::vector<unsafe *Type>()
+        // A clause in force (`requires J::Item impl Eq`) adds to the
+        // declared bounds; it never enters set_assoc_bounds' build-wide
+        // cache, since it holds in one body only.
+        var out = self._declared_assoc_ifaces(cast<AssocType>(c))
+        self.tu.append_clause_ifaces(c, &out)
+        return out
+    }
+
+    /// bound_ifaces of associated type \p a from its declaration alone.
+    priv fn _declared_assoc_ifaces(self, a: unsafe *AssocType) -> cxx::std::vector<unsafe *Type> {
+        var out = cxx::std::vector<unsafe *Type>()
         if a->bounds_state == (BoundsState::Done as u8) {
             // Published by set_assoc_bounds after a release fence; the
             // canonical node is build-wide and other TUs' Semas fill it

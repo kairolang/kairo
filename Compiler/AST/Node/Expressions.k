@@ -2219,6 +2219,10 @@ pub class TypeCastExpr derives Expr {
     /// still read the bool.
     pub var is_unsafe: bool
     pub var mode:      CastMode = CastMode::Default
+    /// A lowering's `T&&` that moves only where the value cannot be copied
+    /// (SemaContext::instance_move_sites): the instance of the generic body
+    /// decides, and EmitIR spells it with LowerTargets::instance_move().
+    pub var instance_move: bool = false
 
     /// The user operator overload resolution selected, or null for a builtin
     /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),

@@ -17,7 +17,11 @@
 ///
 ///       count_words(name)   ->   count_words(name as T&&)
 ///
-///     which EmitIR spells static_cast<T&&>(name). MoveCheck is the one
+///     which EmitIR spells static_cast<T&&>(name). A transfer in a generic
+///     body that moves only where its instance cannot copy the value
+///     (SemaContext::instance_move_sites) gets the same cast, marked
+///     TypeCastExpr::instance_move, which EmitIR spells with a helper that
+///     moves at such an instance and copies at every other. MoveCheck is the one
 ///     place that decides it, alongside use-after-move, so what C++ moves
 ///     and what the checker counts as moved cannot drift apart. A COPY value
 ///     needs nothing here: C++ copies it through the record's own copy
@@ -71,7 +75,7 @@ pub class CopyMoveLowering derives ASTWriter<CopyMoveLowering> {
             return
         }
 
-        if self.sc->move_sites.empty() {
+        if self.sc->move_sites.empty() && self.sc->instance_move_sites.empty() {
             return
         }
 
@@ -85,9 +89,10 @@ pub class CopyMoveLowering derives ASTWriter<CopyMoveLowering> {
             return e
         }
 
-        var        site = self.sc->move_sites.count(e as usize as u64) != 0
+        var site = self.sc->move_sites.count(e as usize as u64) != 0
+        var some = self.sc->instance_move_sites.count(e as usize as u64) != 0
         var unsafe *out = ASTWriter<CopyMoveLowering>::transform_expr(self, e)
-        if !site || out == &null || out->type_ == &null {
+        if !site && !some || out == &null || out->type_ == &null {
             return out
         }
 
@@ -98,7 +103,8 @@ pub class CopyMoveLowering derives ASTWriter<CopyMoveLowering> {
             CastMode::Default,
         )
 
-        c->value_category = Expr::ValueCategory::XValue
+        c->value_category                    = Expr::ValueCategory::XValue
+        cast<TypeCastExpr>(c)->instance_move = some && !site
         var dis = self.sc->disarm_sites.find(e as usize as u64)
         if dis != self.sc->disarm_sites.end() {
             cast<TypeCastExpr>(c)->disarms = unsafe (dis->second as unsafe *Decl)

@@ -74,7 +74,7 @@ fn main() -> i32 {
 // IR-NEXT: };
 // IR:     signed int pick() noexcept {
 // IR-NEXT:    return 20;
-// IR:     template<class T> signed int size_class(T x) noexcept {
+// IR:     template<class T> inline signed int size_class(T x) noexcept {
 // IR-NEXT:    if constexpr(sizeof(T)> 4) {
 // IR-NOT: does_not_exist
 

@@ -71,9 +71,9 @@ fn main() -> i32 {
 // CXX-NEXT: P get() noexcept;
 // CXX-NEXT: void put(P p) noexcept;
 // CXX:      typename{{ ?}}::generic_nested_type::L<K>::P {
-// CXX:      template<class K> typename{{ ?}}::generic_nested_type::L<K>::P L<K>::make(K k) noexcept {
-// CXX:      template<class K> typename{{ ?}}::generic_nested_type::L<K>::P L<K>::get() noexcept {
-// CXX:      template<class K> void L<K>::put(typename{{ ?}}::generic_nested_type::L<K>::P p) noexcept {
+// CXX:      template<class K> inline typename{{ ?}}::generic_nested_type::L<K>::P L<K>::make(K k) noexcept {
+// CXX:      template<class K> inline typename{{ ?}}::generic_nested_type::L<K>::P L<K>::get() noexcept {
+// CXX:      template<class K> inline void L<K>::put(typename{{ ?}}::generic_nested_type::L<K>::P p) noexcept {
 // CXX:      {{ ?}}::generic_nested_type::L<signed int>::P q = l.make(2);
 
 // The argument-less qualified form must not appear anywhere.

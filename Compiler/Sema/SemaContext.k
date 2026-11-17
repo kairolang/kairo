@@ -70,6 +70,7 @@ import AST::Node::Casting::{
 import AST::Node::Declarations::{
     AdtRole, EnumDecl, FunctionDecl, GenericParamDecl, ImportDecl, SpecKind, StructDecl,
 }
+import AST::Node::Expressions::ConstraintExpr
 import AST::VisibilityFacts::{
     is_library_tu,
     reexports_to,
@@ -442,6 +443,11 @@ pub class SemaContext {
     /// which casts each to `T&&`. So the move C++ performs is exactly the
     /// one the checker counted.
     pub var move_sites: llvm::DenseSet<u64>
+    /// Transfers in a generic body that move only at an instance whose type
+    /// cannot be copied (MoveCheck::_instance_move): CopyMoveLowering casts
+    /// each so (TypeCastExpr::instance_move), and the instance check judges
+    /// a read after one. Disjoint from move_sites.
+    pub var instance_move_sites: llvm::DenseSet<u64>
     /// Of move_sites, those MoveCheck marked as a real transfer of a whole
     /// local (MoveKind::Transfer): site -> the VariableDecl, both as u64.
     /// One writer, MoveCheck (record_real_transfer); read by a provider
@@ -475,6 +481,16 @@ pub class SemaContext {
     /// One writer: the typer, around a function's body (TyperFrame).
     pub var same_types: cxx::std::vector<unsafe *Type>
 
+    /// The `impl` conjuncts the body being walked may rely on that the
+    /// bound table does not hold for it (TypeUtil::body_clauses): a
+    /// member's `P impl I` on its record's parameter, a conjunct on an
+    /// associated type (`J::Item impl Eq`), and the same from enclosing
+    /// functions and the extension or record around the body. Every
+    /// bound reader appends what these grant (TypeUtil::clause_ifaces).
+    /// Set and put back around a body by each pass that walks one
+    /// (TypeUtil::enter_body).
+    pub var clause_bounds: cxx::std::vector<unsafe *ConstraintExpr>
+
     /// Every `where` dispatch group of this TU that WhereGuardCheck passed,
     /// flat: one group is a run of members sharing `where_lead`, in
     /// DISPATCH order -- the guarded ones as declared, then the unguarded
@@ -489,6 +505,12 @@ pub class SemaContext {
     /// target and configuration, so ControlFlowAnalysis does not call the
     /// code after it dead.
     pub var folded_eval_ifs: cxx::std::vector<SourceRange>
+
+    /// How many function-body `eval if`s E left to the late fold because
+    /// their condition reads a type fact (ConditionalStmt::eval_deferred in
+    /// a body). EvalIfLateFolding walks function bodies only when one is
+    /// here. One writer: EvalIfFolding.
+    pub var deferred_body_ifs: u32 = 0
 
     /// Every declaration-scope `eval if` E deferred on a type fact, with the
     /// declarations of each of its branches (Compiler/Spec/Eval.md#deferred-conditions). One writer,
@@ -609,12 +631,14 @@ pub class SemaContext {
             var ldb:     usize = 0
             var lda:     usize = 0
             var wcb:     usize = 0
+            var aligns         = cxx::std::vector<usize>()
             if ctx->ci != &null {
                 pbits    = ctx->ci->target.pointer_width
                 i64_long = ctx->ci->target.int64_is_long
                 ldb      = ctx->ci->target.long_double_bits
                 lda      = ctx->ci->target.long_double_align
                 wcb      = ctx->ci->target.wchar_bits
+                aligns   = ctx->ci->target.builtin_align
             }
 
             if pbits == 0 {
@@ -622,7 +646,7 @@ pub class SemaContext {
                 i64_long = true
             }
 
-            self.types->init(pbits, i64_long, ldb, lda, wcb)
+            self.types->init(pbits, i64_long, ldb, lda, wcb, aligns)
         }
 
         if ctx->ci != &null {

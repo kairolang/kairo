@@ -1845,6 +1845,20 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             }
         }
 
+        // The clauses in force for the body (TypeUtil::body_clauses): a
+        // member's `requires gp impl I` on its record's gp, among others.
+        for var i: usize = 0; i < self.sc->clause_bounds.size(); ++i {
+            var unsafe *c = self.sc->clause_bounds[i]
+            if !self._clause_on(c, gp) {
+                continue
+            }
+
+            var unsafe *d = self._record_decl_of(c->rhs)
+            if d != &null {
+                b.interfaces.push_back(d)
+            }
+        }
+
         // The `eval if gp impl I` branches this step stands in: I is a bound
         // there (traverse_conditional_stmt).
         for var i: usize = 0; i < self._narrowed.size(); ++i {
@@ -1885,23 +1899,18 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// A member's `requires P impl I` (P a parameter of its record) holds
     /// wherever the member exists: C++ drops the member from an instance
     /// that does not meet it (Speller::member_requires), so its body sees
-    /// I's members on P, as a taken `eval if P impl I` branch does.
+    /// I's members on P, as a taken `eval if P impl I` branch does. The
+    /// typer's binder reads the same clauses, set around the body it types.
     fn traverse_function_decl(self,
                               n: unsafe *Declarations::FunctionDecl) -> unsafe *Declarations::FunctionDecl {
-        var mark = self._narrowed.size()
-        if n != &null && n->requires_clause != &null {
-            self._narrow_from(n->requires_clause)
-        }
-
+        var tu    = TypeUtil(self.sc)
+        var saved = tu.enter_body(n)
         var unsafe *out = RecursiveASTVisitor<ChainBinding>::traverse_function_decl(
             self,
             n,
         )
 
-        while self._narrowed.size() > mark {
-            self._narrowed.pop_back()
-        }
-
+        tu.leave_body(saved)
         return out
     }
 
@@ -2048,6 +2057,40 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         return id->resolved_decl == gp
+    }
+
+    /// Whether clause conjunct \p c constrains \p gp: the same declaration,
+    /// or the same slot of the same owner seen through a redeclaration.
+    priv fn _clause_on(self,
+                       c:  unsafe *ConstraintExpr,
+                       gp: unsafe *Declarations::GenericParamDecl) -> bool {
+        if c == &null || c->is_derives() || c->lhs == &null || gp == &null {
+            return false
+        }
+
+        var unsafe *id = dyn_cast<NamedIdentExpr>(strip_parens(c->lhs))
+        if id == &null {
+            return false
+        }
+
+        var unsafe *g = dyn_cast<Declarations::GenericParamDecl>(
+            id->resolved_decl,
+        )
+
+        if g == &null {
+            return false
+        }
+
+        if g == gp {
+            return true
+        }
+
+        return g->index == gp->index
+            && g->owner != &null
+            && gp->owner != &null
+            && NameLookup::representative(g->owner) == NameLookup::representative(
+                gp->owner,
+            )
     }
 
     /// The record decl of canonical \p c0, or null.

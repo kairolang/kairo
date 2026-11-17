@@ -70,11 +70,11 @@ fn main() -> i32 {
 // IR-LABEL: CODEGEN C++: {{.*}}move_transfer_sites.k
 // IR:      first({{ ?}}::move_transfer_sites::Pair p) noexcept {
 // IR-NEXT: return static_cast<{{ ?}}::move_transfer_sites::Str &&>(p.a);
-// IR:      template<class T> signed int relay(T x) noexcept {
+// IR:      template<class T> inline signed int relay(T x) noexcept {
 // IR-NEXT: T y = static_cast<T &&>(x);
-// IR:      template<class T> T keep(T x) noexcept {
+// IR:      template<class T> inline T keep(T x) noexcept {
 // IR-NEXT: T y = x;
-// IR:      template<class T> signed int aliased(T x, T * dst) noexcept {
+// IR:      template<class T> inline signed int aliased(T x, T * dst) noexcept {
 // IR-NOT:  T &&
 // IR:      return 0;
 // IR:      acc.operator +=(static_cast<{{ ?}}::move_transfer_sites::Str &&>(s));

@@ -113,6 +113,7 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import AST::Node::Program::TopLevelKind
+import AST::Node::Statements
 import AST::Node::Types::{
     CXXLValueRefType, CXXRValueRefType, ChainType, FixedArrayType, GenericParamType, NullableType,
     PointerType,
@@ -196,6 +197,40 @@ pub class _NestedUses derives RecursiveASTVisitor<_NestedUses> {
 
         return true
     }
+
+    /// An `eval if` still in a generic body is C++ `if constexpr`: each
+    /// instance instantiates only the branch it takes ([stmt.if]/2), and
+    /// that branch may be invalid for the other instances
+    /// (`__builtin_bitcast<u64, T>` under `__builtin_size_of<T>() == 8`).
+    /// What a branch names is therefore not reached from the instance: an
+    /// explicit instantiation of it would instantiate it for every instance.
+    /// Clang instantiates what the taken branch uses implicitly, from the
+    /// template definitions every TU that uses the instance holds. Only the
+    /// conditions are walked.
+    fn traverse_conditional_stmt(self,
+                                 n: unsafe *Statements::ConditionalStmt) -> unsafe *Statements::ConditionalStmt {
+        if n == &null || !n->is_eval {
+            return RecursiveASTVisitor<_NestedUses>::traverse_conditional_stmt(
+                self,
+                n,
+            )
+        }
+
+        var unsafe *c = n
+        while c != &null {
+            if c->cond != &null {
+                self.dispatch_expr(c->cond)
+            }
+
+            if c->else_ == &null || !isa<Statements::ConditionalStmt>(c->else_) {
+                break
+            }
+
+            c = cast<Statements::ConditionalStmt>(c->else_)
+        }
+
+        return n
+    }
 }
 
 /// A requires-clause predicate known false, and the type whose missing
@@ -244,6 +279,9 @@ struct ImplBlocker {
     pub var bound: unsafe *ConstraintExpr = &null
     pub var x:     unsafe *Type           = &null
     pub var iface: unsafe *Type           = &null
+    /// The rows of the conjuncts that hold, for the instance the member
+    /// is emitted with.
+    pub var rows: cxx::std::vector<unsafe *ConformanceRow>
 }
 
 pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
@@ -276,6 +314,20 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         // nonconformance is this TU's to report, beside its own.
         self.discover()
         self._check_global_allocator()
+    }
+
+    /// A call in a body whose `requires` grants a bound (TypeUtil::body_clauses)
+    /// is checked with that bound in force (_open_bound_holds).
+    fn traverse_function_decl(self,
+                              n: unsafe *Declarations::FunctionDecl) -> unsafe *Declarations::FunctionDecl {
+        var saved = self.tu.enter_body(n)
+        var unsafe *out = RecursiveASTVisitor<ConformanceChecking>::traverse_function_decl(
+            self,
+            n,
+        )
+
+        self.tu.leave_body(saved)
+        return out
     }
 
     /// `@set_global_allocator(A)`: A is a class or struct with the five
@@ -388,7 +440,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             )
 
             if of != &null && !sx->op_via_free && sx->base != &null {
-                self._check_member_requires_on(of, sx->base->type_, sx->range)
+                self._check_member_requires_on(
+                    of,
+                    sx->base->type_,
+                    sx->range,
+                    &null,
+                )
             }
         }
 
@@ -436,15 +493,18 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             rt = ch->base->type_
         }
 
-        self._check_member_requires_on(f, rt, c->range)
+        self._check_member_requires_on(f, rt, c->range, c->instance)
     }
 
     /// _check_member_requires for method \p f0 called on a receiver of type
-    /// \p rt, reported at \p at.
+    /// \p rt, reported at \p at. \p inst is the call's own instance (a
+    /// generic member's, an extension member's), or null: its arguments
+    /// bind the member's and the extension's parameters.
     priv fn _check_member_requires_on(self,
-                                      f0: unsafe *Declarations::FunctionDecl,
-                                      rt: unsafe *Type,
-                                      at: SourceRange) {
+                                      f0:   unsafe *Declarations::FunctionDecl,
+                                      rt:   unsafe *Type,
+                                      at:   SourceRange,
+                                      inst: unsafe *InstanceEntry) {
         var unsafe *f = f0
         var unsafe *fr = dyn_cast<Declarations::FunctionDecl>(
             NameLookup::representative(unsafe (f as unsafe *Decl)),
@@ -454,7 +514,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             f = fr
         }
 
-        if f->requires_clause == &null || f->generic_params.size() > 0 || !f->is_method() {
+        if f->requires_clause == &null || !f->is_method() {
             return
         }
 
@@ -465,8 +525,15 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         var d = Deduction(self.sc, &null)
         d.bind_from_record(rec)
+        if inst != &null {
+            self._bind_instance(&d, inst, unsafe (f as unsafe *Decl))
+        }
+
         var vps = cxx::std::vector<unsafe *Expr>()
-        self._value_preds(f->requires_clause, unsafe &vps)
+        if f->generic_params.size() == 0 {
+            self._value_preds(f->requires_clause, unsafe &vps)
+        }
+
         for var i: usize = 0; i < vps.size(); ++i {
             var v = self._vp(vps[i], unsafe &d, 0)
             if !v.known || v.v != 0 {
@@ -491,10 +558,19 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return
         }
 
-        // `P impl I` on a parameter of the record: the instance's argument
-        // for P must conform. C++ drops the member where it does not.
+        // `P impl I` on a parameter of the record, of the extension or of
+        // the member: the argument for P must conform. C++ drops the member
+        // where it does not. Where every one does, their rows go with the
+        // instance the member is emitted with, so its witnesses are the
+        // conformer's own specializations, as for a bound in the
+        // parameter list.
         var ib = self._impl_blocker(f, rec, unsafe &d)
         if ib.bound == &null {
+            self.sc->instances->add_rows(
+                self._member_home(inst, rec),
+                unsafe &ib.rows,
+            )
+
             return
         }
 
@@ -515,10 +591,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         b.emit()
     }
 
-    /// The first `P impl I` of method \p f's clause, P a parameter of the
-    /// record \p rec is an instance of (\p d bound from it), that \p rec's
-    /// argument for P does not meet. `bound` is null when every decidable
-    /// one holds.
+    /// The first `P impl I` of method \p f's clause that its argument does
+    /// not meet, P a parameter of the record \p rec is an instance of, or
+    /// of what else \p d binds (the member's own, its extension's).
+    /// `bound` is null when every decidable one holds; `rows` then has
+    /// theirs.
     priv fn _impl_blocker(self,
                           f:   unsafe *Declarations::FunctionDecl,
                           rec: unsafe *Type,
@@ -535,16 +612,22 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         var        rargs = self.tu.record_args(rec)
         for var i: usize = 0; i < bounds.size(); ++i {
             var unsafe *bd = bounds[i]
-            var unsafe *gp = self._param_named(bd, pat)
-            if gp == &null || gp->is_pack || (gp->index as usize) >= rargs.size() {
-                continue
-            }
-
             if bd->rhs == &null || bd->rhs->canonical == &null {
                 continue
             }
 
-            var unsafe *x     = canon_unqual(rargs[gp->index as usize])
+            var        x:  unsafe *Type = &null
+            var unsafe *gp              = self._param_named(bd, pat)
+            if gp != &null {
+                if gp->is_pack || (gp->index as usize) >= rargs.size() {
+                    continue
+                }
+
+                x = canon_unqual(rargs[gp->index as usize])
+            } else {
+                x = self._bound_arg(bd, d)
+            }
+
             var unsafe *iface = canon_unqual(bd->rhs->canonical)
             if iface->is_dependent() {
                 iface = d->substitute(iface)
@@ -555,7 +638,19 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
 
             var unsafe *row = self.conforms(x, iface)
-            if row == &null || row->ok {
+            if row != &null && row->ok {
+                self._push_closure(
+                    row,
+                    x,
+                    &out.rows,
+                    SourceRange::invalid(),
+                    bd,
+                )
+
+                continue
+            }
+
+            if row == &null {
                 continue
             }
 
@@ -566,6 +661,69 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         return out
+    }
+
+    /// What \p d makes the type conjunct \p c constrains: a parameter's
+    /// argument, or an associated type read at the arguments (`J::Item`
+    /// with J := Gen is Gen's Item). Null when nothing is bound or the
+    /// result is still dependent.
+    priv fn _bound_arg(self, c: unsafe *ConstraintExpr, d: unsafe *Deduction) -> unsafe *Type {
+        var unsafe *ch = dyn_cast<ChainExpr>(self.tu.strip_parens(c->lhs))
+        if ch != &null && ch->steps.size() > 0 {
+            var unsafe *st = ch->steps.get(ch->steps.size() - 1)
+            if st->resolved_type == &null || !isa<AssocType>(canon_unqual(st->resolved_type)) {
+                return &null
+            }
+
+            var unsafe *s = d->substitute(canon_unqual(st->resolved_type))
+            return if (s != &null) => (canon_unqual(s)) else => &null
+        }
+
+        var unsafe *id = dyn_cast<NamedIdentExpr>(self.tu.strip_parens(c->lhs))
+        if id == &null {
+            return &null
+        }
+
+        var unsafe *gp = dyn_cast<Declarations::GenericParamDecl>(
+            id->resolved_decl,
+        )
+
+        if gp == &null || gp->is_pack || gp->owner == &null {
+            return &null
+        }
+
+        var unsafe *x = d->lookup(gp->owner, gp->index)
+        if x == &null {
+            x = d->lookup(NameLookup::representative(gp->owner), gp->index)
+        }
+
+        return if (x != &null) => (canon_unqual(x)) else => &null
+    }
+
+    /// The instance a member called on \p rec is emitted with: the call's
+    /// own (\p inst) when it has one, else the record's.
+    priv fn _member_home(self,
+                         inst: unsafe *InstanceEntry,
+                         rec:  unsafe *Type) -> unsafe *InstanceEntry {
+        if inst != &null {
+            return inst
+        }
+
+        var unsafe *rd = self.tu.record_decl(rec)
+        if rd == &null {
+            return &null
+        }
+
+        var args = cxx::std::vector<unsafe *Type>()
+        var ra   = self.tu.record_args(rec)
+        for var i: usize = 0; i < ra.size(); ++i {
+            args.push_back(ra[i])
+        }
+
+        return self.sc->instances->find(
+            NameLookup::representative(self.tu.pattern_of(rd)),
+            unsafe &args,
+        )
     }
 
     /// The concrete record a method is called on, through pointers,
@@ -2180,6 +2338,24 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
+    /// Whether record instance \p rt has no member \p m: its `requires`
+    /// is known false there, a value predicate or an `impl` conjunct. C++
+    /// drops such a member (Speller::member_requires), so what its body
+    /// uses is no use of the instance.
+    priv fn _dropped_at(self, m: unsafe *Declarations::FunctionDecl, rt: unsafe *Type) -> bool {
+        if rt == &null || m->requires_clause == &null || m->generic_params.size() > 0 {
+            return false
+        }
+
+        var d = Deduction(self.sc, &null)
+        d.bind_from_record(rt)
+        if self._requires_false_at(m, unsafe &d) {
+            return true
+        }
+
+        return self._impl_blocker(m, rt, unsafe &d).bound != &null
+    }
+
     /// True when one of \p f's `requires` value predicates is known false
     /// under \p d; an undecidable one does not count.
     priv fn _requires_false_at(self,
@@ -2435,7 +2611,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             } else if site->type_ != &null {
                 var unsafe *t = d->substitute(canon_unqual(site->type_))
                 if t != &null && !t->is_dependent() && !t->is_instantiation_dependent() {
-                    if lifecycle_of(self.sc)->facts_of_type(t).copyable == LifecycleTri::No {
+                    // A copy C++ drops from the instance (`[Mv]`) is no copy:
+                    // the instance moves where it must (MoveCheck::_instance_move).
+                    if lifecycle_of(self.sc)->facts_of_type(t).copyable == LifecycleTri::No
+                        || self.dropped_copy(t).ctor != &null {
                         bad = canon_unqual(t)
                     }
                 }
@@ -2445,7 +2624,41 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 continue
             }
 
-            var nm   = self.sc->ctx->get_spelling(read->range)
+            // A transfer out of a const place (MoveCheck::_instance_copy): it
+            // copies, and this instance's value cannot be copied. A generic
+            // function's only: a record instance asks every method, and C++
+            // instantiates only the ones a program uses.
+            if read == site && prim == &null {
+                continue
+            }
+
+            if read == site {
+                var cn  = self.sc->ctx->get_spelling(site->range)
+                var cts = self.tu.str(bad)
+                var cin = self._inst_name(e)
+                var cb = self.sc->diag->report(
+                    DiagID::SC182E,
+                    e->use_at.start,
+                    f"cannot copy a value of type '{cts}' in '{cin}': '{cn}' is const, so the transfer cannot move it",
+                )
+
+                cb.first(e->use_at, f"'{cin}' is instantiated here")
+                cb.note(
+                    site->range.start,
+                    f"'{cn}' is copied here, as a '{cts}'",
+                )->child_first(site->range)
+
+                self.chain_notes(unsafe &cb, e)
+                cb.emit()
+                continue
+            }
+
+            // The storage moved from, as written at the transfer (`*p`); a
+            // pack's site is its expansion, so its read names the pack.
+            var nm = self.sc->ctx->get_spelling(
+                if (isa<PackExpansionExpr>(site)) => (read->range) else => site->range,
+            )
+
             var ts   = self.tu.str(bad)
             var inst = self._inst_name(e)
             var b = self.sc->diag->report(
@@ -3303,7 +3516,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         if it == self.sc->bounds.end() {
-            return false
+            return self._clause_grants(g, c, rhs)
         }
 
         var *_set = &it->second
@@ -3346,10 +3559,42 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 continue
             }
 
-            var unsafe *want = self._iface_decl(rhs)
-            if want != &null
-                && want->generic_params.size() == 0
-                && self._iface_decl_derives(self._iface_decl(have), want, 0) {
+            if self._iface_grants(have, rhs) {
+                return true
+            }
+        }
+
+        return self._clause_grants(g, c, rhs)
+    }
+
+    /// Whether interface bound \p have grants \p rhs: it is \p rhs, or
+    /// derives a non-generic \p rhs.
+    priv fn _iface_grants(self, have: unsafe *Type, rhs: unsafe *Type) -> bool {
+        if have == rhs {
+            return true
+        }
+
+        var unsafe *want = self._iface_decl(rhs)
+        return want != &null
+            && want->generic_params.size() == 0
+            && self._iface_decl_derives(self._iface_decl(have), want, 0)
+    }
+
+    /// _open_bound_holds through the clauses in force for the body being
+    /// checked (TypeUtil::body_clauses): a member's `requires T impl I`
+    /// lets it call what needs `T impl I`.
+    priv fn _clause_grants(self,
+                           g:   unsafe *GenericParamType,
+                           c:   unsafe *ConstraintExpr,
+                           rhs: unsafe *Type) -> bool {
+        if c->is_derives() {
+            return false
+        }
+
+        var cis = cxx::std::vector<unsafe *Type>()
+        self.tu.append_clause_ifaces(unsafe (g as unsafe *Type), &cis)
+        for var i: usize = 0; i < cis.size(); ++i {
+            if self._iface_grants(cis[i], rhs) {
                 return true
             }
         }
@@ -4056,9 +4301,14 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         if isa<Declarations::FunctionDecl>(prim) {
             uses.dispatch_decl(prim)
         } else {
-            var ms = self._methods_of(prim)
+            var ms               = self._methods_of(prim)
+            var rt: unsafe *Type = &null
+            if e->decl != &null {
+                rt = self.sc->types->record(e->decl, unsafe &e->args)
+            }
+
             for var i: usize = 0; i < ms.size(); ++i {
-                if ms[i] != &null {
+                if ms[i] != &null && !self._dropped_at(ms[i], rt) {
                     uses.dispatch_decl(unsafe (ms[i] as unsafe *Decl))
                 }
             }

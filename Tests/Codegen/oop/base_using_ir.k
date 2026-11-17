@@ -166,7 +166,7 @@ fn main() -> i32 {
 // CXX-NEXT:     }
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
-// CXX-NEXT:     template<class T> signed int G<T>::g(T t) noexcept {
+// CXX-NEXT:     template<class T> inline signed int G<T>::g(T t) noexcept {
 // CXX-NEXT:         return 1;
 // CXX-NEXT:     }
 // CXX-NEXT: }

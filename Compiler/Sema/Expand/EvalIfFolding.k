@@ -70,9 +70,14 @@
 ///       whether it exists. A condition naming an `eval` constant that only
 ///       a deferred branch declares is deferred with it. N, T and
 ///       RedeclMerge see every branch; two declarations in sibling branches
-///       never conflict (EvalBranchTable::exclusive). In a function body
-///       nothing is deferred: the condition is C++'s `if constexpr`, which
-///       clang decides with its own layouts.
+///       never conflict (EvalBranchTable::exclusive). A function-body
+///       `eval if` that reads a fact is marked eval_deferred too, but filed
+///       nowhere (sc->deferred_body_ifs counts them): N and T see both
+///       branches, each in its own scope, and the late fold keeps the taken
+///       branch as a block after a static assertion of each decided
+///       condition (_body_late_fold). One the late fold cannot answer (a
+///       type parameter, a layout C++ chooses) stays C++ `if constexpr`,
+///       which clang decides with its own layouts.
 ///
 ///       run_late() answers the facts: `sizeof` / `alignof` from the layout
 ///       Sema predicts for the target (EnumLayoutQuery::size_of: builtins,
@@ -101,6 +106,7 @@
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
+import AST::Context::ASTContext::ASTContext
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
@@ -148,6 +154,7 @@ import AST::Node::Statements::{
     CompoundStmt,
     ConditionalStmt,
     DeclStmt,
+    StaticAssertStmt,
 }
 import AST::Node::Types::FixedArrayType
 import AST::Visitor::ASTWriter::ASTWriter
@@ -165,6 +172,7 @@ import Sema::Check::ClassLifecycle::{
 import Sema::Check::ConstEval::ConstEval
 import Sema::Expand::DeclaredQuery::DeclaredQuery
 import Sema::Lower::EnumLayoutLowering::EnumLayoutQuery
+import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
@@ -364,6 +372,10 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     /// Per folded `eval if`, two entries: its whole range, then the range
     /// of the branch it kept (invalid when it kept none).
     priv var _folded: cxx::std::vector<SourceRange>
+    /// Each condition the last _choose decided, and its truth, in chain
+    /// order: what a late body fold pins (_body_pins).
+    priv var _decided:     cxx::std::vector<unsafe *Expr>
+    priv var _decided_val: cxx::std::vector<u8>
     /// The last lookup found only declarations a deferred `eval if` may
     /// still discard: the condition waits for it rather than fails.
     priv var _pending_name: bool     = false
@@ -465,7 +477,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             return
         }
 
-        if self.sc->eval_branches.pending() == 0 {
+        if self.sc->eval_branches.pending() == 0 && self.sc->deferred_body_ifs == 0 {
             return
         }
 
@@ -541,9 +553,9 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
     fn transform_function_decl(self,
                                n: unsafe *Declarations::FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
-        // The late fold decides declaration-scope `eval if`s only: a body's
-        // was folded by E or is `if constexpr`.
-        if self._late() {
+        // A body's `eval if` was folded by E, or is one E deferred on a type
+        // fact (deferred_body_ifs), or is `if constexpr`.
+        if self._late() && self.sc->deferred_body_ifs == 0 {
             return self._one_decl(n)
         }
 
@@ -584,6 +596,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         var r = self._choose(n)
         if r != 1 {
             if self._body_depth > 0 {
+                self._body_undecided(n, r)
                 // `if constexpr`: both branches stay, and are resolved and typed.
                 return ASTWriter<EvalIfFolding>::transform_conditional_stmt(
                     self,
@@ -607,6 +620,10 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             self.sc->folded_eval_ifs.push_back(n->range)
         }
 
+        if self._late() && self._body_depth > 0 {
+            return self._body_late_fold(n, taken)
+        }
+
         var out = cxx::std::vector<unsafe *Stmt>()
         if taken == &null {
             return out
@@ -617,6 +634,90 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             for var j: usize = 0; j < rs.size(); ++j {
                 out.push_back(rs[j])
             }
+        }
+
+        return out
+    }
+
+    /// A function-body `eval if` _choose did not decide (\p r: 2 waits on
+    /// a type fact, 0 does not fold). E leaves one that waits to the late
+    /// fold, which sees resolved types; what the late fold cannot decide
+    /// either stays C++ `if constexpr`, which clang decides with its own
+    /// layouts.
+    priv fn _body_undecided(self, n: unsafe *ConditionalStmt, r: i32) {
+        if !self._late() {
+            if r == 2 && !n->eval_deferred {
+                n->eval_deferred = true
+                self.sc->deferred_body_ifs += 1
+            }
+
+            return
+        }
+
+        if !n->eval_deferred {
+            return
+        }
+
+        if r == 2 && !self._final() {
+            self._waiting = true
+            return
+        }
+
+        self._body_settled(n)
+    }
+
+    priv fn _body_settled(self, n: unsafe *ConditionalStmt) {
+        n->eval_deferred = false
+        if self.sc->deferred_body_ifs > 0 {
+            self.sc->deferred_body_ifs -= 1
+        }
+    }
+
+    /// The late fold of a function-body `eval if`: \p taken stays a block,
+    /// since N bound its names in the branch's own scope, after a static
+    /// assertion of each decided condition (_body_pins). The untaken
+    /// branches are neither typed nor emitted, as in E's fold.
+    priv fn _body_late_fold(self,
+                            n:     unsafe *ConditionalStmt,
+                            taken: unsafe *CompoundStmt) -> cxx::std::vector<unsafe *Stmt> {
+        self._body_settled(n)
+        var out = self._body_pins()
+        if taken == &null {
+            return out
+        }
+
+        var rs = self.dyn()->transform_stmt(taken)
+        for var i: usize = 0; i < rs.size(); ++i {
+            out.push_back(rs[i])
+        }
+
+        return out
+    }
+
+    /// `assert static` of each condition the last _choose decided, negated
+    /// where it was false. The fold read a layout Sema predicts
+    /// (EnumLayoutQuery::size_of) or a fact ClassLifecycle infers; clang
+    /// checks the same condition with its own, so a disagreement is a build
+    /// error instead of the wrong branch run in silence.
+    priv fn _body_pins(self) -> cxx::std::vector<unsafe *Stmt> {
+        var out   = cxx::std::vector<unsafe *Stmt>()
+        var synth = LowerSynth(self.sc)
+        for var i: usize = 0; i < self._decided.size(); ++i {
+            var unsafe *c = self._decided[i]
+            if c == &null {
+                continue
+            }
+
+            if self._decided_val[i] == 0 {
+                c = synth.logical_not(c->range, c)
+                // X types the pin: the operand under it is not typed yet.
+                c->type_          = &null
+                c->value_category = Expr::ValueCategory::Unknown
+            }
+
+            out.push_back(
+                unsafe (StaticAssertStmt::create(unsafe (self.sc->ctx as *ASTContext), c->range, c, &null) as unsafe *Stmt),
+            )
         }
 
         return out
@@ -716,6 +817,8 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         var unsafe *c                           = n
         var        chosen: unsafe *CompoundStmt = &null
         var        found                        = false
+        self._decided.clear()
+        self._decided_val.clear()
         while c != &null && !found {
             self._why          = ""
             self._why_at       = &null
@@ -741,6 +844,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
                 return 0
             }
+
+            self._decided.push_back(c->cond)
+            self._decided_val.push_back(
+                if (self._truth(v)) => (1 as u8) else => (0 as u8),
+            )
 
             if self._truth(v) {
                 chosen = c->then_

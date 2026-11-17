@@ -48,10 +48,10 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX: template<class T, class ... U> T head(T x, U && ... ys) noexcept;
-// CXX: template<class ... T> signed int count(T && ... args) noexcept {
+// CXX: template<class ... T> inline signed int count(T && ... args) noexcept {
 // CXX: (... &&[&]({{\[\[}}maybe_unused{{\]\]}} auto & arg)->bool {
 // CXX: (args));
-// CXX: template<class ... T> signed int scaled(T && ... xs, signed int scale) noexcept {
+// CXX: template<class ... T> inline signed int scaled(T && ... xs, signed int scale) noexcept {
 // CXX-NOT: xs
 // CXX: (scale, ::functions::count(static_cast<T &&>(xs) ...)));
 // CXX: ::functions::count<signed int, ::builtin::string::string, bool>(42, {{.*}}, true);
