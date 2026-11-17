@@ -519,13 +519,7 @@ extend Server {
         }
 
         if want && self.progress_ok {
-            self.seq += 1
-            s.progress = f"kals-index-{self.seq}"
-            var cw = JsonWriter()
-            cw.begin_object()
-            cw.field(K_TOKEN, s.progress)
-            cw.end_object()
-            self.request_with(M_WORK_DONE_PROGRESS_CREATE, cw.out)
+            s.progress = self.progress_create()
             var m = self.entries[ei].files.size() as i64
             if m > 0 {
                 self.progress(s.progress, "begin", f"0/{m}", 0)

@@ -187,6 +187,24 @@ pub class SyntaxChild {
     }
 }
 
+/// One `$/progress` notification held back until its token is created.
+pub class ProgressMsg {
+    pub var kind:    string = ""
+    pub var message: string = ""
+    pub var pct:     i64    = -1
+}
+
+/// A work-done progress token and where it stands. LSP lets the server
+/// use a token only after the client answered `window/workDoneProgress/create`
+/// without an error: until then what is reported for it is queued
+/// (state 0), after a refusal it is dropped (state 2).
+pub class ProgressToken {
+    pub var token:  string        = ""
+    pub var req_id: string        = "" ///< the create request's id, as JSON text (a reply spells it so)
+    pub var state:  u8            = 0 ///< 0 awaiting the answer, 1 granted, 2 refused
+    pub var queued: [ProgressMsg]
+}
+
 /// A request sent to a live index worker and not answered yet.
 pub class LiveSent {
     pub var id:  i64    = 0
@@ -399,6 +417,7 @@ pub class Entry {
     pub var cr_line: [i64]
     pub var cr_ch:   [i64]
     pub var cr_len:  [i64]
+    pub var cr_wide: [i64]   ///< REF_WIDE of each row
     pub var ct_lo:   [usize]
     pub var ct_hi:   [usize]
     pub var ct_data: [i64]

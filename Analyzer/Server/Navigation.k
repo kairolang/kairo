@@ -167,6 +167,7 @@ extend Server {
                     var rc   = o->as_int(self.nth(o, r, REF_CHAR))
                     var use = (fi >= 0)
                         && (o->as_int(self.nth(o, r, REF_IS_DECL)) == 0)
+                        && (o->as_int(self.nth(o, r, REF_WIDE)) != 2)
                         && ((kind == 11) || (kind == 12))
                     if !use {
                         r = o->next(r)
@@ -431,6 +432,7 @@ extend Server {
                     var fi = o->as_int(self.nth(o, r, REF_DEF_FILE))
                     if (fi >= 0)
                         && (o->as_int(self.nth(o, r, REF_IS_DECL)) == 0)
+                        && (o->as_int(self.nth(o, r, REF_WIDE)) != 2)
                         && (o->str(self.nth(o, o->get(of, SK_FILES), fi)) == path) {
                         var dl = o->as_int(self.nth(o, r, REF_DEF_LINE))
                         var dc = o->as_int(self.nth(o, r, REF_DEF_CHAR))

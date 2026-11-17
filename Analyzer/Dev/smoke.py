@@ -1960,6 +1960,139 @@ def hovers(exe, root):
     c.stop()
 
 
+INLAY_SRC = '''struct <T> Wrap { var v: T }
+
+fn foo(arg: string) -> i32 { return 0 }
+fn fb(blob: [const u8;]) -> i32 { return 0 }
+fn two(first: string, second: string) -> i32 { return 0 }
+fn fc(ch: char) -> i32 { return 0 }
+fn deep() -> Wrap<Wrap<Wrap<Wrap<i32>>>> { return Wrap<Wrap<Wrap<Wrap<i32>>>>() }
+
+fn main() -> i32 {
+    var s = "x"
+    var a = foo(f"")
+    var b = foo(r"raw")
+    var c = fb(b"by")
+    var d = foo(f"a" + s)
+    var e = two(s, rf"z")
+    var f = foo(s)
+    var g = fb(B"by")
+    var h = foo("plain")
+    var i = fc(r'x')
+    var w = deep()
+    return a + b + c + d + e + f + g + h
+}
+'''
+
+
+def inlay_hints(exe, root):
+    """Parameter hints sit before the whole argument, a text literal's prefix
+    included; a type hint longer than inlayHintMaxLength is cut to it with an
+    ellipsis and its full type is the tooltip."""
+    X = "src/inlays.k"
+    open(os.path.join(root, X), "w").write(INLAY_SRC)
+    lines = INLAY_SRC.split("\n")
+
+    def hints(options=None):
+        c = Client(exe, root)
+        c.start(options=options)
+        c.open(X, INLAY_SRC)
+        c.settle()
+        r = c.request("textDocument/inlayHint", {"textDocument": {"uri": c.uri(X)}, "range": {}})
+        c.stop()
+        return r
+
+    def before(rs, label, needle, off=0):
+        l, ch = pos(INLAY_SRC, needle, off)
+        return any(h["label"] == label and h["position"] == {"line": l, "character": ch} for h in rs)
+
+    rs = hints()
+    check("inlay: a hint goes before an f-string's prefix", before(rs, "arg:", 'foo(f""', 4), [(h["label"], h["position"]) for h in rs])
+    check("inlay: ... an r-string's", before(rs, "arg:", 'foo(r"raw"', 4), rs)
+    check("inlay: ... a bytes literal's", before(rs, "blob:", 'fb(b"by"', 3), rs)
+    check("inlay: ... a two-letter prefix", before(rs, "second:", 'rf"z"'), rs)
+    check("inlay: ... a prefixed literal that starts a larger expression", before(rs, "arg:", 'foo(f"a" + s', 4), rs)
+    check("inlay: ... an upper-case prefix", before(rs, "blob:", 'fb(B"by"', 3), rs)
+    check("inlay: ... a prefixed char literal", before(rs, "ch:", "fc(r'x'", 3), rs)
+    check("inlay: a plain literal and a name keep their place", before(rs, "arg:", 'foo("plain"', 4) and before(rs, "first:", "two(s,", 4), rs)
+    check("inlay: no hint inside a prefix", not any(lines[h["position"]["line"]][h["position"]["character"] - 1:h["position"]["character"]] in "fr" and lines[h["position"]["line"]][h["position"]["character"]] == '"' for h in rs if h["label"].endswith(":")), rs)
+
+    deep = [h for h in rs if h["position"]["line"] == pos(INLAY_SRC, "var w")[0]]
+    long_ty = "Wrap<Wrap<Wrap<Wrap<i32>>>>"
+    check("inlay: a long type hint is cut to 25 characters with an ellipsis", len(deep) == 1 and deep[0]["label"].endswith("\u2026") and len(deep[0]["label"]) == 25, deep)
+    check("inlay: ... its tooltip is the full type", deep and deep[0].get("tooltip", {}).get("value") == "```kairo\n" + long_ty + "\n```", deep)
+    short = [h for h in rs if h["label"] == ": i32"]
+    check("inlay: a short type hint is whole and still has its tooltip", short and "\u2026" not in short[0]["label"] and short[0]["tooltip"]["value"] == "```kairo\ni32\n```", short)
+    check("inlay: a parameter hint has no tooltip", all("tooltip" not in h for h in rs if h["label"].endswith(":")), rs)
+    rs = hints({"inlayHintMaxLength": 0})
+    deep = [h for h in rs if h["position"]["line"] == pos(INLAY_SRC, "var w")[0]]
+    check("inlay: inlayHintMaxLength 0 shows the whole type", deep and deep[0]["label"] == ": " + long_ty, deep)
+    rs = hints({"inlayHintMaxLength": 10})
+    deep = [h for h in rs if h["position"]["line"] == pos(INLAY_SRC, "var w")[0]]
+    check("inlay: inlayHintMaxLength 10 cuts to 10 characters", deep and len(deep[0]["label"]) == 10 and deep[0]["label"].endswith("\u2026"), deep)
+    os.remove(os.path.join(root, X))
+
+
+# A file with a type error is never lowered: the enums are laid out alone, so
+# an ADT, a `T?` field and what holds them still show their size. LAYOUT_ERR
+# is the same program with the error left out; its truth is what it printed.
+LAYOUT_ERR = '''import std::io
+
+enum Op { Add { v: i32 }, Nop }
+enum <T> Res { Ok { v: T }, Err { m: string } }
+enum Big derives u64 { A = 1, B = 2 }
+union UA { var o: i64; var d: f64 }
+struct HasAdt { var o: Op; var a: u8 }
+struct HasNull { var o: Op?; var a: u8 }
+struct HasInst { var r: Res<i32>; var n: i32? }
+class HasMix { var u: UA; var b: Big; var n: Res<i64>? }
+enum Nest { A { r: HasNull }, B { o: Op } }
+struct HasNest { var n: Nest }
+
+fn main() -> i32 {
+    io::println(f"Op {sizeof Op} {alignof Op}")
+    io::println(f"Big {sizeof Big} {alignof Big}")
+    io::println(f"UA {sizeof UA} {alignof UA}")
+    io::println(f"HasAdt {sizeof HasAdt} {alignof HasAdt}")
+    io::println(f"HasNull {sizeof HasNull} {alignof HasNull}")
+    io::println(f"HasInst {sizeof HasInst} {alignof HasInst}")
+    io::println(f"HasMix {sizeof HasMix} {alignof HasMix}")
+    io::println(f"Nest {sizeof Nest} {alignof Nest}")
+    io::println(f"HasNest {sizeof HasNest} {alignof HasNest}")
+    return 0
+}
+'''
+
+LAYOUT_ERR_TRUTH = {"Op": (8, 4), "Big": (8, 8), "UA": (8, 8), "HasAdt": (12, 4), "HasNull": (12, 4),
+                    "HasInst": (48, 8), "HasMix": (64, 8), "Nest": (16, 4), "HasNest": (16, 4)}
+
+
+def hover_layout_errors(exe, root):
+    """The sizes of ADTs, nullables and the records holding them when the
+    file has a type error (so it is not lowered)."""
+    X = "src/layout_err.k"
+    bad = LAYOUT_ERR + "\nfn broken() -> i32 {\n    return \"x\"\n}\n"
+    open(os.path.join(root, X), "w").write(bad)
+    truth = layout_truth(root, text=LAYOUT_ERR, truth=LAYOUT_ERR_TRUTH)
+    c = Client(exe, root)
+    c.start()
+    c.open(X, bad)
+    c.settle()
+    hv = lambda needle, off: (c.request("textDocument/hover", c.at(X, *pos(bad, needle, off))) or {}).get("contents", {}).get("value", "")
+    for name, needle, off, what in [("Op", "enum Op", 5, "an ADT"), ("Big", "enum Big", 5, "an enum with a wide tag"),
+                                    ("UA", "union UA", 6, "a union"), ("HasAdt", "struct HasAdt", 7, "a struct with an ADT field"),
+                                    ("HasNull", "struct HasNull", 7, "a struct with a nullable ADT field"),
+                                    ("HasInst", "struct HasInst", 7, "a struct with a generic ADT instance and a `T?`"),
+                                    ("HasMix", "class HasMix", 6, "a class with a union, an enum and a nullable instance"),
+                                    ("Nest", "enum Nest", 5, "an ADT holding a record that holds an ADT"),
+                                    ("HasNest", "struct HasNest", 7, "a record of that ADT")]:
+        want = "size %d bytes, align %d" % truth[name]
+        h = hv(needle, off)
+        check("hover layout (file with an error): %s is the compiled size (%s)" % (what, want), want in h, h)
+    c.stop()
+    os.remove(os.path.join(root, X))
+
+
 def styles(exe, root):
     """The style table's modifiers (section 5): what the server sends."""
     X = "src/styles.k"
@@ -4411,6 +4544,113 @@ def library_files(exe, base):
     check("library files: clean shutdown", c.stop() == 0)
 
 
+SUBSCRIPT_SRC = """pub class Grid {
+    var d: [i32; 8]
+    pub fn Grid(self) { }
+    pub fn op [] (const self, i: usize) -> i32 { return self.d[i] }
+    pub fn op []= (self, i: usize, v: i32) { self.d[i] = v }
+}
+
+fn main() -> i32 {
+    var g = Grid()
+    var arr: [i32; 4]
+    var n: i32 = 1
+    var x = g[n as usize]
+    var y = g[g[1] as usize]
+    var z = g[
+        2
+    ]
+    g[3] = x + y + z
+    var w = arr[1]
+    var v = arr[1..3]
+    return w
+}
+"""
+
+
+def subscripts(exe, base):
+    """An overloaded subscript (P1038): the brackets are operator tokens
+    and the whole `[...]` reaches the operator's declaration, except where
+    the index has a symbol of its own; a builtin subscript is unmarked."""
+    root = os.path.join(base, "subscripts")
+    os.makedirs(os.path.join(root, "src"))
+    open(os.path.join(root, "src", "main.k"), "w").write(SUBSCRIPT_SRC)
+    open(os.path.join(root, "kairo_compile.json"), "w").write(
+        '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src"] } ] }\n')
+    c = Client(exe, root)
+    c.start()
+    M = "src/main.k"
+    src = c.open(M)
+    c.settle()
+    lines = src.split("\n")
+    errs = [x for x in c.diagnostics(M) or [] if x["severity"] == 1]
+    check("subscripts: the source has no errors", not errs, errs)
+    by = {(l, col): (w, ty, m) for l, col, w, ty, m in tokens(c, M, src)}
+    tok = lambda l, ch: by.get((l, ch), ("", "", set()))
+    ln = lambda needle: pos(src, needle)[0]
+
+    def brackets(needle, lb_off):
+        l, ch = pos(src, needle)
+        return l, ch + lb_off
+    l, ch = brackets("g[n as usize]", 1)
+    close = ch + len("n as usize") + 1
+    check("subscripts: `[` of a read is an overloaded operator", tok(l, ch)[1] == "operator" and "overloaded" in tok(l, ch)[2], tok(l, ch))
+    check("subscripts: `]` of a read is an overloaded operator", tok(l, close)[1] == "operator" and "overloaded" in tok(l, close)[2], tok(l, close))
+    check("subscripts: the index keeps its own tokens", tok(l, ch + 1)[0] == "n", tok(l, ch + 1))
+    d_read = pos(src, "fn op [] ")[0]
+    d_set = pos(src, "fn op []= ")[0]
+
+    def goto(l, ch):
+        r = c.request("textDocument/definition", c.at(M, l, ch))
+        if isinstance(r, list):
+            r = r[0] if r else None
+        return r["range"]["start"]["line"] if r else None
+    check("subscripts: definition on `[` reaches op []", goto(l, ch) == d_read, goto(l, ch))
+    check("subscripts: definition on `]` reaches op []", goto(l, close) == d_read, goto(l, close))
+    check("subscripts: definition on the index's own symbol is not the operator",
+          goto(l, ch + 1) is not None and goto(l, ch + 1) != d_read, goto(l, ch + 1))
+    h = c.request("textDocument/hover", c.at(M, l, ch + 4))
+    check("subscripts: hover on `as` inside the brackets reaches op []",
+          h is not None and "op []" in h["contents"]["value"], h)
+    h = c.request("textDocument/hover", c.at(M, l, ch + 1))
+    check("subscripts: hover on the index's variable is the variable's",
+          h is not None and "op []" not in h["contents"]["value"], h)
+    # nested
+    l2, ch2 = brackets("g[g[1] as usize]", 1)
+    inner = ch2 + 2
+    check("subscripts: nested, the outer and inner `[` are both operators",
+          tok(l2, ch2)[1] == "operator" and tok(l2, inner)[1] == "operator", (tok(l2, ch2), tok(l2, inner)))
+    check("subscripts: nested, the outer `]` is an operator", tok(l2, ch2 + len("g[1] as usize") + 1)[1] == "operator", tok(l2, ch2 + 14))
+    check("subscripts: nested, the space after the inner `]` reaches the outer op []",
+          goto(l2, ch2 + 5) == d_read, goto(l2, ch2 + 5))
+    # multi-line
+    lm = ln("var z = g[")
+    chm = lines[lm].index("[")
+    check("subscripts: a multi-line `[` is an operator", tok(lm, chm)[1] == "operator", tok(lm, chm))
+    check("subscripts: the closing `]` on its own line is an operator", tok(lm + 2, 4)[1] == "operator", tok(lm + 2, 4))
+    check("subscripts: definition from the middle line's blank reaches op []", goto(lm + 1, 2) == d_read, goto(lm + 1, 2))
+    check("subscripts: definition on the closing `]` line reaches op []", goto(lm + 2, 4) == d_read, goto(lm + 2, 4))
+    # setter form
+    ls = ln("g[3] = ")
+    chs = lines[ls].index("[")
+    check("subscripts: the setter form reaches op []=", goto(ls, chs) == d_set, goto(ls, chs))
+    check("subscripts: the setter form's brackets mutate", "mutates" in tok(ls, chs)[2], tok(ls, chs))
+    # builtin
+    lb = ln("arr[1]")
+    chb = lines[lb].index("[")
+    check("subscripts: a builtin subscript is unmarked", tok(lb, chb)[1] != "operator" or "overloaded" not in tok(lb, chb)[2], tok(lb, chb))
+    check("subscripts: a builtin subscript does not reach an operator", goto(lb, chb) not in (d_read, d_set), goto(lb, chb))
+    refs = c.request("textDocument/references", {**c.at(M, l, ch), "context": {"includeDeclaration": False}}) or []
+    check("subscripts: references of op [] list each use once", len({(r["range"]["start"]["line"], r["range"]["start"]["character"]) for r in refs}) == len(refs) and len(refs) == 4, refs)
+    lv = ln("arr[1..3]")
+    chv = lines[lv].index("[")
+    # An array's range subscript is the library's own `op []`: marked as one.
+    check("subscripts: a range subscript's `]` is an operator", tok(lv, chv + 5)[1] == "operator", tok(lv, chv + 5))
+    h = c.request("textDocument/hover", c.at(M, lv, chv + 2))
+    check("subscripts: hover on the range's `..` reaches the library op []", h is not None and "op []" in h["contents"]["value"], h)
+    check("subscripts: clean shutdown", c.stop() == 0)
+
+
 def main():
     exe = find_kals()
     print("kals:", exe)
@@ -4469,12 +4709,18 @@ def main():
             macros(exe, real)
         if want("interfaces"):
             interfaces(exe, real)
+        if want("hover_layout_errors"):
+            hover_layout_errors(exe, real)
+        if want("inlay_hints"):
+            inlay_hints(exe, real)
         if want("styles"):
             styles(exe, real)
         if want("member_test_name"):
             member_test_name(exe, real)
         if want("library_files"):
             library_files(exe, base)
+        if want("subscripts"):
+            subscripts(exe, base)
         if want("macro_styles"):
             macro_styles(exe, real)
         if want("bridge"):

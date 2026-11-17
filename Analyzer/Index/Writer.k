@@ -146,6 +146,48 @@ extend IndexWalker {
         )
     }
 
+    /// A wide row (RefRow::wide) that crosses a line break becomes one row
+    /// per line: a row is a range on one line. The first keeps wide 1, the
+    /// rest are wide 2.
+    fn split_wide_rows_(self) {
+        var *text = &self.files[0].text
+        var n     = self.refs.size()
+        for var i: usize = 0; i < n; ++i {
+            if self.refs[i].wide != 1 {
+                continue
+            }
+
+            var off = self.refs[i].off as usize
+            var end = off + (self.refs[i].len as usize)
+            if end > text->size() {
+                end = text->size()
+            }
+
+            var seg   = off
+            var first = true
+            for var p = off; p <= end; ++p {
+                if (p < end) && ((*text)[p] != 10) {
+                    continue
+                }
+
+                if p > seg {
+                    if first {
+                        self.refs[i].len = (p - seg) as u32
+                        first            = false
+                    } else {
+                        var r = self.refs[i]
+                        r.off  = seg as u32
+                        r.len  = (p - seg) as u32
+                        r.wide = 2
+                        self.refs.push(r)
+                    }
+                }
+
+                seg = p + 1
+            }
+        }
+    }
+
     /// Writes this file's index as one JSON object into `w`.
     pub fn write(self, w: *JsonWriter) {
         w->begin_object()
@@ -161,6 +203,7 @@ extend IndexWalker {
         //            typeFile, typeLine, typeChar, typeLen, kind]
         // Sorted by position (stable: offset, then walk order), so the server
         // finds the row under the cursor by binary search.
+        self.split_wide_rows_()
         var order: [u64]
         order.reserve(self.refs.size())
         for var i: usize = 0; i < self.refs.size(); ++i {
@@ -241,6 +284,7 @@ extend IndexWalker {
             }
 
             w->uint(r.kind as usize)
+            w->uint(r.wide as usize)
             w->end_array()
         }
 

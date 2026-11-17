@@ -97,15 +97,34 @@ pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked)
         self.sc->begin_lower(LowerStep::NullableType)
-        if self.sc->tu == &null {
+        if !self._find_null() {
             return
         }
 
-        // A build with no builtin root has no `T?` to lower to; a `T?` that
-        // reaches codegen then ICEs naming this pass (Speller), which is the
-        // truth: nothing could lower it.
+        self._lower_types()
+        ASTWriter<NullableTypeLowering>::run(self, self.sc->tu)
+    }
+
+    /// For a tool that reads layouts (kals' hover) of a TU whose errors kept
+    /// the lowerings out: gives every canonical `T?` its record and rewrites
+    /// no tree.
+    pub fn lower_types_for_tool(self) {
+        if self._find_null() {
+            self._lower_types()
+        }
+    }
+
+    /// Finds the Null lang item's enum and its payload-less variant. False
+    /// when there is none to find: no TU, or a build with no builtin root,
+    /// which has no `T?` to lower to (a `T?` that reaches codegen then ICEs
+    /// naming this pass, which is the truth: nothing could lower it).
+    priv fn _find_null(self) -> bool {
+        if self.sc->tu == &null {
+            return false
+        }
+
         if !self.sc->well_known->has(WellKnownType::Null) {
-            return
+            return false
         }
 
         self._en = self.sc->nullable_enum()
@@ -130,8 +149,7 @@ pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
             )
         }
 
-        self._lower_types()
-        ASTWriter<NullableTypeLowering>::run(self, self.sc->tu)
+        return true
     }
 
     /// Every canonical `T?` gets its record (file header). Poisoned or

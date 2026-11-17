@@ -415,25 +415,35 @@ extend Server {
         }
 
         if method == M_INLAY_HINT {
-            if !sh.active {
-                self.respond(id, s->dump(s->get(f, SK_INLAYS)))
-                return true
-            }
-
-            // An older text's hints: each on its line in the buffer.
+            // An older text's hints sit on the line they had in the buffer.
             var iw = JsonWriter()
             iw.begin_array()
             var h = s->first(s->get(f, SK_INLAYS))
             while h != JSON_NONE() {
                 var hp = s->get(h, K_POSITION)
-                var hl = sh.to_new(s->get_int(hp, K_LINE))
+                var hl = s->get_int(hp, K_LINE)
+                if sh.active {
+                    hl = sh.to_new(hl)
+                }
+
                 if hl >= 0 {
+                    // A type or parameter hint is cut to the configured
+                    // width, its full text kept in the tooltip. The block
+                    // after an interface's brace (no kind) is shown whole.
+                    var label = s->get_str(h, K_LABEL)
+                    var kind  = s->get_int(h, K_KIND)
+                    var shown = label.copy()
+                    var cut   = false
+                    if s->get(h, K_KIND) != JSON_NONE() {
+                        shown = truncate_chars(label, self.inlay_max, &cut)
+                    }
+
                     iw.begin_object()
                     iw.key(K_POSITION)
                     write_lsp_position(&iw, hl, s->get_int(hp, K_CHARACTER))
-                    iw.field(K_LABEL, s->get_str(h, K_LABEL))
+                    iw.field(K_LABEL, shown)
                     if s->get(h, K_KIND) != JSON_NONE() {
-                        iw.field_int(K_KIND, s->get_int(h, K_KIND))
+                        iw.field_int(K_KIND, kind)
                     }
 
                     if s->get_bool(h, K_PADDING_LEFT) {
@@ -442,6 +452,18 @@ extend Server {
 
                     if s->get_bool(h, K_PADDING_RIGHT) {
                         iw.field_bool(K_PADDING_RIGHT, true)
+                    }
+
+                    if cut || (kind == IHK_TYPE) {
+                        iw.key(K_TOOLTIP)
+                        iw.begin_object()
+                        iw.field(K_KIND, MARKUP_MARKDOWN)
+                        iw.field(
+                            K_VALUE,
+                            "```kairo\n" + inlay_tooltip_text(label, kind) + "\n```",
+                        )
+
+                        iw.end_object()
                     }
 
                     iw.end_object()

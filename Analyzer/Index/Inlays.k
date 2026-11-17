@@ -92,6 +92,64 @@ import Token::TokenKind::{
 import Token::TokenText::TokenText
 
 extend IndexWalker {
+    /// The start of the literal that begins at byte `off`, prefix included.
+    /// A text literal's token (and so the expression's range) starts at its
+    /// opening quote; the prefix (`f`, `r`, `b`, two of them) is a token of
+    /// its own, touching the quote, that only the bytes show.
+    fn with_text_prefix_(self, off: u32) -> u32 {
+        if self.files.size() == 0 {
+            return off
+        }
+
+        var *text = &self.files[0].text
+        if ((off as usize) >= text->size())
+            || ((((*text)[off as usize]) != ('"' as u8))
+                && (((*text)[off as usize]) != ('\'' as u8))) {
+            return off
+        }
+
+        // A prefix is a whole word of one or two letters: a longer run
+        // touching the quote is not one.
+        var at = off as usize
+        while (at > 0) && ((off as usize) - at < 3) {
+            var c = (*text)[at - 1]
+            var is_word = ((c >= ('a' as u8)) && (c <= ('z' as u8)))
+                || ((c >= ('A' as u8)) && (c <= ('Z' as u8)))
+                || ((c >= ('0' as u8)) && (c <= ('9' as u8)))
+                || (c == ('_' as u8))
+            if !is_word {
+                break
+            }
+
+            at -= 1
+        }
+
+        var n = (off as usize) - at
+        if (n == 0) || (n > 2) {
+            return off
+        }
+
+        // `b` prefixes a string only: before `'` it is a name.
+        var quote_is_char = (*text)[off as usize] == ('\'' as u8)
+        for var i: usize = at; i < (off as usize); ++i {
+            var c = (*text)[i] | (0x20 as u8)
+            if (c != ('f' as u8)) && (c != ('r' as u8)) && (c != ('b' as u8)) {
+                return off
+            }
+
+            if quote_is_char && (c == ('b' as u8)) {
+                return off
+            }
+
+            // Two letters are two different prefixes.
+            if (n == 2) && (((*text)[at] | (0x20 as u8)) == ((*text)[at + 1] | (0x20 as u8))) {
+                return off
+            }
+        }
+
+        return at as u32
+    }
+
     /// `name:` before each argument of a call to `d`, as an editor shows a
     /// parameter hint. Not where it would say nothing: an argument that is
     /// already named, or is a variable called what the parameter is.
@@ -146,6 +204,8 @@ extend IndexWalker {
             if off == u32::MAX {
                 continue
             }
+
+            off = self.with_text_prefix_(off)
 
             var row = InlayRow{}
             row.off       = off

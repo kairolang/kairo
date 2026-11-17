@@ -168,23 +168,126 @@ extend Server {
         self.t.send(w.out)
     }
 
-    /// The same, with `params` (JSON).
-    fn request_with(self, const method: string, const params: string) {
+    /// The same, with `params` (JSON). Returns the request's id.
+    fn request_with(self, const method: string, const params: string) -> string {
         self.seq += 1
-        var w = JsonWriter()
+        var id = f"kals-{self.seq}"
+        var w  = JsonWriter()
         w.begin_object()
         w.field(K_JSONRPC, JSONRPC_VERSION)
-        w.field(K_ID, f"kals-{self.seq}")
+        w.field(K_ID, id)
         w.field(K_METHOD, method)
         w.field_raw(K_PARAMS, params)
         w.end_object()
         self.trace(f"-> request {method}")
         self.t.send(w.out)
+        return id
+    }
+
+    /// Creates a work-done progress token for an index run and returns it.
+    /// Nothing is reported for it before the client answers (see `progress`).
+    fn progress_create(self) -> string {
+        self.seq += 1
+        var pt = ProgressToken()
+        pt.token = f"kals-index-{self.seq}"
+        var cw = JsonWriter()
+        cw.begin_object()
+        cw.field(K_TOKEN, pt.token)
+        cw.end_object()
+        pt.req_id = "\"" + self.request_with(
+            M_WORK_DONE_PROGRESS_CREATE,
+            cw.out,
+        ) + "\""
+        var token = pt.token.copy()
+        self.ptokens.push(pt)
+        return token
+    }
+
+    /// The reply to request `id` (JSON text). When it answers a token's
+    /// create, what was queued for the token is sent (no error) or dropped
+    /// (an error: the client does not want progress for this token).
+    fn progress_answered(self, const id: string, ok: bool) {
+        for var i: usize = 0; i < self.ptokens.size(); ++i {
+            if (self.ptokens[i].state != 0) || (self.ptokens[i].req_id != id) {
+                continue
+            }
+
+            if !ok {
+                self.ptokens[i].state = 2
+                self.trace("progress token refused " + self.ptokens[i].token)
+                var ended = false
+                for var q: usize = 0; q < self.ptokens[i].queued.size(); ++q {
+                    if self.ptokens[i].queued[q].kind == "end" {
+                        ended = true
+                    }
+                }
+
+                self.ptokens[i].queued.clear()
+                if ended {
+                    self.ptokens.erase(&self.ptokens[i])
+                }
+
+                return
+            }
+
+            self.ptokens[i].state = 1
+            var token  = self.ptokens[i].token.copy()
+            var queued = self.ptokens[i].queued.copy()
+            self.ptokens[i].queued.clear()
+            for var q: usize = 0; q < queued.size(); ++q {
+                self.progress(
+                    token,
+                    queued[q].kind,
+                    queued[q].message,
+                    queued[q].pct,
+                )
+            }
+
+            return
+        }
     }
 
     /// One `$/progress` notification for `token`: `kind` is begin, report
-    /// or end; `pct` < 0 leaves the percentage out (indeterminate).
+    /// or end; `pct` < 0 leaves the percentage out (indeterminate). A token
+    /// whose create is not answered yet holds the notification back (only
+    /// the newest report is kept); one the client refused drops it. An end
+    /// forgets the token.
     fn progress(self, const token: string, const kind: string, const message: string, pct: i64) {
+        var at = usize::MAX
+        for var i: usize = 0; i < self.ptokens.size(); ++i {
+            if self.ptokens[i].token == token {
+                at = i
+            }
+        }
+
+        if at != usize::MAX {
+            if self.ptokens[at].state == 0 {
+                var m = ProgressMsg()
+                m.kind    = kind.copy()
+                m.message = message.copy()
+                m.pct     = pct
+                var n = self.ptokens[at].queued.size()
+                if (kind == "report")
+                    && (n > 0)
+                    && (self.ptokens[at].queued[n - 1].kind == "report") {
+                    self.ptokens[at].queued[n - 1] = m
+                } else {
+                    self.ptokens[at].queued.push(m)
+                }
+
+                return
+            }
+
+            var refused = self.ptokens[at].state == 2
+            if kind == "end" {
+                self.ptokens.erase(&self.ptokens[at])
+            }
+
+            if refused {
+                return
+            }
+        }
+
         var w = JsonWriter()
         w.begin_object()
         w.field(K_TOKEN, token)

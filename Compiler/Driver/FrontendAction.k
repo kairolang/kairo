@@ -2882,7 +2882,13 @@ pub class FrontendAction {
             // The tool's second look, once the lowerings have written what
             // a layout query reads (kals: an ADT's size on hover). Always,
             // so a tool that held something back at on_checked gets it back.
+            // A TU whose errors kept the lowerings out has its enums laid
+            // out alone, since a file being edited is mostly one of those.
             if observer != &null {
+                if !reached {
+                    sem->lay_out_adts_for_tool()
+                }
+
                 unsafe {
                     (observer as unsafe *SemaObserver)->on_lowered(
                         unsafe &sem->sc,

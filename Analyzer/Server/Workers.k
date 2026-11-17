@@ -443,13 +443,7 @@ extend Server {
 
         // Only for a run that started: a begin is always followed by an end.
         if want && self.progress_ok {
-            self.seq += 1
-            j.progress = f"kals-index-{self.seq}"
-            var cw = JsonWriter()
-            cw.begin_object()
-            cw.field(K_TOKEN, j.progress)
-            cw.end_object()
-            self.request_with(M_WORK_DONE_PROGRESS_CREATE, cw.out)
+            j.progress = self.progress_create()
             var m = self.entries[ei].files.size() as i64
             if m > 0 {
                 self.progress(j.progress, "begin", f"0/{m}", 0)

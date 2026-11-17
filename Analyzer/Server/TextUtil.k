@@ -318,3 +318,51 @@ pub fn is_ident_byte(c: u8) -> bool {
         || (c == ('_' as u8))
         || (c >= 128)
 }
+
+/// `s` cut to at most `max` characters (code points), the last of them an
+/// ellipsis when something was dropped; `max` 0 keeps it whole. `cut` says
+/// whether anything was dropped. Never splits a UTF-8 sequence.
+pub fn truncate_chars(const s: string, max: usize, cut: *bool) -> string {
+    (*cut) = false
+    if max == 0 {
+        return s.copy()
+    }
+
+    // The byte offset of the `max`-th character, and whether more follows.
+    var n:        usize = 0
+    var at:       usize = 0
+    var keep_end: usize = 0
+    while at < s.size() {
+        if (s[at] & 0xC0) != 0x80 {
+            // A character starts here: the ellipsis replaces the last one
+            // that fits, so the shown text is `max` characters in all.
+            if n == (max - 1) {
+                keep_end = at
+            }
+
+            n += 1
+        }
+
+        at += 1
+    }
+
+    if n <= max {
+        return s.copy()
+    }
+
+    (*cut) = true
+    return s.subslice(0, keep_end) + "…"
+}
+
+/// The text a type hint's tooltip shows: the type, without the `: ` the hint
+/// puts before it. Any other hint is shown as it is.
+pub fn inlay_tooltip_text(const label: string, kind: i64) -> string {
+    if (kind == IHK_TYPE)
+        && (label.size() > 2)
+        && (label[0] == (':' as u8))
+        && (label[1] == (' ' as u8)) {
+        return label.subslice(2, label.size() - 2)
+    }
+
+    return label.copy()
+}

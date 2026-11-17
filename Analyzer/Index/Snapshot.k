@@ -108,6 +108,12 @@ pub struct RefRow {
     /// What the name refers to (a TT_ value): call hierarchy needs to tell a
     /// call from any other use.
     var kind: u32 = 255
+
+    /// 0 for a name; 1 for the first line of a use that spans a bracketed
+    /// range (a subscript's `[` through `]`), which a lookup answers only
+    /// where no narrower row covers the position; 2 for each further line
+    /// of the same use, which a reference listing skips.
+    var wide: u32 = 0
 }
 
 /// An import path and the file it resolved to.
@@ -330,7 +336,7 @@ pub const SK_EDITS: string = "edits"
 // constants are the one statement of the order: a column added to a writer
 // is added here, and every reader names it.
 
-/// A "refs" row (RefRow): the name's range; where it is declared (file index, -1 for none); the hover index (-1: none); 1 on the declaration itself; where its TYPE is declared; its TT_ kind.
+/// A "refs" row (RefRow): the name's range; where it is declared (file index, -1 for none); the hover index (-1: none); 1 on the declaration itself; where its TYPE is declared; its TT_ kind; its width class (RefRow::wide).
 pub const REF_LINE:      i64 = 0
 pub const REF_CHAR:      i64 = 1
 pub const REF_LEN:       i64 = 2
@@ -345,6 +351,7 @@ pub const REF_TYPE_LINE: i64 = 10
 pub const REF_TYPE_CHAR: i64 = 11
 pub const REF_TYPE_LEN:  i64 = 12
 pub const REF_KIND:      i64 = 13
+pub const REF_WIDE:      i64 = 14
 
 /// A "bases" row (BaseRow): the derived name's range, the base's declaration, both names and both kinds.
 pub const BASE_LINE:      i64 = 0

@@ -94,6 +94,7 @@ import Sema::Lower::ImplicitConvLowering::ImplicitConvLowering
 import Sema::Lower::IterLowering::IterLowering
 import Sema::Lower::LabelLowering::LabelLowering
 import Sema::Lower::ListLiteralLowering::ListLiteralLowering
+import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::MatchLowering::MatchLowering
 import Sema::Lower::NarrowedAccessLowering::NarrowedAccessLowering
 import Sema::Lower::NullTestLowering::NullTestLowering
@@ -971,6 +972,23 @@ pub class Sema {
 
         self.sc.advance_phase(SemaPhase::Checked)
         return true
+    }
+
+    /// For a tool that reads ADT layouts (kals' hover) of a TU whose errors
+    /// kept the lowerings out: runs EnumLayoutLowering, which touches no
+    /// body and is what EnumLayoutQuery answers from, and gives every `T?`
+    /// its record. The tree is left partly lowered, so the caller discards
+    /// it afterwards. A TU that stopped, or has not reached Checked, is
+    /// left as it is.
+    pub fn lay_out_adts_for_tool(self) {
+        if self._run == SemaRun::Stopped || self.sc.phase != SemaPhase::Checked {
+            return
+        }
+
+        self.sc.begin_lower(LowerStep::ImplicitConv)
+        self.sc.begin_lower(LowerStep::VariantInit)
+        self._lowering<EnumLayoutLowering>("EnumLayoutLowering")
+        NullableTypeLowering(unsafe &self.sc).lower_types_for_tool()
     }
 
     /// Desugar/lowering pipeline (ASTWriter passes). Order within this

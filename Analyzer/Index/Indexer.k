@@ -956,24 +956,31 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         return true
     }
 
-    /// `x[i]` through a user `op []` / `op []=`: the `[` reads as a call of
-    /// the form Sema selected (a split subscript's read or place form
-    /// is the one that runs) and jumps to it; a place form marks the use
+    /// `x[i]` through a user `op []` / `op []=`: the brackets read as a call
+    /// of the form Sema selected (a split subscript's read or place form
+    /// is the one that runs) and the whole `[i]` jumps to it, except where
+    /// the index has a symbol of its own; a place form marks the use
     /// `mutates`. SubscriptExpr keeps no bracket token: the `[` is the byte
-    /// after the base, where OperatorLowering puts it too.
+    /// after the base, where OperatorLowering puts it too, and the `]` is
+    /// the last byte of the node.
     pub fn visit_subscript_expr(self, n: *Expressions::SubscriptExpr) -> bool {
         if (n->resolved_op == &null) || (n->base == &null) || n->base->range.is_invalid() {
             return true
         }
 
-        var t = Token()
-        t.set_kind(TokenKind::OpLSquare)
-        t.set_range(SourceRange::from_bounds(n->base->range.end, 1 as u32))
-        self.user_op_(t, n->resolved_op)
-        var unsafe *f = dyn_cast<Declarations::FunctionDecl>(n->resolved_op)
-        if (f != &null) && OperatorFacts::is_subscript_set(f) {
-            self.op_mod_(t, TM_MUTATES())
+        var lb = self.own_off_(n->base->range.end)
+        var re = self.own_off_(n->range.end)
+        if (lb == u32::MAX) || (re == u32::MAX) || (re < (lb + 2)) {
+            return true
         }
+
+        var unsafe *f = dyn_cast<Declarations::FunctionDecl>(n->resolved_op)
+        self.subscript_use_(
+            lb,
+            re - 1,
+            n->resolved_op,
+            (f != &null) && OperatorFacts::is_subscript_set(f),
+        )
 
         return true
     }

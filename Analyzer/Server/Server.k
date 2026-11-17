@@ -144,6 +144,7 @@ pub class Server {
     pub var refresh_tokens:   bool    = false ///< client honours semanticTokens/refresh
     pub var refresh_inlays:   bool    = false
     pub var highlight_panics: bool    = false ///< initializationOptions.highlightPanics: send `panics`
+    pub var inlay_max:        usize   = 25 ///< initializationOptions.inlayHintMaxLength: 0 is no limit
 
     /// Scratch files a finished worker may still have open; removed once no
     /// worker is running.
@@ -198,6 +199,9 @@ pub class Server {
 
     /// The client takes `window/workDoneProgress/create` (section 14).
     pub var progress_ok: bool = false
+
+    /// Every token created and not yet ended (Output.k, `progress`).
+    pub var ptokens: [ProgressToken]
 
     /// Index workers allowed at once. Two for small graphs; a large graph
     /// always runs alone (see can_start).
@@ -362,6 +366,7 @@ pub class Server {
 
         if method.is_empty() {
             self.trace("<- reply " + id)
+            self.progress_answered(id, d.get(d.root, K_ERROR) == JSON_NONE())
             return // a reply to one of our own requests
         }
 

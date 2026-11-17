@@ -823,6 +823,45 @@ extend IndexWalker {
         }
     }
 
+    /// The modifiers of a use of the user operator `d`.
+    fn op_mods_(self, d: unsafe *Decl) -> u32 {
+        var m = TM_OVERLOADED()
+        if decl_extension_of(d) != &null {
+            // An operator an `extend` block supplies reads as an extension
+            // call (italic in the clients), not as the type's own overload.
+            m = TM_EXTENSION()
+        }
+
+        if isa<Declarations::FunctionDecl>(d)
+            && (cast<Declarations::FunctionDecl>(d)->where_lead != &null) {
+            m = m | TM_DISPATCHED()
+        }
+
+        return m
+    }
+
+    /// A subscript through the user operator `d`, from `lb` (the `[`) to
+    /// `rb` (the matching `]`): both brackets are operator tokens (the
+    /// index between them keeps its own tokens), and one wide row over the
+    /// whole `[...]` jumps to `d` wherever no narrower row covers the
+    /// position. `mutates` marks the brackets of a place form.
+    fn subscript_use_(self, lb: u32, rb: u32, d: unsafe *Decl, mutates: bool) {
+        var m = self.op_mods_(d)
+        if mutates {
+            m = m | TM_MUTATES()
+        }
+
+        self.tok_(lb, 1, TT_OPERATOR(), m)
+        self.tok_(rb, 1, TT_OPERATOR(), m)
+
+        var r = RefRow{}
+        r.off  = lb
+        r.len  = (rb + 1) - lb
+        r.wide = 1
+        self.target_(d, &r)
+        self.refs.push(r)
+    }
+
     /// A user-defined operator at `tok`: an operator token that reads as a
     /// call, and jumps to the `op` function.
     fn user_op_(self, tok: Token, d: unsafe *Decl) {
@@ -836,19 +875,7 @@ extend IndexWalker {
         }
 
         var len = tok.range.size() as u32
-        var m   = TM_OVERLOADED()
-        if decl_extension_of(d) != &null {
-            // An operator an `extend` block supplies reads as an extension
-            // call (italic in the clients), not as the type's own overload.
-            m = TM_EXTENSION()
-        }
-
-        if isa<Declarations::FunctionDecl>(d)
-            && (cast<Declarations::FunctionDecl>(d)->where_lead != &null) {
-            m = m | TM_DISPATCHED()
-        }
-
-        self.tok_(off, len, TT_OPERATOR(), m)
+        self.tok_(off, len, TT_OPERATOR(), self.op_mods_(d))
 
         var r = RefRow{}
         r.off = off

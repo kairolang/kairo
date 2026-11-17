@@ -67,6 +67,60 @@ import Workspace::CompileCommandsLoader::{
 }
 import std::io
 
+/// The row a position picks among the rows covering it, offered in position
+/// order. A row covers the characters it spans and the one just after it. The
+/// first covering narrow row wins; a wide row (a subscript's `[...]`) is
+/// answered only where no narrow row covers, or where the narrow one only
+/// ends at the position and the wide row spans it (the `[` right after the
+/// name it indexes), so the index's own symbols keep their hover.
+class RefPick {
+    var row:         u32  = JSON_NONE()
+    var touch_only:  bool = false
+    var wide:        u32  = JSON_NONE()
+    var wide_strict: u32  = JSON_NONE()
+
+    fn RefPick(self) = default
+
+    fn offer(self, row: u32, wide: bool, strict: bool, touch: bool) {
+        if !(strict || touch) {
+            return
+        }
+
+        if !wide {
+            if self.row == JSON_NONE() {
+                self.row        = row
+                self.touch_only = !strict
+            }
+
+            return
+        }
+
+        if strict && (self.wide_strict == JSON_NONE()) {
+            self.wide_strict = row
+        }
+
+        if self.wide == JSON_NONE() {
+            self.wide = row
+        }
+    }
+
+    fn result(const self) -> u32 {
+        if self.row != JSON_NONE() {
+            if self.touch_only && (self.wide_strict != JSON_NONE()) {
+                return self.wide_strict
+            }
+
+            return self.row
+        }
+
+        if self.wide_strict != JSON_NONE() {
+            return self.wide_strict
+        }
+
+        return self.wide
+    }
+}
+
 /// one buffer's lines against the text its (older) index was computed
 /// from (Document::idx_text): LanguageServer.md section 9.
 ///
@@ -265,6 +319,7 @@ extend Server {
         e->cr_line.clear()
         e->cr_ch.clear()
         e->cr_len.clear()
+        e->cr_wide.clear()
         e->ct_lo.clear()
         e->ct_hi.clear()
         e->ct_data.clear()
@@ -282,6 +337,7 @@ extend Server {
                 e->cr_line.push(s->as_int(a))
                 e->cr_ch.push(s->as_int(b))
                 e->cr_len.push(s->as_int(c))
+                e->cr_wide.push(s->as_int(self.nth(s, r, REF_WIDE)))
                 r = s->next(r)
             }
 
@@ -320,7 +376,8 @@ extend Server {
 
     /// The ref row of file node `f` covering (line, ch), or JSON_NONE. The
     /// rows are sorted by position: a binary search for the line, then the
-    /// few rows on it.
+    /// few rows on it. A wide row (a subscript's `[...]`) answers only where
+    /// no other row covers, so the index's own symbols keep their hover.
     fn ref_at(const self, ei: usize, f: u32, line: i64, ch: i64) -> u32 {
         var k = self.cache_slot(ei, f)
         if k != usize::MAX {
@@ -336,34 +393,43 @@ extend Server {
                 }
             }
 
-            var q = lo
+            var q  = lo
+            var pk = RefPick()
             while (q < e->cf_hi[k]) && (e->cr_line[q] == line) && (e->cr_ch[q] <= ch) {
-                if ch <= (e->cr_ch[q] + e->cr_len[q]) {
-                    return e->cr_row[q]
-                }
+                pk.offer(
+                    e->cr_row[q],
+                    e->cr_wide[q] != 0,
+                    ch < (e->cr_ch[q] + e->cr_len[q]),
+                    ch == (e->cr_ch[q] + e->cr_len[q]),
+                )
 
                 q += 1
             }
 
-            return JSON_NONE()
+            return pk.result()
         }
 
         var s: *const JsonDoc = const &self.entries[ei].idx
         var r                 = s->first(s->get(f, SK_REFS))
+        var pk                = RefPick()
         while r != JSON_NONE() {
             var a = s->first(r)
             var b = s->next(a)
             var c = s->next(b)
-            if (s->as_int(a) == line)
-                && (s->as_int(b) <= ch)
-                && (ch <= (s->as_int(b) + s->as_int(c))) {
-                return r
+            if (s->as_int(a) == line) && (s->as_int(b) <= ch) {
+                var end = s->as_int(b) + s->as_int(c)
+                pk.offer(
+                    r,
+                    s->as_int(self.nth(s, r, REF_WIDE)) != 0,
+                    ch < end,
+                    ch == end,
+                )
             }
 
             r = s->next(r)
         }
 
-        return JSON_NONE()
+        return pk.result()
     }
 
     /// The shift for a request on buffer `di` answered from entry `ei`'s
@@ -527,7 +593,9 @@ extend Server {
                         && (o->as_int(self.nth(o, r, REF_DEF_LINE)) == dl)
                         && (o->as_int(self.nth(o, r, REF_DEF_CHAR)) == def_ch)
                         && (o->str(self.nth(o, o->get(of, SK_FILES), fi)) == def_path)
-                    if same && (with_decl || (o->as_int(self.nth(o, r, REF_IS_DECL)) == 0)) {
+                    if same
+                        && (o->as_int(self.nth(o, r, REF_WIDE)) != 2)
+                        && (with_decl || (o->as_int(self.nth(o, r, REF_IS_DECL)) == 0)) {
                         var line = self.shift_out(
                             sh,
                             ei,

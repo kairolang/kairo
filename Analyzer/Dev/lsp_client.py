@@ -65,7 +65,7 @@ class Client:
                 raise RuntimeError("server exited: " + "".join(self.stderr)[-2000:])
             if "method" in m:
                 if "id" in m:  # a request from the server: acknowledge it
-                    self.send({"jsonrpc": "2.0", "id": m["id"], "result": None})
+                    self.answer(m)
                 self.notes.append(m)
                 continue
             if m.get("id") == me:
@@ -73,6 +73,11 @@ class Client:
                     return {"__error__": m["error"]}
                 return m.get("result")
         raise TimeoutError(method)
+
+    def answer(self, m):
+        """Answers a request of the server's; a test overrides it to delay
+        the answer or to refuse."""
+        self.send({"jsonrpc": "2.0", "id": m["id"], "result": None})
 
     def pump(self, seconds):
         end = time.time() + seconds
@@ -85,7 +90,7 @@ class Client:
                 return
             if "method" in m:
                 if "id" in m:
-                    self.send({"jsonrpc": "2.0", "id": m["id"], "result": None})
+                    self.answer(m)
                 self.notes.append(m)
 
     def settle(self, timeout=120):

@@ -148,6 +148,12 @@ extend Server {
         }
 
         self.highlight_panics = d->get_bool(opts, OPT_HIGHLIGHT_PANICS)
+
+        var iml = d->get_int(opts, OPT_INLAY_MAX_LENGTH)
+        if d->is_number(d->get(opts, OPT_INLAY_MAX_LENGTH)) && (iml >= 0) {
+            self.inlay_max = iml as usize
+        }
+
         // On unless the client says `liveCheck: false` (the default since
         // 2026-11-12, LanguageServer.md section 10). The environment
         // decides for a whole session whatever the editor sends:

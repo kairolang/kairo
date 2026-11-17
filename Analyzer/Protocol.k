@@ -260,6 +260,7 @@ pub const K_FILTER_TEXT:        string = "filterText"
 pub const ITF_SNIPPET:          i64    = 2 ///< InsertTextFormat.Snippet
 pub const K_PADDING_LEFT:       string = "paddingLeft"
 pub const K_PADDING_RIGHT:      string = "paddingRight"
+pub const K_TOOLTIP:            string = "tooltip"
 
 // diagnostics, code actions, commands, progress
 pub const K_DIAGNOSTICS:         string = "diagnostics"
@@ -285,6 +286,8 @@ pub const OPT_LIVE_CHECK:         string = "liveCheck"
 /// or a run), none is answered from the index. For comparing the two.
 pub const OPT_INDEX_COMPLETION: string = "indexCompletion"
 pub const OPT_MAX_WORKERS:      string = "maxWorkers"
+/// initializationOptions: the most characters of an inlay hint shown; the rest is an ellipsis. 0 shows it whole.
+pub const OPT_INLAY_MAX_LENGTH: string = "inlayHintMaxLength"
 
 /// MarkupKind of every hover and documentation string the server writes.
 pub const MARKUP_MARKDOWN: string = "markdown"
