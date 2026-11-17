@@ -28,7 +28,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}
 
-// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// RUN: { %kairo %s --print-ir -O1 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}assume_stmt.k
 // CXX: __builtin_assume(
 // CXX: __builtin_assume(
@@ -38,7 +38,7 @@ fn main() -> i32 {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
-// RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-gnu --cache-dir %t.d/ir
+// RUN: %kairo %s --emit=llvm-ir -O1 --target=x86_64-linux-gnu --cache-dir %t.d/ir
 // RUN: %FileCheck %s --check-prefix=IR < %t.d/ir/assume_stmt.ll
 // IR-LABEL: define {{.*}}@_ZN11assume_stmt6div_byEii(
 // IR: call void @llvm.assume(i1

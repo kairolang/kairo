@@ -52,6 +52,10 @@ pub class EmitOptions {
     /// -Wshift-count-unproven: EmitIR names every shift that pays for its
     /// count mask, on an ARM32 target (the only ones it costs on).
     pub var warn_unproven_shift: bool = false
+    /// -O0: `@assume(c)` is checked. A false `c` traps where an optimized
+    /// build has undefined behavior, so a wrong assumption stops at its own
+    /// line in the build that is debugged.
+    pub var check_assume: bool = false
     /// The triple the C++ is compiled for; "" before the driver resolved it.
     pub var target_triple: string = ""
     /// The objects are linked into an executable here (no --shared, no -c):
@@ -126,6 +130,7 @@ pub class CodegenContext {
             self.opts.exe_link            = !ctx->ci->linker.shared && !ctx->ci->linker.compile_only
             self.opts.elf                 = ctx->ci->target.object_format_kind == ObjectFormat::Elf
             self.opts.tls_model           = ctx->ci->codegen.tls_model
+            self.opts.check_assume        = ctx->ci->codegen.opt_level == 0
             var tt = ctx->ci->target.effective_triple
             self.opts.x32 = tt.starts_with("x86_64") && tt.ends_with("x32")
             self.opts.agree_no_adl = ctx->ci->codegen.test_sema_agreement_no_adl

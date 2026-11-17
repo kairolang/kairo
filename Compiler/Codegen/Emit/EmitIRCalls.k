@@ -352,10 +352,23 @@ extend EmitIR {
 
         // `__builtin_assume(c)` (what `@assume(c)` parses to) is likewise
         // clang's builtin at the call: behind a library call the assumption
-        // would hold only inside that function.
+        // would hold only inside that function. An unoptimized build tests
+        // `c` and traps: nothing there uses the assumption, and a false one
+        // is found at its line instead of as undefined behavior later.
         if f != &null
             && (f->lowers_to_assume || xf != &null && xf->lowers_to_assume)
             && n->args.size() == 1 {
+            if self._cg->opts.check_assume {
+                self._cg->sink->spell(n->callee->range, "((")
+                self._args(n, f, false, inst)
+                self._cg->sink->spell(
+                    n->range,
+                    ") ? static_cast<void>(0) : " + LowerTargets::clang_trap() + "())",
+                )
+
+                return
+            }
+
             self._cg->sink->spell(
                 n->callee->range,
                 LowerTargets::clang_assume() + "(",
