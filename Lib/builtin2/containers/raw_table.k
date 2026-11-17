@@ -352,8 +352,6 @@ priv eval RT_K0: u64 = 0x9e3779b97f4a7c15u64
 priv eval RT_K1: u64 = 0xbf58476d1ce4e5b9u64
 priv eval RT_K2: u64 = 0x94d049bb133111ebu64
 
-priv eval RT_PINNED_SEED: u64 = 0x243f6a8885a308d3u64
-
 /// The 128-bit product folded to 64 bits; two 32x32 products on targets
 /// without a native 64x64->128 multiply.
 priv inline fn rt_mum(a: u64, b: u64) -> u64 {
@@ -367,28 +365,15 @@ priv inline fn rt_mum(a: u64, b: u64) -> u64 {
     }
 }
 
-// 0 until the first call. Racing first calls compute the same value (it
-// depends only on static addresses), so every reader sees one seed.
+// 0 until the first call. Racing first calls store the same value
+// (`process_seed` depends only on static addresses), so every reader sees
+// one seed.
 priv var rt_process_seed_cache: u64 = 0
 
-/// Derives the process-wide seed once, from the addresses of two statics:
-/// the same on every thread, different from run to run where the loader
-/// randomizes addresses. Flood resistance needs a secret seed: on targets
-/// with no address-space randomization (wasm, freestanding) this is a
-/// constant and needs a real entropy source behind it.
+/// Reads the process-wide seed once and keeps it where a lookup can load it
+/// with no call.
 priv fn rt_process_seed_compute() -> u64 {
-    var a: usize = 0
-    var b: usize = 0
-    unsafe {
-        a = (&rt_process_seed_cache as unsafe *u64) as usize
-        b = (unsafe &RT_EMPTY_BLOCK) as unsafe *u8 as usize
-    }
-
-    var s = rt_mum(rt_mum((a as u64) ^ RT_K0, RT_K1) ^ (b as u64), RT_K2)
-    if s == 0 {
-        s = RT_K0
-    }
-
+    var s = process_seed()
     rt_process_seed_cache = s
     return s
 }
@@ -407,31 +392,24 @@ eval if defined!(__x86_64__) || defined!(__aarch64__) {
     }
 }
 
-/// The per-process part of every table's seed. `-DKAIRO_HASH_SEED` pins it,
-/// so hashes and table layouts repeat from run to run.
+/// The per-process part of every table's seed: `process_seed()`, which
+/// `-DKAIRO_HASH_SEED` pins so hashes and table layouts repeat from run to
+/// run.
 priv inline fn rt_process_seed() -> u64 {
-    eval if defined!(KAIRO_HASH_SEED) {
-        return RT_PINNED_SEED
-    } else {
-        var s = rt_process_seed_cache
-        @unlikely
-        if s == 0 {
-            s = rt_process_seed_init()
-        }
-
-        return s
+    var s = rt_process_seed_cache
+    @unlikely
+    if s == 0 {
+        s = rt_process_seed_init()
     }
+
+    return s
 }
 
 /// `rt_process_seed` once a table exists: every table's constructor has
 /// run `rt_process_seed`, so the cache is set and the lookup reads it with
 /// no test.
 priv inline fn rt_process_seed_set() -> u64 {
-    eval if defined!(KAIRO_HASH_SEED) {
-        return RT_PINNED_SEED
-    } else {
-        return rt_process_seed_cache
-    }
+    return rt_process_seed_cache
 }
 
 /// The seed a table moves to when its probe sequences cluster.
@@ -1159,164 +1137,12 @@ prot class RawTable {
 
 // --- hashing ----------------------------------------------------------------
 
-// COMPILER-WORKAROUND(hasher-pending): `Hasher` and the primitive and string
-// `Hash` impls trap in this snapshot. TmpHasher is the same folded-multiply
-// hasher, and hash_of feeds it integers, pointers, enums and strings
-// directly. Any other key type runs its own `hash` on a Hasher whose bytes
-// are a TmpHasher, so it works only while that `hash` writes nothing. Once
-// base/hash.k has bodies, hash_of becomes
-//   var h = Hasher(t.seed() ^ rt_process_seed_set()); k.hash(h); return h.finish()
-// and everything from here to raw_find goes.
-priv inline fn tmp_read64(p: unsafe *const u8) -> u64 {
-    var v: u64 = 0
-    unsafe {
-        __builtin_copy(&v as unsafe *u8, p, 8)
-    }
-
-    eval if defined!(__BIG_ENDIAN__) {
-        return __builtin_bswap(v)
-    } else {
-        return v
-    }
-}
-
-priv inline fn tmp_read32(p: unsafe *const u8) -> u64 {
-    var v: u32 = 0
-    unsafe {
-        __builtin_copy(&v as unsafe *u8, p, 4)
-    }
-
-    eval if defined!(__BIG_ENDIAN__) {
-        return __builtin_bswap(v) as u64
-    } else {
-        return v
-    }
-}
-
-@no_inline
-priv fn tmp_write_long(state: u64, seed: u64, p: unsafe *const u8, n: usize) -> u64 {
-    var        k   = seed ^ RT_K1
-    var        s0  = state
-    var        s1  = seed ^ RT_K2
-    var unsafe *q  = p
-    var        rem = n
-    while rem > 32 {
-        unsafe {
-            s0 = rt_mum(tmp_read64(q) ^ s0, tmp_read64(q + 8) ^ k)
-            s1 = rt_mum(tmp_read64(q + 16) ^ s1, tmp_read64(q + 24) ^ k)
-            q  = q + 32
-        }
-
-        rem -= 32
-    }
-
-    if rem > 16 {
-        unsafe {
-            s0 = rt_mum(tmp_read64(q) ^ s0, tmp_read64(q + 8) ^ k)
-        }
-    }
-
-    var a: u64 = 0
-    var b: u64 = 0
-    unsafe {
-        a = tmp_read64(p + (n - 16))
-        b = tmp_read64(p + (n - 8))
-    }
-
-    return rt_mum(a ^ s0, b ^ s1) ^ (n as u64)
-}
-
-priv class TmpHasher {
-    priv var state: u64
-    priv var seed:  u64
-
-    priv inline fn TmpHasher(self, seed: u64) {
-        self.state = seed
-        self.seed  = seed
-    }
-
-    priv inline fn write_u64(self, v: u64) {
-        self.state = rt_mum(self.state ^ v, RT_K0)
-    }
-
-    priv inline fn write(self, p: unsafe *const u8, n: usize) {
-        if n > 16 {
-            self.state = tmp_write_long(self.state, self.seed, p, n)
-            return
-        }
-
-        var a: u64 = 0
-        var b: u64 = 0
-        if n >= 8 {
-            a = tmp_read64(p)
-            unsafe {
-                b = tmp_read64(p + (n - 8))
-            }
-        } else if n >= 4 {
-            a = tmp_read32(p)
-            unsafe {
-                b = tmp_read32(p + (n - 4))
-            }
-        } else if n > 0 {
-            unsafe {
-                a = ((p[0] as u64) << 16) | ((p[n >> 1] as u64) << 8) | (p[n - 1] as u64)
-            }
-        }
-
-        self.state = rt_mum(a ^ self.state, b ^ self.seed ^ RT_K1) ^ (n as u64)
-    }
-
-    priv inline fn finish(const self) -> u64 {
-        eval if defined!(__x86_64__) || defined!(__aarch64__) || defined!(__LP64__) || defined!(_WIN64) || defined!(__mips64) {
-            return rt_mum(self.state, self.seed ^ RT_K1)
-        } else {
-            return rt_mum(rt_mum(self.state, RT_K1) ^ self.seed, RT_K2)
-        }
-    }
-}
-
-/// The bits of a scalar key, zero-extended.
-priv inline fn <K> tmp_scalar_bits(const k: K) -> u64 {
-    unsafe {
-        var unsafe *p = &k as unsafe *const u8
-        eval if sizeof K == 8 {
-            return *(p as unsafe *const u64)
-        } else if sizeof K == 4 {
-            return *(p as unsafe *const u32)
-        } else if sizeof K == 2 {
-            return *(p as unsafe *const u16)
-        } else if sizeof K == 1 {
-            return *p
-        } else {
-            var lo = *(p as unsafe *const u64)
-            var hi = *((p + 8) as unsafe *const u64)
-            return lo ^ rt_mum(hi, RT_K2)
-        }
-    }
-}
-
-priv inline fn <K impl Hash> tmp_hash_key(seed: u64, const k: K) -> u64 {
-    var h = TmpHasher(seed)
-    eval if __builtin_is_integral<K>() || __builtin_is_pointer<K>() || __builtin_is_enum<K>() {
-        h.write_u64(tmp_scalar_bits(k))
-    } else if __builtin_is_same<K, string>() {
-        unsafe {
-            var unsafe *s = &k as unsafe *const string
-            h.write(s->data() as unsafe *const u8, s->size())
-        }
-    } else {
-        unsafe {
-            var unsafe *hp = &h as unsafe *Hasher
-            k.hash(&*hp)
-        }
-    }
-
-    return h.finish()
-}
-
 /// The table's hash of `k`: the table seed mixed with the process seed.
+/// A scalar key is one fold and a finish, with no call.
 prot inline fn <K impl Hash> hash_of(const t: RawTable, const k: K) -> u64 {
-    return tmp_hash_key(t.seed() ^ rt_process_seed_set(), k)
+    var h = Hasher(t.seed() ^ rt_process_seed_set())
+    k.hash(&h)
+    return h.finish()
 }
 
 // --- lookup -----------------------------------------------------------------

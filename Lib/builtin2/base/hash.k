@@ -197,28 +197,30 @@ pub interface Hash derives Eq {
     fn hash(const self, @inout h: Hasher)
 }
 
-// 0 until the first call. Racing first calls may store different values;
-// each caller keeps the one it read, and a table records its own seed.
-priv static process_seed_cache: u64 = 0
+// 0 until the first call. Racing first calls store the same value: it
+// depends only on the addresses of two statics, so every thread derives one
+// seed and a table may read it again at each lookup.
+priv static process_seed_cache:  u64 = 0
+priv static process_seed_anchor: u64 = 1
 
-/// The process-wide seed a table starts from.
+/// The process-wide seed a table starts from; never 0.
 ///
 /// Defining `KAIRO_HASH_SEED` pins it to a fixed constant, so hashes and
 /// table layouts repeat from run to run; the define's value is not read,
 /// since the branch `eval if defined!(X)` discards still expands `X!`.
-/// Otherwise it is derived once from the addresses of a stack local and a
-/// static, which is no entropy at all where the address space is fixed.
+/// Otherwise it is derived once from the addresses of two statics, which
+/// differ from run to run where the loader randomizes addresses and are no
+/// entropy at all where the address space is fixed.
 prot fn process_seed() -> u64 {
     eval if defined!(KAIRO_HASH_SEED) {
         return PINNED_SEED
     } else {
         if process_seed_cache == 0 {
-            var local: u64   = 0
-            var a:     usize = 0
-            var b:     usize = 0
+            var a: usize = 0
+            var b: usize = 0
             unsafe {
-                a = (&local as unsafe *u64) as usize
-                b = (&process_seed_cache as unsafe *u64) as usize
+                a = (&process_seed_cache as unsafe *u64) as usize
+                b = (&process_seed_anchor as unsafe *u64) as usize
             }
 
             var s = mum(mum((a as u64) ^ K0, K1) ^ (b as u64), K2)

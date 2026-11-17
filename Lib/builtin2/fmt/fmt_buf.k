@@ -111,16 +111,8 @@ pub class FmtBuf {
             self.data = &self.inline_[0]
             self.cap  = FMTBUF_INLINE - 1
         } else {
-            // The allocator in effect, as string's own blocks: finish() hands
-            // this block to a string, whose destructor frees it with free_raw.
-            var unsafe *p = alloc_raw(cap + 1, 1)
-            @unlikely
-            if p == &null {
-                oom(cap + 1, 1)
-            }
-
             unsafe {
-                self.data = p as *u8
+                self.data = FmtBuf::block_(cap) as *u8
             }
 
             self.cap = cap
@@ -159,8 +151,38 @@ pub class FmtBuf {
     fn op delete(self) {
         if self.spilled_() {
             unsafe {
-                free_raw(self.data as unsafe *u8, self.cap + 1, 1)
+                FmtBuf::release_(self.data as unsafe *u8, self.cap)
             }
+        }
+    }
+
+    // A heap block is laid out as a heap string's: `string::HEAP_HEADER_`
+    // bytes, then `cap + 1` bytes of text, aligned as `usize`. `data` points
+    // at the text, so finish() hands the block to a string as it stands and
+    // the string's destructor frees it.
+
+    /// A new block with room for `cap` bytes of text; its text pointer.
+    priv static fn block_(cap: usize) -> unsafe *u8 {
+        var        total = string::HEAP_HEADER_ + cap + 1
+        var unsafe *p    = alloc_raw(total, alignof usize)
+        @unlikely
+        if p == &null {
+            oom(total, alignof usize)
+        }
+
+        unsafe {
+            return p + string::HEAP_HEADER_
+        }
+    }
+
+    /// Frees the block whose text pointer is `text` and capacity `cap`.
+    priv static inline fn release_(text: unsafe *u8, cap: usize) {
+        unsafe {
+            free_raw(
+                text - string::HEAP_HEADER_,
+                string::HEAP_HEADER_ + cap + 1,
+                alignof usize,
+            )
         }
     }
 
@@ -666,22 +688,32 @@ pub class FmtBuf {
 
     /// Hands the buffer over as an owned `string`, NUL-terminated, and empties this FmtBuf.
     ///
-    /// A spilled buffer's heap block is passed on as is; an inline one is copied to a new
-    /// allocation of exactly `len + 1` bytes. Afterwards `data` is null and the buffer may be
-    /// written again.
+    /// A spilled buffer's heap block becomes the string's block as it stands; inline text is
+    /// copied to a block of exactly its length; no text is the empty literal. Afterwards `data`
+    /// is null and the buffer may be written again.
     pub inline fn finish(self) -> string {
-        // BODY-MIN: copies the text; the hand-over of a spilled block needs the
-        // heap header in front of the bytes.
-        var s = string(self.data as *const u8, self.len)
+        var s = string()
         if self.spilled_() {
             unsafe {
-                free_raw(self.data as unsafe *u8, self.cap + 1, 1)
+                s = string::adopt_(
+                    self.data as unsafe *u8,
+                    self.cap,
+                    self.len,
+                    self.cp_len,
+                )
+            }
+        } else if self.len != 0 {
+            unsafe {
+                var unsafe *b = FmtBuf::block_(self.len)
+                __builtin_copy(b, self.data as unsafe *const u8, self.len)
+                s = string::adopt_(b, self.len, self.len, self.cp_len)
             }
         }
 
-        self.data = &null
-        self.len  = 0
-        self.cap  = 0
+        self.data   = &null
+        self.len    = 0
+        self.cp_len = 0
+        self.cap    = 0
         return s
     }
 
@@ -718,27 +750,28 @@ pub class FmtBuf {
 
         if self.spilled_() {
             var q: unsafe *u8 = &null
+            var hd            = string::HEAP_HEADER_
             unsafe {
-                q = resize_raw(self.data as unsafe *u8, self.cap + 1, nc + 1, 1)
+                q = resize_raw(
+                    (self.data as unsafe *u8) - hd,
+                    hd + self.cap + 1,
+                    hd + nc + 1,
+                    alignof usize,
+                )
             }
 
             @unlikely
             if q == &null {
-                oom(nc + 1, 1)
+                oom(hd + nc + 1, alignof usize)
             }
 
             unsafe {
-                self.data = q as *u8
+                self.data = (q + hd) as *u8
             }
         } else {
             // First spill (or reuse after finish(), when data is null): copy
             // what inline_ holds into a fresh block.
-            var unsafe *h = alloc_raw(nc + 1, 1)
-            @unlikely
-            if h == &null {
-                oom(nc + 1, 1)
-            }
-
+            var unsafe *h = FmtBuf::block_(nc)
             unsafe {
                 if self.data != &null {
                     __builtin_copy(h, &self.inline_[0] as unsafe *u8, self.len)
