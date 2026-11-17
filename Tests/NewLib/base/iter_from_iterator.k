@@ -1,10 +1,5 @@
 // A FromIterator builds from any Iterator, with the size hint the caller
 // passes.
-//
-// Expected to fail: implementing `FromIterator<T>` emits C++ that names the interface's
-// own parameter `T` in the requirement's `requires __builtin_is_same<J::Item,
-// T>()` clause, undeclared there (CL001E "use of undeclared identifier
-// 'T'"). Replace the XFAIL with the run when the compiler substitutes it.
 
 /// Counts down from `hi` to `lo` (exclusive) at the front, up at the back.
 class Span {
@@ -79,7 +74,6 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // REQUIRES: newlib
-// XFAIL: *
 // RUN: rm -rf %t.d
 // RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe

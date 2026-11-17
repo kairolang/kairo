@@ -40,6 +40,7 @@ pub import string::pattern::*
 // _add_wide_floats). num::f128_ext (f128's methods, whose sqrt and fma run
 // that engine) is imported the same way, for files that name `f128`.
 
+pub import compat::*
 pub import containers::hash_map::*
 pub import containers::hash_set::*
 pub import containers::slice::*

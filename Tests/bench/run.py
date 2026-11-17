@@ -8,8 +8,11 @@
     python3 run.py --quiet-machine       more repetitions, for numbers to keep
     python3 run.py --report-only         report.md again from results.json
 
-Four columns are built from the same rows (ops.toml): Kairo (kairo/*.k),
-C++ through clang and through kcc (cpp/*.cpp), and Rust (rust/*.rs). Each
+Five columns are built from the same rows (ops.toml): Kairo against the
+installed library (kairo/*.k), Kairo against the two-word library
+(kairo2/*.k, compiled by --kairo-new with --builtins-dir / --std-dir naming
+Lib/builtin2 and Lib/std2 of this tree), C++ through clang and through kcc
+(cpp/*.cpp), and Rust (rust/*.rs). Each
 (row, size) cell is one process pinned to one CPU; the processes of a cell
 run interleaved across the columns, several times each, and the fastest is
 kept. Where `perf stat` is permitted, a second pass counts user-mode
@@ -34,9 +37,18 @@ import tomllib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-COLUMNS = ["kairo", "clang", "kcc", "rust"]
+COLUMNS = ["kairo", "kairo2", "clang", "kcc", "rust"]
 BASELINES = ["clang", "kcc", "rust"]
-SOURCES = {"kairo": ("kairo", "k"), "clang": ("cpp", "cpp"), "kcc": ("cpp", "cpp"), "rust": ("rust", "rs")}
+# The columns whose programs are Kairo: driven through the environment, and
+# exempt from the checksum comparison on rows that say `kairo_checksum = false`.
+KAIRO_COLUMNS = ("kairo", "kairo2")
+SOURCES = {"kairo": ("kairo", "k"), "kairo2": ("kairo2", "k"), "clang": ("cpp", "cpp"),
+           "kcc": ("cpp", "cpp"), "rust": ("rust", "rs")}
+HEAD = {"kairo": "Kairo", "kairo2": "Kairo (new library)", "clang": "C++ (clang)",
+        "kcc": "C++ (kcc)", "rust": "Rust"}
+# The tree that holds this file: its Lib/builtin2 and Lib/std2 are the
+# two-word library the kairo2 column is built against.
+TREE = HERE.parents[1]
 
 
 def sh(cmd, **kw):
@@ -64,10 +76,20 @@ def find_toolchain():
     sys.exit("run.py: no toolchain found; pass --toolchain or set KAIRO_TOOLCHAIN")
 
 
+def find_kairo_new():
+    """The most recently built build/<triple>/{debug,release}/bin/kairo of
+    this tree, or None."""
+    found = [p for p in TREE.glob("build/*/*/bin/kairo") if p.parent.parent.name in ("debug", "release")]
+    return max(found, key=lambda p: p.stat().st_mtime) if found else None
+
+
 class Toolchain:
     def __init__(self, args):
         tc = Path(args.toolchain) if args.toolchain else find_toolchain()
         self.kairo = Path(args.kairo) if args.kairo else tc / "kairo"
+        self.kairo_new = Path(args.kairo_new) if args.kairo_new else find_kairo_new()
+        if "kairo2" in args.columns and self.kairo_new is None:
+            sys.exit("run.py: no compiler for the kairo2 column; pass --kairo-new")
         self.kcc = Path(args.kcc) if args.kcc else tc / "kcc"
         self.clang = Path(args.clang) if args.clang else tc / "clang++"
         self.nm = tc / "llvm-nm"
@@ -122,9 +144,15 @@ class Toolchain:
         return [self.kairo, src, "-I", HERE / "cpp", "-O3", "--mcpu", self.cpu,
                 "--cache-dir", cache, "-o", exe]
 
+    def kairo_new_cmd(self, src, exe, cache):
+        return [self.kairo_new, src, "-I", HERE / "cpp", "-O3", "--mcpu", self.cpu,
+                "--builtins-dir", TREE / "Lib" / "builtin2", "--std-dir", TREE / "Lib" / "std2",
+                "--cache-dir", cache, "-o", exe]
+
     def versions(self):
         return {
             "kairo": first_line([self.kairo, "--version"]),
+            "kairo2": first_line([self.kairo_new, "--version"]) if self.kairo_new else "?",
             "kcc": first_line([self.kcc, "--version"]),
             "clang": first_line([self.clang, "--version"]),
             "rust": first_line([self.rustc, "--version"]),
@@ -144,6 +172,8 @@ def shown(cmd):
         c = re.sub(r"^(-L|--sysroot=)?/.*?/(build/x86_64-linux-[a-z]+/release/)", r"\1<kairo>/\2", c)
         if c.startswith(str(HERE)):
             c = os.path.relpath(c, HERE)
+        elif c.startswith(str(TREE) + os.sep):
+            c = "<tree>/" + os.path.relpath(c, TREE)
         out.append(c)
     return " ".join(out)
 
@@ -163,6 +193,8 @@ def build(tc, groups, columns, out, log):
                 cmd = tc.kcc_cmd(HERE / "cpp" / f"{g}.cpp", exe)
             elif col == "rust":
                 cmd = tc.rust_cmd(HERE / "rust" / f"{g}.rs", exe)
+            elif col == "kairo2":
+                cmd = tc.kairo_new_cmd(HERE / "kairo2" / f"{g}.k", exe, out / "kairo2-cache")
             else:
                 cmd = tc.kairo_cmd(HERE / "kairo" / f"{g}.k", exe, out / "kairo-cache")
             src = HERE / SOURCES[col][0] / f"{g}.{SOURCES[col][1]}"
@@ -206,7 +238,7 @@ def run_cell(exe, col, row, size, cpu, min_ms=None, reps=None, perf=False):
     cmd += [str(exe)]
     # A Kairo main takes no arguments, so that column is driven by the
     # environment; the others take the same values as arguments.
-    if col == "kairo":
+    if col in KAIRO_COLUMNS:
         env.update(BENCH_ROW=row, BENCH_SIZE=str(size))
         if min_ms is not None:
             env["BENCH_MIN_MS"] = str(min_ms)
@@ -288,7 +320,7 @@ def measure(cells, exes, args, perf_ok, log, save):
                     if name in a and name in b and b[name] > a[name]:
                         cell[name] = (b[name] - a[name]) / (k * cell["ops_per_rep"])
         checks = {cell["check"] for c, cell in cols.items() if "ns" in cell
-                  and (c != "kairo" or row.get("kairo_checksum", True))}
+                  and (c not in KAIRO_COLUMNS or row.get("kairo_checksum", True))}
         results.append({"id": row["id"], "group": g, "size": size, "columns": cols,
                         "checksums_agree": len(checks) <= 1})
         if len(checks) > 1:
@@ -338,14 +370,28 @@ def fmt_size(n):
     return f"{n:,}"
 
 
+def ratio(a, b):
+    return f"{a / b:.2f}" if a is not None and b else ""
+
+
 def write_report(path, meta, spec, results):
     kairo_lib = spec["kairo"]["library"]
-    head = {"kairo": "Kairo", "clang": "C++ (clang)", "kcc": "C++ (kcc)", "rust": "Rust"}
+    head = HEAD
     cols = [c for c in COLUMNS if c in meta["columns"]]
     rows = {r["id"]: r for r in spec["row"]}
     by_group = {}
     for r in results:
         by_group.setdefault(r["group"], []).append(r)
+
+    def times(r):
+        return {c: r["columns"].get(c, {}).get("ns") for c in cols}
+
+    def cell_text(c, v):
+        # The two-word library has no program yet for some groups: those
+        # cells read `nan`, as a row a program skips does.
+        if v is None:
+            return "nan" if c == "kairo2" else ""
+        return fmt_ns(v)
 
     o = []
     o.append("# Builtin library benchmarks\n")
@@ -353,6 +399,27 @@ def write_report(path, meta, spec, results):
         o.append("> **These numbers are noisy.** Other jobs were running on the machine "
                  f"(load average {' '.join(meta['machine']['load_average'])} at the start). "
                  "Read them as a first picture; the numbers to keep come from a `--quiet-machine` run.\n")
+    if "kairo2" in cols:
+        o.append(f"`{head['kairo2']}` was compiled by `{meta.get('kairo_new', '?')}` against "
+                 f"`Lib/builtin2` and `Lib/std2` of `{meta.get('tree', '?')}`. A debug build of the compiler "
+                 "is slower to compile; the code it emits is optimized by the same clang at -O3.\n")
+
+    # One line per operation and size, every column, and which one is fastest.
+    o.append("## Summary\n")
+    o.append("Nanoseconds per operation. `nan`: no program for that row on the new library yet.\n")
+    o.append("| Operation | Size | " + " | ".join(f"{head[c]} ns" for c in cols) + " | Fastest |")
+    o.append("|---|---:|" + "---:|" * len(cols) + "---|")
+    for g in spec["group"]:
+        for r in by_group.get(g["id"], []):
+            ns = times(r)
+            have = {c: v for c, v in ns.items() if v is not None}
+            fastest = head[min(have, key=have.get)] if have else ""
+            flag = "" if r["checksums_agree"] else " (!)"
+            o.append(f"| {rows[r['id']]['label']}{flag} | {fmt_size(r['size'])} | "
+                     + " | ".join(cell_text(c, ns[c]) for c in cols) + f" | {fastest} |")
+    o.append("")
+
+    o.append("## Run\n")
     m = meta["machine"]
     o.append("| | |\n|---|---|")
     o.append(f"| Date | {meta['date']} |")
@@ -360,20 +427,24 @@ def write_report(path, meta, spec, results):
     o.append(f"| Governor | {m['governor']} ({m['scaling_driver']}) |")
     o.append(f"| Kernel | {m['kernel']} |")
     heap = {"kairo": f"{kairo_lib}; heap: mimalloc (the Kairo runtime)",
+            "kairo2": f"compiler binary `{meta.get('kairo_new', '?')}`; the two-word library "
+                      "(Lib/builtin2, Lib/std2); heap: mimalloc (the Kairo runtime)",
             "clang": "libc++ of the Kairo sysroot; heap: glibc malloc",
             "kcc": "the same libc++, linked with the Kairo runtime; heap: mimalloc",
             "rust": "std; heap: glibc malloc"}
     for c in cols:
-        o.append(f"| {head[c]} | {meta['versions'][c]}<br>{heap[c]} |")
-    o.append(f"| Target CPU | {meta['target_cpu']}, given to all four compilers; -O3 everywhere (commands at the end) |")
+        o.append(f"| {head[c]} | {meta['versions'].get(c, '?')}<br>{heap[c]} |")
+    o.append(f"| Target CPU | {meta['target_cpu']}, given to every compiler; -O3 everywhere (commands at the end) |")
     o.append(f"| Protocol | best of {meta['repeats']} processes per cell; in each, the fastest repetition "
              f"after a warm-up, repetitions continuing for at least {meta['min_ms']} ms |")
     o.append(f"| Counters | {meta['perf']} |")
     o.append("")
     o.append("Every time is **nanoseconds per operation**; the row notes under each table say what one "
-             "operation is. The fastest cell of a row is **bold**. \"Kairo vs fastest\" is the Kairo time "
-             "divided by the fastest of the three baselines: below 1.00 Kairo wins. An empty cell is a "
-             "row that column does not implement.\n")
+             "operation is. The fastest cell of a row, among all columns, is **bold**. \"Kairo vs fastest\" "
+             "is the Kairo time divided by the fastest of the three baselines (the two C++ columns and "
+             "Rust): below 1.00 Kairo wins. \"New vs Rust\" and \"New vs fastest\" are the same for the "
+             "new library, against Rust alone and against the fastest of the three baselines. An empty "
+             "cell is a row that column does not implement.\n")
     o.append("The two C++ columns are one compiler, one libc++ and one set of flags. `C++ (clang)` allocates "
              "from the C library (glibc malloc); `C++ (kcc)` links the Kairo runtime, so `malloc` and "
              "`operator new` are mimalloc. The difference between them is the allocator. Rust allocates "
@@ -388,6 +459,11 @@ def write_report(path, meta, spec, results):
     if bad:
         o.append("**Checksums disagree** (the columns did not compute the same thing): " + ", ".join(bad) + ".\n")
 
+    ratio_heads = []
+    if "kairo" in cols:
+        ratio_heads.append("Kairo vs fastest")
+    if "kairo2" in cols:
+        ratio_heads += ["New vs Rust", "New vs fastest"]
     wins = {c: 0 for c in cols}
     for g in spec["group"]:
         rs = by_group.get(g["id"])
@@ -395,23 +471,30 @@ def write_report(path, meta, spec, results):
             continue
         o.append(f"## {g['title']}\n")
         o.append(f"Against: {g['against']}.\n")
-        o.append("| Operation | Size | " + " | ".join(head[c] for c in cols) + " | Kairo vs fastest |")
-        o.append("|---|---:|" + "---:|" * (len(cols) + 1))
+        o.append("| Operation | Size | " + " | ".join(head[c] for c in cols)
+                 + "".join(f" | {h}" for h in ratio_heads) + " |")
+        o.append("|---|---:|" + "---:|" * (len(cols) + len(ratio_heads)))
         for r in rs:
-            ns = {c: r["columns"].get(c, {}).get("ns") for c in cols}
+            ns = times(r)
             have = [v for v in ns.values() if v is not None]
             best = min(have) if have else None
             cells = []
             for c in cols:
-                t = fmt_ns(ns[c])
+                t = cell_text(c, ns[c])
                 if ns[c] is not None and ns[c] == best and len(have) > 1:
                     t = f"**{t}**"
                     wins[c] += 1
                 cells.append(t)
             base = [ns[c] for c in BASELINES if ns.get(c) is not None]
-            ratio = f"{ns['kairo'] / min(base):.2f}" if ns.get("kairo") is not None and base else ""
+            fastest_base = min(base) if base else None
+            ratios = []
+            if "kairo" in cols:
+                ratios.append(ratio(ns.get("kairo"), fastest_base))
+            if "kairo2" in cols:
+                ratios += [ratio(ns.get("kairo2"), ns.get("rust")), ratio(ns.get("kairo2"), fastest_base)]
             flag = "" if r["checksums_agree"] else " (!)"
-            o.append(f"| {rows[r['id']]['label']}{flag} | {fmt_size(r['size'])} | " + " | ".join(cells) + f" | {ratio} |")
+            o.append(f"| {rows[r['id']]['label']}{flag} | {fmt_size(r['size'])} | " + " | ".join(cells)
+                     + "".join(f" | {x}" for x in ratios) + " |")
         o.append("")
         if any("instructions" in c for r in rs for c in r["columns"].values()):
             o.append("Instructions / cycles per operation (user mode, including each repetition's untimed setup):\n")
@@ -442,7 +525,8 @@ def write_report(path, meta, spec, results):
     o.append("| " + " | ".join(str(wins[c]) for c in cols) + " |")
     o.append("")
     o.append("## Build commands\n")
-    o.append("`<kairo>` is the checkout that holds the installed toolchain; `<group>` is each group id.\n")
+    o.append("`<kairo>` is the checkout that holds the installed toolchain, `<tree>` the one that holds "
+             "these benchmarks; `<group>` is each group id.\n")
     for c in cols:
         o.append(f"{head[c]}:\n\n```\n{meta['commands'].get(c, '(not built)')}\n```\n")
     path.write_text("\n".join(o))
@@ -452,7 +536,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--groups", help="comma-separated group ids (default: all)")
     ap.add_argument("--rows", help="only rows whose id matches this regex")
-    ap.add_argument("--columns", default=",".join(COLUMNS), help="comma-separated: kairo,clang,kcc,rust")
+    ap.add_argument("--columns", default=",".join(COLUMNS), help="comma-separated: " + ",".join(COLUMNS))
     ap.add_argument("--repeats", type=int, help="processes per cell (default 3; 7 with --quiet-machine)")
     ap.add_argument("--min-ms", type=int, help="timed milliseconds per process (default 200)")
     ap.add_argument("--quick", action="store_true", help="1 process of 20 ms per cell, no counters")
@@ -465,10 +549,12 @@ def main():
     ap.add_argument("--out", default=str(HERE / "out"), help="output directory")
     ap.add_argument("--toolchain", help="the toolchain's bin/ (kairo, kcc, clang++, llvm-nm)")
     ap.add_argument("--kairo")
+    ap.add_argument("--kairo-new", help="the compiler for the kairo2 column (default: the most recently "
+                                        "built debug or release kairo of this tree)")
     ap.add_argument("--kcc")
     ap.add_argument("--clang")
     ap.add_argument("--rustc", default="rustc")
-    ap.add_argument("--cpu-name", help="target CPU for all four compilers (default: clang's -march=native)")
+    ap.add_argument("--cpu-name", help="target CPU for every compiler (default: clang's -march=native)")
     args = ap.parse_args()
 
     args.columns = [c for c in args.columns.split(",") if c]
@@ -518,6 +604,8 @@ def main():
         "pinned_cpu": args.cpu,
         "columns": args.columns,
         "versions": tc.versions(),
+        "kairo_new": str(tc.kairo_new) if tc.kairo_new else None,
+        "tree": str(TREE),
         "commands": commands,
         "target_cpu": tc.cpu,
         "repeats": args.repeats,

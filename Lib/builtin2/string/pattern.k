@@ -5,7 +5,7 @@ import string::*
 
 /// A char matches its UTF-8 form: one byte for ASCII, found a word at a time.
 extend char impl Pattern {
-    fn find_in(const self, const hay: string, from: usize) -> (usize, usize) {
+    inline fn find_in(const self, const hay: string, from: usize) -> (usize, usize) {
         var buf: [u8; 4] = [0, 0, 0, 0]
         unsafe {
             var n = string::encode_(self, &buf[0] as unsafe *u8)
@@ -13,7 +13,7 @@ extend char impl Pattern {
         }
     }
 
-    fn rfind_in(const self, const hay: string, to: usize) -> (usize, usize) {
+    inline fn rfind_in(const self, const hay: string, to: usize) -> (usize, usize) {
         var buf: [u8; 4] = [0, 0, 0, 0]
         unsafe {
             var n = string::encode_(self, &buf[0] as unsafe *u8)

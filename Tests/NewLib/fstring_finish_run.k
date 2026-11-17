@@ -48,6 +48,20 @@ fn main() -> i32 {
     bad += check(wide, accent.size() * 10, accent.codepoints() * 10, "non-ASCII spilled")
     println(mixed)
 
+    // The codepoint count the formatter hands over is the string's own: a
+    // char hole, a padded non-ASCII hole and a float, recounted by decoding.
+    var c: char = 0xe9 as char
+    var e = "\u00e9"
+    var x = 1.5
+    var holes = f"{c}{c}|{e:>5}|{x}|{c}"
+    var seen: usize = 0
+    for ch in holes {
+        seen += 1
+    }
+
+    bad += check(holes, 18, seen, "char, padded and float holes")
+    println(holes)
+
     if bad == 0 {
         println("ok")
     }
@@ -56,6 +70,7 @@ fn main() -> i32 {
 }
 
 // CHECK: <héllo wörld ☃|42>
+// CHECK-NEXT: éé|    é|1.5|é
 // CHECK-NEXT: ok
 
 // --- lit wiring ---

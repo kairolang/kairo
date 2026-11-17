@@ -1473,7 +1473,7 @@ pub class string {
     /// What a string literal lowers to; nothing else calls it. `lit` is the first
     /// byte of a rodata object `[cp_len: usize][bytes][0]`, `len` its byte count
     /// and `cp_len` its codepoint count, all three constants at the call.
-    prot fn string(self, lit: *const u8, len: usize, cp_len: usize) {
+    prot inline fn string(self, lit: *const u8, len: usize, cp_len: usize) {
         self.p.ro = lit
         self.meta = (len << LEN_SHIFT) | (if cp_len == len => ASCII_BIT else => 0) | ST_LIT
     }
@@ -1923,9 +1923,6 @@ pub class string {
         }
     }
 
-    // COMPILER-WORKAROUND(generic-extend-call): a generic member of an
-    // `extend` block that calls another generic member of one is an internal
-    // error, so the two matchers are members of the class itself.
     // COMPILER-WORKAROUND(else-eval-if): `else eval if` is not accepted, so
     // the second test is nested.
     /// Length of the match of `p` that starts at byte `lo` and ends at or
@@ -2063,7 +2060,7 @@ pub class string {
         return self.slice_(r.begin, hi)
     }
 
-    pub fn op [] (const self, r: RangeFrom<usize>) -> string {
+    pub inline fn op [] (const self, r: RangeFrom<usize>) -> string {
         return self.slice_(r.begin, self.size())
     }
 
@@ -2406,11 +2403,11 @@ extend string impl Append {
 }
 
 extend string impl Pattern {
-    fn find_in(const self, const hay: string, from: usize) -> (usize, usize) {
+    inline fn find_in(const self, const hay: string, from: usize) -> (usize, usize) {
         return find_in_(hay.raw(), hay.size(), self.raw(), self.size(), from)
     }
 
-    fn rfind_in(const self, const hay: string, to: usize) -> (usize, usize) {
+    inline fn rfind_in(const self, const hay: string, to: usize) -> (usize, usize) {
         return rfind_in_(hay.raw(), hay.size(), self.raw(), self.size(), to)
     }
 }
@@ -2916,7 +2913,7 @@ extend string {
     }
 
     // views, no allocation, no counting
-    pub fn trim(const self) -> string {
+    pub inline fn trim(const self) -> string {
         return self.trim_start().trim_end()
     }
 

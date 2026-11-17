@@ -97,8 +97,8 @@ pub class <K impl Hash, V> HashMap {
         if e != NO_ENTRY {
             unsafe {
                 var unsafe *p      = self.ent(e)
-                var        old: V? = rt_mv_v(p->value)
-                p->value = rt_mv_v(v)
+                var        old: V? = move(p->value)
+                p->value = move(v)
                 return old
             }
         }
@@ -106,8 +106,8 @@ pub class <K impl Hash, V> HashMap {
         unsafe {
             __builtin_construct_at<MapEntry<K, V>>(
                 self.add_(h, slot),
-                rt_mv_k(k),
-                rt_mv_v(v),
+                move(k),
+                move(v),
             )
         }
 
@@ -142,14 +142,14 @@ pub class <K impl Hash, V> HashMap {
         unsafe {
             if e != NO_ENTRY {
                 var unsafe *p = self.ent(e)
-                p->value = rt_mv_v(v)
+                p->value = move(v)
                 return
             }
 
             __builtin_construct_at<MapEntry<K, V>>(
                 self.add_(h, slot),
                 map_key_copy(k),
-                rt_mv_v(v),
+                move(v),
             )
         }
 
@@ -323,7 +323,7 @@ extend <K impl Hash, V> HashMap<K, V> {
     /// Inserts or replaces; a replaced entry keeps its place and the key
     /// already stored.
     pub inline fn insert(self, k: K, v: V) -> V? { // the value it replaced
-        return self.insert_(rt_mv_k(k), rt_mv_v(v))
+        return self.insert_(move(k), move(v))
     }
 
     pub fn try_insert(self, k: K, v: V) -> V? { // null on success; v back when the key exists
@@ -339,15 +339,15 @@ extend <K impl Hash, V> HashMap<K, V> {
         )
 
         if e != NO_ENTRY {
-            var back: V? = rt_mv_v(v)
+            var back: V? = move(v)
             return back
         }
 
         unsafe {
             __builtin_construct_at<MapEntry<K, V>>(
                 self.add_(h, slot),
-                rt_mv_k(k),
-                rt_mv_v(v),
+                move(k),
+                move(v),
             )
         }
 
@@ -372,8 +372,8 @@ extend <K impl Hash, V> HashMap<K, V> {
             unsafe {
                 __builtin_construct_at<MapEntry<K, V>>(
                     self.add_(h, slot),
-                    rt_mv_k(k),
-                    rt_mv_v(v),
+                    move(k),
+                    move(v),
                 )
             }
 
@@ -405,8 +405,8 @@ extend <K impl Hash, V> HashMap<K, V> {
             unsafe {
                 __builtin_construct_at<MapEntry<K, V>>(
                     self.add_(h, slot),
-                    rt_mv_k(k),
-                    rt_mv_v(v),
+                    move(k),
+                    move(v),
                 )
             }
 
@@ -438,7 +438,7 @@ extend <K impl Hash, V> HashMap<K, V> {
         // `k` may be the stored key: nothing reads it after the destroy.
         unsafe {
             var unsafe *p      = self.ent(e)
-            var        out: V? = rt_mv_v(p->value)
+            var        out: V? = move(p->value)
             __builtin_destruct_at(p as *MapEntry<K, V>)
             rt_remove_swap<MapEntry<K, V>, K>(&self.t, slot, e)
             return out
@@ -455,7 +455,7 @@ extend <K impl Hash, V> HashMap<K, V> {
 
         unsafe {
             var unsafe *p      = self.ent(e)
-            var        out: V? = rt_mv_v(p->value)
+            var        out: V? = move(p->value)
             __builtin_destruct_at(p as *MapEntry<K, V>)
             rt_remove_shift<MapEntry<K, V>>(&self.t, e)
             return out
@@ -472,7 +472,7 @@ extend <K impl Hash, V> HashMap<K, V> {
         unsafe {
             var unsafe *p           = self.ent(n - 1)
             var        h            = hash_of(self.t, p->key)
-            var        out: (K, V)? = (rt_mv_k(p->key), rt_mv_v(p->value))
+            var        out: (K, V)? = (move(p->key), move(p->value))
             __builtin_destruct_at(p as *MapEntry<K, V>)
             rt_remove_last(&self.t, h)
             return out
@@ -531,12 +531,12 @@ extend <K impl Hash, V> HashMap<K, V> {
 
                 if e != NO_ENTRY {
                     var unsafe *q = self.ent(e)
-                    q->value = resolve(rt_mv_v(q->value), rt_mv_v(p->value))
+                    q->value = resolve(move(q->value), move(p->value))
                 } else {
                     __builtin_construct_at<MapEntry<K, V>>(
                         self.add_(h, slot),
-                        rt_mv_k(p->key),
-                        rt_mv_v(p->value),
+                        move(p->key),
+                        move(p->value),
                     )
 
                     rt_inserted<MapEntry<K, V>, K>(&self.t)
@@ -615,7 +615,7 @@ extend <K impl Hash, V impl Default> HashMap<K, V> {
             unsafe {
                 __builtin_construct_at<MapEntry<K, V>>(
                     self.add_(h, slot),
-                    rt_mv_k(k),
+                    move(k),
                     V::make_default(),
                 )
             }
@@ -701,22 +701,21 @@ extend <K impl Hash, V impl Copyable> HashMap<K, V> requires K impl Copyable {
     }
 }
 
-// COMPILER-WORKAROUND(member-requires): a member's own `requires K impl
-// Copyable` (or `V impl Default`) is not a bound inside its body (R051E at
-// every call that needs it), and every generic function called there is
-// instantiated for every map type, the branches of an `eval if` and the
-// member's own clause notwithstanding. So the two `op []=` forms copy the
-// key and make the value through helpers that compile for any type: a
-// string by its copy(), any other copy-constructible key by its copy
-// constructor, and a value by its default constructor. A key type that can
-// only be copied by a copy() of its own traps in these two forms (insert
-// moves a key in and is unaffected). With the member's clause granted,
+// COMPILER-WORKAROUND(witness-unused-bound): clang is given no `Copyable` or
+// `Default` witness for a bound that is checked and not otherwise used, so
+// calling `map_copy_of(k)` or `V::make_default()` under the two `op []=`
+// forms' own `requires` clauses fails for a primitive key or value. The two
+// forms copy the key and make the value through helpers that compile for
+// any type: a string by its copy(), any other copy-constructible key by its
+// copy constructor, and a value by its default constructor. A key type that
+// can only be copied by a copy() of its own traps in these two forms
+// (insert moves a key in and is unaffected). With the witness emitted,
 // these are `map_copy_of(k)` and `V::make_default()`.
 priv inline fn <K> map_key_copy(const k: K) -> K {
     eval if __builtin_is_same<K, string>() {
         unsafe {
             var c = (&k as unsafe *const string)->copy()
-            return rt_mv_k(*(&c as unsafe *K))
+            return move(*(&c as unsafe *K))
         }
     } else if __builtin_is_constructible<K, const K>() {
         return k
@@ -746,8 +745,8 @@ extend <K impl Hash, V> HashMap<K, V> impl FromIterator<(K, V)> {
                 break
             }
 
-            var pair: (K, V) = rt_mv_item<J>(unwrap!(x))
-            m.insert_(rt_mv_k(pair.0), rt_mv_v(pair.1))
+            var pair: (K, V) = move(unwrap!(x))
+            m.insert_(move(pair.0), move(pair.1))
         }
 
         return m

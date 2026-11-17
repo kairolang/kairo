@@ -102,10 +102,20 @@ fn text_check(const a: string, const b: string) {
     if !same { fail(0, f"append_to wrote '{a}' but op as gave '{b}'") }
 }
 
-/// `p[0 .. n)` as a string of its own (heap, NUL-terminated); the parsers
-/// read only the first n bytes.
+/// `p[0 .. n)` as a borrowed string, whatever the bytes are. The cases feed
+/// the parsers bytes that are not UTF-8, which no constructor of `string`
+/// accepts, so the view is written by layout: the pointer word, then the
+/// byte count above the three flag bits (all clear: a view, not known ASCII).
+/// The parsers read only the first n bytes.
 fn text(p: unsafe *const u8, n: usize) -> string {
-    return unsafe string(p as *const u8, n)
+    var s = string()
+    unsafe {
+        var unsafe *w = &s as unsafe *string as unsafe *usize
+        w[0] = p as usize
+        w[1] = n << 3
+    }
+
+    return s
 }
 
 pub fn u8_to_text(v: u8, buf: unsafe *u8, cap: usize) -> TextRange {

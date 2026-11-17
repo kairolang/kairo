@@ -25,8 +25,6 @@ priv eval PINNED_SEED: u64 = 0x243f6a8885a308d3u64
 // cannot decide it, since `u128` exists on 32-bit targets too.
 // `-DKAIRO_HASH_NARROW` takes the narrow path anywhere, which is how a
 // 64-bit host tests it.
-// COMPILER-WORKAROUND(eval-if-decl-twice): one declaration, not one per
-// branch of an `eval if`: an importer of an importer sees both branches'.
 priv eval WIDE_MUM: bool = !defined!(KAIRO_HASH_NARROW) && (defined!(__x86_64__) || defined!(__aarch64__) || defined!(__LP64__) || defined!(_WIN64) || defined!(__mips64))
 
 /// The fold every step is made of.

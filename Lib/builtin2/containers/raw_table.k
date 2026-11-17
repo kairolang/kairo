@@ -1203,21 +1203,6 @@ prot inline fn <K impl Hash> raw_find_slot(const t: RawTable,
     }
 }
 
-// COMPILER-WORKAROUND(move-param-name): a call of `move(x)` from a generic
-// whose parameter is not named `T` reaches C++ as `move(static_cast<T &&>(x))`,
-// spelled with move's own parameter name, so it fails to compile whatever
-// the instance. Each helper's parameter carries the caller's name, which
-// makes the spelled cast the right one. Use `rt_mv_e` where the type is
-// `E`, `rt_mv_k` for `K`, `rt_mv_v` for `V`, `rt_mv_item<J>` for `J::Item`, and
-// `move` itself for `T`.
-prot inline fn <E> rt_mv_e(@move x: E) -> E = x
-
-prot inline fn <K> rt_mv_k(@move x: K) -> K = x
-
-prot inline fn <V> rt_mv_v(@move x: V) -> V = x
-
-prot inline fn <J impl Iterator> rt_mv_item(@move x: J::Item) -> J::Item = x
-
 // --- the generic layer HashMap and HashSet share -----------------------------
 //
 // `E` is the entry type and `K` the key at its offset 0. Entries that move
@@ -1238,7 +1223,7 @@ prot fn <E> rt_move_entries(dst: unsafe *E, src: unsafe *E, n: usize) {
     var i: usize = 0
     while i < n {
         unsafe {
-            __builtin_construct_at<E>((dst + i) as unsafe *u8, rt_mv_e(src[i]))
+            __builtin_construct_at<E>((dst + i) as unsafe *u8, move(src[i]))
             __builtin_destruct_at((src + i) as *E)
         }
 
@@ -1270,7 +1255,7 @@ prot inline fn <E> rt_relocate(dst: unsafe *E, src: unsafe *E) {
         }
     } else {
         unsafe {
-            __builtin_construct_at<E>(dst as unsafe *u8, rt_mv_e(*src))
+            __builtin_construct_at<E>(dst as unsafe *u8, move(*src))
             __builtin_destruct_at(src as *E)
         }
     }

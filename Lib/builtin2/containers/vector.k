@@ -265,12 +265,7 @@ pub class <T> Vector {
         Vector<T>::destroy_(self.base_(), self.len)
         if c != 0 {
             unsafe {
-                vec_free(
-                    self.base_() as usize as unsafe *u8,
-                    c,
-                    sizeof T,
-                    alignof T,
-                )
+                vec_free(self.base_() as unsafe *u8, c, sizeof T, alignof T)
             }
         }
     }
@@ -388,14 +383,14 @@ pub class <T> Vector {
     priv fn grow_moving(self, need: usize) { // elements that are not relocatable
         // Compiled only where it can be called: the class is instantiated
         // whole, and a relocatable T grows through grow_bytes.
-        eval if Vector<T>::movable_() && !__builtin_is_trivially_relocatable<T>() {
+        eval if !__builtin_is_trivially_relocatable<T>() {
             var old = self.cap_()
             var cap = vec_next_cap(old, Vector<T>::min_need_(need))
             var ob  = self.base_()
             unsafe {
                 if old != 0
                     && vec_resize_in_place(
-                        ob as usize as unsafe *u8,
+                        ob as unsafe *u8,
                         old,
                         cap,
                         sizeof T,
@@ -409,7 +404,7 @@ pub class <T> Vector {
                 var unsafe *nb = vec_alloc(cap, sizeof T, alignof T, false) as unsafe *T
                 for var i: usize = 0; i < self.len; ++i {
                     __builtin_construct_at<T>(
-                        (nb + i) as usize as unsafe *u8,
+                        (nb + i) as unsafe *u8,
                         move(*(ob + i)),
                     )
 
@@ -417,12 +412,7 @@ pub class <T> Vector {
                 }
 
                 if old != 0 {
-                    vec_free(
-                        ob as usize as unsafe *u8,
-                        old,
-                        sizeof T,
-                        alignof T,
-                    )
+                    vec_free(ob as unsafe *u8, old, sizeof T, alignof T)
                 }
 
                 self.set_base_(nb)
@@ -486,7 +476,7 @@ pub class <T> Vector {
         eval if __builtin_is_trivially_relocatable<T>() {
             unsafe {
                 var *nb = grow_bytes(
-                    self.base_() as usize as unsafe *u8 as *u8?,
+                    self.base_() as unsafe *u8 as *u8?,
                     self.len,
                     Vector<T>::min_need_(need),
                     sizeof T,
@@ -521,69 +511,20 @@ pub class <T> Vector {
         return hi
     }
 
-    // --- shared bodies ------------------------------------------------------
-    // COMPILER-WORKAROUND(extend-member-call): a member of a generic extend
-    // block cannot call another extend member on `self` ("could not deduce
-    // the extension's generic parameters"), so the bodies other members reuse
-    // live here and the extend members forward to them.
-
-    @hot_path prot inline fn push_(self, @move v: T) {
-        eval if Vector<T>::movable_() {
-            var n = self.len
-            @unlikely
-            if n == self.cap_() {
-                self.grow_to_(n + 1)
-            }
-
-            unsafe {
-                __builtin_construct_at<T>(
-                    (self.base_() + n) as usize as unsafe *u8,
-                    v,
-                )
-            }
-
-            self.len = n + 1
-        } else {
-            __builtin_trap()
-        }
-    }
-
-    prot inline fn reserve_(self, n: usize) {
-        if n > self.cap_() {
-            self.grow_to_(n)
-        }
-    }
-
-    prot inline fn truncate_(self, n: usize) {
-        var old = self.len
-        if n >= old {
-            return
-        }
-
-        // len first: a trap in a destructor cannot destroy an element twice.
-        self.len = n
-        unsafe {
-            Vector<T>::destroy_(self.base_() + n, old - n)
-        }
-    }
-
     /// Writes `n` copies of `v` into the raw slots at `dst`.
     priv static inline fn fill_run_(dst: unsafe *T, const v: T, n: usize) requires T impl Copyable {
         unsafe {
             eval if Vector<T>::bitwise_copy_() {
                 for var i: usize = 0; i < n; ++i {
                     __builtin_copy(
-                        (dst + i) as usize as unsafe *u8,
+                        (dst + i) as unsafe *u8,
                         &v as unsafe *const T as unsafe *const u8,
                         sizeof T,
                     )
                 }
             } else {
                 for var i: usize = 0; i < n; ++i {
-                    __builtin_construct_at<T>(
-                        (dst + i) as usize as unsafe *u8,
-                        copy(v),
-                    )
+                    __builtin_construct_at<T>((dst + i) as unsafe *u8, copy(v))
                 }
             }
         }
@@ -599,29 +540,14 @@ pub class <T> Vector {
 
     /// Moves the value out of `*p`, leaving the slot raw.
     prot static inline fn take_(p: unsafe *T) -> T {
-        eval if Vector<T>::movable_() {
-            unsafe {
-                var t = move(*p)
-                eval if !__builtin_is_trivially_destructible<T>() {
-                    __builtin_destruct_at(p as *T)
-                }
-
-                return t
+        unsafe {
+            var t = move(*p)
+            eval if !__builtin_is_trivially_destructible<T>() {
+                __builtin_destruct_at(p as *T)
             }
-        } else {
-            __builtin_trap()
-        }
-    }
 
-    /// A `T` can be moved out of its slot. False only for a const element
-    /// that cannot be copied.
-    // COMPILER-WORKAROUND(const-instantiation): the class is instantiated
-    // whole for const element types too (`Vector<const string>`), so a body
-    // that moves an element out compiles to a trap there, and an element
-    // pointer becomes a byte pointer through `usize` (a direct cast from a
-    // `*const X` is rejected by clang). No vector of const elements is built.
-    priv static eval fn movable_() -> bool {
-        return __builtin_is_constructible<T, T>()
+            return t
+        }
     }
 
     /// Destroys `n` live elements from `p`, back to front.
@@ -649,42 +575,38 @@ pub class <T> Vector {
             // memmove is defined when dst == src: no test for it.
             unsafe {
                 __builtin_move_mem(
-                    dst as usize as unsafe *u8,
+                    dst as unsafe *u8,
                     src as unsafe *const u8,
                     n * sizeof T,
                 )
             }
         } else {
-            eval if Vector<T>::movable_() {
-                if dst == src {
-                    return
-                }
+            if dst == src {
+                return
+            }
 
-                unsafe {
-                    if (dst as usize) < (src as usize) {
-                        for var i: usize = 0; i < n; ++i {
-                            __builtin_construct_at<T>(
-                                (dst + i) as usize as unsafe *u8,
-                                move(*(src + i)),
-                            )
+            unsafe {
+                if (dst as usize) < (src as usize) {
+                    for var i: usize = 0; i < n; ++i {
+                        __builtin_construct_at<T>(
+                            (dst + i) as unsafe *u8,
+                            move(*(src + i)),
+                        )
 
-                            __builtin_destruct_at((src + i) as *T)
-                        }
-                    } else {
-                        var i = n
-                        while i != 0 {
-                            i -= 1
-                            __builtin_construct_at<T>(
-                                (dst + i) as usize as unsafe *u8,
-                                move(*(src + i)),
-                            )
+                        __builtin_destruct_at((src + i) as *T)
+                    }
+                } else {
+                    var i = n
+                    while i != 0 {
+                        i -= 1
+                        __builtin_construct_at<T>(
+                            (dst + i) as unsafe *u8,
+                            move(*(src + i)),
+                        )
 
-                            __builtin_destruct_at((src + i) as *T)
-                        }
+                        __builtin_destruct_at((src + i) as *T)
                     }
                 }
-            } else {
-                __builtin_trap()
             }
         }
     }
@@ -697,7 +619,7 @@ pub class <T> Vector {
         eval if Vector<T>::bitwise_copy_() {
             unsafe {
                 __builtin_copy(
-                    dst as usize as unsafe *u8,
+                    dst as unsafe *u8,
                     src as unsafe *const u8,
                     n * sizeof T,
                 )
@@ -706,7 +628,7 @@ pub class <T> Vector {
             unsafe {
                 for var i: usize = 0; i < n; ++i {
                     __builtin_construct_at<T>(
-                        (dst + i) as usize as unsafe *u8,
+                        (dst + i) as unsafe *u8,
                         copy(*(src + i)),
                     )
                 }
@@ -760,7 +682,9 @@ extend <T> Vector<T> {
     }
 
     pub fn reserve(self, n: usize) {
-        self.reserve_(n)
+        if n > self.cap_() {
+            self.grow_to_(n)
+        }
     }
 
     pub fn shrink_to_fit(self) {
@@ -772,7 +696,7 @@ extend <T> Vector<T> {
         var ob = self.base_()
         if self.len == 0 {
             unsafe {
-                vec_free(ob as usize as unsafe *u8, c, sizeof T, alignof T)
+                vec_free(ob as unsafe *u8, c, sizeof T, alignof T)
             }
 
             self.set_empty_()
@@ -782,13 +706,13 @@ extend <T> Vector<T> {
         eval if __builtin_is_trivially_relocatable<T>() {
             unsafe {
                 self.set_base_(
-                    vec_realloc(ob as usize as unsafe *u8, c, self.len, sizeof T, alignof T) as unsafe *T,
+                    vec_realloc(ob as unsafe *u8, c, self.len, sizeof T, alignof T) as unsafe *T,
                 )
             }
         } else {
             unsafe {
                 if vec_resize_in_place(
-                    ob as usize as unsafe *u8,
+                    ob as unsafe *u8,
                     c,
                     self.len,
                     sizeof T,
@@ -799,14 +723,24 @@ extend <T> Vector<T> {
 
                 var unsafe *nb = vec_alloc(self.len, sizeof T, alignof T, false) as unsafe *T
                 Vector<T>::relocate_(nb, ob, self.len)
-                vec_free(ob as usize as unsafe *u8, c, sizeof T, alignof T)
+                vec_free(ob as unsafe *u8, c, sizeof T, alignof T)
                 self.set_base_(nb)
             }
         }
     }
 
     @hot_path pub fn push(self, v: T) {
-        self.push_(v)
+        var n = self.len
+        @unlikely
+        if n == self.cap_() {
+            self.grow_to_(n + 1)
+        }
+
+        unsafe {
+            __builtin_construct_at<T>((self.base_() + n) as unsafe *u8, v)
+        }
+
+        self.len = n + 1
     }
 
     pub fn pop(self) -> T? {
@@ -834,7 +768,7 @@ extend <T> Vector<T> {
         unsafe {
             var p = self.base_() + i
             Vector<T>::relocate_(p + 1, p, n - i)
-            __builtin_construct_at<T>(p as usize as unsafe *u8, v)
+            __builtin_construct_at<T>(p as unsafe *u8, v)
         }
 
         self.len = n + 1
@@ -896,7 +830,7 @@ extend <T> Vector<T> {
         }
 
         var n = self.len
-        self.reserve_(n + m)
+        self.reserve(n + m)
         unsafe {
             Vector<T>::relocate_(self.base_() + n, other.base_(), m)
         }
@@ -927,14 +861,23 @@ extend <T> Vector<T> {
     }
 
     pub fn truncate(self, n: usize) {
-        self.truncate_(n)
+        var old = self.len
+        if n >= old {
+            return
+        }
+
+        // len first: a trap in a destructor cannot destroy an element twice.
+        self.len = n
+        unsafe {
+            Vector<T>::destroy_(self.base_() + n, old - n)
+        }
     }
 
     pub fn clear(self) {
         eval if __builtin_is_trivially_destructible<T>() {
             self.len = 0
         } else {
-            self.truncate_(0)
+            self.truncate(0)
         }
     }
 }
@@ -958,7 +901,7 @@ extend <T impl Default> Vector<T> {
                 v.set_base_(b)
                 for var i: usize = 0; i < n; ++i {
                     __builtin_construct_at<T>(
-                        (b + i) as usize as unsafe *u8,
+                        (b + i) as unsafe *u8,
                         T::make_default(),
                     )
                 }
@@ -972,23 +915,23 @@ extend <T impl Default> Vector<T> {
     pub fn resize(self, n: usize) {
         var old = self.len
         if n <= old {
-            self.truncate_(n)
+            self.truncate(n)
             return
         }
 
-        self.reserve_(n)
+        self.reserve(n)
         unsafe {
             var b = self.base_()
             eval if Vector<T>::zero_default_() {
                 __builtin_set_mem(
-                    (b + old) as usize as unsafe *u8,
+                    (b + old) as unsafe *u8,
                     0 as byte,
                     (n - old) * sizeof T,
                 )
             } else {
                 for var i = old; i < n; ++i {
                     __builtin_construct_at<T>(
-                        (b + i) as usize as unsafe *u8,
+                        (b + i) as unsafe *u8,
                         T::make_default(),
                     )
                 }
@@ -1053,7 +996,7 @@ extend <T impl Copyable> Vector<T> {
     pub fn resize(self, n: usize, const v: T) { // overloads resize(self, n) in the Default extend
         var old = self.len
         if n <= old {
-            self.truncate_(n)
+            self.truncate(n)
             return
         }
 
@@ -1063,7 +1006,7 @@ extend <T impl Copyable> Vector<T> {
         var lo  = self.base_() as usize
         var off = src - lo
         var own = src >= lo && off < old * sizeof T
-        self.reserve_(n)
+        self.reserve(n)
         if own {
             src = (self.base_() as usize) + off
         }
@@ -1092,7 +1035,7 @@ extend <T impl Copyable> Vector<T> {
         var lo  = self.base_() as usize
         var off = src - lo
         var own = src >= lo && off < n * sizeof T
-        self.reserve_(n + m)
+        self.reserve(n + m)
         if own {
             src = (self.base_() as usize) + off
         }
@@ -1134,14 +1077,15 @@ extend <T> Vector<T> impl FromIterator<T> {
     static fn <J impl Iterator> from_iter(it:   J,
                                           hint: usize) -> Self requires __builtin_is_same<J::Item, T>() {
         var v = Vector<T>()
-        v.reserve_(hint)
+        v.reserve(hint)
         loop {
             var x = it.next()
             // COMPILER-WORKAROUND(dependent-narrow): `if x?` does not narrow
-            // a `J::Item?` in the emitted C++ (the nullable itself reaches
+            // a `J::Item?` in the emitted C++ of a static of a generic extend
+            // block when `Item` is a class (the nullable itself reaches
             // push), and `unwrap!(x)` names the variable, so it is moved.
             if x? {
-                v.push_(move(unwrap!(x)))
+                v.push(move(unwrap!(x)))
             } else {
                 break
             }

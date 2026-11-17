@@ -138,6 +138,11 @@ fn str_lookup(len: u64) {
 }
 
 fn copy_row(n: u64) {
+    // COMPILER-WORKAROUND(witness-unused-bound): `m.copy()` alone leaves
+    // clang without the `Copyable` witness for u64; a call through the
+    // witness in this unit makes the compiler emit it.
+    var seen: u64 = copy(n)
+    bench_sink(seen)
     var m: {u64: u64}
     for var i: u64 = 0; i < n; i += 1 { m.insert(scramble(i), i) }
     bench_begin(n)

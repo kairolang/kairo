@@ -46,8 +46,6 @@ priv static const NUMTEXT_DIGIT_PAIRS: [u8; 200] = [
 /// registers are 64 bits wide whatever the pointer width is. Elsewhere a
 /// `u64 / u64` is a runtime library call and formatting works in 32 bits.
 /// `-DKAIRO_NUMTEXT_NARROW` forces the 32-bit path on any target.
-// COMPILER-WORKAROUND(eval-if-decl-twice): one declaration, not one per
-// branch of an `eval if`: an importer of an importer sees both branches'.
 prot eval NUMTEXT_WIDE: bool = !defined!(KAIRO_NUMTEXT_NARROW) && (sizeof usize == 8 || defined!(__x86_64__) || defined!(__aarch64__) || defined!(__wasm__))
 
 /// The longest text of each type, sign included.

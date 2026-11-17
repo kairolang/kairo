@@ -624,8 +624,7 @@ extend <T impl Eq> Slice<T> {
     }
 
     pub fn starts_with(const self, const p: [const T;]) -> bool {
-        // COMPILER-WORKAROUND(dependent-extension)
-        var n = p.count_()
+        var n = p.size()
         if n > self.len {
             return false
         }
@@ -634,8 +633,7 @@ extend <T impl Eq> Slice<T> {
     }
 
     pub fn ends_with(const self, const p: [const T;]) -> bool {
-        // COMPILER-WORKAROUND(dependent-extension)
-        var n = p.count_()
+        var n = p.size()
         if n > self.len {
             return false
         }
@@ -650,8 +648,7 @@ extend <T impl Eq> Slice<T> {
     }
 
     pub fn op == (const self, const o: [const T;]) -> bool {
-        // COMPILER-WORKAROUND(dependent-extension)
-        if self.len != o.count_() {
+        if self.len != o.size() {
             return false
         }
 

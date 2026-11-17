@@ -195,6 +195,12 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // REQUIRES: newlib
+// Expected to fail: clang is given no `Copyable` (or `Default`) witness for a
+// primitive at a member of a block bounded on it ("'int' does not satisfy
+// 'Copyable_c'", CL001E "no matching function for call to 'copy'"), unless
+// something else in the unit calls through that witness. Remove the XFAIL
+// line when the compiler emits the witness for a bound that is only checked.
+// XFAIL: *
 // RUN: rm -rf %t.d
 // RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s

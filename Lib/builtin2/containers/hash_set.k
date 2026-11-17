@@ -647,7 +647,7 @@ extend <T impl Hash> HashSet<T> impl FromIterator<T> {
                 break
             }
 
-            s.insert_(rt_mv_item<J>(unwrap!(x)))
+            s.insert_(move(unwrap!(x)))
         }
 
         return s

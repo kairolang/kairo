@@ -1,13 +1,5 @@
 // A vector passed to a `[T;]` or `[const T;]` parameter is converted, not
 // moved, and a slice member is reached on a vector through the conversion.
-//
-// XFAIL: *
-// Waiting on the compiler: passing `v` to a `[i32;]` parameter marks `v`
-// moved (SC052E at the next use); passing it to a `[const i32;]` parameter
-// of a free function emits a call to a `data()` member the vector does not
-// have (clang: "no member named 'data' in 'Vector<int>'"); and `v.data()` is "no member named 'data'
-// in 'Vector'": the one-hop lookup through the implicit conversion is not
-// done for a vector.
 
 fn bump(s: [i32;]) {
     s[0] += 1

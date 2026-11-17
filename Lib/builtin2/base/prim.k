@@ -91,7 +91,7 @@ extend bool {
 
 priv macro prim_default!(T, zero) {
     extend T impl Default {
-        static fn make_default() -> T = zero
+        static inline fn make_default() -> T = zero
     }
 }
 
@@ -164,7 +164,7 @@ prim_default!(f64, 0.0)
 // Written out: a char literal passed as a macro argument does not reach the
 // emitted C++ intact.
 extend char impl Default {
-    static fn make_default() -> char = '\x00'
+    static inline fn make_default() -> char = '\x00'
 }
 
 prim_hash!(u8)
