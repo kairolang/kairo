@@ -215,7 +215,7 @@ def _find_resource_dir():
              if os.path.isfile(os.path.join(c, "include", "stddef.h"))]
     return os.path.normpath(cands[-1]) if cands else ""
 
-def _clang_roots():
+def _clang_roots(with_builtins=True):
     sysroot = lit_config.params.get("sysroot", "")
     # A sysroot that does not exist is not an error to kairo (no system
     # headers, as with no --sysroot), so a stale path fails every ffi test
@@ -236,7 +236,7 @@ def _clang_roots():
     # The flag names the builtin tree ITSELF (the directory holding module.k),
     # not its parent -- the driver registers it as a search root named
     # `builtin`, and `import builtin` resolves through that name.
-    if os.path.isdir(builtins):
+    if with_builtins and os.path.isdir(builtins):
         roots += " --builtins-dir=%s" % _sh(builtins)
     # The std module tree, same story: an installed compiler finds it under
     # <resource-dir>/std, nothing in the build copies Lib/std there. The
@@ -306,6 +306,17 @@ config.substitutions.append(("%kairo_bin", _sh(kairo_bin)))
 # passes its own --threads (CLI/Driver/threads.k) writes it later, and the
 # last one wins.
 _kairo_threads = " --threads=2"
+# A test of a builtin declaration the library does not have yet builds its
+# own builtin tree: `%overlay_builtins %t.lib base/x.k=%S/Inputs/x.k` copies
+# Lib/builtin to %t.lib/builtin with the named files added (overlay_builtins.py),
+# and `%kairo_overlay --builtins-dir=%t.lib/builtin` is %kairo without its own
+# --builtins-dir, which would win. Before %kairo, as %kairo_bin is.
+config.substitutions.append(
+    ("%overlay_builtins", "%s %s %s" % (
+        _sh(sys.executable),
+        _sh(os.path.join(config.test_source_root, "overlay_builtins.py")),
+        _sh(os.path.normpath(os.path.join(config.test_source_root, "..", "Lib"))))))
+config.substitutions.append(("%kairo_overlay", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads + _clang_roots(with_builtins=False)))
 config.substitutions.append(("%kairo", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads + kairo_roots))
 
 # --- kcc ----------------------------------------------------------------------
