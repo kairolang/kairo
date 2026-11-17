@@ -20,7 +20,10 @@ ffi "c++" import "vector"
 
 import AST::DeclFacts
 import AST::Kind::DeclKind::DeclKind
-import AST::Node::Base::Decl
+import AST::Node::Base::{
+    Decl,
+    Type,
+}
 import AST::Node::CanonicalNodes::{
     RecordType,
     canon_unqual,
@@ -32,6 +35,10 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Types::TypeExpr
+import Codegen::Emit::EmitWitness::{
+    EmitWitness,
+    WitnessPiece,
+}
 import Codegen::Emit::Spell::Speller
 import Codegen::EmitPlan::{
     EmitPlan, LayoutSpine, NeedRow, PlanEntry, PlanMode, PlanNeed, PlanTier,
@@ -550,8 +557,8 @@ extend EmitPlan {
                     return true
                 }
 
-                if dep->witness->row != &null { // nothing waits on a specialization.
-                    return false
+                if dep->witness->row != &null {
+                    return self._row_needs_row(w, dep->witness)
                 }
 
                 for var i: usize = 0; i < w->after.size(); ++i {
@@ -610,6 +617,82 @@ extend EmitPlan {
         }
 
         return self._needs_complete(who->decl, dep->decl)
+    }
+
+    /// True when specialization \p who must follow specialization \p dep. A
+    /// full specialization's inline forwarders call an extension's members
+    /// at the conformer's arguments, and C++ checks that call's bounds where
+    /// the forwarder is written: `Iterator_witness<Skip<Gen<i32>>>::next`
+    /// needs `Gen<i32>` to meet Iterator there, so the specialization that
+    /// makes it conform comes first. That one is the full specialization of
+    /// a type among the conformer's arguments, or a partial one over such a
+    /// type's template. A generic row waits on no row and an argument is a
+    /// smaller type than the record naming it, so the edges close no cycle.
+    fn _row_needs_row(self, who: unsafe *WitnessPiece, dep: unsafe *WitnessPiece) -> bool {
+        if who->row == &null || who->std_hash || dep->std_hash {
+            return false
+        }
+
+        if EmitWitness::is_generic_row(who->row) {
+            return false
+        }
+
+        return self._type_names_arg(
+            who->row->conformer,
+            dep->row->conformer,
+            EmitWitness::is_generic_row(dep->row),
+            0,
+        )
+    }
+
+    /// True when \p part is a generic argument of record \p whole, at any
+    /// depth; with \p by_template, when an argument is an instance of
+    /// \p part's template (`Gen<i32>` for a generic row's `Gen<T>`).
+    fn _type_names_arg(self,
+                       whole:       unsafe *Type,
+                       part:        unsafe *Type,
+                       by_template: bool,
+                       depth:       u32) -> bool {
+        if whole == &null || part == &null || depth > 32 {
+            return false
+        }
+
+        var unsafe *r = dyn_cast<RecordType>(canon_unqual(whole))
+        if r == &null {
+            return false
+        }
+
+        var unsafe *pr = dyn_cast<RecordType>(canon_unqual(part))
+        for var i: usize = 0; i < r->args.size(); ++i {
+            var unsafe *a = r->args[i]
+            if a == &null {
+                continue
+            }
+
+            var unsafe *c = canon_unqual(a)
+            if c == part {
+                return true
+            }
+
+            var unsafe *ar = dyn_cast<RecordType>(c)
+            if by_template
+                && ar != &null
+                && pr != &null
+                && self._template_of(ar->decl) == self._template_of(pr->decl) {
+                return true
+            }
+
+            if self._type_names_arg(a, part, by_template, depth + 1) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// The template a record decl is an instance of, or the decl itself.
+    fn _template_of(self, d: unsafe *Decl) -> unsafe *Decl {
+        return Speller::rep(DeclFacts::decl_pattern(Speller::rep(d)))
     }
 
     /// Tier 0 is (fid, offset) order, which puts a specialization written

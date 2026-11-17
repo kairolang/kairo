@@ -11,17 +11,28 @@
 /// The view is implicit: a pointer and a length, nothing copied. The owning
 /// conversion allocates, so it is written out: `s as cxx::std::string`.
 
+import base::c_char::*
 import base::intrinsics::*
 import string::*
 
 extend string requires __builtin_is_declared<cxx::std::string_view>() {
     @implicit pub fn op as (const self) -> cxx::std::string_view { // valid while self is
-        __builtin_trap() // BODY-TODO
+        unsafe {
+            return cxx::std::string_view(
+                self.data() as unsafe *const __builtin_c_char,
+                self.size(),
+            )
+        }
     }
 }
 
 extend string requires __builtin_is_declared<cxx::std::string>() {
     pub fn op as (const self) -> cxx::std::string { // copies len bytes
-        __builtin_trap() // BODY-TODO
+        unsafe {
+            return cxx::std::string(
+                self.data() as unsafe *const __builtin_c_char,
+                self.size(),
+            )
+        }
     }
 }
